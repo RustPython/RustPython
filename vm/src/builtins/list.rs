@@ -1,31 +1,26 @@
+use super::{
+    int,
+    iter::IterStatus::{self, Active, Exhausted},
+    PyGenericAlias, PyInt, PySliceRef, PyTypeRef,
+};
+use crate::common::lock::{
+    PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
+};
+use crate::{
+    function::{ArgIterable, FuncArgs, OptionalArg},
+    sequence::{self, SimpleSeq},
+    sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
+    slots::{Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, PyIter, Unhashable},
+    utils::Either,
+    vm::{ReprGuard, VirtualMachine},
+    PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol,
+};
+use crossbeam_utils::atomic::AtomicCell;
 use std::fmt;
 use std::iter::FromIterator;
 use std::mem::size_of;
 use std::ops::DerefMut;
-
-use crossbeam_utils::atomic::AtomicCell;
-
-use super::int;
-use super::iter::{
-    IterStatus,
-    IterStatus::{Active, Exhausted},
-};
-use super::pytype::PyTypeRef;
-use super::slice::PySliceRef;
-use super::PyInt;
-use crate::common::lock::{
-    PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
-};
-use crate::function::{FuncArgs, OptionalArg};
-use crate::sequence::{self, SimpleSeq};
-use crate::sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex};
-use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhashable};
-use crate::utils::Either;
-use crate::vm::{ReprGuard, VirtualMachine};
-use crate::{
-    PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef,
-    PyResult, PyValue, TryFromObject, TypeProtocol,
-};
 
 /// Built-in mutable sequence.
 ///
@@ -195,7 +190,7 @@ impl PyList {
         match SequenceIndex::try_from_object_for(vm, needle, Self::NAME)? {
             SequenceIndex::Int(index) => self.setindex(index, value, vm),
             SequenceIndex::Slice(slice) => {
-                if let Ok(sec) = PyIterable::try_from_object(vm, value) {
+                if let Ok(sec) = ArgIterable::try_from_object(vm, value) {
                     return self.setslice(slice, sec, vm);
                 }
                 Err(vm.new_type_error("can only assign an iterable to a slice".to_owned()))
@@ -213,7 +208,7 @@ impl PyList {
         }
     }
 
-    fn setslice(&self, slice: PySliceRef, sec: PyIterable, vm: &VirtualMachine) -> PyResult<()> {
+    fn setslice(&self, slice: PySliceRef, sec: ArgIterable, vm: &VirtualMachine) -> PyResult<()> {
         let items: Result<Vec<PyObjectRef>, _> = sec.iter(vm)?.collect();
         let items = items?;
         let mut elements = self.borrow_vec_mut();
@@ -411,6 +406,11 @@ impl PyList {
         std::mem::swap(self.borrow_vec_mut().deref_mut(), &mut elements);
         Ok(())
     }
+
+    #[pyclassmethod(magic)]
+    fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+        PyGenericAlias::new(cls, args, vm)
+    }
 }
 
 impl Iterable for PyList {
@@ -520,6 +520,7 @@ impl PyListIterator {
     }
 }
 
+impl IteratorIterable for PyListIterator {}
 impl PyIter for PyListIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         if let Exhausted = zelf.status.load() {
@@ -593,6 +594,7 @@ impl PyListReverseIterator {
     }
 }
 
+impl IteratorIterable for PyListReverseIterator {}
 impl PyIter for PyListReverseIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         if let Exhausted = zelf.status.load() {

@@ -2,17 +2,15 @@ pub(crate) use decl::make_module;
 
 #[pymodule(name = "zlib")]
 mod decl {
-    use crate::builtins::bytes::{PyBytes, PyBytesRef};
-    use crate::builtins::int::{self, PyIntRef};
-    use crate::builtins::pytype::PyTypeRef;
-    use crate::byteslike::ArgBytesLike;
     use crate::common::lock::PyMutex;
-    use crate::exceptions::PyBaseExceptionRef;
-    use crate::function::OptionalArg;
-    use crate::types::create_simple_type;
-    use crate::vm::VirtualMachine;
-    use crate::{IntoPyRef, PyResult, PyValue, StaticType};
-
+    use crate::{
+        builtins::{int, PyBytes, PyBytesRef, PyIntRef, PyTypeRef},
+        byteslike::ArgBytesLike,
+        exceptions::PyBaseExceptionRef,
+        function::OptionalArg,
+        types::create_simple_type,
+        IntoPyRef, PyResult, PyValue, VirtualMachine,
+    };
     use adler32::RollingAdler32 as Adler32;
     use crc32fast::Hasher as Crc32;
     use crossbeam_utils::atomic::AtomicCell;
@@ -270,17 +268,12 @@ mod decl {
     }
     #[pyattr]
     #[pyclass(name = "Decompress")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct PyDecompress {
         decompress: PyMutex<Decompress>,
         eof: AtomicCell<bool>,
         unused_data: PyMutex<PyBytesRef>,
         unconsumed_tail: PyMutex<PyBytesRef>,
-    }
-    impl PyValue for PyDecompress {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
     #[pyimpl]
     impl PyDecompress {
@@ -441,15 +434,9 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "Compress")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct PyCompress {
         inner: PyMutex<CompressInner>,
-    }
-
-    impl PyValue for PyCompress {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
 
     #[pyimpl]

@@ -5,16 +5,13 @@ pub(crate) use _string::make_module;
 
 #[pymodule]
 mod _string {
-    use std::mem;
-
-    use crate::builtins::list::PyList;
-    use crate::builtins::pystr::PyStrRef;
-    use crate::exceptions::IntoPyException;
-    use crate::format::{
-        FieldName, FieldNamePart, FieldType, FormatPart, FormatString, FromTemplate,
+    use crate::{
+        builtins::{PyList, PyStrRef},
+        exceptions::IntoPyException,
+        format::{FieldName, FieldNamePart, FieldType, FormatPart, FormatString, FromTemplate},
+        IntoPyObject, PyObjectRef, PyResult, VirtualMachine,
     };
-    use crate::vm::VirtualMachine;
-    use crate::{IntoPyObject, PyObjectRef, PyResult};
+    use std::mem;
 
     fn create_format_part(
         literal: String,
@@ -77,7 +74,7 @@ mod _string {
         let field_name = FieldName::parse(text.as_str()).map_err(|e| e.into_pyexception(vm))?;
 
         let first = match field_name.field_type {
-            FieldType::Auto => vm.ctx.new_ascii_str(b""),
+            FieldType::Auto => vm.ctx.new_ascii_literal(crate::utils::ascii!("")),
             FieldType::Index(index) => index.into_pyobject(vm),
             FieldType::Keyword(attribute) => attribute.into_pyobject(vm),
         };

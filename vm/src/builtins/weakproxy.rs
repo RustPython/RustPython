@@ -1,10 +1,9 @@
-use super::pytype::PyTypeRef;
-use super::weakref::PyWeak;
-use super::PyStrRef;
-use crate::function::OptionalArg;
-use crate::slots::{SlotConstructor, SlotSetattro};
-use crate::vm::VirtualMachine;
-use crate::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use super::{PyStrRef, PyTypeRef, PyWeak};
+use crate::{
+    function::OptionalArg,
+    slots::{SlotConstructor, SlotSetattro},
+    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+};
 
 #[pyclass(module = false, name = "weakproxy")]
 #[derive(Debug)]

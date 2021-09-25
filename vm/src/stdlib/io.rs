@@ -3,16 +3,13 @@
  */
 cfg_if::cfg_if! {
     if #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))] {
-        use super::os::Offset;
+        use crate::crt_fd::Offset;
     } else {
         type Offset = i64;
     }
 }
 
-#[cfg(unix)]
-use crate::stdlib::os::{errno_err, PathOrFd};
-use crate::VirtualMachine;
-use crate::{PyObjectRef, PyResult, TryFromObject};
+use crate::{PyObjectRef, PyResult, TryFromObject, VirtualMachine};
 pub(crate) use _io::io_open as open;
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
@@ -77,11 +74,10 @@ mod _io {
     use std::io::{self, prelude::*, Cursor, SeekFrom};
     use std::ops::Range;
 
-    use crate::buffer::{BufferOptions, PyBuffer, PyBufferInternal, ResizeGuard};
     use crate::builtins::memory::PyMemoryView;
     use crate::builtins::{
         bytes::{PyBytes, PyBytesRef},
-        pybool, pytype, PyByteArray, PyStr, PyStrRef, PyTypeRef,
+        pytype, PyByteArray, PyStr, PyStrRef, PyTypeRef,
     };
     use crate::byteslike::{ArgBytesLike, ArgMemoryBuffer};
     use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
@@ -90,14 +86,15 @@ mod _io {
         PyThreadMutex, PyThreadMutexGuard,
     };
     use crate::common::rc::PyRc;
-    use crate::exceptions::{self, IntoPyException, PyBaseExceptionRef};
-    use crate::function::{FuncArgs, OptionalArg, OptionalOption};
-    use crate::slots::SlotConstructor;
+    use crate::exceptions::{self, PyBaseExceptionRef};
+    use crate::function::{ArgIterable, FuncArgs, OptionalArg, OptionalOption};
+    use crate::protocol::{BufferInternal, BufferOptions, PyBuffer, ResizeGuard};
+    use crate::slots::{Iterable, PyIter, SlotConstructor};
     use crate::utils::Either;
     use crate::vm::{ReprGuard, VirtualMachine};
     use crate::{
-        IdProtocol, IntoPyObject, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
-        StaticType, TryFromObject, TypeProtocol,
+        IdProtocol, IntoPyObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
+        TryFromObject, TypeProtocol,
     };
 
     #[allow(clippy::let_and_return)]
@@ -113,7 +110,7 @@ mod _io {
     }
 
     fn ensure_unclosed(file: &PyObjectRef, msg: &str, vm: &VirtualMachine) -> PyResult<()> {
-        if pybool::boolval(vm, vm.get_attribute(file.clone(), "closed")?)? {
+        if vm.get_attribute(file.clone(), "closed")?.try_to_bool(vm)? {
             Err(vm.new_value_error(msg.to_owned()))
         } else {
             Ok(())
@@ -160,6 +157,7 @@ mod _io {
     fn os_err(vm: &VirtualMachine, err: io::Error) -> PyBaseExceptionRef {
         #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
         {
+            use crate::exceptions::IntoPyException;
             err.into_pyexception(vm)
         }
         #[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
@@ -288,7 +286,7 @@ mod _io {
     }
 
     fn file_closed(file: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        pybool::boolval(vm, vm.get_attribute(file.clone(), "closed")?)
+        vm.get_attribute(file.clone(), "closed")?.try_to_bool(vm)
     }
     fn check_closed(file: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if file_closed(file, vm)? {
@@ -299,7 +297,7 @@ mod _io {
     }
 
     fn check_readable(file: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        if pybool::boolval(vm, vm.call_method(file, "readable", ())?)? {
+        if vm.call_method(file, "readable", ())?.try_to_bool(vm)? {
             Ok(())
         } else {
             Err(new_unsupported_operation(
@@ -310,7 +308,7 @@ mod _io {
     }
 
     fn check_writable(file: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        if pybool::boolval(vm, vm.call_method(file, "writable", ())?)? {
+        if vm.call_method(file, "writable", ())?.try_to_bool(vm)? {
             Ok(())
         } else {
             Err(new_unsupported_operation(
@@ -321,7 +319,7 @@ mod _io {
     }
 
     fn check_seekable(file: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        if pybool::boolval(vm, vm.call_method(file, "seekable", ())?)? {
+        if vm.call_method(file, "seekable", ())?.try_to_bool(vm)? {
             Ok(())
         } else {
             Err(new_unsupported_operation(
@@ -342,9 +340,10 @@ mod _io {
 
     #[pyattr]
     #[pyclass(name = "_IOBase")]
+    #[derive(Debug, PyValue)]
     struct _IOBase;
 
-    #[pyimpl(flags(BASETYPE, HAS_DICT))]
+    #[pyimpl(with(PyIter), flags(BASETYPE, HAS_DICT))]
     impl _IOBase {
         #[pymethod]
         fn seek(
@@ -464,7 +463,7 @@ mod _io {
             }
             let hint = hint as usize;
             let mut ret = Vec::new();
-            let it = PyIterable::try_from_object(vm, instance)?;
+            let it = ArgIterable::try_from_object(vm, instance)?;
             let mut full_len = 0;
             for line in it.iter(vm)? {
                 let line = line?;
@@ -481,7 +480,7 @@ mod _io {
         #[pymethod]
         fn writelines(
             instance: PyObjectRef,
-            lines: PyIterable,
+            lines: ArgIterable,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             check_closed(&instance, vm)?;
@@ -510,25 +509,31 @@ mod _io {
         fn check_seekable(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             check_seekable(&instance, vm)
         }
+    }
 
-        #[pyslot]
-        #[pymethod(name = "__iter__")]
-        fn tp_iter(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            check_closed(&instance, vm)?;
-            Ok(instance)
+    impl Iterable for _IOBase {
+        fn tp_iter(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            check_closed(&zelf, vm)?;
+            Ok(zelf)
         }
-        #[pyslot]
-        fn tp_iternext(instance: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            let line = vm.call_method(instance, "readline", ())?;
-            if !pybool::boolval(vm, line.clone())? {
+
+        fn iter(_zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyResult {
+            unreachable!("tp_iter is implemented")
+        }
+    }
+
+    impl PyIter for _IOBase {
+        fn tp_iternext(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            let line = vm.call_method(zelf, "readline", ())?;
+            if !line.clone().try_to_bool(vm)? {
                 Err(vm.new_stop_iteration())
             } else {
                 Ok(line)
             }
         }
-        #[pymethod(magic)]
-        fn next(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            Self::tp_iternext(&instance, vm)
+
+        fn next(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult {
+            unreachable!("tp_iternext is implemented")
         }
     }
 
@@ -930,7 +935,7 @@ mod _io {
                     if !self.valid_write() || self.write_pos > self.pos {
                         self.write_pos = self.pos
                     }
-                    self.adjust_position(self.pos + buf.len() as i64);
+                    self.adjust_position(self.pos + buf.len() as Offset);
                     if self.pos > self.write_end {
                         self.write_end = self.pos
                     }
@@ -1320,7 +1325,7 @@ mod _io {
         data: PyMutex<Vec<u8>>,
         range: Range<usize>,
     }
-    impl PyBufferInternal for BufferedRawBuffer {
+    impl BufferInternal for BufferedRawBuffer {
         fn obj_bytes(&self) -> BorrowedValue<[u8]> {
             BorrowedValue::map(self.data.lock().into(), |data| &data[self.range.clone()])
         }
@@ -1638,14 +1643,9 @@ mod _io {
 
     #[pyattr]
     #[pyclass(name = "BufferedReader", base = "_BufferedIOBase")]
-    #[derive(Debug, Default)]
+    #[derive(Debug, Default, PyValue)]
     struct BufferedReader {
         data: PyThreadMutex<BufferedData>,
-    }
-    impl PyValue for BufferedReader {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
     impl BufferedMixin for BufferedReader {
         const READABLE: bool = true;
@@ -1692,14 +1692,9 @@ mod _io {
 
     #[pyattr]
     #[pyclass(name = "BufferedWriter", base = "_BufferedIOBase")]
-    #[derive(Debug, Default)]
+    #[derive(Debug, Default, PyValue)]
     struct BufferedWriter {
         data: PyThreadMutex<BufferedData>,
-    }
-    impl PyValue for BufferedWriter {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
     impl BufferedMixin for BufferedWriter {
         const READABLE: bool = false;
@@ -1725,14 +1720,9 @@ mod _io {
 
     #[pyattr]
     #[pyclass(name = "BufferedRandom", base = "_BufferedIOBase")]
-    #[derive(Debug, Default)]
+    #[derive(Debug, Default, PyValue)]
     struct BufferedRandom {
         data: PyThreadMutex<BufferedData>,
-    }
-    impl PyValue for BufferedRandom {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
     impl BufferedMixin for BufferedRandom {
         const READABLE: bool = true;
@@ -1768,15 +1758,10 @@ mod _io {
 
     #[pyattr]
     #[pyclass(name = "BufferedRWPair", base = "_BufferedIOBase")]
-    #[derive(Debug, Default)]
+    #[derive(Debug, Default, PyValue)]
     struct BufferedRWPair {
         read: BufferedReader,
         write: BufferedWriter,
-    }
-    impl PyValue for BufferedRWPair {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
     impl BufferedReadable for BufferedRWPair {
         type Reader = BufferedReader;
@@ -1832,7 +1817,7 @@ mod _io {
         fn isatty(&self, vm: &VirtualMachine) -> PyResult {
             // read.isatty() or write.isatty()
             let res = self.read.isatty(vm)?;
-            if pybool::boolval(vm, res.clone())? {
+            if res.clone().try_to_bool(vm)? {
                 Ok(res)
             } else {
                 self.write.isatty(vm)
@@ -2182,14 +2167,9 @@ mod _io {
 
     #[pyattr]
     #[pyclass(name = "TextIOWrapper", base = "_TextIOBase")]
-    #[derive(Debug, Default)]
+    #[derive(Debug, Default, PyValue)]
     struct TextIOWrapper {
         data: PyThreadMutex<Option<TextIOData>>,
-    }
-    impl PyValue for TextIOWrapper {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
 
     #[pyimpl(flags(BASETYPE))]
@@ -2233,11 +2213,11 @@ mod _io {
             let buffer = args.buffer;
 
             let has_read1 = vm.get_attribute_opt(buffer.clone(), "read1")?.is_some();
-            let seekable = pybool::boolval(vm, vm.call_method(&buffer, "seekable", ())?)?;
+            let seekable = vm.call_method(&buffer, "seekable", ())?.try_to_bool(vm)?;
 
             let codec = vm.state.codec_registry.lookup(encoding.as_str(), vm)?;
 
-            let encoder = if pybool::boolval(vm, vm.call_method(&buffer, "writable", ())?)? {
+            let encoder = if vm.call_method(&buffer, "writable", ())?.try_to_bool(vm)? {
                 let incremental_encoder =
                     codec.get_incremental_encoder(Some(errors.clone()), vm)?;
                 let encoding_name = vm.get_attribute_opt(incremental_encoder.clone(), "name")?;
@@ -2253,7 +2233,7 @@ mod _io {
                 None
             };
 
-            let decoder = if pybool::boolval(vm, vm.call_method(&buffer, "readable", ())?)? {
+            let decoder = if vm.call_method(&buffer, "readable", ())?.try_to_bool(vm)? {
                 let incremental_decoder =
                     codec.get_incremental_decoder(Some(errors.clone()), vm)?;
                 // TODO: wrap in IncrementalNewlineDecoder if newlines == Universal | Passthrough
@@ -3043,19 +3023,13 @@ mod _io {
 
     #[pyattr]
     #[pyclass(name = "StringIO", base = "_TextIOBase")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct StringIO {
         buffer: PyRwLock<BufferedIO>,
         closed: AtomicCell<bool>,
     }
 
     type StringIORef = PyRef<StringIO>;
-
-    impl PyValue for StringIO {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
-    }
 
     #[derive(FromArgs)]
     struct StringIONewArgs {
@@ -3198,7 +3172,7 @@ mod _io {
 
     #[pyattr]
     #[pyclass(name = "BytesIO", base = "_BufferedIOBase")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct BytesIO {
         buffer: PyRwLock<BufferedIO>,
         closed: AtomicCell<bool>,
@@ -3206,12 +3180,6 @@ mod _io {
     }
 
     type BytesIORef = PyRef<BytesIO>;
-
-    impl PyValue for BytesIO {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
-    }
 
     impl SlotConstructor for BytesIO {
         type Args = OptionalArg<Option<PyBytesRef>>;
@@ -3358,7 +3326,7 @@ mod _io {
         }
     }
 
-    impl PyBufferInternal for PyRef<BytesIO> {
+    impl BufferInternal for PyRef<BytesIO> {
         fn obj_bytes(&self) -> BorrowedValue<[u8]> {
             PyRwLockReadGuard::map(self.buffer.read(), |x| x.cursor.get_ref().as_slice()).into()
         }
@@ -3568,8 +3536,11 @@ mod _io {
 
         // check file descriptor validity
         #[cfg(unix)]
-        if let Ok(PathOrFd::Fd(fd)) = PathOrFd::try_from_object(vm, file.clone()) {
-            nix::fcntl::fcntl(fd, nix::fcntl::F_GETFD).map_err(|_| errno_err(vm))?;
+        if let Ok(crate::stdlib::os::PathOrFd::Fd(fd)) =
+            TryFromObject::try_from_object(vm, file.clone())
+        {
+            nix::fcntl::fcntl(fd, nix::fcntl::F_GETFD)
+                .map_err(|_| crate::stdlib::os::errno_err(vm))?;
         }
 
         // Construct a FileIO (subclass of RawIOBase)
@@ -3718,7 +3689,7 @@ mod fileio {
     use crate::function::{FuncArgs, OptionalArg};
     use crate::stdlib::os;
     use crate::vm::VirtualMachine;
-    use crate::{PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject, TypeProtocol};
+    use crate::{PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol};
     use crossbeam_utils::atomic::AtomicCell;
     use std::io::{Read, Write};
 
@@ -3823,18 +3794,12 @@ mod fileio {
 
     #[pyattr]
     #[pyclass(module = "io", name, base = "_RawIOBase")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     pub(super) struct FileIO {
         fd: AtomicCell<i32>,
         closefd: AtomicCell<bool>,
         mode: AtomicCell<Mode>,
         seekable: AtomicCell<Option<bool>>,
-    }
-
-    impl PyValue for FileIO {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
 
     #[derive(FromArgs)]

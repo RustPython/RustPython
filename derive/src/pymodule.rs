@@ -261,11 +261,19 @@ impl ModuleItem for FunctionItem {
         let sig_doc = text_signature(func.sig(), &py_name);
 
         let item = {
-            let doc = args.attrs.doc().map_or_else(TokenStream::new, |mut doc| {
-                doc = format!("{}\n--\n\n{}", sig_doc, doc);
-                quote!(.with_doc(#doc.to_owned(), &vm.ctx))
-            });
             let module = args.module_name();
+            let doc = args.attrs.doc().or_else(|| {
+                crate::doc::try_module_item(module, &py_name)
+                    .ok() // TODO: doc must exist at least one of code or CPython
+                    .flatten()
+                    .map(str::to_owned)
+            });
+            let doc = if let Some(doc) = doc {
+                format!("{}\n--\n\n{}", sig_doc, doc)
+            } else {
+                sig_doc
+            };
+            let doc = quote!(.with_doc(#doc.to_owned(), &vm.ctx));
             let new_func = quote_spanned!(ident.span()=>
                 vm.ctx.make_funcdef(#py_name, #ident)
                     #doc
@@ -307,9 +315,14 @@ impl ModuleItem for ClassItem {
 
             let class_meta = ClassItemMeta::from_attr(ident.clone(), class_attr)?;
             let module_name = args.context.name.clone();
-            class_attr.fill_nested_meta("module", || {
-                parse_quote! {module = #module_name}
-            })?;
+            let module_name = if let Some(class_module_name) = class_meta.module().ok().flatten() {
+                class_module_name
+            } else {
+                class_attr.fill_nested_meta("module", || {
+                    parse_quote! {module = #module_name}
+                })?;
+                module_name
+            };
             let class_name = class_meta.class_name()?;
             (module_name, class_name)
         };

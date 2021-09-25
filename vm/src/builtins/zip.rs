@@ -1,9 +1,10 @@
-use super::pytype::PyTypeRef;
-use crate::function::Args;
-use crate::iterator;
-use crate::slots::{PyIter, SlotConstructor};
-use crate::vm::VirtualMachine;
-use crate::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use super::PyTypeRef;
+use crate::{
+    function::PosArgs,
+    iterator,
+    slots::{IteratorIterable, PyIter, SlotConstructor},
+    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+};
 
 #[pyclass(module = false, name = "zip")]
 #[derive(Debug)]
@@ -18,7 +19,7 @@ impl PyValue for PyZip {
 }
 
 impl SlotConstructor for PyZip {
-    type Args = Args;
+    type Args = PosArgs;
 
     fn py_new(cls: PyTypeRef, iterables: Self::Args, vm: &VirtualMachine) -> PyResult {
         let iterators = iterables
@@ -32,6 +33,7 @@ impl SlotConstructor for PyZip {
 #[pyimpl(with(PyIter, SlotConstructor), flags(BASETYPE))]
 impl PyZip {}
 
+impl IteratorIterable for PyZip {}
 impl PyIter for PyZip {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         if zelf.iterators.is_empty() {

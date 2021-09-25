@@ -2,13 +2,11 @@ pub(crate) use decl::make_module;
 
 #[pymodule(name = "dis")]
 mod decl {
-    use crate::builtins::code::PyCodeRef;
-    use crate::builtins::dict::PyDictRef;
-    use crate::builtins::pystr::PyStrRef;
-    use crate::bytecode::CodeFlags;
-    use crate::compile;
-    use crate::vm::VirtualMachine;
-    use crate::{ItemProtocol, PyObjectRef, PyResult, TryFromObject};
+    use crate::{
+        builtins::{PyCode, PyDictRef, PyStrRef},
+        bytecode::CodeFlags,
+        compile, ItemProtocol, PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,
+    };
 
     #[pyfunction]
     fn dis(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
@@ -28,8 +26,8 @@ mod decl {
 
     #[pyfunction]
     fn disassemble(co: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let code = &PyCodeRef::try_from_object(vm, co)?.code;
-        print!("{}", code);
+        let code = PyRef::<PyCode>::try_from_object(vm, co)?;
+        print!("{}", &code.code);
         Ok(())
     }
 

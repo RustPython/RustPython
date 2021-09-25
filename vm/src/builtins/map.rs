@@ -1,9 +1,10 @@
-use super::pytype::PyTypeRef;
-use crate::function::Args;
-use crate::iterator;
-use crate::slots::{PyIter, SlotConstructor};
-use crate::vm::VirtualMachine;
-use crate::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use super::PyTypeRef;
+use crate::{
+    function::PosArgs,
+    iterator,
+    slots::{IteratorIterable, PyIter, SlotConstructor},
+    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+};
 
 /// map(func, *iterables) --> map object
 ///
@@ -23,7 +24,7 @@ impl PyValue for PyMap {
 }
 
 impl SlotConstructor for PyMap {
-    type Args = (PyObjectRef, Args<PyObjectRef>);
+    type Args = (PyObjectRef, PosArgs<PyObjectRef>);
 
     fn py_new(cls: PyTypeRef, (function, iterables): Self::Args, vm: &VirtualMachine) -> PyResult {
         let iterators = iterables
@@ -50,6 +51,7 @@ impl PyMap {
     }
 }
 
+impl IteratorIterable for PyMap {}
 impl PyIter for PyMap {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         let next_objs = zelf

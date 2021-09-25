@@ -1,31 +1,26 @@
 // TODO: Keep track of rust-num/num-complex/issues/2. A common trait could help with duplication
 //       that exists between cmath and math.
-use crate::{PyObjectRef, VirtualMachine};
-
-pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
-    let module = cmath::make_module(vm);
-    let ctx = &vm.ctx;
-    extend_module!(vm, module, {
-        // Constants:
-        "pi" => ctx.new_float(std::f64::consts::PI),
-        "e" => ctx.new_float(std::f64::consts::E),
-        "tau" => ctx.new_float(2.0 * std::f64::consts::PI),
-        "inf" => ctx.new_float(f64::INFINITY),
-        "infj" => ctx.new_complex(num_complex::Complex64::new(0., std::f64::INFINITY)),
-        "nan" => ctx.new_float(f64::NAN),
-        "nanj" => ctx.new_complex(num_complex::Complex64::new(0., std::f64::NAN)),
-    });
-
-    module
-}
+pub(crate) use cmath::make_module;
 
 /// This module provides access to mathematical functions for complex numbers.
 #[pymodule]
 mod cmath {
-    use crate::builtins::{complex::IntoPyComplex, float::IntoPyFloat};
-    use crate::function::OptionalArg;
-    use crate::{PyResult, VirtualMachine};
+    use crate::{
+        builtins::{IntoPyComplex, IntoPyFloat},
+        function::OptionalArg,
+        PyResult, VirtualMachine,
+    };
     use num_complex::Complex64;
+
+    // Constants
+    #[pyattr]
+    use std::f64::consts::{E as e, PI as pi, TAU as tau};
+    #[pyattr]
+    use std::f64::{INFINITY as inf, NAN as nan};
+    #[pyattr(name = "infj")]
+    const INFJ: Complex64 = Complex64::new(0., std::f64::INFINITY);
+    #[pyattr(name = "nanj")]
+    const NANJ: Complex64 = Complex64::new(0., std::f64::NAN);
 
     /// Return argument, also known as the phase angle, of a complex.
     #[pyfunction]
@@ -105,6 +100,24 @@ mod cmath {
     #[pyfunction]
     fn log10(z: IntoPyComplex) -> Complex64 {
         z.to_complex().log(10.0)
+    }
+
+    /// Return the inverse hyperbolic cosine of z.
+    #[pyfunction]
+    fn acosh(z: IntoPyComplex) -> Complex64 {
+        z.to_complex().acosh()
+    }
+
+    /// Return the tangent of z.
+    #[pyfunction]
+    fn tan(z: IntoPyComplex) -> Complex64 {
+        z.to_complex().tan()
+    }
+
+    /// Return the hyperbolic tangent of z.
+    #[pyfunction]
+    fn tanh(z: IntoPyComplex) -> Complex64 {
+        z.to_complex().tanh()
     }
 
     #[derive(FromArgs)]

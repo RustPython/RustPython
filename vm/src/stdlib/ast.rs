@@ -3,24 +3,19 @@
 //! This module makes use of the parser logic, and translates all ast nodes
 //! into python ast.AST objects.
 
+use crate::{
+    builtins::{self, PyStrRef, PyTypeRef},
+    function::FuncArgs,
+    IdProtocol, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue, StaticType,
+    TryFromObject, TypeProtocol, VirtualMachine,
+};
 use num_complex::Complex64;
 use num_traits::{ToPrimitive, Zero};
-
 use rustpython_ast as ast;
-
-#[cfg(feature = "rustpython-parser")]
-use rustpython_parser::parser;
-
 #[cfg(feature = "rustpython-compiler")]
 use rustpython_compiler as compile;
-
-use crate::builtins::{self, PyStrRef, PyTypeRef};
-use crate::function::FuncArgs;
-use crate::vm::VirtualMachine;
-use crate::{
-    IdProtocol, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue, StaticType,
-    TryFromObject, TypeProtocol,
-};
+#[cfg(feature = "rustpython-parser")]
+use rustpython_parser::parser;
 
 #[rustfmt::skip]
 #[allow(clippy::all)]
@@ -44,7 +39,7 @@ fn get_node_field_opt(
 }
 
 #[pyclass(module = "_ast", name = "AST")]
-#[derive(Debug)]
+#[derive(Debug, PyValue)]
 pub(crate) struct AstNode;
 
 #[pyimpl(flags(HAS_DICT))]
@@ -83,12 +78,6 @@ impl AstNode {
 
 const MODULE_NAME: &str = "_ast";
 pub const PY_COMPILE_FLAG_AST_ONLY: i32 = 0x0400;
-
-impl PyValue for AstNode {
-    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_type()
-    }
-}
 
 trait Node: Sized {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef;

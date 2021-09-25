@@ -1,6 +1,6 @@
 use rustpython_vm::builtins::{PyDictRef, PyStrRef};
 use rustpython_vm::VirtualMachine;
-use rustpython_vm::{PyIterable, PyResult, TryFromObject};
+use rustpython_vm::{function::ArgIterable, PyResult, TryFromObject};
 
 pub struct ShellHelper<'vm> {
     vm: &'vm VirtualMachine,
@@ -64,7 +64,7 @@ impl<'vm> ShellHelper<'vm> {
 
         let str_iter_method = |obj, name| {
             let iter = self.vm.call_special_method(obj, name, ())?;
-            PyIterable::<PyStrRef>::try_from_object(self.vm, iter)?.iter(self.vm)
+            ArgIterable::<PyStrRef>::try_from_object(self.vm, iter)?.iter(self.vm)
         };
 
         let (word_start, iter1, iter2) = if let Some((last, parents)) = rest.split_last() {

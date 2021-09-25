@@ -1,11 +1,10 @@
 #![allow(non_snake_case)]
-use crate::builtins::pystr::PyStrRef;
-use crate::builtins::pytype::PyTypeRef;
-use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
-use crate::exceptions::IntoPyException;
-use crate::VirtualMachine;
-use crate::{PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject};
 
+use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
+use crate::{
+    builtins::PyStrRef, exceptions::IntoPyException, PyClassImpl, PyObjectRef, PyRef, PyResult,
+    PyValue, TryFromObject, VirtualMachine,
+};
 use std::convert::TryInto;
 use std::ffi::OsStr;
 use std::io;
@@ -13,7 +12,7 @@ use winapi::shared::winerror;
 use winreg::{enums::RegType, RegKey, RegValue};
 
 #[pyclass(module = "winreg", name = "HKEYType")]
-#[derive(Debug)]
+#[derive(Debug, PyValue)]
 struct PyHKEY {
     key: PyRwLock<RegKey>,
 }
@@ -21,12 +20,6 @@ type PyHKEYRef = PyRef<PyHKEY>;
 
 // TODO: fix this
 unsafe impl Sync for PyHKEY {}
-
-impl PyValue for PyHKEY {
-    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_type()
-    }
-}
 
 #[pyimpl]
 impl PyHKEY {
@@ -282,7 +275,7 @@ fn reg_to_py(value: RegValue, vm: &VirtualMachine) -> PyResult {
                 .collect();
             Ok(vm.ctx.new_list(strings))
         }
-        RegType::REG_BINARY | _ => {
+        _ => {
             if value.bytes.is_empty() {
                 Ok(vm.ctx.none())
             } else {

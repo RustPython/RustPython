@@ -56,13 +56,12 @@ pub(crate) fn impl_pyimpl(
         Item::Impl(mut imp) => {
             extract_items_into_context(&mut context, imp.items.iter_mut());
 
+            let ty = &imp.self_ty;
             let ExtractedImplAttrs {
                 with_impl,
                 flags,
                 with_slots,
-            } = extract_impl_attrs(attr)?;
-
-            let ty = &imp.self_ty;
+            } = extract_impl_attrs(attr, &Ident::new(&quote!(ty).to_string(), ty.span()))?;
 
             let getset_impl = &context.getset_items;
             let extend_impl = &context.impl_extend_items;
@@ -98,7 +97,7 @@ pub(crate) fn impl_pyimpl(
                 with_impl,
                 with_slots,
                 ..
-            } = extract_impl_attrs(attr)?;
+            } = extract_impl_attrs(attr, &trai.ident)?;
 
             let getset_impl = &context.getset_items;
             let extend_impl = &context.impl_extend_items;
@@ -147,7 +146,14 @@ fn generate_class_def(
     metaclass: Option<String>,
     attrs: &[Attribute],
 ) -> std::result::Result<TokenStream, Diagnostic> {
-    let doc = if let Some(doc) = attrs.doc() {
+    let doc = attrs.doc().or_else(|| {
+        let module_name = module_name.unwrap_or("builtins");
+        crate::doc::try_module_item(module_name, name)
+            .ok()
+            .flatten()
+            .map(str::to_owned)
+    });
+    let doc = if let Some(doc) = doc {
         quote!(Some(#doc))
     } else {
         quote!(None)
@@ -179,25 +185,23 @@ fn generate_class_def(
         .into());
     }
     let base_class = if is_pystruct {
-        quote! {
-            fn static_baseclass() -> &'static ::rustpython_vm::builtins::PyTypeRef {
-                use rustpython_vm::StaticType;
-                rustpython_vm::builtins::PyTuple::static_type()
-            }
-        }
-    } else if let Some(typ) = base {
-        let typ = Ident::new(&typ, ident.span());
+        Some(quote! { rustpython_vm::builtins::PyTuple })
+    } else {
+        base.map(|typ| {
+            let typ = Ident::new(&typ, ident.span());
+            quote_spanned! { ident.span() => #typ }
+        })
+    }
+    .map(|typ| {
         quote! {
             fn static_baseclass() -> &'static ::rustpython_vm::builtins::PyTypeRef {
                 use rustpython_vm::StaticType;
                 #typ::static_type()
             }
         }
-    } else {
-        quote!()
-    };
+    });
 
-    let meta_class = if let Some(typ) = metaclass {
+    let meta_class = metaclass.map(|typ| {
         let typ = Ident::new(&typ, ident.span());
         quote! {
             fn static_metaclass() -> &'static ::rustpython_vm::builtins::PyTypeRef {
@@ -205,9 +209,7 @@ fn generate_class_def(
                 #typ::static_type()
             }
         }
-    } else {
-        quote!()
-    };
+    });
 
     let tokens = quote! {
         impl ::rustpython_vm::PyClassDef for #ident {
@@ -869,7 +871,10 @@ struct ExtractedImplAttrs {
     flags: TokenStream,
 }
 
-fn extract_impl_attrs(attr: AttributeArgs) -> std::result::Result<ExtractedImplAttrs, Diagnostic> {
+fn extract_impl_attrs(
+    attr: AttributeArgs,
+    item: &Ident,
+) -> std::result::Result<ExtractedImplAttrs, Diagnostic> {
     let mut withs = Vec::new();
     let mut with_slots = Vec::new();
     let mut flags = vec![quote! { ::rustpython_vm::slots::PyTpFlags::DEFAULT.bits() }];
@@ -896,14 +901,14 @@ fn extract_impl_attrs(attr: AttributeArgs) -> std::result::Result<ExtractedImplA
                             withs.push(quote_spanned! { path.span() =>
                                 PyRef::<Self>::impl_extend_class(ctx, class);
                             });
-                            with_slots.push(quote_spanned! { path.span() =>
+                            with_slots.push(quote_spanned! { item.span() =>
                                 PyRef::<Self>::extend_slots(slots);
                             });
                         } else {
                             withs.push(quote_spanned! { path.span() =>
                                 <Self as #path>::__extend_py_class(ctx, class);
                             });
-                            with_slots.push(quote_spanned! { path.span() =>
+                            with_slots.push(quote_spanned! { item.span() =>
                                 <Self as #path>::__extend_slots(slots);
                             });
                         }

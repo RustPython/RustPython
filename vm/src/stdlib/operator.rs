@@ -9,30 +9,22 @@ pub(crate) use _operator::make_module;
 /// for convenience.
 #[pymodule]
 mod _operator {
-    use crate::builtins::int;
-    use crate::builtins::int::PyIntRef;
-    use crate::builtins::pybool;
-    use crate::builtins::pystr::PyStrRef;
-    use crate::builtins::PyInt;
-    use crate::builtins::PyTypeRef;
-    use crate::byteslike::ArgBytesLike;
     use crate::common::cmp;
-    use crate::function::FuncArgs;
-    use crate::function::KwArgs;
-    use crate::function::OptionalArg;
-    use crate::iterator;
-    use crate::pyobject::TypeProtocol;
-    use crate::slots::PyComparisonOp::{Eq, Ge, Gt, Le, Lt, Ne};
-    use crate::slots::{Callable, SlotConstructor};
-    use crate::utils::Either;
-    use crate::vm::ReprGuard;
-    use crate::IdProtocol;
-    use crate::ItemProtocol;
-    use crate::PyRef;
-    use crate::PyValue;
-    use crate::TryIntoRef;
-    use crate::VirtualMachine;
-    use crate::{PyObjectRef, PyResult, StaticType};
+    use crate::{
+        builtins::{int, PyInt, PyIntRef, PyStrRef, PyTypeRef},
+        byteslike::ArgBytesLike,
+        function::{FuncArgs, KwArgs, OptionalArg},
+        iterator,
+        slots::{
+            Callable,
+            PyComparisonOp::{Eq, Ge, Gt, Le, Lt, Ne},
+            SlotConstructor,
+        },
+        utils::Either,
+        vm::ReprGuard,
+        IdProtocol, ItemProtocol, PyObjectRef, PyRef, PyResult, PyValue, TryIntoRef, TypeProtocol,
+        VirtualMachine,
+    };
 
     /// Same as a < b.
     #[pyfunction]
@@ -73,13 +65,13 @@ mod _operator {
     /// Same as not a.
     #[pyfunction]
     fn not_(a: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        pybool::boolval(vm, a).map(|r| !r)
+        a.try_to_bool(vm).map(|r| !r)
     }
 
     /// Return True if a is true, False otherwise.
     #[pyfunction]
     fn truth(a: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        pybool::boolval(vm, a)
+        a.try_to_bool(vm)
     }
 
     /// Same as a is b.
@@ -436,15 +428,9 @@ mod _operator {
     /// (r.name.first, r.name.last).
     #[pyattr]
     #[pyclass(name = "attrgetter")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct PyAttrGetter {
         attrs: Vec<PyStrRef>,
-    }
-
-    impl PyValue for PyAttrGetter {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
 
     #[pyimpl(with(Callable))]
@@ -539,15 +525,9 @@ mod _operator {
     /// After g = itemgetter(2, 5, 3), the call g(r) returns (r[2], r[5], r[3])
     #[pyattr]
     #[pyclass(name = "itemgetter")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct PyItemGetter {
         items: Vec<PyObjectRef>,
-    }
-
-    impl PyValue for PyItemGetter {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
 
     #[pyimpl(with(Callable))]
@@ -614,16 +594,10 @@ mod _operator {
     /// r.name('date', foo=1).
     #[pyattr]
     #[pyclass(name = "methodcaller")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct PyMethodCaller {
         name: PyStrRef,
         args: FuncArgs,
-    }
-
-    impl PyValue for PyMethodCaller {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
 
     impl SlotConstructor for PyMethodCaller {

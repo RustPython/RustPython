@@ -43,7 +43,6 @@ pub use rustpython_derive::*;
 pub mod macros;
 
 mod anystr;
-mod buffer;
 pub mod builtins;
 mod bytesinner;
 pub mod byteslike;
@@ -62,6 +61,7 @@ mod frozen;
 pub mod function;
 pub mod import;
 pub mod iterator;
+mod protocol;
 pub mod py_io;
 pub mod py_serde;
 mod pyobject;

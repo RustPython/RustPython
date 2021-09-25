@@ -1,7 +1,8 @@
-use super::pytype::PyTypeRef;
-use crate::slots::{SlotConstructor, SlotDescriptor};
-use crate::vm::VirtualMachine;
-use crate::{PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue, TypeProtocol};
+use super::PyTypeRef;
+use crate::{
+    slots::{SlotConstructor, SlotDescriptor},
+    PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
+};
 
 /// classmethod(function) -> method
 ///

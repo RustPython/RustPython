@@ -2,15 +2,14 @@
  * The mythical generator.
  */
 
-use super::code::PyCodeRef;
-use super::pystr::PyStrRef;
-use super::pytype::PyTypeRef;
-use crate::coroutine::{Coro, Variant};
-use crate::frame::FrameRef;
-use crate::function::OptionalArg;
-use crate::slots::PyIter;
-use crate::vm::VirtualMachine;
-use crate::{IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use super::{PyCode, PyStrRef, PyTypeRef};
+use crate::{
+    coroutine::{Coro, Variant},
+    frame::FrameRef,
+    function::OptionalArg,
+    slots::{IteratorIterable, PyIter},
+    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+};
 
 #[pyclass(module = false, name = "generator")]
 #[derive(Debug)]
@@ -86,7 +85,7 @@ impl PyGenerator {
         self.inner.running()
     }
     #[pyproperty]
-    fn gi_code(&self, _vm: &VirtualMachine) -> PyCodeRef {
+    fn gi_code(&self, _vm: &VirtualMachine) -> PyRef<PyCode> {
         self.inner.frame().code.clone()
     }
     #[pyproperty]
@@ -95,6 +94,7 @@ impl PyGenerator {
     }
 }
 
+impl IteratorIterable for PyGenerator {}
 impl PyIter for PyGenerator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         zelf.send(vm.ctx.none(), vm)

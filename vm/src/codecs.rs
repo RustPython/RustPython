@@ -2,7 +2,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ops::Range;
 
-use crate::builtins::{pybool, PyBytesRef, PyStr, PyStrRef, PyTuple, PyTupleRef};
+use crate::builtins::{PyBytesRef, PyStr, PyStrRef, PyTuple, PyTupleRef};
 use crate::common::lock::PyRwLock;
 use crate::exceptions::PyBaseExceptionRef;
 use crate::VirtualMachine;
@@ -52,7 +52,7 @@ impl PyCodec {
 
     pub fn is_text_codec(&self, vm: &VirtualMachine) -> PyResult<bool> {
         let is_text = vm.get_attribute_opt(self.0.clone().into_object(), "_is_text_encoding")?;
-        is_text.map_or(Ok(true), |is_text| pybool::boolval(vm, is_text))
+        is_text.map_or(Ok(true), |is_text| is_text.try_to_bool(vm))
     }
 
     pub fn encode(
@@ -367,7 +367,10 @@ fn strict_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 fn ignore_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(PyObjectRef, usize)> {
     if is_encode_ish_err(&err, vm) || is_decode_err(&err, vm) {
         let range = extract_unicode_error_range(&err, vm)?;
-        Ok((vm.ctx.new_ascii_str(b""), range.end))
+        Ok((
+            vm.ctx.new_ascii_literal(crate::utils::ascii!("")),
+            range.end,
+        ))
     } else {
         Err(bad_err_type(err, vm))
     }

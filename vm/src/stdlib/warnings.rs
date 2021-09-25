@@ -2,11 +2,11 @@ pub(crate) use _warnings::make_module;
 
 #[pymodule]
 mod _warnings {
-    use crate::builtins::pystr::PyStrRef;
-    use crate::builtins::pytype::PyTypeRef;
-    use crate::function::OptionalArg;
-    use crate::vm::VirtualMachine;
-    use crate::{PyResult, TypeProtocol};
+    use crate::{
+        builtins::{PyStrRef, PyTypeRef},
+        function::OptionalArg,
+        PyResult, TypeProtocol, VirtualMachine,
+    };
 
     #[derive(FromArgs)]
     struct WarnArgs {

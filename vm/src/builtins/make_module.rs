@@ -1,41 +1,38 @@
 //! Builtin function definitions.
 //!
 //! Implements functions listed here: https://docs.python.org/3/library/builtins.html
-use crate::vm::VirtualMachine;
-use crate::PyObjectRef;
+use crate::{PyObjectRef, VirtualMachine};
 
 /// Built-in functions, exceptions, and other objects.
 ///
 /// Noteworthy: None is the `nil' object; Ellipsis represents `...' in slices.
 #[pymodule(name = "builtins")]
 mod decl {
-    use crate::builtins::bytes::PyBytesRef;
-    use crate::builtins::code::PyCodeRef;
-    use crate::builtins::dict::PyDictRef;
-    use crate::builtins::enumerate::PyReverseSequenceIterator;
-    use crate::builtins::function::{PyCellRef, PyFunctionRef};
-    use crate::builtins::int::{self, PyIntRef};
-    use crate::builtins::iter::PyCallableIterator;
-    use crate::builtins::list::{PyList, SortOptions};
-    use crate::builtins::pybool::IntoPyBool;
-    use crate::builtins::pystr::{PyStr, PyStrRef};
-    use crate::builtins::pytype::PyTypeRef;
-    use crate::builtins::{PyByteArray, PyBytes, PyTupleRef};
-    use crate::byteslike::ArgBytesLike;
-    use crate::common::{hash::PyHash, str::to_ascii};
+    use crate::builtins::{
+        enumerate::PyReverseSequenceIterator,
+        function::{PyCellRef, PyFunctionRef},
+        int::{self, PyIntRef},
+        iter::PyCallableIterator,
+        list::{PyList, SortOptions},
+        IntoPyBool, PyByteArray, PyBytes, PyBytesRef, PyCode, PyDictRef, PyStr, PyStrRef,
+        PyTupleRef, PyTypeRef,
+    };
     #[cfg(feature = "rustpython-compiler")]
     use crate::compile;
-    use crate::function::{Args, FuncArgs, KwArgs, OptionalArg, OptionalOption};
-    use crate::iterator;
-    use crate::readline::{Readline, ReadlineResult};
-    use crate::scope::Scope;
-    use crate::slots::PyComparisonOp;
-    use crate::utils::Either;
-    use crate::vm::VirtualMachine;
-    use crate::{py_io, sysmodule};
     use crate::{
-        IdProtocol, ItemProtocol, PyArithmaticValue, PyCallable, PyClassImpl, PyIterable,
-        PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+        byteslike::ArgBytesLike,
+        common::{hash::PyHash, str::to_ascii},
+        function::{
+            ArgCallable, ArgIterable, FuncArgs, KwArgs, OptionalArg, OptionalOption, PosArgs,
+        },
+        iterator, py_io,
+        readline::{Readline, ReadlineResult},
+        scope::Scope,
+        slots::PyComparisonOp,
+        sysmodule,
+        utils::Either,
+        IdProtocol, ItemProtocol, PyArithmaticValue, PyClassImpl, PyObjectRef, PyRef, PyResult,
+        PyValue, TryFromObject, TypeProtocol, VirtualMachine,
     };
     use num_traits::{Signed, Zero};
 
@@ -45,7 +42,7 @@ mod decl {
     }
 
     #[pyfunction]
-    fn all(iterable: PyIterable<IntoPyBool>, vm: &VirtualMachine) -> PyResult<bool> {
+    fn all(iterable: ArgIterable<IntoPyBool>, vm: &VirtualMachine) -> PyResult<bool> {
         for item in iterable.iter(vm)? {
             if !item?.to_bool() {
                 return Ok(false);
@@ -55,7 +52,7 @@ mod decl {
     }
 
     #[pyfunction]
-    fn any(iterable: PyIterable<IntoPyBool>, vm: &VirtualMachine) -> PyResult<bool> {
+    fn any(iterable: ArgIterable<IntoPyBool>, vm: &VirtualMachine) -> PyResult<bool> {
         for item in iterable.iter(vm)? {
             if item?.to_bool() {
                 return Ok(true);
@@ -252,7 +249,7 @@ mod decl {
     #[cfg(feature = "rustpython-compiler")]
     #[pyfunction]
     fn eval(
-        source: Either<PyStrRef, PyCodeRef>,
+        source: Either<PyStrRef, PyRef<PyCode>>,
         scope: ScopeArgs,
         vm: &VirtualMachine,
     ) -> PyResult {
@@ -264,7 +261,7 @@ mod decl {
     #[cfg(feature = "rustpython-compiler")]
     #[pyfunction]
     fn exec(
-        source: Either<PyStrRef, PyCodeRef>,
+        source: Either<PyStrRef, PyRef<PyCode>>,
         scope: ScopeArgs,
         vm: &VirtualMachine,
     ) -> PyResult {
@@ -274,7 +271,7 @@ mod decl {
     #[cfg(feature = "rustpython-compiler")]
     fn run_code(
         vm: &VirtualMachine,
-        source: Either<PyStrRef, PyCodeRef>,
+        source: Either<PyStrRef, PyRef<PyCode>>,
         scope: ScopeArgs,
         mode: compile::Mode,
         func: &str,
@@ -421,7 +418,7 @@ mod decl {
         vm: &VirtualMachine,
     ) -> PyResult {
         if let OptionalArg::Present(sentinel) = sentinel {
-            let callable = PyCallable::try_from_object(vm, iter_target)?;
+            let callable = ArgCallable::try_from_object(vm, iter_target)?;
             Ok(PyCallableIterator::new(callable, sentinel)
                 .into_ref(vm)
                 .into_object())
@@ -650,7 +647,7 @@ mod decl {
     }
 
     #[pyfunction]
-    pub fn print(objects: Args, options: PrintOptions, vm: &VirtualMachine) -> PyResult<()> {
+    pub fn print(objects: PosArgs, options: PrintOptions, vm: &VirtualMachine) -> PyResult<()> {
         let file = match options.file {
             Some(f) => f,
             None => sysmodule::get_stdout(vm)?,
@@ -755,7 +752,7 @@ mod decl {
     #[derive(FromArgs)]
     pub struct SumArgs {
         #[pyarg(positional)]
-        iterable: PyIterable,
+        iterable: ArgIterable,
         #[pyarg(any, optional)]
         start: OptionalArg<PyObjectRef>,
     }
@@ -807,7 +804,7 @@ mod decl {
     pub fn __build_class__(
         function: PyFunctionRef,
         qualified_name: PyStrRef,
-        bases: Args,
+        bases: PosArgs,
         mut kwargs: KwArgs,
         vm: &VirtualMachine,
     ) -> PyResult {

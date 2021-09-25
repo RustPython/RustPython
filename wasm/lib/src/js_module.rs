@@ -8,12 +8,12 @@ use wasm_bindgen_futures::{future_to_promise, JsFuture};
 
 use rustpython_vm::builtins::{PyFloatRef, PyStrRef, PyTypeRef};
 use rustpython_vm::exceptions::PyBaseExceptionRef;
-use rustpython_vm::function::{Args, OptionalArg, OptionalOption};
-use rustpython_vm::slots::PyIter;
+use rustpython_vm::function::{OptionalArg, OptionalOption, PosArgs};
+use rustpython_vm::slots::{IteratorIterable, PyIter};
 use rustpython_vm::types::create_simple_type;
 use rustpython_vm::VirtualMachine;
 use rustpython_vm::{
-    IntoPyObject, PyCallable, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
+    function::ArgCallable, IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject,
 };
 
@@ -51,17 +51,11 @@ extern "C" {
 }
 
 #[pyclass(module = "_js", name = "JSValue")]
-#[derive(Debug)]
+#[derive(Debug, PyValue)]
 pub struct PyJsValue {
     pub(crate) value: JsValue,
 }
 type PyJsValueRef = PyRef<PyJsValue>;
-
-impl PyValue for PyJsValue {
-    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_type()
-    }
-}
 
 impl AsRef<JsValue> for PyJsValue {
     fn as_ref(&self) -> &JsValue {
@@ -172,7 +166,7 @@ impl PyJsValue {
     #[pymethod]
     fn call(
         &self,
-        args: Args<PyJsValueRef>,
+        args: PosArgs<PyJsValueRef>,
         opts: CallOptions,
         vm: &VirtualMachine,
     ) -> PyResult<PyJsValue> {
@@ -192,7 +186,7 @@ impl PyJsValue {
     fn call_method(
         &self,
         name: JsProperty,
-        args: Args<PyJsValueRef>,
+        args: PosArgs<PyJsValueRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyJsValue> {
         let js_args = args.iter().map(|x| x.as_ref()).collect::<Array>();
@@ -204,7 +198,7 @@ impl PyJsValue {
     #[pymethod]
     fn construct(
         &self,
-        args: Args<PyJsValueRef>,
+        args: PosArgs<PyJsValueRef>,
         opts: NewObjectOptions,
         vm: &VirtualMachine,
     ) -> PyResult<PyJsValue> {
@@ -281,6 +275,7 @@ struct NewObjectOptions {
 type ClosureType = Closure<dyn FnMut(JsValue, Box<[JsValue]>) -> Result<JsValue, JsValue>>;
 
 #[pyclass(module = "_js", name = "JSClosure")]
+#[derive(PyValue)]
 struct JsClosure {
     closure: cell::RefCell<Option<(ClosureType, PyJsValueRef)>>,
     destroyed: cell::Cell<bool>,
@@ -290,12 +285,6 @@ struct JsClosure {
 impl fmt::Debug for JsClosure {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.pad("JsClosure")
-    }
-}
-
-impl PyValue for JsClosure {
-    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_type()
     }
 }
 
@@ -380,7 +369,7 @@ impl JsClosure {
 }
 
 #[pyclass(module = "_js", name = "Promise")]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PyValue)]
 pub struct PyPromise {
     value: PromiseKind,
 }
@@ -392,12 +381,6 @@ enum PromiseKind {
     PyProm { then: PyObjectRef },
     PyResolved(PyObjectRef),
     PyRejected(PyBaseExceptionRef),
-}
-
-impl PyValue for PyPromise {
-    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_type()
-    }
 }
 
 #[pyimpl]
@@ -476,8 +459,8 @@ impl PyPromise {
     #[pymethod]
     fn then(
         &self,
-        on_fulfill: OptionalOption<PyCallable>,
-        on_reject: OptionalOption<PyCallable>,
+        on_fulfill: OptionalOption<ArgCallable>,
+        on_reject: OptionalOption<ArgCallable>,
         vm: &VirtualMachine,
     ) -> PyResult<PyPromise> {
         let (on_fulfill, on_reject) = (on_fulfill.flatten(), on_reject.flatten());
@@ -516,9 +499,16 @@ impl PyPromise {
 
                 Ok(PyPromise::from_future(ret_future))
             }
-            PromiseKind::PyProm { then } => {
-                Self::cast_result(vm.invoke(then, (on_fulfill, on_reject)), vm)
-            }
+            PromiseKind::PyProm { then } => Self::cast_result(
+                vm.invoke(
+                    then,
+                    (
+                        on_fulfill.map(|c| c.into_object()),
+                        on_reject.map(|c| c.into_object()),
+                    ),
+                ),
+                vm,
+            ),
             PromiseKind::PyResolved(res) => match on_fulfill {
                 Some(resolve) => Self::cast_result(resolve.invoke((res.clone(),), vm), vm),
                 None => Ok(self.clone()),
@@ -533,7 +523,7 @@ impl PyPromise {
     #[pymethod]
     fn catch(
         &self,
-        on_reject: OptionalOption<PyCallable>,
+        on_reject: OptionalOption<ArgCallable>,
         vm: &VirtualMachine,
     ) -> PyResult<PyPromise> {
         self.then(OptionalArg::Present(None), on_reject, vm)
@@ -548,6 +538,7 @@ impl PyPromise {
 }
 
 #[pyclass(module = "_js", name = "AwaitPromise")]
+#[derive(PyValue)]
 struct AwaitPromise {
     obj: cell::Cell<Option<PyObjectRef>>,
 }
@@ -555,12 +546,6 @@ struct AwaitPromise {
 impl fmt::Debug for AwaitPromise {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AwaitPromise").finish()
-    }
-}
-
-impl PyValue for AwaitPromise {
-    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_type()
     }
 }
 
@@ -602,6 +587,7 @@ impl AwaitPromise {
     }
 }
 
+impl IteratorIterable for AwaitPromise {}
 impl PyIter for AwaitPromise {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         zelf.send(None, vm)

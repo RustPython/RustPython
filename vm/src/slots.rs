@@ -1,8 +1,8 @@
-use crate::buffer::PyBuffer;
 use crate::builtins::{PyStrRef, PyTypeRef};
 use crate::common::hash::PyHash;
 use crate::common::lock::PyRwLock;
 use crate::function::{FromArgs, FuncArgs, OptionalArg};
+use crate::protocol::PyBuffer;
 use crate::utils::Either;
 use crate::VirtualMachine;
 use crate::{
@@ -533,6 +533,7 @@ pub trait AsBuffer: PyValue {
 #[pyimpl]
 pub trait Iterable: PyValue {
     #[pyslot]
+    #[pymethod(name = "__iter__")]
     fn tp_iter(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Ok(zelf) = zelf.downcast() {
             Self::iter(zelf, vm)
@@ -541,12 +542,11 @@ pub trait Iterable: PyValue {
         }
     }
 
-    #[pymethod(magic)]
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult;
 }
 
 #[pyimpl(with(Iterable))]
-pub trait PyIter: PyValue {
+pub trait PyIter: PyValue + Iterable {
     #[pyslot]
     fn tp_iternext(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(zelf) = zelf.downcast_ref() {
@@ -559,19 +559,21 @@ pub trait PyIter: PyValue {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult;
 
     #[pymethod]
-    fn __next__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        Self::next(&zelf, vm)
+    fn __next__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Self::tp_iternext(&zelf, vm)
     }
 }
 
+pub trait IteratorIterable: PyValue {}
+
 impl<T> Iterable for T
 where
-    T: PyIter,
+    T: IteratorIterable,
 {
     fn tp_iter(zelf: PyObjectRef, _vm: &VirtualMachine) -> PyResult {
         Ok(zelf)
     }
-    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyResult {
-        Ok(zelf.into_object())
+    fn iter(_zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyResult {
+        unreachable!("tp_iter is implemented");
     }
 }

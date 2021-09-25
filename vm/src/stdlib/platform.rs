@@ -2,8 +2,7 @@ pub(crate) use decl::make_module;
 
 #[pymodule(name = "platform")]
 mod decl {
-    use crate::version;
-    use crate::vm::VirtualMachine;
+    use crate::{version, VirtualMachine};
 
     #[pyfunction]
     fn python_implementation(_vm: &VirtualMachine) -> String {

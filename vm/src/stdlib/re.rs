@@ -8,16 +8,14 @@ use num_traits::Signed;
 use regex::bytes::{Captures, Regex, RegexBuilder};
 use std::fmt;
 use std::ops::Range;
-
-use crate::builtins::int::{PyInt, PyIntRef};
-use crate::builtins::pystr::{PyStr, PyStrRef};
-use crate::builtins::pytype::PyTypeRef;
-use crate::function::{Args, OptionalArg};
-use crate::vm::VirtualMachine;
-use crate::{IntoPyObject, PyClassImpl, PyObjectRef, PyResult, PyValue, StaticType, TryFromObject};
+use crate::
+    {builtins::{
+    PyInt, PyIntRef, PyStr, PyStrRef, PyTypeRef},
+    function::{PosArgs, OptionalArg},
+    VirtualMachine, IntoPyObject, PyClassImpl, PyObjectRef, PyResult, PyValue, StaticType, TryFromObject};
 
 #[pyclass(module = "re", name = "Pattern")]
-#[derive(Debug)]
+#[derive(Debug, PyValue)]
 struct PyPattern {
     regex: Regex,
     pattern: String,
@@ -62,14 +60,9 @@ impl PyRegexFlags {
     }
 }
 
-impl PyValue for PyPattern {
-    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_type()
-    }
-}
-
 /// Inner data for a match object.
 #[pyclass(module = "re", name = "Match")]
+#[derive(PyValue)]
 struct PyMatch {
     haystack: PyStrRef,
     captures: Vec<Option<Range<usize>>>,
@@ -78,12 +71,6 @@ struct PyMatch {
 impl fmt::Debug for PyMatch {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "Match()")
-    }
-}
-
-impl PyValue for PyMatch {
-    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_type()
     }
 }
 
@@ -246,7 +233,9 @@ fn do_split(
     let split = output
         .into_iter()
         .map(|v| {
-            vm.unwrap_or_none(v.map(|v| vm.ctx.new_utf8_str(String::from_utf8_lossy(v).into_owned())))
+            vm.unwrap_or_none(
+                v.map(|v| vm.ctx.new_utf8_str(String::from_utf8_lossy(v).into_owned())),
+            )
         })
         .collect();
     Ok(vm.ctx.new_list(split))
@@ -398,7 +387,7 @@ impl PyMatch {
     }
 
     #[pymethod]
-    fn group(&self, groups: Args, vm: &VirtualMachine) -> PyResult {
+    fn group(&self, groups: PosArgs, vm: &VirtualMachine) -> PyResult {
         let mut groups = groups.into_vec();
         match groups.len() {
             0 => Ok(self

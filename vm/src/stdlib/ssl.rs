@@ -1,16 +1,14 @@
-use super::os::PyPathLike;
 use super::socket::{self, PySocketRef};
-use crate::builtins::{pytype, weakref::PyWeak, PyStrRef, PyTypeRef};
-use crate::byteslike::{ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike};
 use crate::common::lock::{PyRwLock, PyRwLockWriteGuard};
-use crate::exceptions::{create_exception_type, IntoPyException, PyBaseExceptionRef};
-use crate::function::OptionalArg;
-use crate::slots::SlotConstructor;
-use crate::utils::{Either, ToCString};
-use crate::VirtualMachine;
 use crate::{
-    IntoPyObject, ItemProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
-    StaticType,
+    builtins::{pytype, weakref::PyWeak, PyStrRef, PyTypeRef},
+    byteslike::{ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike},
+    exceptions::{create_exception_type, IntoPyException, PyBaseExceptionRef},
+    function::{ArgCallable, OptionalArg},
+    slots::SlotConstructor,
+    stdlib::os::PyPathLike,
+    utils::{Either, ToCString},
+    IntoPyObject, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use foreign_types_shared::{ForeignType, ForeignTypeRef};
@@ -76,8 +74,8 @@ enum ProtoVersion {
 }
 
 // taken from CPython, should probably be kept up to date with their version if it ever changes
-const DEFAULT_CIPHER_STRING: &[u8] =
-    b"DEFAULT:!aNULL:!eNULL:!MD5:!3DES:!DES:!RC4:!IDEA:!SEED:!aDSS:!SRP:!PSK";
+const DEFAULT_CIPHER_STRING: &str =
+    "DEFAULT:!aNULL:!eNULL:!MD5:!3DES:!DES:!RC4:!IDEA:!SEED:!aDSS:!SRP:!PSK";
 
 #[derive(num_enum::IntoPrimitive, num_enum::TryFromPrimitive)]
 #[repr(i32)]
@@ -154,8 +152,12 @@ fn _ssl_enum_certificates(store_name: PyStrRef, vm: &VirtualMachine) -> PyResult
             (*ptr).dwCertEncodingType
         };
         let enc_type = match enc_type {
-            wincrypt::X509_ASN_ENCODING => vm.ctx.new_ascii_str(b"x509_asn"),
-            wincrypt::PKCS_7_ASN_ENCODING => vm.ctx.new_ascii_str(b"pkcs_7_asn"),
+            wincrypt::X509_ASN_ENCODING => {
+                vm.ctx.new_ascii_literal(crate::utils::ascii!("x509_asn"))
+            }
+            wincrypt::PKCS_7_ASN_ENCODING => {
+                vm.ctx.new_ascii_literal(crate::utils::ascii!("pkcs_7_asn"))
+            }
             other => vm.ctx.new_int(other),
         };
         let usage = match c.valid_uses()? {
@@ -248,6 +250,7 @@ fn _ssl_rand_pseudo_bytes(n: i32, vm: &VirtualMachine) -> PyResult<(Vec<u8>, boo
 }
 
 #[pyclass(module = "ssl", name = "_SSLContext")]
+#[derive(PyValue)]
 struct PySslContext {
     ctx: PyRwLock<SslContextBuilder>,
     check_hostname: AtomicCell<bool>,
@@ -257,12 +260,6 @@ struct PySslContext {
 impl fmt::Debug for PySslContext {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.pad("_SSLContext")
-    }
-}
-
-impl PyValue for PySslContext {
-    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_type()
     }
 }
 
@@ -642,7 +639,7 @@ struct LoadCertChainArgs {
     #[pyarg(any, optional)]
     keyfile: Option<PyPathLike>,
     #[pyarg(any, optional)]
-    password: Option<Either<PyStrRef, PyCallable>>,
+    password: Option<Either<PyStrRef, ArgCallable>>,
 }
 
 struct SocketTimeout {
@@ -716,6 +713,7 @@ fn socket_closed_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
 }
 
 #[pyclass(module = "ssl", name = "_SSLSocket")]
+#[derive(PyValue)]
 struct PySslSocket {
     ctx: PyRef<PySslContext>,
     stream: PyRwLock<ssl::SslStream<PySocketRef>>,
@@ -727,12 +725,6 @@ struct PySslSocket {
 impl fmt::Debug for PySslSocket {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.pad("_SSLSocket")
-    }
-}
-
-impl PyValue for PySslSocket {
-    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_type()
     }
 }
 
@@ -1058,17 +1050,17 @@ fn cert_to_py(vm: &VirtualMachine, cert: &X509Ref, binary: bool) -> PyResult {
                 .filter_map(|gen_name| {
                     if let Some(email) = gen_name.email() {
                         Some(vm.ctx.new_tuple(vec![
-                            vm.ctx.new_ascii_str(b"email"),
+                            vm.ctx.new_ascii_literal(crate::utils::ascii!("email")),
                             vm.ctx.new_utf8_str(email),
                         ]))
                     } else if let Some(dnsname) = gen_name.dnsname() {
                         Some(vm.ctx.new_tuple(vec![
-                            vm.ctx.new_ascii_str(b"DNS"),
+                            vm.ctx.new_ascii_literal(crate::utils::ascii!("DNS")),
                             vm.ctx.new_utf8_str(dnsname),
                         ]))
                     } else if let Some(ip) = gen_name.ipaddress() {
                         Some(vm.ctx.new_tuple(vec![
-                            vm.ctx.new_ascii_str(b"IP Address"),
+                            vm.ctx.new_ascii_literal(crate::utils::ascii!("IP Address")),
                             vm.ctx.new_utf8_str(String::from_utf8_lossy(ip).into_owned()),
                         ]))
                     } else {
@@ -1159,7 +1151,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "OPENSSL_VERSION_NUMBER" => ctx.new_int(openssl::version::number()),
         "OPENSSL_VERSION_INFO" => parse_version_info(openssl::version::number()).into_pyobject(vm),
         "_OPENSSL_API_VERSION" => parse_version_info(openssl_api_version).into_pyobject(vm),
-        "_DEFAULT_CIPHERS" => ctx.new_ascii_str(DEFAULT_CIPHER_STRING),
+        "_DEFAULT_CIPHERS" => ctx.new_utf8_str(DEFAULT_CIPHER_STRING),
         // "PROTOCOL_SSLv2" => ctx.new_int(SslVersion::Ssl2 as u32), unsupported
         // "PROTOCOL_SSLv3" => ctx.new_int(SslVersion::Ssl3 as u32),
         "PROTOCOL_SSLv23" => ctx.new_int(SslVersion::Tls as u32),

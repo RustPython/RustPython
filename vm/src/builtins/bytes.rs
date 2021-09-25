@@ -1,25 +1,21 @@
-use super::dict::PyDictRef;
-use super::int::PyIntRef;
-use super::pystr::PyStrRef;
-use super::pytype::PyTypeRef;
-use crate::anystr::{self, AnyStr};
-use crate::buffer::{BufferOptions, PyBuffer, PyBufferInternal};
-use crate::builtins::tuple::PyTupleRef;
-use crate::bytesinner::{
-    bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
-    ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
-};
-use crate::byteslike::ArgBytesLike;
-use crate::common::hash::PyHash;
-use crate::function::{OptionalArg, OptionalOption};
-use crate::slots::{
-    AsBuffer, Callable, Comparable, Hashable, Iterable, PyComparisonOp, PyIter, SlotConstructor,
-};
-use crate::utils::Either;
-use crate::vm::VirtualMachine;
+use super::{PyDictRef, PyIntRef, PyStrRef, PyTupleRef, PyTypeRef};
 use crate::{
-    IdProtocol, IntoPyObject, IntoPyResult, PyClassImpl, PyComparisonValue, PyContext, PyIterable,
-    PyObjectRef, PyRef, PyResult, PyValue, TryFromBorrowedObject, TypeProtocol,
+    anystr::{self, AnyStr},
+    bytesinner::{
+        bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
+        ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
+    },
+    byteslike::ArgBytesLike,
+    common::hash::PyHash,
+    function::{ArgIterable, OptionalArg, OptionalOption},
+    protocol::{BufferInternal, BufferOptions, PyBuffer},
+    slots::{
+        AsBuffer, Callable, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp,
+        PyIter, SlotConstructor,
+    },
+    utils::Either,
+    IdProtocol, IntoPyObject, IntoPyResult, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef,
+    PyRef, PyResult, PyValue, TryFromBorrowedObject, TypeProtocol, VirtualMachine,
 };
 use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;
@@ -263,7 +259,7 @@ impl PyBytes {
     }
 
     #[pymethod]
-    fn join(&self, iter: PyIterable<PyBytesInner>, vm: &VirtualMachine) -> PyResult<PyBytes> {
+    fn join(&self, iter: ArgIterable<PyBytesInner>, vm: &VirtualMachine) -> PyResult<PyBytes> {
         Ok(self.inner.join(iter, vm)?.into())
     }
 
@@ -532,7 +528,7 @@ impl AsBuffer for PyBytes {
     }
 }
 
-impl PyBufferInternal for PyRef<PyBytes> {
+impl BufferInternal for PyRef<PyBytes> {
     fn obj_bytes(&self) -> BorrowedValue<[u8]> {
         self.as_bytes().into()
     }
@@ -601,6 +597,7 @@ impl PyValue for PyBytesIterator {
 
 #[pyimpl(with(PyIter))]
 impl PyBytesIterator {}
+impl IteratorIterable for PyBytesIterator {}
 impl PyIter for PyBytesIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         let pos = zelf.position.fetch_add(1);

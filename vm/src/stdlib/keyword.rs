@@ -3,12 +3,9 @@ pub(crate) use decl::make_module;
 
 #[pymodule(name = "keyword")]
 mod decl {
+    use crate::{builtins::PyStr, PyObjectRef, VirtualMachine};
     use itertools::Itertools;
     use rustpython_parser::lexer;
-
-    use crate::builtins::PyStr;
-    use crate::vm::VirtualMachine;
-    use crate::PyObjectRef;
 
     #[pyfunction]
     fn iskeyword(s: PyObjectRef) -> bool {

@@ -13,10 +13,12 @@ mod error;
 mod util;
 
 mod compile_bytecode;
+mod doc;
 mod from_args;
 mod pyclass;
 mod pymodule;
 mod pystructseq;
+mod pyvalue;
 
 use error::{extract_spans, Diagnostic};
 use proc_macro::TokenStream;
@@ -94,4 +96,10 @@ pub fn py_compile(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn py_freeze(input: TokenStream) -> TokenStream {
     result_to_tokens(compile_bytecode::impl_py_freeze(input.into()))
+}
+
+#[proc_macro_derive(PyValue)]
+pub fn pyvalue(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    result_to_tokens(pyvalue::impl_pyvalue(input))
 }

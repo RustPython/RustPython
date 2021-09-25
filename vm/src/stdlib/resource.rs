@@ -2,10 +2,10 @@ pub(crate) use resource::make_module;
 
 #[pymodule]
 mod resource {
-    use super::super::os;
-    use crate::exceptions::IntoPyException;
-    use crate::VirtualMachine;
-    use crate::{IntoPyObject, PyObjectRef, PyResult, PyStructSequence, TryFromBorrowedObject};
+    use crate::{
+        exceptions::IntoPyException, stdlib::os, IntoPyObject, PyObjectRef, PyResult,
+        PyStructSequence, TryFromBorrowedObject, VirtualMachine,
+    };
     use std::{io, mem};
 
     cfg_if::cfg_if! {

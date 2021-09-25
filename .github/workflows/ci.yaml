@@ -23,7 +23,7 @@ jobs:
     runs-on:  ${{ matrix.os }}
     strategy:
       matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
+        os: [macos-11, ubuntu-latest, windows-latest]
       fail-fast: false
     steps:
       - uses: actions/checkout@v2
@@ -49,6 +49,18 @@ jobs:
           command: check
           args: ${{ env.CARGO_ARGS }} --no-default-features
 
+      - name: prepare AppleSilicon build
+        uses: actions-rs/toolchain@v1
+        with:
+          target: aarch64-apple-darwin
+        if: runner.os == 'macOS'
+      - name: Check compilation for Apple Silicon
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: --target aarch64-apple-darwin
+        if: runner.os == 'macOS'
+
   exotic_targets:
     name: Ensure compilation on exotic targets
     runs-on: ubuntu-latest
@@ -57,6 +69,8 @@ jobs:
       - uses: actions-rs/toolchain@v1
         with:
           target: aarch64-linux-android
+
+      - uses: Swatinem/rust-cache@v1
 
       - name: Check compilation for android
         uses: actions-rs/cargo@v1
@@ -182,6 +196,7 @@ jobs:
             toolchain: nightly
             components: miri
             override: true
+      - uses: Swatinem/rust-cache@v1
       - name: Run tests under miri
         # miri-ignore-leaks because the type-object circular reference means that there will always be
         # a memory leak, at least until we have proper cyclic gc

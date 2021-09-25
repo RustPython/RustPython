@@ -1,12 +1,11 @@
-use crate::builtins::int::PyIntRef;
-use crate::builtins::pystr::PyStrRef;
-use crate::exceptions::IntoPyException;
-use crate::vm::VirtualMachine;
-use crate::{IntoPyObject, PyClassImpl, PyObjectRef, PyResult, PyStructSequence};
+use crate::{
+    builtins::{PyIntRef, PyStrRef},
+    exceptions::IntoPyException,
+    IntoPyObject, PyClassImpl, PyObjectRef, PyResult, PyStructSequence, VirtualMachine,
+};
+use nix::unistd::{self, User};
 use std::convert::TryFrom;
 use std::ptr::NonNull;
-
-use nix::unistd::{self, User};
 
 #[pyclass(module = "pwd", name = "struct_passwd")]
 #[derive(PyStructSequence)]

@@ -717,8 +717,6 @@ class TestUpdateWrapper(unittest.TestCase):
         with self.assertRaises(AttributeError):
             functools.update_wrapper(wrapper, f, assign, update)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @support.requires_docstrings
     @unittest.skipIf(sys.flags.optimize >= 2,
                      "Docstrings are omitted with -O2 and above")

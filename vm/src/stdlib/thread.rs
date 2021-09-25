@@ -1,29 +1,24 @@
-use crate::builtins::dict::PyDictRef;
-use crate::builtins::pystr::PyStrRef;
-use crate::builtins::pytype::PyTypeRef;
-use crate::builtins::tuple::PyTupleRef;
-/// Implementation of the _thread module
-use crate::exceptions::{self, IntoPyException};
-use crate::function::{FuncArgs, KwArgs, OptionalArg};
-use crate::py_io;
-use crate::slots::{SlotGetattro, SlotSetattro};
-use crate::utils::Either;
-use crate::VirtualMachine;
-use crate::{
-    IdProtocol, ItemProtocol, PyCallable, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
-    StaticType, TypeProtocol,
-};
+//! Implementation of the _thread module
 
+use crate::{
+    builtins::{PyDictRef, PyStrRef, PyTupleRef, PyTypeRef},
+    exceptions::{self, IntoPyException},
+    function::{ArgCallable, FuncArgs, KwArgs, OptionalArg},
+    py_io,
+    slots::{SlotGetattro, SlotSetattro},
+    utils::Either,
+    IdProtocol, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    VirtualMachine,
+};
 use parking_lot::{
     lock_api::{RawMutex as RawMutexT, RawMutexTimed, RawReentrantMutex},
     RawMutex, RawThreadId,
 };
-use thread_local::ThreadLocal;
-
 use std::cell::RefCell;
 use std::io::Write;
 use std::time::Duration;
 use std::{fmt, thread};
+use thread_local::ThreadLocal;
 
 // PY_TIMEOUT_MAX is a value in microseconds
 #[cfg(not(target_os = "windows"))]
@@ -96,16 +91,11 @@ macro_rules! repr_lock_impl {
 }
 
 #[pyclass(module = "thread", name = "lock")]
+#[derive(PyValue)]
 struct PyLock {
     mu: RawMutex,
 }
 type PyLockRef = PyRef<PyLock>;
-
-impl PyValue for PyLock {
-    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_type()
-    }
-}
 
 impl fmt::Debug for PyLock {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -150,14 +140,9 @@ impl PyLock {
 
 pub type RawRMutex = RawReentrantMutex<RawMutex, RawThreadId>;
 #[pyclass(module = "thread", name = "RLock")]
+#[derive(PyValue)]
 struct PyRLock {
     mu: RawRMutex,
-}
-
-impl PyValue for PyRLock {
-    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_type()
-    }
 }
 
 impl fmt::Debug for PyRLock {
@@ -224,7 +209,7 @@ fn _thread_allocate_lock() -> PyLock {
 }
 
 fn _thread_start_new_thread(
-    func: PyCallable,
+    func: ArgCallable,
     args: PyTupleRef,
     kwargs: OptionalArg<PyDictRef>,
     vm: &VirtualMachine,
@@ -253,7 +238,7 @@ fn _thread_start_new_thread(
         .map_err(|err| err.into_pyexception(vm))
 }
 
-fn run_thread(func: PyCallable, args: FuncArgs, vm: &VirtualMachine) {
+fn run_thread(func: ArgCallable, args: FuncArgs, vm: &VirtualMachine) {
     match func.invoke(args, vm) {
         Ok(_obj) => {}
         Err(e) if e.isinstance(&vm.ctx.exceptions.system_exit) => {}
@@ -303,15 +288,9 @@ fn _thread_count(vm: &VirtualMachine) -> usize {
 }
 
 #[pyclass(module = "thread", name = "_local")]
-#[derive(Debug)]
+#[derive(Debug, PyValue)]
 struct PyLocal {
     data: ThreadLocal<PyDictRef>,
-}
-
-impl PyValue for PyLocal {
-    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_type()
-    }
 }
 
 #[pyimpl(with(SlotGetattro, SlotSetattro), flags(BASETYPE))]

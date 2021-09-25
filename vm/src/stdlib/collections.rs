@@ -3,21 +3,20 @@ pub(crate) use _collections::make_module;
 #[pymodule]
 mod _collections {
     use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
-    use crate::function::{FuncArgs, KwArgs, OptionalArg};
-    use crate::slots::{
-        Comparable, Hashable, Iterable, PyComparisonOp, PyIter, SlotConstructor, Unhashable,
-    };
-    use crate::vm::ReprGuard;
-    use crate::VirtualMachine;
     use crate::{
         builtins::{
             IterStatus::{self, Active, Exhausted},
             PyInt, PyTypeRef,
         },
-        TypeProtocol,
+        function::{FuncArgs, KwArgs, OptionalArg},
+        sequence, sliceable,
+        slots::{
+            Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, PyIter,
+            SlotConstructor, Unhashable,
+        },
+        vm::ReprGuard,
+        PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
     };
-    use crate::{sequence, sliceable};
-    use crate::{PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, StaticType};
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
     use num_traits::ToPrimitive;
@@ -26,7 +25,7 @@ mod _collections {
 
     #[pyattr]
     #[pyclass(name = "deque")]
-    #[derive(Debug, Default)]
+    #[derive(Debug, Default, PyValue)]
     struct PyDeque {
         deque: PyRwLock<VecDeque<PyObjectRef>>,
         maxlen: Option<usize>,
@@ -34,12 +33,6 @@ mod _collections {
     }
 
     type PyDequeRef = PyRef<PyDeque>;
-
-    impl PyValue for PyDeque {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
-    }
 
     #[derive(FromArgs)]
     struct PyDequeOptions {
@@ -577,18 +570,12 @@ mod _collections {
 
     #[pyattr]
     #[pyclass(name = "_deque_iterator")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct PyDequeIterator {
         position: AtomicCell<usize>,
         status: AtomicCell<IterStatus>,
         length: usize, // To track length immutability.
         deque: PyDequeRef,
-    }
-
-    impl PyValue for PyDequeIterator {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
 
     #[derive(FromArgs)]
@@ -653,6 +640,7 @@ mod _collections {
         }
     }
 
+    impl IteratorIterable for PyDequeIterator {}
     impl PyIter for PyDequeIterator {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             match zelf.status.load() {
@@ -680,18 +668,12 @@ mod _collections {
 
     #[pyattr]
     #[pyclass(name = "_deque_reverse_iterator")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct PyReverseDequeIterator {
         position: AtomicCell<usize>,
         status: AtomicCell<IterStatus>,
         length: usize, // To track length immutability.
         deque: PyDequeRef,
-    }
-
-    impl PyValue for PyReverseDequeIterator {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
 
     impl SlotConstructor for PyReverseDequeIterator {
@@ -738,6 +720,7 @@ mod _collections {
         }
     }
 
+    impl IteratorIterable for PyReverseDequeIterator {}
     impl PyIter for PyReverseDequeIterator {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             match zelf.status.load() {

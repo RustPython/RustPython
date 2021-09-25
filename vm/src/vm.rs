@@ -18,7 +18,6 @@ use crate::builtins::int::{PyInt, PyIntRef};
 use crate::builtins::list::PyList;
 use crate::builtins::module::{self, PyModule};
 use crate::builtins::object;
-use crate::builtins::pybool;
 use crate::builtins::pystr::{PyStr, PyStrRef};
 use crate::builtins::pytype::PyTypeRef;
 use crate::builtins::tuple::{PyTuple, PyTupleRef, PyTupleTyped};
@@ -308,13 +307,13 @@ impl VirtualMachine {
         module::init_module_dict(
             &vm,
             &builtins_dict,
-            vm.ctx.new_ascii_str(b"builtins"),
+            vm.ctx.new_ascii_literal(crate::utils::ascii!("builtins")),
             vm.ctx.none(),
         );
         module::init_module_dict(
             &vm,
             &sysmod_dict,
-            vm.ctx.new_ascii_str(b"sys"),
+            vm.ctx.new_ascii_literal(crate::utils::ascii!("sys")),
             vm.ctx.none(),
         );
         vm
@@ -1030,7 +1029,7 @@ impl VirtualMachine {
 
         if let Ok(meth) = self.get_special_method(cls.clone(), "__instancecheck__")? {
             let ret = meth.invoke((obj.clone(),), self)?;
-            return pybool::boolval(self, ret);
+            return ret.try_to_bool(self);
         }
 
         self.abstract_isinstance(obj, cls)
@@ -1112,7 +1111,7 @@ impl VirtualMachine {
 
         if let Ok(meth) = self.get_special_method(cls.clone(), "__subclasscheck__")? {
             let ret = meth.invoke((subclass.clone(),), self)?;
-            return pybool::boolval(self, ret);
+            return ret.try_to_bool(self);
         }
 
         self.recursive_issubclass(subclass, cls)
@@ -1857,7 +1856,7 @@ impl VirtualMachine {
 
     pub fn bool_cmp(&self, a: &PyObjectRef, b: &PyObjectRef, op: PyComparisonOp) -> PyResult<bool> {
         match self._cmp(a, b, op)? {
-            Either::A(obj) => pybool::boolval(self, obj),
+            Either::A(obj) => obj.try_to_bool(self),
             Either::B(b) => Ok(b),
         }
     }
@@ -2230,7 +2229,7 @@ mod tests {
     #[test]
     fn test_multiply_str() {
         Interpreter::default().enter(|vm| {
-            let a = vm.ctx.new_ascii_str(b"Hello ");
+            let a = vm.ctx.new_ascii_literal(crate::utils::ascii!("Hello "));
             let b = vm.ctx.new_int(4_i32);
             let res = vm._mul(&a, &b).unwrap();
             let value = res.payload::<PyStr>().unwrap();

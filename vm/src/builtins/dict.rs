@@ -1,22 +1,19 @@
+use super::{IterStatus, PySet, PyStrRef, PyTypeRef};
+use crate::{
+    dictdatatype::{self, DictKey},
+    exceptions::PyBaseExceptionRef,
+    function::{ArgIterable, FuncArgs, KwArgs, OptionalArg},
+    iterator,
+    slots::{Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, PyIter, Unhashable},
+    vm::{ReprGuard, VirtualMachine},
+    IdProtocol, IntoPyObject, ItemProtocol,
+    PyArithmaticValue::*,
+    PyAttributes, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
+    PyResult, PyValue, TryFromObject, TypeProtocol,
+};
 use crossbeam_utils::atomic::AtomicCell;
 use std::fmt;
 use std::mem::size_of;
-
-use super::pystr::PyStrRef;
-use super::pytype::PyTypeRef;
-use super::set::PySet;
-use super::IterStatus;
-use crate::dictdatatype::{self, DictKey};
-use crate::exceptions::PyBaseExceptionRef;
-use crate::function::{FuncArgs, KwArgs, OptionalArg};
-use crate::iterator;
-use crate::slots::{Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhashable};
-use crate::vm::{ReprGuard, VirtualMachine};
-use crate::{
-    IdProtocol, IntoPyObject, ItemProtocol, PyArithmaticValue::*, PyAttributes, PyClassDef,
-    PyClassImpl, PyComparisonValue, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
-};
 
 pub type DictContentType = dictdatatype::Dict;
 
@@ -132,7 +129,7 @@ impl PyDict {
     #[pyclassmethod]
     fn fromkeys(
         class: PyTypeRef,
-        iterable: PyIterable,
+        iterable: ArgIterable,
         value: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
@@ -364,7 +361,9 @@ impl PyDict {
         if let Some((key, value)) = self.entries.pop_back() {
             Ok(vm.ctx.new_tuple(vec![key, value]))
         } else {
-            let err_msg = vm.ctx.new_ascii_str(b"popitem(): dictionary is empty");
+            let err_msg = vm
+                .ctx
+                .new_ascii_literal(crate::utils::ascii!("popitem(): dictionary is empty"));
             Err(vm.new_key_error(err_msg))
         }
     }
@@ -729,6 +728,7 @@ macro_rules! dict_iterator {
             }
         }
 
+        impl IteratorIterable for $iter_name {}
         impl PyIter for $iter_name {
             #[allow(clippy::redundant_closure_call)]
             fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
@@ -789,6 +789,7 @@ macro_rules! dict_iterator {
             }
         }
 
+        impl IteratorIterable for $reverse_iter_name {}
         impl PyIter for $reverse_iter_name {
             #[allow(clippy::redundant_closure_call)]
             fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {

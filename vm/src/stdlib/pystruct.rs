@@ -11,27 +11,27 @@
 
 #[pymodule]
 pub(crate) mod _struct {
+    use crate::{
+        builtins::{
+            bytes::PyBytesRef, float, int::try_to_primitive, pybool::IntoPyBool, pystr::PyStr,
+            pystr::PyStrRef, pytype::PyTypeRef, tuple::PyTupleRef,
+        },
+        byteslike::{ArgBytesLike, ArgMemoryBuffer},
+        common::str::wchar_t,
+        exceptions::PyBaseExceptionRef,
+        function::PosArgs,
+        slots::{IteratorIterable, PyIter, SlotConstructor},
+        utils::Either,
+        IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
+    };
     use crossbeam_utils::atomic::AtomicCell;
+    use half::f16;
     use itertools::Itertools;
     use num_bigint::BigInt;
     use num_traits::{PrimInt, ToPrimitive};
     use std::convert::TryFrom;
     use std::iter::Peekable;
     use std::{fmt, mem, os::raw};
-
-    use crate::builtins::{
-        bytes::PyBytesRef, float, int::try_to_primitive, pybool::IntoPyBool, pystr::PyStr,
-        pystr::PyStrRef, pytype::PyTypeRef, tuple::PyTupleRef,
-    };
-    use crate::byteslike::{ArgBytesLike, ArgMemoryBuffer};
-    use crate::exceptions::PyBaseExceptionRef;
-    use crate::function::Args;
-    use crate::slots::{PyIter, SlotConstructor};
-    use crate::stdlib::array::wchar_t;
-    use crate::utils::Either;
-    use crate::VirtualMachine;
-    use crate::{IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject};
-    use half::f16;
 
     #[derive(Debug, Copy, Clone, PartialEq)]
     enum Endianness {
@@ -721,7 +721,7 @@ pub(crate) mod _struct {
     #[pyfunction]
     fn pack(
         fmt: Either<PyStrRef, PyBytesRef>,
-        args: Args,
+        args: PosArgs,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
         let format_spec = FormatSpec::decode_and_parse(vm, &fmt)?;
@@ -733,7 +733,7 @@ pub(crate) mod _struct {
         fmt: Either<PyStrRef, PyBytesRef>,
         buffer: ArgMemoryBuffer,
         offset: isize,
-        args: Args,
+        args: PosArgs,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let format_spec = FormatSpec::decode_and_parse(vm, &fmt)?;
@@ -789,7 +789,7 @@ pub(crate) mod _struct {
 
     #[pyattr]
     #[pyclass(name = "unpack_iterator")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct UnpackIterator {
         format_spec: FormatSpec,
         buffer: ArgBytesLike,
@@ -825,12 +825,6 @@ pub(crate) mod _struct {
         }
     }
 
-    impl PyValue for UnpackIterator {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
-    }
-
     #[pyimpl(with(PyIter))]
     impl UnpackIterator {
         #[pymethod(magic)]
@@ -838,6 +832,7 @@ pub(crate) mod _struct {
             self.buffer.len().saturating_sub(self.offset.load()) / self.format_spec.size
         }
     }
+    impl IteratorIterable for UnpackIterator {}
     impl PyIter for UnpackIterator {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             let size = zelf.format_spec.size;
@@ -870,16 +865,10 @@ pub(crate) mod _struct {
 
     #[pyattr]
     #[pyclass(name = "Struct")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct PyStruct {
         spec: FormatSpec,
         fmt_str: PyStrRef,
-    }
-
-    impl PyValue for PyStruct {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
     }
 
     impl SlotConstructor for PyStruct {
@@ -910,7 +899,7 @@ pub(crate) mod _struct {
         }
 
         #[pymethod]
-        fn pack(&self, args: Args, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        fn pack(&self, args: PosArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
             self.spec.pack(args.into_vec(), vm)
         }
 
@@ -919,7 +908,7 @@ pub(crate) mod _struct {
             &self,
             buffer: ArgMemoryBuffer,
             offset: isize,
-            args: Args,
+            args: PosArgs,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             let offset = get_buffer_offset(buffer.len(), offset, self.size(), true, vm)?;

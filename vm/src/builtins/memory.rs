@@ -1,19 +1,18 @@
-use crate::buffer::{BufferOptions, PyBuffer, PyBufferInternal};
-use crate::builtins::slice::PySliceRef;
-use crate::builtins::{PyBytes, PyBytesRef, PyList, PyListRef, PyStr, PyStrRef, PyTypeRef};
-use crate::bytesinner::bytes_to_hex;
+use super::{PyBytes, PyBytesRef, PyList, PyListRef, PySliceRef, PyStr, PyStrRef, PyTypeRef};
 use crate::common::{
     borrow::{BorrowedValue, BorrowedValueMut},
     hash::PyHash,
     lock::OnceCell,
     rc::PyRc,
 };
-use crate::function::{FuncArgs, OptionalArg};
-use crate::sliceable::{convert_slice, wrap_index, SequenceIndex};
-use crate::slots::{AsBuffer, Comparable, Hashable, PyComparisonOp, SlotConstructor};
-use crate::stdlib::pystruct::_struct::FormatSpec;
-use crate::utils::Either;
 use crate::{
+    bytesinner::bytes_to_hex,
+    function::{FuncArgs, OptionalArg},
+    protocol::{BufferInternal, BufferOptions, PyBuffer},
+    sliceable::{convert_slice, wrap_index, SequenceIndex},
+    slots::{AsBuffer, Comparable, Hashable, PyComparisonOp, SlotConstructor},
+    stdlib::pystruct::_struct::FormatSpec,
+    utils::Either,
     IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
     PyResult, PyValue, TryFromBorrowedObject, TryFromObject, TypeProtocol, VirtualMachine,
 };
@@ -692,7 +691,7 @@ impl AsBuffer for PyMemoryView {
 
 #[derive(Debug)]
 struct Released;
-impl PyBufferInternal for Released {
+impl BufferInternal for Released {
     fn obj_bytes(&self) -> BorrowedValue<[u8]> {
         panic!();
     }
@@ -706,7 +705,7 @@ impl PyBufferInternal for Released {
     fn retain(&self) {}
 }
 
-impl PyBufferInternal for PyMemoryView {
+impl BufferInternal for PyMemoryView {
     // NOTE: This impl maybe is anti-pattern. Only used for internal usage.
     fn obj_bytes(&self) -> BorrowedValue<[u8]> {
         BorrowedValue::map(self.buffer.internal.obj_bytes(), |x| {
@@ -725,7 +724,7 @@ impl PyBufferInternal for PyMemoryView {
     fn retain(&self) {}
 }
 
-impl PyBufferInternal for PyRef<PyMemoryView> {
+impl BufferInternal for PyRef<PyMemoryView> {
     fn obj_bytes(&self) -> BorrowedValue<[u8]> {
         self.deref().obj_bytes()
     }

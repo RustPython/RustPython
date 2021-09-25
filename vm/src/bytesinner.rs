@@ -4,7 +4,6 @@ use crate::builtins::bytes::{PyBytes, PyBytesRef};
 use crate::builtins::int::{PyInt, PyIntRef};
 use crate::builtins::pystr::{self, PyStr, PyStrRef};
 use crate::builtins::PyTypeRef;
-use crate::byteslike::try_bytes_like;
 use crate::cformat::CFormatBytes;
 use crate::function::{OptionalArg, OptionalOption};
 use crate::sliceable::PySliceableSequence;
@@ -12,7 +11,7 @@ use crate::slots::PyComparisonOp;
 use crate::utils::Either;
 use crate::vm::VirtualMachine;
 use crate::{
-    IdProtocol, PyComparisonValue, PyIterable, PyObjectRef, PyResult, PyValue,
+    function::ArgIterable, IdProtocol, PyComparisonValue, PyObjectRef, PyResult, PyValue,
     TryFromBorrowedObject,
 };
 use bstr::ByteSlice;
@@ -320,10 +319,9 @@ impl PyBytesInner {
         // TODO: bytes can compare with any object implemented buffer protocol
         // but not memoryview, and not equal if compare with unicode str(PyStr)
         PyComparisonValue::from_option(
-            try_bytes_like(vm, other, |other| {
-                op.eval_ord(self.elements.as_slice().cmp(other))
-            })
-            .ok(),
+            other
+                .try_bytes_like(vm, |other| op.eval_ord(self.elements.as_slice().cmp(other)))
+                .ok(),
         )
     }
 
@@ -558,7 +556,7 @@ impl PyBytesInner {
 
     pub fn join(
         &self,
-        iterable: PyIterable<PyBytesInner>,
+        iterable: ArgIterable<PyBytesInner>,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
         let iter = iterable.iter(vm)?;
@@ -1238,7 +1236,7 @@ pub const fn is_py_ascii_whitespace(b: u8) -> bool {
 }
 
 pub fn bytes_from_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Vec<u8>> {
-    if let Ok(elements) = try_bytes_like(vm, obj, |bytes| bytes.to_vec()) {
+    if let Ok(elements) = obj.try_bytes_like(vm, |bytes| bytes.to_vec()) {
         return Ok(elements);
     }
 
