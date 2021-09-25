@@ -1413,7 +1413,7 @@ type IfIndex = winapi::shared::ifdef::NET_IFINDEX;
 
 #[cfg(not(target_os = "redox"))]
 fn _socket_if_nametoindex(name: PyObjectRef, vm: &VirtualMachine) -> PyResult<IfIndex> {
-    let name = super::os::fspath(name, true, vm)?;
+    let name = super::os::FsPath::try_from(name, true, vm)?;
     let name = ffi::CString::new(name.as_bytes()).map_err(|err| err.into_pyexception(vm))?;
 
     let ret = unsafe { c::if_nametoindex(name.as_ptr()) };

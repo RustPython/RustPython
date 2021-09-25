@@ -106,6 +106,49 @@ pub enum FsPath {
 }
 
 impl FsPath {
+    pub fn try_from(obj: PyObjectRef, check_for_nul: bool, vm: &VirtualMachine) -> PyResult<Self> {
+        // PyOS_FSPath in CPython
+        let check_nul = |b: &[u8]| {
+            if !check_for_nul || memchr::memchr(b'\0', b).is_none() {
+                Ok(())
+            } else {
+                Err(crate::exceptions::cstring_error(vm))
+            }
+        };
+        let match1 = |obj: PyObjectRef| {
+            let pathlike = match_class!(match obj {
+                s @ PyStr => {
+                    check_nul(s.as_str().as_bytes())?;
+                    FsPath::Str(s)
+                }
+                b @ PyBytes => {
+                    check_nul(&b)?;
+                    FsPath::Bytes(b)
+                }
+                obj => return Ok(Err(obj)),
+            });
+            Ok(Ok(pathlike))
+        };
+        let obj = match match1(obj)? {
+            Ok(pathlike) => return Ok(pathlike),
+            Err(obj) => obj,
+        };
+        let method = vm.get_method_or_type_error(obj.clone(), "__fspath__", || {
+            format!(
+                "expected str, bytes or os.PathLike object, not {}",
+                obj.class().name()
+            )
+        })?;
+        let result = vm.invoke(&method, ())?;
+        match1(result)?.map_err(|result| {
+            vm.new_type_error(format!(
+                "expected {}.__fspath__() to return str or bytes, not {}",
+                obj.class().name(),
+                result.class().name(),
+            ))
+        })
+    }
+
     pub fn as_os_str(&self, vm: &VirtualMachine) -> PyResult<&ffi::OsStr> {
         // TODO: FS encodings
         match self {
@@ -123,8 +166,7 @@ impl FsPath {
         Ok(PyPathLike { path, mode })
     }
 
-    #[cfg(not(target_os = "redox"))]
-    pub(crate) fn as_bytes(&self) -> &[u8] {
+    pub fn as_bytes(&self) -> &[u8] {
         // TODO: FS encodings
         match self {
             FsPath::Str(s) => s.as_str().as_bytes(),
@@ -142,53 +184,6 @@ impl IntoPyObject for FsPath {
     }
 }
 
-pub(crate) fn fspath(
-    obj: PyObjectRef,
-    check_for_nul: bool,
-    vm: &VirtualMachine,
-) -> PyResult<FsPath> {
-    // PyOS_FSPath in CPython
-    let check_nul = |b: &[u8]| {
-        if !check_for_nul || memchr::memchr(b'\0', b).is_none() {
-            Ok(())
-        } else {
-            Err(crate::exceptions::cstring_error(vm))
-        }
-    };
-    let match1 = |obj: PyObjectRef| {
-        let pathlike = match_class!(match obj {
-            s @ PyStr => {
-                check_nul(s.as_str().as_bytes())?;
-                FsPath::Str(s)
-            }
-            b @ PyBytes => {
-                check_nul(&b)?;
-                FsPath::Bytes(b)
-            }
-            obj => return Ok(Err(obj)),
-        });
-        Ok(Ok(pathlike))
-    };
-    let obj = match match1(obj)? {
-        Ok(pathlike) => return Ok(pathlike),
-        Err(obj) => obj,
-    };
-    let method = vm.get_method_or_type_error(obj.clone(), "__fspath__", || {
-        format!(
-            "expected str, bytes or os.PathLike object, not {}",
-            obj.class().name()
-        )
-    })?;
-    let result = vm.invoke(&method, ())?;
-    match1(result)?.map_err(|result| {
-        vm.new_type_error(format!(
-            "expected {}.__fspath__() to return str or bytes, not {}",
-            obj.class().name(),
-            result.class().name(),
-        ))
-    })
-}
-
 impl TryFromObject for PyPathLike {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         // path_converter in CPython
@@ -196,7 +191,7 @@ impl TryFromObject for PyPathLike {
             Ok(buffer) => PyBytes::from(buffer.internal.obj_bytes().to_vec()).into_pyobject(vm),
             Err(_) => obj,
         };
-        let fs_path = fspath(obj, true, vm)?;
+        let fs_path = FsPath::try_from(obj, true, vm)?;
         fs_path.to_pathlike(vm)
     }
 }
@@ -1164,7 +1159,7 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn fspath(path: PyObjectRef, vm: &VirtualMachine) -> PyResult<FsPath> {
-        super::fspath(path, false, vm)
+        super::FsPath::try_from(path, false, vm)
     }
 
     #[pyfunction]
