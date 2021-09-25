@@ -58,9 +58,18 @@ pub fn impl_pymodule(
     // append additional items
     let module_name = context.name.as_str();
     let module_extend_items = context.module_extend_items;
+    let doc = crate::doc::try_read(module_name).ok().flatten();
+    let doc = if let Some(doc) = doc {
+        quote!(Some(#doc))
+    } else {
+        quote!(None)
+    };
     items.extend(iter_chain![
         parse_quote! {
             pub(crate) const MODULE_NAME: &'static str = #module_name;
+        },
+        parse_quote! {
+            pub(crate) const DOC: Option<&'static str> = #doc;
         },
         parse_quote! {
             pub(crate) fn extend_module(
@@ -75,7 +84,7 @@ pub fn impl_pymodule(
             pub(crate) fn make_module(
                 vm: &::rustpython_vm::VirtualMachine
             ) -> ::rustpython_vm::PyObjectRef {
-                let module = vm.new_module(MODULE_NAME, vm.ctx.new_dict());
+                let module = vm.new_module(MODULE_NAME, vm.ctx.new_dict(), DOC);
                 extend_module(vm, &module);
                 module
             }

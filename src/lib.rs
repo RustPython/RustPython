@@ -519,7 +519,7 @@ fn write_profile(matches: &ArgMatches) -> Result<(), Box<dyn std::error::Error>>
 
 fn run_rustpython(vm: &VirtualMachine, matches: &ArgMatches) -> PyResult<()> {
     let scope = vm.new_scope_with_builtins();
-    let main_module = vm.new_module("__main__", scope.globals.clone());
+    let main_module = vm.new_module("__main__", scope.globals.clone(), None);
     main_module
         .dict()
         .and_then(|d| {
