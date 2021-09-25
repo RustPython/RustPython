@@ -13,8 +13,8 @@
 pub(crate) mod _struct {
     use crate::{
         builtins::{
-            bytes::PyBytesRef, float, int::try_to_primitive, pybool::IntoPyBool, pystr::PyStr,
-            pystr::PyStrRef, pytype::PyTypeRef, tuple::PyTupleRef,
+            bytes::PyBytesRef, float, pybool::IntoPyBool, pystr::PyStr, pystr::PyStrRef,
+            pytype::PyTypeRef, tuple::PyTupleRef,
         },
         byteslike::{ArgBytesLike, ArgMemoryBuffer},
         common::str::wchar_t,
@@ -461,7 +461,7 @@ pub(crate) mod _struct {
         T: PrimInt + for<'a> std::convert::TryFrom<&'a BigInt>,
     {
         match vm.to_index_opt(arg) {
-            Some(index) => try_to_primitive(index?.as_bigint(), vm),
+            Some(index) => index?.try_to_primitive(vm),
             None => Err(new_struct_error(
                 vm,
                 "required argument is not an integer".to_owned(),

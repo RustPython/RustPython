@@ -1,7 +1,7 @@
 use super::errno::errors;
 use crate::crt_fd::Fd;
 use crate::{
-    builtins::{int, PyBytes, PyBytesRef, PySet, PyStr, PyStrRef},
+    builtins::{PyBytes, PyBytesRef, PyInt, PySet, PyStr, PyStrRef},
     exceptions::{IntoPyException, PyBaseExceptionRef},
     function::{ArgumentError, FromArgs, FuncArgs},
     protocol::PyBuffer,
@@ -208,8 +208,8 @@ pub(crate) enum PathOrFd {
 
 impl TryFromObject for PathOrFd {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        match obj.downcast::<int::PyInt>() {
-            Ok(int) => int::try_to_primitive(int.as_bigint(), vm).map(Self::Fd),
+        match obj.downcast::<PyInt>() {
+            Ok(int) => int.try_to_primitive(vm).map(Self::Fd),
             Err(obj) => PyPathLike::try_from_object(vm, obj).map(Self::Path),
         }
     }
@@ -334,7 +334,7 @@ impl<const AVAILABLE: usize> FromArgs for DirFd<AVAILABLE> {
                         o.class().name()
                     )))
                 })?;
-                let fd = int::try_to_primitive(fd.as_bigint(), vm)?;
+                let fd = fd.try_to_primitive(vm)?;
                 Fd(fd)
             }
         };
@@ -368,10 +368,10 @@ pub(super) mod _os {
         errno_err, DirFd, FollowSymlinks, FsPath, OutputMode, PathOrFd, PyPathLike, SupportFunc,
     };
     use crate::common::lock::{OnceCell, PyRwLock};
-    use crate::crt_fd::{Fd, Offset};
     use crate::{
-        builtins::{int, PyBytesRef, PyStrRef, PyTuple, PyTupleRef, PyTypeRef},
+        builtins::{PyBytesRef, PyStrRef, PyTuple, PyTupleRef, PyTypeRef},
         byteslike::ArgBytesLike,
+        crt_fd::{Fd, Offset},
         exceptions::IntoPyException,
         function::{FuncArgs, OptionalArg},
         slots::{IteratorIterable, PyIter},
@@ -1302,8 +1302,8 @@ pub(super) mod _os {
                                     divmod.class().name()
                                 ))
                             })?;
-                    let secs = int::try_to_primitive(vm.to_index(&div)?.as_bigint(), vm)?;
-                    let ns = int::try_to_primitive(vm.to_index(&rem)?.as_bigint(), vm)?;
+                    let secs = vm.to_index(&div)?.try_to_primitive(vm)?;
+                    let ns = vm.to_index(&rem)?.try_to_primitive(vm)?;
                     Ok(Duration::new(secs, ns))
                 };
                 // TODO: do validation to make sure this doesn't.. underflow?

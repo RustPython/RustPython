@@ -11,7 +11,7 @@ pub(crate) use _operator::make_module;
 mod _operator {
     use crate::common::cmp;
     use crate::{
-        builtins::{int, PyInt, PyIntRef, PyStrRef, PyTypeRef},
+        builtins::{PyInt, PyIntRef, PyStrRef, PyTypeRef},
         byteslike::ArgBytesLike,
         function::{FuncArgs, KwArgs, OptionalArg},
         iterator,
@@ -283,7 +283,7 @@ mod _operator {
                         v.class().name()
                     )));
                 }
-                int::try_to_primitive(v.payload::<PyInt>().unwrap().as_bigint(), vm)
+                v.payload::<PyInt>().unwrap().try_to_primitive(vm)
             })
             .unwrap_or(Ok(0))?;
         iterator::length_hint(vm, obj).map(|v| vm.ctx.new_int(v.unwrap_or(default)))

@@ -3,7 +3,7 @@ pub(crate) use self::termios::make_module;
 #[pymodule]
 mod termios {
     use crate::{
-        builtins::{int, PyBytes, PyInt, PyListRef, PyTypeRef},
+        builtins::{PyBytes, PyInt, PyListRef, PyTypeRef},
         exceptions::PyBaseExceptionRef,
         IntoPyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     };
@@ -79,7 +79,7 @@ mod termios {
                 *cc = if let Some(c) = x.payload::<PyBytes>().filter(|b| b.as_bytes().len() == 1) {
                     c.as_bytes()[0] as _
                 } else if let Some(i) = x.payload::<PyInt>() {
-                    int::try_to_primitive(i.as_bigint(), vm)?
+                    i.try_to_primitive(vm)?
                 } else {
                     return Err(vm.new_type_error(
                         "tcsetattr: elements of attributes must be characters or integers"
