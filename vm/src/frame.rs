@@ -9,7 +9,7 @@ use crate::{
     },
     bytecode,
     coroutine::Coro,
-    exceptions::{self, ExceptionCtor},
+    exceptions::ExceptionCtor,
     function::{FuncArgs, IntoPyResult},
     protocol::{PyIter, PyIterReturn},
     scope::Scope,
@@ -412,13 +412,13 @@ impl ExecutingFrame<'_> {
                         self.push_value(val);
                         self.run(vm)
                     } else {
-                        let (ty, val, tb) = exceptions::split(err, vm);
+                        let (ty, val, tb) = vm.split_exception(err);
                         self.gen_throw(vm, ty, val, tb)
                     }
                 });
             }
         }
-        let exception = exceptions::normalize(exc_type, exc_val, exc_tb, vm)?;
+        let exception = vm.normalize_exception(exc_type, exc_val, exc_tb)?;
         match self.unwind_blocks(vm, UnwindReason::Raising { exception }) {
             Ok(None) => self.run(vm),
             Ok(Some(result)) => Ok(result),
@@ -801,7 +801,7 @@ impl ExecutingFrame<'_> {
                 let exit = self.pop_value();
 
                 let args = if let Some(exc) = exc {
-                    exceptions::split(exc, vm)
+                    vm.split_exception(exc)
                 } else {
                     (vm.ctx.none(), vm.ctx.none(), vm.ctx.none())
                 };

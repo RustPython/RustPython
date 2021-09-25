@@ -6,7 +6,6 @@ pub(crate) use _thread::{make_module, RawRMutex};
 pub(crate) mod _thread {
     use crate::{
         builtins::{PyDictRef, PyStrRef, PyTupleRef, PyTypeRef},
-        exceptions,
         function::{ArgCallable, FuncArgs, IntoPyException, KwArgs, OptionalArg},
         py_io,
         slots::{SlotConstructor, SlotGetattro, SlotSetattro},
@@ -266,7 +265,7 @@ pub(crate) mod _thread {
                     .as_ref()
                     .map_or("<object repr() failed>", |s| s.as_str());
                 writeln!(*stderr, "Exception ignored in thread started by: {}", repr)
-                    .and_then(|()| exceptions::write_exception(&mut stderr, vm, &exc))
+                    .and_then(|()| vm.write_exception(&mut stderr, &exc))
                     .ok();
             }
         }

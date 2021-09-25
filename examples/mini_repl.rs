@@ -76,8 +76,8 @@ def fib(n):
                     scope.globals.set_item("last", output, vm)?;
                 }
             }
-            Err(e) => {
-                vm::exceptions::print_exception(vm, e);
+            Err(exc) => {
+                vm.print_exception(exc);
             }
         }
     }

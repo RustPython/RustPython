@@ -575,11 +575,10 @@ impl AwaitPromise {
         exc_tb: OptionalArg,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let err = rustpython_vm::exceptions::normalize(
+        let err = vm.normalize_exception(
             exc_type,
             exc_val.unwrap_or_none(vm),
             exc_tb.unwrap_or_none(vm),
-            vm,
         )?;
         Err(err)
     }
