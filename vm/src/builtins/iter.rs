@@ -10,7 +10,7 @@ use crate::{
     ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
     VirtualMachine,
 };
-use crossbeam_utils::atomic::AtomicCell;
+use rustpython_common::lock::{PyRwLock, PyRwLockUpgradableReadGuard};
 
 /// Marks status of iterator.
 #[derive(Debug, Clone)]
@@ -95,6 +95,10 @@ impl<T> PositionIterInternal<T> {
                     self.status = IterStatus::Exhausted;
                     Err(vm.new_stop_iteration())
                 }
+                Err(e) if e.isinstance(&vm.ctx.exceptions.runtime_error) => {
+                    self.status = IterStatus::Exhausted;
+                    Err(e)
+                }
                 Err(e) => Err(e),
                 Ok(ret) => {
                     self.position += 1;
@@ -120,6 +124,10 @@ impl<T> PositionIterInternal<T> {
                     self.status = IterStatus::Exhausted;
                     Err(vm.new_stop_iteration())
                 }
+                Err(e) if e.isinstance(&vm.ctx.exceptions.runtime_error) => {
+                    self.status = IterStatus::Exhausted;
+                    Err(e)
+                }
                 Err(e) => Err(e),
                 Ok(ret) => {
                     if self.position == 0 {
@@ -135,35 +143,27 @@ impl<T> PositionIterInternal<T> {
         }
     }
 
-    pub fn length_hint<F>(&self, f: F, vm: &VirtualMachine) -> PyObjectRef
+    pub fn length_hint<F>(&self, f: F) -> usize
     where
-        F: FnOnce(&T) -> Option<usize>,
-    {
-        let len = if let IterStatus::Active(obj) = &self.status {
-            if let Some(obj_len) = f(obj) {
-                obj_len.saturating_sub(self.position)
-            } else {
-                return vm.ctx.not_implemented();
-            }
-        } else {
-            0
-        };
-        PyInt::from(len).into_object(vm)
-    }
-
-    pub fn rev_length_hint<F>(&self, f: F, vm: &VirtualMachine) -> PyObjectRef
-    where
-        F: FnOnce(&T) -> Option<usize>,
+        F: FnOnce(&T) -> usize,
     {
         if let IterStatus::Active(obj) = &self.status {
-            if let Some(obj_len) = f(obj) {
-                if self.position <= obj_len {
-                    return PyInt::from(self.position + 1).into_object(vm);
-                }
-            }
-            // FIXME: return NotImplemented?
+            f(obj).saturating_sub(self.position)
+        } else {
+            0
         }
-        PyInt::from(0).into_object(vm)
+    }
+
+    pub fn rev_length_hint<F>(&self, f: F) -> usize
+    where
+        F: FnOnce(&T) -> usize,
+    {
+        if let IterStatus::Active(obj) = &self.status {
+            if self.position <= f(obj) {
+                return self.position + 1;
+            }
+        }
+        0
     }
 }
 
@@ -189,9 +189,14 @@ impl PySequenceIterator {
 
     #[pymethod(magic)]
     fn length_hint(&self, vm: &VirtualMachine) -> PyObjectRef {
-        self.internal
-            .read()
-            .length_hint(|obj| vm.obj_len(obj).ok(), vm)
+        let internal = self.internal.read();
+        if let IterStatus::Active(obj) = &internal.status {
+            vm.obj_len(obj)
+                .map(|x| PyInt::from(x).into_object(vm))
+                .unwrap_or_else(|_| vm.ctx.not_implemented())
+        } else {
+            PyInt::from(0).into_object(vm)
+        }
     }
 
     #[pymethod(magic)]
@@ -240,12 +245,10 @@ impl PyCallableIterator {
 impl IteratorIterable for PyCallableIterator {}
 impl SlotIterator for PyCallableIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        // let mut status = zelf.status.write();
         let status = zelf.status.upgradable_read();
         if let IterStatus::Active(callable) = &*status {
             let ret = callable.invoke((), vm)?;
             if vm.bool_eq(&ret, &zelf.sentinel)? {
-                // *status = IterStatus::Exhausted;
                 *PyRwLockUpgradableReadGuard::upgrade(status) = IterStatus::Exhausted;
                 Err(vm.new_stop_iteration())
             } else {

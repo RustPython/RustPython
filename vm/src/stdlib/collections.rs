@@ -612,8 +612,8 @@ mod _collections {
         }
 
         #[pymethod(magic)]
-        fn length_hint(&self, vm: &VirtualMachine) -> PyObjectRef {
-            self.internal.read().length_hint(|obj| Some(obj.len()), vm)
+        fn length_hint(&self) -> usize {
+            self.internal.read().length_hint(|obj| obj.len())
         }
 
         #[pymethod(magic)]
@@ -683,10 +683,8 @@ mod _collections {
     #[pyimpl(with(SlotIterator, SlotConstructor))]
     impl PyReverseDequeIterator {
         #[pymethod(magic)]
-        fn length_hint(&self, vm: &VirtualMachine) -> PyObjectRef {
-            self.internal
-                .read()
-                .rev_length_hint(|obj| Some(obj.len()), vm)
+        fn length_hint(&self) -> usize {
+            self.internal.read().rev_length_hint(|obj| obj.len())
         }
 
         #[pymethod(magic)]

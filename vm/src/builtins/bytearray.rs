@@ -1,5 +1,7 @@
 //! Implementation of the python bytearray object.
-use super::{PyBytes, PyBytesRef, PyDictRef, PyIntRef, PyStrRef, PyTupleRef, PyTypeRef};
+use super::{
+    PositionIterInternal, PyBytes, PyBytesRef, PyDictRef, PyIntRef, PyStrRef, PyTupleRef, PyTypeRef,
+};
 use crate::common::{
     borrow::{BorrowedValue, BorrowedValueMut},
     lock::{
@@ -742,8 +744,8 @@ impl PyValue for PyByteArrayIterator {
 #[pyimpl(with(SlotIterator))]
 impl PyByteArrayIterator {
     #[pymethod(magic)]
-    fn length_hint(&self, vm: &VirtualMachine) -> PyObjectRef {
-        self.internal.read().length_hint(|obj| Some(obj.len()), vm)
+    fn length_hint(&self) -> usize {
+        self.internal.read().length_hint(|obj| obj.len())
     }
     #[pymethod(magic)]
     fn reduce(&self, vm: &VirtualMachine) -> PyObjectRef {

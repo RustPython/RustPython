@@ -1,8 +1,4 @@
-use super::{
-    int,
-    iter::IterStatus::{self, Active, Exhausted},
-    PyInt, PyTypeRef,
-};
+use super::{PositionIterInternal, PyTypeRef};
 use crate::common::hash::PyHash;
 use crate::{
     function::OptionalArg,
@@ -19,7 +15,7 @@ use crate::{
     PyContext, PyObjectRef, PyRef, PyResult, PyValue, TransmuteFromObject, TryFromObject,
     TypeProtocol,
 };
-use crossbeam_utils::atomic::AtomicCell;
+use rustpython_common::lock::PyRwLock;
 use std::fmt;
 use std::marker::PhantomData;
 
@@ -331,8 +327,8 @@ impl PyValue for PyTupleIterator {
 #[pyimpl(with(SlotIterator))]
 impl PyTupleIterator {
     #[pymethod(magic)]
-    fn length_hint(&self, vm: &VirtualMachine) -> PyObjectRef {
-        self.internal.read().length_hint(|obj| Some(obj.len()), vm)
+    fn length_hint(&self) -> usize {
+        self.internal.read().length_hint(|obj| obj.len())
     }
 
     #[pymethod(magic)]

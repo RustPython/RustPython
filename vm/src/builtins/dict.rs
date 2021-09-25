@@ -1,4 +1,4 @@
-use super::{IterStatus, PySet, PyStrRef, PyTypeRef};
+use super::{IterStatus, PositionIterInternal, PySet, PyStrRef, PyTypeRef};
 use crate::{
     builtins::PyBaseExceptionRef,
     common::ascii,
@@ -14,7 +14,6 @@ use crate::{
     PyAttributes, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
     PyResult, PyValue, TryFromObject, TypeProtocol,
 };
-use crossbeam_utils::atomic::AtomicCell;
 use rustpython_common::lock::PyRwLock;
 use std::fmt;
 use std::mem::size_of;
@@ -726,10 +725,8 @@ macro_rules! dict_iterator {
             }
 
             #[pymethod(magic)]
-            fn length_hint(&self, vm: &VirtualMachine) -> PyObjectRef {
-                self.internal
-                    .read()
-                    .length_hint(|obj| Some(obj.entries.len()), vm)
+            fn length_hint(&self) -> usize {
+                self.internal.read().length_hint(|_| self.size.entries_size)
             }
         }
 
@@ -786,10 +783,10 @@ macro_rules! dict_iterator {
             }
 
             #[pymethod(magic)]
-            fn length_hint(&self, vm: &VirtualMachine) -> PyObjectRef {
+            fn length_hint(&self) -> usize {
                 self.internal
                     .read()
-                    .rev_length_hint(|_| Some(self.size.entries_size), vm)
+                    .rev_length_hint(|_| self.size.entries_size)
             }
         }
 

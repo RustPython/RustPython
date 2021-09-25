@@ -1,7 +1,7 @@
 use super::{
-    int::{try_to_primitive, PyInt, PyIntRef},
-    iter::IterStatus::{self, Active, Exhausted},
-    PyBytesRef, PyDict, PyTypeRef,
+    int::{PyInt, PyIntRef},
+    iter::IterStatus::{self, Exhausted},
+    PositionIterInternal, PyBytesRef, PyDict, PyTypeRef,
 };
 use crate::{
     anystr::{self, adjust_indices, AnyStr, AnyStrContainer, AnyStrWrapper},
@@ -181,8 +181,8 @@ impl PyValue for PyStrIterator {
 #[pyimpl(with(SlotIterator))]
 impl PyStrIterator {
     #[pymethod(magic)]
-    fn length_hint(&self, vm: &VirtualMachine) -> PyObjectRef {
-        self.internal.read().length_hint(|obj| Some(obj.len()), vm)
+    fn length_hint(&self) -> usize {
+        self.internal.read().length_hint(|obj| obj.len())
     }
 
     #[pymethod(magic)]

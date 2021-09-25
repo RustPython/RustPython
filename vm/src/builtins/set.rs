@@ -838,10 +838,8 @@ impl PyValue for PySetIterator {
 #[pyimpl(with(SlotIterator))]
 impl PySetIterator {
     #[pymethod(magic)]
-    fn length_hint(&self, vm: &VirtualMachine) -> PyObjectRef {
-        self.internal
-            .read()
-            .length_hint(|_| Some(self.size.entries_size), vm)
+    fn length_hint(&self) -> usize {
+        self.internal.read().length_hint(|_| self.size.entries_size)
     }
 
     #[pymethod(magic)]

@@ -1,8 +1,4 @@
-use super::{
-    int,
-    iter::IterStatus::{self, Active, Exhausted},
-    PyGenericAlias, PyInt, PySliceRef, PyTypeRef,
-};
+use super::{PositionIterInternal, PyGenericAlias, PySliceRef, PyTypeRef};
 use crate::common::lock::{
     PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
 };
@@ -19,7 +15,6 @@ use crate::{
     PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol,
 };
-use crossbeam_utils::atomic::AtomicCell;
 use std::fmt;
 use std::iter::FromIterator;
 use std::mem::size_of;
@@ -479,8 +474,8 @@ impl PyValue for PyListIterator {
 #[pyimpl(with(SlotIterator))]
 impl PyListIterator {
     #[pymethod(magic)]
-    fn length_hint(&self, vm: &VirtualMachine) -> PyObjectRef {
-        self.internal.read().length_hint(|obj| Some(obj.len()), vm)
+    fn length_hint(&self) -> usize {
+        self.internal.read().length_hint(|obj| obj.len())
     }
 
     #[pymethod(magic)]
@@ -526,10 +521,8 @@ impl PyValue for PyListReverseIterator {
 #[pyimpl(with(SlotIterator))]
 impl PyListReverseIterator {
     #[pymethod(magic)]
-    fn length_hint(&self, vm: &VirtualMachine) -> PyObjectRef {
-        self.internal
-            .read()
-            .rev_length_hint(|obj| Some(obj.len()), vm)
+    fn length_hint(&self) -> usize {
+        self.internal.read().rev_length_hint(|obj| obj.len())
     }
 
     #[pymethod(magic)]

@@ -1,17 +1,12 @@
-use super::{
-    int,
-    IterStatus::{self, Active, Exhausted},
-    PyInt, PyIntRef, PyTypeRef,
-};
+use super::{IterStatus, PositionIterInternal, PyIntRef, PyTypeRef};
 use crate::common::lock::PyRwLock;
 use crate::{
     function::OptionalArg,
     protocol::{PyIter, PyIterReturn},
     slots::{IteratorIterable, SlotConstructor, SlotIterator},
     IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TypeProtocol, VirtualMachine,
+    VirtualMachine,
 };
-use crossbeam_utils::atomic::AtomicCell;
 use num_bigint::BigInt;
 use num_traits::Zero;
 
@@ -91,10 +86,14 @@ impl PyReverseSequenceIterator {
     }
 
     #[pymethod(magic)]
-    fn length_hint(&self, vm: &VirtualMachine) -> PyObjectRef {
-        self.internal
-            .read()
-            .rev_length_hint(|obj| vm.obj_len(obj).ok(), vm)
+    fn length_hint(&self, vm: &VirtualMachine) -> PyResult<usize> {
+        let internal = self.internal.read();
+        if let IterStatus::Active(obj) = &internal.status {
+            if internal.position <= vm.obj_len(obj)? {
+                return Ok(internal.position + 1);
+            }
+        }
+        Ok(0)
     }
 
     #[pymethod(magic)]

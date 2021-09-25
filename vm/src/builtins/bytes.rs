@@ -1,4 +1,4 @@
-use super::{PyDictRef, PyInt, PyIntRef, PyStrRef, PyTupleRef, PyTypeRef, int};
+use super::{PositionIterInternal, PyDictRef, PyIntRef, PyStrRef, PyTupleRef, PyTypeRef};
 use crate::{
     anystr::{self, AnyStr},
     bytesinner::{
@@ -595,8 +595,8 @@ impl PyValue for PyBytesIterator {
 #[pyimpl(with(SlotIterator))]
 impl PyBytesIterator {
     #[pymethod(magic)]
-    fn length_hint(&self, vm: &VirtualMachine) -> PyObjectRef {
-        self.internal.read().length_hint(|obj| Some(obj.len()), vm)
+    fn length_hint(&self) -> usize {
+        self.internal.read().length_hint(|obj| obj.len())
     }
 
     #[pymethod(magic)]
