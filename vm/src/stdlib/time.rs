@@ -165,7 +165,7 @@ mod time {
     fn asctime(t: OptionalArg<PyStructTime>, vm: &VirtualMachine) -> PyResult {
         let instant = t.naive_or_local(vm)?;
         let formatted_time = instant.format(CFMT).to_string();
-        Ok(vm.ctx.new_str(formatted_time))
+        Ok(vm.ctx.new_utf8_str(formatted_time))
     }
 
     #[pyfunction]
@@ -178,7 +178,7 @@ mod time {
     fn strftime(format: PyStrRef, t: OptionalArg<PyStructTime>, vm: &VirtualMachine) -> PyResult {
         let instant = t.naive_or_local(vm)?;
         let formatted_time = instant.format(format.as_str()).to_string();
-        Ok(vm.ctx.new_str(formatted_time))
+        Ok(vm.ctx.new_utf8_str(formatted_time))
     }
 
     #[pyfunction]
@@ -217,10 +217,7 @@ mod time {
         Ok(get_thread_time(vm)?.as_nanos() as u64)
     }
 
-    #[cfg(any(
-        all(target_arch = "wasm32", not(target_os = "unknown")),
-        target_os = "redox"
-    ))]
+    #[cfg(all(target_arch = "wasm32", not(target_os = "unknown")))]
     fn get_process_time(vm: &VirtualMachine) -> PyResult<std::time::Duration> {
         fn time_muldiv(ticks: i64, mul: i64, div: i64) -> u64 {
             let intpart = ticks / div;
@@ -421,12 +418,19 @@ mod unix {
         target_os = "android",
         target_os = "dragonfly",
         target_os = "freebsd",
-        target_os = "linux"
+        target_os = "linux",
+        target_os = "redox",
     ))]
     pub(super) fn get_process_time(vm: &VirtualMachine) -> PyResult<Duration> {
         let time: libc::timespec = unsafe {
+            #[cfg(not(target_os = "redox"))]
+            use libc::CLOCK_PROCESS_CPUTIME_ID;
+            #[cfg(target_os = "redox")]
+            // TODO: will be upstreamed to libc sometime soon
+            const CLOCK_PROCESS_CPUTIME_ID: libc::clockid_t = 2;
+
             let mut time = std::mem::MaybeUninit::uninit();
-            if libc::clock_gettime(libc::CLOCK_PROCESS_CPUTIME_ID, time.as_mut_ptr()) == -1 {
+            if libc::clock_gettime(CLOCK_PROCESS_CPUTIME_ID, time.as_mut_ptr()) == -1 {
                 return Err(vm.new_os_error("Failed to get clock time".to_owned()));
             }
             time.assume_init()

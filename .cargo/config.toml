@@ -1,0 +1,6 @@
+[target.'cfg(target_env = "msvc")']
+rustflags = "-C link-args=-Wl,--stack,8000000"
+
+[target.'cfg(all(target_os = "windows", not(target_env = "msvc")))']
+rustflags = "-C link-args=-Wl,-zstack-size=8000000"
+

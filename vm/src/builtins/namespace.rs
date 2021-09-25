@@ -1,8 +1,8 @@
-use super::pytype::PyTypeRef;
-use crate::function::KwArgs;
-use crate::slots::SlotConstructor;
-use crate::vm::VirtualMachine;
-use crate::{IntoPyObject, PyClassImpl, PyContext, PyResult, PyValue};
+use super::PyTypeRef;
+use crate::{
+    function::KwArgs, slots::SlotConstructor, IntoPyObject, PyClassImpl, PyContext, PyResult,
+    PyValue, VirtualMachine,
+};
 
 /// A simple attribute-based namespace.
 ///

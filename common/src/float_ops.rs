@@ -97,7 +97,7 @@ pub fn parse_str(literal: &str) -> Option<f64> {
 }
 
 pub fn is_integer(v: f64) -> bool {
-    (v - v.round()).abs() < std::f64::EPSILON
+    (v - v.round()).abs() < f64::EPSILON
 }
 
 #[derive(Debug)]
@@ -226,7 +226,9 @@ pub fn to_string(value: f64) -> String {
             format!("{}e{:+#03}", significand, exponent)
         }
     } else {
-        value.to_string()
+        let mut s = value.to_string();
+        s.make_ascii_lowercase();
+        s
     }
 }
 

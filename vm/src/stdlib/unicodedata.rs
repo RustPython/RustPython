@@ -2,12 +2,10 @@
    See also: https://docs.python.org/3/library/unicodedata.html
 */
 
-use crate::builtins::pystr::PyStrRef;
-use crate::builtins::pytype::PyTypeRef;
-use crate::function::OptionalArg;
-use crate::vm::VirtualMachine;
-use crate::{PyClassImpl, PyObject, PyObjectRef, PyResult, PyValue, StaticType};
-
+use crate::{
+    builtins::PyStrRef, function::OptionalArg, PyClassImpl, PyObject, PyObjectRef, PyResult,
+    PyValue, VirtualMachine,
+};
 use itertools::Itertools;
 use unic_char_property::EnumeratedCharProperty;
 use unic_normal::StrNormalForm;
@@ -39,7 +37,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "ucd_3_2_0" => ucd_3_2_0,
         // we do unidata_version here because the getter tries to do PyUCD::class() before
         // the module is in the VM
-        "unidata_version" => ctx.new_str(PyUCD::default().unic_version.to_string()),
+        "unidata_version" => ctx.new_utf8_str(PyUCD::default().unic_version.to_string()),
     });
 
     for attr in ["category", "lookup", "name", "bidirectional", "normalize"]
@@ -55,15 +53,9 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 }
 
 #[pyclass(module = "unicodedata", name = "UCD")]
-#[derive(Debug)]
+#[derive(Debug, PyValue)]
 struct PyUCD {
     unic_version: UnicodeVersion,
-}
-
-impl PyValue for PyUCD {
-    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_type()
-    }
 }
 
 impl Default for PyUCD {
@@ -124,7 +116,7 @@ impl PyUCD {
         if let Some(c) = c {
             if self.check_age(c) {
                 if let Some(name) = unicode_names2::name(c) {
-                    return Ok(vm.ctx.new_str(name.to_string()));
+                    return Ok(vm.ctx.new_utf8_str(name.to_string()));
                 }
             }
         }

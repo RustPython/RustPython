@@ -1,33 +1,30 @@
 //! Implementation of the python bytearray object.
-use super::bytes::{PyBytes, PyBytesRef};
-use super::dict::PyDictRef;
-use super::int::PyIntRef;
-use super::pystr::PyStrRef;
-use super::pytype::PyTypeRef;
-use super::tuple::PyTupleRef;
-use crate::anystr::{self, AnyStr};
-use crate::buffer::{BufferOptions, PyBuffer, ResizeGuard};
-use crate::bytesinner::{
-    bytes_decode, bytes_from_object, value_from_object, ByteInnerFindOptions, ByteInnerNewOptions,
-    ByteInnerPaddingOptions, ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs,
-    PyBytesInner,
+use super::{PyBytes, PyBytesRef, PyDictRef, PyIntRef, PyStrRef, PyTupleRef, PyTypeRef};
+use crate::common::{
+    borrow::{BorrowedValue, BorrowedValueMut},
+    lock::{
+        PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyRwLock, PyRwLockReadGuard,
+        PyRwLockWriteGuard,
+    },
 };
-use crate::byteslike::ArgBytesLike;
-use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
-use crate::common::lock::{
-    PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyRwLock, PyRwLockReadGuard,
-    PyRwLockWriteGuard,
-};
-use crate::function::{FuncArgs, OptionalArg, OptionalOption};
-use crate::sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex};
-use crate::slots::{
-    AsBuffer, Callable, Comparable, Hashable, Iterable, PyComparisonOp, PyIter, Unhashable,
-};
-use crate::utils::Either;
-use crate::vm::VirtualMachine;
 use crate::{
-    IdProtocol, IntoPyObject, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyIterable,
-    PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    anystr::{self, AnyStr},
+    bytesinner::{
+        bytes_decode, bytes_from_object, value_from_object, ByteInnerFindOptions,
+        ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerSplitOptions,
+        ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
+    },
+    byteslike::ArgBytesLike,
+    function::{ArgIterable, FuncArgs, OptionalArg, OptionalOption},
+    protocol::{BufferInternal, BufferOptions, PyBuffer, ResizeGuard},
+    sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
+    slots::{
+        AsBuffer, Callable, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp,
+        PyIter, Unhashable,
+    },
+    utils::Either,
+    IdProtocol, IntoPyObject, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef,
+    PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
 use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;
@@ -413,7 +410,7 @@ impl PyByteArray {
     }
 
     #[pymethod]
-    fn join(&self, iter: PyIterable<PyBytesInner>, vm: &VirtualMachine) -> PyResult<PyByteArray> {
+    fn join(&self, iter: ArgIterable<PyBytesInner>, vm: &VirtualMachine) -> PyResult<PyByteArray> {
         Ok(self.inner().join(iter, vm)?.into())
     }
 
@@ -670,41 +667,35 @@ impl Comparable for PyByteArray {
 }
 
 impl AsBuffer for PyByteArray {
-    fn get_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<Box<dyn PyBuffer>> {
-        zelf.exports.fetch_add(1);
-        let buf = ByteArrayBuffer {
-            bytearray: zelf.clone(),
-            options: BufferOptions {
+    fn get_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
+        let buffer = PyBuffer::new(
+            zelf.as_object().clone(),
+            zelf.clone(),
+            BufferOptions {
                 readonly: false,
                 len: zelf.len(),
                 ..Default::default()
             },
-        };
-        Ok(Box::new(buf))
+        );
+        Ok(buffer)
     }
 }
 
-#[derive(Debug)]
-struct ByteArrayBuffer {
-    bytearray: PyByteArrayRef,
-    options: BufferOptions,
-}
-
-impl PyBuffer for ByteArrayBuffer {
+impl BufferInternal for PyRef<PyByteArray> {
     fn obj_bytes(&self) -> BorrowedValue<[u8]> {
-        self.bytearray.borrow_buf().into()
+        self.borrow_buf().into()
     }
 
     fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
-        PyRwLockWriteGuard::map(self.bytearray.inner_mut(), |inner| &mut *inner.elements).into()
+        PyRwLockWriteGuard::map(self.inner_mut(), |inner| &mut *inner.elements).into()
     }
 
     fn release(&self) {
-        self.bytearray.exports.fetch_sub(1);
+        self.exports.fetch_sub(1);
     }
 
-    fn get_options(&self) -> &BufferOptions {
-        &self.options
+    fn retain(&self) {
+        self.exports.fetch_add(1);
     }
 }
 
@@ -753,6 +744,7 @@ impl PyValue for PyByteArrayIterator {
 
 #[pyimpl(with(PyIter))]
 impl PyByteArrayIterator {}
+impl IteratorIterable for PyByteArrayIterator {}
 impl PyIter for PyByteArrayIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         let pos = zelf.position.fetch_add(1);

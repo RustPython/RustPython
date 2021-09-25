@@ -1,14 +1,11 @@
-use super::code::PyCodeRef;
-use super::pystr::PyStrRef;
-use super::pytype::PyTypeRef;
-use crate::coroutine::{Coro, Variant};
-use crate::frame::FrameRef;
-use crate::function::OptionalArg;
-use crate::slots::PyIter;
-use crate::vm::VirtualMachine;
-use crate::{IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
-
-type PyCoroutineRef = PyRef<PyCoroutine>;
+use super::{PyCode, PyStrRef, PyTypeRef};
+use crate::{
+    coroutine::{Coro, Variant},
+    frame::FrameRef,
+    function::OptionalArg,
+    slots::{IteratorIterable, PyIter},
+    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+};
 
 #[pyclass(module = false, name = "coroutine")]
 #[derive(Debug)]
@@ -93,7 +90,7 @@ impl PyCoroutine {
         self.inner.running()
     }
     #[pyproperty]
-    fn cr_code(&self, _vm: &VirtualMachine) -> PyCodeRef {
+    fn cr_code(&self, _vm: &VirtualMachine) -> PyRef<PyCode> {
         self.inner.frame().code.clone()
     }
     // TODO: coroutine origin tracking:
@@ -104,6 +101,7 @@ impl PyCoroutine {
     }
 }
 
+impl IteratorIterable for PyCoroutine {}
 impl PyIter for PyCoroutine {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         zelf.send(vm.ctx.none(), vm)
@@ -113,7 +111,7 @@ impl PyIter for PyCoroutine {
 #[pyclass(module = false, name = "coroutine_wrapper")]
 #[derive(Debug)]
 pub struct PyCoroutineWrapper {
-    coro: PyCoroutineRef,
+    coro: PyRef<PyCoroutine>,
 }
 
 impl PyValue for PyCoroutineWrapper {
@@ -141,6 +139,7 @@ impl PyCoroutineWrapper {
     }
 }
 
+impl IteratorIterable for PyCoroutineWrapper {}
 impl PyIter for PyCoroutineWrapper {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         zelf.send(vm.ctx.none(), vm)

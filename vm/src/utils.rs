@@ -1,4 +1,5 @@
-use crate::builtins::PyFloat;
+use crate::builtins::{pystr::PyStr, PyFloat};
+use crate::exceptions::IntoPyException;
 use crate::{
     IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
     VirtualMachine,
@@ -109,3 +110,43 @@ impl IntoPyObject for std::convert::Infallible {
         match self {}
     }
 }
+
+pub trait ToCString {
+    fn to_cstring(&self, vm: &VirtualMachine) -> PyResult<std::ffi::CString>;
+}
+
+impl ToCString for &str {
+    fn to_cstring(&self, vm: &VirtualMachine) -> PyResult<std::ffi::CString> {
+        std::ffi::CString::new(*self).map_err(|err| err.into_pyexception(vm))
+    }
+}
+
+impl ToCString for PyStr {
+    fn to_cstring(&self, vm: &VirtualMachine) -> PyResult<std::ffi::CString> {
+        std::ffi::CString::new(self.as_ref()).map_err(|err| err.into_pyexception(vm))
+    }
+}
+
+#[allow(dead_code)]
+pub(crate) const fn bytes_is_ascii(x: &str) -> bool {
+    let x = x.as_bytes();
+    let mut i = 0;
+    while i < x.len() {
+        if !x[i].is_ascii() {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+macro_rules! ascii {
+    ($x:literal) => {{
+        const _: () = {
+            ["not ascii"][!crate::utils::bytes_is_ascii($x) as usize];
+        };
+        unsafe { ascii::AsciiStr::from_ascii_unchecked($x.as_bytes()) }
+    }};
+}
+
+pub(crate) use ascii;

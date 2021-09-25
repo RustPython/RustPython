@@ -1,21 +1,18 @@
 #![allow(non_snake_case)]
 
+use super::os::errno_err;
+use crate::{
+    builtins::{dict::PyMapping, PyDictRef, PyStrRef},
+    exceptions::IntoPyException,
+    function::OptionalArg,
+    PyObjectRef, PyResult, PySequence, TryFromObject, VirtualMachine,
+};
 use std::ptr::{null, null_mut};
-
 use winapi::shared::winerror;
-use winapi::um::winnt::HANDLE;
 use winapi::um::{
     fileapi, handleapi, namedpipeapi, processenv, processthreadsapi, synchapi, winbase, winnt,
-    winuser,
+    winnt::HANDLE, winuser,
 };
-
-use super::os::errno_err;
-use crate::builtins::dict::{PyDictRef, PyMapping};
-use crate::builtins::pystr::PyStrRef;
-use crate::exceptions::IntoPyException;
-use crate::function::OptionalArg;
-use crate::VirtualMachine;
-use crate::{PyObjectRef, PyResult, PySequence, TryFromObject};
 
 fn GetLastError() -> u32 {
     unsafe { winapi::um::errhandlingapi::GetLastError() }
@@ -261,9 +258,9 @@ fn getattributelist(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<At
                 .get_item_option("handle_list", vm)?
                 .and_then(|obj| {
                     <Option<PySequence<usize>>>::try_from_object(vm, obj)
-                        .and_then(|s| match s {
-                            Some(s) if !s.as_slice().is_empty() => Ok(Some(s.into_vec())),
-                            _ => Ok(None),
+                        .map(|s| match s {
+                            Some(s) if !s.as_slice().is_empty() => Some(s.into_vec()),
+                            _ => None,
                         })
                         .transpose()
                 })

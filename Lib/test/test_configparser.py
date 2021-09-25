@@ -1702,6 +1702,8 @@ class CoverageOneHundredTestCase(unittest.TestCase):
 class ExceptionPicklingTestCase(unittest.TestCase):
     """Tests for issue #13760: ConfigParser exceptions are not picklable."""
 
+    # TODO: RUSTPYTHON Exception.__reduce__ missing.
+    @unittest.expectedFailure
     def test_error(self):
         import pickle
         e1 = configparser.Error('value')

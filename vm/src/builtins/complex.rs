@@ -1,19 +1,16 @@
-use num_complex::Complex64;
-use num_traits::Zero;
-use std::convert::Infallible as Never;
-
-use super::float;
-use super::pystr::PyStr;
-use super::pytype::PyTypeRef;
-use crate::function::{OptionalArg, OptionalOption};
-use crate::slots::{Comparable, Hashable, PyComparisonOp, SlotConstructor};
-use crate::VirtualMachine;
+use super::{float, PyStr, PyTypeRef};
 use crate::{
+    function::{OptionalArg, OptionalOption},
+    slots::{Comparable, Hashable, PyComparisonOp, SlotConstructor},
     IdProtocol, IntoPyObject,
     PyArithmaticValue::{self, *},
-    PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol, VirtualMachine,
 };
+use num_complex::Complex64;
+use num_traits::Zero;
 use rustpython_common::{float_ops, hash};
+use std::convert::Infallible as Never;
 
 /// Create a complex number from a real part and an optional imaginary part.
 ///
@@ -446,8 +443,30 @@ fn try_complex(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<(Compl
     if let Some(complex) = obj.payload_if_subclass::<PyComplex>(vm) {
         return Ok(Some((complex.value, true)));
     }
-    if let Some(float) = float::try_float_opt(obj, vm)? {
+    if let Some(float) = obj.try_to_f64(vm)? {
         return Ok(Some((Complex64::new(float, 0.0), false)));
     }
     Ok(None)
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+#[repr(transparent)]
+pub struct IntoPyComplex {
+    value: Complex64,
+}
+
+impl IntoPyComplex {
+    pub fn to_complex(self) -> Complex64 {
+        self.value
+    }
+}
+
+impl TryFromObject for IntoPyComplex {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        // We do not care if it was already a complex.
+        let (value, _) = try_complex(&obj, vm)?.ok_or_else(|| {
+            vm.new_type_error(format!("must be real number, not {}", obj.class().name()))
+        })?;
+        Ok(IntoPyComplex { value })
+    }
 }

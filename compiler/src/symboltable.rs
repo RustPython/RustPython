@@ -4,7 +4,7 @@ This ensures that global and nonlocal keywords are picked up.
 Then the compiler can use the symbol table to generate proper
 load and store instructions for names.
 
-Inspirational file: https://github.com/python/cpython/blob/master/Python/symtable.c
+Inspirational file: https://github.com/python/cpython/blob/main/Python/symtable.c
 */
 
 use crate::error::{CompileError, CompileErrorType};
@@ -196,7 +196,7 @@ impl std::fmt::Debug for SymbolTable {
 }
 
 /* Perform some sort of analysis on nonlocals, globals etc..
-  See also: https://github.com/python/cpython/blob/master/Python/symtable.c#L410
+  See also: https://github.com/python/cpython/blob/main/Python/symtable.c#L410
 */
 fn analyze_symbol_table(symbol_table: &mut SymbolTable) -> SymbolTableResult {
     let mut analyzer = SymbolTableAnalyzer::default();
@@ -760,7 +760,7 @@ impl SymbolTableBuilder {
                 value,
                 simple,
             } => {
-                // https://github.com/python/cpython/blob/master/Python/symtable.c#L1233
+                // https://github.com/python/cpython/blob/main/Python/symtable.c#L1233
                 match &target.node {
                     ast::ExprKind::Name { id, .. } if *simple => {
                         self.register_name(id, SymbolUsage::AnnotationAssigned, location)?;

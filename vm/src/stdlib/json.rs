@@ -3,24 +3,22 @@ mod machinery;
 
 #[pymodule]
 mod _json {
-    use super::*;
-    use crate::builtins::pystr::PyStrRef;
-    use crate::builtins::{pybool, pytype::PyTypeRef};
-    use crate::exceptions::PyBaseExceptionRef;
-    use crate::function::{FuncArgs, OptionalArg};
-    use crate::iterator;
-    use crate::slots::{Callable, SlotConstructor};
-    use crate::VirtualMachine;
+    use super::machinery;
     use crate::{
-        IdProtocol, IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject,
+        builtins::{PyStrRef, PyTypeRef},
+        exceptions::PyBaseExceptionRef,
+        function::{FuncArgs, OptionalArg},
+        iterator,
+        slots::{Callable, SlotConstructor},
+        IdProtocol, IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+        VirtualMachine,
     };
-
     use num_bigint::BigInt;
     use std::str::FromStr;
 
     #[pyattr(name = "make_scanner")]
     #[pyclass(name = "Scanner")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     struct JsonScanner {
         strict: bool,
         object_hook: Option<PyObjectRef>,
@@ -31,17 +29,11 @@ mod _json {
         ctx: PyObjectRef,
     }
 
-    impl PyValue for JsonScanner {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
-    }
-
     impl SlotConstructor for JsonScanner {
         type Args = PyObjectRef;
 
         fn py_new(cls: PyTypeRef, ctx: Self::Args, vm: &VirtualMachine) -> PyResult {
-            let strict = pybool::boolval(vm, vm.get_attribute(ctx.clone(), "strict")?)?;
+            let strict = vm.get_attribute(ctx.clone(), "strict")?.try_to_bool(vm)?;
             let object_hook = vm.option_if_none(vm.get_attribute(ctx.clone(), "object_hook")?);
             let object_pairs_hook =
                 vm.option_if_none(vm.get_attribute(ctx.clone(), "object_pairs_hook")?);

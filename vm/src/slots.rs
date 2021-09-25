@@ -1,8 +1,8 @@
-use crate::buffer::PyBuffer;
 use crate::builtins::{PyStrRef, PyTypeRef};
 use crate::common::hash::PyHash;
 use crate::common::lock::PyRwLock;
 use crate::function::{FromArgs, FuncArgs, OptionalArg};
+use crate::protocol::PyBuffer;
 use crate::utils::Either;
 use crate::VirtualMachine;
 use crate::{
@@ -25,8 +25,16 @@ bitflags! {
 }
 
 impl PyTpFlags {
+    // Default used for both built-in and normal classes: empty, for now.
     // CPython default: Py_TPFLAGS_HAVE_STACKLESS_EXTENSION | Py_TPFLAGS_HAVE_VERSION_TAG
-    pub const DEFAULT: Self = Self::HEAPTYPE;
+    pub const DEFAULT: Self = Self::empty();
+
+    // CPython: See initialization of flags in type_new.
+    /// Used for types created in Python. Subclassable and are a
+    /// heaptype.
+    pub fn heap_type_flags() -> Self {
+        Self::DEFAULT | Self::HEAPTYPE | Self::BASETYPE
+    }
 
     pub fn has_feature(self, flag: Self) -> bool {
         self.contains(flag)
@@ -61,7 +69,7 @@ pub(crate) type RichCompareFunc = fn(
 pub(crate) type GetattroFunc = fn(PyObjectRef, PyStrRef, &VirtualMachine) -> PyResult;
 pub(crate) type SetattroFunc =
     fn(&PyObjectRef, PyStrRef, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>;
-pub(crate) type BufferFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<Box<dyn PyBuffer>>;
+pub(crate) type BufferFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<PyBuffer>;
 pub(crate) type IterFunc = fn(PyObjectRef, &VirtualMachine) -> PyResult;
 pub(crate) type IterNextFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult;
 
@@ -510,21 +518,22 @@ pub trait SlotSetattro: PyValue {
 
 #[pyimpl]
 pub trait AsBuffer: PyValue {
+    // TODO: `flags` parameter
     #[pyslot]
-    fn tp_as_buffer(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Box<dyn PyBuffer>> {
-        if let Some(zelf) = zelf.downcast_ref() {
-            Self::get_buffer(zelf, vm)
-        } else {
-            Err(vm.new_type_error("unexpected payload for get_buffer".to_owned()))
-        }
+    fn as_buffer(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<PyBuffer> {
+        let zelf = zelf
+            .downcast_ref()
+            .ok_or_else(|| vm.new_type_error("unexpected payload for get_buffer".to_owned()))?;
+        Self::get_buffer(zelf, vm)
     }
 
-    fn get_buffer(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<Box<dyn PyBuffer>>;
+    fn get_buffer(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyBuffer>;
 }
 
 #[pyimpl]
 pub trait Iterable: PyValue {
     #[pyslot]
+    #[pymethod(name = "__iter__")]
     fn tp_iter(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Ok(zelf) = zelf.downcast() {
             Self::iter(zelf, vm)
@@ -533,12 +542,11 @@ pub trait Iterable: PyValue {
         }
     }
 
-    #[pymethod(magic)]
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult;
 }
 
 #[pyimpl(with(Iterable))]
-pub trait PyIter: PyValue {
+pub trait PyIter: PyValue + Iterable {
     #[pyslot]
     fn tp_iternext(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(zelf) = zelf.downcast_ref() {
@@ -551,19 +559,21 @@ pub trait PyIter: PyValue {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult;
 
     #[pymethod]
-    fn __next__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        Self::next(&zelf, vm)
+    fn __next__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Self::tp_iternext(&zelf, vm)
     }
 }
 
+pub trait IteratorIterable: PyValue {}
+
 impl<T> Iterable for T
 where
-    T: PyIter,
+    T: IteratorIterable,
 {
     fn tp_iter(zelf: PyObjectRef, _vm: &VirtualMachine) -> PyResult {
         Ok(zelf)
     }
-    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyResult {
-        Ok(zelf.into_object())
+    fn iter(_zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyResult {
+        unreachable!("tp_iter is implemented");
     }
 }

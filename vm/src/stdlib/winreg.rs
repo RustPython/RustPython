@@ -1,11 +1,10 @@
 #![allow(non_snake_case)]
-use crate::builtins::pystr::PyStrRef;
-use crate::builtins::pytype::PyTypeRef;
-use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
-use crate::exceptions::IntoPyException;
-use crate::VirtualMachine;
-use crate::{PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject};
 
+use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
+use crate::{
+    builtins::PyStrRef, exceptions::IntoPyException, PyClassImpl, PyObjectRef, PyRef, PyResult,
+    PyValue, TryFromObject, VirtualMachine,
+};
 use std::convert::TryInto;
 use std::ffi::OsStr;
 use std::io;
@@ -13,7 +12,7 @@ use winapi::shared::winerror;
 use winreg::{enums::RegType, RegKey, RegValue};
 
 #[pyclass(module = "winreg", name = "HKEYType")]
-#[derive(Debug)]
+#[derive(Debug, PyValue)]
 struct PyHKEY {
     key: PyRwLock<RegKey>,
 }
@@ -21,12 +20,6 @@ type PyHKEYRef = PyRef<PyHKEY>;
 
 // TODO: fix this
 unsafe impl Sync for PyHKEY {}
-
-impl PyValue for PyHKEY {
-    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_type()
-    }
-}
 
 #[pyimpl]
 impl PyHKEY {
@@ -260,7 +253,7 @@ fn reg_to_py(value: RegValue, vm: &VirtualMachine) -> PyResult {
                 .position(|w| *w == 0)
                 .unwrap_or_else(|| wide_slice.len());
             let s = String::from_utf16_lossy(&wide_slice[..nul_pos]);
-            Ok(vm.ctx.new_str(s))
+            Ok(vm.ctx.new_utf8_str(s))
         }
         RegType::REG_MULTI_SZ => {
             if value.bytes.is_empty() {
@@ -278,11 +271,11 @@ fn reg_to_py(value: RegValue, vm: &VirtualMachine) -> PyResult {
             };
             let strings = wide_slice
                 .split(|c| *c == 0)
-                .map(|s| vm.ctx.new_str(String::from_utf16_lossy(s)))
+                .map(|s| vm.ctx.new_utf8_str(String::from_utf16_lossy(s)))
                 .collect();
             Ok(vm.ctx.new_list(strings))
         }
-        RegType::REG_BINARY | _ => {
+        _ => {
             if value.bytes.is_empty() {
                 Ok(vm.ctx.none())
             } else {

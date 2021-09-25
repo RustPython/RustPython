@@ -2,7 +2,7 @@
 //! Take an AST and transform it into bytecode
 //!
 //! Inspirational code:
-//!   https://github.com/python/cpython/blob/master/Python/compile.c
+//!   https://github.com/python/cpython/blob/main/Python/compile.c
 //!   https://github.com/micropython/micropython/blob/master/py/compile.c
 
 use crate::ir::{self, CodeInfo};

@@ -1024,8 +1024,6 @@ class InfNanTest(unittest.TestCase):
         self.assertEqual(str(1e300 * 1e300), "inf")
         self.assertEqual(str(-1e300 * 1e300), "-inf")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_nan_from_str(self):
         self.assertTrue(isnan(float("nan")))
         self.assertTrue(isnan(float("+nan")))
@@ -1055,8 +1053,6 @@ class InfNanTest(unittest.TestCase):
         self.assertRaises(ValueError, float, "+-NaN")
         self.assertRaises(ValueError, float, "--nAn")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_nan_as_str(self):
         self.assertEqual(repr(1e300 * 1e300 * 0), "nan")
         self.assertEqual(repr(-1e300 * 1e300 * 0), "nan")

@@ -15,7 +15,7 @@
 // we want to mirror python naming conventions when defining python structs, so that does mean
 // uppercase acronyms, e.g. TextIOWrapper instead of TextIoWrapper
 #![allow(clippy::upper_case_acronyms)]
-#![doc(html_logo_url = "https://raw.githubusercontent.com/RustPython/RustPython/master/logo.png")]
+#![doc(html_logo_url = "https://raw.githubusercontent.com/RustPython/RustPython/main/logo.png")]
 #![doc(html_root_url = "https://docs.rs/rustpython-vm/")]
 
 #[cfg(feature = "flame-it")]
@@ -43,7 +43,6 @@ pub use rustpython_derive::*;
 pub mod macros;
 
 mod anystr;
-mod buffer;
 pub mod builtins;
 mod bytesinner;
 pub mod byteslike;
@@ -62,6 +61,7 @@ mod frozen;
 pub mod function;
 pub mod import;
 pub mod iterator;
+mod protocol;
 pub mod py_io;
 pub mod py_serde;
 mod pyobject;

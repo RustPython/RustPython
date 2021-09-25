@@ -2,13 +2,12 @@ pub(crate) use decl::make_module;
 
 #[pymodule(name = "symtable")]
 mod decl {
+    use crate::{
+        builtins::PyStrRef,
+        compile::{self, Symbol, SymbolScope, SymbolTable, SymbolTableType},
+        PyRef, PyResult, PyValue, VirtualMachine,
+    };
     use std::fmt;
-
-    use crate::builtins::pystr::PyStrRef;
-    use crate::builtins::pytype::PyTypeRef;
-    use crate::compile::{self, Symbol, SymbolScope, SymbolTable, SymbolTableType};
-    use crate::vm::VirtualMachine;
-    use crate::{PyRef, PyResult, PyValue, StaticType};
 
     /// symtable. Return top level SymbolTable.
     /// See docs: https://docs.python.org/3/library/symtable.html?highlight=symtable#symtable.symtable
@@ -40,6 +39,7 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "SymbolTable")]
+    #[derive(PyValue)]
     struct PySymbolTable {
         symtable: SymbolTable,
     }
@@ -47,12 +47,6 @@ mod decl {
     impl fmt::Debug for PySymbolTable {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             write!(f, "SymbolTable()")
-        }
-    }
-
-    impl PyValue for PySymbolTable {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
         }
     }
 
@@ -99,7 +93,7 @@ mod decl {
                 }
                 .into_ref(vm))
             } else {
-                Err(vm.new_key_error(vm.ctx.new_str(format!("lookup {} failed", name))))
+                Err(vm.new_key_error(vm.ctx.new_utf8_str(format!("lookup {} failed", name))))
             }
         }
 
@@ -109,7 +103,7 @@ mod decl {
                 .symtable
                 .symbols
                 .keys()
-                .map(|s| vm.ctx.new_str(s))
+                .map(|s| vm.ctx.new_utf8_str(s))
                 .collect();
             Ok(vm.ctx.new_list(symbols))
         }
@@ -157,6 +151,7 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "Symbol")]
+    #[derive(PyValue)]
     struct PySymbol {
         symbol: Symbol,
         namespaces: Vec<SymbolTable>,
@@ -165,12 +160,6 @@ mod decl {
     impl fmt::Debug for PySymbol {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             write!(f, "Symbol()")
-        }
-    }
-
-    impl PyValue for PySymbol {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
         }
     }
 

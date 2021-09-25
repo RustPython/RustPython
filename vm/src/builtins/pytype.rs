@@ -1,26 +1,18 @@
+use super::{
+    mappingproxy::PyMappingProxy, object, PyClassMethod, PyDictRef, PyInt, PyList, PyStaticMethod,
+    PyStr, PyStrRef, PyTuple, PyTupleRef, PyWeak,
+};
 use crate::common::lock::PyRwLock;
-use std::collections::HashSet;
-use std::fmt;
-
-use super::classmethod::PyClassMethod;
-use super::dict::PyDictRef;
-use super::int::PyInt;
-use super::list::PyList;
-use super::mappingproxy::PyMappingProxy;
-use super::object;
-use super::pystr::{PyStr, PyStrRef};
-use super::staticmethod::PyStaticMethod;
-use super::tuple::{PyTuple, PyTupleRef};
-use super::weakref::PyWeak;
-use crate::function::{FuncArgs, KwArgs, OptionalArg};
-use crate::slots::{self, Callable, PyTpFlags, PyTypeSlots, SlotGetattro, SlotSetattro};
-use crate::utils::Either;
-use crate::vm::VirtualMachine;
 use crate::{
+    function::{FuncArgs, KwArgs, OptionalArg},
+    slots::{self, Callable, PyTpFlags, PyTypeSlots, SlotGetattro, SlotSetattro},
+    utils::Either,
     IdProtocol, PyAttributes, PyClassImpl, PyContext, PyLease, PyObjectRef, PyRef, PyResult,
-    PyValue, TryFromObject, TypeProtocol,
+    PyValue, TryFromObject, TypeProtocol, VirtualMachine,
 };
 use itertools::Itertools;
+use std::collections::HashSet;
+use std::fmt;
 use std::ops::Deref;
 
 /// type(object_or_name, bases, dict)
@@ -239,6 +231,19 @@ impl PyTypeRef {
 
 #[pyimpl(with(SlotGetattro, SlotSetattro, Callable), flags(BASETYPE))]
 impl PyType {
+    // bound method for every type
+    pub(crate) fn __new__(zelf: PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let (subtype, args): (PyRef<Self>, FuncArgs) = args.bind(vm)?;
+        if !subtype.issubclass(&zelf) {
+            return Err(vm.new_type_error(format!(
+                "{zelf}.__new__({subtype}): {subtype} is not a subtype of {zelf}",
+                zelf = zelf.name(),
+                subtype = subtype.name(),
+            )));
+        }
+        call_tp_new(zelf, subtype, args, vm)
+    }
+
     #[pyproperty(name = "__mro__")]
     fn get_mro(zelf: PyRef<Self>) -> PyTuple {
         let elements: Vec<PyObjectRef> = zelf.iter_mro().map(|x| x.as_object().clone()).collect();
@@ -266,7 +271,7 @@ impl PyType {
         let attributes: Vec<PyObjectRef> = zelf
             .get_attributes()
             .drain()
-            .map(|(k, _)| vm.ctx.new_str(k))
+            .map(|(k, _)| vm.ctx.new_utf8_str(k))
             .collect();
         PyList::from(attributes)
     }
@@ -326,7 +331,7 @@ impl PyType {
                     Some(found)
                 }
             })
-            .unwrap_or_else(|| vm.ctx.new_str(self.name()))
+            .unwrap_or_else(|| vm.ctx.new_utf8_str(self.name()))
     }
 
     #[pyproperty(magic)]
@@ -344,7 +349,7 @@ impl PyType {
                     Some(found)
                 }
             })
-            .unwrap_or_else(|| vm.ctx.new_str("builtins"))
+            .unwrap_or_else(|| vm.ctx.new_ascii_literal(crate::utils::ascii!("builtins")))
     }
 
     #[pyproperty(magic, setter)]
@@ -467,6 +472,9 @@ impl PyType {
             }
         }
 
+        // All *classes* should have a dict. Exceptions are *instances* of
+        // classes that define __slots__ and instances of built-in classes
+        // (with exceptions, e.g function)
         if !attributes.contains_key("__dict__") {
             attributes.insert(
                 "__dict__".to_owned(),
@@ -479,9 +487,10 @@ impl PyType {
             );
         }
 
-        // TODO: how do we know if it should have a dict?
-        let flags = base.slots.flags | PyTpFlags::HAS_DICT;
-
+        // TODO: Flags is currently initialized with HAS_DICT. Should be
+        // updated when __slots__ are supported (toggling the flag off if
+        // a class has __slots__ defined).
+        let flags = PyTpFlags::heap_type_flags() | PyTpFlags::HAS_DICT;
         let slots = PyTypeSlots::from_flags(flags);
 
         let typ = new(metatype, name.as_str(), base, bases, attributes, slots)
@@ -765,41 +774,18 @@ impl<T: DerefToPyType> DerefToPyType for &'_ T {
     }
 }
 
-fn call_tp_new(
+pub(crate) fn call_tp_new(
     typ: PyTypeRef,
     subtype: PyTypeRef,
-    mut args: FuncArgs,
+    args: FuncArgs,
     vm: &VirtualMachine,
 ) -> PyResult {
     for cls in typ.deref().iter_mro() {
-        if let Some(new_meth) = cls.get_attr("__new__") {
-            if !vm.ctx.is_tp_new_wrapper(&new_meth) {
-                let new_meth = vm.call_if_get_descriptor(new_meth, typ.clone().into_object())?;
-                args.prepend_arg(typ.clone().into_object());
-                return vm.invoke(&new_meth, args);
-            }
-        }
         if let Some(tp_new) = cls.slots.new.load() {
             return tp_new(subtype, args, vm);
         }
     }
     unreachable!("Should be able to find a new slot somewhere in the mro")
-}
-
-pub fn tp_new_wrapper(
-    zelf: PyTypeRef,
-    cls: PyTypeRef,
-    args: FuncArgs,
-    vm: &VirtualMachine,
-) -> PyResult {
-    if !cls.issubclass(&zelf) {
-        return Err(vm.new_type_error(format!(
-            "{zelf}.__new__({cls}): {cls} is not a subtype of {zelf}",
-            zelf = zelf.name(),
-            cls = cls.name(),
-        )));
-    }
-    call_tp_new(zelf, cls, args, vm)
 }
 
 fn take_next_base(bases: &mut Vec<Vec<PyTypeRef>>) -> Option<PyTypeRef> {

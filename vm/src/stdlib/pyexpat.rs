@@ -3,8 +3,7 @@
 *
 */
 
-use crate::vm::VirtualMachine;
-use crate::PyObjectRef;
+use crate::{PyObjectRef, VirtualMachine};
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let module = _pyexpat::make_module(vm);
@@ -35,7 +34,6 @@ mod _pyexpat {
     use crate::builtins::{PyStr, PyStrRef, PyTypeRef};
     use crate::byteslike::ArgBytesLike;
     use crate::function::{IntoFuncArgs, OptionalArg};
-    use crate::pyobject::StaticType;
     use crate::{
         ItemProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
         VirtualMachine,
@@ -48,7 +46,7 @@ mod _pyexpat {
 
     #[pyattr]
     #[pyclass(name = "xmlparser", module = false)]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     pub struct PyExpatLikeXmlParser {
         start_element: MutableObject,
         end_element: MutableObject,
@@ -57,12 +55,6 @@ mod _pyexpat {
         buffer_text: MutableObject,
     }
     type PyExpatLikeXmlParserRef = PyRef<PyExpatLikeXmlParser>;
-
-    impl PyValue for PyExpatLikeXmlParser {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
-    }
 
     #[inline]
     fn invoke_handler<T>(vm: &VirtualMachine, handler: &MutableObject, args: T)
@@ -140,7 +132,7 @@ mod _pyexpat {
                         for attribute in attributes {
                             dict.set_item(
                                 attribute.name.local_name.as_str(),
-                                vm.ctx.new_str(attribute.value),
+                                vm.ctx.new_utf8_str(attribute.value),
                                 vm,
                             )
                             .unwrap();

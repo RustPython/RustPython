@@ -265,3 +265,25 @@ class B: pass
 
 class C(*(A, B), **{"metaclass": type}):
     pass
+
+class A(type):
+    def __new__(mcls):
+        assert type(mcls.__new__).__name__ == 'function'
+        assert type(mcls.mro).__name__ == 'method_descriptor'
+        assert type(super().__new__).__name__ in ['builtin_function_or_method', 'method']
+        assert type(super().mro).__name__ == 'method_descriptor'
+
+class B(type):
+    def x(self):
+        assert type(self.__new__).__name__ in ['builtin_function_or_method', 'method']
+        assert type(self.mro).__name__ in  ['builtin_function_or_method', 'method']
+        assert type(super().__new__).__name__ in ['builtin_function_or_method', 'method']
+        assert type(super().mro).__name__ in  ['builtin_function_or_method', 'method']
+
+assert type(tuple.__new__).__name__ in ['builtin_function_or_method', 'method']
+assert type(tuple.mro).__name__ in  ['builtin_function_or_method', 'method']
+assert type(type.__new__).__name__ in ['builtin_function_or_method', 'method'], type.__new__
+assert type(type.mro).__name__ == 'method_descriptor'
+
+B('x', (int,), {}).x()
+A()

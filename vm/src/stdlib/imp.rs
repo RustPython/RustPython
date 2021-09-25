@@ -1,10 +1,7 @@
-use crate::builtins::bytes::PyBytesRef;
-use crate::builtins::code::PyCode;
-use crate::builtins::module::PyModuleRef;
-use crate::builtins::pystr::{PyStr, PyStrRef};
-use crate::import;
-use crate::vm::VirtualMachine;
-use crate::{ItemProtocol, PyObjectRef, PyResult, PyValue, TryFromObject};
+use crate::{
+    builtins::{PyBytesRef, PyCode, PyModule, PyStr, PyStrRef},
+    import, ItemProtocol, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
+};
 
 #[cfg(feature = "threading")]
 mod lock {
@@ -70,7 +67,7 @@ fn _imp_create_builtin(spec: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     }
 }
 
-fn _imp_exec_builtin(_mod: PyModuleRef) -> i32 {
+fn _imp_exec_builtin(_mod: PyRef<PyModule>) -> i32 {
     // TODO: Should we do something here?
     0
 }

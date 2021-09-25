@@ -1,5 +1,4 @@
-use crate::vm::VirtualMachine;
-use crate::{PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject};
+use crate::{PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject, VirtualMachine};
 use std::{io, mem};
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
@@ -26,7 +25,6 @@ mod platform {
 #[allow(non_snake_case)]
 #[cfg(windows)]
 mod platform {
-
     use winapi::um::winsock2;
     pub use winsock2::{fd_set, select, timeval, FD_SETSIZE, SOCKET as RawFd};
 
@@ -254,26 +252,20 @@ mod decl {
     #[cfg(unix)]
     pub(super) mod poll {
         use super::*;
-        use crate::builtins::{PyFloat, PyTypeRef};
+        use crate::builtins::PyFloat;
         use crate::common::lock::PyMutex;
         use crate::function::OptionalArg;
         use crate::stdlib::io::Fildes;
-        use crate::{IntoPyObject, PyValue, StaticType, TypeProtocol};
+        use crate::{IntoPyObject, PyValue, TypeProtocol};
         use libc::pollfd;
         use num_traits::ToPrimitive;
         use std::time;
 
         #[pyclass(module = "select", name = "poll")]
-        #[derive(Default, Debug)]
+        #[derive(Default, Debug, PyValue)]
         pub struct PyPoll {
             // keep sorted
             fds: PyMutex<Vec<pollfd>>,
-        }
-
-        impl PyValue for PyPoll {
-            fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-                Self::static_type()
-            }
         }
 
         #[inline]

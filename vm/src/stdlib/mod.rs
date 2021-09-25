@@ -1,14 +1,10 @@
-use crate::vm::VirtualMachine;
-use crate::PyObjectRef;
-use std::borrow::Cow;
-use std::collections::HashMap;
-
-pub mod array;
+mod array;
 #[cfg(feature = "rustpython-ast")]
 pub(crate) mod ast;
 mod atexit;
 mod binascii;
 mod bisect;
+mod cmath;
 mod codecs;
 mod collections;
 mod csv;
@@ -17,7 +13,7 @@ mod errno;
 mod functools;
 mod hashlib;
 mod imp;
-pub mod io;
+pub(crate) mod io;
 mod itertools;
 mod json;
 #[cfg(feature = "rustpython-parser")]
@@ -32,12 +28,14 @@ mod random;
 // TODO: maybe make this an extension module, if we ever get those
 // mod re;
 #[cfg(not(target_arch = "wasm32"))]
-pub mod socket;
+mod socket;
 mod sre;
 mod string;
 #[cfg(feature = "rustpython-compiler")]
 mod symtable;
 mod sysconfigdata;
+#[cfg(unix)]
+mod syslog;
 #[cfg(feature = "threading")]
 mod thread;
 mod time;
@@ -49,6 +47,16 @@ mod zlib;
 #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
 #[macro_use]
 pub(crate) mod os;
+#[cfg(windows)]
+pub(crate) mod nt;
+#[cfg(unix)]
+pub(crate) mod posix;
+#[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+#[cfg(not(any(unix, windows)))]
+pub(crate) mod posix_compat;
+#[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+#[cfg(not(any(unix, windows)))]
+pub(crate) use posix_compat as posix;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod faulthandler;
@@ -70,7 +78,7 @@ mod scproxy;
 #[cfg(not(target_arch = "wasm32"))]
 mod select;
 #[cfg(not(target_arch = "wasm32"))]
-pub mod signal;
+pub(crate) mod signal;
 #[cfg(all(not(target_arch = "wasm32"), feature = "ssl"))]
 mod ssl;
 #[cfg(all(unix, not(target_os = "redox")))]
@@ -79,6 +87,11 @@ mod termios;
 mod winapi;
 #[cfg(windows)]
 mod winreg;
+
+use crate::vm::VirtualMachine;
+use crate::PyObjectRef;
+use std::borrow::Cow;
+use std::collections::HashMap;
 
 pub type StdlibInitFunc = Box<py_dyn_fn!(dyn Fn(&VirtualMachine) -> PyObjectRef)>;
 
@@ -107,6 +120,7 @@ pub fn get_module_inits() -> StdlibMap {
             "atexit" => atexit::make_module,
             "binascii" => binascii::make_module,
             "_bisect" => bisect::make_module,
+            "cmath" => cmath::make_module,
             "_codecs" => codecs::make_module,
             "_collections" => collections::make_module,
             "_csv" => csv::make_module,
@@ -148,12 +162,9 @@ pub fn get_module_inits() -> StdlibMap {
         {
             "symtable" => symtable::make_module,
         }
-        #[cfg(any(unix, windows, target_os = "wasi"))]
-        {
-            os::MODULE_NAME => os::make_module,
-        }
         #[cfg(any(unix, target_os = "wasi"))]
         {
+            "posix" => posix::make_module,
             "fcntl" => fcntl::make_module,
         }
         // disable some modules on WASM
@@ -186,10 +197,12 @@ pub fn get_module_inits() -> StdlibMap {
         #[cfg(unix)]
         {
             "_posixsubprocess" => posixsubprocess::make_module,
+            "syslog" => syslog::make_module,
         }
         // Windows-only
         #[cfg(windows)]
         {
+            "nt" => nt::make_module,
             "msvcrt" => msvcrt::make_module,
             "_winapi" => winapi::make_module,
             "winreg" => winreg::make_module,

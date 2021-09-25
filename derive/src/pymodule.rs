@@ -1,7 +1,8 @@
 use crate::error::Diagnostic;
 use crate::util::{
-    iter_use_idents, pyclass_ident_and_attrs, AttributeExt, ClassItemMeta, ContentItem,
-    ContentItemInner, ErrorVec, ItemMeta, ItemNursery, SimpleItemMeta, ALL_ALLOWED_NAMES,
+    iter_use_idents, pyclass_ident_and_attrs, text_signature, AttributeExt, ClassItemMeta,
+    ContentItem, ContentItemInner, ErrorVec, ItemMeta, ItemNursery, SimpleItemMeta,
+    ALL_ALLOWED_NAMES,
 };
 use proc_macro2::TokenStream;
 use quote::{quote, quote_spanned, ToTokens};
@@ -109,7 +110,6 @@ fn new_module_item(
             inner: ContentItemInner { index, attr_name },
             pyattrs: pyattrs.unwrap_or_else(Vec::new),
         }),
-        "pyexception" => unreachable!("#[pyexception] {:?}", pyattrs.unwrap_or_else(Vec::new)),
         other => unreachable!("#[pymodule] doesn't accept #[{}]", other),
     }
 }
@@ -248,26 +248,37 @@ trait ModuleItem: ContentItem {
 
 impl ModuleItem for FunctionItem {
     fn gen_module_item(&self, args: ModuleItemArgs<'_>) -> Result<()> {
-        let ident = match args.item {
-            Item::Fn(syn::ItemFn { sig, .. }) => sig.ident.clone(),
-            other => return Err(self.new_syn_error(other.span(), "can only be on a function")),
-        };
+        let func = args
+            .item
+            .function_or_method()
+            .map_err(|_| self.new_syn_error(args.item.span(), "can only be on a function"))?;
+        let ident = &func.sig().ident;
 
         let item_attr = args.attrs.remove(self.index());
         let item_meta = SimpleItemMeta::from_attr(ident.clone(), &item_attr)?;
 
         let py_name = item_meta.simple_name()?;
+        let sig_doc = text_signature(func.sig(), &py_name);
+
         let item = {
-            let doc = args.attrs.doc().map_or_else(
-                TokenStream::new,
-                |doc| quote!(.with_doc(#doc.to_owned(), &vm.ctx)),
-            );
             let module = args.module_name();
+            let doc = args.attrs.doc().or_else(|| {
+                crate::doc::try_module_item(module, &py_name)
+                    .ok() // TODO: doc must exist at least one of code or CPython
+                    .flatten()
+                    .map(str::to_owned)
+            });
+            let doc = if let Some(doc) = doc {
+                format!("{}\n--\n\n{}", sig_doc, doc)
+            } else {
+                sig_doc
+            };
+            let doc = quote!(.with_doc(#doc.to_owned(), &vm.ctx));
             let new_func = quote_spanned!(ident.span()=>
                 vm.ctx.make_funcdef(#py_name, #ident)
                     #doc
                     .into_function()
-                    .with_module(vm.ctx.new_str(#module.to_owned()))
+                    .with_module(vm.ctx.new_utf8_str(#module.to_owned()))
                     .build(&vm.ctx)
             );
             quote! {
@@ -304,9 +315,14 @@ impl ModuleItem for ClassItem {
 
             let class_meta = ClassItemMeta::from_attr(ident.clone(), class_attr)?;
             let module_name = args.context.name.clone();
-            class_attr.fill_nested_meta("module", || {
-                parse_quote! {module = #module_name}
-            })?;
+            let module_name = if let Some(class_module_name) = class_meta.module().ok().flatten() {
+                class_module_name
+            } else {
+                class_attr.fill_nested_meta("module", || {
+                    parse_quote! {module = #module_name}
+                })?;
+                module_name
+            };
             let class_name = class_meta.class_name()?;
             (module_name, class_name)
         };
@@ -323,7 +339,7 @@ impl ModuleItem for ClassItem {
                 );
                 let item = quote! {
                     let new_class = #new_class;
-                    new_class.set_str_attr("__module__", vm.ctx.new_str(#module_name));
+                    new_class.set_str_attr("__module__", vm.ctx.new_utf8_str(#module_name));
                     vm.__module_set_attr(&module, #py_name, new_class).unwrap();
                 };
 

@@ -498,6 +498,8 @@ class TestDiscovery(unittest.TestCase):
         with self.assertRaises(ImportError):
             test.test_this_does_not_exist()
 
+    # TODO: RUSTPYTHON ImportError.__reduce__ missing
+    @unittest.expectedFailure
     def test_discover_with_init_modules_that_fail_to_import(self):
         vfs = {abspath('/foo'): ['my_package'],
                abspath('/foo/my_package'): ['__init__.py', 'test_module.py']}

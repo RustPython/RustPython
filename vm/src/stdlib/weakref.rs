@@ -5,8 +5,7 @@
 //! - [rust weak struct](https://doc.rust-lang.org/std/rc/struct.Weak.html)
 //!
 
-use crate::vm::VirtualMachine;
-use crate::PyObjectRef;
+use crate::{PyObjectRef, VirtualMachine};
 
 fn _weakref_getweakrefcount(obj: PyObjectRef) -> usize {
     PyObjectRef::weak_count(&obj)

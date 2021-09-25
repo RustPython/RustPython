@@ -1,17 +1,9 @@
-use super::dict::{PyDict, PyDictRef};
-use super::list::PyList;
-use super::pybool;
-use super::pystr::{PyStr, PyStrRef};
-use super::pytype::PyTypeRef;
-use crate::builtins::pytype::PyType;
+use super::{PyDict, PyDictRef, PyList, PyStr, PyStrRef, PyType, PyTypeRef};
 use crate::common::hash::PyHash;
-use crate::function::FuncArgs;
-use crate::slots::PyComparisonOp;
-use crate::utils::Either;
-use crate::vm::VirtualMachine;
 use crate::{
-    IdProtocol, ItemProtocol, PyArithmaticValue, PyAttributes, PyClassImpl, PyComparisonValue,
-    PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
+    function::FuncArgs, slots::PyComparisonOp, utils::Either, IdProtocol, ItemProtocol,
+    PyArithmaticValue, PyAttributes, PyClassImpl, PyComparisonValue, PyContext, PyObject,
+    PyObjectRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
 
 /// object()
@@ -77,7 +69,7 @@ impl PyBaseObject {
                     .unwrap();
                 let value = match cmp(zelf, other, PyComparisonOp::Eq, vm)? {
                     Either::A(obj) => PyArithmaticValue::from_object(vm, obj)
-                        .map(|obj| pybool::boolval(vm, obj))
+                        .map(|obj| obj.try_to_bool(vm))
                         .transpose()?,
                     Either::B(value) => value,
                 };
@@ -364,8 +356,8 @@ pub(crate) fn setattr(
     }
 }
 
-pub fn init(context: &PyContext) {
-    PyBaseObject::extend_class(context, &context.types.object_type);
+pub fn init(ctx: &PyContext) {
+    PyBaseObject::extend_class(ctx, &ctx.types.object_type);
 }
 
 fn common_reduce(obj: PyObjectRef, proto: usize, vm: &VirtualMachine) -> PyResult {

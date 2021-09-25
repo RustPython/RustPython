@@ -1,12 +1,11 @@
-use crate::builtins::int::PyIntRef;
-use crate::builtins::pystr::PyStrRef;
-use crate::exceptions::IntoPyException;
-use crate::vm::VirtualMachine;
-use crate::{IntoPyObject, PyClassImpl, PyObjectRef, PyResult, PyStructSequence};
+use crate::{
+    builtins::{PyIntRef, PyStrRef},
+    exceptions::IntoPyException,
+    IntoPyObject, PyClassImpl, PyObjectRef, PyResult, PyStructSequence, VirtualMachine,
+};
+use nix::unistd::{self, User};
 use std::convert::TryFrom;
 use std::ptr::NonNull;
-
-use nix::unistd::{self, User};
 
 #[pyclass(module = "pwd", name = "struct_passwd")]
 #[derive(PyStructSequence)]
@@ -53,7 +52,7 @@ fn pwd_getpwnam(name: PyStrRef, vm: &VirtualMachine) -> PyResult<Passwd> {
             let name_repr = vm.to_repr(name.as_object())?;
             let message = vm
                 .ctx
-                .new_str(format!("getpwnam(): name not found: {}", name_repr));
+                .new_utf8_str(format!("getpwnam(): name not found: {}", name_repr));
             Err(vm.new_key_error(message))
         }
     }
@@ -70,7 +69,7 @@ fn pwd_getpwuid(uid: PyIntRef, vm: &VirtualMachine) -> PyResult<Passwd> {
         None => {
             let message = vm
                 .ctx
-                .new_str(format!("getpwuid(): uid not found: {}", uid.as_bigint()));
+                .new_utf8_str(format!("getpwuid(): uid not found: {}", uid.as_bigint()));
             Err(vm.new_key_error(message))
         }
     }

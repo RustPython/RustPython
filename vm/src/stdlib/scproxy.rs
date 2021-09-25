@@ -4,9 +4,10 @@ pub(crate) use _scproxy::make_module;
 mod _scproxy {
     // straight-forward port of Modules/_scproxy.c
 
-    use crate::builtins::{PyDictRef, PyStr};
-    use crate::VirtualMachine;
-    use crate::{IntoPyObject, ItemProtocol, PyResult};
+    use crate::{
+        builtins::{PyDictRef, PyStr},
+        IntoPyObject, ItemProtocol, PyResult, VirtualMachine,
+    };
     use system_configuration::core_foundation::{
         array::CFArray,
         base::{CFType, FromVoid, TCFType},
@@ -106,7 +107,7 @@ mod _scproxy {
                     } else {
                         format!("http://{}", h)
                     };
-                    result.set_item(proto, vm.ctx.new_str(v), vm)?;
+                    result.set_item(proto, vm.ctx.new_utf8_str(v), vm)?;
                 }
             }
             Ok(())

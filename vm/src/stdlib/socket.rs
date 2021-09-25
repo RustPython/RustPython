@@ -1,3 +1,13 @@
+use crate::common::lock::{PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard};
+use crate::{
+    builtins::{int, PyStrRef, PyTupleRef, PyTypeRef},
+    byteslike::{ArgBytesLike, ArgMemoryBuffer},
+    exceptions::{IntoPyException, PyBaseExceptionRef},
+    function::{FuncArgs, OptionalArg, OptionalOption},
+    utils::{Either, ToCString},
+    IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromBorrowedObject,
+    TryFromObject, TypeProtocol, VirtualMachine,
+};
 use crossbeam_utils::atomic::AtomicCell;
 use gethostname::gethostname;
 #[cfg(all(unix, not(target_os = "redox")))]
@@ -9,21 +19,6 @@ use std::mem::MaybeUninit;
 use std::net::{self, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, ToSocketAddrs};
 use std::time::{Duration, Instant};
 use std::{ffi, io};
-
-use crate::builtins::int;
-use crate::builtins::pystr::PyStrRef;
-use crate::builtins::pytype::PyTypeRef;
-use crate::builtins::tuple::PyTupleRef;
-use crate::byteslike::{ArgBytesLike, ArgMemoryBuffer};
-use crate::common::lock::{PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard};
-use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
-use crate::function::{FuncArgs, OptionalArg, OptionalOption};
-use crate::utils::Either;
-use crate::VirtualMachine;
-use crate::{
-    IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
-    TryFromBorrowedObject, TryFromObject, TypeProtocol,
-};
 
 #[cfg(unix)]
 type RawSocket = std::os::unix::io::RawFd;
@@ -142,7 +137,7 @@ impl Default for NullableSocket {
 }
 
 #[pyclass(module = "socket", name = "socket")]
-#[derive(Debug)]
+#[derive(Debug, PyValue)]
 pub struct PySocket {
     kind: AtomicCell<i32>,
     family: AtomicCell<i32>,
@@ -160,12 +155,6 @@ impl Default for PySocket {
             timeout: AtomicCell::new(-1.0),
             sock: PyRwLock::new(NullableSocket::invalid()),
         }
-    }
-}
-
-impl PyValue for PySocket {
-    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_type()
     }
 }
 
@@ -1030,7 +1019,8 @@ fn get_addr_tuple(addr: &socket2::SockAddr, vm: &VirtualMachine) -> PyObjectRef 
             } else {
                 let len = memchr::memchr(b'\0', path_u8).unwrap_or_else(|| path_u8.len());
                 let path = &path_u8[..len];
-                vm.ctx.new_str(String::from_utf8_lossy(path).into_owned())
+                vm.ctx
+                    .new_utf8_str(String::from_utf8_lossy(path).into_owned())
             }
         }
         // TODO: support more address families
@@ -1041,7 +1031,7 @@ fn get_addr_tuple(addr: &socket2::SockAddr, vm: &VirtualMachine) -> PyObjectRef 
 fn _socket_gethostname(vm: &VirtualMachine) -> PyResult {
     gethostname()
         .into_string()
-        .map(|hostname| vm.ctx.new_str(hostname))
+        .map(|hostname| vm.ctx.new_utf8_str(hostname))
         .map_err(|err| vm.new_os_error(err.into_string().unwrap()))
 }
 
@@ -1062,7 +1052,7 @@ fn _socket_inet_ntoa(packed_ip: ArgBytesLike, vm: &VirtualMachine) -> PyResult {
     let packed_ip = packed_ip.borrow_buf();
     let packed_ip = <&[u8; 4]>::try_from(&*packed_ip)
         .map_err(|_| vm.new_os_error("packed IP wrong length for inet_ntoa".to_owned()))?;
-    Ok(vm.ctx.new_str(Ipv4Addr::from(*packed_ip).to_string()))
+    Ok(vm.ctx.new_utf8_str(Ipv4Addr::from(*packed_ip).to_string()))
 }
 
 fn cstr_opt_as_ptr(x: &OptionalArg<ffi::CString>) -> *const libc::c_char {
@@ -1291,7 +1281,8 @@ fn _socket_gethostbyaddr(
     Ok((
         hostname,
         vm.ctx.new_list(vec![]),
-        vm.ctx.new_list(vec![vm.ctx.new_str(addr.ip().to_string())]),
+        vm.ctx
+            .new_list(vec![vm.ctx.new_utf8_str(addr.ip().to_string())]),
     ))
 }
 
@@ -1727,7 +1718,7 @@ fn convert_socket_error(
     };
     vm.new_exception(
         exception_cls.get().unwrap().clone(),
-        vec![vm.ctx.new_int(err.error_num()), vm.ctx.new_str(strerr)],
+        vec![vm.ctx.new_int(err.error_num()), vm.ctx.new_utf8_str(strerr)],
     )
 }
 
@@ -1787,7 +1778,7 @@ fn _socket_dup(x: PyObjectRef, vm: &VirtualMachine) -> PyResult<RawSocket> {
     let newsock = sock.try_clone().map_err(|e| e.into_pyexception(vm))?;
     let fd = into_sock_fileno(newsock);
     #[cfg(windows)]
-    super::os::raw_set_handle_inheritable(fd as _, false).map_err(|e| e.into_pyexception(vm))?;
+    super::nt::raw_set_handle_inheritable(fd as _, false).map_err(|e| e.into_pyexception(vm))?;
     Ok(fd)
 }
 

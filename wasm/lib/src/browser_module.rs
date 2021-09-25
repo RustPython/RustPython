@@ -3,12 +3,11 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
 
-use rustpython_vm::builtins::{PyDictRef, PyStrRef, PyTypeRef};
-use rustpython_vm::function::OptionalArg;
+use rustpython_vm::builtins::{PyDictRef, PyStrRef};
+use rustpython_vm::function::{ArgCallable, OptionalArg};
 use rustpython_vm::import::import_file;
-use rustpython_vm::VirtualMachine;
 use rustpython_vm::{
-    IntoPyObject, PyCallable, PyClassImpl, PyObject, PyObjectRef, PyResult, PyValue, StaticType,
+    IntoPyObject, PyClassImpl, PyObject, PyObjectRef, PyResult, PyValue, VirtualMachine,
 };
 
 use crate::{convert, js_module::PyPromise, vm_class::weak_vm, wasm_builtins::window};
@@ -110,7 +109,7 @@ fn browser_fetch(url: PyStrRef, args: FetchArgs, vm: &VirtualMachine) -> PyResul
     Ok(PyPromise::from_future(future).into_object(vm))
 }
 
-fn browser_request_animation_frame(func: PyCallable, vm: &VirtualMachine) -> PyResult {
+fn browser_request_animation_frame(func: ArgCallable, vm: &VirtualMachine) -> PyResult {
     use std::{cell::RefCell, rc::Rc};
 
     // this basic setup for request_animation_frame taken from:
@@ -153,15 +152,9 @@ fn browser_cancel_animation_frame(id: i32, vm: &VirtualMachine) -> PyResult<()> 
 }
 
 #[pyclass(module = "browser", name)]
-#[derive(Debug)]
+#[derive(Debug, PyValue)]
 struct Document {
     doc: web_sys::Document,
-}
-
-impl PyValue for Document {
-    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_type()
-    }
 }
 
 #[pyimpl]
@@ -179,15 +172,9 @@ impl Document {
 }
 
 #[pyclass(module = "browser", name)]
-#[derive(Debug)]
+#[derive(Debug, PyValue)]
 struct Element {
     elem: web_sys::Element,
-}
-
-impl PyValue for Element {
-    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_type()
-    }
 }
 
 #[pyimpl]
@@ -200,7 +187,7 @@ impl Element {
         vm: &VirtualMachine,
     ) -> PyObjectRef {
         match self.elem.get_attribute(attr.as_str()) {
-            Some(s) => vm.ctx.new_str(s),
+            Some(s) => vm.ctx.new_utf8_str(s),
             None => default.unwrap_or_none(vm),
         }
     }

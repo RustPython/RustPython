@@ -1,7 +1,7 @@
-use crate::exceptions::IntoPyException;
-use crate::vm::{VirtualMachine, NSIG};
-use crate::{PyObjectRef, PyResult, TryFromBorrowedObject};
-
+use crate::{
+    exceptions::IntoPyException, vm::NSIG, PyObjectRef, PyResult, TryFromBorrowedObject,
+    VirtualMachine,
+};
 use std::sync::atomic::{self, AtomicBool, Ordering};
 
 #[cfg(unix)]

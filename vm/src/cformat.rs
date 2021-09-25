@@ -1,14 +1,12 @@
-use crate::buffer::PyBufferRef;
-/// Implementation of Printf-Style string formatting
-/// [https://docs.python.org/3/library/stdtypes.html#printf-style-string-formatting]
-use crate::builtins::float::{try_bigint, IntoPyFloat, PyFloat};
-use crate::builtins::int::{self, PyInt};
-use crate::builtins::pystr::PyStr;
-use crate::builtins::{tuple, PyBytes};
+//! Implementation of Printf-Style string formatting
+//! [https://docs.python.org/3/library/stdtypes.html#printf-style-string-formatting]
+
+use crate::builtins::{int, try_f64_to_bigint, tuple, IntoPyFloat, PyBytes, PyFloat, PyInt, PyStr};
 use crate::common::float_ops;
-use crate::vm::VirtualMachine;
+use crate::protocol::PyBuffer;
 use crate::{
     ItemProtocol, PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject, TypeProtocol,
+    VirtualMachine,
 };
 use itertools::Itertools;
 use num_bigint::{BigInt, Sign};
@@ -366,7 +364,7 @@ impl CFormatSpec {
                     Ok(s.into_bytes())
                 }
                 CFormatPreconversor::Str | CFormatPreconversor::Bytes => {
-                    if let Ok(buffer) = PyBufferRef::try_from_borrowed_object(vm, &obj) {
+                    if let Ok(buffer) = PyBuffer::try_from_borrowed_object(vm, &obj) {
                         let guard;
                         let vec;
                         let bytes = match buffer.as_contiguous() {
@@ -403,7 +401,7 @@ impl CFormatSpec {
                     }
                     ref f @ PyFloat => {
                         Ok(self
-                            .format_number(&try_bigint(f.to_f64(), vm)?)
+                            .format_number(&try_f64_to_bigint(f.to_f64(), vm)?)
                             .into_bytes())
                     }
                     obj => {
@@ -477,7 +475,7 @@ impl CFormatSpec {
                         Ok(self.format_number(i.as_bigint()))
                     }
                     ref f @ PyFloat => {
-                        Ok(self.format_number(&try_bigint(f.to_f64(), vm)?))
+                        Ok(self.format_number(&try_f64_to_bigint(f.to_f64(), vm)?))
                     }
                     obj => {
                         if let Some(method) = vm.get_method(obj.clone(), "__int__") {

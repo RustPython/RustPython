@@ -1,38 +1,31 @@
 pub(crate) use array::make_module;
 
-#[cfg(not(target_arch = "wasm32"))]
-#[allow(non_camel_case_types)]
-pub type wchar_t = libc::wchar_t;
-#[cfg(target_arch = "wasm32")]
-#[allow(non_camel_case_types)]
-pub type wchar_t = u32;
-
 #[pymodule(name = "array")]
 mod array {
-    use crate::buffer::{BufferOptions, PyBuffer, ResizeGuard};
-    use crate::builtins::float::IntoPyFloat;
-    use crate::builtins::list::{PyList, PyListRef};
-    use crate::builtins::pystr::{PyStr, PyStrRef};
-    use crate::builtins::pytype::PyTypeRef;
-    use crate::builtins::slice::PySliceRef;
-    use crate::builtins::{PyByteArray, PyBytes, PyBytesRef, PyIntRef};
-    use crate::byteslike::{try_bytes_like, ArgBytesLike};
-    use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
-    use crate::common::lock::{
-        PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyRwLock, PyRwLockReadGuard,
-        PyRwLockWriteGuard,
+    use crate::common::{
+        borrow::{BorrowedValue, BorrowedValueMut},
+        lock::{
+            PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyRwLock, PyRwLockReadGuard,
+            PyRwLockWriteGuard,
+        },
+        str::wchar_t,
     };
-    use crate::function::OptionalArg;
-    use crate::sliceable::{
-        saturate_index, PySliceableSequence, PySliceableSequenceMut, SequenceIndex,
-    };
-    use crate::slots::{AsBuffer, Comparable, Iterable, PyComparisonOp, PyIter, SlotConstructor};
-    use crate::stdlib::array::wchar_t;
     use crate::{
-        IdProtocol, IntoPyObject, PyComparisonValue, PyIterable, PyObjectRef, PyRef, PyResult,
-        PyValue, StaticType, TryFromObject, TypeProtocol,
+        builtins::{
+            IntoPyFloat, PyByteArray, PyBytes, PyBytesRef, PyIntRef, PyList, PyListRef, PySliceRef,
+            PyStr, PyStrRef, PyTypeRef,
+        },
+        byteslike::ArgBytesLike,
+        function::{ArgIterable, OptionalArg},
+        protocol::{BufferInternal, BufferOptions, PyBuffer, ResizeGuard},
+        sliceable::{saturate_index, PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
+        slots::{
+            AsBuffer, Comparable, Iterable, IteratorIterable, PyComparisonOp, PyIter,
+            SlotConstructor,
+        },
+        IdProtocol, IntoPyObject, IntoPyResult, PyComparisonValue, PyObjectRef, PyRef, PyResult,
+        PyValue, TryFromObject, TypeProtocol, VirtualMachine,
     };
-    use crate::{IntoPyResult, VirtualMachine};
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
     use lexical_core::Integer;
@@ -589,19 +582,13 @@ mod array {
 
     #[pyattr]
     #[pyclass(name = "array")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     pub struct PyArray {
         array: PyRwLock<ArrayContentType>,
         exports: AtomicCell<usize>,
     }
 
     pub type PyArrayRef = PyRef<PyArray>;
-
-    impl PyValue for PyArray {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
-    }
 
     impl From<ArrayContentType> for PyArray {
         fn from(array: ArrayContentType) -> Self {
@@ -663,13 +650,13 @@ mod array {
                         )));
                     }
                 } else if init.payload_is::<PyBytes>() || init.payload_is::<PyByteArray>() {
-                    try_bytes_like(vm, &init, |x| array.frombytes(x))?;
-                } else if let Ok(iter) = PyIterable::try_from_object(vm, init.clone()) {
+                    init.try_bytes_like(vm, |x| array.frombytes(x))?;
+                } else if let Ok(iter) = ArgIterable::try_from_object(vm, init.clone()) {
                     for obj in iter.iter(vm)? {
                         array.push(obj?, vm)?;
                     }
                 } else {
-                    try_bytes_like(vm, &init, |x| array.frombytes(x))?;
+                    init.try_bytes_like(vm, |x| array.frombytes(x))?;
                 }
             }
 
@@ -728,7 +715,7 @@ mod array {
             } else if let Some(array) = obj.payload::<PyArray>() {
                 w.iadd(&*array.read(), vm)
             } else {
-                let iter = PyIterable::try_from_object(vm, obj)?;
+                let iter = ArgIterable::try_from_object(vm, obj)?;
                 // zelf.extend_from_iterable(iter, vm)
                 for obj in iter.iter(vm)? {
                     w.push(obj?, vm)?;
@@ -804,19 +791,51 @@ mod array {
             }
         }
 
-        #[pymethod]
-        fn frombytes(zelf: PyRef<Self>, b: ArgBytesLike, vm: &VirtualMachine) -> PyResult<()> {
-            let b = b.borrow_buf();
-            let itemsize = zelf.read().itemsize();
+        fn _from_bytes(&self, b: &[u8], itemsize: usize, vm: &VirtualMachine) -> PyResult<()> {
             if b.len() % itemsize != 0 {
                 return Err(
                     vm.new_value_error("bytes length not a multiple of item size".to_owned())
                 );
             }
             if b.len() / itemsize > 0 {
-                zelf.try_resizable(vm)?.frombytes(&b);
+                self.try_resizable(vm)?.frombytes(b);
             }
             Ok(())
+        }
+
+        #[pymethod]
+        fn frombytes(&self, b: ArgBytesLike, vm: &VirtualMachine) -> PyResult<()> {
+            let b = b.borrow_buf();
+            let itemsize = self.read().itemsize();
+            self._from_bytes(&b, itemsize, vm)
+        }
+
+        #[pymethod]
+        fn fromfile(&self, f: PyObjectRef, n: isize, vm: &VirtualMachine) -> PyResult<()> {
+            let itemsize = self.itemsize();
+            if n < 0 {
+                return Err(vm.new_value_error("negative count".to_owned()));
+            }
+            let n = vm.check_repeat_or_memory_error(itemsize, n)?;
+            let nbytes = n * itemsize;
+
+            let b = vm.call_method(&f, "read", (nbytes,))?;
+            let b = b
+                .downcast::<PyBytes>()
+                .map_err(|_| vm.new_type_error("read() didn't return bytes".to_owned()))?;
+
+            let not_enough_bytes = b.len() != nbytes;
+
+            self._from_bytes(b.as_bytes(), itemsize, vm)?;
+
+            if not_enough_bytes {
+                Err(vm.new_exception_msg(
+                    vm.ctx.exceptions.eof_error.clone(),
+                    "read() didn't return enough bytes".to_owned(),
+                ))
+            } else {
+                Ok(())
+            }
         }
 
         #[pymethod]
@@ -854,6 +873,22 @@ mod array {
         #[pymethod]
         pub(crate) fn tobytes(&self) -> Vec<u8> {
             self.read().get_bytes().to_vec()
+        }
+
+        #[pymethod]
+        fn tofile(&self, f: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            /* Write 64K blocks at a time */
+            /* XXX Make the block size settable */
+            const BLOCKSIZE: usize = 64 * 1024;
+
+            let bytes = self.read();
+            let bytes = bytes.get_bytes();
+
+            for b in bytes.chunks(BLOCKSIZE) {
+                let b = PyBytes::from(b.to_vec()).into_ref(vm);
+                vm.call_method(&f, "write", (b,))?;
+            }
+            Ok(())
         }
 
         pub(crate) fn get_bytes(&self) -> PyMappedRwLockReadGuard<'_, [u8]> {
@@ -1088,44 +1123,38 @@ mod array {
     }
 
     impl AsBuffer for PyArray {
-        fn get_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<Box<dyn PyBuffer>> {
-            zelf.exports.fetch_add(1);
+        fn get_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
             let array = zelf.read();
-            let buf = ArrayBuffer {
-                array: zelf.clone(),
-                options: BufferOptions {
+            let buf = PyBuffer::new(
+                zelf.as_object().clone(),
+                zelf.clone(),
+                BufferOptions {
                     readonly: false,
                     len: array.len(),
                     itemsize: array.itemsize(),
                     format: array.typecode_str().into(),
                     ..Default::default()
                 },
-            };
-            Ok(Box::new(buf))
+            );
+            Ok(buf)
         }
     }
 
-    #[derive(Debug)]
-    struct ArrayBuffer {
-        array: PyArrayRef,
-        options: BufferOptions,
-    }
-
-    impl PyBuffer for ArrayBuffer {
+    impl BufferInternal for PyRef<PyArray> {
         fn obj_bytes(&self) -> BorrowedValue<[u8]> {
-            self.array.get_bytes().into()
+            self.get_bytes().into()
         }
 
         fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
-            self.array.get_bytes_mut().into()
+            self.get_bytes_mut().into()
         }
 
         fn release(&self) {
-            self.array.exports.fetch_sub(1);
+            self.exports.fetch_sub(1);
         }
 
-        fn get_options(&self) -> &BufferOptions {
-            &self.options
+        fn retain(&self) {
+            self.exports.fetch_add(1);
         }
     }
 
@@ -1156,21 +1185,16 @@ mod array {
 
     #[pyattr]
     #[pyclass(name = "array_iterator")]
-    #[derive(Debug)]
+    #[derive(Debug, PyValue)]
     pub struct PyArrayIter {
         position: AtomicCell<usize>,
         array: PyArrayRef,
     }
 
-    impl PyValue for PyArrayIter {
-        fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-            Self::static_type()
-        }
-    }
-
     #[pyimpl(with(PyIter))]
     impl PyArrayIter {}
 
+    impl IteratorIterable for PyArrayIter {}
     impl PyIter for PyArrayIter {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             let pos = zelf.position.fetch_add(1);

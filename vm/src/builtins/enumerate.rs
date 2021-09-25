@@ -1,20 +1,19 @@
+use super::{
+    int,
+    IterStatus::{self, Active, Exhausted},
+    PyInt, PyIntRef, PyTypeRef,
+};
 use crate::common::lock::PyRwLock;
-
+use crate::{
+    function::OptionalArg,
+    iterator,
+    slots::{IteratorIterable, PyIter, SlotConstructor},
+    IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    TypeProtocol, VirtualMachine,
+};
 use crossbeam_utils::atomic::AtomicCell;
 use num_bigint::BigInt;
 use num_traits::Zero;
-
-use super::int::{try_to_primitive, PyInt, PyIntRef};
-use super::iter::{
-    IterStatus,
-    IterStatus::{Active, Exhausted},
-};
-use super::pytype::PyTypeRef;
-use crate::function::OptionalArg;
-use crate::slots::{PyIter, SlotConstructor};
-use crate::vm::VirtualMachine;
-use crate::{iterator, ItemProtocol, TypeProtocol};
-use crate::{IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 
 #[pyclass(module = false, name = "enumerate")]
 #[derive(Debug)]
@@ -41,11 +40,9 @@ impl SlotConstructor for PyEnumerate {
     type Args = EnumerateArgs;
 
     fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
-        let counter = match args.start {
-            OptionalArg::Present(start) => start.as_bigint().clone(),
-            OptionalArg::Missing => BigInt::zero(),
-        };
-
+        let counter = args
+            .start
+            .map_or_else(BigInt::zero, |start| start.as_bigint().clone());
         let iterator = iterator::get_iter(vm, args.iterable)?;
         PyEnumerate {
             counter: PyRwLock::new(counter),
@@ -58,6 +55,7 @@ impl SlotConstructor for PyEnumerate {
 #[pyimpl(with(PyIter, SlotConstructor), flags(BASETYPE))]
 impl PyEnumerate {}
 
+impl IteratorIterable for PyEnumerate {}
 impl PyIter for PyEnumerate {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         let next_obj = iterator::call_next(vm, &zelf.iterator)?;
@@ -118,7 +116,7 @@ impl PyReverseSequenceIterator {
             .payload::<PyInt>()
             .ok_or_else(|| vm.new_type_error("an integer is required.".to_owned()))?;
         let pos = std::cmp::min(
-            try_to_primitive(pos.as_bigint(), vm).unwrap_or(0),
+            int::try_to_primitive(pos.as_bigint(), vm).unwrap_or(0),
             len.saturating_sub(1),
         );
         self.position.store(pos);
@@ -139,6 +137,7 @@ impl PyReverseSequenceIterator {
     }
 }
 
+impl IteratorIterable for PyReverseSequenceIterator {}
 impl PyIter for PyReverseSequenceIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         if let Exhausted = zelf.status.load() {
