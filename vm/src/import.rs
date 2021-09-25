@@ -5,10 +5,10 @@ use rand::Rng;
 
 use crate::builtins::code::CodeObject;
 use crate::builtins::traceback::{PyTraceback, PyTracebackRef};
+use crate::builtins::PyBaseExceptionRef;
 use crate::builtins::{code, list};
 #[cfg(feature = "rustpython-compiler")]
 use crate::compile;
-use crate::exceptions::PyBaseExceptionRef;
 use crate::scope::Scope;
 use crate::version::get_git_revision;
 use crate::vm::{InitParameter, VirtualMachine};

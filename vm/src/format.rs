@@ -1,6 +1,6 @@
-use crate::builtins::{self, PyStrRef};
+use crate::builtins::{self, PyBaseExceptionRef, PyStrRef};
 use crate::common::float_ops;
-use crate::exceptions::{IntoPyException, PyBaseExceptionRef};
+use crate::exceptions::IntoPyException;
 use crate::function::FuncArgs;
 use crate::vm::VirtualMachine;
 use crate::{ItemProtocol, PyObjectRef, PyResult, TypeProtocol};

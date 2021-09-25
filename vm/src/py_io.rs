@@ -1,7 +1,7 @@
 use crate::builtins::bytes::PyBytes;
 use crate::builtins::pystr::PyStr;
+use crate::builtins::PyBaseExceptionRef;
 use crate::common::ascii;
-use crate::exceptions::PyBaseExceptionRef;
 use crate::VirtualMachine;
 use crate::{PyObjectRef, PyResult};
 use std::{fmt, io, ops};

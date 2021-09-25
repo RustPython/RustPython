@@ -1,7 +1,7 @@
 use super::{PyCode, PyStrRef, PyTypeRef};
 use crate::{
+    builtins::PyBaseExceptionRef,
     coroutine::{Coro, Variant},
-    exceptions::PyBaseExceptionRef,
     frame::FrameRef,
     function::OptionalArg,
     slots::{IteratorIterable, PyIter},

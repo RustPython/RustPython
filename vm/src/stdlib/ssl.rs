@@ -4,10 +4,9 @@ use crate::common::{
     lock::{PyRwLock, PyRwLockWriteGuard},
 };
 use crate::{
-    builtins::{PyStrRef, PyType, PyTypeRef, PyWeak},
-    exceptions::{self, IntoPyException, PyBaseException, PyBaseExceptionRef},
-    function::{ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike},
-    function::{ArgCallable, OptionalArg},
+    builtins::{PyBaseException, PyBaseExceptionRef, PyStrRef, PyType, PyTypeRef, PyWeak},
+    exceptions::{self, IntoPyException},
+    function::{ArgBytesLike, ArgCallable, ArgMemoryBuffer, ArgStrOrBytesLike, OptionalArg},
     slots::SlotConstructor,
     stdlib::os::PyPathLike,
     types::create_simple_type,

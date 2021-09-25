@@ -1,8 +1,8 @@
 use crate::builtins::dict::PyDictRef;
 use crate::builtins::function::{PyFunction, PyFunctionRef};
+use crate::builtins::PyBaseExceptionRef;
 use crate::builtins::{float, int, pybool, PyStrRef};
 use crate::bytecode::CodeFlags;
-use crate::exceptions::PyBaseExceptionRef;
 use crate::function::FuncArgs;
 use crate::VirtualMachine;
 use crate::{

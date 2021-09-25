@@ -5,8 +5,8 @@ mod machinery;
 mod _json {
     use super::machinery;
     use crate::{
+        builtins::PyBaseExceptionRef,
         builtins::{PyStrRef, PyTypeRef},
-        exceptions::PyBaseExceptionRef,
         function::{FuncArgs, OptionalArg},
         iterator,
         slots::{Callable, SlotConstructor},

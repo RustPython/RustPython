@@ -5,6 +5,7 @@ use crate::common::{
 };
 pub use crate::pyobjectrc::{PyObject, PyObjectRef, PyObjectWeak, PyRef, PyWeakRef};
 use crate::{
+    builtins::PyBaseExceptionRef,
     builtins::{
         builtinfunc::PyNativeFuncDef,
         bytearray, bytes,
@@ -17,7 +18,7 @@ use crate::{
         PyNone, PyNotImplemented, PyStaticMethod, PyTuple, PyTupleRef, PyType, PyTypeRef,
     },
     dictdatatype::Dict,
-    exceptions::{self, PyBaseExceptionRef},
+    exceptions,
     function::{IntoFuncArgs, IntoPyNativeFunc},
     slots::{PyTpFlags, PyTypeSlots},
     types::{create_type_with_slots, TypeZoo},

@@ -13,11 +13,10 @@
 pub(crate) mod _struct {
     use crate::{
         builtins::{
-            bytes::PyBytesRef, float, pybool::IntoPyBool, pystr::PyStr, pystr::PyStrRef,
-            pytype::PyTypeRef, tuple::PyTupleRef,
+            float, IntoPyBool, PyBaseExceptionRef, PyBytesRef, PyStr, PyStrRef, PyTupleRef,
+            PyTypeRef,
         },
         common::str::wchar_t,
-        exceptions::PyBaseExceptionRef,
         function::{ArgBytesLike, ArgMemoryBuffer, PosArgs},
         slots::{IteratorIterable, PyIter, SlotConstructor},
         utils::Either,

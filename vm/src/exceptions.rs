@@ -1,17 +1,14 @@
-use crate::builtins::pystr::{PyStr, PyStrRef};
-use crate::builtins::pytype::{PyType, PyTypeRef};
-use crate::builtins::singletons::{PyNone, PyNoneRef};
-use crate::builtins::traceback::PyTracebackRef;
-use crate::builtins::tuple::{PyTuple, PyTupleRef};
+use self::types::{PyBaseException, PyBaseExceptionRef};
 use crate::common::lock::PyRwLock;
-use crate::function::{ArgIterable, FuncArgs};
-use crate::py_io::{self, Write};
-use crate::sysmodule;
 use crate::{
-    IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    StaticType, TryFromObject, TypeProtocol, VirtualMachine,
+    builtins::{
+        traceback::PyTracebackRef, PyNone, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
+    },
+    function::{ArgIterable, FuncArgs},
+    py_io::{self, Write},
+    sysmodule, IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
+    PyValue, StaticType, TryFromObject, TypeProtocol, VirtualMachine,
 };
-
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
 use std::collections::HashSet;
@@ -19,13 +16,8 @@ use std::fmt;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
 
-#[pyclass(module = false, name = "BaseException")]
-pub struct PyBaseException {
-    traceback: PyRwLock<Option<PyTracebackRef>>,
-    cause: PyRwLock<Option<PyBaseExceptionRef>>,
-    context: PyRwLock<Option<PyBaseExceptionRef>>,
-    suppress_context: AtomicCell<bool>,
-    args: PyRwLock<PyTupleRef>,
+pub trait IntoPyException {
+    fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef;
 }
 
 impl fmt::Debug for PyBaseException {
@@ -35,125 +27,10 @@ impl fmt::Debug for PyBaseException {
     }
 }
 
-pub type PyBaseExceptionRef = PyRef<PyBaseException>;
-
-pub trait IntoPyException {
-    fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef;
-}
-
 impl PyValue for PyBaseException {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.exceptions.base_exception_type
     }
-}
-
-#[pyimpl(flags(BASETYPE, HAS_DICT))]
-impl PyBaseException {
-    pub(crate) fn new(args: Vec<PyObjectRef>, vm: &VirtualMachine) -> PyBaseException {
-        PyBaseException {
-            traceback: PyRwLock::new(None),
-            cause: PyRwLock::new(None),
-            context: PyRwLock::new(None),
-            suppress_context: AtomicCell::new(false),
-            args: PyRwLock::new(PyTupleRef::with_elements(args, &vm.ctx)),
-        }
-    }
-
-    #[pyslot]
-    pub(crate) fn tp_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        PyBaseException::new(args.args, vm).into_pyresult_with_type(vm, cls)
-    }
-
-    #[pymethod(magic)]
-    pub(crate) fn init(zelf: PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-        *zelf.args.write() = PyTupleRef::with_elements(args.args, &vm.ctx);
-        Ok(())
-    }
-
-    pub fn get_arg(&self, idx: usize) -> Option<PyObjectRef> {
-        self.args.read().as_slice().get(idx).cloned()
-    }
-
-    #[pyproperty]
-    pub fn args(&self) -> PyTupleRef {
-        self.args.read().clone()
-    }
-
-    #[pyproperty(setter)]
-    fn set_args(&self, args: ArgIterable, vm: &VirtualMachine) -> PyResult<()> {
-        let args = args.iter(vm)?.collect::<PyResult<Vec<_>>>()?;
-        *self.args.write() = PyTupleRef::with_elements(args, &vm.ctx);
-        Ok(())
-    }
-
-    #[pyproperty(magic)]
-    pub fn traceback(&self) -> Option<PyTracebackRef> {
-        self.traceback.read().clone()
-    }
-
-    #[pyproperty(name = "__traceback__", setter)]
-    pub fn set_traceback(&self, traceback: Option<PyTracebackRef>) {
-        *self.traceback.write() = traceback;
-    }
-
-    #[pyproperty(magic)]
-    pub fn cause(&self) -> Option<PyBaseExceptionRef> {
-        self.cause.read().clone()
-    }
-
-    #[pyproperty(name = "__cause__", setter)]
-    pub fn set_cause(&self, cause: Option<PyBaseExceptionRef>) {
-        let mut c = self.cause.write();
-        self.set_suppress_context(true);
-        *c = cause;
-    }
-
-    #[pyproperty(magic)]
-    pub fn context(&self) -> Option<PyBaseExceptionRef> {
-        self.context.read().clone()
-    }
-
-    #[pyproperty(name = "__context__", setter)]
-    pub fn set_context(&self, context: Option<PyBaseExceptionRef>) {
-        *self.context.write() = context;
-    }
-
-    #[pyproperty(name = "__suppress_context__")]
-    fn get_suppress_context(&self) -> bool {
-        self.suppress_context.load()
-    }
-
-    #[pyproperty(name = "__suppress_context__", setter)]
-    fn set_suppress_context(&self, suppress_context: bool) {
-        self.suppress_context.store(suppress_context);
-    }
-
-    #[pymethod]
-    fn with_traceback(zelf: PyRef<Self>, tb: Option<PyTracebackRef>) -> PyResult {
-        *zelf.traceback.write() = tb;
-        Ok(zelf.as_object().clone())
-    }
-
-    #[pymethod(magic)]
-    fn str(&self, vm: &VirtualMachine) -> PyStrRef {
-        let str_args = exception_args_as_string(vm, self.args(), true);
-        match str_args.into_iter().exactly_one() {
-            Err(i) if i.len() == 0 => PyStr::from("").into_ref(vm),
-            Ok(s) => s,
-            Err(i) => PyStr::from(format!("({})", i.format(", "))).into_ref(vm),
-        }
-    }
-
-    #[pymethod(magic)]
-    fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> String {
-        let repr_args = exception_args_as_string(vm, zelf.args(), false);
-        let cls = zelf.class();
-        format!("{}({})", cls.name(), repr_args.iter().format(", "))
-    }
-}
-
-fn base_exception_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-    PyBaseException::tp_new(cls, args, vm)
 }
 
 pub fn chain<T>(e1: PyResult<()>, e2: PyResult<T>) -> PyResult<T> {
@@ -532,418 +409,115 @@ macro_rules! extend_exception {
     };
 }
 
-// Sorted By Hierarchy then alphabetized.
+#[pyimpl(flags(BASETYPE, HAS_DICT))]
+impl PyBaseException {
+    pub(crate) fn new(args: Vec<PyObjectRef>, vm: &VirtualMachine) -> PyBaseException {
+        PyBaseException {
+            traceback: PyRwLock::new(None),
+            cause: PyRwLock::new(None),
+            context: PyRwLock::new(None),
+            suppress_context: AtomicCell::new(false),
+            args: PyRwLock::new(PyTupleRef::with_elements(args, &vm.ctx)),
+        }
+    }
 
-define_exception! {
-    PySystemExit,
-    PyBaseException,
-    system_exit,
-    "Request to exit from the interpreter."
-}
-define_exception! {
-    PyGeneratorExit,
-    PyBaseException,
-    generator_exit,
-    "Request that a generator exit."
-}
-define_exception! {
-    PyKeyboardInterrupt,
-    PyBaseException,
-    keyboard_interrupt,
-    "Program interrupted by user."
-}
+    #[pyslot]
+    pub(crate) fn tp_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        PyBaseException::new(args.args, vm).into_pyresult_with_type(vm, cls)
+    }
 
-// Base `Exception` type
-define_exception! {
-    PyException,
-    PyBaseException,
-    exception_type,
-    "Common base class for all non-exit exceptions."
-}
+    #[pymethod(magic)]
+    pub(crate) fn init(zelf: PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        *zelf.args.write() = PyTupleRef::with_elements(args.args, &vm.ctx);
+        Ok(())
+    }
 
-define_exception! {
-    PyStopIteration,
-    PyException,
-    stop_iteration,
-    "Signal the end from iterator.__next__()."
-}
-define_exception! {
-    PyStopAsyncIteration,
-    PyException,
-    stop_async_iteration,
-    "Signal the end from iterator.__anext__()."
-}
+    pub fn get_arg(&self, idx: usize) -> Option<PyObjectRef> {
+        self.args.read().as_slice().get(idx).cloned()
+    }
 
-define_exception! {
-    PyArithmeticError,
-    PyException,
-    arithmetic_error,
-    "Base class for arithmetic errors."
-}
-define_exception! {
-    PyFloatingPointError,
-    PyArithmeticError,
-    floating_point_error,
-    "Floating point operation failed."
-}
-define_exception! {
-    PyOverflowError,
-    PyArithmeticError,
-    overflow_error,
-    "Result too large to be represented."
-}
-define_exception! {
-    PyZeroDivisionError,
-    PyArithmeticError,
-    zero_division_error,
-    "Second argument to a division or modulo operation was zero."
-}
+    #[pyproperty]
+    pub fn args(&self) -> PyTupleRef {
+        self.args.read().clone()
+    }
 
-define_exception! {
-    PyAssertionError,
-    PyException,
-    assertion_error,
-    "Assertion failed."
-}
-define_exception! {
-    PyAttributeError,
-    PyException,
-    attribute_error,
-    "Attribute not found."
-}
-define_exception! {
-    PyBufferError,
-    PyException,
-    buffer_error,
-    "Buffer error."
-}
-define_exception! {
-    PyEOFError,
-    PyException,
-    eof_error,
-    "Read beyond end of file."
-}
+    #[pyproperty(setter)]
+    fn set_args(&self, args: ArgIterable, vm: &VirtualMachine) -> PyResult<()> {
+        let args = args.iter(vm)?.collect::<PyResult<Vec<_>>>()?;
+        *self.args.write() = PyTupleRef::with_elements(args, &vm.ctx);
+        Ok(())
+    }
 
-define_exception! {
-    PyImportError,
-    PyException,
-    import_error,
-    "Import can't find module, or can't find name in module.",
-    base_exception_new,
-    import_error_init,
-}
-define_exception! {
-    PyModuleNotFoundError,
-    PyImportError,
-    module_not_found_error,
-    "Module not found."
-}
+    #[pyproperty(magic)]
+    pub fn traceback(&self) -> Option<PyTracebackRef> {
+        self.traceback.read().clone()
+    }
 
-define_exception! {
-    PyLookupError,
-    PyException,
-    lookup_error,
-    "Base class for lookup errors."
-}
-define_exception! {
-    PyIndexError,
-    PyLookupError,
-    index_error,
-    "Sequence index out of range."
-}
-define_exception! {
-    PyKeyError,
-    PyLookupError,
-    key_error,
-    "Mapping key not found."
-}
+    #[pyproperty(name = "__traceback__", setter)]
+    pub fn set_traceback(&self, traceback: Option<PyTracebackRef>) {
+        *self.traceback.write() = traceback;
+    }
 
-define_exception! {
-    PyMemoryError,
-    PyException,
-    memory_error,
-    "Out of memory."
-}
+    #[pyproperty(magic)]
+    pub fn cause(&self) -> Option<PyRef<Self>> {
+        self.cause.read().clone()
+    }
 
-define_exception! {
-    PyNameError,
-    PyException,
-    name_error,
-    "Name not found globally."
-}
-define_exception! {
-    PyUnboundLocalError,
-    PyNameError,
-    unbound_local_error,
-    "Local name referenced but not bound to a value."
-}
+    #[pyproperty(name = "__cause__", setter)]
+    pub fn set_cause(&self, cause: Option<PyRef<Self>>) {
+        let mut c = self.cause.write();
+        self.set_suppress_context(true);
+        *c = cause;
+    }
 
-// OS Errors:
-define_exception! {
-    PyOSError,
-    PyException,
-    os_error,
-    "Base class for I/O related errors."
-}
-define_exception! {
-    PyBlockingIOError,
-    PyOSError,
-    blocking_io_error,
-    "I/O operation would block."
-}
-define_exception! {
-    PyChildProcessError,
-    PyOSError,
-    child_process_error,
-    "Child process error."
-}
-define_exception! {
-    PyConnectionError,
-    PyOSError,
-    connection_error,
-    "Connection error."
-}
-define_exception! {
-    PyBrokenPipeError,
-    PyConnectionError,
-    broken_pipe_error,
-    "Broken pipe."
-}
-define_exception! {
-    PyConnectionAbortedError,
-    PyConnectionError,
-    connection_aborted_error,
-    "Connection aborted."
-}
-define_exception! {
-    PyConnectionRefusedError,
-    PyConnectionError,
-    connection_refused_error,
-    "Connection refused."
-}
-define_exception! {
-    PyConnectionResetError,
-    PyConnectionError,
-    connection_reset_error,
-    "Connection reset."
-}
-define_exception! {
-    PyFileExistsError,
-    PyOSError,
-    file_exists_error,
-    "File already exists."
-}
-define_exception! {
-    PyFileNotFoundError,
-    PyOSError,
-    file_not_found_error,
-    "File not found."
-}
-define_exception! {
-    PyInterruptedError,
-    PyOSError,
-    interrupted_error,
-    "Interrupted by signal."
-}
-define_exception! {
-    PyIsADirectoryError,
-    PyOSError,
-    is_a_directory_error,
-    "Operation doesn't work on directories."
-}
-define_exception! {
-    PyNotADirectoryError,
-    PyOSError,
-    not_a_directory_error,
-    "Operation only works on directories."
-}
-define_exception! {
-    PyPermissionError,
-    PyOSError,
-    permission_error,
-    "Not enough permissions."
-}
-define_exception! {
-    PyProcessLookupError,
-    PyOSError,
-    process_lookup_error,
-    "Process not found."
-}
-define_exception! {
-    PyTimeoutError,
-    PyOSError,
-    timeout_error,
-    "Timeout expired."
-}
+    #[pyproperty(magic)]
+    pub fn context(&self) -> Option<PyRef<Self>> {
+        self.context.read().clone()
+    }
 
-define_exception! {
-    PyReferenceError,
-    PyException,
-    reference_error,
-    "Weak ref proxy used after referent went away."
-}
+    #[pyproperty(name = "__context__", setter)]
+    pub fn set_context(&self, context: Option<PyRef<Self>>) {
+        *self.context.write() = context;
+    }
 
-define_exception! {
-    PyRuntimeError,
-    PyException,
-    runtime_error,
-    "Unspecified run-time error."
-}
-define_exception! {
-    PyNotImplementedError,
-    PyRuntimeError,
-    not_implemented_error,
-    "Method or function hasn't been implemented yet."
-}
-define_exception! {
-    PyRecursionError,
-    PyRuntimeError,
-    recursion_error,
-    "Recursion limit exceeded."
-}
+    #[pyproperty(name = "__suppress_context__")]
+    pub(super) fn get_suppress_context(&self) -> bool {
+        self.suppress_context.load()
+    }
 
-define_exception! {
-    PySyntaxError,
-    PyException,
-    syntax_error,
-    "Invalid syntax."
-}
-define_exception! {
-    PyIndentationError,
-    PySyntaxError,
-    indentation_error,
-    "Improper indentation."
-}
-define_exception! {
-    PyTabError,
-    PyIndentationError,
-    tab_error,
-    "Improper mixture of spaces and tabs."
-}
+    #[pyproperty(name = "__suppress_context__", setter)]
+    fn set_suppress_context(&self, suppress_context: bool) {
+        self.suppress_context.store(suppress_context);
+    }
 
-define_exception! {
-    PySystemError,
-    PyException,
-    system_error,
-    "Internal error in the Python interpreter.\n\nPlease report this to the Python maintainer, along with the traceback,\nthe Python version, and the hardware/OS platform and version."
-}
+    #[pymethod]
+    fn with_traceback(zelf: PyRef<Self>, tb: Option<PyTracebackRef>) -> PyResult {
+        *zelf.traceback.write() = tb;
+        Ok(zelf.as_object().clone())
+    }
 
-define_exception! {
-    PyTypeError,
-    PyException,
-    type_error,
-    "Inappropriate argument type."
-}
+    #[pymethod(magic)]
+    pub(super) fn str(&self, vm: &VirtualMachine) -> PyStrRef {
+        let str_args = exception_args_as_string(vm, self.args(), true);
+        match str_args.into_iter().exactly_one() {
+            Err(i) if i.len() == 0 => PyStr::from("").into_ref(vm),
+            Ok(s) => s,
+            Err(i) => PyStr::from(format!("({})", i.format(", "))).into_ref(vm),
+        }
+    }
 
-define_exception! {
-    PyValueError,
-    PyException,
-    value_error,
-    "Inappropriate argument value (of correct type)."
-}
-define_exception! {
-    PyUnicodeError,
-    PyValueError,
-    unicode_error,
-    "Unicode related error."
-}
-define_exception! {
-    PyUnicodeDecodeError,
-    PyUnicodeError,
-    unicode_decode_error,
-    "Unicode decoding error."
-}
-define_exception! {
-    PyUnicodeEncodeError,
-    PyUnicodeError,
-    unicode_encode_error,
-    "Unicode encoding error."
-}
-define_exception! {
-    PyUnicodeTranslateError,
-    PyUnicodeError,
-    unicode_translate_error,
-    "Unicode translation error."
-}
-
-#[cfg(feature = "jit")]
-define_exception! {
-    PyJitError,
-    PyException,
-    jit_error,
-    "JIT error."
-}
-
-// Warnings
-define_exception! {
-    PyWarning,
-    PyException,
-    warning,
-    "Base class for warning categories."
-}
-define_exception! {
-    PyDeprecationWarning,
-    PyWarning,
-    deprecation_warning,
-    "Base class for warnings about deprecated features."
-}
-define_exception! {
-    PyPendingDeprecationWarning,
-    PyWarning,
-    pending_deprecation_warning,
-    "Base class for warnings about features which will be deprecated\nin the future."
-}
-define_exception! {
-    PyRuntimeWarning,
-    PyWarning,
-    runtime_warning,
-    "Base class for warnings about dubious runtime behavior."
-}
-define_exception! {
-    PySyntaxWarning,
-    PyWarning,
-    syntax_warning,
-    "Base class for warnings about dubious syntax."
-}
-define_exception! {
-    PyUserWarning,
-    PyWarning,
-    user_warning,
-    "Base class for warnings generated by user code."
-}
-define_exception! {
-    PyFutureWarning,
-    PyWarning,
-    future_warning,
-    "Base class for warnings about constructs that will change semantically\nin the future."
-}
-define_exception! {
-    PyImportWarning,
-    PyWarning,
-    import_warning,
-    "Base class for warnings about probable mistakes in module imports."
-}
-define_exception! {
-    PyUnicodeWarning,
-    PyWarning,
-    unicode_warning,
-    "Base class for warnings about Unicode related problems, mostly\nrelated to conversion problems."
-}
-define_exception! {
-    PyBytesWarning,
-    PyWarning,
-    bytes_warning,
-    "Base class for warnings about bytes and buffer related problems, mostly\nrelated to conversion from str or comparing to str."
-}
-define_exception! {
-    PyResourceWarning,
-    PyWarning,
-    resource_warning,
-    "Base class for warnings about resource usage."
+    #[pymethod(magic)]
+    fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> String {
+        let repr_args = exception_args_as_string(vm, zelf.args(), false);
+        let cls = zelf.class();
+        format!("{}({})", cls.name(), repr_args.iter().format(", "))
+    }
 }
 
 impl ExceptionZoo {
     pub(crate) fn init() -> Self {
+        use self::types::*;
+
         let base_exception_type = PyBaseException::init_bare_type().clone();
 
         // Sorted By Hierarchy then alphabetized.
@@ -1104,6 +678,8 @@ impl ExceptionZoo {
     // TODO: remove it after fixing `errno` / `winerror` problem
     #[allow(clippy::redundant_clone)]
     pub fn extend(ctx: &PyContext) {
+        use self::types::*;
+
         let excs = &ctx.exceptions;
 
         PyBaseException::extend_class(ctx, &excs.base_exception_type);
@@ -1257,26 +833,7 @@ impl ExceptionZoo {
     }
 }
 
-fn import_error_init(
-    zelf: PyRef<PyBaseException>,
-    args: FuncArgs,
-    vm: &VirtualMachine,
-) -> PyResult<()> {
-    let exc_self = zelf.into_object();
-    vm.set_attr(
-        &exc_self,
-        "name",
-        vm.unwrap_or_none(args.kwargs.get("name").cloned()),
-    )?;
-    vm.set_attr(
-        &exc_self,
-        "path",
-        vm.unwrap_or_none(args.kwargs.get("path").cloned()),
-    )?;
-    Ok(())
-}
-
-fn none_getter(_obj: PyObjectRef, vm: &VirtualMachine) -> PyNoneRef {
+fn none_getter(_obj: PyObjectRef, vm: &VirtualMachine) -> PyRef<PyNone> {
     vm.ctx.none.clone()
 }
 
@@ -1390,5 +947,464 @@ impl IntoPyException for std::ffi::NulError {
 impl<C: widestring::UChar> IntoPyException for widestring::NulError<C> {
     fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         cstring_error(vm)
+    }
+}
+
+pub(super) mod types {
+    use crate::common::lock::PyRwLock;
+    use crate::{
+        builtins::{traceback::PyTracebackRef, PyTupleRef, PyTypeRef},
+        function::FuncArgs,
+        PyRef, PyResult, VirtualMachine,
+    };
+    use crossbeam_utils::atomic::AtomicCell;
+
+    // This module is designed to be used as `use builtins::*;`.
+    // Do not add any pub symbols not included in builtins module.
+    // `PyBaseExceptionRef` is the only exception.
+
+    pub type PyBaseExceptionRef = PyRef<PyBaseException>;
+
+    // Sorted By Hierarchy then alphabetized.
+
+    #[pyclass(module = false, name = "BaseException")]
+    pub struct PyBaseException {
+        pub(super) traceback: PyRwLock<Option<PyTracebackRef>>,
+        pub(super) cause: PyRwLock<Option<PyRef<Self>>>,
+        pub(super) context: PyRwLock<Option<PyRef<Self>>>,
+        pub(super) suppress_context: AtomicCell<bool>,
+        pub(super) args: PyRwLock<PyTupleRef>,
+    }
+
+    define_exception! {
+        PySystemExit,
+        PyBaseException,
+        system_exit,
+        "Request to exit from the interpreter."
+    }
+    define_exception! {
+        PyGeneratorExit,
+        PyBaseException,
+        generator_exit,
+        "Request that a generator exit."
+    }
+    define_exception! {
+        PyKeyboardInterrupt,
+        PyBaseException,
+        keyboard_interrupt,
+        "Program interrupted by user."
+    }
+
+    // Base `Exception` type
+    define_exception! {
+        PyException,
+        PyBaseException,
+        exception_type,
+        "Common base class for all non-exit exceptions."
+    }
+
+    define_exception! {
+        PyStopIteration,
+        PyException,
+        stop_iteration,
+        "Signal the end from iterator.__next__()."
+    }
+    define_exception! {
+        PyStopAsyncIteration,
+        PyException,
+        stop_async_iteration,
+        "Signal the end from iterator.__anext__()."
+    }
+
+    define_exception! {
+        PyArithmeticError,
+        PyException,
+        arithmetic_error,
+        "Base class for arithmetic errors."
+    }
+    define_exception! {
+        PyFloatingPointError,
+        PyArithmeticError,
+        floating_point_error,
+        "Floating point operation failed."
+    }
+    define_exception! {
+        PyOverflowError,
+        PyArithmeticError,
+        overflow_error,
+        "Result too large to be represented."
+    }
+    define_exception! {
+        PyZeroDivisionError,
+        PyArithmeticError,
+        zero_division_error,
+        "Second argument to a division or modulo operation was zero."
+    }
+
+    define_exception! {
+        PyAssertionError,
+        PyException,
+        assertion_error,
+        "Assertion failed."
+    }
+    define_exception! {
+        PyAttributeError,
+        PyException,
+        attribute_error,
+        "Attribute not found."
+    }
+    define_exception! {
+        PyBufferError,
+        PyException,
+        buffer_error,
+        "Buffer error."
+    }
+    define_exception! {
+        PyEOFError,
+        PyException,
+        eof_error,
+        "Read beyond end of file."
+    }
+
+    define_exception! {
+        PyImportError,
+        PyException,
+        import_error,
+        "Import can't find module, or can't find name in module.",
+        base_exception_new,
+        import_error_init,
+    }
+
+    fn base_exception_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        PyBaseException::tp_new(cls, args, vm)
+    }
+
+    fn import_error_init(
+        zelf: PyRef<PyBaseException>,
+        args: FuncArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let exc_self = zelf.into_object();
+        vm.set_attr(
+            &exc_self,
+            "name",
+            vm.unwrap_or_none(args.kwargs.get("name").cloned()),
+        )?;
+        vm.set_attr(
+            &exc_self,
+            "path",
+            vm.unwrap_or_none(args.kwargs.get("path").cloned()),
+        )?;
+        Ok(())
+    }
+
+    define_exception! {
+        PyModuleNotFoundError,
+        PyImportError,
+        module_not_found_error,
+        "Module not found."
+    }
+
+    define_exception! {
+        PyLookupError,
+        PyException,
+        lookup_error,
+        "Base class for lookup errors."
+    }
+    define_exception! {
+        PyIndexError,
+        PyLookupError,
+        index_error,
+        "Sequence index out of range."
+    }
+    define_exception! {
+        PyKeyError,
+        PyLookupError,
+        key_error,
+        "Mapping key not found."
+    }
+
+    define_exception! {
+        PyMemoryError,
+        PyException,
+        memory_error,
+        "Out of memory."
+    }
+
+    define_exception! {
+        PyNameError,
+        PyException,
+        name_error,
+        "Name not found globally."
+    }
+    define_exception! {
+        PyUnboundLocalError,
+        PyNameError,
+        unbound_local_error,
+        "Local name referenced but not bound to a value."
+    }
+
+    // OS Errors:
+    define_exception! {
+        PyOSError,
+        PyException,
+        os_error,
+        "Base class for I/O related errors."
+    }
+    define_exception! {
+        PyBlockingIOError,
+        PyOSError,
+        blocking_io_error,
+        "I/O operation would block."
+    }
+    define_exception! {
+        PyChildProcessError,
+        PyOSError,
+        child_process_error,
+        "Child process error."
+    }
+    define_exception! {
+        PyConnectionError,
+        PyOSError,
+        connection_error,
+        "Connection error."
+    }
+    define_exception! {
+        PyBrokenPipeError,
+        PyConnectionError,
+        broken_pipe_error,
+        "Broken pipe."
+    }
+    define_exception! {
+        PyConnectionAbortedError,
+        PyConnectionError,
+        connection_aborted_error,
+        "Connection aborted."
+    }
+    define_exception! {
+        PyConnectionRefusedError,
+        PyConnectionError,
+        connection_refused_error,
+        "Connection refused."
+    }
+    define_exception! {
+        PyConnectionResetError,
+        PyConnectionError,
+        connection_reset_error,
+        "Connection reset."
+    }
+    define_exception! {
+        PyFileExistsError,
+        PyOSError,
+        file_exists_error,
+        "File already exists."
+    }
+    define_exception! {
+        PyFileNotFoundError,
+        PyOSError,
+        file_not_found_error,
+        "File not found."
+    }
+    define_exception! {
+        PyInterruptedError,
+        PyOSError,
+        interrupted_error,
+        "Interrupted by signal."
+    }
+    define_exception! {
+        PyIsADirectoryError,
+        PyOSError,
+        is_a_directory_error,
+        "Operation doesn't work on directories."
+    }
+    define_exception! {
+        PyNotADirectoryError,
+        PyOSError,
+        not_a_directory_error,
+        "Operation only works on directories."
+    }
+    define_exception! {
+        PyPermissionError,
+        PyOSError,
+        permission_error,
+        "Not enough permissions."
+    }
+    define_exception! {
+        PyProcessLookupError,
+        PyOSError,
+        process_lookup_error,
+        "Process not found."
+    }
+    define_exception! {
+        PyTimeoutError,
+        PyOSError,
+        timeout_error,
+        "Timeout expired."
+    }
+
+    define_exception! {
+        PyReferenceError,
+        PyException,
+        reference_error,
+        "Weak ref proxy used after referent went away."
+    }
+
+    define_exception! {
+        PyRuntimeError,
+        PyException,
+        runtime_error,
+        "Unspecified run-time error."
+    }
+    define_exception! {
+        PyNotImplementedError,
+        PyRuntimeError,
+        not_implemented_error,
+        "Method or function hasn't been implemented yet."
+    }
+    define_exception! {
+        PyRecursionError,
+        PyRuntimeError,
+        recursion_error,
+        "Recursion limit exceeded."
+    }
+
+    define_exception! {
+        PySyntaxError,
+        PyException,
+        syntax_error,
+        "Invalid syntax."
+    }
+    define_exception! {
+        PyIndentationError,
+        PySyntaxError,
+        indentation_error,
+        "Improper indentation."
+    }
+    define_exception! {
+        PyTabError,
+        PyIndentationError,
+        tab_error,
+        "Improper mixture of spaces and tabs."
+    }
+
+    define_exception! {
+        PySystemError,
+        PyException,
+        system_error,
+        "Internal error in the Python interpreter.\n\nPlease report this to the Python maintainer, along with the traceback,\nthe Python version, and the hardware/OS platform and version."
+    }
+
+    define_exception! {
+        PyTypeError,
+        PyException,
+        type_error,
+        "Inappropriate argument type."
+    }
+
+    define_exception! {
+        PyValueError,
+        PyException,
+        value_error,
+        "Inappropriate argument value (of correct type)."
+    }
+    define_exception! {
+        PyUnicodeError,
+        PyValueError,
+        unicode_error,
+        "Unicode related error."
+    }
+    define_exception! {
+        PyUnicodeDecodeError,
+        PyUnicodeError,
+        unicode_decode_error,
+        "Unicode decoding error."
+    }
+    define_exception! {
+        PyUnicodeEncodeError,
+        PyUnicodeError,
+        unicode_encode_error,
+        "Unicode encoding error."
+    }
+    define_exception! {
+        PyUnicodeTranslateError,
+        PyUnicodeError,
+        unicode_translate_error,
+        "Unicode translation error."
+    }
+
+    #[cfg(feature = "jit")]
+    define_exception! {
+        PyJitError,
+        PyException,
+        jit_error,
+        "JIT error."
+    }
+
+    // Warnings
+    define_exception! {
+        PyWarning,
+        PyException,
+        warning,
+        "Base class for warning categories."
+    }
+    define_exception! {
+        PyDeprecationWarning,
+        PyWarning,
+        deprecation_warning,
+        "Base class for warnings about deprecated features."
+    }
+    define_exception! {
+        PyPendingDeprecationWarning,
+        PyWarning,
+        pending_deprecation_warning,
+        "Base class for warnings about features which will be deprecated\nin the future."
+    }
+    define_exception! {
+        PyRuntimeWarning,
+        PyWarning,
+        runtime_warning,
+        "Base class for warnings about dubious runtime behavior."
+    }
+    define_exception! {
+        PySyntaxWarning,
+        PyWarning,
+        syntax_warning,
+        "Base class for warnings about dubious syntax."
+    }
+    define_exception! {
+        PyUserWarning,
+        PyWarning,
+        user_warning,
+        "Base class for warnings generated by user code."
+    }
+    define_exception! {
+        PyFutureWarning,
+        PyWarning,
+        future_warning,
+        "Base class for warnings about constructs that will change semantically\nin the future."
+    }
+    define_exception! {
+        PyImportWarning,
+        PyWarning,
+        import_warning,
+        "Base class for warnings about probable mistakes in module imports."
+    }
+    define_exception! {
+        PyUnicodeWarning,
+        PyWarning,
+        unicode_warning,
+        "Base class for warnings about Unicode related problems, mostly\nrelated to conversion problems."
+    }
+    define_exception! {
+        PyBytesWarning,
+        PyWarning,
+        bytes_warning,
+        "Base class for warnings about bytes and buffer related problems, mostly\nrelated to conversion from str or comparing to str."
+    }
+    define_exception! {
+        PyResourceWarning,
+        PyWarning,
+        resource_warning,
+        "Base class for warnings about resource usage."
     }
 }

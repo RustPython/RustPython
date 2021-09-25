@@ -78,11 +78,13 @@ mod _io {
     };
     use crate::{
         builtins::{
-            PyByteArray, PyBytes, PyBytesRef, PyMemoryView, PyStr, PyStrRef, PyType, PyTypeRef,
+            PyBaseExceptionRef, PyByteArray, PyBytes, PyBytesRef, PyMemoryView, PyStr, PyStrRef,
+            PyType, PyTypeRef,
         },
-        exceptions::{self, PyBaseExceptionRef},
-        function::{ArgBytesLike, ArgMemoryBuffer},
-        function::{ArgIterable, FuncArgs, OptionalArg, OptionalOption},
+        exceptions,
+        function::{
+            ArgBytesLike, ArgIterable, ArgMemoryBuffer, FuncArgs, OptionalArg, OptionalOption,
+        },
         protocol::{BufferInternal, BufferOptions, PyBuffer, ResizeGuard},
         slots::{Iterable, PyIter, SlotConstructor},
         utils::Either,

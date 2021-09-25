@@ -1,7 +1,7 @@
 use crate::common::lock::{PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard};
 use crate::{
-    builtins::{PyStrRef, PyTupleRef, PyTypeRef},
-    exceptions::{IntoPyException, PyBaseExceptionRef},
+    builtins::{PyBaseExceptionRef, PyStrRef, PyTupleRef, PyTypeRef},
+    exceptions::IntoPyException,
     function::{ArgBytesLike, ArgMemoryBuffer, FuncArgs, OptionalArg, OptionalOption},
     utils::{Either, ToCString},
     IntoPyObject, PyClassImpl, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject,

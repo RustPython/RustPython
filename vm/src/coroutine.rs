@@ -1,5 +1,6 @@
+use crate::builtins::PyBaseExceptionRef;
 use crate::builtins::{PyStrRef, PyTypeRef};
-use crate::exceptions::{self, PyBaseExceptionRef};
+use crate::exceptions;
 use crate::frame::{ExecutionResult, FrameRef};
 use crate::VirtualMachine;
 use crate::{PyObjectRef, PyResult, TypeProtocol};

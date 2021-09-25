@@ -1,5 +1,6 @@
 use crate::common::{boxvec::BoxVec, lock::PyMutex};
 use crate::{
+    builtins::PyBaseExceptionRef,
     builtins::{
         self,
         asyncgenerator::PyAsyncGenWrappedValue,
@@ -13,7 +14,7 @@ use crate::{
     },
     bytecode,
     coroutine::Coro,
-    exceptions::{self, ExceptionCtor, PyBaseExceptionRef},
+    exceptions::{self, ExceptionCtor},
     function::FuncArgs,
     iterator,
     scope::Scope,

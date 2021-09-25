@@ -4,7 +4,7 @@ mod byteslike;
 use self::OptionalArg::*;
 use crate::builtins::pytype::PyTypeRef;
 use crate::builtins::tuple::PyTupleRef;
-use crate::exceptions::PyBaseExceptionRef;
+use crate::builtins::PyBaseExceptionRef;
 use crate::vm::VirtualMachine;
 use crate::{
     IntoPyObject, IntoPyResult, PyObjectRef, PyRef, PyResult, PyThreadingConstraint, PyValue,
