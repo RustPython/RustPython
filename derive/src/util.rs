@@ -530,7 +530,7 @@ fn func_sig(sig: &Signature) -> String {
             if ty == "FuncArgs" {
                 return Some("*args, **kwargs".to_owned());
             }
-            if ty == "& VirtualMachine" {
+            if ty.starts_with('&') && ty.ends_with("VirtualMachine") {
                 return None;
             }
             let ident = match arg.pat.as_ref() {

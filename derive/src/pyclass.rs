@@ -324,11 +324,11 @@ pub(crate) fn impl_define_exception(
         #[pyexception(#class_name, #base_class)]
         #[derive(Debug)]
         #[doc = #docs]
-        struct #class_name {}
+        pub struct #class_name {}
 
         // We need this to make extend mechanism work:
-        impl PyValue for #class_name {
-            fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        impl ::rustpython_vm::PyValue for #class_name {
+            fn class(vm: &::rustpython_vm::VirtualMachine) -> &::rustpython_vm::builtins::PyTypeRef {
                 &vm.ctx.exceptions.#ctx_name
             }
         }
@@ -337,19 +337,19 @@ pub(crate) fn impl_define_exception(
         impl #class_name {
             #[pyslot]
             pub(crate) fn tp_new(
-                cls: PyTypeRef,
-                args: FuncArgs,
-                vm: &VirtualMachine,
-            ) -> PyResult {
+                cls: ::rustpython_vm::builtins::PyTypeRef,
+                args: ::rustpython_vm::function::FuncArgs,
+                vm: &::rustpython_vm::VirtualMachine,
+            ) -> ::rustpython_vm::PyResult {
                 #tp_new_slot
             }
 
             #[pymethod(magic)]
             pub(crate) fn init(
-                zelf: PyRef<PyBaseException>,
-                args: FuncArgs,
-                vm: &VirtualMachine,
-            ) -> PyResult<()> {
+                zelf: ::rustpython_vm::PyRef<::rustpython_vm::exceptions::PyBaseException>,
+                args: ::rustpython_vm::function::FuncArgs,
+                vm: &::rustpython_vm::VirtualMachine,
+            ) -> ::rustpython_vm::PyResult<()> {
                 #init_method
             }
         }
