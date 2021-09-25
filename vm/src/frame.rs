@@ -1,37 +1,31 @@
+use crate::common::{boxvec::BoxVec, lock::PyMutex};
+use crate::{
+    builtins::{
+        self,
+        asyncgenerator::PyAsyncGenWrappedValue,
+        coroutine::PyCoroutine,
+        function::{PyCell, PyCellRef, PyFunction},
+        generator::PyGenerator,
+        list, pystr, set,
+        traceback::PyTraceback,
+        tuple::{PyTuple, PyTupleTyped},
+        PyCode, PyDict, PyDictRef, PySlice, PyStr, PyStrRef, PyTypeRef,
+    },
+    bytecode,
+    coroutine::Coro,
+    exceptions::{self, ExceptionCtor, PyBaseExceptionRef},
+    function::FuncArgs,
+    iterator,
+    scope::Scope,
+    slots::PyComparisonOp,
+    IdProtocol, ItemProtocol, PyMethod, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol, VirtualMachine,
+};
+use indexmap::IndexMap;
+use itertools::Itertools;
 use std::fmt;
 #[cfg(feature = "threading")]
 use std::sync::atomic;
-
-use indexmap::IndexMap;
-use itertools::Itertools;
-
-use crate::builtins;
-use crate::builtins::asyncgenerator::PyAsyncGenWrappedValue;
-use crate::builtins::code::PyCodeRef;
-use crate::builtins::coroutine::PyCoroutine;
-use crate::builtins::dict::{PyDict, PyDictRef};
-use crate::builtins::function::{PyCell, PyCellRef, PyFunction};
-use crate::builtins::generator::PyGenerator;
-use crate::builtins::pystr::{self, PyStr, PyStrRef};
-use crate::builtins::pytype::PyTypeRef;
-use crate::builtins::slice::PySlice;
-use crate::builtins::traceback::PyTraceback;
-use crate::builtins::tuple::{PyTuple, PyTupleTyped};
-use crate::builtins::{list, set};
-use crate::bytecode;
-use crate::common::boxvec::BoxVec;
-use crate::common::lock::PyMutex;
-use crate::coroutine::Coro;
-use crate::exceptions::{self, ExceptionCtor, PyBaseExceptionRef};
-use crate::function::FuncArgs;
-use crate::iterator;
-use crate::scope::Scope;
-use crate::slots::PyComparisonOp;
-use crate::vm::VirtualMachine;
-use crate::{
-    IdProtocol, ItemProtocol, PyMethod, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol,
-};
 
 #[derive(Clone, Debug)]
 struct Block {
@@ -104,7 +98,7 @@ type Lasti = std::cell::Cell<u32>;
 
 #[pyclass(module = false, name = "frame")]
 pub struct Frame {
-    pub code: PyCodeRef,
+    pub code: PyRef<PyCode>,
 
     pub fastlocals: PyMutex<Box<[Option<PyObjectRef>]>>,
     pub(crate) cells_frees: Box<[PyCellRef]>,
@@ -174,7 +168,7 @@ pub type FrameResult = PyResult<Option<ExecutionResult>>;
 
 impl Frame {
     pub(crate) fn new(
-        code: PyCodeRef,
+        code: PyRef<PyCode>,
         scope: Scope,
         builtins: PyDictRef,
         closure: &[PyCellRef],
@@ -317,7 +311,7 @@ impl FrameRef {
 /// An executing frame; essentially just a struct to combine the immutable data outside the mutex
 /// with the mutable data inside
 struct ExecutingFrame<'a> {
-    code: &'a PyCodeRef,
+    code: &'a PyRef<PyCode>,
     fastlocals: &'a PyMutex<Box<[Option<PyObjectRef>]>>,
     cells_frees: &'a [PyCellRef],
     locals: &'a PyDictRef,
@@ -1550,7 +1544,7 @@ impl ExecutingFrame<'_> {
             .pop_value()
             .downcast::<PyStr>()
             .expect("qualified name to be a string");
-        let code_obj: PyCodeRef = self
+        let code_obj: PyRef<PyCode> = self
             .pop_value()
             .downcast()
             .expect("Second to top value on the stack must be a code object");

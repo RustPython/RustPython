@@ -56,7 +56,6 @@ impl PyNone {
 #[pyclass(module = false, name = "NotImplementedType")]
 #[derive(Debug)]
 pub struct PyNotImplemented;
-pub type PyNotImplementedRef = PyRef<PyNotImplemented>;
 
 impl PyValue for PyNotImplemented {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {

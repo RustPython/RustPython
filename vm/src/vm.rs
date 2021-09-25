@@ -4,39 +4,38 @@
 //!   https://github.com/ProgVal/pythonvm-rust/blob/master/src/processor/mod.rs
 //!
 
-use std::borrow::Cow;
-use std::cell::{Cell, Ref, RefCell};
-use std::collections::{HashMap, HashSet};
-use std::fmt;
-
-use crossbeam_utils::atomic::AtomicCell;
-use num_traits::{Signed, ToPrimitive};
-
-use crate::builtins::code::{self, PyCode, PyCodeRef};
-use crate::builtins::dict::PyDictRef;
-use crate::builtins::int::{PyInt, PyIntRef};
-use crate::builtins::list::PyList;
-use crate::builtins::module::{self, PyModule};
-use crate::builtins::object;
-use crate::builtins::pystr::{PyStr, PyStrRef};
-use crate::builtins::pytype::PyTypeRef;
-use crate::builtins::tuple::{PyTuple, PyTupleRef, PyTupleTyped};
-use crate::codecs::CodecsRegistry;
-use crate::common::{hash::HashSecret, lock::PyMutex, rc::PyRc};
 #[cfg(feature = "rustpython-compiler")]
 use crate::compile::{self, CompileError, CompileErrorType, CompileOpts};
-use crate::exceptions::{self, PyBaseException, PyBaseExceptionRef};
-use crate::frame::{ExecutionResult, Frame, FrameRef};
-use crate::function::{FuncArgs, IntoFuncArgs};
-use crate::scope::Scope;
-use crate::slots::PyComparisonOp;
-use crate::utils::Either;
-use crate::{builtins, bytecode, frozen, import, iterator, stdlib, sysmodule};
 use crate::{
+    builtins::{
+        self,
+        code::{self, PyCode},
+        module, object,
+        tuple::{PyTuple, PyTupleRef, PyTupleTyped},
+        PyDictRef, PyInt, PyIntRef, PyList, PyModule, PyStr, PyStrRef, PyTypeRef,
+    },
+    bytecode,
+    codecs::CodecsRegistry,
+    common::{hash::HashSecret, lock::PyMutex, rc::PyRc},
+    exceptions::{self, PyBaseException, PyBaseExceptionRef},
+    frame::{ExecutionResult, Frame, FrameRef},
+    frozen,
+    function::{FuncArgs, IntoFuncArgs},
+    import, iterator,
+    scope::Scope,
+    slots::PyComparisonOp,
+    stdlib, sysmodule,
+    utils::Either,
     IdProtocol, IntoPyObject, ItemProtocol, PyArithmaticValue, PyContext, PyLease, PyMethod,
     PyObject, PyObjectRef, PyRef, PyRefExact, PyResult, PyValue, TryFromObject, TryIntoRef,
     TypeProtocol,
 };
+use crossbeam_utils::atomic::AtomicCell;
+use num_traits::{Signed, ToPrimitive};
+use std::borrow::Cow;
+use std::cell::{Cell, Ref, RefCell};
+use std::collections::{HashMap, HashSet};
+use std::fmt;
 
 // use objects::ects;
 
@@ -487,7 +486,7 @@ impl VirtualMachine {
         }
     }
 
-    pub fn run_code_obj(&self, code: PyCodeRef, scope: Scope) -> PyResult {
+    pub fn run_code_obj(&self, code: PyRef<PyCode>, scope: Scope) -> PyResult {
         let frame =
             Frame::new(code, scope, self.builtins.dict().unwrap(), &[], self).into_ref(self);
         self.run_frame_full(frame)
@@ -572,7 +571,7 @@ impl VirtualMachine {
         value.into_pyobject(self)
     }
 
-    pub fn new_code_object(&self, code: impl code::IntoCodeObject) -> PyCodeRef {
+    pub fn new_code_object(&self, code: impl code::IntoCodeObject) -> PyRef<PyCode> {
         self.ctx.new_code_object(code.into_codeobj(self))
     }
 
@@ -1573,7 +1572,7 @@ impl VirtualMachine {
         source: &str,
         mode: compile::Mode,
         source_path: String,
-    ) -> Result<PyCodeRef, CompileError> {
+    ) -> Result<PyRef<PyCode>, CompileError> {
         self.compile_with_opts(source, mode, source_path, self.compile_opts())
     }
 
@@ -1584,7 +1583,7 @@ impl VirtualMachine {
         mode: compile::Mode,
         source_path: String,
         opts: CompileOpts,
-    ) -> Result<PyCodeRef, CompileError> {
+    ) -> Result<PyRef<PyCode>, CompileError> {
         compile::compile(source, mode, source_path, opts)
             .map(|code| PyCode::new(self.map_codeobj(code)).into_ref(self))
     }

@@ -1,46 +1,11 @@
-use crate::builtins::asyncgenerator;
-use crate::builtins::builtinfunc;
-use crate::builtins::bytearray;
-use crate::builtins::bytes;
-use crate::builtins::classmethod;
-use crate::builtins::code;
-use crate::builtins::complex;
-use crate::builtins::coroutine;
-use crate::builtins::dict;
-use crate::builtins::enumerate;
-use crate::builtins::filter;
-use crate::builtins::float;
-use crate::builtins::frame;
-use crate::builtins::function;
-use crate::builtins::generator;
-use crate::builtins::genericalias;
-use crate::builtins::getset;
-use crate::builtins::int;
-use crate::builtins::iter;
-use crate::builtins::list;
-use crate::builtins::map;
-use crate::builtins::mappingproxy;
-use crate::builtins::memory;
-use crate::builtins::module;
-use crate::builtins::namespace;
-use crate::builtins::object;
-use crate::builtins::property;
-use crate::builtins::pybool;
-use crate::builtins::pystr;
-use crate::builtins::pysuper;
-use crate::builtins::pytype::{self, PyType, PyTypeRef};
-use crate::builtins::range;
-use crate::builtins::set;
-use crate::builtins::singletons;
-use crate::builtins::slice;
-use crate::builtins::staticmethod;
-use crate::builtins::traceback;
-use crate::builtins::tuple;
-use crate::builtins::weakproxy;
-use crate::builtins::weakref;
-use crate::builtins::zip;
-use crate::slots::PyTypeSlots;
-use crate::{PyAttributes, PyContext, StaticType};
+use crate::builtins::{
+    asyncgenerator, builtinfunc, bytearray, bytes, classmethod, code, complex, coroutine, dict,
+    enumerate, filter, float, frame, function, generator, genericalias, getset, int, iter, list,
+    map, mappingproxy, memory, module, namespace, object, property, pybool, pystr, pysuper,
+    pytype::{self, PyType, PyTypeRef},
+    range, set, singletons, slice, staticmethod, traceback, tuple, weakproxy, weakref, zip,
+};
+use crate::{slots::PyTypeSlots, PyAttributes, PyContext, StaticType};
 
 /// Holder of references to builtin types.
 #[derive(Debug, Clone)]

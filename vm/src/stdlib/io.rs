@@ -68,34 +68,33 @@ impl TryFromObject for Fildes {
 mod _io {
     use super::*;
 
+    use crate::common::{
+        borrow::{BorrowedValue, BorrowedValueMut},
+        lock::{
+            PyMappedThreadMutexGuard, PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
+            PyThreadMutex, PyThreadMutexGuard,
+        },
+        rc::PyRc,
+    };
+    use crate::{
+        builtins::{
+            pytype, PyByteArray, PyBytes, PyBytesRef, PyMemoryView, PyStr, PyStrRef, PyTypeRef,
+        },
+        byteslike::{ArgBytesLike, ArgMemoryBuffer},
+        exceptions::{self, PyBaseExceptionRef},
+        function::{ArgIterable, FuncArgs, OptionalArg, OptionalOption},
+        protocol::{BufferInternal, BufferOptions, PyBuffer, ResizeGuard},
+        slots::{Iterable, PyIter, SlotConstructor},
+        utils::Either,
+        vm::{ReprGuard, VirtualMachine},
+        IdProtocol, IntoPyObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
+        TryFromObject, TypeProtocol,
+    };
     use bstr::ByteSlice;
     use crossbeam_utils::atomic::AtomicCell;
     use num_traits::ToPrimitive;
     use std::io::{self, prelude::*, Cursor, SeekFrom};
     use std::ops::Range;
-
-    use crate::builtins::memory::PyMemoryView;
-    use crate::builtins::{
-        bytes::{PyBytes, PyBytesRef},
-        pytype, PyByteArray, PyStr, PyStrRef, PyTypeRef,
-    };
-    use crate::byteslike::{ArgBytesLike, ArgMemoryBuffer};
-    use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
-    use crate::common::lock::{
-        PyMappedThreadMutexGuard, PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
-        PyThreadMutex, PyThreadMutexGuard,
-    };
-    use crate::common::rc::PyRc;
-    use crate::exceptions::{self, PyBaseExceptionRef};
-    use crate::function::{ArgIterable, FuncArgs, OptionalArg, OptionalOption};
-    use crate::protocol::{BufferInternal, BufferOptions, PyBuffer, ResizeGuard};
-    use crate::slots::{Iterable, PyIter, SlotConstructor};
-    use crate::utils::Either;
-    use crate::vm::{ReprGuard, VirtualMachine};
-    use crate::{
-        IdProtocol, IntoPyObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
-        TryFromObject, TypeProtocol,
-    };
 
     #[allow(clippy::let_and_return)]
     fn validate_whence(whence: i32) -> bool {
@@ -3681,15 +3680,16 @@ mod _io {
 mod fileio {
     use super::Offset;
     use super::_io::*;
-    use crate::builtins::{PyStr, PyStrRef, PyTypeRef};
-    use crate::byteslike::{ArgBytesLike, ArgMemoryBuffer};
-    use crate::crt_fd::Fd;
-    use crate::exceptions::IntoPyException;
-    use crate::function::OptionalOption;
-    use crate::function::{FuncArgs, OptionalArg};
-    use crate::stdlib::os;
-    use crate::vm::VirtualMachine;
-    use crate::{PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol};
+    use crate::{
+        builtins::{PyStr, PyStrRef, PyTypeRef},
+        byteslike::{ArgBytesLike, ArgMemoryBuffer},
+        crt_fd::Fd,
+        exceptions::IntoPyException,
+        function::OptionalOption,
+        function::{FuncArgs, OptionalArg},
+        stdlib::os,
+        PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
+    };
     use crossbeam_utils::atomic::AtomicCell;
     use std::io::{Read, Write};
 
