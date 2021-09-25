@@ -703,6 +703,7 @@ pub mod module {
         body().map_err(|err| err.into_pyexception(vm))
     }
 
+    #[cfg(not(target_os = "redox"))]
     fn _fchmod(fd: RawFd, mode: u32, vm: &VirtualMachine) -> PyResult<()> {
         nix::sys::stat::fchmod(
             fd,
