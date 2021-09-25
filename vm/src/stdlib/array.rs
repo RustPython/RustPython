@@ -1123,7 +1123,7 @@ mod array {
     }
 
     impl AsBuffer for PyArray {
-        fn get_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
+        fn as_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
             let array = zelf.read();
             let buf = PyBuffer::new(
                 zelf.as_object().clone(),

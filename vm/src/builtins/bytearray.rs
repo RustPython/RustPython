@@ -667,7 +667,7 @@ impl Comparable for PyByteArray {
 }
 
 impl AsBuffer for PyByteArray {
-    fn get_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
+    fn as_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
         let buffer = PyBuffer::new(
             zelf.as_object().clone(),
             zelf.clone(),
