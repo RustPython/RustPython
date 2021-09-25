@@ -685,6 +685,32 @@ pub mod module {
         Ok(x)
     }
 
+    fn _chmod(
+        path: PyPathLike,
+        dir_fd: DirFd<0>,
+        mode: u32,
+        follow_symlinks: FollowSymlinks,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let [] = dir_fd.0;
+        let body = move || {
+            use std::os::unix::fs::PermissionsExt;
+            let meta = fs_metadata(&path, follow_symlinks.0)?;
+            let mut permissions = meta.permissions();
+            permissions.set_mode(mode);
+            fs::set_permissions(&path, permissions)
+        };
+        body().map_err(|err| err.into_pyexception(vm))
+    }
+
+    fn _fchmod(fd: RawFd, mode: u32, vm: &VirtualMachine) -> PyResult<()> {
+        nix::sys::stat::fchmod(
+            fd,
+            nix::sys::stat::Mode::from_bits(mode as libc::mode_t).unwrap(),
+        )
+        .map_err(|err| err.into_pyexception(vm))
+    }
+
     #[pyfunction]
     fn chmod(
         path: PathOrFd,
@@ -693,48 +719,22 @@ pub mod module {
         follow_symlinks: FollowSymlinks,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let [] = dir_fd.0;
         match path {
-            PathOrFd::Path(path) => {
-                let body = move || {
-                    use std::os::unix::fs::PermissionsExt;
-                    let meta = fs_metadata(&path, follow_symlinks.0)?;
-                    let mut permissions = meta.permissions();
-                    permissions.set_mode(mode);
-                    fs::set_permissions(&path, permissions)
-                };
-                body().map_err(|err| err.into_pyexception(vm))
-            }
-            PathOrFd::Fd(fd) => nix::sys::stat::fchmod(
-                fd,
-                nix::sys::stat::Mode::from_bits(mode as libc::mode_t).unwrap(),
-            )
-            .map_err(|err| err.into_pyexception(vm)),
+            PathOrFd::Path(path) => _chmod(path, dir_fd, mode, follow_symlinks, vm),
+            PathOrFd::Fd(fd) => _fchmod(fd, mode, vm),
         }
     }
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn fchmod(fd: RawFd, mode: u32, vm: &VirtualMachine) -> PyResult<()> {
-        chmod(
-            PathOrFd::Fd(fd),
-            DirFd::default(),
-            mode,
-            FollowSymlinks(true),
-            vm,
-        )
+        _fchmod(fd, mode, vm)
     }
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn lchmod(path: PyPathLike, mode: u32, vm: &VirtualMachine) -> PyResult<()> {
-        chmod(
-            PathOrFd::Path(path),
-            DirFd::default(),
-            mode,
-            FollowSymlinks(false),
-            vm,
-        )
+        _chmod(path, DirFd::default(), mode, FollowSymlinks(false), vm)
     }
 
     #[pyfunction]
