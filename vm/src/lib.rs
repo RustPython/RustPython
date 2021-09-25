@@ -72,7 +72,6 @@ mod signal;
 mod sliceable;
 pub mod slots;
 pub mod stdlib;
-pub mod sysmodule;
 pub mod types;
 pub mod utils;
 mod version;

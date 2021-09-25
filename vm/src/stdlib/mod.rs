@@ -81,6 +81,7 @@ mod select;
 pub(crate) mod signal;
 #[cfg(all(not(target_arch = "wasm32"), feature = "ssl"))]
 mod ssl;
+pub mod sys;
 #[cfg(all(unix, not(target_os = "redox")))]
 mod termios;
 #[cfg(windows)]
@@ -146,7 +147,7 @@ pub fn get_module_inits() -> StdlibMap {
             "unicodedata" => unicodedata::make_module,
             "_warnings" => warnings::make_module,
             "zlib" => zlib::make_module,
-            crate::sysmodule::sysconfigdata_name() => sysconfigdata::make_module,
+            sys::sysconfigdata_name() => sysconfigdata::make_module,
         }
         // parser related modules:
         #[cfg(feature = "rustpython-ast")]

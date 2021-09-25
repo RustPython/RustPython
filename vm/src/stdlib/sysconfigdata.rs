@@ -1,4 +1,4 @@
-use crate::sysmodule::MULTIARCH;
+use super::sys::MULTIARCH;
 use crate::{IntoPyObject, ItemProtocol, PyObjectRef, VirtualMachine};
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {

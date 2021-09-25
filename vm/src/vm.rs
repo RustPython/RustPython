@@ -26,7 +26,7 @@ use crate::{
     scope::Scope,
     signal::NSIG,
     slots::PyComparisonOp,
-    stdlib, sysmodule,
+    stdlib,
     utils::Either,
     IdProtocol, IntoPyObject, ItemProtocol, PyArithmaticValue, PyContext, PyLease, PyMethod,
     PyObject, PyObjectRef, PyRef, PyRefExact, PyResult, PyValue, TryFromObject, TryIntoRef,
@@ -326,7 +326,7 @@ impl VirtualMachine {
         }
 
         builtins::make_module(self, self.builtins.clone());
-        sysmodule::make_module(self, self.sys_module.clone(), self.builtins.clone());
+        stdlib::sys::make_module(self, self.sys_module.clone(), self.builtins.clone());
 
         let mut inner_init = || -> PyResult<()> {
             #[cfg(not(target_arch = "wasm32"))]
@@ -475,7 +475,10 @@ impl VirtualMachine {
             if let Err(e) = self.invoke(&func, args) {
                 last_exc = Some(e.clone());
                 if !e.isinstance(&self.ctx.exceptions.system_exit) {
-                    writeln!(sysmodule::PyStderr(self), "Error in atexit._run_exitfuncs:");
+                    writeln!(
+                        stdlib::sys::PyStderr(self),
+                        "Error in atexit._run_exitfuncs:"
+                    );
                     exceptions::print_exception(self, e);
                 }
             }
