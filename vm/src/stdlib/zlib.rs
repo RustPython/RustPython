@@ -4,7 +4,7 @@ pub(crate) use decl::make_module;
 mod decl {
     use crate::common::lock::PyMutex;
     use crate::{
-        builtins::{int, PyBytes, PyBytesRef, PyIntRef, PyTypeRef},
+        builtins::{PyBytes, PyBytesRef, PyIntRef, PyTypeRef},
         byteslike::ArgBytesLike,
         exceptions::PyBaseExceptionRef,
         function::OptionalArg,
@@ -66,7 +66,7 @@ mod decl {
     #[pyfunction]
     fn adler32(data: ArgBytesLike, begin_state: OptionalArg<PyIntRef>) -> u32 {
         data.with_ref(|data| {
-            let begin_state = begin_state.map_or(1, |i| int::bigint_unsigned_mask(i.as_bigint()));
+            let begin_state = begin_state.map_or(1, |i| i.as_u32_mask());
 
             let mut hasher = Adler32::from_value(begin_state);
             hasher.update_buffer(data);
@@ -78,7 +78,7 @@ mod decl {
     #[pyfunction]
     fn crc32(data: ArgBytesLike, begin_state: OptionalArg<PyIntRef>) -> u32 {
         data.with_ref(|data| {
-            let begin_state = begin_state.map_or(0, |i| int::bigint_unsigned_mask(i.as_bigint()));
+            let begin_state = begin_state.map_or(0, |i| i.as_u32_mask());
 
             let mut hasher = Crc32::new_with_initial(begin_state);
             hasher.update(data);

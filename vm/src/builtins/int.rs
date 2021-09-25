@@ -123,22 +123,6 @@ impl TryFromBorrowedObject for BigInt {
     }
 }
 
-// _PyLong_AsUnsignedLongMask
-pub fn bigint_unsigned_mask(v: &BigInt) -> u32 {
-    v.to_u32()
-        .or_else(|| v.to_i32().map(|i| i as u32))
-        .unwrap_or_else(|| {
-            let mut out = 0u32;
-            for digit in v.iter_u32_digits() {
-                out = out.wrapping_shl(32) | digit;
-            }
-            match v.sign() {
-                num_bigint::Sign::Minus => out * -1i32 as u32,
-                _ => out,
-            }
-        })
-}
-
 fn inner_pow(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
     if int2.is_negative() {
         let v1 = try_to_float(int1, vm)?;
@@ -279,7 +263,6 @@ impl SlotConstructor for PyInt {
     }
 }
 
-#[pyimpl(flags(BASETYPE), with(Comparable, Hashable, SlotConstructor))]
 impl PyInt {
     fn with_value<T>(cls: PyTypeRef, value: T, vm: &VirtualMachine) -> PyResult<PyRef<Self>>
     where
@@ -300,6 +283,23 @@ impl PyInt {
 
     pub fn as_bigint(&self) -> &BigInt {
         &self.value
+    }
+
+    // _PyLong_AsUnsignedLongMask
+    pub fn as_u32_mask(&self) -> u32 {
+        let v = self.as_bigint();
+        v.to_u32()
+            .or_else(|| v.to_i32().map(|i| i as u32))
+            .unwrap_or_else(|| {
+                let mut out = 0u32;
+                for digit in v.iter_u32_digits() {
+                    out = out.wrapping_shl(32) | digit;
+                }
+                match v.sign() {
+                    num_bigint::Sign::Minus => out * -1i32 as u32,
+                    _ => out,
+                }
+            })
     }
 
     #[inline]
@@ -324,7 +324,10 @@ impl PyInt {
             Ok(vm.ctx.not_implemented())
         }
     }
+}
 
+#[pyimpl(flags(BASETYPE), with(Comparable, Hashable, SlotConstructor))]
+impl PyInt {
     #[pymethod(name = "__radd__")]
     #[pymethod(magic)]
     fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<BigInt> {
