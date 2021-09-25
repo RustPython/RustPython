@@ -1,20 +1,17 @@
+use super::{PyInt, PyIntRef, PySlice, PySliceRef, PyTypeRef};
+use crate::common::hash::PyHash;
+use crate::{
+    function::{FuncArgs, OptionalArg},
+    iterator,
+    slots::{Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, PyIter},
+    IdProtocol, IntoPyRef, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol, VirtualMachine,
+};
 use crossbeam_utils::atomic::AtomicCell;
 use num_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 use std::cmp::max;
-
-use super::int::{PyInt, PyIntRef};
-use super::pytype::PyTypeRef;
-use super::slice::{PySlice, PySliceRef};
-use crate::common::hash::PyHash;
-use crate::function::{FuncArgs, OptionalArg};
-use crate::slots::{Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, PyIter};
-use crate::vm::VirtualMachine;
-use crate::{
-    iterator, IdProtocol, IntoPyRef, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
-};
 
 // Search flag passed to iter_search
 enum SearchType {

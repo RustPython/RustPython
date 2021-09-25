@@ -1,28 +1,21 @@
 #[cfg(feature = "jit")]
 mod jitfunc;
 
-use super::code::PyCodeRef;
-use super::dict::PyDictRef;
-use super::pystr::PyStrRef;
-use super::pytype::PyTypeRef;
-use super::tuple::{PyTupleRef, PyTupleTyped};
-use crate::builtins::asyncgenerator::PyAsyncGen;
-use crate::builtins::coroutine::PyCoroutine;
-use crate::builtins::generator::PyGenerator;
-use crate::bytecode;
-use crate::common::lock::PyMutex;
-use crate::frame::Frame;
-use crate::function::{FuncArgs, OptionalArg};
-use crate::scope::Scope;
-use crate::slots::{
-    Callable, Comparable, PyComparisonOp, SlotConstructor, SlotDescriptor, SlotGetattro,
+use super::{
+    tuple::PyTupleTyped, PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyStrRef,
+    PyTupleRef, PyTypeRef,
 };
 #[cfg(feature = "jit")]
 use crate::IntoPyObject;
-use crate::VirtualMachine;
 use crate::{
+    bytecode,
+    common::lock::PyMutex,
+    frame::Frame,
+    function::{FuncArgs, OptionalArg},
+    scope::Scope,
+    slots::{Callable, Comparable, PyComparisonOp, SlotConstructor, SlotDescriptor, SlotGetattro},
     IdProtocol, ItemProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
-    PyResult, PyValue, TypeProtocol,
+    PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
 use itertools::Itertools;
 #[cfg(feature = "jit")]
@@ -36,7 +29,7 @@ pub type PyFunctionRef = PyRef<PyFunction>;
 #[pyclass(module = false, name = "function")]
 #[derive(Debug)]
 pub struct PyFunction {
-    code: PyCodeRef,
+    code: PyRef<PyCode>,
     #[cfg(feature = "jit")]
     jitted_code: OnceCell<CompiledCode>,
     globals: PyDictRef,
@@ -47,7 +40,7 @@ pub struct PyFunction {
 
 impl PyFunction {
     pub(crate) fn new(
-        code: PyCodeRef,
+        code: PyRef<PyCode>,
         globals: PyDictRef,
         closure: Option<PyTupleTyped<PyCellRef>>,
         defaults: Option<PyTupleRef>,
@@ -338,7 +331,7 @@ impl PyValue for PyFunction {
 #[pyimpl(with(SlotDescriptor, Callable), flags(HAS_DICT, METHOD_DESCR))]
 impl PyFunction {
     #[pyproperty(magic)]
-    fn code(&self) -> PyCodeRef {
+    fn code(&self) -> PyRef<PyCode> {
         self.code.clone()
     }
 

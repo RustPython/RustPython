@@ -1,19 +1,16 @@
-use num_complex::Complex64;
-use num_traits::Zero;
-use std::convert::Infallible as Never;
-
-use super::float;
-use super::pystr::PyStr;
-use super::pytype::PyTypeRef;
-use crate::function::{OptionalArg, OptionalOption};
-use crate::slots::{Comparable, Hashable, PyComparisonOp, SlotConstructor};
+use super::{float, PyStr, PyTypeRef};
 use crate::{
+    function::{OptionalArg, OptionalOption},
+    slots::{Comparable, Hashable, PyComparisonOp, SlotConstructor},
     IdProtocol, IntoPyObject,
     PyArithmaticValue::{self, *},
     PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol, VirtualMachine,
 };
+use num_complex::Complex64;
+use num_traits::Zero;
 use rustpython_common::{float_ops, hash};
+use std::convert::Infallible as Never;
 
 /// Create a complex number from a real part and an optional imaginary part.
 ///

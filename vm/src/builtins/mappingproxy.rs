@@ -1,13 +1,10 @@
-use super::dict::PyDict;
-use super::pystr::PyStrRef;
-use super::pytype::PyTypeRef;
-use crate::function::OptionalArg;
-use crate::iterator;
-use crate::slots::{Iterable, SlotConstructor};
-use crate::vm::VirtualMachine;
+use super::{PyDict, PyStrRef, PyTypeRef};
 use crate::{
+    function::OptionalArg,
+    iterator,
+    slots::{Iterable, SlotConstructor},
     IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject,
+    TryFromObject, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "mappingproxy")]

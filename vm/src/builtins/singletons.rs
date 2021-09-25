@@ -1,8 +1,7 @@
-use super::pytype::PyTypeRef;
-use crate::slots::SlotConstructor;
-use crate::vm::VirtualMachine;
+use super::PyTypeRef;
 use crate::{
-    IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    slots::SlotConstructor, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
+    PyValue, TypeProtocol, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "NoneType")]

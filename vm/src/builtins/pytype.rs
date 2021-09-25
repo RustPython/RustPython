@@ -1,26 +1,18 @@
+use super::{
+    mappingproxy::PyMappingProxy, object, PyClassMethod, PyDictRef, PyInt, PyList, PyStaticMethod,
+    PyStr, PyStrRef, PyTuple, PyTupleRef, PyWeak,
+};
 use crate::common::lock::PyRwLock;
-use std::collections::HashSet;
-use std::fmt;
-
-use super::classmethod::PyClassMethod;
-use super::dict::PyDictRef;
-use super::int::PyInt;
-use super::list::PyList;
-use super::mappingproxy::PyMappingProxy;
-use super::object;
-use super::pystr::{PyStr, PyStrRef};
-use super::staticmethod::PyStaticMethod;
-use super::tuple::{PyTuple, PyTupleRef};
-use super::weakref::PyWeak;
-use crate::function::{FuncArgs, KwArgs, OptionalArg};
-use crate::slots::{self, Callable, PyTpFlags, PyTypeSlots, SlotGetattro, SlotSetattro};
-use crate::utils::Either;
-use crate::vm::VirtualMachine;
 use crate::{
+    function::{FuncArgs, KwArgs, OptionalArg},
+    slots::{self, Callable, PyTpFlags, PyTypeSlots, SlotGetattro, SlotSetattro},
+    utils::Either,
     IdProtocol, PyAttributes, PyClassImpl, PyContext, PyLease, PyObjectRef, PyRef, PyResult,
-    PyValue, TryFromObject, TypeProtocol,
+    PyValue, TryFromObject, TypeProtocol, VirtualMachine,
 };
 use itertools::Itertools;
+use std::collections::HashSet;
+use std::fmt;
 use std::ops::Deref;
 
 /// type(object_or_name, bases, dict)

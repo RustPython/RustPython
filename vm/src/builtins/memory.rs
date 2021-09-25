@@ -1,19 +1,18 @@
-use crate::builtins::slice::PySliceRef;
-use crate::builtins::{PyBytes, PyBytesRef, PyList, PyListRef, PyStr, PyStrRef, PyTypeRef};
-use crate::bytesinner::bytes_to_hex;
+use super::{PyBytes, PyBytesRef, PyList, PyListRef, PySliceRef, PyStr, PyStrRef, PyTypeRef};
 use crate::common::{
     borrow::{BorrowedValue, BorrowedValueMut},
     hash::PyHash,
     lock::OnceCell,
     rc::PyRc,
 };
-use crate::function::{FuncArgs, OptionalArg};
-use crate::protocol::{BufferInternal, BufferOptions, PyBuffer};
-use crate::sliceable::{convert_slice, wrap_index, SequenceIndex};
-use crate::slots::{AsBuffer, Comparable, Hashable, PyComparisonOp, SlotConstructor};
-use crate::stdlib::pystruct::_struct::FormatSpec;
-use crate::utils::Either;
 use crate::{
+    bytesinner::bytes_to_hex,
+    function::{FuncArgs, OptionalArg},
+    protocol::{BufferInternal, BufferOptions, PyBuffer},
+    sliceable::{convert_slice, wrap_index, SequenceIndex},
+    slots::{AsBuffer, Comparable, Hashable, PyComparisonOp, SlotConstructor},
+    stdlib::pystruct::_struct::FormatSpec,
+    utils::Either,
     IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
     PyResult, PyValue, TryFromBorrowedObject, TryFromObject, TypeProtocol, VirtualMachine,
 };

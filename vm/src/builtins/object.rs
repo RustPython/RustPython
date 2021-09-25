@@ -1,15 +1,9 @@
-use super::dict::{PyDict, PyDictRef};
-use super::list::PyList;
-use super::pystr::{PyStr, PyStrRef};
-use super::pytype::{PyType, PyTypeRef};
+use super::{PyDict, PyDictRef, PyList, PyStr, PyStrRef, PyType, PyTypeRef};
 use crate::common::hash::PyHash;
-use crate::function::FuncArgs;
-use crate::slots::PyComparisonOp;
-use crate::utils::Either;
-use crate::vm::VirtualMachine;
 use crate::{
-    IdProtocol, ItemProtocol, PyArithmaticValue, PyAttributes, PyClassImpl, PyComparisonValue,
-    PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
+    function::FuncArgs, slots::PyComparisonOp, utils::Either, IdProtocol, ItemProtocol,
+    PyArithmaticValue, PyAttributes, PyClassImpl, PyComparisonValue, PyContext, PyObject,
+    PyObjectRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
 
 /// object()

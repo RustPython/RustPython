@@ -1,30 +1,25 @@
-use crossbeam_utils::atomic::AtomicCell;
-use std::fmt;
-use std::marker::PhantomData;
-
-use super::pytype::PyTypeRef;
 use super::{
     int,
-    iter::{
-        IterStatus,
-        IterStatus::{Active, Exhausted},
-    },
-    PyInt,
+    iter::IterStatus::{self, Active, Exhausted},
+    PyInt, PyTypeRef,
 };
 use crate::common::hash::PyHash;
-use crate::function::OptionalArg;
-use crate::sequence::{self, SimpleSeq};
-use crate::sliceable::PySliceableSequence;
-use crate::slots::{
-    Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, PyIter, SlotConstructor,
-};
-use crate::utils::Either;
-use crate::vm::{ReprGuard, VirtualMachine};
 use crate::{
+    function::OptionalArg,
+    sequence::{self, SimpleSeq},
+    sliceable::PySliceableSequence,
+    slots::{
+        Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, PyIter, SlotConstructor,
+    },
+    utils::Either,
+    vm::{ReprGuard, VirtualMachine},
     IdProtocol, IntoPyObject, PyArithmaticValue, PyClassDef, PyClassImpl, PyComparisonValue,
     PyContext, PyObjectRef, PyRef, PyResult, PyValue, TransmuteFromObject, TryFromObject,
     TypeProtocol,
 };
+use crossbeam_utils::atomic::AtomicCell;
+use std::fmt;
+use std::marker::PhantomData;
 
 /// tuple() -> empty tuple
 /// tuple(iterable) -> tuple initialized from iterable's items

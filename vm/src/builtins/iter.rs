@@ -2,16 +2,14 @@
  * iterator types
  */
 
-use crossbeam_utils::atomic::AtomicCell;
-
-use super::pytype::PyTypeRef;
-use super::{int, PyInt};
-use crate::slots::{IteratorIterable, PyIter};
-use crate::vm::VirtualMachine;
+use super::{int, PyInt, PyTypeRef};
 use crate::{
-    function::ArgCallable, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
-    PyValue, TypeProtocol,
+    function::ArgCallable,
+    slots::{IteratorIterable, PyIter},
+    ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    VirtualMachine,
 };
+use crossbeam_utils::atomic::AtomicCell;
 
 /// Marks status of iterator.
 #[derive(Debug, Clone, Copy)]

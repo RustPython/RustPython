@@ -1,9 +1,10 @@
-use super::pytype::PyTypeRef;
-use crate::function::PosArgs;
-use crate::iterator;
-use crate::slots::{IteratorIterable, PyIter, SlotConstructor};
-use crate::vm::VirtualMachine;
-use crate::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use super::PyTypeRef;
+use crate::{
+    function::PosArgs,
+    iterator,
+    slots::{IteratorIterable, PyIter, SlotConstructor},
+    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+};
 
 #[pyclass(module = false, name = "zip")]
 #[derive(Debug)]

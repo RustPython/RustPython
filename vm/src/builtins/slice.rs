@@ -1,13 +1,11 @@
 // sliceobject.{h,c} in CPython
 
-use super::int::{PyInt, PyIntRef};
-use super::pytype::PyTypeRef;
-use crate::function::{FuncArgs, OptionalArg};
-use crate::slots::{Comparable, Hashable, PyComparisonOp, SlotConstructor, Unhashable};
-use crate::VirtualMachine;
+use super::{PyInt, PyIntRef, PyTypeRef};
 use crate::{
+    function::{FuncArgs, OptionalArg},
+    slots::{Comparable, Hashable, PyComparisonOp, SlotConstructor, Unhashable},
     IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TryIntoRef, TypeProtocol,
+    TryIntoRef, TypeProtocol, VirtualMachine,
 };
 use num_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, Zero};

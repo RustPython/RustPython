@@ -1,16 +1,11 @@
+use super::{PyInt, PyStrRef, PyTypeRef};
+use crate::{
+    function::OptionalArg, slots::SlotConstructor, IdProtocol, IntoPyObject, PyClassImpl,
+    PyContext, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject, TypeProtocol,
+    VirtualMachine,
+};
 use num_bigint::Sign;
 use num_traits::Zero;
-
-use super::int::PyInt;
-use super::pystr::PyStrRef;
-use crate::builtins::PyTypeRef;
-use crate::function::OptionalArg;
-use crate::slots::SlotConstructor;
-use crate::vm::VirtualMachine;
-use crate::{
-    IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue,
-    TryFromBorrowedObject, TryFromObject, TypeProtocol,
-};
 use std::fmt::{Debug, Formatter};
 
 impl IntoPyObject for bool {
