@@ -520,14 +520,14 @@ pub trait SlotSetattro: PyValue {
 pub trait AsBuffer: PyValue {
     // TODO: `flags` parameter
     #[pyslot]
-    fn as_buffer(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<PyBuffer> {
+    fn tp_as_buffer(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<PyBuffer> {
         let zelf = zelf
             .downcast_ref()
-            .ok_or_else(|| vm.new_type_error("unexpected payload for get_buffer".to_owned()))?;
-        Self::get_buffer(zelf, vm)
+            .ok_or_else(|| vm.new_type_error("unexpected payload for as_buffer".to_owned()))?;
+        Self::as_buffer(zelf, vm)
     }
 
-    fn get_buffer(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyBuffer>;
+    fn as_buffer(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyBuffer>;
 }
 
 #[pyimpl]

@@ -515,7 +515,7 @@ impl PyBytes {
 }
 
 impl AsBuffer for PyBytes {
-    fn get_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
+    fn as_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
         let buf = PyBuffer::new(
             zelf.as_object().clone(),
             zelf.clone(),
