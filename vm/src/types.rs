@@ -227,7 +227,7 @@ pub fn create_type_with_slots(
     slots: PyTypeSlots,
 ) -> PyTypeRef {
     let dict = PyAttributes::default();
-    pytype::new(
+    PyType::new(
         type_type.clone(),
         name,
         base.clone(),

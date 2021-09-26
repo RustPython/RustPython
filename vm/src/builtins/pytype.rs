@@ -49,6 +49,61 @@ impl PyValue for PyType {
 }
 
 impl PyType {
+    pub fn new(
+        metaclass: PyRef<Self>,
+        name: &str,
+        base: PyRef<Self>,
+        bases: Vec<PyRef<Self>>,
+        attrs: PyAttributes,
+        mut slots: PyTypeSlots,
+    ) -> Result<PyRef<Self>, String> {
+        // Check for duplicates in bases.
+        let mut unique_bases = HashSet::new();
+        for base in bases.iter() {
+            if !unique_bases.insert(base.get_id()) {
+                return Err(format!("duplicate base class {}", base.name()));
+            }
+        }
+
+        let mros = bases
+            .iter()
+            .map(|x| x.iter_mro().cloned().collect())
+            .collect();
+        let mro = linearise_mro(mros)?;
+
+        if base.slots.flags.has_feature(PyTpFlags::HAS_DICT) {
+            slots.flags |= PyTpFlags::HAS_DICT
+        }
+
+        *slots.name.write() = Some(String::from(name));
+
+        let new_type = PyRef::new_ref(
+            PyType {
+                base: Some(base),
+                bases,
+                mro,
+                subclasses: PyRwLock::default(),
+                attributes: PyRwLock::new(attrs),
+                slots,
+            },
+            metaclass,
+            None,
+        );
+
+        for attr_name in new_type.attributes.read().keys() {
+            if attr_name.starts_with("__") && attr_name.ends_with("__") {
+                new_type.update_slot(attr_name, true);
+            }
+        }
+        for base in &new_type.bases {
+            base.subclasses
+                .write()
+                .push(PyWeak::downgrade(new_type.as_object()));
+        }
+
+        Ok(new_type)
+    }
+
     pub fn tp_name(&self) -> String {
         self.slots.name.read().as_ref().unwrap().to_string()
     }
@@ -493,7 +548,7 @@ impl PyType {
         let flags = PyTpFlags::heap_type_flags() | PyTpFlags::HAS_DICT;
         let slots = PyTypeSlots::from_flags(flags);
 
-        let typ = new(metatype, name.as_str(), base, bases, attributes, slots)
+        let typ = Self::new(metatype, name.as_str(), base, bases, attributes, slots)
             .map_err(|e| vm.new_type_error(e))?;
 
         // avoid deadlock
@@ -844,61 +899,6 @@ fn linearise_mro(mut bases: Vec<Vec<PyTypeRef>>) -> Result<Vec<PyTypeRef>, Strin
     Ok(result)
 }
 
-pub fn new(
-    typ: PyTypeRef,
-    name: &str,
-    base: PyTypeRef,
-    bases: Vec<PyTypeRef>,
-    attrs: PyAttributes,
-    mut slots: PyTypeSlots,
-) -> Result<PyTypeRef, String> {
-    // Check for duplicates in bases.
-    let mut unique_bases = HashSet::new();
-    for base in bases.iter() {
-        if !unique_bases.insert(base.get_id()) {
-            return Err(format!("duplicate base class {}", base.name()));
-        }
-    }
-
-    let mros = bases
-        .iter()
-        .map(|x| x.iter_mro().cloned().collect())
-        .collect();
-    let mro = linearise_mro(mros)?;
-
-    if base.slots.flags.has_feature(PyTpFlags::HAS_DICT) {
-        slots.flags |= PyTpFlags::HAS_DICT
-    }
-
-    *slots.name.write() = Some(String::from(name));
-
-    let new_type = PyRef::new_ref(
-        PyType {
-            base: Some(base),
-            bases,
-            mro,
-            subclasses: PyRwLock::default(),
-            attributes: PyRwLock::new(attrs),
-            slots,
-        },
-        typ,
-        None,
-    );
-
-    for attr_name in new_type.attributes.read().keys() {
-        if attr_name.starts_with("__") && attr_name.ends_with("__") {
-            new_type.update_slot(attr_name, true);
-        }
-    }
-    for base in &new_type.bases {
-        base.subclasses
-            .write()
-            .push(PyWeak::downgrade(new_type.as_object()));
-    }
-
-    Ok(new_type)
-}
-
 fn calculate_meta_class(
     metatype: PyTypeRef,
     bases: &[PyTypeRef],
@@ -986,7 +986,7 @@ mod tests {
         let object = &context.types.object_type;
         let type_type = &context.types.type_type;
 
-        let a = new(
+        let a = PyType::new(
             type_type.clone(),
             "A",
             object.clone(),
@@ -995,7 +995,7 @@ mod tests {
             Default::default(),
         )
         .unwrap();
-        let b = new(
+        let b = PyType::new(
             type_type.clone(),
             "B",
             object.clone(),

@@ -1,7 +1,7 @@
 use super::socket::{self, PySocketRef};
 use crate::common::lock::{PyRwLock, PyRwLockWriteGuard};
 use crate::{
-    builtins::{pytype, weakref::PyWeak, PyStrRef, PyTypeRef},
+    builtins::{PyStrRef, PyType, PyTypeRef, PyWeak},
     byteslike::{ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike},
     exceptions::{create_exception_type, IntoPyException, PyBaseExceptionRef},
     function::{ArgCallable, OptionalArg},
@@ -1112,7 +1112,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
     let ssl_error = create_exception_type("SSLError", &vm.ctx.exceptions.os_error);
 
-    let ssl_cert_verification_error = pytype::new(
+    let ssl_cert_verification_error = PyType::new(
         ctx.types.type_type.clone(),
         "SSLCertVerificationError",
         ssl_error.clone(),

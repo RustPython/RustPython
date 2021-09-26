@@ -78,7 +78,7 @@ mod _io {
     };
     use crate::{
         builtins::{
-            pytype, PyByteArray, PyBytes, PyBytesRef, PyMemoryView, PyStr, PyStrRef, PyTypeRef,
+            PyByteArray, PyBytes, PyBytesRef, PyMemoryView, PyStr, PyStrRef, PyType, PyTypeRef,
         },
         byteslike::{ArgBytesLike, ArgMemoryBuffer},
         exceptions::{self, PyBaseExceptionRef},
@@ -3621,7 +3621,7 @@ mod _io {
     }
 
     pub(super) fn make_unsupportedop(ctx: &PyContext) -> PyTypeRef {
-        pytype::new(
+        PyType::new(
             ctx.types.type_type.clone(),
             "UnsupportedOperation",
             ctx.exceptions.os_error.clone(),
