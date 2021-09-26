@@ -16,6 +16,18 @@ use crate::vm::VirtualMachine;
 use crate::{iterator, ItemProtocol, TypeProtocol};
 use crate::{IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 
+///  enumerate(iterable, start=0)
+///  
+///  Return an enumerate object.
+///  
+///    iterable
+///      an object supporting iteration
+///  
+///  The enumerate object yields pairs containing a count (from start, which
+///  defaults to zero) and a value yielded by the iterable argument.
+///  
+///  enumerate is useful for obtaining an indexed list:
+///      (0, seq[0]), (1, seq[1]), (2, seq[2]), ...
 #[pyclass(module = false, name = "enumerate")]
 #[derive(Debug)]
 pub struct PyEnumerate {
@@ -125,6 +137,7 @@ impl PyReverseSequenceIterator {
         Ok(())
     }
 
+    /// Return state information for pickling.
     #[pymethod(magic)]
     fn reduce(&self, vm: &VirtualMachine) -> PyResult {
         let iter = vm.get_attribute(vm.builtins.clone(), "reversed")?;
