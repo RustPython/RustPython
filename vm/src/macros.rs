@@ -249,3 +249,13 @@ cfg_if::cfg_if! {
         }
     }
 }
+
+macro_rules! ascii {
+    ($x:literal) => {{
+        const _: () = {
+            ["not ascii"][!rustpython_vm::utils::bytes_is_ascii($x) as usize];
+        };
+        unsafe { ascii::AsciiStr::from_ascii_unchecked($x.as_bytes()) }
+    }};
+}
+pub use ascii;

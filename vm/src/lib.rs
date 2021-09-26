@@ -40,7 +40,7 @@ pub use rustpython_derive::*;
 
 // This is above everything else so that the defined macros are available everywhere
 #[macro_use]
-pub mod macros;
+pub(crate) mod macros;
 
 mod anystr;
 pub mod builtins;
