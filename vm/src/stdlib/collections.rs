@@ -358,10 +358,9 @@ mod _collections {
 
         #[pymethod(magic)]
         fn reversed(zelf: PyRef<Self>) -> PyResult<PyReverseDequeIterator> {
-            let position = zelf.len().saturating_sub(1);
             Ok(PyReverseDequeIterator {
                 state: zelf.state.load(),
-                internal: PyRwLock::new(PositionIterInternal::new(zelf, position)),
+                internal: PyRwLock::new(PositionIterInternal::new(zelf, 0)),
             })
         }
 
@@ -659,6 +658,7 @@ mod _collections {
     #[derive(Debug, PyValue)]
     struct PyReverseDequeIterator {
         state: usize,
+        // position is counting from the tail
         internal: PyRwLock<PositionIterInternal<PyDequeRef>>,
     }
 
@@ -684,7 +684,7 @@ mod _collections {
     impl PyReverseDequeIterator {
         #[pymethod(magic)]
         fn length_hint(&self) -> usize {
-            self.internal.read().rev_length_hint(|obj| obj.len())
+            self.internal.read().length_hint(|obj| obj.len())
         }
 
         #[pymethod(magic)]
@@ -707,7 +707,7 @@ mod _collections {
     impl IteratorIterable for PyReverseDequeIterator {}
     impl SlotIterator for PyReverseDequeIterator {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-            zelf.internal.write().rev_next(
+            zelf.internal.write().next(
                 |deque, pos| {
                     if deque.state.load() != zelf.state {
                         return Err(
@@ -715,6 +715,10 @@ mod _collections {
                         );
                     }
                     let deque = deque.borrow_deque();
+                    let pos = deque
+                        .len()
+                        .checked_sub(pos + 1)
+                        .ok_or_else(|| vm.new_stop_iteration())?;
                     deque
                         .get(pos)
                         .ok_or_else(|| vm.new_stop_iteration())
