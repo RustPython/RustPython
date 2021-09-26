@@ -1,10 +1,12 @@
-use crate::builtins::{pystr::PyStr, PyFloat};
-use crate::exceptions::IntoPyException;
 use crate::{
+    builtins::{pystr::PyStr, PyFloat},
+    exceptions::IntoPyException,
     IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
     VirtualMachine,
 };
 use num_traits::ToPrimitive;
+
+pub use crate::macros::ascii;
 
 pub enum Either<A, B> {
     A(A),
@@ -127,8 +129,7 @@ impl ToCString for PyStr {
     }
 }
 
-#[allow(dead_code)]
-pub(crate) const fn bytes_is_ascii(x: &str) -> bool {
+pub const fn bytes_is_ascii(x: &str) -> bool {
     let x = x.as_bytes();
     let mut i = 0;
     while i < x.len() {
@@ -139,14 +140,3 @@ pub(crate) const fn bytes_is_ascii(x: &str) -> bool {
     }
     true
 }
-
-macro_rules! ascii {
-    ($x:literal) => {{
-        const _: () = {
-            ["not ascii"][!crate::utils::bytes_is_ascii($x) as usize];
-        };
-        unsafe { ascii::AsciiStr::from_ascii_unchecked($x.as_bytes()) }
-    }};
-}
-
-pub(crate) use ascii;

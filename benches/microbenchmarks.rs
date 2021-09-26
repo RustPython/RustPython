@@ -3,9 +3,7 @@ use criterion::{
     criterion_group, criterion_main, BatchSize, BenchmarkGroup, BenchmarkId, Criterion, Throughput,
 };
 use rustpython_compiler::Mode;
-use rustpython_vm::ItemProtocol;
-use rustpython_vm::PyResult;
-use rustpython_vm::{InitParameter, Interpreter, PySettings};
+use rustpython_vm::{utils::ascii, InitParameter, Interpreter, ItemProtocol, PyResult, PySettings};
 use std::path::{Path, PathBuf};
 use std::{ffi, fs, io};
 
@@ -133,7 +131,7 @@ fn bench_rustpy_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchmar
                 scope
                     .locals
                     .set_item(
-                        vm.ctx.new_ascii_literal(crate::utils::ascii!("ITERATIONS")),
+                        vm.ctx.new_ascii_literal(ascii!("ITERATIONS")),
                         vm.ctx.new_int(idx),
                         vm,
                     )
