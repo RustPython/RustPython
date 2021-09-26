@@ -5,7 +5,7 @@ use crate::{
     exceptions::{IntoPyException, PyBaseExceptionRef},
     function::{FuncArgs, OptionalArg, OptionalOption},
     utils::{Either, ToCString},
-    IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromBorrowedObject,
+    IntoPyObject, PyClassImpl, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject,
     TryFromObject, TypeProtocol, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
@@ -18,7 +18,10 @@ use std::convert::TryFrom;
 use std::mem::MaybeUninit;
 use std::net::{self, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, ToSocketAddrs};
 use std::time::{Duration, Instant};
-use std::{ffi, io};
+use std::{
+    ffi,
+    io::{self, Read, Write},
+};
 
 #[cfg(unix)]
 type RawSocket = std::os::unix::io::RawFd;
@@ -158,13 +161,26 @@ impl Default for PySocket {
     }
 }
 
-pub type PySocketRef = PyRef<PySocket>;
-
 #[cfg(windows)]
 const CLOSED_ERR: i32 = c::WSAENOTSOCK;
 #[cfg(unix)]
 const CLOSED_ERR: i32 = c::EBADF;
-#[pyimpl(flags(BASETYPE))]
+
+impl Read for &PySocket {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        (&mut &*self.sock_io()?).read(buf)
+    }
+}
+impl Write for &PySocket {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        (&mut &*self.sock_io()?).write(buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        (&mut &*self.sock_io()?).flush()
+    }
+}
+
 impl PySocket {
     pub fn sock_opt(&self) -> Option<PyMappedRwLockReadGuard<'_, Socket>> {
         PyRwLockReadGuard::try_map(self.sock.read(), |sock| sock.get()).ok()
@@ -177,94 +193,6 @@ impl PySocket {
 
     pub fn sock(&self, vm: &VirtualMachine) -> PyResult<PyMappedRwLockReadGuard<'_, Socket>> {
         self.sock_io().map_err(|e| e.into_pyexception(vm))
-    }
-
-    #[pyslot]
-    fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        Self::default().into_pyresult_with_type(vm, cls)
-    }
-
-    #[pymethod(magic)]
-    fn init(
-        &self,
-        family: OptionalArg<i32>,
-        socket_kind: OptionalArg<i32>,
-        proto: OptionalArg<i32>,
-        fileno: OptionalOption<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        let mut family = family.unwrap_or(-1);
-        let mut socket_kind = socket_kind.unwrap_or(-1);
-        let mut proto = proto.unwrap_or(-1);
-        let fileno = fileno
-            .flatten()
-            .map(|obj| get_raw_sock(obj, vm))
-            .transpose()?;
-        let sock;
-        if let Some(fileno) = fileno {
-            sock = sock_from_raw(fileno, vm)?;
-            match sock.local_addr() {
-                Ok(addr) if family == -1 => family = addr.family() as i32,
-                Err(e)
-                    if family == -1
-                        || matches!(
-                            e.raw_os_error(),
-                            Some(errcode!(ENOTSOCK)) | Some(errcode!(EBADF))
-                        ) =>
-                {
-                    std::mem::forget(sock);
-                    return Err(e.into_pyexception(vm));
-                }
-                _ => {}
-            }
-            if socket_kind == -1 {
-                // TODO: when socket2 cuts a new release, type will be available on all os
-                // socket_kind = sock.r#type().map_err(|e| e.into_pyexception(vm))?.into();
-                let res = unsafe {
-                    c::getsockopt(
-                        sock_fileno(&sock) as _,
-                        c::SOL_SOCKET,
-                        c::SO_TYPE,
-                        &mut socket_kind as *mut libc::c_int as *mut _,
-                        &mut (std::mem::size_of::<i32>() as _),
-                    )
-                };
-                if res < 0 {
-                    return Err(super::os::errno_err(vm));
-                }
-            }
-            cfg_if::cfg_if! {
-                if #[cfg(any(
-                    target_os = "android",
-                    target_os = "freebsd",
-                    target_os = "fuchsia",
-                    target_os = "linux",
-                ))] {
-                    if proto == -1 {
-                        proto = sock.protocol().map_err(|e| e.into_pyexception(vm))?.map_or(0, Into::into);
-                    }
-                } else {
-                    proto = 0;
-                }
-            }
-        } else {
-            if family == -1 {
-                family = c::AF_INET as i32
-            }
-            if socket_kind == -1 {
-                socket_kind = c::SOCK_STREAM
-            }
-            if proto == -1 {
-                proto = 0
-            }
-            sock = Socket::new(
-                Domain::from(family),
-                SocketType::from(socket_kind),
-                Some(Protocol::from(proto)),
-            )
-            .map_err(|err| err.into_pyexception(vm))?;
-        };
-        self.init_inner(family, socket_kind, proto, sock, vm)
     }
 
     fn init_inner(
@@ -522,6 +450,97 @@ impl PySocket {
         } else {
             Err(err.into())
         }
+    }
+}
+
+#[pyimpl(flags(BASETYPE))]
+impl PySocket {
+    #[pyslot]
+    fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        Self::default().into_pyresult_with_type(vm, cls)
+    }
+
+    #[pymethod(magic)]
+    fn init(
+        &self,
+        family: OptionalArg<i32>,
+        socket_kind: OptionalArg<i32>,
+        proto: OptionalArg<i32>,
+        fileno: OptionalOption<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let mut family = family.unwrap_or(-1);
+        let mut socket_kind = socket_kind.unwrap_or(-1);
+        let mut proto = proto.unwrap_or(-1);
+        let fileno = fileno
+            .flatten()
+            .map(|obj| get_raw_sock(obj, vm))
+            .transpose()?;
+        let sock;
+        if let Some(fileno) = fileno {
+            sock = sock_from_raw(fileno, vm)?;
+            match sock.local_addr() {
+                Ok(addr) if family == -1 => family = addr.family() as i32,
+                Err(e)
+                    if family == -1
+                        || matches!(
+                            e.raw_os_error(),
+                            Some(errcode!(ENOTSOCK)) | Some(errcode!(EBADF))
+                        ) =>
+                {
+                    std::mem::forget(sock);
+                    return Err(e.into_pyexception(vm));
+                }
+                _ => {}
+            }
+            if socket_kind == -1 {
+                // TODO: when socket2 cuts a new release, type will be available on all os
+                // socket_kind = sock.r#type().map_err(|e| e.into_pyexception(vm))?.into();
+                let res = unsafe {
+                    c::getsockopt(
+                        sock_fileno(&sock) as _,
+                        c::SOL_SOCKET,
+                        c::SO_TYPE,
+                        &mut socket_kind as *mut libc::c_int as *mut _,
+                        &mut (std::mem::size_of::<i32>() as _),
+                    )
+                };
+                if res < 0 {
+                    return Err(super::os::errno_err(vm));
+                }
+            }
+            cfg_if::cfg_if! {
+                if #[cfg(any(
+                    target_os = "android",
+                    target_os = "freebsd",
+                    target_os = "fuchsia",
+                    target_os = "linux",
+                ))] {
+                    if proto == -1 {
+                        proto = sock.protocol().map_err(|e| e.into_pyexception(vm))?.map_or(0, Into::into);
+                    }
+                } else {
+                    proto = 0;
+                }
+            }
+        } else {
+            if family == -1 {
+                family = c::AF_INET as i32
+            }
+            if socket_kind == -1 {
+                socket_kind = c::SOCK_STREAM
+            }
+            if proto == -1 {
+                proto = 0
+            }
+            sock = Socket::new(
+                Domain::from(family),
+                SocketType::from(socket_kind),
+                Some(Protocol::from(proto)),
+            )
+            .map_err(|err| err.into_pyexception(vm))?;
+        };
+        self.init_inner(family, socket_kind, proto, sock, vm)
     }
 
     #[pymethod]
@@ -916,20 +935,6 @@ impl PySocket {
             self.kind.load(),
             self.proto.load(),
         )
-    }
-}
-
-impl io::Read for PySocketRef {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        <&Socket as io::Read>::read(&mut &*self.sock_io()?, buf)
-    }
-}
-impl io::Write for PySocketRef {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        <&Socket as io::Write>::write(&mut &*self.sock_io()?, buf)
-    }
-    fn flush(&mut self) -> io::Result<()> {
-        <&Socket as io::Write>::flush(&mut &*self.sock_io()?)
     }
 }
 
