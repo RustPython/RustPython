@@ -189,6 +189,7 @@ impl PyDict {
         Ok(Implemented(true))
     }
 
+    /// Return len(self).
     #[pymethod(magic)]
     pub fn len(&self) -> usize {
         self.entries.len()
@@ -203,6 +204,7 @@ impl PyDict {
         size_of::<Self>() + self.entries.sizeof()
     }
 
+    /// Return repr(self).
     #[pymethod(magic)]
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
         let s = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
@@ -345,6 +347,7 @@ impl PyDict {
         Ok(vm.ctx.not_implemented())
     }
 
+    /// Return value|self.
     #[pymethod(magic)]
     fn ror(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let dicted: Result<PyDictRef, _> = other.downcast();
@@ -420,6 +423,7 @@ impl PyDict {
         self.entries.size()
     }
 
+    /// Return a reverse iterator over the dict keys.
     #[pymethod(magic)]
     fn reversed(zelf: PyRef<Self>) -> PyDictReverseKeyIterator {
         PyDictReverseKeyIterator::new(zelf)

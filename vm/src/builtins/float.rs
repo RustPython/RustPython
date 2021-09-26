@@ -198,6 +198,7 @@ impl SlotConstructor for PyFloat {
 
 #[pyimpl(flags(BASETYPE), with(Comparable, Hashable, SlotConstructor))]
 impl PyFloat {
+    /// Formats the float according to format_spec.
     #[pymethod(magic)]
     fn format(&self, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
         match FormatSpec::parse(spec.as_str())
@@ -208,6 +209,7 @@ impl PyFloat {
         }
     }
 
+    /// abs(self)
     #[pymethod(magic)]
     fn abs(&self) -> f64 {
         self.value.abs()
@@ -262,11 +264,13 @@ impl PyFloat {
         self.simple_op(other, |a, b| Ok(a + b), vm)
     }
 
+    /// self != 0
     #[pymethod(magic)]
     fn bool(&self) -> bool {
         self.value != 0.0
     }
 
+    /// Return divmod(self, value).
     #[pymethod(magic)]
     fn divmod(
         &self,
@@ -276,6 +280,7 @@ impl PyFloat {
         self.tuple_op(other, |a, b| inner_divmod(a, b, vm), vm)
     }
 
+    /// Return divmod(value, self).
     #[pymethod(magic)]
     fn rdivmod(
         &self,
@@ -285,6 +290,7 @@ impl PyFloat {
         self.tuple_op(other, |a, b| inner_divmod(b, a, vm), vm)
     }
 
+    /// Return self//value.
     #[pymethod(magic)]
     fn floordiv(
         &self,
@@ -294,6 +300,7 @@ impl PyFloat {
         self.simple_op(other, |a, b| inner_floordiv(a, b, vm), vm)
     }
 
+    /// Return value//self.
     #[pymethod(magic)]
     fn rfloordiv(
         &self,
@@ -303,26 +310,31 @@ impl PyFloat {
         self.simple_op(other, |a, b| inner_floordiv(b, a, vm), vm)
     }
 
+    /// Return self%value.
     #[pymethod(name = "__mod__")]
     fn mod_(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmaticValue<f64>> {
         self.simple_op(other, |a, b| inner_mod(a, b, vm), vm)
     }
 
+    /// Return value%self.
     #[pymethod(magic)]
     fn rmod(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmaticValue<f64>> {
         self.simple_op(other, |a, b| inner_mod(b, a, vm), vm)
     }
 
+    /// +self
     #[pymethod(magic)]
     fn pos(&self) -> f64 {
         self.value
     }
 
+    /// -self
     #[pymethod(magic)]
     fn neg(&self) -> f64 {
         -self.value
     }
 
+    /// Return pow(self, value, mod).
     #[pymethod(magic)]
     fn pow(
         &self,
@@ -337,31 +349,37 @@ impl PyFloat {
         }
     }
 
+    /// Return pow(value, self, mod).
     #[pymethod(magic)]
     fn rpow(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self.complex_op(other, |a, b| float_pow(b, a, vm), vm)
     }
 
+    /// Return self-value.
     #[pymethod(magic)]
     fn sub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmaticValue<f64>> {
         self.simple_op(other, |a, b| Ok(a - b), vm)
     }
 
+    /// Return value-self.
     #[pymethod(magic)]
     fn rsub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmaticValue<f64>> {
         self.simple_op(other, |a, b| Ok(b - a), vm)
     }
 
+    /// Return repr(self).
     #[pymethod(magic)]
     fn repr(&self) -> String {
         float_ops::to_string(self.value)
     }
 
+    /// Return self/value.
     #[pymethod(magic)]
     fn truediv(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmaticValue<f64>> {
         self.simple_op(other, |a, b| inner_div(a, b, vm), vm)
     }
 
+    /// Return value/self.
     #[pymethod(magic)]
     fn rtruediv(
         &self,
@@ -377,21 +395,27 @@ impl PyFloat {
         self.simple_op(other, |a, b| Ok(a * b), vm)
     }
 
+    /// Return the Integral closest to x between 0 and x.
     #[pymethod(magic)]
     fn trunc(&self, vm: &VirtualMachine) -> PyResult<BigInt> {
         try_bigint(self.value, vm)
     }
 
+    /// Return the floor as an Integral.
     #[pymethod(magic)]
     fn floor(&self, vm: &VirtualMachine) -> PyResult<BigInt> {
         try_bigint(self.value.floor(), vm)
     }
 
+    /// Return the ceiling as an Integral.
     #[pymethod(magic)]
     fn ceil(&self, vm: &VirtualMachine) -> PyResult<BigInt> {
         try_bigint(self.value.ceil(), vm)
     }
 
+    /// Return the Integral closest to x, rounding half toward even.
+    ///      
+    /// When an argument is passed, work like built-in round(x, ndigits).
     #[pymethod(magic)]
     fn round(&self, ndigits: OptionalOption<PyIntRef>, vm: &VirtualMachine) -> PyResult {
         let ndigits = ndigits.flatten();
@@ -423,11 +447,13 @@ impl PyFloat {
         Ok(value)
     }
 
+    /// int(self)
     #[pymethod(magic)]
     fn int(&self, vm: &VirtualMachine) -> PyResult<BigInt> {
         self.trunc(vm)
     }
 
+    /// float(self)
     #[pymethod(magic)]
     fn float(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
@@ -443,16 +469,31 @@ impl PyFloat {
         0.0f64
     }
 
+    /// Return self, the complex conjugate of any float.
     #[pymethod]
     fn conjugate(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 
+    /// Return True if the float is an integer.
     #[pymethod]
     fn is_integer(&self) -> bool {
         float_ops::is_integer(self.value)
     }
 
+    /// Return integer ratio.
+    ///   
+    /// Return a pair of integers, whose ratio is exactly equal to the original float
+    /// and with a positive denominator.
+    ///   
+    /// Raise OverflowError on infinities and a ValueError on NaNs.
+    ///   
+    /// >>> (10.0).as_integer_ratio()
+    /// (10, 1)
+    /// >>> (0.0).as_integer_ratio()
+    /// (0, 1)
+    /// >>> (-.25).as_integer_ratio()
+    /// (-1, 4)
     #[pymethod]
     fn as_integer_ratio(&self, vm: &VirtualMachine) -> PyResult {
         let value = self.value;
@@ -472,6 +513,12 @@ impl PyFloat {
         Ok(vm.ctx.new_tuple(vec![numer, denom]))
     }
 
+    /// Create a floating-point number from a hexadecimal string.
+    ///      
+    /// >>> float.fromhex('0x1.ffffp10')
+    /// 2047.984375
+    /// >>> float.fromhex('-0x1p-1074')
+    /// -5e-324
     #[pymethod]
     fn fromhex(repr: PyStrRef, vm: &VirtualMachine) -> PyResult<f64> {
         float_ops::from_hex(repr.as_str().trim()).ok_or_else(|| {
@@ -479,6 +526,12 @@ impl PyFloat {
         })
     }
 
+    /// Return a hexadecimal representation of a floating-point number.
+    ///     
+    /// >>> (-0.1).hex()
+    /// '-0x1.999999999999ap-4'
+    /// >>> 3.14159.hex()
+    /// '0x1.921f9f01b866ep+1'
     #[pymethod]
     fn hex(&self) -> String {
         float_ops::to_hex(self.value)
