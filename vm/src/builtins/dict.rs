@@ -58,6 +58,7 @@ impl PyDict {
         PyDict::default().into_pyresult_with_type(vm, cls)
     }
 
+    /// Initialize self.  See help(type(self)) for accurate signature.
     #[pymethod(magic)]
     fn init(
         &self,
@@ -129,6 +130,7 @@ impl PyDict {
         Ok(())
     }
 
+    /// Create a new dictionary with keys from iterable and values set to value.
     #[pyclassmethod]
     fn fromkeys(
         class: PyTypeRef,
@@ -195,6 +197,7 @@ impl PyDict {
         self.entries.len() == 0
     }
 
+    /// D.__sizeof__() -> size of D in memory, in bytes
     #[pymethod(magic)]
     fn sizeof(&self) -> usize {
         size_of::<Self>() + self.entries.sizeof()
@@ -217,36 +220,43 @@ impl PyDict {
         Ok(s)
     }
 
+    /// True if the dictionary has the specified key, else False.
     #[pymethod(magic)]
     fn contains(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         self.entries.contains(vm, &key)
     }
 
+    /// Delete self[key].
     #[pymethod(magic)]
     fn delitem(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.entries.delete(vm, key)
     }
 
+    /// D.clear() -> None.  Remove all items from D.
     #[pymethod]
     fn clear(&self) {
         self.entries.clear()
     }
 
+    /// D.keys() -> a set-like object providing a view on D's keys
     #[pymethod]
     fn keys(zelf: PyRef<Self>) -> PyDictKeys {
         PyDictKeys::new(zelf)
     }
 
+    /// D.values() -> an object providing a view on D's values
     #[pymethod]
     fn values(zelf: PyRef<Self>) -> PyDictValues {
         PyDictValues::new(zelf)
     }
 
+    /// D.items() -> a set-like object providing a view on D's items
     #[pymethod]
     fn items(zelf: PyRef<Self>) -> PyDictItems {
         PyDictItems::new(zelf)
     }
 
+    /// Set self[key] to value.
     #[pymethod(magic)]
     fn setitem(&self, key: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.inner_setitem_fast(key, value, vm)
@@ -263,6 +273,7 @@ impl PyDict {
         self.entries.insert(vm, key, value)
     }
 
+    ///  x.__getitem__(y) <==> x[y]
     #[pymethod(magic)]
     #[cfg_attr(feature = "flame-it", flame("PyDictRef"))]
     fn getitem(zelf: PyRef<Self>, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -273,6 +284,7 @@ impl PyDict {
         }
     }
 
+    /// Return the value for key if key is in the dictionary, else default.
     #[pymethod]
     fn get(
         &self,
@@ -286,6 +298,9 @@ impl PyDict {
         }
     }
 
+    /// Insert key with a value of default if key is not in the dictionary.
+    /// 
+    /// Return the value for key if key is in the dictionary, else default.
     #[pymethod]
     fn setdefault(
         &self,
@@ -297,6 +312,7 @@ impl PyDict {
             .setdefault(vm, key, || default.unwrap_or_none(vm))
     }
 
+    /// D.copy() -> a shallow copy of D
     #[pymethod]
     pub fn copy(&self) -> PyDict {
         PyDict {
@@ -304,6 +320,10 @@ impl PyDict {
         }
     }
 
+    /// D.update([E, ]**F) -> None.  Update D from dict/iterable E and F.
+    /// If E is present and has a .keys() method, then does:  for k in E: D[k] = E[k]
+    /// If E is present and lacks a .keys() method, then does:  for k, v in E: D[k] = v
+    /// In either case, this is followed by: for k in F:  D[k] = F[k]
     #[pymethod]
     fn update(
         &self,
@@ -314,6 +334,7 @@ impl PyDict {
         PyDict::merge(&self.entries, dict_obj, kwargs, vm)
     }
 
+    /// Return self|=value.
     #[pymethod(magic)]
     fn ior(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let dicted: Result<PyDictRef, _> = other.downcast();
@@ -335,6 +356,7 @@ impl PyDict {
         Ok(vm.ctx.not_implemented())
     }
 
+    /// Return self|value.
     #[pymethod(magic)]
     fn or(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let dicted: Result<PyDictRef, _> = other.downcast();
@@ -346,6 +368,9 @@ impl PyDict {
         Ok(vm.ctx.not_implemented())
     }
 
+    /// D.pop(k[,d]) -> v, remove specified key and return the corresponding value.
+    /// 
+    /// If key is not found, default is returned if given, otherwise KeyError is raised
     #[pymethod]
     fn pop(
         &self,
@@ -362,6 +387,10 @@ impl PyDict {
         }
     }
 
+    /// Remove and return a (key, value) pair as a 2-tuple.
+    ///      
+    /// Pairs are returned in LIFO (last-in, first-out) order.
+    /// Raises KeyError if the dict is empty.
     #[pymethod]
     fn popitem(&self, vm: &VirtualMachine) -> PyResult {
         if let Some((key, value)) = self.entries.pop_back() {
@@ -601,11 +630,13 @@ where
     fn dict(&self) -> &PyDictRef;
     fn item(vm: &VirtualMachine, key: PyObjectRef, value: PyObjectRef) -> PyObjectRef;
 
+    /// Return len(self).
     #[pymethod(magic)]
     fn len(&self) -> usize {
         self.dict().len()
     }
 
+    /// Return repr(self).
     #[allow(clippy::redundant_closure_call)]
     #[pymethod(magic)]
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
@@ -622,6 +653,7 @@ where
         Ok(s)
     }
 
+    /// Return a reverse iterator over the dict keys.
     #[pymethod(magic)]
     fn reversed(&self) -> Self::ReverseIter;
 }
