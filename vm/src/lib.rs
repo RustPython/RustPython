@@ -69,6 +69,7 @@ mod pyobjectrc;
 pub mod readline;
 pub mod scope;
 mod sequence;
+mod signal;
 mod sliceable;
 pub mod slots;
 pub mod stdlib;

@@ -23,6 +23,7 @@ use crate::{
     function::{FuncArgs, IntoFuncArgs},
     import, iterator,
     scope::Scope,
+    signal::NSIG,
     slots::PyComparisonOp,
     stdlib, sysmodule,
     utils::Either,
@@ -124,8 +125,6 @@ pub struct PyGlobalState {
     pub atexit_funcs: PyMutex<Vec<(PyObjectRef, FuncArgs)>>,
     pub codec_registry: CodecsRegistry,
 }
-
-pub const NSIG: usize = 64;
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub enum InitParameter {
@@ -1549,7 +1548,7 @@ impl VirtualMachine {
     pub fn check_signals(&self) -> PyResult<()> {
         #[cfg(not(target_arch = "wasm32"))]
         {
-            crate::stdlib::signal::check_signals(self)
+            crate::signal::check_signals(self)
         }
         #[cfg(target_arch = "wasm32")]
         {
