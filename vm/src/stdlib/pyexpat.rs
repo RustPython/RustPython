@@ -31,10 +31,10 @@ macro_rules! create_property {
 
 #[pymodule(name = "pyexpat")]
 mod _pyexpat {
-    use crate::builtins::{PyStr, PyStrRef, PyTypeRef};
-    use crate::byteslike::ArgBytesLike;
-    use crate::function::{IntoFuncArgs, OptionalArg};
     use crate::{
+        builtins::{PyStr, PyStrRef, PyTypeRef},
+        byteslike::ArgBytesLike,
+        function::{IntoFuncArgs, OptionalArg},
         ItemProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
         VirtualMachine,
     };

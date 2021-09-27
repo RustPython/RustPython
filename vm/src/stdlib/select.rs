@@ -148,11 +148,10 @@ fn sec_to_timeval(sec: f64) -> timeval {
 
 #[pymodule(name = "select")]
 mod decl {
-    use super::super::time;
     use super::*;
     use crate::{
-        exceptions::IntoPyException, function::OptionalOption, utils::Either, PyObjectRef,
-        PyResult, VirtualMachine,
+        exceptions::IntoPyException, function::OptionalOption, stdlib::time, utils::Either,
+        PyObjectRef, PyResult, VirtualMachine,
     };
 
     #[pyfunction]
