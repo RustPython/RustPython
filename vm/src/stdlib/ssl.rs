@@ -6,7 +6,9 @@ use crate::common::{
 use crate::{
     builtins::{PyStrRef, PyType, PyTypeRef, PyWeak},
     byteslike::{ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike},
-    exceptions::{self, create_exception_type, IntoPyException, PyBaseExceptionRef},
+    exceptions::{
+        self, create_exception_type, IntoPyException, PyBaseException, PyBaseExceptionRef,
+    },
     function::{ArgCallable, OptionalArg},
     slots::SlotConstructor,
     stdlib::os::PyPathLike,
@@ -1119,7 +1121,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         ssl_error.clone(),
         vec![ssl_error.clone(), ctx.exceptions.value_error.clone()],
         Default::default(),
-        crate::exceptions::exception_slots(),
+        PyBaseException::make_slots(),
     )
     .unwrap();
     let ssl_zero_return_error = create_exception_type("SSLZeroReturnError", &ssl_error);

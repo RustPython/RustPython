@@ -512,15 +512,13 @@ pub struct ExceptionZoo {
     pub resource_warning: PyTypeRef,
 }
 
-pub fn exception_slots() -> crate::slots::PyTypeSlots {
-    let mut slots = PyBaseException::make_slots();
-    // make_slots produces it with a tp_name of BaseException, which is usually wrong
-    slots.name.get_mut().take();
-    slots
-}
-
 pub fn create_exception_type(name: &str, base: &PyTypeRef) -> PyTypeRef {
-    create_type_with_slots(name, PyType::static_type(), base, exception_slots())
+    create_type_with_slots(
+        name,
+        PyType::static_type(),
+        base,
+        PyBaseException::make_slots(),
+    )
 }
 
 macro_rules! extend_exception {
