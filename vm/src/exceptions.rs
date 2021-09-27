@@ -1167,8 +1167,14 @@ impl ExceptionZoo {
                 args.get(0).filter(|_| args.len() > 1).cloned()
             });
         extend_exception!(PyOSError, ctx, &excs.os_error, {
+            // POSIX exception code
             "errno" => errno_getter.clone(),
+            // exception strerror
             "strerror" => ctx.new_readonly_getset("strerror", excs.os_error.clone(), make_arg_getter(1)),
+            // exception filename
+            "filename" => ctx.none(),
+            // second exception filename
+            "filename2" => ctx.none(),
         });
         // TODO: this isn't really accurate
         #[cfg(windows)]

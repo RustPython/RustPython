@@ -81,6 +81,10 @@ impl PyPathLike {
     pub fn to_widecstring(&self, vm: &VirtualMachine) -> PyResult<widestring::WideCString> {
         widestring::WideCString::from_os_str(&self.path).map_err(|err| err.into_pyexception(vm))
     }
+
+    pub fn filename(&self, vm: &VirtualMachine) -> PyResult {
+        self.mode.process_path(self.path.clone(), vm)
+    }
 }
 
 pub(super) fn fs_metadata<P: AsRef<Path>>(
@@ -250,6 +254,27 @@ impl IntoPyException for nix::Error {
     }
 }
 
+pub struct IOErrorWithFilename {
+    error: io::Error,
+    filename: PyObjectRef,
+}
+
+impl IOErrorWithFilename {
+    pub fn new(error: io::Error, path: &PyPathLike, vm: &VirtualMachine) -> Self {
+        let filename = path.filename(vm).unwrap_or_else(|_| vm.ctx.none());
+        IOErrorWithFilename { error, filename }
+    }
+}
+
+impl IntoPyException for IOErrorWithFilename {
+    fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        let excp = self.error.into_pyexception(vm);
+        vm.set_attr(excp.as_object(), "filename", self.filename)
+            .unwrap();
+        excp
+    }
+}
+
 /// Convert the error stored in the `errno` variable into an Exception
 #[inline]
 pub fn errno_err(vm: &VirtualMachine) -> PyBaseExceptionRef {
@@ -365,7 +390,8 @@ fn bytes_as_osstr<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a ffi::OsS
 #[pymodule(name = "_os")]
 pub(super) mod _os {
     use super::{
-        errno_err, DirFd, FollowSymlinks, FsPath, OutputMode, PathOrFd, PyPathLike, SupportFunc,
+        errno_err, DirFd, FollowSymlinks, FsPath, IOErrorWithFilename, OutputMode, PathOrFd,
+        PyPathLike, SupportFunc,
     };
     use crate::common::lock::{OnceCell, PyRwLock};
     use crate::crt_fd::{Fd, Offset};
@@ -517,7 +543,7 @@ pub(super) mod _os {
         } else {
             fs::remove_file(&path)
         };
-        res.map_err(|err| err.into_pyexception(vm))
+        res.map_err(|err| IOErrorWithFilename::new(err, &path, vm).into_pyexception(vm))
     }
 
     #[cfg(not(windows))]
@@ -568,7 +594,7 @@ pub(super) mod _os {
                 dir_iter
                     .map(|entry| match entry {
                         Ok(entry_path) => path.mode.process_path(entry_path.file_name(), vm),
-                        Err(err) => Err(err.into_pyexception(vm)),
+                        Err(e) => Err(IOErrorWithFilename::new(e, &path, vm).into_pyexception(vm)),
                     })
                     .collect::<PyResult<_>>()?
             }
@@ -1159,7 +1185,8 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn chdir(path: PyPathLike, vm: &VirtualMachine) -> PyResult<()> {
-        env::set_current_dir(&path.path).map_err(|err| err.into_pyexception(vm))
+        env::set_current_dir(&path.path)
+            .map_err(|err| IOErrorWithFilename::new(err, &path, vm).into_pyexception(vm))
     }
 
     #[pyfunction]

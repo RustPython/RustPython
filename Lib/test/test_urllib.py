@@ -541,8 +541,6 @@ Connection: close
         with self.assertRaises(urllib.error.URLError):
             urlopen(tmp_fileurl)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_ftp_nohost(self):
         test_ftp_url = 'ftp:///path'
         with self.assertRaises(urllib.error.URLError) as e:
@@ -550,8 +548,6 @@ Connection: close
         self.assertFalse(e.exception.filename)
         self.assertTrue(e.exception.reason)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_ftp_nonexisting(self):
         with self.assertRaises(urllib.error.URLError) as e:
             urlopen('ftp://localhost/a/file/which/doesnot/exists.py')
