@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::ops::Range;
 
 use crate::builtins::{PyBytesRef, PyStr, PyStrRef, PyTuple, PyTupleRef};
-use crate::common::lock::PyRwLock;
+use crate::common::{ascii, lock::PyRwLock};
 use crate::exceptions::PyBaseExceptionRef;
 use crate::VirtualMachine;
 use crate::{IntoPyObject, PyContext, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol};
@@ -367,10 +367,7 @@ fn strict_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 fn ignore_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(PyObjectRef, usize)> {
     if is_encode_ish_err(&err, vm) || is_decode_err(&err, vm) {
         let range = extract_unicode_error_range(&err, vm)?;
-        Ok((
-            vm.ctx.new_ascii_literal(crate::utils::ascii!("")),
-            range.end,
-        ))
+        Ok((vm.ctx.new_ascii_literal(ascii!("")), range.end))
     } else {
         Err(bad_err_type(err, vm))
     }

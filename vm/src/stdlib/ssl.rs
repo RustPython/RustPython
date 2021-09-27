@@ -1,5 +1,8 @@
 use super::socket::{self, PySocket};
-use crate::common::lock::{PyRwLock, PyRwLockWriteGuard};
+use crate::common::{
+    ascii,
+    lock::{PyRwLock, PyRwLockWriteGuard},
+};
 use crate::{
     builtins::{PyStrRef, PyType, PyTypeRef, PyWeak},
     byteslike::{ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike},
@@ -153,12 +156,8 @@ fn _ssl_enum_certificates(store_name: PyStrRef, vm: &VirtualMachine) -> PyResult
             (*ptr).dwCertEncodingType
         };
         let enc_type = match enc_type {
-            wincrypt::X509_ASN_ENCODING => {
-                vm.ctx.new_ascii_literal(crate::utils::ascii!("x509_asn"))
-            }
-            wincrypt::PKCS_7_ASN_ENCODING => {
-                vm.ctx.new_ascii_literal(crate::utils::ascii!("pkcs_7_asn"))
-            }
+            wincrypt::X509_ASN_ENCODING => vm.ctx.new_ascii_literal(ascii!("x509_asn")),
+            wincrypt::PKCS_7_ASN_ENCODING => vm.ctx.new_ascii_literal(ascii!("pkcs_7_asn")),
             other => vm.ctx.new_int(other),
         };
         let usage = match c.valid_uses()? {
@@ -1051,17 +1050,17 @@ fn cert_to_py(vm: &VirtualMachine, cert: &X509Ref, binary: bool) -> PyResult {
                 .filter_map(|gen_name| {
                     if let Some(email) = gen_name.email() {
                         Some(vm.ctx.new_tuple(vec![
-                            vm.ctx.new_ascii_literal(crate::utils::ascii!("email")),
+                            vm.ctx.new_ascii_literal(ascii!("email")),
                             vm.ctx.new_utf8_str(email),
                         ]))
                     } else if let Some(dnsname) = gen_name.dnsname() {
                         Some(vm.ctx.new_tuple(vec![
-                            vm.ctx.new_ascii_literal(crate::utils::ascii!("DNS")),
+                            vm.ctx.new_ascii_literal(ascii!("DNS")),
                             vm.ctx.new_utf8_str(dnsname),
                         ]))
                     } else if let Some(ip) = gen_name.ipaddress() {
                         Some(vm.ctx.new_tuple(vec![
-                            vm.ctx.new_ascii_literal(crate::utils::ascii!("IP Address")),
+                            vm.ctx.new_ascii_literal(ascii!("IP Address")),
                             vm.ctx.new_utf8_str(String::from_utf8_lossy(ip).into_owned()),
                         ]))
                     } else {

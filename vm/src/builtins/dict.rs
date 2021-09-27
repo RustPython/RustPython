@@ -1,5 +1,6 @@
 use super::{IterStatus, PySet, PyStrRef, PyTypeRef};
 use crate::{
+    common::ascii,
     dictdatatype::{self, DictKey},
     exceptions::PyBaseExceptionRef,
     function::{ArgIterable, FuncArgs, KwArgs, OptionalArg},
@@ -363,7 +364,7 @@ impl PyDict {
         } else {
             let err_msg = vm
                 .ctx
-                .new_ascii_literal(crate::utils::ascii!("popitem(): dictionary is empty"));
+                .new_ascii_literal(ascii!("popitem(): dictionary is empty"));
             Err(vm.new_key_error(err_msg))
         }
     }

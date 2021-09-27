@@ -6,8 +6,6 @@ use crate::{
 };
 use num_traits::ToPrimitive;
 
-pub use crate::macros::ascii;
-
 pub enum Either<A, B> {
     A(A),
     B(B),
@@ -127,16 +125,4 @@ impl ToCString for PyStr {
     fn to_cstring(&self, vm: &VirtualMachine) -> PyResult<std::ffi::CString> {
         std::ffi::CString::new(self.as_ref()).map_err(|err| err.into_pyexception(vm))
     }
-}
-
-pub const fn bytes_is_ascii(x: &str) -> bool {
-    let x = x.as_bytes();
-    let mut i = 0;
-    while i < x.len() {
-        if !x[i].is_ascii() {
-            return false;
-        }
-        i += 1;
-    }
-    true
 }

@@ -16,7 +16,7 @@ use crate::{
     },
     bytecode,
     codecs::CodecsRegistry,
-    common::{hash::HashSecret, lock::PyMutex, rc::PyRc},
+    common::{ascii, hash::HashSecret, lock::PyMutex, rc::PyRc},
     exceptions::{self, PyBaseException, PyBaseExceptionRef},
     frame::{ExecutionResult, Frame, FrameRef},
     frozen,
@@ -305,13 +305,13 @@ impl VirtualMachine {
         module::init_module_dict(
             &vm,
             &builtins_dict,
-            vm.ctx.new_ascii_literal(crate::utils::ascii!("builtins")),
+            vm.ctx.new_ascii_literal(ascii!("builtins")),
             vm.ctx.none(),
         );
         module::init_module_dict(
             &vm,
             &sysmod_dict,
-            vm.ctx.new_ascii_literal(crate::utils::ascii!("sys")),
+            vm.ctx.new_ascii_literal(ascii!("sys")),
             vm.ctx.none(),
         );
         vm
@@ -2227,7 +2227,7 @@ mod tests {
     #[test]
     fn test_multiply_str() {
         Interpreter::default().enter(|vm| {
-            let a = vm.ctx.new_ascii_literal(crate::utils::ascii!("Hello "));
+            let a = vm.ctx.new_ascii_literal(crate::common::ascii!("Hello "));
             let b = vm.ctx.new_int(4_i32);
             let res = vm._mul(&a, &b).unwrap();
             let value = res.payload::<PyStr>().unwrap();

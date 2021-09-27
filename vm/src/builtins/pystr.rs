@@ -20,8 +20,11 @@ use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
 use num_traits::ToPrimitive;
-use rustpython_common::atomic::{self, PyAtomic, Radium};
-use rustpython_common::hash;
+use rustpython_common::{
+    ascii,
+    atomic::{self, PyAtomic, Radium},
+    hash,
+};
 use std::mem::size_of;
 use std::ops::Range;
 use std::string::ToString;
@@ -212,8 +215,7 @@ impl PyStrIterator {
         Ok(vm.ctx.new_tuple(match self.status.load() {
             Exhausted => vec![
                 iter,
-                vm.ctx
-                    .new_tuple(vec![vm.ctx.new_ascii_literal(crate::utils::ascii!(""))]),
+                vm.ctx.new_tuple(vec![vm.ctx.new_ascii_literal(ascii!(""))]),
             ],
             Active => vec![
                 iter,
@@ -979,7 +981,7 @@ impl PyStr {
             if has_mid {
                 sep.into_object()
             } else {
-                vm.ctx.new_ascii_literal(crate::utils::ascii!(""))
+                vm.ctx.new_ascii_literal(ascii!(""))
             },
             self.new_substr(back),
         )
@@ -998,7 +1000,7 @@ impl PyStr {
             if has_mid {
                 sep.into_object()
             } else {
-                vm.ctx.new_ascii_literal(crate::utils::ascii!(""))
+                vm.ctx.new_ascii_literal(ascii!(""))
             },
             self.new_substr(back),
         )
@@ -1544,11 +1546,7 @@ mod tests {
             table.set_item("a", vm.ctx.new_utf8_str("🎅"), &vm).unwrap();
             table.set_item("b", vm.ctx.none(), &vm).unwrap();
             table
-                .set_item(
-                    "c",
-                    vm.ctx.new_ascii_literal(crate::utils::ascii!("xda")),
-                    &vm,
-                )
+                .set_item("c", vm.ctx.new_ascii_literal(ascii!("xda")), &vm)
                 .unwrap();
             let translated = PyStr::maketrans(
                 table.into_object(),
