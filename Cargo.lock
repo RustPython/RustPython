@@ -1500,16 +1500,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ac74c624d6b2d21f425f752262f42188365d7b8ff1aff74c82e45136510a4857"
 
 [[package]]
-name = "pre-commit"
-version = "0.5.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d0f2b9887f84ec91cd86f71c193b883209d744bc8c2a3363c6b1df88efa5af8f"
-dependencies = [
- "rustc-serialize",
- "toml 0.2.1",
-]
-
-[[package]]
 name = "precomputed-hash"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1522,7 +1512,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "41fdbd1df62156fbc5945f4762632564d7d038153091c3fcf1067f6aef7cff92"
 dependencies = [
  "thiserror",
- "toml 0.5.8",
+ "toml",
 ]
 
 [[package]]
@@ -1733,12 +1723,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "08d43f7aa6b08d49f382cde6a7982047c3426db949b1424bc4b7ec9ae12c6ce2"
 
 [[package]]
-name = "rustc-serialize"
-version = "0.3.24"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dcf128d1287d2ea9d80910b5f1120d0b8eede3fbf1abe91c40d39ea7d51e6fda"
-
-[[package]]
 name = "rustc_version"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1762,7 +1746,6 @@ dependencies = [
  "libc",
  "log",
  "num-traits",
- "pre-commit",
  "python3-sys",
  "rustpython-compiler",
  "rustpython-parser",
@@ -2478,15 +2461,6 @@ name = "tinyvec_macros"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cda74da7e1a664f795bb1f8a87ec406fb89a02522cf6e50620d016add6dbbf5c"
-
-[[package]]
-name = "toml"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "736b60249cb25337bc196faa43ee12c705e426f3d55c214d73a4e7be06f92cb4"
-dependencies = [
- "rustc-serialize",
-]
 
 [[package]]
 name = "toml"

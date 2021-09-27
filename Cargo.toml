@@ -6,7 +6,7 @@ edition = "2018"
 description = "A python interpreter written in rust."
 repository = "https://github.com/RustPython/RustPython"
 license = "MIT"
-include = ["LICENSE", "build.rs", "Cargo.toml", "src/**/*.rs"]
+include = ["LICENSE", "Cargo.toml", "src/**/*.rs"]
 
 [workspace]
 resolver = "2"
@@ -45,17 +45,10 @@ flamescope = { version = "0.1", optional = true }
 [target.'cfg(not(target_os = "wasi"))'.dependencies]
 rustyline = "9"
 
-
-[target.'cfg(not(target_os = "windows"))'.build-dependencies]
-pre-commit = "0.5.2"
-
 [dev-dependencies]
 cpython = "0.6"
 python3-sys = "0.6"
 criterion = "0.3"
-
-[package.metadata.precommit]
-fmt = "cargo fmt --all"
 
 [[bench]]
 name = "execution"
