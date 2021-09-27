@@ -1,8 +1,7 @@
 use crate::{PyObjectRef, VirtualMachine};
-pub(crate) use _signal::check_signals;
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
-    use crate::vm::NSIG;
+    use crate::signal::NSIG;
     use _signal::{SIG_DFL, SIG_ERR, SIG_IGN};
 
     let module = _signal::make_module(vm);
@@ -36,9 +35,27 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 #[pymodule]
 pub(crate) mod _signal {
     use crate::{
-        exceptions::IntoPyException, PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
+        exceptions::IntoPyException,
+        signal::{check_signals, ANY_TRIGGERED, TRIGGERS},
+        PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
     };
-    use std::sync::atomic::{self, AtomicBool, Ordering};
+    use std::sync::atomic::{self, Ordering};
+
+    cfg_if::cfg_if! {
+        if #[cfg(windows)] {
+            use winapi::um::winsock2;
+            type WakeupFd = libc::SOCKET;
+            const INVALID_WAKEUP: WakeupFd = (-1isize) as usize;
+            static WAKEUP: atomic::AtomicUsize = atomic::AtomicUsize::new(INVALID_WAKEUP);
+            // windows doesn't use the same fds for files and sockets like windows does, so we need
+            // this to know whether to send() or write()
+            static WAKEUP_IS_SOCKET: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        } else {
+            type WakeupFd = i32;
+            const INVALID_WAKEUP: WakeupFd = -1;
+            static WAKEUP: atomic::AtomicI32 = atomic::AtomicI32::new(INVALID_WAKEUP);
+        }
+    }
 
     #[cfg(unix)]
     use nix::unistd::alarm as sig_alarm;
@@ -59,36 +76,13 @@ pub(crate) mod _signal {
     #[cfg(windows)]
     pub const SIG_ERR: libc::sighandler_t = !0;
 
-    // hack to get around const array repeat expressions, rust issue #79270
-    #[allow(clippy::declare_interior_mutable_const)]
-    const ATOMIC_FALSE: AtomicBool = AtomicBool::new(false);
-    static TRIGGERS: [AtomicBool; NSIG] = [ATOMIC_FALSE; NSIG];
-
-    static ANY_TRIGGERED: AtomicBool = AtomicBool::new(false);
-
-    cfg_if::cfg_if! {
-        if #[cfg(windows)] {
-            use winapi::um::winsock2;
-            type WakeupFd = libc::SOCKET;
-            const INVALID_WAKEUP: WakeupFd = (-1isize) as usize;
-            static WAKEUP: atomic::AtomicUsize = atomic::AtomicUsize::new(INVALID_WAKEUP);
-            // windows doesn't use the same fds for files and sockets like windows does, so we need
-            // this to know whether to send() or write()
-            static WAKEUP_IS_SOCKET: AtomicBool = AtomicBool::new(false);
-        } else {
-            type WakeupFd = i32;
-            const INVALID_WAKEUP: WakeupFd = -1;
-            static WAKEUP: atomic::AtomicI32 = atomic::AtomicI32::new(INVALID_WAKEUP);
-        }
-    }
-
     #[cfg(all(unix, not(target_os = "redox")))]
     extern "C" {
         fn siginterrupt(sig: i32, flag: i32) -> i32;
     }
 
     #[pyattr]
-    pub use crate::vm::NSIG;
+    pub use crate::signal::NSIG;
 
     #[pyattr]
     pub use libc::{SIGABRT, SIGFPE, SIGILL, SIGINT, SIGSEGV, SIGTERM};
@@ -279,39 +273,5 @@ pub(crate) mod _signal {
         } else {
             Err(vm.new_value_error("signal number out of range".to_owned()))
         }
-    }
-
-    #[cfg_attr(feature = "flame-it", flame)]
-    #[inline(always)]
-    pub fn check_signals(vm: &VirtualMachine) -> PyResult<()> {
-        let signal_handlers = match &vm.signal_handlers {
-            Some(h) => h,
-            None => return Ok(()),
-        };
-
-        if !ANY_TRIGGERED.load(Ordering::Relaxed) {
-            return Ok(());
-        }
-        ANY_TRIGGERED.store(false, Ordering::Relaxed);
-
-        trigger_signals(&signal_handlers.borrow(), vm)
-    }
-    #[inline(never)]
-    #[cold]
-    fn trigger_signals(
-        signal_handlers: &[Option<PyObjectRef>; NSIG],
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        for (signum, trigger) in TRIGGERS.iter().enumerate().skip(1) {
-            let triggered = trigger.swap(false, Ordering::Relaxed);
-            if triggered {
-                if let Some(handler) = &signal_handlers[signum] {
-                    if vm.is_callable(handler) {
-                        vm.invoke(handler, (signum, vm.ctx.none()))?;
-                    }
-                }
-            }
-        }
-        Ok(())
     }
 }
