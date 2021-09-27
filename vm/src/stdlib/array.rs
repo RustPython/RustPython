@@ -1127,7 +1127,7 @@ mod array {
             let array = zelf.read();
             let buf = PyBuffer::new(
                 zelf.as_object().clone(),
-                zelf.clone(),
+                PyArrayBufferInternal(zelf.clone()),
                 BufferOptions {
                     readonly: false,
                     len: array.len(),
@@ -1140,21 +1140,24 @@ mod array {
         }
     }
 
-    impl BufferInternal for PyRef<PyArray> {
+    #[derive(Debug)]
+    struct PyArrayBufferInternal(PyRef<PyArray>);
+
+    impl BufferInternal for PyArrayBufferInternal {
         fn obj_bytes(&self) -> BorrowedValue<[u8]> {
-            self.get_bytes().into()
+            self.0.get_bytes().into()
         }
 
         fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
-            self.get_bytes_mut().into()
+            self.0.get_bytes_mut().into()
         }
 
         fn release(&self) {
-            self.exports.fetch_sub(1);
+            self.0.exports.fetch_sub(1);
         }
 
         fn retain(&self) {
-            self.exports.fetch_add(1);
+            self.0.exports.fetch_add(1);
         }
     }
 
