@@ -1,3 +1,18 @@
+use crate::{
+    stdlib::{os::PyPathLike, posix},
+    {PyObjectRef, PyResult, PySequence, TryFromObject, VirtualMachine},
+};
+use nix::{errno::Errno, unistd};
+#[cfg(not(target_os = "redox"))]
+use std::ffi::CStr;
+#[cfg(not(target_os = "redox"))]
+use std::os::unix::io::AsRawFd;
+use std::{
+    convert::Infallible as Never,
+    ffi::CString,
+    io::{self, prelude::*},
+};
+
 pub(crate) use _posixsubprocess::make_module;
 
 #[pymodule]
@@ -27,18 +42,6 @@ mod _posixsubprocess {
         }
     }
 }
-
-use super::os::PyPathLike;
-use super::posix;
-use crate::{PyObjectRef, PyResult, PySequence, TryFromObject, VirtualMachine};
-use nix::{errno::Errno, unistd};
-use std::convert::Infallible as Never;
-#[cfg(not(target_os = "redox"))]
-use std::ffi::CStr;
-use std::ffi::CString;
-use std::io::{self, prelude::*};
-#[cfg(not(target_os = "redox"))]
-use std::os::unix::io::AsRawFd;
 
 macro_rules! gen_args {
     ($($field:ident: $t:ty),*$(,)?) => {

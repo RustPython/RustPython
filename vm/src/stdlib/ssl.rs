@@ -3,7 +3,7 @@ use crate::common::lock::{PyRwLock, PyRwLockWriteGuard};
 use crate::{
     builtins::{PyStrRef, PyType, PyTypeRef, PyWeak},
     byteslike::{ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike},
-    exceptions::{create_exception_type, IntoPyException, PyBaseExceptionRef},
+    exceptions::{self, create_exception_type, IntoPyException, PyBaseExceptionRef},
     function::{ArgCallable, OptionalArg},
     slots::SlotConstructor,
     stdlib::os::PyPathLike,
@@ -343,7 +343,7 @@ impl PySslContext {
     fn set_ciphers(&self, cipherlist: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
         let ciphers = cipherlist.as_str();
         if ciphers.contains('\0') {
-            return Err(crate::exceptions::cstring_error(vm));
+            return Err(exceptions::cstring_error(vm));
         }
         self.builder().set_cipher_list(ciphers).map_err(|_| {
             vm.new_exception_msg(ssl_error(vm), "No cipher can be selected.".to_owned())
