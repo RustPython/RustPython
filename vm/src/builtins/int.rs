@@ -80,7 +80,7 @@ macro_rules! impl_into_pyobject_int {
 
 impl_into_pyobject_int!(isize i8 i16 i32 i64 usize u8 u16 u32 u64 BigInt);
 
-pub fn try_to_primitive<'a, I>(i: &'a BigInt, vm: &VirtualMachine) -> PyResult<I>
+pub(crate) fn try_to_primitive<'a, I>(i: &'a BigInt, vm: &VirtualMachine) -> PyResult<I>
 where
     I: PrimInt + TryFrom<&'a BigInt>,
 {
@@ -300,6 +300,13 @@ impl PyInt {
                     _ => out,
                 }
             })
+    }
+
+    pub fn try_to_primitive<'a, I>(&'a self, vm: &VirtualMachine) -> PyResult<I>
+    where
+        I: PrimInt + TryFrom<&'a BigInt>,
+    {
+        try_to_primitive(self.as_bigint(), vm)
     }
 
     #[inline]

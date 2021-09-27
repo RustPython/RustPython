@@ -30,7 +30,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 #[pymodule(name = "posix")]
 pub mod module {
     use crate::{
-        builtins::{int, PyDictRef, PyInt, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
+        builtins::{PyDictRef, PyInt, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
         exceptions::IntoPyException,
         function::OptionalArg,
         slots::SlotConstructor,
@@ -483,13 +483,13 @@ pub mod module {
             use crate::TypeProtocol;
             let priority = self.sched_priority.clone();
             let priority_type = priority.class().name();
-            let value = priority.downcast::<int::PyInt>().map_err(|_| {
+            let value = priority.downcast::<PyInt>().map_err(|_| {
                 vm.new_type_error(format!(
                     "an integer is required (got type {})",
                     priority_type
                 ))
             })?;
-            let sched_priority = int::try_to_primitive(value.as_bigint(), vm)?;
+            let sched_priority = value.try_to_primitive(vm)?;
             Ok(libc::sched_param { sched_priority })
         }
     }
@@ -1472,7 +1472,7 @@ pub mod module {
     impl TryFromObject for ConfName {
         fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
             let i = match obj.downcast::<PyInt>() {
-                Ok(int) => int::try_to_primitive(int.as_bigint(), vm)?,
+                Ok(int) => int.try_to_primitive(vm)?,
                 Err(obj) => {
                     let s = PyStrRef::try_from_object(vm, obj)?;
                     s.as_str().parse::<PathconfVar>().map_err(|_| {

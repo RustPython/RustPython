@@ -1,6 +1,6 @@
 use crate::common::lock::{PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard};
 use crate::{
-    builtins::{int, PyStrRef, PyTupleRef, PyTypeRef},
+    builtins::{PyStrRef, PyTupleRef, PyTypeRef},
     byteslike::{ArgBytesLike, ArgMemoryBuffer},
     exceptions::{IntoPyException, PyBaseExceptionRef},
     function::{FuncArgs, OptionalArg, OptionalOption},
@@ -70,7 +70,8 @@ fn get_raw_sock(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<RawSocket> {
     let int = vm
         .to_index_opt(obj)
         .unwrap_or_else(|| Err(vm.new_type_error("an integer is required".to_owned())))?;
-    int::try_to_primitive::<CastFrom>(int.as_bigint(), vm).map(|sock| sock as RawSocket)
+    int.try_to_primitive::<CastFrom>(vm)
+        .map(|sock| sock as RawSocket)
 }
 
 #[cfg(unix)]
@@ -726,7 +727,7 @@ impl PySocket {
                 let int = vm.to_index_opt(arg2).unwrap_or_else(|| {
                     Err(vm.new_type_error("an integer is required".to_owned()))
                 })?;
-                let flags = int::try_to_primitive::<i32>(int.as_bigint(), vm)?;
+                let flags = int.try_to_primitive::<i32>(vm)?;
                 (flags, arg3)
             }
             OptionalArg::Missing => (0, arg2),
