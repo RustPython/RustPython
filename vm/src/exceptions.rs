@@ -7,7 +7,6 @@ use crate::common::lock::PyRwLock;
 use crate::function::{ArgIterable, FuncArgs};
 use crate::py_io::{self, Write};
 use crate::sysmodule;
-use crate::types::create_type_with_slots;
 use crate::{
     IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     StaticType, TryFromObject, TypeProtocol, VirtualMachine,
@@ -510,15 +509,6 @@ pub struct ExceptionZoo {
     pub unicode_warning: PyTypeRef,
     pub bytes_warning: PyTypeRef,
     pub resource_warning: PyTypeRef,
-}
-
-pub fn create_exception_type(name: &str, base: &PyTypeRef) -> PyTypeRef {
-    create_type_with_slots(
-        name,
-        PyType::static_type(),
-        base,
-        PyBaseException::make_slots(),
-    )
 }
 
 macro_rules! extend_exception {

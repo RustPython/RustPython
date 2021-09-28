@@ -6,12 +6,11 @@ use crate::common::{
 use crate::{
     builtins::{PyStrRef, PyType, PyTypeRef, PyWeak},
     byteslike::{ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike},
-    exceptions::{
-        self, create_exception_type, IntoPyException, PyBaseException, PyBaseExceptionRef,
-    },
+    exceptions::{self, IntoPyException, PyBaseException, PyBaseExceptionRef},
     function::{ArgCallable, OptionalArg},
     slots::SlotConstructor,
     stdlib::os::PyPathLike,
+    types::create_simple_type,
     utils::{Either, ToCString},
     IntoPyObject, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
@@ -1113,7 +1112,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
     let ctx = &vm.ctx;
 
-    let ssl_error = create_exception_type("SSLError", &vm.ctx.exceptions.os_error);
+    let ssl_error = create_simple_type("SSLError", &vm.ctx.exceptions.os_error);
 
     let ssl_cert_verification_error = PyType::new(
         ctx.types.type_type.clone(),
@@ -1124,11 +1123,11 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         PyBaseException::make_slots(),
     )
     .unwrap();
-    let ssl_zero_return_error = create_exception_type("SSLZeroReturnError", &ssl_error);
-    let ssl_want_read_error = create_exception_type("SSLWantReadError", &ssl_error);
-    let ssl_want_write_error = create_exception_type("SSLWantWriteError", &ssl_error);
-    let ssl_syscall_error = create_exception_type("SSLSyscallError", &ssl_error);
-    let ssl_eof_error = create_exception_type("SSLEOFError", &ssl_error);
+    let ssl_zero_return_error = create_simple_type("SSLZeroReturnError", &ssl_error);
+    let ssl_want_read_error = create_simple_type("SSLWantReadError", &ssl_error);
+    let ssl_want_write_error = create_simple_type("SSLWantWriteError", &ssl_error);
+    let ssl_syscall_error = create_simple_type("SSLSyscallError", &ssl_error);
+    let ssl_eof_error = create_simple_type("SSLEOFError", &ssl_error);
 
     let module = py_module!(vm, "_ssl", {
         "_SSLContext" => PySslContext::make_class(ctx),
