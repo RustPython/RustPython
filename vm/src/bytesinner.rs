@@ -1073,6 +1073,10 @@ impl<'s> AnyStr<'s> for [u8] {
         Self::len(self)
     }
 
+    fn chars_len(&self) -> usize {
+        Self::len(self)
+    }
+
     fn py_split_whitespace<F>(&self, maxsplit: isize, convert: F) -> Vec<PyObjectRef>
     where
         F: Fn(&Self) -> PyObjectRef,

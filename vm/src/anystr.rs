@@ -145,7 +145,7 @@ pub trait AnyStr<'s>: 's {
     // FIXME: get_chars is expensive for str
     fn get_chars(&self, range: std::ops::Range<usize>) -> &Self;
     fn bytes_len(&self) -> usize;
-    // fn chars_len(&self) -> usize;  // cannot access to cache here
+    fn chars_len(&self) -> usize; // cannot access to cache here
     fn is_empty(&self) -> bool;
 
     fn py_add(&self, other: &Self) -> Self::Container {
@@ -201,11 +201,11 @@ pub trait AnyStr<'s>: 's {
         T: TryFromObject,
         F: Fn(&Self, &T) -> bool,
     {
-        let (affix, range) = args.get_value(self.bytes_len());
+        let (affix, range) = args.get_value(self.chars_len());
         if !range.is_normal() {
             return Ok(false);
         }
-        let value = self.get_bytes(range);
+        let value = self.get_chars(range);
         single_or_tuple_any(
             affix,
             &|s: &T| Ok(func(value, s)),

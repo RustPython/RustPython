@@ -1645,6 +1645,10 @@ impl<'s> AnyStr<'s> for str {
         Self::len(self)
     }
 
+    fn chars_len(&self) -> usize {
+        self.chars().count()
+    }
+
     fn py_split_whitespace<F>(&self, maxsplit: isize, convert: F) -> Vec<PyObjectRef>
     where
         F: Fn(&Self) -> PyObjectRef,
