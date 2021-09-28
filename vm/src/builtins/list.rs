@@ -1,6 +1,6 @@
 use super::{PositionIterInternal, PyGenericAlias, PySliceRef, PyTypeRef};
 use crate::common::lock::{
-    PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
+    PyMappedRwLockReadGuard, PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
 };
 use crate::{
     function::{ArgIterable, FuncArgs, OptionalArg},
@@ -158,7 +158,7 @@ impl PyList {
     fn reversed(zelf: PyRef<Self>) -> PyListReverseIterator {
         let position = zelf.len().saturating_sub(1);
         PyListReverseIterator {
-            internal: PyRwLock::new(PositionIterInternal::new(zelf, position)),
+            internal: PyMutex::new(PositionIterInternal::new(zelf, position)),
         }
     }
 
@@ -407,7 +407,7 @@ impl PyList {
 impl Iterable for PyList {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         Ok(PyListIterator {
-            internal: PyRwLock::new(PositionIterInternal::new(zelf, 0)),
+            internal: PyMutex::new(PositionIterInternal::new(zelf, 0)),
         }
         .into_object(vm))
     }
@@ -462,7 +462,7 @@ fn do_sort(
 #[pyclass(module = false, name = "list_iterator")]
 #[derive(Debug)]
 pub struct PyListIterator {
-    internal: PyRwLock<PositionIterInternal<PyListRef>>,
+    internal: PyMutex<PositionIterInternal<PyListRef>>,
 }
 
 impl PyValue for PyListIterator {
@@ -475,18 +475,18 @@ impl PyValue for PyListIterator {
 impl PyListIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
-        self.internal.read().length_hint(|obj| obj.len())
+        self.internal.lock().length_hint(|obj| obj.len())
     }
 
     #[pymethod(magic)]
     fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.internal.write().set_state(state, vm)
+        self.internal.lock().set_state(state, vm)
     }
 
     #[pymethod(magic)]
     fn reduce(&self, vm: &VirtualMachine) -> PyObjectRef {
         self.internal
-            .read()
+            .lock()
             .builtin_iter_reduce(|x| x.clone().into_object(), vm)
     }
 }
@@ -494,7 +494,7 @@ impl PyListIterator {
 impl IteratorIterable for PyListIterator {}
 impl SlotIterator for PyListIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        zelf.internal.write().next(
+        zelf.internal.lock().next(
             |list, pos| {
                 let vec = list.borrow_vec();
                 vec.get(pos)
@@ -509,7 +509,7 @@ impl SlotIterator for PyListIterator {
 #[pyclass(module = false, name = "list_reverseiterator")]
 #[derive(Debug)]
 pub struct PyListReverseIterator {
-    internal: PyRwLock<PositionIterInternal<PyListRef>>,
+    internal: PyMutex<PositionIterInternal<PyListRef>>,
 }
 
 impl PyValue for PyListReverseIterator {
@@ -522,18 +522,18 @@ impl PyValue for PyListReverseIterator {
 impl PyListReverseIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
-        self.internal.read().rev_length_hint(|obj| obj.len())
+        self.internal.lock().rev_length_hint(|obj| obj.len())
     }
 
     #[pymethod(magic)]
     fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.internal.write().set_state(state, vm)
+        self.internal.lock().set_state(state, vm)
     }
 
     #[pymethod(magic)]
     fn reduce(&self, vm: &VirtualMachine) -> PyObjectRef {
         self.internal
-            .read()
+            .lock()
             .builtin_reversed_reduce(|x| x.clone().into_object(), vm)
     }
 }
@@ -541,7 +541,7 @@ impl PyListReverseIterator {
 impl IteratorIterable for PyListReverseIterator {}
 impl SlotIterator for PyListReverseIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        zelf.internal.write().rev_next(
+        zelf.internal.lock().rev_next(
             |list, pos| {
                 let vec = list.borrow_vec();
                 vec.get(pos)

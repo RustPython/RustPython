@@ -10,7 +10,7 @@ use crate::{
     ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
     VirtualMachine,
 };
-use rustpython_common::lock::{PyRwLock, PyRwLockUpgradableReadGuard};
+use rustpython_common::lock::{PyMutex, PyRwLock, PyRwLockUpgradableReadGuard};
 
 /// Marks status of iterator.
 #[derive(Debug, Clone)]
@@ -170,7 +170,7 @@ impl<T> PositionIterInternal<T> {
 #[pyclass(module = false, name = "iterator")]
 #[derive(Debug)]
 pub struct PySequenceIterator {
-    internal: PyRwLock<PositionIterInternal<PyObjectRef>>,
+    internal: PyMutex<PositionIterInternal<PyObjectRef>>,
 }
 
 impl PyValue for PySequenceIterator {
@@ -183,13 +183,13 @@ impl PyValue for PySequenceIterator {
 impl PySequenceIterator {
     pub fn new(obj: PyObjectRef) -> Self {
         Self {
-            internal: PyRwLock::new(PositionIterInternal::new(obj, 0)),
+            internal: PyMutex::new(PositionIterInternal::new(obj, 0)),
         }
     }
 
     #[pymethod(magic)]
     fn length_hint(&self, vm: &VirtualMachine) -> PyObjectRef {
-        let internal = self.internal.read();
+        let internal = self.internal.lock();
         if let IterStatus::Active(obj) = &internal.status {
             vm.obj_len(obj)
                 .map(|x| PyInt::from(x).into_object(vm))
@@ -201,12 +201,12 @@ impl PySequenceIterator {
 
     #[pymethod(magic)]
     fn reduce(&self, vm: &VirtualMachine) -> PyObjectRef {
-        self.internal.read().builtin_iter_reduce(|x| x.clone(), vm)
+        self.internal.lock().builtin_iter_reduce(|x| x.clone(), vm)
     }
 
     #[pymethod(magic)]
     fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.internal.write().set_state(state, vm)
+        self.internal.lock().set_state(state, vm)
     }
 }
 
@@ -214,7 +214,7 @@ impl IteratorIterable for PySequenceIterator {}
 impl SlotIterator for PySequenceIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         zelf.internal
-            .write()
+            .lock()
             .next(|obj, pos| obj.get_item(pos, vm), vm)
     }
 }

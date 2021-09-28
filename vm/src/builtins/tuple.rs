@@ -15,7 +15,7 @@ use crate::{
     PyContext, PyObjectRef, PyRef, PyResult, PyValue, TransmuteFromObject, TryFromObject,
     TypeProtocol,
 };
-use rustpython_common::lock::PyRwLock;
+use rustpython_common::lock::PyMutex;
 use std::fmt;
 use std::marker::PhantomData;
 
@@ -306,7 +306,7 @@ impl Comparable for PyTuple {
 impl Iterable for PyTuple {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         Ok(PyTupleIterator {
-            internal: PyRwLock::new(PositionIterInternal::new(zelf, 0)),
+            internal: PyMutex::new(PositionIterInternal::new(zelf, 0)),
         }
         .into_object(vm))
     }
@@ -315,7 +315,7 @@ impl Iterable for PyTuple {
 #[pyclass(module = false, name = "tuple_iterator")]
 #[derive(Debug)]
 pub(crate) struct PyTupleIterator {
-    internal: PyRwLock<PositionIterInternal<PyTupleRef>>,
+    internal: PyMutex<PositionIterInternal<PyTupleRef>>,
 }
 
 impl PyValue for PyTupleIterator {
@@ -328,18 +328,18 @@ impl PyValue for PyTupleIterator {
 impl PyTupleIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
-        self.internal.read().length_hint(|obj| obj.len())
+        self.internal.lock().length_hint(|obj| obj.len())
     }
 
     #[pymethod(magic)]
     fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.internal.write().set_state(state, vm)
+        self.internal.lock().set_state(state, vm)
     }
 
     #[pymethod(magic)]
     fn reduce(&self, vm: &VirtualMachine) -> PyObjectRef {
         self.internal
-            .read()
+            .lock()
             .builtin_iter_reduce(|x| x.clone().into_object(), vm)
     }
 }
@@ -347,7 +347,7 @@ impl PyTupleIterator {
 impl IteratorIterable for PyTupleIterator {}
 impl SlotIterator for PyTupleIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        zelf.internal.write().next(
+        zelf.internal.lock().next(
             |tuple, pos| {
                 tuple
                     .as_slice()

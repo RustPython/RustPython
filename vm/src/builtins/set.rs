@@ -16,7 +16,7 @@ use crate::{
     IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol,
 };
-use rustpython_common::lock::PyRwLock;
+use rustpython_common::lock::PyMutex;
 use std::fmt;
 
 pub type SetContentType = dictdatatype::Dict<()>;
@@ -196,11 +196,7 @@ impl PySetInner {
     fn iter(&self) -> PySetIterator {
         PySetIterator {
             size: self.content.size(),
-            internal: PyRwLock::new(PositionIterInternal::new(self.content.clone(), 0))
-            // dict: PyRc::clone(&self.content),
-            // size: self.content.size(),
-            // position: AtomicCell::new(0),
-            // status: AtomicCell::new(IterStatus::Active),
+            internal: PyMutex::new(PositionIterInternal::new(self.content.clone(), 0)),
         }
     }
 
@@ -819,7 +815,7 @@ impl TryFromObject for SetIterable {
 #[pyclass(module = false, name = "set_iterator")]
 pub(crate) struct PySetIterator {
     size: DictSize,
-    internal: PyRwLock<PositionIterInternal<PyRc<SetContentType>>>,
+    internal: PyMutex<PositionIterInternal<PyRc<SetContentType>>>,
 }
 
 impl fmt::Debug for PySetIterator {
@@ -839,12 +835,12 @@ impl PyValue for PySetIterator {
 impl PySetIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
-        self.internal.read().length_hint(|_| self.size.entries_size)
+        self.internal.lock().length_hint(|_| self.size.entries_size)
     }
 
     #[pymethod(magic)]
     fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<(PyObjectRef, (PyObjectRef,))> {
-        let internal = zelf.internal.read();
+        let internal = zelf.internal.lock();
         Ok((
             vm.get_attribute(vm.builtins.clone(), "iter")?,
             (vm.ctx.new_list(match &internal.status {
@@ -860,7 +856,7 @@ impl PySetIterator {
 impl IteratorIterable for PySetIterator {}
 impl SlotIterator for PySetIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        let mut internal = zelf.internal.write();
+        let mut internal = zelf.internal.lock();
         if let IterStatus::Active(dict) = &internal.status {
             if dict.has_changed_size(&zelf.size) {
                 internal.status = IterStatus::Exhausted;

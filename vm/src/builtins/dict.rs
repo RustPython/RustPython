@@ -14,7 +14,7 @@ use crate::{
     PyAttributes, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
     PyResult, PyValue, TryFromObject, TypeProtocol,
 };
-use rustpython_common::lock::PyRwLock;
+use rustpython_common::lock::PyMutex;
 use std::fmt;
 use std::mem::size_of;
 
@@ -706,7 +706,7 @@ macro_rules! dict_iterator {
         #[derive(Debug)]
         pub(crate) struct $iter_name {
             pub size: dictdatatype::DictSize,
-            pub internal: PyRwLock<PositionIterInternal<PyDictRef>>,
+            pub internal: PyMutex<PositionIterInternal<PyDictRef>>,
         }
 
         impl PyValue for $iter_name {
@@ -720,13 +720,13 @@ macro_rules! dict_iterator {
             fn new(dict: PyDictRef) -> Self {
                 $iter_name {
                     size: dict.size(),
-                    internal: PyRwLock::new(PositionIterInternal::new(dict, 0)),
+                    internal: PyMutex::new(PositionIterInternal::new(dict, 0)),
                 }
             }
 
             #[pymethod(magic)]
             fn length_hint(&self) -> usize {
-                self.internal.read().length_hint(|_| self.size.entries_size)
+                self.internal.lock().length_hint(|_| self.size.entries_size)
             }
         }
 
@@ -734,7 +734,7 @@ macro_rules! dict_iterator {
         impl SlotIterator for $iter_name {
             #[allow(clippy::redundant_closure_call)]
             fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-                let mut internal = zelf.internal.write();
+                let mut internal = zelf.internal.lock();
                 if let IterStatus::Active(dict) = &internal.status {
                     if dict.entries.has_changed_size(&zelf.size) {
                         internal.status = IterStatus::Exhausted;
@@ -762,7 +762,7 @@ macro_rules! dict_iterator {
         #[derive(Debug)]
         pub(crate) struct $reverse_iter_name {
             pub size: dictdatatype::DictSize,
-            internal: PyRwLock<PositionIterInternal<PyDictRef>>,
+            internal: PyMutex<PositionIterInternal<PyDictRef>>,
         }
 
         impl PyValue for $reverse_iter_name {
@@ -778,14 +778,14 @@ macro_rules! dict_iterator {
                 let position = size.entries_size.saturating_sub(1);
                 $reverse_iter_name {
                     size,
-                    internal: PyRwLock::new(PositionIterInternal::new(dict, position)),
+                    internal: PyMutex::new(PositionIterInternal::new(dict, position)),
                 }
             }
 
             #[pymethod(magic)]
             fn length_hint(&self) -> usize {
                 self.internal
-                    .read()
+                    .lock()
                     .rev_length_hint(|_| self.size.entries_size)
             }
         }
@@ -794,7 +794,7 @@ macro_rules! dict_iterator {
         impl SlotIterator for $reverse_iter_name {
             #[allow(clippy::redundant_closure_call)]
             fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-                let mut internal = zelf.internal.write();
+                let mut internal = zelf.internal.lock();
                 if let IterStatus::Active(dict) = &internal.status {
                     if dict.entries.has_changed_size(&zelf.size) {
                         internal.status = IterStatus::Exhausted;

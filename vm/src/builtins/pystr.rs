@@ -169,7 +169,7 @@ impl TryIntoRef<PyStr> for &str {
 #[pyclass(module = false, name = "str_iterator")]
 #[derive(Debug)]
 pub struct PyStrIterator {
-    internal: PyRwLock<PositionIterInternal<PyStrRef>>,
+    internal: PyMutex<PositionIterInternal<PyStrRef>>,
 }
 
 impl PyValue for PyStrIterator {
@@ -182,18 +182,18 @@ impl PyValue for PyStrIterator {
 impl PyStrIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
-        self.internal.read().length_hint(|obj| obj.len())
+        self.internal.lock().length_hint(|obj| obj.len())
     }
 
     #[pymethod(magic)]
     fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.internal.write().set_state(state, vm)
+        self.internal.lock().set_state(state, vm)
     }
 
     #[pymethod(magic)]
     fn reduce(&self, vm: &VirtualMachine) -> PyObjectRef {
         self.internal
-            .read()
+            .lock()
             .builtin_iter_reduce(|x| x.clone().into_object(), vm)
     }
 }
@@ -201,7 +201,7 @@ impl PyStrIterator {
 impl IteratorIterable for PyStrIterator {}
 impl SlotIterator for PyStrIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        let mut internal = zelf.internal.write();
+        let mut internal = zelf.internal.lock();
         if let IterStatus::Active(s) = &internal.status {
             let value = s.as_str();
             if internal.position >= value.len() {
@@ -1253,7 +1253,7 @@ impl Comparable for PyStr {
 impl Iterable for PyStr {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         Ok(PyStrIterator {
-            internal: PyRwLock::new(PositionIterInternal::new(zelf, 0)),
+            internal: PyMutex::new(PositionIterInternal::new(zelf, 0)),
         }
         .into_object(vm))
     }

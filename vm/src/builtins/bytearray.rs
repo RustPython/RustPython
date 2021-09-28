@@ -5,7 +5,7 @@ use super::{
 use crate::common::{
     borrow::{BorrowedValue, BorrowedValueMut},
     lock::{
-        PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyRwLock, PyRwLockReadGuard,
+        PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyMutex, PyRwLock, PyRwLockReadGuard,
         PyRwLockWriteGuard,
     },
 };
@@ -719,7 +719,7 @@ impl Unhashable for PyByteArray {}
 impl Iterable for PyByteArray {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         Ok(PyByteArrayIterator {
-            internal: PyRwLock::new(PositionIterInternal::new(zelf, 0)),
+            internal: PyMutex::new(PositionIterInternal::new(zelf, 0)),
         }
         .into_object(vm))
     }
@@ -732,7 +732,7 @@ impl Iterable for PyByteArray {
 #[pyclass(module = false, name = "bytearray_iterator")]
 #[derive(Debug)]
 pub struct PyByteArrayIterator {
-    internal: PyRwLock<PositionIterInternal<PyByteArrayRef>>,
+    internal: PyMutex<PositionIterInternal<PyByteArrayRef>>,
 }
 
 impl PyValue for PyByteArrayIterator {
@@ -745,24 +745,24 @@ impl PyValue for PyByteArrayIterator {
 impl PyByteArrayIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
-        self.internal.read().length_hint(|obj| obj.len())
+        self.internal.lock().length_hint(|obj| obj.len())
     }
     #[pymethod(magic)]
     fn reduce(&self, vm: &VirtualMachine) -> PyObjectRef {
         self.internal
-            .read()
+            .lock()
             .builtin_iter_reduce(|x| x.clone().into_object(), vm)
     }
 
     #[pymethod(magic)]
     fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.internal.write().set_state(state, vm)
+        self.internal.lock().set_state(state, vm)
     }
 }
 impl IteratorIterable for PyByteArrayIterator {}
 impl SlotIterator for PyByteArrayIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        zelf.internal.write().next(
+        zelf.internal.lock().next(
             |bytearray, pos| {
                 let buf = bytearray.borrow_buf();
                 buf.get(pos)

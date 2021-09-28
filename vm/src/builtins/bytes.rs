@@ -17,8 +17,10 @@ use crate::{
     PyRef, PyResult, PyValue, TryFromBorrowedObject, TypeProtocol, VirtualMachine,
 };
 use bstr::ByteSlice;
-use rustpython_common::borrow::{BorrowedValue, BorrowedValueMut};
-use rustpython_common::lock::PyRwLock;
+use rustpython_common::{
+    borrow::{BorrowedValue, BorrowedValueMut},
+    lock::PyMutex,
+};
 use std::mem::size_of;
 use std::ops::Deref;
 
@@ -574,7 +576,7 @@ impl Comparable for PyBytes {
 impl Iterable for PyBytes {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         Ok(PyBytesIterator {
-            internal: PyRwLock::new(PositionIterInternal::new(zelf, 0)),
+            internal: PyMutex::new(PositionIterInternal::new(zelf, 0)),
         }
         .into_object(vm))
     }
@@ -583,7 +585,7 @@ impl Iterable for PyBytes {
 #[pyclass(module = false, name = "bytes_iterator")]
 #[derive(Debug)]
 pub struct PyBytesIterator {
-    internal: PyRwLock<PositionIterInternal<PyBytesRef>>,
+    internal: PyMutex<PositionIterInternal<PyBytesRef>>,
 }
 
 impl PyValue for PyBytesIterator {
@@ -596,25 +598,25 @@ impl PyValue for PyBytesIterator {
 impl PyBytesIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
-        self.internal.read().length_hint(|obj| obj.len())
+        self.internal.lock().length_hint(|obj| obj.len())
     }
 
     #[pymethod(magic)]
     fn reduce(&self, vm: &VirtualMachine) -> PyObjectRef {
         self.internal
-            .read()
+            .lock()
             .builtin_iter_reduce(|x| x.clone().into_object(), vm)
     }
 
     #[pymethod(magic)]
     fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.internal.write().set_state(state, vm)
+        self.internal.lock().set_state(state, vm)
     }
 }
 impl IteratorIterable for PyBytesIterator {}
 impl SlotIterator for PyBytesIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        zelf.internal.write().next(
+        zelf.internal.lock().next(
             |bytes, pos| {
                 bytes
                     .as_bytes()

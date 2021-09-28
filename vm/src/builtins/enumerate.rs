@@ -1,5 +1,5 @@
 use super::{IterStatus, PositionIterInternal, PyIntRef, PyTypeRef};
-use crate::common::lock::PyRwLock;
+use crate::common::lock::{PyMutex, PyRwLock};
 use crate::{
     function::OptionalArg,
     protocol::{PyIter, PyIterReturn},
@@ -67,7 +67,7 @@ impl SlotIterator for PyEnumerate {
 #[pyclass(module = false, name = "reversed")]
 #[derive(Debug)]
 pub struct PyReverseSequenceIterator {
-    internal: PyRwLock<PositionIterInternal<PyObjectRef>>,
+    internal: PyMutex<PositionIterInternal<PyObjectRef>>,
 }
 
 impl PyValue for PyReverseSequenceIterator {
@@ -81,13 +81,13 @@ impl PyReverseSequenceIterator {
     pub fn new(obj: PyObjectRef, len: usize) -> Self {
         let position = len.saturating_sub(1);
         Self {
-            internal: PyRwLock::new(PositionIterInternal::new(obj, position)),
+            internal: PyMutex::new(PositionIterInternal::new(obj, position)),
         }
     }
 
     #[pymethod(magic)]
     fn length_hint(&self, vm: &VirtualMachine) -> PyResult<usize> {
-        let internal = self.internal.read();
+        let internal = self.internal.lock();
         if let IterStatus::Active(obj) = &internal.status {
             if internal.position <= vm.obj_len(obj)? {
                 return Ok(internal.position + 1);
@@ -98,13 +98,13 @@ impl PyReverseSequenceIterator {
 
     #[pymethod(magic)]
     fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.internal.write().set_state(state, vm)
+        self.internal.lock().set_state(state, vm)
     }
 
     #[pymethod(magic)]
     fn reduce(&self, vm: &VirtualMachine) -> PyObjectRef {
         self.internal
-            .read()
+            .lock()
             .builtin_reversed_reduce(|x| x.clone(), vm)
     }
 }
@@ -113,7 +113,7 @@ impl IteratorIterable for PyReverseSequenceIterator {}
 impl SlotIterator for PyReverseSequenceIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         zelf.internal
-            .write()
+            .lock()
             .rev_next(|obj, pos| obj.get_item(pos, vm), vm)
     }
 }
