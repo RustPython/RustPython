@@ -285,6 +285,9 @@ impl SlotConstructor for PySslContext {
         let mut builder =
             SslContextBuilder::new(method).map_err(|e| convert_openssl_error(vm, e))?;
 
+        #[cfg(target_os = "android")]
+        droid::load_client_ca_list(vm, &mut builder)?;
+
         let check_hostname = proto == SslVersion::TlsClient;
         builder.set_verify(if check_hostname {
             SslVerifyMode::PEER | SslVerifyMode::FAIL_IF_NO_PEER_CERT
@@ -1255,5 +1258,85 @@ impl Write for SocketStream {
     fn flush(&mut self) -> std::io::Result<()> {
         let mut socket: &PySocket = &self.0;
         socket.flush()
+    }
+}
+
+#[cfg(target_os = "android")]
+mod droid {
+    use std::{
+        fs::{read_dir, File},
+        io::Read,
+        path::Path,
+    };
+
+    use openssl::{
+        ssl::SslContextBuilder,
+        x509::{store::X509StoreBuilder, X509},
+    };
+
+    use crate::{
+        exceptions::PyBaseExceptionRef, stdlib::ssl::convert_openssl_error, VirtualMachine,
+    };
+
+    static CERT_DIR: &'static str = "/system/etc/security/cacerts";
+
+    pub fn load_client_ca_list(
+        vm: &VirtualMachine,
+        b: &mut SslContextBuilder,
+    ) -> Result<(), PyBaseExceptionRef> {
+        let root = Path::new(CERT_DIR);
+        if !root.is_dir() {
+            return Err(vm.new_exception_msg(
+                vm.ctx.exceptions.file_not_found_error.clone(),
+                CERT_DIR.to_string(),
+            ));
+        }
+
+        let entries = match read_dir(root) {
+            Ok(v) => v,
+            Err(err) => return Err(vm.new_os_error(format!("read cert root: {}", err))),
+        };
+
+        let mut combined_pem = String::new();
+        for entry in entries {
+            let entry = match entry {
+                Ok(v) => v,
+                Err(err) => return Err(vm.new_os_error(format!("iter cert root: {}", err))),
+            };
+
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+
+            let mut file = match File::open(&path) {
+                Ok(v) => v,
+                Err(err) => {
+                    return Err(vm.new_os_error(format!(
+                        "open cert file {}: {}",
+                        path.display(),
+                        err
+                    )))
+                }
+            };
+
+            if let Err(err) = file.read_to_string(&mut combined_pem) {
+                return Err(vm.new_os_error(format!("read cert file {}: {}", path.display(), err)));
+            }
+
+            combined_pem.push('\n');
+        }
+
+        let mut store_b = X509StoreBuilder::new().map_err(|err| convert_openssl_error(vm, err))?;
+        let x509_vec = X509::stack_from_pem(combined_pem.as_bytes())
+            .map_err(|err| convert_openssl_error(vm, err))?;
+        for x509 in x509_vec {
+            store_b
+                .add_cert(x509)
+                .map_err(|err| convert_openssl_error(vm, err))?;
+        }
+        b.set_cert_store(store_b.build());
+
+        Ok(())
     }
 }
