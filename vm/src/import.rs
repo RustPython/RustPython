@@ -130,7 +130,7 @@ pub fn import_codeobj(
     if set_file_attr {
         attrs.set_item("__file__", vm.ctx.new_utf8_str(&code_obj.source_path), vm)?;
     }
-    let module = vm.new_module(module_name, attrs.clone());
+    let module = vm.new_module(module_name, attrs.clone(), None);
 
     // Store module in cache to prevent infinite loop with mutual importing libs:
     let sys_modules = vm.get_attribute(vm.sys_module.clone(), "modules")?;

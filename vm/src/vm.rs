@@ -574,12 +574,13 @@ impl VirtualMachine {
         self.ctx.new_code_object(code.into_codeobj(self))
     }
 
-    pub fn new_module(&self, name: &str, dict: PyDictRef) -> PyObjectRef {
+    pub fn new_module(&self, name: &str, dict: PyDictRef, doc: Option<&str>) -> PyObjectRef {
         module::init_module_dict(
             self,
             &dict,
             self.new_pyobj(name.to_owned()),
-            self.ctx.none(),
+            doc.map(|doc| self.new_pyobj(doc.to_owned()))
+                .unwrap_or_else(|| self.ctx.none()),
         );
         PyObject::new(PyModule {}, self.ctx.types.module_type.clone(), Some(dict))
     }

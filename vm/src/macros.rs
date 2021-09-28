@@ -1,7 +1,7 @@
 #[macro_export]
 macro_rules! py_module {
     ( $vm:expr, $module_name:expr, { $($name:expr => $value:expr),* $(,)? }) => {{
-        let module = $vm.new_module($module_name, $vm.ctx.new_dict());
+        let module = $vm.new_module($module_name, $vm.ctx.new_dict(), None);
         $crate::extend_module!($vm, module, { $($name => $value),* });
         module
     }};
