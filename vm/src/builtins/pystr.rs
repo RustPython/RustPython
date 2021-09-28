@@ -25,6 +25,7 @@ use rustpython_common::{
     ascii,
     atomic::{self, PyAtomic, Radium},
     hash,
+    lock::PyMutex,
 };
 use std::mem::size_of;
 use std::ops::Range;

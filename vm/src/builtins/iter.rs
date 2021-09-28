@@ -10,7 +10,7 @@ use crate::{
     ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
     VirtualMachine,
 };
-use rustpython_common::lock::{PyMutex, PyRwLock, PyRwLockUpgradableReadGuard};
+use rustpython_common::lock::{OnceCell, PyMutex, PyRwLock, PyRwLockUpgradableReadGuard};
 
 /// Marks status of iterator.
 #[derive(Debug, Clone)]
@@ -69,7 +69,7 @@ impl<T> PositionIterInternal<T> {
     where
         F: FnOnce(&T) -> PyObjectRef,
     {
-        let iter = vm.get_attribute(vm.builtins.clone(), "iter").unwrap();
+        let iter = get_builtin_attribute_iter(vm).clone();
         self._reduce(iter, f, vm)
     }
 
@@ -77,7 +77,7 @@ impl<T> PositionIterInternal<T> {
     where
         F: FnOnce(&T) -> PyObjectRef,
     {
-        let reversed = vm.get_attribute(vm.builtins.clone(), "reversed").unwrap();
+        let reversed = get_builtin_attribute_reversed(vm).clone();
         self._reduce(reversed, f, vm)
     }
 
@@ -165,6 +165,16 @@ impl<T> PositionIterInternal<T> {
         }
         0
     }
+}
+
+pub fn get_builtin_attribute_iter(vm: &VirtualMachine) -> &PyObjectRef {
+    static INSTANCE: OnceCell<PyObjectRef> = OnceCell::new();
+    INSTANCE.get_or_init(|| vm.get_attribute(vm.builtins.clone(), "iter").unwrap())
+}
+
+pub fn get_builtin_attribute_reversed(vm: &VirtualMachine) -> &PyObjectRef {
+    static INSTANCE: OnceCell<PyObjectRef> = OnceCell::new();
+    INSTANCE.get_or_init(|| vm.get_attribute(vm.builtins.clone(), "reversed").unwrap())
 }
 
 #[pyclass(module = false, name = "iterator")]

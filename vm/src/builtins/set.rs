@@ -1,9 +1,8 @@
-use super::PositionIterInternal;
 /*
  * Builtin set type with a sequence of unique items.
  */
-use super::{IterStatus, PyDictRef, PyTypeRef};
-use crate::common::{ascii, hash::PyHash, rc::PyRc};
+use super::{get_builtin_attribute_iter, IterStatus, PositionIterInternal, PyDictRef, PyTypeRef};
+use crate::common::{ascii, hash::PyHash, lock::PyMutex, rc::PyRc};
 use crate::{
     dictdatatype::{self, DictSize},
     function::{ArgIterable, FuncArgs, OptionalArg, PosArgs},
@@ -16,7 +15,6 @@ use crate::{
     IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol,
 };
-use rustpython_common::lock::PyMutex;
 use std::fmt;
 
 pub type SetContentType = dictdatatype::Dict<()>;
@@ -842,7 +840,7 @@ impl PySetIterator {
     fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<(PyObjectRef, (PyObjectRef,))> {
         let internal = zelf.internal.lock();
         Ok((
-            vm.get_attribute(vm.builtins.clone(), "iter")?,
+            get_builtin_attribute_iter(vm).clone(),
             (vm.ctx.new_list(match &internal.status {
                 IterStatus::Exhausted => vec![],
                 IterStatus::Active(dict) => {
