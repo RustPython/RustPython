@@ -188,7 +188,9 @@ impl PyStrIterator {
 
     #[pymethod(magic)]
     fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.internal.lock().set_state(state, vm)
+        self.internal
+            .lock()
+            .set_state_saturated(state, |obj| obj.char_len(), vm)
     }
 
     #[pymethod(magic)]

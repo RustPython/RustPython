@@ -10,7 +10,10 @@ use crate::{
     ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
     VirtualMachine,
 };
-use rustpython_common::lock::{OnceCell, PyMutex, PyRwLock, PyRwLockUpgradableReadGuard};
+use rustpython_common::{
+    lock::{PyMutex, PyRwLock, PyRwLockUpgradableReadGuard},
+    static_cell,
+};
 
 /// Marks status of iterator.
 #[derive(Debug, Clone)]
@@ -40,6 +43,28 @@ impl<T> PositionIterInternal<T> {
             if let Some(i) = state.payload::<PyInt>() {
                 let i = int::try_to_primitive(i.as_bigint(), vm).unwrap_or(0);
                 self.position = i;
+                Ok(())
+            } else {
+                Err(vm.new_type_error("an integer is required.".to_owned()))
+            }
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn set_state_saturated<F>(
+        &mut self,
+        state: PyObjectRef,
+        f: F,
+        vm: &VirtualMachine,
+    ) -> PyResult<()>
+    where
+        F: FnOnce(&T) -> usize,
+    {
+        if let IterStatus::Active(obj) = &self.status {
+            if let Some(i) = state.payload::<PyInt>() {
+                let i = int::try_to_primitive(i.as_bigint(), vm).unwrap_or(0);
+                self.position = i.min(f(obj));
                 Ok(())
             } else {
                 Err(vm.new_type_error("an integer is required.".to_owned()))
@@ -168,12 +193,16 @@ impl<T> PositionIterInternal<T> {
 }
 
 pub fn get_builtin_attribute_iter(vm: &VirtualMachine) -> &PyObjectRef {
-    static INSTANCE: OnceCell<PyObjectRef> = OnceCell::new();
+    static_cell! {
+        static INSTANCE: PyObjectRef;
+    }
     INSTANCE.get_or_init(|| vm.get_attribute(vm.builtins.clone(), "iter").unwrap())
 }
 
 pub fn get_builtin_attribute_reversed(vm: &VirtualMachine) -> &PyObjectRef {
-    static INSTANCE: OnceCell<PyObjectRef> = OnceCell::new();
+    static_cell! {
+        static INSTANCE: PyObjectRef;
+    }
     INSTANCE.get_or_init(|| vm.get_attribute(vm.builtins.clone(), "reversed").unwrap())
 }
 
