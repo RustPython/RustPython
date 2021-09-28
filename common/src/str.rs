@@ -82,6 +82,29 @@ pub fn to_ascii(value: &str) -> String {
     ascii
 }
 
+#[doc(hidden)]
+pub const fn bytes_is_ascii(x: &str) -> bool {
+    let x = x.as_bytes();
+    let mut i = 0;
+    while i < x.len() {
+        if !x[i].is_ascii() {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+#[macro_export]
+macro_rules! ascii {
+    ($x:literal) => {{
+        const _: () = {
+            ["not ascii"][!$crate::str::bytes_is_ascii($x) as usize];
+        };
+        unsafe { $crate::vendored::ascii::AsciiStr::from_ascii_unchecked($x.as_bytes()) }
+    }};
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

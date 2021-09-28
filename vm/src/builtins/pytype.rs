@@ -2,7 +2,7 @@ use super::{
     mappingproxy::PyMappingProxy, object, PyClassMethod, PyDictRef, PyInt, PyList, PyStaticMethod,
     PyStr, PyStrRef, PyTuple, PyTupleRef, PyWeak,
 };
-use crate::common::lock::PyRwLock;
+use crate::common::{ascii, lock::PyRwLock};
 use crate::{
     function::{FuncArgs, KwArgs, OptionalArg},
     slots::{self, Callable, PyTpFlags, PyTypeSlots, SlotGetattro, SlotSetattro},
@@ -404,7 +404,7 @@ impl PyType {
                     Some(found)
                 }
             })
-            .unwrap_or_else(|| vm.ctx.new_ascii_literal(crate::utils::ascii!("builtins")))
+            .unwrap_or_else(|| vm.ctx.new_ascii_literal(ascii!("builtins")))
     }
 
     #[pyproperty(magic, setter)]

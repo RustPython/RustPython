@@ -2,7 +2,10 @@ use num_traits::ToPrimitive;
 use std::{env, mem, path};
 
 use crate::builtins::{PyStr, PyStrRef, PyTypeRef};
-use crate::common::hash::{PyHash, PyUHash};
+use crate::common::{
+    ascii,
+    hash::{PyHash, PyUHash},
+};
 use crate::frame::FrameRef;
 use crate::function::{FuncArgs, OptionalArg, PosArgs};
 use crate::vm::{PySettings, VirtualMachine};
@@ -44,7 +47,7 @@ fn executable(ctx: &PyContext) -> PyObjectRef {
     if let Some(exec_path) = env::args().next() {
         let path = path::Path::new(&exec_path);
         if !path.exists() {
-            return ctx.new_ascii_literal(crate::utils::ascii!(""));
+            return ctx.new_ascii_literal(ascii!(""));
         }
         if path.is_absolute() {
             return ctx.new_utf8_str(exec_path);
@@ -237,7 +240,7 @@ fn sys_exc_info(vm: &VirtualMachine) -> (PyObjectRef, PyObjectRef, PyObjectRef) 
 
 fn sys_git_info(vm: &VirtualMachine) -> PyObjectRef {
     vm.ctx.new_tuple(vec![
-        vm.ctx.new_ascii_literal(crate::utils::ascii!("RustPython")),
+        vm.ctx.new_ascii_literal(ascii!("RustPython")),
         vm.ctx.new_utf8_str(version::get_git_identifier()),
         vm.ctx.new_utf8_str(version::get_git_revision()),
     ])
@@ -515,8 +518,8 @@ pub(crate) fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: Py
 
     // TODO Add crate version to this namespace
     let implementation = py_namespace!(vm, {
-        "name" => ctx.new_ascii_literal(crate::utils::ascii!("rustpython")),
-        "cache_tag" => ctx.new_ascii_literal(crate::utils::ascii!("rustpython-01")),
+        "name" => ctx.new_ascii_literal(ascii!("rustpython")),
+        "cache_tag" => ctx.new_ascii_literal(ascii!("rustpython-01")),
         "_multiarch" => ctx.new_utf8_str(MULTIARCH.to_owned()),
         "version" => version_info.clone(),
         "hexversion" => ctx.new_int(version::VERSION_HEX),
@@ -652,7 +655,7 @@ settrace() -- set the global debug tracing function
     let base_exec_prefix = option_env!("RUSTPYTHON_BASEEXECPREFIX").unwrap_or(exec_prefix);
 
     extend_module!(vm, module, {
-      "__name__" => ctx.new_ascii_literal(crate::utils::ascii!("sys")),
+      "__name__" => ctx.new_ascii_literal(ascii!("sys")),
       "argv" => argv(vm),
       "builtin_module_names" => builtin_module_names,
       "byteorder" => ctx.new_utf8_str(bytorder),
@@ -674,8 +677,8 @@ settrace() -- set the global debug tracing function
       "maxunicode" => ctx.new_int(MAXUNICODE),
       "maxsize" => ctx.new_int(MAXSIZE),
       "path" => path,
-      "ps1" => ctx.new_ascii_literal(crate::utils::ascii!(">>>>> ")),
-      "ps2" => ctx.new_ascii_literal(crate::utils::ascii!("..... ")),
+      "ps1" => ctx.new_ascii_literal(ascii!(">>>>> ")),
+      "ps2" => ctx.new_ascii_literal(ascii!("..... ")),
       "__doc__" => ctx.new_utf8_str(sys_doc),
       "_getframe" => named_function!(ctx, sys, _getframe),
       "modules" => modules.clone(),
@@ -708,7 +711,7 @@ settrace() -- set the global debug tracing function
       "api_version" => ctx.new_int(0x0), // what C api?
       "float_info" => float_info,
       "int_info" => int_info,
-      "float_repr_style" => ctx.new_ascii_literal(crate::utils::ascii!("short")),
+      "float_repr_style" => ctx.new_ascii_literal(ascii!("short")),
       "_xoptions" => xopts,
       "warnoptions" => warnopts,
       "_rustpython_debugbuild" => ctx.new_bool(cfg!(debug_assertions)),

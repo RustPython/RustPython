@@ -6,7 +6,7 @@ mod _sre {
         builtins::{
             PyCallableIterator, PyDictRef, PyInt, PyList, PyListRef, PyStr, PyStrRef, PyTupleRef,
         },
-        common::hash::PyHash,
+        common::{ascii, hash::PyHash},
         function::{ArgCallable, OptionalArg, PosArgs},
         protocol::PyBuffer,
         slots::{Comparable, Hashable},
@@ -268,9 +268,7 @@ mod _sre {
                                 .unwrap_or_else(|| vm.ctx.none())
                         } else {
                             m.groups(
-                                OptionalArg::Present(
-                                    vm.ctx.new_ascii_literal(crate::utils::ascii!("")),
-                                ),
+                                OptionalArg::Present(vm.ctx.new_ascii_literal(ascii!(""))),
                                 vm,
                             )?
                             .into_object()
@@ -508,7 +506,7 @@ mod _sre {
                 let join_type = if zelf.isbytes {
                     vm.ctx.new_bytes(vec![])
                 } else {
-                    vm.ctx.new_ascii_literal(crate::utils::ascii!(""))
+                    vm.ctx.new_ascii_literal(ascii!(""))
                 };
                 let ret = vm.call_method(&join_type, "join", (list,))?;
 
