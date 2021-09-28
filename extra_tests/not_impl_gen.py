@@ -241,7 +241,14 @@ libdir = {os.path.abspath("../Lib/").encode('utf8')!r}
 """
 
 # Copy the source code of functions we will reuse in the generated script
-for fn in [attr_is_not_inherited, extra_info, dir_of_mod_or_error]:
+REUSED = [
+    attr_is_not_inherited,
+    extra_info,
+    dir_of_mod_or_error,
+    import_module,
+    is_child
+]
+for fn in REUSED:
     output += "".join(inspect.getsourcelines(fn)[0]) + "\n\n"
 
 # Prevent missing variable linter errors from compare()
