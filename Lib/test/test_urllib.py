@@ -516,8 +516,6 @@ Connection: close
         finally:
             self.unfakehttp()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_missing_localfile(self):
         # Test for #10836
         with self.assertRaises(urllib.error.URLError) as e:

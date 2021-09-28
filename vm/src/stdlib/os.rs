@@ -53,6 +53,7 @@ impl OutputMode {
     }
 }
 
+#[derive(Clone)]
 pub struct PyPathLike {
     pub path: PathBuf,
     pub(super) mode: OutputMode,
@@ -205,6 +206,7 @@ impl TryFromObject for PyPathLike {
     }
 }
 
+#[derive(Clone)]
 pub(crate) enum PathOrFd {
     Path(PyPathLike),
     Fd(i32),
@@ -216,6 +218,12 @@ impl TryFromObject for PathOrFd {
             Ok(int) => int::try_to_primitive(int.as_bigint(), vm).map(Self::Fd),
             Err(obj) => PyPathLike::try_from_object(vm, obj).map(Self::Path),
         }
+    }
+}
+
+impl From<PyPathLike> for PathOrFd {
+    fn from(path: PyPathLike) -> Self {
+        Self::Path(path)
     }
 }
 
@@ -260,8 +268,11 @@ pub struct IOErrorWithFilename {
 }
 
 impl IOErrorWithFilename {
-    pub fn new(error: io::Error, path: &PyPathLike, vm: &VirtualMachine) -> Self {
-        let filename = path.filename(vm).unwrap_or_else(|_| vm.ctx.none());
+    pub(crate) fn new(error: io::Error, path: impl Into<PathOrFd>, vm: &VirtualMachine) -> Self {
+        let filename = match path.into() {
+            PathOrFd::Path(path) => path.filename(vm).unwrap_or_else(|_| vm.ctx.none()),
+            PathOrFd::Fd(fd) => vm.ctx.new_int(fd),
+        };
         IOErrorWithFilename { error, filename }
     }
 }
@@ -486,7 +497,7 @@ pub(super) mod _os {
         };
         #[cfg(not(windows))]
         let fd = {
-            let name = name.into_cstring(vm)?;
+            let name = name.clone().into_cstring(vm)?;
             #[cfg(not(target_os = "wasi"))]
             let flags = flags | libc::O_CLOEXEC;
             #[cfg(not(target_os = "redox"))]
@@ -501,7 +512,8 @@ pub(super) mod _os {
                 Fd::open(&name, flags, mode)
             }
         };
-        fd.map(|fd| fd.0).map_err(|e| e.into_pyexception(vm))
+        fd.map(|fd| fd.0)
+            .map_err(|e| IOErrorWithFilename::new(e, name, vm).into_pyexception(vm))
     }
 
     #[pyfunction]
@@ -543,7 +555,7 @@ pub(super) mod _os {
         } else {
             fs::remove_file(&path)
         };
-        res.map_err(|err| IOErrorWithFilename::new(err, &path, vm).into_pyexception(vm))
+        res.map_err(|err| IOErrorWithFilename::new(err, path, vm).into_pyexception(vm))
     }
 
     #[cfg(not(windows))]
@@ -580,7 +592,8 @@ pub(super) mod _os {
     #[pyfunction]
     fn rmdir(path: PyPathLike, dir_fd: DirFd<0>, vm: &VirtualMachine) -> PyResult<()> {
         let [] = dir_fd.0;
-        fs::remove_dir(path).map_err(|err| err.into_pyexception(vm))
+        fs::remove_dir(&path)
+            .map_err(|err| IOErrorWithFilename::new(err, path, vm).into_pyexception(vm))
     }
 
     const LISTDIR_FD: bool = cfg!(all(unix, not(target_os = "redox")));
@@ -594,7 +607,9 @@ pub(super) mod _os {
                 dir_iter
                     .map(|entry| match entry {
                         Ok(entry_path) => path.mode.process_path(entry_path.file_name(), vm),
-                        Err(e) => Err(IOErrorWithFilename::new(e, &path, vm).into_pyexception(vm)),
+                        Err(e) => {
+                            Err(IOErrorWithFilename::new(e, path.clone(), vm).into_pyexception(vm))
+                        }
                     })
                     .collect::<PyResult<_>>()?
             }
@@ -1146,8 +1161,8 @@ pub(super) mod _os {
         follow_symlinks: FollowSymlinks,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let stat = stat_inner(file, dir_fd, follow_symlinks)
-            .map_err(|e| e.into_pyexception(vm))?
+        let stat = stat_inner(file.clone(), dir_fd, follow_symlinks)
+            .map_err(|e| IOErrorWithFilename::new(e, file, vm).into_pyexception(vm))?
             .ok_or_else(|| crate::exceptions::cstring_error(vm))?;
         Ok(StatResult::from_stat(&stat).into_pyobject(vm))
     }
@@ -1186,7 +1201,7 @@ pub(super) mod _os {
     #[pyfunction]
     fn chdir(path: PyPathLike, vm: &VirtualMachine) -> PyResult<()> {
         env::set_current_dir(&path.path)
-            .map_err(|err| IOErrorWithFilename::new(err, &path, vm).into_pyexception(vm))
+            .map_err(|err| IOErrorWithFilename::new(err, path, vm).into_pyexception(vm))
     }
 
     #[pyfunction]

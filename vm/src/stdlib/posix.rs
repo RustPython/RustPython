@@ -36,7 +36,7 @@ pub mod module {
         slots::SlotConstructor,
         stdlib::os::{
             errno_err, DirFd, FollowSymlinks, PathOrFd, PyPathLike, SupportFunc, TargetIsDirectory,
-            _os, fs_metadata,
+            _os, fs_metadata, IOErrorWithFilename,
         },
         utils::{Either, ToCString},
         IntoPyObject, ItemProtocol, PyObjectRef, PyResult, PyValue, TryFromObject, VirtualMachine,
@@ -369,10 +369,16 @@ pub mod module {
 
         let dir_fd = dir_fd.get_opt();
         match path {
-            PathOrFd::Path(p) => nix::unistd::fchownat(dir_fd, p.path.as_os_str(), uid, gid, flag),
+            PathOrFd::Path(ref p) => {
+                nix::unistd::fchownat(dir_fd, p.path.as_os_str(), uid, gid, flag)
+            }
             PathOrFd::Fd(fd) => nix::unistd::fchown(fd, uid, gid),
         }
-        .map_err(|err| err.into_pyexception(vm))
+        .map_err(|err| {
+            // Use `From<nix::Error> for io::Error` when it is available
+            IOErrorWithFilename::new(io::Error::from_raw_os_error(err as i32), path, vm)
+                .into_pyexception(vm)
+        })
     }
 
     #[cfg(not(target_os = "redox"))]
@@ -694,6 +700,7 @@ pub mod module {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let [] = dir_fd.0;
+        let err_path = path.clone();
         let body = move || {
             use std::os::unix::fs::PermissionsExt;
             let meta = fs_metadata(&path, follow_symlinks.0)?;
@@ -701,7 +708,7 @@ pub mod module {
             permissions.set_mode(mode);
             fs::set_permissions(&path, permissions)
         };
-        body().map_err(|err| err.into_pyexception(vm))
+        body().map_err(|err| IOErrorWithFilename::new(err, err_path, vm).into_pyexception(vm))
     }
 
     #[pyfunction]
