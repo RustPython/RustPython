@@ -1819,7 +1819,8 @@ rustpython_common::static_cell! {
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
-    init_winsock();
+    #[cfg(windows)]
+    super::nt::init_winsock();
 
     let ctx = &vm.ctx;
     let socket_timeout = TIMEOUT_ERROR
@@ -1978,15 +1979,4 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: &PyObjectRef) {
     extend_module!(vm, module, {
         "sethostname" => named_function!(ctx, _socket, sethostname),
     });
-}
-
-pub fn init_winsock() {
-    #[cfg(windows)]
-    {
-        static WSA_INIT: parking_lot::Once = parking_lot::Once::new();
-        WSA_INIT.call_once(|| unsafe {
-            let mut wsa_data = std::mem::MaybeUninit::uninit();
-            let _ = winapi::um::winsock2::WSAStartup(0x0101, wsa_data.as_mut_ptr());
-        })
-    }
 }

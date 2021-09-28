@@ -193,7 +193,7 @@ pub(crate) mod _signal {
 
         #[cfg(windows)]
         let is_socket = if fd != INVALID_WAKEUP {
-            crate::stdlib::socket::init_winsock();
+            crate::stdlib::nt::init_winsock();
             let mut res = 0i32;
             let mut res_size = std::mem::size_of::<i32>() as i32;
             let res = unsafe {
