@@ -38,7 +38,7 @@ mod sysconfigdata;
 mod syslog;
 #[cfg(feature = "threading")]
 mod thread;
-mod time;
+pub(crate) mod time;
 mod unicodedata;
 mod warnings;
 mod weakref;

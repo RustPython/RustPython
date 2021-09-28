@@ -10,7 +10,7 @@
  */
 
 #[pymodule]
-pub(crate) mod _struct {
+pub mod _struct {
     use crate::{
         builtins::{
             bytes::PyBytesRef, float, pybool::IntoPyBool, pystr::PyStr, pystr::PyStrRef,

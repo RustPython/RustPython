@@ -48,6 +48,7 @@ mod bytesinner;
 pub mod byteslike;
 pub mod cformat;
 mod codecs;
+pub mod corelib;
 mod coroutine;
 #[cfg(any(unix, windows, target_os = "wasi"))]
 mod crt_fd;

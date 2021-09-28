@@ -7,11 +7,11 @@ use crate::common::{
 };
 use crate::{
     bytesinner::bytes_to_hex,
+    corelib::_struct::FormatSpec,
     function::{FuncArgs, OptionalArg},
     protocol::{BufferInternal, BufferOptions, PyBuffer},
     sliceable::{convert_slice, wrap_index, SequenceIndex},
     slots::{AsBuffer, Comparable, Hashable, PyComparisonOp, SlotConstructor},
-    stdlib::pystruct::_struct::FormatSpec,
     utils::Either,
     IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
     PyResult, PyValue, TryFromBorrowedObject, TryFromObject, TypeProtocol, VirtualMachine,

@@ -421,11 +421,11 @@ pub(crate) mod module {
 #[macro_export]
 macro_rules! suppress_iph {
     ($e:expr) => {{
-        let old = $crate::stdlib::nt::module::_set_thread_local_invalid_parameter_handler(
-            $crate::stdlib::nt::module::silent_iph_handler,
+        let old = $crate::corelib::nt::_set_thread_local_invalid_parameter_handler(
+            $crate::corelib::nt::silent_iph_handler,
         );
         let ret = $e;
-        $crate::stdlib::nt::module::_set_thread_local_invalid_parameter_handler(old);
+        $crate::corelib::nt::_set_thread_local_invalid_parameter_handler(old);
         ret
     }};
 }

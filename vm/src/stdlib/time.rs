@@ -15,12 +15,12 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 }
 
 #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
-pub(crate) fn get_time(vm: &VirtualMachine) -> PyResult<f64> {
+fn get_time(vm: &VirtualMachine) -> PyResult<f64> {
     Ok(duration_since_system_now(vm)?.as_secs_f64())
 }
 
 #[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
-pub(crate) fn get_time(_vm: &VirtualMachine) -> PyResult<f64> {
+fn get_time(_vm: &VirtualMachine) -> PyResult<f64> {
     use wasm_bindgen::prelude::*;
     #[wasm_bindgen]
     extern "C" {
@@ -41,7 +41,7 @@ fn duration_since_system_now(vm: &VirtualMachine) -> PyResult<std::time::Duratio
 }
 
 #[pymodule(name = "time")]
-mod time {
+pub mod time {
     use crate::{
         builtins::{PyStrRef, PyTypeRef},
         function::{FuncArgs, OptionalArg},
@@ -84,7 +84,7 @@ mod time {
 
     #[pyfunction(name = "perf_counter")] // TODO: fix
     #[pyfunction]
-    fn time(vm: &VirtualMachine) -> PyResult<f64> {
+    pub fn time(vm: &VirtualMachine) -> PyResult<f64> {
         super::get_time(vm)
     }
 
