@@ -1263,24 +1263,22 @@ impl Write for SocketStream {
 
 #[cfg(target_os = "android")]
 mod droid {
+    use crate::{
+        exceptions::PyBaseExceptionRef, stdlib::ssl::convert_openssl_error, VirtualMachine,
+    };
+    use openssl::{
+        ssl::SslContextBuilder,
+        x509::{store::X509StoreBuilder, X509},
+    };
     use std::{
         fs::{read_dir, File},
         io::Read,
         path::Path,
     };
 
-    use openssl::{
-        ssl::SslContextBuilder,
-        x509::{store::X509StoreBuilder, X509},
-    };
-
-    use crate::{
-        exceptions::PyBaseExceptionRef, stdlib::ssl::convert_openssl_error, VirtualMachine,
-    };
-
     static CERT_DIR: &'static str = "/system/etc/security/cacerts";
 
-    pub fn load_client_ca_list(
+    pub(super) fn load_client_ca_list(
         vm: &VirtualMachine,
         b: &mut SslContextBuilder,
     ) -> Result<(), PyBaseExceptionRef> {
@@ -1292,37 +1290,22 @@ mod droid {
             ));
         }
 
-        let entries = match read_dir(root) {
-            Ok(v) => v,
-            Err(err) => return Err(vm.new_os_error(format!("read cert root: {}", err))),
-        };
-
         let mut combined_pem = String::new();
+        let entries =
+            read_dir(root).map_err(|err| vm.new_os_error(format!("read cert root: {}", err)))?;
         for entry in entries {
-            let entry = match entry {
-                Ok(v) => v,
-                Err(err) => return Err(vm.new_os_error(format!("iter cert root: {}", err))),
-            };
+            let entry = entry.map_err(|err| vm.new_os_error(format!("iter cert root: {}", err)))?;
 
             let path = entry.path();
             if !path.is_file() {
                 continue;
             }
 
-            let mut file = match File::open(&path) {
-                Ok(v) => v,
-                Err(err) => {
-                    return Err(vm.new_os_error(format!(
-                        "open cert file {}: {}",
-                        path.display(),
-                        err
-                    )))
-                }
-            };
-
-            if let Err(err) = file.read_to_string(&mut combined_pem) {
-                return Err(vm.new_os_error(format!("read cert file {}: {}", path.display(), err)));
-            }
+            File::open(&path)
+                .and_then(|file| file.read_to_string(&mut combined_pem))
+                .map_err(|err| {
+                    vm.new_os_error(format!("open cert file {}: {}", path.display(), err))
+                })?;
 
             combined_pem.push('\n');
         }
