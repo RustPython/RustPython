@@ -2,7 +2,9 @@ use crate::{PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject, Virtual
 use std::{io, mem};
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
-    super::socket::init_winsock();
+    #[cfg(windows)]
+    super::nt::init_winsock();
+
     #[cfg(unix)]
     {
         use crate::PyClassImpl;
