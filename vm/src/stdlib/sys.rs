@@ -1,18 +1,20 @@
-use num_traits::ToPrimitive;
-use std::{env, mem, path};
-
-use crate::builtins::{PyStr, PyStrRef, PyTypeRef};
 use crate::common::{
     ascii,
     hash::{PyHash, PyUHash},
 };
-use crate::frame::FrameRef;
-use crate::function::{FuncArgs, OptionalArg, PosArgs};
-use crate::vm::{PySettings, VirtualMachine};
-use crate::{builtins, exceptions, py_io, version};
 use crate::{
+    builtins::{PyStr, PyStrRef, PyTypeRef},
+    exceptions,
+    frame::FrameRef,
+    function::{FuncArgs, OptionalArg, PosArgs},
+    py_io,
+    stdlib::builtins,
+    version,
+    vm::{PySettings, VirtualMachine},
     ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRefExact, PyResult, PyStructSequence,
 };
+use num_traits::ToPrimitive;
+use std::{env, mem, path};
 
 /*
  * The magic sys module.
