@@ -63,7 +63,7 @@ pub use pytype::{PyType, PyTypeRef};
 pub(crate) mod range;
 pub use range::PyRange;
 pub(crate) mod set;
-pub use set::PySet;
+pub use set::{PyFrozenSet, PySet};
 pub(crate) mod singletons;
 pub use singletons::{PyNone, PyNotImplemented};
 pub(crate) mod slice;
