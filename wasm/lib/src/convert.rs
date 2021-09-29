@@ -2,9 +2,9 @@ use js_sys::{Array, ArrayBuffer, Object, Promise, Reflect, SyntaxError, Uint8Arr
 use wasm_bindgen::{closure::Closure, prelude::*, JsCast};
 
 use rustpython_parser::error::ParseErrorType;
-use rustpython_vm::byteslike::ArgBytesLike;
 use rustpython_vm::compile::{CompileError, CompileErrorType};
 use rustpython_vm::exceptions::PyBaseExceptionRef;
+use rustpython_vm::function::ArgBytesLike;
 use rustpython_vm::function::FuncArgs;
 use rustpython_vm::VirtualMachine;
 use rustpython_vm::{exceptions, py_serde};

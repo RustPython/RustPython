@@ -5,9 +5,8 @@ use crate::{
         bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
         ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
     },
-    byteslike::ArgBytesLike,
     common::hash::PyHash,
-    function::{ArgIterable, OptionalArg, OptionalOption},
+    function::{ArgBytesLike, ArgIterable, OptionalArg, OptionalOption},
     protocol::{BufferInternal, BufferOptions, PyBuffer},
     slots::{
         AsBuffer, Callable, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp,

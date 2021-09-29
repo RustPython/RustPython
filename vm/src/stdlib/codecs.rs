@@ -5,10 +5,9 @@ mod _codecs {
     use crate::common::encodings;
     use crate::{
         builtins::{PyBytes, PyBytesRef, PyStr, PyStrRef, PyTuple},
-        byteslike::ArgBytesLike,
         codecs,
         exceptions::PyBaseExceptionRef,
-        function::FuncArgs,
+        function::{ArgBytesLike, FuncArgs},
         IdProtocol, PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
     };
     use std::ops::Range;

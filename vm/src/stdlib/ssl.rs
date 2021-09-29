@@ -5,8 +5,8 @@ use crate::common::{
 };
 use crate::{
     builtins::{PyStrRef, PyType, PyTypeRef, PyWeak},
-    byteslike::{ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike},
     exceptions::{self, IntoPyException, PyBaseException, PyBaseExceptionRef},
+    function::{ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike},
     function::{ArgCallable, OptionalArg},
     slots::SlotConstructor,
     stdlib::os::PyPathLike,
