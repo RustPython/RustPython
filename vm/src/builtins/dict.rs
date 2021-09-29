@@ -944,7 +944,15 @@ pub struct PyMapping {
         Option<fn(PyObjectRef, PyObjectRef, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>>,
 }
 
-impl PyMapping {}
+impl PyMapping {
+    pub fn check(cls: &PyObjectRef, vm: &VirtualMachine) -> bool {
+        if let Ok(mapping) = PyMapping::try_from_borrowed_object(vm, cls) {
+            mapping.subscript.is_some()
+        } else {
+            false
+        }
+    }
+}
 
 impl TryFromBorrowedObject for PyMapping {
     fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Self> {

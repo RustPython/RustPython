@@ -1,4 +1,4 @@
-use super::{PyDict, PyStrRef, PyTypeRef};
+use super::{PyDict, PyList, PyStrRef, PyTuple, PyTypeRef};
 use crate::{
     builtins::dict::PyMapping,
     function::OptionalArg,
@@ -37,10 +37,20 @@ impl SlotConstructor for PyMappingProxy {
     type Args = PyObjectRef;
 
     fn py_new(cls: PyTypeRef, mapping: Self::Args, vm: &VirtualMachine) -> PyResult {
-        Self {
-            mapping: MappingProxyInner::Dict(mapping),
+        if !PyMapping::check(&mapping, vm)
+            || mapping.payload_if_subclass::<PyList>(vm).is_some()
+            || mapping.payload_if_subclass::<PyTuple>(vm).is_some()
+        {
+            Err(vm.new_type_error(format!(
+                "mappingproxy() argument must be a mapping, not {}",
+                mapping.class()
+            )))
+        } else {
+            Self {
+                mapping: MappingProxyInner::Dict(mapping),
+            }
+            .into_pyresult_with_type(vm, cls)
         }
-        .into_pyresult_with_type(vm, cls)
     }
 }
 
