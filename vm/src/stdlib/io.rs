@@ -182,10 +182,10 @@ mod _io {
     ) -> PyResult<SeekFrom> {
         let seek = match how {
             OptionalArg::Present(0) | OptionalArg::Missing => {
-                SeekFrom::Start(u64::try_from_object(vm, offset)?)
+                SeekFrom::Start(offset.try_into_value(vm)?)
             }
-            OptionalArg::Present(1) => SeekFrom::Current(i64::try_from_object(vm, offset)?),
-            OptionalArg::Present(2) => SeekFrom::End(i64::try_from_object(vm, offset)?),
+            OptionalArg::Present(1) => SeekFrom::Current(offset.try_into_value(vm)?),
+            OptionalArg::Present(2) => SeekFrom::End(offset.try_into_value(vm)?),
             _ => return Err(vm.new_value_error("invalid value for how".to_owned())),
         };
         Ok(seek)
@@ -3537,9 +3537,7 @@ mod _io {
 
         // check file descriptor validity
         #[cfg(unix)]
-        if let Ok(crate::stdlib::os::PathOrFd::Fd(fd)) =
-            TryFromObject::try_from_object(vm, file.clone())
-        {
+        if let Ok(crate::stdlib::os::PathOrFd::Fd(fd)) = file.clone().try_into_value(vm) {
             nix::fcntl::fcntl(fd, nix::fcntl::F_GETFD)
                 .map_err(|_| crate::stdlib::os::errno_err(vm))?;
         }

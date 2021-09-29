@@ -4,8 +4,8 @@ use crate::{
     function::{FromArgs, FuncArgs, IntoPyResult, OptionalArg},
     protocol::{PyBuffer, PyIterReturn, PyMappingMethods},
     utils::Either,
-    IdProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol, VirtualMachine,
+    IdProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use std::cmp::Ordering;
@@ -215,7 +215,7 @@ pub trait SlotDescriptor: PyValue {
     }
 
     fn _zelf(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        PyRef::<Self>::try_from_object(vm, zelf)
+        zelf.try_into_value(vm)
     }
 
     fn _unwrap(

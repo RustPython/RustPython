@@ -372,7 +372,7 @@ where
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
         let mut kwargs = IndexMap::new();
         for (name, value) in args.remaining_keywords() {
-            kwargs.insert(name, T::try_from_object(vm, value)?);
+            kwargs.insert(name, value.try_into_value(vm)?);
         }
         Ok(KwArgs(kwargs))
     }
@@ -444,7 +444,7 @@ where
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
         let mut varargs = Vec::new();
         while let Some(value) = args.take_positional() {
-            varargs.push(T::try_from_object(vm, value)?);
+            varargs.push(value.try_into_value(vm)?);
         }
         Ok(PosArgs(varargs))
     }
@@ -468,11 +468,8 @@ where
     }
 
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
-        if let Some(value) = args.take_positional() {
-            Ok(T::try_from_object(vm, value)?)
-        } else {
-            Err(ArgumentError::TooFewArgs)
-        }
+        let value = args.take_positional().ok_or(ArgumentError::TooFewArgs)?;
+        Ok(value.try_into_value(vm)?)
     }
 }
 
@@ -514,11 +511,12 @@ where
     }
 
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
-        if let Some(value) = args.take_positional() {
-            Ok(OptionalArg::Present(T::try_from_object(vm, value)?))
+        let r = if let Some(value) = args.take_positional() {
+            OptionalArg::Present(value.try_into_value(vm)?)
         } else {
-            Ok(OptionalArg::Missing)
-        }
+            OptionalArg::Missing
+        };
+        Ok(r)
     }
 }
 

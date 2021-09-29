@@ -318,7 +318,7 @@ mod time {
             let invalid = || vm.new_value_error("invalid struct_time parameter".to_owned());
             macro_rules! field {
                 ($field:ident) => {
-                    TryFromObject::try_from_object(vm, self.$field.clone())?
+                    self.$field.clone().try_into_value(vm)?
                 };
             }
             let dt = NaiveDateTime::new(

@@ -170,7 +170,7 @@ impl Node for usize {
     }
 
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
-        Self::try_from_object(vm, object)
+        object.try_into_value(vm)
     }
 }
 
