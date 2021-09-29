@@ -115,7 +115,7 @@ impl PyTuple {
     /// Creating a new tuple with given boxed slice.
     /// NOTE: for usual case, you probably want to use PyTupleRef::with_elements.
     /// Calling this function implies trying micro optimization for non-zero-sized tuple.
-    pub(crate) fn _new(elements: Box<[PyObjectRef]>) -> Self {
+    pub fn new_unchecked(elements: Box<[PyObjectRef]>) -> Self {
         Self { elements }
     }
 
