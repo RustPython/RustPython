@@ -4,6 +4,7 @@ pub(crate) mod ast;
 mod atexit;
 mod binascii;
 mod bisect;
+pub mod builtins;
 mod cmath;
 mod codecs;
 mod collections;

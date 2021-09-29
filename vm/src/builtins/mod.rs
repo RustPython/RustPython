@@ -84,7 +84,4 @@ pub use zip::PyZip;
 pub use float::try_to_bigint as try_f64_to_bigint;
 pub use int::try_to_float as try_bigint_to_f64;
 
-mod make_module;
-pub use make_module::{ascii, make_module, print};
-
 pub use crate::exceptions::types::*;
