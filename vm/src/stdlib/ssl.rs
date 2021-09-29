@@ -286,7 +286,7 @@ impl SlotConstructor for PySslContext {
             SslContextBuilder::new(method).map_err(|e| convert_openssl_error(vm, e))?;
 
         #[cfg(target_os = "android")]
-        droid::load_client_ca_list(vm, &mut builder)?;
+        android::load_client_ca_list(vm, &mut builder)?;
 
         let check_hostname = proto == SslVersion::TlsClient;
         builder.set_verify(if check_hostname {
@@ -1262,7 +1262,7 @@ impl Write for SocketStream {
 }
 
 #[cfg(target_os = "android")]
-mod droid {
+mod android {
     use crate::{
         exceptions::PyBaseExceptionRef, stdlib::ssl::convert_openssl_error, VirtualMachine,
     };
@@ -1302,7 +1302,7 @@ mod droid {
             }
 
             File::open(&path)
-                .and_then(|file| file.read_to_string(&mut combined_pem))
+                .and_then(|mut file| file.read_to_string(&mut combined_pem))
                 .map_err(|err| {
                     vm.new_os_error(format!("open cert file {}: {}", path.display(), err))
                 })?;
