@@ -3,7 +3,7 @@ pub(crate) use fcntl::make_module;
 #[pymodule]
 mod fcntl {
     use crate::{
-        builtins::int,
+        builtins::PyIntRef,
         function::{ArgMemoryBuffer, ArgStrOrBytesLike, OptionalArg},
         stdlib::{io, os},
         utils::Either,
@@ -25,7 +25,7 @@ mod fcntl {
     fn fcntl(
         io::Fildes(fd): io::Fildes,
         cmd: i32,
-        arg: OptionalArg<Either<ArgStrOrBytesLike, int::PyIntRef>>,
+        arg: OptionalArg<Either<ArgStrOrBytesLike, PyIntRef>>,
         vm: &VirtualMachine,
     ) -> PyResult {
         let int = match arg {
