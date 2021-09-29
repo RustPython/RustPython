@@ -346,7 +346,7 @@ pub(crate) fn impl_define_exception(
 
             #[pymethod(magic)]
             pub(crate) fn init(
-                zelf: ::rustpython_vm::PyRef<::rustpython_vm::exceptions::PyBaseException>,
+                zelf: ::rustpython_vm::PyRef<::rustpython_vm::builtins::PyBaseException>,
                 args: ::rustpython_vm::function::FuncArgs,
                 vm: &::rustpython_vm::VirtualMachine,
             ) -> ::rustpython_vm::PyResult<()> {

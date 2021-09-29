@@ -4,7 +4,7 @@
 
 use crate::builtins::int::{self, PyInt};
 use crate::builtins::iter::PySequenceIterator;
-use crate::exceptions::PyBaseExceptionRef;
+use crate::builtins::PyBaseExceptionRef;
 use crate::vm::VirtualMachine;
 use crate::{IdProtocol, PyObjectRef, PyResult, PyValue, TypeProtocol};
 use num_traits::Signed;

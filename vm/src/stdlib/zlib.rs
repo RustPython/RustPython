@@ -4,8 +4,7 @@ pub(crate) use decl::make_module;
 mod decl {
     use crate::common::lock::PyMutex;
     use crate::{
-        builtins::{PyBytes, PyBytesRef, PyIntRef, PyTypeRef},
-        exceptions::PyBaseExceptionRef,
+        builtins::{PyBaseExceptionRef, PyBytes, PyBytesRef, PyIntRef, PyTypeRef},
         function::{ArgBytesLike, OptionalArg},
         types::create_simple_type,
         IntoPyRef, PyResult, PyValue, VirtualMachine,

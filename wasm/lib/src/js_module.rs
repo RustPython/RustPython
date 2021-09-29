@@ -6,8 +6,8 @@ use std::{cell, fmt, future};
 use wasm_bindgen::{closure::Closure, prelude::*, JsCast};
 use wasm_bindgen_futures::{future_to_promise, JsFuture};
 
+use rustpython_vm::builtins::PyBaseExceptionRef;
 use rustpython_vm::builtins::{PyFloatRef, PyStrRef, PyTypeRef};
-use rustpython_vm::exceptions::PyBaseExceptionRef;
 use rustpython_vm::function::{OptionalArg, OptionalOption, PosArgs};
 use rustpython_vm::slots::{IteratorIterable, PyIter};
 use rustpython_vm::types::create_simple_type;

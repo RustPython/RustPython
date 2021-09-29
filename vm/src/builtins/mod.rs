@@ -86,3 +86,5 @@ pub use int::try_to_float as try_bigint_to_f64;
 
 mod make_module;
 pub use make_module::{ascii, make_module, print};
+
+pub use crate::exceptions::types::*;

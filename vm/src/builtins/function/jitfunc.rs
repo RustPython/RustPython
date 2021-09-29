@@ -1,12 +1,9 @@
-use crate::builtins::dict::PyDictRef;
-use crate::builtins::function::{PyFunction, PyFunctionRef};
-use crate::builtins::{float, int, pybool, PyStrRef};
-use crate::bytecode::CodeFlags;
-use crate::exceptions::PyBaseExceptionRef;
-use crate::function::FuncArgs;
-use crate::VirtualMachine;
 use crate::{
-    IdProtocol, IntoPyObject, ItemProtocol, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
+    builtins::{float, int, pybool, PyBaseExceptionRef, PyDictRef, PyFunction, PyStrRef},
+    bytecode::CodeFlags,
+    function::FuncArgs,
+    IdProtocol, IntoPyObject, ItemProtocol, PyObjectRef, PyRef, PyResult, TryFromObject,
+    TypeProtocol, VirtualMachine,
 };
 use num_traits::ToPrimitive;
 use rustpython_jit::{AbiValue, Args, CompiledCode, JitArgumentError, JitType};
@@ -66,7 +63,7 @@ fn get_jit_arg_type(dict: &PyDictRef, name: &str, vm: &VirtualMachine) -> PyResu
     }
 }
 
-pub fn get_jit_arg_types(func: &PyFunctionRef, vm: &VirtualMachine) -> PyResult<Vec<JitType>> {
+pub fn get_jit_arg_types(func: &PyRef<PyFunction>, vm: &VirtualMachine) -> PyResult<Vec<JitType>> {
     let arg_names = func.code.arg_names();
 
     if func

@@ -1,12 +1,12 @@
+use crate::{
+    builtins::{PyBaseExceptionRef, PyBytesRef, PyStr, PyStrRef, PyTuple, PyTupleRef},
+    common::{ascii, lock::PyRwLock},
+    IntoPyObject, PyContext, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    VirtualMachine,
+};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ops::Range;
-
-use crate::builtins::{PyBytesRef, PyStr, PyStrRef, PyTuple, PyTupleRef};
-use crate::common::{ascii, lock::PyRwLock};
-use crate::exceptions::PyBaseExceptionRef;
-use crate::VirtualMachine;
-use crate::{IntoPyObject, PyContext, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol};
 
 pub struct CodecsRegistry {
     inner: PyRwLock<RegistryInner>,

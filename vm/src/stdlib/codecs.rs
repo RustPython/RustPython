@@ -4,9 +4,8 @@ pub(crate) use _codecs::make_module;
 mod _codecs {
     use crate::common::encodings;
     use crate::{
-        builtins::{PyBytes, PyBytesRef, PyStr, PyStrRef, PyTuple},
+        builtins::{PyBaseExceptionRef, PyBytes, PyBytesRef, PyStr, PyStrRef, PyTuple},
         codecs,
-        exceptions::PyBaseExceptionRef,
         function::{ArgBytesLike, FuncArgs},
         IdProtocol, PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
     };

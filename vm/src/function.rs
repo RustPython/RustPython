@@ -2,13 +2,10 @@ mod argument;
 mod byteslike;
 
 use self::OptionalArg::*;
-use crate::builtins::pytype::PyTypeRef;
-use crate::builtins::tuple::PyTupleRef;
-use crate::exceptions::PyBaseExceptionRef;
-use crate::vm::VirtualMachine;
 use crate::{
+    builtins::{PyBaseExceptionRef, PyTupleRef, PyTypeRef},
     IntoPyObject, IntoPyResult, PyObjectRef, PyRef, PyResult, PyThreadingConstraint, PyValue,
-    TryFromObject, TypeProtocol,
+    TryFromObject, TypeProtocol, VirtualMachine,
 };
 use indexmap::IndexMap;
 use itertools::Itertools;

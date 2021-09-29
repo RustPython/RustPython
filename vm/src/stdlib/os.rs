@@ -1,8 +1,9 @@
 use super::errno::errors;
 use crate::crt_fd::Fd;
 use crate::{
+    builtins::PyBaseExceptionRef,
     builtins::{PyBytes, PyBytesRef, PyInt, PySet, PyStr, PyStrRef},
-    exceptions::{IntoPyException, PyBaseExceptionRef},
+    exceptions::IntoPyException,
     function::{ArgumentError, FromArgs, FuncArgs},
     protocol::PyBuffer,
     IntoPyObject, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject,

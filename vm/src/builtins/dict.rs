@@ -1,8 +1,8 @@
 use super::{IterStatus, PySet, PyStrRef, PyTypeRef};
 use crate::{
+    builtins::PyBaseExceptionRef,
     common::ascii,
     dictdatatype::{self, DictKey},
-    exceptions::PyBaseExceptionRef,
     function::{ArgIterable, FuncArgs, KwArgs, OptionalArg},
     iterator,
     slots::{Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, PyIter, Unhashable},
