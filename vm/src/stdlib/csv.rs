@@ -2,8 +2,8 @@ use crate::common::lock::PyMutex;
 use crate::{
     builtins::{PyStr, PyStrRef},
     function::{ArgIterable, ArgumentError, FromArgs, FuncArgs},
-    iterator,
-    slots::{IteratorIterable, PyIter},
+    protocol::PyIter,
+    slots::{IteratorIterable, SlotIterator},
     types::create_simple_type,
     PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
     VirtualMachine,
@@ -85,7 +85,7 @@ struct ReadState {
 #[pyclass(module = "_csv", name = "reader")]
 #[derive(PyValue)]
 struct Reader {
-    iter: PyObjectRef,
+    iter: PyIter,
     state: PyMutex<ReadState>,
 }
 
@@ -95,12 +95,12 @@ impl fmt::Debug for Reader {
     }
 }
 
-#[pyimpl(with(PyIter))]
+#[pyimpl(with(SlotIterator))]
 impl Reader {}
 impl IteratorIterable for Reader {}
-impl PyIter for Reader {
+impl SlotIterator for Reader {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        let string = iterator::call_next(vm, &zelf.iter)?;
+        let string = zelf.iter.next(vm)?;
         let string = string.downcast::<PyStr>().map_err(|obj| {
             vm.new_type_error(format!(
                 "iterator should return strings, not {} (the file should be opened in text mode)",
@@ -163,13 +163,12 @@ impl PyIter for Reader {
 }
 
 fn _csv_reader(
-    iter: PyObjectRef,
+    iter: PyIter,
     options: FormatOptions,
     // TODO: handle quote style, etc
     _rest: FuncArgs,
-    vm: &VirtualMachine,
+    _vm: &VirtualMachine,
 ) -> PyResult<Reader> {
-    let iter = iterator::get_iter(vm, iter)?;
     Ok(Reader {
         iter,
         state: PyMutex::new(ReadState {

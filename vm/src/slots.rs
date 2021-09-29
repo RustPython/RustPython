@@ -548,7 +548,7 @@ pub trait Iterable: PyValue {
 }
 
 #[pyimpl(with(Iterable))]
-pub trait PyIter: PyValue + Iterable {
+pub trait SlotIterator: PyValue + Iterable {
     #[pyslot]
     fn slot_iternext(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(zelf) = zelf.downcast_ref() {

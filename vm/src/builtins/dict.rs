@@ -5,7 +5,9 @@ use crate::{
     dictdatatype::{self, DictKey},
     function::{ArgIterable, FuncArgs, KwArgs, OptionalArg},
     iterator,
-    slots::{Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, PyIter, Unhashable},
+    slots::{
+        Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotIterator, Unhashable,
+    },
     vm::{ReprGuard, VirtualMachine},
     IdProtocol, IntoPyObject, ItemProtocol,
     PyArithmaticValue::*,
@@ -83,13 +85,13 @@ impl PyDict {
                     return Err(vm.new_runtime_error("dict mutated during update".to_owned()));
                 }
             } else if let Some(keys) = vm.get_method(dict_obj.clone(), "keys") {
-                let keys = iterator::get_iter(vm, vm.invoke(&keys?, ())?)?;
+                let keys = vm.invoke(&keys?, ())?.get_iter(vm)?;
                 while let Some(key) = iterator::get_next_object(vm, &keys)? {
                     let val = dict_obj.get_item(key.clone(), vm)?;
                     dict.insert(vm, key, val)?;
                 }
             } else {
-                let iter = iterator::get_iter(vm, dict_obj)?;
+                let iter = dict_obj.get_iter(vm)?;
                 loop {
                     fn err(vm: &VirtualMachine) -> PyBaseExceptionRef {
                         vm.new_value_error("Iterator must have exactly two elements".to_owned())
@@ -98,7 +100,7 @@ impl PyDict {
                         Some(obj) => obj,
                         None => break,
                     };
-                    let elem_iter = iterator::get_iter(vm, element)?;
+                    let elem_iter = element.get_iter(vm)?;
                     let key = iterator::get_next_object(vm, &elem_iter)?.ok_or_else(|| err(vm))?;
                     let value =
                         iterator::get_next_object(vm, &elem_iter)?.ok_or_else(|| err(vm))?;
@@ -708,7 +710,7 @@ macro_rules! dict_iterator {
             }
         }
 
-        #[pyimpl(with(PyIter))]
+        #[pyimpl(with(SlotIterator))]
         impl $iter_name {
             fn new(dict: PyDictRef) -> Self {
                 $iter_name {
@@ -730,7 +732,7 @@ macro_rules! dict_iterator {
         }
 
         impl IteratorIterable for $iter_name {}
-        impl PyIter for $iter_name {
+        impl SlotIterator for $iter_name {
             #[allow(clippy::redundant_closure_call)]
             fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
                 match zelf.status.load() {
@@ -769,7 +771,7 @@ macro_rules! dict_iterator {
             }
         }
 
-        #[pyimpl(with(PyIter))]
+        #[pyimpl(with(SlotIterator))]
         impl $reverse_iter_name {
             fn new(dict: PyDictRef) -> Self {
                 $reverse_iter_name {
@@ -791,7 +793,7 @@ macro_rules! dict_iterator {
         }
 
         impl IteratorIterable for $reverse_iter_name {}
-        impl PyIter for $reverse_iter_name {
+        impl SlotIterator for $reverse_iter_name {
             #[allow(clippy::redundant_closure_call)]
             fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
                 match zelf.status.load() {

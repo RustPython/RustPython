@@ -19,8 +19,8 @@ mod array {
         protocol::{BufferInternal, BufferOptions, PyBuffer, ResizeGuard},
         sliceable::{saturate_index, PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
         slots::{
-            AsBuffer, Comparable, Iterable, IteratorIterable, PyComparisonOp, PyIter,
-            SlotConstructor,
+            AsBuffer, Comparable, Iterable, IteratorIterable, PyComparisonOp, SlotConstructor,
+            SlotIterator,
         },
         IdProtocol, IntoPyObject, IntoPyResult, PyComparisonValue, PyObjectRef, PyRef, PyResult,
         PyValue, TryFromObject, TypeProtocol, VirtualMachine,
@@ -1193,11 +1193,11 @@ mod array {
         array: PyArrayRef,
     }
 
-    #[pyimpl(with(PyIter))]
+    #[pyimpl(with(SlotIterator))]
     impl PyArrayIter {}
 
     impl IteratorIterable for PyArrayIter {}
-    impl PyIter for PyArrayIter {
+    impl SlotIterator for PyArrayIter {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             let pos = zelf.position.fetch_add(1);
             if let Some(item) = zelf.array.read().getitem_by_idx(pos, vm)? {

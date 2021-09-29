@@ -9,7 +9,7 @@ use wasm_bindgen_futures::{future_to_promise, JsFuture};
 use rustpython_vm::builtins::PyBaseExceptionRef;
 use rustpython_vm::builtins::{PyFloatRef, PyStrRef, PyTypeRef};
 use rustpython_vm::function::{OptionalArg, OptionalOption, PosArgs};
-use rustpython_vm::slots::{IteratorIterable, PyIter};
+use rustpython_vm::slots::{IteratorIterable, SlotIterator};
 use rustpython_vm::types::create_simple_type;
 use rustpython_vm::VirtualMachine;
 use rustpython_vm::{
@@ -549,7 +549,7 @@ impl fmt::Debug for AwaitPromise {
     }
 }
 
-#[pyimpl(with(PyIter))]
+#[pyimpl(with(SlotIterator))]
 impl AwaitPromise {
     #[pymethod]
     fn send(&self, val: Option<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
@@ -588,7 +588,7 @@ impl AwaitPromise {
 }
 
 impl IteratorIterable for AwaitPromise {}
-impl PyIter for AwaitPromise {
+impl SlotIterator for AwaitPromise {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         zelf.send(None, vm)
     }

@@ -5,7 +5,7 @@
 use super::{int, PyInt, PyTypeRef};
 use crate::{
     function::ArgCallable,
-    slots::{IteratorIterable, PyIter},
+    slots::{IteratorIterable, SlotIterator},
     ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
     VirtualMachine,
 };
@@ -34,7 +34,7 @@ impl PyValue for PySequenceIterator {
     }
 }
 
-#[pyimpl(with(PyIter))]
+#[pyimpl(with(SlotIterator))]
 impl PySequenceIterator {
     pub fn new(obj: PyObjectRef) -> Self {
         Self {
@@ -91,7 +91,7 @@ impl PySequenceIterator {
 }
 
 impl IteratorIterable for PySequenceIterator {}
-impl PyIter for PySequenceIterator {
+impl SlotIterator for PySequenceIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         if let IterStatus::Exhausted = zelf.status.load() {
             return Err(vm.new_stop_iteration());
@@ -122,7 +122,7 @@ impl PyValue for PyCallableIterator {
     }
 }
 
-#[pyimpl(with(PyIter))]
+#[pyimpl(with(SlotIterator))]
 impl PyCallableIterator {
     pub fn new(callable: ArgCallable, sentinel: PyObjectRef) -> Self {
         Self {
@@ -134,7 +134,7 @@ impl PyCallableIterator {
 }
 
 impl IteratorIterable for PyCallableIterator {}
-impl PyIter for PyCallableIterator {
+impl SlotIterator for PyCallableIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         if let IterStatus::Exhausted = zelf.status.load() {
             return Err(vm.new_stop_iteration());

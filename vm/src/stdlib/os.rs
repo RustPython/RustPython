@@ -406,7 +406,7 @@ pub(super) mod _os {
         crt_fd::{Fd, Offset},
         exceptions::IntoPyException,
         function::{ArgBytesLike, FuncArgs, OptionalArg},
-        slots::{IteratorIterable, PyIter},
+        slots::{IteratorIterable, SlotIterator},
         suppress_iph,
         utils::Either,
         vm::{ReprGuard, VirtualMachine},
@@ -855,7 +855,7 @@ pub(super) mod _os {
         mode: OutputMode,
     }
 
-    #[pyimpl(with(PyIter))]
+    #[pyimpl(with(SlotIterator))]
     impl ScandirIterator {
         #[pymethod]
         fn close(&self) {
@@ -873,7 +873,7 @@ pub(super) mod _os {
         }
     }
     impl IteratorIterable for ScandirIterator {}
-    impl PyIter for ScandirIterator {
+    impl SlotIterator for ScandirIterator {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             if zelf.exhausted.load() {
                 return Err(vm.new_stop_iteration());

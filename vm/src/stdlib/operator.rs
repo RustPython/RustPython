@@ -14,6 +14,7 @@ mod _operator {
         builtins::{PyInt, PyIntRef, PyStrRef, PyTypeRef},
         function::{ArgBytesLike, FuncArgs, KwArgs, OptionalArg},
         iterator,
+        protocol::PyIter,
         slots::{
             Callable,
             PyComparisonOp::{Eq, Ge, Gt, Le, Lt, Ne},
@@ -217,10 +218,9 @@ mod _operator {
 
     /// Return the number of occurrences of b in a.
     #[pyfunction(name = "countOf")]
-    fn count_of(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+    fn count_of(a: PyIter, b: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         let mut count: usize = 0;
-        let iter = iterator::get_iter(vm, a)?;
-        while let Some(element) = iterator::get_next_object(vm, &iter)? {
+        while let Some(element) = iterator::get_next_object(vm, &a)? {
             if element.is(&b) || vm.bool_eq(&b, &element)? {
                 count += 1;
             }
@@ -242,10 +242,9 @@ mod _operator {
 
     /// Return the number of occurrences of b in a.
     #[pyfunction(name = "indexOf")]
-    fn index_of(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+    fn index_of(a: PyIter, b: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         let mut index: usize = 0;
-        let iter = iterator::get_iter(vm, a)?;
-        while let Some(element) = iterator::get_next_object(vm, &iter)? {
+        while let Some(element) = iterator::get_next_object(vm, &a)? {
             if element.is(&b) || vm.bool_eq(&b, &element)? {
                 return Ok(index);
             }

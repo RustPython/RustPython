@@ -25,7 +25,8 @@ mod decl {
             ArgBytesLike, ArgCallable, ArgIterable, FuncArgs, KwArgs, OptionalArg, OptionalOption,
             PosArgs,
         },
-        iterator, py_io,
+        protocol::PyIter,
+        py_io,
         readline::{Readline, ReadlineResult},
         scope::Scope,
         slots::PyComparisonOp,
@@ -413,14 +414,15 @@ mod decl {
         iter_target: PyObjectRef,
         sentinel: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> PyResult {
+    ) -> PyResult<PyIter> {
         if let OptionalArg::Present(sentinel) = sentinel {
             let callable = ArgCallable::try_from_object(vm, iter_target)?;
-            Ok(PyCallableIterator::new(callable, sentinel)
+            let iterator = PyCallableIterator::new(callable, sentinel)
                 .into_ref(vm)
-                .into_object())
+                .into_object();
+            Ok(PyIter::new(iterator))
         } else {
-            iterator::get_iter(vm, iter_target)
+            iter_target.get_iter(vm)
         }
     }
 
@@ -511,7 +513,7 @@ mod decl {
         default_value: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        iterator::call_next(vm, &iterator).or_else(|err| {
+        PyIter::new(iterator).next(vm).or_else(|err| {
             if err.isinstance(&vm.ctx.exceptions.stop_iteration) {
                 default_value.ok_or(err)
             } else {
