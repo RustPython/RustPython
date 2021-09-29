@@ -7,9 +7,8 @@ use crate::common::lock::{
     PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
 };
 use crate::{
-    builtins::dict::PyMapping,
     function::{ArgIterable, FuncArgs, OptionalArg},
-    protocol::PyIterReturn,
+    protocol::{PyIterReturn, PyMapping},
     sequence::{self, SimpleSeq},
     sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
     slots::{

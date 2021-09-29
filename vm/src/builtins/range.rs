@@ -1,9 +1,8 @@
 use super::{PyInt, PyIntRef, PySlice, PySliceRef, PyTypeRef};
 use crate::common::hash::PyHash;
 use crate::{
-    builtins::dict::PyMapping,
     function::{FuncArgs, OptionalArg},
-    protocol::PyIterReturn,
+    protocol::{PyIterReturn, PyMapping},
     slots::{
         AsMapping, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotIterator,
     },

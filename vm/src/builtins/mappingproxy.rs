@@ -1,7 +1,7 @@
 use super::{PyDict, PyList, PyStrRef, PyTuple, PyTypeRef};
 use crate::{
-    builtins::dict::PyMapping,
     function::OptionalArg,
+    protocol::PyMapping,
     slots::{AsMapping, Iterable, SlotConstructor},
     IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol, VirtualMachine,

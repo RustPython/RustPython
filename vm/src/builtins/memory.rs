@@ -6,10 +6,9 @@ use crate::common::{
     rc::PyRc,
 };
 use crate::{
-    builtins::dict::PyMapping,
     bytesinner::bytes_to_hex,
     function::{FuncArgs, OptionalArg},
-    protocol::{BufferInternal, BufferOptions, PyBuffer},
+    protocol::{BufferInternal, BufferOptions, PyBuffer, PyMapping},
     sliceable::{convert_slice, wrap_index, SequenceIndex},
     slots::{AsBuffer, AsMapping, Comparable, Hashable, PyComparisonOp, SlotConstructor},
     stdlib::pystruct::FormatSpec,

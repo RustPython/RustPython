@@ -1,8 +1,8 @@
-use crate::builtins::{dict::PyMapping, PyStrRef, PyTypeRef};
+use crate::builtins::{PyStrRef, PyTypeRef};
 use crate::common::hash::PyHash;
 use crate::common::lock::PyRwLock;
 use crate::function::{FromArgs, FuncArgs, OptionalArg};
-use crate::protocol::{PyBuffer, PyIterReturn};
+use crate::protocol::{PyBuffer, PyIterReturn, PyMapping};
 use crate::utils::Either;
 use crate::VirtualMachine;
 use crate::{

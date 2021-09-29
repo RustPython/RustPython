@@ -1,14 +1,13 @@
 use super::{PyDictRef, PyIntRef, PyStrRef, PyTupleRef, PyTypeRef};
 use crate::{
     anystr::{self, AnyStr},
-    builtins::dict::PyMapping,
     bytesinner::{
         bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
         ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
     },
     common::hash::PyHash,
     function::{ArgBytesLike, ArgIterable, OptionalArg, OptionalOption},
-    protocol::{BufferInternal, BufferOptions, PyBuffer, PyIterReturn},
+    protocol::{BufferInternal, BufferOptions, PyBuffer, PyIterReturn, PyMapping},
     slots::{
         AsBuffer, AsMapping, Callable, Comparable, Hashable, Iterable, IteratorIterable,
         PyComparisonOp, SlotConstructor, SlotIterator,

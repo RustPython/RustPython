@@ -9,14 +9,13 @@ use crate::common::{
 };
 use crate::{
     anystr::{self, AnyStr},
-    builtins::dict::PyMapping,
     bytesinner::{
         bytes_decode, bytes_from_object, value_from_object, ByteInnerFindOptions,
         ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerSplitOptions,
         ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
     },
     function::{ArgBytesLike, ArgIterable, FuncArgs, OptionalArg, OptionalOption},
-    protocol::{BufferInternal, BufferOptions, PyBuffer, PyIterReturn, ResizeGuard},
+    protocol::{BufferInternal, BufferOptions, PyBuffer, PyIterReturn, PyMapping, ResizeGuard},
     sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
     slots::{
         AsBuffer, AsMapping, Callable, Comparable, Hashable, Iterable, IteratorIterable,
