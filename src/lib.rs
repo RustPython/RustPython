@@ -45,7 +45,7 @@ extern crate log;
 
 use clap::{App, AppSettings, Arg, ArgMatches};
 use rustpython_vm::{
-    builtins::PyInt, compile, exceptions::print_exception, match_class, scope::Scope, sysmodule,
+    builtins::PyInt, compile, exceptions::print_exception, match_class, scope::Scope, stdlib::sys,
     InitParameter, Interpreter, ItemProtocol, PyResult, PySettings, TypeProtocol, VirtualMachine,
 };
 
@@ -158,10 +158,10 @@ where
 }
 
 fn flush_std(vm: &VirtualMachine) {
-    if let Ok(stdout) = sysmodule::get_stdout(vm) {
+    if let Ok(stdout) = sys::get_stdout(vm) {
         let _ = vm.call_method(&stdout, "flush", ());
     }
-    if let Ok(stderr) = sysmodule::get_stderr(vm) {
+    if let Ok(stderr) = sys::get_stderr(vm) {
         let _ = vm.call_method(&stderr, "flush", ());
     }
 }

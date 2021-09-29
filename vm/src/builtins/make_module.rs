@@ -29,7 +29,7 @@ mod decl {
         readline::{Readline, ReadlineResult},
         scope::Scope,
         slots::PyComparisonOp,
-        sysmodule,
+        stdlib::sys,
         utils::Either,
         IdProtocol, ItemProtocol, PyArithmaticValue, PyClassImpl, PyObjectRef, PyRef, PyResult,
         PyValue, TryFromObject, TypeProtocol, VirtualMachine,
@@ -358,9 +358,9 @@ mod decl {
 
     #[pyfunction]
     fn input(prompt: OptionalArg<PyStrRef>, vm: &VirtualMachine) -> PyResult {
-        let stdin = sysmodule::get_stdin(vm)?;
-        let stdout = sysmodule::get_stdout(vm)?;
-        let stderr = sysmodule::get_stderr(vm)?;
+        let stdin = sys::get_stdin(vm)?;
+        let stdout = sys::get_stdout(vm)?;
+        let stderr = sys::get_stderr(vm)?;
 
         let _ = vm.call_method(&stderr, "flush", ());
 
@@ -645,7 +645,7 @@ mod decl {
     pub fn print(objects: PosArgs, options: PrintOptions, vm: &VirtualMachine) -> PyResult<()> {
         let file = match options.file {
             Some(f) => f,
-            None => sysmodule::get_stdout(vm)?,
+            None => sys::get_stdout(vm)?,
         };
         let write = |obj: PyStrRef| vm.call_method(&file, "write", (obj,));
 

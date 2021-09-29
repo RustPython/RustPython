@@ -6,22 +6,23 @@ use crate::{
     },
     function::{ArgIterable, FuncArgs},
     py_io::{self, Write},
-    sysmodule, IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
-    PyValue, StaticType, TryFromObject, TypeProtocol, VirtualMachine,
+    stdlib::sys,
+    IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    StaticType, TryFromObject, TypeProtocol, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
-use std::collections::HashSet;
-use std::fmt;
-use std::fs::File;
-use std::io::{self, BufRead, BufReader};
+use std::{
+    collections::HashSet,
+    io::{self, BufRead, BufReader},
+};
 
 pub trait IntoPyException {
     fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef;
 }
 
-impl fmt::Debug for PyBaseException {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl std::fmt::Debug for PyBaseException {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         // TODO: implement more detailed, non-recursive Debug formatter
         f.write_str("PyBaseException")
     }
@@ -47,7 +48,7 @@ pub fn chain<T>(e1: PyResult<()>, e2: PyResult<T>) -> PyResult<T> {
 /// Print exception chain by calling sys.excepthook
 pub fn print_exception(vm: &VirtualMachine, exc: PyBaseExceptionRef) {
     let write_fallback = |exc, errstr| {
-        if let Ok(stderr) = sysmodule::get_stderr(vm) {
+        if let Ok(stderr) = sys::get_stderr(vm) {
             let mut stderr = py_io::PyWriter(stderr, vm);
             // if this fails stderr might be closed -- ignore it
             let _ = writeln!(stderr, "{}", errstr);
@@ -84,7 +85,7 @@ fn print_source_line<W: Write>(
 ) -> Result<(), W::Error> {
     // TODO: use io.open() method instead, when available, according to https://github.com/python/cpython/blob/main/Python/traceback.c#L393
     // TODO: support different encodings
-    let file = match File::open(filename) {
+    let file = match std::fs::File::open(filename) {
         Ok(file) => file,
         Err(_) => return Ok(()),
     };

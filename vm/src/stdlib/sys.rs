@@ -361,7 +361,7 @@ pub fn get_stderr(vm: &VirtualMachine) -> PyResult {
 /// # Usage
 ///
 /// ```rust,ignore
-/// writeln!(sysmodule::PyStderr(vm), "foo bar baz :)");
+/// writeln!(sys::PyStderr(vm), "foo bar baz :)");
 /// ```
 ///
 /// Unlike writing to a `std::io::Write` with the `write[ln]!()` macro, there's no error condition here;
