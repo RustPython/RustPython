@@ -1,8 +1,6 @@
 use crate::common::{boxvec::BoxVec, lock::PyMutex};
 use crate::{
-    builtins::PyBaseExceptionRef,
     builtins::{
-        self,
         asyncgenerator::PyAsyncGenWrappedValue,
         coroutine::PyCoroutine,
         function::{PyCell, PyCellRef, PyFunction},
@@ -10,7 +8,7 @@ use crate::{
         list, pystr, set,
         traceback::PyTraceback,
         tuple::{PyTuple, PyTupleTyped},
-        PyCode, PyDict, PyDictRef, PySlice, PyStr, PyStrRef, PyTypeRef,
+        PyBaseExceptionRef, PyCode, PyDict, PyDictRef, PySlice, PyStr, PyStrRef, PyTypeRef,
     },
     bytecode,
     coroutine::Coro,
@@ -19,6 +17,7 @@ use crate::{
     iterator,
     scope::Scope,
     slots::PyComparisonOp,
+    stdlib::builtins,
     IdProtocol, ItemProtocol, PyMethod, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol, VirtualMachine,
 };

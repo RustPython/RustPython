@@ -8,13 +8,12 @@
 use crate::compile::{self, CompileError, CompileErrorType, CompileOpts};
 use crate::{
     builtins::{
-        self,
         code::{self, PyCode},
         module, object,
         tuple::{PyTuple, PyTupleRef, PyTupleTyped},
-        PyDictRef, PyInt, PyIntRef, PyList, PyModule, PyStr, PyStrRef, PyTypeRef,
+        PyBaseException, PyBaseExceptionRef, PyDictRef, PyInt, PyIntRef, PyList, PyModule, PyStr,
+        PyStrRef, PyTypeRef,
     },
-    builtins::{PyBaseException, PyBaseExceptionRef},
     bytecode,
     codecs::CodecsRegistry,
     common::{ascii, hash::HashSecret, lock::PyMutex, rc::PyRc},
@@ -325,7 +324,7 @@ impl VirtualMachine {
             panic!("Double Initialize Error");
         }
 
-        builtins::make_module(self, self.builtins.clone());
+        stdlib::builtins::make_module(self, self.builtins.clone());
         stdlib::sys::make_module(self, self.sys_module.clone(), self.builtins.clone());
 
         let mut inner_init = || -> PyResult<()> {

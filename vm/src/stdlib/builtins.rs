@@ -6,8 +6,8 @@ use crate::{PyObjectRef, VirtualMachine};
 /// Built-in functions, exceptions, and other objects.
 ///
 /// Noteworthy: None is the `nil' object; Ellipsis represents `...' in slices.
-#[pymodule(name = "builtins")]
-mod decl {
+#[pymodule]
+mod builtins {
     use crate::builtins::{
         enumerate::PyReverseSequenceIterator,
         function::{PyCellRef, PyFunctionRef},
@@ -889,12 +889,12 @@ mod decl {
     }
 }
 
-pub use decl::{ascii, print};
+pub use builtins::{ascii, print};
 
 pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
     let ctx = &vm.ctx;
 
-    decl::extend_module(vm, &module);
+    builtins::extend_module(vm, &module);
 
     let debug_mode: bool = vm.state.settings.optimize == 0;
     extend_module!(vm, module, {
