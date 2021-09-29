@@ -20,7 +20,7 @@ use crate::{
     dictdatatype::Dict,
     exceptions,
     function::{IntoFuncArgs, IntoPyNativeFunc},
-    slots::{PyTpFlags, PyTypeSlots},
+    slots::{PyTypeFlags, PyTypeSlots},
     types::{create_type_with_slots, TypeZoo},
     VirtualMachine,
 };
@@ -77,7 +77,7 @@ pub struct PyContext {
     pub int_cache_pool: Vec<PyIntRef>,
     // there should only be exact objects of str in here, no non-strs and no subclasses
     pub(crate) string_cache: Dict<()>,
-    tp_new_wrapper: PyObjectRef,
+    slot_new_wrapper: PyObjectRef,
 }
 
 // Basic objects:
@@ -115,7 +115,7 @@ impl PyContext {
         let string_cache = Dict::default();
 
         let new_str = PyRef::new_ref(pystr::PyStr::from("__new__"), types.str_type.clone(), None);
-        let tp_new_wrapper = create_object(
+        let slot_new_wrapper = create_object(
             PyNativeFuncDef::new(PyType::__new__.into_func(), new_str).into_function(),
             &types.builtin_function_or_method_type,
         )
@@ -134,7 +134,7 @@ impl PyContext {
             exceptions,
             int_cache_pool,
             string_cache,
-            tp_new_wrapper,
+            slot_new_wrapper,
         };
         TypeZoo::extend(&context);
         exceptions::ExceptionZoo::extend(&context);
@@ -859,7 +859,7 @@ pub trait PyValue: fmt::Debug + PyThreadingConstraint + Sized + 'static {
     }
 
     fn _into_ref(self, cls: PyTypeRef, vm: &VirtualMachine) -> PyRef<Self> {
-        let dict = if cls.slots.flags.has_feature(PyTpFlags::HAS_DICT) {
+        let dict = if cls.slots.flags.has_feature(PyTypeFlags::HAS_DICT) {
             Some(vm.ctx.new_dict())
         } else {
             None
@@ -955,7 +955,7 @@ where
 }
 
 pub trait PyClassImpl: PyClassDef {
-    const TP_FLAGS: PyTpFlags = PyTpFlags::DEFAULT;
+    const TP_FLAGS: PyTypeFlags = PyTypeFlags::DEFAULT;
 
     fn impl_extend_class(ctx: &PyContext, class: &PyTypeRef);
 
@@ -964,7 +964,7 @@ pub trait PyClassImpl: PyClassDef {
         {
             assert!(class.slots.flags.is_created_with_flags());
         }
-        if Self::TP_FLAGS.has_feature(PyTpFlags::HAS_DICT) {
+        if Self::TP_FLAGS.has_feature(PyTypeFlags::HAS_DICT) {
             class.set_str_attr(
                 "__dict__",
                 ctx.new_getset(
@@ -984,7 +984,7 @@ pub trait PyClassImpl: PyClassDef {
         }
         if class.slots.new.load().is_some() {
             let bound =
-                ctx.new_bound_method(ctx.tp_new_wrapper.clone(), class.clone().into_object());
+                ctx.new_bound_method(ctx.slot_new_wrapper.clone(), class.clone().into_object());
             class.set_str_attr("__new__", bound);
         }
     }
@@ -1154,7 +1154,7 @@ impl PyMethod {
         let cls_attr = match cls.get_attr(name.as_str()) {
             Some(descr) => {
                 let descr_cls = descr.class();
-                let descr_get = if descr_cls.slots.flags.has_feature(PyTpFlags::METHOD_DESCR) {
+                let descr_get = if descr_cls.slots.flags.has_feature(PyTypeFlags::METHOD_DESCR) {
                     is_method = true;
                     None
                 } else {
@@ -1227,7 +1227,7 @@ impl PyMethod {
             .class()
             .slots
             .flags
-            .has_feature(PyTpFlags::METHOD_DESCR)
+            .has_feature(PyTypeFlags::METHOD_DESCR)
         {
             drop(obj_cls);
             Self::Function { target: obj, func }

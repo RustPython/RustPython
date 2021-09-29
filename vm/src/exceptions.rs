@@ -423,7 +423,7 @@ impl PyBaseException {
     }
 
     #[pyslot]
-    pub(crate) fn tp_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    pub(crate) fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         PyBaseException::new(args.args, vm).into_pyresult_with_type(vm, cls)
     }
 
@@ -1077,7 +1077,7 @@ pub(super) mod types {
     }
 
     fn base_exception_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        PyBaseException::tp_new(cls, args, vm)
+        PyBaseException::slot_new(cls, args, vm)
     }
 
     fn import_error_init(

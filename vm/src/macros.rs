@@ -21,12 +21,12 @@ macro_rules! extend_module {
 #[macro_export]
 macro_rules! py_class {
     ( $ctx:expr, $class_name:expr, $class_base:expr, { $($name:tt => $value:expr),* $(,)* }) => {
-        py_class!($ctx, $class_name, $class_base, $crate::slots::PyTpFlags::BASETYPE, { $($name => $value),* })
+        py_class!($ctx, $class_name, $class_base, $crate::slots::PyTypeFlags::BASETYPE, { $($name => $value),* })
     };
     ( $ctx:expr, $class_name:expr, $class_base:expr, $flags:expr, { $($name:tt => $value:expr),* $(,)* }) => {
         {
             #[allow(unused_mut)]
-            let mut slots = $crate::slots::PyTypeSlots::from_flags($crate::slots::PyTpFlags::DEFAULT | $flags);
+            let mut slots = $crate::slots::PyTypeSlots::from_flags($crate::slots::PyTypeFlags::DEFAULT | $flags);
             $($crate::py_class!(@extract_slots($ctx, &mut slots, $name, $value));)*
             let py_class = $ctx.new_class($class_name, $class_base, slots);
             $($crate::py_class!(@extract_attrs($ctx, &py_class, $name, $value));)*

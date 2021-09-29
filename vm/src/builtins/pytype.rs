@@ -5,7 +5,7 @@ use super::{
 use crate::common::{ascii, lock::PyRwLock};
 use crate::{
     function::{FuncArgs, KwArgs, OptionalArg},
-    slots::{self, Callable, PyTpFlags, PyTypeSlots, SlotGetattro, SlotSetattro},
+    slots::{self, Callable, PyTypeFlags, PyTypeSlots, SlotGetattro, SlotSetattro},
     utils::Either,
     IdProtocol, PyAttributes, PyClassImpl, PyContext, PyLease, PyObjectRef, PyRef, PyResult,
     PyValue, TryFromObject, TypeProtocol, VirtualMachine,
@@ -71,8 +71,8 @@ impl PyType {
             .collect();
         let mro = linearise_mro(mros)?;
 
-        if base.slots.flags.has_feature(PyTpFlags::HAS_DICT) {
-            slots.flags |= PyTpFlags::HAS_DICT
+        if base.slots.flags.has_feature(PyTypeFlags::HAS_DICT) {
+            slots.flags |= PyTypeFlags::HAS_DICT
         }
 
         *slots.name.write() = Some(String::from(name));
@@ -104,7 +104,7 @@ impl PyType {
         Ok(new_type)
     }
 
-    pub fn tp_name(&self) -> String {
+    pub fn slot_name(&self) -> String {
         self.slots.name.read().as_ref().unwrap().to_string()
     }
 
@@ -296,7 +296,7 @@ impl PyType {
                 subtype = subtype.name(),
             )));
         }
-        call_tp_new(zelf, subtype, args, vm)
+        call_slot_new(zelf, subtype, args, vm)
     }
 
     #[pyproperty(name = "__mro__")]
@@ -348,7 +348,7 @@ impl PyType {
 
     #[pyproperty(magic)]
     pub fn name(&self) -> String {
-        self.tp_name().rsplit('.').next().unwrap().to_string()
+        self.slot_name().rsplit('.').next().unwrap().to_string()
     }
 
     #[pymethod(magic)]
@@ -368,7 +368,7 @@ impl PyType {
                         .unwrap_or_else(|| &name)
                 )
             }
-            _ => format!("<class '{}'>", self.tp_name()),
+            _ => format!("<class '{}'>", self.slot_name()),
         }
     }
 
@@ -446,7 +446,7 @@ impl PyType {
         )
     }
     #[pyslot]
-    fn tp_new(metatype: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(metatype: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         vm_trace!("type.__new__ {:?}", args);
 
         let is_type_type = metatype.is(&vm.ctx.types.type_type);
@@ -494,9 +494,9 @@ impl PyType {
             let winner = calculate_meta_class(metatype.clone(), &bases, vm)?;
             let metatype = if !winner.is(&metatype) {
                 #[allow(clippy::redundant_clone)] // false positive
-                if let Some(ref tp_new) = winner.clone().slots.new.load() {
+                if let Some(ref slot_new) = winner.clone().slots.new.load() {
                     // Pass it to the winner
-                    return tp_new(winner, args, vm);
+                    return slot_new(winner, args, vm);
                 }
                 winner
             } else {
@@ -545,7 +545,7 @@ impl PyType {
         // TODO: Flags is currently initialized with HAS_DICT. Should be
         // updated when __slots__ are supported (toggling the flag off if
         // a class has __slots__ defined).
-        let flags = PyTpFlags::heap_type_flags() | PyTpFlags::HAS_DICT;
+        let flags = PyTypeFlags::heap_type_flags() | PyTypeFlags::HAS_DICT;
         let slots = PyTypeSlots::from_flags(flags);
 
         let typ = Self::new(metatype, name.as_str(), base, bases, attributes, slots)
@@ -672,7 +672,7 @@ impl SlotGetattro for PyType {
         } else {
             Err(vm.new_attribute_error(format!(
                 "type object '{}' has no attribute '{}'",
-                zelf.tp_name(),
+                zelf.slot_name(),
                 name
             )))
         }
@@ -717,7 +717,7 @@ impl SlotSetattro for PyType {
 impl Callable for PyType {
     fn call(zelf: &PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         vm_trace!("type_call: {:?}", zelf);
-        let obj = call_tp_new(zelf.clone(), zelf.clone(), args.clone(), vm)?;
+        let obj = call_slot_new(zelf.clone(), zelf.clone(), args.clone(), vm)?;
 
         if (zelf.is(&vm.ctx.types.type_type) && args.kwargs.is_empty()) || !obj.isinstance(zelf) {
             return Ok(obj);
@@ -737,7 +737,7 @@ impl Callable for PyType {
 fn find_base_dict_descr(cls: &PyTypeRef, vm: &VirtualMachine) -> Option<PyObjectRef> {
     cls.iter_base_chain().skip(1).find_map(|cls| {
         // TODO: should actually be some translation of:
-        // cls.tp_dictoffset != 0 && !cls.flags.contains(HEAPTYPE)
+        // cls.slot_dictoffset != 0 && !cls.flags.contains(HEAPTYPE)
         if cls.is(&vm.ctx.types.type_type) {
             cls.get_attr("__dict__")
         } else {
@@ -829,15 +829,15 @@ impl<T: DerefToPyType> DerefToPyType for &'_ T {
     }
 }
 
-pub(crate) fn call_tp_new(
+pub(crate) fn call_slot_new(
     typ: PyTypeRef,
     subtype: PyTypeRef,
     args: FuncArgs,
     vm: &VirtualMachine,
 ) -> PyResult {
     for cls in typ.deref().iter_mro() {
-        if let Some(tp_new) = cls.slots.new.load() {
-            return tp_new(subtype, args, vm);
+        if let Some(slot_new) = cls.slots.new.load() {
+            return slot_new(subtype, args, vm);
         }
     }
     unreachable!("Should be able to find a new slot somewhere in the mro")
@@ -937,12 +937,12 @@ fn best_base(bases: &[PyTypeRef], vm: &VirtualMachine) -> PyResult<PyTypeRef> {
         //     return NULL;
         // }
         // base_i = (PyTypeObject *)base_proto;
-        // if (base_i->tp_dict == NULL) {
+        // if (base_i->slot_dict == NULL) {
         //     if (PyType_Ready(base_i) < 0)
         //         return NULL;
         // }
 
-        if !base_i.slots.flags.has_feature(PyTpFlags::BASETYPE) {
+        if !base_i.slots.flags.has_feature(PyTypeFlags::BASETYPE) {
             return Err(vm.new_type_error(format!(
                 "type '{}' is not an acceptable base type",
                 base_i.name()

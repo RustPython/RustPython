@@ -392,7 +392,7 @@ impl PyList {
     }
 
     #[pyslot]
-    fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         PyList::default().into_pyresult_with_type(vm, cls)
     }
 

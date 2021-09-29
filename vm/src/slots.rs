@@ -13,7 +13,7 @@ use crossbeam_utils::atomic::AtomicCell;
 use std::cmp::Ordering;
 
 bitflags! {
-    pub struct PyTpFlags: u64 {
+    pub struct PyTypeFlags: u64 {
         const HEAPTYPE = 1 << 9;
         const BASETYPE = 1 << 10;
         const METHOD_DESCR = 1 << 17;
@@ -24,7 +24,7 @@ bitflags! {
     }
 }
 
-impl PyTpFlags {
+impl PyTypeFlags {
     // Default used for both built-in and normal classes: empty, for now.
     // CPython default: Py_TPFLAGS_HAVE_STACKLESS_EXTENSION | Py_TPFLAGS_HAVE_VERSION_TAG
     pub const DEFAULT: Self = Self::empty();
@@ -46,7 +46,7 @@ impl PyTpFlags {
     }
 }
 
-impl Default for PyTpFlags {
+impl Default for PyTypeFlags {
     fn default() -> Self {
         Self::DEFAULT
     }
@@ -73,6 +73,8 @@ pub(crate) type BufferFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<PyBuf
 pub(crate) type IterFunc = fn(PyObjectRef, &VirtualMachine) -> PyResult;
 pub(crate) type IterNextFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult;
 
+// The corresponding field in CPython is `tp_` prefixed.
+// e.g. name -> tp_name
 #[derive(Default)]
 pub struct PyTypeSlots {
     pub name: PyRwLock<Option<String>>, // tp_name, not class name
@@ -104,7 +106,7 @@ pub struct PyTypeSlots {
     pub iternext: AtomicCell<Option<IterNextFunc>>,
 
     // Flags to define presence of optional/expanded features
-    pub flags: PyTpFlags,
+    pub flags: PyTypeFlags,
 
     // tp_doc
     pub doc: Option<&'static str>,
@@ -129,7 +131,7 @@ pub struct PyTypeSlots {
 }
 
 impl PyTypeSlots {
-    pub fn from_flags(flags: PyTpFlags) -> Self {
+    pub fn from_flags(flags: PyTypeFlags) -> Self {
         Self {
             flags,
             ..Default::default()
@@ -148,7 +150,7 @@ pub trait SlotConstructor: PyValue {
     type Args: FromArgs;
 
     #[pyslot]
-    fn tp_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         let args: Self::Args = args.bind(vm)?;
         Self::py_new(cls, args, vm)
     }
@@ -159,7 +161,7 @@ pub trait SlotConstructor: PyValue {
 #[pyimpl]
 pub trait SlotDestructor: PyValue {
     #[pyslot]
-    fn tp_del(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn slot_del(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if let Some(zelf) = zelf.downcast_ref() {
             Self::del(zelf, vm)
         } else {
@@ -178,7 +180,7 @@ pub trait SlotDestructor: PyValue {
 #[pyimpl]
 pub trait Callable: PyValue {
     #[pyslot]
-    fn tp_call(zelf: &PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn slot_call(zelf: &PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         if let Some(zelf) = zelf.downcast_ref() {
             Self::call(zelf, args, vm)
         } else {
@@ -238,8 +240,8 @@ pub trait SlotDescriptor: PyValue {
             //                  "descriptor '%V' for '%.100s' objects "
             //                  "doesn't apply to a '%.100s' object",
             //                  descr_name((PyDescrObject *)descr), "?",
-            //                  descr->d_type->tp_name,
-            //                  obj->ob_type->tp_name);
+            //                  descr->d_type->slot_name,
+            //                  obj->ob_type->slot_name);
             //     *pres = NULL;
             //     return 1;
             // } else {
@@ -261,7 +263,7 @@ pub trait SlotDescriptor: PyValue {
 #[pyimpl]
 pub trait Hashable: PyValue {
     #[pyslot]
-    fn tp_hash(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<PyHash> {
+    fn slot_hash(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<PyHash> {
         if let Some(zelf) = zelf.downcast_ref() {
             Self::hash(zelf, vm)
         } else {
@@ -291,7 +293,7 @@ where
 #[pyimpl]
 pub trait Comparable: PyValue {
     #[pyslot]
-    fn tp_richcompare(
+    fn slot_richcompare(
         zelf: &PyObjectRef,
         other: &PyObjectRef,
         op: PyComparisonOp,
@@ -460,7 +462,7 @@ impl PyComparisonOp {
 #[pyimpl]
 pub trait SlotGetattro: PyValue {
     #[pyslot]
-    fn tp_getattro(obj: PyObjectRef, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
+    fn slot_getattro(obj: PyObjectRef, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
         if let Ok(zelf) = obj.downcast::<Self>() {
             Self::getattro(zelf, name, vm)
         } else {
@@ -480,7 +482,7 @@ pub trait SlotGetattro: PyValue {
 #[pyimpl]
 pub trait SlotSetattro: PyValue {
     #[pyslot]
-    fn tp_setattro(
+    fn slot_setattro(
         obj: &PyObjectRef,
         name: PyStrRef,
         value: Option<PyObjectRef>,
@@ -520,7 +522,7 @@ pub trait SlotSetattro: PyValue {
 pub trait AsBuffer: PyValue {
     // TODO: `flags` parameter
     #[pyslot]
-    fn tp_as_buffer(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<PyBuffer> {
+    fn slot_as_buffer(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<PyBuffer> {
         let zelf = zelf
             .downcast_ref()
             .ok_or_else(|| vm.new_type_error("unexpected payload for as_buffer".to_owned()))?;
@@ -534,7 +536,7 @@ pub trait AsBuffer: PyValue {
 pub trait Iterable: PyValue {
     #[pyslot]
     #[pymethod(name = "__iter__")]
-    fn tp_iter(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn slot_iter(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Ok(zelf) = zelf.downcast() {
             Self::iter(zelf, vm)
         } else {
@@ -548,7 +550,7 @@ pub trait Iterable: PyValue {
 #[pyimpl(with(Iterable))]
 pub trait PyIter: PyValue + Iterable {
     #[pyslot]
-    fn tp_iternext(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn slot_iternext(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(zelf) = zelf.downcast_ref() {
             Self::next(zelf, vm)
         } else {
@@ -560,7 +562,7 @@ pub trait PyIter: PyValue + Iterable {
 
     #[pymethod]
     fn __next__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Self::tp_iternext(&zelf, vm)
+        Self::slot_iternext(&zelf, vm)
     }
 }
 
@@ -570,10 +572,10 @@ impl<T> Iterable for T
 where
     T: IteratorIterable,
 {
-    fn tp_iter(zelf: PyObjectRef, _vm: &VirtualMachine) -> PyResult {
+    fn slot_iter(zelf: PyObjectRef, _vm: &VirtualMachine) -> PyResult {
         Ok(zelf)
     }
     fn iter(_zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyResult {
-        unreachable!("tp_iter is implemented");
+        unreachable!("slot_iter is implemented");
     }
 }

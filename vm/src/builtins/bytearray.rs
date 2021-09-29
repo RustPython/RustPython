@@ -98,7 +98,7 @@ pub(crate) fn init(context: &PyContext) {
 #[pyimpl(flags(BASETYPE), with(Hashable, Comparable, AsBuffer, Iterable))]
 impl PyByteArray {
     #[pyslot]
-    fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         PyByteArray::default().into_pyresult_with_type(vm, cls)
     }
 
