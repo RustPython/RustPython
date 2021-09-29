@@ -1,9 +1,8 @@
-use crate::builtins::bytes::PyBytes;
-use crate::builtins::pystr::PyStr;
-use crate::builtins::PyBaseExceptionRef;
-use crate::common::ascii;
-use crate::VirtualMachine;
-use crate::{PyObjectRef, PyResult};
+use crate::{
+    builtins::{PyBaseExceptionRef, PyBytes, PyStr},
+    common::ascii,
+    PyObjectRef, PyResult, VirtualMachine,
+};
 use std::{fmt, io, ops};
 
 pub trait Write {

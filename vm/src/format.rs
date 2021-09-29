@@ -1,9 +1,10 @@
-use crate::builtins::{self, PyBaseExceptionRef, PyStrRef};
-use crate::common::float_ops;
-use crate::exceptions::IntoPyException;
-use crate::function::FuncArgs;
-use crate::vm::VirtualMachine;
-use crate::{ItemProtocol, PyObjectRef, PyResult, TypeProtocol};
+use crate::{
+    builtins::{self, PyBaseExceptionRef, PyStrRef},
+    common::float_ops,
+    exceptions::IntoPyException,
+    function::FuncArgs,
+    ItemProtocol, PyObjectRef, PyResult, TypeProtocol, VirtualMachine,
+};
 use itertools::{Itertools, PeekingNext};
 use num_bigint::{BigInt, Sign};
 use num_traits::cast::ToPrimitive;

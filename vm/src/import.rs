@@ -1,18 +1,16 @@
 /*
  * Import mechanics
  */
-use rand::Rng;
-
-use crate::builtins::code::CodeObject;
-use crate::builtins::traceback::{PyTraceback, PyTracebackRef};
-use crate::builtins::PyBaseExceptionRef;
-use crate::builtins::{code, list};
 #[cfg(feature = "rustpython-compiler")]
 use crate::compile;
-use crate::scope::Scope;
-use crate::version::get_git_revision;
-use crate::vm::{InitParameter, VirtualMachine};
-use crate::{ItemProtocol, PyResult, PyValue, TryFromObject, TypeProtocol};
+use crate::{
+    builtins::{code, code::CodeObject, list, traceback::PyTraceback, PyBaseExceptionRef},
+    scope::Scope,
+    version::get_git_revision,
+    vm::{InitParameter, VirtualMachine},
+    ItemProtocol, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+};
+use rand::Rng;
 
 pub(crate) fn init_importlib(
     vm: &mut VirtualMachine,
@@ -146,9 +144,9 @@ pub fn import_codeobj(
 
 fn remove_importlib_frames_inner(
     vm: &VirtualMachine,
-    tb: Option<PyTracebackRef>,
+    tb: Option<PyRef<PyTraceback>>,
     always_trim: bool,
-) -> (Option<PyTracebackRef>, bool) {
+) -> (Option<PyRef<PyTraceback>>, bool) {
     let traceback = if let Some(tb) = tb {
         tb
     } else {
