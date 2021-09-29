@@ -45,7 +45,7 @@ impl VersionInfo {
         serial: SERIAL,
     };
     #[pyslot]
-    fn tp_new(
+    fn slot_new(
         _cls: crate::builtins::pytype::PyTypeRef,
         _args: crate::function::FuncArgs,
         vm: &crate::VirtualMachine,

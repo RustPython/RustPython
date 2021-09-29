@@ -115,7 +115,7 @@ impl PyGenericAlias {
 
 fn is_typevar(obj: PyObjectRef) -> bool {
     let class = obj.class();
-    class.tp_name() == "TypeVar"
+    class.slot_name() == "TypeVar"
         && class
             .get_attr("__module__")
             .and_then(|o| o.downcast_ref::<PyStr>().map(|s| s.as_str() == "typing"))

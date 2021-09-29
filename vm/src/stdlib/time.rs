@@ -329,7 +329,7 @@ mod time {
         }
 
         #[pyslot]
-        fn tp_new(_cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        fn slot_new(_cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             // cls is ignorable because this is not a basetype
             let seq = args.bind(vm)?;
             Ok(vm.new_pyobj(Self::try_from_object(vm, seq)?))

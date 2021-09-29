@@ -991,7 +991,7 @@ pub(super) mod _os {
         }
 
         #[pyslot]
-        fn tp_new(_cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        fn slot_new(_cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             let flatten_args = |r: &[PyObjectRef]| {
                 let mut vec_args = Vec::from(r);
                 loop {

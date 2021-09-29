@@ -435,7 +435,7 @@ mod _operator {
     #[pyimpl(with(Callable))]
     impl PyAttrGetter {
         #[pyslot]
-        fn tp_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             let nattr = args.args.len();
             // Check we get no keyword and at least one positional.
             if !args.kwargs.is_empty() {
@@ -532,7 +532,7 @@ mod _operator {
     #[pyimpl(with(Callable))]
     impl PyItemGetter {
         #[pyslot]
-        fn tp_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             // Check we get no keyword and at least one positional.
             if !args.kwargs.is_empty() {
                 return Err(vm.new_type_error("itemgetter() takes no keyword arguments".to_owned()));

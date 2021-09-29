@@ -456,7 +456,7 @@ impl PySocket {
 #[pyimpl(flags(BASETYPE))]
 impl PySocket {
     #[pyslot]
-    fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         Self::default().into_pyresult_with_type(vm, cls)
     }
 

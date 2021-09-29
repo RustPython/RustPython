@@ -31,7 +31,7 @@ mod decl {
     #[pyimpl(with(PyIter))]
     impl PyItertoolsChain {
         #[pyslot]
-        fn tp_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             PyItertoolsChain {
                 iterables: args.args,
                 cur_idx: AtomicCell::new(0),
@@ -710,7 +710,7 @@ mod decl {
     #[pyimpl(with(PyIter))]
     impl PyItertoolsIslice {
         #[pyslot]
-        fn tp_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             let (iter, start, stop, step) = match args.args.len() {
                 0 | 1 => {
                     return Err(vm.new_type_error(format!(

@@ -359,7 +359,7 @@ impl PyRange {
     }
 
     #[pyslot]
-    fn tp_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         let range = if args.args.len() <= 1 {
             let stop = args.bind(vm)?;
             PyRange::new(cls, stop, vm)
@@ -481,7 +481,7 @@ impl PyValue for PyLongRangeIterator {
 #[pyimpl(with(PyIter))]
 impl PyLongRangeIterator {
     #[pyslot]
-    fn tp_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         Err(vm.new_type_error("cannot create 'longrange_iterator' instances".to_owned()))
     }
 
@@ -550,7 +550,7 @@ impl PyValue for PyRangeIterator {
 #[pyimpl(with(PyIter))]
 impl PyRangeIterator {
     #[pyslot]
-    fn tp_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         Err(vm.new_type_error("cannot create 'range_iterator' instances".to_owned()))
     }
 
