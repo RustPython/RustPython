@@ -180,7 +180,6 @@ fn _ssl_enum_certificates(store_name: PyStrRef, vm: &VirtualMachine) -> PyResult
 
 #[derive(FromArgs)]
 struct Txt2ObjArgs {
-    #[pyarg(any)]
     txt: PyStrRef,
     #[pyarg(any, default = "false")]
     name: bool,
@@ -610,9 +609,7 @@ impl PySslContext {
 
 #[derive(FromArgs)]
 struct WrapSocketArgs {
-    #[pyarg(any)]
     sock: PyRef<PySocket>,
-    #[pyarg(any)]
     server_side: bool,
     #[pyarg(any, default)]
     server_hostname: Option<PyStrRef>,
@@ -634,7 +631,6 @@ struct LoadVerifyLocationsArgs {
 
 #[derive(FromArgs)]
 struct LoadCertChainArgs {
-    #[pyarg(any)]
     certfile: PyPathLike,
     #[pyarg(any, optional)]
     keyfile: Option<PyPathLike>,

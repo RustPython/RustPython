@@ -260,7 +260,6 @@ mod decl {
 
     #[derive(FromArgs)]
     struct PyRepeatNewArgs {
-        #[pyarg(any)]
         object: PyObjectRef,
         #[pyarg(any, optional)]
         times: OptionalArg<PyIntRef>,

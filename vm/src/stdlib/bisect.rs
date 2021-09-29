@@ -11,9 +11,7 @@ mod _bisect {
 
     #[derive(FromArgs)]
     struct BisectArgs {
-        #[pyarg(any)]
         a: PyObjectRef,
-        #[pyarg(any)]
         x: PyObjectRef,
         #[pyarg(any, optional)]
         lo: OptionalArg<PyObjectRef>,

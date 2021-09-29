@@ -291,9 +291,7 @@ pub mod module {
 
     #[derive(FromArgs)]
     pub(super) struct SimlinkArgs {
-        #[pyarg(any)]
         src: PyPathLike,
-        #[pyarg(any)]
         dst: PyPathLike,
         #[pyarg(flatten)]
         _target_is_directory: TargetIsDirectory,
@@ -502,7 +500,6 @@ pub mod module {
 
     #[derive(FromArgs)]
     pub struct SchedParamArg {
-        #[pyarg(any)]
         sched_priority: PyObjectRef,
     }
     impl SlotConstructor for SchedParam {
@@ -1696,13 +1693,9 @@ pub mod module {
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[derive(FromArgs)]
     struct SendFileArgs {
-        #[pyarg(any)]
         out_fd: i32,
-        #[pyarg(any)]
         in_fd: i32,
-        #[pyarg(any)]
         offset: crate::crt_fd::Offset,
-        #[pyarg(any)]
         count: i64,
         #[cfg(target_os = "macos")]
         #[pyarg(any, optional)]

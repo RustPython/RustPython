@@ -28,9 +28,7 @@ impl PyValue for PyGenericAlias {
 
 #[derive(FromArgs)]
 pub struct GenericAliasArgs {
-    #[pyarg(any)]
     origin: PyTypeRef,
-    #[pyarg(any)]
     arguments: PyObjectRef,
 }
 

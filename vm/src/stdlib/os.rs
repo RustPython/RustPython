@@ -458,9 +458,7 @@ pub(super) mod _os {
     #[cfg(any(unix, windows, target_os = "wasi"))]
     #[derive(FromArgs)]
     struct OpenArgs {
-        #[pyarg(any)]
         path: PyPathLike,
-        #[pyarg(any)]
         flags: i32,
         #[pyarg(any, default)]
         mode: Option<i32>,
@@ -923,19 +921,12 @@ pub(super) mod _os {
     #[pyclass(module = "os", name = "stat_result")]
     #[derive(Debug, PyStructSequence, FromArgs)]
     struct StatResult {
-        #[pyarg(any)]
         pub st_mode: BigInt,
-        #[pyarg(any)]
         pub st_ino: BigInt,
-        #[pyarg(any)]
         pub st_dev: BigInt,
-        #[pyarg(any)]
         pub st_nlink: BigInt,
-        #[pyarg(any)]
         pub st_uid: BigInt,
-        #[pyarg(any)]
         pub st_gid: BigInt,
-        #[pyarg(any)]
         pub st_size: BigInt,
         // TODO: unnamed structsequence fields
         #[pyarg(positional, default)]
@@ -1286,7 +1277,6 @@ pub(super) mod _os {
 
     #[derive(FromArgs)]
     struct UtimeArgs {
-        #[pyarg(any)]
         path: PyPathLike,
         #[pyarg(any, default)]
         times: Option<PyTupleRef>,

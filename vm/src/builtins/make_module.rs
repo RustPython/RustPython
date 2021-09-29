@@ -96,11 +96,8 @@ mod decl {
     #[derive(FromArgs)]
     #[allow(dead_code)]
     struct CompileArgs {
-        #[pyarg(any)]
         source: PyObjectRef,
-        #[pyarg(any)]
         filename: PyStrRef,
-        #[pyarg(any)]
         mode: PyStrRef,
         #[pyarg(any, optional)]
         flags: OptionalArg<PyIntRef>,
@@ -569,9 +566,7 @@ mod decl {
 
     #[derive(FromArgs)]
     struct PowArgs {
-        #[pyarg(any)]
         base: PyObjectRef,
-        #[pyarg(any)]
         exp: PyObjectRef,
         #[pyarg(any, optional, name = "mod")]
         modulus: Option<PyObjectRef>,
@@ -700,7 +695,6 @@ mod decl {
 
     #[derive(FromArgs)]
     pub struct RoundArgs {
-        #[pyarg(any)]
         number: PyObjectRef,
         #[pyarg(any, optional)]
         ndigits: OptionalOption<PyObjectRef>,

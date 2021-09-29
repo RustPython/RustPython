@@ -24,7 +24,6 @@ use std::ops::Deref;
 
 #[derive(FromArgs)]
 pub struct PyMemoryViewNewArgs {
-    #[pyarg(any)]
     object: PyObjectRef,
 }
 
