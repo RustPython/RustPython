@@ -120,6 +120,12 @@ mod cmath {
         z.to_complex().tanh()
     }
 
+    /// Return the inverse hyperbolic sine of z.
+    #[pyfunction]
+    fn asinh(z: IntoPyComplex) -> Complex64 {
+        z.to_complex().asinh()
+    }
+
     #[derive(FromArgs)]
     struct IsCloseArgs {
         #[pyarg(positional)]
