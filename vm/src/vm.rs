@@ -494,6 +494,7 @@ impl VirtualMachine {
         self.run_frame_full(frame)
     }
 
+    #[inline(always)]
     pub fn run_frame_full(&self, frame: FrameRef) -> PyResult {
         match self.run_frame(frame)? {
             ExecutionResult::Return(value) => Ok(value),
@@ -1195,7 +1196,7 @@ impl VirtualMachine {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn invoke<T>(&self, func_ref: &PyObjectRef, args: T) -> PyResult
     where
         T: IntoFuncArgs,

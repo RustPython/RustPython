@@ -594,6 +594,7 @@ impl<F, T, R, VM> IntoPyNativeFunc<(T, R, VM)> for F
 where
     F: PyNativeFuncInternal<T, R, VM>,
 {
+    #[inline(always)]
     fn call(&self, vm: &VirtualMachine, args: FuncArgs) -> PyResult {
         self.call_(vm, args)
     }

@@ -66,6 +66,10 @@ path = "src/main.rs"
 [profile.dev.package."*"]
 opt-level = 3
 
+[profile.test]
+opt-level = 3
+lto = "thin"
+
 [profile.bench]
 lto = true
 codegen-units = 1
