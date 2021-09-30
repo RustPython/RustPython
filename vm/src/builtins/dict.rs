@@ -4,7 +4,7 @@ use crate::{
     common::ascii,
     dictdatatype::{self, DictKey},
     function::{ArgIterable, FuncArgs, KwArgs, OptionalArg},
-    iterator,
+    protocol::PyIterReturn,
     slots::{
         Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotIterator, Unhashable,
     },
@@ -86,7 +86,7 @@ impl PyDict {
                 }
             } else if let Some(keys) = vm.get_method(dict_obj.clone(), "keys") {
                 let keys = vm.invoke(&keys?, ())?.get_iter(vm)?;
-                while let Some(key) = iterator::get_next_object(vm, &keys)? {
+                while let PyIterReturn::Return(key) = keys.next(vm)? {
                     let val = dict_obj.get_item(key.clone(), vm)?;
                     dict.insert(vm, key, val)?;
                 }
@@ -96,15 +96,20 @@ impl PyDict {
                     fn err(vm: &VirtualMachine) -> PyBaseExceptionRef {
                         vm.new_value_error("Iterator must have exactly two elements".to_owned())
                     }
-                    let element = match iterator::get_next_object(vm, &iter)? {
-                        Some(obj) => obj,
-                        None => break,
+                    let element = match iter.next(vm)? {
+                        PyIterReturn::Return(obj) => obj,
+                        PyIterReturn::StopIteration(_) => break,
                     };
                     let elem_iter = element.get_iter(vm)?;
-                    let key = iterator::get_next_object(vm, &elem_iter)?.ok_or_else(|| err(vm))?;
-                    let value =
-                        iterator::get_next_object(vm, &elem_iter)?.ok_or_else(|| err(vm))?;
-                    if iterator::get_next_object(vm, &elem_iter)?.is_some() {
+                    let key = match elem_iter.next(vm)? {
+                        PyIterReturn::Return(obj) => obj,
+                        PyIterReturn::StopIteration(_) => return Err(err(vm)),
+                    };
+                    let value = match elem_iter.next(vm)? {
+                        PyIterReturn::Return(obj) => obj,
+                        PyIterReturn::StopIteration(_) => return Err(err(vm)),
+                    };
+                    if matches!(elem_iter.next(vm)?, PyIterReturn::Return(_)) {
                         return Err(err(vm));
                     }
                     dict.insert(vm, key, value)?;
@@ -734,9 +739,9 @@ macro_rules! dict_iterator {
         impl IteratorIterable for $iter_name {}
         impl SlotIterator for $iter_name {
             #[allow(clippy::redundant_closure_call)]
-            fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+            fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
                 match zelf.status.load() {
-                    IterStatus::Exhausted => Err(vm.new_stop_iteration()),
+                    IterStatus::Exhausted => Ok(PyIterReturn::StopIteration(None)),
                     IterStatus::Active => {
                         if zelf.dict.entries.has_changed_size(&zelf.size) {
                             zelf.status.store(IterStatus::Exhausted);
@@ -745,10 +750,12 @@ macro_rules! dict_iterator {
                             ));
                         }
                         match zelf.dict.entries.next_entry_atomic(&zelf.position) {
-                            Some((key, value)) => Ok(($result_fn)(vm, key, value)),
+                            Some((key, value)) => {
+                                Ok(PyIterReturn::Return(($result_fn)(vm, key, value)))
+                            }
                             None => {
                                 zelf.status.store(IterStatus::Exhausted);
-                                Err(vm.new_stop_iteration())
+                                Ok(PyIterReturn::StopIteration(None))
                             }
                         }
                     }
@@ -795,9 +802,9 @@ macro_rules! dict_iterator {
         impl IteratorIterable for $reverse_iter_name {}
         impl SlotIterator for $reverse_iter_name {
             #[allow(clippy::redundant_closure_call)]
-            fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+            fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
                 match zelf.status.load() {
-                    IterStatus::Exhausted => Err(vm.new_stop_iteration()),
+                    IterStatus::Exhausted => Ok(PyIterReturn::StopIteration(None)),
                     IterStatus::Active => {
                         if zelf.dict.entries.has_changed_size(&zelf.size) {
                             zelf.status.store(IterStatus::Exhausted);
@@ -806,10 +813,12 @@ macro_rules! dict_iterator {
                             ));
                         }
                         match zelf.dict.entries.next_entry_atomic_reversed(&zelf.position) {
-                            Some((key, value)) => Ok(($result_fn)(vm, key, value)),
+                            Some((key, value)) => {
+                                Ok(PyIterReturn::Return(($result_fn)(vm, key, value)))
+                            }
                             None => {
                                 zelf.status.store(IterStatus::Exhausted);
-                                Err(vm.new_stop_iteration())
+                                Ok(PyIterReturn::StopIteration(None))
                             }
                         }
                     }

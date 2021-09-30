@@ -2,12 +2,12 @@ use crate::builtins::{PyStrRef, PyTypeRef};
 use crate::common::hash::PyHash;
 use crate::common::lock::PyRwLock;
 use crate::function::{FromArgs, FuncArgs, OptionalArg};
-use crate::protocol::PyBuffer;
+use crate::protocol::{PyBuffer, PyIterReturn};
 use crate::utils::Either;
 use crate::VirtualMachine;
 use crate::{
-    IdProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol,
+    IdProtocol, IntoPyResult, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use std::cmp::Ordering;
@@ -71,7 +71,7 @@ pub(crate) type SetattroFunc =
     fn(&PyObjectRef, PyStrRef, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>;
 pub(crate) type BufferFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<PyBuffer>;
 pub(crate) type IterFunc = fn(PyObjectRef, &VirtualMachine) -> PyResult;
-pub(crate) type IterNextFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult;
+pub(crate) type IterNextFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<PyIterReturn>;
 
 // The corresponding field in CPython is `tp_` prefixed.
 // e.g. name -> tp_name
@@ -550,7 +550,7 @@ pub trait Iterable: PyValue {
 #[pyimpl(with(Iterable))]
 pub trait SlotIterator: PyValue + Iterable {
     #[pyslot]
-    fn slot_iternext(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn slot_iternext(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         if let Some(zelf) = zelf.downcast_ref() {
             Self::next(zelf, vm)
         } else {
@@ -558,11 +558,11 @@ pub trait SlotIterator: PyValue + Iterable {
         }
     }
 
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult;
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn>;
 
     #[pymethod]
     fn __next__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Self::slot_iternext(&zelf, vm)
+        Self::slot_iternext(&zelf, vm).into_pyresult(vm)
     }
 }
 

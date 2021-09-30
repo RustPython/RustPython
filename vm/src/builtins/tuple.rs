@@ -6,6 +6,7 @@ use super::{
 use crate::common::hash::PyHash;
 use crate::{
     function::OptionalArg,
+    protocol::PyIterReturn,
     sequence::{self, SimpleSeq},
     sliceable::PySliceableSequence,
     slots::{
@@ -378,16 +379,16 @@ impl PyTupleIterator {
 
 impl IteratorIterable for PyTupleIterator {}
 impl SlotIterator for PyTupleIterator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+    fn next(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         if let Exhausted = zelf.status.load() {
-            return Err(vm.new_stop_iteration());
+            return Ok(PyIterReturn::StopIteration(None));
         }
         let pos = zelf.position.fetch_add(1);
         if let Some(obj) = zelf.tuple.as_slice().get(pos) {
-            Ok(obj.clone())
+            Ok(PyIterReturn::Return(obj.clone()))
         } else {
             zelf.status.store(Exhausted);
-            Err(vm.new_stop_iteration())
+            Ok(PyIterReturn::StopIteration(None))
         }
     }
 }

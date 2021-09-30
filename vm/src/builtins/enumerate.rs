@@ -6,7 +6,7 @@ use super::{
 use crate::common::lock::PyRwLock;
 use crate::{
     function::OptionalArg,
-    protocol::PyIter,
+    protocol::{PyIter, PyIterReturn},
     slots::{IteratorIterable, SlotConstructor, SlotIterator},
     IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TypeProtocol, VirtualMachine,
@@ -57,12 +57,15 @@ impl PyEnumerate {}
 
 impl IteratorIterable for PyEnumerate {}
 impl SlotIterator for PyEnumerate {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        let next_obj = zelf.iterator.next(vm)?;
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        let next_obj = match zelf.iterator.next(vm)? {
+            PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
+            PyIterReturn::Return(obj) => obj,
+        };
         let mut counter = zelf.counter.write();
         let position = counter.clone();
         *counter += 1;
-        Ok((position, next_obj).into_pyobject(vm))
+        Ok(PyIterReturn::Return((position, next_obj).into_pyobject(vm)))
     }
 }
 
@@ -139,21 +142,23 @@ impl PyReverseSequenceIterator {
 
 impl IteratorIterable for PyReverseSequenceIterator {}
 impl SlotIterator for PyReverseSequenceIterator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         if let Exhausted = zelf.status.load() {
-            return Err(vm.new_stop_iteration());
+            return Ok(PyIterReturn::StopIteration(None));
         }
         let pos = zelf.position.fetch_sub(1);
         if pos == 0 {
             zelf.status.store(Exhausted);
         }
         match zelf.obj.get_item(pos, vm) {
-            Err(ref e) if e.isinstance(&vm.ctx.exceptions.index_error) => {
+            Err(ref e)
+                if e.isinstance(&vm.ctx.exceptions.index_error)
+                    || e.isinstance(&vm.ctx.exceptions.stop_iteration) =>
+            {
                 zelf.status.store(Exhausted);
-                Err(vm.new_stop_iteration())
+                Ok(PyIterReturn::StopIteration(None))
             }
-            // also catches stop_iteration => stop_iteration
-            ret => ret,
+            other => other.map(PyIterReturn::Return),
         }
     }
 }

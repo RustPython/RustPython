@@ -7,6 +7,7 @@ use crate::{
     coroutine::{Coro, Variant},
     frame::FrameRef,
     function::OptionalArg,
+    protocol::PyIterReturn,
     slots::{IteratorIterable, SlotIterator},
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
@@ -96,8 +97,9 @@ impl PyGenerator {
 
 impl IteratorIterable for PyGenerator {}
 impl SlotIterator for PyGenerator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        zelf.send(vm.ctx.none(), vm)
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        // TODO: Fix zelf.send to return PyIterReturn
+        PyIterReturn::from_result(zelf.send(vm.ctx.none(), vm), vm)
     }
 }
 

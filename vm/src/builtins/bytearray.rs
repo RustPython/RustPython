@@ -15,7 +15,7 @@ use crate::{
         ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
     },
     function::{ArgBytesLike, ArgIterable, FuncArgs, OptionalArg, OptionalOption},
-    protocol::{BufferInternal, BufferOptions, PyBuffer, ResizeGuard},
+    protocol::{BufferInternal, BufferOptions, PyBuffer, PyIterReturn, ResizeGuard},
     sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
     slots::{
         AsBuffer, Callable, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp,
@@ -745,12 +745,13 @@ impl PyValue for PyByteArrayIterator {
 impl PyByteArrayIterator {}
 impl IteratorIterable for PyByteArrayIterator {}
 impl SlotIterator for PyByteArrayIterator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let pos = zelf.position.fetch_add(1);
-        if let Some(&ret) = zelf.bytearray.borrow_buf().get(pos) {
-            Ok(ret.into_pyobject(vm))
+        let r = if let Some(&ret) = zelf.bytearray.borrow_buf().get(pos) {
+            PyIterReturn::Return(ret.into_pyobject(vm))
         } else {
-            Err(vm.new_stop_iteration())
-        }
+            PyIterReturn::StopIteration(None)
+        };
+        Ok(r)
     }
 }

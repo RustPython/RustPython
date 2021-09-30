@@ -7,7 +7,7 @@ use crate::{
     },
     common::hash::PyHash,
     function::{ArgBytesLike, ArgIterable, OptionalArg, OptionalOption},
-    protocol::{BufferInternal, BufferOptions, PyBuffer},
+    protocol::{BufferInternal, BufferOptions, PyBuffer, PyIterReturn},
     slots::{
         AsBuffer, Callable, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp,
         SlotConstructor, SlotIterator,
@@ -598,13 +598,14 @@ impl PyValue for PyBytesIterator {
 impl PyBytesIterator {}
 impl IteratorIterable for PyBytesIterator {}
 impl SlotIterator for PyBytesIterator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let pos = zelf.position.fetch_add(1);
-        if let Some(&ret) = zelf.bytes.as_bytes().get(pos) {
-            Ok(vm.ctx.new_int(ret))
+        let r = if let Some(&ret) = zelf.bytes.as_bytes().get(pos) {
+            PyIterReturn::Return(vm.ctx.new_int(ret))
         } else {
-            Err(vm.new_stop_iteration())
-        }
+            PyIterReturn::StopIteration(None)
+        };
+        Ok(r)
     }
 }
 

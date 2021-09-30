@@ -6,6 +6,7 @@ use crate::common::{ascii, hash::PyHash, rc::PyRc};
 use crate::{
     dictdatatype::{self, DictSize},
     function::{ArgIterable, FuncArgs, OptionalArg, PosArgs},
+    protocol::PyIterReturn,
     slots::{
         Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotConstructor,
         SlotIterator, Unhashable,
@@ -863,9 +864,9 @@ impl PySetIterator {
 
 impl IteratorIterable for PySetIterator {}
 impl SlotIterator for PySetIterator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         match zelf.status.load() {
-            IterStatus::Exhausted => Err(vm.new_stop_iteration()),
+            IterStatus::Exhausted => Ok(PyIterReturn::StopIteration(None)),
             IterStatus::Active => {
                 if zelf.dict.has_changed_size(&zelf.size) {
                     zelf.status.store(IterStatus::Exhausted);
@@ -874,10 +875,10 @@ impl SlotIterator for PySetIterator {
                     );
                 }
                 match zelf.dict.next_entry_atomic(&zelf.position) {
-                    Some((key, _)) => Ok(key),
+                    Some((key, _)) => Ok(PyIterReturn::Return(key)),
                     None => {
                         zelf.status.store(IterStatus::Exhausted);
-                        Err(vm.new_stop_iteration())
+                        Ok(PyIterReturn::StopIteration(None))
                     }
                 }
             }

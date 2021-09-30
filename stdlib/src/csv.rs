@@ -3,7 +3,7 @@ use crate::vm::{
     builtins::{PyStr, PyStrRef},
     function::{ArgIterable, ArgumentError, FromArgs, FuncArgs},
     match_class, named_function,
-    protocol::PyIter,
+    protocol::{PyIter, PyIterReturn},
     py_module,
     slots::{IteratorIterable, SlotIterator},
     types::create_simple_type,
@@ -101,8 +101,11 @@ impl fmt::Debug for Reader {
 impl Reader {}
 impl IteratorIterable for Reader {}
 impl SlotIterator for Reader {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        let string = zelf.iter.next(vm)?;
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        let string = match zelf.iter.next(vm)? {
+            PyIterReturn::Return(obj) => obj,
+            PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
+        };
         let string = string.downcast::<PyStr>().map_err(|obj| {
             vm.new_type_error(format!(
                 "iterator should return strings, not {} (the file should be opened in text mode)",
@@ -136,7 +139,7 @@ impl SlotIterator for Reader {
                 csv_core::ReadRecordResult::OutputFull => resize_buf(buffer),
                 csv_core::ReadRecordResult::OutputEndsFull => resize_buf(output_ends),
                 csv_core::ReadRecordResult::Record => break,
-                csv_core::ReadRecordResult::End => return Err(vm.new_stop_iteration()),
+                csv_core::ReadRecordResult::End => return Ok(PyIterReturn::StopIteration(None)),
             }
         }
         let rest = &input[input_offset..];
@@ -160,7 +163,7 @@ impl SlotIterator for Reader {
                     .map_err(|_e| vm.new_unicode_decode_error("csv not utf8".to_owned()))
             })
             .collect::<Result<_, _>>()?;
-        Ok(vm.ctx.new_list(out))
+        Ok(PyIterReturn::Return(vm.ctx.new_list(out)))
     }
 }
 

@@ -2,7 +2,7 @@ use super::PyTypeRef;
 use crate::{
     function::PosArgs,
     iterator,
-    protocol::PyIter,
+    protocol::{PyIter, PyIterReturn},
     slots::{IteratorIterable, SlotConstructor, SlotIterator},
     PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
@@ -47,15 +47,18 @@ impl PyMap {
 
 impl IteratorIterable for PyMap {}
 impl SlotIterator for PyMap {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        let next_objs = zelf
-            .iterators
-            .iter()
-            .map(|iterator| iterator.next(vm))
-            .collect::<Result<Vec<_>, _>>()?;
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        let mut next_objs = Vec::new();
+        for iterator in zelf.iterators.iter() {
+            let item = match iterator.next(vm)? {
+                PyIterReturn::Return(obj) => obj,
+                PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
+            };
+            next_objs.push(item);
+        }
 
         // the mapper itself can raise StopIteration which does stop the map iteration
-        vm.invoke(&zelf.mapper, next_objs)
+        PyIterReturn::from_result(vm.invoke(&zelf.mapper, next_objs), vm)
     }
 }
 

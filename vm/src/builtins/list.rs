@@ -8,6 +8,7 @@ use crate::common::lock::{
 };
 use crate::{
     function::{ArgIterable, FuncArgs, OptionalArg},
+    protocol::PyIterReturn,
     sequence::{self, SimpleSeq},
     sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
     slots::{
@@ -524,17 +525,17 @@ impl PyListIterator {
 
 impl IteratorIterable for PyListIterator {}
 impl SlotIterator for PyListIterator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+    fn next(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         if let Exhausted = zelf.status.load() {
-            return Err(vm.new_stop_iteration());
+            return Ok(PyIterReturn::StopIteration(None));
         }
         let list = zelf.list.borrow_vec();
         let pos = zelf.position.fetch_add(1);
         if let Some(obj) = list.get(pos) {
-            Ok(obj.clone())
+            Ok(PyIterReturn::Return(obj.clone()))
         } else {
             zelf.status.store(Exhausted);
-            Err(vm.new_stop_iteration())
+            Ok(PyIterReturn::StopIteration(None))
         }
     }
 }
@@ -598,15 +599,15 @@ impl PyListReverseIterator {
 
 impl IteratorIterable for PyListReverseIterator {}
 impl SlotIterator for PyListReverseIterator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+    fn next(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         if let Exhausted = zelf.status.load() {
-            return Err(vm.new_stop_iteration());
+            return Ok(PyIterReturn::StopIteration(None));
         }
         let list = zelf.list.borrow_vec();
         let pos = zelf.position.fetch_sub(1);
         if pos > 0 {
             if let Some(obj) = list.get(pos) {
-                return Ok(obj.clone());
+                return Ok(PyIterReturn::Return(obj.clone()));
             }
         }
         // We either are == 0 or list.get returned None. Either way, set status
@@ -614,10 +615,10 @@ impl SlotIterator for PyListReverseIterator {
         zelf.status.store(Exhausted);
         if pos == 0 {
             if let Some(obj) = list.get(pos) {
-                return Ok(obj.clone());
+                return Ok(PyIterReturn::Return(obj.clone()));
             }
         }
-        Err(vm.new_stop_iteration())
+        Ok(PyIterReturn::StopIteration(None))
     }
 }
 

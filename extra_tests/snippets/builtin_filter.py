@@ -29,4 +29,5 @@ def predicate(x):
     return True
 
 
-assert list(filter(predicate, [1, 2, 0, 4, 5])) == [1, 2]
+filtered = list(filter(predicate, [1, 2, 0, 4, 5]))
+assert filtered == [1, 2], filtered

@@ -15,12 +15,12 @@ use crate::{
     exceptions::{self, ExceptionCtor},
     function::FuncArgs,
     iterator,
-    protocol::PyIter,
+    protocol::{PyIter, PyIterReturn},
     scope::Scope,
     slots::PyComparisonOp,
     stdlib::builtins,
-    IdProtocol, ItemProtocol, PyMethod, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol, VirtualMachine,
+    IdProtocol, IntoPyResult, ItemProtocol, PyMethod, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol, VirtualMachine,
 };
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -1442,7 +1442,8 @@ impl ExecutingFrame<'_> {
     fn _send(&self, coro: &PyObjectRef, val: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         match self.builtin_coro(coro) {
             Some(coro) => coro.send(val, vm),
-            None if vm.is_none(&val) => PyIter::new(coro).next(vm),
+            // FIXME: turn return type to PyResult<PyIterReturn> then ExecutionResult will be simplified
+            None if vm.is_none(&val) => PyIter::new(coro).next(vm).into_pyresult(vm),
             None => {
                 let meth = vm.get_attribute(coro.clone(), "send")?;
                 vm.invoke(&meth, (val,))
@@ -1513,15 +1514,15 @@ impl ExecutingFrame<'_> {
     /// The top of stack contains the iterator, lets push it forward
     fn execute_for_iter(&mut self, vm: &VirtualMachine, target: bytecode::Label) -> FrameResult {
         let top_of_stack = PyIter::new(self.last_value());
-        let next_obj = iterator::get_next_object(vm, &top_of_stack);
+        let next_obj = top_of_stack.next(vm);
 
         // Check the next object:
         match next_obj {
-            Ok(Some(value)) => {
+            Ok(PyIterReturn::Return(value)) => {
                 self.push_value(value);
                 Ok(None)
             }
-            Ok(None) => {
+            Ok(PyIterReturn::StopIteration(_)) => {
                 // Pop iterator from stack:
                 self.pop_value();
 
