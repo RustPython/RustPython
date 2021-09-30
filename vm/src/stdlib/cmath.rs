@@ -108,6 +108,18 @@ mod cmath {
         z.to_complex().acosh()
     }
 
+    /// Return the inverse tangent of z.
+    #[pyfunction]
+    fn atan(z: IntoPyComplex) -> Complex64 {
+        z.to_complex().atan()
+    }
+
+    /// Return the inverse hyperbolic tangent of z.
+    #[pyfunction]
+    fn atanh(z: IntoPyComplex) -> Complex64 {
+        z.to_complex().atanh()
+    }
+
     /// Return the tangent of z.
     #[pyfunction]
     fn tan(z: IntoPyComplex) -> Complex64 {
