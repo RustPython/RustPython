@@ -94,7 +94,7 @@ impl<T> PositionIterInternal<T> {
     where
         F: FnOnce(&T) -> PyObjectRef,
     {
-        let iter = get_builtin_attribute_iter(vm).clone();
+        let iter = builtins_iter(vm).clone();
         self._reduce(iter, f, vm)
     }
 
@@ -102,7 +102,7 @@ impl<T> PositionIterInternal<T> {
     where
         F: FnOnce(&T) -> PyObjectRef,
     {
-        let reversed = get_builtin_attribute_reversed(vm).clone();
+        let reversed = builtins_reversed(vm).clone();
         self._reduce(reversed, f, vm)
     }
 
@@ -192,14 +192,14 @@ impl<T> PositionIterInternal<T> {
     }
 }
 
-pub fn get_builtin_attribute_iter(vm: &VirtualMachine) -> &PyObjectRef {
+pub fn builtins_iter(vm: &VirtualMachine) -> &PyObjectRef {
     static_cell! {
         static INSTANCE: PyObjectRef;
     }
     INSTANCE.get_or_init(|| vm.get_attribute(vm.builtins.clone(), "iter").unwrap())
 }
 
-pub fn get_builtin_attribute_reversed(vm: &VirtualMachine) -> &PyObjectRef {
+pub fn builtins_reversed(vm: &VirtualMachine) -> &PyObjectRef {
     static_cell! {
         static INSTANCE: PyObjectRef;
     }

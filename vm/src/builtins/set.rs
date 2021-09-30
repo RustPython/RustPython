@@ -1,7 +1,7 @@
 /*
  * Builtin set type with a sequence of unique items.
  */
-use super::{get_builtin_attribute_iter, IterStatus, PositionIterInternal, PyDictRef, PyTypeRef};
+use super::{builtins_iter, IterStatus, PositionIterInternal, PyDictRef, PyTypeRef};
 use crate::common::{ascii, hash::PyHash, lock::PyMutex, rc::PyRc};
 use crate::{
     dictdatatype::{self, DictSize},
@@ -840,7 +840,7 @@ impl PySetIterator {
     fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<(PyObjectRef, (PyObjectRef,))> {
         let internal = zelf.internal.lock();
         Ok((
-            get_builtin_attribute_iter(vm).clone(),
+            builtins_iter(vm).clone(),
             (vm.ctx.new_list(match &internal.status {
                 IterStatus::Exhausted => vec![],
                 IterStatus::Active(dict) => {
