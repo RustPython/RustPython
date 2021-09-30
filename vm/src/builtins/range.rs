@@ -2,7 +2,7 @@ use super::{PyInt, PyIntRef, PySlice, PySliceRef, PyTypeRef};
 use crate::common::hash::PyHash;
 use crate::{
     function::{FuncArgs, OptionalArg},
-    protocol::{PyIterReturn, PyMapping},
+    protocol::{PyIterReturn, PyMappingMethods},
     slots::{
         AsMapping, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotIterator,
     },
@@ -375,8 +375,8 @@ impl PyRange {
 }
 
 impl AsMapping for PyRange {
-    fn as_mapping(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyMapping> {
-        Ok(PyMapping {
+    fn as_mapping(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyMappingMethods> {
+        Ok(PyMappingMethods {
             length: Some(Self::length),
             subscript: Some(Self::subscript),
             ass_subscript: None,

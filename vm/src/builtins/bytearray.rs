@@ -15,7 +15,9 @@ use crate::{
         ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
     },
     function::{ArgBytesLike, ArgIterable, FuncArgs, OptionalArg, OptionalOption},
-    protocol::{BufferInternal, BufferOptions, PyBuffer, PyIterReturn, PyMapping, ResizeGuard},
+    protocol::{
+        BufferInternal, BufferOptions, PyBuffer, PyIterReturn, PyMappingMethods, ResizeGuard,
+    },
     sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
     slots::{
         AsBuffer, AsMapping, Callable, Comparable, Hashable, Iterable, IteratorIterable,
@@ -716,8 +718,8 @@ impl<'a> ResizeGuard<'a> for PyByteArray {
 }
 
 impl AsMapping for PyByteArray {
-    fn as_mapping(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyMapping> {
-        Ok(PyMapping {
+    fn as_mapping(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyMappingMethods> {
+        Ok(PyMappingMethods {
             length: Some(Self::length),
             subscript: Some(Self::subscript),
             ass_subscript: Some(Self::ass_subscript),

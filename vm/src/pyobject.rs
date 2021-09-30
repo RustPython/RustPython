@@ -640,8 +640,8 @@ where
     T: IntoPyObject,
 {
     fn get_item(&self, key: T, vm: &VirtualMachine) -> PyResult {
-        if let Ok(map) = PyMapping::try_from_borrowed_object(vm, self) {
-            if let Some(getitem) = map.subscript {
+        if let Ok(mapping) = PyMapping::try_from_object(vm, self.clone()) {
+            if let Some(getitem) = mapping.methods(vm).subscript {
                 return getitem(self.clone(), key.into_pyobject(vm), vm);
             }
         }
@@ -663,8 +663,8 @@ where
     }
 
     fn set_item(&self, key: T, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        if let Ok(map) = PyMapping::try_from_borrowed_object(vm, self) {
-            if let Some(setitem) = map.ass_subscript {
+        if let Ok(mapping) = PyMapping::try_from_object(vm, self.clone()) {
+            if let Some(setitem) = mapping.methods(vm).ass_subscript {
                 return setitem(self.clone(), key.into_pyobject(vm), Some(value), vm);
             }
         }
@@ -681,8 +681,8 @@ where
     }
 
     fn del_item(&self, key: T, vm: &VirtualMachine) -> PyResult<()> {
-        if let Ok(map) = PyMapping::try_from_borrowed_object(vm, self) {
-            if let Some(setitem) = map.ass_subscript {
+        if let Ok(mapping) = PyMapping::try_from_object(vm, self.clone()) {
+            if let Some(setitem) = mapping.methods(vm).ass_subscript {
                 return setitem(self.clone(), key.into_pyobject(vm), None, vm);
             }
         }

@@ -8,7 +8,7 @@ use crate::common::lock::{
 };
 use crate::{
     function::{ArgIterable, FuncArgs, OptionalArg},
-    protocol::{PyIterReturn, PyMapping},
+    protocol::{PyIterReturn, PyMappingMethods},
     sequence::{self, SimpleSeq},
     sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
     slots::{
@@ -418,8 +418,8 @@ impl PyList {
 }
 
 impl AsMapping for PyList {
-    fn as_mapping(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyMapping> {
-        Ok(PyMapping {
+    fn as_mapping(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyMappingMethods> {
+        Ok(PyMappingMethods {
             length: Some(Self::length),
             subscript: Some(Self::subscript),
             ass_subscript: Some(Self::ass_subscript),

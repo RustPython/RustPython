@@ -4,7 +4,7 @@ use crate::{
     common::ascii,
     dictdatatype::{self, DictKey},
     function::{ArgIterable, FuncArgs, KwArgs, OptionalArg},
-    protocol::{PyIterReturn, PyMapping},
+    protocol::{PyIterReturn, PyMappingMethods},
     slots::{
         AsMapping, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotIterator,
         Unhashable,
@@ -412,8 +412,8 @@ impl PyDict {
 }
 
 impl AsMapping for PyDict {
-    fn as_mapping(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyMapping> {
-        Ok(PyMapping {
+    fn as_mapping(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyMappingMethods> {
+        Ok(PyMappingMethods {
             length: Some(Self::length),
             subscript: Some(Self::subscript),
             ass_subscript: Some(Self::ass_subscript),
@@ -685,7 +685,7 @@ macro_rules! dict_iterator {
         }
 
         impl $name {
-            fn new(dict: PyDictRef) -> Self {
+            pub fn new(dict: PyDictRef) -> Self {
                 $name { dict }
             }
         }

@@ -8,7 +8,7 @@ use crate::common::{
 use crate::{
     bytesinner::bytes_to_hex,
     function::{FuncArgs, OptionalArg},
-    protocol::{BufferInternal, BufferOptions, PyBuffer, PyMapping},
+    protocol::{BufferInternal, BufferOptions, PyBuffer, PyMappingMethods},
     sliceable::{convert_slice, wrap_index, SequenceIndex},
     slots::{AsBuffer, AsMapping, Comparable, Hashable, PyComparisonOp, SlotConstructor},
     stdlib::pystruct::FormatSpec,
@@ -735,8 +735,8 @@ impl BufferInternal for PyRef<PyMemoryView> {
 }
 
 impl AsMapping for PyMemoryView {
-    fn as_mapping(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyMapping> {
-        Ok(PyMapping {
+    fn as_mapping(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyMappingMethods> {
+        Ok(PyMappingMethods {
             length: Some(Self::length),
             subscript: Some(Self::subscript),
             ass_subscript: Some(Self::ass_subscript),

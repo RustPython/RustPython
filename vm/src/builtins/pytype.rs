@@ -5,7 +5,7 @@ use super::{
 use crate::common::{ascii, lock::PyRwLock};
 use crate::{
     function::{FuncArgs, KwArgs, OptionalArg},
-    protocol::{PyIterReturn, PyMapping},
+    protocol::{PyIterReturn, PyMappingMethods},
     slots::{self, Callable, PyTypeFlags, PyTypeSlots, SlotGetattro, SlotSetattro},
     utils::Either,
     IdProtocol, PyAttributes, PyClassImpl, PyContext, PyLease, PyObjectRef, PyRef, PyResult,
@@ -283,7 +283,7 @@ impl PyType {
                 }
 
                 let func: slots::MappingFunc = |zelf, _vm| {
-                    Ok(PyMapping {
+                    Ok(PyMappingMethods {
                         length: then_some_closure!(zelf.has_class_attr("__len__"), |zelf, vm| {
                             vm.call_special_method(zelf, "__len__", ()).map(|obj| {
                                 obj.payload_if_subclass::<PyInt>(vm)

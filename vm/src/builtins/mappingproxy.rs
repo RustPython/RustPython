@@ -1,7 +1,7 @@
 use super::{PyDict, PyList, PyStrRef, PyTuple, PyTypeRef};
 use crate::{
     function::OptionalArg,
-    protocol::PyMapping,
+    protocol::{PyMapping, PyMappingMethods},
     slots::{AsMapping, Iterable, SlotConstructor},
     IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol, VirtualMachine,
@@ -37,7 +37,7 @@ impl SlotConstructor for PyMappingProxy {
     type Args = PyObjectRef;
 
     fn py_new(cls: PyTypeRef, mapping: Self::Args, vm: &VirtualMachine) -> PyResult {
-        if !PyMapping::check(&mapping, vm)
+        if !PyMapping::check(&mapping)
             || mapping.payload_if_subclass::<PyList>(vm).is_some()
             || mapping.payload_if_subclass::<PyTuple>(vm).is_some()
         {
@@ -140,8 +140,8 @@ impl PyMappingProxy {
 }
 
 impl AsMapping for PyMappingProxy {
-    fn as_mapping(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyMapping> {
-        Ok(PyMapping {
+    fn as_mapping(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyMappingMethods> {
+        Ok(PyMappingMethods {
             length: None,
             subscript: Some(Self::subscript),
             ass_subscript: None,

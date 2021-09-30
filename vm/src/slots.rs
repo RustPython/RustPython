@@ -2,7 +2,7 @@ use crate::builtins::{PyStrRef, PyTypeRef};
 use crate::common::hash::PyHash;
 use crate::common::lock::PyRwLock;
 use crate::function::{FromArgs, FuncArgs, OptionalArg};
-use crate::protocol::{PyBuffer, PyIterReturn, PyMapping};
+use crate::protocol::{PyBuffer, PyIterReturn, PyMappingMethods};
 use crate::utils::Either;
 use crate::VirtualMachine;
 use crate::{
@@ -70,7 +70,7 @@ pub(crate) type GetattroFunc = fn(PyObjectRef, PyStrRef, &VirtualMachine) -> PyR
 pub(crate) type SetattroFunc =
     fn(&PyObjectRef, PyStrRef, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>;
 pub(crate) type BufferFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<PyBuffer>;
-pub(crate) type MappingFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<PyMapping>;
+pub(crate) type MappingFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<PyMappingMethods>;
 pub(crate) type IterFunc = fn(PyObjectRef, &VirtualMachine) -> PyResult;
 pub(crate) type IterNextFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<PyIterReturn>;
 
@@ -536,7 +536,7 @@ pub trait AsBuffer: PyValue {
 #[pyimpl]
 pub trait AsMapping: PyValue {
     #[pyslot]
-    fn slot_as_mapping(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<PyMapping> {
+    fn slot_as_mapping(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<PyMappingMethods> {
         let zelf = zelf
             .downcast_ref()
             .ok_or_else(|| vm.new_type_error("unexpected payload for as_mapping".to_owned()))?;
@@ -563,7 +563,7 @@ pub trait AsMapping: PyValue {
         })
     }
 
-    fn as_mapping(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyMapping>;
+    fn as_mapping(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyMappingMethods>;
 
     fn length(zelf: PyObjectRef, _vm: &VirtualMachine) -> PyResult<usize>;
 

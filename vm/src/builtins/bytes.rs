@@ -7,7 +7,7 @@ use crate::{
     },
     common::hash::PyHash,
     function::{ArgBytesLike, ArgIterable, OptionalArg, OptionalOption},
-    protocol::{BufferInternal, BufferOptions, PyBuffer, PyIterReturn, PyMapping},
+    protocol::{BufferInternal, BufferOptions, PyBuffer, PyIterReturn, PyMappingMethods},
     slots::{
         AsBuffer, AsMapping, Callable, Comparable, Hashable, Iterable, IteratorIterable,
         PyComparisonOp, SlotConstructor, SlotIterator,
@@ -541,8 +541,8 @@ impl BufferInternal for PyRef<PyBytes> {
 }
 
 impl AsMapping for PyBytes {
-    fn as_mapping(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyMapping> {
-        Ok(PyMapping {
+    fn as_mapping(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyMappingMethods> {
+        Ok(PyMappingMethods {
             length: Some(Self::length),
             subscript: Some(Self::subscript),
             ass_subscript: None,
