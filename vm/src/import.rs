@@ -89,7 +89,7 @@ pub fn import_frozen(vm: &VirtualMachine, module_name: &str) -> PyResult {
 
 pub fn import_builtin(vm: &VirtualMachine, module_name: &str) -> PyResult {
     vm.state
-        .stdlib_inits
+        .module_inits
         .get(module_name)
         .ok_or_else(|| {
             vm.new_import_error(

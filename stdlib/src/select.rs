@@ -1,11 +1,13 @@
-use crate::{PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject, VirtualMachine};
+use crate::vm::{PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject, VirtualMachine};
 use std::{io, mem};
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
-    super::socket::init_winsock();
+    #[cfg(windows)]
+    crate::vm::stdlib::nt::init_winsock();
+
     #[cfg(unix)]
     {
-        use crate::PyClassImpl;
+        use crate::vm::PyClassImpl;
         decl::poll::PyPoll::make_class(&vm.ctx);
     }
 
@@ -149,7 +151,7 @@ fn sec_to_timeval(sec: f64) -> timeval {
 #[pymodule(name = "select")]
 mod decl {
     use super::*;
-    use crate::{
+    use crate::vm::{
         exceptions::IntoPyException, function::OptionalOption, stdlib::time, utils::Either,
         PyObjectRef, PyResult, VirtualMachine,
     };
@@ -171,7 +173,7 @@ mod decl {
                 return Err(vm.new_value_error("timeout must be positive".to_owned()));
             }
         }
-        let deadline = timeout.map(|s| time::get_time(vm).unwrap() + s);
+        let deadline = timeout.map(|s| time::time(vm).unwrap() + s);
 
         let seq2set = |list| -> PyResult<(Vec<Selectable>, FdSet)> {
             let v = vm.extract_elements::<Selectable>(list)?;
@@ -210,7 +212,7 @@ mod decl {
             vm.check_signals()?;
 
             if let Some(ref mut timeout) = timeout {
-                *timeout = deadline.unwrap() - time::get_time(vm).unwrap();
+                *timeout = deadline.unwrap() - time::time(vm).unwrap();
                 if *timeout < 0.0 {
                     r.clear();
                     w.clear();
@@ -250,7 +252,7 @@ mod decl {
     #[cfg(unix)]
     pub(super) mod poll {
         use super::*;
-        use crate::{
+        use crate::vm::{
             builtins::PyFloat, common::lock::PyMutex, function::OptionalArg, stdlib::io::Fildes,
             IntoPyObject, PyValue, TypeProtocol,
         };

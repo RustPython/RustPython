@@ -63,7 +63,7 @@ pub use pytype::{PyType, PyTypeRef};
 pub(crate) mod range;
 pub use range::PyRange;
 pub(crate) mod set;
-pub use set::PySet;
+pub use set::{PyFrozenSet, PySet};
 pub(crate) mod singletons;
 pub use singletons::{PyNone, PyNotImplemented};
 pub(crate) mod slice;
@@ -83,8 +83,5 @@ pub use zip::PyZip;
 
 pub use float::try_to_bigint as try_f64_to_bigint;
 pub use int::try_to_float as try_bigint_to_f64;
-
-mod make_module;
-pub use make_module::{ascii, make_module, print};
 
 pub use crate::exceptions::types::*;

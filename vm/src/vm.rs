@@ -8,13 +8,12 @@
 use crate::compile::{self, CompileError, CompileErrorType, CompileOpts};
 use crate::{
     builtins::{
-        self,
         code::{self, PyCode},
         module, object,
         tuple::{PyTuple, PyTupleRef, PyTupleTyped},
-        PyDictRef, PyInt, PyIntRef, PyList, PyModule, PyStr, PyStrRef, PyTypeRef,
+        PyBaseException, PyBaseExceptionRef, PyDictRef, PyInt, PyIntRef, PyList, PyModule, PyStr,
+        PyStrRef, PyTypeRef,
     },
-    builtins::{PyBaseException, PyBaseExceptionRef},
     bytecode,
     codecs::CodecsRegistry,
     common::{ascii, hash::HashSecret, lock::PyMutex, rc::PyRc},
@@ -118,7 +117,7 @@ pub(crate) mod thread {
 
 pub struct PyGlobalState {
     pub settings: PySettings,
-    pub stdlib_inits: stdlib::StdlibMap,
+    pub module_inits: stdlib::StdlibMap,
     pub frozen: HashMap<String, code::FrozenModule, ahash::RandomState>,
     pub stacksize: AtomicCell<usize>,
     pub thread_count: AtomicCell<usize>,
@@ -264,7 +263,7 @@ impl VirtualMachine {
         const NONE: Option<PyObjectRef> = None;
         let signal_handlers = RefCell::new([NONE; NSIG]);
 
-        let stdlib_inits = stdlib::get_module_inits();
+        let module_inits = stdlib::get_module_inits();
 
         let hash_secret = match settings.hash_seed {
             Some(seed) => HashSecret::new(seed),
@@ -289,7 +288,7 @@ impl VirtualMachine {
             repr_guards: RefCell::default(),
             state: PyRc::new(PyGlobalState {
                 settings,
-                stdlib_inits,
+                module_inits,
                 frozen: HashMap::default(),
                 stacksize: AtomicCell::new(0),
                 thread_count: AtomicCell::new(0),
@@ -325,7 +324,7 @@ impl VirtualMachine {
             panic!("Double Initialize Error");
         }
 
-        builtins::make_module(self, self.builtins.clone());
+        stdlib::builtins::make_module(self, self.builtins.clone());
         stdlib::sys::make_module(self, self.sys_module.clone(), self.builtins.clone());
 
         let mut inner_init = || -> PyResult<()> {
@@ -392,7 +391,7 @@ impl VirtualMachine {
     {
         let state = PyRc::get_mut(&mut self.state)
             .expect("can't add_native_module when there are multiple threads");
-        state.stdlib_inits.insert(name.into(), module);
+        state.module_inits.insert(name.into(), module);
     }
 
     /// Can only be used in the initialization closure passed to [`Interpreter::new_with_init`]

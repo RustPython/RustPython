@@ -3,7 +3,7 @@ pub(crate) use hashlib::make_module;
 #[pymodule]
 mod hashlib {
     use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
-    use crate::{
+    use crate::vm::{
         builtins::{PyBytes, PyBytesRef, PyStrRef, PyTypeRef},
         function::{FuncArgs, OptionalArg},
         PyResult, PyValue, VirtualMachine,
@@ -14,7 +14,6 @@ mod hashlib {
     use sha1::Sha1;
     use sha2::{Sha224, Sha256, Sha384, Sha512};
     use sha3::{Sha3_224, Sha3_256, Sha3_384, Sha3_512}; // TODO: , Shake128, Shake256;
-    use std::fmt;
 
     #[pyattr]
     #[pyclass(module = "hashlib", name = "hasher")]
@@ -24,8 +23,8 @@ mod hashlib {
         buffer: PyRwLock<HashWrapper>,
     }
 
-    impl fmt::Debug for PyHasher {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    impl std::fmt::Debug for PyHasher {
+        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
             write!(f, "hasher {}", self.name)
         }
     }

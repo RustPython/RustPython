@@ -10,11 +10,12 @@ mod array {
         },
         str::wchar_t,
     };
-    use crate::{
+    use crate::vm::{
         builtins::{
             IntoPyFloat, PyByteArray, PyBytes, PyBytesRef, PyIntRef, PyList, PyListRef, PySliceRef,
             PyStr, PyStrRef, PyTypeRef,
         },
+        class_or_notimplemented,
         function::{ArgBytesLike, ArgIterable, OptionalArg},
         protocol::{BufferInternal, BufferOptions, PyBuffer, ResizeGuard},
         sliceable::{saturate_index, PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
@@ -36,7 +37,7 @@ mod array {
     macro_rules! def_array_enum {
         ($(($n:ident, $t:ty, $c:literal, $scode:literal)),*$(,)?) => {
             #[derive(Debug, Clone)]
-            pub(crate) enum ArrayContentType {
+            pub enum ArrayContentType {
                 $($n(Vec<$t>),)*
             }
 

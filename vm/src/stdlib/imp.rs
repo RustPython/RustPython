@@ -46,7 +46,7 @@ fn _imp_extension_suffixes(vm: &VirtualMachine) -> PyResult {
 }
 
 fn _imp_is_builtin(name: PyStrRef, vm: &VirtualMachine) -> bool {
-    vm.state.stdlib_inits.contains_key(name.as_str())
+    vm.state.module_inits.contains_key(name.as_str())
 }
 
 fn _imp_is_frozen(name: PyStrRef, vm: &VirtualMachine) -> bool {
@@ -60,7 +60,7 @@ fn _imp_create_builtin(spec: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 
     if let Ok(module) = sys_modules.get_item(name.clone(), vm) {
         Ok(module)
-    } else if let Some(make_module_func) = vm.state.stdlib_inits.get(name.as_ref()) {
+    } else if let Some(make_module_func) = vm.state.module_inits.get(name.as_ref()) {
         Ok(make_module_func(vm))
     } else {
         Ok(vm.ctx.none())

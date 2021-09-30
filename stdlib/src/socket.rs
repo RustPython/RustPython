@@ -1,8 +1,11 @@
 use crate::common::lock::{PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard};
-use crate::{
+use crate::vm::{
     builtins::{PyBaseExceptionRef, PyStrRef, PyTupleRef, PyTypeRef},
     exceptions::IntoPyException,
-    function::{ArgBytesLike, ArgMemoryBuffer, FuncArgs, OptionalArg, OptionalOption},
+    extend_module,
+    function::{ArgBytesLike, ArgMemoryBuffer},
+    function::{FuncArgs, OptionalArg, OptionalOption},
+    named_function, py_module,
     utils::{Either, ToCString},
     IntoPyObject, PyClassImpl, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject,
     TryFromObject, TypeProtocol, VirtualMachine,
@@ -301,7 +304,7 @@ impl PySocket {
             #[cfg(unix)]
             c::AF_UNIX => {
                 use std::os::unix::ffi::OsStrExt;
-                let buf = crate::function::ArgStrOrBytesLike::try_from_object(vm, addr)?;
+                let buf = crate::vm::function::ArgStrOrBytesLike::try_from_object(vm, addr)?;
                 let path = &*buf.borrow_bytes();
                 if cfg!(any(target_os = "linux", target_os = "android")) && path.first() == Some(&0)
                 {
@@ -506,7 +509,7 @@ impl PySocket {
                     )
                 };
                 if res < 0 {
-                    return Err(super::os::errno_err(vm));
+                    return Err(crate::vm::stdlib::os::errno_err(vm));
                 }
             }
             cfg_if::cfg_if! {
@@ -835,7 +838,7 @@ impl PySocket {
                 )
             };
             if ret < 0 {
-                Err(super::os::errno_err(vm))
+                Err(crate::vm::stdlib::os::errno_err(vm))
             } else {
                 Ok(vm.ctx.new_int(flag))
             }
@@ -849,7 +852,7 @@ impl PySocket {
                 unsafe { c::getsockopt(fd, level, name, buf.as_mut_ptr() as *mut _, &mut buflen) };
             buf.truncate(buflen as usize);
             if ret < 0 {
-                Err(super::os::errno_err(vm))
+                Err(crate::vm::stdlib::os::errno_err(vm))
             } else {
                 Ok(vm.ctx.new_bytes(buf))
             }
@@ -889,7 +892,7 @@ impl PySocket {
             }
         };
         if ret < 0 {
-            Err(super::os::errno_err(vm))
+            Err(crate::vm::stdlib::os::errno_err(vm))
         } else {
             Ok(())
         }
@@ -1190,7 +1193,7 @@ pub(super) fn sock_select(
     }
     #[cfg(windows)]
     {
-        use crate::stdlib::select;
+        use crate::select;
 
         let mut reads = select::FdSet::new();
         let mut writes = select::FdSet::new();
@@ -1418,7 +1421,7 @@ type IfIndex = winapi::shared::ifdef::NET_IFINDEX;
 
 #[cfg(not(target_os = "redox"))]
 fn _socket_if_nametoindex(name: PyObjectRef, vm: &VirtualMachine) -> PyResult<IfIndex> {
-    let name = super::os::FsPath::try_from(name, true, vm)?;
+    let name = crate::vm::stdlib::os::FsPath::try_from(name, true, vm)?;
     let name = ffi::CString::new(name.as_bytes()).map_err(|err| err.into_pyexception(vm))?;
 
     let ret = unsafe { c::if_nametoindex(name.as_ptr()) };
@@ -1435,7 +1438,7 @@ fn _socket_if_indextoname(index: IfIndex, vm: &VirtualMachine) -> PyResult<Strin
     let mut buf = [0; c::IF_NAMESIZE + 1];
     let ret = unsafe { c::if_indextoname(index, buf.as_mut_ptr()) };
     if ret.is_null() {
-        Err(super::os::errno_err(vm))
+        Err(crate::vm::stdlib::os::errno_err(vm))
     } else {
         let buf = unsafe { ffi::CStr::from_ptr(buf.as_ptr()) };
         Ok(buf.to_string_lossy().into_owned())
@@ -1783,7 +1786,8 @@ fn _socket_dup(x: PyObjectRef, vm: &VirtualMachine) -> PyResult<RawSocket> {
     let newsock = sock.try_clone().map_err(|e| e.into_pyexception(vm))?;
     let fd = into_sock_fileno(newsock);
     #[cfg(windows)]
-    super::nt::raw_set_handle_inheritable(fd as _, false).map_err(|e| e.into_pyexception(vm))?;
+    crate::vm::stdlib::nt::raw_set_handle_inheritable(fd as _, false)
+        .map_err(|e| e.into_pyexception(vm))?;
     Ok(fd)
 }
 
@@ -1798,7 +1802,7 @@ fn close_inner(x: RawSocket, vm: &VirtualMachine) -> PyResult<()> {
     use winapi::um::winsock2::closesocket as close;
     let ret = unsafe { close(x as _) };
     if ret < 0 {
-        let err = super::os::errno();
+        let err = crate::vm::stdlib::os::errno();
         if err.raw_os_error() != Some(errcode!(ECONNRESET)) {
             return Err(err.into_pyexception(vm));
         }
@@ -1818,7 +1822,8 @@ rustpython_common::static_cell! {
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
-    init_winsock();
+    #[cfg(windows)]
+    crate::vm::stdlib::nt::init_winsock();
 
     let ctx = &vm.ctx;
     let socket_timeout = TIMEOUT_ERROR
@@ -1977,15 +1982,4 @@ fn extend_module_platform_specific(vm: &VirtualMachine, module: &PyObjectRef) {
     extend_module!(vm, module, {
         "sethostname" => named_function!(ctx, _socket, sethostname),
     });
-}
-
-pub fn init_winsock() {
-    #[cfg(windows)]
-    {
-        static WSA_INIT: parking_lot::Once = parking_lot::Once::new();
-        WSA_INIT.call_once(|| unsafe {
-            let mut wsa_data = std::mem::MaybeUninit::uninit();
-            let _ = winapi::um::winsock2::WSAStartup(0x0101, wsa_data.as_mut_ptr());
-        })
-    }
 }

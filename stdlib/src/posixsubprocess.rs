@@ -1,4 +1,4 @@
-use crate::{
+use crate::vm::{
     stdlib::{os::PyPathLike, posix},
     {PyObjectRef, PyResult, PySequence, TryFromObject, VirtualMachine},
 };
@@ -18,7 +18,7 @@ pub(crate) use _posixsubprocess::make_module;
 #[pymodule]
 mod _posixsubprocess {
     use super::{exec, CStrPathLike, ForkExecArgs, ProcArgs};
-    use crate::{exceptions::IntoPyException, PyResult, VirtualMachine};
+    use crate::vm::{exceptions::IntoPyException, PyResult, VirtualMachine};
 
     #[pyfunction]
     fn fork_exec(args: ForkExecArgs, vm: &VirtualMachine) -> PyResult<libc::pid_t> {

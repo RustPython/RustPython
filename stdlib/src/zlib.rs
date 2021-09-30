@@ -3,7 +3,7 @@ pub(crate) use decl::make_module;
 #[pymodule(name = "zlib")]
 mod decl {
     use crate::common::lock::PyMutex;
-    use crate::{
+    use crate::vm::{
         builtins::{PyBaseExceptionRef, PyBytes, PyBytesRef, PyIntRef, PyTypeRef},
         function::{ArgBytesLike, OptionalArg},
         types::create_simple_type,

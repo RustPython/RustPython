@@ -106,7 +106,7 @@ impl PyContext {
         let false_value = create_object(PyInt::from(0), &types.bool_type);
 
         let empty_tuple = create_object(
-            PyTuple::_new(Vec::new().into_boxed_slice()),
+            PyTuple::new_unchecked(Vec::new().into_boxed_slice()),
             &types.tuple_type,
         );
         let empty_frozenset =

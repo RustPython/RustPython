@@ -1,18 +1,20 @@
-use num_traits::ToPrimitive;
-use std::{env, mem, path};
-
-use crate::builtins::{PyStr, PyStrRef, PyTypeRef};
 use crate::common::{
     ascii,
     hash::{PyHash, PyUHash},
 };
-use crate::frame::FrameRef;
-use crate::function::{FuncArgs, OptionalArg, PosArgs};
-use crate::vm::{PySettings, VirtualMachine};
-use crate::{builtins, exceptions, py_io, version};
 use crate::{
+    builtins::{PyStr, PyStrRef, PyTypeRef},
+    exceptions,
+    frame::FrameRef,
+    function::{FuncArgs, OptionalArg, PosArgs},
+    py_io,
+    stdlib::builtins,
+    version,
+    vm::{PySettings, VirtualMachine},
     ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRefExact, PyResult, PyStructSequence,
 };
+use num_traits::ToPrimitive;
+use std::{env, mem, path};
 
 /*
  * The magic sys module.
@@ -635,7 +637,7 @@ setprofile() -- set the global profiling function
 setrecursionlimit() -- set the max recursion depth for the interpreter
 settrace() -- set the global debug tracing function
 ";
-    let mut module_names: Vec<_> = vm.state.stdlib_inits.keys().cloned().collect();
+    let mut module_names: Vec<_> = vm.state.module_inits.keys().cloned().collect();
     module_names.push("sys".into());
     module_names.push("builtins".into());
     module_names.sort();
