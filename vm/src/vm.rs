@@ -804,7 +804,8 @@ impl VirtualMachine {
         self.new_exception_empty(stop_iteration_type)
     }
 
-    // TODO: #[track_caller] when stabilized
+    #[track_caller]
+    #[cold]
     fn _py_panic_failed(&self, exc: PyBaseExceptionRef, msg: &str) -> ! {
         #[cfg(not(all(target_arch = "wasm32", not(target_os = "wasi"))))]
         {
@@ -831,13 +832,21 @@ impl VirtualMachine {
             panic!("{}; exception backtrace above", msg)
         }
     }
+    #[track_caller]
     pub fn unwrap_pyresult<T>(&self, result: PyResult<T>) -> T {
-        result.unwrap_or_else(|exc| {
-            self._py_panic_failed(exc, "called `vm.unwrap_pyresult()` on an `Err` value")
-        })
+        match result {
+            Ok(x) => x,
+            Err(exc) => {
+                self._py_panic_failed(exc, "called `vm.unwrap_pyresult()` on an `Err` value")
+            }
+        }
     }
+    #[track_caller]
     pub fn expect_pyresult<T>(&self, result: PyResult<T>, msg: &str) -> T {
-        result.unwrap_or_else(|exc| self._py_panic_failed(exc, msg))
+        match result {
+            Ok(x) => x,
+            Err(exc) => self._py_panic_failed(exc, msg),
+        }
     }
 
     pub fn new_scope_with_builtins(&self) -> Scope {
