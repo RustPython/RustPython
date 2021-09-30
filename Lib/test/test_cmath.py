@@ -56,8 +56,8 @@ class CMathTests(unittest.TestCase):
     #
     # list of all functions in cmath
     test_functions = [getattr(cmath, fname) for fname in [
-        'sin','cos','log','log10','sqrt','acosh','tan','tanh'
-        # 'exp','acos','asin','asinh',
+        'sin','cos','log','log10','sqrt','acosh','tan','tanh','asinh'
+        # 'exp','acos','asin',
         # 'atan','atanh','sinh','cosh'
         ]]
     # test first and second arguments independently for 2-argument log
