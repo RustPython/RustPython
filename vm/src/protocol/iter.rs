@@ -126,7 +126,7 @@ pub enum PyIterReturn<T = PyObjectRef> {
 }
 
 impl PyIterReturn {
-    pub fn from_result(result: PyResult, vm: &VirtualMachine) -> PyResult<Self> {
+    pub fn from_pyresult(result: PyResult, vm: &VirtualMachine) -> PyResult<Self> {
         match result {
             Ok(obj) => Ok(Self::Return(obj)),
             Err(err) if err.isinstance(&vm.ctx.exceptions.stop_iteration) => {
@@ -136,6 +136,7 @@ impl PyIterReturn {
             Err(err) => Err(err),
         }
     }
+
     pub fn from_getitem_result(result: PyResult, vm: &VirtualMachine) -> PyResult<Self> {
         match result {
             Ok(obj) => Ok(Self::Return(obj)),
@@ -147,6 +148,16 @@ impl PyIterReturn {
                 Ok(Self::StopIteration(args))
             }
             Err(err) => Err(err),
+        }
+    }
+
+    pub fn into_async_pyresult(self, vm: &VirtualMachine) -> PyResult {
+        match self {
+            Self::Return(obj) => Ok(obj),
+            Self::StopIteration(v) => Err({
+                let args = if let Some(v) = v { vec![v] } else { Vec::new() };
+                vm.new_exception(vm.ctx.exceptions.stop_async_iteration.clone(), args)
+            }),
         }
     }
 }
