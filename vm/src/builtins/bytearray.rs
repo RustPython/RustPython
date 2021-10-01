@@ -758,7 +758,7 @@ impl PyByteArrayIterator {
     fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.internal
             .lock()
-            .set_state_saturated(state, |obj| obj.len(), vm)
+            .set_state(state, |obj, pos| pos.min(obj.len()), vm)
     }
 }
 impl IteratorIterable for PyByteArrayIterator {}

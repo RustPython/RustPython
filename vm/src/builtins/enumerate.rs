@@ -98,7 +98,7 @@ impl PyReverseSequenceIterator {
 
     #[pymethod(magic)]
     fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.internal.lock().set_state(state, vm)
+        self.internal.lock().set_state(state, |_, pos| pos, vm)
     }
 
     #[pymethod(magic)]

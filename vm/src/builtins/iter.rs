@@ -38,33 +38,14 @@ impl<T> PositionIterInternal<T> {
         }
     }
 
-    pub fn set_state(&mut self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        if let IterStatus::Active(_) = &self.status {
-            if let Some(i) = state.payload::<PyInt>() {
-                let i = int::try_to_primitive(i.as_bigint(), vm).unwrap_or(0);
-                self.position = i;
-                Ok(())
-            } else {
-                Err(vm.new_type_error("an integer is required.".to_owned()))
-            }
-        } else {
-            Ok(())
-        }
-    }
-
-    pub fn set_state_saturated<F>(
-        &mut self,
-        state: PyObjectRef,
-        f: F,
-        vm: &VirtualMachine,
-    ) -> PyResult<()>
+    pub fn set_state<F>(&mut self, state: PyObjectRef, f: F, vm: &VirtualMachine) -> PyResult<()>
     where
-        F: FnOnce(&T) -> usize,
+        F: FnOnce(&T, usize) -> usize,
     {
         if let IterStatus::Active(obj) = &self.status {
             if let Some(i) = state.payload::<PyInt>() {
                 let i = int::try_to_primitive(i.as_bigint(), vm).unwrap_or(0);
-                self.position = i.min(f(obj));
+                self.position = f(obj, i);
                 Ok(())
             } else {
                 Err(vm.new_type_error("an integer is required.".to_owned()))
@@ -245,7 +226,7 @@ impl PySequenceIterator {
 
     #[pymethod(magic)]
     fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.internal.lock().set_state(state, vm)
+        self.internal.lock().set_state(state, |_, pos| pos, vm)
     }
 }
 

@@ -190,7 +190,7 @@ impl PyStrIterator {
     fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.internal
             .lock()
-            .set_state_saturated(state, |obj| obj.char_len(), vm)
+            .set_state(state, |obj, pos| pos.min(obj.char_len()), vm)
     }
 
     #[pymethod(magic)]
