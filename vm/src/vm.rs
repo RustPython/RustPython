@@ -8,13 +8,12 @@
 use crate::compile::{self, CompileError, CompileErrorType, CompileOpts};
 use crate::{
     builtins::{
-        self,
         code::{self, PyCode},
         module, object,
         tuple::{PyTuple, PyTupleRef, PyTupleTyped},
-        PyDictRef, PyInt, PyIntRef, PyList, PyModule, PyStr, PyStrRef, PyTypeRef,
+        PyBaseException, PyBaseExceptionRef, PyDictRef, PyInt, PyIntRef, PyList, PyModule, PyStr,
+        PyStrRef, PyTypeRef,
     },
-    builtins::{PyBaseException, PyBaseExceptionRef},
     bytecode,
     codecs::CodecsRegistry,
     common::{ascii, hash::HashSecret, lock::PyMutex, rc::PyRc},
@@ -26,7 +25,7 @@ use crate::{
     scope::Scope,
     signal::NSIG,
     slots::PyComparisonOp,
-    stdlib, sysmodule,
+    stdlib,
     utils::Either,
     IdProtocol, IntoPyObject, ItemProtocol, PyArithmaticValue, PyContext, PyLease, PyMethod,
     PyObject, PyObjectRef, PyRef, PyRefExact, PyResult, PyValue, TryFromObject, TryIntoRef,
@@ -118,7 +117,7 @@ pub(crate) mod thread {
 
 pub struct PyGlobalState {
     pub settings: PySettings,
-    pub stdlib_inits: stdlib::StdlibMap,
+    pub module_inits: stdlib::StdlibMap,
     pub frozen: HashMap<String, code::FrozenModule, ahash::RandomState>,
     pub stacksize: AtomicCell<usize>,
     pub thread_count: AtomicCell<usize>,
@@ -264,7 +263,7 @@ impl VirtualMachine {
         const NONE: Option<PyObjectRef> = None;
         let signal_handlers = RefCell::new([NONE; NSIG]);
 
-        let stdlib_inits = stdlib::get_module_inits();
+        let module_inits = stdlib::get_module_inits();
 
         let hash_secret = match settings.hash_seed {
             Some(seed) => HashSecret::new(seed),
@@ -289,7 +288,7 @@ impl VirtualMachine {
             repr_guards: RefCell::default(),
             state: PyRc::new(PyGlobalState {
                 settings,
-                stdlib_inits,
+                module_inits,
                 frozen: HashMap::default(),
                 stacksize: AtomicCell::new(0),
                 thread_count: AtomicCell::new(0),
@@ -325,8 +324,8 @@ impl VirtualMachine {
             panic!("Double Initialize Error");
         }
 
-        builtins::make_module(self, self.builtins.clone());
-        sysmodule::make_module(self, self.sys_module.clone(), self.builtins.clone());
+        stdlib::builtins::make_module(self, self.builtins.clone());
+        stdlib::sys::make_module(self, self.sys_module.clone(), self.builtins.clone());
 
         let mut inner_init = || -> PyResult<()> {
             #[cfg(not(target_arch = "wasm32"))]
@@ -392,7 +391,7 @@ impl VirtualMachine {
     {
         let state = PyRc::get_mut(&mut self.state)
             .expect("can't add_native_module when there are multiple threads");
-        state.stdlib_inits.insert(name.into(), module);
+        state.module_inits.insert(name.into(), module);
     }
 
     /// Can only be used in the initialization closure passed to [`Interpreter::new_with_init`]
@@ -475,7 +474,10 @@ impl VirtualMachine {
             if let Err(e) = self.invoke(&func, args) {
                 last_exc = Some(e.clone());
                 if !e.isinstance(&self.ctx.exceptions.system_exit) {
-                    writeln!(sysmodule::PyStderr(self), "Error in atexit._run_exitfuncs:");
+                    writeln!(
+                        stdlib::sys::PyStderr(self),
+                        "Error in atexit._run_exitfuncs:"
+                    );
                     exceptions::print_exception(self, e);
                 }
             }
@@ -1267,7 +1269,7 @@ impl VirtualMachine {
                 .map(|obj| func(obj.clone()))
                 .collect()
         } else {
-            let iter = iterator::get_iter(self, value.clone())?;
+            let iter = value.clone().get_iter(self)?;
             let cap = match iterator::length_hint(self, value.clone()) {
                 Err(e) if e.class().is(&self.ctx.exceptions.runtime_error) => return Err(e),
                 Ok(Some(value)) => value,
@@ -1315,7 +1317,7 @@ impl VirtualMachine {
             ref t @ PyTuple => Ok(t.as_slice().iter().cloned().map(f).collect()),
             // TODO: put internal iterable type
             obj => {
-                let iter = iterator::get_iter(self, obj.clone())?;
+                let iter = obj.clone().get_iter(self)?;
                 let cap = match iterator::length_hint(self, obj.clone()) {
                     Err(e) if e.class().is(&self.ctx.exceptions.runtime_error) => {
                         return Ok(Err(e))
@@ -1923,7 +1925,7 @@ impl VirtualMachine {
 
     // https://docs.python.org/3/reference/expressions.html#membership-test-operations
     fn _membership_iter_search(&self, haystack: PyObjectRef, needle: PyObjectRef) -> PyResult {
-        let iter = iterator::get_iter(self, haystack)?;
+        let iter = haystack.get_iter(self)?;
         loop {
             if let Some(element) = iterator::get_next_object(self, &iter)? {
                 if self.bool_eq(&needle, &element)? {

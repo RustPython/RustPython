@@ -64,17 +64,11 @@ struct Compiler {
     opts: CompileOpts,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct CompileOpts {
     /// How optimized the bytecode output should be; any optimize > 0 does
     /// not emit assert statements
     pub optimize: u8,
-}
-
-impl Default for CompileOpts {
-    fn default() -> Self {
-        CompileOpts { optimize: 0 }
-    }
 }
 
 #[derive(Debug, Clone, Copy)]

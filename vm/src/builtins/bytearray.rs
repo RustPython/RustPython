@@ -19,7 +19,7 @@ use crate::{
     sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
     slots::{
         AsBuffer, Callable, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp,
-        PyIter, Unhashable,
+        SlotIterator, Unhashable,
     },
     utils::Either,
     IdProtocol, IntoPyObject, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef,
@@ -98,7 +98,7 @@ pub(crate) fn init(context: &PyContext) {
 #[pyimpl(flags(BASETYPE), with(Hashable, Comparable, AsBuffer, Iterable))]
 impl PyByteArray {
     #[pyslot]
-    fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         PyByteArray::default().into_pyresult_with_type(vm, cls)
     }
 
@@ -741,10 +741,10 @@ impl PyValue for PyByteArrayIterator {
     }
 }
 
-#[pyimpl(with(PyIter))]
+#[pyimpl(with(SlotIterator))]
 impl PyByteArrayIterator {}
 impl IteratorIterable for PyByteArrayIterator {}
-impl PyIter for PyByteArrayIterator {
+impl SlotIterator for PyByteArrayIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         let pos = zelf.position.fetch_add(1);
         if let Some(&ret) = zelf.bytearray.borrow_buf().get(pos) {

@@ -10,7 +10,7 @@ use crate::{
     protocol::{BufferInternal, BufferOptions, PyBuffer},
     slots::{
         AsBuffer, Callable, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp,
-        PyIter, SlotConstructor,
+        SlotConstructor, SlotIterator,
     },
     utils::Either,
     IdProtocol, IntoPyObject, IntoPyResult, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef,
@@ -594,10 +594,10 @@ impl PyValue for PyBytesIterator {
     }
 }
 
-#[pyimpl(with(PyIter))]
+#[pyimpl(with(SlotIterator))]
 impl PyBytesIterator {}
 impl IteratorIterable for PyBytesIterator {}
-impl PyIter for PyBytesIterator {
+impl SlotIterator for PyBytesIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         let pos = zelf.position.fetch_add(1);
         if let Some(&ret) = zelf.bytes.as_bytes().get(pos) {

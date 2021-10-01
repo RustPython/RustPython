@@ -3,7 +3,7 @@ use crate::common::hash::PyHash;
 use crate::{
     function::{FuncArgs, OptionalArg},
     iterator,
-    slots::{Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, PyIter},
+    slots::{Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotIterator},
     IdProtocol, IntoPyRef, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol, VirtualMachine,
 };
@@ -30,7 +30,7 @@ fn iter_search(
     vm: &VirtualMachine,
 ) -> PyResult<usize> {
     let mut count = 0;
-    let iter = iterator::get_iter(vm, obj)?;
+    let iter = obj.get_iter(vm)?;
     while let Some(element) = iterator::get_next_object(vm, &iter)? {
         if vm.bool_eq(&item, &element)? {
             match flag {
@@ -359,7 +359,7 @@ impl PyRange {
     }
 
     #[pyslot]
-    fn tp_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         let range = if args.args.len() <= 1 {
             let stop = args.bind(vm)?;
             PyRange::new(cls, stop, vm)
@@ -478,10 +478,10 @@ impl PyValue for PyLongRangeIterator {
     }
 }
 
-#[pyimpl(with(PyIter))]
+#[pyimpl(with(SlotIterator))]
 impl PyLongRangeIterator {
     #[pyslot]
-    fn tp_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         Err(vm.new_type_error("cannot create 'longrange_iterator' instances".to_owned()))
     }
 
@@ -514,7 +514,7 @@ impl PyLongRangeIterator {
 }
 
 impl IteratorIterable for PyLongRangeIterator {}
-impl PyIter for PyLongRangeIterator {
+impl SlotIterator for PyLongRangeIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         // TODO: In pathological case (index == usize::MAX) this can wrap around
         // (since fetch_add wraps). This would result in the iterator spinning again
@@ -547,10 +547,10 @@ impl PyValue for PyRangeIterator {
     }
 }
 
-#[pyimpl(with(PyIter))]
+#[pyimpl(with(SlotIterator))]
 impl PyRangeIterator {
     #[pyslot]
-    fn tp_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         Err(vm.new_type_error("cannot create 'range_iterator' instances".to_owned()))
     }
 
@@ -584,7 +584,7 @@ impl PyRangeIterator {
 }
 
 impl IteratorIterable for PyRangeIterator {}
-impl PyIter for PyRangeIterator {
+impl SlotIterator for PyRangeIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         // TODO: In pathological case (index == usize::MAX) this can wrap around
         // (since fetch_add wraps). This would result in the iterator spinning again

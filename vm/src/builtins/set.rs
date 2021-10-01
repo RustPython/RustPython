@@ -7,8 +7,8 @@ use crate::{
     dictdatatype::{self, DictSize},
     function::{ArgIterable, FuncArgs, OptionalArg, PosArgs},
     slots::{
-        Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, PyIter, SlotConstructor,
-        Unhashable,
+        Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotConstructor,
+        SlotIterator, Unhashable,
     },
     vm::{ReprGuard, VirtualMachine},
     IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
@@ -369,7 +369,7 @@ macro_rules! multi_args_set {
 #[pyimpl(with(Hashable, Comparable, Iterable), flags(BASETYPE))]
 impl PySet {
     #[pyslot]
-    fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         PySet::default().into_pyresult_with_type(vm, cls)
     }
 
@@ -639,7 +639,7 @@ impl SlotConstructor for PyFrozenSet {
 #[pyimpl(flags(BASETYPE), with(Hashable, Comparable, Iterable, SlotConstructor))]
 impl PyFrozenSet {
     // Also used by ssl.rs windows.
-    pub(crate) fn from_iter(
+    pub fn from_iter(
         vm: &VirtualMachine,
         it: impl IntoIterator<Item = PyObjectRef>,
     ) -> PyResult<Self> {
@@ -833,7 +833,7 @@ impl PyValue for PySetIterator {
     }
 }
 
-#[pyimpl(with(PyIter))]
+#[pyimpl(with(SlotIterator))]
 impl PySetIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
@@ -862,7 +862,7 @@ impl PySetIterator {
 }
 
 impl IteratorIterable for PySetIterator {}
-impl PyIter for PySetIterator {
+impl SlotIterator for PySetIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         match zelf.status.load() {
             IterStatus::Exhausted => Err(vm.new_stop_iteration()),

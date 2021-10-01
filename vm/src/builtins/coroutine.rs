@@ -3,7 +3,7 @@ use crate::{
     coroutine::{Coro, Variant},
     frame::FrameRef,
     function::OptionalArg,
-    slots::{IteratorIterable, PyIter},
+    slots::{IteratorIterable, SlotIterator},
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 
@@ -19,7 +19,7 @@ impl PyValue for PyCoroutine {
     }
 }
 
-#[pyimpl(with(PyIter))]
+#[pyimpl(with(SlotIterator))]
 impl PyCoroutine {
     pub fn as_coro(&self) -> &Coro {
         &self.inner
@@ -102,7 +102,7 @@ impl PyCoroutine {
 }
 
 impl IteratorIterable for PyCoroutine {}
-impl PyIter for PyCoroutine {
+impl SlotIterator for PyCoroutine {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         zelf.send(vm.ctx.none(), vm)
     }
@@ -120,7 +120,7 @@ impl PyValue for PyCoroutineWrapper {
     }
 }
 
-#[pyimpl(with(PyIter))]
+#[pyimpl(with(SlotIterator))]
 impl PyCoroutineWrapper {
     #[pymethod]
     fn send(&self, val: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -140,7 +140,7 @@ impl PyCoroutineWrapper {
 }
 
 impl IteratorIterable for PyCoroutineWrapper {}
-impl PyIter for PyCoroutineWrapper {
+impl SlotIterator for PyCoroutineWrapper {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         zelf.send(vm.ctx.none(), vm)
     }

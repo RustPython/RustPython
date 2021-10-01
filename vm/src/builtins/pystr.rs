@@ -10,7 +10,8 @@ use crate::{
     function::{ArgIterable, FuncArgs, OptionalArg, OptionalOption},
     sliceable::PySliceableSequence,
     slots::{
-        Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, PyIter, SlotConstructor,
+        Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotConstructor,
+        SlotIterator,
     },
     utils::Either,
     IdProtocol, IntoPyObject, ItemProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext,
@@ -179,7 +180,7 @@ impl PyValue for PyStrIterator {
     }
 }
 
-#[pyimpl(with(PyIter))]
+#[pyimpl(with(SlotIterator))]
 impl PyStrIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
@@ -228,7 +229,7 @@ impl PyStrIterator {
 }
 
 impl IteratorIterable for PyStrIterator {}
-impl PyIter for PyStrIterator {
+impl SlotIterator for PyStrIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         if let Exhausted = zelf.status.load() {
             return Err(vm.new_stop_iteration());
@@ -476,7 +477,7 @@ impl PyStr {
     }
 
     #[pymethod(magic)]
-    pub(crate) fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
+    pub fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
         let in_len = self.byte_len();
         let mut out_len = 0usize;
         // let mut max = 127;

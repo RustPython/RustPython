@@ -1,8 +1,6 @@
 use crate::common::{boxvec::BoxVec, lock::PyMutex};
 use crate::{
-    builtins::PyBaseExceptionRef,
     builtins::{
-        self,
         asyncgenerator::PyAsyncGenWrappedValue,
         coroutine::PyCoroutine,
         function::{PyCell, PyCellRef, PyFunction},
@@ -10,15 +8,17 @@ use crate::{
         list, pystr, set,
         traceback::PyTraceback,
         tuple::{PyTuple, PyTupleTyped},
-        PyCode, PyDict, PyDictRef, PySlice, PyStr, PyStrRef, PyTypeRef,
+        PyBaseExceptionRef, PyCode, PyDict, PyDictRef, PySlice, PyStr, PyStrRef, PyTypeRef,
     },
     bytecode,
     coroutine::Coro,
     exceptions::{self, ExceptionCtor},
     function::FuncArgs,
     iterator,
+    protocol::PyIter,
     scope::Scope,
     slots::PyComparisonOp,
+    stdlib::builtins,
     IdProtocol, ItemProtocol, PyMethod, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol, VirtualMachine,
 };
@@ -857,8 +857,8 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::GetIter => {
                 let iterated_obj = self.pop_value();
-                let iter_obj = iterator::get_iter(vm, iterated_obj)?;
-                self.push_value(iter_obj);
+                let iter_obj = iterated_obj.get_iter(vm)?;
+                self.push_value(iter_obj.into_object());
                 Ok(None)
             }
             bytecode::Instruction::GetAwaitable => {
@@ -1442,7 +1442,7 @@ impl ExecutingFrame<'_> {
     fn _send(&self, coro: &PyObjectRef, val: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         match self.builtin_coro(coro) {
             Some(coro) => coro.send(val, vm),
-            None if vm.is_none(&val) => iterator::call_next(vm, coro),
+            None if vm.is_none(&val) => PyIter::new(coro).next(vm),
             None => {
                 let meth = vm.get_attribute(coro.clone(), "send")?;
                 vm.invoke(&meth, (val,))
@@ -1512,7 +1512,7 @@ impl ExecutingFrame<'_> {
 
     /// The top of stack contains the iterator, lets push it forward
     fn execute_for_iter(&mut self, vm: &VirtualMachine, target: bytecode::Label) -> FrameResult {
-        let top_of_stack = self.last_value();
+        let top_of_stack = PyIter::new(self.last_value());
         let next_obj = iterator::get_next_object(vm, &top_of_stack);
 
         // Check the next object:

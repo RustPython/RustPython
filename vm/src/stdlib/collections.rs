@@ -11,8 +11,8 @@ mod _collections {
         function::{FuncArgs, KwArgs, OptionalArg},
         sequence, sliceable,
         slots::{
-            Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, PyIter,
-            SlotConstructor, Unhashable,
+            Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotConstructor,
+            SlotIterator, Unhashable,
         },
         vm::ReprGuard,
         PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
@@ -73,7 +73,7 @@ mod _collections {
     #[pyimpl(flags(BASETYPE), with(Comparable, Hashable, Iterable))]
     impl PyDeque {
         #[pyslot]
-        fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             PyDeque::default().into_pyresult_with_type(vm, cls)
         }
 
@@ -609,7 +609,7 @@ mod _collections {
         }
     }
 
-    #[pyimpl(with(PyIter, SlotConstructor))]
+    #[pyimpl(with(SlotIterator, SlotConstructor))]
     impl PyDequeIterator {
         pub(crate) fn new(deque: PyDequeRef) -> Self {
             PyDequeIterator {
@@ -641,7 +641,7 @@ mod _collections {
     }
 
     impl IteratorIterable for PyDequeIterator {}
-    impl PyIter for PyDequeIterator {
+    impl SlotIterator for PyDequeIterator {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             match zelf.status.load() {
                 Exhausted => Err(vm.new_stop_iteration()),
@@ -698,7 +698,7 @@ mod _collections {
         }
     }
 
-    #[pyimpl(with(PyIter, SlotConstructor))]
+    #[pyimpl(with(SlotIterator, SlotConstructor))]
     impl PyReverseDequeIterator {
         #[pymethod(magic)]
         fn length_hint(&self) -> usize {
@@ -721,7 +721,7 @@ mod _collections {
     }
 
     impl IteratorIterable for PyReverseDequeIterator {}
-    impl PyIter for PyReverseDequeIterator {
+    impl SlotIterator for PyReverseDequeIterator {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             match zelf.status.load() {
                 Exhausted => Err(vm.new_stop_iteration()),

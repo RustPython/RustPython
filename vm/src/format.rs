@@ -1,8 +1,9 @@
 use crate::{
-    builtins::{self, PyBaseExceptionRef, PyStrRef},
+    builtins::{PyBaseExceptionRef, PyStrRef},
     common::float_ops,
     exceptions::IntoPyException,
     function::FuncArgs,
+    stdlib::builtins,
     ItemProtocol, PyObjectRef, PyResult, TypeProtocol, VirtualMachine,
 };
 use itertools::{Itertools, PeekingNext};
