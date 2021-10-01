@@ -200,13 +200,13 @@ impl PyStrIterator {
         self.internal
             .lock()
             .0
-            .builtin_iter_reduce(|x| x.clone().into_object(), vm)
+            .builtins_iter_reduce(|x| x.clone().into_object(), vm)
     }
 }
 
 impl IteratorIterable for PyStrIterator {}
 impl SlotIterator for PyStrIterator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let mut internal = zelf.internal.lock();
 
         if let IterStatus::Active(s) = &internal.0.status {
@@ -216,20 +216,18 @@ impl SlotIterator for PyStrIterator {
                 if let Some((offset, ch)) = value.char_indices().nth(internal.0.position) {
                     internal.0.position += 1;
                     internal.1 = offset + ch.len_utf8();
-                    return Ok(ch.into_pyobject(vm));
+                    return Ok(PyIterReturn::Return(ch.into_pyobject(vm)));
                 }
             } else if let Some(value) = value.get(internal.1..) {
                 if let Some(ch) = value.chars().next() {
                     internal.0.position += 1;
                     internal.1 += ch.len_utf8();
-                    return Ok(ch.into_pyobject(vm));
+                    return Ok(PyIterReturn::Return(ch.into_pyobject(vm)));
                 }
             }
             internal.0.status = Exhausted;
-            Err(vm.new_stop_iteration())
-        } else {
-            Err(vm.new_stop_iteration())
         }
+        Ok(PyIterReturn::StopIteration(None))
     }
 }
 

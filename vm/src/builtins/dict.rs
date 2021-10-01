@@ -733,7 +733,7 @@ macro_rules! dict_iterator {
         impl IteratorIterable for $iter_name {}
         impl SlotIterator for $iter_name {
             #[allow(clippy::redundant_closure_call)]
-            fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+            fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
                 let mut internal = zelf.internal.lock();
                 if let IterStatus::Active(dict) = &internal.status {
                     if dict.entries.has_changed_size(&zelf.size) {
@@ -745,15 +745,15 @@ macro_rules! dict_iterator {
                     match dict.entries.next_entry(internal.position) {
                         Some((position, key, value)) => {
                             internal.position = position;
-                            Ok(($result_fn)(vm, key, value))
+                            Ok(PyIterReturn::Return(($result_fn)(vm, key, value)))
                         }
                         None => {
                             internal.status = IterStatus::Exhausted;
-                            Err(vm.new_stop_iteration())
+                            Ok(PyIterReturn::StopIteration(None))
                         }
                     }
                 } else {
-                    Err(vm.new_stop_iteration())
+                    Ok(PyIterReturn::StopIteration(None))
                 }
             }
         }
@@ -793,7 +793,7 @@ macro_rules! dict_iterator {
         impl IteratorIterable for $reverse_iter_name {}
         impl SlotIterator for $reverse_iter_name {
             #[allow(clippy::redundant_closure_call)]
-            fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+            fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
                 let mut internal = zelf.internal.lock();
                 if let IterStatus::Active(dict) = &internal.status {
                     if dict.entries.has_changed_size(&zelf.size) {
@@ -809,15 +809,15 @@ macro_rules! dict_iterator {
                             } else {
                                 internal.position = position;
                             }
-                            Ok(($result_fn)(vm, key, value))
+                            Ok(PyIterReturn::Return(($result_fn)(vm, key, value)))
                         }
                         None => {
                             internal.status = IterStatus::Exhausted;
-                            Err(vm.new_stop_iteration())
+                            Ok(PyIterReturn::StopIteration(None))
                         }
                     }
                 } else {
-                    Err(vm.new_stop_iteration())
+                    Ok(PyIterReturn::StopIteration(None))
                 }
             }
         }

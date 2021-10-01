@@ -71,7 +71,7 @@ impl<T> PositionIterInternal<T> {
         }
     }
 
-    pub fn builtin_iter_reduce<F>(&self, f: F, vm: &VirtualMachine) -> PyObjectRef
+    pub fn builtins_iter_reduce<F>(&self, f: F, vm: &VirtualMachine) -> PyObjectRef
     where
         F: FnOnce(&T) -> PyObjectRef,
     {
@@ -79,7 +79,7 @@ impl<T> PositionIterInternal<T> {
         self._reduce(iter, f, vm)
     }
 
-    pub fn builtin_reversed_reduce<F>(&self, f: F, vm: &VirtualMachine) -> PyObjectRef
+    pub fn builtins_reversed_reduce<F>(&self, f: F, vm: &VirtualMachine) -> PyObjectRef
     where
         F: FnOnce(&T) -> PyObjectRef,
     {
@@ -87,66 +87,42 @@ impl<T> PositionIterInternal<T> {
         self._reduce(reversed, f, vm)
     }
 
-    pub fn next<F>(&mut self, f: F, vm: &VirtualMachine) -> PyResult
+    fn _next<F, OP>(&mut self, f: F, op: OP) -> PyResult<PyIterReturn>
     where
-        F: FnOnce(&T, usize) -> PyResult,
+        F: FnOnce(&T, usize) -> PyResult<PyIterReturn>,
+        OP: FnOnce(&mut Self),
     {
         if let IterStatus::Active(obj) = &self.status {
-            match f(obj, self.position) {
-                Err(e) if e.isinstance(&vm.ctx.exceptions.stop_iteration) => {
-                    self.status = IterStatus::Exhausted;
-                    Err(e)
-                }
-                Err(e) if e.isinstance(&vm.ctx.exceptions.index_error) => {
-                    self.status = IterStatus::Exhausted;
-                    Err(vm.new_stop_iteration())
-                }
-                Err(e) if e.isinstance(&vm.ctx.exceptions.runtime_error) => {
-                    self.status = IterStatus::Exhausted;
-                    Err(e)
-                }
-                Err(e) => Err(e),
-                Ok(ret) => {
-                    self.position += 1;
-                    Ok(ret)
-                }
+            let ret = f(obj, self.position);
+            if let Ok(PyIterReturn::Return(_)) = ret {
+                op(self);
+            } else {
+                self.status = IterStatus::Exhausted;
             }
+            ret
         } else {
-            Err(vm.new_stop_iteration())
+            Ok(PyIterReturn::StopIteration(None))
         }
     }
 
-    pub fn rev_next<F>(&mut self, f: F, vm: &VirtualMachine) -> PyResult
+    pub fn next<F>(&mut self, f: F) -> PyResult<PyIterReturn>
     where
-        F: FnOnce(&T, usize) -> PyResult,
+        F: FnOnce(&T, usize) -> PyResult<PyIterReturn>,
     {
-        if let IterStatus::Active(obj) = &self.status {
-            match f(obj, self.position) {
-                Err(e) if e.isinstance(&vm.ctx.exceptions.stop_iteration) => {
-                    self.status = IterStatus::Exhausted;
-                    Err(e)
-                }
-                Err(e) if e.isinstance(&vm.ctx.exceptions.index_error) => {
-                    self.status = IterStatus::Exhausted;
-                    Err(vm.new_stop_iteration())
-                }
-                Err(e) if e.isinstance(&vm.ctx.exceptions.runtime_error) => {
-                    self.status = IterStatus::Exhausted;
-                    Err(e)
-                }
-                Err(e) => Err(e),
-                Ok(ret) => {
-                    if self.position == 0 {
-                        self.status = IterStatus::Exhausted;
-                    } else {
-                        self.position -= 1;
-                    }
-                    Ok(ret)
-                }
+        self._next(f, |zelf| zelf.position += 1)
+    }
+
+    pub fn rev_next<F>(&mut self, f: F) -> PyResult<PyIterReturn>
+    where
+        F: FnOnce(&T, usize) -> PyResult<PyIterReturn>,
+    {
+        self._next(f, |zelf| {
+            if zelf.position == 0 {
+                zelf.status = IterStatus::Exhausted;
+            } else {
+                zelf.position -= 1;
             }
-        } else {
-            Err(vm.new_stop_iteration())
-        }
+        })
     }
 
     pub fn length_hint<F>(&self, f: F) -> usize
@@ -221,7 +197,7 @@ impl PySequenceIterator {
 
     #[pymethod(magic)]
     fn reduce(&self, vm: &VirtualMachine) -> PyObjectRef {
-        self.internal.lock().builtin_iter_reduce(|x| x.clone(), vm)
+        self.internal.lock().builtins_iter_reduce(|x| x.clone(), vm)
     }
 
     #[pymethod(magic)]
@@ -232,10 +208,20 @@ impl PySequenceIterator {
 
 impl IteratorIterable for PySequenceIterator {}
 impl SlotIterator for PySequenceIterator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal
             .lock()
-            .next(|obj, pos| obj.get_item(pos, vm), vm)
+            .next(|obj, pos| match obj.get_item(pos, vm) {
+                Ok(ret) => Ok(PyIterReturn::Return(ret)),
+                Err(e) if e.isinstance(&vm.ctx.exceptions.index_error) => {
+                    Ok(PyIterReturn::StopIteration(None))
+                }
+                Err(e) if e.isinstance(&vm.ctx.exceptions.stop_iteration) => {
+                    let args = e.get_arg(0);
+                    Ok(PyIterReturn::StopIteration(args))
+                }
+                Err(e) => Err(e),
+            })
     }
 }
 
@@ -264,18 +250,18 @@ impl PyCallableIterator {
 
 impl IteratorIterable for PyCallableIterator {}
 impl SlotIterator for PyCallableIterator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let status = zelf.status.upgradable_read();
         if let IterStatus::Active(callable) = &*status {
             let ret = callable.invoke((), vm)?;
             if vm.bool_eq(&ret, &zelf.sentinel)? {
                 *PyRwLockUpgradableReadGuard::upgrade(status) = IterStatus::Exhausted;
-                Err(vm.new_stop_iteration())
+                Ok(PyIterReturn::StopIteration(None))
             } else {
-                Ok(ret)
+                Ok(PyIterReturn::Return(ret))
             }
         } else {
-            Err(vm.new_stop_iteration())
+            Ok(PyIterReturn::StopIteration(None))
         }
     }
 }

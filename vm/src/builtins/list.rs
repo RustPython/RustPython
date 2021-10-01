@@ -489,22 +489,20 @@ impl PyListIterator {
     fn reduce(&self, vm: &VirtualMachine) -> PyObjectRef {
         self.internal
             .lock()
-            .builtin_iter_reduce(|x| x.clone().into_object(), vm)
+            .builtins_iter_reduce(|x| x.clone().into_object(), vm)
     }
 }
 
 impl IteratorIterable for PyListIterator {}
 impl SlotIterator for PyListIterator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        zelf.internal.lock().next(
-            |list, pos| {
-                let vec = list.borrow_vec();
-                vec.get(pos)
-                    .ok_or_else(|| vm.new_stop_iteration())
-                    .map(|x| x.clone())
-            },
-            vm,
-        )
+    fn next(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        zelf.internal.lock().next(|list, pos| {
+            let vec = list.borrow_vec();
+            Ok(match vec.get(pos) {
+                Some(x) => PyIterReturn::Return(x.clone()),
+                None => PyIterReturn::StopIteration(None),
+            })
+        })
     }
 }
 
@@ -538,22 +536,20 @@ impl PyListReverseIterator {
     fn reduce(&self, vm: &VirtualMachine) -> PyObjectRef {
         self.internal
             .lock()
-            .builtin_reversed_reduce(|x| x.clone().into_object(), vm)
+            .builtins_reversed_reduce(|x| x.clone().into_object(), vm)
     }
 }
 
 impl IteratorIterable for PyListReverseIterator {}
 impl SlotIterator for PyListReverseIterator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        zelf.internal.lock().rev_next(
-            |list, pos| {
-                let vec = list.borrow_vec();
-                vec.get(pos)
-                    .ok_or_else(|| vm.new_stop_iteration())
-                    .map(|x| x.clone())
-            },
-            vm,
-        )
+    fn next(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        zelf.internal.lock().rev_next(|list, pos| {
+            let vec = list.borrow_vec();
+            Ok(match vec.get(pos) {
+                Some(x) => PyIterReturn::Return(x.clone()),
+                None => PyIterReturn::StopIteration(None),
+            })
+        })
     }
 }
 

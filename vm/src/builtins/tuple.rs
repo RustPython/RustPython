@@ -342,23 +342,20 @@ impl PyTupleIterator {
     fn reduce(&self, vm: &VirtualMachine) -> PyObjectRef {
         self.internal
             .lock()
-            .builtin_iter_reduce(|x| x.clone().into_object(), vm)
+            .builtins_iter_reduce(|x| x.clone().into_object(), vm)
     }
 }
 
 impl IteratorIterable for PyTupleIterator {}
 impl SlotIterator for PyTupleIterator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        zelf.internal.lock().next(
-            |tuple, pos| {
-                tuple
-                    .as_slice()
-                    .get(pos)
-                    .ok_or_else(|| vm.new_stop_iteration())
-                    .map(|x| x.clone())
-            },
-            vm,
-        )
+    fn next(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        zelf.internal.lock().next(|tuple, pos| {
+            Ok(if let Some(ret) = tuple.as_slice().get(pos) {
+                PyIterReturn::Return(ret.clone())
+            } else {
+                PyIterReturn::StopIteration(None)
+            })
+        })
     }
 }
 

@@ -605,7 +605,7 @@ impl PyBytesIterator {
     fn reduce(&self, vm: &VirtualMachine) -> PyObjectRef {
         self.internal
             .lock()
-            .builtin_iter_reduce(|x| x.clone().into_object(), vm)
+            .builtins_iter_reduce(|x| x.clone().into_object(), vm)
     }
 
     #[pymethod(magic)]
@@ -617,17 +617,13 @@ impl PyBytesIterator {
 }
 impl IteratorIterable for PyBytesIterator {}
 impl SlotIterator for PyBytesIterator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        zelf.internal.lock().next(
-            |bytes, pos| {
-                bytes
-                    .as_bytes()
-                    .get(pos)
-                    .ok_or_else(|| vm.new_stop_iteration())
-                    .map(|&x| vm.ctx.new_int(x))
-            },
-            vm,
-        )
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        zelf.internal.lock().next(|bytes, pos| {
+            Ok(match bytes.as_bytes().get(pos) {
+                Some(&x) => PyIterReturn::Return(vm.ctx.new_int(x)),
+                None => PyIterReturn::StopIteration(None),
+            })
+        })
     }
 }
 

@@ -751,7 +751,7 @@ impl PyByteArrayIterator {
     fn reduce(&self, vm: &VirtualMachine) -> PyObjectRef {
         self.internal
             .lock()
-            .builtin_iter_reduce(|x| x.clone().into_object(), vm)
+            .builtins_iter_reduce(|x| x.clone().into_object(), vm)
     }
 
     #[pymethod(magic)]
@@ -763,15 +763,13 @@ impl PyByteArrayIterator {
 }
 impl IteratorIterable for PyByteArrayIterator {}
 impl SlotIterator for PyByteArrayIterator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        zelf.internal.lock().next(
-            |bytearray, pos| {
-                let buf = bytearray.borrow_buf();
-                buf.get(pos)
-                    .ok_or_else(|| vm.new_stop_iteration())
-                    .map(|&x| vm.ctx.new_int(x))
-            },
-            vm,
-        )
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        zelf.internal.lock().next(|bytearray, pos| {
+            let buf = bytearray.borrow_buf();
+            Ok(match buf.get(pos) {
+                Some(&x) => PyIterReturn::Return(vm.ctx.new_int(x)),
+                None => PyIterReturn::StopIteration(None),
+            })
+        })
     }
 }

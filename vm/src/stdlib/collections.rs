@@ -634,22 +634,17 @@ mod _collections {
 
     impl IteratorIterable for PyDequeIterator {}
     impl SlotIterator for PyDequeIterator {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-            zelf.internal.lock().next(
-                |deque, pos| {
-                    if zelf.state != deque.state.load() {
-                        return Err(
-                            vm.new_runtime_error("Deque mutated during iteration".to_owned())
-                        );
-                    }
-                    let deque = deque.borrow_deque();
-                    deque
-                        .get(pos)
-                        .ok_or_else(|| vm.new_stop_iteration())
-                        .map(|x| x.clone())
-                },
-                vm,
-            )
+        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+            zelf.internal.lock().next(|deque, pos| {
+                if zelf.state != deque.state.load() {
+                    return Err(vm.new_runtime_error("Deque mutated during iteration".to_owned()));
+                }
+                let deque = deque.borrow_deque();
+                Ok(match deque.get(pos) {
+                    Some(x) => PyIterReturn::Return(x.clone()),
+                    None => PyIterReturn::StopIteration(None),
+                })
+            })
         }
     }
 
@@ -706,26 +701,23 @@ mod _collections {
 
     impl IteratorIterable for PyReverseDequeIterator {}
     impl SlotIterator for PyReverseDequeIterator {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-            zelf.internal.lock().next(
-                |deque, pos| {
-                    if deque.state.load() != zelf.state {
-                        return Err(
-                            vm.new_runtime_error("Deque mutated during iteration".to_owned())
-                        );
-                    }
-                    let deque = deque.borrow_deque();
-                    let pos = deque
+        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+            zelf.internal.lock().next(|deque, pos| {
+                if deque.state.load() != zelf.state {
+                    return Err(vm.new_runtime_error("Deque mutated during iteration".to_owned()));
+                }
+                let deque = deque.borrow_deque();
+                Ok(
+                    match deque
                         .len()
                         .checked_sub(pos + 1)
-                        .ok_or_else(|| vm.new_stop_iteration())?;
-                    deque
-                        .get(pos)
-                        .ok_or_else(|| vm.new_stop_iteration())
-                        .map(|x| x.clone())
-                },
-                vm,
-            )
+                        .and_then(|pos| deque.get(pos))
+                    {
+                        Some(x) => PyIterReturn::Return(x.clone()),
+                        None => PyIterReturn::StopIteration(None),
+                    },
+                )
+            })
         }
     }
 }

@@ -853,7 +853,7 @@ impl PySetIterator {
 
 impl IteratorIterable for PySetIterator {}
 impl SlotIterator for PySetIterator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let mut internal = zelf.internal.lock();
         if let IterStatus::Active(dict) = &internal.status {
             if dict.has_changed_size(&zelf.size) {
@@ -863,15 +863,15 @@ impl SlotIterator for PySetIterator {
             match dict.next_entry(internal.position) {
                 Some((position, key, _)) => {
                     internal.position = position;
-                    Ok(key)
+                    Ok(PyIterReturn::Return(key))
                 }
                 None => {
                     internal.status = IterStatus::Exhausted;
-                    Err(vm.new_stop_iteration())
+                    Ok(PyIterReturn::StopIteration(None))
                 }
             }
         } else {
-            Err(vm.new_stop_iteration())
+            Ok(PyIterReturn::StopIteration(None))
         }
     }
 }
