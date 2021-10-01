@@ -218,13 +218,11 @@ impl SlotIterator for PyStrIterator {
                     internal.1 = offset + ch.len_utf8();
                     return Ok(ch.into_pyobject(vm));
                 }
-            } else {
-                if let Some(value) = value.get(internal.1..) {
-                    if let Some(ch) = value.chars().next() {
-                        internal.0.position += 1;
-                        internal.1 += ch.len_utf8();
-                        return Ok(ch.into_pyobject(vm));
-                    }
+            } else if let Some(value) = value.get(internal.1..) {
+                if let Some(ch) = value.chars().next() {
+                    internal.0.position += 1;
+                    internal.1 += ch.len_utf8();
+                    return Ok(ch.into_pyobject(vm));
                 }
             }
             internal.0.status = Exhausted;
