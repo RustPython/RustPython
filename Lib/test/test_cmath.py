@@ -594,19 +594,6 @@ class CMathTests(unittest.TestCase):
         for z in complex_zeros:
             self.assertComplexIdentical(cmath.tanh(z), z)
 
-    @requires_IEEE_754
-    def testSinhSign(self):
-        for z in complex_zeros:
-            self.assertComplexIdentical(cmath.sinh(z), z)
-
-    @requires_IEEE_754
-    def testCoshSign(self):
-        for z in complex_zeros:
-            # since we are only dealing with complex zeros for the test
-            # this is an easy way to get the imaginary sign
-            imaginary = 0.0 * z.real * z.imag
-            self.assertComplexIdentical(cmath.cosh(z), complex(1.0, imaginary)) 
-
     # The algorithm used for atan and atanh makes use of the system
     # log1p function; If that system function doesn't respect the sign
     # of zero, then atan and atanh will also have difficulties with
