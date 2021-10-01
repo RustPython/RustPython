@@ -801,8 +801,6 @@ class CodecCallbackTest(unittest.TestCase):
             codecs.lookup_error("namereplace")
         )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_unencodablereplacement(self):
         def unencrepl(exc):
             if isinstance(exc, UnicodeEncodeError):
