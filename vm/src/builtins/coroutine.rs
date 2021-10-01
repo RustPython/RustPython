@@ -10,6 +10,7 @@ use crate::{
 
 #[pyclass(module = false, name = "coroutine")]
 #[derive(Debug)]
+// PyCoro_Type in CPython
 pub struct PyCoroutine {
     inner: Coro,
 }
@@ -112,6 +113,7 @@ impl SlotIterator for PyCoroutine {
 
 #[pyclass(module = false, name = "coroutine_wrapper")]
 #[derive(Debug)]
+// PyCoroWrapper_Type in CPython
 pub struct PyCoroutineWrapper {
     coro: PyRef<PyCoroutine>,
 }

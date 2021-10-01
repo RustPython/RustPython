@@ -35,11 +35,14 @@ impl Variant {
 #[derive(Debug)]
 pub struct Coro {
     frame: FrameRef,
-    pub closed: AtomicCell<bool>,
+    pub closed: AtomicCell<bool>, // redudant?
     running: AtomicCell<bool>,
-    exception: PyMutex<Option<PyBaseExceptionRef>>,
     variant: Variant,
+    // code
+    // _weakreflist
     name: PyMutex<PyStrRef>,
+    // qualname
+    exception: PyMutex<Option<PyBaseExceptionRef>>, // exc_state
 }
 
 impl Coro {
