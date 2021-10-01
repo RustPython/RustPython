@@ -7,8 +7,7 @@ use crate::{
     function::ArgCallable,
     protocol::PyIterReturn,
     slots::{IteratorIterable, SlotIterator},
-    ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
-    VirtualMachine,
+    ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 use rustpython_common::{
     lock::{PyMutex, PyRwLock, PyRwLockUpgradableReadGuard},
@@ -211,17 +210,7 @@ impl SlotIterator for PySequenceIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal
             .lock()
-            .next(|obj, pos| match obj.get_item(pos, vm) {
-                Ok(ret) => Ok(PyIterReturn::Return(ret)),
-                Err(e) if e.isinstance(&vm.ctx.exceptions.index_error) => {
-                    Ok(PyIterReturn::StopIteration(None))
-                }
-                Err(e) if e.isinstance(&vm.ctx.exceptions.stop_iteration) => {
-                    let args = e.get_arg(0);
-                    Ok(PyIterReturn::StopIteration(args))
-                }
-                Err(e) => Err(e),
-            })
+            .next(|obj, pos| PyIterReturn::from_getitem_result(obj.get_item(pos, vm), vm))
     }
 }
 

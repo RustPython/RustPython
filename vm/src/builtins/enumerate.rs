@@ -1,6 +1,5 @@
 use super::{IterStatus, PositionIterInternal, PyIntRef, PyTypeRef};
 use crate::common::lock::{PyMutex, PyRwLock};
-use crate::TypeProtocol;
 use crate::{
     function::OptionalArg,
     protocol::{PyIter, PyIterReturn},
@@ -115,17 +114,7 @@ impl SlotIterator for PyReverseSequenceIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal
             .lock()
-            .rev_next(|obj, pos| match obj.get_item(pos, vm) {
-                Ok(ret) => Ok(PyIterReturn::Return(ret)),
-                Err(e) if e.isinstance(&vm.ctx.exceptions.index_error) => {
-                    Ok(PyIterReturn::StopIteration(None))
-                }
-                Err(e) if e.isinstance(&vm.ctx.exceptions.stop_iteration) => {
-                    let args = e.get_arg(0);
-                    Ok(PyIterReturn::StopIteration(args))
-                }
-                Err(e) => Err(e),
-            })
+            .rev_next(|obj, pos| PyIterReturn::from_getitem_result(obj.get_item(pos, vm), vm))
     }
 }
 

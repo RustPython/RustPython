@@ -136,6 +136,19 @@ impl PyIterReturn {
             Err(err) => Err(err),
         }
     }
+    pub fn from_getitem_result(result: PyResult, vm: &VirtualMachine) -> PyResult<Self> {
+        match result {
+            Ok(obj) => Ok(Self::Return(obj)),
+            Err(err) if err.isinstance(&vm.ctx.exceptions.index_error) => {
+                Ok(Self::StopIteration(None))
+            }
+            Err(err) if err.isinstance(&vm.ctx.exceptions.stop_iteration) => {
+                let args = err.get_arg(0);
+                Ok(Self::StopIteration(args))
+            }
+            Err(err) => Err(err),
+        }
+    }
 }
 
 impl IntoPyResult for PyIterReturn {
