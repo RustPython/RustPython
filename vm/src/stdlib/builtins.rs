@@ -513,6 +513,13 @@ mod builtins {
         default_value: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
+        if !PyIter::check(&iterator) {
+            return Err(vm.new_type_error(format!(
+                "{} object is not an iterator",
+                iterator.class().name()
+            )));
+        }
+
         PyIter::new(iterator).next(vm).or_else(|err| {
             if err.isinstance(&vm.ctx.exceptions.stop_iteration) {
                 default_value.ok_or(err)
