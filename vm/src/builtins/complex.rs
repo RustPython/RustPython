@@ -305,10 +305,26 @@ impl PyComplex {
     #[pymethod(magic)]
     fn repr(&self) -> String {
         let Complex64 { re, im } = self.value;
-        if re == 0.0 {
+        let re_part = if re.is_nan() {
+            "nan".to_string()
+        } else {
+            format!("{}", re)
+        };
+        let im_part = if im.is_nan() {
+            if re == 0.0 {
+                "nanj".to_string()
+            } else {
+                "+nanj".to_string()
+            }
+        } else if re == 0.0 {
             format!("{}j", im)
         } else {
-            format!("({}{:+}j)", re, im)
+            format!("{:+}j", im)
+        };
+        if re == 0.0 {
+            format!("{}", im_part)
+        } else {
+            format!("({}{})", re_part, im_part)
         }
     }
 
