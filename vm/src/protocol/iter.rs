@@ -18,6 +18,11 @@ impl PyIter<PyObjectRef> {
     pub fn into_object(self) -> PyObjectRef {
         self.0
     }
+    pub fn check(obj: &PyObjectRef) -> bool {
+        obj.class()
+            .mro_find_map(|x| x.slots.iternext.load())
+            .is_some()
+    }
 }
 
 impl<T> PyIter<T>
@@ -83,18 +88,16 @@ impl TryFromObject for PyIter<PyObjectRef> {
         };
         if let Some(getiter) = getiter {
             let iter = getiter(iter_target, vm)?;
-            let cls = iter.class();
-            let is_iter = cls.iter_mro().any(|x| x.slots.iternext.load().is_some());
-            if is_iter {
-                drop(cls);
+            if PyIter::check(&iter) {
                 Ok(Self(iter))
             } else {
                 Err(vm.new_type_error(format!(
                     "iter() returned non-iterator of type '{}'",
-                    cls.name()
+                    iter.class().name()
                 )))
             }
         } else {
+            // TODO: __getitem__ method lookup must be replaced by sequence protocol checking
             vm.get_method_or_type_error(iter_target.clone(), "__getitem__", || {
                 format!("'{}' object is not iterable", iter_target.class().name())
             })?;
