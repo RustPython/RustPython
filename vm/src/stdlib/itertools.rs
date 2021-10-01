@@ -9,8 +9,7 @@ mod decl {
     use crate::{
         builtins::{int, PyInt, PyIntRef, PyTupleRef, PyTypeRef},
         function::{ArgCallable, FuncArgs, OptionalArg, OptionalOption, PosArgs},
-        iterator::get_next_object,
-        protocol::PyIter,
+        protocol::{PyIter, PyIterReturn},
         slots::{IteratorIterable, SlotConstructor, SlotIterator},
         IdProtocol, IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, PyWeakRef, TypeProtocol,
         VirtualMachine,
@@ -57,7 +56,7 @@ mod decl {
     }
     impl IteratorIterable for PyItertoolsChain {}
     impl SlotIterator for PyItertoolsChain {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             loop {
                 let pos = zelf.cur_idx.load();
                 if pos >= zelf.iterables.len() {
@@ -77,19 +76,18 @@ mod decl {
 
                 // We need to call "next" outside of the lock.
                 match cur_iter.next(vm) {
-                    Ok(ok) => return Ok(ok),
+                    Ok(PyIterReturn::Return(ok)) => return Ok(PyIterReturn::Return(ok)),
+                    Ok(PyIterReturn::StopIteration(_)) => {
+                        zelf.cur_idx.fetch_add(1);
+                        *zelf.cached_iter.write() = None;
+                    }
                     Err(err) => {
-                        if err.isinstance(&vm.ctx.exceptions.stop_iteration) {
-                            zelf.cur_idx.fetch_add(1);
-                            *zelf.cached_iter.write() = None;
-                        } else {
-                            return Err(err);
-                        }
+                        return Err(err);
                     }
                 }
             }
 
-            Err(vm.new_stop_iteration())
+            Ok(PyIterReturn::StopIteration(None))
         }
     }
 
@@ -126,9 +124,12 @@ mod decl {
 
     impl IteratorIterable for PyItertoolsCompress {}
     impl SlotIterator for PyItertoolsCompress {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             loop {
-                let sel_obj = zelf.selector.next(vm)?;
+                let sel_obj = match zelf.selector.next(vm)? {
+                    PyIterReturn::Return(obj) => obj,
+                    PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
+                };
                 let verdict = sel_obj.clone().try_to_bool(vm)?;
                 let data_obj = zelf.data.next(vm)?;
 
@@ -185,11 +186,11 @@ mod decl {
     impl PyItertoolsCount {}
     impl IteratorIterable for PyItertoolsCount {}
     impl SlotIterator for PyItertoolsCount {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let mut cur = zelf.cur.write();
             let result = cur.clone();
             *cur += &zelf.step;
-            Ok(result.into_pyobject(vm))
+            Ok(PyIterReturn::Return(result.into_pyobject(vm)))
         }
     }
 
@@ -219,14 +220,14 @@ mod decl {
     impl PyItertoolsCycle {}
     impl IteratorIterable for PyItertoolsCycle {}
     impl SlotIterator for PyItertoolsCycle {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-            let item = if let Some(item) = get_next_object(vm, &zelf.iter)? {
+        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+            let item = if let PyIterReturn::Return(item) = zelf.iter.next(vm)? {
                 zelf.saved.write().push(item.clone());
                 item
             } else {
                 let saved = zelf.saved.read();
                 if saved.len() == 0 {
-                    return Err(vm.new_stop_iteration());
+                    return Ok(PyIterReturn::StopIteration(None));
                 }
 
                 let last_index = zelf.index.fetch_add(1);
@@ -238,7 +239,7 @@ mod decl {
                 saved[last_index].clone()
             };
 
-            Ok(item)
+            Ok(PyIterReturn::Return(item))
         }
     }
 
@@ -320,15 +321,15 @@ mod decl {
 
     impl IteratorIterable for PyItertoolsRepeat {}
     impl SlotIterator for PyItertoolsRepeat {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        fn next(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             if let Some(ref times) = zelf.times {
                 let mut times = times.write();
                 if *times == 0 {
-                    return Err(vm.new_stop_iteration());
+                    return Ok(PyIterReturn::StopIteration(None));
                 }
                 *times -= 1;
             }
-            Ok(zelf.object.clone())
+            Ok(PyIterReturn::Return(zelf.object.clone()))
         }
     }
 
@@ -365,11 +366,15 @@ mod decl {
     impl PyItertoolsStarmap {}
     impl IteratorIterable for PyItertoolsStarmap {}
     impl SlotIterator for PyItertoolsStarmap {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let obj = zelf.iter.next(vm)?;
             let function = &zelf.function;
-
-            vm.invoke(function, vm.extract_elements(&obj)?)
+            match obj {
+                PyIterReturn::Return(obj) => {
+                    PyIterReturn::from_result(vm.invoke(function, vm.extract_elements(&obj)?), vm)
+                }
+                PyIterReturn::StopIteration(v) => Ok(PyIterReturn::StopIteration(v)),
+            }
         }
     }
 
@@ -414,22 +419,25 @@ mod decl {
     impl PyItertoolsTakewhile {}
     impl IteratorIterable for PyItertoolsTakewhile {}
     impl SlotIterator for PyItertoolsTakewhile {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             if zelf.stop_flag.load() {
-                return Err(vm.new_stop_iteration());
+                return Ok(PyIterReturn::StopIteration(None));
             }
 
             // might be StopIteration or anything else, which is propagated upwards
-            let obj = zelf.iterable.next(vm)?;
+            let obj = match zelf.iterable.next(vm)? {
+                PyIterReturn::Return(obj) => obj,
+                PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
+            };
             let predicate = &zelf.predicate;
 
             let verdict = vm.invoke(predicate, (obj.clone(),))?;
             let verdict = verdict.try_to_bool(vm)?;
             if verdict {
-                Ok(obj)
+                Ok(PyIterReturn::Return(obj))
             } else {
                 zelf.stop_flag.store(true);
-                Err(vm.new_stop_iteration())
+                Ok(PyIterReturn::StopIteration(None))
             }
         }
     }
@@ -475,18 +483,23 @@ mod decl {
     impl PyItertoolsDropwhile {}
     impl IteratorIterable for PyItertoolsDropwhile {}
     impl SlotIterator for PyItertoolsDropwhile {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let predicate = &zelf.predicate;
             let iterable = &zelf.iterable;
 
             if !zelf.start_flag.load() {
                 loop {
-                    let obj = iterable.next(vm)?;
+                    let obj = match iterable.next(vm)? {
+                        PyIterReturn::Return(obj) => obj,
+                        PyIterReturn::StopIteration(v) => {
+                            return Ok(PyIterReturn::StopIteration(v))
+                        }
+                    };
                     let pred = predicate.clone();
                     let pred_value = vm.invoke(&pred.into_object(), (obj.clone(),))?;
                     if !pred_value.try_to_bool(vm)? {
                         zelf.start_flag.store(true);
-                        return Ok(obj);
+                        return Ok(PyIterReturn::Return(obj));
                     }
                 }
             }
@@ -570,19 +583,25 @@ mod decl {
 
     #[pyimpl(with(SlotIterator, SlotConstructor))]
     impl PyItertoolsGroupBy {
-        pub(super) fn advance(&self, vm: &VirtualMachine) -> PyResult<(PyObjectRef, PyObjectRef)> {
-            let new_value = self.iterable.next(vm)?;
+        pub(super) fn advance(
+            &self,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyIterReturn<(PyObjectRef, PyObjectRef)>> {
+            let new_value = match self.iterable.next(vm)? {
+                PyIterReturn::Return(obj) => obj,
+                PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
+            };
             let new_key = if let Some(ref kf) = self.key_func {
                 vm.invoke(kf, vec![new_value.clone()])?
             } else {
                 new_value.clone()
             };
-            Ok((new_value, new_key))
+            Ok(PyIterReturn::Return((new_value, new_key)))
         }
     }
     impl IteratorIterable for PyItertoolsGroupBy {}
     impl SlotIterator for PyItertoolsGroupBy {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let mut state = zelf.state.lock();
             state.grouper = None;
 
@@ -593,13 +612,23 @@ mod decl {
 
                 let (value, key) = if let Some(old_key) = current_key {
                     loop {
-                        let (value, new_key) = zelf.advance(vm)?;
+                        let (value, new_key) = match zelf.advance(vm)? {
+                            PyIterReturn::Return(obj) => obj,
+                            PyIterReturn::StopIteration(v) => {
+                                return Ok(PyIterReturn::StopIteration(v))
+                            }
+                        };
                         if !vm.bool_eq(&new_key, &old_key)? {
                             break (value, new_key);
                         }
                     }
                 } else {
-                    zelf.advance(vm)?
+                    match zelf.advance(vm)? {
+                        PyIterReturn::Return(obj) => obj,
+                        PyIterReturn::StopIteration(v) => {
+                            return Ok(PyIterReturn::StopIteration(v))
+                        }
+                    }
                 };
 
                 state = zelf.state.lock();
@@ -615,7 +644,9 @@ mod decl {
             .into_ref(vm);
 
             state.grouper = Some(PyRef::downgrade(&grouper));
-            Ok((state.current_key.as_ref().unwrap().clone(), grouper).into_pyobject(vm))
+            Ok(PyIterReturn::Return(
+                (state.current_key.as_ref().unwrap().clone(), grouper).into_pyobject(vm),
+            ))
         }
     }
 
@@ -632,31 +663,34 @@ mod decl {
     impl PyItertoolsGrouper {}
     impl IteratorIterable for PyItertoolsGrouper {}
     impl SlotIterator for PyItertoolsGrouper {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let old_key = {
                 let mut state = zelf.groupby.state.lock();
 
                 if !state.is_current(zelf) {
-                    return Err(vm.new_stop_iteration());
+                    return Ok(PyIterReturn::StopIteration(None));
                 }
 
                 // check to see if the value has already been retrieved from the iterator
                 if let Some(val) = state.current_value.take() {
-                    return Ok(val);
+                    return Ok(PyIterReturn::Return(val));
                 }
 
                 state.current_key.as_ref().unwrap().clone()
             };
-            let (value, key) = zelf.groupby.advance(vm)?;
+            let (value, key) = match zelf.groupby.advance(vm)? {
+                PyIterReturn::Return(obj) => obj,
+                PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
+            };
             if vm.bool_eq(&key, &old_key)? {
-                Ok(value)
+                Ok(PyIterReturn::Return(value))
             } else {
                 let mut state = zelf.groupby.state.lock();
                 state.current_value = Some(value);
                 state.current_key = Some(key);
                 state.next_group = true;
                 state.grouper = None;
-                Err(vm.new_stop_iteration())
+                Ok(PyIterReturn::StopIteration(None))
             }
         }
     }
@@ -762,7 +796,7 @@ mod decl {
 
     impl IteratorIterable for PyItertoolsIslice {}
     impl SlotIterator for PyItertoolsIslice {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             while zelf.cur.load() < zelf.next.load() {
                 zelf.iterable.next(vm)?;
                 zelf.cur.fetch_add(1);
@@ -770,18 +804,21 @@ mod decl {
 
             if let Some(stop) = zelf.stop {
                 if zelf.cur.load() >= stop {
-                    return Err(vm.new_stop_iteration());
+                    return Ok(PyIterReturn::StopIteration(None));
                 }
             }
 
-            let obj = zelf.iterable.next(vm)?;
+            let obj = match zelf.iterable.next(vm)? {
+                PyIterReturn::Return(obj) => obj,
+                PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
+            };
             zelf.cur.fetch_add(1);
 
             // TODO is this overflow check required? attempts to copy CPython.
             let (next, ovf) = zelf.next.load().overflowing_add(zelf.step);
             zelf.next.store(if ovf { zelf.stop.unwrap() } else { next });
 
-            Ok(obj)
+            Ok(PyIterReturn::Return(obj))
         }
     }
 
@@ -824,12 +861,15 @@ mod decl {
     impl PyItertoolsFilterFalse {}
     impl IteratorIterable for PyItertoolsFilterFalse {}
     impl SlotIterator for PyItertoolsFilterFalse {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let predicate = &zelf.predicate;
             let iterable = &zelf.iterable;
 
             loop {
-                let obj = iterable.next(vm)?;
+                let obj = match iterable.next(vm)? {
+                    PyIterReturn::Return(obj) => obj,
+                    PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
+                };
                 let pred_value = if vm.is_none(predicate) {
                     obj.clone()
                 } else {
@@ -837,7 +877,7 @@ mod decl {
                 };
 
                 if !pred_value.try_to_bool(vm)? {
-                    return Ok(obj);
+                    return Ok(PyIterReturn::Return(obj));
                 }
             }
         }
@@ -881,18 +921,28 @@ mod decl {
 
     impl IteratorIterable for PyItertoolsAccumulate {}
     impl SlotIterator for PyItertoolsAccumulate {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let iterable = &zelf.iterable;
 
             let acc_value = zelf.acc_value.read().clone();
 
             let next_acc_value = match acc_value {
                 None => match &zelf.initial {
-                    None => iterable.next(vm)?,
+                    None => match iterable.next(vm)? {
+                        PyIterReturn::Return(obj) => obj,
+                        PyIterReturn::StopIteration(v) => {
+                            return Ok(PyIterReturn::StopIteration(v))
+                        }
+                    },
                     Some(obj) => obj.clone(),
                 },
                 Some(value) => {
-                    let obj = iterable.next(vm)?;
+                    let obj = match iterable.next(vm)? {
+                        PyIterReturn::Return(obj) => obj,
+                        PyIterReturn::StopIteration(v) => {
+                            return Ok(PyIterReturn::StopIteration(v))
+                        }
+                    };
                     match &zelf.binop {
                         None => vm._add(&value, &obj)?,
                         Some(op) => vm.invoke(op, vec![value, obj])?,
@@ -901,7 +951,7 @@ mod decl {
             };
             *zelf.acc_value.write() = Some(next_acc_value.clone());
 
-            Ok(next_acc_value)
+            Ok(PyIterReturn::Return(next_acc_value))
         }
     }
 
@@ -919,12 +969,15 @@ mod decl {
             }))
         }
 
-        fn get_item(&self, vm: &VirtualMachine, index: usize) -> PyResult {
+        fn get_item(&self, vm: &VirtualMachine, index: usize) -> PyResult<PyIterReturn> {
             if self.values.read().len() == index {
-                let result = self.iterable.next(vm)?;
+                let result = match self.iterable.next(vm)? {
+                    PyIterReturn::Return(obj) => obj,
+                    PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
+                };
                 self.values.write().push(result);
             }
-            Ok(self.values.read()[index].clone())
+            Ok(PyIterReturn::Return(self.values.read()[index].clone()))
         }
     }
 
@@ -999,10 +1052,13 @@ mod decl {
     }
     impl IteratorIterable for PyItertoolsTee {}
     impl SlotIterator for PyItertoolsTee {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-            let value = zelf.tee_data.get_item(vm, zelf.index.load())?;
+        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+            let value = match zelf.tee_data.get_item(vm, zelf.index.load())? {
+                PyIterReturn::Return(obj) => obj,
+                PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
+            };
             zelf.index.fetch_add(1);
-            Ok(value)
+            Ok(PyIterReturn::Return(value))
         }
     }
 
@@ -1075,17 +1131,17 @@ mod decl {
     }
     impl IteratorIterable for PyItertoolsProduct {}
     impl SlotIterator for PyItertoolsProduct {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             // stop signal
             if zelf.stop.load() {
-                return Err(vm.new_stop_iteration());
+                return Ok(PyIterReturn::StopIteration(None));
             }
 
             let pools = &zelf.pools;
 
             for p in pools {
                 if p.is_empty() {
-                    return Err(vm.new_stop_iteration());
+                    return Ok(PyIterReturn::StopIteration(None));
                 }
             }
 
@@ -1100,7 +1156,7 @@ mod decl {
 
             zelf.update_idxs(idxs);
 
-            Ok(res)
+            Ok(PyIterReturn::Return(res))
         }
     }
 
@@ -1154,10 +1210,10 @@ mod decl {
     impl PyItertoolsCombinations {}
     impl IteratorIterable for PyItertoolsCombinations {}
     impl SlotIterator for PyItertoolsCombinations {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             // stop signal
             if zelf.exhausted.load() {
-                return Err(vm.new_stop_iteration());
+                return Ok(PyIterReturn::StopIteration(None));
             }
 
             let n = zelf.pool.len();
@@ -1165,7 +1221,7 @@ mod decl {
 
             if r == 0 {
                 zelf.exhausted.store(true);
-                return Ok(vm.ctx.new_tuple(vec![]));
+                return Ok(PyIterReturn::Return(vm.ctx.new_tuple(vec![])));
             }
 
             let res = vm.ctx.new_tuple(
@@ -1199,7 +1255,7 @@ mod decl {
                 }
             }
 
-            Ok(res)
+            Ok(PyIterReturn::Return(res))
         }
     }
 
@@ -1245,10 +1301,10 @@ mod decl {
 
     impl IteratorIterable for PyItertoolsCombinationsWithReplacement {}
     impl SlotIterator for PyItertoolsCombinationsWithReplacement {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             // stop signal
             if zelf.exhausted.load() {
-                return Err(vm.new_stop_iteration());
+                return Ok(PyIterReturn::StopIteration(None));
             }
 
             let n = zelf.pool.len();
@@ -1256,7 +1312,7 @@ mod decl {
 
             if r == 0 {
                 zelf.exhausted.store(true);
-                return Ok(vm.ctx.new_tuple(vec![]));
+                return Ok(PyIterReturn::Return(vm.ctx.new_tuple(vec![])));
             }
 
             let mut indices = zelf.indices.write();
@@ -1285,7 +1341,7 @@ mod decl {
                 }
             }
 
-            Ok(res)
+            Ok(PyIterReturn::Return(res))
         }
     }
 
@@ -1353,10 +1409,10 @@ mod decl {
     impl PyItertoolsPermutations {}
     impl IteratorIterable for PyItertoolsPermutations {}
     impl SlotIterator for PyItertoolsPermutations {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             // stop signal
             if zelf.exhausted.load() {
-                return Err(vm.new_stop_iteration());
+                return Ok(PyIterReturn::StopIteration(None));
             }
 
             let n = zelf.pool.len();
@@ -1364,7 +1420,7 @@ mod decl {
 
             if n == 0 {
                 zelf.exhausted.store(true);
-                return Ok(vm.ctx.new_tuple(vec![]));
+                return Ok(PyIterReturn::Return(vm.ctx.new_tuple(vec![])));
             }
 
             let mut result = zelf.result.write();
@@ -1401,20 +1457,22 @@ mod decl {
                 }
                 if !sentinel {
                     zelf.exhausted.store(true);
-                    return Err(vm.new_stop_iteration());
+                    return Ok(PyIterReturn::StopIteration(None));
                 }
             } else {
                 // On the first pass, initialize result tuple using the indices
                 *result = Some((0..r).collect());
             }
 
-            Ok(vm.ctx.new_tuple(
-                result
-                    .as_ref()
-                    .unwrap()
-                    .iter()
-                    .map(|&i| zelf.pool[i].clone())
-                    .collect(),
+            Ok(PyIterReturn::Return(
+                vm.ctx.new_tuple(
+                    result
+                        .as_ref()
+                        .unwrap()
+                        .iter()
+                        .map(|&i| zelf.pool[i].clone())
+                        .collect(),
+                ),
             ))
         }
     }
@@ -1451,30 +1509,27 @@ mod decl {
     impl PyItertoolsZipLongest {}
     impl IteratorIterable for PyItertoolsZipLongest {}
     impl SlotIterator for PyItertoolsZipLongest {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             if zelf.iterators.is_empty() {
-                Err(vm.new_stop_iteration())
+                Ok(PyIterReturn::StopIteration(None))
             } else {
                 let mut result: Vec<PyObjectRef> = Vec::new();
                 let mut numactive = zelf.iterators.len();
 
                 for idx in 0..zelf.iterators.len() {
-                    let next_obj = match zelf.iterators[idx].next(vm) {
-                        Ok(obj) => obj,
-                        Err(err) => {
-                            if !err.isinstance(&vm.ctx.exceptions.stop_iteration) {
-                                return Err(err);
-                            }
+                    let next_obj = match zelf.iterators[idx].next(vm)? {
+                        PyIterReturn::Return(obj) => obj,
+                        PyIterReturn::StopIteration(v) => {
                             numactive -= 1;
                             if numactive == 0 {
-                                return Err(vm.new_stop_iteration());
+                                return Ok(PyIterReturn::StopIteration(v));
                             }
                             zelf.fillvalue.clone()
                         }
                     };
                     result.push(next_obj);
                 }
-                Ok(vm.ctx.new_tuple(result))
+                Ok(PyIterReturn::Return(vm.ctx.new_tuple(result)))
             }
         }
     }
@@ -1503,14 +1558,20 @@ mod decl {
     impl PyItertoolsPairwise {}
     impl IteratorIterable for PyItertoolsPairwise {}
     impl SlotIterator for PyItertoolsPairwise {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let old = match zelf.old.read().clone() {
-                None => zelf.iterator.next(vm)?,
+                None => match zelf.iterator.next(vm)? {
+                    PyIterReturn::Return(obj) => obj,
+                    PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
+                },
                 Some(obj) => obj,
             };
-            let new = zelf.iterator.next(vm)?;
+            let new = match zelf.iterator.next(vm)? {
+                PyIterReturn::Return(obj) => obj,
+                PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
+            };
             *zelf.old.write() = Some(new.clone());
-            Ok(vm.ctx.new_tuple(vec![old, new]))
+            Ok(PyIterReturn::Return(vm.ctx.new_tuple(vec![old, new])))
         }
     }
 }

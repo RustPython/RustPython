@@ -5,6 +5,7 @@ use super::{
 use crate::common::{ascii, lock::PyRwLock};
 use crate::{
     function::{FuncArgs, KwArgs, OptionalArg},
+    protocol::PyIterReturn,
     slots::{self, Callable, PyTypeFlags, PyTypeSlots, SlotGetattro, SlotSetattro},
     utils::Either,
     IdProtocol, PyAttributes, PyClassImpl, PyContext, PyLease, PyObjectRef, PyRef, PyResult,
@@ -261,8 +262,12 @@ impl PyType {
                 update_slot!(iter, func);
             }
             "__next__" => {
-                let func: slots::IterNextFunc =
-                    |zelf, vm| vm.call_special_method(zelf.clone(), "__next__", ());
+                let func: slots::IterNextFunc = |zelf, vm| {
+                    PyIterReturn::from_result(
+                        vm.call_special_method(zelf.clone(), "__next__", ()),
+                        vm,
+                    )
+                };
                 update_slot!(iternext, func);
             }
             _ => {}

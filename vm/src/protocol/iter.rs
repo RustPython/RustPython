@@ -1,7 +1,7 @@
 use crate::IntoPyObject;
 use crate::{
-    builtins::iter::PySequenceIterator, PyObjectRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol, VirtualMachine,
+    builtins::iter::PySequenceIterator, IntoPyResult, PyObjectRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol, VirtualMachine,
 };
 use std::borrow::Borrow;
 use std::ops::Deref;
@@ -35,7 +35,7 @@ where
     pub fn as_object(&self) -> &PyObjectRef {
         self.0.borrow()
     }
-    pub fn next(&self, vm: &VirtualMachine) -> PyResult {
+    pub fn next(&self, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let iternext = {
             self.0
                 .borrow()
@@ -117,5 +117,41 @@ impl PyObjectRef {
     pub fn get_iter(self, vm: &VirtualMachine) -> PyResult<PyIter> {
         // PyObject_GetIter
         PyIter::try_from_object(vm, self)
+    }
+}
+
+pub enum PyIterReturn<T = PyObjectRef> {
+    Return(T),
+    StopIteration(Option<PyObjectRef>),
+}
+
+impl PyIterReturn {
+    pub fn from_result(result: PyResult, vm: &VirtualMachine) -> PyResult<Self> {
+        match result {
+            Ok(obj) => Ok(Self::Return(obj)),
+            Err(err) if err.isinstance(&vm.ctx.exceptions.stop_iteration) => {
+                let args = err.get_arg(0);
+                Ok(Self::StopIteration(args))
+            }
+            Err(err) => Err(err),
+        }
+    }
+}
+
+impl IntoPyResult for PyIterReturn {
+    fn into_pyresult(self, vm: &VirtualMachine) -> PyResult {
+        match self {
+            Self::Return(obj) => Ok(obj),
+            Self::StopIteration(v) => Err({
+                let args = if let Some(v) = v { vec![v] } else { Vec::new() };
+                vm.new_exception(vm.ctx.exceptions.stop_iteration.clone(), args)
+            }),
+        }
+    }
+}
+
+impl IntoPyResult for PyResult<PyIterReturn> {
+    fn into_pyresult(self, vm: &VirtualMachine) -> PyResult {
+        self.and_then(|obj| obj.into_pyresult(vm))
     }
 }

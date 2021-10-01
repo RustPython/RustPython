@@ -2,7 +2,7 @@ use super::{PyInt, PyIntRef, PySlice, PySliceRef, PyTypeRef};
 use crate::common::hash::PyHash;
 use crate::{
     function::{FuncArgs, OptionalArg},
-    iterator,
+    protocol::PyIterReturn,
     slots::{Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotIterator},
     IdProtocol, IntoPyRef, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol, VirtualMachine,
@@ -31,7 +31,7 @@ fn iter_search(
 ) -> PyResult<usize> {
     let mut count = 0;
     let iter = obj.get_iter(vm)?;
-    while let Some(element) = iterator::get_next_object(vm, &iter)? {
+    while let PyIterReturn::Return(element) = iter.next(vm)? {
         if vm.bool_eq(&item, &element)? {
             match flag {
                 SearchType::Index => return Ok(count),
@@ -515,17 +515,18 @@ impl PyLongRangeIterator {
 
 impl IteratorIterable for PyLongRangeIterator {}
 impl SlotIterator for PyLongRangeIterator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         // TODO: In pathological case (index == usize::MAX) this can wrap around
         // (since fetch_add wraps). This would result in the iterator spinning again
         // from the beginning.
         let index = BigInt::from(zelf.index.fetch_add(1));
         if index < zelf.length {
-            Ok(vm
-                .ctx
-                .new_int(zelf.start.clone() + index * zelf.step.clone()))
+            Ok(PyIterReturn::Return(
+                vm.ctx
+                    .new_int(zelf.start.clone() + index * zelf.step.clone()),
+            ))
         } else {
-            Err(vm.new_stop_iteration())
+            Ok(PyIterReturn::StopIteration(None))
         }
     }
 }
@@ -585,15 +586,17 @@ impl PyRangeIterator {
 
 impl IteratorIterable for PyRangeIterator {}
 impl SlotIterator for PyRangeIterator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         // TODO: In pathological case (index == usize::MAX) this can wrap around
         // (since fetch_add wraps). This would result in the iterator spinning again
         // from the beginning.
         let index = zelf.index.fetch_add(1);
         if index < zelf.length {
-            Ok(vm.ctx.new_int(zelf.start + (index as isize) * zelf.step))
+            Ok(PyIterReturn::Return(
+                vm.ctx.new_int(zelf.start + (index as isize) * zelf.step),
+            ))
         } else {
-            Err(vm.new_stop_iteration())
+            Ok(PyIterReturn::StopIteration(None))
         }
     }
 }

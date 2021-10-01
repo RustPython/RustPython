@@ -17,7 +17,7 @@ mod array {
         },
         class_or_notimplemented,
         function::{ArgBytesLike, ArgIterable, OptionalArg},
-        protocol::{BufferInternal, BufferOptions, PyBuffer, ResizeGuard},
+        protocol::{BufferInternal, BufferOptions, PyBuffer, PyIterReturn, ResizeGuard},
         sliceable::{saturate_index, PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
         slots::{
             AsBuffer, Comparable, Iterable, IteratorIterable, PyComparisonOp, SlotConstructor,
@@ -1199,13 +1199,14 @@ mod array {
 
     impl IteratorIterable for PyArrayIter {}
     impl SlotIterator for PyArrayIter {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let pos = zelf.position.fetch_add(1);
-            if let Some(item) = zelf.array.read().getitem_by_idx(pos, vm)? {
-                Ok(item)
+            let r = if let Some(item) = zelf.array.read().getitem_by_idx(pos, vm)? {
+                PyIterReturn::Return(item)
             } else {
-                Err(vm.new_stop_iteration())
-            }
+                PyIterReturn::StopIteration(None)
+            };
+            Ok(r)
         }
     }
 

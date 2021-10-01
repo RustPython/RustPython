@@ -25,7 +25,7 @@ mod builtins {
             ArgBytesLike, ArgCallable, ArgIterable, FuncArgs, KwArgs, OptionalArg, OptionalOption,
             PosArgs,
         },
-        protocol::PyIter,
+        protocol::{PyIter, PyIterReturn},
         py_io,
         readline::{Readline, ReadlineResult},
         scope::Scope,
@@ -512,19 +512,17 @@ mod builtins {
         iterator: PyObjectRef,
         default_value: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> PyResult {
+    ) -> PyResult<PyIterReturn> {
         if !PyIter::check(&iterator) {
             return Err(vm.new_type_error(format!(
                 "{} object is not an iterator",
                 iterator.class().name()
             )));
         }
-
-        PyIter::new(iterator).next(vm).or_else(|err| {
-            if err.isinstance(&vm.ctx.exceptions.stop_iteration) {
-                default_value.ok_or(err)
-            } else {
-                Err(err)
+        PyIter::new(iterator).next(vm).map(|iret| match iret {
+            PyIterReturn::Return(obj) => PyIterReturn::Return(obj),
+            PyIterReturn::StopIteration(v) => {
+                default_value.map_or(PyIterReturn::StopIteration(v), PyIterReturn::Return)
             }
         })
     }

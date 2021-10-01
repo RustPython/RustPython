@@ -14,7 +14,7 @@ mod _operator {
         builtins::{PyInt, PyIntRef, PyStrRef, PyTypeRef},
         function::{ArgBytesLike, FuncArgs, KwArgs, OptionalArg},
         iterator,
-        protocol::PyIter,
+        protocol::{PyIter, PyIterReturn},
         slots::{
             Callable,
             PyComparisonOp::{Eq, Ge, Gt, Le, Lt, Ne},
@@ -220,7 +220,7 @@ mod _operator {
     #[pyfunction(name = "countOf")]
     fn count_of(a: PyIter, b: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         let mut count: usize = 0;
-        while let Some(element) = iterator::get_next_object(vm, &a)? {
+        while let PyIterReturn::Return(element) = a.next(vm)? {
             if element.is(&b) || vm.bool_eq(&b, &element)? {
                 count += 1;
             }
@@ -244,7 +244,7 @@ mod _operator {
     #[pyfunction(name = "indexOf")]
     fn index_of(a: PyIter, b: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         let mut index: usize = 0;
-        while let Some(element) = iterator::get_next_object(vm, &a)? {
+        while let PyIterReturn::Return(element) = a.next(vm)? {
             if element.is(&b) || vm.bool_eq(&b, &element)? {
                 return Ok(index);
             }

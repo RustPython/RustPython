@@ -4,35 +4,10 @@
 
 use crate::{
     builtins::{int, PyBaseExceptionRef, PyInt},
-    protocol::PyIter,
+    protocol::{PyIter, PyIterReturn},
     IdProtocol, PyObjectRef, PyResult, TypeProtocol, VirtualMachine,
 };
 use num_traits::Signed;
-
-/*
- * Helper function to retrieve the next object (or none) from an iterator.
- */
-pub fn get_next_object<T>(
-    vm: &VirtualMachine,
-    iter_obj: &PyIter<T>,
-) -> PyResult<Option<PyObjectRef>>
-where
-    T: std::borrow::Borrow<PyObjectRef>,
-{
-    let next_obj: PyResult = iter_obj.next(vm);
-
-    match next_obj {
-        Ok(value) => Ok(Some(value)),
-        Err(next_error) => {
-            // Check if we have stopiteration, or something else:
-            if next_error.isinstance(&vm.ctx.exceptions.stop_iteration) {
-                Ok(None)
-            } else {
-                Err(next_error)
-            }
-        }
-    }
-}
 
 pub fn try_map<F, R>(vm: &VirtualMachine, iter: &PyIter, cap: usize, mut f: F) -> PyResult<Vec<R>>
 where
@@ -44,7 +19,7 @@ where
         return Ok(Vec::new());
     }
     let mut results = Vec::with_capacity(cap);
-    while let Some(element) = get_next_object(vm, iter)? {
+    while let PyIterReturn::Return(element) = iter.next(vm)? {
         results.push(f(element)?);
     }
     results.shrink_to_fit();

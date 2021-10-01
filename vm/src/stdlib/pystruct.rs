@@ -18,6 +18,7 @@ pub(crate) mod _struct {
         },
         common::str::wchar_t,
         function::{ArgBytesLike, ArgMemoryBuffer, PosArgs},
+        protocol::PyIterReturn,
         slots::{IteratorIterable, SlotConstructor, SlotIterator},
         utils::Either,
         IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
@@ -832,14 +833,16 @@ pub(crate) mod _struct {
     }
     impl IteratorIterable for UnpackIterator {}
     impl SlotIterator for UnpackIterator {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let size = zelf.format_spec.size;
             let offset = zelf.offset.fetch_add(size);
             zelf.buffer.with_ref(|buf| {
                 if let Some(buf) = buf.get(offset..offset + size) {
-                    zelf.format_spec.unpack(buf, vm).map(|x| x.into_object())
+                    zelf.format_spec
+                        .unpack(buf, vm)
+                        .map(|x| PyIterReturn::Return(x.into_object()))
                 } else {
-                    Err(vm.new_stop_iteration())
+                    Ok(PyIterReturn::StopIteration(None))
                 }
             })
         }

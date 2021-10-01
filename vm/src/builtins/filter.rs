@@ -1,6 +1,6 @@
 use super::PyTypeRef;
 use crate::{
-    protocol::PyIter,
+    protocol::{PyIter, PyIterReturn},
     slots::{IteratorIterable, SlotConstructor, SlotIterator},
     PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
@@ -39,19 +39,25 @@ impl PyFilter {}
 
 impl IteratorIterable for PyFilter {}
 impl SlotIterator for PyFilter {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let predicate = &zelf.predicate;
         loop {
-            let next_obj = zelf.iterator.next(vm)?;
+            let next_obj = match zelf.iterator.next(vm)? {
+                PyIterReturn::Return(obj) => obj,
+                PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
+            };
             let predicate_value = if vm.is_none(predicate) {
                 next_obj.clone()
             } else {
                 // the predicate itself can raise StopIteration which does stop the filter
                 // iteration
-                vm.invoke(predicate, vec![next_obj.clone()])?
+                match PyIterReturn::from_result(vm.invoke(predicate, vec![next_obj.clone()]), vm)? {
+                    PyIterReturn::Return(obj) => obj,
+                    PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
+                }
             };
             if predicate_value.try_to_bool(vm)? {
-                return Ok(next_obj);
+                return Ok(PyIterReturn::Return(next_obj));
             }
         }
     }

@@ -22,6 +22,7 @@ use crate::{
     frozen,
     function::{FuncArgs, IntoFuncArgs},
     import, iterator,
+    protocol::PyIterReturn,
     scope::Scope,
     signal::NSIG,
     slots::PyComparisonOp,
@@ -1927,7 +1928,7 @@ impl VirtualMachine {
     fn _membership_iter_search(&self, haystack: PyObjectRef, needle: PyObjectRef) -> PyResult {
         let iter = haystack.get_iter(self)?;
         loop {
-            if let Some(element) = iterator::get_next_object(self, &iter)? {
+            if let PyIterReturn::Return(element) = iter.next(self)? {
                 if self.bool_eq(&needle, &element)? {
                     return Ok(self.ctx.new_bool(true));
                 } else {

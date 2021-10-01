@@ -85,7 +85,7 @@ mod _io {
         function::{
             ArgBytesLike, ArgIterable, ArgMemoryBuffer, FuncArgs, OptionalArg, OptionalOption,
         },
-        protocol::{BufferInternal, BufferOptions, PyBuffer, ResizeGuard},
+        protocol::{BufferInternal, BufferOptions, PyBuffer, PyIterReturn, ResizeGuard},
         slots::{Iterable, SlotConstructor, SlotIterator},
         utils::Either,
         vm::{ReprGuard, VirtualMachine},
@@ -524,16 +524,16 @@ mod _io {
     }
 
     impl SlotIterator for _IOBase {
-        fn slot_iternext(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        fn slot_iternext(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let line = vm.call_method(zelf, "readline", ())?;
-            if !line.clone().try_to_bool(vm)? {
-                Err(vm.new_stop_iteration())
+            Ok(if !line.clone().try_to_bool(vm)? {
+                PyIterReturn::StopIteration(None)
             } else {
-                Ok(line)
-            }
+                PyIterReturn::Return(line)
+            })
         }
 
-        fn next(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult {
+        fn next(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             unreachable!("slot_iternext is implemented")
         }
     }

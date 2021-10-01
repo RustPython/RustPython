@@ -430,6 +430,7 @@ pub(super) mod _os {
         crt_fd::{Fd, Offset},
         exceptions::IntoPyException,
         function::{ArgBytesLike, FuncArgs, OptionalArg},
+        protocol::PyIterReturn,
         slots::{IteratorIterable, SlotIterator},
         suppress_iph,
         utils::Either,
@@ -899,28 +900,30 @@ pub(super) mod _os {
     }
     impl IteratorIterable for ScandirIterator {}
     impl SlotIterator for ScandirIterator {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             if zelf.exhausted.load() {
-                return Err(vm.new_stop_iteration());
+                return Ok(PyIterReturn::StopIteration(None));
             }
 
             match zelf.entries.write().next() {
                 Some(entry) => match entry {
-                    Ok(entry) => Ok(DirEntry {
-                        entry,
-                        mode: zelf.mode,
-                        lstat: OnceCell::new(),
-                        stat: OnceCell::new(),
-                        #[cfg(not(unix))]
-                        ino: AtomicCell::new(None),
-                    }
-                    .into_ref(vm)
-                    .into_object()),
+                    Ok(entry) => Ok(PyIterReturn::Return(
+                        DirEntry {
+                            entry,
+                            mode: zelf.mode,
+                            lstat: OnceCell::new(),
+                            stat: OnceCell::new(),
+                            #[cfg(not(unix))]
+                            ino: AtomicCell::new(None),
+                        }
+                        .into_ref(vm)
+                        .into_object(),
+                    )),
                     Err(err) => Err(err.into_pyexception(vm)),
                 },
                 None => {
                     zelf.exhausted.store(true);
-                    Err(vm.new_stop_iteration())
+                    Ok(PyIterReturn::StopIteration(None))
                 }
             }
         }
