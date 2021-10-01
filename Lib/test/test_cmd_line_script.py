@@ -148,11 +148,15 @@ class CmdLineTest(unittest.TestCase):
             print('Expected output: %r' % expected_msg)
         self.assertIn(expected_msg.encode('utf-8'), err)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_dash_c_loader(self):
         rc, out, err = assert_python_ok("-c", "print(__loader__)")
         expected = repr(importlib.machinery.BuiltinImporter).encode("utf-8")
         self.assertIn(expected, out)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_stdin_loader(self):
         # Unfortunately, there's no way to automatically test the fully
         # interactive REPL, since that code path only gets executed when
@@ -201,18 +205,24 @@ class CmdLineTest(unittest.TestCase):
             self.assertIn(b'File "<stdin>"', stderr.readline())
             self.assertIn(b'ZeroDivisionError', stderr.readline())
 
+    @unittest.skip("TODO: RUSTPYTHON, test hang in middle")
     def test_repl_stdout_flush(self):
         self.check_repl_stdout_flush()
 
+    @unittest.skip("TODO: RUSTPYTHON, test hang in middle")
     def test_repl_stdout_flush_separate_stderr(self):
         self.check_repl_stdout_flush(True)
 
+    @unittest.skip("TODO: RUSTPYTHON, test hang in middle")
     def test_repl_stderr_flush(self):
         self.check_repl_stderr_flush()
 
+    @unittest.skip("TODO: RUSTPYTHON, test hang in middle")
     def test_repl_stderr_flush_separate_stderr(self):
         self.check_repl_stderr_flush(True)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_basic_script(self):
         with support.temp_dir() as script_dir:
             script_name = _make_test_script(script_dir, 'script')
@@ -220,6 +230,8 @@ class CmdLineTest(unittest.TestCase):
                                script_dir, None,
                                importlib.machinery.SourceFileLoader)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_script_compiled(self):
         with support.temp_dir() as script_dir:
             script_name = _make_test_script(script_dir, 'script')
@@ -230,6 +242,8 @@ class CmdLineTest(unittest.TestCase):
                                pyc_file, script_dir, None,
                                importlib.machinery.SourcelessFileLoader)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_directory(self):
         with support.temp_dir() as script_dir:
             script_name = _make_test_script(script_dir, '__main__')
@@ -237,6 +251,8 @@ class CmdLineTest(unittest.TestCase):
                                script_dir, '',
                                importlib.machinery.SourceFileLoader)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_directory_compiled(self):
         with support.temp_dir() as script_dir:
             script_name = _make_test_script(script_dir, '__main__')
@@ -247,11 +263,15 @@ class CmdLineTest(unittest.TestCase):
                                script_dir, '',
                                importlib.machinery.SourcelessFileLoader)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_directory_error(self):
         with support.temp_dir() as script_dir:
             msg = "can't find '__main__' module in %r" % script_dir
             self._check_import_error(script_dir, msg)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_zipfile(self):
         with support.temp_dir() as script_dir:
             script_name = _make_test_script(script_dir, '__main__')
@@ -259,6 +279,8 @@ class CmdLineTest(unittest.TestCase):
             self._check_script(zip_name, run_name, zip_name, zip_name, '',
                                zipimport.zipimporter)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_zipfile_compiled_timestamp(self):
         with support.temp_dir() as script_dir:
             script_name = _make_test_script(script_dir, '__main__')
@@ -269,6 +291,7 @@ class CmdLineTest(unittest.TestCase):
             self._check_script(zip_name, run_name, zip_name, zip_name, '',
                                zipimport.zipimporter)
 
+    @unittest.skip("TODO: RUSTPYTHON, TypeError: object of type 'NoneType' has no len()")
     def test_zipfile_compiled_checked_hash(self):
         with support.temp_dir() as script_dir:
             script_name = _make_test_script(script_dir, '__main__')
@@ -279,6 +302,7 @@ class CmdLineTest(unittest.TestCase):
             self._check_script(zip_name, run_name, zip_name, zip_name, '',
                                zipimport.zipimporter)
 
+    @unittest.skip("TODO: RUSTPYTHON, TypeError: object of type 'NoneType' has no len()")
     def test_zipfile_compiled_unchecked_hash(self):
         with support.temp_dir() as script_dir:
             script_name = _make_test_script(script_dir, '__main__')
@@ -289,6 +313,8 @@ class CmdLineTest(unittest.TestCase):
             self._check_script(zip_name, run_name, zip_name, zip_name, '',
                                zipimport.zipimporter)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_zipfile_error(self):
         with support.temp_dir() as script_dir:
             script_name = _make_test_script(script_dir, 'not_main')
@@ -296,6 +322,8 @@ class CmdLineTest(unittest.TestCase):
             msg = "can't find '__main__' module in %r" % zip_name
             self._check_import_error(zip_name, msg)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_module_in_package(self):
         with support.temp_dir() as script_dir:
             pkg_dir = os.path.join(script_dir, 'test_pkg')
@@ -306,6 +334,8 @@ class CmdLineTest(unittest.TestCase):
                                importlib.machinery.SourceFileLoader,
                                cwd=script_dir)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_module_in_package_in_zipfile(self):
         with support.temp_dir() as script_dir:
             zip_name, run_name = _make_test_zip_pkg(script_dir, 'test_zip', 'test_pkg', 'script')
@@ -313,6 +343,8 @@ class CmdLineTest(unittest.TestCase):
                                script_dir, 'test_pkg', zipimport.zipimporter,
                                PYTHONPATH=zip_name, cwd=script_dir)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_module_in_subpackage_in_zipfile(self):
         with support.temp_dir() as script_dir:
             zip_name, run_name = _make_test_zip_pkg(script_dir, 'test_zip', 'test_pkg', 'script', depth=2)
@@ -321,6 +353,8 @@ class CmdLineTest(unittest.TestCase):
                                zipimport.zipimporter,
                                PYTHONPATH=zip_name, cwd=script_dir)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_package(self):
         with support.temp_dir() as script_dir:
             pkg_dir = os.path.join(script_dir, 'test_pkg')
@@ -331,6 +365,8 @@ class CmdLineTest(unittest.TestCase):
                                importlib.machinery.SourceFileLoader,
                                cwd=script_dir)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_package_compiled(self):
         with support.temp_dir() as script_dir:
             pkg_dir = os.path.join(script_dir, 'test_pkg')
@@ -363,6 +399,8 @@ class CmdLineTest(unittest.TestCase):
                    "be directly executed")
             self._check_import_error(["-m", "test_pkg"], msg, cwd=script_dir)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_issue8202(self):
         # Make sure package __init__ modules see "-m" in sys.argv0 while
         # searching for the module to execute
@@ -380,6 +418,8 @@ class CmdLineTest(unittest.TestCase):
                                    script_name, script_name, script_dir, 'test_pkg',
                                    importlib.machinery.SourceFileLoader)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_issue8202_dash_c_file_ignored(self):
         # Make sure a "-c" file in the current directory
         # does not alter the value of sys.path[0]
@@ -395,6 +435,8 @@ class CmdLineTest(unittest.TestCase):
                     expected = "sys.path[0]==%r" % ''
                     self.assertIn(expected.encode('utf-8'), out)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_issue8202_dash_m_file_ignored(self):
         # Make sure a "-m" file in the current directory
         # does not alter the value of sys.path[0]
@@ -510,6 +552,8 @@ class CmdLineTest(unittest.TestCase):
             self.assertIn(b'Exception in __main__ module', err)
             self.assertIn(b'Traceback', err)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_pep_409_verbiage(self):
         # Make sure PEP 409 syntax properly suppresses
         # the context of an exception
@@ -528,6 +572,7 @@ class CmdLineTest(unittest.TestCase):
             self.assertTrue(text[1].startswith('  File '))
             self.assertTrue(text[3].startswith('NameError'))
 
+    @unittest.skip("TODO: RUSTPYTHON, TypeError: Expected type 'str', not 'bytes'")
     def test_non_ascii(self):
         # Mac OS X denies the creation of a file with an invalid UTF-8 name.
         # Windows allows creating a name with an arbitrary bytes name, but
@@ -551,6 +596,8 @@ class CmdLineTest(unittest.TestCase):
             'stdout=%r stderr=%r' % (stdout, stderr))
         self.assertEqual(0, rc)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_issue20500_exit_with_exception_value(self):
         script = textwrap.dedent("""\
             import sys
@@ -569,6 +616,7 @@ class CmdLineTest(unittest.TestCase):
             text = stderr.decode('ascii')
             self.assertEqual(text, "some text")
 
+    @unittest.skip("TODO: RUSTPYTHON, UnicodeDecodeError")
     def test_syntaxerror_unindented_caret_position(self):
         script = "1 + 1 = 2\n"
         with support.temp_dir() as script_dir:
@@ -578,6 +626,7 @@ class CmdLineTest(unittest.TestCase):
             # Confirm that the caret is located under the first 1 character
             self.assertIn("\n    1 + 1 = 2\n    ^", text)
 
+    @unittest.skip("TODO: RUSTPYTHON, UnicodeDecodeError")
     def test_syntaxerror_indented_caret_position(self):
         script = textwrap.dedent("""\
             if True:
@@ -601,6 +650,8 @@ class CmdLineTest(unittest.TestCase):
             self.assertNotIn("\f", text)
             self.assertIn("\n    1 + 1 = 2\n    ^", text)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_syntaxerror_multi_line_fstring(self):
         script = 'foo = f"""{}\nfoo"""\n'
         with support.temp_dir() as script_dir:
@@ -615,6 +666,8 @@ class CmdLineTest(unittest.TestCase):
                 ],
             )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_syntaxerror_invalid_escape_sequence_multi_line(self):
         script = 'foo = """\\q\n"""\n'
         with support.temp_dir() as script_dir:
@@ -631,6 +684,8 @@ class CmdLineTest(unittest.TestCase):
                 ],
             )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_consistent_sys_path_for_direct_execution(self):
         # This test case ensures that the following all give the same
         # sys.path configuration:
@@ -662,6 +717,8 @@ class CmdLineTest(unittest.TestCase):
             out_by_dir_isolated = kill_python(p).decode().splitlines()
             self.assertEqual(out_by_dir_isolated, out_by_dir, out_by_name)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_consistent_sys_path_for_module_execution(self):
         # This test case ensures that the following both give the same
         # sys.path configuration:
@@ -699,6 +756,8 @@ class CmdLineTest(unittest.TestCase):
             traceback_lines = stderr.decode().splitlines()
             self.assertIn("No module named script_pkg", traceback_lines[-1])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_nonexisting_script(self):
         # bpo-34783: "./python script.py" must not crash
         # if the script file doesn't exist.

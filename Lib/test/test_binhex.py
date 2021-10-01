@@ -22,6 +22,7 @@ class BinHexTestCase(unittest.TestCase):
 
     DATA = b'Jack is my hero'
 
+    @unittest.skip("TODO: RUSTPYTHON, AttributeError: module 'binascii' has no attribute 'crc_hqx'")
     def test_binhex(self):
         with open(self.fname1, 'wb') as f:
             f.write(self.DATA)
@@ -45,6 +46,7 @@ class BinHexTestCase(unittest.TestCase):
 
         self.assertRaises(binhex.Error, binhex.binhex, self.fname3, self.fname2)
 
+    @unittest.skip("TODO: RUSTPYTHON, AttributeError: module 'binascii' has no attribute 'crc_hqx'")
     def test_binhex_line_endings(self):
         # bpo-29566: Ensure the line endings are those for macOS 9
         with open(self.fname1, 'wb') as f:

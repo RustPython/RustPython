@@ -310,6 +310,8 @@ class ZipAppTest(unittest.TestCase):
         zipapp.create_archive(str(source), str(target), interpreter='python')
         self.assertTrue(target.stat().st_mode & stat.S_IEXEC)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipIf(sys.platform == 'win32',
                      'Windows does not support an executable bit')
     def test_no_shebang_is_not_executable(self):

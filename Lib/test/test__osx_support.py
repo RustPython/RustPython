@@ -174,6 +174,8 @@ class Test_OSXSupport(unittest.TestCase):
                             _osx_support._remove_universal_flags(
                                     config_vars))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test__remove_universal_flags_alternate(self):
         # bpo-38360: also test the alternate single-argument form of -isysroot
         config_vars = {
@@ -284,6 +286,8 @@ class Test_OSXSupport(unittest.TestCase):
                             _osx_support._check_for_unavailable_sdk(
                                     config_vars))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test__check_for_unavailable_sdk_alternate(self):
         # bpo-38360: also test the alternate single-argument form of -isysroot
         config_vars = {

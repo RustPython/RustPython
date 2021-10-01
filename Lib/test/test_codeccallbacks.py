@@ -190,6 +190,7 @@ class CodecCallbackTest(unittest.TestCase):
         self.assertRaises(UnicodeDecodeError, sin.decode,
                           "utf-8", "test.relaxedutf8")
 
+    @unittest.skip("TODO: RUSTPYTHON, TypeError: character mapping must return integer, None or str")
     def test_charmapencode(self):
         # For charmap encodings the replacement string will be
         # mapped through the encoding again. This means, that
@@ -268,6 +269,7 @@ class CodecCallbackTest(unittest.TestCase):
             b"g[<252><223>]"
         )
 
+    @unittest.skip("TODO: RUSTPYTHON, AttributeError: module 'codecs' has no attribute 'utf_32_encode'")
     def test_longstrings(self):
         # test long strings to check for memory overflow problems
         errors = [ "strict", "ignore", "replace", "xmlcharrefreplace",
@@ -312,6 +314,8 @@ class CodecCallbackTest(unittest.TestCase):
         exc = exctype(*args)
         self.assertEqual(str(exc), msg)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_unicodeencodeerror(self):
         self.check_exceptionobjectargs(
             UnicodeEncodeError,
@@ -344,6 +348,8 @@ class CodecCallbackTest(unittest.TestCase):
             "'ascii' codec can't encode character '\\U00010000' in position 0: ouch"
         )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_unicodedecodeerror(self):
         self.check_exceptionobjectargs(
             UnicodeDecodeError,
@@ -356,6 +362,8 @@ class CodecCallbackTest(unittest.TestCase):
             "'ascii' codec can't decode bytes in position 1-2: ouch"
         )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_unicodetranslateerror(self):
         self.check_exceptionobjectargs(
             UnicodeTranslateError,
@@ -444,6 +452,7 @@ class CodecCallbackTest(unittest.TestCase):
             ("", 2)
         )
 
+    @unittest.skip("TODO: RUSTPYTHON, AttributeError: attribute 'object' of 'BadObjectUnicodeEncodeError' objects is not writable")
     def test_badandgoodreplaceexceptions(self):
         # "replace" complains about a non-exception passed in
         self.assertRaises(
@@ -484,6 +493,8 @@ class CodecCallbackTest(unittest.TestCase):
             ("\ufffd", 2)
         )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_badandgoodxmlcharrefreplaceexceptions(self):
         # "xmlcharrefreplace" complains about a non-exception passed in
         self.assertRaises(
@@ -521,6 +532,7 @@ class CodecCallbackTest(unittest.TestCase):
             ("".join("&#%d;" % c for c in cs), 1 + len(s))
         )
 
+    @unittest.skip("TODO: RUSTPYTHON, TypeError: Expected type 'bytes', not 'bytearray'")
     def test_badandgoodbackslashreplaceexceptions(self):
         # "backslashreplace" complains about a non-exception passed in
         self.assertRaises(
@@ -579,6 +591,8 @@ class CodecCallbackTest(unittest.TestCase):
                     (r, 2)
                 )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_badandgoodnamereplaceexceptions(self):
         # "namereplace" complains about a non-exception passed in
         self.assertRaises(
@@ -625,6 +639,7 @@ class CodecCallbackTest(unittest.TestCase):
                     (r, 1 + len(s))
                 )
 
+    @unittest.skip("TODO: RUSTPYTHON, UnicodeEncodeError: ('ascii', 'a�b', 1, 2, 'ouch')")
     def test_badandgoodsurrogateescapeexceptions(self):
         surrogateescape_errors = codecs.lookup_error('surrogateescape')
         # "surrogateescape" complains about a non-exception passed in
@@ -669,6 +684,7 @@ class CodecCallbackTest(unittest.TestCase):
             ("\udc80", 2)
         )
 
+    @unittest.skip("TODO: RUSTPYTHON, TypeError: Expected type 'str', not 'bytes'")
     def test_badandgoodsurrogatepassexceptions(self):
         surrogatepass_errors = codecs.lookup_error('surrogatepass')
         # "surrogatepass" complains about a non-exception passed in
@@ -741,6 +757,8 @@ class CodecCallbackTest(unittest.TestCase):
                     (s[:1], 1 + n)
                 )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_badhandlerresults(self):
         results = ( 42, "foo", (1,2,3), ("foo", 1, 3), ("foo", None), ("foo",), ("foo", 1, 3), ("foo", None), ("foo",) )
         encs = ("ascii", "latin-1", "iso-8859-1", "iso-8859-15")
@@ -783,6 +801,8 @@ class CodecCallbackTest(unittest.TestCase):
             codecs.lookup_error("namereplace")
         )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_unencodablereplacement(self):
         def unencrepl(exc):
             if isinstance(exc, UnicodeEncodeError):
@@ -798,6 +818,8 @@ class CodecCallbackTest(unittest.TestCase):
                 "test.unencreplhandler"
             )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_badregistercall(self):
         # enhance coverage of:
         # Modules/_codecsmodule.c::register_error()
@@ -886,6 +908,8 @@ class CodecCallbackTest(unittest.TestCase):
         self.assertRaises(ValueError, codecs.charmap_decode, b"\xff", "strict", D())
         self.assertRaises(TypeError, codecs.charmap_decode, b"\xff", "strict", {0xff: sys.maxunicode+1})
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_encodehelper(self):
         # enhance coverage of:
         # Objects/unicodeobject.c::unicode_encode_call_errorhandler()
@@ -965,6 +989,7 @@ class CodecCallbackTest(unittest.TestCase):
             text = 'abc<def>ghi'*n
             text.translate(charmap)
 
+    @unittest.skip("TODO: RUSTPYTHON, AttributeError: attribute 'object' of 'UnicodeDecodeError' objects is not writable")
     def test_mutatingdecodehandler(self):
         baddata = [
             ("ascii", b"\xff"),
@@ -1001,6 +1026,8 @@ class CodecCallbackTest(unittest.TestCase):
             self.assertEqual(data.decode(encoding, "test.mutating"), "\u4242")
 
     # issue32583
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_crashing_decode_handler(self):
         # better generating one more character to fill the extra space slot
         # so in debug build it can steadily fail

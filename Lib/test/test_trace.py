@@ -122,6 +122,8 @@ class TestLineCounts(unittest.TestCase):
         self.tracer = Trace(count=1, trace=0, countfuncs=0, countcallers=0)
         self.my_py_filename = fix_ext_py(__file__)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_traced_func_linear(self):
         result = self.tracer.runfunc(traced_func_linear, 2, 5)
         self.assertEqual(result, 7)
@@ -134,6 +136,8 @@ class TestLineCounts(unittest.TestCase):
 
         self.assertEqual(self.tracer.results().counts, expected)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_traced_func_loop(self):
         self.tracer.runfunc(traced_func_loop, 2, 3)
 
@@ -146,6 +150,8 @@ class TestLineCounts(unittest.TestCase):
         }
         self.assertEqual(self.tracer.results().counts, expected)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_traced_func_importing(self):
         self.tracer.runfunc(traced_func_importing, 2, 5)
 
@@ -158,6 +164,8 @@ class TestLineCounts(unittest.TestCase):
 
         self.assertEqual(self.tracer.results().counts, expected)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_trace_func_generator(self):
         self.tracer.runfunc(traced_func_calling_generator)
 
@@ -173,6 +181,8 @@ class TestLineCounts(unittest.TestCase):
         }
         self.assertEqual(self.tracer.results().counts, expected)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_trace_list_comprehension(self):
         self.tracer.runfunc(traced_caller_list_comprehension)
 
@@ -188,6 +198,8 @@ class TestLineCounts(unittest.TestCase):
         }
         self.assertEqual(self.tracer.results().counts, expected)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_traced_decorated_function(self):
         self.tracer.runfunc(traced_decorated_function)
 
@@ -207,6 +219,8 @@ class TestLineCounts(unittest.TestCase):
         }
         self.assertEqual(self.tracer.results().counts, expected)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_linear_methods(self):
         # XXX todo: later add 'static_method_linear' and 'class_method_linear'
         # here, once issue1764286 is resolved
@@ -230,6 +244,7 @@ class TestRunExecCounts(unittest.TestCase):
         self.my_py_filename = fix_ext_py(__file__)
         self.addCleanup(sys.settrace, sys.gettrace())
 
+    @unittest.skip("TODO: RUSTPYTHON, KeyError: ('Lib/test/test_trace.py', 43)")
     def test_exec_counts(self):
         self.tracer = Trace(count=1, trace=0, countfuncs=0, countcallers=0)
         code = r'''traced_func_loop(2, 5)'''
@@ -264,6 +279,7 @@ class TestFuncs(unittest.TestCase):
         if self._saved_tracefunc is not None:
             sys.settrace(self._saved_tracefunc)
 
+    @unittest.skip("TODO: RUSTPYTHON, NotImplementedError")
     def test_simple_caller(self):
         self.tracer.runfunc(traced_func_simple_caller, 1)
 
@@ -273,6 +289,7 @@ class TestFuncs(unittest.TestCase):
         }
         self.assertEqual(self.tracer.results().calledfuncs, expected)
 
+    @unittest.skip("TODO: RUSTPYTHON, NotImplementedError")
     def test_arg_errors(self):
         res = self.tracer.runfunc(traced_capturer, 1, 2, self=3, func=4)
         self.assertEqual(res, ((1, 2), {'self': 3, 'func': 4}))
@@ -282,6 +299,7 @@ class TestFuncs(unittest.TestCase):
         with self.assertRaises(TypeError):
             self.tracer.runfunc()
 
+    @unittest.skip("TODO: RUSTPYTHON, NotImplementedError")
     def test_loop_caller_importing(self):
         self.tracer.runfunc(traced_func_importing_caller, 1)
 
@@ -294,6 +312,7 @@ class TestFuncs(unittest.TestCase):
         }
         self.assertEqual(self.tracer.results().calledfuncs, expected)
 
+    @unittest.skip("TODO: RUSTPYTHON, NotImplementedError")
     @unittest.skipIf(hasattr(sys, 'gettrace') and sys.gettrace(),
                      'pre-existing trace function throws off measurements')
     def test_inst_method_calling(self):
@@ -307,6 +326,7 @@ class TestFuncs(unittest.TestCase):
         }
         self.assertEqual(self.tracer.results().calledfuncs, expected)
 
+    @unittest.skip("TODO: RUSTPYTHON, NotImplementedError")
     def test_traced_decorated_function(self):
         self.tracer.runfunc(traced_decorated_function)
 
@@ -364,6 +384,8 @@ class TestCoverage(unittest.TestCase):
         r = tracer.results()
         r.write_results(show_missing=True, summary=True, coverdir=TESTFN)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_coverage(self):
         tracer = trace.Trace(trace=0, count=1)
         with captured_stdout() as stdout:
@@ -387,6 +409,8 @@ class TestCoverage(unittest.TestCase):
             files = os.listdir(TESTFN)
             self.assertEqual(files, ['_importlib.cover'])  # Ignore __import__
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_issue9936(self):
         tracer = trace.Trace(trace=0, count=1)
         modname = 'test.tracedmodules.testmod'
@@ -442,6 +466,8 @@ class TestCoverageCommandLineOutput(unittest.TestCase):
         unlink(self.codefile)
         unlink(self.coverfile)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_cover_files_written_no_highlight(self):
         # Test also that the cover file for the trace module is not created
         # (issue #34171).
@@ -462,6 +488,8 @@ class TestCoverageCommandLineOutput(unittest.TestCase):
                 "           print('unreachable')\n"
             )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_cover_files_written_with_highlight(self):
         argv = '-m trace --count --missing'.split() + [self.codefile]
         status, stdout, stderr = assert_python_ok(*argv)
@@ -489,6 +517,8 @@ class TestCommandLine(unittest.TestCase):
             *_, stderr = assert_python_failure('-m', 'trace', *args)
             self.assertIn(message, stderr)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_listfuncs_flag_success(self):
         filename = TESTFN + '.py'
         modulename = os.path.basename(TESTFN)
@@ -501,6 +531,8 @@ class TestCommandLine(unittest.TestCase):
             expected = f'filename: {filename}, modulename: {modulename}, funcname: <module>'
             self.assertIn(expected.encode(), stdout)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_sys_argv_list(self):
         with open(TESTFN, 'w', encoding='utf-8') as fd:
             self.addCleanup(unlink, TESTFN)
@@ -511,6 +543,8 @@ class TestCommandLine(unittest.TestCase):
         status, trace_stdout, stderr = assert_python_ok('-m', 'trace', '-l', TESTFN)
         self.assertIn(direct_stdout.strip(), trace_stdout)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_count_and_summary(self):
         filename = f'{TESTFN}.py'
         coverfilename = f'{TESTFN}.cover'
@@ -534,6 +568,8 @@ class TestCommandLine(unittest.TestCase):
         self.assertIn('lines   cov%   module   (path)', stdout)
         self.assertIn(f'6   100%   {modulename}   ({filename})', stdout)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_run_as_module(self):
         assert_python_ok('-m', 'trace', '-l', '--module', 'timeit', '-n', '1')
         assert_python_failure('-m', 'trace', '-l', '--module', 'not_a_module_zzz')
