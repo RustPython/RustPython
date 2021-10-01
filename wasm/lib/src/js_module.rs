@@ -590,7 +590,7 @@ impl AwaitPromise {
 impl IteratorIterable for AwaitPromise {}
 impl SlotIterator for AwaitPromise {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        PyIterReturn::from_result(zelf.send(None, vm), vm)
+        PyIterReturn::from_pyresult(zelf.send(None, vm), vm)
     }
 }
 

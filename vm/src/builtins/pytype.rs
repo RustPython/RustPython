@@ -264,7 +264,7 @@ impl PyType {
             }
             "__next__" => {
                 let func: slots::IterNextFunc = |zelf, vm| {
-                    PyIterReturn::from_result(
+                    PyIterReturn::from_pyresult(
                         vm.call_special_method(zelf.clone(), "__next__", ()),
                         vm,
                     )

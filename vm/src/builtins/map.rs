@@ -58,7 +58,7 @@ impl SlotIterator for PyMap {
         }
 
         // the mapper itself can raise StopIteration which does stop the map iteration
-        PyIterReturn::from_result(vm.invoke(&zelf.mapper, next_objs), vm)
+        PyIterReturn::from_pyresult(vm.invoke(&zelf.mapper, next_objs), vm)
     }
 }
 
