@@ -36,7 +36,7 @@ pub mod module {
         slots::SlotConstructor,
         stdlib::os::{
             errno_err, DirFd, FollowSymlinks, PathOrFd, PyPathLike, SupportFunc, TargetIsDirectory,
-            _os, fs_metadata, IOErrorWithFilename,
+            _os, fs_metadata, IOErrorBuilder,
         },
         utils::{Either, ToCString},
         IntoPyObject, ItemProtocol, PyObjectRef, PyResult, PyValue, TryFromObject, VirtualMachine,
@@ -329,7 +329,14 @@ pub mod module {
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn chroot(path: PyPathLike, vm: &VirtualMachine) -> PyResult<()> {
-        nix::unistd::chroot(&*path.path).map_err(|err| err.into_pyexception(vm))
+        use crate::stdlib::os::IOErrorBuilder;
+
+        nix::unistd::chroot(&*path.path).map_err(|err| {
+            // Use `From<nix::Error> for io::Error` when it is available
+            IOErrorBuilder::new(io::Error::from_raw_os_error(err as i32))
+                .filename(path)
+                .into_pyexception(vm)
+        })
     }
 
     // As of now, redox does not seems to support chown command (cf. https://gitlab.redox-os.org/redox-os/coreutils , last checked on 05/07/2020)
@@ -374,7 +381,8 @@ pub mod module {
         }
         .map_err(|err| {
             // Use `From<nix::Error> for io::Error` when it is available
-            IOErrorWithFilename::new(io::Error::from_raw_os_error(err as i32), path, vm)
+            IOErrorBuilder::new(io::Error::from_raw_os_error(err as i32))
+                .filename(path)
                 .into_pyexception(vm)
         })
     }
@@ -705,7 +713,11 @@ pub mod module {
             permissions.set_mode(mode);
             fs::set_permissions(&path, permissions)
         };
-        body().map_err(|err| IOErrorWithFilename::new(err, err_path, vm).into_pyexception(vm))
+        body().map_err(|err| {
+            IOErrorBuilder::new(err)
+                .filename(err_path)
+                .into_pyexception(vm)
+        })
     }
 
     #[pyfunction]

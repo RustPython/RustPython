@@ -223,6 +223,15 @@ impl From<PyPathLike> for PathOrFd {
     }
 }
 
+impl PathOrFd {
+    pub fn filename(&self, vm: &VirtualMachine) -> PyObjectRef {
+        match self {
+            PathOrFd::Path(path) => path.filename(vm).unwrap_or_else(|_| vm.ctx.none()),
+            PathOrFd::Fd(fd) => vm.ctx.new_int(*fd),
+        }
+    }
+}
+
 impl IntoPyException for io::Error {
     fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         (&self).into_pyexception(vm)
@@ -257,27 +266,42 @@ impl IntoPyException for nix::Error {
         io::Error::from(self).into_pyexception(vm)
     }
 }
-
-pub struct IOErrorWithFilename {
+pub struct IOErrorBuilder {
     error: io::Error,
-    filename: PyObjectRef,
+    filename: Option<PathOrFd>,
+    filename2: Option<PathOrFd>,
 }
 
-impl IOErrorWithFilename {
-    pub(crate) fn new(error: io::Error, path: impl Into<PathOrFd>, vm: &VirtualMachine) -> Self {
-        let filename = match path.into() {
-            PathOrFd::Path(path) => path.filename(vm).unwrap_or_else(|_| vm.ctx.none()),
-            PathOrFd::Fd(fd) => vm.ctx.new_int(fd),
-        };
-        IOErrorWithFilename { error, filename }
+impl IOErrorBuilder {
+    pub fn new(error: io::Error) -> Self {
+        Self {
+            error,
+            filename: None,
+            filename2: None,
+        }
+    }
+    pub(crate) fn filename(mut self, filename: impl Into<PathOrFd>) -> Self {
+        self.filename.replace(filename.into());
+        self
+    }
+    pub(crate) fn filename2(mut self, filename: impl Into<PathOrFd>) -> Self {
+        self.filename2.replace(filename.into());
+        self
     }
 }
 
-impl IntoPyException for IOErrorWithFilename {
+impl IntoPyException for IOErrorBuilder {
     fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         let excp = self.error.into_pyexception(vm);
-        vm.set_attr(excp.as_object(), "filename", self.filename)
-            .unwrap();
+
+        if let Some(filename) = self.filename {
+            vm.set_attr(excp.as_object(), "filename", filename.filename(vm))
+                .unwrap();
+        }
+        if let Some(filename2) = self.filename2 {
+            vm.set_attr(excp.as_object(), "filename2", filename2.filename(vm))
+                .unwrap();
+        }
         excp
     }
 }
@@ -397,8 +421,8 @@ fn bytes_as_osstr<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a ffi::OsS
 #[pymodule(name = "_os")]
 pub(super) mod _os {
     use super::{
-        errno_err, DirFd, FollowSymlinks, FsPath, IOErrorWithFilename, OutputMode, PathOrFd,
-        PyPathLike, SupportFunc,
+        errno_err, DirFd, FollowSymlinks, FsPath, IOErrorBuilder, OutputMode, PathOrFd, PyPathLike,
+        SupportFunc,
     };
     use crate::common::lock::{OnceCell, PyRwLock};
     use crate::{
@@ -506,7 +530,7 @@ pub(super) mod _os {
             }
         };
         fd.map(|fd| fd.0)
-            .map_err(|e| IOErrorWithFilename::new(e, name, vm).into_pyexception(vm))
+            .map_err(|e| IOErrorBuilder::new(e).filename(name).into_pyexception(vm))
     }
 
     #[pyfunction]
@@ -548,7 +572,7 @@ pub(super) mod _os {
         } else {
             fs::remove_file(&path)
         };
-        res.map_err(|err| IOErrorWithFilename::new(err, path, vm).into_pyexception(vm))
+        res.map_err(|e| IOErrorBuilder::new(e).filename(path).into_pyexception(vm))
     }
 
     #[cfg(not(windows))]
@@ -586,7 +610,7 @@ pub(super) mod _os {
     fn rmdir(path: PyPathLike, dir_fd: DirFd<0>, vm: &VirtualMachine) -> PyResult<()> {
         let [] = dir_fd.0;
         fs::remove_dir(&path)
-            .map_err(|err| IOErrorWithFilename::new(err, path, vm).into_pyexception(vm))
+            .map_err(|e| IOErrorBuilder::new(e).filename(path).into_pyexception(vm))
     }
 
     const LISTDIR_FD: bool = cfg!(all(unix, not(target_os = "redox")));
@@ -600,9 +624,9 @@ pub(super) mod _os {
                 dir_iter
                     .map(|entry| match entry {
                         Ok(entry_path) => path.mode.process_path(entry_path.file_name(), vm),
-                        Err(e) => {
-                            Err(IOErrorWithFilename::new(e, path.clone(), vm).into_pyexception(vm))
-                        }
+                        Err(e) => Err(IOErrorBuilder::new(e)
+                            .filename(path.clone())
+                            .into_pyexception(vm)),
                     })
                     .collect::<PyResult<_>>()?
             }
@@ -675,7 +699,8 @@ pub(super) mod _os {
     fn readlink(path: PyPathLike, dir_fd: DirFd<0>, vm: &VirtualMachine) -> PyResult {
         let mode = path.mode;
         let [] = dir_fd.0;
-        let path = fs::read_link(path).map_err(|err| err.into_pyexception(vm))?;
+        let path = fs::read_link(&path)
+            .map_err(|err| IOErrorBuilder::new(err).filename(path).into_pyexception(vm))?;
         mode.process_path(path, vm)
     }
 
@@ -1148,7 +1173,7 @@ pub(super) mod _os {
         vm: &VirtualMachine,
     ) -> PyResult {
         let stat = stat_inner(file.clone(), dir_fd, follow_symlinks)
-            .map_err(|e| IOErrorWithFilename::new(e, file, vm).into_pyexception(vm))?
+            .map_err(|e| IOErrorBuilder::new(e).filename(file).into_pyexception(vm))?
             .ok_or_else(|| crate::exceptions::cstring_error(vm))?;
         Ok(StatResult::from_stat(&stat).into_pyobject(vm))
     }
@@ -1187,7 +1212,7 @@ pub(super) mod _os {
     #[pyfunction]
     fn chdir(path: PyPathLike, vm: &VirtualMachine) -> PyResult<()> {
         env::set_current_dir(&path.path)
-            .map_err(|err| IOErrorWithFilename::new(err, path, vm).into_pyexception(vm))
+            .map_err(|err| IOErrorBuilder::new(err).filename(path).into_pyexception(vm))
     }
 
     #[pyfunction]
@@ -1198,7 +1223,12 @@ pub(super) mod _os {
     #[pyfunction]
     #[pyfunction(name = "replace")]
     fn rename(src: PyPathLike, dst: PyPathLike, vm: &VirtualMachine) -> PyResult<()> {
-        fs::rename(src.path, dst.path).map_err(|err| err.into_pyexception(vm))
+        fs::rename(&src.path, &dst.path).map_err(|err| {
+            IOErrorBuilder::new(err)
+                .filename(src)
+                .filename2(dst)
+                .into_pyexception(vm)
+        })
     }
 
     #[pyfunction]
@@ -1273,7 +1303,12 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn link(src: PyPathLike, dst: PyPathLike, vm: &VirtualMachine) -> PyResult<()> {
-        fs::hard_link(src.path, dst.path).map_err(|err| err.into_pyexception(vm))
+        fs::hard_link(&src.path, &dst.path).map_err(|err| {
+            IOErrorBuilder::new(err)
+                .filename(src)
+                .filename2(dst)
+                .into_pyexception(vm)
+        })
     }
 
     #[derive(FromArgs)]
