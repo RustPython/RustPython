@@ -78,6 +78,11 @@ if HAS_USER_SITE:
         'data'   : '$userbase',
         }
 
+# XXX RUSTPYTHON: replace python with rustpython in all these paths
+for group in INSTALL_SCHEMES.values():
+    for key in group.keys():
+        group[key] = group[key].replace("Python", "RustPython").replace("python", "rustpython")
+
 # The keys to an installation scheme; if any new types of files are to be
 # installed, be sure to add an entry to every installation scheme above,
 # and to SCHEME_KEYS here.

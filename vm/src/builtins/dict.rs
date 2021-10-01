@@ -302,6 +302,15 @@ impl PyDict {
             .setdefault(vm, key, || default.unwrap_or_none(vm))
     }
 
+    pub fn get_or_insert(
+        &self,
+        vm: &VirtualMachine,
+        key: PyObjectRef,
+        default: impl FnOnce() -> PyObjectRef,
+    ) -> PyResult {
+        self.entries.setdefault(vm, key, default)
+    }
+
     #[pymethod]
     pub fn copy(&self) -> PyDict {
         PyDict {

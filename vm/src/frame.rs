@@ -202,7 +202,7 @@ impl Frame {
 }
 
 impl FrameRef {
-    #[inline]
+    #[inline(always)]
     fn with_exec<R>(&self, f: impl FnOnce(ExecutingFrame) -> R) -> R {
         let mut state = self.state.lock();
         let exec = ExecutingFrame {

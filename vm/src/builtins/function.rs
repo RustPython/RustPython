@@ -317,6 +317,7 @@ impl PyFunction {
         }
     }
 
+    #[inline(always)]
     pub fn invoke(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         self.invoke_with_locals(func_args, None, vm)
     }

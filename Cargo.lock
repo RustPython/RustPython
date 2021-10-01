@@ -1749,7 +1749,6 @@ dependencies = [
  "python3-sys",
  "rustpython-compiler",
  "rustpython-parser",
- "rustpython-pylib",
  "rustpython-stdlib",
  "rustpython-vm",
  "rustyline",
