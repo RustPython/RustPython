@@ -281,7 +281,8 @@ class CmdLineTest(unittest.TestCase):
             self._check_script(zip_name, run_name, zip_name, zip_name, '',
                                zipimport.zipimporter)
 
-    @unittest.skip("TODO: RUSTPYTHON, TypeError: object of type 'NoneType' has no len()")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_zipfile_compiled_checked_hash(self):
         with support.temp_dir() as script_dir:
             script_name = _make_test_script(script_dir, '__main__')
@@ -292,7 +293,8 @@ class CmdLineTest(unittest.TestCase):
             self._check_script(zip_name, run_name, zip_name, zip_name, '',
                                zipimport.zipimporter)
 
-    @unittest.skip("TODO: RUSTPYTHON, TypeError: object of type 'NoneType' has no len()")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_zipfile_compiled_unchecked_hash(self):
         with support.temp_dir() as script_dir:
             script_name = _make_test_script(script_dir, '__main__')
@@ -548,7 +550,6 @@ class CmdLineTest(unittest.TestCase):
             self.assertTrue(text[1].startswith('  File '))
             self.assertTrue(text[3].startswith('NameError'))
 
-    @unittest.skip("TODO: RUSTPYTHON, TypeError: Expected type 'str', not 'bytes'")
     def test_non_ascii(self):
         # Mac OS X denies the creation of a file with an invalid UTF-8 name.
         # Windows allows creating a name with an arbitrary bytes name, but
@@ -573,6 +574,10 @@ class CmdLineTest(unittest.TestCase):
         self.assertEqual(0, rc)
 
     # TODO: RUSTPYTHON
+    if sys.platform == "linux":
+        test_non_ascii = unittest.expectedFailure(test_non_ascii)
+
+    # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_issue20500_exit_with_exception_value(self):
         script = textwrap.dedent("""\
@@ -592,7 +597,8 @@ class CmdLineTest(unittest.TestCase):
             text = stderr.decode('ascii')
             self.assertEqual(text, "some text")
 
-    @unittest.skip("TODO: RUSTPYTHON, UnicodeDecodeError")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_syntaxerror_unindented_caret_position(self):
         script = "1 + 1 = 2\n"
         with support.temp_dir() as script_dir:
@@ -602,7 +608,8 @@ class CmdLineTest(unittest.TestCase):
             # Confirm that the caret is located under the first 1 character
             self.assertIn("\n    1 + 1 = 2\n    ^", text)
 
-    @unittest.skip("TODO: RUSTPYTHON, UnicodeDecodeError")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_syntaxerror_indented_caret_position(self):
         script = textwrap.dedent("""\
             if True:
