@@ -5,13 +5,12 @@ mod machinery;
 mod _json {
     use super::machinery;
     use crate::vm::{
-        builtins::PyBaseExceptionRef,
-        builtins::{PyStrRef, PyTypeRef},
+        builtins::{PyBaseExceptionRef, PyStrRef, PyTypeRef},
         function::{FuncArgs, OptionalArg},
-        iterator,
+        protocol::PyIterReturn,
         slots::{Callable, SlotConstructor},
-        IdProtocol, IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-        VirtualMachine,
+        IdProtocol, IntoPyObject, IntoPyResult, PyObjectRef, PyRef, PyResult, PyValue,
+        TryFromObject, VirtualMachine,
     };
     use num_bigint::BigInt;
     use std::str::FromStr;
@@ -74,42 +73,48 @@ mod _json {
             idx: usize,
             scan_once: PyObjectRef,
             vm: &VirtualMachine,
-        ) -> PyResult {
-            let c = s
-                .chars()
-                .next()
-                .ok_or_else(|| iterator::stop_iter_with_value(vm.ctx.new_int(idx), vm))?;
+        ) -> PyResult<PyIterReturn> {
+            let c = match s.chars().next() {
+                Some(c) => c,
+                None => return Ok(PyIterReturn::StopIteration(Some(vm.ctx.new_int(idx)))),
+            };
             let next_idx = idx + c.len_utf8();
             match c {
                 '"' => {
                     return scanstring(pystr, next_idx, OptionalArg::Present(self.strict), vm)
-                        .map(|x| x.into_pyobject(vm))
+                        .map(|x| PyIterReturn::Return(x.into_pyobject(vm)))
                 }
                 '{' => {
                     // TODO: parse the object in rust
                     let parse_obj = vm.get_attribute(self.ctx.clone(), "parse_object")?;
-                    return vm.invoke(
-                        &parse_obj,
-                        (
-                            vm.ctx
-                                .new_tuple(vec![pystr.into_object(), vm.ctx.new_int(next_idx)]),
-                            self.strict,
-                            scan_once,
-                            self.object_hook.clone(),
-                            self.object_pairs_hook.clone(),
+                    return PyIterReturn::from_pyresult(
+                        vm.invoke(
+                            &parse_obj,
+                            (
+                                vm.ctx
+                                    .new_tuple(vec![pystr.into_object(), vm.ctx.new_int(next_idx)]),
+                                self.strict,
+                                scan_once,
+                                self.object_hook.clone(),
+                                self.object_pairs_hook.clone(),
+                            ),
                         ),
+                        vm,
                     );
                 }
                 '[' => {
                     // TODO: parse the array in rust
                     let parse_array = vm.get_attribute(self.ctx.clone(), "parse_array")?;
-                    return vm.invoke(
-                        &parse_array,
-                        vec![
-                            vm.ctx
-                                .new_tuple(vec![pystr.into_object(), vm.ctx.new_int(next_idx)]),
-                            scan_once,
-                        ],
+                    return PyIterReturn::from_pyresult(
+                        vm.invoke(
+                            &parse_array,
+                            vec![
+                                vm.ctx
+                                    .new_tuple(vec![pystr.into_object(), vm.ctx.new_int(next_idx)]),
+                                scan_once,
+                            ],
+                        ),
+                        vm,
                     );
                 }
                 _ => {}
@@ -118,7 +123,9 @@ mod _json {
             macro_rules! parse_const {
                 ($s:literal, $val:expr) => {
                     if s.starts_with($s) {
-                        return Ok(vm.ctx.new_tuple(vec![$val, vm.ctx.new_int(idx + $s.len())]));
+                        return Ok(PyIterReturn::Return(
+                            vm.ctx.new_tuple(vec![$val, vm.ctx.new_int(idx + $s.len())]),
+                        ));
                     }
                 };
             }
@@ -128,16 +135,18 @@ mod _json {
             parse_const!("false", vm.ctx.new_bool(false));
 
             if let Some((res, len)) = self.parse_number(s, vm) {
-                return Ok(vm.ctx.new_tuple(vec![res?, vm.ctx.new_int(idx + len)]));
+                return Ok(PyIterReturn::Return(
+                    vm.ctx.new_tuple(vec![res?, vm.ctx.new_int(idx + len)]),
+                ));
             }
 
             macro_rules! parse_constant {
                 ($s:literal) => {
                     if s.starts_with($s) {
-                        return Ok(vm.ctx.new_tuple(vec![
+                        return Ok(PyIterReturn::Return(vm.ctx.new_tuple(vec![
                             vm.invoke(&self.parse_constant, ($s.to_owned(),))?,
                             vm.ctx.new_int(idx + $s.len()),
-                        ]));
+                        ])));
                     }
                 };
             }
@@ -146,7 +155,7 @@ mod _json {
             parse_constant!("Infinity");
             parse_constant!("-Infinity");
 
-            Err(iterator::stop_iter_with_value(vm.ctx.new_int(idx), vm))
+            Ok(PyIterReturn::StopIteration(Some(vm.ctx.new_int(idx))))
         }
 
         fn parse_number(&self, s: &str, vm: &VirtualMachine) -> Option<(PyResult, usize)> {
@@ -185,16 +194,19 @@ mod _json {
             Some((ret, buf.len()))
         }
 
-        fn call(zelf: &PyRef<Self>, pystr: PyStrRef, idx: isize, vm: &VirtualMachine) -> PyResult {
+        fn call(
+            zelf: &PyRef<Self>,
+            pystr: PyStrRef,
+            idx: isize,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyIterReturn> {
             if idx < 0 {
                 return Err(vm.new_value_error("idx cannot be negative".to_owned()));
             }
             let idx = idx as usize;
             let mut chars = pystr.as_str().chars();
-            if idx > 0 {
-                chars
-                    .nth(idx - 1)
-                    .ok_or_else(|| iterator::stop_iter_with_value(vm.ctx.new_int(idx), vm))?;
+            if idx > 0 && chars.nth(idx - 1).is_none() {
+                return Ok(PyIterReturn::StopIteration(Some(vm.ctx.new_int(idx))));
             }
             zelf.parse(
                 chars.as_str(),
@@ -209,7 +221,7 @@ mod _json {
     impl Callable for JsonScanner {
         fn call(zelf: &PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             let (pystr, idx) = args.bind::<(PyStrRef, isize)>(vm)?;
-            JsonScanner::call(zelf, pystr, idx, vm)
+            JsonScanner::call(zelf, pystr, idx, vm).into_pyresult(vm)
         }
     }
 

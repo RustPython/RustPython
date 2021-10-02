@@ -25,11 +25,6 @@ where
     Ok(results)
 }
 
-pub fn stop_iter_with_value(val: PyObjectRef, vm: &VirtualMachine) -> PyBaseExceptionRef {
-    let stop_iteration_type = vm.ctx.exceptions.stop_iteration.clone();
-    vm.new_exception(stop_iteration_type, vec![val])
-}
-
 pub fn stop_iter_value(vm: &VirtualMachine, exc: &PyBaseExceptionRef) -> PyObjectRef {
     let args = exc.args();
     vm.unwrap_or_none(args.as_slice().first().cloned())
