@@ -1,7 +1,6 @@
 use super::IntoFuncArgs;
 use crate::{
     builtins::iter::PySequenceIterator,
-    iterator,
     protocol::{PyIter, PyIterReturn},
     PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
 };
@@ -58,7 +57,7 @@ impl<T> ArgIterable<T> {
             None => PySequenceIterator::new(self.iterable.clone()).into_object(vm),
         };
 
-        let length_hint = iterator::length_hint(vm, iter_obj.clone())?;
+        let length_hint = vm.length_hint(iter_obj.clone())?;
 
         Ok(PyIterator {
             vm,

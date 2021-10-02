@@ -1285,7 +1285,7 @@ impl VirtualMachine {
                 .collect()
         } else {
             let iter = value.clone().get_iter(self)?;
-            let cap = match iterator::length_hint(self, value.clone()) {
+            let cap = match self.length_hint(value.clone()) {
                 Err(e) if e.class().is(&self.ctx.exceptions.runtime_error) => return Err(e),
                 Ok(Some(value)) => value,
                 // Use a power of 2 as a default capacity.
@@ -1333,7 +1333,7 @@ impl VirtualMachine {
             // TODO: put internal iterable type
             obj => {
                 let iter = obj.clone().get_iter(self)?;
-                let cap = match iterator::length_hint(self, obj.clone()) {
+                let cap = match self.length_hint(obj.clone()) {
                     Err(e) if e.class().is(&self.ctx.exceptions.runtime_error) => {
                         return Ok(Err(e))
                     }
@@ -1924,6 +1924,52 @@ impl VirtualMachine {
                 obj.class().name()
             )))
         })
+    }
+
+    pub fn length_hint(&self, iter: PyObjectRef) -> PyResult<Option<usize>> {
+        if let Some(len) = self.obj_len_opt(&iter) {
+            match len {
+                Ok(len) => return Ok(Some(len)),
+                Err(e) => {
+                    if !e.isinstance(&self.ctx.exceptions.type_error) {
+                        return Err(e);
+                    }
+                }
+            }
+        }
+        let hint = match self.get_method(iter, "__length_hint__") {
+            Some(hint) => hint?,
+            None => return Ok(None),
+        };
+        let result = match self.invoke(&hint, ()) {
+            Ok(res) => {
+                if res.is(&self.ctx.not_implemented) {
+                    return Ok(None);
+                }
+                res
+            }
+            Err(e) => {
+                return if e.isinstance(&self.ctx.exceptions.type_error) {
+                    Ok(None)
+                } else {
+                    Err(e)
+                }
+            }
+        };
+        let hint = result
+            .payload_if_subclass::<PyInt>(self)
+            .ok_or_else(|| {
+                self.new_type_error(format!(
+                    "'{}' object cannot be interpreted as an integer",
+                    result.class().name()
+                ))
+            })?
+            .try_to_primitive::<isize>(self)?;
+        if hint.is_negative() {
+            Err(self.new_value_error("__length_hint__() should return >= 0".to_owned()))
+        } else {
+            Ok(Some(hint as usize))
+        }
     }
 
     /// Checks that the multiplication is able to be performed. On Ok returns the

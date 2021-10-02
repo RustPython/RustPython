@@ -13,7 +13,6 @@ mod _operator {
     use crate::{
         builtins::{PyInt, PyIntRef, PyStrRef, PyTypeRef},
         function::{ArgBytesLike, FuncArgs, KwArgs, OptionalArg},
-        iterator,
         protocol::{PyIter, PyIterReturn},
         slots::{
             Callable,
@@ -284,7 +283,8 @@ mod _operator {
                 v.payload::<PyInt>().unwrap().try_to_primitive(vm)
             })
             .unwrap_or(Ok(0))?;
-        iterator::length_hint(vm, obj).map(|v| vm.ctx.new_int(v.unwrap_or(default)))
+        vm.length_hint(obj)
+            .map(|v| vm.ctx.new_int(v.unwrap_or(default)))
     }
 
     // Inplace Operators

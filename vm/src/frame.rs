@@ -14,7 +14,6 @@ use crate::{
     coroutine::Coro,
     exceptions::{self, ExceptionCtor},
     function::FuncArgs,
-    iterator,
     protocol::{PyIter, PyIterReturn},
     scope::Scope,
     slots::PyComparisonOp,
