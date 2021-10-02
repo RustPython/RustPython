@@ -6,7 +6,7 @@ use crate::builtins::int::PyInt;
 use crate::builtins::slice::{PySlice, PySliceRef};
 use crate::utils::Either;
 use crate::VirtualMachine;
-use crate::{PyObjectRef, PyResult, TryFromObject, TypeProtocol};
+use crate::{PyObjectRef, PyResult, TypeProtocol};
 
 pub trait PySliceableSequenceMut {
     type Item: Clone;
@@ -356,12 +356,6 @@ impl SequenceIndex {
             vm.new_index_error("cannot fit 'int' into an index-sized integer".to_owned())
         })?;
         Ok(SequenceIndex::Int(idx))
-    }
-}
-
-impl TryFromObject for SequenceIndex {
-    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        Self::try_from_object_for(vm, obj, "sequence")
     }
 }
 
