@@ -158,7 +158,7 @@ impl AsMapping for PyMappingProxy {
         Self::downcast_ref(&zelf, vm).map(|zelf| zelf.getitem(needle, vm))?
     }
 
-    #[inline]
+    #[cold]
     fn ass_subscript(
         zelf: PyObjectRef,
         _needle: PyObjectRef,
