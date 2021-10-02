@@ -728,6 +728,7 @@ pub mod module {
         .map_err(|err| err.into_pyexception(vm))
     }
 
+    #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn chmod(
         path: PathOrFd,
@@ -740,6 +741,18 @@ pub mod module {
             PathOrFd::Path(path) => _chmod(path, dir_fd, mode, follow_symlinks, vm),
             PathOrFd::Fd(fd) => _fchmod(fd, mode, vm),
         }
+    }
+
+    #[cfg(not(target_os = "redox"))]
+    #[pyfunction]
+    fn chmod(
+        path: PyPathLike,
+        dir_fd: DirFd<0>,
+        mode: u32,
+        follow_symlinks: FollowSymlinks,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        _chmod(path, dir_fd, mode, follow_symlinks, vm)
     }
 
     #[cfg(not(target_os = "redox"))]
