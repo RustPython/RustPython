@@ -1,4 +1,4 @@
-use super::{PyDictRef, PyIntRef, PyStrRef, PyTupleRef, PyTypeRef};
+use super::{PositionIterInternal, PyDictRef, PyIntRef, PyStrRef, PyTupleRef, PyTypeRef};
 use crate::{
     anystr::{self, AnyStr},
     bytesinner::{
@@ -17,8 +17,10 @@ use crate::{
     PyRef, PyResult, PyValue, TryFromBorrowedObject, TypeProtocol, VirtualMachine,
 };
 use bstr::ByteSlice;
-use crossbeam_utils::atomic::AtomicCell;
-use rustpython_common::borrow::{BorrowedValue, BorrowedValueMut};
+use rustpython_common::{
+    borrow::{BorrowedValue, BorrowedValueMut},
+    lock::PyMutex,
+};
 use std::mem::size_of;
 use std::ops::Deref;
 
@@ -574,8 +576,7 @@ impl Comparable for PyBytes {
 impl Iterable for PyBytes {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         Ok(PyBytesIterator {
-            position: AtomicCell::new(0),
-            bytes: zelf,
+            internal: PyMutex::new(PositionIterInternal::new(zelf, 0)),
         }
         .into_object(vm))
     }
@@ -584,8 +585,7 @@ impl Iterable for PyBytes {
 #[pyclass(module = false, name = "bytes_iterator")]
 #[derive(Debug)]
 pub struct PyBytesIterator {
-    position: AtomicCell<usize>,
-    bytes: PyBytesRef,
+    internal: PyMutex<PositionIterInternal<PyBytesRef>>,
 }
 
 impl PyValue for PyBytesIterator {
@@ -595,17 +595,35 @@ impl PyValue for PyBytesIterator {
 }
 
 #[pyimpl(with(SlotIterator))]
-impl PyBytesIterator {}
+impl PyBytesIterator {
+    #[pymethod(magic)]
+    fn length_hint(&self) -> usize {
+        self.internal.lock().length_hint(|obj| obj.len())
+    }
+
+    #[pymethod(magic)]
+    fn reduce(&self, vm: &VirtualMachine) -> PyObjectRef {
+        self.internal
+            .lock()
+            .builtins_iter_reduce(|x| x.clone().into_object(), vm)
+    }
+
+    #[pymethod(magic)]
+    fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.internal
+            .lock()
+            .set_state(state, |obj, pos| pos.min(obj.len()), vm)
+    }
+}
 impl IteratorIterable for PyBytesIterator {}
 impl SlotIterator for PyBytesIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        let pos = zelf.position.fetch_add(1);
-        let r = if let Some(&ret) = zelf.bytes.as_bytes().get(pos) {
-            PyIterReturn::Return(vm.ctx.new_int(ret))
-        } else {
-            PyIterReturn::StopIteration(None)
-        };
-        Ok(r)
+        zelf.internal.lock().next(|bytes, pos| {
+            Ok(match bytes.as_bytes().get(pos) {
+                Some(&x) => PyIterReturn::Return(vm.ctx.new_int(x)),
+                None => PyIterReturn::StopIteration(None),
+            })
+        })
     }
 }
 

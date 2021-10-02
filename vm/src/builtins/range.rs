@@ -1,4 +1,5 @@
 use super::{PyInt, PyIntRef, PySlice, PySliceRef, PyTypeRef};
+use crate::builtins::builtins_iter;
 use crate::common::hash::PyHash;
 use crate::{
     function::{FuncArgs, OptionalArg},
@@ -608,7 +609,7 @@ fn range_iter_reduce(
     index: usize,
     vm: &VirtualMachine,
 ) -> PyResult {
-    let iter = vm.get_attribute(vm.builtins.clone(), "iter")?;
+    let iter = builtins_iter(vm).clone();
     let stop = start.clone() + length * step.clone();
     let range = PyRange {
         start: PyInt::from(start).into_ref(vm),
