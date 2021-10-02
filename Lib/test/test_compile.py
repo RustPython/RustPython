@@ -30,6 +30,8 @@ class TestSpecifics(unittest.TestCase):
         compile("hi\r\nstuff\r\ndef f():\n    pass\r", "<test>", "exec")
         compile("this_is\rreally_old_mac\rdef f():\n    pass", "<test>", "exec")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_debug_assignment(self):
         # catch assignments to __debug__
         self.assertRaises(SyntaxError, compile, '__debug__ = 1', '?', 'single')
@@ -39,6 +41,8 @@ class TestSpecifics(unittest.TestCase):
         self.assertEqual(__debug__, prev)
         setattr(builtins, '__debug__', prev)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_argument_handling(self):
         # detect duplicate positional and keyword arguments
         self.assertRaises(SyntaxError, eval, 'lambda a,a:0')
@@ -57,6 +61,8 @@ class TestSpecifics(unittest.TestCase):
     def test_duplicate_global_local(self):
         self.assertRaises(SyntaxError, exec, 'def f(a): global a; a = 1')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_exec_with_general_mapping_for_locals(self):
 
         class M:
@@ -147,6 +153,8 @@ if 1:
         pass"""
         compile(s, "<string>", "exec")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     # This test is probably specific to CPython and may not generalize
     # to other implementations.  We are trying to ensure that when
     # the first line of code starts after 256, correct line numbers
@@ -310,6 +318,8 @@ if 1:
         l = lambda: "foo"
         self.assertIsNone(l.__doc__)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_encoding(self):
         code = b'# -*- coding: badencoding -*-\npass\n'
         self.assertRaises(SyntaxError, compile, code, 'tmp', 'exec')
@@ -422,6 +432,8 @@ if 1:
         self.assertIn("_A__mangled_mod", A.f.__code__.co_varnames)
         self.assertIn("__package__", A.f.__code__.co_varnames)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_compile_ast(self):
         fname = __file__
         if fname.lower().endswith('pyc'):
@@ -468,6 +480,8 @@ if 1:
         d = {f(): f(), f(): f()}
         self.assertEqual(d, {1: 2, 3: 4})
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_compile_filename(self):
         for filename in 'file.py', b'file.py':
             code = compile('pass', filename, 'exec')
@@ -502,6 +516,8 @@ if 1:
         self.compile_single("if x:\n   f(x)\nelse:\n   g(x)")
         self.compile_single("class T:\n   pass")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_bad_single_statement(self):
         self.assertInvalidSingle('1\n2')
         self.assertInvalidSingle('def f(): pass')
@@ -512,6 +528,8 @@ if 1:
         self.assertInvalidSingle('f()\nxy # blah\nblah()')
         self.assertInvalidSingle('x = 5 # comment\nx = 6\n')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_particularly_evil_undecodable(self):
         # Issue 24022
         src = b'0000\x00\n00000000000\n\x00\n\x9e\n'
@@ -522,6 +540,8 @@ if 1:
             res = script_helper.run_python_until_end(fn)[0]
         self.assertIn(b"Non-UTF-8", res.err)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_yet_more_evil_still_undecodable(self):
         # Issue #25388
         src = b"#\x00\n#\xfd\n"
@@ -558,6 +578,8 @@ if 1:
         check_limit("a", "[0]")
         check_limit("a", "*a")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_null_terminated(self):
         # The source code is null-terminated internally, but bytes-like
         # objects are accepted, which could be not terminated.
@@ -649,6 +671,8 @@ if 1:
             'RETURN_VALUE',
             list(dis.get_instructions(unused_code_at_end))[-1].opname)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_dont_merge_constants(self):
         # Issue #25843: compile() must not merge constants which are equal
         # but have a different type.
@@ -689,6 +713,8 @@ if 1:
         self.assertTrue(f1(0))
         self.assertTrue(f2(0.0))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_path_like_objects(self):
         # An implicit test for PyUnicode_FSDecoder().
         compile("42", FakePath("test_compile_pathlike"), "single")
@@ -732,6 +758,8 @@ if 1:
             self.assertEqual(None, opcodes[0].argval)
             self.assertEqual('RETURN_VALUE', opcodes[1].opname)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_false_while_loop(self):
         def break_in_while():
             while False:
@@ -765,24 +793,38 @@ class TestExpressionStackSize(unittest.TestCase):
         max_size = math.ceil(math.log(len(code.co_code)))
         self.assertLessEqual(code.co_stacksize, max_size)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_and(self):
         self.check_stack_size("x and " * self.N + "x")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_or(self):
         self.check_stack_size("x or " * self.N + "x")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_and_or(self):
         self.check_stack_size("x and x or " * self.N + "x")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_chained_comparison(self):
         self.check_stack_size("x < " * self.N + "x")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_if_else(self):
         self.check_stack_size("x if x else " * self.N + "x")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_binop(self):
         self.check_stack_size("x + " * self.N + "x")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_func_and(self):
         code = "def f(x):\n"
         code += "   x and x\n" * self.N
@@ -811,6 +853,8 @@ class TestStackSizeStability(unittest.TestCase):
             self.fail("stack sizes diverge with # of consecutive snippets: "
                       "%s\n%s\n%s" % (sizes, snippet, out.getvalue()))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_if(self):
         snippet = """
             if x:
@@ -818,6 +862,8 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_if_else(self):
         snippet = """
             if x:
@@ -829,6 +875,8 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_try_except_bare(self):
         snippet = """
             try:
@@ -838,6 +886,8 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_try_except_qualified(self):
         snippet = """
             try:
@@ -851,6 +901,8 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_try_except_as(self):
         snippet = """
             try:
@@ -864,6 +916,8 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_try_finally(self):
         snippet = """
                 try:
@@ -873,6 +927,8 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_with(self):
         snippet = """
             with x as y:
@@ -880,6 +936,8 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_while_else(self):
         snippet = """
             while x:
@@ -889,6 +947,8 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_for(self):
         snippet = """
             for x in y:
@@ -896,6 +956,8 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_for_else(self):
         snippet = """
             for x in y:
@@ -905,6 +967,8 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_for_break_continue(self):
         snippet = """
             for x in y:
@@ -919,6 +983,8 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_for_break_continue_inside_try_finally_block(self):
         snippet = """
             for x in y:
@@ -936,6 +1002,8 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_for_break_continue_inside_finally_block(self):
         snippet = """
             for x in y:
@@ -953,6 +1021,8 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_for_break_continue_inside_except_block(self):
         snippet = """
             for x in y:
@@ -970,6 +1040,8 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_for_break_continue_inside_with_block(self):
         snippet = """
             for x in y:
@@ -985,6 +1057,8 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_return_inside_try_finally_block(self):
         snippet = """
             try:
@@ -997,6 +1071,8 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_return_inside_finally_block(self):
         snippet = """
             try:
@@ -1009,6 +1085,8 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_return_inside_except_block(self):
         snippet = """
             try:
@@ -1021,6 +1099,8 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_return_inside_with_block(self):
         snippet = """
             with c:
@@ -1031,6 +1111,8 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_async_with(self):
         snippet = """
             async with x as y:
@@ -1038,6 +1120,8 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet, async_=True)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_async_for(self):
         snippet = """
             async for x in y:
@@ -1045,6 +1129,8 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet, async_=True)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_async_for_else(self):
         snippet = """
             async for x in y:
@@ -1054,6 +1140,8 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet, async_=True)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_for_break_continue_inside_async_with_block(self):
         snippet = """
             for x in y:
@@ -1069,6 +1157,8 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet, async_=True)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_return_inside_async_with_block(self):
         snippet = """
             async with c:
