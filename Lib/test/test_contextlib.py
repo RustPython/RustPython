@@ -141,7 +141,8 @@ class ContextManagerTestCase(unittest.TestCase):
         else:
             self.fail('StopIteration was suppressed')
 
-    @unittest.skip("TODO: RUSTPYTHON, SyntaxError: future feature generator_stop is not defined at line 1 column 1")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_contextmanager_except_pep479(self):
         code = """\
 from __future__ import generator_stop
@@ -569,7 +570,8 @@ class TestBaseExitStack:
         with self.exit_stack():
             pass
 
-    @unittest.skip("TODO: RUSTPYTHON, TypeError: Got multiple values for argument 'self'")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_callback(self):
         expected = [
             ((), {}),
