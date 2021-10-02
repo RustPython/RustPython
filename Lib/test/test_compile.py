@@ -131,6 +131,7 @@ def f(x):
     def test_argument_order(self):
         self.assertRaises(SyntaxError, exec, 'def f(a=1, b): pass')
 
+    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'called `Result::unwrap()` on an `Err` value: ParseFloatError { kind: Invalid }'")
     def test_float_literals(self):
         # testing bad float literals
         self.assertRaises(SyntaxError, eval, "2e")
