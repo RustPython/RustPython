@@ -38,6 +38,9 @@ Or use the interactive shell:
     Welcome to rustpython
     >>>>> 2+2
     4
+    
+NOTE: For windows users, please set `RUSTPYTHONPATH` environment variable as `Lib` path in project directory.
+(e.g. When RustPython directory is `C:\RustPython`, set `RUSTPYTHONPATH` as `C:\RustPython\Lib`)
 
 You can also install and run RustPython with the following:
 
