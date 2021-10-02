@@ -800,9 +800,13 @@ impl VirtualMachine {
         self.new_exception_msg(memory_error_type, msg)
     }
 
-    pub fn new_stop_iteration(&self) -> PyBaseExceptionRef {
-        let stop_iteration_type = self.ctx.exceptions.stop_iteration.clone();
-        self.new_exception_empty(stop_iteration_type)
+    pub fn new_stop_iteration(&self, value: Option<PyObjectRef>) -> PyBaseExceptionRef {
+        let args = if let Some(value) = value {
+            vec![value]
+        } else {
+            Vec::new()
+        };
+        self.new_exception(self.ctx.exceptions.stop_iteration.clone(), args)
     }
 
     #[track_caller]

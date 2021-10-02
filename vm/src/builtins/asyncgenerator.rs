@@ -155,10 +155,7 @@ impl PyAsyncGenWrappedValue {
         match_class!(match val {
             val @ Self => {
                 ag.running_async.store(false);
-                Err(vm.new_exception(
-                    vm.ctx.exceptions.stop_iteration.clone(),
-                    vec![val.0.clone()],
-                ))
+                Err(vm.new_stop_iteration(Some(val.0.clone())))
             }
             val => Ok(val),
         })
@@ -307,7 +304,7 @@ impl PyAsyncGenAThrow {
                 }
                 if self.ag.inner.closed() {
                     self.state.store(AwaitableState::Closed);
-                    return Err(vm.new_exception_empty(vm.ctx.exceptions.stop_iteration.clone()));
+                    return Err(vm.new_stop_iteration(None));
                 }
                 if !vm.is_none(&val) {
                     return Err(vm.new_runtime_error(
@@ -398,7 +395,7 @@ impl PyAsyncGenAThrow {
             && (exc.isinstance(&vm.ctx.exceptions.stop_async_iteration)
                 || exc.isinstance(&vm.ctx.exceptions.generator_exit))
         {
-            vm.new_exception_empty(vm.ctx.exceptions.stop_iteration.clone())
+            vm.new_stop_iteration(None)
         } else {
             exc
         }

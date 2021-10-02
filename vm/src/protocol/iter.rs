@@ -166,10 +166,7 @@ impl IntoPyResult for PyIterReturn {
     fn into_pyresult(self, vm: &VirtualMachine) -> PyResult {
         match self {
             Self::Return(obj) => Ok(obj),
-            Self::StopIteration(v) => Err({
-                let args = if let Some(v) = v { vec![v] } else { Vec::new() };
-                vm.new_exception(vm.ctx.exceptions.stop_iteration.clone(), args)
-            }),
+            Self::StopIteration(v) => Err(vm.new_stop_iteration(v)),
         }
     }
 }
