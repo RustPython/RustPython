@@ -10,7 +10,7 @@ use crate::{
     },
     vm::{ReprGuard, VirtualMachine},
     IdProtocol, IntoPyObject, ItemProtocol,
-    PyArithmaticValue::*,
+    PyArithmeticValue::*,
     PyAttributes, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
     PyResult, PyValue, TryFromObject, TypeProtocol,
 };

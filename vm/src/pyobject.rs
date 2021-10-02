@@ -1080,9 +1080,9 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
     }
 }
 
-result_like::option_like!(pub PyArithmaticValue, Implemented, NotImplemented);
+result_like::option_like!(pub PyArithmeticValue, Implemented, NotImplemented);
 
-impl PyArithmaticValue<PyObjectRef> {
+impl PyArithmeticValue<PyObjectRef> {
     pub fn from_object(vm: &VirtualMachine, obj: PyObjectRef) -> Self {
         if obj.is(&vm.ctx.not_implemented) {
             Self::NotImplemented
@@ -1092,27 +1092,27 @@ impl PyArithmaticValue<PyObjectRef> {
     }
 }
 
-impl<T: TryFromObject> TryFromObject for PyArithmaticValue<T> {
+impl<T: TryFromObject> TryFromObject for PyArithmeticValue<T> {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        PyArithmaticValue::from_object(vm, obj)
+        PyArithmeticValue::from_object(vm, obj)
             .map(|x| T::try_from_object(vm, x))
             .transpose()
     }
 }
 
-impl<T> IntoPyObject for PyArithmaticValue<T>
+impl<T> IntoPyObject for PyArithmeticValue<T>
 where
     T: IntoPyObject,
 {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         match self {
-            PyArithmaticValue::Implemented(v) => v.into_pyobject(vm),
-            PyArithmaticValue::NotImplemented => vm.ctx.not_implemented(),
+            PyArithmeticValue::Implemented(v) => v.into_pyobject(vm),
+            PyArithmeticValue::NotImplemented => vm.ctx.not_implemented(),
         }
     }
 }
 
-pub type PyComparisonValue = PyArithmaticValue<bool>;
+pub type PyComparisonValue = PyArithmeticValue<bool>;
 
 #[derive(Clone)]
 pub struct PySequence<T = PyObjectRef>(Vec<T>);

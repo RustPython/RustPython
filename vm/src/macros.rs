@@ -210,7 +210,7 @@ macro_rules! class_or_notimplemented {
     ($t:ty, $obj:expr) => {
         match $crate::PyObjectRef::downcast_ref::<$t>($obj) {
             Some(pyref) => pyref,
-            None => return Ok($crate::PyArithmaticValue::NotImplemented),
+            None => return Ok($crate::PyArithmeticValue::NotImplemented),
         }
     };
 }

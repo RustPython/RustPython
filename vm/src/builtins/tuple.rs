@@ -15,7 +15,7 @@ use crate::{
     },
     utils::Either,
     vm::{ReprGuard, VirtualMachine},
-    IdProtocol, IntoPyObject, PyArithmaticValue, PyClassDef, PyClassImpl, PyComparisonValue,
+    IdProtocol, IntoPyObject, PyArithmeticValue, PyClassDef, PyClassImpl, PyComparisonValue,
     PyContext, PyObjectRef, PyRef, PyResult, PyValue, TransmuteFromObject, TryFromObject,
     TypeProtocol,
 };
@@ -129,7 +129,7 @@ impl PyTuple {
         zelf: PyRef<Self>,
         other: PyObjectRef,
         vm: &VirtualMachine,
-    ) -> PyArithmaticValue<PyRef<Self>> {
+    ) -> PyArithmeticValue<PyRef<Self>> {
         let added = other.downcast::<Self>().map(|other| {
             if other.elements.is_empty() && zelf.class().is(&vm.ctx.types.tuple_type) {
                 zelf
@@ -145,7 +145,7 @@ impl PyTuple {
                 Self { elements }.into_ref(vm)
             }
         });
-        PyArithmaticValue::from_option(added.ok())
+        PyArithmeticValue::from_option(added.ok())
     }
 
     #[pymethod(magic)]

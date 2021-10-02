@@ -5,7 +5,7 @@ use crate::{
     format::FormatSpec,
     function::{OptionalArg, OptionalOption},
     slots::{Comparable, Hashable, PyComparisonOp, SlotConstructor},
-    try_value_from_borrowed_object, IdProtocol, IntoPyObject, IntoPyResult, PyArithmaticValue,
+    try_value_from_borrowed_object, IdProtocol, IntoPyObject, IntoPyResult, PyArithmeticValue,
     PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromBorrowedObject, TypeProtocol, VirtualMachine,
 };
@@ -310,14 +310,14 @@ impl PyInt {
     }
 
     #[inline]
-    fn int_op<F>(&self, other: PyObjectRef, op: F, vm: &VirtualMachine) -> PyArithmaticValue<BigInt>
+    fn int_op<F>(&self, other: PyObjectRef, op: F, vm: &VirtualMachine) -> PyArithmeticValue<BigInt>
     where
         F: Fn(&BigInt, &BigInt) -> BigInt,
     {
         let r = other
             .payload_if_subclass::<PyInt>(vm)
             .map(|other| op(&self.value, &other.value));
-        PyArithmaticValue::from_option(r)
+        PyArithmeticValue::from_option(r)
     }
 
     #[inline]
@@ -337,23 +337,23 @@ impl PyInt {
 impl PyInt {
     #[pymethod(name = "__radd__")]
     #[pymethod(magic)]
-    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<BigInt> {
+    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmeticValue<BigInt> {
         self.int_op(other, |a, b| a + b, vm)
     }
 
     #[pymethod(magic)]
-    fn sub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<BigInt> {
+    fn sub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmeticValue<BigInt> {
         self.int_op(other, |a, b| a - b, vm)
     }
 
     #[pymethod(magic)]
-    fn rsub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<BigInt> {
+    fn rsub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmeticValue<BigInt> {
         self.int_op(other, |a, b| b - a, vm)
     }
 
     #[pymethod(name = "__rmul__")]
     #[pymethod(magic)]
-    fn mul(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<BigInt> {
+    fn mul(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmeticValue<BigInt> {
         self.int_op(other, |a, b| a * b, vm)
     }
 
@@ -399,19 +399,19 @@ impl PyInt {
 
     #[pymethod(name = "__rxor__")]
     #[pymethod(magic)]
-    pub fn xor(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<BigInt> {
+    pub fn xor(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmeticValue<BigInt> {
         self.int_op(other, |a, b| a ^ b, vm)
     }
 
     #[pymethod(name = "__ror__")]
     #[pymethod(magic)]
-    pub fn or(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<BigInt> {
+    pub fn or(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmeticValue<BigInt> {
         self.int_op(other, |a, b| a | b, vm)
     }
 
     #[pymethod(name = "__rand__")]
     #[pymethod(magic)]
-    pub fn and(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<BigInt> {
+    pub fn and(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmeticValue<BigInt> {
         self.int_op(other, |a, b| a & b, vm)
     }
 
