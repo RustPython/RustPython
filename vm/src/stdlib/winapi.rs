@@ -2,10 +2,11 @@
 
 use super::os::errno_err;
 use crate::{
-    builtins::{dict::PyMapping, PyDictRef, PyStrRef},
+    builtins::{PyListRef, PyStrRef},
     exceptions::IntoPyException,
     function::OptionalArg,
-    PyObjectRef, PyResult, PySequence, TryFromObject, VirtualMachine,
+    protocol::PyMapping,
+    ItemProtocol, PyObjectRef, PyResult, PySequence, TryFromObject, VirtualMachine,
 };
 use std::ptr::{null, null_mut};
 use winapi::shared::winerror;
@@ -155,7 +156,7 @@ fn _winapi_CreateProcess(
 
     let mut env = args
         .env_mapping
-        .map(|m| getenvironment(m.into_dict(), vm))
+        .map(|m| getenvironment(m, vm))
         .transpose()?;
     let env = env.as_mut().map_or_else(null_mut, |v| v.as_mut_ptr());
 
@@ -216,9 +217,21 @@ fn _winapi_CreateProcess(
     ))
 }
 
-fn getenvironment(env: PyDictRef, vm: &VirtualMachine) -> PyResult<Vec<u16>> {
+fn getenvironment(env: PyMapping, vm: &VirtualMachine) -> PyResult<Vec<u16>> {
+    let keys = env.keys(vm)?;
+    let values = env.values(vm)?;
+
+    let keys = PyListRef::try_from_object(vm, keys)?.borrow_vec().to_vec();
+    let values = PyListRef::try_from_object(vm, values)?
+        .borrow_vec()
+        .to_vec();
+
+    if keys.len() != values.len() {
+        return Err(vm.new_runtime_error("environment changed size during iteration".to_owned()));
+    }
+
     let mut out = widestring::WideString::new();
-    for (k, v) in env {
+    for (k, v) in keys.into_iter().zip(values.into_iter()) {
         let k = PyStrRef::try_from_object(vm, k)?;
         let k = k.as_str();
         let v = PyStrRef::try_from_object(vm, v)?;
@@ -252,10 +265,11 @@ impl Drop for AttrList {
 
 fn getattributelist(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<AttrList>> {
     <Option<PyMapping>>::try_from_object(vm, obj)?
-        .map(|d| {
-            let d = d.into_dict();
-            let handlelist = d
-                .get_item_option("handle_list", vm)?
+        .map(|mapping| {
+            let handlelist = mapping
+                .into_object()
+                .get_item("handle_list", vm)
+                .ok()
                 .and_then(|obj| {
                     <Option<PySequence<usize>>>::try_from_object(vm, obj)
                         .map(|s| match s {
@@ -265,6 +279,7 @@ fn getattributelist(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<At
                         .transpose()
                 })
                 .transpose()?;
+
             let attr_count = handlelist.is_some() as u32;
             let mut size = 0;
             let ret = unsafe {
