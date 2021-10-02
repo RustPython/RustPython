@@ -2,7 +2,7 @@ use super::{PyDict, PyDictRef, PyList, PyStr, PyStrRef, PyType, PyTypeRef};
 use crate::common::hash::PyHash;
 use crate::{
     function::FuncArgs, slots::PyComparisonOp, utils::Either, IdProtocol, ItemProtocol,
-    PyArithmaticValue, PyAttributes, PyClassImpl, PyComparisonValue, PyContext, PyObject,
+    PyArithmeticValue, PyAttributes, PyClassImpl, PyComparisonValue, PyContext, PyObject,
     PyObjectRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
 
@@ -68,7 +68,7 @@ impl PyBaseObject {
                     .mro_find_map(|cls| cls.slots.richcompare.load())
                     .unwrap();
                 let value = match cmp(zelf, other, PyComparisonOp::Eq, vm)? {
-                    Either::A(obj) => PyArithmaticValue::from_object(vm, obj)
+                    Either::A(obj) => PyArithmeticValue::from_object(vm, obj)
                         .map(|obj| obj.try_to_bool(vm))
                         .transpose()?,
                     Either::B(value) => value,

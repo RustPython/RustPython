@@ -32,7 +32,7 @@ mod builtins {
         slots::PyComparisonOp,
         stdlib::sys,
         utils::Either,
-        IdProtocol, ItemProtocol, PyArithmaticValue, PyClassImpl, PyObjectRef, PyRef, PyResult,
+        IdProtocol, ItemProtocol, PyArithmeticValue, PyClassImpl, PyObjectRef, PyRef, PyResult,
         PyValue, TryFromObject, TypeProtocol, VirtualMachine,
     };
     use num_traits::{Signed, Zero};
@@ -600,8 +600,8 @@ mod builtins {
                             Ok(x) => x,
                             Err(e) => return Some(Err(e)),
                         };
-                        if let PyArithmaticValue::Implemented(x) =
-                            PyArithmaticValue::from_object(vm, result)
+                        if let PyArithmeticValue::Implemented(x) =
+                            PyArithmeticValue::from_object(vm, result)
                         {
                             return Some(Ok(x));
                         }

@@ -3,7 +3,7 @@ use crate::{
     function::{OptionalArg, OptionalOption},
     slots::{Comparable, Hashable, PyComparisonOp, SlotConstructor},
     IdProtocol, IntoPyObject,
-    PyArithmaticValue::{self, *},
+    PyArithmeticValue::{self, *},
     PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol, VirtualMachine,
 };
@@ -193,7 +193,7 @@ impl PyComplex {
         other: PyObjectRef,
         op: F,
         vm: &VirtualMachine,
-    ) -> PyResult<PyArithmaticValue<Complex64>>
+    ) -> PyResult<PyArithmeticValue<Complex64>>
     where
         F: Fn(Complex64, Complex64) -> PyResult<Complex64>,
     {
@@ -209,7 +209,7 @@ impl PyComplex {
         &self,
         other: PyObjectRef,
         vm: &VirtualMachine,
-    ) -> PyResult<PyArithmaticValue<Complex64>> {
+    ) -> PyResult<PyArithmeticValue<Complex64>> {
         self.op(other, |a, b| Ok(a + b), vm)
     }
 
@@ -218,7 +218,7 @@ impl PyComplex {
         &self,
         other: PyObjectRef,
         vm: &VirtualMachine,
-    ) -> PyResult<PyArithmaticValue<Complex64>> {
+    ) -> PyResult<PyArithmeticValue<Complex64>> {
         self.op(other, |a, b| Ok(a - b), vm)
     }
 
@@ -227,7 +227,7 @@ impl PyComplex {
         &self,
         other: PyObjectRef,
         vm: &VirtualMachine,
-    ) -> PyResult<PyArithmaticValue<Complex64>> {
+    ) -> PyResult<PyArithmeticValue<Complex64>> {
         self.op(other, |a, b| Ok(b - a), vm)
     }
 
@@ -252,7 +252,7 @@ impl PyComplex {
         &self,
         other: PyObjectRef,
         vm: &VirtualMachine,
-    ) -> PyResult<PyArithmaticValue<Complex64>> {
+    ) -> PyResult<PyArithmeticValue<Complex64>> {
         self.op(other, |a, b| Ok(a * b), vm)
     }
 
@@ -261,7 +261,7 @@ impl PyComplex {
         &self,
         other: PyObjectRef,
         vm: &VirtualMachine,
-    ) -> PyResult<PyArithmaticValue<Complex64>> {
+    ) -> PyResult<PyArithmeticValue<Complex64>> {
         self.op(other, |a, b| inner_div(a, b, vm), vm)
     }
 
@@ -270,7 +270,7 @@ impl PyComplex {
         &self,
         other: PyObjectRef,
         vm: &VirtualMachine,
-    ) -> PyResult<PyArithmaticValue<Complex64>> {
+    ) -> PyResult<PyArithmeticValue<Complex64>> {
         self.op(other, |a, b| inner_div(b, a, vm), vm)
     }
 
@@ -318,7 +318,7 @@ impl PyComplex {
         other: PyObjectRef,
         mod_val: OptionalOption<PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<PyArithmaticValue<Complex64>> {
+    ) -> PyResult<PyArithmeticValue<Complex64>> {
         if mod_val.flatten().is_some() {
             Err(vm.new_value_error("complex modulo not allowed".to_owned()))
         } else {
@@ -331,7 +331,7 @@ impl PyComplex {
         &self,
         other: PyObjectRef,
         vm: &VirtualMachine,
-    ) -> PyResult<PyArithmaticValue<Complex64>> {
+    ) -> PyResult<PyArithmeticValue<Complex64>> {
         self.op(other, |a, b| inner_pow(b, a, vm), vm)
     }
 
