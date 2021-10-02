@@ -50,7 +50,7 @@ mod decl {
     }
 
     #[pyattr(name = "Error")]
-    fn get_binascii_error(vm: &VirtualMachine) -> PyTypeRef {
+    fn error_type(vm: &VirtualMachine) -> PyTypeRef {
         rustpython_common::static_cell! {
             static BINASCII_ERROR: PyTypeRef;
         }
@@ -66,7 +66,7 @@ mod decl {
     }
 
     #[pyattr(name = "Incomplete")]
-    fn get_binascii_incomplete(vm: &VirtualMachine) -> PyTypeRef {
+    fn incomplete_type(vm: &VirtualMachine) -> PyTypeRef {
         rustpython_common::static_cell! {
             static BINASCII_INCOMPLTE: PyTypeRef;
         }

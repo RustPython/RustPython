@@ -454,7 +454,7 @@ impl PyBaseException {
         self.traceback.read().clone()
     }
 
-    #[pyproperty(name = "__traceback__", setter)]
+    #[pyproperty(magic, setter)]
     pub fn set_traceback(&self, traceback: Option<PyTracebackRef>) {
         *self.traceback.write() = traceback;
     }
@@ -464,7 +464,7 @@ impl PyBaseException {
         self.cause.read().clone()
     }
 
-    #[pyproperty(name = "__cause__", setter)]
+    #[pyproperty(magic, setter)]
     pub fn set_cause(&self, cause: Option<PyRef<Self>>) {
         let mut c = self.cause.write();
         self.set_suppress_context(true);
@@ -476,7 +476,7 @@ impl PyBaseException {
         self.context.read().clone()
     }
 
-    #[pyproperty(name = "__context__", setter)]
+    #[pyproperty(magic, setter)]
     pub fn set_context(&self, context: Option<PyRef<Self>>) {
         *self.context.write() = context;
     }

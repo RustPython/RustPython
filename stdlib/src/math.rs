@@ -12,7 +12,6 @@ mod math {
     };
     use num_bigint::BigInt;
     use num_traits::{One, Signed, Zero};
-    use puruspe::{erf, erfc, gamma, ln_gamma};
     use rustpython_common::float_ops;
     use std::cmp::Ordering;
 
@@ -367,31 +366,31 @@ mod math {
     }
 
     // Special functions:
-    #[pyfunction(name = "erf")]
-    fn py_erf(x: IntoPyFloat) -> f64 {
+    #[pyfunction]
+    fn erf(x: IntoPyFloat) -> f64 {
         let x = x.to_f64();
         if x.is_nan() {
             x
         } else {
-            erf(x)
+            puruspe::erf(x)
         }
     }
 
-    #[pyfunction(name = "erfc")]
-    fn py_erfc(x: IntoPyFloat) -> f64 {
+    #[pyfunction]
+    fn erfc(x: IntoPyFloat) -> f64 {
         let x = x.to_f64();
         if x.is_nan() {
             x
         } else {
-            erfc(x)
+            puruspe::erfc(x)
         }
     }
 
-    #[pyfunction(name = "gamma")]
-    fn py_gamma(x: IntoPyFloat) -> f64 {
+    #[pyfunction]
+    fn gamma(x: IntoPyFloat) -> f64 {
         let x = x.to_f64();
         if x.is_finite() {
-            gamma(x)
+            puruspe::gamma(x)
         } else if x.is_nan() || x.is_sign_positive() {
             x
         } else {
@@ -403,7 +402,7 @@ mod math {
     fn lgamma(x: IntoPyFloat) -> f64 {
         let x = x.to_f64();
         if x.is_finite() {
-            ln_gamma(x)
+            puruspe::ln_gamma(x)
         } else if x.is_nan() {
             x
         } else {

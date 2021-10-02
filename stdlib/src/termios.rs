@@ -96,7 +96,7 @@ mod termios {
 
     fn termios_error(err: std::io::Error, vm: &VirtualMachine) -> PyBaseExceptionRef {
         vm.new_exception(
-            get_termios_error(vm),
+            error_type(vm),
             vec![
                 err.raw_os_error().into_pyobject(vm),
                 vm.ctx.new_utf8_str(err.to_string()),
@@ -105,7 +105,7 @@ mod termios {
     }
 
     #[pyattr(name = "error")]
-    fn get_termios_error(vm: &VirtualMachine) -> PyTypeRef {
+    fn error_type(vm: &VirtualMachine) -> PyTypeRef {
         rustpython_common::static_cell! {
             static TERMIOS_ERROR: PyTypeRef;
         }

@@ -1,7 +1,7 @@
-pub(crate) use decl::make_module;
+pub(crate) use zlib::make_module;
 
-#[pymodule(name = "zlib")]
-mod decl {
+#[pymodule]
+mod zlib {
     use crate::common::lock::PyMutex;
     use crate::vm::{
         builtins::{PyBaseExceptionRef, PyBytes, PyBytesRef, PyIntRef, PyTypeRef},
