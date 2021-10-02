@@ -266,8 +266,6 @@ text
             ("starttag", "foo:bar", [("one", "1"), ("two", "2")]),
             ("starttag_text", s)])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_cdata_content(self):
         contents = [
             '<!-- not a comment --> &not-an-entity-ref;',
