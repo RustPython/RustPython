@@ -17,11 +17,13 @@ mod array {
         },
         class_or_notimplemented,
         function::{ArgBytesLike, ArgIterable, OptionalArg},
-        protocol::{BufferInternal, BufferOptions, PyBuffer, PyIterReturn, ResizeGuard},
+        protocol::{
+            BufferInternal, BufferOptions, PyBuffer, PyIterReturn, PyMappingMethods, ResizeGuard,
+        },
         sliceable::{saturate_index, PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
         slots::{
-            AsBuffer, Comparable, Iterable, IteratorIterable, PyComparisonOp, SlotConstructor,
-            SlotIterator,
+            AsBuffer, AsMapping, Comparable, Iterable, IteratorIterable, PyComparisonOp,
+            SlotConstructor, SlotIterator,
         },
         IdProtocol, IntoPyObject, IntoPyResult, PyComparisonValue, PyObjectRef, PyRef, PyResult,
         PyValue, TryFromObject, TypeProtocol, VirtualMachine,
@@ -665,7 +667,10 @@ mod array {
         }
     }
 
-    #[pyimpl(flags(BASETYPE), with(Comparable, AsBuffer, Iterable, SlotConstructor))]
+    #[pyimpl(
+        flags(BASETYPE),
+        with(Comparable, AsBuffer, AsMapping, Iterable, SlotConstructor)
+    )]
     impl PyArray {
         fn read(&self) -> PyRwLockReadGuard<'_, ArrayContentType> {
             self.array.read()
@@ -1158,6 +1163,38 @@ mod array {
 
         fn retain(&self) {
             self.0.exports.fetch_add(1);
+        }
+    }
+
+    impl AsMapping for PyArray {
+        fn as_mapping(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyMappingMethods> {
+            Ok(PyMappingMethods {
+                length: Some(Self::length),
+                subscript: Some(Self::subscript),
+                ass_subscript: Some(Self::ass_subscript),
+            })
+        }
+
+        fn length(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+            Self::downcast_ref(&zelf, vm).map(|zelf| Ok(zelf.len()))?
+        }
+
+        fn subscript(zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            Self::downcast_ref(&zelf, vm).map(|zelf| zelf.getitem(needle, vm))?
+        }
+
+        fn ass_subscript(
+            zelf: PyObjectRef,
+            needle: PyObjectRef,
+            value: Option<PyObjectRef>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            match value {
+                Some(value) => {
+                    Self::downcast(zelf, vm).map(|zelf| Self::setitem(zelf, needle, value, vm))?
+                }
+                None => Self::downcast(zelf, vm).map(|zelf| Self::delitem(zelf, needle, vm))?,
+            }
         }
     }
 

@@ -4,15 +4,16 @@ use crate::{
     common::ascii,
     dictdatatype::{self, DictKey},
     function::{ArgIterable, FuncArgs, KwArgs, OptionalArg},
-    protocol::PyIterReturn,
+    protocol::{PyIterReturn, PyMappingMethods},
     slots::{
-        Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotIterator, Unhashable,
+        AsMapping, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotIterator,
+        Unhashable,
     },
     vm::{ReprGuard, VirtualMachine},
     IdProtocol, IntoPyObject, ItemProtocol,
     PyArithmeticValue::*,
     PyAttributes, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
-    PyResult, PyValue, TryFromObject, TypeProtocol,
+    PyResult, PyValue, TypeProtocol,
 };
 use rustpython_common::lock::PyMutex;
 use std::fmt;
@@ -51,7 +52,7 @@ impl PyValue for PyDict {
 
 // Python dict methods:
 #[allow(clippy::len_without_is_empty)]
-#[pyimpl(with(Hashable, Comparable, Iterable), flags(BASETYPE))]
+#[pyimpl(with(AsMapping, Hashable, Comparable, Iterable), flags(BASETYPE))]
 impl PyDict {
     #[pyslot]
     fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -410,6 +411,39 @@ impl PyDict {
     }
 }
 
+impl AsMapping for PyDict {
+    fn as_mapping(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyMappingMethods> {
+        Ok(PyMappingMethods {
+            length: Some(Self::length),
+            subscript: Some(Self::subscript),
+            ass_subscript: Some(Self::ass_subscript),
+        })
+    }
+
+    #[inline]
+    fn length(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+        Self::downcast_ref(&zelf, vm).map(|zelf| Ok(zelf.len()))?
+    }
+
+    #[inline]
+    fn subscript(zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Self::downcast(zelf, vm).map(|zelf| Self::getitem(zelf, needle, vm))?
+    }
+
+    #[inline]
+    fn ass_subscript(
+        zelf: PyObjectRef,
+        needle: PyObjectRef,
+        value: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        Self::downcast_ref(&zelf, vm).map(|zelf| match value {
+            Some(value) => zelf.setitem(needle, value, vm),
+            None => zelf.delitem(needle, vm),
+        })?
+    }
+}
+
 impl Comparable for PyDict {
     fn cmp(
         zelf: &PyRef<Self>,
@@ -653,7 +687,7 @@ macro_rules! dict_iterator {
         }
 
         impl $name {
-            fn new(dict: PyDictRef) -> Self {
+            pub fn new(dict: PyDictRef) -> Self {
                 $name { dict }
             }
         }
@@ -896,27 +930,4 @@ pub(crate) fn init(context: &PyContext) {
     PyDictItems::extend_class(context, &context.types.dict_items_type);
     PyDictItemIterator::extend_class(context, &context.types.dict_itemiterator_type);
     PyDictReverseItemIterator::extend_class(context, &context.types.dict_reverseitemiterator_type);
-}
-
-pub struct PyMapping {
-    dict: PyDictRef,
-}
-
-impl TryFromObject for PyMapping {
-    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        let dict = vm.ctx.new_dict();
-        PyDict::merge(
-            &dict.entries,
-            OptionalArg::Present(obj),
-            KwArgs::default(),
-            vm,
-        )?;
-        Ok(PyMapping { dict })
-    }
-}
-
-impl PyMapping {
-    pub fn into_dict(self) -> PyDictRef {
-        self.dict
-    }
 }

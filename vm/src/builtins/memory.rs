@@ -8,13 +8,13 @@ use crate::common::{
 use crate::{
     bytesinner::bytes_to_hex,
     function::{FuncArgs, OptionalArg},
-    protocol::{BufferInternal, BufferOptions, PyBuffer},
+    protocol::{BufferInternal, BufferOptions, PyBuffer, PyMappingMethods},
     sliceable::{convert_slice, wrap_index, SequenceIndex},
-    slots::{AsBuffer, Comparable, Hashable, PyComparisonOp, SlotConstructor},
+    slots::{AsBuffer, AsMapping, Comparable, Hashable, PyComparisonOp, SlotConstructor},
     stdlib::pystruct::FormatSpec,
     utils::Either,
-    IdProtocol, IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
-    PyResult, PyValue, TryFromBorrowedObject, TryFromObject, TypeProtocol, VirtualMachine,
+    IdProtocol, IntoPyObject, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef,
+    PyRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject, TypeProtocol, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
@@ -53,7 +53,7 @@ impl SlotConstructor for PyMemoryView {
     }
 }
 
-#[pyimpl(with(Hashable, Comparable, AsBuffer, SlotConstructor))]
+#[pyimpl(with(Hashable, Comparable, AsBuffer, AsMapping, SlotConstructor))]
 impl PyMemoryView {
     #[cfg(debug_assertions)]
     fn validate(self) -> Self {
@@ -342,10 +342,10 @@ impl PyMemoryView {
     }
 
     #[pymethod(magic)]
-    fn getitem(zelf: PyRef<Self>, needle: SequenceIndex, vm: &VirtualMachine) -> PyResult {
+    fn getitem(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         zelf.try_not_released(vm)?;
-        match needle {
-            SequenceIndex::Int(i) => Self::getitem_by_idx(zelf, i, vm),
+        match SequenceIndex::try_from_object_for(vm, needle, Self::NAME)? {
+            SequenceIndex::Int(index) => Self::getitem_by_idx(zelf, index, vm),
             SequenceIndex::Slice(slice) => Self::getitem_by_slice(zelf, slice, vm),
         }
     }
@@ -459,7 +459,7 @@ impl PyMemoryView {
     #[pymethod(magic)]
     fn setitem(
         zelf: PyRef<Self>,
-        needle: SequenceIndex,
+        needle: PyObjectRef,
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -467,8 +467,8 @@ impl PyMemoryView {
         if zelf.buffer.options.readonly {
             return Err(vm.new_type_error("cannot modify read-only memory".to_owned()));
         }
-        match needle {
-            SequenceIndex::Int(i) => Self::setitem_by_idx(zelf, i, value, vm),
+        match SequenceIndex::try_from_object_for(vm, needle, Self::NAME)? {
+            SequenceIndex::Int(index) => Self::setitem_by_idx(zelf, index, value, vm),
             SequenceIndex::Slice(slice) => Self::setitem_by_slice(zelf, slice, value, vm),
         }
     }
@@ -732,6 +732,41 @@ impl BufferInternal for PyRef<PyMemoryView> {
     }
     fn release(&self) {}
     fn retain(&self) {}
+}
+
+impl AsMapping for PyMemoryView {
+    fn as_mapping(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyMappingMethods> {
+        Ok(PyMappingMethods {
+            length: Some(Self::length),
+            subscript: Some(Self::subscript),
+            ass_subscript: Some(Self::ass_subscript),
+        })
+    }
+
+    #[inline]
+    fn length(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+        Self::downcast_ref(&zelf, vm).map(|zelf| zelf.len(vm))?
+    }
+
+    #[inline]
+    fn subscript(zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Self::downcast(zelf, vm).map(|zelf| Self::getitem(zelf, needle, vm))?
+    }
+
+    #[inline]
+    fn ass_subscript(
+        zelf: PyObjectRef,
+        needle: PyObjectRef,
+        value: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        match value {
+            Some(value) => {
+                Self::downcast(zelf, vm).map(|zelf| Self::setitem(zelf, needle, value, vm))?
+            }
+            None => Err(vm.new_type_error("cannot delete memory".to_owned())),
+        }
+    }
 }
 
 impl Comparable for PyMemoryView {

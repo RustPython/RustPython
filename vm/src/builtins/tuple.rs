@@ -2,12 +2,12 @@ use super::{PositionIterInternal, PyTypeRef};
 use crate::common::hash::PyHash;
 use crate::{
     function::OptionalArg,
-    protocol::PyIterReturn,
+    protocol::{PyIterReturn, PyMappingMethods},
     sequence::{self, SimpleSeq},
     sliceable::PySliceableSequence,
     slots::{
-        Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotConstructor,
-        SlotIterator,
+        AsMapping, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp,
+        SlotConstructor, SlotIterator,
     },
     utils::Either,
     vm::{ReprGuard, VirtualMachine},
@@ -107,7 +107,10 @@ impl SlotConstructor for PyTuple {
     }
 }
 
-#[pyimpl(flags(BASETYPE), with(Hashable, Comparable, Iterable, SlotConstructor))]
+#[pyimpl(
+    flags(BASETYPE),
+    with(AsMapping, Hashable, Comparable, Iterable, SlotConstructor)
+)]
 impl PyTuple {
     /// Creating a new tuple with given boxed slice.
     /// NOTE: for usual case, you probably want to use PyTupleRef::with_elements.
@@ -277,6 +280,36 @@ impl PyTuple {
             PyTupleRef::with_elements(zelf.elements.clone().into_vec(), &vm.ctx)
         };
         (tup_arg,)
+    }
+}
+
+impl AsMapping for PyTuple {
+    fn as_mapping(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyMappingMethods> {
+        Ok(PyMappingMethods {
+            length: Some(Self::length),
+            subscript: Some(Self::subscript),
+            ass_subscript: None,
+        })
+    }
+
+    #[inline]
+    fn length(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+        Self::downcast_ref(&zelf, vm).map(|zelf| Ok(zelf.len()))?
+    }
+
+    #[inline]
+    fn subscript(zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Self::downcast(zelf, vm).map(|zelf| Self::getitem(zelf, needle, vm))?
+    }
+
+    #[inline]
+    fn ass_subscript(
+        zelf: PyObjectRef,
+        _needle: PyObjectRef,
+        _value: Option<PyObjectRef>,
+        _vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        unreachable!("ass_subscript not implemented for {}", zelf.class())
     }
 }
 
