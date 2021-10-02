@@ -1,9 +1,10 @@
-use super::{PyDict, PyStrRef, PyTypeRef};
+use super::{PyDict, PyList, PyStrRef, PyTuple, PyTypeRef};
 use crate::{
     function::OptionalArg,
-    slots::{Iterable, SlotConstructor},
+    protocol::{PyMapping, PyMappingMethods},
+    slots::{AsMapping, Iterable, SlotConstructor},
     IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, VirtualMachine,
+    TryFromObject, TypeProtocol, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "mappingproxy")]
@@ -36,14 +37,24 @@ impl SlotConstructor for PyMappingProxy {
     type Args = PyObjectRef;
 
     fn py_new(cls: PyTypeRef, mapping: Self::Args, vm: &VirtualMachine) -> PyResult {
-        Self {
-            mapping: MappingProxyInner::Dict(mapping),
+        if !PyMapping::check(&mapping)
+            || mapping.payload_if_subclass::<PyList>(vm).is_some()
+            || mapping.payload_if_subclass::<PyTuple>(vm).is_some()
+        {
+            Err(vm.new_type_error(format!(
+                "mappingproxy() argument must be a mapping, not {}",
+                mapping.class()
+            )))
+        } else {
+            Self {
+                mapping: MappingProxyInner::Dict(mapping),
+            }
+            .into_pyresult_with_type(vm, cls)
         }
-        .into_pyresult_with_type(vm, cls)
     }
 }
 
-#[pyimpl(with(Iterable, SlotConstructor))]
+#[pyimpl(with(AsMapping, Iterable, SlotConstructor))]
 impl PyMappingProxy {
     fn get_inner(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
         let opt = match &self.mapping {
@@ -127,6 +138,37 @@ impl PyMappingProxy {
         }
     }
 }
+
+impl AsMapping for PyMappingProxy {
+    fn as_mapping(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyMappingMethods> {
+        Ok(PyMappingMethods {
+            length: None,
+            subscript: Some(Self::subscript),
+            ass_subscript: None,
+        })
+    }
+
+    #[inline]
+    fn length(zelf: PyObjectRef, _vm: &VirtualMachine) -> PyResult<usize> {
+        unreachable!("length not implemented for {}", zelf.class())
+    }
+
+    #[inline]
+    fn subscript(zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Self::downcast_ref(&zelf, vm).map(|zelf| zelf.getitem(needle, vm))?
+    }
+
+    #[cold]
+    fn ass_subscript(
+        zelf: PyObjectRef,
+        _needle: PyObjectRef,
+        _value: Option<PyObjectRef>,
+        _vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        unreachable!("ass_subscript not implemented for {}", zelf.class())
+    }
+}
+
 impl Iterable for PyMappingProxy {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         let obj = match &zelf.mapping {

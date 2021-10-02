@@ -20,6 +20,7 @@ use crate::{
     dictdatatype::Dict,
     exceptions,
     function::{IntoFuncArgs, IntoPyNativeFunc},
+    protocol::PyMapping,
     slots::{PyTypeFlags, PyTypeSlots},
     types::{create_type_with_slots, TypeZoo},
     VirtualMachine,
@@ -639,6 +640,12 @@ where
     T: IntoPyObject,
 {
     fn get_item(&self, key: T, vm: &VirtualMachine) -> PyResult {
+        if let Ok(mapping) = PyMapping::try_from_object(vm, self.clone()) {
+            if let Some(getitem) = mapping.methods(vm).subscript {
+                return getitem(self.clone(), key.into_pyobject(vm), vm);
+            }
+        }
+
         match vm.get_special_method(self.clone(), "__getitem__")? {
             Ok(special_method) => return special_method.invoke((key,), vm),
             Err(obj) => {
@@ -656,6 +663,12 @@ where
     }
 
     fn set_item(&self, key: T, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        if let Ok(mapping) = PyMapping::try_from_object(vm, self.clone()) {
+            if let Some(setitem) = mapping.methods(vm).ass_subscript {
+                return setitem(self.clone(), key.into_pyobject(vm), Some(value), vm);
+            }
+        }
+
         vm.get_special_method(self.clone(), "__setitem__")?
             .map_err(|obj| {
                 vm.new_type_error(format!(
@@ -668,6 +681,12 @@ where
     }
 
     fn del_item(&self, key: T, vm: &VirtualMachine) -> PyResult<()> {
+        if let Ok(mapping) = PyMapping::try_from_object(vm, self.clone()) {
+            if let Some(setitem) = mapping.methods(vm).ass_subscript {
+                return setitem(self.clone(), key.into_pyobject(vm), None, vm);
+            }
+        }
+
         vm.get_special_method(self.clone(), "__delitem__")?
             .map_err(|obj| {
                 vm.new_type_error(format!(

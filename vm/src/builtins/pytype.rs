@@ -5,13 +5,14 @@ use super::{
 use crate::common::{ascii, lock::PyRwLock};
 use crate::{
     function::{FuncArgs, KwArgs, OptionalArg},
-    protocol::PyIterReturn,
+    protocol::{PyIterReturn, PyMappingMethods},
     slots::{self, Callable, PyTypeFlags, PyTypeSlots, SlotGetattro, SlotSetattro},
     utils::Either,
     IdProtocol, PyAttributes, PyClassImpl, PyContext, PyLease, PyObjectRef, PyRef, PyResult,
     PyValue, TryFromObject, TypeProtocol, VirtualMachine,
 };
 use itertools::Itertools;
+use num_traits::ToPrimitive;
 use std::collections::HashSet;
 use std::fmt;
 use std::ops::Deref;
@@ -269,6 +270,54 @@ impl PyType {
                     )
                 };
                 update_slot!(iternext, func);
+            }
+            "__len__" | "__getitem__" | "__setitem__" | "__delitem__" => {
+                macro_rules! then_some_closure {
+                    ($cond:expr, $closure:expr) => {
+                        if $cond {
+                            Some($closure)
+                        } else {
+                            None
+                        }
+                    };
+                }
+
+                let func: slots::MappingFunc = |zelf, _vm| {
+                    Ok(PyMappingMethods {
+                        length: then_some_closure!(zelf.has_class_attr("__len__"), |zelf, vm| {
+                            vm.call_special_method(zelf, "__len__", ()).map(|obj| {
+                                obj.payload_if_subclass::<PyInt>(vm)
+                                    .map(|length_obj| {
+                                        length_obj.as_bigint().to_usize().ok_or_else(|| {
+                                            vm.new_value_error(
+                                                "__len__() should return >= 0".to_owned(),
+                                            )
+                                        })
+                                    })
+                                    .unwrap()
+                            })?
+                        }),
+                        subscript: then_some_closure!(
+                            zelf.has_class_attr("__getitem__"),
+                            |zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine| {
+                                vm.call_special_method(zelf, "__getitem__", (needle,))
+                            }
+                        ),
+                        ass_subscript: then_some_closure!(
+                            zelf.has_class_attr("__setitem__") | zelf.has_class_attr("__delitem__"),
+                            |zelf, needle, value, vm| match value {
+                                Some(value) => vm
+                                    .call_special_method(zelf, "__setitem__", (needle, value),)
+                                    .map(|_| Ok(()))?,
+                                None => vm
+                                    .call_special_method(zelf, "__delitem__", (needle,))
+                                    .map(|_| Ok(()))?,
+                            }
+                        ),
+                    })
+                };
+                update_slot!(as_mapping, func);
+                // TODO: need to update sequence protocol too
             }
             _ => {}
         }

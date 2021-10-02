@@ -3,8 +3,10 @@ use crate::builtins::builtins_iter;
 use crate::common::hash::PyHash;
 use crate::{
     function::{FuncArgs, OptionalArg},
-    protocol::PyIterReturn,
-    slots::{Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotIterator},
+    protocol::{PyIterReturn, PyMappingMethods},
+    slots::{
+        AsMapping, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotIterator,
+    },
     IdProtocol, IntoPyRef, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol, VirtualMachine,
 };
@@ -99,7 +101,7 @@ impl PyRange {
 
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.length().is_zero()
+        self.compute_length().is_zero()
     }
 
     #[inline]
@@ -117,7 +119,7 @@ impl PyRange {
         }
 
         if index.is_negative() {
-            let length = self.length();
+            let length = self.compute_length();
             let index: BigInt = &length + index;
             if index.is_negative() {
                 return None;
@@ -144,7 +146,7 @@ impl PyRange {
     }
 
     #[inline]
-    fn length(&self) -> BigInt {
+    fn compute_length(&self) -> BigInt {
         let start = self.start.as_bigint();
         let stop = self.stop.as_bigint();
         let step = self.step.as_bigint();
@@ -174,7 +176,7 @@ pub fn init(context: &PyContext) {
     PyRangeIterator::extend_class(context, &context.types.range_iterator_type);
 }
 
-#[pyimpl(with(Hashable, Comparable, Iterable))]
+#[pyimpl(with(AsMapping, Hashable, Comparable, Iterable))]
 impl PyRange {
     fn new(cls: PyTypeRef, stop: PyIntRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         PyRange {
@@ -252,7 +254,7 @@ impl PyRange {
 
     #[pymethod(magic)]
     fn len(&self) -> BigInt {
-        self.length()
+        self.compute_length()
     }
 
     #[pymethod(magic)]
@@ -332,11 +334,11 @@ impl PyRange {
     }
 
     #[pymethod(magic)]
-    fn getitem(&self, subscript: RangeIndex, vm: &VirtualMachine) -> PyResult {
-        match subscript {
+    fn getitem(&self, subscript: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        match RangeIndex::try_from_object(vm, subscript)? {
             RangeIndex::Slice(slice) => {
                 let (mut substart, mut substop, mut substep) =
-                    slice.inner_indices(&self.length(), vm)?;
+                    slice.inner_indices(&self.compute_length(), vm)?;
                 let range_step = &self.step;
                 let range_start = &self.start;
 
@@ -373,9 +375,39 @@ impl PyRange {
     }
 }
 
+impl AsMapping for PyRange {
+    fn as_mapping(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyMappingMethods> {
+        Ok(PyMappingMethods {
+            length: Some(Self::length),
+            subscript: Some(Self::subscript),
+            ass_subscript: None,
+        })
+    }
+
+    #[inline]
+    fn length(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+        Self::downcast_ref(&zelf, vm).map(|zelf| Ok(zelf.len().to_usize().unwrap()))?
+    }
+
+    #[inline]
+    fn subscript(zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Self::downcast_ref(&zelf, vm).map(|zelf| zelf.getitem(needle, vm))?
+    }
+
+    #[inline]
+    fn ass_subscript(
+        zelf: PyObjectRef,
+        _needle: PyObjectRef,
+        _value: Option<PyObjectRef>,
+        _vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        unreachable!("ass_subscript not implemented for {}", zelf.class())
+    }
+}
+
 impl Hashable for PyRange {
     fn hash(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
-        let length = zelf.length();
+        let length = zelf.compute_length();
         let elements = if length.is_zero() {
             [vm.ctx.new_int(length), vm.ctx.none(), vm.ctx.none()]
         } else if length.is_one() {
@@ -407,8 +439,8 @@ impl Comparable for PyRange {
                 return Ok(true.into());
             }
             let rhs = class_or_notimplemented!(Self, other);
-            let lhs_len = zelf.length();
-            let eq = if lhs_len != rhs.length() {
+            let lhs_len = zelf.compute_length();
+            let eq = if lhs_len != rhs.compute_length() {
                 false
             } else if lhs_len.is_zero() {
                 true
