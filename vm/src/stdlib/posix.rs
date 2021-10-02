@@ -696,8 +696,7 @@ pub mod module {
         Ok(x)
     }
 
-    #[pyfunction]
-    fn chmod(
+    fn _chmod(
         path: PyPathLike,
         dir_fd: DirFd<0>,
         mode: u32,
@@ -718,6 +717,54 @@ pub mod module {
                 .filename(err_path)
                 .into_pyexception(vm)
         })
+    }
+
+    #[cfg(not(target_os = "redox"))]
+    fn _fchmod(fd: RawFd, mode: u32, vm: &VirtualMachine) -> PyResult<()> {
+        nix::sys::stat::fchmod(
+            fd,
+            nix::sys::stat::Mode::from_bits(mode as libc::mode_t).unwrap(),
+        )
+        .map_err(|err| err.into_pyexception(vm))
+    }
+
+    #[cfg(not(target_os = "redox"))]
+    #[pyfunction]
+    fn chmod(
+        path: PathOrFd,
+        dir_fd: DirFd<0>,
+        mode: u32,
+        follow_symlinks: FollowSymlinks,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        match path {
+            PathOrFd::Path(path) => _chmod(path, dir_fd, mode, follow_symlinks, vm),
+            PathOrFd::Fd(fd) => _fchmod(fd, mode, vm),
+        }
+    }
+
+    #[cfg(target_os = "redox")]
+    #[pyfunction]
+    fn chmod(
+        path: PyPathLike,
+        dir_fd: DirFd<0>,
+        mode: u32,
+        follow_symlinks: FollowSymlinks,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        _chmod(path, dir_fd, mode, follow_symlinks, vm)
+    }
+
+    #[cfg(not(target_os = "redox"))]
+    #[pyfunction]
+    fn fchmod(fd: RawFd, mode: u32, vm: &VirtualMachine) -> PyResult<()> {
+        _fchmod(fd, mode, vm)
+    }
+
+    #[cfg(not(target_os = "redox"))]
+    #[pyfunction]
+    fn lchmod(path: PyPathLike, mode: u32, vm: &VirtualMachine) -> PyResult<()> {
+        _chmod(path, DirFd::default(), mode, FollowSymlinks(false), vm)
     }
 
     #[pyfunction]
