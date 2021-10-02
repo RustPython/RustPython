@@ -874,7 +874,7 @@ impl<C: Constant> fmt::Display for CodeObject<C> {
         self.display_inner(f, false, 1)?;
         for constant in &*self.constants {
             if let BorrowedConstant::Code { code } = constant.borrow_constant() {
-                write!(f, "\nDisassembly of {:?}\n", code)?;
+                writeln!(f, "\nDisassembly of {:?}", code)?;
                 code.fmt(f)?;
             }
         }

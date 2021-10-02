@@ -7,26 +7,165 @@ use crate::{
     function::ArgCallable,
     protocol::PyIterReturn,
     slots::{IteratorIterable, SlotIterator},
-    ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
-    VirtualMachine,
+    ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
-use crossbeam_utils::atomic::AtomicCell;
+use rustpython_common::{
+    lock::{PyMutex, PyRwLock, PyRwLockUpgradableReadGuard},
+    static_cell,
+};
 
 /// Marks status of iterator.
-#[derive(Debug, Clone, Copy)]
-pub enum IterStatus {
+#[derive(Debug, Clone)]
+pub enum IterStatus<T> {
     /// Iterator hasn't raised StopIteration.
-    Active,
+    Active(T),
     /// Iterator has raised StopIteration.
     Exhausted,
+}
+
+#[derive(Debug)]
+pub struct PositionIterInternal<T> {
+    pub status: IterStatus<T>,
+    pub position: usize,
+}
+
+impl<T> PositionIterInternal<T> {
+    pub fn new(obj: T, position: usize) -> Self {
+        Self {
+            status: IterStatus::Active(obj),
+            position,
+        }
+    }
+
+    pub fn set_state<F>(&mut self, state: PyObjectRef, f: F, vm: &VirtualMachine) -> PyResult<()>
+    where
+        F: FnOnce(&T, usize) -> usize,
+    {
+        if let IterStatus::Active(obj) = &self.status {
+            if let Some(i) = state.payload::<PyInt>() {
+                let i = int::try_to_primitive(i.as_bigint(), vm).unwrap_or(0);
+                self.position = f(obj, i);
+                Ok(())
+            } else {
+                Err(vm.new_type_error("an integer is required.".to_owned()))
+            }
+        } else {
+            Ok(())
+        }
+    }
+
+    fn _reduce<F>(&self, func: PyObjectRef, f: F, vm: &VirtualMachine) -> PyObjectRef
+    where
+        F: FnOnce(&T) -> PyObjectRef,
+    {
+        if let IterStatus::Active(obj) = &self.status {
+            vm.ctx.new_tuple(vec![
+                func,
+                vm.ctx.new_tuple(vec![f(obj)]),
+                vm.ctx.new_int(self.position),
+            ])
+        } else {
+            vm.ctx
+                .new_tuple(vec![func, vm.ctx.new_tuple(vec![vm.ctx.new_list(vec![])])])
+        }
+    }
+
+    pub fn builtins_iter_reduce<F>(&self, f: F, vm: &VirtualMachine) -> PyObjectRef
+    where
+        F: FnOnce(&T) -> PyObjectRef,
+    {
+        let iter = builtins_iter(vm).clone();
+        self._reduce(iter, f, vm)
+    }
+
+    pub fn builtins_reversed_reduce<F>(&self, f: F, vm: &VirtualMachine) -> PyObjectRef
+    where
+        F: FnOnce(&T) -> PyObjectRef,
+    {
+        let reversed = builtins_reversed(vm).clone();
+        self._reduce(reversed, f, vm)
+    }
+
+    fn _next<F, OP>(&mut self, f: F, op: OP) -> PyResult<PyIterReturn>
+    where
+        F: FnOnce(&T, usize) -> PyResult<PyIterReturn>,
+        OP: FnOnce(&mut Self),
+    {
+        if let IterStatus::Active(obj) = &self.status {
+            let ret = f(obj, self.position);
+            if let Ok(PyIterReturn::Return(_)) = ret {
+                op(self);
+            } else {
+                self.status = IterStatus::Exhausted;
+            }
+            ret
+        } else {
+            Ok(PyIterReturn::StopIteration(None))
+        }
+    }
+
+    pub fn next<F>(&mut self, f: F) -> PyResult<PyIterReturn>
+    where
+        F: FnOnce(&T, usize) -> PyResult<PyIterReturn>,
+    {
+        self._next(f, |zelf| zelf.position += 1)
+    }
+
+    pub fn rev_next<F>(&mut self, f: F) -> PyResult<PyIterReturn>
+    where
+        F: FnOnce(&T, usize) -> PyResult<PyIterReturn>,
+    {
+        self._next(f, |zelf| {
+            if zelf.position == 0 {
+                zelf.status = IterStatus::Exhausted;
+            } else {
+                zelf.position -= 1;
+            }
+        })
+    }
+
+    pub fn length_hint<F>(&self, f: F) -> usize
+    where
+        F: FnOnce(&T) -> usize,
+    {
+        if let IterStatus::Active(obj) = &self.status {
+            f(obj).saturating_sub(self.position)
+        } else {
+            0
+        }
+    }
+
+    pub fn rev_length_hint<F>(&self, f: F) -> usize
+    where
+        F: FnOnce(&T) -> usize,
+    {
+        if let IterStatus::Active(obj) = &self.status {
+            if self.position <= f(obj) {
+                return self.position + 1;
+            }
+        }
+        0
+    }
+}
+
+pub fn builtins_iter(vm: &VirtualMachine) -> &PyObjectRef {
+    static_cell! {
+        static INSTANCE: PyObjectRef;
+    }
+    INSTANCE.get_or_init(|| vm.get_attribute(vm.builtins.clone(), "iter").unwrap())
+}
+
+pub fn builtins_reversed(vm: &VirtualMachine) -> &PyObjectRef {
+    static_cell! {
+        static INSTANCE: PyObjectRef;
+    }
+    INSTANCE.get_or_init(|| vm.get_attribute(vm.builtins.clone(), "reversed").unwrap())
 }
 
 #[pyclass(module = false, name = "iterator")]
 #[derive(Debug)]
 pub struct PySequenceIterator {
-    pub position: AtomicCell<usize>,
-    pub obj: PyObjectRef,
-    pub status: AtomicCell<IterStatus>,
+    internal: PyMutex<PositionIterInternal<PyObjectRef>>,
 }
 
 impl PyValue for PySequenceIterator {
@@ -39,84 +178,47 @@ impl PyValue for PySequenceIterator {
 impl PySequenceIterator {
     pub fn new(obj: PyObjectRef) -> Self {
         Self {
-            position: AtomicCell::new(0),
-            obj,
-            status: AtomicCell::new(IterStatus::Active),
+            internal: PyMutex::new(PositionIterInternal::new(obj, 0)),
         }
     }
 
     #[pymethod(magic)]
     fn length_hint(&self, vm: &VirtualMachine) -> PyObjectRef {
-        match self.status.load() {
-            IterStatus::Active => {
-                let pos = self.position.load();
-                // return NotImplemented if no length is around.
-                vm.obj_len(&self.obj)
-                    .map_or(vm.ctx.not_implemented(), |len| {
-                        PyInt::from(len.saturating_sub(pos)).into_object(vm)
-                    })
-            }
-            IterStatus::Exhausted => PyInt::from(0).into_object(vm),
+        let internal = self.internal.lock();
+        if let IterStatus::Active(obj) = &internal.status {
+            vm.obj_len(obj)
+                .map(|x| PyInt::from(x).into_object(vm))
+                .unwrap_or_else(|_| vm.ctx.not_implemented())
+        } else {
+            PyInt::from(0).into_object(vm)
         }
     }
 
     #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> PyResult {
-        let iter = vm.get_attribute(vm.builtins.clone(), "iter")?;
-        Ok(match self.status.load() {
-            IterStatus::Exhausted => vm
-                .ctx
-                .new_tuple(vec![iter, vm.ctx.new_tuple(vec![vm.ctx.new_list(vec![])])]),
-            IterStatus::Active => vm.ctx.new_tuple(vec![
-                iter,
-                vm.ctx.new_tuple(vec![self.obj.clone()]),
-                vm.ctx.new_int(self.position.load()),
-            ]),
-        })
+    fn reduce(&self, vm: &VirtualMachine) -> PyObjectRef {
+        self.internal.lock().builtins_iter_reduce(|x| x.clone(), vm)
     }
 
     #[pymethod(magic)]
     fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        // When we're exhausted, just return.
-        if let IterStatus::Exhausted = self.status.load() {
-            return Ok(());
-        }
-        if let Some(i) = state.payload::<PyInt>() {
-            self.position
-                .store(int::try_to_primitive(i.as_bigint(), vm).unwrap_or(0));
-            Ok(())
-        } else {
-            Err(vm.new_type_error("an integer is required.".to_owned()))
-        }
+        self.internal.lock().set_state(state, |_, pos| pos, vm)
     }
 }
 
 impl IteratorIterable for PySequenceIterator {}
 impl SlotIterator for PySequenceIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        if let IterStatus::Exhausted = zelf.status.load() {
-            return Ok(PyIterReturn::StopIteration(None));
-        }
-        let pos = zelf.position.fetch_add(1);
-        match zelf.obj.get_item(pos, vm) {
-            Err(ref e)
-                if e.isinstance(&vm.ctx.exceptions.index_error)
-                    || e.isinstance(&vm.ctx.exceptions.stop_iteration) =>
-            {
-                zelf.status.store(IterStatus::Exhausted);
-                Ok(PyIterReturn::StopIteration(None))
-            }
-            ret => ret.map(PyIterReturn::Return),
-        }
+        zelf.internal
+            .lock()
+            .next(|obj, pos| PyIterReturn::from_getitem_result(obj.get_item(pos, vm), vm))
     }
 }
 
 #[pyclass(module = false, name = "callable_iterator")]
 #[derive(Debug)]
 pub struct PyCallableIterator {
-    callable: ArgCallable,
     sentinel: PyObjectRef,
-    status: AtomicCell<IterStatus>,
+    status: PyRwLock<IterStatus<ArgCallable>>,
 }
 
 impl PyValue for PyCallableIterator {
@@ -129,9 +231,8 @@ impl PyValue for PyCallableIterator {
 impl PyCallableIterator {
     pub fn new(callable: ArgCallable, sentinel: PyObjectRef) -> Self {
         Self {
-            callable,
             sentinel,
-            status: AtomicCell::new(IterStatus::Active),
+            status: PyRwLock::new(IterStatus::Active(callable)),
         }
     }
 }
@@ -139,15 +240,17 @@ impl PyCallableIterator {
 impl IteratorIterable for PyCallableIterator {}
 impl SlotIterator for PyCallableIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        if let IterStatus::Exhausted = zelf.status.load() {
-            return Ok(PyIterReturn::StopIteration(None));
-        }
-        let ret = zelf.callable.invoke((), vm)?;
-        if vm.bool_eq(&ret, &zelf.sentinel)? {
-            zelf.status.store(IterStatus::Exhausted);
-            Ok(PyIterReturn::StopIteration(None))
+        let status = zelf.status.upgradable_read();
+        if let IterStatus::Active(callable) = &*status {
+            let ret = callable.invoke((), vm)?;
+            if vm.bool_eq(&ret, &zelf.sentinel)? {
+                *PyRwLockUpgradableReadGuard::upgrade(status) = IterStatus::Exhausted;
+                Ok(PyIterReturn::StopIteration(None))
+            } else {
+                Ok(PyIterReturn::Return(ret))
+            }
         } else {
-            Ok(PyIterReturn::Return(ret))
+            Ok(PyIterReturn::StopIteration(None))
         }
     }
 }

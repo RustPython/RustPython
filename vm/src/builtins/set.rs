@@ -1,8 +1,8 @@
 /*
  * Builtin set type with a sequence of unique items.
  */
-use super::{IterStatus, PyDictRef, PyTypeRef};
-use crate::common::{ascii, hash::PyHash, rc::PyRc};
+use super::{builtins_iter, IterStatus, PositionIterInternal, PyDictRef, PyTypeRef};
+use crate::common::{ascii, hash::PyHash, lock::PyMutex, rc::PyRc};
 use crate::{
     dictdatatype::{self, DictSize},
     function::{ArgIterable, FuncArgs, OptionalArg, PosArgs},
@@ -15,7 +15,6 @@ use crate::{
     IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol,
 };
-use crossbeam_utils::atomic::AtomicCell;
 use std::fmt;
 
 pub type SetContentType = dictdatatype::Dict<()>;
@@ -194,10 +193,8 @@ impl PySetInner {
 
     fn iter(&self) -> PySetIterator {
         PySetIterator {
-            dict: PyRc::clone(&self.content),
             size: self.content.size(),
-            position: AtomicCell::new(0),
-            status: AtomicCell::new(IterStatus::Active),
+            internal: PyMutex::new(PositionIterInternal::new(self.content.clone(), 0)),
         }
     }
 
@@ -815,10 +812,8 @@ impl TryFromObject for SetIterable {
 
 #[pyclass(module = false, name = "set_iterator")]
 pub(crate) struct PySetIterator {
-    dict: PyRc<SetContentType>,
     size: DictSize,
-    position: AtomicCell<usize>,
-    status: AtomicCell<IterStatus>,
+    internal: PyMutex<PositionIterInternal<PyRc<SetContentType>>>,
 }
 
 impl fmt::Debug for PySetIterator {
@@ -838,25 +833,19 @@ impl PyValue for PySetIterator {
 impl PySetIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
-        if let IterStatus::Exhausted = self.status.load() {
-            0
-        } else {
-            self.dict.len_from_entry_index(self.position.load())
-        }
+        self.internal.lock().length_hint(|_| self.size.entries_size)
     }
 
     #[pymethod(magic)]
     fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<(PyObjectRef, (PyObjectRef,))> {
+        let internal = zelf.internal.lock();
         Ok((
-            vm.get_attribute(vm.builtins.clone(), "iter")?,
-            (vm.ctx.new_list(match zelf.status.load() {
+            builtins_iter(vm).clone(),
+            (vm.ctx.new_list(match &internal.status {
                 IterStatus::Exhausted => vec![],
-                IterStatus::Active => zelf
-                    .dict
-                    .keys()
-                    .into_iter()
-                    .skip(zelf.position.load())
-                    .collect(),
+                IterStatus::Active(dict) => {
+                    dict.keys().into_iter().skip(internal.position).collect()
+                }
             }),),
         ))
     }
@@ -865,23 +854,24 @@ impl PySetIterator {
 impl IteratorIterable for PySetIterator {}
 impl SlotIterator for PySetIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        match zelf.status.load() {
-            IterStatus::Exhausted => Ok(PyIterReturn::StopIteration(None)),
-            IterStatus::Active => {
-                if zelf.dict.has_changed_size(&zelf.size) {
-                    zelf.status.store(IterStatus::Exhausted);
-                    return Err(
-                        vm.new_runtime_error("set changed size during iteration".to_owned())
-                    );
+        let mut internal = zelf.internal.lock();
+        if let IterStatus::Active(dict) = &internal.status {
+            if dict.has_changed_size(&zelf.size) {
+                internal.status = IterStatus::Exhausted;
+                return Err(vm.new_runtime_error("set changed size during iteration".to_owned()));
+            }
+            match dict.next_entry(internal.position) {
+                Some((position, key, _)) => {
+                    internal.position = position;
+                    Ok(PyIterReturn::Return(key))
                 }
-                match zelf.dict.next_entry_atomic(&zelf.position) {
-                    Some((key, _)) => Ok(PyIterReturn::Return(key)),
-                    None => {
-                        zelf.status.store(IterStatus::Exhausted);
-                        Ok(PyIterReturn::StopIteration(None))
-                    }
+                None => {
+                    internal.status = IterStatus::Exhausted;
+                    Ok(PyIterReturn::StopIteration(None))
                 }
             }
+        } else {
+            Ok(PyIterReturn::StopIteration(None))
         }
     }
 }

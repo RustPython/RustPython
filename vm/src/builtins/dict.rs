@@ -1,4 +1,4 @@
-use super::{IterStatus, PySet, PyStrRef, PyTypeRef};
+use super::{IterStatus, PositionIterInternal, PySet, PyStrRef, PyTypeRef};
 use crate::{
     builtins::PyBaseExceptionRef,
     common::ascii,
@@ -14,7 +14,7 @@ use crate::{
     PyAttributes, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
     PyResult, PyValue, TryFromObject, TypeProtocol,
 };
-use crossbeam_utils::atomic::AtomicCell;
+use rustpython_common::lock::PyMutex;
 use std::fmt;
 use std::mem::size_of;
 
@@ -595,7 +595,9 @@ impl Iterator for DictIter {
     type Item = (PyObjectRef, PyObjectRef);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.dict.entries.next_entry(&mut self.position)
+        let (position, key, value) = self.dict.entries.next_entry(self.position)?;
+        self.position = position;
+        Some((key, value))
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -712,10 +714,8 @@ macro_rules! dict_iterator {
         #[pyclass(module = false, name = $iter_class_name)]
         #[derive(Debug)]
         pub(crate) struct $iter_name {
-            pub dict: PyDictRef,
             pub size: dictdatatype::DictSize,
-            pub position: AtomicCell<usize>,
-            pub status: AtomicCell<IterStatus>,
+            pub internal: PyMutex<PositionIterInternal<PyDictRef>>,
         }
 
         impl PyValue for $iter_name {
@@ -728,20 +728,14 @@ macro_rules! dict_iterator {
         impl $iter_name {
             fn new(dict: PyDictRef) -> Self {
                 $iter_name {
-                    position: AtomicCell::new(0),
                     size: dict.size(),
-                    dict,
-                    status: AtomicCell::new(IterStatus::Active),
+                    internal: PyMutex::new(PositionIterInternal::new(dict, 0)),
                 }
             }
 
             #[pymethod(magic)]
             fn length_hint(&self) -> usize {
-                if let IterStatus::Exhausted = self.status.load() {
-                    0
-                } else {
-                    self.dict.entries.len_from_entry_index(self.position.load())
-                }
+                self.internal.lock().length_hint(|_| self.size.entries_size)
             }
         }
 
@@ -749,25 +743,26 @@ macro_rules! dict_iterator {
         impl SlotIterator for $iter_name {
             #[allow(clippy::redundant_closure_call)]
             fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-                match zelf.status.load() {
-                    IterStatus::Exhausted => Ok(PyIterReturn::StopIteration(None)),
-                    IterStatus::Active => {
-                        if zelf.dict.entries.has_changed_size(&zelf.size) {
-                            zelf.status.store(IterStatus::Exhausted);
-                            return Err(vm.new_runtime_error(
-                                "dictionary changed size during iteration".to_owned(),
-                            ));
+                let mut internal = zelf.internal.lock();
+                if let IterStatus::Active(dict) = &internal.status {
+                    if dict.entries.has_changed_size(&zelf.size) {
+                        internal.status = IterStatus::Exhausted;
+                        return Err(vm.new_runtime_error(
+                            "dictionary changed size during iteration".to_owned(),
+                        ));
+                    }
+                    match dict.entries.next_entry(internal.position) {
+                        Some((position, key, value)) => {
+                            internal.position = position;
+                            Ok(PyIterReturn::Return(($result_fn)(vm, key, value)))
                         }
-                        match zelf.dict.entries.next_entry_atomic(&zelf.position) {
-                            Some((key, value)) => {
-                                Ok(PyIterReturn::Return(($result_fn)(vm, key, value)))
-                            }
-                            None => {
-                                zelf.status.store(IterStatus::Exhausted);
-                                Ok(PyIterReturn::StopIteration(None))
-                            }
+                        None => {
+                            internal.status = IterStatus::Exhausted;
+                            Ok(PyIterReturn::StopIteration(None))
                         }
                     }
+                } else {
+                    Ok(PyIterReturn::StopIteration(None))
                 }
             }
         }
@@ -775,10 +770,8 @@ macro_rules! dict_iterator {
         #[pyclass(module = false, name = $reverse_iter_class_name)]
         #[derive(Debug)]
         pub(crate) struct $reverse_iter_name {
-            pub dict: PyDictRef,
             pub size: dictdatatype::DictSize,
-            pub position: AtomicCell<usize>,
-            pub status: AtomicCell<IterStatus>,
+            internal: PyMutex<PositionIterInternal<PyDictRef>>,
         }
 
         impl PyValue for $reverse_iter_name {
@@ -790,21 +783,19 @@ macro_rules! dict_iterator {
         #[pyimpl(with(SlotIterator))]
         impl $reverse_iter_name {
             fn new(dict: PyDictRef) -> Self {
+                let size = dict.size();
+                let position = size.entries_size.saturating_sub(1);
                 $reverse_iter_name {
-                    position: AtomicCell::new(0),
-                    size: dict.size(),
-                    dict,
-                    status: AtomicCell::new(IterStatus::Active),
+                    size,
+                    internal: PyMutex::new(PositionIterInternal::new(dict, position)),
                 }
             }
 
             #[pymethod(magic)]
             fn length_hint(&self) -> usize {
-                if let IterStatus::Exhausted = self.status.load() {
-                    0
-                } else {
-                    self.dict.entries.len_from_entry_index(self.position.load())
-                }
+                self.internal
+                    .lock()
+                    .rev_length_hint(|_| self.size.entries_size)
             }
         }
 
@@ -812,25 +803,30 @@ macro_rules! dict_iterator {
         impl SlotIterator for $reverse_iter_name {
             #[allow(clippy::redundant_closure_call)]
             fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-                match zelf.status.load() {
-                    IterStatus::Exhausted => Ok(PyIterReturn::StopIteration(None)),
-                    IterStatus::Active => {
-                        if zelf.dict.entries.has_changed_size(&zelf.size) {
-                            zelf.status.store(IterStatus::Exhausted);
-                            return Err(vm.new_runtime_error(
-                                "dictionary changed size during iteration".to_owned(),
-                            ));
+                let mut internal = zelf.internal.lock();
+                if let IterStatus::Active(dict) = &internal.status {
+                    if dict.entries.has_changed_size(&zelf.size) {
+                        internal.status = IterStatus::Exhausted;
+                        return Err(vm.new_runtime_error(
+                            "dictionary changed size during iteration".to_owned(),
+                        ));
+                    }
+                    match dict.entries.prev_entry(internal.position) {
+                        Some((position, key, value)) => {
+                            if internal.position == position {
+                                internal.status = IterStatus::Exhausted;
+                            } else {
+                                internal.position = position;
+                            }
+                            Ok(PyIterReturn::Return(($result_fn)(vm, key, value)))
                         }
-                        match zelf.dict.entries.next_entry_atomic_reversed(&zelf.position) {
-                            Some((key, value)) => {
-                                Ok(PyIterReturn::Return(($result_fn)(vm, key, value)))
-                            }
-                            None => {
-                                zelf.status.store(IterStatus::Exhausted);
-                                Ok(PyIterReturn::StopIteration(None))
-                            }
+                        None => {
+                            internal.status = IterStatus::Exhausted;
+                            Ok(PyIterReturn::StopIteration(None))
                         }
                     }
+                } else {
+                    Ok(PyIterReturn::StopIteration(None))
                 }
             }
         }
