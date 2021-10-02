@@ -25,11 +25,6 @@ where
     Ok(results)
 }
 
-pub fn stop_iter_value(vm: &VirtualMachine, exc: &PyBaseExceptionRef) -> PyObjectRef {
-    let args = exc.args();
-    vm.unwrap_or_none(args.as_slice().first().cloned())
-}
-
 pub fn length_hint(vm: &VirtualMachine, iter: PyObjectRef) -> PyResult<Option<usize>> {
     if let Some(len) = vm.obj_len_opt(&iter) {
         match len {

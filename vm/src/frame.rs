@@ -412,7 +412,7 @@ impl ExecutingFrame<'_> {
                     self.pop_value();
                     self.update_lasti(|i| *i += 1);
                     if err.isinstance(&vm.ctx.exceptions.stop_iteration) {
-                        let val = iterator::stop_iter_value(vm, &err);
+                        let val = vm.unwrap_or_none(err.get_arg(0));
                         self.push_value(val);
                         self.run(vm)
                     } else {
