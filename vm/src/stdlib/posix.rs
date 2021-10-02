@@ -743,7 +743,7 @@ pub mod module {
         }
     }
 
-    #[cfg(not(target_os = "redox"))]
+    #[cfg(target_os = "redox")]
     #[pyfunction]
     fn chmod(
         path: PyPathLike,
