@@ -61,7 +61,7 @@ impl<T> ArgIterable<T> {
 
         Ok(PyIterator {
             vm,
-            obj: iter_obj,
+            obj: PyIter::new(iter_obj),
             length_hint,
             _item: PhantomData,
         })
@@ -91,7 +91,7 @@ where
 
 pub struct PyIterator<'a, T> {
     vm: &'a VirtualMachine,
-    obj: PyObjectRef,
+    obj: PyIter,
     length_hint: Option<usize>,
     _item: PhantomData<T>,
 }
@@ -103,7 +103,7 @@ where
     type Item = PyResult<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        PyIter::new(&self.obj)
+        self.obj
             .next(self.vm)
             .map(|iret| match iret {
                 PyIterReturn::Return(obj) => Some(obj),
