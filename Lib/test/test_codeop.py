@@ -127,7 +127,8 @@ class CodeopTests(unittest.TestCase):
         av("def f():\n pass\n#foo\n")
         av("@a.b.c\ndef f():\n pass\n")
 
-    @unittest.skip("TODO: RUSTPYTHON (SyntaxError: Got unexpected EOF at line 4 column 1)")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_incomplete(self):
         ai = self.assertIncomplete
 
