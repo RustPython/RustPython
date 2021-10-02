@@ -1,5 +1,7 @@
 // TODO: Keep track of rust-num/num-complex/issues/2. A common trait could help with duplication
 //       that exists between cmath and math.
+// TODO: For asin(0.2) and acos(0.2), the output should be a real number
+//       but they both have a small imaginary part like 1.1102230246251565e-16.
 pub(crate) use cmath::make_module;
 
 /// This module provides access to mathematical functions for complex numbers.
@@ -148,6 +150,20 @@ mod cmath {
     #[pyfunction]
     fn asinh(z: IntoPyComplex) -> Complex64 {
         z.to_complex().asinh()
+    }
+
+    /// Return the arc cosine of x.
+    /// There are two branch cuts: One extends right from 1 along the real axis to ∞, continuous from below.
+    /// The other extends left from -1 along the real axis to -∞, continuous from above.
+    #[pyfunction]
+    fn acos(z: IntoPyComplex) -> Complex64 {
+        z.to_complex().acos()
+    }
+
+    /// Return the arc sine of x. This has the same branch cuts as acos().
+    #[pyfunction]
+    fn asin(z: IntoPyComplex) -> Complex64 {
+        z.to_complex().asin()
     }
 
     #[derive(FromArgs)]
