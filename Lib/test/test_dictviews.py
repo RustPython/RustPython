@@ -80,7 +80,6 @@ class DictSetTest(unittest.TestCase):
         self.assertEqual(set(values), {10, "ABC"})
         self.assertEqual(len(values), 2)
 
-    @unittest.skip("TODO: RUSTPYTHON, TypeError: '&' not supported between instances of 'dict_keys' and 'dict_keys'")
     def test_dict_repr(self):
         d = {1: 10, "a": "ABC"}
         self.assertIsInstance(repr(d), str)
@@ -97,7 +96,8 @@ class DictSetTest(unittest.TestCase):
         self.assertTrue(r == "dict_values(['ABC', 10])" or
                         r == "dict_values([10, 'ABC'])")
 
-    @unittest.skip("TODO: RUSTPYTHON, TypeError: '&' not supported between instances of 'dict_items' and 'dict_items'")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_keys_set_operations(self):
         d1 = {'a': 1, 'b': 2}
         d2 = {'b': 3, 'c': 2}
@@ -154,7 +154,8 @@ class DictSetTest(unittest.TestCase):
         self.assertTrue(de.keys().isdisjoint(de.keys()))
         self.assertTrue(de.keys().isdisjoint([1]))
 
-    @unittest.skip("TODO: RUSTPYTHON, TypeError: '&' not supported between instances of 'dict_items' and 'dict_items'")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_items_set_operations(self):
         d1 = {'a': 1, 'b': 2}
         d2 = {'a': 2, 'b': 2}
@@ -241,7 +242,8 @@ class DictSetTest(unittest.TestCase):
         self.assertRaises(TypeError, copy.copy, d.values())
         self.assertRaises(TypeError, copy.copy, d.items())
 
-    @unittest.skip("TODO: RUSTPYTHON, DictSetTest.test_compare_error.<locals>.Exc")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_compare_error(self):
         class Exc(Exception):
             pass
