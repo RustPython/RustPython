@@ -2,7 +2,7 @@
  * iterator types
  */
 
-use super::{int, PyInt, PyTypeRef};
+use super::{PyInt, PyTypeRef};
 use crate::{
     function::ArgCallable,
     protocol::PyIterReturn,
@@ -43,7 +43,7 @@ impl<T> PositionIterInternal<T> {
     {
         if let IterStatus::Active(obj) = &self.status {
             if let Some(i) = state.payload::<PyInt>() {
-                let i = int::try_to_primitive(i.as_bigint(), vm).unwrap_or(0);
+                let i = i.try_to_primitive(vm).unwrap_or(0);
                 self.position = f(obj, i);
                 Ok(())
             } else {
