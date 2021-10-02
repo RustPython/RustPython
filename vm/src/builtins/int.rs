@@ -80,24 +80,12 @@ macro_rules! impl_into_pyobject_int {
 
 impl_into_pyobject_int!(isize i8 i16 i32 i64 usize u8 u16 u32 u64 BigInt);
 
-pub(crate) fn try_to_primitive<'a, I>(i: &'a BigInt, vm: &VirtualMachine) -> PyResult<I>
-where
-    I: PrimInt + TryFrom<&'a BigInt>,
-{
-    I::try_from(i).map_err(|_| {
-        vm.new_overflow_error(format!(
-            "Python int too large to convert to Rust {}",
-            std::any::type_name::<I>()
-        ))
-    })
-}
-
 macro_rules! impl_try_from_object_int {
     ($(($t:ty, $to_prim:ident),)*) => {$(
         impl TryFromBorrowedObject for $t {
             fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Self> {
                 try_value_from_borrowed_object(vm, obj, |int: &PyInt| {
-                    try_to_primitive(int.as_bigint(), vm)
+                    int.try_to_primitive(vm)
                 })
             }
         }
@@ -306,7 +294,12 @@ impl PyInt {
     where
         I: PrimInt + TryFrom<&'a BigInt>,
     {
-        try_to_primitive(self.as_bigint(), vm)
+        I::try_from(self.as_bigint()).map_err(|_| {
+            vm.new_overflow_error(format!(
+                "Python int too large to convert to Rust {}",
+                std::any::type_name::<I>()
+            ))
+        })
     }
 
     #[inline]
