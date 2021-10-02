@@ -607,8 +607,6 @@ class BaseXYTestCase(unittest.TestCase):
         eq(base64.b85decode(b'czAet'), b"xxxx")
         eq(base64.b85decode(b'czAetcmMzZ'), b"xxxxx\x00\x00\x00")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_a85decode_errors(self):
         illegal = (set(range(32)) | set(range(118, 256))) - set(b' \t\n\r\v')
         for c in illegal:
@@ -644,8 +642,6 @@ class BaseXYTestCase(unittest.TestCase):
         self.assertRaises(ValueError, base64.a85decode, b's8W-', adobe=False)
         self.assertRaises(ValueError, base64.a85decode, b's8W-"', adobe=False)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_b85decode_errors(self):
         illegal = list(range(33)) + \
                   list(b'"\',./:[\\]') + \

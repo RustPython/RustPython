@@ -460,7 +460,9 @@ pub(crate) mod _struct {
         T: PrimInt + for<'a> std::convert::TryFrom<&'a BigInt>,
     {
         match vm.to_index_opt(arg) {
-            Some(index) => index?.try_to_primitive(vm),
+            Some(index) => index?
+                .try_to_primitive(vm)
+                .map_err(|_| new_struct_error(vm, "argument out of range".to_owned())),
             None => Err(new_struct_error(
                 vm,
                 "required argument is not an integer".to_owned(),
