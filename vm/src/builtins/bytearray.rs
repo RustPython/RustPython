@@ -1,9 +1,11 @@
 //! Implementation of the python bytearray object.
-use super::{PyBytes, PyBytesRef, PyDictRef, PyIntRef, PyStrRef, PyTupleRef, PyTypeRef};
+use super::{
+    PositionIterInternal, PyBytes, PyBytesRef, PyDictRef, PyIntRef, PyStrRef, PyTupleRef, PyTypeRef,
+};
 use crate::common::{
     borrow::{BorrowedValue, BorrowedValueMut},
     lock::{
-        PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyRwLock, PyRwLockReadGuard,
+        PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyMutex, PyRwLock, PyRwLockReadGuard,
         PyRwLockWriteGuard,
     },
 };
@@ -717,8 +719,7 @@ impl Unhashable for PyByteArray {}
 impl Iterable for PyByteArray {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         Ok(PyByteArrayIterator {
-            position: AtomicCell::new(0),
-            bytearray: zelf,
+            internal: PyMutex::new(PositionIterInternal::new(zelf, 0)),
         }
         .into_object(vm))
     }
@@ -731,8 +732,7 @@ impl Iterable for PyByteArray {
 #[pyclass(module = false, name = "bytearray_iterator")]
 #[derive(Debug)]
 pub struct PyByteArrayIterator {
-    position: AtomicCell<usize>,
-    bytearray: PyByteArrayRef,
+    internal: PyMutex<PositionIterInternal<PyByteArrayRef>>,
 }
 
 impl PyValue for PyByteArrayIterator {
@@ -742,16 +742,34 @@ impl PyValue for PyByteArrayIterator {
 }
 
 #[pyimpl(with(SlotIterator))]
-impl PyByteArrayIterator {}
+impl PyByteArrayIterator {
+    #[pymethod(magic)]
+    fn length_hint(&self) -> usize {
+        self.internal.lock().length_hint(|obj| obj.len())
+    }
+    #[pymethod(magic)]
+    fn reduce(&self, vm: &VirtualMachine) -> PyObjectRef {
+        self.internal
+            .lock()
+            .builtins_iter_reduce(|x| x.clone().into_object(), vm)
+    }
+
+    #[pymethod(magic)]
+    fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.internal
+            .lock()
+            .set_state(state, |obj, pos| pos.min(obj.len()), vm)
+    }
+}
 impl IteratorIterable for PyByteArrayIterator {}
 impl SlotIterator for PyByteArrayIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        let pos = zelf.position.fetch_add(1);
-        let r = if let Some(&ret) = zelf.bytearray.borrow_buf().get(pos) {
-            PyIterReturn::Return(ret.into_pyobject(vm))
-        } else {
-            PyIterReturn::StopIteration(None)
-        };
-        Ok(r)
+        zelf.internal.lock().next(|bytearray, pos| {
+            let buf = bytearray.borrow_buf();
+            Ok(match buf.get(pos) {
+                Some(&x) => PyIterReturn::Return(vm.ctx.new_int(x)),
+                None => PyIterReturn::StopIteration(None),
+            })
+        })
     }
 }

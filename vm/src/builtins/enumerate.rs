@@ -1,17 +1,12 @@
-use super::{
-    int,
-    IterStatus::{self, Active, Exhausted},
-    PyInt, PyIntRef, PyTypeRef,
-};
-use crate::common::lock::PyRwLock;
+use super::{IterStatus, PositionIterInternal, PyIntRef, PyTypeRef};
+use crate::common::lock::{PyMutex, PyRwLock};
 use crate::{
     function::OptionalArg,
     protocol::{PyIter, PyIterReturn},
     slots::{IteratorIterable, SlotConstructor, SlotIterator},
     IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TypeProtocol, VirtualMachine,
+    VirtualMachine,
 };
-use crossbeam_utils::atomic::AtomicCell;
 use num_bigint::BigInt;
 use num_traits::Zero;
 
@@ -72,9 +67,7 @@ impl SlotIterator for PyEnumerate {
 #[pyclass(module = false, name = "reversed")]
 #[derive(Debug)]
 pub struct PyReverseSequenceIterator {
-    pub position: AtomicCell<usize>,
-    pub status: AtomicCell<IterStatus>,
-    pub obj: PyObjectRef,
+    internal: PyMutex<PositionIterInternal<PyObjectRef>>,
 }
 
 impl PyValue for PyReverseSequenceIterator {
@@ -86,80 +79,42 @@ impl PyValue for PyReverseSequenceIterator {
 #[pyimpl(with(SlotIterator))]
 impl PyReverseSequenceIterator {
     pub fn new(obj: PyObjectRef, len: usize) -> Self {
+        let position = len.saturating_sub(1);
         Self {
-            position: AtomicCell::new(len.saturating_sub(1)),
-            status: AtomicCell::new(if len == 0 { Exhausted } else { Active }),
-            obj,
+            internal: PyMutex::new(PositionIterInternal::new(obj, position)),
         }
     }
 
     #[pymethod(magic)]
     fn length_hint(&self, vm: &VirtualMachine) -> PyResult<usize> {
-        Ok(match self.status.load() {
-            Active => {
-                let position = self.position.load();
-                if position > vm.obj_len(&self.obj)? {
-                    0
-                } else {
-                    position + 1
-                }
+        let internal = self.internal.lock();
+        if let IterStatus::Active(obj) = &internal.status {
+            if internal.position <= vm.obj_len(obj)? {
+                return Ok(internal.position + 1);
             }
-            Exhausted => 0,
-        })
+        }
+        Ok(0)
     }
 
     #[pymethod(magic)]
     fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        // When we're exhausted, just return.
-        if let Exhausted = self.status.load() {
-            return Ok(());
-        }
-        let len = vm.obj_len(&self.obj)?;
-        let pos = state
-            .payload::<PyInt>()
-            .ok_or_else(|| vm.new_type_error("an integer is required.".to_owned()))?;
-        let pos = std::cmp::min(
-            int::try_to_primitive(pos.as_bigint(), vm).unwrap_or(0),
-            len.saturating_sub(1),
-        );
-        self.position.store(pos);
-        Ok(())
+        self.internal.lock().set_state(state, |_, pos| pos, vm)
     }
 
     #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> PyResult {
-        let iter = vm.get_attribute(vm.builtins.clone(), "reversed")?;
-        Ok(vm.ctx.new_tuple(match self.status.load() {
-            Exhausted => vec![iter, vm.ctx.new_tuple(vec![vm.ctx.new_tuple(vec![])])],
-            Active => vec![
-                iter,
-                vm.ctx.new_tuple(vec![self.obj.clone()]),
-                vm.ctx.new_int(self.position.load()),
-            ],
-        }))
+    fn reduce(&self, vm: &VirtualMachine) -> PyObjectRef {
+        self.internal
+            .lock()
+            .builtins_reversed_reduce(|x| x.clone(), vm)
     }
 }
 
 impl IteratorIterable for PyReverseSequenceIterator {}
 impl SlotIterator for PyReverseSequenceIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        if let Exhausted = zelf.status.load() {
-            return Ok(PyIterReturn::StopIteration(None));
-        }
-        let pos = zelf.position.fetch_sub(1);
-        if pos == 0 {
-            zelf.status.store(Exhausted);
-        }
-        match zelf.obj.get_item(pos, vm) {
-            Err(ref e)
-                if e.isinstance(&vm.ctx.exceptions.index_error)
-                    || e.isinstance(&vm.ctx.exceptions.stop_iteration) =>
-            {
-                zelf.status.store(Exhausted);
-                Ok(PyIterReturn::StopIteration(None))
-            }
-            other => other.map(PyIterReturn::Return),
-        }
+        zelf.internal
+            .lock()
+            .rev_next(|obj, pos| PyIterReturn::from_getitem_result(obj.get_item(pos, vm), vm))
     }
 }
 
