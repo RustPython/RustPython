@@ -31,12 +31,12 @@ pub(crate) fn impl_pystruct_sequence(
     let ret = quote! {
         impl ::rustpython_vm::PyStructSequence for #ty {
             const FIELD_NAMES: &'static [&'static str] = &[#(stringify!(#field_names)),*];
-            fn into_tuple(self, vm: &::rustpython_vm::VirtualMachine) -> ::rustpython_vm::builtins::tuple::PyTuple {
+            fn into_tuple(self, vm: &::rustpython_vm::VirtualMachine) -> ::rustpython_vm::builtins::PyTuple {
                 let items = vec![#(::rustpython_vm::IntoPyObject::into_pyobject(
                     self.#field_names,
                     vm,
                 )),*];
-                ::rustpython_vm::builtins::tuple::PyTuple::new_unchecked(items.into_boxed_slice())
+                ::rustpython_vm::builtins::PyTuple::new_unchecked(items.into_boxed_slice())
             }
         }
         impl ::rustpython_vm::IntoPyObject for #ty {
