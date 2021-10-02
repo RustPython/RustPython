@@ -323,8 +323,6 @@ OrderedDict([('the', 0),
              ('lazy', 7),
              ('dog', 8)])""")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_mapping_proxy(self):
         words = 'the quick brown fox jumped over a lazy dog'.split()
         d = dict(zip(words, itertools.count()))
@@ -657,8 +655,6 @@ frozenset2({0,
         self.assertEqual(pprint.pformat(dict.fromkeys(keys, 0)),
                          '{%r: 0, %r: 0}' % tuple(sorted(keys, key=id)))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_sort_orderable_and_unorderable_values(self):
         # Issue 22721:  sorted pprints is not stable
         a = Unorderable()
