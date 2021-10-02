@@ -35,7 +35,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 #[allow(unused)]
 #[derive(Copy, Clone)]
 #[repr(transparent)]
-pub(crate) struct Fildes(pub i32);
+pub struct Fildes(pub i32);
 
 impl TryFromObject for Fildes {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
@@ -53,7 +53,7 @@ impl TryFromObject for Fildes {
                     .map_err(|_| vm.new_type_error("fileno() returned a non-integer".to_owned()))?
             }
         };
-        let fd = int::try_to_primitive(int.as_bigint(), vm)?;
+        let fd = int.try_to_primitive(vm)?;
         if fd < 0 {
             return Err(vm.new_value_error(format!(
                 "file descriptor cannot be a negative integer ({})",
@@ -68,34 +68,35 @@ impl TryFromObject for Fildes {
 mod _io {
     use super::*;
 
+    use crate::common::{
+        borrow::{BorrowedValue, BorrowedValueMut},
+        lock::{
+            PyMappedThreadMutexGuard, PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
+            PyThreadMutex, PyThreadMutexGuard,
+        },
+        rc::PyRc,
+    };
+    use crate::{
+        builtins::{
+            PyBaseExceptionRef, PyByteArray, PyBytes, PyBytesRef, PyMemoryView, PyStr, PyStrRef,
+            PyType, PyTypeRef,
+        },
+        exceptions,
+        function::{
+            ArgBytesLike, ArgIterable, ArgMemoryBuffer, FuncArgs, OptionalArg, OptionalOption,
+        },
+        protocol::{BufferInternal, BufferOptions, PyBuffer, PyIterReturn, ResizeGuard},
+        slots::{Iterable, SlotConstructor, SlotIterator},
+        utils::Either,
+        vm::{ReprGuard, VirtualMachine},
+        IdProtocol, IntoPyObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
+        TryFromObject, TypeProtocol,
+    };
     use bstr::ByteSlice;
     use crossbeam_utils::atomic::AtomicCell;
     use num_traits::ToPrimitive;
     use std::io::{self, prelude::*, Cursor, SeekFrom};
     use std::ops::Range;
-
-    use crate::builtins::memory::PyMemoryView;
-    use crate::builtins::{
-        bytes::{PyBytes, PyBytesRef},
-        pytype, PyByteArray, PyStr, PyStrRef, PyTypeRef,
-    };
-    use crate::byteslike::{ArgBytesLike, ArgMemoryBuffer};
-    use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
-    use crate::common::lock::{
-        PyMappedThreadMutexGuard, PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
-        PyThreadMutex, PyThreadMutexGuard,
-    };
-    use crate::common::rc::PyRc;
-    use crate::exceptions::{self, PyBaseExceptionRef};
-    use crate::function::{ArgIterable, FuncArgs, OptionalArg, OptionalOption};
-    use crate::protocol::{BufferInternal, BufferOptions, PyBuffer, ResizeGuard};
-    use crate::slots::{Iterable, PyIter, SlotConstructor};
-    use crate::utils::Either;
-    use crate::vm::{ReprGuard, VirtualMachine};
-    use crate::{
-        IdProtocol, IntoPyObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
-        TryFromObject, TypeProtocol,
-    };
 
     #[allow(clippy::let_and_return)]
     fn validate_whence(whence: i32) -> bool {
@@ -343,7 +344,7 @@ mod _io {
     #[derive(Debug, PyValue)]
     struct _IOBase;
 
-    #[pyimpl(with(PyIter), flags(BASETYPE, HAS_DICT))]
+    #[pyimpl(with(SlotIterator), flags(BASETYPE, HAS_DICT))]
     impl _IOBase {
         #[pymethod]
         fn seek(
@@ -379,14 +380,14 @@ mod _io {
         }
 
         #[pyslot]
-        fn tp_del(instance: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn slot_del(instance: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             let _ = vm.call_method(instance, "close", ());
             Ok(())
         }
 
         #[pymethod(magic)]
         fn del(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            Self::tp_del(&instance, vm)
+            Self::slot_del(&instance, vm)
         }
 
         #[pymethod(magic)]
@@ -512,28 +513,28 @@ mod _io {
     }
 
     impl Iterable for _IOBase {
-        fn tp_iter(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        fn slot_iter(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             check_closed(&zelf, vm)?;
             Ok(zelf)
         }
 
         fn iter(_zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyResult {
-            unreachable!("tp_iter is implemented")
+            unreachable!("slot_iter is implemented")
         }
     }
 
-    impl PyIter for _IOBase {
-        fn tp_iternext(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    impl SlotIterator for _IOBase {
+        fn slot_iternext(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let line = vm.call_method(zelf, "readline", ())?;
-            if !line.clone().try_to_bool(vm)? {
-                Err(vm.new_stop_iteration())
+            Ok(if !line.clone().try_to_bool(vm)? {
+                PyIterReturn::StopIteration(None)
             } else {
-                Ok(line)
-            }
+                PyIterReturn::Return(line)
+            })
         }
 
-        fn next(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult {
-            unreachable!("tp_iternext is implemented")
+        fn next(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+            unreachable!("slot_iternext is implemented")
         }
     }
 
@@ -1369,7 +1370,7 @@ mod _io {
                 } else {
                     Err(vm.new_runtime_error(format!(
                         "reentrant call inside {}.__repr__",
-                        obj.class().tp_name()
+                        obj.class().slot_name()
                     )))
                 }
             }
@@ -1519,11 +1520,11 @@ mod _io {
         fn repr(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
             let name_repr = repr_fileobj_name(&zelf, vm)?;
             let cls = zelf.class();
-            let tp_name = cls.tp_name();
+            let slot_name = cls.slot_name();
             let repr = if let Some(name_repr) = name_repr {
-                format!("<{} name={}>", tp_name, name_repr)
+                format!("<{} name={}>", slot_name, name_repr)
             } else {
-                format!("<{}>", tp_name)
+                format!("<{}>", slot_name)
             };
             Ok(repr)
         }
@@ -1664,7 +1665,7 @@ mod _io {
     #[pyimpl(with(BufferedMixin, BufferedReadable), flags(BASETYPE, HAS_DICT))]
     impl BufferedReader {
         #[pyslot]
-        fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             Self::default().into_pyresult_with_type(vm, cls)
         }
     }
@@ -1713,7 +1714,7 @@ mod _io {
     #[pyimpl(with(BufferedMixin, BufferedWritable), flags(BASETYPE, HAS_DICT))]
     impl BufferedWriter {
         #[pyslot]
-        fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             Self::default().into_pyresult_with_type(vm, cls)
         }
     }
@@ -1751,7 +1752,7 @@ mod _io {
     )]
     impl BufferedRandom {
         #[pyslot]
-        fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             Self::default().into_pyresult_with_type(vm, cls)
         }
     }
@@ -1778,7 +1779,7 @@ mod _io {
     #[pyimpl(with(BufferedReadable, BufferedWritable), flags(BASETYPE, HAS_DICT))]
     impl BufferedRWPair {
         #[pyslot]
-        fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             Self::default().into_pyresult_with_type(vm, cls)
         }
         #[pymethod(magic)]
@@ -1834,7 +1835,6 @@ mod _io {
 
     #[derive(FromArgs)]
     struct TextIOWrapperArgs {
-        #[pyarg(any)]
         buffer: PyObjectRef,
         #[pyarg(any, default)]
         encoding: Option<PyStrRef>,
@@ -2175,7 +2175,7 @@ mod _io {
     #[pyimpl(flags(BASETYPE))]
     impl TextIOWrapper {
         #[pyslot]
-        fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             Self::default().into_pyresult_with_type(vm, cls)
         }
 
@@ -2884,7 +2884,7 @@ mod _io {
                     ))
                 })?;
                 let flags = flags.payload::<int::PyInt>().ok_or_else(state_err)?;
-                let flags = int::try_to_primitive(flags.as_bigint(), vm)?;
+                let flags = flags.try_to_primitive(vm)?;
                 Ok((buf, flags))
             }
             _ => Err(state_err()),
@@ -3456,7 +3456,6 @@ mod _io {
 
     #[derive(FromArgs)]
     struct IoOpenArgs {
-        #[pyarg(any)]
         file: PyObjectRef,
         #[pyarg(any, optional)]
         mode: OptionalArg<PyStrRef>,
@@ -3622,7 +3621,7 @@ mod _io {
     }
 
     pub(super) fn make_unsupportedop(ctx: &PyContext) -> PyTypeRef {
-        pytype::new(
+        PyType::new(
             ctx.types.type_type.clone(),
             "UnsupportedOperation",
             ctx.exceptions.os_error.clone(),
@@ -3681,15 +3680,16 @@ mod _io {
 mod fileio {
     use super::Offset;
     use super::_io::*;
-    use crate::builtins::{PyStr, PyStrRef, PyTypeRef};
-    use crate::byteslike::{ArgBytesLike, ArgMemoryBuffer};
-    use crate::crt_fd::Fd;
-    use crate::exceptions::IntoPyException;
-    use crate::function::OptionalOption;
-    use crate::function::{FuncArgs, OptionalArg};
-    use crate::stdlib::os;
-    use crate::vm::VirtualMachine;
-    use crate::{PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol};
+    use crate::{
+        builtins::{PyStr, PyStrRef, PyTypeRef},
+        crt_fd::Fd,
+        exceptions::IntoPyException,
+        function::OptionalOption,
+        function::{ArgBytesLike, ArgMemoryBuffer},
+        function::{FuncArgs, OptionalArg},
+        stdlib::os,
+        PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
+    };
     use crossbeam_utils::atomic::AtomicCell;
     use std::io::{Read, Write};
 
@@ -3817,7 +3817,7 @@ mod fileio {
     #[pyimpl(flags(BASETYPE, HAS_DICT))]
     impl FileIO {
         #[pyslot]
-        fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             FileIO {
                 fd: AtomicCell::new(-1),
                 closefd: AtomicCell::new(false),
@@ -3846,7 +3846,7 @@ mod fileio {
                 }
                 fd
             } else if let Some(i) = name.payload::<crate::builtins::PyInt>() {
-                crate::builtins::int::try_to_primitive(i.as_bigint(), vm)?
+                i.try_to_primitive(vm)?
             } else {
                 let path = os::PyPathLike::try_from_object(vm, name.clone())?;
                 if !args.closefd {

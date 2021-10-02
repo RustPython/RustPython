@@ -1,18 +1,16 @@
-use crate::anystr::{self, AnyStr, AnyStrContainer, AnyStrWrapper};
-use crate::builtins::bytearray::PyByteArray;
-use crate::builtins::bytes::{PyBytes, PyBytesRef};
-use crate::builtins::int::{PyInt, PyIntRef};
-use crate::builtins::pystr::{self, PyStr, PyStrRef};
-use crate::builtins::PyTypeRef;
-use crate::cformat::CFormatBytes;
-use crate::function::{OptionalArg, OptionalOption};
-use crate::sliceable::PySliceableSequence;
-use crate::slots::PyComparisonOp;
-use crate::utils::Either;
-use crate::vm::VirtualMachine;
 use crate::{
-    function::ArgIterable, IdProtocol, PyComparisonValue, PyObjectRef, PyResult, PyValue,
-    TryFromBorrowedObject,
+    anystr::{self, AnyStr, AnyStrContainer, AnyStrWrapper},
+    builtins::{
+        pystr, PyByteArray, PyBytes, PyBytesRef, PyInt, PyIntRef, PyStr, PyStrRef, PyTypeRef,
+    },
+    cformat::CFormatBytes,
+    function::ArgIterable,
+    function::{OptionalArg, OptionalOption},
+    sliceable::PySliceableSequence,
+    slots::PyComparisonOp,
+    utils::Either,
+    IdProtocol, PyComparisonValue, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject,
+    VirtualMachine,
 };
 use bstr::ByteSlice;
 use itertools::Itertools;

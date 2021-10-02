@@ -5,7 +5,7 @@ use crate::{
     format::FormatSpec,
     function::{OptionalArg, OptionalOption},
     slots::{Comparable, Hashable, PyComparisonOp, SlotConstructor},
-    try_value_from_borrowed_object, IdProtocol, IntoPyObject, IntoPyResult, PyArithmaticValue,
+    try_value_from_borrowed_object, IdProtocol, IntoPyObject, IntoPyResult, PyArithmeticValue,
     PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromBorrowedObject, TypeProtocol, VirtualMachine,
 };
@@ -80,7 +80,7 @@ macro_rules! impl_into_pyobject_int {
 
 impl_into_pyobject_int!(isize i8 i16 i32 i64 usize u8 u16 u32 u64 BigInt);
 
-pub fn try_to_primitive<'a, I>(i: &'a BigInt, vm: &VirtualMachine) -> PyResult<I>
+pub(crate) fn try_to_primitive<'a, I>(i: &'a BigInt, vm: &VirtualMachine) -> PyResult<I>
 where
     I: PrimInt + TryFrom<&'a BigInt>,
 {
@@ -121,22 +121,6 @@ impl TryFromBorrowedObject for BigInt {
     fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Self> {
         try_value_from_borrowed_object(vm, obj, |int: &PyInt| Ok(int.as_bigint().clone()))
     }
-}
-
-// _PyLong_AsUnsignedLongMask
-pub fn bigint_unsigned_mask(v: &BigInt) -> u32 {
-    v.to_u32()
-        .or_else(|| v.to_i32().map(|i| i as u32))
-        .unwrap_or_else(|| {
-            let mut out = 0u32;
-            for digit in v.iter_u32_digits() {
-                out = out.wrapping_shl(32) | digit;
-            }
-            match v.sign() {
-                num_bigint::Sign::Minus => out * -1i32 as u32,
-                _ => out,
-            }
-        })
 }
 
 fn inner_pow(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
@@ -279,7 +263,6 @@ impl SlotConstructor for PyInt {
     }
 }
 
-#[pyimpl(flags(BASETYPE), with(Comparable, Hashable, SlotConstructor))]
 impl PyInt {
     fn with_value<T>(cls: PyTypeRef, value: T, vm: &VirtualMachine) -> PyResult<PyRef<Self>>
     where
@@ -302,15 +285,39 @@ impl PyInt {
         &self.value
     }
 
+    // _PyLong_AsUnsignedLongMask
+    pub fn as_u32_mask(&self) -> u32 {
+        let v = self.as_bigint();
+        v.to_u32()
+            .or_else(|| v.to_i32().map(|i| i as u32))
+            .unwrap_or_else(|| {
+                let mut out = 0u32;
+                for digit in v.iter_u32_digits() {
+                    out = out.wrapping_shl(32) | digit;
+                }
+                match v.sign() {
+                    num_bigint::Sign::Minus => out * -1i32 as u32,
+                    _ => out,
+                }
+            })
+    }
+
+    pub fn try_to_primitive<'a, I>(&'a self, vm: &VirtualMachine) -> PyResult<I>
+    where
+        I: PrimInt + TryFrom<&'a BigInt>,
+    {
+        try_to_primitive(self.as_bigint(), vm)
+    }
+
     #[inline]
-    fn int_op<F>(&self, other: PyObjectRef, op: F, vm: &VirtualMachine) -> PyArithmaticValue<BigInt>
+    fn int_op<F>(&self, other: PyObjectRef, op: F, vm: &VirtualMachine) -> PyArithmeticValue<BigInt>
     where
         F: Fn(&BigInt, &BigInt) -> BigInt,
     {
         let r = other
             .payload_if_subclass::<PyInt>(vm)
             .map(|other| op(&self.value, &other.value));
-        PyArithmaticValue::from_option(r)
+        PyArithmeticValue::from_option(r)
     }
 
     #[inline]
@@ -324,26 +331,29 @@ impl PyInt {
             Ok(vm.ctx.not_implemented())
         }
     }
+}
 
+#[pyimpl(flags(BASETYPE), with(Comparable, Hashable, SlotConstructor))]
+impl PyInt {
     #[pymethod(name = "__radd__")]
     #[pymethod(magic)]
-    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<BigInt> {
+    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmeticValue<BigInt> {
         self.int_op(other, |a, b| a + b, vm)
     }
 
     #[pymethod(magic)]
-    fn sub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<BigInt> {
+    fn sub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmeticValue<BigInt> {
         self.int_op(other, |a, b| a - b, vm)
     }
 
     #[pymethod(magic)]
-    fn rsub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<BigInt> {
+    fn rsub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmeticValue<BigInt> {
         self.int_op(other, |a, b| b - a, vm)
     }
 
     #[pymethod(name = "__rmul__")]
     #[pymethod(magic)]
-    fn mul(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<BigInt> {
+    fn mul(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmeticValue<BigInt> {
         self.int_op(other, |a, b| a * b, vm)
     }
 
@@ -389,19 +399,19 @@ impl PyInt {
 
     #[pymethod(name = "__rxor__")]
     #[pymethod(magic)]
-    pub fn xor(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<BigInt> {
+    pub fn xor(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmeticValue<BigInt> {
         self.int_op(other, |a, b| a ^ b, vm)
     }
 
     #[pymethod(name = "__ror__")]
     #[pymethod(magic)]
-    pub fn or(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<BigInt> {
+    pub fn or(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmeticValue<BigInt> {
         self.int_op(other, |a, b| a | b, vm)
     }
 
     #[pymethod(name = "__rand__")]
     #[pymethod(magic)]
-    pub fn and(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<BigInt> {
+    pub fn and(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmeticValue<BigInt> {
         self.int_op(other, |a, b| a & b, vm)
     }
 
@@ -752,9 +762,7 @@ pub struct IntOptions {
 
 #[derive(FromArgs)]
 struct IntFromByteArgs {
-    #[pyarg(any)]
     bytes: PyBytesInner,
-    #[pyarg(any)]
     byteorder: PyStrRef,
     #[pyarg(named, optional)]
     signed: OptionalArg<IntoPyBool>,
@@ -762,9 +770,7 @@ struct IntFromByteArgs {
 
 #[derive(FromArgs)]
 struct IntToByteArgs {
-    #[pyarg(any)]
     length: PyIntRef,
-    #[pyarg(any)]
     byteorder: PyStrRef,
     #[pyarg(named, optional)]
     signed: OptionalArg<IntoPyBool>,

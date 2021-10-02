@@ -1,13 +1,16 @@
 use super::{IterStatus, PySet, PyStrRef, PyTypeRef};
 use crate::{
+    builtins::PyBaseExceptionRef,
+    common::ascii,
     dictdatatype::{self, DictKey},
-    exceptions::PyBaseExceptionRef,
     function::{ArgIterable, FuncArgs, KwArgs, OptionalArg},
-    iterator,
-    slots::{Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, PyIter, Unhashable},
+    protocol::PyIterReturn,
+    slots::{
+        Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotIterator, Unhashable,
+    },
     vm::{ReprGuard, VirtualMachine},
     IdProtocol, IntoPyObject, ItemProtocol,
-    PyArithmaticValue::*,
+    PyArithmeticValue::*,
     PyAttributes, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
     PyResult, PyValue, TryFromObject, TypeProtocol,
 };
@@ -51,7 +54,7 @@ impl PyValue for PyDict {
 #[pyimpl(with(Hashable, Comparable, Iterable), flags(BASETYPE))]
 impl PyDict {
     #[pyslot]
-    fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         PyDict::default().into_pyresult_with_type(vm, cls)
     }
 
@@ -82,26 +85,31 @@ impl PyDict {
                     return Err(vm.new_runtime_error("dict mutated during update".to_owned()));
                 }
             } else if let Some(keys) = vm.get_method(dict_obj.clone(), "keys") {
-                let keys = iterator::get_iter(vm, vm.invoke(&keys?, ())?)?;
-                while let Some(key) = iterator::get_next_object(vm, &keys)? {
+                let keys = vm.invoke(&keys?, ())?.get_iter(vm)?;
+                while let PyIterReturn::Return(key) = keys.next(vm)? {
                     let val = dict_obj.get_item(key.clone(), vm)?;
                     dict.insert(vm, key, val)?;
                 }
             } else {
-                let iter = iterator::get_iter(vm, dict_obj)?;
+                let iter = dict_obj.get_iter(vm)?;
                 loop {
                     fn err(vm: &VirtualMachine) -> PyBaseExceptionRef {
                         vm.new_value_error("Iterator must have exactly two elements".to_owned())
                     }
-                    let element = match iterator::get_next_object(vm, &iter)? {
-                        Some(obj) => obj,
-                        None => break,
+                    let element = match iter.next(vm)? {
+                        PyIterReturn::Return(obj) => obj,
+                        PyIterReturn::StopIteration(_) => break,
                     };
-                    let elem_iter = iterator::get_iter(vm, element)?;
-                    let key = iterator::get_next_object(vm, &elem_iter)?.ok_or_else(|| err(vm))?;
-                    let value =
-                        iterator::get_next_object(vm, &elem_iter)?.ok_or_else(|| err(vm))?;
-                    if iterator::get_next_object(vm, &elem_iter)?.is_some() {
+                    let elem_iter = element.get_iter(vm)?;
+                    let key = match elem_iter.next(vm)? {
+                        PyIterReturn::Return(obj) => obj,
+                        PyIterReturn::StopIteration(_) => return Err(err(vm)),
+                    };
+                    let value = match elem_iter.next(vm)? {
+                        PyIterReturn::Return(obj) => obj,
+                        PyIterReturn::StopIteration(_) => return Err(err(vm)),
+                    };
+                    if matches!(elem_iter.next(vm)?, PyIterReturn::Return(_)) {
                         return Err(err(vm));
                     }
                     dict.insert(vm, key, value)?;
@@ -294,6 +302,15 @@ impl PyDict {
             .setdefault(vm, key, || default.unwrap_or_none(vm))
     }
 
+    pub fn get_or_insert(
+        &self,
+        vm: &VirtualMachine,
+        key: PyObjectRef,
+        default: impl FnOnce() -> PyObjectRef,
+    ) -> PyResult {
+        self.entries.setdefault(vm, key, default)
+    }
+
     #[pymethod]
     pub fn copy(&self) -> PyDict {
         PyDict {
@@ -363,7 +380,7 @@ impl PyDict {
         } else {
             let err_msg = vm
                 .ctx
-                .new_ascii_literal(crate::utils::ascii!("popitem(): dictionary is empty"));
+                .new_ascii_literal(ascii!("popitem(): dictionary is empty"));
             Err(vm.new_key_error(err_msg))
         }
     }
@@ -707,7 +724,7 @@ macro_rules! dict_iterator {
             }
         }
 
-        #[pyimpl(with(PyIter))]
+        #[pyimpl(with(SlotIterator))]
         impl $iter_name {
             fn new(dict: PyDictRef) -> Self {
                 $iter_name {
@@ -729,11 +746,11 @@ macro_rules! dict_iterator {
         }
 
         impl IteratorIterable for $iter_name {}
-        impl PyIter for $iter_name {
+        impl SlotIterator for $iter_name {
             #[allow(clippy::redundant_closure_call)]
-            fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+            fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
                 match zelf.status.load() {
-                    IterStatus::Exhausted => Err(vm.new_stop_iteration()),
+                    IterStatus::Exhausted => Ok(PyIterReturn::StopIteration(None)),
                     IterStatus::Active => {
                         if zelf.dict.entries.has_changed_size(&zelf.size) {
                             zelf.status.store(IterStatus::Exhausted);
@@ -742,10 +759,12 @@ macro_rules! dict_iterator {
                             ));
                         }
                         match zelf.dict.entries.next_entry_atomic(&zelf.position) {
-                            Some((key, value)) => Ok(($result_fn)(vm, key, value)),
+                            Some((key, value)) => {
+                                Ok(PyIterReturn::Return(($result_fn)(vm, key, value)))
+                            }
                             None => {
                                 zelf.status.store(IterStatus::Exhausted);
-                                Err(vm.new_stop_iteration())
+                                Ok(PyIterReturn::StopIteration(None))
                             }
                         }
                     }
@@ -768,7 +787,7 @@ macro_rules! dict_iterator {
             }
         }
 
-        #[pyimpl(with(PyIter))]
+        #[pyimpl(with(SlotIterator))]
         impl $reverse_iter_name {
             fn new(dict: PyDictRef) -> Self {
                 $reverse_iter_name {
@@ -790,11 +809,11 @@ macro_rules! dict_iterator {
         }
 
         impl IteratorIterable for $reverse_iter_name {}
-        impl PyIter for $reverse_iter_name {
+        impl SlotIterator for $reverse_iter_name {
             #[allow(clippy::redundant_closure_call)]
-            fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+            fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
                 match zelf.status.load() {
-                    IterStatus::Exhausted => Err(vm.new_stop_iteration()),
+                    IterStatus::Exhausted => Ok(PyIterReturn::StopIteration(None)),
                     IterStatus::Active => {
                         if zelf.dict.entries.has_changed_size(&zelf.size) {
                             zelf.status.store(IterStatus::Exhausted);
@@ -803,10 +822,12 @@ macro_rules! dict_iterator {
                             ));
                         }
                         match zelf.dict.entries.next_entry_atomic_reversed(&zelf.position) {
-                            Some((key, value)) => Ok(($result_fn)(vm, key, value)),
+                            Some((key, value)) => {
+                                Ok(PyIterReturn::Return(($result_fn)(vm, key, value)))
+                            }
                             None => {
                                 zelf.status.store(IterStatus::Exhausted);
-                                Err(vm.new_stop_iteration())
+                                Ok(PyIterReturn::StopIteration(None))
                             }
                         }
                     }

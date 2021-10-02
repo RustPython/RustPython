@@ -5,13 +5,12 @@ use crate::{
         bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
         ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
     },
-    byteslike::ArgBytesLike,
     common::hash::PyHash,
-    function::{ArgIterable, OptionalArg, OptionalOption},
-    protocol::{BufferInternal, BufferOptions, PyBuffer},
+    function::{ArgBytesLike, ArgIterable, OptionalArg, OptionalOption},
+    protocol::{BufferInternal, BufferOptions, PyBuffer, PyIterReturn},
     slots::{
         AsBuffer, Callable, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp,
-        PyIter, SlotConstructor,
+        SlotConstructor, SlotIterator,
     },
     utils::Either,
     IdProtocol, IntoPyObject, IntoPyResult, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef,
@@ -515,7 +514,7 @@ impl PyBytes {
 }
 
 impl AsBuffer for PyBytes {
-    fn get_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
+    fn as_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
         let buf = PyBuffer::new(
             zelf.as_object().clone(),
             zelf.clone(),
@@ -595,17 +594,18 @@ impl PyValue for PyBytesIterator {
     }
 }
 
-#[pyimpl(with(PyIter))]
+#[pyimpl(with(SlotIterator))]
 impl PyBytesIterator {}
 impl IteratorIterable for PyBytesIterator {}
-impl PyIter for PyBytesIterator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+impl SlotIterator for PyBytesIterator {
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let pos = zelf.position.fetch_add(1);
-        if let Some(&ret) = zelf.bytes.as_bytes().get(pos) {
-            Ok(vm.ctx.new_int(ret))
+        let r = if let Some(&ret) = zelf.bytes.as_bytes().get(pos) {
+            PyIterReturn::Return(vm.ctx.new_int(ret))
         } else {
-            Err(vm.new_stop_iteration())
-        }
+            PyIterReturn::StopIteration(None)
+        };
+        Ok(r)
     }
 }
 

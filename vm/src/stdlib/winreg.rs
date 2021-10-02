@@ -100,9 +100,7 @@ impl Hkey {
 
 #[derive(FromArgs)]
 struct OpenKeyArgs {
-    #[pyarg(any)]
     key: Hkey,
-    #[pyarg(any)]
     sub_key: Option<PyStrRef>,
     #[pyarg(any, default = "0")]
     reserved: i32,

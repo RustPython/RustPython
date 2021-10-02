@@ -6,8 +6,8 @@ use super::{
 use crate::common::lock::PyRwLock;
 use crate::{
     function::OptionalArg,
-    iterator,
-    slots::{IteratorIterable, PyIter, SlotConstructor},
+    protocol::{PyIter, PyIterReturn},
+    slots::{IteratorIterable, SlotConstructor, SlotIterator},
     IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TypeProtocol, VirtualMachine,
 };
@@ -19,7 +19,7 @@ use num_traits::Zero;
 #[derive(Debug)]
 pub struct PyEnumerate {
     counter: PyRwLock<BigInt>,
-    iterator: PyObjectRef,
+    iterator: PyIter,
 }
 
 impl PyValue for PyEnumerate {
@@ -30,8 +30,7 @@ impl PyValue for PyEnumerate {
 
 #[derive(FromArgs)]
 pub struct EnumerateArgs {
-    #[pyarg(any)]
-    iterable: PyObjectRef,
+    iterator: PyIter,
     #[pyarg(any, optional)]
     start: OptionalArg<PyIntRef>,
 }
@@ -39,11 +38,12 @@ pub struct EnumerateArgs {
 impl SlotConstructor for PyEnumerate {
     type Args = EnumerateArgs;
 
-    fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
-        let counter = args
-            .start
-            .map_or_else(BigInt::zero, |start| start.as_bigint().clone());
-        let iterator = iterator::get_iter(vm, args.iterable)?;
+    fn py_new(
+        cls: PyTypeRef,
+        Self::Args { iterator, start }: Self::Args,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let counter = start.map_or_else(BigInt::zero, |start| start.as_bigint().clone());
         PyEnumerate {
             counter: PyRwLock::new(counter),
             iterator,
@@ -52,17 +52,20 @@ impl SlotConstructor for PyEnumerate {
     }
 }
 
-#[pyimpl(with(PyIter, SlotConstructor), flags(BASETYPE))]
+#[pyimpl(with(SlotIterator, SlotConstructor), flags(BASETYPE))]
 impl PyEnumerate {}
 
 impl IteratorIterable for PyEnumerate {}
-impl PyIter for PyEnumerate {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        let next_obj = iterator::call_next(vm, &zelf.iterator)?;
+impl SlotIterator for PyEnumerate {
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        let next_obj = match zelf.iterator.next(vm)? {
+            PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
+            PyIterReturn::Return(obj) => obj,
+        };
         let mut counter = zelf.counter.write();
         let position = counter.clone();
         *counter += 1;
-        Ok((position, next_obj).into_pyobject(vm))
+        Ok(PyIterReturn::Return((position, next_obj).into_pyobject(vm)))
     }
 }
 
@@ -80,7 +83,7 @@ impl PyValue for PyReverseSequenceIterator {
     }
 }
 
-#[pyimpl(with(PyIter))]
+#[pyimpl(with(SlotIterator))]
 impl PyReverseSequenceIterator {
     pub fn new(obj: PyObjectRef, len: usize) -> Self {
         Self {
@@ -138,22 +141,24 @@ impl PyReverseSequenceIterator {
 }
 
 impl IteratorIterable for PyReverseSequenceIterator {}
-impl PyIter for PyReverseSequenceIterator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+impl SlotIterator for PyReverseSequenceIterator {
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         if let Exhausted = zelf.status.load() {
-            return Err(vm.new_stop_iteration());
+            return Ok(PyIterReturn::StopIteration(None));
         }
         let pos = zelf.position.fetch_sub(1);
         if pos == 0 {
             zelf.status.store(Exhausted);
         }
         match zelf.obj.get_item(pos, vm) {
-            Err(ref e) if e.isinstance(&vm.ctx.exceptions.index_error) => {
+            Err(ref e)
+                if e.isinstance(&vm.ctx.exceptions.index_error)
+                    || e.isinstance(&vm.ctx.exceptions.stop_iteration) =>
+            {
                 zelf.status.store(Exhausted);
-                Err(vm.new_stop_iteration())
+                Ok(PyIterReturn::StopIteration(None))
             }
-            // also catches stop_iteration => stop_iteration
-            ret => ret,
+            other => other.map(PyIterReturn::Return),
         }
     }
 }

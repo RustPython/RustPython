@@ -219,9 +219,10 @@ class AutoFileTests:
         self.assertRaises(TypeError, self.f.writelines)
         self.assertRaises(ValueError, self.f.writelines, b'')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testOpendir(self):
+        # TODO: RUSTPYTHON
+        if sys.platform == "win32":
+            testOpendir = unittest.expectedFailure(testOpendir)
         # Issue 3703: opening a directory should fill the errno
         # Windows always returns "[Errno 13]: Permission denied
         # Unix uses fstat and returns "[Errno 21]: Is a directory"
@@ -379,10 +380,20 @@ class CAutoFileTests(AutoFileTests, unittest.TestCase):
     def testOpenDirFD(self):
         super().testOpenDirFD()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def testOpendir(self):
+        super().testOpendir()
+
 @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON, test setUp errors on Windows")
 class PyAutoFileTests(AutoFileTests, unittest.TestCase):
     FileIO = _pyio.FileIO
     modulename = '_pyio'
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def testOpendir(self):
+        super().testOpendir()
 
 
 class OtherFileTests:

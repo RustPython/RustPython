@@ -2,7 +2,9 @@
 
 // See also:
 // https://docs.python.org/3/library/time.html
-use crate::{PyObjectRef, PyResult, VirtualMachine};
+use crate::{PyObjectRef, VirtualMachine};
+
+pub use time::*;
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let module = time::make_module(vm);
@@ -14,38 +16,14 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     module
 }
 
-#[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
-pub(crate) fn get_time(vm: &VirtualMachine) -> PyResult<f64> {
-    Ok(duration_since_system_now(vm)?.as_secs_f64())
-}
-
-#[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
-pub(crate) fn get_time(_vm: &VirtualMachine) -> PyResult<f64> {
-    use wasm_bindgen::prelude::*;
-    #[wasm_bindgen]
-    extern "C" {
-        type Date;
-        #[wasm_bindgen(static_method_of = Date)]
-        fn now() -> f64;
-    }
-    // Date.now returns unix time in milliseconds, we want it in seconds
-    Ok(Date::now() / 1000.0)
-}
-
-fn duration_since_system_now(vm: &VirtualMachine) -> PyResult<std::time::Duration> {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|e| vm.new_value_error(format!("Time error: {:?}", e)))
-}
-
 #[pymodule(name = "time")]
 mod time {
-    use crate::builtins::{PyStrRef, PyTypeRef};
-    use crate::function::{FuncArgs, OptionalArg};
-    use crate::utils::Either;
-    use crate::{PyObjectRef, PyResult, PyStructSequence, TryFromObject, VirtualMachine};
+    use crate::{
+        builtins::{PyStrRef, PyTypeRef},
+        function::{FuncArgs, OptionalArg},
+        utils::Either,
+        PyObjectRef, PyResult, PyStructSequence, TryFromObject, VirtualMachine,
+    };
     use chrono::{
         naive::{NaiveDate, NaiveDateTime, NaiveTime},
         Datelike, Timelike,
@@ -68,6 +46,14 @@ mod time {
     #[allow(dead_code)]
     pub(super) const NS_TO_US: i64 = 1000;
 
+    fn duration_since_system_now(vm: &VirtualMachine) -> PyResult<std::time::Duration> {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|e| vm.new_value_error(format!("Time error: {:?}", e)))
+    }
+
     #[cfg(not(unix))]
     #[pyfunction]
     fn sleep(dur: std::time::Duration) {
@@ -77,19 +63,37 @@ mod time {
     #[cfg(not(target_os = "wasi"))]
     #[pyfunction]
     fn time_ns(vm: &VirtualMachine) -> PyResult<u64> {
-        Ok(super::duration_since_system_now(vm)?.as_nanos() as u64)
+        Ok(duration_since_system_now(vm)?.as_nanos() as u64)
     }
 
     #[pyfunction(name = "perf_counter")] // TODO: fix
     #[pyfunction]
-    fn time(vm: &VirtualMachine) -> PyResult<f64> {
-        super::get_time(vm)
+    pub fn time(vm: &VirtualMachine) -> PyResult<f64> {
+        _time(vm)
+    }
+
+    #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+    fn _time(vm: &VirtualMachine) -> PyResult<f64> {
+        Ok(duration_since_system_now(vm)?.as_secs_f64())
+    }
+
+    #[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
+    fn _time(_vm: &VirtualMachine) -> PyResult<f64> {
+        use wasm_bindgen::prelude::*;
+        #[wasm_bindgen]
+        extern "C" {
+            type Date;
+            #[wasm_bindgen(static_method_of = Date)]
+            fn now() -> f64;
+        }
+        // Date.now returns unix time in milliseconds, we want it in seconds
+        Ok(Date::now() / 1000.0)
     }
 
     #[pyfunction]
     fn monotonic(vm: &VirtualMachine) -> PyResult<f64> {
         // TODO: implement proper monotonic time!
-        Ok(super::duration_since_system_now(vm)?.as_secs_f64())
+        Ok(duration_since_system_now(vm)?.as_secs_f64())
     }
 
     fn pyobj_to_naive_date_time(
@@ -327,7 +331,7 @@ mod time {
         }
 
         #[pyslot]
-        fn tp_new(_cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        fn slot_new(_cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             // cls is ignorable because this is not a basetype
             let seq = args.bind(vm)?;
             Ok(vm.new_pyobj(Self::try_from_object(vm, seq)?))
@@ -367,8 +371,7 @@ mod time {
 #[cfg(unix)]
 #[pymodule(name = "time")]
 mod unix {
-    use crate::vm::VirtualMachine;
-    use crate::PyResult;
+    use crate::{PyResult, VirtualMachine};
     use std::time::Duration;
 
     #[pyfunction]
@@ -474,8 +477,7 @@ mod unix {
 #[cfg(windows)]
 #[pymodule(name = "time")]
 mod windows {
-    use crate::vm::VirtualMachine;
-    use crate::PyResult;
+    use crate::{PyResult, VirtualMachine};
     use std::time::Duration;
     use winapi::shared::{minwindef::FILETIME, ntdef::ULARGE_INTEGER};
     use winapi::um::processthreadsapi::{

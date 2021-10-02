@@ -1,10 +1,10 @@
-use crate::builtins::{PyStrRef, PyTypeRef};
-use crate::exceptions::{self, PyBaseExceptionRef};
-use crate::frame::{ExecutionResult, FrameRef};
-use crate::VirtualMachine;
-use crate::{PyObjectRef, PyResult, TypeProtocol};
-
-use crate::common::lock::PyMutex;
+use crate::{
+    builtins::{PyBaseExceptionRef, PyStrRef, PyTypeRef},
+    common::lock::PyMutex,
+    exceptions,
+    frame::{ExecutionResult, FrameRef},
+    PyObjectRef, PyResult, TypeProtocol, VirtualMachine,
+};
 use crossbeam_utils::atomic::AtomicCell;
 
 #[derive(Debug, PartialEq, Clone, Copy)]

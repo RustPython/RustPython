@@ -1,18 +1,16 @@
 /*
  * Import mechanics
  */
-use rand::Rng;
-
-use crate::builtins::code::CodeObject;
-use crate::builtins::traceback::{PyTraceback, PyTracebackRef};
-use crate::builtins::{code, list};
 #[cfg(feature = "rustpython-compiler")]
 use crate::compile;
-use crate::exceptions::PyBaseExceptionRef;
-use crate::scope::Scope;
-use crate::version::get_git_revision;
-use crate::vm::{InitParameter, VirtualMachine};
-use crate::{ItemProtocol, PyResult, PyValue, TryFromObject, TypeProtocol};
+use crate::{
+    builtins::{code, code::CodeObject, list, traceback::PyTraceback, PyBaseExceptionRef},
+    scope::Scope,
+    version::get_git_revision,
+    vm::{InitParameter, VirtualMachine},
+    ItemProtocol, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+};
+use rand::Rng;
 
 pub(crate) fn init_importlib(
     vm: &mut VirtualMachine,
@@ -91,7 +89,7 @@ pub fn import_frozen(vm: &VirtualMachine, module_name: &str) -> PyResult {
 
 pub fn import_builtin(vm: &VirtualMachine, module_name: &str) -> PyResult {
     vm.state
-        .stdlib_inits
+        .module_inits
         .get(module_name)
         .ok_or_else(|| {
             vm.new_import_error(
@@ -130,7 +128,7 @@ pub fn import_codeobj(
     if set_file_attr {
         attrs.set_item("__file__", vm.ctx.new_utf8_str(&code_obj.source_path), vm)?;
     }
-    let module = vm.new_module(module_name, attrs.clone());
+    let module = vm.new_module(module_name, attrs.clone(), None);
 
     // Store module in cache to prevent infinite loop with mutual importing libs:
     let sys_modules = vm.get_attribute(vm.sys_module.clone(), "modules")?;
@@ -146,9 +144,9 @@ pub fn import_codeobj(
 
 fn remove_importlib_frames_inner(
     vm: &VirtualMachine,
-    tb: Option<PyTracebackRef>,
+    tb: Option<PyRef<PyTraceback>>,
     always_trim: bool,
-) -> (Option<PyTracebackRef>, bool) {
+) -> (Option<PyRef<PyTraceback>>, bool) {
     let traceback = if let Some(tb) = tb {
         tb
     } else {

@@ -1,8 +1,11 @@
-use crate::builtins::{PyDictRef, PyTypeRef};
-use crate::common::lock::PyRwLock;
-use crate::common::rc::{PyRc, PyWeak};
-use crate::VirtualMachine;
-use crate::{IdProtocol, PyObjectPayload, TypeProtocol};
+use crate::common::{
+    lock::PyRwLock,
+    rc::{PyRc, PyWeak},
+};
+use crate::{
+    builtins::{PyDictRef, PyTypeRef},
+    IdProtocol, PyObjectPayload, TypeProtocol, VirtualMachine,
+};
 use std::any::TypeId;
 use std::fmt;
 use std::marker::PhantomData;

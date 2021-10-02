@@ -39,7 +39,6 @@ pub fn init_module_dict(
 
 #[derive(FromArgs)]
 struct ModuleInitArgs {
-    #[pyarg(any)]
     name: PyStrRef,
     #[pyarg(any, default)]
     doc: Option<PyStrRef>,
@@ -48,7 +47,7 @@ struct ModuleInitArgs {
 #[pyimpl(with(SlotGetattro), flags(BASETYPE, HAS_DICT))]
 impl PyModule {
     #[pyslot]
-    fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         PyModule {}.into_pyresult_with_type(vm, cls)
     }
 
@@ -57,7 +56,7 @@ impl PyModule {
         debug_assert!(crate::TypeProtocol::class(zelf.as_object())
             .slots
             .flags
-            .has_feature(crate::slots::PyTpFlags::HAS_DICT));
+            .has_feature(crate::slots::PyTypeFlags::HAS_DICT));
         init_module_dict(
             vm,
             &zelf.as_object().dict().unwrap(),

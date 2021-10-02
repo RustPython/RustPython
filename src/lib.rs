@@ -45,13 +45,14 @@ extern crate log;
 
 use clap::{App, AppSettings, Arg, ArgMatches};
 use rustpython_vm::{
-    builtins::PyInt, compile, exceptions::print_exception, match_class, scope::Scope, sysmodule,
-    InitParameter, Interpreter, ItemProtocol, PyResult, PySettings, TypeProtocol, VirtualMachine,
+    builtins::PyDictRef, builtins::PyInt, compile, exceptions::print_exception, match_class,
+    scope::Scope, stdlib::sys, InitParameter, Interpreter, ItemProtocol, PyObjectRef, PyResult,
+    PySettings, TryFromObject, TypeProtocol, VirtualMachine,
 };
 
 use std::convert::TryInto;
 use std::env;
-use std::path::PathBuf;
+use std::path::Path;
 use std::process;
 use std::str::FromStr;
 
@@ -93,6 +94,7 @@ where
     };
 
     let interp = Interpreter::new_with_init(settings, |vm| {
+        add_stdlib(vm);
         init(vm);
         init_param
     });
@@ -158,10 +160,10 @@ where
 }
 
 fn flush_std(vm: &VirtualMachine) {
-    if let Ok(stdout) = sysmodule::get_stdout(vm) {
+    if let Ok(stdout) = sys::get_stdout(vm) {
         let _ = vm.call_method(&stdout, "flush", ());
     }
-    if let Ok(stderr) = sysmodule::get_stderr(vm) {
+    if let Ok(stderr) = sys::get_stderr(vm) {
         let _ = vm.call_method(&stderr, "flush", ());
     }
 }
@@ -305,6 +307,17 @@ fn parse_arguments<'a>(app: App<'a, '_>) -> ArgMatches<'a> {
     app.get_matches()
 }
 
+fn add_stdlib(vm: &mut VirtualMachine) {
+    let _ = vm;
+    #[cfg(feature = "stdlib")]
+    {
+        let stdlib = rustpython_stdlib::get_module_inits();
+        for (name, init) in stdlib.into_iter() {
+            vm.add_native_module(name, init);
+        }
+    }
+}
+
 /// Create settings by examining command line arguments and environment
 /// variables.
 fn create_settings(matches: &ArgMatches) -> PySettings {
@@ -320,6 +333,9 @@ fn create_settings(matches: &ArgMatches) -> PySettings {
     };
     let ignore_environment = settings.ignore_environment || settings.isolated;
 
+    // when rustpython-vm/pylib is enabled, PySettings::default().path_list has pylib::LIB_PATH
+    let maybe_pylib = settings.path_list.pop();
+
     // add the current directory to sys.path
     settings.path_list.push("".to_owned());
 
@@ -329,8 +345,7 @@ fn create_settings(matches: &ArgMatches) -> PySettings {
             std::env::split_paths(paths).map(|path| path.into_os_string().into_string().unwrap()),
         )
     } else {
-        #[cfg(all(feature = "pylib", not(feature = "freeze-stdlib")))]
-        settings.path_list.push(pylib::LIB_PATH.to_owned());
+        settings.path_list.extend(maybe_pylib);
     }
 
     if !ignore_environment {
@@ -517,9 +532,9 @@ fn write_profile(matches: &ArgMatches) -> Result<(), Box<dyn std::error::Error>>
     Ok(())
 }
 
-fn run_rustpython(vm: &VirtualMachine, matches: &ArgMatches) -> PyResult<()> {
+fn setup_main_module(vm: &VirtualMachine) -> PyResult<Scope> {
     let scope = vm.new_scope_with_builtins();
-    let main_module = vm.new_module("__main__", scope.globals.clone());
+    let main_module = vm.new_module("__main__", scope.globals.clone(), None);
     main_module
         .dict()
         .and_then(|d| {
@@ -534,6 +549,12 @@ fn run_rustpython(vm: &VirtualMachine, matches: &ArgMatches) -> PyResult<()> {
 
     vm.get_attribute(vm.sys_module.clone(), "modules")?
         .set_item("__main__", main_module, vm)?;
+
+    Ok(scope)
+}
+
+fn run_rustpython(vm: &VirtualMachine, matches: &ArgMatches) -> PyResult<()> {
+    let scope = setup_main_module(vm)?;
 
     let site_result = vm.import("site", None, 0);
 
@@ -606,58 +627,91 @@ fn run_module(vm: &VirtualMachine, module: &str) -> PyResult<()> {
     Ok(())
 }
 
-fn run_script(vm: &VirtualMachine, scope: Scope, script_file: &str) -> PyResult<()> {
-    debug!("Running file {}", script_file);
-    let mut file_path = PathBuf::from(script_file);
-    let file_meta = file_path.metadata().unwrap_or_else(|e| {
-        error!("can't open file '{}': {}", file_path.display(), e);
-        process::exit(1);
-    });
-    if file_meta.is_dir() {
-        file_path.push("__main__.py");
-        if !file_path.is_file() {
-            error!("can't find '__main__' module in '{}'", file_path.display());
-            process::exit(1);
+fn get_importer(path: &str, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
+    let path_importer_cache = vm.get_attribute(vm.sys_module.clone(), "path_importer_cache")?;
+    let path_importer_cache = PyDictRef::try_from_object(vm, path_importer_cache)?;
+    if let Some(importer) = path_importer_cache.get_item_option(path, vm)? {
+        return Ok(Some(importer));
+    }
+    let path = vm.ctx.new_utf8_str(path);
+    let path_hooks = vm.get_attribute(vm.sys_module.clone(), "path_hooks")?;
+    let mut importer = None;
+    for path_hook in vm.extract_elements(&path_hooks)? {
+        match vm.invoke(&path_hook, (path.clone(),)) {
+            Ok(imp) => {
+                importer = Some(imp);
+                break;
+            }
+            Err(e) if e.isinstance(&vm.ctx.exceptions.import_error) => continue,
+            Err(e) => return Err(e),
         }
     }
+    Ok(if let Some(imp) = importer {
+        let imp = path_importer_cache.get_or_insert(vm, path, || imp.clone())?;
+        Some(imp)
+    } else {
+        None
+    })
+}
 
-    let dir = file_path.parent().unwrap().to_str().unwrap().to_owned();
+fn insert_sys_path(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<()> {
     let sys_path = vm.get_attribute(vm.sys_module.clone(), "path").unwrap();
-    vm.call_method(&sys_path, "insert", (0, dir))?;
+    vm.call_method(&sys_path, "insert", (0, obj))?;
+    Ok(())
+}
 
-    match std::fs::read_to_string(&file_path) {
+fn run_script(vm: &VirtualMachine, scope: Scope, script_file: &str) -> PyResult<()> {
+    debug!("Running file {}", script_file);
+    if get_importer(script_file, vm)?.is_some() {
+        insert_sys_path(vm, vm.ctx.new_utf8_str(script_file))?;
+        let runpy = vm.import("runpy", None, 0)?;
+        let run_module_as_main = vm.get_attribute(runpy, "_run_module_as_main")?;
+        vm.invoke(
+            &run_module_as_main,
+            (vm.ctx.new_utf8_str("__main__"), false),
+        )?;
+        return Ok(());
+    }
+    let dir = Path::new(script_file).parent().unwrap().to_str().unwrap();
+    insert_sys_path(vm, vm.ctx.new_utf8_str(dir))?;
+
+    match std::fs::read_to_string(script_file) {
         Ok(source) => {
-            _run_string(vm, scope, &source, file_path.to_str().unwrap().to_owned())?;
+            _run_string(vm, scope, &source, script_file.to_owned())?;
         }
         Err(err) => {
-            error!(
-                "Failed reading file '{}': {:?}",
-                file_path.to_str().unwrap(),
-                err.kind()
-            );
+            error!("Failed reading file '{}': {}", script_file, err);
             process::exit(1);
         }
     }
     Ok(())
 }
 
-#[test]
-fn test_run_script() {
-    Interpreter::default().enter(|vm| {
-        // test file run
-        let r = run_script(
-            vm,
-            vm.new_scope_with_builtins(),
-            "extra_tests/snippets/dir_main/__main__.py",
-        );
-        assert!(r.is_ok());
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-        // test module run
-        let r = run_script(
-            vm,
-            vm.new_scope_with_builtins(),
-            "extra_tests/snippets/dir_main",
-        );
-        assert!(r.is_ok());
-    })
+    fn interpreter() -> Interpreter {
+        Interpreter::new_with_init(PySettings::default(), |vm| {
+            add_stdlib(vm);
+            InitParameter::External
+        })
+    }
+
+    #[test]
+    fn test_run_script() {
+        interpreter().enter(|vm| {
+            vm.unwrap_pyresult((|| {
+                let scope = setup_main_module(vm)?;
+                // test file run
+                run_script(vm, scope, "extra_tests/snippets/dir_main/__main__.py")?;
+
+                let scope = setup_main_module(vm)?;
+                // test module run
+                run_script(vm, scope, "extra_tests/snippets/dir_main")?;
+
+                Ok(())
+            })());
+        })
+    }
 }

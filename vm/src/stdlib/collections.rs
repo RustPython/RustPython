@@ -9,10 +9,11 @@ mod _collections {
             PyInt, PyTypeRef,
         },
         function::{FuncArgs, KwArgs, OptionalArg},
+        protocol::PyIterReturn,
         sequence, sliceable,
         slots::{
-            Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, PyIter,
-            SlotConstructor, Unhashable,
+            Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotConstructor,
+            SlotIterator, Unhashable,
         },
         vm::ReprGuard,
         PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
@@ -73,7 +74,7 @@ mod _collections {
     #[pyimpl(flags(BASETYPE), with(Comparable, Hashable, Iterable))]
     impl PyDeque {
         #[pyslot]
-        fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             PyDeque::default().into_pyresult_with_type(vm, cls)
         }
 
@@ -609,7 +610,7 @@ mod _collections {
         }
     }
 
-    #[pyimpl(with(PyIter, SlotConstructor))]
+    #[pyimpl(with(SlotIterator, SlotConstructor))]
     impl PyDequeIterator {
         pub(crate) fn new(deque: PyDequeRef) -> Self {
             PyDequeIterator {
@@ -641,10 +642,10 @@ mod _collections {
     }
 
     impl IteratorIterable for PyDequeIterator {}
-    impl PyIter for PyDequeIterator {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+    impl SlotIterator for PyDequeIterator {
+        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             match zelf.status.load() {
-                Exhausted => Err(vm.new_stop_iteration()),
+                Exhausted => Ok(PyIterReturn::StopIteration(None)),
                 Active => {
                     if zelf.length != zelf.deque.len() {
                         // Deque was changed while we iterated.
@@ -655,10 +656,10 @@ mod _collections {
                         let deque = zelf.deque.borrow_deque();
                         if pos < deque.len() {
                             let ret = deque[pos].clone();
-                            Ok(ret)
+                            Ok(PyIterReturn::Return(ret))
                         } else {
                             zelf.status.store(Exhausted);
-                            Err(vm.new_stop_iteration())
+                            Ok(PyIterReturn::StopIteration(None))
                         }
                     }
                 }
@@ -698,7 +699,7 @@ mod _collections {
         }
     }
 
-    #[pyimpl(with(PyIter, SlotConstructor))]
+    #[pyimpl(with(SlotIterator, SlotConstructor))]
     impl PyReverseDequeIterator {
         #[pymethod(magic)]
         fn length_hint(&self) -> usize {
@@ -721,10 +722,10 @@ mod _collections {
     }
 
     impl IteratorIterable for PyReverseDequeIterator {}
-    impl PyIter for PyReverseDequeIterator {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+    impl SlotIterator for PyReverseDequeIterator {
+        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             match zelf.status.load() {
-                Exhausted => Err(vm.new_stop_iteration()),
+                Exhausted => Ok(PyIterReturn::StopIteration(None)),
                 Active => {
                     // If length changes while we iterate, set to Exhausted and bail.
                     if zelf.length != zelf.deque.len() {
@@ -735,7 +736,7 @@ mod _collections {
                         let deque = zelf.deque.borrow_deque();
                         if pos > 0 {
                             if let Some(obj) = deque.get(pos) {
-                                return Ok(obj.clone());
+                                return Ok(PyIterReturn::Return(obj.clone()));
                             }
                         }
                         // We either are == 0 or deque.get returned None. Either way, set status
@@ -743,9 +744,9 @@ mod _collections {
                         zelf.status.store(Exhausted);
                         if pos == 0 {
                             // Can safely index directly.
-                            return Ok(deque[pos].clone());
+                            return Ok(PyIterReturn::Return(deque[pos].clone()));
                         }
-                        Err(vm.new_stop_iteration())
+                        Ok(PyIterReturn::StopIteration(None))
                     }
                 }
             }

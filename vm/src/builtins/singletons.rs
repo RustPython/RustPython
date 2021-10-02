@@ -1,13 +1,12 @@
 use super::PyTypeRef;
 use crate::{
-    slots::SlotConstructor, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
-    PyValue, TypeProtocol, VirtualMachine,
+    slots::SlotConstructor, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue,
+    TypeProtocol, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "NoneType")]
 #[derive(Debug)]
 pub struct PyNone;
-pub type PyNoneRef = PyRef<PyNone>;
 
 impl PyValue for PyNone {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
@@ -56,7 +55,6 @@ impl PyNone {
 #[pyclass(module = false, name = "NotImplementedType")]
 #[derive(Debug)]
 pub struct PyNotImplemented;
-pub type PyNotImplementedRef = PyRef<PyNotImplemented>;
 
 impl PyValue for PyNotImplemented {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {

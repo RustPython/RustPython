@@ -8,9 +8,12 @@ use crate::common::lock::{
 };
 use crate::{
     function::{ArgIterable, FuncArgs, OptionalArg},
+    protocol::PyIterReturn,
     sequence::{self, SimpleSeq},
     sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
-    slots::{Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, PyIter, Unhashable},
+    slots::{
+        Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotIterator, Unhashable,
+    },
     utils::Either,
     vm::{ReprGuard, VirtualMachine},
     PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
@@ -392,7 +395,7 @@ impl PyList {
     }
 
     #[pyslot]
-    fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         PyList::default().into_pyresult_with_type(vm, cls)
     }
 
@@ -484,7 +487,7 @@ impl PyValue for PyListIterator {
     }
 }
 
-#[pyimpl(with(PyIter))]
+#[pyimpl(with(SlotIterator))]
 impl PyListIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
@@ -521,18 +524,18 @@ impl PyListIterator {
 }
 
 impl IteratorIterable for PyListIterator {}
-impl PyIter for PyListIterator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+impl SlotIterator for PyListIterator {
+    fn next(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         if let Exhausted = zelf.status.load() {
-            return Err(vm.new_stop_iteration());
+            return Ok(PyIterReturn::StopIteration(None));
         }
         let list = zelf.list.borrow_vec();
         let pos = zelf.position.fetch_add(1);
         if let Some(obj) = list.get(pos) {
-            Ok(obj.clone())
+            Ok(PyIterReturn::Return(obj.clone()))
         } else {
             zelf.status.store(Exhausted);
-            Err(vm.new_stop_iteration())
+            Ok(PyIterReturn::StopIteration(None))
         }
     }
 }
@@ -551,7 +554,7 @@ impl PyValue for PyListReverseIterator {
     }
 }
 
-#[pyimpl(with(PyIter))]
+#[pyimpl(with(SlotIterator))]
 impl PyListReverseIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
@@ -595,16 +598,16 @@ impl PyListReverseIterator {
 }
 
 impl IteratorIterable for PyListReverseIterator {}
-impl PyIter for PyListReverseIterator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+impl SlotIterator for PyListReverseIterator {
+    fn next(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         if let Exhausted = zelf.status.load() {
-            return Err(vm.new_stop_iteration());
+            return Ok(PyIterReturn::StopIteration(None));
         }
         let list = zelf.list.borrow_vec();
         let pos = zelf.position.fetch_sub(1);
         if pos > 0 {
             if let Some(obj) = list.get(pos) {
-                return Ok(obj.clone());
+                return Ok(PyIterReturn::Return(obj.clone()));
             }
         }
         // We either are == 0 or list.get returned None. Either way, set status
@@ -612,10 +615,10 @@ impl PyIter for PyListReverseIterator {
         zelf.status.store(Exhausted);
         if pos == 0 {
             if let Some(obj) = list.get(pos) {
-                return Ok(obj.clone());
+                return Ok(PyIterReturn::Return(obj.clone()));
             }
         }
-        Err(vm.new_stop_iteration())
+        Ok(PyIterReturn::StopIteration(None))
     }
 }
 
