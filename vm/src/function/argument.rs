@@ -1,8 +1,7 @@
 use super::IntoFuncArgs;
 use crate::{
-    builtins::iter::PySequenceIterator,
-    protocol::{PyIter, PyIterReturn},
-    PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
+    builtins::iter::PySequenceIterator, protocol::PyIter, protocol::PyIterIter, PyObjectRef,
+    PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
 };
 use std::marker::PhantomData;
 
@@ -51,7 +50,7 @@ impl<T> ArgIterable<T> {
     ///
     /// This operation may fail if an exception is raised while invoking the
     /// `__iter__` method of the iterable object.
-    pub fn iter<'a>(&self, vm: &'a VirtualMachine) -> PyResult<PyIterator<'a, T>> {
+    pub fn iter<'a>(&self, vm: &'a VirtualMachine) -> PyResult<PyIterIter<'a, T>> {
         let iter_obj = match self.iterfn {
             Some(f) => f(self.iterable.clone(), vm)?,
             None => PySequenceIterator::new(self.iterable.clone()).into_object(vm),
@@ -59,12 +58,7 @@ impl<T> ArgIterable<T> {
 
         let length_hint = vm.length_hint(iter_obj.clone())?;
 
-        Ok(PyIterator {
-            vm,
-            obj: PyIter::new(iter_obj),
-            length_hint,
-            _item: PhantomData,
-        })
+        Ok(PyIterIter::new(vm, PyIter::new(iter_obj), length_hint))
     }
 }
 
@@ -86,34 +80,5 @@ where
             iterfn,
             _item: PhantomData,
         })
-    }
-}
-
-pub struct PyIterator<'a, T> {
-    vm: &'a VirtualMachine,
-    obj: PyIter,
-    length_hint: Option<usize>,
-    _item: PhantomData<T>,
-}
-
-impl<'a, T> Iterator for PyIterator<'a, T>
-where
-    T: TryFromObject,
-{
-    type Item = PyResult<T>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.obj
-            .next(self.vm)
-            .map(|iret| match iret {
-                PyIterReturn::Return(obj) => Some(obj),
-                PyIterReturn::StopIteration(_) => None,
-            })
-            .transpose()
-            .map(|x| x.and_then(|obj| T::try_from_object(self.vm, obj)))
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.length_hint.unwrap_or(0), self.length_hint)
     }
 }

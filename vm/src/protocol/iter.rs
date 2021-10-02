@@ -176,3 +176,44 @@ impl IntoPyResult for PyResult<PyIterReturn> {
         self.and_then(|obj| obj.into_pyresult(vm))
     }
 }
+
+// Typical rust `Iter` object for `PyIter`
+pub struct PyIterIter<'a, T> {
+    vm: &'a VirtualMachine,
+    obj: PyIter,
+    length_hint: Option<usize>,
+    _phantom: std::marker::PhantomData<T>,
+}
+
+impl<'a, T> PyIterIter<'a, T> {
+    pub fn new(vm: &'a VirtualMachine, obj: PyIter, length_hint: Option<usize>) -> Self {
+        Self {
+            vm,
+            obj,
+            length_hint,
+            _phantom: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<'a, T> Iterator for PyIterIter<'a, T>
+where
+    T: TryFromObject,
+{
+    type Item = PyResult<T>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.obj
+            .next(self.vm)
+            .map(|iret| match iret {
+                PyIterReturn::Return(obj) => Some(obj),
+                PyIterReturn::StopIteration(_) => None,
+            })
+            .transpose()
+            .map(|x| x.and_then(|obj| T::try_from_object(self.vm, obj)))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.length_hint.unwrap_or(0), self.length_hint)
+    }
+}

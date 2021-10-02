@@ -23,7 +23,3 @@ where
     results.shrink_to_fit();
     Ok(results)
 }
-
-// pub fn seq_iter_method(obj: PyObjectRef) -> PySequenceIterator {
-//     PySequenceIterator::new_forward(obj)
-// }
