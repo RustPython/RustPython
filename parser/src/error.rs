@@ -196,7 +196,7 @@ impl fmt::Display for ParseErrorType {
                 } else if expected.as_deref() == Some("Indent") {
                     write!(f, "expected an indented block")
                 } else {
-                    write!(f, "Got unexpected token {}", tok)
+                    write!(f, "invalid syntax. Got unexpected token {}", tok)
                 }
             }
             ParseErrorType::Lexical(ref error) => write!(f, "{}", error),
