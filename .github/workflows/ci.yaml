@@ -62,15 +62,26 @@ jobs:
         if: runner.os == 'macOS'
 
   exotic_targets:
-    name: Ensure compilation on exotic targets
+    name: Ensure compilation on various targets
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
+
+      - uses: actions-rs/toolchain@v1
+        with:
+          target: i686-unknown-linux-gnu
+
+      - name: Install gcc-multilib
+        run: sudo apt-get install gcc-multilib
+      - name: Check compilation for x86 32bit
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: --target i686-unknown-linux-gnu
+
       - uses: actions-rs/toolchain@v1
         with:
           target: aarch64-linux-android
-
-      - uses: Swatinem/rust-cache@v1
 
       - name: Check compilation for android
         uses: actions-rs/cargo@v1

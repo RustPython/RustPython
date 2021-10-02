@@ -6,15 +6,15 @@ use std::{cell, fmt, future};
 use wasm_bindgen::{closure::Closure, prelude::*, JsCast};
 use wasm_bindgen_futures::{future_to_promise, JsFuture};
 
-use rustpython_vm::builtins::{PyFloatRef, PyStrRef, PyTypeRef};
-use rustpython_vm::exceptions::PyBaseExceptionRef;
-use rustpython_vm::function::{OptionalArg, OptionalOption, PosArgs};
-use rustpython_vm::slots::{IteratorIterable, PyIter};
-use rustpython_vm::types::create_simple_type;
-use rustpython_vm::VirtualMachine;
 use rustpython_vm::{
-    function::ArgCallable, IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject,
+    builtins::{PyBaseExceptionRef, PyFloatRef, PyStrRef, PyTypeRef},
+    function::ArgCallable,
+    function::{OptionalArg, OptionalOption, PosArgs},
+    protocol::PyIterReturn,
+    slots::{IteratorIterable, SlotIterator},
+    types::create_simple_type,
+    IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    VirtualMachine,
 };
 
 #[wasm_bindgen(inline_js = "
@@ -549,7 +549,7 @@ impl fmt::Debug for AwaitPromise {
     }
 }
 
-#[pyimpl(with(PyIter))]
+#[pyimpl(with(SlotIterator))]
 impl AwaitPromise {
     #[pymethod]
     fn send(&self, val: Option<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
@@ -588,9 +588,9 @@ impl AwaitPromise {
 }
 
 impl IteratorIterable for AwaitPromise {}
-impl PyIter for AwaitPromise {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        zelf.send(None, vm)
+impl SlotIterator for AwaitPromise {
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        PyIterReturn::from_result(zelf.send(None, vm), vm)
     }
 }
 

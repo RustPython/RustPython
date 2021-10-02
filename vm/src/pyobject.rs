@@ -1,3 +1,29 @@
+use crate::common::{
+    lock::{PyRwLock, PyRwLockReadGuard},
+    rc::PyRc,
+    static_cell,
+};
+pub use crate::pyobjectrc::{PyObject, PyObjectRef, PyObjectWeak, PyRef, PyWeakRef};
+use crate::{
+    builtins::PyBaseExceptionRef,
+    builtins::{
+        builtinfunc::PyNativeFuncDef,
+        bytearray, bytes,
+        code::{self, PyCode},
+        getset::{IntoPyGetterFunc, IntoPySetterFunc, PyGetSet},
+        namespace::PyNamespace,
+        object, pystr,
+        set::{self, PyFrozenSet},
+        PyBoundMethod, PyComplex, PyDict, PyDictRef, PyEllipsis, PyFloat, PyInt, PyIntRef, PyList,
+        PyNone, PyNotImplemented, PyStaticMethod, PyTuple, PyTupleRef, PyType, PyTypeRef,
+    },
+    dictdatatype::Dict,
+    exceptions,
+    function::{IntoFuncArgs, IntoPyNativeFunc},
+    slots::{PyTypeFlags, PyTypeSlots},
+    types::{create_type_with_slots, TypeZoo},
+    VirtualMachine,
+};
 use num_bigint::BigInt;
 use num_complex::Complex64;
 use num_traits::ToPrimitive;
@@ -5,39 +31,6 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::fmt;
 use std::ops::Deref;
-
-use crate::builtins::builtinfunc::PyNativeFuncDef;
-use crate::builtins::bytearray;
-use crate::builtins::bytes;
-use crate::builtins::code;
-use crate::builtins::code::PyCodeRef;
-use crate::builtins::complex::PyComplex;
-use crate::builtins::dict::{PyDict, PyDictRef};
-use crate::builtins::float::PyFloat;
-use crate::builtins::function::PyBoundMethod;
-use crate::builtins::getset::{IntoPyGetterFunc, IntoPySetterFunc, PyGetSet};
-use crate::builtins::int::{PyInt, PyIntRef};
-use crate::builtins::list::PyList;
-use crate::builtins::namespace::PyNamespace;
-use crate::builtins::object;
-use crate::builtins::pystr;
-use crate::builtins::pytype::{PyType, PyTypeRef};
-use crate::builtins::set::{self, PyFrozenSet};
-use crate::builtins::singletons::{PyNone, PyNoneRef, PyNotImplemented, PyNotImplementedRef};
-use crate::builtins::slice::PyEllipsis;
-use crate::builtins::staticmethod::PyStaticMethod;
-use crate::builtins::tuple::{PyTuple, PyTupleRef};
-use crate::common::lock::{PyRwLock, PyRwLockReadGuard};
-use crate::common::rc::PyRc;
-use crate::common::static_cell;
-use crate::dictdatatype::Dict;
-use crate::exceptions::{self, PyBaseExceptionRef};
-use crate::function::{IntoFuncArgs, IntoPyNativeFunc};
-pub use crate::pyobjectrc::{PyObject, PyObjectRef, PyObjectWeak, PyRef, PyWeakRef};
-use crate::slots::{PyTpFlags, PyTypeSlots};
-use crate::types::{create_type_with_slots, TypeZoo};
-use crate::vm::VirtualMachine;
-
 /* Python objects and references.
 
 Okay, so each python object itself is an class itself (PyObject). Each
@@ -73,18 +66,18 @@ impl fmt::Display for PyObjectRef {
 pub struct PyContext {
     pub true_value: PyIntRef,
     pub false_value: PyIntRef,
-    pub none: PyNoneRef,
+    pub none: PyRef<PyNone>,
     pub empty_tuple: PyTupleRef,
     pub empty_frozenset: PyRef<PyFrozenSet>,
     pub ellipsis: PyRef<PyEllipsis>,
-    pub not_implemented: PyNotImplementedRef,
+    pub not_implemented: PyRef<PyNotImplemented>,
 
     pub types: TypeZoo,
     pub exceptions: exceptions::ExceptionZoo,
     pub int_cache_pool: Vec<PyIntRef>,
     // there should only be exact objects of str in here, no non-strs and no subclasses
     pub(crate) string_cache: Dict<()>,
-    tp_new_wrapper: PyObjectRef,
+    slot_new_wrapper: PyObjectRef,
 }
 
 // Basic objects:
@@ -113,7 +106,7 @@ impl PyContext {
         let false_value = create_object(PyInt::from(0), &types.bool_type);
 
         let empty_tuple = create_object(
-            PyTuple::_new(Vec::new().into_boxed_slice()),
+            PyTuple::new_unchecked(Vec::new().into_boxed_slice()),
             &types.tuple_type,
         );
         let empty_frozenset =
@@ -122,7 +115,7 @@ impl PyContext {
         let string_cache = Dict::default();
 
         let new_str = PyRef::new_ref(pystr::PyStr::from("__new__"), types.str_type.clone(), None);
-        let tp_new_wrapper = create_object(
+        let slot_new_wrapper = create_object(
             PyNativeFuncDef::new(PyType::__new__.into_func(), new_str).into_function(),
             &types.builtin_function_or_method_type,
         )
@@ -141,7 +134,7 @@ impl PyContext {
             exceptions,
             int_cache_pool,
             string_cache,
-            tp_new_wrapper,
+            slot_new_wrapper,
         };
         TypeZoo::extend(&context);
         exceptions::ExceptionZoo::extend(&context);
@@ -366,11 +359,11 @@ impl PyContext {
         )
     }
 
-    /// Create a new `PyCodeRef` from a `code::CodeObject`. If you have a non-mapped codeobject or
+    /// Create a new `PyRef<PyCode>` from a `code::CodeObject`. If you have a non-mapped codeobject or
     /// this is giving you a type error even though you've passed a `CodeObject`, try
     /// [`vm.new_code_object()`](VirtualMachine::new_code_object) instead.
-    pub fn new_code_object(&self, code: code::CodeObject) -> PyCodeRef {
-        PyRef::new_ref(code::PyCode::new(code), self.types.code_type.clone(), None)
+    pub fn new_code_object(&self, code: code::CodeObject) -> PyRef<PyCode> {
+        PyRef::new_ref(PyCode::new(code), self.types.code_type.clone(), None)
     }
 
     pub fn new_bound_method(&self, function: PyObjectRef, object: PyObjectRef) -> PyObjectRef {
@@ -866,7 +859,7 @@ pub trait PyValue: fmt::Debug + PyThreadingConstraint + Sized + 'static {
     }
 
     fn _into_ref(self, cls: PyTypeRef, vm: &VirtualMachine) -> PyRef<Self> {
-        let dict = if cls.slots.flags.has_feature(PyTpFlags::HAS_DICT) {
+        let dict = if cls.slots.flags.has_feature(PyTypeFlags::HAS_DICT) {
             Some(vm.ctx.new_dict())
         } else {
             None
@@ -962,7 +955,7 @@ where
 }
 
 pub trait PyClassImpl: PyClassDef {
-    const TP_FLAGS: PyTpFlags = PyTpFlags::DEFAULT;
+    const TP_FLAGS: PyTypeFlags = PyTypeFlags::DEFAULT;
 
     fn impl_extend_class(ctx: &PyContext, class: &PyTypeRef);
 
@@ -971,7 +964,7 @@ pub trait PyClassImpl: PyClassDef {
         {
             assert!(class.slots.flags.is_created_with_flags());
         }
-        if Self::TP_FLAGS.has_feature(PyTpFlags::HAS_DICT) {
+        if Self::TP_FLAGS.has_feature(PyTypeFlags::HAS_DICT) {
             class.set_str_attr(
                 "__dict__",
                 ctx.new_getset(
@@ -991,7 +984,7 @@ pub trait PyClassImpl: PyClassDef {
         }
         if class.slots.new.load().is_some() {
             let bound =
-                ctx.new_bound_method(ctx.tp_new_wrapper.clone(), class.clone().into_object());
+                ctx.new_bound_method(ctx.slot_new_wrapper.clone(), class.clone().into_object());
             class.set_str_attr("__new__", bound);
         }
     }
@@ -1087,9 +1080,9 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
     }
 }
 
-result_like::option_like!(pub PyArithmaticValue, Implemented, NotImplemented);
+result_like::option_like!(pub PyArithmeticValue, Implemented, NotImplemented);
 
-impl PyArithmaticValue<PyObjectRef> {
+impl PyArithmeticValue<PyObjectRef> {
     pub fn from_object(vm: &VirtualMachine, obj: PyObjectRef) -> Self {
         if obj.is(&vm.ctx.not_implemented) {
             Self::NotImplemented
@@ -1099,27 +1092,27 @@ impl PyArithmaticValue<PyObjectRef> {
     }
 }
 
-impl<T: TryFromObject> TryFromObject for PyArithmaticValue<T> {
+impl<T: TryFromObject> TryFromObject for PyArithmeticValue<T> {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        PyArithmaticValue::from_object(vm, obj)
+        PyArithmeticValue::from_object(vm, obj)
             .map(|x| T::try_from_object(vm, x))
             .transpose()
     }
 }
 
-impl<T> IntoPyObject for PyArithmaticValue<T>
+impl<T> IntoPyObject for PyArithmeticValue<T>
 where
     T: IntoPyObject,
 {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         match self {
-            PyArithmaticValue::Implemented(v) => v.into_pyobject(vm),
-            PyArithmaticValue::NotImplemented => vm.ctx.not_implemented(),
+            PyArithmeticValue::Implemented(v) => v.into_pyobject(vm),
+            PyArithmeticValue::NotImplemented => vm.ctx.not_implemented(),
         }
     }
 }
 
-pub type PyComparisonValue = PyArithmaticValue<bool>;
+pub type PyComparisonValue = PyArithmeticValue<bool>;
 
 #[derive(Clone)]
 pub struct PySequence<T = PyObjectRef>(Vec<T>);
@@ -1161,7 +1154,7 @@ impl PyMethod {
         let cls_attr = match cls.get_attr(name.as_str()) {
             Some(descr) => {
                 let descr_cls = descr.class();
-                let descr_get = if descr_cls.slots.flags.has_feature(PyTpFlags::METHOD_DESCR) {
+                let descr_get = if descr_cls.slots.flags.has_feature(PyTypeFlags::METHOD_DESCR) {
                     is_method = true;
                     None
                 } else {
@@ -1234,7 +1227,7 @@ impl PyMethod {
             .class()
             .slots
             .flags
-            .has_feature(PyTpFlags::METHOD_DESCR)
+            .has_feature(PyTypeFlags::METHOD_DESCR)
         {
             drop(obj_cls);
             Self::Function { target: obj, func }

@@ -2,7 +2,7 @@ use super::{PyDict, PyDictRef, PyList, PyStr, PyStrRef, PyType, PyTypeRef};
 use crate::common::hash::PyHash;
 use crate::{
     function::FuncArgs, slots::PyComparisonOp, utils::Either, IdProtocol, ItemProtocol,
-    PyArithmaticValue, PyAttributes, PyClassImpl, PyComparisonValue, PyContext, PyObject,
+    PyArithmeticValue, PyAttributes, PyClassImpl, PyComparisonValue, PyContext, PyObject,
     PyObjectRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
 
@@ -27,7 +27,7 @@ impl PyValue for PyBaseObject {
 impl PyBaseObject {
     /// Create and return a new object.  See help(type) for accurate signature.
     #[pyslot]
-    fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         // more or less __new__ operator
         let dict = if cls.is(&vm.ctx.types.object_type) {
             None
@@ -38,7 +38,7 @@ impl PyBaseObject {
     }
 
     #[pyslot]
-    fn tp_richcompare(
+    fn slot_richcompare(
         zelf: &PyObjectRef,
         other: &PyObjectRef,
         op: PyComparisonOp,
@@ -68,7 +68,7 @@ impl PyBaseObject {
                     .mro_find_map(|cls| cls.slots.richcompare.load())
                     .unwrap();
                 let value = match cmp(zelf, other, PyComparisonOp::Eq, vm)? {
-                    Either::A(obj) => PyArithmaticValue::from_object(vm, obj)
+                    Either::A(obj) => PyArithmeticValue::from_object(vm, obj)
                         .map(|obj| obj.try_to_bool(vm))
                         .transpose()?,
                     Either::B(value) => value,
@@ -158,7 +158,7 @@ impl PyBaseObject {
     }
 
     #[pyslot]
-    fn tp_setattro(
+    fn slot_setattro(
         obj: &PyObjectRef,
         attr_name: PyStrRef,
         value: Option<PyObjectRef>,
@@ -194,7 +194,7 @@ impl PyBaseObject {
             )),
             _ => Some(format!(
                 "<{} object at {:#x}>",
-                class.tp_name(),
+                class.slot_name(),
                 zelf.get_id()
             )),
         }
@@ -294,14 +294,14 @@ impl PyBaseObject {
     }
 
     #[pyslot]
-    fn tp_hash(zelf: &PyObjectRef, _vm: &VirtualMachine) -> PyResult<PyHash> {
+    fn slot_hash(zelf: &PyObjectRef, _vm: &VirtualMachine) -> PyResult<PyHash> {
         Ok(zelf.get_id() as _)
     }
 
     /// Return hash(self).
     #[pymethod(magic)]
     fn hash(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyHash> {
-        Self::tp_hash(&zelf, vm)
+        Self::slot_hash(&zelf, vm)
     }
 }
 

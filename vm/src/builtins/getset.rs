@@ -358,7 +358,7 @@ impl PyGetSet {
 
     #[pyproperty(magic)]
     fn qualname(&self) -> String {
-        format!("{}.{}", self.class.tp_name(), self.name.clone())
+        format!("{}.{}", self.class.slot_name(), self.name.clone())
     }
 }
 

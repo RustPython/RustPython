@@ -11,3 +11,7 @@ pub mod lock;
 pub mod rc;
 pub mod static_cell;
 pub mod str;
+
+pub mod vendored {
+    pub use ascii;
+}

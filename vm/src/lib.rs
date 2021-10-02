@@ -40,12 +40,11 @@ pub use rustpython_derive::*;
 
 // This is above everything else so that the defined macros are available everywhere
 #[macro_use]
-pub mod macros;
+pub(crate) mod macros;
 
 mod anystr;
 pub mod builtins;
 mod bytesinner;
-pub mod byteslike;
 pub mod cformat;
 mod codecs;
 mod coroutine;
@@ -61,7 +60,7 @@ mod frozen;
 pub mod function;
 pub mod import;
 pub mod iterator;
-mod protocol;
+pub mod protocol;
 pub mod py_io;
 pub mod py_serde;
 mod pyobject;
@@ -69,13 +68,13 @@ mod pyobjectrc;
 pub mod readline;
 pub mod scope;
 mod sequence;
-mod sliceable;
+mod signal;
+pub mod sliceable;
 pub mod slots;
 pub mod stdlib;
-pub mod sysmodule;
 pub mod types;
 pub mod utils;
-mod version;
+pub mod version;
 mod vm;
 
 // pub use self::Executor;

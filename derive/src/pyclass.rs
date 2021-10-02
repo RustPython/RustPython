@@ -70,7 +70,7 @@ pub(crate) fn impl_pyimpl(
             quote! {
                 #imp
                 impl ::rustpython_vm::PyClassImpl for #ty {
-                    const TP_FLAGS: ::rustpython_vm::slots::PyTpFlags = ::rustpython_vm::slots::PyTpFlags::from_bits_truncate(#flags);
+                    const TP_FLAGS: ::rustpython_vm::slots::PyTypeFlags = ::rustpython_vm::slots::PyTypeFlags::from_bits_truncate(#flags);
 
                     fn impl_extend_class(
                         ctx: &::rustpython_vm::PyContext,
@@ -300,16 +300,16 @@ pub(crate) fn impl_define_exception(
         base_class,
         ctx_name,
         docs,
-        tp_new,
+        slot_new,
         init,
     } = exc_def;
 
     // We need this method, because of how `CPython` copies `__new__`
     // from `BaseException` in `SimpleExtendsException` macro.
     // See: `BaseException_new`
-    let tp_new_slot = match tp_new {
-        Some(tp_call) => quote! { #tp_call(cls, args, vm) },
-        None => quote! { #base_class::tp_new(cls, args, vm) },
+    let slot_new_impl = match slot_new {
+        Some(slot_call) => quote! { #slot_call(cls, args, vm) },
+        None => quote! { #base_class::slot_new(cls, args, vm) },
     };
 
     // We need this method, because of how `CPython` copies `__init__`
@@ -324,11 +324,11 @@ pub(crate) fn impl_define_exception(
         #[pyexception(#class_name, #base_class)]
         #[derive(Debug)]
         #[doc = #docs]
-        struct #class_name {}
+        pub struct #class_name {}
 
         // We need this to make extend mechanism work:
-        impl PyValue for #class_name {
-            fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        impl ::rustpython_vm::PyValue for #class_name {
+            fn class(vm: &::rustpython_vm::VirtualMachine) -> &::rustpython_vm::builtins::PyTypeRef {
                 &vm.ctx.exceptions.#ctx_name
             }
         }
@@ -336,20 +336,20 @@ pub(crate) fn impl_define_exception(
         #[pyimpl(flags(BASETYPE, HAS_DICT))]
         impl #class_name {
             #[pyslot]
-            pub(crate) fn tp_new(
-                cls: PyTypeRef,
-                args: FuncArgs,
-                vm: &VirtualMachine,
-            ) -> PyResult {
-                #tp_new_slot
+            pub(crate) fn slot_new(
+                cls: ::rustpython_vm::builtins::PyTypeRef,
+                args: ::rustpython_vm::function::FuncArgs,
+                vm: &::rustpython_vm::VirtualMachine,
+            ) -> ::rustpython_vm::PyResult {
+                #slot_new_impl
             }
 
             #[pymethod(magic)]
             pub(crate) fn init(
-                zelf: PyRef<PyBaseException>,
-                args: FuncArgs,
-                vm: &VirtualMachine,
-            ) -> PyResult<()> {
+                zelf: ::rustpython_vm::PyRef<::rustpython_vm::builtins::PyBaseException>,
+                args: ::rustpython_vm::function::FuncArgs,
+                vm: &::rustpython_vm::VirtualMachine,
+            ) -> ::rustpython_vm::PyResult<()> {
                 #init_method
             }
         }
@@ -849,7 +849,7 @@ impl SlotItemMeta {
             }
         } else {
             let ident_str = self.inner().item_name();
-            let name = if let Some(stripped) = ident_str.strip_prefix("tp_") {
+            let name = if let Some(stripped) = ident_str.strip_prefix("slot_") {
                 proc_macro2::Ident::new(stripped, inner.item_ident.span())
             } else {
                 inner.item_ident.clone()
@@ -877,11 +877,11 @@ fn extract_impl_attrs(
 ) -> std::result::Result<ExtractedImplAttrs, Diagnostic> {
     let mut withs = Vec::new();
     let mut with_slots = Vec::new();
-    let mut flags = vec![quote! { ::rustpython_vm::slots::PyTpFlags::DEFAULT.bits() }];
+    let mut flags = vec![quote! { ::rustpython_vm::slots::PyTypeFlags::DEFAULT.bits() }];
     #[cfg(debug_assertions)]
     {
         flags.push(quote! {
-            | ::rustpython_vm::slots::PyTpFlags::_CREATED_WITH_FLAGS.bits()
+            | ::rustpython_vm::slots::PyTypeFlags::_CREATED_WITH_FLAGS.bits()
         });
     }
 
@@ -919,7 +919,7 @@ fn extract_impl_attrs(
                             NestedMeta::Meta(Meta::Path(path)) => {
                                 if let Some(ident) = path.get_ident() {
                                     flags.push(quote_spanned! { ident.span() =>
-                                        | ::rustpython_vm::slots::PyTpFlags::#ident.bits()
+                                        | ::rustpython_vm::slots::PyTypeFlags::#ident.bits()
                                     });
                                 } else {
                                     bail_span!(
@@ -1048,8 +1048,8 @@ pub(crate) struct PyExceptionDef {
     pub ctx_name: Ident,
     pub docs: LitStr,
 
-    /// Holds optional `tp_new` slot to be used instead of a default one:
-    pub tp_new: Option<Ident>,
+    /// Holds optional `slot_new` slot to be used instead of a default one:
+    pub slot_new: Option<Ident>,
     /// We also store `__init__` magic method, that can
     pub init: Option<Ident>,
 }
@@ -1068,7 +1068,7 @@ impl Parse for PyExceptionDef {
         let docs: LitStr = input.parse()?;
         input.parse::<Option<Token![,]>>()?;
 
-        let tp_new: Option<Ident> = input.parse()?;
+        let slot_new: Option<Ident> = input.parse()?;
         input.parse::<Option<Token![,]>>()?;
 
         let init: Option<Ident> = input.parse()?;
@@ -1079,7 +1079,7 @@ impl Parse for PyExceptionDef {
             base_class,
             ctx_name,
             docs,
-            tp_new,
+            slot_new,
             init,
         })
     }

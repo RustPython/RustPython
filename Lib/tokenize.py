@@ -24,7 +24,10 @@ __author__ = 'Ka-Ping Yee <ping@lfw.org>'
 __credits__ = ('GvR, ESR, Tim Peters, Thomas Wouters, Fred Drake, '
                'Skip Montanaro, Raymond Hettinger, Trent Nelson, '
                'Michael Foord')
-from builtins import open as _builtin_open
+try:
+    from builtins import open as _builtin_open
+except ImportError:
+    pass
 from codecs import lookup, BOM_UTF8
 import collections
 from io import TextIOWrapper

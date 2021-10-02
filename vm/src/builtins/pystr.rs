@@ -8,9 +8,11 @@ use crate::{
     exceptions::IntoPyException,
     format::{FormatSpec, FormatString, FromTemplate},
     function::{ArgIterable, FuncArgs, OptionalArg, OptionalOption},
+    protocol::PyIterReturn,
     sliceable::PySliceableSequence,
     slots::{
-        Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, PyIter, SlotConstructor,
+        Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotConstructor,
+        SlotIterator,
     },
     utils::Either,
     IdProtocol, IntoPyObject, ItemProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext,
@@ -20,8 +22,11 @@ use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
 use num_traits::ToPrimitive;
-use rustpython_common::atomic::{self, PyAtomic, Radium};
-use rustpython_common::hash;
+use rustpython_common::{
+    ascii,
+    atomic::{self, PyAtomic, Radium},
+    hash,
+};
 use std::mem::size_of;
 use std::ops::Range;
 use std::string::ToString;
@@ -176,7 +181,7 @@ impl PyValue for PyStrIterator {
     }
 }
 
-#[pyimpl(with(PyIter))]
+#[pyimpl(with(SlotIterator))]
 impl PyStrIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
@@ -212,8 +217,7 @@ impl PyStrIterator {
         Ok(vm.ctx.new_tuple(match self.status.load() {
             Exhausted => vec![
                 iter,
-                vm.ctx
-                    .new_tuple(vec![vm.ctx.new_ascii_literal(crate::utils::ascii!(""))]),
+                vm.ctx.new_tuple(vec![vm.ctx.new_ascii_literal(ascii!(""))]),
             ],
             Active => vec![
                 iter,
@@ -226,22 +230,25 @@ impl PyStrIterator {
 }
 
 impl IteratorIterable for PyStrIterator {}
-impl PyIter for PyStrIterator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+impl SlotIterator for PyStrIterator {
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         if let Exhausted = zelf.status.load() {
-            return Err(vm.new_stop_iteration());
+            return Ok(PyIterReturn::StopIteration(None));
         }
         let value = &*zelf.string.as_str();
         let mut start = zelf.position.load(atomic::Ordering::SeqCst);
         loop {
             if start == value.len() {
                 zelf.status.store(Exhausted);
-                return Err(vm.new_stop_iteration());
+                return Ok(PyIterReturn::StopIteration(None));
             }
-            let ch = value[start..].chars().next().ok_or_else(|| {
-                zelf.status.store(Exhausted);
-                vm.new_stop_iteration()
-            })?;
+            let ch = match value[start..].chars().next() {
+                Some(ch) => ch,
+                None => {
+                    zelf.status.store(Exhausted);
+                    return Ok(PyIterReturn::StopIteration(None));
+                }
+            };
 
             match zelf.position.compare_exchange_weak(
                 start,
@@ -249,7 +256,7 @@ impl PyIter for PyStrIterator {
                 atomic::Ordering::Release,
                 atomic::Ordering::Relaxed,
             ) {
-                Ok(_) => break Ok(ch.into_pyobject(vm)),
+                Ok(_) => break Ok(PyIterReturn::Return(ch.into_pyobject(vm))),
                 Err(cur) => start = cur,
             }
         }
@@ -474,7 +481,7 @@ impl PyStr {
     }
 
     #[pymethod(magic)]
-    pub(crate) fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
+    pub fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
         let in_len = self.byte_len();
         let mut out_len = 0usize;
         // let mut max = 127;
@@ -979,7 +986,7 @@ impl PyStr {
             if has_mid {
                 sep.into_object()
             } else {
-                vm.ctx.new_ascii_literal(crate::utils::ascii!(""))
+                vm.ctx.new_ascii_literal(ascii!(""))
             },
             self.new_substr(back),
         )
@@ -998,7 +1005,7 @@ impl PyStr {
             if has_mid {
                 sep.into_object()
             } else {
-                vm.ctx.new_ascii_literal(crate::utils::ascii!(""))
+                vm.ctx.new_ascii_literal(ascii!(""))
             },
             self.new_substr(back),
         )
@@ -1544,11 +1551,7 @@ mod tests {
             table.set_item("a", vm.ctx.new_utf8_str("🎅"), &vm).unwrap();
             table.set_item("b", vm.ctx.none(), &vm).unwrap();
             table
-                .set_item(
-                    "c",
-                    vm.ctx.new_ascii_literal(crate::utils::ascii!("xda")),
-                    &vm,
-                )
+                .set_item("c", vm.ctx.new_ascii_literal(ascii!("xda")), &vm)
                 .unwrap();
             let translated = PyStr::maketrans(
                 table.into_object(),

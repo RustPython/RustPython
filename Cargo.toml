@@ -6,25 +6,26 @@ edition = "2018"
 description = "A python interpreter written in rust."
 repository = "https://github.com/RustPython/RustPython"
 license = "MIT"
-include = ["LICENSE", "build.rs", "Cargo.toml", "src/**/*.rs"]
+include = ["LICENSE", "Cargo.toml", "src/**/*.rs"]
 
 [workspace]
 resolver = "2"
 members = [
     ".", "ast", "bytecode", "common", "compiler", "compiler/porcelain",
-    "derive", "jit", "parser", "vm", "vm/pylib-crate", "wasm/lib",
+    "derive", "jit", "parser", "vm", "vm/pylib-crate", "stdlib", "wasm/lib",
 ]
 
 [features]
-default = ["threading", "pylib", "zlib"]
+default = ["threading", "pylib", "zlib", "stdlib"]
+stdlib = ["rustpython-stdlib"]
 flame-it = ["rustpython-vm/flame-it", "flame", "flamescope"]
 freeze-stdlib = ["rustpython-vm/freeze-stdlib"]
 jit = ["rustpython-vm/jit"]
 threading = ["rustpython-vm/threading"]
-zlib = ["rustpython-vm/zlib"]
-
-ssl = ["rustpython-vm/ssl"]
-ssl-vendor = ["rustpython-vm/ssl-vendor"]
+pylib = ["rustpython-vm/pylib"]
+zlib = ["rustpython-stdlib/zlib"]
+ssl = ["rustpython-stdlib/ssl"]
+ssl-vendor = ["rustpython-stdlib/ssl-vendor"]
 
 [dependencies]
 log = "0.4"
@@ -33,7 +34,7 @@ clap = "2.33"
 rustpython-compiler = { path = "compiler/porcelain", version = "0.1.1" }
 rustpython-parser = { path = "parser", version = "0.1.1" }
 rustpython-vm = { path = "vm", version = "0.1.1", default-features = false, features = ["compile-parse"] }
-pylib = { package = "rustpython-pylib", path = "vm/pylib-crate", version = "0.1.0", optional = true }
+rustpython-stdlib = {path = "stdlib", optional = true, default-features = false, features = ["compile-parse"]}
 dirs = { package = "dirs-next", version = "2.0.0" }
 num-traits = "0.2.8"
 cfg-if = "1.0"
@@ -45,17 +46,10 @@ flamescope = { version = "0.1", optional = true }
 [target.'cfg(not(target_os = "wasi"))'.dependencies]
 rustyline = "9"
 
-
-[target.'cfg(not(target_os = "windows"))'.build-dependencies]
-pre-commit = "0.5.2"
-
 [dev-dependencies]
 cpython = "0.6"
 python3-sys = "0.6"
 criterion = "0.3"
-
-[package.metadata.precommit]
-fmt = "cargo fmt --all"
 
 [[bench]]
 name = "execution"
@@ -71,6 +65,10 @@ path = "src/main.rs"
 
 [profile.dev.package."*"]
 opt-level = 3
+
+[profile.test]
+opt-level = 3
+lto = "thin"
 
 [profile.bench]
 lto = true

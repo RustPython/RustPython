@@ -1,19 +1,16 @@
-use js_sys::{Array, ArrayBuffer, Object, Promise, Reflect, SyntaxError, Uint8Array};
-use wasm_bindgen::{closure::Closure, prelude::*, JsCast};
-
-use rustpython_parser::error::ParseErrorType;
-use rustpython_vm::byteslike::ArgBytesLike;
-use rustpython_vm::compile::{CompileError, CompileErrorType};
-use rustpython_vm::exceptions::PyBaseExceptionRef;
-use rustpython_vm::function::FuncArgs;
-use rustpython_vm::VirtualMachine;
-use rustpython_vm::{exceptions, py_serde};
-use rustpython_vm::{
-    ItemProtocol, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject, TypeProtocol,
-};
-
 use crate::js_module;
 use crate::vm_class::{stored_vm_from_wasm, WASMVirtualMachine};
+use js_sys::{Array, ArrayBuffer, Object, Promise, Reflect, SyntaxError, Uint8Array};
+use rustpython_parser::error::ParseErrorType;
+use rustpython_vm::{
+    builtins::PyBaseExceptionRef,
+    compile::{CompileError, CompileErrorType},
+    exceptions,
+    function::{ArgBytesLike, FuncArgs},
+    py_serde, ItemProtocol, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject, TypeProtocol,
+    VirtualMachine,
+};
+use wasm_bindgen::{closure::Closure, prelude::*, JsCast};
 
 #[wasm_bindgen(inline_js = r"
 export class PyError extends Error {

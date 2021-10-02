@@ -1605,8 +1605,6 @@ class OtherTests(unittest.TestCase):
             self.assertEqual(zf.filelist[0].filename, "foo.txt")
             self.assertEqual(zf.filelist[1].filename, "\xf6.txt")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_read_after_write_unicode_filenames(self):
         with zipfile.ZipFile(TESTFN2, 'w') as zipfp:
             zipfp.writestr('приклад', b'sample')
@@ -1815,8 +1813,6 @@ class OtherTests(unittest.TestCase):
         self.assertEqual(zipfile.sizeEndCentDir64, 56)
         self.assertEqual(zipfile.sizeEndCentDir64Locator, 20)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_comments(self):
         """Check that comments on the archive are handled properly."""
 
@@ -2872,7 +2868,7 @@ class TestPath(unittest.TestCase):
             a, b, g = root.iterdir()
             with a.open() as strm:
                 data = strm.read()
-            assert data == b"content of a"
+            assert data == "content of a"
 
     def test_read(self):
         for alpharep in self.zipfile_alpharep():

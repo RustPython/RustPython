@@ -1,15 +1,15 @@
 use super::PyTypeRef;
 use crate::{
     function::PosArgs,
-    iterator,
-    slots::{IteratorIterable, PyIter, SlotConstructor},
-    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    protocol::{PyIter, PyIterReturn},
+    slots::{IteratorIterable, SlotConstructor, SlotIterator},
+    PyClassImpl, PyContext, PyRef, PyResult, PyValue, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "zip")]
 #[derive(Debug)]
 pub struct PyZip {
-    iterators: Vec<PyObjectRef>,
+    iterators: Vec<PyIter>,
 }
 
 impl PyValue for PyZip {
@@ -19,34 +19,32 @@ impl PyValue for PyZip {
 }
 
 impl SlotConstructor for PyZip {
-    type Args = PosArgs;
+    type Args = PosArgs<PyIter>;
 
-    fn py_new(cls: PyTypeRef, iterables: Self::Args, vm: &VirtualMachine) -> PyResult {
-        let iterators = iterables
-            .into_iter()
-            .map(|iterable| iterator::get_iter(vm, iterable))
-            .collect::<Result<Vec<_>, _>>()?;
+    fn py_new(cls: PyTypeRef, iterators: Self::Args, vm: &VirtualMachine) -> PyResult {
+        let iterators = iterators.into_vec();
         PyZip { iterators }.into_pyresult_with_type(vm, cls)
     }
 }
 
-#[pyimpl(with(PyIter, SlotConstructor), flags(BASETYPE))]
+#[pyimpl(with(SlotIterator, SlotConstructor), flags(BASETYPE))]
 impl PyZip {}
 
 impl IteratorIterable for PyZip {}
-impl PyIter for PyZip {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+impl SlotIterator for PyZip {
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         if zelf.iterators.is_empty() {
-            Err(vm.new_stop_iteration())
-        } else {
-            let next_objs = zelf
-                .iterators
-                .iter()
-                .map(|iterator| iterator::call_next(vm, iterator))
-                .collect::<Result<Vec<_>, _>>()?;
-
-            Ok(vm.ctx.new_tuple(next_objs))
+            return Ok(PyIterReturn::StopIteration(None));
         }
+        let mut next_objs = Vec::new();
+        for iterator in zelf.iterators.iter() {
+            let item = match iterator.next(vm)? {
+                PyIterReturn::Return(obj) => obj,
+                PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
+            };
+            next_objs.push(item);
+        }
+        Ok(PyIterReturn::Return(vm.ctx.new_tuple(next_objs)))
     }
 }
 

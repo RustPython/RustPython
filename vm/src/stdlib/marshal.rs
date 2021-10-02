@@ -5,7 +5,7 @@ mod decl {
     use crate::{
         builtins::{PyBytes, PyCode},
         bytecode,
-        byteslike::ArgBytesLike,
+        function::ArgBytesLike,
         PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,
     };
 

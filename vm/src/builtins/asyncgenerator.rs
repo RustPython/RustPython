@@ -1,10 +1,11 @@
 use super::{PyCode, PyStrRef, PyTypeRef};
 use crate::{
+    builtins::PyBaseExceptionRef,
     coroutine::{Coro, Variant},
-    exceptions::PyBaseExceptionRef,
     frame::FrameRef,
     function::OptionalArg,
-    slots::{IteratorIterable, PyIter},
+    protocol::PyIterReturn,
+    slots::{IteratorIterable, SlotIterator},
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
     VirtualMachine,
 };
@@ -182,7 +183,7 @@ impl PyValue for PyAsyncGenASend {
     }
 }
 
-#[pyimpl(with(PyIter))]
+#[pyimpl(with(SlotIterator))]
 impl PyAsyncGenASend {
     #[pymethod(name = "__await__")]
     fn r#await(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
@@ -255,9 +256,10 @@ impl PyAsyncGenASend {
 }
 
 impl IteratorIterable for PyAsyncGenASend {}
-impl PyIter for PyAsyncGenASend {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        zelf.send(vm.ctx.none(), vm)
+impl SlotIterator for PyAsyncGenASend {
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        // TODO: Fix zelf.send to return PyIterReturn
+        PyIterReturn::from_result(zelf.send(vm.ctx.none(), vm), vm)
     }
 }
 
@@ -276,7 +278,7 @@ impl PyValue for PyAsyncGenAThrow {
     }
 }
 
-#[pyimpl(with(PyIter))]
+#[pyimpl(with(SlotIterator))]
 impl PyAsyncGenAThrow {
     #[pymethod(name = "__await__")]
     fn r#await(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
@@ -397,9 +399,10 @@ impl PyAsyncGenAThrow {
 }
 
 impl IteratorIterable for PyAsyncGenAThrow {}
-impl PyIter for PyAsyncGenAThrow {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        zelf.send(vm.ctx.none(), vm)
+impl SlotIterator for PyAsyncGenAThrow {
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        // TODO: Fix zelf.send to return PyIterReturn
+        PyIterReturn::from_result(zelf.send(vm.ctx.none(), vm), vm)
     }
 }
 

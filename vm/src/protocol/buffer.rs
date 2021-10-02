@@ -133,7 +133,7 @@ impl Clone for PyBuffer {
     }
 }
 
-pub(crate) trait ResizeGuard<'a> {
+pub trait ResizeGuard<'a> {
     type Resizable: 'a;
     fn try_resizable(&'a self, vm: &VirtualMachine) -> PyResult<Self::Resizable>;
 }

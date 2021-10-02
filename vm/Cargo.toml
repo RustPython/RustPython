@@ -10,8 +10,6 @@ include = ["src/**/*.rs", "Cargo.toml", "build.rs", "Lib/**/*.py"]
 
 [features]
 default = ["compile-parse", "threading", "pylib"]
-# TODO: use resolver = "2" instead of features
-zlib = ["libz-sys", "flate2/zlib"]
 vm-tracing-logging = []
 flame-it = ["flame", "flamer"]
 pylib = ["rustpython-pylib"]
@@ -23,28 +21,13 @@ ast = ["rustpython-ast"]
 compiler = ["rustpython-compiler", "rustpython-compiler-core", "ast"]
 parser = ["rustpython-parser", "ast"]
 
-ssl = ["openssl", "openssl-sys", "foreign-types-shared"]
-ssl-vendor = ["ssl", "openssl/vendored", "openssl-probe"]
-
 [dependencies]
-# Crypto:
-digest = "0.9.0"
-md-5 = "0.9.1"
-sha-1 = "0.9.4"
-sha2 = "0.9.3"
-sha3 = "0.9.1"
-blake2 = "0.9.1"
-xml-rs = "0.8"
-
 num-complex = { version = "0.4.0", features = ["serde"] }
 num-bigint = { version = "0.4.2", features = ["serde"] }
 num-traits = "0.2.8"
 num-integer = "0.1.41"
 num-rational = "0.4.0"
-rand = "0.8"
-rand_core = "0.6"
-getrandom = { version = "0.2", features = ["js"] }
-log = "0.4"
+rustpython-common = { path = "../common" }
 rustpython-derive = { path = "../derive", version = "0.1.2" }
 rustpython-ast = { path = "../ast", optional = true, version = "0.1" }
 rustpython-parser = { path = "../parser", optional = true, version = "0.1.2" }
@@ -53,8 +36,10 @@ rustpython-compiler-core = { path = "../compiler", optional = true, version = "0
 rustpython-bytecode = { path = "../bytecode", version = "0.1.2" }
 rustpython-jit = { path = "../jit", optional = true, version = "0.1.2" }
 rustpython-pylib = { path = "pylib-crate", optional = true, version = "0.1.0" }
+rand = "0.8"
+getrandom = { version = "0.2", features = ["js"] }
+log = "0.4"
 serde = { version = "1.0.66", features = ["derive"] }
-puruspe = "0.1"
 caseless = "0.2.1"
 chrono = { version = "0.4", features = ["wasmbind"] }
 lexical-core = "0.7"
@@ -63,13 +48,10 @@ hex = "0.4.0"
 hexf-parse = "0.1.0"
 indexmap = "1.0.2"
 ahash = "0.7.2"
-crc = "^1.0.0"
 bitflags = "1.2.1"
 libc = "0.2.99"
 nix = "0.22.1"
-csv-core = "0.1"
 paste = "1.0.5"
-base64 = "0.13"
 is-macro = "0.1"
 result-like = "^0.3"
 num_enum = "0.5"
@@ -87,11 +69,9 @@ memchr = "2"
 crc32fast = "1.2.0"
 adler32 = "1.0.3"
 flate2 = "1.0.20"
-libz-sys = { version = "1.0", optional = true }
 once_cell = "1"
 
 # RustPython crates implementing functionality based on CPython
-mt19937 = "2.0"
 sre-engine = "0.1.2"
 # to work on sre-engine locally
 # sre-engine = { path = "../../sre-engine" }
@@ -102,17 +82,13 @@ unicode_names2 = "0.4"
 # https://github.com/RustPython/RustPython/pull/832#discussion_r275428939
 unicode-casing = "0.1"
 # update version all at the same time
-unic-char-property = "0.9"
-unic-normal        = "0.9"
 unic-ucd-bidi      = "0.9"
 unic-ucd-category  = "0.9"
-unic-ucd-age       = "0.9"
 unic-ucd-ident     = "0.9"
 
 flame = { version = "0.2", optional = true }
 flamer = { version = "0.4", optional = true }
 
-rustpython-common = { path = "../common" }
 ascii = "1.0.0"
 
 [target.'cfg(unix)'.dependencies]
@@ -122,28 +98,14 @@ strum = "0.21"
 strum_macros = "0.21"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-gethostname = "0.2.0"
-socket2 = { version = "0.4.0", features = ["all"] }
-dns-lookup = "1.0"
 rustyline = "9"
-openssl = { version = "0.10.32", optional = true }
-openssl-sys = { version = "0.9", optional = true }
-openssl-probe = { version = "0.1", optional = true }
 which = "4.0"
-foreign-types-shared = { version = "0.1", optional = true }
 
 [target.'cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))'.dependencies]
 num_cpus = "1"
 
-[target.'cfg(all(unix, not(target_os = "redox")))'.dependencies]
-termios = "0.3"
-
-[target.'cfg(target_os = "macos")'.dependencies]
-system-configuration = "0.4"
-
 [target.'cfg(windows)'.dependencies]
 winreg = "0.8.0"
-schannel = "0.1"
 widestring = "0.4"
 
 [target.'cfg(windows)'.dependencies.winapi]

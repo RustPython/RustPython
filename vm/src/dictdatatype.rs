@@ -3,11 +3,13 @@ use crate::builtins::{PyStr, PyStrRef};
 /// Inspired by: https://morepypy.blogspot.com/2015/01/faster-more-memory-efficient-and-more.html
 /// And: https://www.youtube.com/watch?v=p33CVV29OG8
 /// And: http://code.activestate.com/recipes/578375/
-use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
+use crate::common::{
+    hash,
+    lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
+};
 use crate::vm::VirtualMachine;
 use crate::{IdProtocol, IntoPyObject, PyObjectRef, PyRefExact, PyResult, TypeProtocol};
 use crossbeam_utils::atomic::AtomicCell;
-use rustpython_common::hash;
 use std::fmt;
 use std::mem::size_of;
 
@@ -766,6 +768,7 @@ fn extract_dict_entry<T>(option_entry: &Option<DictEntry<T>>) -> &DictEntry<T> {
 #[cfg(test)]
 mod tests {
     use super::{Dict, DictKey};
+    use crate::common::ascii;
     use crate::Interpreter;
 
     #[test]
@@ -775,12 +778,12 @@ mod tests {
             assert_eq!(0, dict.len());
 
             let key1 = vm.ctx.new_bool(true);
-            let value1 = vm.ctx.new_ascii_literal(crate::utils::ascii!("abc"));
+            let value1 = vm.ctx.new_ascii_literal(ascii!("abc"));
             dict.insert(&vm, key1.clone(), value1.clone()).unwrap();
             assert_eq!(1, dict.len());
 
-            let key2 = vm.ctx.new_ascii_literal(crate::utils::ascii!("x"));
-            let value2 = vm.ctx.new_ascii_literal(crate::utils::ascii!("def"));
+            let key2 = vm.ctx.new_ascii_literal(ascii!("x"));
+            let value2 = vm.ctx.new_ascii_literal(ascii!("def"));
             dict.insert(&vm, key2.clone(), value2.clone()).unwrap();
             assert_eq!(2, dict.len());
 

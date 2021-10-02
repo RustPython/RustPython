@@ -280,7 +280,7 @@ impl WASMVirtualMachine {
             vm.run_code_obj(code, Scope::new(None, attrs.clone()))
                 .into_js(vm)?;
 
-            let module = vm.new_module(&name, attrs);
+            let module = vm.new_module(&name, attrs, None);
 
             let sys_modules = vm
                 .get_attribute(vm.sys_module.clone(), "modules")
@@ -294,7 +294,7 @@ impl WASMVirtualMachine {
     #[wasm_bindgen(js_name = injectJSModule)]
     pub fn inject_js_module(&self, name: String, module: Object) -> Result<(), JsValue> {
         self.with_vm(|vm, _| {
-            let py_module = vm.new_module(&name, vm.ctx.new_dict());
+            let py_module = vm.new_module(&name, vm.ctx.new_dict(), None);
             for entry in convert::object_entries(&module) {
                 let (key, value) = entry?;
                 let key = Object::from(key).to_string();

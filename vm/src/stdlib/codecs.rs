@@ -4,11 +4,9 @@ pub(crate) use _codecs::make_module;
 mod _codecs {
     use crate::common::encodings;
     use crate::{
-        builtins::{PyBytes, PyBytesRef, PyStr, PyStrRef, PyTuple},
-        byteslike::ArgBytesLike,
+        builtins::{PyBaseExceptionRef, PyBytes, PyBytesRef, PyStr, PyStrRef, PyTuple},
         codecs,
-        exceptions::PyBaseExceptionRef,
-        function::FuncArgs,
+        function::{ArgBytesLike, FuncArgs},
         IdProtocol, PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
     };
     use std::ops::Range;
@@ -28,7 +26,6 @@ mod _codecs {
 
     #[derive(FromArgs)]
     struct CodeArgs {
-        #[pyarg(any)]
         obj: PyObjectRef,
         #[pyarg(any, optional)]
         encoding: Option<PyStrRef>,
@@ -316,6 +313,19 @@ mod _codecs {
     }
 
     #[pyfunction]
+    fn latin_1_encode(args: EncodeArgs, vm: &VirtualMachine) -> EncodeResult {
+        if args.s.is_ascii() {
+            return Ok((args.s.as_str().as_bytes().to_vec(), args.s.byte_len()));
+        }
+        do_codec!(latin_1::encode, args, vm)
+    }
+
+    #[pyfunction]
+    fn latin_1_decode(args: DecodeArgsNoFinal, vm: &VirtualMachine) -> DecodeResult {
+        do_codec!(latin_1::decode, args, vm)
+    }
+
+    #[pyfunction]
     fn ascii_encode(args: EncodeArgs, vm: &VirtualMachine) -> EncodeResult {
         if args.s.is_ascii() {
             return Ok((args.s.as_str().as_bytes().to_vec(), args.s.byte_len()));
@@ -353,14 +363,6 @@ mod _codecs {
         }};
     }
 
-    #[pyfunction]
-    fn latin_1_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(latin_1_encode, args, vm)
-    }
-    #[pyfunction]
-    fn latin_1_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(latin_1_decode, args, vm)
-    }
     #[pyfunction]
     fn mbcs_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         delegate_pycodecs!(mbcs_encode, args, vm)

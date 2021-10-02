@@ -3,8 +3,9 @@ mod helper;
 use rustpython_parser::error::{LexicalErrorType, ParseErrorType};
 use rustpython_vm::readline::{Readline, ReadlineResult};
 use rustpython_vm::{
+    builtins::PyBaseExceptionRef,
     compile::{self, CompileError, CompileErrorType},
-    exceptions::{print_exception, PyBaseExceptionRef},
+    exceptions::print_exception,
     scope::Scope,
     PyResult, TypeProtocol, VirtualMachine,
 };

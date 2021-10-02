@@ -404,7 +404,7 @@ pub(crate) fn wrap_index(p: isize, len: usize) -> Option<usize> {
 }
 
 // return pos is in range [0, len] inclusive
-pub(crate) fn saturate_index(p: isize, len: usize) -> usize {
+pub fn saturate_index(p: isize, len: usize) -> usize {
     let mut p = p;
     let len = len.to_isize().unwrap();
     if p < 0 {

@@ -14,13 +14,12 @@ use crate::{
         ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerSplitOptions,
         ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
     },
-    byteslike::ArgBytesLike,
-    function::{ArgIterable, FuncArgs, OptionalArg, OptionalOption},
-    protocol::{BufferInternal, BufferOptions, PyBuffer, ResizeGuard},
+    function::{ArgBytesLike, ArgIterable, FuncArgs, OptionalArg, OptionalOption},
+    protocol::{BufferInternal, BufferOptions, PyBuffer, PyIterReturn, ResizeGuard},
     sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
     slots::{
         AsBuffer, Callable, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp,
-        PyIter, Unhashable,
+        SlotIterator, Unhashable,
     },
     utils::Either,
     IdProtocol, IntoPyObject, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef,
@@ -99,7 +98,7 @@ pub(crate) fn init(context: &PyContext) {
 #[pyimpl(flags(BASETYPE), with(Hashable, Comparable, AsBuffer, Iterable))]
 impl PyByteArray {
     #[pyslot]
-    fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         PyByteArray::default().into_pyresult_with_type(vm, cls)
     }
 
@@ -667,7 +666,7 @@ impl Comparable for PyByteArray {
 }
 
 impl AsBuffer for PyByteArray {
-    fn get_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
+    fn as_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
         let buffer = PyBuffer::new(
             zelf.as_object().clone(),
             zelf.clone(),
@@ -742,16 +741,17 @@ impl PyValue for PyByteArrayIterator {
     }
 }
 
-#[pyimpl(with(PyIter))]
+#[pyimpl(with(SlotIterator))]
 impl PyByteArrayIterator {}
 impl IteratorIterable for PyByteArrayIterator {}
-impl PyIter for PyByteArrayIterator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+impl SlotIterator for PyByteArrayIterator {
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let pos = zelf.position.fetch_add(1);
-        if let Some(&ret) = zelf.bytearray.borrow_buf().get(pos) {
-            Ok(ret.into_pyobject(vm))
+        let r = if let Some(&ret) = zelf.bytearray.borrow_buf().get(pos) {
+            PyIterReturn::Return(ret.into_pyobject(vm))
         } else {
-            Err(vm.new_stop_iteration())
-        }
+            PyIterReturn::StopIteration(None)
+        };
+        Ok(r)
     }
 }

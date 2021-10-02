@@ -2,85 +2,14 @@
  * utilities to support iteration.
  */
 
-use crate::builtins::int::{self, PyInt};
-use crate::builtins::iter::PySequenceIterator;
-use crate::exceptions::PyBaseExceptionRef;
-use crate::vm::VirtualMachine;
-use crate::{IdProtocol, PyObjectRef, PyResult, PyValue, TypeProtocol};
+use crate::{
+    builtins::{int, PyBaseExceptionRef, PyInt},
+    protocol::{PyIter, PyIterReturn},
+    IdProtocol, PyObjectRef, PyResult, TypeProtocol, VirtualMachine,
+};
 use num_traits::Signed;
 
-/*
- * This helper function is called at multiple places. First, it is called
- * in the vm when a for loop is entered. Next, it is used when the builtin
- * function 'iter' is called.
- */
-pub fn get_iter(vm: &VirtualMachine, iter_target: PyObjectRef) -> PyResult {
-    let getiter = {
-        let cls = iter_target.class();
-        cls.mro_find_map(|x| x.slots.iter.load())
-    };
-    if let Some(getiter) = getiter {
-        let iter = getiter(iter_target, vm)?;
-        let cls = iter.class();
-        let is_iter = cls.iter_mro().any(|x| x.slots.iternext.load().is_some());
-        if is_iter {
-            drop(cls);
-            Ok(iter)
-        } else {
-            Err(vm.new_type_error(format!(
-                "iter() returned non-iterator of type '{}'",
-                cls.name()
-            )))
-        }
-    } else {
-        vm.get_method_or_type_error(iter_target.clone(), "__getitem__", || {
-            format!("'{}' object is not iterable", iter_target.class().name())
-        })?;
-        Ok(PySequenceIterator::new(iter_target)
-            .into_ref(vm)
-            .into_object())
-    }
-}
-
-pub fn call_next(vm: &VirtualMachine, iter_obj: &PyObjectRef) -> PyResult {
-    let iternext = {
-        let cls = iter_obj.class();
-        cls.mro_find_map(|x| x.slots.iternext.load())
-            .ok_or_else(|| {
-                vm.new_type_error(format!("'{}' object is not an iterator", cls.name()))
-            })?
-    };
-    iternext(iter_obj, vm)
-}
-
-/*
- * Helper function to retrieve the next object (or none) from an iterator.
- */
-pub fn get_next_object(
-    vm: &VirtualMachine,
-    iter_obj: &PyObjectRef,
-) -> PyResult<Option<PyObjectRef>> {
-    let next_obj: PyResult = call_next(vm, iter_obj);
-
-    match next_obj {
-        Ok(value) => Ok(Some(value)),
-        Err(next_error) => {
-            // Check if we have stopiteration, or something else:
-            if next_error.isinstance(&vm.ctx.exceptions.stop_iteration) {
-                Ok(None)
-            } else {
-                Err(next_error)
-            }
-        }
-    }
-}
-
-pub fn try_map<F, R>(
-    vm: &VirtualMachine,
-    iter_obj: &PyObjectRef,
-    cap: usize,
-    mut f: F,
-) -> PyResult<Vec<R>>
+pub fn try_map<F, R>(vm: &VirtualMachine, iter: &PyIter, cap: usize, mut f: F) -> PyResult<Vec<R>>
 where
     F: FnMut(PyObjectRef) -> PyResult<R>,
 {
@@ -90,7 +19,7 @@ where
         return Ok(Vec::new());
     }
     let mut results = Vec::with_capacity(cap);
-    while let Some(element) = get_next_object(vm, iter_obj)? {
+    while let PyIterReturn::Return(element) = iter.next(vm)? {
         results.push(f(element)?);
     }
     results.shrink_to_fit();

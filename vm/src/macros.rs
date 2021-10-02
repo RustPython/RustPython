@@ -1,7 +1,7 @@
 #[macro_export]
 macro_rules! py_module {
     ( $vm:expr, $module_name:expr, { $($name:expr => $value:expr),* $(,)? }) => {{
-        let module = $vm.new_module($module_name, $vm.ctx.new_dict());
+        let module = $vm.new_module($module_name, $vm.ctx.new_dict(), None);
         $crate::extend_module!($vm, module, { $($name => $value),* });
         module
     }};
@@ -21,12 +21,12 @@ macro_rules! extend_module {
 #[macro_export]
 macro_rules! py_class {
     ( $ctx:expr, $class_name:expr, $class_base:expr, { $($name:tt => $value:expr),* $(,)* }) => {
-        py_class!($ctx, $class_name, $class_base, $crate::slots::PyTpFlags::BASETYPE, { $($name => $value),* })
+        py_class!($ctx, $class_name, $class_base, $crate::slots::PyTypeFlags::BASETYPE, { $($name => $value),* })
     };
     ( $ctx:expr, $class_name:expr, $class_base:expr, $flags:expr, { $($name:tt => $value:expr),* $(,)* }) => {
         {
             #[allow(unused_mut)]
-            let mut slots = $crate::slots::PyTypeSlots::from_flags($crate::slots::PyTpFlags::DEFAULT | $flags);
+            let mut slots = $crate::slots::PyTypeSlots::from_flags($crate::slots::PyTypeFlags::DEFAULT | $flags);
             $($crate::py_class!(@extract_slots($ctx, &mut slots, $name, $value));)*
             let py_class = $ctx.new_class($class_name, $class_base, slots);
             $($crate::py_class!(@extract_attrs($ctx, &py_class, $name, $value));)*
@@ -210,7 +210,7 @@ macro_rules! class_or_notimplemented {
     ($t:ty, $obj:expr) => {
         match $crate::PyObjectRef::downcast_ref::<$t>($obj) {
             Some(pyref) => pyref,
-            None => return Ok($crate::PyArithmaticValue::NotImplemented),
+            None => return Ok($crate::PyArithmeticValue::NotImplemented),
         }
     };
 }

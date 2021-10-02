@@ -5,7 +5,8 @@
 use super::{int, PyInt, PyTypeRef};
 use crate::{
     function::ArgCallable,
-    slots::{IteratorIterable, PyIter},
+    protocol::PyIterReturn,
+    slots::{IteratorIterable, SlotIterator},
     ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
     VirtualMachine,
 };
@@ -34,7 +35,7 @@ impl PyValue for PySequenceIterator {
     }
 }
 
-#[pyimpl(with(PyIter))]
+#[pyimpl(with(SlotIterator))]
 impl PySequenceIterator {
     pub fn new(obj: PyObjectRef) -> Self {
         Self {
@@ -91,19 +92,21 @@ impl PySequenceIterator {
 }
 
 impl IteratorIterable for PySequenceIterator {}
-impl PyIter for PySequenceIterator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+impl SlotIterator for PySequenceIterator {
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         if let IterStatus::Exhausted = zelf.status.load() {
-            return Err(vm.new_stop_iteration());
+            return Ok(PyIterReturn::StopIteration(None));
         }
         let pos = zelf.position.fetch_add(1);
         match zelf.obj.get_item(pos, vm) {
-            Err(ref e) if e.isinstance(&vm.ctx.exceptions.index_error) => {
+            Err(ref e)
+                if e.isinstance(&vm.ctx.exceptions.index_error)
+                    || e.isinstance(&vm.ctx.exceptions.stop_iteration) =>
+            {
                 zelf.status.store(IterStatus::Exhausted);
-                Err(vm.new_stop_iteration())
+                Ok(PyIterReturn::StopIteration(None))
             }
-            // also catches stop_iteration => stop_iteration
-            ret => ret,
+            ret => ret.map(PyIterReturn::Return),
         }
     }
 }
@@ -122,7 +125,7 @@ impl PyValue for PyCallableIterator {
     }
 }
 
-#[pyimpl(with(PyIter))]
+#[pyimpl(with(SlotIterator))]
 impl PyCallableIterator {
     pub fn new(callable: ArgCallable, sentinel: PyObjectRef) -> Self {
         Self {
@@ -134,17 +137,17 @@ impl PyCallableIterator {
 }
 
 impl IteratorIterable for PyCallableIterator {}
-impl PyIter for PyCallableIterator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+impl SlotIterator for PyCallableIterator {
+    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         if let IterStatus::Exhausted = zelf.status.load() {
-            return Err(vm.new_stop_iteration());
+            return Ok(PyIterReturn::StopIteration(None));
         }
         let ret = zelf.callable.invoke((), vm)?;
         if vm.bool_eq(&ret, &zelf.sentinel)? {
             zelf.status.store(IterStatus::Exhausted);
-            Err(vm.new_stop_iteration())
+            Ok(PyIterReturn::StopIteration(None))
         } else {
-            Ok(ret)
+            Ok(PyIterReturn::Return(ret))
         }
     }
 }

@@ -1,6 +1,6 @@
 use crate::{PyObjectRef, VirtualMachine};
 
-pub(crate) use module::raw_set_handle_inheritable;
+pub use module::raw_set_handle_inheritable;
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let module = module::make_module(vm);
@@ -46,9 +46,7 @@ pub(crate) mod module {
 
     #[derive(FromArgs)]
     pub(super) struct SimlinkArgs {
-        #[pyarg(any)]
         src: PyPathLike,
-        #[pyarg(any)]
         dst: PyPathLike,
         #[pyarg(flatten)]
         target_is_directory: TargetIsDirectory,
@@ -370,10 +368,7 @@ pub(crate) mod module {
         }
     }
 
-    pub(crate) fn raw_set_handle_inheritable(
-        handle: intptr_t,
-        inheritable: bool,
-    ) -> io::Result<()> {
+    pub fn raw_set_handle_inheritable(handle: intptr_t, inheritable: bool) -> io::Result<()> {
         use um::winbase::HANDLE_FLAG_INHERIT;
         let flags = if inheritable { HANDLE_FLAG_INHERIT } else { 0 };
         let res =
@@ -428,4 +423,12 @@ macro_rules! suppress_iph {
         $crate::stdlib::nt::module::_set_thread_local_invalid_parameter_handler(old);
         ret
     }};
+}
+
+pub fn init_winsock() {
+    static WSA_INIT: parking_lot::Once = parking_lot::Once::new();
+    WSA_INIT.call_once(|| unsafe {
+        let mut wsa_data = std::mem::MaybeUninit::uninit();
+        let _ = winapi::um::winsock2::WSAStartup(0x0101, wsa_data.as_mut_ptr());
+    })
 }

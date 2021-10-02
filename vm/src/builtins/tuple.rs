@@ -6,14 +6,16 @@ use super::{
 use crate::common::hash::PyHash;
 use crate::{
     function::OptionalArg,
+    protocol::PyIterReturn,
     sequence::{self, SimpleSeq},
     sliceable::PySliceableSequence,
     slots::{
-        Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, PyIter, SlotConstructor,
+        Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotConstructor,
+        SlotIterator,
     },
     utils::Either,
     vm::{ReprGuard, VirtualMachine},
-    IdProtocol, IntoPyObject, PyArithmaticValue, PyClassDef, PyClassImpl, PyComparisonValue,
+    IdProtocol, IntoPyObject, PyArithmeticValue, PyClassDef, PyClassImpl, PyComparisonValue,
     PyContext, PyObjectRef, PyRef, PyResult, PyValue, TransmuteFromObject, TryFromObject,
     TypeProtocol,
 };
@@ -114,7 +116,7 @@ impl PyTuple {
     /// Creating a new tuple with given boxed slice.
     /// NOTE: for usual case, you probably want to use PyTupleRef::with_elements.
     /// Calling this function implies trying micro optimization for non-zero-sized tuple.
-    pub(crate) fn _new(elements: Box<[PyObjectRef]>) -> Self {
+    pub fn new_unchecked(elements: Box<[PyObjectRef]>) -> Self {
         Self { elements }
     }
 
@@ -127,7 +129,7 @@ impl PyTuple {
         zelf: PyRef<Self>,
         other: PyObjectRef,
         vm: &VirtualMachine,
-    ) -> PyArithmaticValue<PyRef<Self>> {
+    ) -> PyArithmeticValue<PyRef<Self>> {
         let added = other.downcast::<Self>().map(|other| {
             if other.elements.is_empty() && zelf.class().is(&vm.ctx.types.tuple_type) {
                 zelf
@@ -143,7 +145,7 @@ impl PyTuple {
                 Self { elements }.into_ref(vm)
             }
         });
-        PyArithmaticValue::from_option(added.ok())
+        PyArithmeticValue::from_option(added.ok())
     }
 
     #[pymethod(magic)]
@@ -330,7 +332,7 @@ impl PyValue for PyTupleIterator {
     }
 }
 
-#[pyimpl(with(PyIter))]
+#[pyimpl(with(SlotIterator))]
 impl PyTupleIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
@@ -376,17 +378,17 @@ impl PyTupleIterator {
 }
 
 impl IteratorIterable for PyTupleIterator {}
-impl PyIter for PyTupleIterator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+impl SlotIterator for PyTupleIterator {
+    fn next(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         if let Exhausted = zelf.status.load() {
-            return Err(vm.new_stop_iteration());
+            return Ok(PyIterReturn::StopIteration(None));
         }
         let pos = zelf.position.fetch_add(1);
         if let Some(obj) = zelf.tuple.as_slice().get(pos) {
-            Ok(obj.clone())
+            Ok(PyIterReturn::Return(obj.clone()))
         } else {
             zelf.status.store(Exhausted);
-            Err(vm.new_stop_iteration())
+            Ok(PyIterReturn::StopIteration(None))
         }
     }
 }
