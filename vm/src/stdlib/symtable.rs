@@ -1,7 +1,7 @@
-pub(crate) use decl::make_module;
+pub(crate) use symtable::make_module;
 
-#[pymodule(name = "symtable")]
-mod decl {
+#[pymodule]
+mod symtable {
     use crate::{
         builtins::PyStrRef,
         compile::{self, Symbol, SymbolScope, SymbolTable, SymbolTableType},
