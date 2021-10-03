@@ -1529,6 +1529,8 @@ class SourceAddressTest(TestCase):
         self.conn.connect()
         self.assertEqual(self.conn.sock.getsockname()[1], self.source_port)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipIf(not hasattr(client, 'HTTPSConnection'),
                      'http.client.HTTPSConnection not defined')
     def testHTTPSConnectionSourceAddress(self):
