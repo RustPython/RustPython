@@ -312,6 +312,8 @@ class XMLRPCTestCase(unittest.TestCase):
                           ('host.tld',
                            [('Authorization', 'Basic dXNlcg==')], {}))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_ssl_presence(self):
         try:
             import ssl
