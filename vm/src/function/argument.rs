@@ -55,7 +55,7 @@ impl<T> ArgIterable<T> {
             Some(f) => f(self.iterable.clone(), vm)?,
             None => PySequenceIterator::new(self.iterable.clone()).into_object(vm),
         });
-        iter.iter(vm)
+        iter.into_iter(vm)
     }
 }
 
@@ -72,7 +72,7 @@ where
                 return Err(vm.new_type_error(format!("'{}' object is not iterable", cls.name())));
             }
         }
-        Ok(ArgIterable {
+        Ok(Self {
             iterable: obj,
             iterfn,
             _item: PhantomData,
