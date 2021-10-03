@@ -165,6 +165,8 @@ class CookieTests(unittest.TestCase):
         self.assertEqual(C.output(),
             'Set-Cookie: eggs=scrambled; Path=bar; Secure\r\nSet-Cookie: foo=foo')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_quoted_meta(self):
         # Try cookie with quoted meta-data
         C = cookies.SimpleCookie()
