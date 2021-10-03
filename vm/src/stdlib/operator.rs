@@ -13,7 +13,7 @@ mod _operator {
     use crate::{
         builtins::{PyInt, PyIntRef, PyStrRef, PyTypeRef},
         function::{ArgBytesLike, FuncArgs, KwArgs, OptionalArg},
-        protocol::{PyIter, PyIterReturn},
+        protocol::PyIter,
         slots::{
             Callable,
             PyComparisonOp::{Eq, Ge, Gt, Le, Lt, Ne},
@@ -219,7 +219,8 @@ mod _operator {
     #[pyfunction(name = "countOf")]
     fn count_of(a: PyIter, b: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         let mut count: usize = 0;
-        while let PyIterReturn::Return(element) = a.next(vm)? {
+        for element in a.iter_without_hint::<PyObjectRef>(vm)? {
+            let element = element?;
             if element.is(&b) || vm.bool_eq(&b, &element)? {
                 count += 1;
             }
@@ -242,12 +243,11 @@ mod _operator {
     /// Return the number of occurrences of b in a.
     #[pyfunction(name = "indexOf")]
     fn index_of(a: PyIter, b: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-        let mut index: usize = 0;
-        while let PyIterReturn::Return(element) = a.next(vm)? {
+        for (index, element) in a.iter_without_hint::<PyObjectRef>(vm)?.enumerate() {
+            let element = element?;
             if element.is(&b) || vm.bool_eq(&b, &element)? {
                 return Ok(index);
             }
-            index += 1;
         }
         Err(vm.new_value_error("sequence.index(x): x not in sequence".to_owned()))
     }

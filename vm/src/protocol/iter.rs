@@ -58,6 +58,13 @@ where
         let length_hint = vm.length_hint(self.as_object().clone())?;
         Ok(PyIterIter::new(vm, self.0.borrow(), length_hint))
     }
+
+    pub fn iter_without_hint<'a, 'b, U>(
+        &'b self,
+        vm: &'a VirtualMachine,
+    ) -> PyResult<PyIterIter<'a, U, &'b PyObjectRef>> {
+        Ok(PyIterIter::new(vm, self.0.borrow(), None))
+    }
 }
 
 impl PyIter<PyObjectRef> {
@@ -236,6 +243,7 @@ where
             .map(|x| x.and_then(|obj| T::try_from_object(self.vm, obj)))
     }
 
+    #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
         (self.length_hint.unwrap_or(0), self.length_hint)
     }

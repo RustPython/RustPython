@@ -2,10 +2,7 @@
  * utilities to support iteration.
  */
 
-use crate::{
-    protocol::{PyIter, PyIterReturn},
-    PyObjectRef, PyResult, VirtualMachine,
-};
+use crate::{protocol::PyIter, PyObjectRef, PyResult, VirtualMachine};
 
 pub fn try_map<F, R>(vm: &VirtualMachine, iter: &PyIter, cap: usize, mut f: F) -> PyResult<Vec<R>>
 where
@@ -17,8 +14,8 @@ where
         return Ok(Vec::new());
     }
     let mut results = Vec::with_capacity(cap);
-    while let PyIterReturn::Return(element) = iter.next(vm)? {
-        results.push(f(element)?);
+    for element in iter.iter_without_hint(vm)? {
+        results.push(f(element?)?);
     }
     results.shrink_to_fit();
     Ok(results)
