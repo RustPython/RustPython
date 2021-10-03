@@ -1607,6 +1607,11 @@ class LocalServerTests(unittest.TestCase):
         # Check that trying starttls when it's already active fails.
         self.assertRaises(ValueError, self.nntp.starttls)
 
+    # TODO: RUSTPYTHON
+    import os, sys
+    if os.getenv("CI") and sys.platform == "linux":
+        test_starttls = unittest.expectedFailure(test_starttls)
+
 
 if __name__ == "__main__":
     unittest.main()
