@@ -62,7 +62,34 @@ $ pytest -v
 Rust unit tests can be run with `cargo`:
 
 ```shell
-$ cargo test --all
+$ cargo test --workspace --exclude rustpython_wasm
+```
+
+Python unit tests can be run by compiling RustPython and running the test module:
+
+```shell
+$ cargo run --release -- -m test
+```
+
+There are a few test options that are especially useful:
+
+- `-j <n>` enables parallel testing (which is a lot faster), where `<n>` is the
+number of threads to be used, ideally the same as number of cores on your CPU.
+If you don't know, `-j 4` or `-j 8` are good options.
+- `-v` enables verbose mode, adding additional information about the tests being
+run.
+- `<test_name>` specifies a single test to run instead of running all tests.
+
+For example, to run all tests in parallel:
+
+```shell
+$ cargo run --release -- -m test -j 4
+```
+
+To run only `test_cmath` (located at `Lib/test/test_cmath`) verbosely:
+
+```shell
+$ cargo run --release -- -m test test_cmath -v
 ```
 
 ## Profiling
