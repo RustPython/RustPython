@@ -137,6 +137,16 @@ impl PyMappingProxy {
             }
         }
     }
+    #[pymethod(magic)]
+    fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
+        let obj = match &self.mapping {
+            MappingProxyInner::Dict(d) => d.clone(),
+            MappingProxyInner::Class(c) => {
+                PyDict::from_attributes(c.attributes.read().clone(), vm)?.into_pyobject(vm)
+            }
+        };
+        Ok(format!("mappingproxy({})", vm.to_repr(&obj)?))
+    }
 }
 
 impl AsMapping for PyMappingProxy {

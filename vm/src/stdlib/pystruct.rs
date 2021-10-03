@@ -460,7 +460,9 @@ pub(crate) mod _struct {
         T: PrimInt + for<'a> std::convert::TryFrom<&'a BigInt>,
     {
         match vm.to_index_opt(arg) {
-            Some(index) => index?.try_to_primitive(vm),
+            Some(index) => index?
+                .try_to_primitive(vm)
+                .map_err(|_| new_struct_error(vm, "argument out of range".to_owned())),
             None => Err(new_struct_error(
                 vm,
                 "required argument is not an integer".to_owned(),
@@ -947,7 +949,7 @@ pub(crate) mod _struct {
     fn _clearcache() {}
 
     #[pyattr(name = "error")]
-    fn struct_error(vm: &VirtualMachine) -> PyTypeRef {
+    fn error_type(vm: &VirtualMachine) -> PyTypeRef {
         rustpython_common::static_cell! {
             static STRUCT_ERROR: PyTypeRef;
         }
@@ -965,7 +967,7 @@ pub(crate) mod _struct {
     fn new_struct_error(vm: &VirtualMachine, msg: String) -> PyBaseExceptionRef {
         // can't just STRUCT_ERROR.get().unwrap() cause this could be called before from buffer
         // machinery, independent of whether _struct was ever imported
-        vm.new_exception_msg(struct_error(vm), msg)
+        vm.new_exception_msg(error_type(vm), msg)
     }
 }
 

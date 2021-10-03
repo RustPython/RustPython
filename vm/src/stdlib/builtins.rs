@@ -11,7 +11,7 @@ mod builtins {
     use crate::builtins::{
         enumerate::PyReverseSequenceIterator,
         function::{PyCellRef, PyFunctionRef},
-        int::{self, PyIntRef},
+        int::PyIntRef,
         iter::PyCallableIterator,
         list::{PyList, SortOptions},
         IntoPyBool, PyByteArray, PyBytes, PyBytesRef, PyCode, PyDictRef, PyStr, PyStrRef,
@@ -153,9 +153,7 @@ mod builtins {
                         .map_err(|e| vm.new_unicode_decode_error(e.to_string()))?,
                 };
 
-                let flags = args
-                    .flags
-                    .map_or(Ok(0), |v| int::try_to_primitive(v.as_bigint(), vm))?;
+                let flags = args.flags.map_or(Ok(0), |v| v.try_to_primitive(vm))?;
 
                 if (flags & ast::PY_COMPILE_FLAG_AST_ONLY).is_zero() {
                     #[cfg(not(feature = "rustpython-compiler"))]

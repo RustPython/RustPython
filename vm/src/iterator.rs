@@ -3,11 +3,10 @@
  */
 
 use crate::{
-    builtins::{int, PyBaseExceptionRef, PyInt},
+    builtins::{PyBaseExceptionRef, PyInt},
     protocol::{PyIter, PyIterReturn},
     IdProtocol, PyObjectRef, PyResult, TypeProtocol, VirtualMachine,
 };
-use num_traits::Signed;
 
 pub fn try_map<F, R>(vm: &VirtualMachine, iter: &PyIter, cap: usize, mut f: F) -> PyResult<Vec<R>>
 where
@@ -66,7 +65,7 @@ pub fn length_hint(vm: &VirtualMachine, iter: PyObjectRef) -> PyResult<Option<us
             }
         }
     };
-    let result = result
+    let hint = result
         .payload_if_subclass::<PyInt>(vm)
         .ok_or_else(|| {
             vm.new_type_error(format!(
@@ -74,12 +73,12 @@ pub fn length_hint(vm: &VirtualMachine, iter: PyObjectRef) -> PyResult<Option<us
                 result.class().name()
             ))
         })?
-        .as_bigint();
-    if result.is_negative() {
-        return Err(vm.new_value_error("__length_hint__() should return >= 0".to_owned()));
+        .try_to_primitive::<isize>(vm)?;
+    if hint.is_negative() {
+        Err(vm.new_value_error("__length_hint__() should return >= 0".to_owned()))
+    } else {
+        Ok(Some(hint as usize))
     }
-    let hint = int::try_to_primitive(result, vm)?;
-    Ok(Some(hint))
 }
 
 // pub fn seq_iter_method(obj: PyObjectRef) -> PySequenceIterator {

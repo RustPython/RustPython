@@ -52,8 +52,6 @@ class TestCase(unittest.TestCase):
             class C:
                 x: int = field(default=1, default_factory=int)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_field_repr(self):
         int_field = field(default=1, init=True, repr=False)
         int_field.name = "id"

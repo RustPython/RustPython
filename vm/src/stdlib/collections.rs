@@ -79,7 +79,7 @@ mod _collections {
             PyDeque::default().into_pyresult_with_type(vm, cls)
         }
 
-        #[pymethod(name = "__init__")]
+        #[pymethod(magic)]
         fn init(
             zelf: PyRef<Self>,
             PyDequeOptions { iterable, maxlen }: PyDequeOptions,

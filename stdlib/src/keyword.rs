@@ -1,8 +1,8 @@
 /// Testing if a string is a keyword.
-pub(crate) use decl::make_module;
+pub(crate) use keyword::make_module;
 
-#[pymodule(name = "keyword")]
-mod decl {
+#[pymodule]
+mod keyword {
     use crate::vm::{builtins::PyStr, PyObjectRef, VirtualMachine};
     use itertools::Itertools;
     use rustpython_parser::lexer;
