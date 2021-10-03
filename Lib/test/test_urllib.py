@@ -417,8 +417,6 @@ class urlopen_HttpTests(unittest.TestCase, FakeHTTPMixin, FakeFTPMixin):
         finally:
             self.unfakehttp()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipUnless(ssl, "ssl module required")
     def test_url_host_with_control_char_rejected(self):
         for char_no in list(range(0, 0x21)) + [0x7f]:
@@ -436,8 +434,6 @@ class urlopen_HttpTests(unittest.TestCase, FakeHTTPMixin, FakeFTPMixin):
             finally:
                 self.unfakehttp()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipUnless(ssl, "ssl module required")
     def test_url_host_with_newline_header_injection_rejected(self):
         self.fakehttp(b"HTTP/1.1 200 OK\r\n\r\nHello.")
