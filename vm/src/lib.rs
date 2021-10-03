@@ -85,6 +85,8 @@ pub use rustpython_common as common;
 #[cfg(feature = "rustpython-compiler")]
 pub use rustpython_compiler as compile;
 
+use crate::stdlib::errno::errors;
+
 #[doc(hidden)]
 pub mod __exports {
     pub use paste;

@@ -4,7 +4,7 @@ mod atexit;
 pub mod builtins;
 mod codecs;
 mod collections;
-mod errno;
+pub mod errno;
 mod functools;
 mod imp;
 pub mod io;
