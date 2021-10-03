@@ -71,7 +71,7 @@ Python unit tests can be run by compiling RustPython and running the test module
 $ cargo run --release -- -m test
 ```
 
-There are a few test options that are specially useful:
+There are a few test options that are especially useful:
 
 - `-j <n>` enables parallel testing (which is a lot faster), where `<n>` is the
 number of threads to be used, ideally the same as number of cores on your CPU.
