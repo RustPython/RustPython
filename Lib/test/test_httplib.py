@@ -1647,7 +1647,6 @@ class PersistenceTest(TestCase):
         self.assertEqual(conn.connections, 2)
 
 
-@unittest.skip("TODO: RUSTPYTHON")
 class HTTPSTest(TestCase):
 
     def setUp(self):
@@ -1658,11 +1657,15 @@ class HTTPSTest(TestCase):
         from test.ssl_servers import make_https_server
         return make_https_server(self, certfile=certfile)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_attributes(self):
         # simple test to check it's storing the timeout
         h = client.HTTPSConnection(HOST, TimeoutTest.PORT, timeout=30)
         self.assertEqual(h.timeout, 30)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_networked(self):
         # Default settings: requires a valid cert from a trusted CA
         import ssl
@@ -1687,6 +1690,8 @@ class HTTPSTest(TestCase):
             self.assertIn('nginx', resp.getheader('server'))
             resp.close()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @support.system_must_validate_cert
     def test_networked_trusted_by_default_cert(self):
         # Default settings: requires a valid cert from a trusted CA
@@ -1700,6 +1705,8 @@ class HTTPSTest(TestCase):
             h.close()
             self.assertIn('text/html', content_type)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_networked_good_cert(self):
         # We feed the server's cert as a validating cert
         import ssl
@@ -1733,6 +1740,8 @@ class HTTPSTest(TestCase):
             h.close()
             self.assertIn('nginx', server_string)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_networked_bad_cert(self):
         # We feed a "CA" cert that is unrelated to the server's cert
         import ssl
@@ -1745,6 +1754,8 @@ class HTTPSTest(TestCase):
                 h.request('GET', '/')
             self.assertEqual(exc_info.exception.reason, 'CERTIFICATE_VERIFY_FAILED')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_local_unknown_cert(self):
         # The custom cert isn't known to the default trust bundle
         import ssl
@@ -1767,6 +1778,8 @@ class HTTPSTest(TestCase):
         self.addCleanup(resp.close)
         self.assertEqual(resp.status, 404)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_local_bad_hostname(self):
         # The (valid) cert doesn't validate the HTTP hostname
         import ssl
@@ -1809,6 +1822,8 @@ class HTTPSTest(TestCase):
         with self.assertRaises(ssl.CertificateError):
             h.request('GET', '/')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipIf(not hasattr(client, 'HTTPSConnection'),
                      'http.client.HTTPSConnection not available')
     def test_host_port(self):
@@ -1829,6 +1844,8 @@ class HTTPSTest(TestCase):
             self.assertEqual(h, c.host)
             self.assertEqual(p, c.port)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_tls13_pha(self):
         import ssl
         if not ssl.HAS_TLSv1_3:
