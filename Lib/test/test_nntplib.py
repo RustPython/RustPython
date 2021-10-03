@@ -128,6 +128,8 @@ class NetworkedNNTPTestsMixin:
         for v in art_dict.values():
             self.assertIsInstance(v, (str, type(None)))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_xover(self):
         resp, count, first, last, name = self.server.group(self.GROUP_NAME)
         resp, lines = self.server.xover(last - 5, last)
