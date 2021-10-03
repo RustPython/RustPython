@@ -30,25 +30,7 @@ use std::fmt;
 use std::io::{Read, Write};
 use std::time::Instant;
 
-mod sys {
-    #![allow(non_camel_case_types, unused)]
-    use libc::{c_char, c_double, c_int, c_long, c_void};
-    pub use openssl_sys::*;
-    extern "C" {
-        pub fn OBJ_nid2obj(n: c_int) -> *mut ASN1_OBJECT;
-        pub fn X509_get_default_cert_file_env() -> *const c_char;
-        pub fn X509_get_default_cert_file() -> *const c_char;
-        pub fn X509_get_default_cert_dir_env() -> *const c_char;
-        pub fn X509_get_default_cert_dir() -> *const c_char;
-        #[cfg(ossl111)]
-        pub fn SSL_CTX_set_post_handshake_auth(ctx: *mut SSL_CTX, val: c_int);
-        pub fn RAND_add(buf: *const c_void, num: c_int, randomness: c_double);
-        pub fn COMP_get_type(meth: *const COMP_METHOD) -> i32;
-        pub fn d2i_X509_bio(b: *mut BIO, a: *mut *mut X509) -> *mut X509;
-    }
-    pub const ERR_LIB_ASN1: c_int = 13;
-    pub const ASN1_R_HEADER_TOO_LONG: c_int = 123;
-}
+use openssl_sys as sys;
 
 mod bio {
     //! based off rust-openssl's private `bio` module
