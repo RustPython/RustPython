@@ -334,8 +334,6 @@ class FileCookieJarTests(unittest.TestCase):
         c = LWPCookieJar(filename)
         self.assertEqual(c.filename, filename)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_constructor_with_path_like(self):
         filename = pathlib.Path(test.support.TESTFN)
         c = LWPCookieJar(filename)
@@ -345,8 +343,6 @@ class FileCookieJarTests(unittest.TestCase):
         c = LWPCookieJar(None)
         self.assertIsNone(c.filename)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_constructor_with_other_types(self):
         class A:
             pass
@@ -445,8 +441,6 @@ class CookieTests(unittest.TestCase):
 ##   just the 7 special TLD's listed in their spec. And folks rely on
 ##   that...
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_domain_return_ok(self):
         # test optimization: .domain_return_ok() should filter out most
         # domains in the CookieJar before we try to access them (because that
@@ -602,8 +596,6 @@ class CookieTests(unittest.TestCase):
         self.assertIn('expires', cookies)
         self.assertIn('version', cookies)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_expires(self):
         # if expires is in future, keep cookie...
         c = CookieJar()
@@ -752,8 +744,6 @@ class CookieTests(unittest.TestCase):
         req = urllib.request.Request("http://www.example.com")
         self.assertEqual(request_path(req), "/")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_path_prefix_match(self):
         pol = DefaultCookiePolicy()
         strict_ns_path_pol = DefaultCookiePolicy(strict_ns_set_path=True)
@@ -1005,8 +995,6 @@ class CookieTests(unittest.TestCase):
         c.add_cookie_header(req)
         self.assertFalse(req.has_header("Cookie"))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_domain_block(self):
         pol = DefaultCookiePolicy(
             rfc2965=True, blocked_domains=[".acme.com"])
@@ -1097,8 +1085,6 @@ class CookieTests(unittest.TestCase):
                     c._cookies["www.acme.com"]["/"]["foo2"].secure,
                     "secure cookie registered non-secure")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_secure_block(self):
         pol = DefaultCookiePolicy()
         c = CookieJar(policy=pol)
@@ -1127,8 +1113,6 @@ class CookieTests(unittest.TestCase):
         c.add_cookie_header(req)
         self.assertFalse(req.has_header("Cookie"))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_custom_secure_protocols(self):
         pol = DefaultCookiePolicy(secure_protocols=["foos"])
         c = CookieJar(policy=pol)
