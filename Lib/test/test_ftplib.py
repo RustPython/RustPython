@@ -1024,7 +1024,6 @@ class TestTimeouts(TestCase):
         finally:
             self.sock.close()
 
-    @unittest.skip("TODO: RUSTPYTHON; socket.{get,set}timeout")
     def testTimeoutDefault(self):
         # default -- use global socket timeout
         self.assertIsNone(socket.getdefaulttimeout())
@@ -1037,7 +1036,6 @@ class TestTimeouts(TestCase):
         self.evt.wait()
         ftp.close()
 
-    @unittest.skip("TODO: RUSTPYTHON; socket.{get,set}timeout")
     def testTimeoutNone(self):
         # no timeout -- do not use global socket timeout
         self.assertIsNone(socket.getdefaulttimeout())
