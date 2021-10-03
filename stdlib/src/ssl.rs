@@ -154,9 +154,16 @@ fn obj2txt(obj: &Asn1ObjectRef, no_name: bool) -> Option<String> {
         if buflen == 0 {
             return None;
         }
-        let mut buf = vec![0u8; buflen as usize];
-        let ret = sys::OBJ_obj2txt(buf.as_mut_ptr() as *mut libc::c_char, buflen, ptr, no_name);
+        let buflen = buflen as usize;
+        let mut buf = Vec::<u8>::with_capacity(buflen + 1);
+        let ret = sys::OBJ_obj2txt(
+            buf.as_mut_ptr() as *mut libc::c_char,
+            buf.capacity() as _,
+            ptr,
+            no_name,
+        );
         assert!(ret >= 0);
+        buf.set_len(buflen);
         String::from_utf8(buf)
             .unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned())
     };
