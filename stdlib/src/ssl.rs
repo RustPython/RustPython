@@ -130,7 +130,7 @@ fn nid2obj(nid: Nid) -> Option<Asn1Object> {
 fn obj2txt(obj: &Asn1ObjectRef, no_name: bool) -> Option<String> {
     let no_name = if no_name { 1 } else { 0 };
     let ptr = obj.as_ptr();
-    let s = unsafe {
+    let b = unsafe {
         let buflen = sys::OBJ_obj2txt(std::ptr::null_mut(), 0, ptr, no_name);
         assert!(buflen >= 0);
         if buflen == 0 {
@@ -145,11 +145,12 @@ fn obj2txt(obj: &Asn1ObjectRef, no_name: bool) -> Option<String> {
             no_name,
         );
         assert!(ret >= 0);
-        // SAFETY: set_len is safe when capacity is enoguh and all values are already initialized
+        // SAFETY: OBJ_obj2txt initialized the buffer successfully
         buf.set_len(buflen);
-        String::from_utf8(buf)
-            .unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned())
+        buf
     };
+    let s =
+        String::from_utf8(b).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned());
     Some(s)
 }
 
