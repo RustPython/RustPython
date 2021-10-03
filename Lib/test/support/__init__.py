@@ -17,7 +17,7 @@ import importlib
 import importlib.util
 import locale
 import logging.handlers
-# import nntplib
+import nntplib
 import os
 import platform
 import re
