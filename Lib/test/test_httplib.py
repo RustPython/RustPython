@@ -346,8 +346,6 @@ class HeaderTests(TestCase):
                 with self.assertRaisesRegex(ValueError, 'Invalid header'):
                     conn.putheader(name, value)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_headers_debuglevel(self):
         body = (
             b'HTTP/1.1 200 OK\r\n'
@@ -367,8 +365,6 @@ class HeaderTests(TestCase):
 
 
 class HttpMethodTests(TestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_invalid_method_names(self):
         methods = (
             'GET\r',
@@ -805,8 +801,6 @@ class BasicTest(TestCase):
         conn.request('GET', '/foo', body(), {'Content-Length': '11'})
         self.assertEqual(sock.data, expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_blocksize_request(self):
         """Check that request() respects the configured block size."""
         blocksize = 8  # For easy debugging.
@@ -819,8 +813,6 @@ class BasicTest(TestCase):
         body = sock.data.split(b"\r\n\r\n", 1)[1]
         self.assertEqual(body, expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_blocksize_send(self):
         """Check that send() respects the configured block size."""
         blocksize = 8  # For easy debugging.
@@ -1226,8 +1218,6 @@ class BasicTest(TestCase):
         # invalid URL as the value of the "Host:" header
         conn.putrequest('GET', '/', skip_host=1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_putrequest_override_encoding(self):
         """
         It should be possible to override the default encoding
@@ -1442,8 +1432,6 @@ class OfflineTest(TestCase):
     def test_responses(self):
         self.assertEqual(client.responses[client.NOT_FOUND], "Not Found")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_client_constants(self):
         # Make sure we don't break backward compatibility with 3.4
         expected = [
