@@ -51,14 +51,11 @@ impl<T> ArgIterable<T> {
     /// This operation may fail if an exception is raised while invoking the
     /// `__iter__` method of the iterable object.
     pub fn iter<'a>(&self, vm: &'a VirtualMachine) -> PyResult<PyIterIter<'a, T>> {
-        let iter_obj = match self.iterfn {
+        let iter = PyIter::new(match self.iterfn {
             Some(f) => f(self.iterable.clone(), vm)?,
             None => PySequenceIterator::new(self.iterable.clone()).into_object(vm),
-        };
-
-        let length_hint = vm.length_hint(iter_obj.clone())?;
-
-        Ok(PyIterIter::new(vm, PyIter::new(iter_obj), length_hint))
+        });
+        iter.iter(vm)
     }
 }
 

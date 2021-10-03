@@ -50,6 +50,16 @@ where
         };
         iternext(self.0.borrow(), vm)
     }
+
+    pub fn iter<'a, U>(&self, vm: &'a VirtualMachine) -> PyResult<PyIterIter<'a, U>> {
+        let obj = self.as_object();
+        let length_hint = vm.length_hint(obj.clone())?;
+        Ok(PyIterIter::new(
+            vm,
+            PyIter::<PyObjectRef>::new(obj.clone()),
+            length_hint,
+        ))
+    }
 }
 
 impl<T> Borrow<PyObjectRef> for PyIter<T>
