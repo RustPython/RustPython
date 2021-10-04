@@ -495,7 +495,7 @@ impl PyDictRef {
         let mut attrs = PyAttributes::default();
         for (key, value) in self {
             let key: PyStrRef = key.downcast().expect("dict has non-string keys");
-            attrs.insert(key.as_ref().to_owned(), value);
+            attrs.insert(key.as_str().to_owned(), value);
         }
         attrs
     }

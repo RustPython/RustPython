@@ -1110,7 +1110,7 @@ impl ExecutingFrame<'_> {
                     let all: Vec<PyStrRef> = vm.extract_elements(&all)?;
                     let all: Vec<String> = all
                         .into_iter()
-                        .map(|name| name.as_ref().to_owned())
+                        .map(|name| name.as_str().to_owned())
                         .collect();
                     Box::new(move |name| all.contains(&name.to_owned()))
                 } else {

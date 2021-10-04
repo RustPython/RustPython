@@ -60,7 +60,7 @@ fn _imp_create_builtin(spec: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 
     if let Ok(module) = sys_modules.get_item(name.clone(), vm) {
         Ok(module)
-    } else if let Some(make_module_func) = vm.state.module_inits.get(name.as_ref()) {
+    } else if let Some(make_module_func) = vm.state.module_inits.get(name.as_str()) {
         Ok(make_module_func(vm))
     } else {
         Ok(vm.ctx.none())
