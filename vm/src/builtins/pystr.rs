@@ -1297,6 +1297,7 @@ impl PyStrRef {
 }
 
 impl Hashable for PyStr {
+    #[inline]
     fn hash(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<hash::PyHash> {
         Ok(zelf.hash(vm))
     }

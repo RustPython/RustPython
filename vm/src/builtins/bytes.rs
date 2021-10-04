@@ -598,6 +598,7 @@ impl AsMapping for PyBytes {
 }
 
 impl Hashable for PyBytes {
+    #[inline]
     fn hash(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
         Ok(zelf.inner.hash(vm))
     }

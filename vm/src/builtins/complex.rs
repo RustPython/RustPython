@@ -428,6 +428,7 @@ impl Comparable for PyComplex {
 }
 
 impl Hashable for PyComplex {
+    #[inline]
     fn hash(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<hash::PyHash> {
         Ok(hash::hash_complex(&zelf.value))
     }

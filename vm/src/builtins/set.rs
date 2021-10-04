@@ -820,6 +820,7 @@ impl PyFrozenSet {
 }
 
 impl Hashable for PyFrozenSet {
+    #[inline]
     fn hash(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
         zelf.inner.hash(vm)
     }

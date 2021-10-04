@@ -413,10 +413,12 @@ pub trait GetDescriptor: PyValue {
         Self::descr_get(zelf, Some(obj), cls.into_option(), vm)
     }
 
+    #[inline]
     fn _zelf(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         zelf.try_into_value(vm)
     }
 
+    #[inline]
     fn _unwrap(
         zelf: PyObjectRef,
         obj: Option<PyObjectRef>,
@@ -427,6 +429,7 @@ pub trait GetDescriptor: PyValue {
         Ok((zelf, obj))
     }
 
+    #[inline]
     fn _check(
         zelf: PyObjectRef,
         obj: Option<PyObjectRef>,
@@ -451,6 +454,7 @@ pub trait GetDescriptor: PyValue {
         }
     }
 
+    #[inline]
     fn _cls_is<T>(cls: &Option<PyObjectRef>, other: &T) -> bool
     where
         T: IdProtocol,
