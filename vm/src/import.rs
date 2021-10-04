@@ -30,7 +30,7 @@ pub(crate) fn init_importlib(
         let importlib = import_frozen(vm, "_frozen_importlib")?;
         let impmod = import_builtin(vm, "_imp")?;
         let install = vm.get_attribute(importlib.clone(), "_install")?;
-        vm.invoke(&install, vec![vm.sys_module.clone(), impmod])?;
+        vm.invoke(&install, (vm.sys_module.clone(), impmod))?;
         Ok(importlib)
     })?;
     vm.import_func = vm.get_attribute(importlib.clone(), "__import__")?;

@@ -51,7 +51,7 @@ impl VirtualMachine {
         };
         if let Ok(excepthook) = vm.get_attribute(vm.sys_module.clone(), "excepthook") {
             let (exc_type, exc_val, exc_tb) = vm.split_exception(exc.clone());
-            if let Err(eh_exc) = vm.invoke(&excepthook, vec![exc_type, exc_val, exc_tb]) {
+            if let Err(eh_exc) = vm.invoke(&excepthook, (exc_type, exc_val, exc_tb)) {
                 write_fallback(&eh_exc, "Error in sys.excepthook:");
                 write_fallback(&exc, "Original exception was:");
             }

@@ -119,7 +119,7 @@ impl PyProperty {
         match value {
             Some(value) => {
                 if let Some(setter) = zelf.setter.read().as_ref() {
-                    vm.invoke(setter, vec![obj, value]).map(drop)
+                    vm.invoke(setter, (obj, value)).map(drop)
                 } else {
                     Err(vm.new_attribute_error("can't set attribute".to_owned()))
                 }

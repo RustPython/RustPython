@@ -494,7 +494,7 @@ fn do_sort(
     if let Some(ref key_func) = key_func {
         let mut items = values
             .iter()
-            .map(|x| Ok((x.clone(), vm.invoke(key_func, vec![x.clone()])?)))
+            .map(|x| Ok((x.clone(), vm.invoke(key_func, (x.clone(),))?)))
             .collect::<Result<Vec<_>, _>>()?;
         timsort::try_sort_by_gt(&mut items, |a, b| cmp(&a.1, &b.1))?;
         *values = items.into_iter().map(|(val, _)| val).collect();

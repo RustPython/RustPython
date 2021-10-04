@@ -29,7 +29,7 @@ mod _functools {
 
         let mut accumulator = start_value;
         for next_obj in iter {
-            accumulator = vm.invoke(&function, vec![accumulator, next_obj?])?
+            accumulator = vm.invoke(&function, (accumulator, next_obj?))?
         }
         Ok(accumulator)
     }

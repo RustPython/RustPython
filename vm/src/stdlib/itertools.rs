@@ -581,7 +581,7 @@ mod decl {
                 PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
             };
             let new_key = if let Some(ref kf) = self.key_func {
-                vm.invoke(kf, vec![new_value.clone()])?
+                vm.invoke(kf, (new_value.clone(),))?
             } else {
                 new_value.clone()
             };
@@ -862,7 +862,7 @@ mod decl {
                 let pred_value = if vm.is_none(predicate) {
                     obj.clone()
                 } else {
-                    vm.invoke(predicate, vec![obj.clone()])?
+                    vm.invoke(predicate, (obj.clone(),))?
                 };
 
                 if !pred_value.try_to_bool(vm)? {
@@ -934,7 +934,7 @@ mod decl {
                     };
                     match &zelf.binop {
                         None => vm._add(&value, &obj)?,
-                        Some(op) => vm.invoke(op, vec![value, obj])?,
+                        Some(op) => vm.invoke(op, (value, obj))?,
                     }
                 }
             };
