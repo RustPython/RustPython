@@ -418,6 +418,15 @@ impl<T: PyObjectPayload> PyRef<T> {
     }
 }
 
+impl<T> AsRef<PyObjectRef> for PyRef<T>
+where
+    T: PyObjectPayload,
+{
+    fn as_ref(&self) -> &PyObjectRef {
+        &self.obj
+    }
+}
+
 impl<T> Deref for PyRef<T>
 where
     T: PyObjectPayload,
