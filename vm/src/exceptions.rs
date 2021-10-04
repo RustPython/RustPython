@@ -958,6 +958,7 @@ pub(super) mod types {
         exceptions::invoke,
         function::FuncArgs,
         pyobject::IntoPyResult,
+        stdlib::errno::errors,
         PyObjectRef, PyRef, PyResult, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
@@ -1403,28 +1404,24 @@ pub(super) mod types {
                     Ok(errno) => {
                         let excs = &vm.ctx.exceptions;
                         let error = match errno {
-                            crate::errors::EWOULDBLOCK => Some(excs.blocking_io_error.clone()),
-                            crate::errors::EALREADY => Some(excs.blocking_io_error.clone()),
-                            crate::errors::EINPROGRESS => Some(excs.blocking_io_error.clone()),
-                            crate::errors::EPIPE => Some(excs.broken_pipe_error.clone()),
-                            crate::errors::ESHUTDOWN => Some(excs.broken_pipe_error.clone()),
-                            crate::errors::ECHILD => Some(excs.child_process_error.clone()),
-                            crate::errors::ECONNABORTED => {
-                                Some(excs.connection_aborted_error.clone())
-                            }
-                            crate::errors::ECONNREFUSED => {
-                                Some(excs.connection_refused_error.clone())
-                            }
-                            crate::errors::ECONNRESET => Some(excs.connection_reset_error.clone()),
-                            crate::errors::EEXIST => Some(excs.file_exists_error.clone()),
-                            crate::errors::ENOENT => Some(excs.file_not_found_error.clone()),
-                            crate::errors::EISDIR => Some(excs.is_a_directory_error.clone()),
-                            crate::errors::ENOTDIR => Some(excs.not_a_directory_error.clone()),
-                            crate::errors::EINTR => Some(excs.interrupted_error.clone()),
-                            crate::errors::EACCES => Some(excs.permission_error.clone()),
-                            crate::errors::EPERM => Some(excs.permission_error.clone()),
-                            crate::errors::ESRCH => Some(excs.process_lookup_error.clone()),
-                            crate::errors::ETIMEDOUT => Some(excs.timeout_error.clone()),
+                            errors::EWOULDBLOCK => Some(excs.blocking_io_error.clone()),
+                            errors::EALREADY => Some(excs.blocking_io_error.clone()),
+                            errors::EINPROGRESS => Some(excs.blocking_io_error.clone()),
+                            errors::EPIPE => Some(excs.broken_pipe_error.clone()),
+                            errors::ESHUTDOWN => Some(excs.broken_pipe_error.clone()),
+                            errors::ECHILD => Some(excs.child_process_error.clone()),
+                            errors::ECONNABORTED => Some(excs.connection_aborted_error.clone()),
+                            errors::ECONNREFUSED => Some(excs.connection_refused_error.clone()),
+                            errors::ECONNRESET => Some(excs.connection_reset_error.clone()),
+                            errors::EEXIST => Some(excs.file_exists_error.clone()),
+                            errors::ENOENT => Some(excs.file_not_found_error.clone()),
+                            errors::EISDIR => Some(excs.is_a_directory_error.clone()),
+                            errors::ENOTDIR => Some(excs.not_a_directory_error.clone()),
+                            errors::EINTR => Some(excs.interrupted_error.clone()),
+                            errors::EACCES => Some(excs.permission_error.clone()),
+                            errors::EPERM => Some(excs.permission_error.clone()),
+                            errors::ESRCH => Some(excs.process_lookup_error.clone()),
+                            errors::ETIMEDOUT => Some(excs.timeout_error.clone()),
                             _ => None,
                         };
 
