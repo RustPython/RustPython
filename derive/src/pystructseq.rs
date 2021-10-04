@@ -1,11 +1,8 @@
-use super::Diagnostic;
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::DeriveInput;
+use syn::{DeriveInput, Result};
 
-pub(crate) fn impl_pystruct_sequence(
-    input: DeriveInput,
-) -> std::result::Result<TokenStream, Diagnostic> {
+pub(crate) fn impl_pystruct_sequence(input: DeriveInput) -> Result<TokenStream> {
     let fields = if let syn::Data::Struct(ref struc) = input.data {
         &struc.fields
     } else {
