@@ -29,9 +29,6 @@ where
     pub fn new(obj: O) -> Self {
         Self(obj)
     }
-    pub fn as_object(&self) -> &PyObjectRef {
-        self.0.borrow()
-    }
     pub fn next(&self, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let iternext = {
             self.0
@@ -52,7 +49,7 @@ where
         &'b self,
         vm: &'a VirtualMachine,
     ) -> PyResult<PyIterIter<'a, U, &'b PyObjectRef>> {
-        let length_hint = vm.length_hint(self.as_object().clone())?;
+        let length_hint = vm.length_hint(self.as_ref().clone())?;
         Ok(PyIterIter::new(vm, self.0.borrow(), length_hint))
     }
 

@@ -1349,7 +1349,7 @@ impl VirtualMachine {
             }
         }
 
-        let mut results = PyIterIter::new(self, iter.as_object(), cap)
+        let mut results = PyIterIter::new(self, iter.as_ref(), cap)
             .map(|element| f(element?))
             .collect::<PyResult<Vec<_>>>()?;
         results.shrink_to_fit();
