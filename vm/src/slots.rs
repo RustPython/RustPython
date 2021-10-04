@@ -161,6 +161,7 @@ pub trait SlotConstructor: PyValue {
 
 #[pyimpl]
 pub trait SlotDestructor: PyValue {
+    #[inline] // for __del__
     #[pyslot]
     fn slot_del(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if let Some(zelf) = zelf.downcast_ref() {
@@ -170,9 +171,9 @@ pub trait SlotDestructor: PyValue {
         }
     }
 
-    #[pymethod(magic)]
-    fn __del__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<()> {
-        Self::del(&zelf, vm)
+    #[pymethod]
+    fn __del__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        Self::slot_del(&zelf, vm)
     }
 
     fn del(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<()>;
