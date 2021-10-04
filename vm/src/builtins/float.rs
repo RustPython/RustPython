@@ -165,7 +165,7 @@ impl SlotConstructor for PyFloat {
             OptionalArg::Present(val) => {
                 let val = if cls.is(&vm.ctx.types.float_type) {
                     match val.downcast_exact::<PyFloat>(vm) {
-                        Ok(f) => return Ok(f.into_object()),
+                        Ok(f) => return Ok(f.into()),
                         Err(val) => val,
                     }
                 } else {

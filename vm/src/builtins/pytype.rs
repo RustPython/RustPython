@@ -187,7 +187,7 @@ impl PyType {
                         let new = vm
                             .get_attribute_opt(cls.as_object().clone(), "__new__")?
                             .unwrap();
-                        args.prepend_arg(cls.into_object());
+                        args.prepend_arg(cls.into());
                         vm.invoke(&new, args)
                     };
                 update_slot!(new, func);
@@ -493,11 +493,8 @@ impl PyType {
 
     #[pymethod]
     fn mro(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_list(
-            zelf.iter_mro()
-                .map(|cls| cls.clone().into_object())
-                .collect(),
-        )
+        vm.ctx
+            .new_list(zelf.iter_mro().map(|cls| cls.clone().into()).collect())
     }
     #[pyslot]
     fn slot_new(metatype: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -505,7 +502,7 @@ impl PyType {
 
         let is_type_type = metatype.is(&vm.ctx.types.type_type);
         if is_type_type && args.args.len() == 1 && args.kwargs.is_empty() {
-            return Ok(args.args[0].clone_class().into_object());
+            return Ok(args.args[0].clone_class().into());
         }
 
         if args.args.len() != 3 {
@@ -632,16 +629,12 @@ impl PyType {
 
         if let Some(initter) = typ.get_super_attr("__init_subclass__") {
             let initter = vm
-                .call_get_descriptor_specific(
-                    initter.clone(),
-                    None,
-                    Some(typ.clone().into_object()),
-                )
+                .call_get_descriptor_specific(initter.clone(), None, Some(typ.clone().into()))
                 .unwrap_or(Ok(initter))?;
             vm.invoke(&initter, kwargs)?;
         };
 
-        Ok(typ.into_object())
+        Ok(typ.into())
     }
 
     #[pyproperty(magic)]
@@ -703,8 +696,8 @@ impl SlotGetattro for PyType {
                 .is_some()
             {
                 if let Some(descr_get) = attr_class.mro_find_map(|cls| cls.slots.descr_get.load()) {
-                    let mcl = PyLease::into_pyref(mcl).into_object();
-                    return descr_get(attr.clone(), Some(zelf.into_object()), Some(mcl), vm);
+                    let mcl = PyLease::into_pyref(mcl).into();
+                    return descr_get(attr.clone(), Some(zelf.into()), Some(mcl), vm);
                 }
             }
         }
@@ -714,7 +707,7 @@ impl SlotGetattro for PyType {
         if let Some(ref attr) = zelf_attr {
             if let Some(descr_get) = attr.class().mro_find_map(|cls| cls.slots.descr_get.load()) {
                 drop(mcl);
-                return descr_get(attr.clone(), None, Some(zelf.into_object()), vm);
+                return descr_get(attr.clone(), None, Some(zelf.into()), vm);
             }
         }
 
@@ -722,7 +715,7 @@ impl SlotGetattro for PyType {
             Ok(cls_attr)
         } else if let Some(attr) = mcl_attr {
             drop(mcl);
-            vm.call_if_get_descriptor(attr, zelf.into_object())
+            vm.call_if_get_descriptor(attr, zelf.into())
         } else {
             Err(vm.new_attribute_error(format!(
                 "type object '{}' has no attribute '{}'",
@@ -743,7 +736,7 @@ impl SlotSetattro for PyType {
         if let Some(attr) = zelf.get_class_attr(attr_name.as_str()) {
             let descr_set = attr.class().mro_find_map(|cls| cls.slots.descr_set.load());
             if let Some(descriptor) = descr_set {
-                return descriptor(attr, zelf.clone().into_object(), value, vm);
+                return descriptor(attr, zelf.clone().into(), value, vm);
             }
         }
         let assign = value.is_some();
@@ -756,7 +749,7 @@ impl SlotSetattro for PyType {
             if prev_value.is_none() {
                 return Err(vm.new_exception(
                     vm.ctx.exceptions.attribute_error.clone(),
-                    vec![attr_name.into_object()],
+                    vec![attr_name.into()],
                 ));
             }
         }
@@ -810,7 +803,7 @@ fn subtype_get_dict(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
                 cls.name()
             )))
         })?,
-        None => object::object_get_dict(obj, vm)?.into_object(),
+        None => object::object_get_dict(obj, vm)?.into(),
     };
     Ok(ret)
 }

@@ -268,7 +268,7 @@ mod _sre {
                                 OptionalArg::Present(vm.ctx.new_ascii_literal(ascii!(""))),
                                 vm,
                             )?
-                            .into_object()
+                            .into()
                         };
 
                         matchlist.push(item);
@@ -296,7 +296,7 @@ mod _sre {
                 must_advance: AtomicCell::new(false),
             }
             .into_ref(vm);
-            let search = vm.get_method(scanner.into_object(), "search").unwrap()?;
+            let search = vm.get_method(scanner.into(), "search").unwrap()?;
             let search = ArgCallable::try_from_object(vm, search)?;
             let iterator = PyCallableIterator::new(search, vm.ctx.none());
             Ok(iterator)
@@ -613,8 +613,8 @@ mod _sre {
                 .and_then(|i| self.pattern.indexgroup.get(i).cloned().flatten())
         }
         #[pyproperty]
-        fn re(&self) -> PyObjectRef {
-            self.pattern.clone().into_object()
+        fn re(&self) -> PyRef<Pattern> {
+            self.pattern.clone()
         }
         #[pyproperty]
         fn string(&self) -> PyObjectRef {

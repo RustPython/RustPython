@@ -839,7 +839,7 @@ pub(crate) mod _struct {
                 if let Some(buf) = buf.get(offset..offset + size) {
                     zelf.format_spec
                         .unpack(buf, vm)
-                        .map(|x| PyIterReturn::Return(x.into_object()))
+                        .map(|x| PyIterReturn::Return(x.into()))
                 } else {
                     Ok(PyIterReturn::StopIteration(None))
                 }

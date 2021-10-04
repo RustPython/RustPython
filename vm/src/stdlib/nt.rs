@@ -239,7 +239,7 @@ pub(crate) mod module {
 
         let path = make_widestring(path.as_str())?;
 
-        let argv = vm.extract_elements_func(argv.as_object(), |obj| {
+        let argv = vm.extract_elements_func(argv.as_ref(), |obj| {
             let arg = PyStrRef::try_from_object(vm, obj)?;
             make_widestring(arg.as_str())
         })?;

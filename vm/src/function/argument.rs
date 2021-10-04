@@ -1,7 +1,7 @@
 use super::IntoFuncArgs;
 use crate::{
     builtins::iter::PySequenceIterator, protocol::PyIter, protocol::PyIterIter, PyObjectRef,
-    PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
+    PyObjectWrap, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
 };
 use std::marker::PhantomData;
 
@@ -15,9 +15,16 @@ impl ArgCallable {
     pub fn invoke(&self, args: impl IntoFuncArgs, vm: &VirtualMachine) -> PyResult {
         vm.invoke(&self.obj, args)
     }
+}
 
-    #[inline]
-    pub fn into_object(self) -> PyObjectRef {
+impl AsRef<PyObjectRef> for ArgCallable {
+    fn as_ref(&self) -> &PyObjectRef {
+        &self.obj
+    }
+}
+
+impl PyObjectWrap for ArgCallable {
+    fn into_object(self) -> PyObjectRef {
         self.obj
     }
 }

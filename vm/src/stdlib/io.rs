@@ -2418,7 +2418,7 @@ mod _io {
                 let start_of_stream = cookie.start_pos == 0 && cookie.dec_flags == 0;
                 reset_encoder(encoder, start_of_stream)?;
             }
-            Ok(cookie_obj.into_object())
+            Ok(cookie_obj.into())
         }
 
         #[pymethod]

@@ -38,7 +38,7 @@ pub(crate) fn impl_pystruct_sequence(input: DeriveInput) -> Result<TokenStream> 
         }
         impl ::rustpython_vm::function::IntoPyObject for #ty {
             fn into_pyobject(self, vm: &::rustpython_vm::VirtualMachine) -> ::rustpython_vm::PyObjectRef {
-                ::rustpython_vm::PyStructSequence::into_struct_sequence(self, vm).into_object()
+                ::rustpython_vm::PyStructSequence::into_struct_sequence(self, vm).into()
             }
         }
     };

@@ -100,7 +100,7 @@ impl PyAsyncGen {
             aclose: true,
             state: AtomicCell::new(AwaitableState::Init),
             value: (
-                vm.ctx.exceptions.generator_exit.clone().into_object(),
+                vm.ctx.exceptions.generator_exit.clone().into(),
                 vm.ctx.none(),
                 vm.ctx.none(),
             ),

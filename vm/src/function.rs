@@ -435,7 +435,7 @@ impl<T> AsRef<[T]> for PosArgs<T> {
 impl<T: PyValue> PosArgs<PyRef<T>> {
     pub fn into_tuple(self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx
-            .new_tuple(self.0.into_iter().map(PyRef::into_object).collect())
+            .new_tuple(self.0.into_iter().map(Into::into).collect())
     }
 }
 

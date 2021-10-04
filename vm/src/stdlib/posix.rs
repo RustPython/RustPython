@@ -774,7 +774,7 @@ pub mod module {
     ) -> PyResult<()> {
         let path = path.into_cstring(vm)?;
 
-        let argv = vm.extract_elements_func(argv.as_object(), |obj| {
+        let argv = vm.extract_elements_func(argv.as_ref(), |obj| {
             PyStrRef::try_from_object(vm, obj)?.to_cstring(vm)
         })?;
         let argv: Vec<&CStr> = argv.iter().map(|entry| entry.as_c_str()).collect();
@@ -802,7 +802,7 @@ pub mod module {
     ) -> PyResult<()> {
         let path = path.into_cstring(vm)?;
 
-        let argv = vm.extract_elements_func(argv.as_object(), |obj| {
+        let argv = vm.extract_elements_func(argv.as_ref(), |obj| {
             PyStrRef::try_from_object(vm, obj)?.to_cstring(vm)
         })?;
         let argv: Vec<&CStr> = argv.iter().map(|entry| entry.as_c_str()).collect();

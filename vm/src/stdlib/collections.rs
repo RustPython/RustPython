@@ -521,24 +521,12 @@ mod _collections {
 
         #[pymethod(magic)]
         fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-            let cls = zelf.clone_class().into_object();
-            Ok(match zelf.maxlen {
-                Some(v) => vm.ctx.new_tuple(vec![
-                    cls,
-                    vm.ctx.new_tuple(vec![
-                        vm.ctx.empty_tuple.clone().into_object(),
-                        vm.ctx.new_int(v),
-                    ]),
-                    vm.ctx.none(),
-                    PyDequeIterator::new(zelf).into_object(vm),
-                ]),
-                None => vm.ctx.new_tuple(vec![
-                    cls,
-                    vm.ctx.empty_tuple.clone().into_object(),
-                    vm.ctx.none(),
-                    PyDequeIterator::new(zelf).into_object(vm),
-                ]),
-            })
+            let cls = zelf.clone_class();
+            let value = match zelf.maxlen {
+                Some(v) => vm.new_pyobj((vm.ctx.empty_tuple.clone(), v)),
+                None => vm.ctx.empty_tuple.clone().into(),
+            };
+            Ok(vm.new_pyobj((cls, value, vm.ctx.none(), PyDequeIterator::new(zelf))))
         }
     }
 

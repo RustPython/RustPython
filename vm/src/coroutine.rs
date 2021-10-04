@@ -154,7 +154,7 @@ impl Coro {
         let result = self.run_with_context(gen, vm, |f| {
             f.gen_throw(
                 vm,
-                vm.ctx.exceptions.generator_exit.clone().into_object(),
+                vm.ctx.exceptions.generator_exit.clone().into(),
                 vm.ctx.none(),
                 vm.ctx.none(),
             )

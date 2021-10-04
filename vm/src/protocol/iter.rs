@@ -1,7 +1,7 @@
 use crate::{
     builtins::iter::PySequenceIterator,
     function::{IntoPyObject, IntoPyResult},
-    PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
+    PyObjectRef, PyObjectWrap, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
 };
 use std::borrow::Borrow;
 use std::ops::Deref;
@@ -15,9 +15,6 @@ where
     O: Borrow<PyObjectRef>;
 
 impl PyIter<PyObjectRef> {
-    pub fn into_object(self) -> PyObjectRef {
-        self.0
-    }
     pub fn check(obj: &PyObjectRef) -> bool {
         obj.class()
             .mro_find_map(|x| x.slots.iternext.load())
@@ -75,11 +72,17 @@ impl PyIter<PyObjectRef> {
     }
 }
 
-impl<O> Borrow<PyObjectRef> for PyIter<O>
+impl PyObjectWrap for PyIter<PyObjectRef> {
+    fn into_object(self) -> PyObjectRef {
+        self.0
+    }
+}
+
+impl<O> AsRef<PyObjectRef> for PyIter<O>
 where
     O: Borrow<PyObjectRef>,
 {
-    fn borrow(&self) -> &PyObjectRef {
+    fn as_ref(&self) -> &PyObjectRef {
         self.0.borrow()
     }
 }
@@ -96,7 +99,7 @@ where
 
 impl IntoPyObject for PyIter<PyObjectRef> {
     fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
-        self.into_object()
+        self.into()
     }
 }
 
@@ -125,9 +128,7 @@ impl TryFromObject for PyIter<PyObjectRef> {
                 format!("'{}' object is not iterable", iter_target.class().name())
             })?;
             Ok(Self(
-                PySequenceIterator::new(iter_target)
-                    .into_ref(vm)
-                    .into_object(),
+                PySequenceIterator::new(iter_target).into_ref(vm).into(),
             ))
         }
     }

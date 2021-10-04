@@ -121,7 +121,7 @@ impl SlotConstructor for PyComplex {
                 let val = if cls.is(&vm.ctx.types.complex_type) && imag_missing {
                     match val.downcast_exact::<PyComplex>(vm) {
                         Ok(c) => {
-                            return Ok(c.into_object());
+                            return Ok(c.into());
                         }
                         Err(val) => val,
                     }

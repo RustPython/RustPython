@@ -51,7 +51,7 @@ impl PyCodec {
     }
 
     pub fn is_text_codec(&self, vm: &VirtualMachine) -> PyResult<bool> {
-        let is_text = vm.get_attribute_opt(self.0.clone().into_object(), "_is_text_encoding")?;
+        let is_text = vm.get_attribute_opt(self.0.clone().into(), "_is_text_encoding")?;
         is_text.map_or(Ok(true), |is_text| is_text.try_to_bool(vm))
     }
 
@@ -62,7 +62,7 @@ impl PyCodec {
         vm: &VirtualMachine,
     ) -> PyResult {
         let args = match errors {
-            Some(errors) => vec![obj, errors.into_object()],
+            Some(errors) => vec![obj, errors.into()],
             None => vec![obj],
         };
         let res = vm.invoke(self.get_encode_func(), args)?;
@@ -84,7 +84,7 @@ impl PyCodec {
         vm: &VirtualMachine,
     ) -> PyResult {
         let args = match errors {
-            Some(errors) => vec![obj, errors.into_object()],
+            Some(errors) => vec![obj, errors.into()],
             None => vec![obj],
         };
         let res = vm.invoke(self.get_decode_func(), args)?;
@@ -105,7 +105,7 @@ impl PyCodec {
         vm: &VirtualMachine,
     ) -> PyResult {
         let args = match errors {
-            Some(e) => vec![e.into_object()],
+            Some(e) => vec![e.into()],
             None => vec![],
         };
         vm.call_method(self.0.as_object(), "incrementalencoder", args)
@@ -117,7 +117,7 @@ impl PyCodec {
         vm: &VirtualMachine,
     ) -> PyResult {
         let args = match errors {
-            Some(e) => vec![e.into_object()],
+            Some(e) => vec![e.into()],
             None => vec![],
         };
         vm.call_method(self.0.as_object(), "incrementaldecoder", args)
@@ -138,7 +138,7 @@ impl TryFromObject for PyCodec {
 impl IntoPyObject for PyCodec {
     #[inline]
     fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
-        self.0.into_object()
+        self.0.into()
     }
 }
 
@@ -271,7 +271,7 @@ impl CodecsRegistry {
     ) -> PyResult<PyBytesRef> {
         let codec = self._lookup_text_encoding(encoding, "codecs.encode()", vm)?;
         codec
-            .encode(obj.into_object(), errors, vm)?
+            .encode(obj.into(), errors, vm)?
             .downcast()
             .map_err(|obj| {
                 vm.new_type_error(format!(

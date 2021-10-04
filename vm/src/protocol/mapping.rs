@@ -4,10 +4,9 @@ use crate::{
         PyDictRef, PyList,
     },
     function::IntoPyObject,
-    IdProtocol, PyObjectRef, PyResult, TryFromObject, TypeProtocol, VirtualMachine,
+    IdProtocol, PyObjectRef, PyObjectWrap, PyResult, TryFromObject, TypeProtocol, VirtualMachine,
 };
 use std::borrow::Borrow;
-use std::ops::Deref;
 
 // Mapping protocol
 // https://docs.python.org/3/c-api/mapping.html
@@ -27,10 +26,6 @@ where
     T: Borrow<PyObjectRef>;
 
 impl PyMapping<PyObjectRef> {
-    pub fn into_object(self) -> PyObjectRef {
-        self.0
-    }
-
     pub fn check(obj: &PyObjectRef) -> bool {
         obj.class()
             .mro_find_map(|x| x.slots.as_mapping.load())
@@ -101,28 +96,24 @@ where
     }
 }
 
-impl<T> Borrow<PyObjectRef> for PyMapping<T>
-where
-    T: Borrow<PyObjectRef>,
-{
-    fn borrow(&self) -> &PyObjectRef {
-        self.0.borrow()
+impl PyObjectWrap for PyMapping<PyObjectRef> {
+    fn into_object(self) -> PyObjectRef {
+        self.0
     }
 }
 
-impl<T> Deref for PyMapping<T>
+impl<O> AsRef<PyObjectRef> for PyMapping<O>
 where
-    T: Borrow<PyObjectRef>,
+    O: Borrow<PyObjectRef>,
 {
-    type Target = PyObjectRef;
-    fn deref(&self) -> &Self::Target {
+    fn as_ref(&self) -> &PyObjectRef {
         self.0.borrow()
     }
 }
 
 impl IntoPyObject for PyMapping<PyObjectRef> {
     fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
-        self.into_object()
+        self.into()
     }
 }
 
