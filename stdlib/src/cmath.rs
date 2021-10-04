@@ -123,7 +123,7 @@ mod cmath {
         z.to_complex().tanh()
     }
 
-    #[pyfunction]
+   #[pyfunction]
     fn sinh(z: IntoPyComplex) -> Complex64 {
         z.to_complex().sinh()
     }
@@ -133,7 +133,7 @@ mod cmath {
         z.to_complex().cosh()
     }
 
-    #[pyfunction]
+   #[pyfunction]
     fn asinh(z: IntoPyComplex) -> Complex64 {
         z.to_complex().asinh()
     }
