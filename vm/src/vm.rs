@@ -21,8 +21,8 @@ use crate::{
     frame::{ExecutionResult, Frame, FrameRef},
     frozen,
     function::{FuncArgs, IntoFuncArgs},
-    import, iterator,
-    protocol::PyIterReturn,
+    import,
+    protocol::{PyIterIter, PyIterReturn},
     scope::Scope,
     signal::NSIG,
     slots::PyComparisonOp,
@@ -800,9 +800,13 @@ impl VirtualMachine {
         self.new_exception_msg(memory_error_type, msg)
     }
 
-    pub fn new_stop_iteration(&self) -> PyBaseExceptionRef {
-        let stop_iteration_type = self.ctx.exceptions.stop_iteration.clone();
-        self.new_exception_empty(stop_iteration_type)
+    pub fn new_stop_iteration(&self, value: Option<PyObjectRef>) -> PyBaseExceptionRef {
+        let args = if let Some(value) = value {
+            vec![value]
+        } else {
+            Vec::new()
+        };
+        self.new_exception(self.ctx.exceptions.stop_iteration.clone(), args)
     }
 
     #[track_caller]
@@ -1280,14 +1284,7 @@ impl VirtualMachine {
                 .map(|obj| func(obj.clone()))
                 .collect()
         } else {
-            let iter = value.clone().get_iter(self)?;
-            let cap = match iterator::length_hint(self, value.clone()) {
-                Err(e) if e.class().is(&self.ctx.exceptions.runtime_error) => return Err(e),
-                Ok(Some(value)) => value,
-                // Use a power of 2 as a default capacity.
-                _ => 4,
-            };
-            iterator::try_map(self, &iter, cap, |obj| func(obj))
+            self.map_pyiter(value, |obj| func(obj))
         }
     }
 
@@ -1328,18 +1325,35 @@ impl VirtualMachine {
             ref t @ PyTuple => Ok(t.as_slice().iter().cloned().map(f).collect()),
             // TODO: put internal iterable type
             obj => {
-                let iter = obj.clone().get_iter(self)?;
-                let cap = match iterator::length_hint(self, obj.clone()) {
-                    Err(e) if e.class().is(&self.ctx.exceptions.runtime_error) => {
-                        return Ok(Err(e))
-                    }
-                    Ok(Some(value)) => value,
-                    // Use a power of 2 as a default capacity.
-                    _ => 4,
-                };
-                Ok(iterator::try_map(self, &iter, cap, f))
+                Ok(self.map_pyiter(obj, f))
             }
         })
+    }
+
+    fn map_pyiter<F, R>(&self, value: &PyObjectRef, mut f: F) -> PyResult<Vec<R>>
+    where
+        F: FnMut(PyObjectRef) -> PyResult<R>,
+    {
+        let iter = value.clone().get_iter(self)?;
+        let cap = match self.length_hint(value.clone()) {
+            Err(e) if e.class().is(&self.ctx.exceptions.runtime_error) => return Err(e),
+            Ok(Some(value)) => Some(value),
+            // Use a power of 2 as a default capacity.
+            _ => None,
+        };
+        // TODO: fix extend to do this check (?), see test_extend in Lib/test/list_tests.py,
+        // https://github.com/python/cpython/blob/v3.9.0/Objects/listobject.c#L922-L928
+        if let Some(cap) = cap {
+            if cap >= isize::max_value() as usize {
+                return Ok(Vec::new());
+            }
+        }
+
+        let mut results = PyIterIter::new(self, iter.as_object(), cap)
+            .map(|element| f(element?))
+            .collect::<PyResult<Vec<_>>>()?;
+        results.shrink_to_fit();
+        Ok(results)
     }
 
     // get_attribute should be used for full attribute access (usually from user code).
@@ -1920,6 +1934,52 @@ impl VirtualMachine {
                 obj.class().name()
             )))
         })
+    }
+
+    pub fn length_hint(&self, iter: PyObjectRef) -> PyResult<Option<usize>> {
+        if let Some(len) = self.obj_len_opt(&iter) {
+            match len {
+                Ok(len) => return Ok(Some(len)),
+                Err(e) => {
+                    if !e.isinstance(&self.ctx.exceptions.type_error) {
+                        return Err(e);
+                    }
+                }
+            }
+        }
+        let hint = match self.get_method(iter, "__length_hint__") {
+            Some(hint) => hint?,
+            None => return Ok(None),
+        };
+        let result = match self.invoke(&hint, ()) {
+            Ok(res) => {
+                if res.is(&self.ctx.not_implemented) {
+                    return Ok(None);
+                }
+                res
+            }
+            Err(e) => {
+                return if e.isinstance(&self.ctx.exceptions.type_error) {
+                    Ok(None)
+                } else {
+                    Err(e)
+                }
+            }
+        };
+        let hint = result
+            .payload_if_subclass::<PyInt>(self)
+            .ok_or_else(|| {
+                self.new_type_error(format!(
+                    "'{}' object cannot be interpreted as an integer",
+                    result.class().name()
+                ))
+            })?
+            .try_to_primitive::<isize>(self)?;
+        if hint.is_negative() {
+            Err(self.new_value_error("__length_hint__() should return >= 0".to_owned()))
+        } else {
+            Ok(Some(hint as usize))
+        }
     }
 
     /// Checks that the multiplication is able to be performed. On Ok returns the

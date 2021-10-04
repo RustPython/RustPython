@@ -1,7 +1,6 @@
 use super::PyTypeRef;
 use crate::{
     function::PosArgs,
-    iterator,
     protocol::{PyIter, PyIterReturn},
     slots::{IteratorIterable, SlotConstructor, SlotIterator},
     PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
@@ -38,7 +37,7 @@ impl PyMap {
     #[pymethod(magic)]
     fn length_hint(&self, vm: &VirtualMachine) -> PyResult<usize> {
         self.iterators.iter().try_fold(0, |prev, cur| {
-            let cur = iterator::length_hint(vm, cur.as_object().clone())?.unwrap_or(0);
+            let cur = vm.length_hint(cur.as_object().clone())?.unwrap_or(0);
             let max = std::cmp::max(prev, cur);
             Ok(max)
         })
@@ -58,7 +57,7 @@ impl SlotIterator for PyMap {
         }
 
         // the mapper itself can raise StopIteration which does stop the map iteration
-        PyIterReturn::from_result(vm.invoke(&zelf.mapper, next_objs), vm)
+        PyIterReturn::from_pyresult(vm.invoke(&zelf.mapper, next_objs), vm)
     }
 }
 

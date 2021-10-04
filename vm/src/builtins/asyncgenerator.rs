@@ -1,7 +1,7 @@
 use super::{PyCode, PyStrRef, PyTypeRef};
 use crate::{
     builtins::PyBaseExceptionRef,
-    coroutine::{Coro, Variant},
+    coroutine::Coro,
     frame::FrameRef,
     function::OptionalArg,
     protocol::PyIterReturn,
@@ -34,7 +34,7 @@ impl PyAsyncGen {
 
     pub fn new(frame: FrameRef, name: PyStrRef) -> Self {
         PyAsyncGen {
-            inner: Coro::new(frame, Variant::AsyncGen, name),
+            inner: Coro::new(frame, name),
             running_async: AtomicCell::new(false),
         }
     }
@@ -50,8 +50,8 @@ impl PyAsyncGen {
     }
 
     #[pymethod(magic)]
-    fn repr(zelf: PyRef<Self>) -> String {
-        zelf.inner.repr(zelf.get_id())
+    fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> String {
+        zelf.inner.repr(zelf.as_object(), zelf.get_id(), vm)
     }
 
     #[pymethod(magic)]
@@ -138,24 +138,24 @@ impl PyValue for PyAsyncGenWrappedValue {
 impl PyAsyncGenWrappedValue {}
 
 impl PyAsyncGenWrappedValue {
-    fn unbox(ag: &PyAsyncGen, val: PyResult, vm: &VirtualMachine) -> PyResult {
-        if let Err(ref e) = val {
-            if e.isinstance(&vm.ctx.exceptions.stop_async_iteration)
-                || e.isinstance(&vm.ctx.exceptions.generator_exit)
-            {
-                ag.inner.closed.store(true);
-            }
+    fn unbox(ag: &PyAsyncGen, val: PyResult<PyIterReturn>, vm: &VirtualMachine) -> PyResult {
+        let (closed, async_done) = match &val {
+            Ok(PyIterReturn::StopIteration(_)) => (true, true),
+            Err(e) if e.isinstance(&vm.ctx.exceptions.generator_exit) => (true, true),
+            Err(_) => (false, true),
+            _ => (false, false),
+        };
+        if closed {
+            ag.inner.closed.store(true);
+        }
+        if async_done {
             ag.running_async.store(false);
         }
-        let val = val?;
-
+        let val = val?.into_async_pyresult(vm)?;
         match_class!(match val {
             val @ Self => {
                 ag.running_async.store(false);
-                Err(vm.new_exception(
-                    vm.ctx.exceptions.stop_iteration.clone(),
-                    vec![val.0.clone()],
-                ))
+                Err(vm.new_stop_iteration(Some(val.0.clone())))
             }
             val => Ok(val),
         })
@@ -214,7 +214,7 @@ impl PyAsyncGenASend {
                 }
             }
         };
-        let res = self.ag.inner.send(val, vm);
+        let res = self.ag.inner.send(self.ag.as_object(), val, vm);
         let res = PyAsyncGenWrappedValue::unbox(&self.ag, res, vm);
         if res.is_err() {
             self.close();
@@ -237,6 +237,7 @@ impl PyAsyncGenASend {
         }
 
         let res = self.ag.inner.throw(
+            self.ag.as_object(),
             exc_type,
             exc_val.unwrap_or_none(vm),
             exc_tb.unwrap_or_none(vm),
@@ -258,8 +259,7 @@ impl PyAsyncGenASend {
 impl IteratorIterable for PyAsyncGenASend {}
 impl SlotIterator for PyAsyncGenASend {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        // TODO: Fix zelf.send to return PyIterReturn
-        PyIterReturn::from_result(zelf.send(vm.ctx.none(), vm), vm)
+        PyIterReturn::from_pyresult(zelf.send(vm.ctx.none(), vm), vm)
     }
 }
 
@@ -304,7 +304,7 @@ impl PyAsyncGenAThrow {
                 }
                 if self.ag.inner.closed() {
                     self.state.store(AwaitableState::Closed);
-                    return Err(vm.new_exception_empty(vm.ctx.exceptions.stop_iteration.clone()));
+                    return Err(vm.new_stop_iteration(None));
                 }
                 if !vm.is_none(&val) {
                     return Err(vm.new_runtime_error(
@@ -315,12 +315,12 @@ impl PyAsyncGenAThrow {
                 self.ag.running_async.store(true);
 
                 let (ty, val, tb) = self.value.clone();
-                let ret = self.ag.inner.throw(ty, val, tb, vm);
+                let ret = self.ag.inner.throw(self.ag.as_object(), ty, val, tb, vm);
                 let ret = if self.aclose {
                     if self.ignored_close(&ret) {
                         Err(self.yield_close(vm))
                     } else {
-                        ret
+                        ret.and_then(|o| o.into_async_pyresult(vm))
                     }
                 } else {
                     PyAsyncGenWrappedValue::unbox(&self.ag, ret, vm)
@@ -328,14 +328,15 @@ impl PyAsyncGenAThrow {
                 ret.map_err(|e| self.check_error(e, vm))
             }
             AwaitableState::Iter => {
-                let ret = self.ag.inner.send(val, vm);
+                let ret = self.ag.inner.send(self.ag.as_object(), val, vm);
                 if self.aclose {
                     match ret {
-                        Ok(v) if v.payload_is::<PyAsyncGenWrappedValue>() => {
+                        Ok(PyIterReturn::Return(v)) if v.payload_is::<PyAsyncGenWrappedValue>() => {
                             Err(self.yield_close(vm))
                         }
-                        Ok(v) => Ok(v),
-                        Err(e) => Err(self.check_error(e, vm)),
+                        other => other
+                            .and_then(|o| o.into_async_pyresult(vm))
+                            .map_err(|e| self.check_error(e, vm)),
                     }
                 } else {
                     PyAsyncGenWrappedValue::unbox(&self.ag, ret, vm)
@@ -353,6 +354,7 @@ impl PyAsyncGenAThrow {
         vm: &VirtualMachine,
     ) -> PyResult {
         let ret = self.ag.inner.throw(
+            self.ag.as_object(),
             exc_type,
             exc_val.unwrap_or_none(vm),
             exc_tb.unwrap_or_none(vm),
@@ -362,7 +364,7 @@ impl PyAsyncGenAThrow {
             if self.ignored_close(&ret) {
                 Err(self.yield_close(vm))
             } else {
-                ret
+                ret.and_then(|o| o.into_async_pyresult(vm))
             }
         } else {
             PyAsyncGenWrappedValue::unbox(&self.ag, ret, vm)
@@ -375,9 +377,11 @@ impl PyAsyncGenAThrow {
         self.state.store(AwaitableState::Closed);
     }
 
-    fn ignored_close(&self, res: &PyResult) -> bool {
-        res.as_ref()
-            .map_or(false, |v| v.payload_is::<PyAsyncGenWrappedValue>())
+    fn ignored_close(&self, res: &PyResult<PyIterReturn>) -> bool {
+        res.as_ref().map_or(false, |v| match v {
+            PyIterReturn::Return(obj) => obj.payload_is::<PyAsyncGenWrappedValue>(),
+            PyIterReturn::StopIteration(_) => false,
+        })
     }
     fn yield_close(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         self.ag.running_async.store(false);
@@ -391,7 +395,7 @@ impl PyAsyncGenAThrow {
             && (exc.isinstance(&vm.ctx.exceptions.stop_async_iteration)
                 || exc.isinstance(&vm.ctx.exceptions.generator_exit))
         {
-            vm.new_exception_empty(vm.ctx.exceptions.stop_iteration.clone())
+            vm.new_stop_iteration(None)
         } else {
             exc
         }
@@ -401,8 +405,7 @@ impl PyAsyncGenAThrow {
 impl IteratorIterable for PyAsyncGenAThrow {}
 impl SlotIterator for PyAsyncGenAThrow {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        // TODO: Fix zelf.send to return PyIterReturn
-        PyIterReturn::from_result(zelf.send(vm.ctx.none(), vm), vm)
+        PyIterReturn::from_pyresult(zelf.send(vm.ctx.none(), vm), vm)
     }
 }
 

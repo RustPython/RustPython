@@ -1,8 +1,10 @@
-use crate::builtins::int::PyIntRef;
-use crate::cformat::CFormatString;
-use crate::function::{single_or_tuple_any, OptionalOption, PyIterator};
-use crate::vm::VirtualMachine;
-use crate::{PyObjectRef, PyResult, TryFromObject, TypeProtocol};
+use crate::{
+    builtins::PyIntRef,
+    cformat::CFormatString,
+    function::{single_or_tuple_any, OptionalOption},
+    protocol::PyIterIter,
+    PyObjectRef, PyResult, TryFromObject, TypeProtocol, VirtualMachine,
+};
 use num_traits::{cast::ToPrimitive, sign::Signed};
 use std::str::FromStr;
 
@@ -291,7 +293,7 @@ pub trait AnyStr<'s>: 's {
 
     fn py_join<'a>(
         &self,
-        mut iter: PyIterator<'a, impl AnyStrWrapper<'s, Str = Self> + TryFromObject>,
+        mut iter: PyIterIter<'a, impl AnyStrWrapper<'s, Str = Self> + TryFromObject>,
     ) -> PyResult<Self::Container> {
         let mut joined = if let Some(elem) = iter.next() {
             elem?.as_ref().to_container()
