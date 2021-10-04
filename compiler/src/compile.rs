@@ -396,19 +396,12 @@ impl Compiler {
     }
 
     fn check_forbidden_name(&self, name: &str, usage: NameUsage) -> CompileResult<()> {
-        if usage == NameUsage::Store && is_forbidden_name(name) {
-            return Err(self.error(CompileErrorType::SyntaxError(format!(
-                "cannot assign to {}",
-                name
-            ))));
-        }
-        if usage == NameUsage::Delete && is_forbidden_name(name) {
-            return Err(self.error(CompileErrorType::SyntaxError(format!(
-                "cannot delete {}",
-                name
-            ))));
-        }
-        Ok(())
+        let msg = match usage {
+            NameUsage::Store if is_forbidden_name(name) => "cannot assign to",
+            NameUsage::Delete if is_forbidden_name(name) => "cannot delete",
+            _ => return Ok(()),
+        };
+        Err(self.error(CompileErrorType::SyntaxError(format!("{} {}", msg, name))))
     }
 
     fn compile_name(&mut self, name: &str, usage: NameUsage) -> CompileResult<()> {
