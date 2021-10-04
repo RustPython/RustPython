@@ -420,7 +420,12 @@ mod _collections {
                     .maxlen
                     .map(|maxlen| format!(", maxlen={}", maxlen))
                     .unwrap_or_default();
-                format!("deque([{}]{})", elements.into_iter().format(", "), maxlen)
+                format!(
+                    "{}([{}]{})",
+                    zelf.class().name(),
+                    elements.into_iter().format(", "),
+                    maxlen
+                )
             } else {
                 "[...]".to_owned()
             };
