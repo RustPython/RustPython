@@ -19,13 +19,18 @@ use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use rustpython_bytecode::{CodeObject, FrozenModule};
 use rustpython_compiler as compile;
-use std::collections::HashMap;
-use std::env;
-use std::fs;
-use std::path::{Path, PathBuf};
-use syn::parse::{Parse, ParseStream, Result as ParseResult};
-use syn::spanned::Spanned;
-use syn::{self, parse2, Lit, LitByteStr, LitStr, Macro, Meta, MetaNameValue, Token};
+use std::{
+    collections::HashMap,
+    env, fs,
+    path::{Path, PathBuf},
+};
+use syn::{
+    self,
+    parse::{Parse, ParseStream, Result as ParseResult},
+    parse2,
+    spanned::Spanned,
+    Lit, LitByteStr, LitStr, Macro, Meta, MetaNameValue, Token,
+};
 
 static CARGO_MANIFEST_DIR: Lazy<PathBuf> = Lazy::new(|| {
     PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not present"))

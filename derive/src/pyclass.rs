@@ -6,10 +6,11 @@ use crate::util::{
 use proc_macro2::TokenStream;
 use quote::{quote, quote_spanned, ToTokens};
 use std::collections::HashMap;
-use syn::parse::{Parse, ParseStream, Result as ParsingResult};
 use syn::{
-    parse_quote, spanned::Spanned, Attribute, AttributeArgs, Ident, Item, LitStr, Meta, NestedMeta,
-    Result, Token,
+    parse::{Parse, ParseStream, Result as ParsingResult},
+    parse_quote,
+    spanned::Spanned,
+    Attribute, AttributeArgs, Ident, Item, LitStr, Meta, NestedMeta, Result, Token,
 };
 use syn_ext::ext::*;
 
