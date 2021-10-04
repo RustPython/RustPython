@@ -1,4 +1,5 @@
 from collections import deque
+from typing import Deque
 
 
 def test_deque_iterator__new__():
@@ -83,3 +84,12 @@ def test_deque_reverse_iterator__new__not_using_keyword_index():
 
 
 test_deque_reverse_iterator__new__not_using_keyword_index()
+
+assert repr(deque()) == "deque([])"
+assert repr(deque([1, 2, 3])) == "deque([1, 2, 3])"
+
+class D(deque):
+    pass
+
+assert repr(D()) == "D([])"
+assert repr(D([1, 2, 3])) == "D([1, 2, 3])"
