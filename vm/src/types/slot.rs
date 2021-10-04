@@ -376,19 +376,21 @@ pub trait Destructor: PyValue {
 
 #[pyimpl]
 pub trait Callable: PyValue {
+    type Args: FromArgs;
+
     #[pyslot]
     fn slot_call(zelf: &PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         if let Some(zelf) = zelf.downcast_ref() {
-            Self::call(zelf, args, vm)
+            Self::call(zelf, args.bind(vm)?, vm)
         } else {
             Err(vm.new_type_error("unexpected payload for __call__".to_owned()))
         }
     }
     #[pymethod]
     fn __call__(zelf: PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        Self::call(&zelf, args, vm)
+        Self::call(&zelf, args.bind(vm)?, vm)
     }
-    fn call(zelf: &PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult;
+    fn call(zelf: &PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult;
 }
 
 #[pyimpl]

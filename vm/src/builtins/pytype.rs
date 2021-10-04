@@ -640,6 +640,7 @@ impl SetAttr for PyType {
 }
 
 impl Callable for PyType {
+    type Args = FuncArgs;
     fn call(zelf: &PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         vm_trace!("type_call: {:?}", zelf);
         let obj = call_slot_new(zelf.clone(), zelf.clone(), args.clone(), vm)?;

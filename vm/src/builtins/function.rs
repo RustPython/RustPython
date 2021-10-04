@@ -415,6 +415,8 @@ impl GetDescriptor for PyFunction {
 }
 
 impl Callable for PyFunction {
+    type Args = FuncArgs;
+    #[inline]
     fn call(zelf: &PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         zelf.invoke(args, vm)
     }
@@ -428,6 +430,8 @@ pub struct PyBoundMethod {
 }
 
 impl Callable for PyBoundMethod {
+    type Args = FuncArgs;
+    #[inline]
     fn call(zelf: &PyRef<Self>, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         args.prepend_arg(zelf.object.clone());
         vm.invoke(&zelf.function, args)

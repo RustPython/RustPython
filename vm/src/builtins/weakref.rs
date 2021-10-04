@@ -1,7 +1,7 @@
 use super::PyTypeRef;
 use crate::common::hash::PyHash;
 use crate::{
-    function::{FuncArgs, OptionalArg},
+    function::OptionalArg,
     types::{Callable, Comparable, Constructor, Hashable, PyComparisonOp},
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyObjectWeak, PyRef, PyResult, PyValue,
     TypeProtocol, VirtualMachine,
@@ -44,8 +44,9 @@ impl PyValue for PyWeak {
 }
 
 impl Callable for PyWeak {
-    fn call(zelf: &PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        args.bind::<()>(vm)?;
+    type Args = ();
+    #[inline]
+    fn call(zelf: &PyRef<Self>, _: Self::Args, vm: &VirtualMachine) -> PyResult {
         Ok(vm.unwrap_or_none(zelf.upgrade()))
     }
 }

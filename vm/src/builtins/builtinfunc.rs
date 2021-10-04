@@ -94,6 +94,8 @@ impl PyBuiltinFunction {
 }
 
 impl Callable for PyBuiltinFunction {
+    type Args = FuncArgs;
+    #[inline]
     fn call(zelf: &PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         (zelf.value.func)(vm, args)
     }
@@ -188,6 +190,8 @@ impl GetDescriptor for PyBuiltinMethod {
 }
 
 impl Callable for PyBuiltinMethod {
+    type Args = FuncArgs;
+    #[inline]
     fn call(zelf: &PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         (zelf.value.func)(vm, args)
     }

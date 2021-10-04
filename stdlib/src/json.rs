@@ -6,7 +6,7 @@ mod _json {
     use super::machinery;
     use crate::vm::{
         builtins::{PyBaseExceptionRef, PyStrRef, PyTypeRef},
-        function::{FuncArgs, IntoPyObject, IntoPyResult, OptionalArg},
+        function::{IntoPyObject, IntoPyResult, OptionalArg},
         protocol::PyIterReturn,
         types::{Callable, Constructor},
         IdProtocol, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
@@ -191,31 +191,22 @@ mod _json {
             };
             Some((ret, buf.len()))
         }
+    }
 
-        fn call(
-            zelf: &PyRef<Self>,
-            pystr: PyStrRef,
-            idx: isize,
-            vm: &VirtualMachine,
-        ) -> PyResult<PyIterReturn> {
+    impl Callable for JsonScanner {
+        type Args = (PyStrRef, isize);
+        fn call(zelf: &PyRef<Self>, (pystr, idx): Self::Args, vm: &VirtualMachine) -> PyResult {
             if idx < 0 {
                 return Err(vm.new_value_error("idx cannot be negative".to_owned()));
             }
             let idx = idx as usize;
             let mut chars = pystr.as_str().chars();
             if idx > 0 && chars.nth(idx - 1).is_none() {
-                return Ok(PyIterReturn::StopIteration(Some(
-                    vm.ctx.new_int(idx).into(),
-                )));
+                PyIterReturn::StopIteration(Some(vm.ctx.new_int(idx).into())).into_pyresult(vm)
+            } else {
+                zelf.parse(chars.as_str(), pystr.clone(), idx, zelf.clone().into(), vm)
+                    .and_then(|x| x.into_pyresult(vm))
             }
-            zelf.parse(chars.as_str(), pystr.clone(), idx, zelf.clone().into(), vm)
-        }
-    }
-
-    impl Callable for JsonScanner {
-        fn call(zelf: &PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            let (pystr, idx) = args.bind::<(PyStrRef, isize)>(vm)?;
-            JsonScanner::call(zelf, pystr, idx, vm).into_pyresult(vm)
         }
     }
 
