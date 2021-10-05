@@ -159,7 +159,6 @@ def _maxdataOK():
     else:
         return True
 
-@unittest.skip("TODO: RUSTPYTHON, fix zipfile/tarfile/zlib.compressobj/bunch of other stuff")
 class TestShutil(unittest.TestCase):
 
     def setUp(self):
@@ -276,6 +275,8 @@ class TestShutil(unittest.TestCase):
         self.assertTrue(os.path.exists(dir3))
         self.assertTrue(os.path.exists(file1))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_rmtree_errors(self):
         # filename is guaranteed not to exist
         filename = tempfile.mktemp()
@@ -733,6 +734,8 @@ class TestShutil(unittest.TestCase):
             self.assertFalse(shutil._use_fd_functions)
             self.assertFalse(shutil.rmtree.avoids_symlink_attacks)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_rmtree_dont_delete_file(self):
         # When called on a file instead of a directory, don't delete it.
         handle, path = tempfile.mkstemp()
@@ -1842,7 +1845,6 @@ class TestWhichBytes(TestWhich):
         self.ext = os.fsencode(self.ext)
 
 
-@unittest.skip("TODO: RUSTPYTHON, fix os.stat() to have *_ns fields")
 class TestMove(unittest.TestCase):
 
     def setUp(self):
@@ -2078,7 +2080,6 @@ class TestCopyFile(unittest.TestCase):
 
         self.assertRaises(OSError, shutil.copyfile, 'srcfile', 'destfile')
 
-    @unittest.skip("TODO: RUSTPYTHON, panics with 'no blocks left to pop'")
     @unittest.skipIf(MACOS, "skipped on macOS")
     def test_w_dest_open_fails(self):
 
@@ -2099,7 +2100,6 @@ class TestCopyFile(unittest.TestCase):
         self.assertEqual(srcfile._exited_with[1].args,
                          ('Cannot open "destfile"',))
 
-    @unittest.skip("TODO: RUSTPYTHON, panics with 'no blocks left to pop'")
     @unittest.skipIf(MACOS, "skipped on macOS")
     def test_w_dest_close_fails(self):
 
@@ -2293,7 +2293,6 @@ class _ZeroCopyFileTest(object):
         # Make sure src file is not corrupted.
         self.assertEqual(read_file(TESTFN, binary=True), self.FILEDATA)
 
-    @unittest.skip("TODO: RUSTPYTHON, OSError.filename")
     def test_non_existent_src(self):
         name = tempfile.mktemp()
         with self.assertRaises(FileNotFoundError) as cm:
@@ -2320,7 +2319,7 @@ class _ZeroCopyFileTest(object):
             self.assertRaises(ZeroDivisionError,
                               shutil.copyfile, TESTFN, TESTFN2)
 
-    @unittest.skip("TODO: RUSTPYTHON, OSError.error on macOS")
+    @unittest.skipIf(sys.platform == "darwin", "TODO: RUSTPYTHON, OSError.error on macOS")
     def test_exception_on_first_call(self):
         # Emulate a case where the first call to the zero-copy
         # function raises an exception in which case the function is
@@ -2331,7 +2330,7 @@ class _ZeroCopyFileTest(object):
                 with self.assertRaises(_GiveupOnFastCopy):
                     self.zerocopy_fun(src, dst)
 
-    @unittest.skip("TODO: RUSTPYTHON, OSError.error on macOS")
+    @unittest.skipIf(sys.platform == "darwin", "TODO: RUSTPYTHON, OSError.error on macOS")
     def test_filesystem_full(self):
         # Emulate a case where filesystem is full and sendfile() fails
         # on first call.
@@ -2438,7 +2437,6 @@ class TestZeroCopySendfile(_ZeroCopyFileTest, unittest.TestCase):
             blocksize = m.call_args[0][3]
             self.assertEqual(blocksize, 2 ** 23)
 
-    @unittest.skip("TODO: RUSTPYTHON, unittest.mock")
     def test_file2file_not_supported(self):
         # Emulate a case where sendfile() only support file->socket
         # fds. In such a case copyfile() is supposed to skip the
