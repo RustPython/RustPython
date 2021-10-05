@@ -78,7 +78,7 @@ macro_rules! impl_into_pyobject_int {
     )*};
 }
 
-impl_into_pyobject_int!(isize i8 i16 i32 i64 usize u8 u16 u32 u64 BigInt);
+impl_into_pyobject_int!(isize i8 i16 i32 i64 i128 usize u8 u16 u32 u64 u128 BigInt);
 
 macro_rules! impl_try_from_object_int {
     ($(($t:ty, $to_prim:ident),)*) => {$(
@@ -98,18 +98,14 @@ impl_try_from_object_int!(
     (i16, to_i16),
     (i32, to_i32),
     (i64, to_i64),
+    (i128, to_i128),
     (usize, to_usize),
     (u8, to_u8),
     (u16, to_u16),
     (u32, to_u32),
     (u64, to_u64),
+    (u128, to_u128),
 );
-
-impl TryFromBorrowedObject for BigInt {
-    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Self> {
-        try_value_from_borrowed_object(vm, obj, |int: &PyInt| Ok(int.as_bigint().clone()))
-    }
-}
 
 fn inner_pow(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
     if int2.is_negative() {
