@@ -426,7 +426,7 @@ pub(super) mod _os {
     };
     use crate::common::lock::{OnceCell, PyRwLock};
     use crate::{
-        builtins::{PyBytesRef, PyStrRef, PyTuple, PyTupleRef, PyTypeRef},
+        builtins::{PyBytesRef, PyIntRef, PyStrRef, PyTuple, PyTupleRef, PyTypeRef},
         crt_fd::{Fd, Offset},
         exceptions::IntoPyException,
         function::{ArgBytesLike, FuncArgs, OptionalArg},
@@ -435,12 +435,11 @@ pub(super) mod _os {
         suppress_iph,
         utils::Either,
         vm::{ReprGuard, VirtualMachine},
-        IntoPyObject, PyObjectRef, PyRef, PyResult, PyStructSequence, PyValue,
+        IntoPyObject, IntoPyRef, PyObjectRef, PyRef, PyResult, PyStructSequence, PyValue,
         TryFromBorrowedObject, TryFromObject, TypeProtocol,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
-    use num_bigint::BigInt;
     use std::ffi;
     use std::fs::OpenOptions;
     use std::io::{self, Read, Write};
@@ -950,20 +949,20 @@ pub(super) mod _os {
     #[pyclass(module = "os", name = "stat_result")]
     #[derive(Debug, PyStructSequence, FromArgs)]
     struct StatResult {
-        pub st_mode: BigInt,
-        pub st_ino: BigInt,
-        pub st_dev: BigInt,
-        pub st_nlink: BigInt,
-        pub st_uid: BigInt,
-        pub st_gid: BigInt,
-        pub st_size: BigInt,
+        pub st_mode: PyIntRef,
+        pub st_ino: PyIntRef,
+        pub st_dev: PyIntRef,
+        pub st_nlink: PyIntRef,
+        pub st_uid: PyIntRef,
+        pub st_gid: PyIntRef,
+        pub st_size: PyIntRef,
         // TODO: unnamed structsequence fields
         #[pyarg(positional, default)]
-        pub __st_atime_int: BigInt,
+        pub __st_atime_int: libc::time_t,
         #[pyarg(positional, default)]
-        pub __st_mtime_int: BigInt,
+        pub __st_mtime_int: libc::time_t,
         #[pyarg(positional, default)]
-        pub __st_ctime_int: BigInt,
+        pub __st_ctime_int: libc::time_t,
         #[pyarg(any, default)]
         pub st_atime: f64,
         #[pyarg(any, default)]
@@ -971,16 +970,16 @@ pub(super) mod _os {
         #[pyarg(any, default)]
         pub st_ctime: f64,
         #[pyarg(any, default)]
-        pub st_atime_ns: BigInt,
+        pub st_atime_ns: i128,
         #[pyarg(any, default)]
-        pub st_mtime_ns: BigInt,
+        pub st_mtime_ns: i128,
         #[pyarg(any, default)]
-        pub st_ctime_ns: BigInt,
+        pub st_ctime_ns: i128,
     }
 
     #[pyimpl(with(PyStructSequence))]
     impl StatResult {
-        fn from_stat(stat: &StatStruct) -> Self {
+        fn from_stat(stat: &StatStruct, vm: &VirtualMachine) -> Self {
             let (atime, mtime, ctime);
             #[cfg(any(unix, windows))]
             {
@@ -999,22 +998,22 @@ pub(super) mod _os {
             let to_f64 = |(s, ns)| (s as f64) + (ns as f64) / (NANOS_PER_SEC as f64);
             let to_ns = |(s, ns)| s as i128 * NANOS_PER_SEC as i128 + ns as i128;
             StatResult {
-                st_mode: stat.st_mode.into(),
-                st_ino: stat.st_ino.into(),
-                st_dev: stat.st_dev.into(),
-                st_nlink: stat.st_nlink.into(),
-                st_uid: stat.st_uid.into(),
-                st_gid: stat.st_gid.into(),
-                st_size: stat.st_size.into(),
-                __st_atime_int: atime.0.into(),
-                __st_mtime_int: mtime.0.into(),
-                __st_ctime_int: ctime.0.into(),
+                st_mode: stat.st_mode.into_pyref(vm),
+                st_ino: stat.st_ino.into_pyref(vm),
+                st_dev: stat.st_dev.into_pyref(vm),
+                st_nlink: stat.st_nlink.into_pyref(vm),
+                st_uid: stat.st_uid.into_pyref(vm),
+                st_gid: stat.st_gid.into_pyref(vm),
+                st_size: stat.st_size.into_pyref(vm),
+                __st_atime_int: atime.0,
+                __st_mtime_int: mtime.0,
+                __st_ctime_int: ctime.0,
                 st_atime: to_f64(atime),
                 st_mtime: to_f64(mtime),
                 st_ctime: to_f64(ctime),
-                st_atime_ns: to_ns(atime).into(),
-                st_mtime_ns: to_ns(mtime).into(),
-                st_ctime_ns: to_ns(ctime).into(),
+                st_atime_ns: to_ns(atime),
+                st_mtime_ns: to_ns(mtime),
+                st_ctime_ns: to_ns(ctime),
             }
         }
 
@@ -1178,7 +1177,7 @@ pub(super) mod _os {
         let stat = stat_inner(file.clone(), dir_fd, follow_symlinks)
             .map_err(|e| IOErrorBuilder::new(e).filename(file).into_pyexception(vm))?
             .ok_or_else(|| crate::exceptions::cstring_error(vm))?;
-        Ok(StatResult::from_stat(&stat).into_pyobject(vm))
+        Ok(StatResult::from_stat(&stat, vm).into_pyobject(vm))
     }
 
     #[pyfunction]
