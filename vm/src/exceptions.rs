@@ -1453,10 +1453,10 @@ pub(super) mod types {
         if cls.name() == vm.ctx.exceptions.os_error.name() {
             match os_error_optional_new(args.args.to_vec(), vm) {
                 Some(error) => error.unwrap().into_pyresult(vm),
-                None => base_exception_new(cls, args, vm),
+                None => PyBaseException::slot_new(cls, args, vm),
             }
         } else {
-            base_exception_new(cls, args, vm)
+            PyBaseException::slot_new(cls, args, vm)
         }
     }
     fn base_exception_init(
