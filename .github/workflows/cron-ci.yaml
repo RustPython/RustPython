@@ -28,7 +28,7 @@ jobs:
           RUSTC_WRAPPER: './scripts/codecoverage-rustc-wrapper.sh'
       - uses: actions/setup-python@v2
         with:
-          python-version: 3.9
+          python-version: "3.10"
       - name: Install pipenv
         run: |
           python -V
