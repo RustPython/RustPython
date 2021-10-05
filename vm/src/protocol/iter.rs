@@ -124,9 +124,7 @@ impl TryFromObject for PyIter<PyObjectRef> {
             vm.get_method_or_type_error(iter_target.clone(), "__getitem__", || {
                 format!("'{}' object is not iterable", iter_target.class().name())
             })?;
-            Ok(Self(
-                PySequenceIterator::new(iter_target).into_ref(vm).into(),
-            ))
+            Ok(Self(PySequenceIterator::new(iter_target).into_object(vm)))
         }
     }
 }

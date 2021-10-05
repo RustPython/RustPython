@@ -169,7 +169,7 @@ impl SlotDescriptor for PySuper {
         }
         let zelf_class = zelf.as_object().class();
         if zelf_class.is(&vm.ctx.types.super_type) {
-            Ok(PySuper::new(zelf.typ.clone(), obj, vm)?.into_ref(vm).into())
+            Ok(PySuper::new(zelf.typ.clone(), obj, vm)?.into_object(vm))
         } else {
             let obj = vm.unwrap_or_none(zelf.obj.clone().map(|(o, _)| o));
             vm.invoke(
