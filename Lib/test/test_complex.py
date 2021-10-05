@@ -460,8 +460,6 @@ class ComplexTest(unittest.TestCase):
         for num in nums:
             self.assertAlmostEqual((num.real**2 + num.imag**2)  ** 0.5, abs(num))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_repr_str(self):
         def test(v, expected, test_fn=self.assertEqual):
             test_fn(repr(v), expected)
