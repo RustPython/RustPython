@@ -1593,6 +1593,9 @@ class LocalServerTests(unittest.TestCase):
                 else:
                     raise ValueError('Unexpected command {!r}'.format(cmd))
 
+    # TODO: RUSTPYTHON
+    import os, sys
+    @unittest.skipIf(os.getenv("CI") and sys.platform == "linux", "TODO: RUSTPYTHON, ValueError: write to closed file")
     @unittest.skipUnless(ssl, 'requires SSL support')
     def test_starttls(self):
         file = self.nntp.file
@@ -1606,11 +1609,6 @@ class LocalServerTests(unittest.TestCase):
         self.assertIsInstance(self.nntp.sock, ssl.SSLSocket)
         # Check that trying starttls when it's already active fails.
         self.assertRaises(ValueError, self.nntp.starttls)
-
-    # TODO: RUSTPYTHON
-    import os, sys
-    if os.getenv("CI") and sys.platform == "linux":
-        test_starttls = unittest.expectedFailure(test_starttls)
 
 
 if __name__ == "__main__":
