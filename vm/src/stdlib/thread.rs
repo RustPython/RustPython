@@ -5,7 +5,7 @@ use crate::{
     exceptions::{self, IntoPyException},
     function::{ArgCallable, FuncArgs, KwArgs, OptionalArg},
     py_io,
-    slots::{SlotGetattro, SlotSetattro},
+    slots::{SlotConstructor, SlotGetattro, SlotSetattro},
     utils::Either,
     IdProtocol, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
     VirtualMachine,
@@ -103,7 +103,7 @@ impl fmt::Debug for PyLock {
     }
 }
 
-#[pyimpl]
+#[pyimpl(with(SlotConstructor))]
 impl PyLock {
     #[pymethod]
     #[pymethod(name = "acquire_lock")]
@@ -135,6 +135,13 @@ impl PyLock {
     #[pymethod(magic)]
     fn repr(zelf: PyRef<Self>) -> String {
         repr_lock_impl!(zelf)
+    }
+}
+
+impl SlotConstructor for PyLock {
+    type Args = FuncArgs;
+    fn py_new(_cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
+        Err(vm.new_type_error("cannot create '_thread.lock' instances".to_owned()))
     }
 }
 
