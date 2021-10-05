@@ -1,33 +1,26 @@
 use crate::{
-    builtins::{PyBaseExceptionRef, PyStrRef, PyTypeRef},
+    builtins::{PyBaseExceptionRef, PyStrRef},
     common::lock::PyMutex,
     exceptions,
     frame::{ExecutionResult, FrameRef},
-    PyObjectRef, PyResult, TypeProtocol, VirtualMachine,
+    protocol::PyIterReturn,
+    IdProtocol, PyObjectRef, PyResult, TypeProtocol, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 
-#[derive(Debug, PartialEq, Clone, Copy)]
-pub enum Variant {
-    Gen,
-    Coroutine,
-    AsyncGen,
-}
-impl Variant {
-    fn exec_result(self, res: ExecutionResult, vm: &VirtualMachine) -> PyResult {
-        res.into_result(self == Self::AsyncGen, vm)
-    }
-    fn name(self) -> &'static str {
+impl ExecutionResult {
+    /// Turn an ExecutionResult into a PyResult that would be returned from a generator or coroutine
+    fn into_iter_return(self, vm: &VirtualMachine) -> PyIterReturn {
         match self {
-            Self::Gen => "generator",
-            Self::Coroutine => "coroutine",
-            Self::AsyncGen => "async generator",
-        }
-    }
-    fn stop_iteration(self, vm: &VirtualMachine) -> PyTypeRef {
-        match self {
-            Self::AsyncGen => vm.ctx.exceptions.stop_async_iteration.clone(),
-            _ => vm.ctx.exceptions.stop_iteration.clone(),
+            ExecutionResult::Yield(value) => PyIterReturn::Return(value),
+            ExecutionResult::Return(value) => {
+                let arg = if vm.is_none(&value) {
+                    None
+                } else {
+                    Some(value)
+                };
+                PyIterReturn::StopIteration(arg)
+            }
         }
     }
 }
@@ -35,21 +28,33 @@ impl Variant {
 #[derive(Debug)]
 pub struct Coro {
     frame: FrameRef,
-    pub closed: AtomicCell<bool>,
+    pub closed: AtomicCell<bool>, // TODO: https://github.com/RustPython/RustPython/pull/3183#discussion_r720560652
     running: AtomicCell<bool>,
-    exception: PyMutex<Option<PyBaseExceptionRef>>,
-    variant: Variant,
+    // code
+    // _weakreflist
     name: PyMutex<PyStrRef>,
+    // qualname
+    exception: PyMutex<Option<PyBaseExceptionRef>>, // exc_state
+}
+
+fn gen_name(gen: &PyObjectRef, vm: &VirtualMachine) -> &'static str {
+    let typ = gen.class();
+    if typ.is(&vm.ctx.types.coroutine_type) {
+        "coroutine"
+    } else if typ.is(&vm.ctx.types.async_generator) {
+        "async generator"
+    } else {
+        "generator"
+    }
 }
 
 impl Coro {
-    pub fn new(frame: FrameRef, variant: Variant, name: PyStrRef) -> Self {
+    pub fn new(frame: FrameRef, name: PyStrRef) -> Self {
         Coro {
             frame,
             closed: AtomicCell::new(false),
             running: AtomicCell::new(false),
             exception: PyMutex::default(),
-            variant,
             name: PyMutex::new(name),
         }
     }
@@ -61,12 +66,17 @@ impl Coro {
         }
     }
 
-    fn run_with_context<F>(&self, vm: &VirtualMachine, func: F) -> PyResult<ExecutionResult>
+    fn run_with_context<F>(
+        &self,
+        gen: &PyObjectRef,
+        vm: &VirtualMachine,
+        func: F,
+    ) -> PyResult<ExecutionResult>
     where
         F: FnOnce(FrameRef) -> PyResult<ExecutionResult>,
     {
         if self.running.compare_exchange(false, true).is_err() {
-            return Err(vm.new_value_error(format!("{} already executing", self.variant.name())));
+            return Err(vm.new_value_error(format!("{} already executing", gen_name(gen, vm))));
         }
 
         vm.push_exception(self.exception.lock().take());
@@ -79,31 +89,36 @@ impl Coro {
         result
     }
 
-    pub fn send(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    pub fn send(
+        &self,
+        gen: &PyObjectRef,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyIterReturn> {
         if self.closed.load() {
-            return Err(vm.new_exception_empty(self.variant.stop_iteration(vm)));
+            return Ok(PyIterReturn::StopIteration(None));
         }
         let value = if self.frame.lasti() > 0 {
             Some(value)
         } else if !vm.is_none(&value) {
             return Err(vm.new_type_error(format!(
                 "can't send non-None value to a just-started {}",
-                self.variant.name()
+                gen_name(gen, vm),
             )));
         } else {
             None
         };
-        let result = self.run_with_context(vm, |f| f.resume(value, vm));
+        let result = self.run_with_context(gen, vm, |f| f.resume(value, vm));
         self.maybe_close(&result);
         match result {
-            Ok(exec_res) => self.variant.exec_result(exec_res, vm),
+            Ok(exec_res) => Ok(exec_res.into_iter_return(vm)),
             Err(e) => {
                 if e.isinstance(&vm.ctx.exceptions.stop_iteration) {
-                    let err = vm
-                        .new_runtime_error(format!("{} raised StopIteration", self.variant.name()));
+                    let err =
+                        vm.new_runtime_error(format!("{} raised StopIteration", gen_name(gen, vm)));
                     err.set_cause(Some(e));
                     Err(err)
-                } else if self.variant == Variant::AsyncGen
+                } else if gen.class().is(&vm.ctx.types.async_generator)
                     && e.isinstance(&vm.ctx.exceptions.stop_async_iteration)
                 {
                     let err = vm
@@ -118,24 +133,25 @@ impl Coro {
     }
     pub fn throw(
         &self,
+        gen: &PyObjectRef,
         exc_type: PyObjectRef,
         exc_val: PyObjectRef,
         exc_tb: PyObjectRef,
         vm: &VirtualMachine,
-    ) -> PyResult {
+    ) -> PyResult<PyIterReturn> {
         if self.closed.load() {
             return Err(exceptions::normalize(exc_type, exc_val, exc_tb, vm)?);
         }
-        let result = self.run_with_context(vm, |f| f.gen_throw(vm, exc_type, exc_val, exc_tb));
+        let result = self.run_with_context(gen, vm, |f| f.gen_throw(vm, exc_type, exc_val, exc_tb));
         self.maybe_close(&result);
-        self.variant.exec_result(result?, vm)
+        Ok(result?.into_iter_return(vm))
     }
 
-    pub fn close(&self, vm: &VirtualMachine) -> PyResult<()> {
+    pub fn close(&self, gen: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if self.closed.load() {
             return Ok(());
         }
-        let result = self.run_with_context(vm, |f| {
+        let result = self.run_with_context(gen, vm, |f| {
             f.gen_throw(
                 vm,
                 vm.ctx.exceptions.generator_exit.clone().into_object(),
@@ -146,7 +162,7 @@ impl Coro {
         self.closed.store(true);
         match result {
             Ok(ExecutionResult::Yield(_)) => {
-                Err(vm.new_runtime_error(format!("{} ignored GeneratorExit", self.variant.name())))
+                Err(vm.new_runtime_error(format!("{} ignored GeneratorExit", gen_name(gen, vm))))
             }
             Err(e) if !is_gen_exit(&e, vm) => Err(e),
             _ => Ok(()),
@@ -168,10 +184,10 @@ impl Coro {
     pub fn set_name(&self, name: PyStrRef) {
         *self.name.lock() = name;
     }
-    pub fn repr(&self, id: usize) -> String {
+    pub fn repr(&self, gen: &PyObjectRef, id: usize, vm: &VirtualMachine) -> String {
         format!(
             "<{} object {} at {:#x}>",
-            self.variant.name(),
+            gen_name(gen, vm),
             self.name.lock(),
             id
         )

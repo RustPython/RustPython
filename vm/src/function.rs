@@ -13,7 +13,7 @@ use result_like::impl_option_like;
 use std::marker::PhantomData;
 use std::ops::RangeInclusive;
 
-pub use argument::{ArgCallable, ArgIterable, PyIterator};
+pub use argument::{ArgCallable, ArgIterable};
 pub use byteslike::{ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike};
 
 pub trait IntoFuncArgs: Sized {

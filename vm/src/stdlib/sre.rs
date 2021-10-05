@@ -349,7 +349,7 @@ mod _sre {
                     let m = Match::new(&state, zelf.clone(), split_args.string.clone());
 
                     // add groups (if any)
-                    for i in 1..zelf.groups + 1 {
+                    for i in 1..=zelf.groups {
                         splitlist.push(
                             m.get_slice(i, state.string, vm)
                                 .unwrap_or_else(|| vm.ctx.none()),

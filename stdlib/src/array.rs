@@ -426,14 +426,14 @@ mod array {
                     }
                 }
 
-                fn repr(&self, _vm: &VirtualMachine) -> PyResult<String> {
+                fn repr(&self, class_name: &str, _vm: &VirtualMachine) -> PyResult<String> {
                     // we don't need ReprGuard here
                     let s = match self {
                         $(ArrayContentType::$n(v) => {
                             if v.is_empty() {
-                                format!("array('{}')", $c)
+                                format!("{}('{}')", class_name, $c)
                             } else {
-                                format!("array('{}', [{}])", $c, v.iter().format(", "))
+                                format!("{}('{}', [{}])", class_name, $c, v.iter().format(", "))
                             }
                         })*
                     };
@@ -1007,46 +1007,45 @@ mod array {
         ) -> PyResult<PyRef<Self>> {
             if zelf.is(&other) {
                 zelf.try_resizable(vm)?.imul(2);
-                Ok(zelf)
             } else if let Some(other) = other.payload::<PyArray>() {
-                let result = zelf.try_resizable(vm)?.iadd(&*other.read(), vm);
-                result.map(|_| zelf)
+                zelf.try_resizable(vm)?.iadd(&*other.read(), vm)?;
             } else {
-                Err(vm.new_type_error(format!(
+                return Err(vm.new_type_error(format!(
                     "can only extend array with array (not \"{}\")",
                     other.class().name()
-                )))
+                )));
             }
+            Ok(zelf)
         }
 
         #[pymethod(name = "__rmul__")]
         #[pymethod(magic)]
         fn mul(&self, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-            vm.check_repeat_or_memory_error(self.len(), value)
-                .map(|value| PyArray::from(self.read().mul(value)).into_ref(vm))
+            let value = vm.check_repeat_or_memory_error(self.len(), value)?;
+            Ok(Self::from(self.read().mul(value)).into_ref(vm))
         }
 
         #[pymethod(magic)]
         fn imul(zelf: PyRef<Self>, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-            vm.check_repeat_or_memory_error(zelf.len(), value)
-                .and_then(|value| {
-                    zelf.try_resizable(vm)?.imul(value);
-                    Ok(zelf)
-                })
+            let value = vm.check_repeat_or_memory_error(zelf.len(), value)?;
+            zelf.try_resizable(vm)?.imul(value);
+            Ok(zelf)
         }
 
         #[pymethod(magic)]
         fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            let class_name = zelf.class().name();
             if zelf.read().typecode() == 'u' {
                 if zelf.len() == 0 {
-                    return Ok("array('u')".into());
+                    return Ok(format!("{}('u')", class_name));
                 }
                 return Ok(format!(
-                    "array('u', {})",
+                    "{}('u', {})",
+                    class_name,
                     PyStr::from(zelf.tounicode(vm)?).repr(vm)?
                 ));
             }
-            zelf.read().repr(vm)
+            zelf.read().repr(&class_name, vm)
         }
 
         #[pymethod(magic)]

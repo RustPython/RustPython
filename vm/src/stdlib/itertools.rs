@@ -338,7 +338,7 @@ mod decl {
     #[derive(Debug, PyValue)]
     struct PyItertoolsStarmap {
         function: PyObjectRef,
-        iter: PyIter,
+        iterable: PyIter,
     }
 
     #[derive(FromArgs)]
@@ -357,8 +357,7 @@ mod decl {
             Self::Args { function, iterable }: Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult {
-            let iter = iterable;
-            PyItertoolsStarmap { function, iter }.into_pyresult_with_type(vm, cls)
+            PyItertoolsStarmap { function, iterable }.into_pyresult_with_type(vm, cls)
         }
     }
 
@@ -367,11 +366,11 @@ mod decl {
     impl IteratorIterable for PyItertoolsStarmap {}
     impl SlotIterator for PyItertoolsStarmap {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            let obj = zelf.iter.next(vm)?;
+            let obj = zelf.iterable.next(vm)?;
             let function = &zelf.function;
             match obj {
                 PyIterReturn::Return(obj) => {
-                    PyIterReturn::from_result(vm.invoke(function, vm.extract_elements(&obj)?), vm)
+                    PyIterReturn::from_pyresult(vm.invoke(function, vm.extract_elements(&obj)?), vm)
                 }
                 PyIterReturn::StopIteration(v) => Ok(PyIterReturn::StopIteration(v)),
             }

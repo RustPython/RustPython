@@ -1,8 +1,9 @@
 use crate::util::path_eq;
-use crate::Diagnostic;
-use proc_macro2::TokenStream as TokenStream2;
+use proc_macro2::TokenStream;
 use quote::{quote, ToTokens};
-use syn::{parse_quote, Attribute, Data, DeriveInput, Expr, Field, Ident, Lit, Meta, NestedMeta};
+use syn::{
+    parse_quote, Attribute, Data, DeriveInput, Expr, Field, Ident, Lit, Meta, NestedMeta, Result,
+};
 
 /// The kind of the python parameter, this corresponds to the value of Parameter.kind
 /// (https://docs.python.org/3/library/inspect.html#inspect.Parameter.kind)
@@ -34,7 +35,7 @@ struct ArgAttribute {
 type DefaultValue = Option<Expr>;
 
 impl ArgAttribute {
-    fn from_attribute(attr: &Attribute) -> Option<Result<ArgAttribute, Diagnostic>> {
+    fn from_attribute(attr: &Attribute) -> Option<Result<ArgAttribute>> {
         if !attr.path.is_ident("pyarg") {
             return None;
         }
@@ -75,7 +76,7 @@ impl ArgAttribute {
         Some(inner())
     }
 
-    fn parse_argument(&mut self, arg: &NestedMeta) -> Result<(), Diagnostic> {
+    fn parse_argument(&mut self, arg: &NestedMeta) -> Result<()> {
         if let ParameterKind::Flatten = self.kind {
             bail_span!(arg, "can't put additional arguments on a flatten arg")
         }
@@ -119,12 +120,12 @@ impl ArgAttribute {
     }
 }
 
-fn generate_field((i, field): (usize, &Field)) -> Result<TokenStream2, Diagnostic> {
+fn generate_field((i, field): (usize, &Field)) -> Result<TokenStream> {
     let mut pyarg_attrs = field
         .attrs
         .iter()
         .filter_map(ArgAttribute::from_attribute)
-        .collect::<Result<Vec<_>, _>>()?;
+        .collect::<std::result::Result<Vec<_>, _>>()?;
     let attr = if pyarg_attrs.is_empty() {
         ArgAttribute {
             name: None,
@@ -202,13 +203,13 @@ fn generate_field((i, field): (usize, &Field)) -> Result<TokenStream2, Diagnosti
     Ok(file_output)
 }
 
-pub fn impl_from_args(input: DeriveInput) -> Result<TokenStream2, Diagnostic> {
+pub fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
     let fields = match input.data {
         Data::Struct(syn::DataStruct { fields, .. }) => fields
             .iter()
             .enumerate()
             .map(generate_field)
-            .collect::<Result<TokenStream2, Diagnostic>>()?,
+            .collect::<Result<TokenStream>>()?,
         _ => bail_span!(input, "FromArgs input must be a struct"),
     };
 

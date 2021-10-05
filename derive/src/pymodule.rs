@@ -16,10 +16,7 @@ struct ModuleContext {
     errors: Vec<syn::Error>,
 }
 
-pub fn impl_pymodule(
-    attr: AttributeArgs,
-    module_item: Item,
-) -> std::result::Result<TokenStream, Diagnostic> {
+pub fn impl_pymodule(attr: AttributeArgs, module_item: Item) -> Result<TokenStream> {
     let (doc, mut module_item) = match module_item {
         Item::Mod(m) => (m.attrs.doc(), m),
         other => bail_span!(other, "#[pymodule] can only be on a full module"),

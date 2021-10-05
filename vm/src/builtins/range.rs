@@ -34,8 +34,8 @@ fn iter_search(
 ) -> PyResult<usize> {
     let mut count = 0;
     let iter = obj.get_iter(vm)?;
-    while let PyIterReturn::Return(element) = iter.next(vm)? {
-        if vm.bool_eq(&item, &element)? {
+    for element in iter.iter_without_hint(vm)? {
+        if vm.bool_eq(&item, &element?)? {
             match flag {
                 SearchType::Index => return Ok(count),
                 SearchType::Contains => return Ok(1),

@@ -10,9 +10,9 @@ use std::ops::Deref;
 // https://docs.python.org/3/c-api/iter.html
 #[derive(Debug, Clone)]
 #[repr(transparent)]
-pub struct PyIter<T = PyObjectRef>(T)
+pub struct PyIter<O = PyObjectRef>(O)
 where
-    T: Borrow<PyObjectRef>;
+    O: Borrow<PyObjectRef>;
 
 impl PyIter<PyObjectRef> {
     pub fn into_object(self) -> PyObjectRef {
@@ -25,11 +25,11 @@ impl PyIter<PyObjectRef> {
     }
 }
 
-impl<T> PyIter<T>
+impl<O> PyIter<O>
 where
-    T: Borrow<PyObjectRef>,
+    O: Borrow<PyObjectRef>,
 {
-    pub fn new(obj: T) -> Self {
+    pub fn new(obj: O) -> Self {
         Self(obj)
     }
     pub fn as_object(&self) -> &PyObjectRef {
@@ -50,20 +50,43 @@ where
         };
         iternext(self.0.borrow(), vm)
     }
+
+    pub fn iter<'a, 'b, U>(
+        &'b self,
+        vm: &'a VirtualMachine,
+    ) -> PyResult<PyIterIter<'a, U, &'b PyObjectRef>> {
+        let length_hint = vm.length_hint(self.as_object().clone())?;
+        Ok(PyIterIter::new(vm, self.0.borrow(), length_hint))
+    }
+
+    pub fn iter_without_hint<'a, 'b, U>(
+        &'b self,
+        vm: &'a VirtualMachine,
+    ) -> PyResult<PyIterIter<'a, U, &'b PyObjectRef>> {
+        Ok(PyIterIter::new(vm, self.0.borrow(), None))
+    }
 }
 
-impl<T> Borrow<PyObjectRef> for PyIter<T>
+impl PyIter<PyObjectRef> {
+    /// Returns an iterator over this sequence of objects.
+    pub fn into_iter<U>(self, vm: &VirtualMachine) -> PyResult<PyIterIter<U, PyObjectRef>> {
+        let length_hint = vm.length_hint(self.as_object().clone())?;
+        Ok(PyIterIter::new(vm, self.0, length_hint))
+    }
+}
+
+impl<O> Borrow<PyObjectRef> for PyIter<O>
 where
-    T: Borrow<PyObjectRef>,
+    O: Borrow<PyObjectRef>,
 {
     fn borrow(&self) -> &PyObjectRef {
         self.0.borrow()
     }
 }
 
-impl<T> Deref for PyIter<T>
+impl<O> Deref for PyIter<O>
 where
-    T: Borrow<PyObjectRef>,
+    O: Borrow<PyObjectRef>,
 {
     type Target = PyObjectRef;
     fn deref(&self) -> &Self::Target {
@@ -126,7 +149,7 @@ pub enum PyIterReturn<T = PyObjectRef> {
 }
 
 impl PyIterReturn {
-    pub fn from_result(result: PyResult, vm: &VirtualMachine) -> PyResult<Self> {
+    pub fn from_pyresult(result: PyResult, vm: &VirtualMachine) -> PyResult<Self> {
         match result {
             Ok(obj) => Ok(Self::Return(obj)),
             Err(err) if err.isinstance(&vm.ctx.exceptions.stop_iteration) => {
@@ -136,6 +159,7 @@ impl PyIterReturn {
             Err(err) => Err(err),
         }
     }
+
     pub fn from_getitem_result(result: PyResult, vm: &VirtualMachine) -> PyResult<Self> {
         match result {
             Ok(obj) => Ok(Self::Return(obj)),
@@ -149,16 +173,23 @@ impl PyIterReturn {
             Err(err) => Err(err),
         }
     }
+
+    pub fn into_async_pyresult(self, vm: &VirtualMachine) -> PyResult {
+        match self {
+            Self::Return(obj) => Ok(obj),
+            Self::StopIteration(v) => Err({
+                let args = if let Some(v) = v { vec![v] } else { Vec::new() };
+                vm.new_exception(vm.ctx.exceptions.stop_async_iteration.clone(), args)
+            }),
+        }
+    }
 }
 
 impl IntoPyResult for PyIterReturn {
     fn into_pyresult(self, vm: &VirtualMachine) -> PyResult {
         match self {
             Self::Return(obj) => Ok(obj),
-            Self::StopIteration(v) => Err({
-                let args = if let Some(v) = v { vec![v] } else { Vec::new() };
-                vm.new_exception(vm.ctx.exceptions.stop_iteration.clone(), args)
-            }),
+            Self::StopIteration(v) => Err(vm.new_stop_iteration(v)),
         }
     }
 }
@@ -166,5 +197,54 @@ impl IntoPyResult for PyIterReturn {
 impl IntoPyResult for PyResult<PyIterReturn> {
     fn into_pyresult(self, vm: &VirtualMachine) -> PyResult {
         self.and_then(|obj| obj.into_pyresult(vm))
+    }
+}
+
+// Typical rust `Iter` object for `PyIter`
+pub struct PyIterIter<'a, T, O = PyObjectRef>
+where
+    O: Borrow<PyObjectRef>,
+{
+    vm: &'a VirtualMachine,
+    obj: O, // creating PyIter<O> is zero-cost
+    length_hint: Option<usize>,
+    _phantom: std::marker::PhantomData<T>,
+}
+
+impl<'a, T, O> PyIterIter<'a, T, O>
+where
+    O: Borrow<PyObjectRef>,
+{
+    pub fn new(vm: &'a VirtualMachine, obj: O, length_hint: Option<usize>) -> Self {
+        Self {
+            vm,
+            obj,
+            length_hint,
+            _phantom: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<'a, T, O> Iterator for PyIterIter<'a, T, O>
+where
+    T: TryFromObject,
+    O: Borrow<PyObjectRef>,
+{
+    type Item = PyResult<T>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        PyIter::new(self.obj.borrow())
+            .next(self.vm)
+            .map(|iret| match iret {
+                PyIterReturn::Return(obj) => Some(obj),
+                PyIterReturn::StopIteration(_) => None,
+            })
+            .transpose()
+            .map(|x| x.and_then(|obj| T::try_from_object(self.vm, obj)))
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.length_hint.unwrap_or(0), self.length_hint)
     }
 }

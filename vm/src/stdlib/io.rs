@@ -86,7 +86,7 @@ mod _io {
             ArgBytesLike, ArgIterable, ArgMemoryBuffer, FuncArgs, OptionalArg, OptionalOption,
         },
         protocol::{BufferInternal, BufferOptions, PyBuffer, PyIterReturn, ResizeGuard},
-        slots::{Iterable, SlotConstructor, SlotIterator},
+        slots::{Iterable, SlotConstructor, SlotDestructor, SlotIterator},
         utils::Either,
         vm::{ReprGuard, VirtualMachine},
         IdProtocol, IntoPyObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
@@ -344,7 +344,7 @@ mod _io {
     #[derive(Debug, PyValue)]
     struct _IOBase;
 
-    #[pyimpl(with(SlotIterator), flags(BASETYPE, HAS_DICT))]
+    #[pyimpl(with(SlotIterator, SlotDestructor), flags(BASETYPE, HAS_DICT))]
     impl _IOBase {
         #[pymethod]
         fn seek(
@@ -377,17 +377,6 @@ mod _io {
         fn enter(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             check_closed(&instance, vm)?;
             Ok(instance)
-        }
-
-        #[pyslot]
-        fn slot_del(instance: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            let _ = vm.call_method(instance, "close", ());
-            Ok(())
-        }
-
-        #[pymethod(magic)]
-        fn del(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            Self::slot_del(&instance, vm)
         }
 
         #[pymethod(magic)]
@@ -509,6 +498,18 @@ mod _io {
         #[pymethod(name = "_checkSeekable")]
         fn check_seekable(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             check_seekable(&instance, vm)
+        }
+    }
+
+    impl SlotDestructor for _IOBase {
+        fn slot_del(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            let _ = vm.call_method(zelf, "close", ());
+            Ok(())
+        }
+
+        #[cold]
+        fn del(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<()> {
+            unreachable!("slot_del is implemented")
         }
     }
 
