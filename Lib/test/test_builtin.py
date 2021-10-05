@@ -287,8 +287,6 @@ class BuiltinTest(unittest.TestCase):
         c3 = C3()
         self.assertTrue(callable(c3))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_chr(self):
         self.assertEqual(chr(32), ' ')
         self.assertEqual(chr(65), 'A')

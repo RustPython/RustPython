@@ -35,7 +35,7 @@ mod builtins {
         IdProtocol, ItemProtocol, PyArithmeticValue, PyClassImpl, PyObjectRef, PyRef, PyResult,
         PyValue, TryFromObject, TypeProtocol, VirtualMachine,
     };
-    use num_traits::{Signed, Zero};
+    use num_traits::{Signed, ToPrimitive, Zero};
 
     #[pyfunction]
     fn abs(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -87,8 +87,8 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn chr(i: u32, vm: &VirtualMachine) -> PyResult<String> {
-        match std::char::from_u32(i) {
+    fn chr(i: PyIntRef, vm: &VirtualMachine) -> PyResult<String> {
+        match i.as_bigint().to_u32().and_then(char::from_u32) {
             Some(value) => Ok(value.to_string()),
             None => Err(vm.new_value_error("chr() arg not in range(0x110000)".to_owned())),
         }
