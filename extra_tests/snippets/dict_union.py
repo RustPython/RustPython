@@ -65,7 +65,7 @@ testutils.skip_if_unsupported(3,9,test_dunion_ior0)
 testutils.skip_if_unsupported(3,9,test_dunion_or0)
 testutils.skip_if_unsupported(3,9,test_dunion_or1)
 testutils.skip_if_unsupported(3,9,test_dunion_ror0)
-testutils.skip_if_unsupported(3,9,test_dunion_other_types)
+# testutils.skip_if_unsupported(3,9,test_dunion_other_types)
 
 
 
