@@ -1647,9 +1647,7 @@ class MathTests(unittest.TestCase):
             self.fail('Failures in test_testfile:\n  ' +
                       '\n  '.join(failures))
 
-    # TODO: RUSTPYTHON
-    # Currently hangs. Function never finishes.
-    @unittest.skip
+    @unittest.skip("TODO: RUSTPYTHON, Currently hangs. Function never finishes.")
     @requires_IEEE_754
     def test_mtestfile(self):
         fail_fmt = "{}: {}({!r}): {}"
