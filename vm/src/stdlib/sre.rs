@@ -10,6 +10,7 @@ mod _sre {
         function::{ArgCallable, OptionalArg, PosArgs},
         protocol::PyBuffer,
         slots::{Comparable, Hashable},
+        stdlib::sys,
         IntoPyObject, ItemProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue,
         TryFromBorrowedObject, TryFromObject, VirtualMachine,
     };
@@ -95,7 +96,7 @@ mod _sre {
         string: PyObjectRef,
         #[pyarg(any, default = "0")]
         pos: usize,
-        #[pyarg(any, default = "isize::MAX as usize")]
+        #[pyarg(any, default = "sys::MAXSIZE as usize")]
         endpos: usize,
     }
 

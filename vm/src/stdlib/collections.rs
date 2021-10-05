@@ -16,6 +16,7 @@ mod _collections {
             Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotConstructor,
             SlotIterator, Unhashable,
         },
+        stdlib::sys,
         vm::ReprGuard,
         PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
     };
@@ -95,8 +96,8 @@ mod _collections {
                     let maxlen = value.as_bigint().to_usize().ok_or_else(|| {
                         vm.new_value_error("maxlen must be non-negative.".to_owned())
                     })?;
-                    // Only succeeds for values for which 0 <= value <= isize::MAX
-                    if maxlen > isize::MAX as usize {
+                    // Only succeeds for values for which 0 <= value <= sys.maxsize
+                    if maxlen > sys::MAXSIZE as usize {
                         return Err(vm.new_overflow_error(
                             "Python int too large to convert to Rust isize.".to_owned(),
                         ));

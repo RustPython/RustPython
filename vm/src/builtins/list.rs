@@ -11,6 +11,7 @@ use crate::{
         AsMapping, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotIterator,
         Unhashable,
     },
+    stdlib::sys,
     utils::Either,
     vm::{ReprGuard, VirtualMachine},
     PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
@@ -282,7 +283,7 @@ impl PyList {
                 start = 0;
             }
         }
-        let mut stop = stop.into_option().unwrap_or(isize::MAX);
+        let mut stop = stop.into_option().unwrap_or(sys::MAXSIZE);
         if stop < 0 {
             stop += self.borrow_vec().len() as isize;
             if stop < 0 {
