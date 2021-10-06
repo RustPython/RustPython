@@ -66,25 +66,20 @@ impl PyDict {
         kwargs: KwArgs,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        Self::merge(&self.entries, dict_obj, kwargs, vm)
+        self.update(dict_obj, kwargs, vm)
     }
 
-    // Used in merge and ior.
-    fn merge_single_arg(
+    // Used in update and ior.
+    fn merge_object(
         dict: &DictContentType,
         other: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let dicted: Result<PyDictRef, _> = other.clone().downcast_exact(vm);
-        if let Ok(dict_obj) = dicted {
-            let dict_size = &dict_obj.size();
-            for (key, value) in &dict_obj {
-                dict.insert(vm, key, value)?;
-            }
-            if dict_obj.entries.has_changed_size(dict_size) {
-                return Err(vm.new_runtime_error("dict mutated during update".to_owned()));
-            }
-        } else if let Some(keys) = vm.get_method(other.clone(), "keys") {
+        let other = match other.downcast_exact(vm) {
+            Ok(dict_other) => return Self::merge_dict(dict, dict_other, vm),
+            Err(other) => other,
+        };
+        if let Some(keys) = vm.get_method(other.clone(), "keys") {
             let keys = vm.invoke(&keys?, ())?.get_iter(vm)?;
             while let PyIterReturn::Return(key) = keys.next(vm)? {
                 let val = other.get_item(key.clone(), vm)?;
@@ -118,29 +113,17 @@ impl PyDict {
         Ok(())
     }
 
-    fn merge(
-        dict: &DictContentType,
-        dict_obj: OptionalArg<PyObjectRef>,
-        kwargs: KwArgs,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        if let OptionalArg::Present(dict_obj) = dict_obj {
-            PyDict::merge_single_arg(dict, dict_obj, vm)?;
-        }
-
-        for (key, value) in kwargs.into_iter() {
-            dict.insert(vm, vm.ctx.new_utf8_str(key), value)?;
-        }
-        Ok(())
-    }
-
     fn merge_dict(
         dict: &DictContentType,
         dict_other: PyDictRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        for (key, value) in dict_other {
+        let dict_size = &dict_other.size();
+        for (key, value) in &dict_other {
             dict.insert(vm, key, value)?;
+        }
+        if dict_other.entries.has_changed_size(dict_size) {
+            return Err(vm.new_runtime_error("dict mutated during update".to_owned()));
         }
         Ok(())
     }
@@ -336,12 +319,18 @@ impl PyDict {
         kwargs: KwArgs,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        PyDict::merge(&self.entries, dict_obj, kwargs, vm)
+        if let OptionalArg::Present(dict_obj) = dict_obj {
+            Self::merge_object(&self.entries, dict_obj, vm)?;
+        }
+        for (key, value) in kwargs.into_iter() {
+            self.entries.insert(vm, vm.ctx.new_utf8_str(key), value)?;
+        }
+        Ok(())
     }
 
     #[pymethod(magic)]
     fn ior(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        PyDict::merge_single_arg(&zelf.entries, other, vm)?;
+        PyDict::merge_object(&zelf.entries, other, vm)?;
         Ok(zelf.into_object())
     }
 
