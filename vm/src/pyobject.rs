@@ -759,6 +759,22 @@ pub trait TryFromBorrowedObject: Sized {
     fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Self>;
 }
 
+impl PyObjectRef {
+    pub fn try_into_value<T>(self, vm: &VirtualMachine) -> PyResult<T>
+    where
+        T: TryFromObject,
+    {
+        T::try_from_object(vm, self)
+    }
+
+    pub fn try_borrow_to_object<T>(&self, vm: &VirtualMachine) -> PyResult<T>
+    where
+        T: TryFromBorrowedObject,
+    {
+        T::try_from_borrowed_object(vm, self)
+    }
+}
+
 /// Marks a type that has the exact same layout as PyObjectRef, e.g. a type that is
 /// `repr(transparent)` over PyObjectRef.
 ///

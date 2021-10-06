@@ -249,7 +249,7 @@ pub fn invoke(
 ) -> PyResult<PyBaseExceptionRef> {
     // TODO: fast-path built-in exceptions by directly instantiating them? Is that really worth it?
     let res = vm.invoke(cls.as_object(), args)?;
-    PyBaseExceptionRef::try_from_object(vm, res)
+    res.try_into_value(vm)
 }
 
 impl ExceptionCtor {

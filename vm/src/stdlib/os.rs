@@ -208,10 +208,11 @@ pub(crate) enum PathOrFd {
 
 impl TryFromObject for PathOrFd {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        match obj.downcast::<PyInt>() {
-            Ok(int) => int.try_to_primitive(vm).map(Self::Fd),
-            Err(obj) => PyPathLike::try_from_object(vm, obj).map(Self::Path),
-        }
+        let r = match obj.downcast::<PyInt>() {
+            Ok(int) => Self::Fd(int.try_to_primitive(vm)?),
+            Err(obj) => Self::Path(obj.try_into_value(vm)?),
+        };
+        Ok(r)
     }
 }
 
@@ -432,8 +433,8 @@ pub(super) mod _os {
         suppress_iph,
         utils::Either,
         vm::{ReprGuard, VirtualMachine},
-        IntoPyRef, PyObjectRef, PyRef, PyResult, PyStructSequence, PyValue, TryFromBorrowedObject,
-        TryFromObject, TypeProtocol,
+        IntoPyRef, PyObjectRef, PyRef, PyResult, PyStructSequence, PyValue, TryFromObject,
+        TypeProtocol,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
@@ -1340,10 +1341,7 @@ pub(super) mod _os {
                         "utime: 'times' must be either a tuple of two ints or None".to_owned(),
                     )
                 })?;
-                (
-                    Duration::try_from_object(vm, a)?,
-                    Duration::try_from_object(vm, m)?,
-                )
+                (a.try_into_value(vm)?, m.try_into_value(vm)?)
             }
             (None, Some(ns)) => {
                 let (a, m) = parse_tup(&ns).ok_or_else(|| {
@@ -1609,7 +1607,7 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn truncate(path: PyObjectRef, length: Offset, vm: &VirtualMachine) -> PyResult<()> {
-        if let Ok(fd) = i32::try_from_borrowed_object(vm, &path) {
+        if let Ok(fd) = path.try_borrow_to_object(vm) {
             return ftruncate(fd, length, vm);
         }
         let path = PyPathLike::try_from_object(vm, path)?;

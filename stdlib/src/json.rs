@@ -9,7 +9,7 @@ mod _json {
         function::{FuncArgs, IntoPyObject, IntoPyResult, OptionalArg},
         protocol::PyIterReturn,
         slots::{Callable, SlotConstructor},
-        IdProtocol, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
+        IdProtocol, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
     };
     use num_bigint::BigInt;
     use std::str::FromStr;
@@ -251,7 +251,7 @@ mod _json {
         let get_error = || -> PyResult<_> {
             let cls = vm.try_class("json", "JSONDecodeError")?;
             let exc = vm.invoke(cls.as_object(), (e.msg, s, e.pos))?;
-            PyBaseExceptionRef::try_from_object(vm, exc)
+            exc.try_into_value(vm)
         };
         match get_error() {
             Ok(x) | Err(x) => x,

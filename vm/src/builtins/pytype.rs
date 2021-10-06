@@ -9,7 +9,7 @@ use crate::{
     slots::{self, Callable, PyTypeFlags, PyTypeSlots, SlotGetattro, SlotSetattro},
     utils::Either,
     IdProtocol, PyAttributes, PyClassImpl, PyContext, PyLease, PyObjectRef, PyRef, PyResult,
-    PyValue, TryFromObject, TypeProtocol, VirtualMachine,
+    PyValue, TypeProtocol, VirtualMachine,
 };
 use itertools::Itertools;
 use num_traits::ToPrimitive;
@@ -831,7 +831,7 @@ fn subtype_set_dict(obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -
             descr_set(descr, obj, Some(value), vm)
         }
         None => {
-            object::object_set_dict(obj, PyDictRef::try_from_object(vm, value)?, vm)?;
+            object::object_set_dict(obj, value.try_into_value(vm)?, vm)?;
             Ok(())
         }
     }
