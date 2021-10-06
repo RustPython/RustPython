@@ -5,7 +5,6 @@ use crate::common::{
 };
 pub use crate::pyobjectrc::{PyObject, PyObjectRef, PyObjectWeak, PyRef, PyWeakRef};
 use crate::{
-    builtins::PyBaseExceptionRef,
     builtins::{
         builtinfunc::PyNativeFuncDef,
         bytearray, bytes,
@@ -14,12 +13,13 @@ use crate::{
         namespace::PyNamespace,
         object, pystr,
         set::{self, PyFrozenSet},
-        PyBoundMethod, PyComplex, PyDict, PyDictRef, PyEllipsis, PyFloat, PyInt, PyIntRef, PyList,
-        PyNone, PyNotImplemented, PyStaticMethod, PyTuple, PyTupleRef, PyType, PyTypeRef,
+        PyBaseExceptionRef, PyBoundMethod, PyComplex, PyDict, PyDictRef, PyEllipsis, PyFloat,
+        PyInt, PyIntRef, PyList, PyNone, PyNotImplemented, PyStaticMethod, PyTuple, PyTupleRef,
+        PyType, PyTypeRef,
     },
     dictdatatype::Dict,
     exceptions,
-    function::{IntoFuncArgs, IntoPyNativeFunc},
+    function::{IntoFuncArgs, IntoPyNativeFunc, IntoPyObject, IntoPyResult},
     protocol::PyMapping,
     slots::{PyTypeFlags, PyTypeSlots},
     types::{create_type_with_slots, TypeZoo},
@@ -759,6 +759,22 @@ pub trait TryFromBorrowedObject: Sized {
     fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Self>;
 }
 
+impl PyObjectRef {
+    pub fn try_into_value<T>(self, vm: &VirtualMachine) -> PyResult<T>
+    where
+        T: TryFromObject,
+    {
+        T::try_from_object(vm, self)
+    }
+
+    pub fn try_borrow_to_object<T>(&self, vm: &VirtualMachine) -> PyResult<T>
+    where
+        T: TryFromBorrowedObject,
+    {
+        T::try_from_borrowed_object(vm, self)
+    }
+}
+
 /// Marks a type that has the exact same layout as PyObjectRef, e.g. a type that is
 /// `repr(transparent)` over PyObjectRef.
 ///
@@ -797,15 +813,6 @@ where
     }
 }
 
-/// Implemented by any type that can be returned from a built-in Python function.
-///
-/// `IntoPyObject` has a blanket implementation for any built-in object payload,
-/// and should be implemented by many primitive Rust types, allowing a built-in
-/// function to simply return a `bool` or a `usize` for example.
-pub trait IntoPyObject {
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef;
-}
-
 impl<T: PyObjectPayload> IntoPyObject for PyRef<T> {
     #[inline]
     fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
@@ -830,10 +837,6 @@ where
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         PyValue::into_object(self, vm)
     }
-}
-
-pub trait IntoPyResult {
-    fn into_pyresult(self, vm: &VirtualMachine) -> PyResult;
 }
 
 impl<T> IntoPyResult for T

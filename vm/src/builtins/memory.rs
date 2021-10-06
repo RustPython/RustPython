@@ -7,14 +7,14 @@ use crate::common::{
 };
 use crate::{
     bytesinner::bytes_to_hex,
-    function::{FuncArgs, OptionalArg},
+    function::{FuncArgs, IntoPyObject, OptionalArg},
     protocol::{BufferInternal, BufferOptions, PyBuffer, PyMappingMethods},
     sliceable::{convert_slice, wrap_index, SequenceIndex},
     slots::{AsBuffer, AsMapping, Comparable, Hashable, PyComparisonOp, SlotConstructor},
     stdlib::pystruct::FormatSpec,
     utils::Either,
-    IdProtocol, IntoPyObject, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef,
-    PyRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject, TypeProtocol, VirtualMachine,
+    IdProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
+    PyResult, PyValue, TryFromBorrowedObject, TryFromObject, TypeProtocol, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;

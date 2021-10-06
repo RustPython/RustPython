@@ -1,7 +1,8 @@
 use super::PyTypeRef;
 use crate::{
-    function::KwArgs, slots::SlotConstructor, IntoPyObject, PyClassImpl, PyContext, PyResult,
-    PyValue, VirtualMachine,
+    function::{IntoPyObject, KwArgs},
+    slots::SlotConstructor,
+    PyClassImpl, PyContext, PyResult, PyValue, VirtualMachine,
 };
 
 /// A simple attribute-based namespace.

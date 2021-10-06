@@ -2,10 +2,14 @@ use indexmap::map::IndexMap;
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, ToTokens};
 use std::collections::HashMap;
-use syn::Signature;
-use syn::{spanned::Spanned, Attribute, Ident, Meta, MetaList, NestedMeta, Path, Result, UseTree};
-use syn_ext::ext::{AttributeExt as SynAttributeExt, *};
-use syn_ext::types::PunctuatedNestedMeta;
+use syn::{
+    spanned::Spanned, Attribute, Ident, Meta, MetaList, NestedMeta, Path, Result, Signature,
+    UseTree,
+};
+use syn_ext::{
+    ext::{AttributeExt as SynAttributeExt, *},
+    types::PunctuatedNestedMeta,
+};
 
 pub(crate) const ALL_ALLOWED_NAMES: &[&str] = &[
     "pymethod",

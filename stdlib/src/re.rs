@@ -4,15 +4,15 @@
  * This module fits the python re interface onto the rust regular expression
  * system.
  */
+use crate::{
+    builtins::{PyInt, PyIntRef, PyStr, PyStrRef, PyTypeRef},
+    function::{IntoPyObject, OptionalArg, PosArgs},
+    PyClassImpl, PyObjectRef, PyResult, PyValue, StaticType, TryFromObject, VirtualMachine,
+};
 use num_traits::Signed;
 use regex::bytes::{Captures, Regex, RegexBuilder};
 use std::fmt;
 use std::ops::Range;
-use crate::
-    {builtins::{
-    PyInt, PyIntRef, PyStr, PyStrRef, PyTypeRef},
-    function::{PosArgs, OptionalArg},
-    VirtualMachine, IntoPyObject, PyClassImpl, PyObjectRef, PyResult, PyValue, StaticType, TryFromObject};
 
 #[pyclass(module = "re", name = "Pattern")]
 #[derive(Debug, PyValue)]

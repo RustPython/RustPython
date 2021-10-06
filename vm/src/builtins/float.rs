@@ -2,9 +2,9 @@ use super::{try_bigint_to_f64, PyBytes, PyInt, PyIntRef, PyStr, PyStrRef, PyType
 use crate::common::{float_ops, hash};
 use crate::{
     format::FormatSpec,
-    function::{OptionalArg, OptionalOption},
+    function::{IntoPyObject, OptionalArg, OptionalOption},
     slots::{Comparable, Hashable, PyComparisonOp, SlotConstructor},
-    IdProtocol, IntoPyObject,
+    IdProtocol,
     PyArithmeticValue::{self, *},
     PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol, VirtualMachine,

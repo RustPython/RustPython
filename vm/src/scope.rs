@@ -1,8 +1,9 @@
 use std::fmt;
 
 use crate::builtins::{PyDictRef, PyStr, PyStrRef};
+use crate::function::IntoPyObject;
 use crate::VirtualMachine;
-use crate::{IntoPyObject, ItemProtocol, TryIntoRef};
+use crate::{ItemProtocol, TryIntoRef};
 
 #[derive(Clone)]
 pub struct Scope {

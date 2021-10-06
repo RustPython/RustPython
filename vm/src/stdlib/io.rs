@@ -83,14 +83,15 @@ mod _io {
         },
         exceptions,
         function::{
-            ArgBytesLike, ArgIterable, ArgMemoryBuffer, FuncArgs, OptionalArg, OptionalOption,
+            ArgBytesLike, ArgIterable, ArgMemoryBuffer, FuncArgs, IntoPyObject, OptionalArg,
+            OptionalOption,
         },
-        protocol::{BufferInternal, BufferOptions, PyBuffer, PyIterReturn, ResizeGuard},
-        slots::{Iterable, SlotConstructor, SlotIterator},
+        protocol::{BufferInternal, BufferOptions, BufferResizeGuard, PyBuffer, PyIterReturn},
+        slots::{Iterable, SlotConstructor, SlotDestructor, SlotIterator},
         utils::Either,
         vm::{ReprGuard, VirtualMachine},
-        IdProtocol, IntoPyObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
-        TryFromObject, TypeProtocol,
+        IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject,
+        TypeProtocol,
     };
     use bstr::ByteSlice;
     use crossbeam_utils::atomic::AtomicCell;
@@ -158,7 +159,7 @@ mod _io {
     fn os_err(vm: &VirtualMachine, err: io::Error) -> PyBaseExceptionRef {
         #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
         {
-            use crate::exceptions::IntoPyException;
+            use crate::function::IntoPyException;
             err.into_pyexception(vm)
         }
         #[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
@@ -181,10 +182,10 @@ mod _io {
     ) -> PyResult<SeekFrom> {
         let seek = match how {
             OptionalArg::Present(0) | OptionalArg::Missing => {
-                SeekFrom::Start(u64::try_from_object(vm, offset)?)
+                SeekFrom::Start(offset.try_into_value(vm)?)
             }
-            OptionalArg::Present(1) => SeekFrom::Current(i64::try_from_object(vm, offset)?),
-            OptionalArg::Present(2) => SeekFrom::End(i64::try_from_object(vm, offset)?),
+            OptionalArg::Present(1) => SeekFrom::Current(offset.try_into_value(vm)?),
+            OptionalArg::Present(2) => SeekFrom::End(offset.try_into_value(vm)?),
             _ => return Err(vm.new_value_error("invalid value for how".to_owned())),
         };
         Ok(seek)
@@ -344,7 +345,7 @@ mod _io {
     #[derive(Debug, PyValue)]
     struct _IOBase;
 
-    #[pyimpl(with(SlotIterator), flags(BASETYPE, HAS_DICT))]
+    #[pyimpl(with(SlotIterator, SlotDestructor), flags(BASETYPE, HAS_DICT))]
     impl _IOBase {
         #[pymethod]
         fn seek(
@@ -377,17 +378,6 @@ mod _io {
         fn enter(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             check_closed(&instance, vm)?;
             Ok(instance)
-        }
-
-        #[pyslot]
-        fn slot_del(instance: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            let _ = vm.call_method(instance, "close", ());
-            Ok(())
-        }
-
-        #[pymethod(magic)]
-        fn del(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            Self::slot_del(&instance, vm)
         }
 
         #[pymethod(magic)]
@@ -509,6 +499,18 @@ mod _io {
         #[pymethod(name = "_checkSeekable")]
         fn check_seekable(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             check_seekable(&instance, vm)
+        }
+    }
+
+    impl SlotDestructor for _IOBase {
+        fn slot_del(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            let _ = vm.call_method(zelf, "close", ());
+            Ok(())
+        }
+
+        #[cold]
+        fn del(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<()> {
+            unreachable!("slot_del is implemented")
         }
     }
 
@@ -3345,7 +3347,7 @@ mod _io {
         }
     }
 
-    impl<'a> ResizeGuard<'a> for BytesIO {
+    impl<'a> BufferResizeGuard<'a> for BytesIO {
         type Resizable = PyRwLockWriteGuard<'a, BufferedIO>;
 
         fn try_resizable(&'a self, vm: &VirtualMachine) -> PyResult<Self::Resizable> {
@@ -3535,9 +3537,7 @@ mod _io {
 
         // check file descriptor validity
         #[cfg(unix)]
-        if let Ok(crate::stdlib::os::PathOrFd::Fd(fd)) =
-            TryFromObject::try_from_object(vm, file.clone())
-        {
+        if let Ok(crate::stdlib::os::PathOrFd::Fd(fd)) = file.clone().try_into_value(vm) {
             nix::fcntl::fcntl(fd, nix::fcntl::F_GETFD)
                 .map_err(|_| crate::stdlib::os::errno_err(vm))?;
         }
@@ -3683,10 +3683,9 @@ mod fileio {
     use crate::{
         builtins::{PyStr, PyStrRef, PyTypeRef},
         crt_fd::Fd,
-        exceptions::IntoPyException,
-        function::OptionalOption,
-        function::{ArgBytesLike, ArgMemoryBuffer},
-        function::{FuncArgs, OptionalArg},
+        function::{
+            ArgBytesLike, ArgMemoryBuffer, FuncArgs, IntoPyException, OptionalArg, OptionalOption,
+        },
         stdlib::os,
         PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
     };

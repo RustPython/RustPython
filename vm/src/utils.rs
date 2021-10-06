@@ -1,8 +1,7 @@
 use crate::{
-    builtins::{pystr::PyStr, PyFloat},
-    exceptions::IntoPyException,
-    IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
-    VirtualMachine,
+    builtins::{PyFloat, PyStr},
+    function::{IntoPyException, IntoPyObject},
+    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
 };
 use num_traits::ToPrimitive;
 

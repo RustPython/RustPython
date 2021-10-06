@@ -3,14 +3,14 @@ use crate::{
     builtins::PyBaseExceptionRef,
     common::ascii,
     dictdatatype::{self, DictKey},
-    function::{ArgIterable, FuncArgs, KwArgs, OptionalArg},
+    function::{ArgIterable, FuncArgs, IntoPyObject, KwArgs, OptionalArg},
     protocol::{PyIterReturn, PyMappingMethods},
     slots::{
         AsMapping, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotIterator,
         Unhashable,
     },
     vm::{ReprGuard, VirtualMachine},
-    IdProtocol, IntoPyObject, ItemProtocol,
+    IdProtocol, ItemProtocol,
     PyArithmeticValue::*,
     PyAttributes, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
     PyResult, PyValue, TypeProtocol,
@@ -66,60 +66,49 @@ impl PyDict {
         kwargs: KwArgs,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        Self::merge(&self.entries, dict_obj, kwargs, vm)
+        self.update(dict_obj, kwargs, vm)
     }
 
-    fn merge(
+    // Used in update and ior.
+    fn merge_object(
         dict: &DictContentType,
-        dict_obj: OptionalArg<PyObjectRef>,
-        kwargs: KwArgs,
+        other: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        if let OptionalArg::Present(dict_obj) = dict_obj {
-            let dicted: Result<PyDictRef, _> = dict_obj.clone().downcast_exact(vm);
-            if let Ok(dict_obj) = dicted {
-                let dict_size = &dict_obj.size();
-                for (key, value) in &dict_obj {
-                    dict.insert(vm, key, value)?;
-                }
-                if dict_obj.entries.has_changed_size(dict_size) {
-                    return Err(vm.new_runtime_error("dict mutated during update".to_owned()));
-                }
-            } else if let Some(keys) = vm.get_method(dict_obj.clone(), "keys") {
-                let keys = vm.invoke(&keys?, ())?.get_iter(vm)?;
-                while let PyIterReturn::Return(key) = keys.next(vm)? {
-                    let val = dict_obj.get_item(key.clone(), vm)?;
-                    dict.insert(vm, key, val)?;
-                }
-            } else {
-                let iter = dict_obj.get_iter(vm)?;
-                loop {
-                    fn err(vm: &VirtualMachine) -> PyBaseExceptionRef {
-                        vm.new_value_error("Iterator must have exactly two elements".to_owned())
-                    }
-                    let element = match iter.next(vm)? {
-                        PyIterReturn::Return(obj) => obj,
-                        PyIterReturn::StopIteration(_) => break,
-                    };
-                    let elem_iter = element.get_iter(vm)?;
-                    let key = match elem_iter.next(vm)? {
-                        PyIterReturn::Return(obj) => obj,
-                        PyIterReturn::StopIteration(_) => return Err(err(vm)),
-                    };
-                    let value = match elem_iter.next(vm)? {
-                        PyIterReturn::Return(obj) => obj,
-                        PyIterReturn::StopIteration(_) => return Err(err(vm)),
-                    };
-                    if matches!(elem_iter.next(vm)?, PyIterReturn::Return(_)) {
-                        return Err(err(vm));
-                    }
-                    dict.insert(vm, key, value)?;
-                }
+        let other = match other.downcast_exact(vm) {
+            Ok(dict_other) => return Self::merge_dict(dict, dict_other, vm),
+            Err(other) => other,
+        };
+        if let Some(keys) = vm.get_method(other.clone(), "keys") {
+            let keys = vm.invoke(&keys?, ())?.get_iter(vm)?;
+            while let PyIterReturn::Return(key) = keys.next(vm)? {
+                let val = other.get_item(key.clone(), vm)?;
+                dict.insert(vm, key, val)?;
             }
-        }
-
-        for (key, value) in kwargs.into_iter() {
-            dict.insert(vm, vm.ctx.new_utf8_str(key), value)?;
+        } else {
+            let iter = other.get_iter(vm)?;
+            loop {
+                fn err(vm: &VirtualMachine) -> PyBaseExceptionRef {
+                    vm.new_value_error("Iterator must have exactly two elements".to_owned())
+                }
+                let element = match iter.next(vm)? {
+                    PyIterReturn::Return(obj) => obj,
+                    PyIterReturn::StopIteration(_) => break,
+                };
+                let elem_iter = element.get_iter(vm)?;
+                let key = match elem_iter.next(vm)? {
+                    PyIterReturn::Return(obj) => obj,
+                    PyIterReturn::StopIteration(_) => return Err(err(vm)),
+                };
+                let value = match elem_iter.next(vm)? {
+                    PyIterReturn::Return(obj) => obj,
+                    PyIterReturn::StopIteration(_) => return Err(err(vm)),
+                };
+                if matches!(elem_iter.next(vm)?, PyIterReturn::Return(_)) {
+                    return Err(err(vm));
+                }
+                dict.insert(vm, key, value)?;
+            }
         }
         Ok(())
     }
@@ -129,8 +118,12 @@ impl PyDict {
         dict_other: PyDictRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        for (key, value) in dict_other {
+        let dict_size = &dict_other.size();
+        for (key, value) in &dict_other {
             dict.insert(vm, key, value)?;
+        }
+        if dict_other.entries.has_changed_size(dict_size) {
+            return Err(vm.new_runtime_error("dict mutated during update".to_owned()));
         }
         Ok(())
     }
@@ -326,17 +319,19 @@ impl PyDict {
         kwargs: KwArgs,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        PyDict::merge(&self.entries, dict_obj, kwargs, vm)
+        if let OptionalArg::Present(dict_obj) = dict_obj {
+            Self::merge_object(&self.entries, dict_obj, vm)?;
+        }
+        for (key, value) in kwargs.into_iter() {
+            self.entries.insert(vm, vm.ctx.new_utf8_str(key), value)?;
+        }
+        Ok(())
     }
 
     #[pymethod(magic)]
     fn ior(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let dicted: Result<PyDictRef, _> = other.downcast();
-        if let Ok(other) = dicted {
-            PyDict::merge_dict(&zelf.entries, other, vm)?;
-            return Ok(zelf.into_object());
-        }
-        Ok(vm.ctx.not_implemented())
+        PyDict::merge_object(&zelf.entries, other, vm)?;
+        Ok(zelf.into_object())
     }
 
     #[pymethod(magic)]

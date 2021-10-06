@@ -1,8 +1,8 @@
 use crate::{
     builtins::{PyBaseExceptionRef, PyBytesRef, PyStr, PyStrRef, PyTuple, PyTupleRef},
     common::{ascii, lock::PyRwLock},
-    IntoPyObject, PyContext, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
-    VirtualMachine,
+    function::IntoPyObject,
+    PyContext, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
 };
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -204,7 +204,7 @@ impl CodecsRegistry {
         let encoding = PyStr::from(encoding.into_owned()).into_ref(vm);
         for func in search_path {
             let res = vm.invoke(&func, (encoding.clone(),))?;
-            let res = <Option<PyCodec>>::try_from_object(vm, res)?;
+            let res: Option<PyCodec> = res.try_into_value(vm)?;
             if let Some(codec) = res {
                 let mut inner = self.inner.write();
                 // someone might have raced us to this, so use theirs
@@ -334,9 +334,9 @@ fn normalize_encoding_name(encoding: &str) -> Cow<'_, str> {
 // TODO: exceptions with custom payloads
 fn extract_unicode_error_range(err: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Range<usize>> {
     let start = vm.get_attribute(err.clone(), "start")?;
-    let start = usize::try_from_object(vm, start)?;
+    let start = start.try_into_value(vm)?;
     let end = vm.get_attribute(err.clone(), "end")?;
-    let end = usize::try_from_object(vm, end)?;
+    let end = end.try_into_value(vm)?;
     Ok(Range { start, end })
 }
 

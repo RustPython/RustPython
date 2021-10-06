@@ -154,8 +154,6 @@ class QueryTestCase(unittest.TestCase):
             self.assertFalse(pp.isreadable(unreadable),
                              "expected not isreadable for %r" % (unreadable,))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_same_as_repr(self):
         # Simple objects, small containers and classes that overwrite __repr__
         # For those the result should be the same as repr().
@@ -240,8 +238,6 @@ class QueryTestCase(unittest.TestCase):
         'third': 3}]"""
         self.assertEqual(pprint.pformat(o, indent=4, width=41), expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_width(self):
         expected = """\
 [[[[[[1, 2, 3],
@@ -358,8 +354,6 @@ mappingproxy(OrderedDict([('the', 0),
  others.should.not.be: like.this}"""
         self.assertEqual(DottedPrettyPrinter().pformat(o), exp)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_set_reprs(self):
         self.assertEqual(pprint.pformat(set()), 'set()')
         self.assertEqual(pprint.pformat(set(range(3))), '{0, 1, 2}')

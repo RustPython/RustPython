@@ -1,7 +1,7 @@
 use crate::{
     builtins::{PyIntRef, PyStrRef},
-    exceptions::IntoPyException,
-    IntoPyObject, PyClassImpl, PyObjectRef, PyResult, PyStructSequence, VirtualMachine,
+    function::{IntoPyException, IntoPyObject},
+    PyClassImpl, PyObjectRef, PyResult, PyStructSequence, VirtualMachine,
 };
 use nix::unistd::{self, User};
 use std::convert::TryFrom;

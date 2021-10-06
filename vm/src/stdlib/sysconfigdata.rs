@@ -1,5 +1,5 @@
 use super::sys::MULTIARCH;
-use crate::{IntoPyObject, ItemProtocol, PyObjectRef, VirtualMachine};
+use crate::{function::IntoPyObject, ItemProtocol, PyObjectRef, VirtualMachine};
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let vars = vm.ctx.new_dict();

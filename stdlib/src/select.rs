@@ -1,4 +1,4 @@
-use crate::vm::{PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject, VirtualMachine};
+use crate::vm::{PyObjectRef, PyResult, TryFromObject, VirtualMachine};
 use std::{io, mem};
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
@@ -72,11 +72,11 @@ struct Selectable {
 
 impl TryFromObject for Selectable {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        let fno = RawFd::try_from_borrowed_object(vm, &obj).or_else(|_| {
+        let fno = obj.try_borrow_to_object(vm).or_else(|_| {
             let meth = vm.get_method_or_type_error(obj.clone(), "fileno", || {
                 "select arg must be an int or object with a fileno() method".to_owned()
             })?;
-            RawFd::try_from_object(vm, vm.invoke(&meth, ())?)
+            vm.invoke(&meth, ())?.try_into_value(vm)
         })?;
         Ok(Selectable { obj, fno })
     }
@@ -152,7 +152,9 @@ fn sec_to_timeval(sec: f64) -> timeval {
 mod decl {
     use super::*;
     use crate::vm::{
-        exceptions::IntoPyException, function::OptionalOption, stdlib::time, utils::Either,
+        function::{IntoPyException, OptionalOption},
+        stdlib::time,
+        utils::Either,
         PyObjectRef, PyResult, VirtualMachine,
     };
 
@@ -253,8 +255,11 @@ mod decl {
     pub(super) mod poll {
         use super::*;
         use crate::vm::{
-            builtins::PyFloat, common::lock::PyMutex, function::OptionalArg, stdlib::io::Fildes,
-            IntoPyObject, PyValue, TypeProtocol,
+            builtins::PyFloat,
+            common::lock::PyMutex,
+            function::{IntoPyObject, OptionalArg},
+            stdlib::io::Fildes,
+            PyValue, TypeProtocol,
         };
         use libc::pollfd;
         use num_traits::ToPrimitive;

@@ -6,15 +6,17 @@ use crate::{
         ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
     },
     common::hash::PyHash,
-    function::{ArgBytesLike, ArgIterable, OptionalArg, OptionalOption},
+    function::{
+        ArgBytesLike, ArgIterable, IntoPyObject, IntoPyResult, OptionalArg, OptionalOption,
+    },
     protocol::{BufferInternal, BufferOptions, PyBuffer, PyIterReturn, PyMappingMethods},
     slots::{
         AsBuffer, AsMapping, Callable, Comparable, Hashable, Iterable, IteratorIterable,
         PyComparisonOp, SlotConstructor, SlotIterator,
     },
     utils::Either,
-    IdProtocol, IntoPyObject, IntoPyResult, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef,
-    PyRef, PyResult, PyValue, TryFromBorrowedObject, TypeProtocol, VirtualMachine,
+    IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromBorrowedObject, TypeProtocol, VirtualMachine,
 };
 use bstr::ByteSlice;
 use rustpython_common::{

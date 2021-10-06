@@ -21,7 +21,6 @@ mod _collections {
     };
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
-    use num_traits::ToPrimitive;
     use std::cmp::{max, min};
     use std::collections::VecDeque;
 
@@ -89,19 +88,15 @@ mod _collections {
             // need to move that function elsewhere and refactor usages.
             let maxlen = if let Some(obj) = maxlen.into_option() {
                 if !vm.is_none(&obj) {
-                    let value = obj.payload::<PyInt>().ok_or_else(|| {
-                        vm.new_value_error("maxlen must be non-negative.".to_owned())
-                    })?;
-                    let maxlen = value.as_bigint().to_usize().ok_or_else(|| {
-                        vm.new_value_error("maxlen must be non-negative.".to_owned())
-                    })?;
-                    // Only succeeds for values for which 0 <= value <= isize::MAX
-                    if maxlen > isize::MAX as usize {
-                        return Err(vm.new_overflow_error(
-                            "Python int too large to convert to Rust isize.".to_owned(),
-                        ));
+                    let maxlen: isize = obj
+                        .payload::<PyInt>()
+                        .ok_or_else(|| vm.new_type_error("an integer is required.".to_owned()))?
+                        .try_to_primitive(vm)?;
+
+                    if maxlen.is_negative() {
+                        return Err(vm.new_value_error("maxlen must be non-negative.".to_owned()));
                     }
-                    Some(maxlen)
+                    Some(maxlen as usize)
                 } else {
                     None
                 }
@@ -420,7 +415,12 @@ mod _collections {
                     .maxlen
                     .map(|maxlen| format!(", maxlen={}", maxlen))
                     .unwrap_or_default();
-                format!("deque([{}]{})", elements.into_iter().format(", "), maxlen)
+                format!(
+                    "{}([{}]{})",
+                    zelf.class().name(),
+                    elements.into_iter().format(", "),
+                    maxlen
+                )
             } else {
                 "[...]".to_owned()
             };

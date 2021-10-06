@@ -1,13 +1,11 @@
-use crate::builtins::{PyStrRef, PyTypeRef};
-use crate::common::hash::PyHash;
-use crate::common::lock::PyRwLock;
-use crate::function::{FromArgs, FuncArgs, OptionalArg};
-use crate::protocol::{PyBuffer, PyIterReturn, PyMappingMethods};
-use crate::utils::Either;
-use crate::VirtualMachine;
+use crate::common::{hash::PyHash, lock::PyRwLock};
 use crate::{
-    IdProtocol, IntoPyResult, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
+    builtins::{PyStrRef, PyTypeRef},
+    function::{FromArgs, FuncArgs, IntoPyResult, OptionalArg},
+    protocol::{PyBuffer, PyIterReturn, PyMappingMethods},
+    utils::Either,
+    IdProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use std::cmp::Ordering;
@@ -161,6 +159,7 @@ pub trait SlotConstructor: PyValue {
 
 #[pyimpl]
 pub trait SlotDestructor: PyValue {
+    #[inline] // for __del__
     #[pyslot]
     fn slot_del(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if let Some(zelf) = zelf.downcast_ref() {
@@ -170,9 +169,9 @@ pub trait SlotDestructor: PyValue {
         }
     }
 
-    #[pymethod(magic)]
-    fn __del__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<()> {
-        Self::del(&zelf, vm)
+    #[pymethod]
+    fn __del__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        Self::slot_del(&zelf, vm)
     }
 
     fn del(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<()>;
@@ -216,7 +215,7 @@ pub trait SlotDescriptor: PyValue {
     }
 
     fn _zelf(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        PyRef::<Self>::try_from_object(vm, zelf)
+        zelf.try_into_value(vm)
     }
 
     fn _unwrap(

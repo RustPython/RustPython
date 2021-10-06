@@ -1,9 +1,8 @@
-use super::Diagnostic;
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::DeriveInput;
+use syn::{DeriveInput, Result};
 
-pub(crate) fn impl_pyvalue(input: DeriveInput) -> std::result::Result<TokenStream, Diagnostic> {
+pub(crate) fn impl_pyvalue(input: DeriveInput) -> Result<TokenStream> {
     let ty = &input.ident;
 
     let ret = quote! {

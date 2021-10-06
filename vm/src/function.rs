@@ -1,11 +1,10 @@
 mod argument;
 mod byteslike;
 
-use self::OptionalArg::*;
 use crate::{
     builtins::{PyBaseExceptionRef, PyTupleRef, PyTypeRef},
-    IntoPyObject, IntoPyResult, PyObjectRef, PyRef, PyResult, PyThreadingConstraint, PyValue,
-    TryFromObject, TypeProtocol, VirtualMachine,
+    PyObjectRef, PyRef, PyResult, PyThreadingConstraint, PyValue, TryFromObject, TypeProtocol,
+    VirtualMachine,
 };
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -13,8 +12,25 @@ use result_like::impl_option_like;
 use std::marker::PhantomData;
 use std::ops::RangeInclusive;
 
-pub use argument::{ArgCallable, ArgIterable, PyIterator};
+pub use argument::{ArgCallable, ArgIterable};
 pub use byteslike::{ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike};
+
+/// Implemented by any type that can be returned from a built-in Python function.
+///
+/// `IntoPyObject` has a blanket implementation for any built-in object payload,
+/// and should be implemented by many primitive Rust types, allowing a built-in
+/// function to simply return a `bool` or a `usize` for example.
+pub trait IntoPyObject {
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef;
+}
+
+pub trait IntoPyResult {
+    fn into_pyresult(self, vm: &VirtualMachine) -> PyResult;
+}
+
+pub trait IntoPyException {
+    fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef;
+}
 
 pub trait IntoFuncArgs: Sized {
     fn into_args(self, vm: &VirtualMachine) -> FuncArgs;
@@ -356,7 +372,7 @@ where
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
         let mut kwargs = IndexMap::new();
         for (name, value) in args.remaining_keywords() {
-            kwargs.insert(name, T::try_from_object(vm, value)?);
+            kwargs.insert(name, value.try_into_value(vm)?);
         }
         Ok(KwArgs(kwargs))
     }
@@ -428,7 +444,7 @@ where
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
         let mut varargs = Vec::new();
         while let Some(value) = args.take_positional() {
-            varargs.push(T::try_from_object(vm, value)?);
+            varargs.push(value.try_into_value(vm)?);
         }
         Ok(PosArgs(varargs))
     }
@@ -452,11 +468,8 @@ where
     }
 
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
-        if let Some(value) = args.take_positional() {
-            Ok(T::try_from_object(vm, value)?)
-        } else {
-            Err(ArgumentError::TooFewArgs)
-        }
+        let value = args.take_positional().ok_or(ArgumentError::TooFewArgs)?;
+        Ok(value.try_into_value(vm)?)
     }
 }
 
@@ -483,7 +496,7 @@ impl<T> OptionalOption<T> {
     #[inline]
     pub fn flatten(self) -> Option<T> {
         match self {
-            Present(Some(value)) => Some(value),
+            OptionalArg::Present(Some(value)) => Some(value),
             _ => None,
         }
     }
@@ -498,11 +511,12 @@ where
     }
 
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
-        if let Some(value) = args.take_positional() {
-            Ok(Present(T::try_from_object(vm, value)?))
+        let r = if let Some(value) = args.take_positional() {
+            OptionalArg::Present(value.try_into_value(vm)?)
         } else {
-            Ok(Missing)
-        }
+            OptionalArg::Missing
+        };
+        Ok(r)
     }
 }
 

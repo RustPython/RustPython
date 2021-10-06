@@ -3,9 +3,9 @@ pub(crate) use self::termios::make_module;
 #[pymodule]
 mod termios {
     use crate::vm::{
-        builtins::PyBaseExceptionRef,
-        builtins::{PyBytes, PyInt, PyListRef, PyTypeRef},
-        IntoPyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+        builtins::{PyBaseExceptionRef, PyBytes, PyInt, PyListRef, PyTypeRef},
+        function::IntoPyObject,
+        PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     };
     use std::convert::TryFrom;
     use termios::Termios;
@@ -58,13 +58,13 @@ mod termios {
                 })?
                 .clone();
         let mut termios = Termios::from_fd(fd).map_err(|e| termios_error(e, vm))?;
-        termios.c_iflag = TryFromObject::try_from_object(vm, iflag)?;
-        termios.c_oflag = TryFromObject::try_from_object(vm, oflag)?;
-        termios.c_cflag = TryFromObject::try_from_object(vm, cflag)?;
-        termios.c_lflag = TryFromObject::try_from_object(vm, lflag)?;
-        termios::cfsetispeed(&mut termios, TryFromObject::try_from_object(vm, ispeed)?)
+        termios.c_iflag = iflag.try_into_value(vm)?;
+        termios.c_oflag = oflag.try_into_value(vm)?;
+        termios.c_cflag = cflag.try_into_value(vm)?;
+        termios.c_lflag = lflag.try_into_value(vm)?;
+        termios::cfsetispeed(&mut termios, ispeed.try_into_value(vm)?)
             .map_err(|e| termios_error(e, vm))?;
-        termios::cfsetospeed(&mut termios, TryFromObject::try_from_object(vm, ospeed)?)
+        termios::cfsetospeed(&mut termios, ospeed.try_into_value(vm)?)
             .map_err(|e| termios_error(e, vm))?;
         let cc = PyListRef::try_from_object(vm, cc)?;
         {

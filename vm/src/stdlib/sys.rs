@@ -19,7 +19,7 @@ use std::{env, mem, path};
 /*
  * The magic sys module.
  */
-const MAXSIZE: usize = isize::MAX as usize;
+pub(crate) const MAXSIZE: isize = isize::MAX;
 const MAXUNICODE: u32 = std::char::MAX as u32;
 
 fn argv(vm: &VirtualMachine) -> PyObjectRef {

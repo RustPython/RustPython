@@ -8,13 +8,11 @@ use wasm_bindgen_futures::{future_to_promise, JsFuture};
 
 use rustpython_vm::{
     builtins::{PyBaseExceptionRef, PyFloatRef, PyStrRef, PyTypeRef},
-    function::ArgCallable,
-    function::{OptionalArg, OptionalOption, PosArgs},
+    function::{ArgCallable, IntoPyObject, OptionalArg, OptionalOption, PosArgs},
     protocol::PyIterReturn,
     slots::{IteratorIterable, SlotIterator},
     types::create_simple_type,
-    IntoPyObject, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    VirtualMachine,
+    PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
 };
 
 #[wasm_bindgen(inline_js = "
@@ -552,20 +550,17 @@ impl fmt::Debug for AwaitPromise {
 #[pyimpl(with(SlotIterator))]
 impl AwaitPromise {
     #[pymethod]
-    fn send(&self, val: Option<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
+    fn send(&self, val: Option<PyObjectRef>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         match self.obj.take() {
             Some(prom) => {
                 if val.is_some() {
                     Err(vm
                         .new_type_error("can't send non-None value to an awaitpromise".to_owned()))
                 } else {
-                    Ok(prom)
+                    Ok(PyIterReturn::Return(prom))
                 }
             }
-            None => Err(rustpython_vm::iterator::stop_iter_with_value(
-                vm.unwrap_or_none(val),
-                vm,
-            )),
+            None => Ok(PyIterReturn::StopIteration(val)),
         }
     }
 
@@ -590,7 +585,7 @@ impl AwaitPromise {
 impl IteratorIterable for AwaitPromise {}
 impl SlotIterator for AwaitPromise {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        PyIterReturn::from_result(zelf.send(None, vm), vm)
+        zelf.send(None, vm)
     }
 }
 

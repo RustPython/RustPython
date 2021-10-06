@@ -6,10 +6,11 @@ use crate::util::{
 use proc_macro2::TokenStream;
 use quote::{quote, quote_spanned, ToTokens};
 use std::collections::HashMap;
-use syn::parse::{Parse, ParseStream, Result as ParsingResult};
 use syn::{
-    parse_quote, spanned::Spanned, Attribute, AttributeArgs, Ident, Item, LitStr, Meta, NestedMeta,
-    Result, Token,
+    parse::{Parse, ParseStream, Result as ParsingResult},
+    parse_quote,
+    spanned::Spanned,
+    Attribute, AttributeArgs, Ident, Item, LitStr, Meta, NestedMeta, Result, Token,
 };
 use syn_ext::ext::*;
 
@@ -47,10 +48,7 @@ fn extract_items_into_context<'a, Item>(
     context.errors.ok_or_push(context.getset_items.validate());
 }
 
-pub(crate) fn impl_pyimpl(
-    attr: AttributeArgs,
-    item: Item,
-) -> std::result::Result<TokenStream, Diagnostic> {
+pub(crate) fn impl_pyimpl(attr: AttributeArgs, item: Item) -> Result<TokenStream> {
     let mut context = ImplContext::default();
     let mut tokens = match item {
         Item::Impl(mut imp) => {
@@ -145,7 +143,7 @@ fn generate_class_def(
     base: Option<String>,
     metaclass: Option<String>,
     attrs: &[Attribute],
-) -> std::result::Result<TokenStream, Diagnostic> {
+) -> Result<TokenStream> {
     let doc = attrs.doc().or_else(|| {
         let module_name = module_name.unwrap_or("builtins");
         crate::doc::try_module_item(module_name, name)
@@ -181,8 +179,7 @@ fn generate_class_def(
         return Err(syn::Error::new_spanned(
             ident,
             "PyStructSequence cannot have `base` class attr",
-        )
-        .into());
+        ));
     }
     let base_class = if is_pystruct {
         Some(quote! { rustpython_vm::builtins::PyTuple })
@@ -235,10 +232,7 @@ fn generate_class_def(
     Ok(tokens)
 }
 
-pub(crate) fn impl_pyclass(
-    attr: AttributeArgs,
-    item: Item,
-) -> std::result::Result<TokenStream, Diagnostic> {
+pub(crate) fn impl_pyclass(attr: AttributeArgs, item: Item) -> Result<TokenStream> {
     let (ident, attrs) = pyclass_ident_and_attrs(&item)?;
     let fake_ident = Ident::new("pyclass", item.span());
     let class_meta = ClassItemMeta::from_nested(ident.clone(), fake_ident, attr.into_iter())?;
@@ -270,10 +264,7 @@ pub(crate) fn impl_pyclass(
 /// But, inside `macro_rules` we don't have an opportunity
 /// to add non-literal attributes to `pyclass`.
 /// That's why we have to use this proxy.
-pub(crate) fn impl_pyexception(
-    attr: AttributeArgs,
-    item: Item,
-) -> std::result::Result<TokenStream, Diagnostic> {
+pub(crate) fn impl_pyexception(attr: AttributeArgs, item: Item) -> Result<TokenStream> {
     let class_name = parse_vec_ident(&attr, &item, 0, "first 'class_name'")?;
     let base_class_name = parse_vec_ident(&attr, &item, 1, "second 'base_class_name'")?;
 
@@ -292,9 +283,7 @@ pub(crate) fn impl_pyexception(
     Ok(ret)
 }
 
-pub(crate) fn impl_define_exception(
-    exc_def: PyExceptionDef,
-) -> std::result::Result<TokenStream, Diagnostic> {
+pub(crate) fn impl_define_exception(exc_def: PyExceptionDef) -> Result<TokenStream> {
     let PyExceptionDef {
         class_name,
         base_class,
@@ -871,10 +860,7 @@ struct ExtractedImplAttrs {
     flags: TokenStream,
 }
 
-fn extract_impl_attrs(
-    attr: AttributeArgs,
-    item: &Ident,
-) -> std::result::Result<ExtractedImplAttrs, Diagnostic> {
+fn extract_impl_attrs(attr: AttributeArgs, item: &Ident) -> Result<ExtractedImplAttrs> {
     let mut withs = Vec::new();
     let mut with_slots = Vec::new();
     let mut flags = vec![quote! { ::rustpython_vm::slots::PyTypeFlags::DEFAULT.bits() }];
@@ -1090,7 +1076,7 @@ fn parse_vec_ident(
     item: &Item,
     index: usize,
     message: &str,
-) -> std::result::Result<String, Diagnostic> {
+) -> Result<String> {
     Ok(attr
         .get(index)
         .ok_or_else(|| {
