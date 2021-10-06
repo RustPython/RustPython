@@ -204,11 +204,10 @@ impl PySetInner {
             let part = vm.to_repr(&key)?;
             str_parts.push(part.as_str().to_owned());
         }
-        let inner_repr = format!("{{{}}}", str_parts.join(", "));
         if let Some(name) = class_name {
-            return Ok(format!("{}({})", name, inner_repr));
+            return Ok(format!("{}({{{}}})", name, str_parts.join(", ")));
         };
-        Ok(inner_repr)
+        Ok(format!("{{{}}}", str_parts.join(", ")))
     }
 
     fn add(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
