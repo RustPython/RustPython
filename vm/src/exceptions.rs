@@ -952,8 +952,7 @@ pub(super) mod types {
     use crate::{
         builtins::{traceback::PyTracebackRef, PyInt, PyTupleRef, PyTypeRef},
         exceptions::invoke,
-        function::FuncArgs,
-        pyobject::IntoPyResult,
+        function::{FuncArgs, IntoPyResult},
         stdlib::errno::errors,
         PyObjectRef, PyRef, PyResult, VirtualMachine,
     };
