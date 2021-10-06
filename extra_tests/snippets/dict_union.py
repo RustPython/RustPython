@@ -1,5 +1,5 @@
 
-import testutils
+from testutils import assert_raises, skip_if_unsupported
 
 def test_dunion_ior0():
     a={1:2,2:3}
@@ -44,28 +44,39 @@ def test_dunion_other_types():
         d={1:2}
         return d.__or__(other_obj) is NotImplemented
 
-    def perf_test_ior(other_obj):
-        d={1:2}
-        return d.__ior__(other_obj) is NotImplemented
-
     def perf_test_ror(other_obj):
         d={1:2}
         return d.__ror__(other_obj) is NotImplemented
 
-    test_fct={'__or__':perf_test_or, '__ror__':perf_test_ror, '__ior__':perf_test_ior}
+    test_fct={'__or__':perf_test_or, '__ror__':perf_test_ror}
     others=['FooBar', 42, [36], set([19]), ['aa'], None]
     for tfn,tf in test_fct.items():
         for other in others:
             assert tf(other), f"Failed: dict {tfn}, accepted {other}"
 
+    # __ior__() has different behavior and needs to be tested separately
+    d = {1: 2}
+    assert_raises(ValueError,
+                  lambda: d.__ior__('FooBar'),
+                  _msg='dictionary update sequence element #0 has length 1; 2 is required')
+    assert_raises(TypeError,
+                  lambda: d.__ior__(42),
+                  _msg='\'int\' object is not iterable')
+    assert_raises(TypeError,
+                  lambda: d.__ior__([36]),
+                  _msg='cannot convert dictionary update sequence element #0 to a sequence')
+    assert_raises(TypeError,
+                  lambda: d.__ior__(set([36])),
+                  _msg='cannot convert dictionary update sequence element #0 to a sequence')
+    res = d.__ior__(['aa'])
+    assert res == {1: 2, 'a': 'a'}, f"unexpected result of dict union {res=}"
+    assert_raises(TypeError,
+                  lambda: d.__ior__(None),
+                  _msg='TypeError: \'NoneType\' object is not iterable')
 
 
-
-testutils.skip_if_unsupported(3,9,test_dunion_ior0)
-testutils.skip_if_unsupported(3,9,test_dunion_or0)
-testutils.skip_if_unsupported(3,9,test_dunion_or1)
-testutils.skip_if_unsupported(3,9,test_dunion_ror0)
-# testutils.skip_if_unsupported(3,9,test_dunion_other_types)
-
-
-
+skip_if_unsupported(3, 9, test_dunion_ior0)
+skip_if_unsupported(3, 9, test_dunion_or0)
+skip_if_unsupported(3, 9, test_dunion_or1)
+skip_if_unsupported(3, 9, test_dunion_ror0)
+skip_if_unsupported(3, 9, test_dunion_other_types)
