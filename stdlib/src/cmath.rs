@@ -98,10 +98,15 @@ mod cmath {
     ///
     /// If the base not specified, returns the natural logarithm (base e) of z.
     #[pyfunction]
-    fn log(z: IntoPyComplex, base: OptionalArg<IntoPyFloat>) -> Complex64 {
+    fn log(z: IntoPyComplex, base: OptionalArg<IntoPyComplex>) -> Complex64 {
+        // TODO: Complex64.log with a negative base yields wrong results.
+        //       Issue is with num_complex::Complex64 implementation of log
+        //       which returns NaN when base is negative.
+        //       log10(z) / log10(base) yields correct results but division
+        //       doesn't handle pos/neg zero nicely. (i.e log(1, 0.5))
         z.to_complex().log(
             base.into_option()
-                .map(|base| base.to_f64())
+                .map(|base| base.to_complex().re)
                 .unwrap_or(std::f64::consts::E),
         )
     }

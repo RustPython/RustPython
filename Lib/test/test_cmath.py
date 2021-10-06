@@ -50,17 +50,14 @@ complex_nans = [complex(x, y) for x, y in [
         ]]
 
 class CMathTests(unittest.TestCase):
-    # TODO: RUSTPYTHON:
-    # Uncomment when functions have been added. Temporarily
-    # commented out to allow incremented addition of functions.
-    #
     # list of all functions in cmath
     test_functions = [getattr(cmath, fname) for fname in [
-        'sin','cos','log','log10','sqrt','acosh','tan','tanh','asinh', 'atan', 'atanh', 'sinh', 'cosh', 'exp', 'acos','asin'
-        ]]
+            'acos', 'acosh', 'asin', 'asinh', 'atan', 'atanh',
+            'cos', 'cosh', 'exp', 'log', 'log10', 'sin', 'sinh',
+            'sqrt', 'tan', 'tanh']]
     # test first and second arguments independently for 2-argument log
-    # test_functions.append(lambda x : cmath.log(x, 1729. + 0j))
-    # test_functions.append(lambda x : cmath.log(14.-27j, x))
+    test_functions.append(lambda x : cmath.log(x, 1729. + 0j))
+    test_functions.append(lambda x : cmath.log(14.-27j, x))
 
     def setUp(self):
         self.test_values = open(test_file)
@@ -178,6 +175,8 @@ class CMathTests(unittest.TestCase):
         self.assertEqual(repr(cmath.nan), "nan")
         self.assertEqual(repr(cmath.nanj), "nanj")
 
+    # TODO: RUSTPYTHON see TODO in cmath_log.
+    @unittest.expectedFailure
     def test_user_object(self):
         # Test automatic calling of __complex__ and __float__ by cmath
         # functions
@@ -319,24 +318,21 @@ class CMathTests(unittest.TestCase):
             'sinh' : real_line,
             'sqrt' : nonnegative,
             'tan' : real_line,
-            'tanh' : real_line
-        }
+            'tanh' : real_line}
 
         for fn, values in test_functions.items():
             float_fn = getattr(math, fn)
-            # TODO: RUSTPYTHON replace with 'complex_fn = getattr(cmath, fn)'
-            # when all functions have been added.
-            complex_fn = getattr(cmath, fn, None)
-            if complex_fn is None:
-                continue
+            complex_fn = getattr(cmath, fn)
             for v in values:
                 z = complex_fn(v)
                 self.rAssertAlmostEqual(float_fn(v), z.real)
-                # TODO: This line currently fails for acos and asin
-                # cmath.asin(0.2) should produce a real number,
+                # TODO: RUSTPYTHON
+                # This line currently fails for acos and asin.
+                # cmath.asin/acos(0.2) should produce a real number,
                 # but imaginary part is 1.1102230246251565e-16 for both.
-                if fn != "asin" and fn != "acos":
-                    self.assertEqual(0., z.imag)
+                if fn in {"asin", "acos"}:
+                    continue
+                self.assertEqual(0., z.imag)
 
         # test two-argument version of log with various bases
         for base in [0.5, 2., 10.]:
