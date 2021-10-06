@@ -1386,6 +1386,7 @@ pub(super) mod types {
         "Base class for warnings about resource usage."
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn os_error_optional_new(
         args: Vec<PyObjectRef>,
         vm: &VirtualMachine,
@@ -1441,6 +1442,7 @@ pub(super) mod types {
         PyBaseException::slot_new(cls, args, vm)
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn os_error_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         // We need this method, because of how `CPython` copies `init`
         // from `BaseException` in `SimpleExtendsException` macro.
@@ -1454,6 +1456,12 @@ pub(super) mod types {
             PyBaseException::slot_new(cls, args, vm)
         }
     }
+
+    #[cfg(target_arch = "wasm32")]
+    fn os_error_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        PyBaseException::slot_new(cls, args, vm)
+    }
+
     fn base_exception_init(
         zelf: PyRef<PyBaseException>,
         args: FuncArgs,
