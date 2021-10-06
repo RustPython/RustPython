@@ -1496,8 +1496,6 @@ class BuiltinTest(unittest.TestCase):
                     return i
         self.assertRaises(ValueError, list, zip(BadSeq(), BadSeq()))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_zip_pickle(self):
         a = (1, 2, 3)
         b = (4, 5, 6)
