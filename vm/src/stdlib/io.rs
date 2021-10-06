@@ -86,7 +86,7 @@ mod _io {
             ArgBytesLike, ArgIterable, ArgMemoryBuffer, FuncArgs, IntoPyObject, OptionalArg,
             OptionalOption,
         },
-        protocol::{BufferInternal, BufferOptions, PyBuffer, PyIterReturn, ResizeGuard},
+        protocol::{BufferInternal, BufferOptions, BufferResizeGuard, PyBuffer, PyIterReturn},
         slots::{Iterable, SlotConstructor, SlotDestructor, SlotIterator},
         utils::Either,
         vm::{ReprGuard, VirtualMachine},
@@ -3347,7 +3347,7 @@ mod _io {
         }
     }
 
-    impl<'a> ResizeGuard<'a> for BytesIO {
+    impl<'a> BufferResizeGuard<'a> for BytesIO {
         type Resizable = PyRwLockWriteGuard<'a, BufferedIO>;
 
         fn try_resizable(&'a self, vm: &VirtualMachine) -> PyResult<Self::Resizable> {

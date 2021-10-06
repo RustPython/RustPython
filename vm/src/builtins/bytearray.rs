@@ -18,7 +18,7 @@ use crate::{
     },
     function::{ArgBytesLike, ArgIterable, FuncArgs, IntoPyObject, OptionalArg, OptionalOption},
     protocol::{
-        BufferInternal, BufferOptions, PyBuffer, PyIterReturn, PyMappingMethods, ResizeGuard,
+        BufferInternal, BufferOptions, BufferResizeGuard, PyBuffer, PyIterReturn, PyMappingMethods,
     },
     sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
     slots::{
@@ -707,7 +707,7 @@ impl BufferInternal for PyRef<PyByteArray> {
     }
 }
 
-impl<'a> ResizeGuard<'a> for PyByteArray {
+impl<'a> BufferResizeGuard<'a> for PyByteArray {
     type Resizable = PyRwLockWriteGuard<'a, PyBytesInner>;
 
     fn try_resizable(&'a self, vm: &VirtualMachine) -> PyResult<Self::Resizable> {
