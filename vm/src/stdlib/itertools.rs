@@ -11,6 +11,7 @@ mod decl {
         function::{ArgCallable, FuncArgs, OptionalArg, OptionalOption, PosArgs},
         protocol::{PyIter, PyIterReturn},
         slots::{IteratorIterable, SlotConstructor, SlotIterator},
+        stdlib::sys,
         IdProtocol, IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, PyWeakRef, TypeProtocol,
         VirtualMachine,
     };
@@ -269,7 +270,7 @@ mod decl {
             let times = match times.into_option() {
                 Some(int) => {
                     let val = int.as_bigint();
-                    if *val > BigInt::from(isize::MAX) {
+                    if *val > BigInt::from(sys::MAXSIZE) {
                         return Err(vm.new_overflow_error("Cannot fit in isize.".to_owned()));
                     }
                     // times always >= 0.
@@ -705,7 +706,7 @@ mod decl {
         step: usize,
     }
 
-    // Restrict obj to ints with value 0 <= val <= sys.maxsize (isize::MAX).
+    // Restrict obj to ints with value 0 <= val <= sys.maxsize
     // On failure (out of range, non-int object) a ValueError is raised.
     fn pyobject_to_opt_usize(
         obj: PyObjectRef,
@@ -716,13 +717,13 @@ mod decl {
         if is_int {
             let value = int::get_value(&obj).to_usize();
             if let Some(value) = value {
-                // Only succeeds for values for which 0 <= value <= isize::MAX
-                if value <= isize::MAX as usize {
+                // Only succeeds for values for which 0 <= value <= sys.maxsize
+                if value <= sys::MAXSIZE as usize {
                     return Ok(value);
                 }
             }
         }
-        // We don't have an int or value was < 0 or > maxsize (isize::MAX)
+        // We don't have an int or value was < 0 or > sys.maxsize
         return Err(vm.new_value_error(format!(
             "{} argument for islice() must be None or an integer: 0 <= x <= sys.maxsize.",
             name
