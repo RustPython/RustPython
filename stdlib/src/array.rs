@@ -31,7 +31,6 @@ mod array {
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
     use lexical_core::Integer;
-    use num_traits::ToPrimitive;
     use std::cmp::Ordering;
     use std::convert::{TryFrom, TryInto};
     use std::{fmt, os::raw};
@@ -1320,11 +1319,7 @@ mod array {
                         obj.class().name()
                     ))
                 })?
-                .as_bigint()
-                .to_i32()
-                .ok_or_else(|| {
-                    vm.new_overflow_error("Python int too large to convert to C int".into())
-                })?
+                .try_to_primitive::<i32>(vm)?
                 .try_u8_or_max()
                 .try_into()
                 .map_err(|_| {

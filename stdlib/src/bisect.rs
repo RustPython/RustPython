@@ -6,7 +6,6 @@ mod _bisect {
         function::OptionalArg, slots::PyComparisonOp::Lt, ItemProtocol, PyObjectRef, PyResult,
         VirtualMachine,
     };
-    use num_traits::ToPrimitive;
     use std::convert::TryFrom;
 
     #[derive(FromArgs)]
@@ -26,11 +25,7 @@ mod _bisect {
         vm: &VirtualMachine,
     ) -> PyResult<Option<isize>> {
         Ok(match arg {
-            OptionalArg::Present(v) => {
-                Some(vm.to_index(&v)?.as_bigint().to_isize().ok_or_else(|| {
-                    vm.new_index_error("cannot fit 'int' into an index-sized integer".to_owned())
-                })?)
-            }
+            OptionalArg::Present(v) => Some(vm.to_index(&v)?.try_to_primitive(vm)?),
             OptionalArg::Missing => None,
         })
     }
