@@ -199,16 +199,41 @@ impl PySetInner {
     }
 
     fn repr(&self, class_name: Option<&str>, vm: &VirtualMachine) -> PyResult<String> {
-        let mut str_parts = Vec::with_capacity(self.content.len());
+        let mut repr_len = class_name.map_or(0, |name| name.len() + 2);
+        let mut parts = Vec::with_capacity(self.content.len());
         for key in self.elements() {
             let part = vm.to_repr(&key)?;
-            str_parts.push(part.as_str().to_owned());
+            repr_len += part.as_str().len() + 2;
+            parts.push(part);
         }
-        let inner_repr = format!("{{{}}}", str_parts.join(", "));
+        let (parts, repr_len) = (parts, repr_len);
+
+        let mut repr = String::with_capacity(repr_len);
         if let Some(name) = class_name {
-            return Ok(format!("{}({})", name, inner_repr));
-        };
-        Ok(inner_repr)
+            repr.push_str(name);
+            repr.push('(');
+        }
+        repr.push('{');
+        {
+            let mut parts_iter = parts.into_iter();
+            repr.push_str(
+                parts_iter
+                    .next()
+                    .expect("this is not called for empty set")
+                    .as_str(),
+            );
+            for part in parts_iter {
+                repr.push_str(", ");
+                repr.push_str(part.as_str());
+            }
+        }
+        repr.push('}');
+        if class_name.is_some() {
+            repr.push(')');
+        }
+        debug_assert_eq!(repr.len(), repr_len);
+
+        Ok(repr)
     }
 
     fn add(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
@@ -480,11 +505,12 @@ impl PySet {
         let s = if zelf.inner.len() == 0 {
             format!("{}()", class_name)
         } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-            if class_name != "set" {
-                zelf.inner.repr(Some(&class_name), vm)?
+            let name = if class_name != "set" {
+                Some(class_name.as_str())
             } else {
-                zelf.inner.repr(None, vm)?
-            }
+                None
+            };
+            zelf.inner.repr(name, vm)?
         } else {
             format!("{}(...)", class_name)
         };
