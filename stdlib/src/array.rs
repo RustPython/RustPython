@@ -18,7 +18,8 @@ mod array {
         class_or_notimplemented,
         function::{ArgBytesLike, ArgIterable, IntoPyObject, IntoPyResult, OptionalArg},
         protocol::{
-            BufferInternal, BufferOptions, PyBuffer, PyIterReturn, PyMappingMethods, ResizeGuard,
+            BufferInternal, BufferOptions, BufferResizeGuard, PyBuffer, PyIterReturn,
+            PyMappingMethods,
         },
         sliceable::{saturate_index, PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
         slots::{
@@ -1206,7 +1207,7 @@ mod array {
         }
     }
 
-    impl<'a> ResizeGuard<'a> for PyArray {
+    impl<'a> BufferResizeGuard<'a> for PyArray {
         type Resizable = PyRwLockWriteGuard<'a, ArrayContentType>;
 
         fn try_resizable(&'a self, vm: &VirtualMachine) -> PyResult<Self::Resizable> {
