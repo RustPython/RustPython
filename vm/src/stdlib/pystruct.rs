@@ -17,11 +17,11 @@ pub(crate) mod _struct {
             PyTypeRef,
         },
         common::str::wchar_t,
-        function::{ArgBytesLike, ArgMemoryBuffer, PosArgs},
+        function::{ArgBytesLike, ArgMemoryBuffer, IntoPyObject, PosArgs},
         protocol::PyIterReturn,
         slots::{IteratorIterable, SlotConstructor, SlotIterator},
         utils::Either,
-        IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
+        PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use half::f16;

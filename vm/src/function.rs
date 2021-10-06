@@ -1,11 +1,10 @@
 mod argument;
 mod byteslike;
 
-use self::OptionalArg::*;
 use crate::{
     builtins::{PyBaseExceptionRef, PyTupleRef, PyTypeRef},
-    IntoPyObject, IntoPyResult, PyObjectRef, PyRef, PyResult, PyThreadingConstraint, PyValue,
-    TryFromObject, TypeProtocol, VirtualMachine,
+    PyObjectRef, PyRef, PyResult, PyThreadingConstraint, PyValue, TryFromObject, TypeProtocol,
+    VirtualMachine,
 };
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -15,6 +14,23 @@ use std::ops::RangeInclusive;
 
 pub use argument::{ArgCallable, ArgIterable};
 pub use byteslike::{ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike};
+
+/// Implemented by any type that can be returned from a built-in Python function.
+///
+/// `IntoPyObject` has a blanket implementation for any built-in object payload,
+/// and should be implemented by many primitive Rust types, allowing a built-in
+/// function to simply return a `bool` or a `usize` for example.
+pub trait IntoPyObject {
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef;
+}
+
+pub trait IntoPyResult {
+    fn into_pyresult(self, vm: &VirtualMachine) -> PyResult;
+}
+
+pub trait IntoPyException {
+    fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef;
+}
 
 pub trait IntoFuncArgs: Sized {
     fn into_args(self, vm: &VirtualMachine) -> FuncArgs;
@@ -483,7 +499,7 @@ impl<T> OptionalOption<T> {
     #[inline]
     pub fn flatten(self) -> Option<T> {
         match self {
-            Present(Some(value)) => Some(value),
+            OptionalArg::Present(Some(value)) => Some(value),
             _ => None,
         }
     }
@@ -499,9 +515,9 @@ where
 
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
         if let Some(value) = args.take_positional() {
-            Ok(Present(T::try_from_object(vm, value)?))
+            Ok(OptionalArg::Present(T::try_from_object(vm, value)?))
         } else {
-            Ok(Missing)
+            Ok(OptionalArg::Missing)
         }
     }
 }

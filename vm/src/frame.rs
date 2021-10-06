@@ -13,13 +13,13 @@ use crate::{
     bytecode,
     coroutine::Coro,
     exceptions::{self, ExceptionCtor},
-    function::FuncArgs,
+    function::{FuncArgs, IntoPyResult},
     protocol::{PyIter, PyIterReturn},
     scope::Scope,
     slots::PyComparisonOp,
     stdlib::builtins,
-    IdProtocol, IntoPyResult, ItemProtocol, PyMethod, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol, VirtualMachine,
+    IdProtocol, ItemProtocol, PyMethod, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol, VirtualMachine,
 };
 use indexmap::IndexMap;
 use itertools::Itertools;

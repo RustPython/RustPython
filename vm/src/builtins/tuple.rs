@@ -1,7 +1,7 @@
 use super::{PositionIterInternal, PyTypeRef};
 use crate::common::hash::PyHash;
 use crate::{
-    function::OptionalArg,
+    function::{IntoPyObject, OptionalArg},
     protocol::{PyIterReturn, PyMappingMethods},
     sequence::{self, SimpleSeq},
     sliceable::PySliceableSequence,
@@ -12,9 +12,8 @@ use crate::{
     stdlib::sys,
     utils::Either,
     vm::{ReprGuard, VirtualMachine},
-    IdProtocol, IntoPyObject, PyArithmeticValue, PyClassDef, PyClassImpl, PyComparisonValue,
-    PyContext, PyObjectRef, PyRef, PyResult, PyValue, TransmuteFromObject, TryFromObject,
-    TypeProtocol,
+    IdProtocol, PyArithmeticValue, PyClassDef, PyClassImpl, PyComparisonValue, PyContext,
+    PyObjectRef, PyRef, PyResult, PyValue, TransmuteFromObject, TryFromObject, TypeProtocol,
 };
 use rustpython_common::lock::PyMutex;
 use std::fmt;

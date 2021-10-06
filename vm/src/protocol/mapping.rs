@@ -1,8 +1,10 @@
 use crate::{
-    builtins::dict::{PyDictKeys, PyDictRef, PyDictValues},
-    builtins::list::PyList,
-    vm::VirtualMachine,
-    IdProtocol, IntoPyObject, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
+    builtins::{
+        dict::{PyDictKeys, PyDictValues},
+        PyDictRef, PyList,
+    },
+    function::IntoPyObject,
+    IdProtocol, PyObjectRef, PyResult, TryFromObject, TypeProtocol, VirtualMachine,
 };
 use std::borrow::Borrow;
 use std::ops::Deref;

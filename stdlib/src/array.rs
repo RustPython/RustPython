@@ -16,7 +16,7 @@ mod array {
             PyStr, PyStrRef, PyTypeRef,
         },
         class_or_notimplemented,
-        function::{ArgBytesLike, ArgIterable, OptionalArg},
+        function::{ArgBytesLike, ArgIterable, IntoPyObject, IntoPyResult, OptionalArg},
         protocol::{
             BufferInternal, BufferOptions, PyBuffer, PyIterReturn, PyMappingMethods, ResizeGuard,
         },
@@ -25,8 +25,8 @@ mod array {
             AsBuffer, AsMapping, Comparable, Iterable, IteratorIterable, PyComparisonOp,
             SlotConstructor, SlotIterator,
         },
-        IdProtocol, IntoPyObject, IntoPyResult, PyComparisonValue, PyObjectRef, PyRef, PyResult,
-        PyValue, TryFromObject, TypeProtocol, VirtualMachine,
+        IdProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+        TypeProtocol, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;

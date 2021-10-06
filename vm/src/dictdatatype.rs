@@ -1,14 +1,16 @@
-/// Ordered dictionary implementation.
-/// Inspired by: https://morepypy.blogspot.com/2015/01/faster-more-memory-efficient-and-more.html
-/// And: https://www.youtube.com/watch?v=p33CVV29OG8
-/// And: http://code.activestate.com/recipes/578375/
-use crate::builtins::{PyStr, PyStrRef};
 use crate::common::{
     hash,
     lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
 };
-use crate::vm::VirtualMachine;
-use crate::{IdProtocol, IntoPyObject, PyObjectRef, PyRefExact, PyResult, TypeProtocol};
+/// Ordered dictionary implementation.
+/// Inspired by: https://morepypy.blogspot.com/2015/01/faster-more-memory-efficient-and-more.html
+/// And: https://www.youtube.com/watch?v=p33CVV29OG8
+/// And: http://code.activestate.com/recipes/578375/
+use crate::{
+    builtins::{PyStr, PyStrRef},
+    function::IntoPyObject,
+    IdProtocol, PyObjectRef, PyRefExact, PyResult, TypeProtocol, VirtualMachine,
+};
 use std::fmt;
 use std::mem::size_of;
 
