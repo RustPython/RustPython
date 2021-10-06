@@ -1,13 +1,11 @@
 use super::errno::errors;
 use crate::crt_fd::Fd;
 use crate::{
-    builtins::PyBaseExceptionRef,
-    builtins::{PyBytes, PyBytesRef, PyInt, PySet, PyStr, PyStrRef},
-    exceptions::IntoPyException,
-    function::{ArgumentError, FromArgs, FuncArgs},
+    builtins::{PyBaseExceptionRef, PyBytes, PyBytesRef, PyInt, PySet, PyStr, PyStrRef},
+    function::{ArgumentError, FromArgs, FuncArgs, IntoPyException, IntoPyObject},
     protocol::PyBuffer,
-    IntoPyObject, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject,
-    TypeProtocol, VirtualMachine,
+    PyObjectRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject, TypeProtocol,
+    VirtualMachine,
 };
 use std::ffi;
 use std::fs;
@@ -428,15 +426,14 @@ pub(super) mod _os {
     use crate::{
         builtins::{PyBytesRef, PyIntRef, PyStrRef, PyTuple, PyTupleRef, PyTypeRef},
         crt_fd::{Fd, Offset},
-        exceptions::IntoPyException,
-        function::{ArgBytesLike, FuncArgs, OptionalArg},
+        function::{ArgBytesLike, FuncArgs, IntoPyException, IntoPyObject, OptionalArg},
         protocol::PyIterReturn,
         slots::{IteratorIterable, SlotIterator},
         suppress_iph,
         utils::Either,
         vm::{ReprGuard, VirtualMachine},
-        IntoPyObject, IntoPyRef, PyObjectRef, PyRef, PyResult, PyStructSequence, PyValue,
-        TryFromBorrowedObject, TryFromObject, TypeProtocol,
+        IntoPyRef, PyObjectRef, PyRef, PyResult, PyStructSequence, PyValue, TryFromBorrowedObject,
+        TryFromObject, TypeProtocol,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;

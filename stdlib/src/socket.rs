@@ -1,14 +1,15 @@
 use crate::common::lock::{PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard};
 use crate::vm::{
     builtins::{PyBaseExceptionRef, PyStrRef, PyTupleRef, PyTypeRef},
-    exceptions::IntoPyException,
     extend_module,
-    function::{ArgBytesLike, ArgMemoryBuffer},
-    function::{FuncArgs, OptionalArg, OptionalOption},
+    function::{
+        ArgBytesLike, ArgMemoryBuffer, FuncArgs, IntoPyException, IntoPyObject, OptionalArg,
+        OptionalOption,
+    },
     named_function, py_module,
     utils::{Either, ToCString},
-    IntoPyObject, PyClassImpl, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject,
-    TryFromObject, TypeProtocol, VirtualMachine,
+    PyClassImpl, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject,
+    TypeProtocol, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use gethostname::gethostname;

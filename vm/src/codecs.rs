@@ -1,8 +1,8 @@
 use crate::{
     builtins::{PyBaseExceptionRef, PyBytesRef, PyStr, PyStrRef, PyTuple, PyTupleRef},
     common::{ascii, lock::PyRwLock},
-    IntoPyObject, PyContext, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
-    VirtualMachine,
+    function::IntoPyObject,
+    PyContext, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
 };
 use std::borrow::Cow;
 use std::collections::HashMap;

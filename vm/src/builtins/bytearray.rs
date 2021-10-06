@@ -16,7 +16,7 @@ use crate::{
         ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerSplitOptions,
         ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
     },
-    function::{ArgBytesLike, ArgIterable, FuncArgs, OptionalArg, OptionalOption},
+    function::{ArgBytesLike, ArgIterable, FuncArgs, IntoPyObject, OptionalArg, OptionalOption},
     protocol::{
         BufferInternal, BufferOptions, PyBuffer, PyIterReturn, PyMappingMethods, ResizeGuard,
     },
@@ -26,8 +26,8 @@ use crate::{
         PyComparisonOp, SlotIterator, Unhashable,
     },
     utils::Either,
-    IdProtocol, IntoPyObject, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef,
-    PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
+    IdProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
+    PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
 use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;
@@ -127,8 +127,10 @@ impl PyByteArray {
     }
 
     #[pymethod(magic)]
-    fn repr(&self) -> String {
-        self.inner().repr("bytearray(", ")")
+    fn repr(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        let class_name = zelf.class().name();
+        let s = zelf.inner().repr(&format!("{}(", class_name), ")");
+        Ok(s)
     }
 
     #[pymethod(magic)]

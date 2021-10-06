@@ -152,7 +152,9 @@ fn sec_to_timeval(sec: f64) -> timeval {
 mod decl {
     use super::*;
     use crate::vm::{
-        exceptions::IntoPyException, function::OptionalOption, stdlib::time, utils::Either,
+        function::{IntoPyException, OptionalOption},
+        stdlib::time,
+        utils::Either,
         PyObjectRef, PyResult, VirtualMachine,
     };
 
@@ -253,8 +255,11 @@ mod decl {
     pub(super) mod poll {
         use super::*;
         use crate::vm::{
-            builtins::PyFloat, common::lock::PyMutex, function::OptionalArg, stdlib::io::Fildes,
-            IntoPyObject, PyValue, TypeProtocol,
+            builtins::PyFloat,
+            common::lock::PyMutex,
+            function::{IntoPyObject, OptionalArg},
+            stdlib::io::Fildes,
+            PyValue, TypeProtocol,
         };
         use libc::pollfd;
         use num_traits::ToPrimitive;

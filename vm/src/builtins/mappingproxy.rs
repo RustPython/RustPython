@@ -1,10 +1,10 @@
 use super::{PyDict, PyList, PyStrRef, PyTuple, PyTypeRef};
 use crate::{
-    function::OptionalArg,
+    function::{IntoPyObject, OptionalArg},
     protocol::{PyMapping, PyMappingMethods},
     slots::{AsMapping, Iterable, SlotConstructor},
-    IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol, VirtualMachine,
+    ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "mappingproxy")]

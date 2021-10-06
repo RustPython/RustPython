@@ -2,10 +2,10 @@
 
 use super::{PyInt, PyIntRef, PyTypeRef};
 use crate::{
-    function::{FuncArgs, OptionalArg},
+    function::{FuncArgs, IntoPyObject, OptionalArg},
     slots::{Comparable, Hashable, PyComparisonOp, SlotConstructor, Unhashable},
-    IntoPyObject, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TryIntoRef, TypeProtocol, VirtualMachine,
+    PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryIntoRef,
+    TypeProtocol, VirtualMachine,
 };
 use num_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, Zero};

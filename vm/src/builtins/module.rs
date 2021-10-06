@@ -1,7 +1,8 @@
 use super::{PyDictRef, PyStr, PyStrRef, PyTypeRef};
 use crate::{
-    function::FuncArgs, slots::SlotGetattro, IntoPyObject, ItemProtocol, PyClassImpl, PyContext,
-    PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    function::{FuncArgs, IntoPyObject},
+    slots::SlotGetattro,
+    ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "module")]

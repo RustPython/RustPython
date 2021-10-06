@@ -1,7 +1,7 @@
 use super::{PositionIterInternal, PyTypeRef};
 use crate::common::hash::PyHash;
 use crate::{
-    function::OptionalArg,
+    function::{IntoPyObject, OptionalArg},
     protocol::{PyIterReturn, PyMappingMethods},
     sequence::{self, SimpleSeq},
     sliceable::PySliceableSequence,
@@ -9,11 +9,11 @@ use crate::{
         AsMapping, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp,
         SlotConstructor, SlotIterator,
     },
+    stdlib::sys,
     utils::Either,
     vm::{ReprGuard, VirtualMachine},
-    IdProtocol, IntoPyObject, PyArithmeticValue, PyClassDef, PyClassImpl, PyComparisonValue,
-    PyContext, PyObjectRef, PyRef, PyResult, PyValue, TransmuteFromObject, TryFromObject,
-    TypeProtocol,
+    IdProtocol, PyArithmeticValue, PyClassDef, PyClassImpl, PyComparisonValue, PyContext,
+    PyObjectRef, PyRef, PyResult, PyValue, TransmuteFromObject, TryFromObject, TypeProtocol,
 };
 use rustpython_common::lock::PyMutex;
 use std::fmt;
@@ -238,7 +238,7 @@ impl PyTuple {
                 start = 0;
             }
         }
-        let mut stop = stop.into_option().unwrap_or(isize::MAX);
+        let mut stop = stop.into_option().unwrap_or(sys::MAXSIZE);
         if stop < 0 {
             stop += self.as_slice().len() as isize;
             if stop < 0 {

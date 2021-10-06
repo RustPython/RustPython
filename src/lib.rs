@@ -481,7 +481,9 @@ fn get_paths(env_variable_name: &str) -> impl Iterator<Item = String> + '_ {
 #[cfg(not(target_os = "wasi"))]
 use env::split_paths;
 #[cfg(target_os = "wasi")]
-fn split_paths<T: AsRef<std::ffi::OsStr> + ?Sized>(s: &T) -> impl Iterator<Item = PathBuf> + '_ {
+fn split_paths<T: AsRef<std::ffi::OsStr> + ?Sized>(
+    s: &T,
+) -> impl Iterator<Item = std::path::PathBuf> + '_ {
     use std::os::wasi::ffi::OsStrExt;
     let s = s.as_ref().as_bytes();
     s.split(|b| *b == b':')

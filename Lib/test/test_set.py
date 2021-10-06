@@ -672,8 +672,6 @@ class TestSetSubclass(TestSet):
     def test_pickling(self):
         super().test_pickling()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_cyclical_repr(self):
         super().test_cyclical_repr()
 

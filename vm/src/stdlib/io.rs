@@ -83,14 +83,15 @@ mod _io {
         },
         exceptions,
         function::{
-            ArgBytesLike, ArgIterable, ArgMemoryBuffer, FuncArgs, OptionalArg, OptionalOption,
+            ArgBytesLike, ArgIterable, ArgMemoryBuffer, FuncArgs, IntoPyObject, OptionalArg,
+            OptionalOption,
         },
         protocol::{BufferInternal, BufferOptions, PyBuffer, PyIterReturn, ResizeGuard},
         slots::{Iterable, SlotConstructor, SlotDestructor, SlotIterator},
         utils::Either,
         vm::{ReprGuard, VirtualMachine},
-        IdProtocol, IntoPyObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
-        TryFromObject, TypeProtocol,
+        IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject,
+        TypeProtocol,
     };
     use bstr::ByteSlice;
     use crossbeam_utils::atomic::AtomicCell;
@@ -158,7 +159,7 @@ mod _io {
     fn os_err(vm: &VirtualMachine, err: io::Error) -> PyBaseExceptionRef {
         #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
         {
-            use crate::exceptions::IntoPyException;
+            use crate::function::IntoPyException;
             err.into_pyexception(vm)
         }
         #[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
@@ -3684,10 +3685,9 @@ mod fileio {
     use crate::{
         builtins::{PyStr, PyStrRef, PyTypeRef},
         crt_fd::Fd,
-        exceptions::IntoPyException,
-        function::OptionalOption,
-        function::{ArgBytesLike, ArgMemoryBuffer},
-        function::{FuncArgs, OptionalArg},
+        function::{
+            ArgBytesLike, ArgMemoryBuffer, FuncArgs, IntoPyException, OptionalArg, OptionalOption,
+        },
         stdlib::os,
         PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
     };

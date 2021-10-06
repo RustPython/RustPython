@@ -2,7 +2,7 @@
 
 use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::{
-    builtins::PyStrRef, exceptions::IntoPyException, PyClassImpl, PyObjectRef, PyRef, PyResult,
+    builtins::PyStrRef, function::IntoPyException, PyClassImpl, PyObjectRef, PyRef, PyResult,
     PyValue, TryFromObject, VirtualMachine,
 };
 use std::convert::TryInto;

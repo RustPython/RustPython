@@ -5,8 +5,6 @@ use super::{
     tuple::PyTupleTyped, PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyStrRef,
     PyTupleRef, PyTypeRef,
 };
-#[cfg(feature = "jit")]
-use crate::IntoPyObject;
 use crate::{
     bytecode,
     common::lock::PyMutex,
@@ -17,9 +15,9 @@ use crate::{
     IdProtocol, ItemProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
     PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
-use itertools::Itertools;
 #[cfg(feature = "jit")]
-use rustpython_common::lock::OnceCell;
+use crate::{common::lock::OnceCell, function::IntoPyObject};
+use itertools::Itertools;
 #[cfg(feature = "jit")]
 use rustpython_jit::CompiledCode;
 use rustpython_vm::builtins::PyStr;
@@ -30,12 +28,12 @@ pub type PyFunctionRef = PyRef<PyFunction>;
 #[derive(Debug)]
 pub struct PyFunction {
     code: PyRef<PyCode>,
-    #[cfg(feature = "jit")]
-    jitted_code: OnceCell<CompiledCode>,
     globals: PyDictRef,
     closure: Option<PyTupleTyped<PyCellRef>>,
     defaults_and_kwdefaults: PyMutex<(Option<PyTupleRef>, Option<PyDictRef>)>,
     name: PyMutex<PyStrRef>,
+    #[cfg(feature = "jit")]
+    jitted_code: OnceCell<CompiledCode>,
 }
 
 impl PyFunction {
@@ -49,12 +47,12 @@ impl PyFunction {
         let name = PyMutex::new(code.obj_name.clone());
         PyFunction {
             code,
-            #[cfg(feature = "jit")]
-            jitted_code: OnceCell::new(),
             globals,
             closure,
             defaults_and_kwdefaults: PyMutex::new((defaults, kw_only_defaults)),
             name,
+            #[cfg(feature = "jit")]
+            jitted_code: OnceCell::new(),
         }
     }
 

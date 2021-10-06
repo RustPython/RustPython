@@ -2,8 +2,8 @@
 
 use crate::{
     builtins::{PyDictRef, PyStrRef, PyTupleRef, PyTypeRef},
-    exceptions::{self, IntoPyException},
-    function::{ArgCallable, FuncArgs, KwArgs, OptionalArg},
+    exceptions,
+    function::{ArgCallable, FuncArgs, IntoPyException, KwArgs, OptionalArg},
     py_io,
     slots::{SlotConstructor, SlotGetattro, SlotSetattro},
     utils::Either,

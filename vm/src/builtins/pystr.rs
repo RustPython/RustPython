@@ -5,18 +5,18 @@ use super::{
 };
 use crate::{
     anystr::{self, adjust_indices, AnyStr, AnyStrContainer, AnyStrWrapper},
-    exceptions::IntoPyException,
     format::{FormatSpec, FormatString, FromTemplate},
-    function::{ArgIterable, FuncArgs, OptionalArg, OptionalOption},
+    function::{ArgIterable, FuncArgs, IntoPyException, IntoPyObject, OptionalArg, OptionalOption},
     protocol::PyIterReturn,
     sliceable::PySliceableSequence,
     slots::{
         Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotConstructor,
         SlotIterator,
     },
+    stdlib::sys,
     utils::Either,
-    IdProtocol, IntoPyObject, ItemProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext,
-    PyObjectRef, PyRef, PyResult, PyValue, TryIntoRef, TypeProtocol, VirtualMachine,
+    IdProtocol, ItemProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef,
+    PyRef, PyResult, PyValue, TryIntoRef, TypeProtocol, VirtualMachine,
 };
 use bstr::ByteSlice;
 use itertools::Itertools;
@@ -401,7 +401,7 @@ impl PyStr {
         match self.kind {
             PyStrKindData::Utf8(ref char_len) => {
                 let len = self.as_str().chars().count();
-                // len cannot be usize::MAX, since vec.capacity() < isize::MAX
+                // len cannot be usize::MAX, since vec.capacity() < sys.maxsize
                 char_len.store(len, atomic::Ordering::Relaxed);
                 len
             }
@@ -477,7 +477,7 @@ impl PyStr {
                 ch if (ch as u32) < 0x10000 => 6, // \uHHHH
                 _ => 10,                          // \uHHHHHHHH
             };
-            if out_len > (isize::MAX as usize) - incr {
+            if out_len > (sys::MAXSIZE as usize) - incr {
                 return Err(vm.new_overflow_error("string is too long to generate repr".to_owned()));
             }
             out_len += incr;
