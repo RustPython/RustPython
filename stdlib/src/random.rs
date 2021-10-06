@@ -144,5 +144,13 @@ mod _random {
             };
             Ok(BigInt::from_biguint(sign, uint))
         }
+
+        #[pymethod]
+        fn randbytes(&self, n: usize) -> PyResult<Vec<u8>> {
+            let mut buf = vec![0u8; n];
+            let mut rng = self.rng.lock();
+            rng.fill_bytes(&mut buf);
+            Ok(buf)
+        }
     }
 }
