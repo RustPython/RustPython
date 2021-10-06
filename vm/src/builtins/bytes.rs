@@ -112,7 +112,7 @@ impl SlotConstructor for PyBytes {
 impl PyBytes {
     #[pymethod(magic)]
     pub(crate) fn repr(&self) -> String {
-        self.inner.repr("", "")
+        self.inner.repr(None)
     }
 
     #[pymethod(magic)]

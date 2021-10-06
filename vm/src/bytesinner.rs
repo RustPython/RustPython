@@ -235,40 +235,45 @@ impl ByteInnerTranslateOptions {
 pub type ByteInnerSplitOptions<'a> = anystr::SplitArgs<'a, PyBytesInner>;
 
 impl PyBytesInner {
-    pub fn repr(&self, prefix: &str, suffix: &str) -> String {
+    pub fn repr(&self, class_name: Option<&str>) -> String {
         use std::fmt::Write;
 
-        let mut out_len = 0usize;
-        let mut squote = 0;
-        let mut dquote = 0;
+        let (quote, out_len) = {
+            let mut out_len = 0usize;
+            let mut squote = 0;
+            let mut dquote = 0;
 
-        for &ch in self.elements.iter() {
-            let incr = match ch {
-                b'\'' => {
-                    squote += 1;
-                    1
-                }
-                b'"' => {
-                    dquote += 1;
-                    1
-                }
-                b'\\' | b'\t' | b'\r' | b'\n' => 2,
-                0x20..=0x7e => 1,
-                _ => 4, // \xHH
-            };
-            // TODO: OverflowError
-            out_len = out_len.checked_add(incr).unwrap();
-        }
+            for &ch in self.elements.iter() {
+                let incr = match ch {
+                    b'\'' => {
+                        squote += 1;
+                        1
+                    }
+                    b'"' => {
+                        dquote += 1;
+                        1
+                    }
+                    b'\\' | b'\t' | b'\r' | b'\n' => 2,
+                    0x20..=0x7e => 1,
+                    _ => 4, // \xHH
+                };
+                // TODO: OverflowError
+                out_len = out_len.checked_add(incr).unwrap();
+            }
 
-        let (quote, num_escaped_quotes) = anystr::choose_quotes_for_repr(squote, dquote);
-        // we'll be adding backslashes in front of the existing inner quotes
-        out_len += num_escaped_quotes;
+            let (quote, num_escaped_quotes) = anystr::choose_quotes_for_repr(squote, dquote);
+            // we'll be adding backslashes in front of the existing inner quotes
+            out_len += num_escaped_quotes;
 
-        // 3 is for b prefix + outer quotes
-        out_len += 3 + prefix.len() + suffix.len();
-
+            // 3 is for b prefix + outer quotes
+            out_len += 3 + class_name.map_or(0, |name| name.len() + 2);
+            (quote, out_len)
+        };
         let mut res = String::with_capacity(out_len);
-        res.push_str(prefix);
+        if let Some(name) = class_name {
+            res.push_str(name);
+            res.push('(');
+        }
         res.push('b');
         res.push(quote);
         for &ch in self.elements.iter() {
@@ -288,7 +293,10 @@ impl PyBytesInner {
             }
         }
         res.push(quote);
-        res.push_str(suffix);
+        if class_name.is_some() {
+            res.push(')');
+        }
+        debug_assert_eq!(res.len(), out_len);
 
         res
     }
