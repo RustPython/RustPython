@@ -1,9 +1,11 @@
 use super::PyTypeRef;
 use crate::{
-    function::{OptionalArg, PosArgs},
+    builtins::IntoPyBool,
+    function::{IntoPyObject, OptionalArg, PosArgs},
     protocol::{PyIter, PyIterReturn},
     slots::{IteratorIterable, SlotConstructor, SlotIterator},
-    PyClassImpl, PyContext, PyRef, PyResult, PyValue, VirtualMachine,
+    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    VirtualMachine,
 };
 use rustpython_common::atomic::{self, PyAtomic, Radium};
 
@@ -37,7 +39,32 @@ impl SlotConstructor for PyZip {
 }
 
 #[pyimpl(with(SlotIterator, SlotConstructor), flags(BASETYPE))]
-impl PyZip {}
+impl PyZip {
+    #[pymethod(magic)]
+    fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        let cls = zelf.clone_class().into_pyobject(vm);
+        let iterators = zelf
+            .iterators
+            .iter()
+            .map(|obj| obj.clone().into_object())
+            .collect::<Vec<_>>();
+        let tuple_iter = vm.ctx.new_tuple(iterators);
+        Ok(if zelf.strict.load(atomic::Ordering::Acquire) {
+            vm.ctx
+                .new_tuple(vec![cls, tuple_iter, vm.ctx.new_bool(true)])
+        } else {
+            vm.ctx.new_tuple(vec![cls, tuple_iter])
+        })
+    }
+
+    #[pymethod(magic)]
+    fn setstate(zelf: PyRef<Self>, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        if let Ok(obj) = IntoPyBool::try_from_object(vm, state) {
+            zelf.strict.store(obj.to_bool(), atomic::Ordering::Release);
+        }
+        Ok(())
+    }
+}
 
 impl IteratorIterable for PyZip {}
 impl SlotIterator for PyZip {
