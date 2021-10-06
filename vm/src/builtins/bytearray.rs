@@ -127,8 +127,10 @@ impl PyByteArray {
     }
 
     #[pymethod(magic)]
-    fn repr(&self) -> String {
-        self.inner().repr("bytearray(", ")")
+    fn repr(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        let class_name = zelf.class().name();
+        let s = zelf.inner().repr(&format!("{}(", class_name), ")");
+        Ok(s)
     }
 
     #[pymethod(magic)]

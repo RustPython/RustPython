@@ -40,6 +40,16 @@ assert (
 )
 assert repr(bytearray(b"abcd")) == "bytearray(b'abcd')"
 
+class B(bytearray):
+    pass
+
+assert repr(B()) == "B(b'')"
+assert (
+    repr(B([0, 1, 9, 10, 11, 13, 31, 32, 33, 89, 120, 255]))
+    == "B(b'\\x00\\x01\\t\\n\\x0b\\r\\x1f !Yx\\xff')"
+)
+assert repr(B(b"abcd")) == "B(b'abcd')"
+
 # len
 assert len(bytearray("abcdé", "utf8")) == 6
 
