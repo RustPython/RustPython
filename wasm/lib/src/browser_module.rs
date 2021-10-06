@@ -1,16 +1,13 @@
-use js_sys::Promise;
-use wasm_bindgen::prelude::*;
-use wasm_bindgen::JsCast;
-use wasm_bindgen_futures::JsFuture;
-
-use rustpython_vm::builtins::{PyDictRef, PyStrRef};
-use rustpython_vm::function::{ArgCallable, OptionalArg};
-use rustpython_vm::import::import_file;
-use rustpython_vm::{
-    IntoPyObject, PyClassImpl, PyObject, PyObjectRef, PyResult, PyValue, VirtualMachine,
-};
-
 use crate::{convert, js_module::PyPromise, vm_class::weak_vm, wasm_builtins::window};
+use js_sys::Promise;
+use rustpython_vm::{
+    builtins::{PyDictRef, PyStrRef},
+    function::{ArgCallable, IntoPyObject, OptionalArg},
+    import::import_file,
+    PyClassImpl, PyObject, PyObjectRef, PyResult, PyValue, VirtualMachine,
+};
+use wasm_bindgen::{prelude::*, JsCast};
+use wasm_bindgen_futures::JsFuture;
 
 enum FetchResponseFormat {
     Json,

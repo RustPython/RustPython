@@ -1,11 +1,10 @@
 use super::{IterStatus, PositionIterInternal, PyIntRef, PyTypeRef};
 use crate::common::lock::{PyMutex, PyRwLock};
 use crate::{
-    function::OptionalArg,
+    function::{IntoPyObject, OptionalArg},
     protocol::{PyIter, PyIterReturn},
     slots::{IteratorIterable, SlotConstructor, SlotIterator},
-    IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    VirtualMachine,
+    ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 use num_bigint::BigInt;
 use num_traits::Zero;

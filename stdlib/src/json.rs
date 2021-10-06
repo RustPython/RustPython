@@ -6,11 +6,10 @@ mod _json {
     use super::machinery;
     use crate::vm::{
         builtins::{PyBaseExceptionRef, PyStrRef, PyTypeRef},
-        function::{FuncArgs, OptionalArg},
+        function::{FuncArgs, IntoPyObject, IntoPyResult, OptionalArg},
         protocol::PyIterReturn,
         slots::{Callable, SlotConstructor},
-        IdProtocol, IntoPyObject, IntoPyResult, PyObjectRef, PyRef, PyResult, PyValue,
-        TryFromObject, VirtualMachine,
+        IdProtocol, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
     };
     use num_bigint::BigInt;
     use std::str::FromStr;

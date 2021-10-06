@@ -25,7 +25,7 @@ RustPython requires the following:
       stable version: `rustup update stable`
     - If you do not have Rust installed, use [rustup](https://rustup.rs/) to
       do so.
-- CPython version 3.8 or higher
+- CPython version 3.9 or higher
     - CPython can be installed by your operating system's package manager,
       from the [Python website](https://www.python.org/downloads/), or
       using a third-party distribution, such as 

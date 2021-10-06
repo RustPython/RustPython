@@ -29,14 +29,14 @@ pub(crate) fn impl_pystruct_sequence(input: DeriveInput) -> Result<TokenStream> 
         impl ::rustpython_vm::PyStructSequence for #ty {
             const FIELD_NAMES: &'static [&'static str] = &[#(stringify!(#field_names)),*];
             fn into_tuple(self, vm: &::rustpython_vm::VirtualMachine) -> ::rustpython_vm::builtins::PyTuple {
-                let items = vec![#(::rustpython_vm::IntoPyObject::into_pyobject(
+                let items = vec![#(::rustpython_vm::function::IntoPyObject::into_pyobject(
                     self.#field_names,
                     vm,
                 )),*];
                 ::rustpython_vm::builtins::PyTuple::new_unchecked(items.into_boxed_slice())
             }
         }
-        impl ::rustpython_vm::IntoPyObject for #ty {
+        impl ::rustpython_vm::function::IntoPyObject for #ty {
             fn into_pyobject(self, vm: &::rustpython_vm::VirtualMachine) -> ::rustpython_vm::PyObjectRef {
                 ::rustpython_vm::PyStructSequence::into_struct_sequence(self, vm).into_object()
             }

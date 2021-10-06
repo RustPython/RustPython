@@ -3,8 +3,7 @@
 use super::os::errno_err;
 use crate::{
     builtins::{PyListRef, PyStrRef},
-    exceptions::IntoPyException,
-    function::OptionalArg,
+    function::{IntoPyException, OptionalArg},
     protocol::PyMapping,
     ItemProtocol, PyObjectRef, PyResult, PySequence, TryFromObject, VirtualMachine,
 };

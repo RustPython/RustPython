@@ -20,7 +20,7 @@ use crate::{
     exceptions,
     frame::{ExecutionResult, Frame, FrameRef},
     frozen,
-    function::{FuncArgs, IntoFuncArgs},
+    function::{FuncArgs, IntoFuncArgs, IntoPyObject},
     import,
     protocol::{PyIterIter, PyIterReturn},
     scope::Scope,
@@ -28,9 +28,8 @@ use crate::{
     slots::PyComparisonOp,
     stdlib,
     utils::Either,
-    IdProtocol, IntoPyObject, ItemProtocol, PyArithmeticValue, PyContext, PyLease, PyMethod,
-    PyObject, PyObjectRef, PyRef, PyRefExact, PyResult, PyValue, TryFromObject, TryIntoRef,
-    TypeProtocol,
+    IdProtocol, ItemProtocol, PyArithmeticValue, PyContext, PyLease, PyMethod, PyObject,
+    PyObjectRef, PyRef, PyRefExact, PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::{Signed, ToPrimitive};
@@ -1986,7 +1985,7 @@ impl VirtualMachine {
     /// index as a usize for sequences to be able to use immediately.
     pub fn check_repeat_or_memory_error(&self, length: usize, n: isize) -> PyResult<usize> {
         let n = n.to_usize().unwrap_or(0);
-        if n > 0 && length > isize::MAX as usize / n {
+        if n > 0 && length > stdlib::sys::MAXSIZE as usize / n {
             // Empty message is currently used in CPython.
             Err(self.new_memory_error("".to_owned()))
         } else {

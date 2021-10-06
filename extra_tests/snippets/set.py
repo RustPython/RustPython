@@ -57,10 +57,22 @@ class Hashable(object):
     def __hash__(self):
         return id(self)
 
+assert repr(set()) == "set()"
+assert repr(set([1, 2, 3])) == "{1, 2, 3}"
 
 recursive = set()
 recursive.add(Hashable(recursive))
 assert repr(recursive) == "{set(...)}"
+
+class S(set):
+    pass
+
+assert repr(S()) == "S()"
+assert repr(S([1, 2, 3])) == "S({1, 2, 3})"
+
+recursive = S()
+recursive.add(Hashable(recursive))
+assert repr(recursive) == "S({S(...)})"
 
 a = set([1, 2, 3])
 assert len(a) == 3
@@ -367,3 +379,12 @@ non_empty_set.remove(1)
 assert 1 not in non_empty_set
 
 # TODO: Assert that adding the same thing to a set once it's already there doesn't do anything.
+
+assert repr(frozenset()) == "frozenset()"
+assert repr(frozenset([1, 2, 3])) == "frozenset({1, 2, 3})"
+
+class FS(frozenset):
+    pass
+
+assert repr(FS()) == "FS()"
+assert repr(FS([1, 2, 3])) == "FS({1, 2, 3})"

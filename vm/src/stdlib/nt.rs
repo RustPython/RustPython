@@ -13,8 +13,7 @@ pub(crate) mod module {
     use crate::{
         builtins::{PyStrRef, PyTupleRef},
         crt_fd::Fd,
-        exceptions::IntoPyException,
-        function::OptionalArg,
+        function::{IntoPyException, OptionalArg},
         stdlib::os::{
             errno_err, DirFd, FollowSymlinks, PyPathLike, SupportFunc, TargetIsDirectory, _os,
             errno,

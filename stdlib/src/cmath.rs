@@ -78,10 +78,20 @@ mod cmath {
         z.to_complex().sin()
     }
 
+    #[pyfunction]
+    fn asin(z: IntoPyComplex) -> Complex64 {
+        z.to_complex().asin()
+    }
+
     /// Return the cosine of z
     #[pyfunction]
     fn cos(z: IntoPyComplex) -> Complex64 {
         z.to_complex().cos()
+    }
+
+    #[pyfunction]
+    fn acos(z: IntoPyComplex) -> Complex64 {
+        z.to_complex().acos()
     }
 
     /// log(z[, base]) -> the logarithm of z to the given base.

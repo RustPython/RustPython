@@ -35,7 +35,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 #[pymodule]
 pub(crate) mod _signal {
     use crate::{
-        exceptions::IntoPyException,
+        function::IntoPyException,
         signal::{check_signals, ANY_TRIGGERED, TRIGGERS},
         PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
     };

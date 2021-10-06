@@ -22,6 +22,7 @@ use std::borrow::Cow;
 
 type CompileResult<T> = Result<T, CompileError>;
 
+#[derive(PartialEq, Eq, Clone, Copy)]
 enum NameUsage {
     Load,
     Store,
@@ -49,6 +50,13 @@ impl CallType {
             CallType::Ex { has_kwargs } => Instruction::CallMethodEx { has_kwargs },
         }
     }
+}
+
+fn is_forbidden_name(name: &str) -> bool {
+    // See https://docs.python.org/3/library/constants.html#built-in-constants
+    const BUILTIN_CONSTANTS: &[&str] = &["__debug__"];
+
+    BUILTIN_CONSTANTS.contains(&name)
 }
 
 /// Main structure holding the state of compilation.
@@ -375,26 +383,32 @@ impl Compiler {
         Ok(())
     }
 
-    fn load_name(&mut self, name: &str) {
+    fn load_name(&mut self, name: &str) -> CompileResult<()> {
         self.compile_name(name, NameUsage::Load)
     }
 
     fn store_name(&mut self, name: &str) -> CompileResult<()> {
-        if name.eq("__debug__") {
-            return Err(self.error(CompileErrorType::SyntaxError(
-                "cannot assign to __debug__".to_owned(),
-            )));
-        }
-        self.compile_name(name, NameUsage::Store);
-        Ok(())
+        self.compile_name(name, NameUsage::Store)
     }
 
     fn mangle<'a>(&self, name: &'a str) -> Cow<'a, str> {
         symboltable::mangle_name(self.class_name.as_deref(), name)
     }
 
-    fn compile_name(&mut self, name: &str, usage: NameUsage) {
+    fn check_forbidden_name(&self, name: &str, usage: NameUsage) -> CompileResult<()> {
+        let msg = match usage {
+            NameUsage::Store if is_forbidden_name(name) => "cannot assign to",
+            NameUsage::Delete if is_forbidden_name(name) => "cannot delete",
+            _ => return Ok(()),
+        };
+        Err(self.error(CompileErrorType::SyntaxError(format!("{} {}", msg, name))))
+    }
+
+    fn compile_name(&mut self, name: &str, usage: NameUsage) -> CompileResult<()> {
         let name = self.mangle(name);
+
+        self.check_forbidden_name(&name, usage)?;
+
         let symbol_table = self.symbol_table_stack.last().unwrap();
         let symbol = symbol_table.lookup(name.as_ref()).expect(
             "The symbol must be present in the symbol table, even when it is undefined in python.",
@@ -461,6 +475,8 @@ impl Compiler {
             },
         };
         self.emit(op(idx as u32));
+
+        Ok(())
     }
 
     fn compile_statement(&mut self, statement: &ast::Stmt) -> CompileResult<()> {
@@ -493,9 +509,9 @@ impl Compiler {
                             let idx = self.name(part);
                             self.emit(Instruction::LoadAttr { idx });
                         }
-                        self.store_name(alias)?;
+                        self.store_name(alias)?
                     } else {
-                        self.store_name(name.name.split('.').next().unwrap())?;
+                        self.store_name(name.name.split('.').next().unwrap())?
                     }
                 }
             }
@@ -551,9 +567,9 @@ impl Compiler {
 
                         // Store module under proper name:
                         if let Some(alias) = &name.asname {
-                            self.store_name(alias)?;
+                            self.store_name(alias)?
                         } else {
-                            self.store_name(&name.name)?;
+                            self.store_name(&name.name)?
                         }
                     }
 
@@ -772,10 +788,9 @@ impl Compiler {
 
     fn compile_delete(&mut self, expression: &ast::Expr) -> CompileResult<()> {
         match &expression.node {
-            ast::ExprKind::Name { id, .. } => {
-                self.compile_name(id, NameUsage::Delete);
-            }
+            ast::ExprKind::Name { id, .. } => self.compile_name(id, NameUsage::Delete)?,
             ast::ExprKind::Attribute { value, attr, .. } => {
+                self.check_forbidden_name(attr, NameUsage::Delete)?;
                 self.compile_expression(value)?;
                 let idx = self.name(attr);
                 self.emit(Instruction::DeleteAttr { idx });
@@ -852,6 +867,12 @@ impl Compiler {
             .chain(&args.args)
             .chain(&args.kwonlyargs);
         for name in args_iter {
+            if Compiler::is_forbidden_arg_name(&name.node.arg) {
+                return Err(self.error(CompileErrorType::SyntaxError(format!(
+                    "cannot assign to {}",
+                    &name.node.arg
+                ))));
+            }
             self.varname(&name.node.arg);
         }
 
@@ -935,7 +956,7 @@ impl Compiler {
 
                 // We have a match, store in name (except x as y)
                 if let Some(alias) = name {
-                    self.store_name(alias)?;
+                    self.store_name(alias)?
                 } else {
                     // Drop exception from top of stack:
                     self.emit(Instruction::Pop);
@@ -990,6 +1011,10 @@ impl Compiler {
         }
 
         Ok(())
+    }
+
+    fn is_forbidden_arg_name(name: &str) -> bool {
+        is_forbidden_name(name)
     }
 
     fn compile_function_def(
@@ -1107,9 +1132,7 @@ impl Compiler {
 
         self.apply_decorators(decorator_list);
 
-        self.store_name(name)?;
-
-        Ok(())
+        self.store_name(name)
     }
 
     fn build_closure(&mut self, code: &CodeObject) -> bool {
@@ -1268,8 +1291,7 @@ impl Compiler {
 
         self.apply_decorators(decorator_list);
 
-        self.store_name(name)?;
-        Ok(())
+        self.store_name(name)
     }
 
     fn load_docstring(&mut self, doc_str: Option<String>) {
@@ -1553,15 +1575,14 @@ impl Compiler {
 
     fn compile_store(&mut self, target: &ast::Expr) -> CompileResult<()> {
         match &target.node {
-            ast::ExprKind::Name { id, .. } => {
-                self.store_name(id)?;
-            }
+            ast::ExprKind::Name { id, .. } => self.store_name(id)?,
             ast::ExprKind::Subscript { value, slice, .. } => {
                 self.compile_expression(value)?;
                 self.compile_expression(slice)?;
                 self.emit(Instruction::StoreSubscript);
             }
             ast::ExprKind::Attribute { value, attr, .. } => {
+                self.check_forbidden_name(attr, NameUsage::Store)?;
                 self.compile_expression(value)?;
                 let idx = self.name(attr);
                 self.emit(Instruction::StoreAttr { idx });
@@ -1950,9 +1971,7 @@ impl Compiler {
                     conversion: compile_conversion_flag(*conversion),
                 });
             }
-            Name { id, .. } => {
-                self.load_name(id);
-            }
+            Name { id, .. } => self.load_name(id)?,
             Lambda { args, body } => {
                 let prev_ctx = self.ctx;
                 self.ctx = CompileContext {
@@ -2152,6 +2171,12 @@ impl Compiler {
         // Normal arguments:
         let (size, unpack) = self.gather_elements(additional_positional, args)?;
         let has_double_star = keywords.iter().any(|k| k.node.arg.is_none());
+
+        for keyword in keywords {
+            if let Some(name) = &keyword.node.arg {
+                self.check_forbidden_name(name, NameUsage::Store)?;
+            }
+        }
 
         let call = if unpack || has_double_star {
             // Create a tuple with positional args:

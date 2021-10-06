@@ -1,8 +1,9 @@
 use super::{PyInt, PyStrRef, PyTypeRef};
 use crate::{
-    function::OptionalArg, slots::SlotConstructor, IdProtocol, IntoPyObject, PyClassImpl,
-    PyContext, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject, TypeProtocol,
-    VirtualMachine,
+    function::{IntoPyObject, OptionalArg},
+    slots::SlotConstructor,
+    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject,
+    TryFromObject, TypeProtocol, VirtualMachine,
 };
 use num_bigint::Sign;
 use num_traits::Zero;

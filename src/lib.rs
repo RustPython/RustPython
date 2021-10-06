@@ -86,17 +86,10 @@ where
         }
     }
 
-    // We only include the standard library bytecode in WASI when initializing
-    let init_param = if cfg!(target_os = "wasi") {
-        InitParameter::Internal
-    } else {
-        InitParameter::External
-    };
-
     let interp = Interpreter::new_with_init(settings, |vm| {
         add_stdlib(vm);
         init(vm);
-        init_param
+        InitParameter::External
     });
 
     let exitcode = interp.enter(move |vm| {
@@ -341,9 +334,9 @@ fn create_settings(matches: &ArgMatches) -> PySettings {
 
     // BUILDTIME_RUSTPYTHONPATH should be set when distributing
     if let Some(paths) = option_env!("BUILDTIME_RUSTPYTHONPATH") {
-        settings.path_list.extend(
-            std::env::split_paths(paths).map(|path| path.into_os_string().into_string().unwrap()),
-        )
+        settings
+            .path_list
+            .extend(split_paths(paths).map(|path| path.into_os_string().into_string().unwrap()))
     } else {
         settings.path_list.extend(maybe_pylib);
     }
@@ -476,7 +469,7 @@ fn get_paths(env_variable_name: &str) -> impl Iterator<Item = String> + '_ {
     env::var_os(env_variable_name)
         .into_iter()
         .flat_map(move |paths| {
-            env::split_paths(&paths)
+            split_paths(&paths)
                 .map(|path| {
                     path.into_os_string()
                         .into_string()
@@ -484,6 +477,17 @@ fn get_paths(env_variable_name: &str) -> impl Iterator<Item = String> + '_ {
                 })
                 .collect::<Vec<_>>()
         })
+}
+#[cfg(not(target_os = "wasi"))]
+use env::split_paths;
+#[cfg(target_os = "wasi")]
+fn split_paths<T: AsRef<std::ffi::OsStr> + ?Sized>(
+    s: &T,
+) -> impl Iterator<Item = std::path::PathBuf> + '_ {
+    use std::os::wasi::ffi::OsStrExt;
+    let s = s.as_ref().as_bytes();
+    s.split(|b| *b == b':')
+        .map(|x| std::ffi::OsStr::from_bytes(x).to_owned().into())
 }
 
 #[cfg(feature = "flame-it")]

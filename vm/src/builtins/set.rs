@@ -198,14 +198,17 @@ impl PySetInner {
         }
     }
 
-    fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
+    fn repr(&self, class_name: Option<&str>, vm: &VirtualMachine) -> PyResult<String> {
         let mut str_parts = Vec::with_capacity(self.content.len());
         for key in self.elements() {
             let part = vm.to_repr(&key)?;
             str_parts.push(part.as_str().to_owned());
         }
-
-        Ok(format!("{{{}}}", str_parts.join(", ")))
+        let inner_repr = format!("{{{}}}", str_parts.join(", "));
+        if let Some(name) = class_name {
+            return Ok(format!("{}({})", name, inner_repr));
+        };
+        Ok(inner_repr)
     }
 
     fn add(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
@@ -473,12 +476,17 @@ impl PySet {
 
     #[pymethod(magic)]
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        let class_name = zelf.class().name();
         let s = if zelf.inner.len() == 0 {
-            "set()".to_owned()
+            format!("{}()", class_name)
         } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-            zelf.inner.repr(vm)?
+            if class_name != "set" {
+                zelf.inner.repr(Some(&class_name), vm)?
+            } else {
+                zelf.inner.repr(None, vm)?
+            }
         } else {
-            "set(...)".to_owned()
+            format!("{}(...)", class_name)
         };
         Ok(vm.ctx.new_utf8_str(s))
     }
@@ -745,12 +753,13 @@ impl PyFrozenSet {
     #[pymethod(magic)]
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         let inner = &zelf.inner;
+        let class_name = zelf.class().name();
         let s = if inner.len() == 0 {
-            "frozenset()".to_owned()
+            format!("{}()", class_name)
         } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-            format!("frozenset({})", inner.repr(vm)?)
+            inner.repr(Some(&class_name), vm)?
         } else {
-            "frozenset(...)".to_owned()
+            format!("{}(...)", class_name)
         };
         Ok(vm.ctx.new_utf8_str(s))
     }
