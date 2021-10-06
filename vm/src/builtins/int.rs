@@ -646,9 +646,7 @@ impl PyInt {
             return Err(vm.new_overflow_error("can't convert negative int to unsigned".to_owned()));
         }
 
-        let byte_len = args.length.as_bigint().to_usize().ok_or_else(|| {
-            vm.new_overflow_error("Python int too large to convert to C ssize_t".to_owned())
-        })?;
+        let byte_len = args.length.try_to_primitive(vm)?;
 
         let mut origin_bytes = match (args.byteorder.as_str(), signed) {
             ("big", true) => value.to_signed_bytes_be(),

@@ -88,7 +88,11 @@ mod builtins {
 
     #[pyfunction]
     fn chr(i: PyIntRef, vm: &VirtualMachine) -> PyResult<String> {
-        match i.as_bigint().to_u32().and_then(char::from_u32) {
+        match i
+            .try_to_primitive::<isize>(vm)?
+            .to_u32()
+            .and_then(char::from_u32)
+        {
             Some(value) => Ok(value.to_string()),
             None => Err(vm.new_value_error("chr() arg not in range(0x110000)".to_owned())),
         }
