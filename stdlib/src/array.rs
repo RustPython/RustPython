@@ -13,7 +13,7 @@ mod array {
     use crate::vm::{
         builtins::{
             PyByteArray, PyBytes, PyBytesRef, PyDictRef, PyFloat, PyInt, PyIntRef, PyList,
-            PyListRef, PySliceRef, PyStr, PyStrRef, PyTupleRef, PyTypeRef,
+            PyListRef, PySliceRef, PyStr, PyStrRef, PyTypeRef,
         },
         class_or_notimplemented,
         function::{
@@ -28,8 +28,8 @@ mod array {
             AsBuffer, AsMapping, Comparable, Iterable, IteratorIterable, PyComparisonOp,
             SlotConstructor, SlotIterator,
         },
-        IdProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-        TypeProtocol, VirtualMachine,
+        IdProtocol, PyComparisonValue, PyObjectRef, PyObjectWrap, PyRef, PyResult, PyValue,
+        TryFromObject, TypeProtocol, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
