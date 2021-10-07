@@ -254,15 +254,21 @@ impl PyList {
 
     #[pymethod]
     fn count(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-        // TODO: to_vec() cause copy which leads to cost O(N). It need to be improved.
-        let elements = self.borrow_vec().to_vec();
-        let mut count: usize = 0;
-        for elem in elements.iter() {
-            if vm.identical_or_equal(elem, &needle)? {
-                count += 1;
+        let mut i = 0;
+        let mut count = 0;
+        loop {
+            let elements = self.borrow_vec();
+            let elem = elements.get(i).cloned();
+            drop(elements);
+            if let Some(elem) = elem {
+                if vm.identical_or_equal(&elem, &needle)? {
+                    count += 1;
+                }
+                i += 1;
+            } else {
+                break Ok(count);
             }
         }
-        Ok(count)
     }
 
     #[pymethod(magic)]
