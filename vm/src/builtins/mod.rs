@@ -22,7 +22,7 @@ pub use enumerate::PyEnumerate;
 pub(crate) mod filter;
 pub use filter::PyFilter;
 pub(crate) mod float;
-pub use float::{IntoPyFloat, PyFloat, PyFloatRef};
+pub use float::{PyFloat, PyFloatRef};
 pub(crate) mod frame;
 pub(crate) mod function;
 pub use function::{PyBoundMethod, PyFunction};

@@ -6,8 +6,7 @@ pub(crate) use cmath::make_module;
 #[pymodule]
 mod cmath {
     use crate::vm::{
-        builtins::IntoPyFloat,
-        function::{ArgComplexLike, OptionalArg},
+        function::{ArgComplexLike, ArgFloatLike, OptionalArg},
         PyResult, VirtualMachine,
     };
     use num_complex::Complex64;
@@ -38,7 +37,7 @@ mod cmath {
 
     /// Convert from polar coordinates to rectangular coordinates.
     #[pyfunction]
-    fn rect(r: IntoPyFloat, phi: IntoPyFloat) -> Complex64 {
+    fn rect(r: ArgFloatLike, phi: ArgFloatLike) -> Complex64 {
         Complex64::from_polar(r.to_f64(), phi.to_f64())
     }
 
@@ -172,9 +171,9 @@ mod cmath {
         #[pyarg(positional)]
         b: ArgComplexLike,
         #[pyarg(named, optional)]
-        rel_tol: OptionalArg<IntoPyFloat>,
+        rel_tol: OptionalArg<ArgFloatLike>,
         #[pyarg(named, optional)]
-        abs_tol: OptionalArg<IntoPyFloat>,
+        abs_tol: OptionalArg<ArgFloatLike>,
     }
 
     /// Determine whether two complex numbers are close in value.
