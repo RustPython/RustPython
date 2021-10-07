@@ -1,6 +1,6 @@
 //! Builtin function definitions.
 //!
-//! Implements functions listed here: https://docs.python.org/3/library/builtins.html
+//! Implements the list of [builtin Python functions](https://docs.python.org/3/library/builtins.html).
 use crate::{PyObjectRef, VirtualMachine};
 
 /// Built-in functions, exceptions, and other objects.

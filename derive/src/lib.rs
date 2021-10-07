@@ -52,7 +52,7 @@ pub fn pyclass(
 /// `BaseException` / `Exception`
 /// subtypes in a uniform and convenient manner.
 /// It looks like `SimpleExtendsException` in `CPython`.
-/// https://github.com/python/cpython/blob/main/Objects/exceptions.c
+/// <https://github.com/python/cpython/blob/main/Objects/exceptions.c>
 ///
 /// We need `ctx` to be ready to add
 /// `properties` / `custom` constructors / slots / methods etc.
