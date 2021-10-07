@@ -67,14 +67,17 @@ impl PyValue for PyFrozenSet {
 }
 
 #[derive(Default, Clone)]
-struct PySetInner {
+pub(super) struct PySetInner {
     content: PyRc<SetContentType>,
 }
 
 impl PySetInner {
-    fn new(iterable: ArgIterable, vm: &VirtualMachine) -> PyResult<PySetInner> {
+    pub(super) fn from_iter<T>(iter: T, vm: &VirtualMachine) -> PyResult<Self>
+    where
+        T: IntoIterator<Item = PyResult<PyObjectRef>>,
+    {
         let set = PySetInner::default();
-        for item in iterable.iter(vm)? {
+        for item in iter {
             set.add(item?, vm)?;
         }
         Ok(set)
@@ -159,7 +162,7 @@ impl PySetInner {
         let new_inner = self.clone();
 
         // We want to remove duplicates in other
-        let other_set = Self::new(other, vm)?;
+        let other_set = Self::from_iter(other.iter(vm)?, vm)?;
 
         for item in other_set.elements() {
             new_inner.content.delete_or_insert(vm, &item, ())?
@@ -178,7 +181,7 @@ impl PySetInner {
     }
 
     fn issubset(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
-        let other_set = PySetInner::new(other, vm)?;
+        let other_set = PySetInner::from_iter(other.iter(vm)?, vm)?;
         self.compare(&other_set, PyComparisonOp::Le, vm)
     }
 
@@ -310,7 +313,7 @@ impl PySetInner {
     ) -> PyResult<()> {
         for iterable in others {
             // We want to remove duplicates in iterable
-            let iterable_set = Self::new(iterable, vm)?;
+            let iterable_set = Self::from_iter(iterable.iter(vm)?, vm)?;
             for item in iterable_set.elements() {
                 self.content.delete_or_insert(vm, &item, ())?;
             }
