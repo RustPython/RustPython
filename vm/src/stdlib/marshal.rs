@@ -6,17 +6,27 @@ mod decl {
         builtins::{PyBytes, PyCode},
         bytecode,
         function::ArgBytesLike,
-        PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,
+        PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     };
 
     #[pyfunction]
-    fn dumps(co: PyRef<PyCode>) -> PyBytes {
-        PyBytes::from(co.code.map_clone_bag(&bytecode::BasicBag).to_bytes())
+    fn dumps(value: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyBytes> {
+        let r = match_class!(match value {
+            co @ PyCode => {
+                PyBytes::from(co.code.map_clone_bag(&bytecode::BasicBag).to_bytes())
+            }
+            _ =>
+                return Err(vm.new_not_implemented_error(
+                    "TODO: not implemented yet or marshal unsupported type".to_owned()
+                )),
+        });
+        Ok(r)
     }
 
     #[pyfunction]
-    fn dump(co: PyRef<PyCode>, f: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        vm.call_method(&f, "write", (dumps(co),))?;
+    fn dump(value: PyObjectRef, f: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let dumped = dumps(value, vm)?;
+        vm.call_method(&f, "write", (dumped,))?;
         Ok(())
     }
 
