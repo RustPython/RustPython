@@ -636,7 +636,7 @@ impl Iterator for DictIter {
 }
 
 #[pyimpl]
-trait DictIterator: PyValue + PyClassDef
+trait DictView: PyValue + PyClassDef + Iterable
 where
     Self::ReverseIter: PyValue,
 {
@@ -670,7 +670,7 @@ where
     fn reversed(&self) -> Self::ReverseIter;
 }
 
-macro_rules! dict_iterator {
+macro_rules! dict_view {
     ( $name: ident, $iter_name: ident, $reverse_iter_name: ident,
       $class: ident, $iter_class: ident, $reverse_iter_class: ident,
       $class_name: literal, $iter_class_name: literal, $reverse_iter_class_name: literal,
@@ -687,7 +687,7 @@ macro_rules! dict_iterator {
             }
         }
 
-        impl DictIterator for $name {
+        impl DictView for $name {
             type ReverseIter = $reverse_iter_name;
             fn dict(&self) -> &PyDictRef {
                 &self.dict
@@ -862,7 +862,7 @@ macro_rules! dict_iterator {
     };
 }
 
-dict_iterator! {
+dict_view! {
     PyDictKeys,
     PyDictKeyIterator,
     PyDictReverseKeyIterator,
@@ -875,7 +875,7 @@ dict_iterator! {
     |_vm: &VirtualMachine, key: PyObjectRef, _value: PyObjectRef| key
 }
 
-dict_iterator! {
+dict_view! {
     PyDictValues,
     PyDictValueIterator,
     PyDictReverseValueIterator,
@@ -888,7 +888,7 @@ dict_iterator! {
     |_vm: &VirtualMachine, _key: PyObjectRef, value: PyObjectRef| value
 }
 
-dict_iterator! {
+dict_view! {
     PyDictItems,
     PyDictItemIterator,
     PyDictReverseItemIterator,
@@ -902,13 +902,13 @@ dict_iterator! {
         vm.ctx.new_tuple(vec![key, value])
 }
 
-#[pyimpl(with(DictIterator, Comparable, Iterable))]
+#[pyimpl(with(DictView, Comparable, Iterable))]
 impl PyDictKeys {}
 
-#[pyimpl(with(DictIterator, Comparable, Iterable))]
+#[pyimpl(with(DictView, Comparable, Iterable))]
 impl PyDictValues {}
 
-#[pyimpl(with(DictIterator, Comparable, Iterable))]
+#[pyimpl(with(DictView, Comparable, Iterable))]
 impl PyDictItems {}
 
 pub(crate) fn init(context: &PyContext) {
