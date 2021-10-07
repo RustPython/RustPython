@@ -20,11 +20,8 @@ NAN = float('nan')
 INF = float('inf')
 NINF = float('-inf')
 
-# TODO: RUSTPYTHON: float_info is so far not supported -> hard code for the moment
-# FLOAT_MAX = sys.float_info.max
-# FLOAT_MIN = sys.float_info.min
-FLOAT_MAX = 1.7976931348623157e+308
-FLOAT_MIN = 2.2250738585072014e-308
+FLOAT_MAX = sys.float_info.max
+FLOAT_MIN = sys.float_info.min
 
 # detect evidence of double-rounding: fsum is not always correctly
 # rounded on machines that suffer from double rounding.
