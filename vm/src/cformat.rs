@@ -1,5 +1,5 @@
 //! Implementation of Printf-Style string formatting
-//! [https://docs.python.org/3/library/stdtypes.html#printf-style-string-formatting]
+//! as per the [Python Docs](https://docs.python.org/3/library/stdtypes.html#printf-style-string-formatting).
 
 use crate::common::float_ops;
 use crate::{
