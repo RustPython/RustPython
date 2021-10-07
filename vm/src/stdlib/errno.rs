@@ -38,6 +38,7 @@ pub mod errors {
     }
 }
 
+#[cfg(any(unix, windows, target_os = "wasi"))]
 macro_rules! e {
     ($name:ident) => {
         (stringify!($name), errors::$name as _)
@@ -48,6 +49,7 @@ macro_rules! e {
     };
 }
 
+#[cfg(any(unix, windows, target_os = "wasi"))]
 const ERROR_CODES: &[(&str, i32)] = &[
     e!(ENODEV),
     e!(EHOSTUNREACH),
@@ -214,3 +216,6 @@ const ERROR_CODES: &[(&str, i32)] = &[
     e!(cfg(windows), WSAECONNREFUSED),
     e!(cfg(windows), WSAENETRESET),
 ];
+
+#[cfg(not(any(unix, windows, target_os = "wasi")))]
+const ERROR_CODES: &[(&str, i32)] = &[];
