@@ -1,10 +1,12 @@
-use super::{IterStatus, PositionIterInternal, PySet, PyStrRef, PyTypeRef};
+use super::{
+    set::PySetInner, IterStatus, PositionIterInternal, PyBaseExceptionRef, PySet, PyStrRef,
+    PyTypeRef,
+};
 use crate::{
-    builtins::PyBaseExceptionRef,
     common::ascii,
     dictdatatype::{self, DictKey},
     function::{ArgIterable, FuncArgs, IntoPyObject, KwArgs, OptionalArg},
-    protocol::{PyIterReturn, PyMappingMethods},
+    protocol::{PyIterIter, PyIterReturn, PyMappingMethods},
     slots::{
         AsMapping, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotIterator,
         Unhashable,
@@ -668,6 +670,13 @@ where
 
     #[pymethod(magic)]
     fn reversed(&self) -> Self::ReverseIter;
+
+    fn to_set(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PySetInner> {
+        let len = zelf.dict().len();
+        let zelf: PyObjectRef = Self::iter(zelf, vm)?;
+        let iter = PyIterIter::new(vm, zelf, Some(len));
+        PySetInner::from_iter(iter, vm)
+    }
 }
 
 macro_rules! dict_view {
@@ -909,7 +918,15 @@ impl PyDictKeys {}
 impl PyDictValues {}
 
 #[pyimpl(with(DictView, Comparable, Iterable))]
-impl PyDictItems {}
+impl PyDictItems {
+    #[pymethod(name = "__rxor__")]
+    #[pymethod(magic)]
+    fn xor(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySet> {
+        let zelf = Self::to_set(zelf, vm)?;
+        let inner = zelf.symmetric_difference(other, vm)?;
+        Ok(PySet { inner })
+    }
+}
 
 pub(crate) fn init(context: &PyContext) {
     PyDict::extend_class(context, &context.types.dict_type);

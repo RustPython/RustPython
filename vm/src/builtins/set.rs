@@ -26,7 +26,7 @@ pub type SetContentType = dictdatatype::Dict<()>;
 #[pyclass(module = false, name = "set")]
 #[derive(Default)]
 pub struct PySet {
-    inner: PySetInner,
+    pub(super) inner: PySetInner,
 }
 pub type PySetRef = PyRef<PySet>;
 
@@ -154,7 +154,7 @@ impl PySetInner {
         Ok(set)
     }
 
-    fn symmetric_difference(
+    pub(super) fn symmetric_difference(
         &self,
         other: ArgIterable,
         vm: &VirtualMachine,
