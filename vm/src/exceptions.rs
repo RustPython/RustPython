@@ -949,11 +949,13 @@ impl<C: widestring::UChar> IntoPyException for widestring::NulError<C> {
 
 pub(super) mod types {
     use crate::common::lock::PyRwLock;
+
+    #[cfg(not(target_arch = "wasm32"))]
+    use crate::stdlib::errno::errors;
     use crate::{
         builtins::{traceback::PyTracebackRef, PyInt, PyTupleRef, PyTypeRef},
         exceptions::invoke,
         function::{FuncArgs, IntoPyResult},
-        stdlib::errno::errors,
         PyObjectRef, PyRef, PyResult, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
