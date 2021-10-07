@@ -1,6 +1,6 @@
 use super::PyTypeRef;
 use crate::{
-    function::{ArgBoolLike, IntoPyObject, OptionalArg, PosArgs},
+    function::{ArgIntoBool, IntoPyObject, OptionalArg, PosArgs},
     protocol::{PyIter, PyIterReturn},
     slots::{IteratorIterable, SlotConstructor, SlotIterator},
     PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
@@ -58,7 +58,7 @@ impl PyZip {
 
     #[pymethod(magic)]
     fn setstate(zelf: PyRef<Self>, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        if let Ok(obj) = ArgBoolLike::try_from_object(vm, state) {
+        if let Ok(obj) = ArgIntoBool::try_from_object(vm, state) {
             zelf.strict.store(obj.to_bool(), atomic::Ordering::Release);
         }
         Ok(())

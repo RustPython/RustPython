@@ -17,7 +17,7 @@ mod array {
         },
         class_or_notimplemented,
         function::{
-            ArgBytesLike, ArgFloatLike, ArgIterable, IntoPyObject, IntoPyResult, OptionalArg,
+            ArgBytesLike, ArgIntoFloat, ArgIterable, IntoPyObject, IntoPyResult, OptionalArg,
         },
         protocol::{
             BufferInternal, BufferOptions, BufferResizeGuard, PyBuffer, PyIterReturn,
@@ -523,11 +523,11 @@ mod array {
     }
 
     fn f32_try_into_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<f32> {
-        ArgFloatLike::try_from_object(vm, obj).map(|x| x.to_f64() as f32)
+        ArgIntoFloat::try_from_object(vm, obj).map(|x| x.to_f64() as f32)
     }
 
     fn f64_try_into_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<f64> {
-        ArgFloatLike::try_from_object(vm, obj).map(|x| x.to_f64())
+        ArgIntoFloat::try_from_object(vm, obj).map(|x| x.to_f64())
     }
 
     impl ArrayElement for WideChar {

@@ -4,7 +4,7 @@
 use crate::common::float_ops;
 use crate::{
     builtins::{try_f64_to_bigint, tuple, PyBytes, PyFloat, PyInt, PyStr},
-    function::ArgFloatLike,
+    function::ArgIntoFloat,
     protocol::PyBuffer,
     ItemProtocol, PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject, TypeProtocol,
     VirtualMachine,
@@ -432,7 +432,7 @@ impl CFormatSpec {
                 }
             },
             CFormatType::Float(_) => {
-                let value = ArgFloatLike::try_from_object(vm, obj)?.to_f64();
+                let value = ArgIntoFloat::try_from_object(vm, obj)?.to_f64();
                 Ok(self.format_float(value).into_bytes())
             }
             CFormatType::Character => {
@@ -505,7 +505,7 @@ impl CFormatSpec {
                 }
             },
             CFormatType::Float(_) => {
-                let value = ArgFloatLike::try_from_object(vm, obj)?.to_f64();
+                let value = ArgIntoFloat::try_from_object(vm, obj)?.to_f64();
                 Ok(self.format_float(value))
             }
             CFormatType::Character => {

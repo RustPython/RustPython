@@ -3,7 +3,7 @@ use num_complex::Complex64;
 
 /// A Python complex-like object.
 ///
-/// `ArgComplexLike` implements `FromArgs` so that a built-in function can accept
+/// `ArgIntoComplex` implements `FromArgs` so that a built-in function can accept
 /// any object that can be transformed into a complex.
 ///
 /// If the object is not a Python complex object but has a `__complex__()`
@@ -12,30 +12,30 @@ use num_complex::Complex64;
 /// `__float__()` is not defined it falls back to `__index__()`.
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[repr(transparent)]
-pub struct ArgComplexLike {
+pub struct ArgIntoComplex {
     value: Complex64,
 }
 
-impl ArgComplexLike {
+impl ArgIntoComplex {
     pub fn to_complex(self) -> Complex64 {
         self.value
     }
 }
 
-impl TryFromObject for ArgComplexLike {
+impl TryFromObject for ArgIntoComplex {
     // Equivalent to PyComplex_AsCComplex
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         // We do not care if it was already a complex.
         let (value, _) = obj.try_complex(vm)?.ok_or_else(|| {
             vm.new_type_error(format!("must be real number, not {}", obj.class().name()))
         })?;
-        Ok(ArgComplexLike { value })
+        Ok(ArgIntoComplex { value })
     }
 }
 
 /// A Python float-like object.
 ///
-/// `ArgFloatLike` implements `FromArgs` so that a built-in function can accept
+/// `ArgIntoFloat` implements `FromArgs` so that a built-in function can accept
 /// any object that can be transformed into a float.
 ///
 /// If the object is not a Python floating point object but has a `__float__()`
@@ -43,11 +43,11 @@ impl TryFromObject for ArgComplexLike {
 /// If `__float__()` is not defined then it falls back to `__index__()`.
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[repr(transparent)]
-pub struct ArgFloatLike {
+pub struct ArgIntoFloat {
     value: f64,
 }
 
-impl ArgFloatLike {
+impl ArgIntoFloat {
     pub fn to_f64(self) -> f64 {
         self.value
     }
@@ -61,41 +61,41 @@ impl ArgFloatLike {
     }
 }
 
-impl TryFromObject for ArgFloatLike {
+impl TryFromObject for ArgIntoFloat {
     // Equivalent to PyFloat_AsDouble.
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let value = obj.try_to_f64(vm)?.ok_or_else(|| {
             vm.new_type_error(format!("must be real number, not {}", obj.class().name()))
         })?;
-        Ok(ArgFloatLike { value })
+        Ok(ArgIntoFloat { value })
     }
 }
 
 /// A Python bool-like object.
 ///
-/// `ArgBoolLike` implements `FromArgs` so that a built-in function can accept
+/// `ArgIntoBool` implements `FromArgs` so that a built-in function can accept
 /// any object that can be transformed into a boolean.
 ///
 /// By default an object is considered true unless its class defines either a
 /// `__bool__()` method that returns False or a `__len__()` method that returns
 /// zero, when called with the object.
 #[derive(Debug, Default, Copy, Clone, PartialEq)]
-pub struct ArgBoolLike {
+pub struct ArgIntoBool {
     value: bool,
 }
 
-impl ArgBoolLike {
-    pub const TRUE: ArgBoolLike = ArgBoolLike { value: true };
-    pub const FALSE: ArgBoolLike = ArgBoolLike { value: false };
+impl ArgIntoBool {
+    pub const TRUE: ArgIntoBool = ArgIntoBool { value: true };
+    pub const FALSE: ArgIntoBool = ArgIntoBool { value: false };
 
     pub fn to_bool(self) -> bool {
         self.value
     }
 }
 
-impl TryFromObject for ArgBoolLike {
+impl TryFromObject for ArgIntoBool {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        Ok(ArgBoolLike {
+        Ok(ArgIntoBool {
             value: obj.try_to_bool(vm)?,
         })
     }

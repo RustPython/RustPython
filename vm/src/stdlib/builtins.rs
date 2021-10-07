@@ -22,7 +22,7 @@ mod builtins {
     use crate::{
         common::{hash::PyHash, str::to_ascii},
         function::{
-            ArgBoolLike, ArgBytesLike, ArgCallable, ArgIterable, FuncArgs, KwArgs, OptionalArg,
+            ArgBytesLike, ArgCallable, ArgIntoBool, ArgIterable, FuncArgs, KwArgs, OptionalArg,
             OptionalOption, PosArgs,
         },
         protocol::{PyIter, PyIterReturn},
@@ -43,7 +43,7 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn all(iterable: ArgIterable<ArgBoolLike>, vm: &VirtualMachine) -> PyResult<bool> {
+    fn all(iterable: ArgIterable<ArgIntoBool>, vm: &VirtualMachine) -> PyResult<bool> {
         for item in iterable.iter(vm)? {
             if !item?.to_bool() {
                 return Ok(false);
@@ -53,7 +53,7 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn any(iterable: ArgIterable<ArgBoolLike>, vm: &VirtualMachine) -> PyResult<bool> {
+    fn any(iterable: ArgIterable<ArgIntoBool>, vm: &VirtualMachine) -> PyResult<bool> {
         for item in iterable.iter(vm)? {
             if item?.to_bool() {
                 return Ok(true);
@@ -644,8 +644,8 @@ mod builtins {
         sep: Option<PyStrRef>,
         #[pyarg(named, default)]
         end: Option<PyStrRef>,
-        #[pyarg(named, default = "ArgBoolLike::FALSE")]
-        flush: ArgBoolLike,
+        #[pyarg(named, default = "ArgIntoBool::FALSE")]
+        flush: ArgIntoBool,
         #[pyarg(named, default)]
         file: Option<PyObjectRef>,
     }

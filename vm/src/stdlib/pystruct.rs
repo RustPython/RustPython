@@ -14,7 +14,7 @@ pub(crate) mod _struct {
     use crate::{
         builtins::{float, PyBaseExceptionRef, PyBytesRef, PyStr, PyStrRef, PyTupleRef, PyTypeRef},
         common::str::wchar_t,
-        function::{ArgBoolLike, ArgBytesLike, ArgMemoryBuffer, IntoPyObject, PosArgs},
+        function::{ArgBytesLike, ArgIntoBool, ArgMemoryBuffer, IntoPyObject, PosArgs},
         protocol::PyIterReturn,
         slots::{IteratorIterable, SlotConstructor, SlotIterator},
         utils::Either,
@@ -666,7 +666,7 @@ pub(crate) mod _struct {
             arg: PyObjectRef,
             data: &mut [u8],
         ) -> PyResult<()> {
-            let v = ArgBoolLike::try_from_object(vm, arg)?.to_bool() as u8;
+            let v = ArgIntoBool::try_from_object(vm, arg)?.to_bool() as u8;
             v.pack_int::<E>(data);
             Ok(())
         }
