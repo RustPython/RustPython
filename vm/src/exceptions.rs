@@ -949,9 +949,6 @@ impl<C: widestring::UChar> IntoPyException for widestring::NulError<C> {
 
 pub(super) mod types {
     use crate::common::lock::PyRwLock;
-
-    #[cfg(not(target_arch = "wasm32"))]
-    use crate::stdlib::errno::errors;
     use crate::{
         builtins::{traceback::PyTracebackRef, PyInt, PyTupleRef, PyTypeRef},
         exceptions::invoke,
@@ -1076,6 +1073,29 @@ pub(super) mod types {
         import_error_init,
     }
 
+    fn base_exception_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        PyBaseException::slot_new(cls, args, vm)
+    }
+
+    fn import_error_init(
+        zelf: PyRef<PyBaseException>,
+        args: FuncArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let exc_self = zelf.into_object();
+        vm.set_attr(
+            &exc_self,
+            "name",
+            vm.unwrap_or_none(args.kwargs.get("name").cloned()),
+        )?;
+        vm.set_attr(
+            &exc_self,
+            "path",
+            vm.unwrap_or_none(args.kwargs.get("path").cloned()),
+        )?;
+        Ok(())
+    }
+
     define_exception! {
         PyModuleNotFoundError,
         PyImportError,
@@ -1131,6 +1151,86 @@ pub(super) mod types {
         os_error_new,
         base_exception_init,
     }
+    #[cfg(not(target_arch = "wasm32"))]
+    fn os_error_optional_new(
+        args: Vec<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> Option<PyResult<PyBaseExceptionRef>> {
+        use crate::stdlib::errno::errors;
+
+        let len = args.len();
+        if len >= 2 {
+            let args = args.as_slice();
+            let errno = &args[0];
+            let error = match errno.payload_if_subclass::<PyInt>(vm) {
+                Some(errno) => match errno.try_to_primitive::<i32>(vm) {
+                    Ok(errno) => {
+                        let excs = &vm.ctx.exceptions;
+                        let error = match errno {
+                            errors::EWOULDBLOCK => Some(excs.blocking_io_error.clone()),
+                            errors::EALREADY => Some(excs.blocking_io_error.clone()),
+                            errors::EINPROGRESS => Some(excs.blocking_io_error.clone()),
+                            errors::EPIPE => Some(excs.broken_pipe_error.clone()),
+                            errors::ESHUTDOWN => Some(excs.broken_pipe_error.clone()),
+                            errors::ECHILD => Some(excs.child_process_error.clone()),
+                            errors::ECONNABORTED => Some(excs.connection_aborted_error.clone()),
+                            errors::ECONNREFUSED => Some(excs.connection_refused_error.clone()),
+                            errors::ECONNRESET => Some(excs.connection_reset_error.clone()),
+                            errors::EEXIST => Some(excs.file_exists_error.clone()),
+                            errors::ENOENT => Some(excs.file_not_found_error.clone()),
+                            errors::EISDIR => Some(excs.is_a_directory_error.clone()),
+                            errors::ENOTDIR => Some(excs.not_a_directory_error.clone()),
+                            errors::EINTR => Some(excs.interrupted_error.clone()),
+                            errors::EACCES => Some(excs.permission_error.clone()),
+                            errors::EPERM => Some(excs.permission_error.clone()),
+                            errors::ESRCH => Some(excs.process_lookup_error.clone()),
+                            errors::ETIMEDOUT => Some(excs.timeout_error.clone()),
+                            _ => None,
+                        };
+
+                        if error.is_some() {
+                            Some(invoke(error?, args.to_vec(), vm))
+                        } else {
+                            None
+                        }
+                    }
+                    Err(_) => None,
+                },
+                None => None,
+            };
+
+            error
+        } else {
+            None
+        }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    fn os_error_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        // We need this method, because of how `CPython` copies `init`
+        // from `BaseException` in `SimpleExtendsException` macro.
+        // See: `BaseException_new`
+        if cls.name() == vm.ctx.exceptions.os_error.name() {
+            match os_error_optional_new(args.args.to_vec(), vm) {
+                Some(error) => error.unwrap().into_pyresult(vm),
+                None => PyBaseException::slot_new(cls, args, vm),
+            }
+        } else {
+            PyBaseException::slot_new(cls, args, vm)
+        }
+    }
+    #[cfg(target_arch = "wasm32")]
+    fn os_error_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        PyBaseException::slot_new(cls, args, vm)
+    }
+
+    fn base_exception_init(
+        zelf: PyRef<PyBaseException>,
+        args: FuncArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        PyBaseException::init(zelf, args, vm)
+    }
+
     define_exception! {
         PyBlockingIOError,
         PyOSError,
@@ -1386,108 +1486,5 @@ pub(super) mod types {
         PyWarning,
         resource_warning,
         "Base class for warnings about resource usage."
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    fn os_error_optional_new(
-        args: Vec<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> Option<PyResult<PyBaseExceptionRef>> {
-        let len = args.len();
-        if len >= 2 {
-            let args = args.as_slice();
-            let errno = &args[0];
-            let error = match errno.payload_if_subclass::<PyInt>(vm) {
-                Some(errno) => match errno.try_to_primitive::<i32>(vm) {
-                    Ok(errno) => {
-                        let excs = &vm.ctx.exceptions;
-                        let error = match errno {
-                            errors::EWOULDBLOCK => Some(excs.blocking_io_error.clone()),
-                            errors::EALREADY => Some(excs.blocking_io_error.clone()),
-                            errors::EINPROGRESS => Some(excs.blocking_io_error.clone()),
-                            errors::EPIPE => Some(excs.broken_pipe_error.clone()),
-                            errors::ESHUTDOWN => Some(excs.broken_pipe_error.clone()),
-                            errors::ECHILD => Some(excs.child_process_error.clone()),
-                            errors::ECONNABORTED => Some(excs.connection_aborted_error.clone()),
-                            errors::ECONNREFUSED => Some(excs.connection_refused_error.clone()),
-                            errors::ECONNRESET => Some(excs.connection_reset_error.clone()),
-                            errors::EEXIST => Some(excs.file_exists_error.clone()),
-                            errors::ENOENT => Some(excs.file_not_found_error.clone()),
-                            errors::EISDIR => Some(excs.is_a_directory_error.clone()),
-                            errors::ENOTDIR => Some(excs.not_a_directory_error.clone()),
-                            errors::EINTR => Some(excs.interrupted_error.clone()),
-                            errors::EACCES => Some(excs.permission_error.clone()),
-                            errors::EPERM => Some(excs.permission_error.clone()),
-                            errors::ESRCH => Some(excs.process_lookup_error.clone()),
-                            errors::ETIMEDOUT => Some(excs.timeout_error.clone()),
-                            _ => None,
-                        };
-
-                        if error.is_some() {
-                            Some(invoke(error?, args.to_vec(), vm))
-                        } else {
-                            None
-                        }
-                    }
-                    Err(_) => None,
-                },
-                None => None,
-            };
-
-            error
-        } else {
-            None
-        }
-    }
-
-    fn base_exception_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        PyBaseException::slot_new(cls, args, vm)
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    fn os_error_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        // We need this method, because of how `CPython` copies `init`
-        // from `BaseException` in `SimpleExtendsException` macro.
-        // See: `BaseException_new`
-        if cls.name() == vm.ctx.exceptions.os_error.name() {
-            match os_error_optional_new(args.args.to_vec(), vm) {
-                Some(error) => error.unwrap().into_pyresult(vm),
-                None => PyBaseException::slot_new(cls, args, vm),
-            }
-        } else {
-            PyBaseException::slot_new(cls, args, vm)
-        }
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    fn os_error_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        PyBaseException::slot_new(cls, args, vm)
-    }
-
-    fn base_exception_init(
-        zelf: PyRef<PyBaseException>,
-        args: FuncArgs,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        PyBaseException::init(zelf, args, vm)
-    }
-
-    fn import_error_init(
-        zelf: PyRef<PyBaseException>,
-        args: FuncArgs,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        let exc_self = zelf.into_object();
-        vm.set_attr(
-            &exc_self,
-            "name",
-            vm.unwrap_or_none(args.kwargs.get("name").cloned()),
-        )?;
-        vm.set_attr(
-            &exc_self,
-            "path",
-            vm.unwrap_or_none(args.kwargs.get("path").cloned()),
-        )?;
-        Ok(())
     }
 }
