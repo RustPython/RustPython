@@ -335,14 +335,33 @@ impl PyComplex {
     #[pymethod(magic)]
     fn repr(&self) -> String {
         let Complex64 { re, im } = self.value;
-        // converting to lowercase to format "NaN" as "nan"
-        if re == 0.0 {
-            format!("{}j", im).to_lowercase()
-        } else if im.is_nan() {
-            format!("({}+{:+}j)", re, im).to_lowercase()
+        // integer => drop ., fractional => float_ops
+        let mut im_part = if im.fract() == 0.0 {
+            im.to_string()
         } else {
-            format!("({}{:+}j)", re, im).to_lowercase()
+            float_ops::to_string(im)
+        };
+        im_part.push('j');
+
+        // empty => return im_part, integer => drop ., fractional => float_ops
+        let re_part = if re == 0.0 {
+            return im_part;
+        } else if re.fract() == 0.0 {
+            re.to_string()
+        } else {
+            float_ops::to_string(re)
+        };
+        let mut result = String::with_capacity(
+            re_part.len() + im_part.len() + 2 + if im.is_sign_positive() { 1 } else { 0 },
+        );
+        result.push('(');
+        result.push_str(&re_part);
+        if im.is_sign_positive() {
+            result.push('+');
         }
+        result.push_str(&im_part);
+        result.push(')');
+        result
     }
 
     #[pymethod(magic)]
