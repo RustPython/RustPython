@@ -1,9 +1,9 @@
-use super::{float, IntoPyBool, PyByteArray, PyBytes, PyStr, PyStrRef, PyTypeRef};
+use super::{float, PyByteArray, PyBytes, PyStr, PyStrRef, PyTypeRef};
 use crate::{
     bytesinner::PyBytesInner,
     common::hash,
     format::FormatSpec,
-    function::{IntoPyObject, IntoPyResult, OptionalArg, OptionalOption},
+    function::{ArgIntoBool, IntoPyObject, IntoPyResult, OptionalArg, OptionalOption},
     slots::{Comparable, Hashable, PyComparisonOp, SlotConstructor},
     try_value_from_borrowed_object, IdProtocol, PyArithmeticValue, PyClassImpl, PyComparisonValue,
     PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromBorrowedObject, TypeProtocol,
@@ -752,7 +752,7 @@ struct IntFromByteArgs {
     bytes: PyBytesInner,
     byteorder: PyStrRef,
     #[pyarg(named, optional)]
-    signed: OptionalArg<IntoPyBool>,
+    signed: OptionalArg<ArgIntoBool>,
 }
 
 #[derive(FromArgs)]
@@ -760,7 +760,7 @@ struct IntToByteArgs {
     length: PyIntRef,
     byteorder: PyStrRef,
     #[pyarg(named, optional)]
-    signed: OptionalArg<IntoPyBool>,
+    signed: OptionalArg<ArgIntoBool>,
 }
 
 fn try_int_radix(obj: &PyObjectRef, base: u32, vm: &VirtualMachine) -> PyResult<BigInt> {

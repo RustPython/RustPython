@@ -1,5 +1,6 @@
 mod argument;
 mod byteslike;
+mod number;
 
 use crate::{
     builtins::{PyBaseExceptionRef, PyTupleRef, PyTypeRef},
@@ -14,6 +15,7 @@ use std::ops::RangeInclusive;
 
 pub use argument::{ArgCallable, ArgIterable};
 pub use byteslike::{ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike};
+pub use number::{ArgIntoBool, ArgIntoComplex, ArgIntoFloat};
 
 /// Implemented by any type that can be returned from a built-in Python function.
 ///

@@ -3,7 +3,7 @@ use crate::{
     function::{IntoPyObject, OptionalArg},
     slots::SlotConstructor,
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject,
-    TryFromObject, TypeProtocol, VirtualMachine,
+    TypeProtocol, VirtualMachine,
 };
 use num_bigint::Sign;
 use num_traits::Zero;
@@ -181,26 +181,4 @@ pub(crate) fn get_value(obj: &PyObjectRef) -> bool {
 
 fn get_py_int(obj: &PyObjectRef) -> &PyInt {
     obj.payload::<PyInt>().unwrap()
-}
-
-#[derive(Debug, Default, Copy, Clone, PartialEq)]
-pub struct IntoPyBool {
-    value: bool,
-}
-
-impl IntoPyBool {
-    pub const TRUE: IntoPyBool = IntoPyBool { value: true };
-    pub const FALSE: IntoPyBool = IntoPyBool { value: false };
-
-    pub fn to_bool(self) -> bool {
-        self.value
-    }
-}
-
-impl TryFromObject for IntoPyBool {
-    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        Ok(IntoPyBool {
-            value: obj.try_to_bool(vm)?,
-        })
-    }
 }
