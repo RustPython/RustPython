@@ -926,6 +926,30 @@ impl PyDictItems {
         let inner = zelf.symmetric_difference(other, vm)?;
         Ok(PySet { inner })
     }
+
+    #[pymethod(name = "__rand__")]
+    #[pymethod(magic)]
+    fn and(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySet> {
+        let zelf = Self::to_set(zelf, vm)?;
+        let inner = zelf.intersection(other, vm)?;
+        Ok(PySet { inner })
+    }
+
+    #[pymethod(name = "__ror__")]
+    #[pymethod(magic)]
+    fn or(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySet> {
+        let zelf = Self::to_set(zelf, vm)?;
+        let inner = zelf.union(other, vm)?;
+        Ok(PySet { inner })
+    }
+
+    #[pymethod(name = "__rsub__")]
+    #[pymethod(magic)]
+    fn sub(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySet> {
+        let zelf = Self::to_set(zelf, vm)?;
+        let inner = zelf.difference(other, vm)?;
+        Ok(PySet { inner })
+    }
 }
 
 pub(crate) fn init(context: &PyContext) {

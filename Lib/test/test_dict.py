@@ -659,7 +659,6 @@ class DictTest(unittest.TestCase):
         self.assertEqual(k1 ^ k2, {3})
         self.assertEqual(k1 ^ k3, {1,2,4})
 
-    # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_dictview_set_operations_on_items(self):
         k1 = {1:1, 2:2}.items()
