@@ -1,7 +1,4 @@
-use crate::{
-    builtins::complex::try_complex, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
-    VirtualMachine,
-};
+use crate::{PyObjectRef, PyResult, TryFromObject, TypeProtocol, VirtualMachine};
 use num_complex::Complex64;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -19,7 +16,7 @@ impl ArgComplexLike {
 impl TryFromObject for ArgComplexLike {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         // We do not care if it was already a complex.
-        let (value, _) = try_complex(&obj, vm)?.ok_or_else(|| {
+        let (value, _) = obj.try_complex(vm)?.ok_or_else(|| {
             vm.new_type_error(format!("must be real number, not {}", obj.class().name()))
         })?;
         Ok(ArgComplexLike { value })

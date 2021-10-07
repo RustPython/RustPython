@@ -39,6 +39,36 @@ impl From<Complex64> for PyComplex {
     }
 }
 
+impl PyObjectRef {
+    /// Tries converting a python object into a complex, returns an option of whether the complex
+    /// and whether the  object was a complex originally or coereced into one
+    pub fn try_complex(&self, vm: &VirtualMachine) -> PyResult<Option<(Complex64, bool)>> {
+        if let Some(complex) = self.payload_if_exact::<PyComplex>(vm) {
+            return Ok(Some((complex.value, true)));
+        }
+        if let Some(method) = vm.get_method(self.clone(), "__complex__") {
+            let result = vm.invoke(&method?, ())?;
+            // TODO: returning strict subclasses of complex in __complex__ is deprecated
+            return match result.payload::<PyComplex>() {
+                Some(complex_obj) => Ok(Some((complex_obj.value, true))),
+                None => Err(vm.new_type_error(format!(
+                    "__complex__ returned non-complex (type '{}')",
+                    result.class().name()
+                ))),
+            };
+        }
+        // `complex` does not have a `__complex__` by default, so subclasses might not either,
+        // use the actual stored value in this case
+        if let Some(complex) = self.payload_if_subclass::<PyComplex>(vm) {
+            return Ok(Some((complex.value, true)));
+        }
+        if let Some(float) = self.try_to_f64(vm)? {
+            return Ok(Some((Complex64::new(float, 0.0), false)));
+        }
+        Ok(None)
+    }
+}
+
 pub fn init(context: &PyContext) {
     PyComplex::extend_class(context, &context.types.complex_type);
 }
@@ -99,7 +129,7 @@ impl SlotConstructor for PyComplex {
                     val
                 };
 
-                if let Some(c) = try_complex(&val, vm)? {
+                if let Some(c) = val.try_complex(vm)? {
                     c
                 } else if let Some(s) = val.payload_if_subclass::<PyStr>(vm) {
                     if args.imag.is_present() {
@@ -125,7 +155,7 @@ impl SlotConstructor for PyComplex {
             // if an  imaginary argument is not passed in
             OptionalArg::Missing => (Complex64::new(real.im, 0.0), false),
             OptionalArg::Present(obj) => {
-                if let Some(c) = try_complex(&obj, vm)? {
+                if let Some(c) = obj.try_complex(vm)? {
                     c
                 } else if obj.class().issubclass(&vm.ctx.types.str_type) {
                     return Err(
@@ -419,35 +449,4 @@ fn parse_str(s: &str) -> Option<Complex64> {
         }
     };
     Some(value)
-}
-
-/// Tries converting a python object into a complex, returns an option of whether the complex
-/// and whether the  object was a complex originally or coereced into one
-pub(crate) fn try_complex(
-    obj: &PyObjectRef,
-    vm: &VirtualMachine,
-) -> PyResult<Option<(Complex64, bool)>> {
-    if let Some(complex) = obj.payload_if_exact::<PyComplex>(vm) {
-        return Ok(Some((complex.value, true)));
-    }
-    if let Some(method) = vm.get_method(obj.clone(), "__complex__") {
-        let result = vm.invoke(&method?, ())?;
-        // TODO: returning strict subclasses of complex in __complex__ is deprecated
-        return match result.payload::<PyComplex>() {
-            Some(complex_obj) => Ok(Some((complex_obj.value, true))),
-            None => Err(vm.new_type_error(format!(
-                "__complex__ returned non-complex (type '{}')",
-                result.class().name()
-            ))),
-        };
-    }
-    // `complex` does not have a `__complex__` by default, so subclasses might not either,
-    // use the actual stored value in this case
-    if let Some(complex) = obj.payload_if_subclass::<PyComplex>(vm) {
-        return Ok(Some((complex.value, true)));
-    }
-    if let Some(float) = obj.try_to_f64(vm)? {
-        return Ok(Some((Complex64::new(float, 0.0), false)));
-    }
-    Ok(None)
 }
