@@ -15,6 +15,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     module
 }
 
+#[cfg(any(unix, windows, target_os = "wasi"))]
 pub mod errors {
     pub use libc::*;
     #[cfg(windows)]
