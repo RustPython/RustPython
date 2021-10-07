@@ -15,7 +15,7 @@ use std::ops::RangeInclusive;
 
 pub use argument::{ArgCallable, ArgIterable};
 pub use byteslike::{ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike};
-pub use numlike::{ArgComplexLike, ArgFloatLike};
+pub use numlike::{ArgBoolLike, ArgComplexLike, ArgFloatLike};
 
 /// Implemented by any type that can be returned from a built-in Python function.
 ///

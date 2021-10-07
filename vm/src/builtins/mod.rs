@@ -53,7 +53,7 @@ pub use object::PyBaseObject;
 pub(crate) mod property;
 pub use property::PyProperty;
 pub(crate) mod pybool;
-pub use pybool::{IntoPyBool, PyBool};
+pub use pybool::PyBool;
 pub(crate) mod pystr;
 pub use pystr::{PyStr, PyStrRef};
 pub(crate) mod pysuper;

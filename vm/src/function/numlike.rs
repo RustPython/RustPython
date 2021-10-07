@@ -51,3 +51,25 @@ impl TryFromObject for ArgFloatLike {
         Ok(ArgFloatLike { value })
     }
 }
+
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct ArgBoolLike {
+    value: bool,
+}
+
+impl ArgBoolLike {
+    pub const TRUE: ArgBoolLike = ArgBoolLike { value: true };
+    pub const FALSE: ArgBoolLike = ArgBoolLike { value: false };
+
+    pub fn to_bool(self) -> bool {
+        self.value
+    }
+}
+
+impl TryFromObject for ArgBoolLike {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        Ok(ArgBoolLike {
+            value: obj.try_to_bool(vm)?,
+        })
+    }
+}

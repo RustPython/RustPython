@@ -14,16 +14,16 @@ mod builtins {
         int::PyIntRef,
         iter::PyCallableIterator,
         list::{PyList, SortOptions},
-        IntoPyBool, PyByteArray, PyBytes, PyBytesRef, PyCode, PyDictRef, PyStr, PyStrRef,
-        PyTupleRef, PyTypeRef,
+        PyByteArray, PyBytes, PyBytesRef, PyCode, PyDictRef, PyStr, PyStrRef, PyTupleRef,
+        PyTypeRef,
     };
     #[cfg(feature = "rustpython-compiler")]
     use crate::compile;
     use crate::{
         common::{hash::PyHash, str::to_ascii},
         function::{
-            ArgBytesLike, ArgCallable, ArgIterable, FuncArgs, KwArgs, OptionalArg, OptionalOption,
-            PosArgs,
+            ArgBoolLike, ArgBytesLike, ArgCallable, ArgIterable, FuncArgs, KwArgs, OptionalArg,
+            OptionalOption, PosArgs,
         },
         protocol::{PyIter, PyIterReturn},
         py_io,
@@ -43,7 +43,7 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn all(iterable: ArgIterable<IntoPyBool>, vm: &VirtualMachine) -> PyResult<bool> {
+    fn all(iterable: ArgIterable<ArgBoolLike>, vm: &VirtualMachine) -> PyResult<bool> {
         for item in iterable.iter(vm)? {
             if !item?.to_bool() {
                 return Ok(false);
@@ -53,7 +53,7 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn any(iterable: ArgIterable<IntoPyBool>, vm: &VirtualMachine) -> PyResult<bool> {
+    fn any(iterable: ArgIterable<ArgBoolLike>, vm: &VirtualMachine) -> PyResult<bool> {
         for item in iterable.iter(vm)? {
             if item?.to_bool() {
                 return Ok(true);
@@ -644,8 +644,8 @@ mod builtins {
         sep: Option<PyStrRef>,
         #[pyarg(named, default)]
         end: Option<PyStrRef>,
-        #[pyarg(named, default = "IntoPyBool::FALSE")]
-        flush: IntoPyBool,
+        #[pyarg(named, default = "ArgBoolLike::FALSE")]
+        flush: ArgBoolLike,
         #[pyarg(named, default)]
         file: Option<PyObjectRef>,
     }

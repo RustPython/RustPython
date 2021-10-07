@@ -3,9 +3,7 @@ pub(crate) use math::make_module;
 #[pymodule]
 mod math {
     use crate::vm::{
-        builtins::{
-            try_bigint_to_f64, try_f64_to_bigint, PyFloatRef, PyInt, PyIntRef,
-        },
+        builtins::{try_bigint_to_f64, try_f64_to_bigint, PyFloatRef, PyInt, PyIntRef},
         function::{ArgFloatLike, ArgIterable, OptionalArg, PosArgs},
         utils::Either,
         PyObjectRef, PyResult, PySequence, TypeProtocol, VirtualMachine,
