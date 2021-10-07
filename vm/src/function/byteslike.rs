@@ -1,81 +1,15 @@
-use crate::builtins::PyStrRef;
-use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
-use crate::protocol::PyBuffer;
-use crate::vm::VirtualMachine;
-use crate::{PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject};
+use crate::{
+    builtins::PyStrRef,
+    common::borrow::{BorrowedValue, BorrowedValueMut},
+    protocol::PyBuffer,
+    PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject, VirtualMachine,
+};
 
 // Python/getargs.c
 
 /// any bytes-like object. Like the `y*` format code for `PyArg_Parse` in CPython.
 #[derive(Debug)]
 pub struct ArgBytesLike(PyBuffer);
-
-/// A memory buffer, read-write access. Like the `w*` format code for `PyArg_Parse` in CPython.
-#[derive(Debug)]
-pub struct ArgMemoryBuffer(PyBuffer);
-
-impl ArgBytesLike {
-    pub fn with_ref<F, R>(&self, f: F) -> R
-    where
-        F: FnOnce(&[u8]) -> R,
-    {
-        f(&*self.borrow_buf())
-    }
-
-    pub fn len(&self) -> usize {
-        self.borrow_buf().len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.borrow_buf().is_empty()
-    }
-
-    pub fn to_cow(&self) -> std::borrow::Cow<[u8]> {
-        self.borrow_buf().to_vec().into()
-    }
-}
-
-impl ArgMemoryBuffer {
-    pub fn with_ref<F, R>(&self, f: F) -> R
-    where
-        F: FnOnce(&mut [u8]) -> R,
-    {
-        f(&mut *self.borrow_buf_mut())
-    }
-
-    pub fn len(&self) -> usize {
-        self.borrow_buf_mut().len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.borrow_buf_mut().is_empty()
-    }
-}
-
-impl ArgBytesLike {
-    pub fn new(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Self> {
-        let buffer = PyBuffer::try_from_borrowed_object(vm, obj)?;
-        if buffer.options.contiguous {
-            Ok(Self(buffer))
-        } else {
-            Err(vm.new_type_error("non-contiguous buffer is not a bytes-like object".to_owned()))
-        }
-    }
-
-    pub fn into_buffer(self) -> PyBuffer {
-        self.0
-    }
-
-    pub fn borrow_buf(&self) -> BorrowedValue<'_, [u8]> {
-        self.0.as_contiguous().unwrap()
-    }
-}
-
-impl TryFromBorrowedObject for ArgBytesLike {
-    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Self> {
-        Self::new(vm, obj)
-    }
-}
 
 impl PyObjectRef {
     pub fn try_bytes_like<R>(
@@ -104,8 +38,81 @@ impl PyObjectRef {
     }
 }
 
+impl ArgBytesLike {
+    pub fn borrow_buf(&self) -> BorrowedValue<'_, [u8]> {
+        self.0.as_contiguous().unwrap()
+    }
+
+    pub fn with_ref<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&[u8]) -> R,
+    {
+        f(&*self.borrow_buf())
+    }
+
+    pub fn len(&self) -> usize {
+        self.borrow_buf().len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.borrow_buf().is_empty()
+    }
+
+    pub fn to_cow(&self) -> std::borrow::Cow<[u8]> {
+        self.borrow_buf().to_vec().into()
+    }
+}
+
+impl From<ArgBytesLike> for PyBuffer {
+    fn from(buffer: ArgBytesLike) -> Self {
+        buffer.0
+    }
+}
+
+impl TryFromBorrowedObject for ArgBytesLike {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Self> {
+        let buffer = PyBuffer::try_from_borrowed_object(vm, obj)?;
+        if buffer.options.contiguous {
+            Ok(Self(buffer))
+        } else {
+            Err(vm.new_type_error("non-contiguous buffer is not a bytes-like object".to_owned()))
+        }
+    }
+}
+
+/// A memory buffer, read-write access. Like the `w*` format code for `PyArg_Parse` in CPython.
+#[derive(Debug)]
+pub struct ArgMemoryBuffer(PyBuffer);
+
 impl ArgMemoryBuffer {
-    pub fn new(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Self> {
+    pub fn borrow_buf_mut(&self) -> BorrowedValueMut<'_, [u8]> {
+        self.0.as_contiguous_mut().unwrap()
+    }
+
+    pub fn with_ref<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&mut [u8]) -> R,
+    {
+        f(&mut *self.borrow_buf_mut())
+    }
+
+    pub fn len(&self) -> usize {
+        self.borrow_buf_mut().len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.borrow_buf_mut().is_empty()
+    }
+}
+
+impl From<ArgMemoryBuffer> for PyBuffer {
+    fn from(buffer: ArgMemoryBuffer) -> Self {
+        buffer.0
+    }
+}
+
+impl TryFromBorrowedObject for ArgMemoryBuffer {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Self> {
         let buffer = PyBuffer::try_from_borrowed_object(vm, obj)?;
         if !buffer.options.contiguous {
             Err(vm.new_type_error("non-contiguous buffer is not a bytes-like object".to_owned()))
@@ -114,20 +121,6 @@ impl ArgMemoryBuffer {
         } else {
             Ok(Self(buffer))
         }
-    }
-
-    pub fn into_buffer(self) -> PyBuffer {
-        self.0
-    }
-
-    pub fn borrow_buf_mut(&self) -> BorrowedValueMut<'_, [u8]> {
-        self.0.as_contiguous_mut().unwrap()
-    }
-}
-
-impl TryFromBorrowedObject for ArgMemoryBuffer {
-    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Self> {
-        Self::new(vm, obj)
     }
 }
 
