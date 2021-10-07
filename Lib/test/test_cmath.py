@@ -156,8 +156,6 @@ class CMathTests(unittest.TestCase):
         self.assertAlmostEqual(cmath.e, e_expected, places=9,
             msg="cmath.e is {}; should be {}".format(cmath.e, e_expected))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_infinity_and_nan_constants(self):
         self.assertEqual(cmath.inf.real, math.inf)
         self.assertEqual(cmath.inf.imag, 0.0)

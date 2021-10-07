@@ -335,10 +335,13 @@ impl PyComplex {
     #[pymethod(magic)]
     fn repr(&self) -> String {
         let Complex64 { re, im } = self.value;
+        // converting to lowercase to format "NaN" as "nan"
         if re == 0.0 {
-            format!("{}j", im)
+            format!("{}j", im).to_lowercase()
+        } else if im.is_nan() {
+            format!("({}+{:+}j)", re, im).to_lowercase()
         } else {
-            format!("({}{:+}j)", re, im)
+            format!("({}{:+}j)", re, im).to_lowercase()
         }
     }
 
