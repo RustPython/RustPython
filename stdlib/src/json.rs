@@ -90,8 +90,7 @@ mod _json {
                         vm.invoke(
                             &parse_obj,
                             (
-                                vm.ctx
-                                    .new_tuple(vec![pystr.into_object(), vm.ctx.new_int(next_idx)]),
+                                (pystr, next_idx),
                                 self.strict,
                                 scan_once,
                                 self.object_hook.clone(),
@@ -105,14 +104,7 @@ mod _json {
                     // TODO: parse the array in rust
                     let parse_array = vm.get_attribute(self.ctx.clone(), "parse_array")?;
                     return PyIterReturn::from_pyresult(
-                        vm.invoke(
-                            &parse_array,
-                            vec![
-                                vm.ctx
-                                    .new_tuple(vec![pystr.into_object(), vm.ctx.new_int(next_idx)]),
-                                scan_once,
-                            ],
-                        ),
+                        vm.invoke(&parse_array, ((pystr, next_idx), scan_once)),
                         vm,
                     );
                 }
@@ -207,13 +199,7 @@ mod _json {
             if idx > 0 && chars.nth(idx - 1).is_none() {
                 return Ok(PyIterReturn::StopIteration(Some(vm.ctx.new_int(idx))));
             }
-            zelf.parse(
-                chars.as_str(),
-                pystr.clone(),
-                idx,
-                zelf.clone().into_object(),
-                vm,
-            )
+            zelf.parse(chars.as_str(), pystr.clone(), idx, zelf.clone().into(), vm)
         }
     }
 

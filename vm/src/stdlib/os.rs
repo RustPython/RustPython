@@ -182,8 +182,8 @@ impl FsPath {
 impl IntoPyObject for FsPath {
     fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
         match self {
-            Self::Str(s) => s.into_object(),
-            Self::Bytes(b) => b.into_object(),
+            Self::Str(s) => s.into(),
+            Self::Bytes(b) => b.into(),
         }
     }
 }
@@ -914,7 +914,7 @@ pub(super) mod _os {
                             ino: AtomicCell::new(None),
                         }
                         .into_ref(vm)
-                        .into_object(),
+                        .into(),
                     )),
                     Err(err) => Err(err.into_pyexception(vm)),
                 },
@@ -940,7 +940,7 @@ pub(super) mod _os {
             mode: path.mode,
         }
         .into_ref(vm)
-        .into_object())
+        .into())
     }
 
     #[pyattr]
@@ -1744,9 +1744,9 @@ pub fn extend_module(vm: &VirtualMachine, module: &PyObjectRef) {
     }
 
     extend_module!(vm, module, {
-        "supports_fd" => supports_fd.into_object(),
-        "supports_dir_fd" => supports_dir_fd.into_object(),
-        "supports_follow_symlinks" => supports_follow_symlinks.into_object(),
+        "supports_fd" => supports_fd,
+        "supports_dir_fd" => supports_dir_fd,
+        "supports_follow_symlinks" => supports_follow_symlinks,
         "error" => vm.ctx.exceptions.os_error.clone(),
     });
 }

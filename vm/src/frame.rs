@@ -588,7 +588,7 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::LoadClosure(i) => {
                 let value = self.cells_frees[*i as usize].clone();
-                self.push_value(value.into_object());
+                self.push_value(value.into());
                 Ok(None)
             }
             bytecode::Instruction::Subscript => self.execute_subscript(vm),
@@ -638,7 +638,7 @@ impl ExecutingFrame<'_> {
                         }
                     }
                 }
-                self.push_value(set.into_object());
+                self.push_value(set.into());
                 Ok(None)
             }
             bytecode::Instruction::BuildTuple { size, unpack } => {
@@ -706,7 +706,7 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::SetupAnnotation => {
                 if !self.locals.contains_key("__annotations__", vm) {
                     self.locals
-                        .set_item("__annotations__", vm.ctx.new_dict().into_object(), vm)?;
+                        .set_item("__annotations__", vm.ctx.new_dict().into(), vm)?;
                 }
                 Ok(None)
             }
@@ -823,7 +823,7 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::GetIter => {
                 let iterated_obj = self.pop_value();
                 let iter_obj = iterated_obj.get_iter(vm)?;
-                self.push_value(iter_obj.into_object());
+                self.push_value(iter_obj.into());
                 Ok(None)
             }
             bytecode::Instruction::GetAwaitable => {
@@ -1014,8 +1014,8 @@ impl ExecutingFrame<'_> {
                 use bytecode::ConversionFlag;
                 let value = self.pop_value();
                 let value = match conversion {
-                    ConversionFlag::Str => vm.to_str(&value)?.into_object(),
-                    ConversionFlag::Repr => vm.to_repr(&value)?.into_object(),
+                    ConversionFlag::Str => vm.to_str(&value)?.into(),
+                    ConversionFlag::Repr => vm.to_repr(&value)?.into(),
                     ConversionFlag::Ascii => vm.ctx.new_utf8_str(builtins::ascii(value, vm)?),
                     ConversionFlag::None => value,
                 };
@@ -1110,7 +1110,7 @@ impl ExecutingFrame<'_> {
                     let all: Vec<PyStrRef> = vm.extract_elements(&all)?;
                     let all: Vec<String> = all
                         .into_iter()
-                        .map(|name| name.as_ref().to_owned())
+                        .map(|name| name.as_str().to_owned())
                         .collect();
                     Box::new(move |name| all.contains(&name.to_owned()))
                 } else {
@@ -1170,7 +1170,7 @@ impl ExecutingFrame<'_> {
                         });
                         vm.contextualize_exception(&exception);
                         vm.set_exception(Some(exception.clone()));
-                        self.push_value(exception.into_object());
+                        self.push_value(exception.into());
                         self.jump(handler);
                         return Ok(None);
                     }
@@ -1275,7 +1275,7 @@ impl ExecutingFrame<'_> {
             }
         }
 
-        self.push_value(map_obj.into_object());
+        self.push_value(map_obj.into());
         Ok(None)
     }
 
@@ -1290,7 +1290,7 @@ impl ExecutingFrame<'_> {
             step,
         }
         .into_ref(vm);
-        self.push_value(obj.into_object());
+        self.push_value(obj.into());
         Ok(None)
     }
 
@@ -1528,7 +1528,7 @@ impl ExecutingFrame<'_> {
         let annotations = if flags.contains(bytecode::MakeFunctionFlags::ANNOTATIONS) {
             self.pop_value()
         } else {
-            vm.ctx.new_dict().into_object()
+            vm.ctx.new_dict().into()
         };
 
         let kw_only_defaults = if flags.contains(bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS) {
@@ -1718,7 +1718,7 @@ impl ExecutingFrame<'_> {
     }
 
     fn delete_attr(&mut self, vm: &VirtualMachine, attr: bytecode::NameIdx) -> FrameResult {
-        let attr_name = self.code.names[attr as usize].clone().into_object();
+        let attr_name = self.code.names[attr as usize].clone();
         let parent = self.pop_value();
         vm.del_attr(&parent, attr_name)?;
         Ok(None)

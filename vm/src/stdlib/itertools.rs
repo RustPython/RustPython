@@ -492,7 +492,7 @@ mod decl {
                         }
                     };
                     let pred = predicate.clone();
-                    let pred_value = vm.invoke(&pred.into_object(), (obj.clone(),))?;
+                    let pred_value = vm.invoke(&pred, (obj.clone(),))?;
                     if !pred_value.try_to_bool(vm)? {
                         zelf.start_flag.store(true);
                         return Ok(PyIterReturn::Return(obj));
@@ -1017,7 +1017,7 @@ mod decl {
                 tee_vec.push(vm.call_method(&copyable, "__copy__", ())?);
             }
 
-            Ok(PyTupleRef::with_elements(tee_vec, &vm.ctx).into_object())
+            Ok(PyTupleRef::with_elements(tee_vec, &vm.ctx).into())
         }
     }
 
@@ -1033,17 +1033,15 @@ mod decl {
                 index: AtomicCell::new(0),
             }
             .into_ref_with_type(vm, class.clone())?
-            .into_object())
+            .into())
         }
 
         #[pymethod(magic)]
-        fn copy(&self, vm: &VirtualMachine) -> PyResult {
-            Ok(PyItertoolsTee {
+        fn copy(&self) -> Self {
+            Self {
                 tee_data: PyRc::clone(&self.tee_data),
                 index: AtomicCell::new(self.index.load()),
             }
-            .into_ref_with_type(vm, Self::class(vm).clone())?
-            .into_object())
         }
     }
     impl IteratorIterable for PyItertoolsTee {}

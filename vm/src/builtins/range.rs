@@ -352,7 +352,7 @@ impl PyRange {
                     step: substep.into_pyref(vm),
                 }
                 .into_ref(vm)
-                .into_object())
+                .into())
             }
             RangeIndex::Int(index) => match self.get(index.as_bigint()) {
                 Some(value) => Ok(vm.ctx.new_int(value)),
@@ -371,7 +371,7 @@ impl PyRange {
             PyRange::new_from(cls, start, stop, step, vm)
         }?;
 
-        Ok(range.into_object())
+        Ok(range.into())
     }
 }
 
@@ -411,16 +411,12 @@ impl Hashable for PyRange {
         let elements = if length.is_zero() {
             [vm.ctx.new_int(length), vm.ctx.none(), vm.ctx.none()]
         } else if length.is_one() {
-            [
-                vm.ctx.new_int(length),
-                zelf.start().into_object(),
-                vm.ctx.none(),
-            ]
+            [vm.ctx.new_int(length), zelf.start().into(), vm.ctx.none()]
         } else {
             [
                 vm.ctx.new_int(length),
-                zelf.start().into_object(),
-                zelf.step().into_object(),
+                zelf.start().into(),
+                zelf.step().into(),
             ]
         };
         crate::utils::hash_iter(elements.iter(), vm)

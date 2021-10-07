@@ -61,7 +61,7 @@ impl PyModule {
         init_module_dict(
             vm,
             &zelf.as_object().dict().unwrap(),
-            args.name.into_object(),
+            args.name.into(),
             args.doc.into_pyobject(vm),
         );
     }

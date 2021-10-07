@@ -45,7 +45,7 @@ impl PyZip {
         let iterators = zelf
             .iterators
             .iter()
-            .map(|obj| obj.clone().into_object())
+            .map(|obj| obj.clone().into())
             .collect::<Vec<_>>();
         let tuple_iter = vm.ctx.new_tuple(iterators);
         Ok(if zelf.strict.load(atomic::Ordering::Acquire) {

@@ -208,6 +208,6 @@ impl<'de> Visitor<'de> for PyObjectDeserializer<'de> {
         while let Some((key_obj, value)) = access.next_entry_seed(self.clone(), self.clone())? {
             dict.set_item(key_obj, value, self.vm).unwrap();
         }
-        Ok(dict.into_object())
+        Ok(dict.into())
     }
 }

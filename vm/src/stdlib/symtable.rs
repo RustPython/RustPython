@@ -126,7 +126,7 @@ mod symtable {
                             .collect(),
                     })
                     .into_ref(vm)
-                    .into_object()
+                    .into()
                 })
                 .collect();
             Ok(vm.ctx.new_list(symbols))
@@ -243,7 +243,7 @@ mod symtable {
             } else {
                 Ok(to_py_symbol_table(self.namespaces.first().unwrap().clone())
                     .into_ref(vm)
-                    .into_object())
+                    .into())
             }
         }
     }

@@ -1151,7 +1151,7 @@ impl VirtualMachine {
         descr: PyObjectRef,
         obj: PyObjectRef,
     ) -> Result<PyResult, PyObjectRef> {
-        let cls = obj.clone_class().into_object();
+        let cls = obj.clone_class().into();
         self.call_get_descriptor_specific(descr, Some(obj), Some(cls))
     }
 
@@ -1210,11 +1210,12 @@ impl VirtualMachine {
     }
 
     #[inline(always)]
-    pub fn invoke<T>(&self, func_ref: &PyObjectRef, args: T) -> PyResult
+    pub fn invoke<O, A>(&self, func: &O, args: A) -> PyResult
     where
-        T: IntoFuncArgs,
+        O: AsRef<PyObjectRef>,
+        A: IntoFuncArgs,
     {
-        self._invoke(func_ref, args.into_args(self))
+        self._invoke(func.as_ref(), args.into_args(self))
     }
 
     /// Call registered trace function.
@@ -1348,7 +1349,7 @@ impl VirtualMachine {
             }
         }
 
-        let mut results = PyIterIter::new(self, iter.as_object(), cap)
+        let mut results = PyIterIter::new(self, iter.as_ref(), cap)
             .map(|element| f(element?))
             .collect::<PyResult<Vec<_>>>()?;
         results.shrink_to_fit();
@@ -1528,7 +1529,7 @@ impl VirtualMachine {
                         .is_some()
                     {
                         drop(descr_cls);
-                        let cls = PyLease::into_pyref(obj_cls).into_object();
+                        let cls = PyLease::into_pyref(obj_cls).into();
                         return descr_get(descr, Some(obj), Some(cls), self).map(Some);
                     }
                 }
@@ -1551,7 +1552,7 @@ impl VirtualMachine {
         } else if let Some((attr, descr_get)) = cls_attr {
             match descr_get {
                 Some(descr_get) => {
-                    let cls = PyLease::into_pyref(obj_cls).into_object();
+                    let cls = PyLease::into_pyref(obj_cls).into();
                     descr_get(attr, Some(obj), Some(cls), self).map(Some)
                 }
                 None => Ok(Some(attr)),

@@ -229,7 +229,7 @@ impl TryFromObject for ExceptionCtor {
                 if cls.issubclass(&vm.ctx.exceptions.base_exception_type) {
                     Ok(Self::Class(cls))
                 } else {
-                    Err(cls.into_object())
+                    Err(cls.into())
                 }
             })
             .or_else(|obj| obj.downcast::<PyBaseException>().map(Self::Instance))
@@ -295,7 +295,7 @@ pub fn split(
     vm: &VirtualMachine,
 ) -> (PyObjectRef, PyObjectRef, PyObjectRef) {
     let tb = exc.traceback().into_pyobject(vm);
-    (exc.clone_class().into_object(), exc.into_object(), tb)
+    (exc.clone_class().into(), exc.into(), tb)
 }
 
 /// Similar to PyErr_NormalizeException in CPython
@@ -1082,7 +1082,7 @@ pub(super) mod types {
         args: FuncArgs,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let exc_self = zelf.into_object();
+        let exc_self = zelf.into();
         vm.set_attr(
             &exc_self,
             "name",

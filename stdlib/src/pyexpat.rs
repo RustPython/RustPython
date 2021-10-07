@@ -138,7 +138,7 @@ mod _pyexpat {
                         }
 
                         let name_str = PyStr::from(name.local_name).into_ref(vm);
-                        invoke_handler(vm, &self.start_element, (name_str, dict.into_object()));
+                        invoke_handler(vm, &self.start_element, (name_str, dict));
                     }
                     Ok(XmlEvent::EndElement { name, .. }) => {
                         let name_str = PyStr::from(name.local_name).into_ref(vm);

@@ -665,7 +665,7 @@ mod array {
             }
 
             let zelf = Self::from(array).into_ref_with_type(vm, cls)?;
-            Ok(zelf.into_object())
+            Ok(zelf.into())
         }
     }
 

@@ -21,7 +21,7 @@ mod _codecs {
         vm.state
             .codec_registry
             .lookup(encoding.as_str(), vm)
-            .map(|codec| codec.into_tuple().into_object())
+            .map(|codec| codec.into_tuple().into())
     }
 
     #[derive(FromArgs)]

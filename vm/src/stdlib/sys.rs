@@ -265,7 +265,7 @@ fn sys_displayhook(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
     // set to none to avoid recursion while printing
     vm.set_attr(&vm.builtins, "_", vm.ctx.none())?;
     // TODO: catch encoding errors
-    let repr = vm.to_repr(&obj)?.into_object();
+    let repr = vm.to_repr(&obj)?.into();
     builtins::print(PosArgs::new(vec![repr]), Default::default(), vm)?;
     vm.set_attr(&vm.builtins, "_", obj)?;
     Ok(())

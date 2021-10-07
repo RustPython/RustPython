@@ -331,9 +331,9 @@ impl PyDict {
     }
 
     #[pymethod(magic)]
-    fn ior(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn ior(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         PyDict::merge_object(&zelf.entries, other, vm)?;
-        Ok(zelf.into_object())
+        Ok(zelf)
     }
 
     #[pymethod(magic)]
@@ -482,7 +482,7 @@ impl PyDictRef {
         }
 
         if !exact {
-            if let Some(method_or_err) = vm.get_method(self.clone().into_object(), "__missing__") {
+            if let Some(method_or_err) = vm.get_method(self.clone().into(), "__missing__") {
                 let method = method_or_err?;
                 return vm.invoke(&method, (key,)).map(Some);
             }
@@ -495,7 +495,7 @@ impl PyDictRef {
         let mut attrs = PyAttributes::default();
         for (key, value) in self {
             let key: PyStrRef = key.downcast().expect("dict has non-string keys");
-            attrs.insert(key.as_ref().to_owned(), value);
+            attrs.insert(key.as_str().to_owned(), value);
         }
         attrs
     }

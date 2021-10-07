@@ -119,7 +119,7 @@ impl PySuper {
 
 impl SlotGetattro for PySuper {
     fn getattro(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        let skip = |zelf: PyRef<Self>, name| vm.generic_getattribute(zelf.into_object(), name);
+        let skip = |zelf: PyRef<Self>, name| vm.generic_getattribute(zelf.into(), name);
         let (obj, start_type): (PyObjectRef, PyTypeRef) = match zelf.obj.clone() {
             Some(o) => o,
             None => return skip(zelf, name),
@@ -162,13 +162,11 @@ impl SlotDescriptor for PySuper {
     ) -> PyResult {
         let (zelf, obj) = Self::_unwrap(zelf, obj, vm)?;
         if vm.is_none(&obj) || zelf.obj.is_some() {
-            return Ok(zelf.into_object());
+            return Ok(zelf.into());
         }
         let zelf_class = zelf.as_object().class();
         if zelf_class.is(&vm.ctx.types.super_type) {
-            Ok(PySuper::new(zelf.typ.clone(), obj, vm)?
-                .into_ref(vm)
-                .into_object())
+            Ok(PySuper::new(zelf.typ.clone(), obj, vm)?.into_object(vm))
         } else {
             let obj = vm.unwrap_or_none(zelf.obj.clone().map(|(o, _)| o));
             vm.invoke(

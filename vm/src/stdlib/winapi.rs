@@ -266,7 +266,7 @@ fn getattributelist(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<At
     <Option<PyMapping>>::try_from_object(vm, obj)?
         .map(|mapping| {
             let handlelist = mapping
-                .into_object()
+                .as_ref()
                 .get_item("handle_list", vm)
                 .ok()
                 .and_then(|obj| {

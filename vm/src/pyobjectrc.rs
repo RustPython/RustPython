@@ -139,6 +139,18 @@ pub struct PyObjectWeak {
     weak: PyWeak<PyObject<Erased>>,
 }
 
+pub trait PyObjectWrap
+where
+    Self: AsRef<PyObjectRef>,
+{
+    #[inline(always)]
+    fn as_object(&self) -> &PyObjectRef {
+        self.as_ref()
+    }
+
+    fn into_object(self) -> PyObjectRef;
+}
+
 /// A marker type that just references a raw python object. Don't use directly, pass as a pointer
 /// back to [`PyObjectRef::from_raw`]
 pub enum RawPyObject {}
@@ -283,9 +295,30 @@ impl PyObjectRef {
     }
 }
 
+impl AsRef<Self> for PyObjectRef {
+    fn as_ref(&self) -> &Self {
+        self
+    }
+}
+
 impl IdProtocol for PyObjectRef {
     fn get_id(&self) -> usize {
         self.rc.get_id()
+    }
+}
+
+impl<'a, T: PyObjectPayload> From<&'a PyRef<T>> for &'a PyObjectRef {
+    fn from(py_ref: &'a PyRef<T>) -> Self {
+        &py_ref.obj
+    }
+}
+
+impl<T> From<T> for PyObjectRef
+where
+    T: PyObjectWrap,
+{
+    fn from(py_ref: T) -> Self {
+        py_ref.into_object()
     }
 }
 
@@ -394,11 +427,6 @@ impl<T: PyObjectPayload> PyRef<T> {
         &self.obj
     }
 
-    #[inline(always)]
-    pub fn into_object(self) -> PyObjectRef {
-        self.obj
-    }
-
     pub fn downgrade(this: &Self) -> PyWeakRef<T> {
         PyWeakRef {
             weak: PyObjectRef::downgrade(&this.obj),
@@ -415,6 +443,24 @@ impl<T: PyObjectPayload> PyRef<T> {
         let obj = PyObject::new(payload, typ, dict);
         // SAFETY: we just created the object from a payload of type T
         unsafe { Self::from_obj_unchecked(obj) }
+    }
+}
+
+impl<T> PyObjectWrap for PyRef<T>
+where
+    T: PyObjectPayload,
+{
+    fn into_object(self) -> PyObjectRef {
+        self.obj
+    }
+}
+
+impl<T> AsRef<PyObjectRef> for PyRef<T>
+where
+    T: PyObjectPayload,
+{
+    fn as_ref(&self) -> &PyObjectRef {
+        &self.obj
     }
 }
 
