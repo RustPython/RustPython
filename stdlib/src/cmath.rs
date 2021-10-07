@@ -6,8 +6,8 @@ pub(crate) use cmath::make_module;
 #[pymodule]
 mod cmath {
     use crate::vm::{
-        builtins::{IntoPyComplex, IntoPyFloat},
-        function::OptionalArg,
+        builtins::IntoPyFloat,
+        function::{ArgComplexLike, OptionalArg},
         PyResult, VirtualMachine,
     };
     use num_complex::Complex64;
@@ -24,7 +24,7 @@ mod cmath {
 
     /// Return argument, also known as the phase angle, of a complex.
     #[pyfunction]
-    fn phase(z: IntoPyComplex) -> f64 {
+    fn phase(z: ArgComplexLike) -> f64 {
         z.to_complex().arg()
     }
 
@@ -32,7 +32,7 @@ mod cmath {
     ///
     /// r is the distance from 0 and phi the phase angle.
     #[pyfunction]
-    fn polar(x: IntoPyComplex) -> (f64, f64) {
+    fn polar(x: ArgComplexLike) -> (f64, f64) {
         x.to_complex().to_polar()
     }
 
@@ -44,53 +44,53 @@ mod cmath {
 
     /// Checks if the real or imaginary part of z is infinite.
     #[pyfunction]
-    fn isinf(z: IntoPyComplex) -> bool {
+    fn isinf(z: ArgComplexLike) -> bool {
         let Complex64 { re, im } = z.to_complex();
         re.is_infinite() || im.is_infinite()
     }
 
     /// Return True if both the real and imaginary parts of z are finite, else False.
     #[pyfunction]
-    fn isfinite(z: IntoPyComplex) -> bool {
+    fn isfinite(z: ArgComplexLike) -> bool {
         z.to_complex().is_finite()
     }
 
     /// Checks if the real or imaginary part of z not a number (NaN)..
     #[pyfunction]
-    fn isnan(z: IntoPyComplex) -> bool {
+    fn isnan(z: ArgComplexLike) -> bool {
         z.to_complex().is_nan()
     }
 
     /// Return the exponential value e**z.
     #[pyfunction]
-    fn exp(z: IntoPyComplex, vm: &VirtualMachine) -> PyResult<Complex64> {
+    fn exp(z: ArgComplexLike, vm: &VirtualMachine) -> PyResult<Complex64> {
         let z = z.to_complex();
         result_or_overflow(z, z.exp(), vm)
     }
     /// Return the square root of z.
     #[pyfunction]
-    fn sqrt(z: IntoPyComplex) -> Complex64 {
+    fn sqrt(z: ArgComplexLike) -> Complex64 {
         z.to_complex().sqrt()
     }
     /// Return the sine of z
     #[pyfunction]
-    fn sin(z: IntoPyComplex) -> Complex64 {
+    fn sin(z: ArgComplexLike) -> Complex64 {
         z.to_complex().sin()
     }
 
     #[pyfunction]
-    fn asin(z: IntoPyComplex) -> Complex64 {
+    fn asin(z: ArgComplexLike) -> Complex64 {
         z.to_complex().asin()
     }
 
     /// Return the cosine of z
     #[pyfunction]
-    fn cos(z: IntoPyComplex) -> Complex64 {
+    fn cos(z: ArgComplexLike) -> Complex64 {
         z.to_complex().cos()
     }
 
     #[pyfunction]
-    fn acos(z: IntoPyComplex) -> Complex64 {
+    fn acos(z: ArgComplexLike) -> Complex64 {
         z.to_complex().acos()
     }
 
@@ -98,7 +98,7 @@ mod cmath {
     ///
     /// If the base not specified, returns the natural logarithm (base e) of z.
     #[pyfunction]
-    fn log(z: IntoPyComplex, base: OptionalArg<IntoPyComplex>) -> Complex64 {
+    fn log(z: ArgComplexLike, base: OptionalArg<ArgComplexLike>) -> Complex64 {
         // TODO: Complex64.log with a negative base yields wrong results.
         //       Issue is with num_complex::Complex64 implementation of log
         //       which returns NaN when base is negative.
@@ -113,64 +113,64 @@ mod cmath {
 
     /// Return the base-10 logarithm of z.
     #[pyfunction]
-    fn log10(z: IntoPyComplex) -> Complex64 {
+    fn log10(z: ArgComplexLike) -> Complex64 {
         z.to_complex().log(10.0)
     }
 
     /// Return the inverse hyperbolic cosine of z.
     #[pyfunction]
-    fn acosh(z: IntoPyComplex) -> Complex64 {
+    fn acosh(z: ArgComplexLike) -> Complex64 {
         z.to_complex().acosh()
     }
 
     /// Return the inverse tangent of z.
     #[pyfunction]
-    fn atan(z: IntoPyComplex) -> Complex64 {
+    fn atan(z: ArgComplexLike) -> Complex64 {
         z.to_complex().atan()
     }
 
     /// Return the inverse hyperbolic tangent of z.
     #[pyfunction]
-    fn atanh(z: IntoPyComplex) -> Complex64 {
+    fn atanh(z: ArgComplexLike) -> Complex64 {
         z.to_complex().atanh()
     }
 
     /// Return the tangent of z.
     #[pyfunction]
-    fn tan(z: IntoPyComplex) -> Complex64 {
+    fn tan(z: ArgComplexLike) -> Complex64 {
         z.to_complex().tan()
     }
 
     /// Return the hyperbolic tangent of z.
     #[pyfunction]
-    fn tanh(z: IntoPyComplex) -> Complex64 {
+    fn tanh(z: ArgComplexLike) -> Complex64 {
         z.to_complex().tanh()
     }
 
     /// Return the hyperbolic sin of z.
     #[pyfunction]
-    fn sinh(z: IntoPyComplex) -> Complex64 {
+    fn sinh(z: ArgComplexLike) -> Complex64 {
         z.to_complex().sinh()
     }
 
     /// Return the hyperbolic cosine of z.
     #[pyfunction]
-    fn cosh(z: IntoPyComplex) -> Complex64 {
+    fn cosh(z: ArgComplexLike) -> Complex64 {
         z.to_complex().cosh()
     }
 
     /// Return the inverse hyperbolic sine of z.
     #[pyfunction]
-    fn asinh(z: IntoPyComplex) -> Complex64 {
+    fn asinh(z: ArgComplexLike) -> Complex64 {
         z.to_complex().asinh()
     }
 
     #[derive(FromArgs)]
     struct IsCloseArgs {
         #[pyarg(positional)]
-        a: IntoPyComplex,
+        a: ArgComplexLike,
         #[pyarg(positional)]
-        b: IntoPyComplex,
+        b: ArgComplexLike,
         #[pyarg(named, optional)]
         rel_tol: OptionalArg<IntoPyFloat>,
         #[pyarg(named, optional)]

@@ -4,8 +4,8 @@ use crate::{
     slots::{Comparable, Hashable, PyComparisonOp, SlotConstructor},
     IdProtocol,
     PyArithmeticValue::{self, *},
-    PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol, VirtualMachine,
+    PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    VirtualMachine,
 };
 use num_complex::Complex64;
 use num_traits::Zero;
@@ -423,7 +423,10 @@ fn parse_str(s: &str) -> Option<Complex64> {
 
 /// Tries converting a python object into a complex, returns an option of whether the complex
 /// and whether the  object was a complex originally or coereced into one
-fn try_complex(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<(Complex64, bool)>> {
+pub(crate) fn try_complex(
+    obj: &PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult<Option<(Complex64, bool)>> {
     if let Some(complex) = obj.payload_if_exact::<PyComplex>(vm) {
         return Ok(Some((complex.value, true)));
     }
@@ -447,26 +450,4 @@ fn try_complex(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<(Compl
         return Ok(Some((Complex64::new(float, 0.0), false)));
     }
     Ok(None)
-}
-
-#[derive(Debug, Copy, Clone, PartialEq)]
-#[repr(transparent)]
-pub struct IntoPyComplex {
-    value: Complex64,
-}
-
-impl IntoPyComplex {
-    pub fn to_complex(self) -> Complex64 {
-        self.value
-    }
-}
-
-impl TryFromObject for IntoPyComplex {
-    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        // We do not care if it was already a complex.
-        let (value, _) = try_complex(&obj, vm)?.ok_or_else(|| {
-            vm.new_type_error(format!("must be real number, not {}", obj.class().name()))
-        })?;
-        Ok(IntoPyComplex { value })
-    }
 }

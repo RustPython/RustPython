@@ -12,7 +12,7 @@ pub use classmethod::PyClassMethod;
 pub(crate) mod code;
 pub use code::PyCode;
 pub(crate) mod complex;
-pub use complex::{IntoPyComplex, PyComplex};
+pub use complex::PyComplex;
 pub(crate) mod coroutine;
 pub use coroutine::PyCoroutine;
 pub(crate) mod dict;
