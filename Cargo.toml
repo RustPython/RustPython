@@ -16,14 +16,14 @@ members = [
 ]
 
 [features]
-default = ["threading", "pylib", "zlib", "stdlib"]
+default = ["threading", "pylib", "stdlib", "zlib"]
 stdlib = ["rustpython-stdlib"]
 flame-it = ["rustpython-vm/flame-it", "flame", "flamescope"]
 freeze-stdlib = ["rustpython-vm/freeze-stdlib"]
 jit = ["rustpython-vm/jit"]
 threading = ["rustpython-vm/threading"]
 pylib = ["rustpython-vm/pylib"]
-zlib = ["rustpython-stdlib/zlib"]
+zlib = ["stdlib", "rustpython-stdlib/zlib"]
 ssl = ["rustpython-stdlib/ssl"]
 ssl-vendor = ["rustpython-stdlib/ssl-vendor"]
 
