@@ -18,4 +18,4 @@ flamescope.json
 /.cargo/config
 
 extra_tests/snippets/resources
-extra_tests/snippets/not_impl.py
+extra_tests/not_impl.py

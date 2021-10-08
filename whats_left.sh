@@ -26,4 +26,4 @@ fi
 # run whats_left
 cargo build --release
 
-cargo run --release -q -- extra_tests/snippets/not_impl.py
+cargo run --release -q -- extra_tests/not_impl.py
