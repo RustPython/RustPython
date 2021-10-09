@@ -997,7 +997,7 @@ impl PyDictItems {
         }
         let key = needle.fast_getitem(0);
         let found = zelf.dict().contains(key.clone(), vm)?;
-        if found == false {
+        if !found {
             return Ok(false);
         }
         let value = needle.fast_getitem(1);

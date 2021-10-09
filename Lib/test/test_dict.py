@@ -1300,8 +1300,6 @@ class DictTest(unittest.TestCase):
         except RuntimeError:  # implementation defined
             pass
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_dictitems_contains_use_after_free(self):
         class X:
             def __eq__(self, other):
