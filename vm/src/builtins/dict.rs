@@ -996,16 +996,12 @@ impl PyDictItems {
             return Ok(false);
         }
         let key = needle.fast_getitem(0);
-        let found = zelf.dict().contains(key.clone(), vm)?;
-        if !found {
+        if !zelf.dict().contains(key.clone(), vm)? {
             return Ok(false);
         }
         let value = needle.fast_getitem(1);
         let found = PyDict::getitem(zelf.dict().clone(), key, vm)?;
-        if !vm.identical_or_equal(&found, &value)? {
-            return Ok(false);
-        }
-        Ok(true)
+        vm.identical_or_equal(&found, &value)
     }
 }
 
