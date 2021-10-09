@@ -16,7 +16,7 @@ assert {'a': 123}.get('b') == None
 assert {'a': 123}.get('b', 456) == 456
 
 d = {'a': 123, 'b': 456}
- 
+assert list(reversed(d)) == ['b', 'a']
 assert list(reversed(d.keys())) == ['b', 'a']
 assert list(reversed(d.values())) == [456, 123]
 assert list(reversed(d.items())) == [('b', 456), ('a', 123)]
@@ -27,7 +27,13 @@ with assert_raises(StopIteration):
 assert 'dict' in dict().__doc__
 
 d = {'a': 123, 'b': 456}
+assert 1 not in d.items()
+assert 'a' not in d.items()
+assert 'a', 123 not in d.items()
+assert () not in d.items()
+assert (1) not in d.items()
+assert ('a') not in d.items()
 assert ('a', 123) in d.items()
 assert ('b', 456) in d.items()
 assert ('a', 123, 3) not in d.items()
-assert () not in d.items()
+assert ('a', 123, 'b', 456) not in d.items()

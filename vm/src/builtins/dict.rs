@@ -3,7 +3,7 @@ use super::{
     PyTypeRef,
 };
 use crate::{
-    builtins::PyTupleRef,
+    builtins::PyTuple,
     common::ascii,
     dictdatatype::{self, DictKey},
     function::{ArgIterable, FuncArgs, IntoPyObject, KwArgs, OptionalArg},
@@ -985,7 +985,13 @@ impl PyDictItems {
     }
 
     #[pymethod(magic)]
-    fn contains(zelf: PyRef<Self>, needle: PyTupleRef, vm: &VirtualMachine) -> PyResult<bool> {
+    fn contains(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        let needle = match_class! {
+            match needle {
+                tuple @ PyTuple => tuple,
+                _ => return Ok(false),
+            }
+        };
         if needle.len() != 2 {
             return Ok(false);
         }
