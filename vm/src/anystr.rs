@@ -201,11 +201,18 @@ pub trait AnyStr<'s>: 's {
         T: TryFromObject,
         F: Fn(&Self, &T) -> bool,
     {
-        let (affix, range) = args.get_value(self.chars_len());
-        if !range.is_normal() {
-            return Ok(false);
-        }
-        let value = self.get_chars(range);
+        let (affix, value) = if args.start.is_none() && args.end.is_none() {
+            // If it doesn't have subrange, it uses bytes operation.
+            (args.affix, self.get_bytes(0..self.bytes_len()))
+        } else {
+            let (affix, range) = args.get_value(self.chars_len());
+            if !range.is_normal() {
+                return Ok(false);
+            }
+
+            (affix, self.get_chars(range))
+        };
+
         single_or_tuple_any(
             affix,
             &|s: &T| Ok(func(value, s)),
