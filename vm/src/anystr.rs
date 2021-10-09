@@ -145,7 +145,9 @@ pub trait AnyStr<'s>: 's {
     // FIXME: get_chars is expensive for str
     fn get_chars(&self, range: std::ops::Range<usize>) -> &Self;
     fn bytes_len(&self) -> usize;
-    fn chars_len(&self) -> usize; // cannot access to cache here
+    // NOTE: str::chars().count() consumes the O(n) time. But pystr::char_len does cache.
+    //       So using chars_len directly is too expensive and the below method shouldn't be implemented.
+    // fn chars_len(&self) -> usize;
     fn is_empty(&self) -> bool;
 
     fn py_add(&self, other: &Self) -> Self::Container {
