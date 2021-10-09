@@ -3,51 +3,12 @@ pub(crate) use decl::make_module;
 #[pymodule(name = "binascii")]
 mod decl {
     use crate::vm::{
-        builtins::{PyByteArray, PyBytes, PyStr, PyTypeRef},
-        function::{ArgBytesLike, OptionalArg},
-        match_class, PyObjectRef, PyRef, PyResult, TryFromObject, TypeProtocol, VirtualMachine,
+        builtins::PyTypeRef,
+        function::{ArgAsciiBuffer, ArgBytesLike, OptionalArg},
+        PyResult, VirtualMachine,
     };
     use crc::{crc32, Hasher32};
     use itertools::Itertools;
-
-    enum SerializedData {
-        Bytes(PyRef<PyBytes>),
-        Buffer(PyRef<PyByteArray>),
-        Ascii(PyRef<PyStr>),
-    }
-
-    impl TryFromObject for SerializedData {
-        fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-            match_class!(match obj {
-                b @ PyBytes => Ok(SerializedData::Bytes(b)),
-                b @ PyByteArray => Ok(SerializedData::Buffer(b)),
-                a @ PyStr => {
-                    if a.as_str().is_ascii() {
-                        Ok(SerializedData::Ascii(a))
-                    } else {
-                        Err(vm.new_value_error(
-                            "string argument should contain only ASCII characters".to_owned(),
-                        ))
-                    }
-                }
-                obj => Err(vm.new_type_error(format!(
-                    "argument should be bytes, buffer or ASCII string, not '{}'",
-                    obj.class().name(),
-                ))),
-            })
-        }
-    }
-
-    impl SerializedData {
-        #[inline]
-        pub fn with_ref<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
-            match self {
-                SerializedData::Bytes(b) => f(b.as_bytes()),
-                SerializedData::Buffer(b) => f(&b.borrow_buf()),
-                SerializedData::Ascii(a) => f(a.as_str().as_bytes()),
-            }
-        }
-    }
 
     #[pyattr(name = "Error")]
     fn error_type(vm: &VirtualMachine) -> PyTypeRef {
@@ -113,7 +74,7 @@ mod decl {
 
     #[pyfunction(name = "a2b_hex")]
     #[pyfunction]
-    fn unhexlify(data: SerializedData, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+    fn unhexlify(data: ArgAsciiBuffer, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         data.with_ref(|hex_bytes| {
             if hex_bytes.len() % 2 != 0 {
                 return Err(vm.new_value_error("Odd-length string".to_owned()));
@@ -133,7 +94,7 @@ mod decl {
     }
 
     #[pyfunction]
-    fn crc32(data: SerializedData, value: OptionalArg<u32>, vm: &VirtualMachine) -> PyResult {
+    fn crc32(data: ArgBytesLike, value: OptionalArg<u32>, vm: &VirtualMachine) -> PyResult {
         let crc = value.unwrap_or(0);
 
         let mut digest = crc32::Digest::new_with_initial(crc32::IEEE, crc);
@@ -149,7 +110,7 @@ mod decl {
     }
 
     #[pyfunction]
-    fn a2b_base64(s: SerializedData, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+    fn a2b_base64(s: ArgAsciiBuffer, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         s.with_ref(|b| {
             let mut buf;
             let b = if memchr::memchr(b'\n', b).is_some() {
@@ -190,7 +151,7 @@ mod decl {
     }
 
     #[pyfunction]
-    fn a2b_uu(s: SerializedData, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+    fn a2b_uu(s: ArgAsciiBuffer, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         s.with_ref(|b| {
             // First byte: binary data length (in bytes)
             let length = if b.is_empty() {
