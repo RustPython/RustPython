@@ -3,6 +3,7 @@ use super::{
     PyTypeRef,
 };
 use crate::{
+    builtins::PyTupleRef,
     common::ascii,
     dictdatatype::{self, DictKey},
     function::{ArgIterable, FuncArgs, IntoPyObject, KwArgs, OptionalArg},
@@ -925,6 +926,24 @@ impl PyDictItems {
         let zelf = Self::to_set(zelf, vm)?;
         let inner = zelf.symmetric_difference(other, vm)?;
         Ok(PySet { inner })
+    }
+
+    #[pymethod(magic)]
+    fn contains(zelf: PyRef<Self>, needle: PyTupleRef, vm: &VirtualMachine) -> PyResult<bool> {
+        if needle.len() != 2 {
+            return Ok(false);
+        }
+        let key = needle.fast_getitem(0);
+        let found = zelf.dict().contains(key.clone(), vm).unwrap();
+        if found == false {
+            return Ok(false);
+        }
+        let value = needle.fast_getitem(1);
+        let found = PyDict::getitem(zelf.dict().clone(), key, vm).unwrap();
+        if !vm.identical_or_equal(&found, &value)? {
+            return Ok(false);
+        }
+        Ok(true)
     }
 }
 
