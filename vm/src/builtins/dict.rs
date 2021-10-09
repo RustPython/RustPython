@@ -990,7 +990,7 @@ impl PyDictItems {
             return Ok(false);
         }
         let key = needle.fast_getitem(0);
-        let found = zelf.dict().contains(key.clone(), vm).unwrap();
+        let found = zelf.dict().contains(key.clone(), vm)?;
         if found == false {
             return Ok(false);
         }
