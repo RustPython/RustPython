@@ -195,10 +195,11 @@ pub trait AnyStr<'s>: 's {
         F: Fn(&Self) -> PyObjectRef;
 
     #[inline]
-    fn py_startsendswith<T, F>(
+    fn py_startsendswith<T, F, FS>(
         &self,
         affix: PyObjectRef,
         range: std::ops::Range<usize>,
+        slicer: FS,
         func_name: &str,
         py_type_name: &str,
         func: F,
@@ -207,11 +208,12 @@ pub trait AnyStr<'s>: 's {
     where
         T: TryFromObject,
         F: Fn(&Self, &T) -> bool,
+        FS: Fn(&Self, std::ops::Range<usize>) -> &Self,
     {
         if !range.is_normal() {
             return Ok(false);
         }
-        let value = self.get_chars(range);
+        let value = slicer(&self, range);
 
         single_or_tuple_any(
             affix,

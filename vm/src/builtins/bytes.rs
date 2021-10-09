@@ -279,6 +279,7 @@ impl PyBytes {
         self.inner.elements[..].py_startsendswith(
             affix,
             range,
+            AnyStr::get_bytes,
             "endswith",
             "bytes",
             |s, x: &PyBytesInner| s.ends_with(&x.elements[..]),
@@ -293,10 +294,10 @@ impl PyBytes {
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
         let (affix, range) = options.get_value(self.len());
-
         self.inner.elements[..].py_startsendswith(
             affix,
             range,
+            AnyStr::get_bytes,
             "startswith",
             "bytes",
             |s, x: &PyBytesInner| s.starts_with(&x.elements[..]),

@@ -434,6 +434,7 @@ impl PyByteArray {
         self.borrow_buf().py_startsendswith(
             affix,
             range,
+            AnyStr::get_bytes,
             "endswith",
             "bytes",
             |s, x: &PyBytesInner| s.ends_with(&x.elements[..]),
@@ -451,6 +452,7 @@ impl PyByteArray {
         self.borrow_buf().py_startsendswith(
             affix,
             range,
+            AnyStr::get_bytes,
             "startswith",
             "bytes",
             |s, x: &PyBytesInner| s.starts_with(&x.elements[..]),
