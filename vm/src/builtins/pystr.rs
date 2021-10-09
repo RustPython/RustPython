@@ -689,14 +689,14 @@ impl PyStr {
     #[pymethod]
     fn endswith(&self, args: anystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
         let len = if args.has_subrange() {
-            self.byte_len()
-        } else {
             self.char_len()
+        } else {
+            self.byte_len()
         };
-
+        let (affix, range) = args.get_value(len);
         self.as_str().py_startsendswith(
-            args,
-            len,
+            affix,
+            range,
             "endswith",
             "str",
             |s, x: &PyStrRef| s.ends_with(x.as_str()),
@@ -707,14 +707,14 @@ impl PyStr {
     #[pymethod]
     fn startswith(&self, args: anystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
         let len = if args.has_subrange() {
-            self.byte_len()
-        } else {
             self.char_len()
+        } else {
+            self.byte_len()
         };
-
+        let (affix, range) = args.get_value(len);
         self.as_str().py_startsendswith(
-            args,
-            len,
+            affix,
+            range,
             "startswith",
             "str",
             |s, x: &PyStrRef| s.starts_with(x.as_str()),

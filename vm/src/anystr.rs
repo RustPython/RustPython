@@ -61,13 +61,13 @@ pub struct StartsEndsWithArgs {
 }
 
 impl StartsEndsWithArgs {
-    fn get_value(self, len: usize) -> (PyObjectRef, std::ops::Range<usize>) {
+    pub fn get_value(self, len: usize) -> (PyObjectRef, std::ops::Range<usize>) {
         let range = adjust_indices(self.start, self.end, len);
         (self.affix, range)
     }
 
     pub fn has_subrange(&self) -> bool {
-        self.start.is_none() && self.end.is_none()
+        self.start.is_some() || self.end.is_some()
     }
 }
 
@@ -197,8 +197,8 @@ pub trait AnyStr<'s>: 's {
     #[inline]
     fn py_startsendswith<T, F>(
         &self,
-        args: StartsEndsWithArgs,
-        len: usize,
+        affix: PyObjectRef,
+        range: std::ops::Range<usize>,
         func_name: &str,
         py_type_name: &str,
         func: F,
@@ -208,17 +208,10 @@ pub trait AnyStr<'s>: 's {
         T: TryFromObject,
         F: Fn(&Self, &T) -> bool,
     {
-        let (affix, value) = if args.has_subrange() {
-            // If it doesn't have subrange, it uses bytes operation.
-            (args.affix, self.get_bytes(0..len))
-        } else {
-            let (affix, range) = args.get_value(len);
-            if !range.is_normal() {
-                return Ok(false);
-            }
-
-            (affix, self.get_chars(range))
-        };
+        if !range.is_normal() {
+            return Ok(false);
+        }
+        let value = self.get_chars(range);
 
         single_or_tuple_any(
             affix,
