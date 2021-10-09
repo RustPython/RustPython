@@ -1001,7 +1001,7 @@ impl PyDictItems {
             return Ok(false);
         }
         let value = needle.fast_getitem(1);
-        let found = PyDict::getitem(zelf.dict().clone(), key, vm).unwrap();
+        let found = PyDict::getitem(zelf.dict().clone(), key, vm)?;
         if !vm.identical_or_equal(&found, &value)? {
             return Ok(false);
         }
