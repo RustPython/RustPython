@@ -84,14 +84,12 @@ impl ConstantBag for PyObjBag<'_> {
             bytecode::ConstantData::Float { value } => ctx.new_float(value),
             bytecode::ConstantData::Complex { value } => ctx.new_complex(value),
             bytecode::ConstantData::Str { value } if value.len() <= 20 => {
-                vm.intern_string(value).into_object()
+                vm.intern_string(value).into()
             }
             bytecode::ConstantData::Str { value } => vm.ctx.new_utf8_str(value),
             bytecode::ConstantData::Bytes { value } => ctx.new_bytes(value.to_vec()),
             bytecode::ConstantData::Boolean { value } => ctx.new_bool(value),
-            bytecode::ConstantData::Code { code } => {
-                ctx.new_code_object(code.map_bag(self)).into_object()
-            }
+            bytecode::ConstantData::Code { code } => ctx.new_code_object(code.map_bag(self)).into(),
             bytecode::ConstantData::Tuple { elements } => {
                 let elements = elements
                     .into_iter()
@@ -112,13 +110,13 @@ impl ConstantBag for PyObjBag<'_> {
             bytecode::BorrowedConstant::Float { value } => ctx.new_float(value),
             bytecode::BorrowedConstant::Complex { value } => ctx.new_complex(value),
             bytecode::BorrowedConstant::Str { value } if value.len() <= 20 => {
-                vm.intern_string(value).into_object()
+                vm.intern_string(value).into()
             }
             bytecode::BorrowedConstant::Str { value } => vm.ctx.new_utf8_str(value),
             bytecode::BorrowedConstant::Bytes { value } => ctx.new_bytes(value.to_vec()),
             bytecode::BorrowedConstant::Boolean { value } => ctx.new_bool(value),
             bytecode::BorrowedConstant::Code { code } => {
-                ctx.new_code_object(code.map_clone_bag(self)).into_object()
+                ctx.new_code_object(code.map_clone_bag(self)).into()
             }
             bytecode::BorrowedConstant::Tuple { elements } => {
                 let elements = elements
@@ -256,7 +254,7 @@ impl PyRef<PyCode> {
             .code
             .varnames
             .iter()
-            .map(|s| s.clone().into_object())
+            .map(|s| s.clone().into())
             .collect();
         vm.ctx.new_tuple(varnames)
     }

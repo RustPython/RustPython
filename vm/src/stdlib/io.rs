@@ -90,8 +90,8 @@ mod _io {
         slots::{Iterable, SlotConstructor, SlotDestructor, SlotIterator},
         utils::Either,
         vm::{ReprGuard, VirtualMachine},
-        IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject,
-        TypeProtocol,
+        IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
+        TryFromBorrowedObject, TryFromObject, TypeProtocol,
     };
     use bstr::ByteSlice;
     use crossbeam_utils::atomic::AtomicCell;
@@ -627,7 +627,7 @@ mod _io {
             method: &str,
             vm: &VirtualMachine,
         ) -> PyResult<usize> {
-            let b = ArgMemoryBuffer::new(vm, &bufobj)?;
+            let b = ArgMemoryBuffer::try_from_borrowed_object(vm, &bufobj)?;
             let l = b.len();
             let data = vm.call_method(&zelf, method, (l,))?;
             if data.is(&bufobj) {
@@ -957,7 +957,7 @@ mod _io {
 
             let mut remaining = buf_len;
             let mut written = 0;
-            let buffer = obj.into_buffer();
+            let buffer: PyBuffer = obj.into();
             while remaining > self.buffer.len() {
                 let res = self.raw_write(Some(buffer.clone()), written..buf_len, vm)?;
                 match res {
@@ -1633,14 +1633,14 @@ mod _io {
             let mut data = self.reader().lock(vm)?;
             let raw = data.check_init(vm)?;
             ensure_unclosed(raw, "readinto of closed file", vm)?;
-            data.readinto_generic(buf.into_buffer(), false, vm)
+            data.readinto_generic(buf.into(), false, vm)
         }
         #[pymethod]
         fn readinto1(&self, buf: ArgMemoryBuffer, vm: &VirtualMachine) -> PyResult<Option<usize>> {
             let mut data = self.reader().lock(vm)?;
             let raw = data.check_init(vm)?;
             ensure_unclosed(raw, "readinto of closed file", vm)?;
-            data.readinto_generic(buf.into_buffer(), true, vm)
+            data.readinto_generic(buf.into(), true, vm)
         }
     }
 
@@ -2418,7 +2418,7 @@ mod _io {
                 let start_of_stream = cookie.start_pos == 0 && cookie.dec_flags == 0;
                 reset_encoder(encoder, start_of_stream)?;
             }
-            Ok(cookie_obj.into_object())
+            Ok(cookie_obj.into())
         }
 
         #[pymethod]
@@ -2925,7 +2925,7 @@ mod _io {
             let chunk_size = std::cmp::max(self.chunk_size, size_hint);
             let input_chunk = vm.call_method(&self.buffer, method, (chunk_size,))?;
 
-            let buf = ArgBytesLike::new(vm, &input_chunk).map_err(|_| {
+            let buf = ArgBytesLike::try_from_borrowed_object(vm, &input_chunk).map_err(|_| {
                 vm.new_type_error(format!(
                     "underlying {}() should have returned a bytes-like object, not '{}'",
                     method,

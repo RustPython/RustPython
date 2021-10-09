@@ -200,7 +200,7 @@ impl PyStrIterator {
         self.internal
             .lock()
             .0
-            .builtins_iter_reduce(|x| x.clone().into_object(), vm)
+            .builtins_iter_reduce(|x| x.clone().into(), vm)
     }
 }
 
@@ -263,7 +263,7 @@ impl SlotConstructor for PyStr {
             }
         };
         if string.class().is(&cls) {
-            Ok(string.into_object())
+            Ok(string.into())
         } else {
             PyStr::from(string.as_str()).into_pyresult_with_type(vm, cls)
         }
@@ -949,16 +949,16 @@ impl PyStr {
             || self.as_str().splitn(2, sep.as_str()),
             vm,
         )?;
-        Ok((
+        let partition = (
             self.new_substr(front),
             if has_mid {
-                sep.into_object()
+                sep.into()
             } else {
                 vm.ctx.new_ascii_literal(ascii!(""))
             },
             self.new_substr(back),
-        )
-            .into_pyobject(vm))
+        );
+        Ok(partition.into_pyobject(vm))
     }
 
     #[pymethod]
@@ -971,7 +971,7 @@ impl PyStr {
         Ok((
             self.new_substr(front),
             if has_mid {
-                sep.into_object()
+                sep.into()
             } else {
                 vm.ctx.new_ascii_literal(ascii!(""))
             },
@@ -1520,7 +1520,7 @@ mod tests {
                 .set_item("c", vm.ctx.new_ascii_literal(ascii!("xda")), &vm)
                 .unwrap();
             let translated = PyStr::maketrans(
-                table.into_object(),
+                table.into(),
                 OptionalArg::Missing,
                 OptionalArg::Missing,
                 &vm,

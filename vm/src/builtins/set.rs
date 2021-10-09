@@ -126,7 +126,7 @@ impl PySetInner {
         Ok(true)
     }
 
-    fn union(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySetInner> {
+    pub(super) fn union(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySetInner> {
         let set = self.clone();
         for item in other.iter(vm)? {
             set.add(item?, vm)?;
@@ -135,7 +135,11 @@ impl PySetInner {
         Ok(set)
     }
 
-    fn intersection(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySetInner> {
+    pub(super) fn intersection(
+        &self,
+        other: ArgIterable,
+        vm: &VirtualMachine,
+    ) -> PyResult<PySetInner> {
         let set = PySetInner::default();
         for item in other.iter(vm)? {
             let obj = item?;
@@ -146,7 +150,11 @@ impl PySetInner {
         Ok(set)
     }
 
-    fn difference(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySetInner> {
+    pub(super) fn difference(
+        &self,
+        other: ArgIterable,
+        vm: &VirtualMachine,
+    ) -> PyResult<PySetInner> {
         let set = self.copy();
         for item in other.iter(vm)? {
             set.content.delete_if_exists(vm, &item?)?;
@@ -609,7 +617,7 @@ impl PySet {
         zelf: PyRef<Self>,
         vm: &VirtualMachine,
     ) -> PyResult<(PyTypeRef, PyObjectRef, Option<PyDictRef>)> {
-        reduce_set(&zelf.into_object(), vm)
+        reduce_set(&zelf.into(), vm)
     }
 }
 
@@ -651,7 +659,7 @@ impl SlotConstructor for PyFrozenSet {
         let elements = if let OptionalArg::Present(iterable) = iterable {
             let iterable = if cls.is(&vm.ctx.types.frozenset_type) {
                 match iterable.downcast_exact::<Self>(vm) {
-                    Ok(fs) => return Ok(fs.into_object()),
+                    Ok(fs) => return Ok(fs.into()),
                     Err(iterable) => iterable,
                 }
             } else {
@@ -664,7 +672,7 @@ impl SlotConstructor for PyFrozenSet {
 
         // Return empty fs if iterable passed is empty and only for exact fs types.
         if elements.is_empty() && cls.is(&vm.ctx.types.frozenset_type) {
-            Ok(vm.ctx.empty_frozenset.clone().into_object())
+            Ok(vm.ctx.empty_frozenset.clone().into())
         } else {
             Self::from_iter(vm, elements).and_then(|o| o.into_pyresult_with_type(vm, cls))
         }
@@ -798,7 +806,7 @@ impl PyFrozenSet {
         zelf: PyRef<Self>,
         vm: &VirtualMachine,
     ) -> PyResult<(PyTypeRef, PyObjectRef, Option<PyDictRef>)> {
-        reduce_set(&zelf.into_object(), vm)
+        reduce_set(&zelf.into(), vm)
     }
 }
 

@@ -79,7 +79,6 @@ compiler = ["rustpython-vm/compiler"]
 # compiler = ["rustpython-compiler", "rustpython-compiler-core", "ast"]
 # parser = ["rustpython-parser", "ast"]
 
-# TODO: use resolver = "2" instead of features
 zlib = ["libz-sys", "flate2/zlib"]
 ssl = ["openssl", "openssl-sys", "foreign-types-shared"]
 ssl-vendor = ["ssl", "openssl/vendored", "openssl-probe"]

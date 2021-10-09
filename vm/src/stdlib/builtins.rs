@@ -1,6 +1,6 @@
 //! Builtin function definitions.
 //!
-//! Implements functions listed here: https://docs.python.org/3/library/builtins.html
+//! Implements the list of [builtin Python functions](https://docs.python.org/3/library/builtins.html).
 use crate::{PyObjectRef, VirtualMachine};
 
 /// Built-in functions, exceptions, and other objects.
@@ -14,16 +14,16 @@ mod builtins {
         int::PyIntRef,
         iter::PyCallableIterator,
         list::{PyList, SortOptions},
-        IntoPyBool, PyByteArray, PyBytes, PyBytesRef, PyCode, PyDictRef, PyStr, PyStrRef,
-        PyTupleRef, PyTypeRef,
+        PyByteArray, PyBytes, PyBytesRef, PyCode, PyDictRef, PyStr, PyStrRef, PyTupleRef,
+        PyTypeRef,
     };
     #[cfg(feature = "rustpython-compiler")]
     use crate::compile;
     use crate::{
         common::{hash::PyHash, str::to_ascii},
         function::{
-            ArgBytesLike, ArgCallable, ArgIterable, FuncArgs, KwArgs, OptionalArg, OptionalOption,
-            PosArgs,
+            ArgBytesLike, ArgCallable, ArgIntoBool, ArgIterable, FuncArgs, KwArgs, OptionalArg,
+            OptionalOption, PosArgs,
         },
         protocol::{PyIter, PyIterReturn},
         py_io,
@@ -43,7 +43,7 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn all(iterable: ArgIterable<IntoPyBool>, vm: &VirtualMachine) -> PyResult<bool> {
+    fn all(iterable: ArgIterable<ArgIntoBool>, vm: &VirtualMachine) -> PyResult<bool> {
         for item in iterable.iter(vm)? {
             if !item?.to_bool() {
                 return Ok(false);
@@ -53,7 +53,7 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn any(iterable: ArgIterable<IntoPyBool>, vm: &VirtualMachine) -> PyResult<bool> {
+    fn any(iterable: ArgIterable<ArgIntoBool>, vm: &VirtualMachine) -> PyResult<bool> {
         for item in iterable.iter(vm)? {
             if item?.to_bool() {
                 return Ok(true);
@@ -169,10 +169,10 @@ mod builtins {
                         let mode = mode_str
                             .parse::<compile::Mode>()
                             .map_err(|err| vm.new_value_error(err.to_string()))?;
-
-                        vm.compile(source, mode, args.filename.as_str().to_owned())
-                            .map(|o| o.into_object())
-                            .map_err(|err| vm.new_syntax_error(&err))
+                        let code = vm
+                            .compile(source, mode, args.filename.as_str().to_owned())
+                            .map_err(|err| vm.new_syntax_error(&err))?;
+                        Ok(code.into())
                     }
                 } else {
                     let mode = mode_str
@@ -186,7 +186,7 @@ mod builtins {
 
     #[pyfunction]
     fn delattr(obj: PyObjectRef, attr: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-        vm.del_attr(&obj, attr.into_object())
+        vm.del_attr(&obj, attr)
     }
 
     #[pyfunction]
@@ -223,7 +223,7 @@ mod builtins {
             let (globals, locals) = match self.globals {
                 Some(globals) => {
                     if !globals.contains_key("__builtins__", vm) {
-                        let builtins_dict = vm.builtins.dict().unwrap().into_object();
+                        let builtins_dict = vm.builtins.dict().unwrap().into();
                         globals.set_item("__builtins__", builtins_dict, vm)?;
                     }
                     let locals = self.locals.unwrap_or_else(|| globals.clone());
@@ -421,7 +421,7 @@ mod builtins {
             let callable = ArgCallable::try_from_object(vm, iter_target)?;
             let iterator = PyCallableIterator::new(callable, sentinel)
                 .into_ref(vm)
-                .into_object();
+                .into();
             Ok(PyIter::new(iterator))
         } else {
             iter_target.get_iter(vm)
@@ -644,8 +644,8 @@ mod builtins {
         sep: Option<PyStrRef>,
         #[pyarg(named, default)]
         end: Option<PyStrRef>,
-        #[pyarg(named, default = "IntoPyBool::FALSE")]
-        flush: IntoPyBool,
+        #[pyarg(named, default = "ArgIntoBool::FALSE")]
+        flush: ArgIntoBool,
         #[pyarg(named, default)]
         file: Option<PyObjectRef>,
     }
@@ -738,7 +738,7 @@ mod builtins {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        vm.set_attr(&obj, attr.into_object(), value)?;
+        vm.set_attr(&obj, attr, value)?;
         Ok(())
     }
 
@@ -799,7 +799,7 @@ mod builtins {
                 vm.new_type_error("vars() argument must have __dict__ attribute".to_owned())
             })
         } else {
-            Ok(vm.current_locals()?.into_object())
+            Ok(vm.current_locals()?.into())
         }
     }
 
@@ -867,10 +867,10 @@ mod builtins {
             }
         }
 
-        let bases = bases.into_object();
+        let bases: PyObjectRef = bases.into();
 
         // Prepare uses full __getattribute__ resolution chain.
-        let prepare = vm.get_attribute(metaclass.clone().into_object(), "__prepare__")?;
+        let prepare = vm.get_attribute(metaclass.clone().into(), "__prepare__")?;
         let namespace = vm.invoke(
             &prepare,
             FuncArgs::new(vec![name_obj.clone(), bases.clone()], kwargs.clone()),
@@ -882,12 +882,12 @@ mod builtins {
         let classcell = <Option<PyCellRef>>::try_from_object(vm, classcell)?;
 
         if let Some(orig_bases) = orig_bases {
-            namespace.set_item("__orig_bases__", orig_bases.into_object(), vm)?;
+            namespace.set_item("__orig_bases__", orig_bases.into(), vm)?;
         }
 
         let class = vm.invoke(
             metaclass.as_object(),
-            FuncArgs::new(vec![name_obj, bases, namespace.into_object()], kwargs),
+            FuncArgs::new(vec![name_obj, bases, namespace.into()], kwargs),
         )?;
 
         if let Some(ref classcell) = classcell {

@@ -253,7 +253,7 @@ fn run_thread(func: ArgCallable, args: FuncArgs, vm: &VirtualMachine) {
             // TODO: sys.unraisablehook
             let stderr = std::io::stderr();
             let mut stderr = py_io::IoWriter(stderr.lock());
-            let repr = vm.to_repr(&func.into_object()).ok();
+            let repr = vm.to_repr(func.as_ref()).ok();
             let repr = repr
                 .as_ref()
                 .map_or("<object repr() failed>", |s| s.as_str());
@@ -319,12 +319,15 @@ impl SlotGetattro for PyLocal {
     fn getattro(zelf: PyRef<Self>, attr: PyStrRef, vm: &VirtualMachine) -> PyResult {
         let ldict = zelf.ldict(vm);
         if attr.as_str() == "__dict__" {
-            Ok(ldict.into_object())
+            Ok(ldict.into())
         } else {
-            let zelf = zelf.into_object();
-            vm.generic_getattribute_opt(zelf.clone(), attr.clone(), Some(ldict))?
+            vm.generic_getattribute_opt(zelf.clone().into(), attr.clone(), Some(ldict))?
                 .ok_or_else(|| {
-                    vm.new_attribute_error(format!("{} has no attribute '{}'", zelf, attr))
+                    vm.new_attribute_error(format!(
+                        "{} has no attribute '{}'",
+                        zelf.as_object(),
+                        attr
+                    ))
                 })
         }
     }

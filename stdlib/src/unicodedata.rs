@@ -33,7 +33,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     );
 
     let module = py_module!(vm, "unicodedata", {
-        "UCD" => ucd_class.into_object(),
+        "UCD" => ucd_class,
         "ucd_3_2_0" => ucd_3_2_0,
         // we do unidata_version here because the getter tries to do PyUCD::class() before
         // the module is in the VM

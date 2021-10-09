@@ -77,7 +77,7 @@ pub fn file_readline(obj: &PyObjectRef, size: Option<usize>, vm: &VirtualMachine
             if let Some(nonl) = sval.strip_suffix('\n') {
                 vm.ctx.new_utf8_str(nonl)
             } else {
-                s.into_object()
+                s.into()
             }
         }
         b @ PyBytes => {
@@ -88,7 +88,7 @@ pub fn file_readline(obj: &PyObjectRef, size: Option<usize>, vm: &VirtualMachine
             if buf.last() == Some(&b'\n') {
                 vm.ctx.new_bytes(buf[..buf.len() - 1].to_owned())
             } else {
-                b.into_object()
+                b.into()
             }
         }
         _ => return Err(vm.new_type_error("object.readline() returned non-string".to_owned())),

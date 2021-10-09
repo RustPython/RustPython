@@ -46,7 +46,7 @@ pub(crate) struct AstNode;
 impl AstNode {
     #[pymethod(magic)]
     fn init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let fields = vm.get_attribute(zelf.clone_class().into_object(), "_fields")?;
+        let fields = vm.get_attribute(zelf.clone_class().into(), "_fields")?;
         let fields = vm.extract_elements::<PyStrRef>(&fields)?;
         let numargs = args.args.len();
         if numargs > fields.len() {
@@ -269,7 +269,7 @@ pub(crate) fn compile(
     let code = rustpython_compiler_core::compile::compile_top(&ast, filename.to_owned(), opts)
         // TODO: use vm.new_syntax_error()
         .map_err(|err| vm.new_value_error(err.to_string()))?;
-    Ok(vm.new_code_object(code).into_object())
+    Ok(vm.new_code_object(code).into())
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {

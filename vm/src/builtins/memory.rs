@@ -245,7 +245,7 @@ impl PyMemoryView {
             if x.len() == 1 {
                 x.fast_getitem(0)
             } else {
-                x.into_object()
+                x.into()
             }
         })
     }
@@ -838,7 +838,7 @@ fn format_unpack(
         if x.len() == 1 {
             x.fast_getitem(0)
         } else {
-            x.into_object()
+            x.into()
         }
     })
 }

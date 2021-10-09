@@ -85,7 +85,7 @@ impl SlotConstructor for PyTuple {
         let elements = if let OptionalArg::Present(iterable) = iterable {
             let iterable = if cls.is(&vm.ctx.types.tuple_type) {
                 match iterable.downcast_exact::<Self>(vm) {
-                    Ok(tuple) => return Ok(tuple.into_object()),
+                    Ok(tuple) => return Ok(tuple.into()),
                     Err(iterable) => iterable,
                 }
             } else {
@@ -97,7 +97,7 @@ impl SlotConstructor for PyTuple {
         };
         // Return empty tuple only for exact tuple types if the iterable is empty.
         if elements.is_empty() && cls.is(&vm.ctx.types.tuple_type) {
-            Ok(vm.ctx.empty_tuple.clone().into_object())
+            Ok(vm.ctx.empty_tuple.clone().into())
         } else {
             Self {
                 elements: elements.into_boxed_slice(),
@@ -375,7 +375,7 @@ impl PyTupleIterator {
     fn reduce(&self, vm: &VirtualMachine) -> PyObjectRef {
         self.internal
             .lock()
-            .builtins_iter_reduce(|x| x.clone().into_object(), vm)
+            .builtins_iter_reduce(|x| x.clone().into(), vm)
     }
 }
 
@@ -458,6 +458,6 @@ impl<T: TransmuteFromObject> From<PyTupleTyped<T>> for PyTupleRef {
 impl<T: TransmuteFromObject> IntoPyObject for PyTupleTyped<T> {
     #[inline]
     fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
-        self.tuple.into_object()
+        self.tuple.into()
     }
 }

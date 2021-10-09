@@ -295,7 +295,7 @@ impl SlotConstructor for PyEllipsis {
     type Args = ();
 
     fn py_new(_cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.ellipsis.clone().into_object())
+        Ok(vm.ctx.ellipsis.clone().into())
     }
 }
 

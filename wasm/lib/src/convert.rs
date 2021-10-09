@@ -176,7 +176,7 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
             if vm.try_class("browser", "Promise").is_ok() {
                 return js_module::PyPromise::new(promise.clone())
                     .into_ref(vm)
-                    .into_object();
+                    .into();
             }
         }
         if Array::is_array(&js_val) {
@@ -211,7 +211,7 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
                 )
                 .unwrap();
             }
-            dict.into_object()
+            dict.into()
         }
     } else if js_val.is_function() {
         let func = js_sys::Function::from(js_val);
@@ -234,7 +234,7 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
             },
         )
     } else if let Some(err) = js_val.dyn_ref::<js_sys::Error>() {
-        js_err_to_py_err(vm, err).into_object()
+        js_err_to_py_err(vm, err).into()
     } else if js_val.is_undefined() {
         // Because `JSON.stringify(undefined)` returns undefined
         vm.ctx.none()

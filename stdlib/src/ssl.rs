@@ -197,7 +197,7 @@ fn _ssl_enum_certificates(store_name: PyStrRef, vm: &VirtualMachine) -> PyResult
                 PyFrozenSet::from_iter(vm, oids.into_iter().map(|oid| vm.ctx.new_utf8_str(oid)))
                     .unwrap()
                     .into_ref(vm)
-                    .into_object()
+                    .into()
             }
         };
         Ok(vm.ctx.new_tuple(vec![cert, enc_type, usage]))
@@ -1133,7 +1133,7 @@ fn cert_to_py(vm: &VirtualMachine, cert: &X509Ref, binary: bool) -> PyResult {
             dict.set_item("subjectAltName", vm.ctx.new_tuple(san), vm)?;
         };
 
-        dict.into_object()
+        dict.into()
     };
     Ok(r)
 }

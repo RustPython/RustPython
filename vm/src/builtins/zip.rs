@@ -1,7 +1,6 @@
 use super::PyTypeRef;
 use crate::{
-    builtins::IntoPyBool,
-    function::{IntoPyObject, OptionalArg, PosArgs},
+    function::{ArgIntoBool, IntoPyObject, OptionalArg, PosArgs},
     protocol::{PyIter, PyIterReturn},
     slots::{IteratorIterable, SlotConstructor, SlotIterator},
     PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
@@ -46,7 +45,7 @@ impl PyZip {
         let iterators = zelf
             .iterators
             .iter()
-            .map(|obj| obj.clone().into_object())
+            .map(|obj| obj.clone().into())
             .collect::<Vec<_>>();
         let tuple_iter = vm.ctx.new_tuple(iterators);
         Ok(if zelf.strict.load(atomic::Ordering::Acquire) {
@@ -59,7 +58,7 @@ impl PyZip {
 
     #[pymethod(magic)]
     fn setstate(zelf: PyRef<Self>, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        if let Ok(obj) = IntoPyBool::try_from_object(vm, state) {
+        if let Ok(obj) = ArgIntoBool::try_from_object(vm, state) {
             zelf.strict.store(obj.to_bool(), atomic::Ordering::Release);
         }
         Ok(())

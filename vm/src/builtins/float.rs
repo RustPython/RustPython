@@ -165,7 +165,7 @@ impl SlotConstructor for PyFloat {
             OptionalArg::Present(val) => {
                 let val = if cls.is(&vm.ctx.types.float_type) {
                     match val.downcast_exact::<PyFloat>(vm) {
-                        Ok(f) => return Ok(f.into_object()),
+                        Ok(f) => return Ok(f.into()),
                         Err(val) => val,
                     }
                 } else {
@@ -543,33 +543,6 @@ pub type PyFloatRef = PyRef<PyFloat>;
 // Retrieve inner float value:
 pub(crate) fn get_value(obj: &PyObjectRef) -> f64 {
     obj.payload::<PyFloat>().unwrap().value
-}
-
-#[derive(Debug, Copy, Clone, PartialEq)]
-#[repr(transparent)]
-pub struct IntoPyFloat {
-    value: f64,
-}
-
-impl IntoPyFloat {
-    pub fn to_f64(self) -> f64 {
-        self.value
-    }
-
-    pub fn vec_into_f64(v: Vec<Self>) -> Vec<f64> {
-        // TODO: Vec::into_raw_parts once stabilized
-        let mut v = std::mem::ManuallyDrop::new(v);
-        let (p, l, c) = (v.as_mut_ptr(), v.len(), v.capacity());
-        // SAFETY: IntoPyFloat is repr(transparent) over f64
-        unsafe { Vec::from_raw_parts(p.cast(), l, c) }
-    }
-}
-
-impl TryFromObject for IntoPyFloat {
-    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        let value = try_float(&obj, vm)?;
-        Ok(IntoPyFloat { value })
-    }
 }
 
 #[rustfmt::skip] // to avoid line splitting

@@ -189,7 +189,7 @@ impl Iterable for PyMappingProxy {
             }
         };
         let iter = obj.get_iter(vm)?;
-        Ok(iter.into_object())
+        Ok(iter.into())
     }
 }
 

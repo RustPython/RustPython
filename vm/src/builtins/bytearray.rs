@@ -634,7 +634,7 @@ impl PyByteArray {
 
     #[pymethod]
     fn decode(zelf: PyRef<Self>, args: DecodeArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        bytes_decode(zelf.into_object(), args, vm)
+        bytes_decode(zelf.into(), args, vm)
     }
 
     #[pymethod(magic)]
@@ -793,7 +793,7 @@ impl PyByteArrayIterator {
     fn reduce(&self, vm: &VirtualMachine) -> PyObjectRef {
         self.internal
             .lock()
-            .builtins_iter_reduce(|x| x.clone().into_object(), vm)
+            .builtins_iter_reduce(|x| x.clone().into(), vm)
     }
 
     #[pymethod(magic)]

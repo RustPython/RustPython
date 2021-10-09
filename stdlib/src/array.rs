@@ -12,11 +12,13 @@ mod array {
     };
     use crate::vm::{
         builtins::{
-            IntoPyFloat, PyByteArray, PyBytes, PyBytesRef, PyIntRef, PyList, PyListRef, PySliceRef,
-            PyStr, PyStrRef, PyTypeRef,
+            PyByteArray, PyBytes, PyBytesRef, PyIntRef, PyList, PyListRef, PySliceRef, PyStr,
+            PyStrRef, PyTypeRef,
         },
         class_or_notimplemented,
-        function::{ArgBytesLike, ArgIterable, IntoPyObject, IntoPyResult, OptionalArg},
+        function::{
+            ArgBytesLike, ArgIntoFloat, ArgIterable, IntoPyObject, IntoPyResult, OptionalArg,
+        },
         protocol::{
             BufferInternal, BufferOptions, BufferResizeGuard, PyBuffer, PyIterReturn,
             PyMappingMethods,
@@ -521,11 +523,11 @@ mod array {
     }
 
     fn f32_try_into_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<f32> {
-        IntoPyFloat::try_from_object(vm, obj).map(|x| x.to_f64() as f32)
+        ArgIntoFloat::try_from_object(vm, obj).map(|x| x.to_f64() as f32)
     }
 
     fn f64_try_into_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<f64> {
-        IntoPyFloat::try_from_object(vm, obj).map(|x| x.to_f64())
+        ArgIntoFloat::try_from_object(vm, obj).map(|x| x.to_f64())
     }
 
     impl ArrayElement for WideChar {
@@ -663,7 +665,7 @@ mod array {
             }
 
             let zelf = Self::from(array).into_ref_with_type(vm, cls)?;
-            Ok(zelf.into_object())
+            Ok(zelf.into())
         }
     }
 

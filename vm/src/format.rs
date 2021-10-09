@@ -892,8 +892,8 @@ fn call_object_format(
     format_spec: &str,
 ) -> PyResult<PyStrRef> {
     let argument = match preconversion_spec.and_then(FormatPreconversor::from_char) {
-        Some(FormatPreconversor::Str) => vm.to_str(&argument)?.into_object(),
-        Some(FormatPreconversor::Repr) => vm.to_repr(&argument)?.into_object(),
+        Some(FormatPreconversor::Str) => vm.to_str(&argument)?.into(),
+        Some(FormatPreconversor::Repr) => vm.to_repr(&argument)?.into(),
         Some(FormatPreconversor::Ascii) => vm.ctx.new_utf8_str(builtins::ascii(argument, vm)?),
         Some(FormatPreconversor::Bytes) => vm.call_method(&argument, "decode", ())?,
         None => argument,

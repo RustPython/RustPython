@@ -48,6 +48,13 @@ PEP_594_MODULES = {
     "xdrlib",
 }
 
+# CPython specific modules (mostly consisting of templates/tests)
+CPYTHON_SPECIFIC_MODS = {
+    'xxmodule', 'xxsubtype', 'xxlimited', '_xxtestfuzz'
+    '_testbuffer', '_testcapi', '_testimportmultiple', '_testinternalcapi', '_testmultiphase',
+}
+
+IGNORED_MODULES = {'this', 'antigravity'} | PEP_594_MODULES | CPYTHON_SPECIFIC_MODS
 
 sys.path = [
     path
@@ -210,7 +217,7 @@ def gen_modules():
     # e.g. printing something or opening a webpage
     modules = {}
     for mod_name in scan_modules():
-        if mod_name in ("this", "antigravity") or mod_name in PEP_594_MODULES:
+        if mod_name in IGNORED_MODULES:
             continue
         # when generating CPython list, ignore items defined by other modules
         dir_result = dir_of_mod_or_error(mod_name, keep_other=False)
@@ -372,5 +379,5 @@ def remove_one_indent(s):
 compare_src = inspect.getsourcelines(compare)[0][1:]
 output += "".join(remove_one_indent(line) for line in compare_src)
 
-with open("snippets/not_impl.py", "w") as f:
+with open("not_impl.py", "w") as f:
     f.write(output + "\n")

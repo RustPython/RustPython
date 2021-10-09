@@ -3,15 +3,15 @@ pub(crate) use re::make_module;
 #[pymodule]
 mod re {
     /*
-    * Regular expressions.
-    *
-    * This module fits the python re interface onto the rust regular expression
-    * system.
-    */
-    use crate::{
-        builtins::{PyInt, PyIntRef, PyStr, PyStrRef, PyTypeRef},
+     * Regular expressions.
+     *
+     * This module fits the python re interface onto the rust regular expression
+     * system.
+     */
+    use crate::vm::{
+        builtins::{PyInt, PyIntRef, PyStr, PyStrRef},
         function::{IntoPyObject, OptionalArg, PosArgs},
-        PyClassImpl, PyObjectRef, PyResult, PyValue, StaticType, TryFromObject, VirtualMachine,
+        match_class, PyObjectRef, PyResult, PyValue, TryFromObject, VirtualMachine,
     };
     use num_traits::Signed;
     use regex::bytes::{Captures, Regex, RegexBuilder};
@@ -91,8 +91,8 @@ mod re {
     // type PyPatternRef = PyRef<PyPattern>;
     // type PyMatchRef = PyRef<PyMatch>;
 
-    #[pyfunction]
-    fn match(
+    #[pyfunction(name = "match")]
+    fn match_(
         pattern: PyStrRef,
         string: PyStrRef,
         flags: OptionalArg<usize>,
@@ -222,12 +222,12 @@ mod re {
     ) -> PyResult {
         if maxsplit
             .as_ref()
-            .map_or(false, |i| i.as_str().is_negative())
+            .map_or(false, |i| i.as_bigint().is_negative())
         {
-            return Ok(vm.ctx.new_list(vec![search_text.into_object()]));
+            return Ok(vm.ctx.new_list(vec![search_text.into()]));
         }
         let maxsplit = maxsplit
-            .map(|i| usize::try_from_object(vm, i.into_object()))
+            .map(|i| i.try_to_primitive::<usize>(vm))
             .transpose()?
             .unwrap_or(0);
         let text = search_text.as_str().as_bytes();
@@ -388,10 +388,14 @@ mod re {
             self.haystack.as_str()[bounds].to_owned()
         }
 
-        fn get_bounds(&self, id: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<Range<usize>>> {
+        fn get_bounds(
+            &self,
+            id: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<Option<Range<usize>>> {
             match_class!(match id {
                 i @ PyInt => {
-                    let i = usize::try_from_object(vm, i.into_object())?;
+                    let i = usize::try_from_object(vm, i.into())?;
                     let capture = self
                         .captures
                         .get(i)

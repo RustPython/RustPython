@@ -1,9 +1,10 @@
 //! Implementation of Printf-Style string formatting
-//! [https://docs.python.org/3/library/stdtypes.html#printf-style-string-formatting]
+//! as per the [Python Docs](https://docs.python.org/3/library/stdtypes.html#printf-style-string-formatting).
 
 use crate::common::float_ops;
 use crate::{
-    builtins::{try_f64_to_bigint, tuple, IntoPyFloat, PyBytes, PyFloat, PyInt, PyStr},
+    builtins::{try_f64_to_bigint, tuple, PyBytes, PyFloat, PyInt, PyStr},
+    function::ArgIntoFloat,
     protocol::PyBuffer,
     ItemProtocol, PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject, TypeProtocol,
     VirtualMachine,
@@ -431,7 +432,7 @@ impl CFormatSpec {
                 }
             },
             CFormatType::Float(_) => {
-                let value = IntoPyFloat::try_from_object(vm, obj)?.to_f64();
+                let value = ArgIntoFloat::try_from_object(vm, obj)?.to_f64();
                 Ok(self.format_float(value).into_bytes())
             }
             CFormatType::Character => {
@@ -504,7 +505,7 @@ impl CFormatSpec {
                 }
             },
             CFormatType::Float(_) => {
-                let value = IntoPyFloat::try_from_object(vm, obj)?.to_f64();
+                let value = ArgIntoFloat::try_from_object(vm, obj)?.to_f64();
                 Ok(self.format_float(value))
             }
             CFormatType::Character => {

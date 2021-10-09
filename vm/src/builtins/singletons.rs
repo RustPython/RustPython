@@ -35,7 +35,7 @@ impl SlotConstructor for PyNone {
     type Args = ();
 
     fn py_new(_: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.none.clone().into_object())
+        Ok(vm.ctx.none.clone().into())
     }
 }
 
@@ -66,7 +66,7 @@ impl SlotConstructor for PyNotImplemented {
     type Args = ();
 
     fn py_new(_: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.not_implemented.clone().into_object())
+        Ok(vm.ctx.not_implemented.clone().into())
     }
 }
 

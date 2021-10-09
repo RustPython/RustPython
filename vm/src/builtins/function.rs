@@ -107,7 +107,7 @@ impl PyFunction {
         // Do we support `**kwargs` ?
         let kwargs = if code.flags.contains(bytecode::CodeFlags::HAS_VARKEYWORDS) {
             let d = vm.ctx.new_dict();
-            fastlocals[vararg_offset] = Some(d.clone().into_object());
+            fastlocals[vararg_offset] = Some(d.clone().into());
             Some(d)
         } else {
             None
@@ -405,11 +405,12 @@ impl SlotDescriptor for PyFunction {
         vm: &VirtualMachine,
     ) -> PyResult {
         let (zelf, obj) = Self::_unwrap(zelf, obj, vm)?;
-        if vm.is_none(&obj) && !Self::_cls_is(&cls, &obj.class()) {
-            Ok(zelf.into_object())
+        let obj = if vm.is_none(&obj) && !Self::_cls_is(&cls, &obj.class()) {
+            zelf.into()
         } else {
-            Ok(vm.ctx.new_bound_method(zelf.into_object(), obj))
-        }
+            vm.ctx.new_bound_method(zelf.into(), obj)
+        };
+        Ok(obj)
     }
 }
 
@@ -453,7 +454,7 @@ impl Comparable for PyBoundMethod {
 impl SlotGetattro for PyBoundMethod {
     fn getattro(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
         if let Some(obj) = zelf.get_class_attr(name.as_str()) {
-            return vm.call_if_get_descriptor(obj, zelf.into_object());
+            return vm.call_if_get_descriptor(obj, zelf.into());
         }
         vm.get_attribute(zelf.function.clone(), name)
     }

@@ -12,12 +12,9 @@
 #[pymodule]
 pub(crate) mod _struct {
     use crate::{
-        builtins::{
-            float, IntoPyBool, PyBaseExceptionRef, PyBytesRef, PyStr, PyStrRef, PyTupleRef,
-            PyTypeRef,
-        },
+        builtins::{float, PyBaseExceptionRef, PyBytesRef, PyStr, PyStrRef, PyTupleRef, PyTypeRef},
         common::str::wchar_t,
-        function::{ArgBytesLike, ArgMemoryBuffer, IntoPyObject, PosArgs},
+        function::{ArgBytesLike, ArgIntoBool, ArgMemoryBuffer, IntoPyObject, PosArgs},
         protocol::PyIterReturn,
         slots::{IteratorIterable, SlotConstructor, SlotIterator},
         utils::Either,
@@ -669,7 +666,7 @@ pub(crate) mod _struct {
             arg: PyObjectRef,
             data: &mut [u8],
         ) -> PyResult<()> {
-            let v = IntoPyBool::try_from_object(vm, arg)?.to_bool() as u8;
+            let v = ArgIntoBool::try_from_object(vm, arg)?.to_bool() as u8;
             v.pack_int::<E>(data);
             Ok(())
         }
@@ -842,7 +839,7 @@ pub(crate) mod _struct {
                 if let Some(buf) = buf.get(offset..offset + size) {
                     zelf.format_spec
                         .unpack(buf, vm)
-                        .map(|x| PyIterReturn::Return(x.into_object()))
+                        .map(|x| PyIterReturn::Return(x.into()))
                 } else {
                     Ok(PyIterReturn::StopIteration(None))
                 }

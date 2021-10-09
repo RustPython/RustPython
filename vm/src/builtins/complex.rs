@@ -4,8 +4,8 @@ use crate::{
     slots::{Comparable, Hashable, PyComparisonOp, SlotConstructor},
     IdProtocol,
     PyArithmeticValue::{self, *},
-    PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol, VirtualMachine,
+    PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    VirtualMachine,
 };
 use num_complex::Complex64;
 use num_traits::Zero;
@@ -36,6 +36,36 @@ impl IntoPyObject for Complex64 {
 impl From<Complex64> for PyComplex {
     fn from(value: Complex64) -> Self {
         PyComplex { value }
+    }
+}
+
+impl PyObjectRef {
+    /// Tries converting a python object into a complex, returns an option of whether the complex
+    /// and whether the  object was a complex originally or coereced into one
+    pub fn try_complex(&self, vm: &VirtualMachine) -> PyResult<Option<(Complex64, bool)>> {
+        if let Some(complex) = self.payload_if_exact::<PyComplex>(vm) {
+            return Ok(Some((complex.value, true)));
+        }
+        if let Some(method) = vm.get_method(self.clone(), "__complex__") {
+            let result = vm.invoke(&method?, ())?;
+            // TODO: returning strict subclasses of complex in __complex__ is deprecated
+            return match result.payload::<PyComplex>() {
+                Some(complex_obj) => Ok(Some((complex_obj.value, true))),
+                None => Err(vm.new_type_error(format!(
+                    "__complex__ returned non-complex (type '{}')",
+                    result.class().name()
+                ))),
+            };
+        }
+        // `complex` does not have a `__complex__` by default, so subclasses might not either,
+        // use the actual stored value in this case
+        if let Some(complex) = self.payload_if_subclass::<PyComplex>(vm) {
+            return Ok(Some((complex.value, true)));
+        }
+        if let Some(float) = self.try_to_f64(vm)? {
+            return Ok(Some((Complex64::new(float, 0.0), false)));
+        }
+        Ok(None)
     }
 }
 
@@ -91,7 +121,7 @@ impl SlotConstructor for PyComplex {
                 let val = if cls.is(&vm.ctx.types.complex_type) && imag_missing {
                     match val.downcast_exact::<PyComplex>(vm) {
                         Ok(c) => {
-                            return Ok(c.into_object());
+                            return Ok(c.into());
                         }
                         Err(val) => val,
                     }
@@ -99,7 +129,7 @@ impl SlotConstructor for PyComplex {
                     val
                 };
 
-                if let Some(c) = try_complex(&val, vm)? {
+                if let Some(c) = val.try_complex(vm)? {
                     c
                 } else if let Some(s) = val.payload_if_subclass::<PyStr>(vm) {
                     if args.imag.is_present() {
@@ -125,7 +155,7 @@ impl SlotConstructor for PyComplex {
             // if an  imaginary argument is not passed in
             OptionalArg::Missing => (Complex64::new(real.im, 0.0), false),
             OptionalArg::Present(obj) => {
-                if let Some(c) = try_complex(&obj, vm)? {
+                if let Some(c) = obj.try_complex(vm)? {
                     c
                 } else if obj.class().issubclass(&vm.ctx.types.str_type) {
                     return Err(
@@ -305,11 +335,33 @@ impl PyComplex {
     #[pymethod(magic)]
     fn repr(&self) -> String {
         let Complex64 { re, im } = self.value;
-        if re == 0.0 {
-            format!("{}j", im)
+        // integer => drop ., fractional => float_ops
+        let mut im_part = if im.fract() == 0.0 {
+            im.to_string()
         } else {
-            format!("({}{:+}j)", re, im)
+            float_ops::to_string(im)
+        };
+        im_part.push('j');
+
+        // empty => return im_part, integer => drop ., fractional => float_ops
+        let re_part = if re == 0.0 {
+            return im_part;
+        } else if re.fract() == 0.0 {
+            re.to_string()
+        } else {
+            float_ops::to_string(re)
+        };
+        let mut result = String::with_capacity(
+            re_part.len() + im_part.len() + 2 + if im.is_sign_positive() { 1 } else { 0 },
+        );
+        result.push('(');
+        result.push_str(&re_part);
+        if im.is_sign_positive() {
+            result.push('+');
         }
+        result.push_str(&im_part);
+        result.push(')');
+        result
     }
 
     #[pymethod(magic)]
@@ -419,54 +471,4 @@ fn parse_str(s: &str) -> Option<Complex64> {
         }
     };
     Some(value)
-}
-
-/// Tries converting a python object into a complex, returns an option of whether the complex
-/// and whether the  object was a complex originally or coereced into one
-fn try_complex(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<(Complex64, bool)>> {
-    if let Some(complex) = obj.payload_if_exact::<PyComplex>(vm) {
-        return Ok(Some((complex.value, true)));
-    }
-    if let Some(method) = vm.get_method(obj.clone(), "__complex__") {
-        let result = vm.invoke(&method?, ())?;
-        // TODO: returning strict subclasses of complex in __complex__ is deprecated
-        return match result.payload::<PyComplex>() {
-            Some(complex_obj) => Ok(Some((complex_obj.value, true))),
-            None => Err(vm.new_type_error(format!(
-                "__complex__ returned non-complex (type '{}')",
-                result.class().name()
-            ))),
-        };
-    }
-    // `complex` does not have a `__complex__` by default, so subclasses might not either,
-    // use the actual stored value in this case
-    if let Some(complex) = obj.payload_if_subclass::<PyComplex>(vm) {
-        return Ok(Some((complex.value, true)));
-    }
-    if let Some(float) = obj.try_to_f64(vm)? {
-        return Ok(Some((Complex64::new(float, 0.0), false)));
-    }
-    Ok(None)
-}
-
-#[derive(Debug, Copy, Clone, PartialEq)]
-#[repr(transparent)]
-pub struct IntoPyComplex {
-    value: Complex64,
-}
-
-impl IntoPyComplex {
-    pub fn to_complex(self) -> Complex64 {
-        self.value
-    }
-}
-
-impl TryFromObject for IntoPyComplex {
-    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        // We do not care if it was already a complex.
-        let (value, _) = try_complex(&obj, vm)?.ok_or_else(|| {
-            vm.new_type_error(format!("must be real number, not {}", obj.class().name()))
-        })?;
-        Ok(IntoPyComplex { value })
-    }
 }

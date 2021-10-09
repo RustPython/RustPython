@@ -1,5 +1,6 @@
 mod argument;
-mod byteslike;
+mod buffer;
+mod number;
 
 use crate::{
     builtins::{PyBaseExceptionRef, PyTupleRef, PyTypeRef},
@@ -13,7 +14,8 @@ use std::marker::PhantomData;
 use std::ops::RangeInclusive;
 
 pub use argument::{ArgCallable, ArgIterable};
-pub use byteslike::{ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike};
+pub use buffer::{ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike};
+pub use number::{ArgIntoBool, ArgIntoComplex, ArgIntoFloat};
 
 /// Implemented by any type that can be returned from a built-in Python function.
 ///
@@ -433,7 +435,7 @@ impl<T> AsRef<[T]> for PosArgs<T> {
 impl<T: PyValue> PosArgs<PyRef<T>> {
     pub fn into_tuple(self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx
-            .new_tuple(self.0.into_iter().map(PyRef::into_object).collect())
+            .new_tuple(self.0.into_iter().map(Into::into).collect())
     }
 }
 

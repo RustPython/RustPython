@@ -1,19 +1,22 @@
-use crate::convert;
-use crate::vm_class::{stored_vm_from_wasm, WASMVirtualMachine};
-use crate::weak_vm;
+use crate::{
+    convert,
+    vm_class::{stored_vm_from_wasm, WASMVirtualMachine},
+    weak_vm,
+};
 use js_sys::{Array, Object, Promise, Reflect};
-use std::{cell, fmt, future};
-use wasm_bindgen::{closure::Closure, prelude::*, JsCast};
-use wasm_bindgen_futures::{future_to_promise, JsFuture};
-
 use rustpython_vm::{
     builtins::{PyBaseExceptionRef, PyFloatRef, PyStrRef, PyTypeRef},
     function::{ArgCallable, IntoPyObject, OptionalArg, OptionalOption, PosArgs},
     protocol::PyIterReturn,
     slots::{IteratorIterable, SlotIterator},
     types::create_simple_type,
-    PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
+    PyClassImpl, PyObjectRef, PyObjectWrap, PyRef, PyResult, PyValue, TryFromObject,
+    VirtualMachine,
 };
+use std::ops::Deref;
+use std::{cell, fmt, future};
+use wasm_bindgen::{closure::Closure, prelude::*, JsCast};
+use wasm_bindgen_futures::{future_to_promise, JsFuture};
 
 #[wasm_bindgen(inline_js = "
 export function has_prop(target, prop) { return prop in Object(target); }
@@ -172,7 +175,7 @@ impl PyJsValue {
             .value
             .dyn_ref::<js_sys::Function>()
             .ok_or_else(|| vm.new_type_error("JS value is not callable".to_owned()))?;
-        let js_args = args.iter().map(|x| x.as_ref()).collect::<Array>();
+        let js_args = args.iter().map(|x| x.deref()).collect::<Array>();
         let res = match opts.this {
             Some(this) => Reflect::apply(func, &this.value, &js_args),
             None => call_func(func, &js_args),
@@ -187,7 +190,7 @@ impl PyJsValue {
         args: PosArgs<PyJsValueRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyJsValue> {
-        let js_args = args.iter().map(|x| x.as_ref()).collect::<Array>();
+        let js_args = args.iter().map(|x| x.deref()).collect::<Array>();
         call_method(&self.value, &name.into_jsvalue(), &js_args)
             .map(PyJsValue::new)
             .map_err(|err| new_js_error(vm, err))
@@ -208,7 +211,7 @@ impl PyJsValue {
             .prototype
             .as_ref()
             .and_then(|proto| proto.value.dyn_ref::<js_sys::Function>());
-        let js_args = args.iter().map(|x| x.as_ref()).collect::<Array>();
+        let js_args = args.iter().map(|x| x.deref()).collect::<Array>();
         let constructed_result = if let Some(proto) = proto {
             Reflect::construct_with_new_target(ctor, &js_args, proto)
         } else {
@@ -530,7 +533,7 @@ impl PyPromise {
     #[pymethod(name = "__await__")]
     fn r#await(zelf: PyRef<Self>) -> AwaitPromise {
         AwaitPromise {
-            obj: Some(zelf.into_object()).into(),
+            obj: Some(zelf.into()).into(),
         }
     }
 }

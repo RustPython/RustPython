@@ -10,8 +10,10 @@ repository = "https://github.com/RustPython/RustPython"
 name = "rustpython"
 source = "target/wasm32-wasi/release/rustpython.wasm"
 abi = "wasi"
-# interfaces = { wasi = "0.0.1-snapshot" }
 
 [[command]]
 name = "rustpython"
 module = "rustpython"
+
+[fs]
+"/lib/rustpython" = "Lib"

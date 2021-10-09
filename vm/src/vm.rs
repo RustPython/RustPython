@@ -1,7 +1,7 @@
 //! Implement virtual machine to run instructions.
 //!
 //! See also:
-//!   https://github.com/ProgVal/pythonvm-rust/blob/master/src/processor/mod.rs
+//!   <https://github.com/ProgVal/pythonvm-rust/blob/master/src/processor/mod.rs>
 //!
 
 #[cfg(feature = "rustpython-compiler")]
@@ -591,11 +591,11 @@ impl VirtualMachine {
 
     /// Instantiate an exception with arguments.
     /// This function should only be used with builtin exception types; if a user-defined exception
-    /// type is passed in, it may not be fully initialized; try using [`exceptions::invoke`](invoke)
-    /// or [`exceptions::ExceptionCtor`](ctor) instead.
+    /// type is passed in, it may not be fully initialized; try using [`exceptions::invoke`]
+    /// or [`exceptions::ExceptionCtor`] instead.
     ///
-    /// [invoke]: rustpython_vm::exceptions::invoke
-    /// [ctor]: rustpython_vm::exceptions::ExceptionCtor
+    /// [exceptions::invoke]: rustpython_vm::exceptions::invoke
+    /// [exceptions::ctor]: rustpython_vm::exceptions::ExceptionCtor
     pub fn new_exception(&self, exc_type: PyTypeRef, args: Vec<PyObjectRef>) -> PyBaseExceptionRef {
         // TODO: add repr of args into logging?
 
@@ -611,22 +611,22 @@ impl VirtualMachine {
 
     /// Instantiate an exception with no arguments.
     /// This function should only be used with builtin exception types; if a user-defined exception
-    /// type is passed in, it may not be fully initialized; try using [`exceptions::invoke`](invoke)
-    /// or [`exceptions::ExceptionCtor`](ctor) instead.
+    /// type is passed in, it may not be fully initialized; try using [`exceptions::invoke`]
+    /// or [`exceptions::ExceptionCtor`] instead.
     ///
-    /// [invoke]: rustpython_vm::exceptions::invoke
-    /// [ctor]: rustpython_vm::exceptions::ExceptionCtor
+    /// [exceptions::invoke]: rustpython_vm::exceptions::invoke
+    /// [exceptions::ctor]: rustpython_vm::exceptions::ExceptionCtor
     pub fn new_exception_empty(&self, exc_type: PyTypeRef) -> PyBaseExceptionRef {
         self.new_exception(exc_type, vec![])
     }
 
     /// Instantiate an exception with `msg` as the only argument.
     /// This function should only be used with builtin exception types; if a user-defined exception
-    /// type is passed in, it may not be fully initialized; try using [`exceptions::invoke`](invoke)
-    /// or [`exceptions::ExceptionCtor`](ctor) instead.
+    /// type is passed in, it may not be fully initialized; try using [`exceptions::invoke`]
+    /// or [`exceptions::ExceptionCtor`] instead.
     ///
-    /// [invoke]: rustpython_vm::exceptions::invoke
-    /// [ctor]: rustpython_vm::exceptions::ExceptionCtor
+    /// [exceptions::invoke]: rustpython_vm::exceptions::invoke
+    /// [exceptions::ctor]: rustpython_vm::exceptions::ExceptionCtor
     pub fn new_exception_msg(&self, exc_type: PyTypeRef, msg: String) -> PyBaseExceptionRef {
         self.new_exception(exc_type, vec![self.ctx.new_utf8_str(msg)])
     }
@@ -1151,7 +1151,7 @@ impl VirtualMachine {
         descr: PyObjectRef,
         obj: PyObjectRef,
     ) -> Result<PyResult, PyObjectRef> {
-        let cls = obj.clone_class().into_object();
+        let cls = obj.clone_class().into();
         self.call_get_descriptor_specific(descr, Some(obj), Some(cls))
     }
 
@@ -1210,11 +1210,12 @@ impl VirtualMachine {
     }
 
     #[inline(always)]
-    pub fn invoke<T>(&self, func_ref: &PyObjectRef, args: T) -> PyResult
+    pub fn invoke<O, A>(&self, func: &O, args: A) -> PyResult
     where
-        T: IntoFuncArgs,
+        O: AsRef<PyObjectRef>,
+        A: IntoFuncArgs,
     {
-        self._invoke(func_ref, args.into_args(self))
+        self._invoke(func.as_ref(), args.into_args(self))
     }
 
     /// Call registered trace function.
@@ -1348,7 +1349,7 @@ impl VirtualMachine {
             }
         }
 
-        let mut results = PyIterIter::new(self, iter.as_object(), cap)
+        let mut results = PyIterIter::new(self, iter.as_ref(), cap)
             .map(|element| f(element?))
             .collect::<PyResult<Vec<_>>>()?;
         results.shrink_to_fit();
@@ -1528,7 +1529,7 @@ impl VirtualMachine {
                         .is_some()
                     {
                         drop(descr_cls);
-                        let cls = PyLease::into_pyref(obj_cls).into_object();
+                        let cls = PyLease::into_pyref(obj_cls).into();
                         return descr_get(descr, Some(obj), Some(cls), self).map(Some);
                     }
                 }
@@ -1551,7 +1552,7 @@ impl VirtualMachine {
         } else if let Some((attr, descr_get)) = cls_attr {
             match descr_get {
                 Some(descr_get) => {
-                    let cls = PyLease::into_pyref(obj_cls).into_object();
+                    let cls = PyLease::into_pyref(obj_cls).into();
                     descr_get(attr, Some(obj), Some(cls), self).map(Some)
                 }
                 None => Ok(Some(attr)),

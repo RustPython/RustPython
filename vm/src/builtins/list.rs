@@ -120,7 +120,7 @@ impl PyList {
         if let Ok(new_elements) = vm.extract_elements(&other) {
             let mut e = new_elements;
             zelf.borrow_vec_mut().append(&mut e);
-            zelf.into_object()
+            zelf.into()
         } else {
             vm.ctx.not_implemented()
         }
@@ -524,7 +524,7 @@ impl PyListIterator {
     fn reduce(&self, vm: &VirtualMachine) -> PyObjectRef {
         self.internal
             .lock()
-            .builtins_iter_reduce(|x| x.clone().into_object(), vm)
+            .builtins_iter_reduce(|x| x.clone().into(), vm)
     }
 }
 
@@ -571,7 +571,7 @@ impl PyListReverseIterator {
     fn reduce(&self, vm: &VirtualMachine) -> PyObjectRef {
         self.internal
             .lock()
-            .builtins_reversed_reduce(|x| x.clone().into_object(), vm)
+            .builtins_reversed_reduce(|x| x.clone().into(), vm)
     }
 }
 
