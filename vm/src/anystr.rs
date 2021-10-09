@@ -65,6 +65,10 @@ impl StartsEndsWithArgs {
         let range = adjust_indices(self.start, self.end, len);
         (self.affix, range)
     }
+
+    pub fn has_subrange(&self) -> bool {
+        self.start.is_none() && self.end.is_none()
+    }
 }
 
 fn saturate_to_isize(py_int: PyIntRef) -> isize {
@@ -194,6 +198,7 @@ pub trait AnyStr<'s>: 's {
     fn py_startsendswith<T, F>(
         &self,
         args: StartsEndsWithArgs,
+        len: usize,
         func_name: &str,
         py_type_name: &str,
         func: F,
@@ -203,11 +208,11 @@ pub trait AnyStr<'s>: 's {
         T: TryFromObject,
         F: Fn(&Self, &T) -> bool,
     {
-        let (affix, value) = if args.start.is_none() && args.end.is_none() {
+        let (affix, value) = if args.has_subrange() {
             // If it doesn't have subrange, it uses bytes operation.
-            (args.affix, self.get_bytes(0..self.bytes_len()))
+            (args.affix, self.get_bytes(0..len))
         } else {
-            let (affix, range) = args.get_value(self.chars_len());
+            let (affix, range) = args.get_value(len);
             if !range.is_normal() {
                 return Ok(false);
             }
