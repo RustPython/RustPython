@@ -4,7 +4,8 @@ pub(crate) use _sre::make_module;
 mod _sre {
     use crate::{
         builtins::{
-            PyCallableIterator, PyDictRef, PyInt, PyList, PyListRef, PyStr, PyStrRef, PyTupleRef,
+            PyCallableIterator, PyDictRef, PyInt, PyList, PyListRef, PyStr, PyStrRef, PyTuple,
+            PyTupleRef,
         },
         common::{ascii, hash::PyHash},
         function::{ArgCallable, IntoPyObject, OptionalArg, PosArgs},
@@ -622,7 +623,7 @@ mod _sre {
         }
         #[pyproperty]
         fn regs(&self, vm: &VirtualMachine) -> PyTupleRef {
-            PyTupleRef::with_elements(
+            PyTuple::new_ref(
                 self.regs.iter().map(|&x| x.into_pyobject(vm)).collect(),
                 &vm.ctx,
             )
@@ -679,7 +680,7 @@ mod _sre {
                     if v.len() == 1 {
                         Ok(v.pop().unwrap())
                     } else {
-                        Ok(vm.ctx.new_tuple(v))
+                        Ok(vm.ctx.new_tuple(v).into())
                     }
                 })
         }
@@ -716,7 +717,7 @@ mod _sre {
                                 .unwrap_or_else(|| default.clone())
                         })
                         .collect();
-                    Ok(PyTupleRef::with_elements(v, &vm.ctx))
+                    Ok(PyTuple::new_ref(v, &vm.ctx))
                 })
         }
 

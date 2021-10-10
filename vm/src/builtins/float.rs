@@ -455,7 +455,7 @@ impl PyFloat {
     }
 
     #[pymethod]
-    fn as_integer_ratio(&self, vm: &VirtualMachine) -> PyResult {
+    fn as_integer_ratio(&self, vm: &VirtualMachine) -> PyResult<(PyIntRef, PyIntRef)> {
         let value = self.value;
         if !value.is_finite() {
             return Err(if value.is_infinite() {
@@ -468,9 +468,9 @@ impl PyFloat {
         }
 
         let ratio = Ratio::from_float(value).unwrap();
-        let numer = vm.ctx.new_bigint(ratio.numer()).into();
-        let denom = vm.ctx.new_bigint(ratio.denom()).into();
-        Ok(vm.ctx.new_tuple(vec![numer, denom]))
+        let numer = vm.ctx.new_bigint(ratio.numer());
+        let denom = vm.ctx.new_bigint(ratio.denom());
+        Ok((numer, denom))
     }
 
     #[pymethod]

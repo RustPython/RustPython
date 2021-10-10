@@ -644,7 +644,7 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::BuildTuple { size, unpack } => {
                 let elements = self.get_elements(vm, *size as usize, *unpack)?;
                 let list_obj = vm.ctx.new_tuple(elements);
-                self.push_value(list_obj);
+                self.push_value(list_obj.into());
                 Ok(None)
             }
             bytecode::Instruction::BuildMap {

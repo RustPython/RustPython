@@ -2,7 +2,7 @@
 
 */
 
-use super::{PyStrRef, PyTypeRef};
+use super::{PyStrRef, PyTupleRef, PyTypeRef};
 use crate::{
     bytecode::{self, BorrowedConstant, Constant, ConstantBag},
     function::FuncArgs,
@@ -95,7 +95,7 @@ impl ConstantBag for PyObjBag<'_> {
                     .into_iter()
                     .map(|constant| self.make_constant(constant).0)
                     .collect();
-                ctx.new_tuple(elements)
+                ctx.new_tuple(elements).into()
             }
             bytecode::ConstantData::None => ctx.none(),
             bytecode::ConstantData::Ellipsis => ctx.ellipsis(),
@@ -123,7 +123,7 @@ impl ConstantBag for PyObjBag<'_> {
                     .into_iter()
                     .map(|constant| self.make_constant_borrowed(constant).0)
                     .collect();
-                ctx.new_tuple(elements)
+                ctx.new_tuple(elements).into()
             }
             bytecode::BorrowedConstant::None => ctx.none(),
             bytecode::BorrowedConstant::Ellipsis => ctx.ellipsis(),
@@ -233,7 +233,7 @@ impl PyRef<PyCode> {
     }
 
     #[pyproperty]
-    fn co_consts(self, vm: &VirtualMachine) -> PyObjectRef {
+    fn co_consts(self, vm: &VirtualMachine) -> PyTupleRef {
         let consts = self.code.constants.iter().map(|x| x.0.clone()).collect();
         vm.ctx.new_tuple(consts)
     }
@@ -249,7 +249,7 @@ impl PyRef<PyCode> {
     }
 
     #[pyproperty]
-    fn co_varnames(self, vm: &VirtualMachine) -> PyObjectRef {
+    fn co_varnames(self, vm: &VirtualMachine) -> PyTupleRef {
         let varnames = self
             .code
             .varnames

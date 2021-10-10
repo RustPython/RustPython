@@ -119,7 +119,7 @@ mod _json {
                 ($s:literal, $val:expr) => {
                     if s.starts_with($s) {
                         return Ok(PyIterReturn::Return(
-                            vm.ctx.new_tuple(vec![$val, vm.new_pyobj(idx + $s.len())]),
+                            vm.new_tuple(($val, idx + $s.len())).into(),
                         ));
                     }
                 };
@@ -130,19 +130,19 @@ mod _json {
             parse_const!("false", vm.ctx.new_bool(false));
 
             if let Some((res, len)) = self.parse_number(s, vm) {
-                return Ok(PyIterReturn::Return(
-                    vm.ctx
-                        .new_tuple(vec![res?, vm.ctx.new_int(idx + len).into()]),
-                ));
+                return Ok(PyIterReturn::Return(vm.new_tuple((res?, idx + len)).into()));
             }
 
             macro_rules! parse_constant {
                 ($s:literal) => {
                     if s.starts_with($s) {
-                        return Ok(PyIterReturn::Return(vm.ctx.new_tuple(vec![
-                            vm.invoke(&self.parse_constant, ($s.to_owned(),))?,
-                            vm.new_pyobj(idx + $s.len()),
-                        ])));
+                        return Ok(PyIterReturn::Return(
+                            vm.new_tuple((
+                                vm.invoke(&self.parse_constant, ($s.to_owned(),))?,
+                                idx + $s.len(),
+                            ))
+                            .into(),
+                        ));
                     }
                 };
             }

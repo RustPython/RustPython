@@ -65,7 +65,7 @@ mod _scproxy {
                         .into_pyobject(vm)
                 })
                 .collect();
-            result.set_item("exceptions", vm.ctx.new_tuple(v), vm)?;
+            result.set_item("exceptions", vm.ctx.new_tuple(v).into(), vm)?;
         }
 
         Ok(Some(result))

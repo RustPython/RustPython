@@ -3,7 +3,7 @@ use crate::common::{
     hash::{PyHash, PyUHash},
 };
 use crate::{
-    builtins::{PyStr, PyStrRef, PyTypeRef},
+    builtins::{PyStr, PyStrRef, PyTupleRef, PyTypeRef},
     exceptions,
     frame::FrameRef,
     function::{FuncArgs, OptionalArg, PosArgs},
@@ -240,12 +240,12 @@ fn sys_exc_info(vm: &VirtualMachine) -> (PyObjectRef, PyObjectRef, PyObjectRef) 
     }
 }
 
-fn sys_git_info(vm: &VirtualMachine) -> PyObjectRef {
-    vm.ctx.new_tuple(vec![
+fn sys_git_info(vm: &VirtualMachine) -> PyTupleRef {
+    vm.new_tuple((
         vm.ctx.new_ascii_literal(ascii!("RustPython")),
-        vm.ctx.new_utf8_str(version::get_git_identifier()),
-        vm.ctx.new_utf8_str(version::get_git_revision()),
-    ])
+        version::get_git_identifier(),
+        version::get_git_revision(),
+    ))
 }
 
 fn sys_exit(code: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {

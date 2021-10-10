@@ -10,7 +10,7 @@ use crate::{
     builtins::{
         code::{self, PyCode},
         module, object,
-        tuple::{PyTuple, PyTupleRef, PyTupleTyped},
+        tuple::{IntoPyTuple, PyTuple, PyTupleRef, PyTupleTyped},
         PyBaseException, PyBaseExceptionRef, PyDictRef, PyInt, PyIntRef, PyList, PyModule, PyStr,
         PyStrRef, PyTypeRef,
     },
@@ -570,8 +570,12 @@ impl VirtualMachine {
     }
 
     /// Create a new python object
-    pub fn new_pyobj<T: IntoPyObject>(&self, value: T) -> PyObjectRef {
+    pub fn new_pyobj(&self, value: impl IntoPyObject) -> PyObjectRef {
         value.into_pyobject(self)
+    }
+
+    pub fn new_tuple(&self, value: impl IntoPyTuple) -> PyTupleRef {
+        value.into_pytuple(self)
     }
 
     pub fn new_code_object(&self, code: impl code::IntoCodeObject) -> PyRef<PyCode> {
@@ -964,7 +968,7 @@ impl VirtualMachine {
                 };
                 let from_list = match from_list {
                     Some(tup) => tup.into_pyobject(self),
-                    None => self.ctx.new_tuple(vec![]),
+                    None => self.new_tuple(()).into(),
                 };
                 self.invoke(&import_func, (module, globals, locals, from_list, level))
                     .map_err(|exc| import::remove_importlib_frames(self, &exc))

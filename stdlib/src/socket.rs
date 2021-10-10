@@ -1266,13 +1266,14 @@ fn _socket_getaddrinfo(opts: GAIOptions, vm: &VirtualMachine) -> PyResult {
     let list = addrs
         .map(|ai| {
             ai.map(|ai| {
-                vm.ctx.new_tuple(vec![
-                    vm.ctx.new_int(ai.address).into(),
-                    vm.ctx.new_int(ai.socktype).into(),
-                    vm.ctx.new_int(ai.protocol).into(),
-                    ai.canonname.into_pyobject(vm),
+                vm.new_tuple((
+                    ai.address,
+                    ai.socktype,
+                    ai.protocol,
+                    ai.canonname,
                     get_ip_addr_tuple(&ai.sockaddr, vm),
-                ])
+                ))
+                .into()
             })
         })
         .collect::<io::Result<Vec<_>>>()

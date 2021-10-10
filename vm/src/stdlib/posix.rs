@@ -956,15 +956,12 @@ pub mod module {
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn openpty(vm: &VirtualMachine) -> PyResult {
+    fn openpty(vm: &VirtualMachine) -> PyResult<(i32, i32)> {
         let r = nix::pty::openpty(None, None).map_err(|err| err.into_pyexception(vm))?;
         for fd in &[r.master, r.slave] {
             super::raw_set_inheritable(*fd, false).map_err(|e| e.into_pyexception(vm))?;
         }
-        Ok(vm.ctx.new_tuple(vec![
-            vm.ctx.new_int(r.master).into(),
-            vm.ctx.new_int(r.slave).into(),
-        ]))
+        Ok((r.master, r.slave))
     }
 
     #[pyfunction]

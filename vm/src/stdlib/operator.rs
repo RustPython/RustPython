@@ -11,7 +11,7 @@ pub(crate) use _operator::make_module;
 mod _operator {
     use crate::common::cmp;
     use crate::{
-        builtins::{PyInt, PyIntRef, PyStrRef, PyTypeRef},
+        builtins::{PyInt, PyIntRef, PyStrRef, PyTupleRef, PyTypeRef},
         function::{ArgBytesLike, FuncArgs, KwArgs, OptionalArg},
         protocol::PyIter,
         slots::{
@@ -468,11 +468,11 @@ mod _operator {
         }
 
         #[pymethod(magic)]
-        fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<(PyTypeRef, PyTupleRef)> {
             let attrs = vm
                 .ctx
                 .new_tuple(zelf.attrs.iter().map(|v| v.as_object()).cloned().collect());
-            Ok(vm.new_pyobj((zelf.clone_class(), attrs)))
+            Ok((zelf.clone_class(), attrs))
         }
 
         // Go through dotted parts of string and call getattr on whatever is returned.
@@ -502,7 +502,7 @@ mod _operator {
             for o in zelf.attrs.iter() {
                 results.push(Self::get_single_attr(obj.clone(), o.as_str(), vm)?);
             }
-            Ok(vm.ctx.new_tuple(results))
+            Ok(vm.ctx.new_tuple(results).into())
         }
     }
 
@@ -569,7 +569,7 @@ mod _operator {
             for item in zelf.items.iter() {
                 results.push(obj.get_item(item.clone(), vm)?);
             }
-            Ok(vm.ctx.new_tuple(results))
+            Ok(vm.ctx.new_tuple(results).into())
         }
     }
 
@@ -638,14 +638,12 @@ mod _operator {
         }
 
         #[pymethod(magic)]
-        fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
             // With no kwargs, return (type(obj), (name, *args)) tuple.
             if zelf.args.kwargs.is_empty() {
                 let mut pargs = vec![zelf.name.as_object().to_owned()];
                 pargs.append(&mut zelf.args.args.clone());
-                Ok(vm
-                    .ctx
-                    .new_tuple(vec![zelf.clone_class().into(), vm.ctx.new_tuple(pargs)]))
+                Ok(vm.new_tuple((zelf.clone_class(), vm.ctx.new_tuple(pargs))))
             } else {
                 // If we have kwargs, create a partial function that contains them and pass back that
                 // along with the args.
@@ -657,9 +655,7 @@ mod _operator {
                         KwArgs::new(zelf.args.kwargs.clone()),
                     ),
                 )?;
-                Ok(vm
-                    .ctx
-                    .new_tuple(vec![callable, vm.ctx.new_tuple(zelf.args.args.clone())]))
+                Ok(vm.new_tuple((callable, vm.ctx.new_tuple(zelf.args.args.clone()))))
             }
         }
 

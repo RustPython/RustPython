@@ -238,8 +238,8 @@ impl PyContext {
         value.clone().into()
     }
 
-    pub fn new_tuple(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
-        PyTupleRef::with_elements(elements, self).into()
+    pub fn new_tuple(&self, elements: Vec<PyObjectRef>) -> PyTupleRef {
+        PyTuple::new_ref(elements, self)
     }
 
     pub fn new_list(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
@@ -1066,12 +1066,11 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
     }
 
     #[pymethod(magic)]
-    fn reduce(zelf: PyRef<PyTuple>, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_tuple(vec![
-            zelf.clone_class().into(),
-            vm.ctx
-                .new_tuple(vec![vm.ctx.new_tuple(zelf.as_slice().to_vec())]),
-        ])
+    fn reduce(zelf: PyRef<PyTuple>, vm: &VirtualMachine) -> PyTupleRef {
+        vm.new_tuple((
+            zelf.clone_class(),
+            (vm.ctx.new_tuple(zelf.as_slice().to_vec()),),
+        ))
     }
 
     #[extend_class]

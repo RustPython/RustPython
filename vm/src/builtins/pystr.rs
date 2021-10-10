@@ -1,7 +1,7 @@
 use super::{
     int::{PyInt, PyIntRef},
     iter::IterStatus::{self, Exhausted},
-    PositionIterInternal, PyBytesRef, PyDict, PyTypeRef,
+    PositionIterInternal, PyBytesRef, PyDict, PyTupleRef, PyTypeRef,
 };
 use crate::{
     anystr::{self, adjust_indices, AnyStr, AnyStrContainer, AnyStrWrapper},
@@ -196,7 +196,7 @@ impl PyStrIterator {
     }
 
     #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> PyObjectRef {
+    fn reduce(&self, vm: &VirtualMachine) -> PyTupleRef {
         self.internal
             .lock()
             .0

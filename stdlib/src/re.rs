@@ -207,7 +207,7 @@ mod re {
                             vm.ctx.new_utf8_str(s)
                         })
                         .collect();
-                    vm.ctx.new_tuple(out)
+                    vm.ctx.new_tuple(out).into()
                 }
             })
             .collect();
@@ -427,13 +427,13 @@ mod re {
                         .into_iter()
                         .map(|id| self.get_group(id, vm).map(|g| g.into_pyobject(vm)))
                         .collect();
-                    Ok(vm.ctx.new_tuple(output?))
+                    Ok(vm.ctx.new_tuple(output?)).into()
                 }
             }
         }
 
         #[pymethod]
-        fn groups(&self, default: OptionalArg, vm: &VirtualMachine) -> PyObjectRef {
+        fn groups(&self, default: OptionalArg, vm: &VirtualMachine) -> PyTupleRef {
             let default = default.into_option();
             let groups = self
                 .captures

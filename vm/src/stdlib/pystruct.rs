@@ -13,7 +13,8 @@
 pub(crate) mod _struct {
     use crate::{
         builtins::{
-            float, PyBaseExceptionRef, PyBytes, PyBytesRef, PyStr, PyStrRef, PyTupleRef, PyTypeRef,
+            float, PyBaseExceptionRef, PyBytes, PyBytesRef, PyStr, PyStrRef, PyTuple, PyTupleRef,
+            PyTypeRef,
         },
         common::str::wchar_t,
         function::{ArgBytesLike, ArgIntoBool, ArgMemoryBuffer, IntoPyObject, PosArgs},
@@ -364,7 +365,7 @@ pub(crate) mod _struct {
                 };
             }
 
-            Ok(PyTupleRef::with_elements(items, &vm.ctx))
+            Ok(PyTuple::new_ref(items, &vm.ctx))
         }
 
         #[inline]

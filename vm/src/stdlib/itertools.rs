@@ -7,7 +7,7 @@ mod decl {
         rc::PyRc,
     };
     use crate::{
-        builtins::{int, PyInt, PyIntRef, PyTupleRef, PyTypeRef},
+        builtins::{int, PyInt, PyIntRef, PyTuple, PyTupleRef, PyTypeRef},
         function::{ArgCallable, FuncArgs, IntoPyObject, OptionalArg, OptionalOption, PosArgs},
         protocol::{PyIter, PyIterReturn},
         slots::{IteratorIterable, SlotConstructor, SlotIterator},
@@ -291,19 +291,11 @@ mod decl {
         }
 
         #[pymethod(magic)]
-        fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
             let cls = zelf.clone_class().into_pyobject(vm);
             Ok(match zelf.times {
-                Some(ref times) => vm.ctx.new_tuple(vec![
-                    cls,
-                    vm.ctx.new_tuple(vec![
-                        zelf.object.clone(),
-                        vm.ctx.new_int(*times.read()).into_pyobject(vm),
-                    ]),
-                ]),
-                None => vm
-                    .ctx
-                    .new_tuple(vec![cls, vm.ctx.new_tuple(vec![zelf.object.clone()])]),
+                Some(ref times) => vm.new_tuple((cls, (zelf.object.clone(), *times.read()))),
+                None => vm.new_tuple((cls, (zelf.object.clone(),))),
             })
         }
 
@@ -1018,7 +1010,7 @@ mod decl {
                 tee_vec.push(vm.call_method(&copyable, "__copy__", ())?);
             }
 
-            Ok(PyTupleRef::with_elements(tee_vec, &vm.ctx).into())
+            Ok(PyTuple::new_ref(tee_vec, &vm.ctx).into())
         }
     }
 
@@ -1151,7 +1143,7 @@ mod decl {
 
             zelf.update_idxs(idxs);
 
-            Ok(PyIterReturn::Return(res))
+            Ok(PyIterReturn::Return(res.into()))
         }
     }
 
@@ -1216,7 +1208,7 @@ mod decl {
 
             if r == 0 {
                 zelf.exhausted.store(true);
-                return Ok(PyIterReturn::Return(vm.ctx.new_tuple(vec![])));
+                return Ok(PyIterReturn::Return(vm.new_tuple(()).into()));
             }
 
             let res = vm.ctx.new_tuple(
@@ -1250,7 +1242,7 @@ mod decl {
                 }
             }
 
-            Ok(PyIterReturn::Return(res))
+            Ok(PyIterReturn::Return(res.into()))
         }
     }
 
@@ -1307,7 +1299,7 @@ mod decl {
 
             if r == 0 {
                 zelf.exhausted.store(true);
-                return Ok(PyIterReturn::Return(vm.ctx.new_tuple(vec![])));
+                return Ok(PyIterReturn::Return(vm.new_tuple(()).into()));
             }
 
             let mut indices = zelf.indices.write();
@@ -1336,7 +1328,7 @@ mod decl {
                 }
             }
 
-            Ok(PyIterReturn::Return(res))
+            Ok(PyIterReturn::Return(res.into()))
         }
     }
 
@@ -1415,7 +1407,7 @@ mod decl {
 
             if n == 0 {
                 zelf.exhausted.store(true);
-                return Ok(PyIterReturn::Return(vm.ctx.new_tuple(vec![])));
+                return Ok(PyIterReturn::Return(vm.new_tuple(()).into()));
             }
 
             let mut result = zelf.result.write();
@@ -1460,14 +1452,16 @@ mod decl {
             }
 
             Ok(PyIterReturn::Return(
-                vm.ctx.new_tuple(
-                    result
-                        .as_ref()
-                        .unwrap()
-                        .iter()
-                        .map(|&i| zelf.pool[i].clone())
-                        .collect(),
-                ),
+                vm.ctx
+                    .new_tuple(
+                        result
+                            .as_ref()
+                            .unwrap()
+                            .iter()
+                            .map(|&i| zelf.pool[i].clone())
+                            .collect(),
+                    )
+                    .into(),
             ))
         }
     }
@@ -1506,26 +1500,25 @@ mod decl {
     impl SlotIterator for PyItertoolsZipLongest {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             if zelf.iterators.is_empty() {
-                Ok(PyIterReturn::StopIteration(None))
-            } else {
-                let mut result: Vec<PyObjectRef> = Vec::new();
-                let mut numactive = zelf.iterators.len();
-
-                for idx in 0..zelf.iterators.len() {
-                    let next_obj = match zelf.iterators[idx].next(vm)? {
-                        PyIterReturn::Return(obj) => obj,
-                        PyIterReturn::StopIteration(v) => {
-                            numactive -= 1;
-                            if numactive == 0 {
-                                return Ok(PyIterReturn::StopIteration(v));
-                            }
-                            zelf.fillvalue.clone()
-                        }
-                    };
-                    result.push(next_obj);
-                }
-                Ok(PyIterReturn::Return(vm.ctx.new_tuple(result)))
+                return Ok(PyIterReturn::StopIteration(None));
             }
+            let mut result: Vec<PyObjectRef> = Vec::new();
+            let mut numactive = zelf.iterators.len();
+
+            for idx in 0..zelf.iterators.len() {
+                let next_obj = match zelf.iterators[idx].next(vm)? {
+                    PyIterReturn::Return(obj) => obj,
+                    PyIterReturn::StopIteration(v) => {
+                        numactive -= 1;
+                        if numactive == 0 {
+                            return Ok(PyIterReturn::StopIteration(v));
+                        }
+                        zelf.fillvalue.clone()
+                    }
+                };
+                result.push(next_obj);
+            }
+            Ok(PyIterReturn::Return(vm.ctx.new_tuple(result).into()))
         }
     }
 
@@ -1566,7 +1559,7 @@ mod decl {
                 PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
             };
             *zelf.old.write() = Some(new.clone());
-            Ok(PyIterReturn::Return(vm.ctx.new_tuple(vec![old, new])))
+            Ok(PyIterReturn::Return(vm.new_tuple((old, new)).into()))
         }
     }
 }

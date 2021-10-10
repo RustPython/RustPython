@@ -92,7 +92,7 @@ impl PyFunction {
         // Pack other positional arguments in to *args:
         if code.flags.contains(bytecode::CodeFlags::HAS_VARARGS) {
             let vararg_value = vm.ctx.new_tuple(args_iter.collect());
-            fastlocals[vararg_offset] = Some(vararg_value);
+            fastlocals[vararg_offset] = Some(vararg_value.into());
             vararg_offset += 1;
         } else {
             // Check the number of positional arguments

@@ -1,4 +1,4 @@
-use super::{PositionIterInternal, PyGenericAlias, PySliceRef, PyTypeRef};
+use super::{PositionIterInternal, PyGenericAlias, PySliceRef, PyTupleRef, PyTypeRef};
 use crate::common::lock::{
     PyMappedRwLockReadGuard, PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
 };
@@ -521,7 +521,7 @@ impl PyListIterator {
     }
 
     #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> PyObjectRef {
+    fn reduce(&self, vm: &VirtualMachine) -> PyTupleRef {
         self.internal
             .lock()
             .builtins_iter_reduce(|x| x.clone().into(), vm)
@@ -568,7 +568,7 @@ impl PyListReverseIterator {
     }
 
     #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> PyObjectRef {
+    fn reduce(&self, vm: &VirtualMachine) -> PyTupleRef {
         self.internal
             .lock()
             .builtins_reversed_reduce(|x| x.clone().into(), vm)

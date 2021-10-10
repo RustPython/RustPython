@@ -1,4 +1,4 @@
-use super::{PyInt, PyIntRef, PySlice, PySliceRef, PyTypeRef};
+use super::{PyInt, PyIntRef, PySlice, PySliceRef, PyTupleRef, PyTypeRef};
 use crate::builtins::builtins_iter;
 use crate::common::hash::PyHash;
 use crate::{
@@ -292,7 +292,7 @@ impl PyRange {
     }
 
     #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> (PyTypeRef, PyObjectRef) {
+    fn reduce(&self, vm: &VirtualMachine) -> (PyTypeRef, PyTupleRef) {
         let range_paramters: Vec<PyObjectRef> = vec![&self.start, &self.stop, &self.step]
             .iter()
             .map(|x| x.as_object().clone())
@@ -535,7 +535,7 @@ impl PyLongRangeIterator {
     }
 
     #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> PyResult {
+    fn reduce(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         range_iter_reduce(
             self.start.clone(),
             self.length.clone(),
@@ -605,7 +605,7 @@ impl PyRangeIterator {
     }
 
     #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> PyResult {
+    fn reduce(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         range_iter_reduce(
             BigInt::from(self.start),
             BigInt::from(self.length),
@@ -639,7 +639,7 @@ fn range_iter_reduce(
     step: BigInt,
     index: usize,
     vm: &VirtualMachine,
-) -> PyResult {
+) -> PyResult<PyTupleRef> {
     let iter = builtins_iter(vm).clone();
     let stop = start.clone() + length * step.clone();
     let range = PyRange {
@@ -647,11 +647,7 @@ fn range_iter_reduce(
         stop: PyInt::from(stop).into_ref(vm),
         step: PyInt::from(step).into_ref(vm),
     };
-    Ok(vm.ctx.new_tuple(vec![
-        iter,
-        vm.ctx.new_tuple(vec![range.into_object(vm)]),
-        vm.ctx.new_int(index).into(),
-    ]))
+    Ok(vm.new_tuple((iter, (range,), index)))
 }
 
 // Silently clips state (i.e index) in range [0, usize::MAX].
