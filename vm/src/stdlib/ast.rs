@@ -197,7 +197,7 @@ impl Node for ast::Constant {
                 .new_tuple(t.into_iter().map(|c| c.ast_to_object(vm)).collect())
                 .into(),
             ast::Constant::Float(f) => vm.ctx.new_float(f).into(),
-            ast::Constant::Complex { real, imag } => vm.ctx.new_complex(Complex64::new(real, imag)),
+            ast::Constant::Complex { real, imag } => vm.new_pyobj(Complex64::new(real, imag)),
             ast::Constant::Ellipsis => vm.ctx.ellipsis(),
         }
     }

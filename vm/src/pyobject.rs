@@ -13,9 +13,8 @@ use crate::{
         namespace::PyNamespace,
         object, pystr,
         set::{self, PyFrozenSet},
-        PyBaseExceptionRef, PyBoundMethod, PyComplex, PyDict, PyDictRef, PyEllipsis, PyFloat,
-        PyInt, PyIntRef, PyList, PyNone, PyNotImplemented, PyStaticMethod, PyTuple, PyTupleRef,
-        PyType, PyTypeRef,
+        PyBaseExceptionRef, PyBoundMethod, PyDict, PyDictRef, PyEllipsis, PyFloat, PyInt, PyIntRef,
+        PyList, PyNone, PyNotImplemented, PyStaticMethod, PyTuple, PyTupleRef, PyType, PyTypeRef,
     },
     dictdatatype::Dict,
     exceptions,
@@ -26,7 +25,6 @@ use crate::{
     VirtualMachine,
 };
 use num_bigint::BigInt;
-use num_complex::Complex64;
 use num_traits::ToPrimitive;
 use std::any::Any;
 use std::collections::HashMap;
@@ -184,14 +182,6 @@ impl PyContext {
 
     pub fn new_float(&self, value: f64) -> PyRef<PyFloat> {
         PyRef::new_ref(PyFloat::from(value), self.types.float_type.clone(), None)
-    }
-
-    pub fn new_complex(&self, value: Complex64) -> PyObjectRef {
-        PyObject::new(
-            PyComplex::from(value),
-            self.types.complex_type.clone(),
-            None,
-        )
     }
 
     pub fn new_utf8_str<S>(&self, s: S) -> PyObjectRef
