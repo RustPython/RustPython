@@ -97,7 +97,8 @@ impl SlotConstructor for PyBool {
 
     fn py_new(zelf: PyTypeRef, x: Self::Args, vm: &VirtualMachine) -> PyResult {
         if !zelf.isinstance(&vm.ctx.types.type_type) {
-            let actual_type = &zelf.class().name();
+            let actual_class = zelf.class();
+            let actual_type = &actual_class.name();
             return Err(vm.new_type_error(format!(
                 "requires a 'type' object but received a '{}'",
                 actual_type

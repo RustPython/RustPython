@@ -1463,6 +1463,7 @@ fn char_is_printable(c: char) -> bool {
 mod tests {
     use super::*;
     use crate::Interpreter;
+    use std::ops::Deref;
 
     #[test]
     fn str_title() {
@@ -1531,7 +1532,7 @@ mod tests {
             assert_eq!(translated, "🎅xda".to_owned());
             let translated = text.translate(vm.ctx.new_int(3), &vm);
             assert_eq!(
-                translated.unwrap_err().class().name(),
+                translated.unwrap_err().class().name().deref(),
                 "TypeError".to_owned()
             );
         })

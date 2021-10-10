@@ -182,7 +182,8 @@ impl FuncArgs {
                     Ok(Some(kwarg))
                 } else {
                     let expected_ty_name = &ty.name();
-                    let actual_ty_name = &kwarg.class().name();
+                    let kwarg_class = kwarg.class();
+                    let actual_ty_name = &kwarg_class.name();
                     Err(vm.new_type_error(format!(
                         "argument of type {} is required for named parameter `{}` (got: {})",
                         expected_ty_name, key, actual_ty_name

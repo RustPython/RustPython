@@ -451,7 +451,7 @@ impl PyType {
                     Some(found)
                 }
             })
-            .unwrap_or_else(|| vm.ctx.new_utf8_str(self.name()))
+            .unwrap_or_else(|| vm.ctx.new_utf8_str(self.name().deref()))
     }
 
     #[pyproperty(magic)]
@@ -664,7 +664,7 @@ impl PyType {
     fn text_signature(&self) -> Option<String> {
         self.slots
             .doc
-            .and_then(|doc| get_text_signature_from_internal_doc(self.name().as_str(), doc))
+            .and_then(|doc| get_text_signature_from_internal_doc(&self.name(), doc))
             .map(|signature| signature.to_string())
     }
 }

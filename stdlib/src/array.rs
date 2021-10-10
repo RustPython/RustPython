@@ -1036,7 +1036,8 @@ mod array {
 
         #[pymethod(magic)]
         fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            let class_name = zelf.class().name();
+            let class = zelf.class();
+            let class_name = class.name();
             if zelf.read().typecode() == 'u' {
                 if zelf.len() == 0 {
                     return Ok(format!("{}('u')", class_name));

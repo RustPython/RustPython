@@ -15,7 +15,7 @@ use crate::{
     IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol,
 };
-use std::fmt;
+use std::{fmt, ops::Deref};
 
 pub type SetContentType = dictdatatype::Dict<()>;
 
@@ -512,12 +512,14 @@ impl PySet {
 
     #[pymethod(magic)]
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        let class_name = zelf.class().name();
+        let class = zelf.class();
+        let borrowed_name = class.name();
+        let class_name = borrowed_name.deref();
         let s = if zelf.inner.len() == 0 {
             format!("{}()", class_name)
         } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
             let name = if class_name != "set" {
-                Some(class_name.as_str())
+                Some(class_name)
             } else {
                 None
             };
@@ -790,7 +792,8 @@ impl PyFrozenSet {
     #[pymethod(magic)]
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         let inner = &zelf.inner;
-        let class_name = zelf.class().name();
+        let class = zelf.class();
+        let class_name = class.name();
         let s = if inner.len() == 0 {
             format!("{}()", class_name)
         } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {

@@ -492,8 +492,9 @@ pub mod module {
         ))]
         fn try_to_libc(&self, vm: &VirtualMachine) -> PyResult<libc::sched_param> {
             use crate::TypeProtocol;
+            let priority_class = self.sched_priority.class();
+            let priority_type = priority_class.name();
             let priority = self.sched_priority.clone();
-            let priority_type = priority.class().name();
             let value = priority.downcast::<PyInt>().map_err(|_| {
                 vm.new_type_error(format!(
                     "an integer is required (got type {})",

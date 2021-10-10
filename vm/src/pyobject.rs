@@ -442,7 +442,8 @@ pub(crate) fn pyref_type_error(
     obj: impl std::borrow::Borrow<PyObjectRef>,
 ) -> PyBaseExceptionRef {
     let expected_type = &*class.name();
-    let actual_type = &*obj.borrow().class().name();
+    let actual_class = obj.borrow().class();
+    let actual_type = &*actual_class.name();
     vm.new_type_error(format!(
         "Expected type '{}', not '{}'",
         expected_type, actual_type,
