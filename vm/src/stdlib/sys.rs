@@ -242,7 +242,7 @@ fn sys_exc_info(vm: &VirtualMachine) -> (PyObjectRef, PyObjectRef, PyObjectRef) 
 
 fn sys_git_info(vm: &VirtualMachine) -> PyTupleRef {
     vm.new_tuple((
-        vm.ctx.new_ascii_literal(ascii!("RustPython")),
+        ascii!("RustPython"),
         version::get_git_identifier(),
         version::get_git_revision(),
     ))

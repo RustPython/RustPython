@@ -18,6 +18,7 @@ use crate::{
     IdProtocol, ItemProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef,
     PyRef, PyResult, PyValue, TryIntoRef, TypeProtocol, VirtualMachine,
 };
+use ascii::{AsciiStr, AsciiString};
 use bstr::ByteSlice;
 use itertools::Itertools;
 use num_traits::ToPrimitive;
@@ -117,15 +118,21 @@ where
     }
 }
 
+impl From<AsciiString> for PyStr {
+    fn from(s: AsciiString) -> Self {
+        unsafe { Self::new_ascii_unchecked(s.into()) }
+    }
+}
+
 impl From<String> for PyStr {
-    fn from(s: String) -> PyStr {
+    fn from(s: String) -> Self {
         s.into_boxed_str().into()
     }
 }
 
 impl From<Box<str>> for PyStr {
     #[inline]
-    fn from(value: Box<str>) -> PyStr {
+    fn from(value: Box<str>) -> Self {
         // doing the check is ~10x faster for ascii, and is actually only 2% slower worst case for
         // non-ascii; see https://github.com/RustPython/RustPython/pull/2586#issuecomment-844611532
         let is_ascii = value.is_ascii();
@@ -150,6 +157,13 @@ impl fmt::Display for PyStr {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(self.as_str(), f)
+    }
+}
+
+impl TryIntoRef<PyStr> for AsciiString {
+    #[inline]
+    fn try_into_ref(self, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
+        Ok(unsafe { PyStr::new_ascii_unchecked(self.into()) }.into_ref(vm))
     }
 }
 
@@ -1315,6 +1329,12 @@ impl IntoPyObject for &str {
 impl IntoPyObject for &String {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.new_utf8_str(self.clone())
+    }
+}
+
+impl IntoPyObject for &AsciiStr {
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.new_ascii_literal(self)
     }
 }
 

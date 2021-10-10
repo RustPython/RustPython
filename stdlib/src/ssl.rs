@@ -1113,19 +1113,13 @@ fn cert_to_py(vm: &VirtualMachine, cert: &X509Ref, binary: bool) -> PyResult {
                 .iter()
                 .filter_map(|gen_name| {
                     if let Some(email) = gen_name.email() {
-                        Some(
-                            vm.new_tuple((vm.ctx.new_ascii_literal(ascii!("email")), email))
-                                .into(),
-                        )
+                        Some(vm.new_tuple((ascii!("email"), email)).into())
                     } else if let Some(dnsname) = gen_name.dnsname() {
-                        Some(
-                            vm.new_tuple((vm.ctx.new_ascii_literal(ascii!("DNS")), dnsname))
-                                .into(),
-                        )
+                        Some(vm.new_tuple((ascii!("DNS"), dnsname)).into())
                     } else if let Some(ip) = gen_name.ipaddress() {
                         Some(
                             vm.new_tuple((
-                                vm.ctx.new_ascii_literal(ascii!("IP Address")),
+                                ascii!("IP Address"),
                                 String::from_utf8_lossy(ip).into_owned(),
                             ))
                             .into(),
