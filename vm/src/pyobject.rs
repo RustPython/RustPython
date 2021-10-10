@@ -219,13 +219,13 @@ impl PyContext {
     }
 
     #[inline]
-    pub fn new_bool(&self, b: bool) -> PyObjectRef {
+    pub fn new_bool(&self, b: bool) -> PyIntRef {
         let value = if b {
             &self.true_value
         } else {
             &self.false_value
         };
-        value.clone().into()
+        value.clone()
     }
 
     pub fn new_tuple(&self, elements: Vec<PyObjectRef>) -> PyTupleRef {

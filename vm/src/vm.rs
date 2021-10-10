@@ -1999,7 +1999,11 @@ impl VirtualMachine {
     }
 
     // https://docs.python.org/3/reference/expressions.html#membership-test-operations
-    fn _membership_iter_search(&self, haystack: PyObjectRef, needle: PyObjectRef) -> PyResult {
+    fn _membership_iter_search(
+        &self,
+        haystack: PyObjectRef,
+        needle: PyObjectRef,
+    ) -> PyResult<PyIntRef> {
         let iter = haystack.get_iter(self)?;
         loop {
             if let PyIterReturn::Return(element) = iter.next(self)? {
@@ -2017,7 +2021,9 @@ impl VirtualMachine {
     pub fn _membership(&self, haystack: PyObjectRef, needle: PyObjectRef) -> PyResult {
         match PyMethod::get_special(haystack, "__contains__", self)? {
             Ok(method) => method.invoke((needle,), self),
-            Err(haystack) => self._membership_iter_search(haystack, needle),
+            Err(haystack) => self
+                ._membership_iter_search(haystack, needle)
+                .map(Into::into),
         }
     }
 

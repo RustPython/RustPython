@@ -698,7 +698,7 @@ pub(crate) mod _struct {
 
         fn unpack<E: ByteOrder>(vm: &VirtualMachine, rdr: &[u8]) -> PyObjectRef {
             let i = u8::unpack_int::<E>(rdr);
-            vm.ctx.new_bool(i != 0)
+            vm.ctx.new_bool(i != 0).into()
         }
     }
 

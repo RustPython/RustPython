@@ -139,7 +139,7 @@ impl<'de> Visitor<'de> for PyObjectDeserializer<'de> {
     where
         E: serde::de::Error,
     {
-        Ok(self.vm.ctx.new_bool(value))
+        Ok(self.vm.ctx.new_bool(value).into())
     }
 
     // Other signed integers delegate to this method by default, it’s the only one needed

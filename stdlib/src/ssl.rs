@@ -191,8 +191,8 @@ fn _ssl_enum_certificates(store_name: PyStrRef, vm: &VirtualMachine) -> PyResult
             wincrypt::PKCS_7_ASN_ENCODING => vm.ctx.new_ascii_literal(ascii!("pkcs_7_asn")),
             other => vm.ctx.new_int(other).into(),
         };
-        let usage = match c.valid_uses()? {
-            ValidUses::All => vm.ctx.new_bool(true),
+        let usage: PyObjectRef = match c.valid_uses()? {
+            ValidUses::All => vm.ctx.new_bool(true).into(),
             ValidUses::Oids(oids) => {
                 PyFrozenSet::from_iter(vm, oids.into_iter().map(|oid| vm.ctx.new_utf8_str(oid)))
                     .unwrap()

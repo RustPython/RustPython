@@ -71,7 +71,7 @@ mod _pyexpat {
                 end_element: MutableObject::new(vm.ctx.none()),
                 character_data: MutableObject::new(vm.ctx.none()),
                 entity_decl: MutableObject::new(vm.ctx.none()),
-                buffer_text: MutableObject::new(vm.ctx.new_bool(false)),
+                buffer_text: MutableObject::new(vm.ctx.new_bool(false).into()),
             }
             .into_ref(vm))
         }

@@ -254,11 +254,7 @@ impl PyInt {
         if cls.is(&vm.ctx.types.int_type) {
             Ok(vm.ctx.new_int(value))
         } else if cls.is(&vm.ctx.types.bool_type) {
-            Ok(vm
-                .ctx
-                .new_bool(!value.into().eq(&BigInt::zero()))
-                .downcast()
-                .unwrap())
+            Ok(vm.ctx.new_bool(!value.into().eq(&BigInt::zero())))
         } else {
             PyInt::from(value).into_ref_with_type(vm, cls)
         }

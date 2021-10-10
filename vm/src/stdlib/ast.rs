@@ -188,7 +188,7 @@ impl Node for ast::Constant {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
         match self {
             ast::Constant::None => vm.ctx.none(),
-            ast::Constant::Bool(b) => vm.ctx.new_bool(b),
+            ast::Constant::Bool(b) => vm.ctx.new_bool(b).into(),
             ast::Constant::Str(s) => vm.ctx.new_utf8_str(s),
             ast::Constant::Bytes(b) => vm.ctx.new_bytes(b),
             ast::Constant::Int(i) => vm.ctx.new_int(i).into(),

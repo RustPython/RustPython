@@ -78,8 +78,8 @@ mod _io {
     };
     use crate::{
         builtins::{
-            PyBaseExceptionRef, PyByteArray, PyBytes, PyBytesRef, PyMemoryView, PyStr, PyStrRef,
-            PyType, PyTypeRef,
+            PyBaseExceptionRef, PyByteArray, PyBytes, PyBytesRef, PyIntRef, PyMemoryView, PyStr,
+            PyStrRef, PyType, PyTypeRef,
         },
         exceptions,
         function::{
@@ -370,7 +370,7 @@ mod _io {
         }
 
         #[pyattr]
-        fn __closed(ctx: &PyContext) -> PyObjectRef {
+        fn __closed(ctx: &PyContext) -> PyIntRef {
             ctx.new_bool(false)
         }
 
@@ -543,7 +543,7 @@ mod _io {
     pub(super) fn iobase_close(file: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if !file_closed(file, vm)? {
             let res = vm.call_method(file, "flush", ());
-            vm.set_attr(file, "__closed", vm.ctx.new_bool(true))?;
+            vm.set_attr(file, "__closed", vm.new_pyobj(true))?;
             res?;
         }
         Ok(())

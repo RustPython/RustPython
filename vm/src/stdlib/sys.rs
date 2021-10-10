@@ -540,9 +540,10 @@ pub(crate) fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: Py
 
     let xopts = ctx.new_dict();
     for (key, value) in &vm.state.settings.xopts {
-        let value = value
-            .as_ref()
-            .map_or_else(|| ctx.new_bool(true), |s| ctx.new_utf8_str(s.clone()));
+        let value = value.as_ref().map_or_else(
+            || ctx.new_bool(true).into(),
+            |s| ctx.new_utf8_str(s.clone()),
+        );
         xopts.set_item(&**key, value, vm).unwrap();
     }
 

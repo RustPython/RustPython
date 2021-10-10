@@ -126,8 +126,8 @@ mod _json {
             }
 
             parse_const!("null", vm.ctx.none());
-            parse_const!("true", vm.ctx.new_bool(true));
-            parse_const!("false", vm.ctx.new_bool(false));
+            parse_const!("true", true);
+            parse_const!("false", false);
 
             if let Some((res, len)) = self.parse_number(s, vm) {
                 return Ok(PyIterReturn::Return(vm.new_tuple((res?, idx + len)).into()));
