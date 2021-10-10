@@ -90,10 +90,6 @@ impl PyValue for PyBytes {
 
 pub(crate) fn init(context: &PyContext) {
     PyBytes::extend_class(context, &context.types.bytes_type);
-    let bytes_type = &context.types.bytes_type;
-    extend_class!(context, bytes_type, {
-        "maketrans" => context.new_method("maketrans", bytes_type.clone(), PyBytesInner::maketrans),
-    });
     PyBytesIterator::extend_class(context, &context.types.bytes_iterator_type);
 }
 
@@ -157,6 +153,11 @@ impl PyBytes {
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
         self.inner.contains(needle, vm)
+    }
+
+    #[pymethod]
+    fn maketrans(from: PyBytesInner, to: PyBytesInner, vm: &VirtualMachine) -> PyResult {
+        PyBytesInner::maketrans(from, to, vm)
     }
 
     #[pymethod(magic)]

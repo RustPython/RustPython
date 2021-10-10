@@ -290,7 +290,7 @@ impl ModuleItem for FunctionItem {
                     #doc
                     .into_function()
                     .with_module(vm.ctx.new_utf8_str(#module.to_owned()))
-                    .build(&vm.ctx)
+                    .into_ref(&vm.ctx)
             );
             quote! {
                 vm.__module_set_attr(&module, #py_name, #new_func).unwrap();

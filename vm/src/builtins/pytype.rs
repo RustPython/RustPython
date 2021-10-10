@@ -595,12 +595,14 @@ impl PyType {
         if !attributes.contains_key("__dict__") {
             attributes.insert(
                 "__dict__".to_owned(),
-                vm.ctx.new_getset(
-                    "__dict__",
-                    vm.ctx.types.object_type.clone(),
-                    subtype_get_dict,
-                    subtype_set_dict,
-                ),
+                vm.ctx
+                    .new_getset(
+                        "__dict__",
+                        vm.ctx.types.object_type.clone(),
+                        subtype_get_dict,
+                        subtype_set_dict,
+                    )
+                    .into(),
             );
         }
 

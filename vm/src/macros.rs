@@ -225,7 +225,7 @@ macro_rules! named_function {
             )
             .into_function()
             .with_module(ctx.new_utf8_str(stringify!($module).to_owned()))
-            .build(ctx)
+            .into_ref(ctx)
         }
     }};
 }

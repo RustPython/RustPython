@@ -1,7 +1,8 @@
 use super::PyTypeRef;
 use crate::{
+    builtins::PyBoundMethod,
     slots::{SlotConstructor, SlotDescriptor},
-    PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
+    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
 
 /// classmethod(function) -> method
@@ -51,7 +52,7 @@ impl SlotDescriptor for PyClassMethod {
     ) -> PyResult {
         let (zelf, obj) = Self::_unwrap(zelf, obj, vm)?;
         let cls = cls.unwrap_or_else(|| obj.clone_class().into());
-        Ok(vm.ctx.new_bound_method(zelf.callable.clone(), cls))
+        Ok(PyBoundMethod::new_ref(cls, zelf.callable.clone(), &vm.ctx).into())
     }
 }
 
@@ -60,6 +61,12 @@ impl SlotConstructor for PyClassMethod {
 
     fn py_new(cls: PyTypeRef, callable: Self::Args, vm: &VirtualMachine) -> PyResult {
         PyClassMethod { callable }.into_pyresult_with_type(vm, cls)
+    }
+}
+
+impl PyClassMethod {
+    pub fn new_ref(callable: PyObjectRef, ctx: &PyContext) -> PyRef<Self> {
+        PyRef::new_ref(Self { callable }, ctx.types.classmethod_type.clone(), None)
     }
 }
 

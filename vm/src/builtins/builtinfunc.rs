@@ -1,9 +1,9 @@
-use super::{pytype, PyClassMethod, PyStrRef, PyTypeRef};
+use super::{pytype, PyClassMethod, PyStr, PyStrRef, PyTypeRef};
 use crate::{
-    function::{FuncArgs, PyNativeFunc},
+    builtins::PyBoundMethod,
+    function::{FuncArgs, IntoPyNativeFunc, PyNativeFunc},
     slots::{Callable, SlotDescriptor},
-    PyClassImpl, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
-    VirtualMachine,
+    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
 use std::fmt;
 
@@ -21,34 +21,29 @@ impl PyNativeFuncDef {
             doc: None,
         }
     }
-}
 
-impl PyNativeFuncDef {
     pub fn with_doc(mut self, doc: String, ctx: &PyContext) -> Self {
-        self.doc = Some(ctx.new_stringref(doc));
+        self.doc = Some(PyStr::new_ref(doc, ctx));
         self
     }
 
     pub fn into_function(self) -> PyBuiltinFunction {
         self.into()
     }
-    pub fn build_function(self, ctx: &PyContext) -> PyObjectRef {
-        self.into_function().build(ctx)
+    pub fn build_function(self, ctx: &PyContext) -> PyRef<PyBuiltinFunction> {
+        self.into_function().into_ref(ctx)
     }
-    pub fn build_method(self, ctx: &PyContext, class: PyTypeRef) -> PyObjectRef {
-        PyObject::new(
+    pub fn build_method(self, ctx: &PyContext, class: PyTypeRef) -> PyRef<PyBuiltinMethod> {
+        PyRef::new_ref(
             PyBuiltinMethod { value: self, class },
             ctx.types.method_descriptor_type.clone(),
             None,
         )
     }
-    pub fn build_classmethod(self, ctx: &PyContext, class: PyTypeRef) -> PyObjectRef {
+    pub fn build_classmethod(self, ctx: &PyContext, class: PyTypeRef) -> PyRef<PyClassMethod> {
         // TODO: classmethod_descriptor
-        PyObject::new(
-            PyClassMethod::from(self.build_method(ctx, class)),
-            ctx.types.classmethod_type.clone(),
-            None,
-        )
+        let callable = self.build_method(ctx, class).into();
+        PyClassMethod::new_ref(callable, ctx)
     }
 }
 
@@ -85,8 +80,8 @@ impl PyBuiltinFunction {
         self
     }
 
-    pub fn build(self, ctx: &PyContext) -> PyObjectRef {
-        PyObject::new(
+    pub fn into_ref(self, ctx: &PyContext) -> PyRef<Self> {
+        PyRef::new_ref(
             self,
             ctx.types.builtin_function_or_method_type.clone(),
             None,
@@ -183,17 +178,32 @@ impl SlotDescriptor for PyBuiltinMethod {
             Ok(obj) => obj,
             Err(result) => return result,
         };
-        if vm.is_none(&obj) && !Self::_cls_is(&cls, &obj.class()) {
-            Ok(zelf.into())
+        let r = if vm.is_none(&obj) && !Self::_cls_is(&cls, &obj.class()) {
+            zelf.into()
         } else {
-            Ok(vm.ctx.new_bound_method(zelf.into(), obj))
-        }
+            PyBoundMethod::new_ref(obj, zelf.into(), &vm.ctx).into()
+        };
+        Ok(r)
     }
 }
 
 impl Callable for PyBuiltinMethod {
     fn call(zelf: &PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         (zelf.value.func)(vm, args)
+    }
+}
+
+impl PyBuiltinMethod {
+    pub fn new_ref<F, FKind>(
+        name: impl Into<PyStr>,
+        class: PyTypeRef,
+        f: F,
+        ctx: &PyContext,
+    ) -> PyRef<Self>
+    where
+        F: IntoPyNativeFunc<FKind>,
+    {
+        ctx.make_funcdef(name, f).build_method(ctx, class)
     }
 }
 

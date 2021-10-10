@@ -92,11 +92,6 @@ impl PyValue for PyByteArray {
 /// Fill bytearray class methods dictionary.
 pub(crate) fn init(context: &PyContext) {
     PyByteArray::extend_class(context, &context.types.bytearray_type);
-    let bytearray_type = &context.types.bytearray_type;
-    extend_class!(context, bytearray_type, {
-        "maketrans" => context.new_method("maketrans", bytearray_type.clone(), PyBytesInner::maketrans),
-    });
-
     PyByteArrayIterator::extend_class(context, &context.types.bytearray_iterator_type);
 }
 
@@ -225,6 +220,11 @@ impl PyByteArray {
             }
             SequenceIndex::Slice(slice) => elements.delete_slice(vm, &slice),
         }
+    }
+
+    #[pymethod]
+    fn maketrans(from: PyBytesInner, to: PyBytesInner, vm: &VirtualMachine) -> PyResult {
+        PyBytesInner::maketrans(from, to, vm)
     }
 
     #[pymethod]
