@@ -314,6 +314,10 @@ impl PyContext {
     }
 
     pub fn new_base_object(&self, class: PyTypeRef, dict: Option<PyDictRef>) -> PyObjectRef {
+        debug_assert_eq!(
+            class.slots.flags.contains(PyTypeFlags::HAS_DICT),
+            dict.is_some()
+        );
         PyObject::new(object::PyBaseObject, class, dict)
     }
 }
