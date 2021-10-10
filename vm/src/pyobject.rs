@@ -7,7 +7,7 @@ pub use crate::pyobjectrc::{PyObject, PyObjectRef, PyObjectWeak, PyObjectWrap, P
 use crate::{
     builtins::{
         builtinfunc::{PyBuiltinFunction, PyBuiltinMethod, PyNativeFuncDef},
-        bytearray, bytes,
+        bytes,
         getset::{IntoPyGetterFunc, IntoPySetterFunc, PyGetSet},
         object, pystr, PyBaseExceptionRef, PyBoundMethod, PyDict, PyDictRef, PyEllipsis, PyFloat,
         PyFrozenSet, PyInt, PyIntRef, PyList, PyNone, PyNotImplemented, PyStr, PyTuple, PyTupleRef,
@@ -205,14 +205,6 @@ impl PyContext {
         PyObject::new(
             bytes::PyBytes::from(data),
             self.types.bytes_type.clone(),
-            None,
-        )
-    }
-
-    pub fn new_bytearray(&self, data: Vec<u8>) -> PyObjectRef {
-        PyObject::new(
-            bytearray::PyByteArray::from(data),
-            self.types.bytearray_type.clone(),
             None,
         )
     }
