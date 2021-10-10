@@ -156,7 +156,7 @@ fn node_add_location(node: &PyObjectRef, location: ast::Location, vm: &VirtualMa
 
 impl Node for String {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_utf8_str(self)
+        vm.ctx.new_str(self).into()
     }
 
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
@@ -189,7 +189,7 @@ impl Node for ast::Constant {
         match self {
             ast::Constant::None => vm.ctx.none(),
             ast::Constant::Bool(b) => vm.ctx.new_bool(b).into(),
-            ast::Constant::Str(s) => vm.ctx.new_utf8_str(s),
+            ast::Constant::Str(s) => vm.ctx.new_str(s).into(),
             ast::Constant::Bytes(b) => vm.ctx.new_bytes(b).into(),
             ast::Constant::Int(i) => vm.ctx.new_int(i).into(),
             ast::Constant::Tuple(t) => vm

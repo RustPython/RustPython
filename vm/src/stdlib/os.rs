@@ -34,7 +34,7 @@ impl OutputMode {
                 })
             };
             match mode {
-                OutputMode::String => path_as_string(path).map(|s| vm.ctx.new_utf8_str(s)),
+                OutputMode::String => path_as_string(path).map(|s| vm.ctx.new_str(s).into()),
                 OutputMode::Bytes => {
                     #[cfg(any(unix, target_os = "wasi"))]
                     {
@@ -254,7 +254,7 @@ impl IntoPyException for &'_ io::Error {
             },
         };
         let errno = self.raw_os_error().into_pyobject(vm);
-        let msg = vm.ctx.new_utf8_str(self.to_string());
+        let msg = vm.ctx.new_str(self.to_string()).into();
         vm.new_exception(exc_type, vec![errno, msg])
     }
 }

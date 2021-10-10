@@ -1026,8 +1026,7 @@ fn get_addr_tuple(addr: &socket2::SockAddr, vm: &VirtualMachine) -> PyObjectRef 
             } else {
                 let len = memchr::memchr(b'\0', path_u8).unwrap_or_else(|| path_u8.len());
                 let path = &path_u8[..len];
-                vm.ctx
-                    .new_utf8_str(String::from_utf8_lossy(path).into_owned())
+                vm.ctx.new_str(String::from_utf8_lossy(path)).into()
             }
         }
         // TODO: support more address families
@@ -1035,10 +1034,10 @@ fn get_addr_tuple(addr: &socket2::SockAddr, vm: &VirtualMachine) -> PyObjectRef 
     }
 }
 
-fn _socket_gethostname(vm: &VirtualMachine) -> PyResult {
+fn _socket_gethostname(vm: &VirtualMachine) -> PyResult<PyStrRef> {
     gethostname()
         .into_string()
-        .map(|hostname| vm.ctx.new_utf8_str(hostname))
+        .map(|hostname| vm.ctx.new_str(hostname))
         .map_err(|err| vm.new_os_error(err.into_string().unwrap()))
 }
 
@@ -1055,11 +1054,11 @@ fn _socket_inet_aton(ip_string: PyStrRef, vm: &VirtualMachine) -> PyResult<Vec<u
         .map_err(|_| vm.new_os_error("illegal IP address string passed to inet_aton".to_owned()))
 }
 
-fn _socket_inet_ntoa(packed_ip: ArgBytesLike, vm: &VirtualMachine) -> PyResult {
+fn _socket_inet_ntoa(packed_ip: ArgBytesLike, vm: &VirtualMachine) -> PyResult<PyStrRef> {
     let packed_ip = packed_ip.borrow_buf();
     let packed_ip = <&[u8; 4]>::try_from(&*packed_ip)
         .map_err(|_| vm.new_os_error("packed IP wrong length for inet_ntoa".to_owned()))?;
-    Ok(vm.ctx.new_utf8_str(Ipv4Addr::from(*packed_ip).to_string()))
+    Ok(vm.ctx.new_str(Ipv4Addr::from(*packed_ip).to_string()))
 }
 
 fn cstr_opt_as_ptr(x: &OptionalArg<ffi::CString>) -> *const libc::c_char {
@@ -1290,7 +1289,7 @@ fn _socket_gethostbyaddr(
         hostname,
         vm.ctx.new_list(vec![]),
         vm.ctx
-            .new_list(vec![vm.ctx.new_utf8_str(addr.ip().to_string())]),
+            .new_list(vec![vm.ctx.new_str(addr.ip().to_string()).into()]),
     ))
 }
 
@@ -1726,7 +1725,7 @@ fn convert_socket_error(
     };
     vm.new_exception(
         exception_cls.get().unwrap().clone(),
-        vec![vm.new_pyobj(err.error_num()), vm.ctx.new_utf8_str(strerr)],
+        vec![vm.new_pyobj(err.error_num()), vm.ctx.new_str(strerr).into()],
     )
 }
 

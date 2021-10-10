@@ -189,12 +189,12 @@ mod re {
                 1 => {
                     let full = captures.get(0).unwrap().as_bytes();
                     let full = String::from_utf8_lossy(full).into_owned();
-                    vm.ctx.new_utf8_str(full)
+                    vm.ctx.new_str(full).into()
                 }
                 2 => {
                     let capture = captures.get(1).unwrap().as_bytes();
                     let capture = String::from_utf8_lossy(capture).into_owned();
-                    vm.ctx.new_utf8_str(capture)
+                    vm.ctx.new_str(capture).into()
                 }
                 _ => {
                     let out = captures
@@ -204,7 +204,7 @@ mod re {
                             let s = m
                                 .map(|m| String::from_utf8_lossy(m.as_bytes()).into_owned())
                                 .unwrap_or_default();
-                            vm.ctx.new_utf8_str(s)
+                            vm.ctx.new_str(s).into()
                         })
                         .collect();
                     vm.ctx.new_tuple(out).into()
@@ -253,7 +253,7 @@ mod re {
             .into_iter()
             .map(|v| {
                 vm.unwrap_or_none(
-                    v.map(|v| vm.ctx.new_utf8_str(String::from_utf8_lossy(v).into_owned())),
+                    v.map(|v| vm.ctx.new_str(String::from_utf8_lossy(v).into_owned()).into()),
                 )
             })
             .collect();
@@ -330,12 +330,12 @@ mod re {
         }
 
         #[pymethod]
-        fn sub(&self, repl: PyStrRef, text: PyStrRef, vm: &VirtualMachine) -> PyResult {
+        fn sub(&self, repl: PyStrRef, text: PyStrRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
             let replaced_text = self
                 .regex
                 .replace_all(text.as_str().as_bytes(), repl.as_str().as_bytes());
             let replaced_text = String::from_utf8_lossy(&replaced_text).into_owned();
-            Ok(vm.ctx.new_utf8_str(replaced_text))
+            Ok(vm.ctx.new_str(replaced_text))
         }
 
         #[pymethod]
@@ -344,8 +344,8 @@ mod re {
         }
 
         #[pyproperty]
-        fn pattern(&self, vm: &VirtualMachine) -> PyResult {
-            Ok(vm.ctx.new_utf8_str(self.pattern.clone()))
+        fn pattern(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+            Ok(vm.ctx.new_str(self.pattern.clone()))
         }
 
         #[pymethod]

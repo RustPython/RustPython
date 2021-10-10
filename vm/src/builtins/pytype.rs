@@ -384,7 +384,7 @@ impl PyType {
         let attributes: Vec<PyObjectRef> = zelf
             .get_attributes()
             .drain()
-            .map(|(k, _)| vm.ctx.new_utf8_str(k))
+            .map(|(k, _)| vm.ctx.new_str(k).into())
             .collect();
         PyList::from(attributes)
     }
@@ -451,7 +451,7 @@ impl PyType {
                     Some(found)
                 }
             })
-            .unwrap_or_else(|| vm.ctx.new_utf8_str(self.name().deref()))
+            .unwrap_or_else(|| vm.ctx.new_str(self.name().deref()).into())
     }
 
     #[pyproperty(magic)]
@@ -469,7 +469,7 @@ impl PyType {
                     Some(found)
                 }
             })
-            .unwrap_or_else(|| vm.ctx.new_ascii_literal(ascii!("builtins")))
+            .unwrap_or_else(|| vm.ctx.new_str(ascii!("builtins")).into())
     }
 
     #[pyproperty(magic, setter)]

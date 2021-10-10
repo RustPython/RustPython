@@ -967,7 +967,7 @@ pub mod module {
             Err(errno_err(vm))
         } else {
             let name = unsafe { CStr::from_ptr(name) }.to_str().unwrap();
-            Ok(vm.ctx.new_utf8_str(name))
+            Ok(vm.ctx.new_str(name).into())
         }
     }
 

@@ -210,7 +210,7 @@ impl PyMemoryView {
     #[pyproperty]
     fn format(&self, vm: &VirtualMachine) -> PyResult<PyStr> {
         self.try_not_released(vm)
-            .map(|_| PyStr::from(&self.buffer.options.format))
+            .map(|_| PyStr::from(self.buffer.options.format.clone()))
     }
 
     #[pymethod(magic)]

@@ -28,8 +28,8 @@ mod array {
             AsBuffer, AsMapping, Comparable, Iterable, IteratorIterable, PyComparisonOp,
             SlotConstructor, SlotIterator,
         },
-        IdProtocol, PyComparisonValue, PyObjectRef, PyObjectWrap, PyRef, PyResult, PyValue,
-        TryFromObject, TypeProtocol, VirtualMachine,
+        IdProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+        TypeProtocol, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
@@ -1122,8 +1122,8 @@ mod array {
                 return Self::reduce(zelf, vm);
             }
             let array = zelf.read();
-            let cls = zelf.as_object().clone_class().into_object();
-            let typecode = vm.ctx.new_utf8_str(array.typecode_str());
+            let cls = zelf.as_object().clone_class();
+            let typecode = vm.ctx.new_str(array.typecode_str());
             let bytes = vm.ctx.new_bytes(array.get_bytes().to_vec());
             let code = MachineFormatCode::from_typecode(array.typecode()).unwrap();
             let code = PyInt::from(u8::from(code)).into_object(vm);
@@ -1142,8 +1142,8 @@ mod array {
             vm: &VirtualMachine,
         ) -> PyResult<(PyObjectRef, PyTupleRef, Option<PyDictRef>)> {
             let array = zelf.read();
-            let cls = zelf.as_object().clone_class().into_object();
-            let typecode = vm.ctx.new_utf8_str(array.typecode_str());
+            let cls = zelf.as_object().clone_class();
+            let typecode = vm.ctx.new_str(array.typecode_str());
             let values = if array.typecode() == 'u' {
                 let s = Self::_wchar_bytes_to_string(array.get_bytes(), array.itemsize(), vm)?;
                 s.chars().map(|x| x.into_pyobject(vm)).collect()
@@ -1152,7 +1152,7 @@ mod array {
             };
             let values = vm.ctx.new_list(values);
             Ok((
-                cls,
+                cls.into(),
                 vm.new_tuple((typecode, values)),
                 zelf.as_object().dict(),
             ))

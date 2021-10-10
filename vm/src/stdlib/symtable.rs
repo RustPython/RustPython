@@ -93,7 +93,7 @@ mod symtable {
                 }
                 .into_ref(vm))
             } else {
-                Err(vm.new_key_error(vm.ctx.new_utf8_str(format!("lookup {} failed", name))))
+                Err(vm.new_key_error(vm.ctx.new_str(format!("lookup {} failed", name)).into()))
             }
         }
 
@@ -103,7 +103,7 @@ mod symtable {
                 .symtable
                 .symbols
                 .keys()
-                .map(|s| vm.ctx.new_utf8_str(s))
+                .map(|s| vm.ctx.new_str(s.as_str()).into())
                 .collect();
             Ok(vm.ctx.new_list(symbols))
         }

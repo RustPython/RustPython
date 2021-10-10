@@ -22,7 +22,7 @@ mod keyword {
             lexer::KEYWORDS
                 .keys()
                 .sorted()
-                .map(|k| vm.ctx.new_utf8_str(k))
+                .map(|&k| vm.ctx.new_str(k).into())
                 .collect(),
         )
     }

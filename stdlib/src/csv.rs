@@ -157,10 +157,10 @@ impl SlotIterator for Reader {
             .map(|&end| {
                 let range = prev_end..end;
                 prev_end = end;
-                std::str::from_utf8(&buffer[range])
-                    .map(|s| vm.ctx.new_utf8_str(s.to_owned()))
+                let s = std::str::from_utf8(&buffer[range])
                     // not sure if this is possible - the input was all strings
-                    .map_err(|_e| vm.new_unicode_decode_error("csv not utf8".to_owned()))
+                    .map_err(|_e| vm.new_unicode_decode_error("csv not utf8".to_owned()))?;
+                Ok(vm.ctx.new_str(s).into())
             })
             .collect::<Result<_, _>>()?;
         Ok(PyIterReturn::Return(vm.ctx.new_list(out)))

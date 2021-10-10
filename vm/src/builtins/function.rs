@@ -545,10 +545,13 @@ impl PyBoundMethod {
             // We need to add object's part manually.
             let obj_name = vm.get_attribute_opt(self.object.clone(), "__qualname__")?;
             let obj_name: Option<PyStrRef> = obj_name.and_then(|o| o.downcast().ok());
-            return Ok(vm.ctx.new_utf8_str(format!(
-                "{}.__new__",
-                obj_name.as_ref().map_or("?", |s| s.as_str())
-            )));
+            return Ok(vm
+                .ctx
+                .new_str(format!(
+                    "{}.__new__",
+                    obj_name.as_ref().map_or("?", |s| s.as_str())
+                ))
+                .into());
         }
 
         vm.get_attribute(self.function.clone(), "__qualname__")

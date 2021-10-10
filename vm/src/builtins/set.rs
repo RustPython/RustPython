@@ -271,7 +271,7 @@ impl PySetInner {
         if let Some((key, _)) = self.content.pop_back() {
             Ok(key)
         } else {
-            let err_msg = vm.ctx.new_ascii_literal(ascii!("pop from an empty set"));
+            let err_msg = vm.ctx.new_str(ascii!("pop from an empty set")).into();
             Err(vm.new_key_error(err_msg))
         }
     }
@@ -534,7 +534,7 @@ impl PySet {
         } else {
             format!("{}(...)", class_name)
         };
-        Ok(vm.ctx.new_utf8_str(s))
+        Ok(vm.ctx.new_str(s).into())
     }
 
     #[pymethod]
@@ -809,7 +809,7 @@ impl PyFrozenSet {
         } else {
             format!("{}(...)", class_name)
         };
-        Ok(vm.ctx.new_utf8_str(s))
+        Ok(vm.ctx.new_str(s).into())
     }
 
     #[pymethod(magic)]
