@@ -21,7 +21,7 @@ mod _operator {
         },
         utils::Either,
         vm::ReprGuard,
-        IdProtocol, ItemProtocol, PyObjectRef, PyRef, PyResult, PyValue, TryIntoRef, TypeProtocol,
+        IdProtocol, ItemProtocol, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
         VirtualMachine,
     };
 
@@ -444,7 +444,7 @@ mod _operator {
             }
             let mut attrs = Vec::with_capacity(nattr);
             for o in args.args {
-                if let Ok(r) = o.try_into_ref(vm) {
+                if let Ok(r) = o.try_into_value(vm) {
                     attrs.push(r);
                 } else {
                     return Err(vm.new_type_error("attribute name must be a string".to_owned()));
@@ -598,7 +598,7 @@ mod _operator {
         type Args = (PyObjectRef, FuncArgs);
 
         fn py_new(cls: PyTypeRef, (name, args): Self::Args, vm: &VirtualMachine) -> PyResult {
-            if let Ok(name) = name.try_into_ref(vm) {
+            if let Ok(name) = name.try_into_value(vm) {
                 PyMethodCaller { name, args }.into_pyresult_with_type(vm, cls)
             } else {
                 Err(vm.new_type_error("method name must be a string".to_owned()))
