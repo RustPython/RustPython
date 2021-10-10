@@ -172,14 +172,14 @@ impl PyContext {
     }
 
     #[inline]
-    pub fn new_bigint(&self, i: &BigInt) -> PyObjectRef {
+    pub fn new_bigint(&self, i: &BigInt) -> PyIntRef {
         if let Some(i) = i.to_i32() {
             if i >= Self::INT_CACHE_POOL_MIN && i <= Self::INT_CACHE_POOL_MAX {
                 let inner_idx = (i - Self::INT_CACHE_POOL_MIN) as usize;
-                return self.int_cache_pool[inner_idx].as_object().clone();
+                return self.int_cache_pool[inner_idx].clone();
             }
         }
-        PyObject::new(PyInt::from(i.clone()), self.types.int_type.clone(), None)
+        PyRef::new_ref(PyInt::from(i.clone()), self.types.int_type.clone(), None)
     }
 
     pub fn new_float(&self, value: f64) -> PyObjectRef {

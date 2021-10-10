@@ -106,7 +106,7 @@ impl ConstantBag for PyObjBag<'_> {
         let vm = self.0;
         let ctx = &vm.ctx;
         let obj = match constant {
-            bytecode::BorrowedConstant::Integer { value } => ctx.new_bigint(value),
+            bytecode::BorrowedConstant::Integer { value } => ctx.new_bigint(value).into(),
             bytecode::BorrowedConstant::Float { value } => ctx.new_float(value),
             bytecode::BorrowedConstant::Complex { value } => ctx.new_complex(value),
             bytecode::BorrowedConstant::Str { value } if value.len() <= 20 => {

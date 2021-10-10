@@ -468,8 +468,8 @@ impl PyFloat {
         }
 
         let ratio = Ratio::from_float(value).unwrap();
-        let numer = vm.ctx.new_bigint(ratio.numer());
-        let denom = vm.ctx.new_bigint(ratio.denom());
+        let numer = vm.ctx.new_bigint(ratio.numer()).into();
+        let denom = vm.ctx.new_bigint(ratio.denom()).into();
         Ok(vm.ctx.new_tuple(vec![numer, denom]))
     }
 

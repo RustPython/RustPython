@@ -595,8 +595,8 @@ impl PyInt {
     }
 
     #[pymethod]
-    fn as_integer_ratio(&self, vm: &VirtualMachine) -> (PyObjectRef, BigInt) {
-        (vm.ctx.new_bigint(&self.value), BigInt::one())
+    fn as_integer_ratio(&self, vm: &VirtualMachine) -> (PyRef<Self>, i32) {
+        (vm.ctx.new_bigint(&self.value), 1)
     }
 
     #[pymethod]
@@ -688,7 +688,7 @@ impl PyInt {
         Ok(bytes.into())
     }
     #[pyproperty]
-    fn real(&self, vm: &VirtualMachine) -> PyObjectRef {
+    fn real(&self, vm: &VirtualMachine) -> PyRef<Self> {
         // subclasses must return int here
         vm.ctx.new_bigint(&self.value)
     }
