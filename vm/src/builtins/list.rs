@@ -252,12 +252,13 @@ impl PyList {
         Ok(zelf.clone())
     }
 
-    #[pymethod]
-    fn count(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+    fn iter_any_equal<F>(&self, needle: &PyObjectRef, mut f: F, vm: &VirtualMachine) -> PyResult<usize>
+    where
+        F: FnMut(&PyObjectRef) -> bool,
+    {
         let mut i = 0;
-        let mut count = 0;
         let mut borrower = None;
-        loop {
+        Ok(loop {
             let guard = if let Some(x) = borrower.take() {
                 x
             } else {
@@ -265,26 +266,54 @@ impl PyList {
             };
             let elem = guard.get(i);
             if let Some(elem) = elem {
-                if elem.is(&needle) {
-                    count += 1;
+                if elem.is(needle) {
+                    if f(elem) {
+                        break i;
+                    }
                     borrower = Some(guard);
                 } else if !elem.class().slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
-                    if vm.bool_eq(elem, &needle)? {
-                        count += 1;
-                        borrower = Some(guard);
+                    if vm.bool_eq(elem, needle)? {
+                        if f(elem) {
+                            break i;
+                        }
                     }
+                    borrower = Some(guard);
                 } else {
                     let elem = elem.clone();
                     drop(guard);
-                    if vm.bool_eq(&elem, &needle)? {
-                        count += 1;
+                    if vm.bool_eq(&elem, needle)? {
+                        if f(&elem) {
+                            break i;
+                        }
                     }
                 }
                 i += 1;
             } else {
-                break Ok(count);
+                break usize::MAX;
             }
-        }
+        })
+    }
+
+    fn iter_foreach_equal<F>(&self, needle: &PyObjectRef, mut f: F, vm: &VirtualMachine) -> PyResult<()>
+    where
+        F: FnMut(&PyObjectRef),
+    {
+        self.iter_any_equal(
+            needle,
+            |elem| {
+                f(elem);
+                false
+            },
+            vm,
+        )
+        .map(|_| ())
+    }
+
+    #[pymethod]
+    fn count(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+        let mut count = 0;
+        self.iter_foreach_equal(&needle, |_| count += 1, vm)?;
+        Ok(count)
     }
 
     #[pymethod(magic)]
