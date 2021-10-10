@@ -6,8 +6,8 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
     let module = _signal::make_module(vm);
 
-    let sig_dfl = vm.ctx.new_int(SIG_DFL as u8);
-    let sig_ign = vm.ctx.new_int(SIG_IGN as u8);
+    let sig_dfl = vm.new_pyobj(SIG_DFL as u8);
+    let sig_ign = vm.new_pyobj(SIG_IGN as u8);
 
     for signum in 1..NSIG {
         let handler = unsafe { libc::signal(signum as i32, SIG_IGN) };

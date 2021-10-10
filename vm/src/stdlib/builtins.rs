@@ -634,7 +634,7 @@ mod builtins {
 
     #[pyfunction]
     pub fn exit(exit_code_arg: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
-        let code = exit_code_arg.unwrap_or_else(|| vm.ctx.new_int(0));
+        let code = exit_code_arg.unwrap_or_else(|| vm.ctx.new_int(0).into());
         Err(vm.new_exception(vm.ctx.exceptions.system_exit.clone(), vec![code]))
     }
 
@@ -763,7 +763,9 @@ mod builtins {
     #[pyfunction]
     fn sum(SumArgs { iterable, start }: SumArgs, vm: &VirtualMachine) -> PyResult {
         // Start with zero and add at will:
-        let mut sum = start.into_option().unwrap_or_else(|| vm.ctx.new_int(0));
+        let mut sum = start
+            .into_option()
+            .unwrap_or_else(|| vm.ctx.new_int(0).into());
 
         match_class!(match sum {
             PyStr =>

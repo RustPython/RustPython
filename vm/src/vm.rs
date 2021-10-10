@@ -353,7 +353,7 @@ impl VirtualMachine {
                 let io = import::import_builtin(self, "_io")?;
                 let set_stdio = |name, fd, mode: &str| {
                     let stdio = crate::stdlib::io::open(
-                        self.ctx.new_int(fd),
+                        self.ctx.new_int(fd).into(),
                         Some(mode),
                         Default::default(),
                         self,
@@ -2291,8 +2291,8 @@ mod tests {
     #[test]
     fn test_add_py_integers() {
         Interpreter::default().enter(|vm| {
-            let a = vm.ctx.new_int(33_i32);
-            let b = vm.ctx.new_int(12_i32);
+            let a = vm.ctx.new_int(33_i32).into();
+            let b = vm.ctx.new_int(12_i32).into();
             let res = vm._add(&a, &b).unwrap();
             let value = int::get_value(&res);
             assert_eq!(*value, 45_i32.to_bigint().unwrap());
@@ -2303,7 +2303,7 @@ mod tests {
     fn test_multiply_str() {
         Interpreter::default().enter(|vm| {
             let a = vm.ctx.new_ascii_literal(crate::common::ascii!("Hello "));
-            let b = vm.ctx.new_int(4_i32);
+            let b = vm.ctx.new_int(4_i32).into();
             let res = vm._mul(&a, &b).unwrap();
             let value = res.payload::<PyStr>().unwrap();
             assert_eq!(value.as_ref(), "Hello Hello Hello Hello ")

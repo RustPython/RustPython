@@ -227,7 +227,7 @@ fn reg_to_py(value: RegValue, vm: &VirtualMachine) -> PyResult {
                     vm.new_value_error(format!("{} value is wrong length", stringify!(name)))
                 })
             };
-            i.map(|i| vm.ctx.new_int(i))
+            i.map(|i| vm.ctx.new_int(i).into())
         }};
     }
     let bytes_to_wide = |b: &[u8]| -> Option<&[u16]> {
@@ -303,12 +303,12 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     macro_rules! add_constants {
         (hkey, $($name:ident),*$(,)?) => {
             extend_module!(vm, module, {
-                $((stringify!($name)) => ctx.new_int(winreg::enums::$name as usize)),*
+                $((stringify!($name)) => vm.new_pyobj(winreg::enums::$name as usize)),*
             })
         };
         (winnt, $($name:ident),*$(,)?) => {
             extend_module!(vm, module, {
-                $((stringify!($name)) => ctx.new_int(winapi::um::winnt::$name)),*
+                $((stringify!($name)) => vm.new_pyobj(winapi::um::winnt::$name)),*
             })
         };
     }

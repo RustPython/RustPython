@@ -355,7 +355,7 @@ impl PyRange {
                 .into())
             }
             RangeIndex::Int(index) => match self.get(index.as_bigint()) {
-                Some(value) => Ok(vm.ctx.new_int(value)),
+                Some(value) => Ok(vm.ctx.new_int(value).into()),
                 None => Err(vm.new_index_error("range object index out of range".to_owned())),
             },
         }
@@ -409,12 +409,16 @@ impl Hashable for PyRange {
     fn hash(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
         let length = zelf.compute_length();
         let elements = if length.is_zero() {
-            [vm.ctx.new_int(length), vm.ctx.none(), vm.ctx.none()]
+            [vm.ctx.new_int(length).into(), vm.ctx.none(), vm.ctx.none()]
         } else if length.is_one() {
-            [vm.ctx.new_int(length), zelf.start().into(), vm.ctx.none()]
+            [
+                vm.ctx.new_int(length).into(),
+                zelf.start().into(),
+                vm.ctx.none(),
+            ]
         } else {
             [
-                vm.ctx.new_int(length),
+                vm.ctx.new_int(length).into(),
                 zelf.start().into(),
                 zelf.step().into(),
             ]
@@ -549,14 +553,13 @@ impl SlotIterator for PyLongRangeIterator {
         // (since fetch_add wraps). This would result in the iterator spinning again
         // from the beginning.
         let index = BigInt::from(zelf.index.fetch_add(1));
-        if index < zelf.length {
-            Ok(PyIterReturn::Return(
-                vm.ctx
-                    .new_int(zelf.start.clone() + index * zelf.step.clone()),
-            ))
+        let r = if index < zelf.length {
+            let value = zelf.start.clone() + index * zelf.step.clone();
+            PyIterReturn::Return(vm.ctx.new_int(value).into())
         } else {
-            Ok(PyIterReturn::StopIteration(None))
-        }
+            PyIterReturn::StopIteration(None)
+        };
+        Ok(r)
     }
 }
 
@@ -620,13 +623,13 @@ impl SlotIterator for PyRangeIterator {
         // (since fetch_add wraps). This would result in the iterator spinning again
         // from the beginning.
         let index = zelf.index.fetch_add(1);
-        if index < zelf.length {
-            Ok(PyIterReturn::Return(
-                vm.ctx.new_int(zelf.start + (index as isize) * zelf.step),
-            ))
+        let r = if index < zelf.length {
+            let value = zelf.start + (index as isize) * zelf.step;
+            PyIterReturn::Return(vm.ctx.new_int(value).into())
         } else {
-            Ok(PyIterReturn::StopIteration(None))
-        }
+            PyIterReturn::StopIteration(None)
+        };
+        Ok(r)
     }
 }
 
@@ -647,7 +650,7 @@ fn range_iter_reduce(
     Ok(vm.ctx.new_tuple(vec![
         iter,
         vm.ctx.new_tuple(vec![range.into_object(vm)]),
-        vm.ctx.new_int(index),
+        vm.ctx.new_int(index).into(),
     ]))
 }
 

@@ -33,7 +33,7 @@ mod termios {
             .iter()
             .enumerate()
             .map(|(i, &c)| match i {
-                termios::VMIN | termios::VTIME if noncanon => vm.ctx.new_int(c),
+                termios::VMIN | termios::VTIME if noncanon => vm.ctx.new_int(c).into(),
                 _ => vm.ctx.new_bytes(vec![c as u8]),
             })
             .collect::<Vec<_>>();

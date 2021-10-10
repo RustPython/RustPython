@@ -539,7 +539,7 @@ where
 
             let value = if args.item.is_const() {
                 // TODO: ctx.new_value
-                quote_spanned!(ident.span() => ctx.new_int(Self::#ident))
+                quote_spanned!(ident.span() => ctx.new_int(Self::#ident).into())
             } else {
                 quote_spanned!(ident.span() => Self::#ident(ctx))
             };

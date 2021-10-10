@@ -120,8 +120,8 @@ mod _codecs {
                 vec![
                     vm.ctx.new_utf8_str(self.encoding),
                     data_str,
-                    vm.ctx.new_int(char_range.start),
-                    vm.ctx.new_int(char_range.end),
+                    vm.ctx.new_int(char_range.start).into(),
+                    vm.ctx.new_int(char_range.end).into(),
                     vm.ctx.new_utf8_str(reason),
                 ],
             );
@@ -163,8 +163,8 @@ mod _codecs {
                 vec![
                     vm.ctx.new_utf8_str(self.encoding),
                     data_bytes.clone(),
-                    vm.ctx.new_int(byte_range.start),
-                    vm.ctx.new_int(byte_range.end),
+                    vm.ctx.new_int(byte_range.start).into(),
+                    vm.ctx.new_int(byte_range.end).into(),
                     vm.ctx.new_utf8_str(reason),
                 ],
             );
@@ -221,8 +221,8 @@ mod _codecs {
                 vec![
                     vm.ctx.new_utf8_str(self.encoding),
                     vm.ctx.new_utf8_str(data),
-                    vm.ctx.new_int(char_range.start),
-                    vm.ctx.new_int(char_range.end),
+                    vm.ctx.new_int(char_range.start).into(),
+                    vm.ctx.new_int(char_range.end).into(),
                     vm.ctx.new_utf8_str(reason),
                 ],
             )

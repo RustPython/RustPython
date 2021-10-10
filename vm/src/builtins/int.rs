@@ -60,7 +60,7 @@ impl PyValue for PyInt {
     }
 
     fn into_object(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_int(self.value)
+        vm.ctx.new_int(self.value).into()
     }
 
     fn special_retrieve(vm: &VirtualMachine, obj: &PyObjectRef) -> Option<PyResult<PyRef<Self>>> {
@@ -72,7 +72,7 @@ macro_rules! impl_into_pyobject_int {
     ($($t:ty)*) => {$(
         impl IntoPyObject for $t {
             fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-                vm.ctx.new_int(self)
+                vm.ctx.new_int(self).into()
             }
         }
     )*};
@@ -111,25 +111,26 @@ fn inner_pow(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
     if int2.is_negative() {
         let v1 = try_to_float(int1, vm)?;
         let v2 = try_to_float(int2, vm)?;
-        float::float_pow(v1, v2, vm).into_pyresult(vm)
+        float::float_pow(v1, v2, vm)
     } else {
-        Ok(if let Some(v2) = int2.to_u64() {
-            vm.ctx.new_int(Pow::pow(int1, v2))
+        let value = if let Some(v2) = int2.to_u64() {
+            return Ok(vm.ctx.new_int(Pow::pow(int1, v2)).into());
         } else if int1.is_one() {
-            vm.ctx.new_int(1)
+            1
         } else if int1.is_zero() {
-            vm.ctx.new_int(0)
+            0
         } else if int1 == &BigInt::from(-1) {
             if int2.is_odd() {
-                vm.ctx.new_int(-1)
+                -1
             } else {
-                vm.ctx.new_int(1)
+                1
             }
         } else {
             // missing feature: BigInt exp
             // practically, exp over u64 is not possible to calculate anyway
-            vm.ctx.not_implemented()
-        })
+            return Ok(vm.ctx.not_implemented());
+        };
+        Ok(vm.ctx.new_int(value).into())
     }
 }
 
@@ -137,7 +138,7 @@ fn inner_mod(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
     if int2.is_zero() {
         Err(vm.new_zero_division_error("integer modulo by zero".to_owned()))
     } else {
-        Ok(vm.ctx.new_int(int1.mod_floor(int2)))
+        Ok(vm.ctx.new_int(int1.mod_floor(int2)).into())
     }
 }
 
@@ -145,7 +146,7 @@ fn inner_floordiv(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult
     if int2.is_zero() {
         Err(vm.new_zero_division_error("integer division by zero".to_owned()))
     } else {
-        Ok(vm.ctx.new_int(int1.div_floor(int2)))
+        Ok(vm.ctx.new_int(int1.div_floor(int2)).into())
     }
 }
 
@@ -154,9 +155,10 @@ fn inner_divmod(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
         Err(vm.new_zero_division_error("integer division or modulo by zero".to_owned()))
     } else {
         let (div, modulo) = int1.div_mod_floor(int2);
-        Ok(vm
-            .ctx
-            .new_tuple(vec![vm.ctx.new_int(div), vm.ctx.new_int(modulo)]))
+        Ok(vm.ctx.new_tuple(vec![
+            vm.ctx.new_int(div).into(),
+            vm.ctx.new_int(modulo).into(),
+        ]))
     }
 }
 
@@ -167,12 +169,12 @@ where
     if int2.is_negative() {
         Err(vm.new_value_error("negative shift count".to_owned()))
     } else if int1.is_zero() {
-        Ok(vm.ctx.new_int(0))
+        Ok(vm.ctx.new_int(0).into())
     } else {
         let int2 = int2.to_usize().ok_or_else(|| {
             vm.new_overflow_error("the number is too large to convert to int".to_owned())
         })?;
-        Ok(vm.ctx.new_int(shift_op(int1, int2)))
+        Ok(vm.ctx.new_int(shift_op(int1, int2)).into())
     }
 }
 
@@ -253,7 +255,7 @@ impl PyInt {
         T: Into<BigInt> + ToPrimitive,
     {
         if cls.is(&vm.ctx.types.int_type) {
-            Ok(vm.ctx.new_int(value).downcast().unwrap())
+            Ok(vm.ctx.new_int(value))
         } else if cls.is(&vm.ctx.types.bool_type) {
             Ok(vm
                 .ctx
@@ -455,7 +457,7 @@ impl PyInt {
                         } else {
                             a.modpow(b, modulus)
                         };
-                        Ok(vm.ctx.new_int(i))
+                        Ok(vm.ctx.new_int(i).into())
                     },
                     vm,
                 )

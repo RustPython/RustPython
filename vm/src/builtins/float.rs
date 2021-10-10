@@ -419,7 +419,7 @@ impl PyFloat {
                 self.value.round()
             };
             let int = try_to_bigint(value, vm)?;
-            vm.ctx.new_int(int)
+            vm.ctx.new_int(int).into()
         };
         Ok(value)
     }

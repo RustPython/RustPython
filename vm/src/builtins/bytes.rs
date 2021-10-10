@@ -652,7 +652,7 @@ impl SlotIterator for PyBytesIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal.lock().next(|bytes, pos| {
             Ok(match bytes.as_bytes().get(pos) {
-                Some(&x) => PyIterReturn::Return(vm.ctx.new_int(x)),
+                Some(&x) => PyIterReturn::Return(vm.ctx.new_int(x).into()),
                 None => PyIterReturn::StopIteration(None),
             })
         })

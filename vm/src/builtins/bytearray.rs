@@ -810,7 +810,7 @@ impl SlotIterator for PyByteArrayIterator {
         zelf.internal.lock().next(|bytearray, pos| {
             let buf = bytearray.borrow_buf();
             Ok(match buf.get(pos) {
-                Some(&x) => PyIterReturn::Return(vm.ctx.new_int(x)),
+                Some(&x) => PyIterReturn::Return(vm.ctx.new_int(x).into()),
                 None => PyIterReturn::StopIteration(None),
             })
         })

@@ -368,19 +368,19 @@ mod re {
     impl PyMatch {
         #[pymethod]
         fn start(&self, group: OptionalArg, vm: &VirtualMachine) -> PyResult {
-            let group = group.unwrap_or_else(|| vm.ctx.new_int(0));
+            let group = group.unwrap_or_else(|| vm.ctx.new_int(0).into());
             let start = self
                 .get_bounds(group, vm)?
-                .map_or_else(|| vm.ctx.new_int(-1), |r| vm.ctx.new_int(r.start));
+                .map_or_else(|| vm.ctx.new_int(-1).into(), |r| vm.ctx.new_int(r.start).into());
             Ok(start)
         }
 
         #[pymethod]
         fn end(&self, group: OptionalArg, vm: &VirtualMachine) -> PyResult {
-            let group = group.unwrap_or_else(|| vm.ctx.new_int(0));
+            let group = group.unwrap_or_else(|| vm.ctx.new_int(0).into());
             let end = self
                 .get_bounds(group, vm)?
-                .map_or_else(|| vm.ctx.new_int(-1), |r| vm.ctx.new_int(r.end));
+                .map_or_else(|| vm.ctx.new_int(-1).into(), |r| vm.ctx.new_int(r.end).into());
             Ok(end)
         }
 

@@ -841,7 +841,7 @@ impl PySocket {
             if ret < 0 {
                 Err(crate::vm::stdlib::os::errno_err(vm))
             } else {
-                Ok(vm.ctx.new_int(flag))
+                Ok(vm.ctx.new_int(flag).into())
             }
         } else {
             if buflen <= 0 || buflen > 1024 {
@@ -1072,7 +1072,7 @@ fn _socket_getservbyname(
     servicename: PyStrRef,
     protocolname: OptionalArg<PyStrRef>,
     vm: &VirtualMachine,
-) -> PyResult {
+) -> PyResult<u16> {
     let cstr_name = servicename.to_cstring(vm)?;
     let cstr_proto = protocolname
         .as_ref()
@@ -1084,7 +1084,7 @@ fn _socket_getservbyname(
         return Err(vm.new_os_error("service/proto not found".to_owned()));
     }
     let port = unsafe { (*serv).s_port };
-    Ok(vm.ctx.new_int(u16::from_be(port as u16)))
+    Ok(u16::from_be(port as u16))
 }
 
 fn _socket_getservbyport(
@@ -1267,9 +1267,9 @@ fn _socket_getaddrinfo(opts: GAIOptions, vm: &VirtualMachine) -> PyResult {
         .map(|ai| {
             ai.map(|ai| {
                 vm.ctx.new_tuple(vec![
-                    vm.ctx.new_int(ai.address),
-                    vm.ctx.new_int(ai.socktype),
-                    vm.ctx.new_int(ai.protocol),
+                    vm.ctx.new_int(ai.address).into(),
+                    vm.ctx.new_int(ai.socktype).into(),
+                    vm.ctx.new_int(ai.protocol).into(),
                     ai.canonname.into_pyobject(vm),
                     get_ip_addr_tuple(&ai.sockaddr, vm),
                 ])
@@ -1353,7 +1353,7 @@ fn _socket_getprotobyname(name: PyStrRef, vm: &VirtualMachine) -> PyResult {
         return Err(vm.new_os_error("protocol not found".to_owned()));
     }
     let num = unsafe { (*proto).p_proto };
-    Ok(vm.ctx.new_int(num))
+    Ok(vm.ctx.new_int(num).into())
 }
 
 fn _socket_getnameinfo(
@@ -1727,7 +1727,7 @@ fn convert_socket_error(
     };
     vm.new_exception(
         exception_cls.get().unwrap().clone(),
-        vec![vm.ctx.new_int(err.error_num()), vm.ctx.new_utf8_str(strerr)],
+        vec![vm.new_pyobj(err.error_num()), vm.ctx.new_utf8_str(strerr)],
     )
 }
 

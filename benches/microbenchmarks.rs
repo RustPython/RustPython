@@ -134,7 +134,7 @@ fn bench_rustpy_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchmar
                     .locals
                     .set_item(
                         vm.ctx.new_ascii_literal(ascii!("ITERATIONS")),
-                        vm.ctx.new_int(idx),
+                        vm.new_pyobj(idx),
                         vm,
                     )
                     .expect("Error adding ITERATIONS local variable");

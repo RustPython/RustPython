@@ -271,7 +271,7 @@ mod _operator {
     /// Otherwise, it may over- or under-estimate by an arbitrary amount.
     /// The result will be an integer >= 0.
     #[pyfunction]
-    fn length_hint(obj: PyObjectRef, default: OptionalArg, vm: &VirtualMachine) -> PyResult {
+    fn length_hint(obj: PyObjectRef, default: OptionalArg, vm: &VirtualMachine) -> PyResult<usize> {
         let default: usize = default
             .map(|v| {
                 if !v.isinstance(&vm.ctx.types.int_type) {
@@ -283,8 +283,7 @@ mod _operator {
                 v.payload::<PyInt>().unwrap().try_to_primitive(vm)
             })
             .unwrap_or(Ok(0))?;
-        vm.length_hint(obj)
-            .map(|v| vm.ctx.new_int(v.unwrap_or(default)))
+        vm.length_hint(obj).map(|v| v.unwrap_or(default))
     }
 
     // Inplace Operators

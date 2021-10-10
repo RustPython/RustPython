@@ -52,7 +52,7 @@ mod fcntl {
         if ret < 0 {
             return Err(os::errno_err(vm));
         }
-        Ok(vm.ctx.new_int(ret))
+        Ok(vm.new_pyobj(ret))
     }
 
     #[pyfunction]
@@ -85,7 +85,7 @@ mod fcntl {
                             if ret < 0 {
                                 return Err(os::errno_err(vm));
                             }
-                            return Ok(vm.ctx.new_int(ret));
+                            return Ok(vm.ctx.new_int(ret).into());
                         }
                         // treat like an immutable buffer
                         fill_buf(&arg_buf)?
@@ -103,7 +103,7 @@ mod fcntl {
                 if ret < 0 {
                     return Err(os::errno_err(vm));
                 }
-                Ok(vm.ctx.new_int(ret))
+                Ok(vm.ctx.new_int(ret).into())
             }
         }
     }

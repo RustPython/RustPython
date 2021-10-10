@@ -281,12 +281,13 @@ mod decl {
     #[pyimpl(with(SlotIterator, SlotConstructor), flags(BASETYPE))]
     impl PyItertoolsRepeat {
         #[pymethod(magic)]
-        fn length_hint(&self, vm: &VirtualMachine) -> PyResult {
-            match self.times {
-                Some(ref times) => Ok(vm.ctx.new_int(*times.read())),
-                // Return TypeError, length_hint picks this up and returns the default.
-                None => Err(vm.new_type_error("length of unsized object.".to_owned())),
-            }
+        fn length_hint(&self, vm: &VirtualMachine) -> PyResult<usize> {
+            // Return TypeError, length_hint picks this up and returns the default.
+            let times = self
+                .times
+                .as_ref()
+                .ok_or_else(|| vm.new_type_error("length of unsized object.".to_owned()))?;
+            Ok(*times.read())
         }
 
         #[pymethod(magic)]

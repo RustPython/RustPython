@@ -137,7 +137,7 @@ fn browser_request_animation_frame(func: ArgCallable, vm: &VirtualMachine) -> Py
         ))
         .map_err(|err| convert::js_py_typeerror(vm, err))?;
 
-    Ok(vm.ctx.new_int(id))
+    Ok(vm.ctx.new_int(id).into())
 }
 
 fn browser_cancel_animation_frame(id: i32, vm: &VirtualMachine) -> PyResult<()> {

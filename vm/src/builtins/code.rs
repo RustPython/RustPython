@@ -80,7 +80,7 @@ impl ConstantBag for PyObjBag<'_> {
         let vm = self.0;
         let ctx = &vm.ctx;
         let obj = match constant {
-            bytecode::ConstantData::Integer { value } => ctx.new_int(value),
+            bytecode::ConstantData::Integer { value } => ctx.new_int(value).into(),
             bytecode::ConstantData::Float { value } => ctx.new_float(value),
             bytecode::ConstantData::Complex { value } => ctx.new_complex(value),
             bytecode::ConstantData::Str { value } if value.len() <= 20 => {

@@ -210,9 +210,9 @@ impl PySlice {
         } else {
             let (start, stop, step) = self.inner_indices(length, vm)?;
             Ok(vm.ctx.new_tuple(vec![
-                vm.ctx.new_int(start),
-                vm.ctx.new_int(stop),
-                vm.ctx.new_int(step),
+                vm.ctx.new_int(start).into(),
+                vm.ctx.new_int(stop).into(),
+                vm.ctx.new_int(step).into(),
             ]))
         }
     }

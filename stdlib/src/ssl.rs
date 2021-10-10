@@ -189,7 +189,7 @@ fn _ssl_enum_certificates(store_name: PyStrRef, vm: &VirtualMachine) -> PyResult
         let enc_type = match enc_type {
             wincrypt::X509_ASN_ENCODING => vm.ctx.new_ascii_literal(ascii!("x509_asn")),
             wincrypt::PKCS_7_ASN_ENCODING => vm.ctx.new_ascii_literal(ascii!("pkcs_7_asn")),
-            other => vm.ctx.new_int(other),
+            other => vm.ctx.new_int(other).into(),
         };
         let usage = match c.valid_uses()? {
             ValidUses::All => vm.ctx.new_bool(true),
@@ -956,7 +956,7 @@ impl PySslSocket {
             return Err(convert_ssl_error(vm, err));
         };
         let ret = match inner_buffer {
-            Either::A(_buf) => vm.ctx.new_int(count),
+            Either::A(_buf) => vm.ctx.new_int(count).into(),
             Either::B(mut buf) => {
                 buf.truncate(n);
                 buf.shrink_to_fit();
@@ -989,7 +989,10 @@ fn convert_openssl_error(vm: &VirtualMachine, err: ErrorStack) -> PyBaseExceptio
                 format!("{} ({}:{})", errstr, file, line)
             };
             let reason = sys::ERR_GET_REASON(e.code());
-            vm.new_exception(cls, vec![vm.ctx.new_int(reason), vm.ctx.new_utf8_str(msg)])
+            vm.new_exception(
+                cls,
+                vec![vm.ctx.new_int(reason).into(), vm.ctx.new_utf8_str(msg)],
+            )
         }
         None => vm.new_exception_empty(cls),
     }
@@ -1079,7 +1082,7 @@ fn cert_to_py(vm: &VirtualMachine, cert: &X509Ref, binary: bool) -> PyResult {
 
         dict.set_item("subject", name_to_py(cert.subject_name())?, vm)?;
         dict.set_item("issuer", name_to_py(cert.issuer_name())?, vm)?;
-        dict.set_item("version", vm.ctx.new_int(cert.version()), vm)?;
+        dict.set_item("version", vm.new_pyobj(cert.version()), vm)?;
 
         let serial_num = cert
             .serial_number()

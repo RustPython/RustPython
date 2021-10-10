@@ -606,7 +606,7 @@ pub(crate) mod _struct {
 
                 fn unpack<E: ByteOrder>(vm: &VirtualMachine, rdr: &[u8]) -> PyObjectRef {
                     let i = <$T>::unpack_int::<E>(rdr);
-                    vm.ctx.new_int(i)
+                    vm.ctx.new_int(i).into()
                 }
             }
         };

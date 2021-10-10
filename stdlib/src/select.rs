@@ -332,7 +332,7 @@ mod decl {
                 let removed = remove_fd(&mut self.fds.lock(), fd);
                 removed
                     .map(drop)
-                    .ok_or_else(|| vm.new_key_error(vm.ctx.new_int(fd)))
+                    .ok_or_else(|| vm.new_key_error(vm.ctx.new_int(fd).into()))
             }
 
             #[pymethod]

@@ -62,7 +62,7 @@ impl<T> PositionIterInternal<T> {
             vm.ctx.new_tuple(vec![
                 func,
                 vm.ctx.new_tuple(vec![f(obj)]),
-                vm.ctx.new_int(self.position),
+                vm.ctx.new_int(self.position).into(),
             ])
         } else {
             vm.ctx

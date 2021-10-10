@@ -1166,14 +1166,14 @@ impl PyStr {
                     if to_str.len() == from_str.len() {
                         for (c1, c2) in from_str.as_str().chars().zip(to_str.as_str().chars()) {
                             new_dict.set_item(
-                                vm.ctx.new_int(c1 as u32),
-                                vm.ctx.new_int(c2 as u32),
+                                vm.new_pyobj(c1 as u32),
+                                vm.new_pyobj(c2 as u32),
                                 vm,
                             )?;
                         }
                         if let OptionalArg::Present(none_str) = none_str {
                             for c in none_str.as_str().chars() {
-                                new_dict.set_item(vm.ctx.new_int(c as u32), vm.ctx.none(), vm)?;
+                                new_dict.set_item(vm.new_pyobj(c as u32), vm.ctx.none(), vm)?;
                             }
                         }
                         Ok(new_dict.into_pyobject(vm))
@@ -1530,7 +1530,7 @@ mod tests {
             let text = PyStr::from("abc");
             let translated = text.translate(translated, &vm).unwrap();
             assert_eq!(translated, "🎅xda".to_owned());
-            let translated = text.translate(vm.ctx.new_int(3), &vm);
+            let translated = text.translate(vm.ctx.new_int(3).into(), &vm);
             assert_eq!(
                 translated.unwrap_err().class().name().deref(),
                 "TypeError".to_owned()
