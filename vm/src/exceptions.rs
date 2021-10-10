@@ -702,7 +702,10 @@ impl ExceptionZoo {
         extend_exception!(PyZeroDivisionError, ctx, &excs.zero_division_error);
 
         extend_exception!(PyAssertionError, ctx, &excs.assertion_error);
-        extend_exception!(PyAttributeError, ctx, &excs.attribute_error);
+        extend_exception!(PyAttributeError, ctx, &excs.attribute_error, {
+            "name" => ctx.none(),
+            "obj" => ctx.none(),
+        });
         extend_exception!(PyBufferError, ctx, &excs.buffer_error);
         extend_exception!(PyEOFError, ctx, &excs.eof_error);
 

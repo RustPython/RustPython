@@ -1413,6 +1413,19 @@ impl VirtualMachine {
         }
     }
 
+    pub fn set_attribute_error_context(
+        &self,
+        exc: &PyBaseExceptionRef,
+        obj: PyObjectRef,
+        name: PyStrRef,
+    ) {
+        if exc.class().is(&self.ctx.exceptions.attribute_error) {
+            let exc = exc.as_object();
+            exc.set_attr("name", name, self).unwrap();
+            exc.set_attr("obj", obj, self).unwrap();
+        }
+    }
+
     // get_method should be used for internal access to magic methods (by-passing
     // the full getattribute look-up.
     pub fn get_method_or_type_error<F>(

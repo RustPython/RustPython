@@ -32,7 +32,10 @@ impl PyObjectRef {
             .class()
             .mro_find_map(|cls| cls.slots.getattro.load())
             .unwrap();
-        getattro(self, attr_name, vm)
+        getattro(self.clone(), attr_name.clone(), vm).map_err(|exc| {
+            vm.set_attribute_error_context(&exc, self, attr_name);
+            exc
+        })
     }
 
     pub fn call_set_attr(
