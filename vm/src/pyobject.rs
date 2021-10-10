@@ -13,7 +13,7 @@ use crate::{
         object, pystr,
         set::{self, PyFrozenSet},
         PyBaseExceptionRef, PyBoundMethod, PyDict, PyDictRef, PyEllipsis, PyFloat, PyInt, PyIntRef,
-        PyList, PyNone, PyNotImplemented, PyStaticMethod, PyTuple, PyTupleRef, PyType, PyTypeRef,
+        PyList, PyNone, PyNotImplemented, PyStr, PyTuple, PyTupleRef, PyType, PyTypeRef,
     },
     dictdatatype::Dict,
     exceptions,
@@ -254,14 +254,14 @@ impl PyContext {
     }
 
     #[inline]
-    pub fn make_funcdef<F, FKind>(&self, name: impl Into<String>, f: F) -> PyNativeFuncDef
+    pub fn make_funcdef<F, FKind>(&self, name: impl Into<PyStr>, f: F) -> PyNativeFuncDef
     where
         F: IntoPyNativeFunc<FKind>,
     {
-        PyNativeFuncDef::new(f.into_func(), self.new_stringref(name.into()))
+        PyNativeFuncDef::new(f.into_func(), PyStr::new_ref(name, self))
     }
 
-    pub fn new_function<F, FKind>(&self, name: impl Into<String>, f: F) -> PyObjectRef
+    pub fn new_function<F, FKind>(&self, name: impl Into<PyStr>, f: F) -> PyObjectRef
     where
         F: IntoPyNativeFunc<FKind>,
     {
@@ -270,7 +270,7 @@ impl PyContext {
 
     pub fn new_method<F, FKind>(
         &self,
-        name: impl Into<String>,
+        name: impl Into<PyStr>,
         class: PyTypeRef,
         f: F,
     ) -> PyObjectRef
@@ -282,7 +282,7 @@ impl PyContext {
 
     pub fn new_classmethod<F, FKind>(
         &self,
-        name: impl Into<String>,
+        name: impl Into<PyStr>,
         class: PyTypeRef,
         f: F,
     ) -> PyObjectRef
@@ -290,21 +290,6 @@ impl PyContext {
         F: IntoPyNativeFunc<FKind>,
     {
         self.make_funcdef(name, f).build_classmethod(self, class)
-    }
-    pub fn new_staticmethod<F, FKind>(
-        &self,
-        name: impl Into<String>,
-        class: PyTypeRef,
-        f: F,
-    ) -> PyObjectRef
-    where
-        F: IntoPyNativeFunc<FKind>,
-    {
-        PyObject::new(
-            PyStaticMethod::from(self.new_method(name, class, f)),
-            self.types.staticmethod_type.clone(),
-            None,
-        )
     }
 
     pub fn new_readonly_getset<F, T>(
