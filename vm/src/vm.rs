@@ -579,7 +579,7 @@ impl VirtualMachine {
     }
 
     pub fn new_code_object(&self, code: impl code::IntoCodeObject) -> PyRef<PyCode> {
-        self.ctx.new_code_object(code.into_codeobj(self))
+        PyCode::new_ref(code.into_codeobj(self), &self.ctx)
     }
 
     pub fn new_module(&self, name: &str, dict: PyDictRef, doc: Option<&str>) -> PyObjectRef {

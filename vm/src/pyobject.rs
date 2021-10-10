@@ -8,7 +8,6 @@ use crate::{
     builtins::{
         builtinfunc::{PyBuiltinFunction, PyBuiltinMethod, PyNativeFuncDef},
         bytearray, bytes,
-        code::{self, PyCode},
         getset::{IntoPyGetterFunc, IntoPySetterFunc, PyGetSet},
         object, pystr, PyBaseExceptionRef, PyBoundMethod, PyDict, PyDictRef, PyEllipsis, PyFloat,
         PyFrozenSet, PyInt, PyIntRef, PyList, PyNone, PyNotImplemented, PyStr, PyTuple, PyTupleRef,
@@ -304,13 +303,6 @@ impl PyContext {
             self.types.getset_type.clone(),
             None,
         )
-    }
-
-    /// Create a new `PyRef<PyCode>` from a `code::CodeObject`. If you have a non-mapped codeobject or
-    /// this is giving you a type error even though you've passed a `CodeObject`, try
-    /// [`vm.new_code_object()`](VirtualMachine::new_code_object) instead.
-    pub fn new_code_object(&self, code: code::CodeObject) -> PyRef<PyCode> {
-        PyRef::new_ref(PyCode::new(code), self.types.code_type.clone(), None)
     }
 
     pub fn new_base_object(&self, class: PyTypeRef, dict: Option<PyDictRef>) -> PyObjectRef {
