@@ -162,7 +162,7 @@ impl<'de> Visitor<'de> for PyObjectDeserializer<'de> {
     where
         E: serde::de::Error,
     {
-        Ok(self.vm.ctx.new_float(value))
+        Ok(self.vm.ctx.new_float(value).into())
     }
 
     fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>

@@ -123,7 +123,7 @@ fn browser_request_animation_frame(func: ArgCallable, vm: &VirtualMachine) -> Py
             .expect("that the vm is valid from inside of request_animation_frame");
         stored_vm.interp.enter(|vm| {
             let func = func.clone();
-            let args = vec![vm.ctx.new_float(time)];
+            let args = vec![vm.ctx.new_float(time).into()];
             let _ = vm.invoke(&func, args);
 
             let closure = f.borrow_mut().take();

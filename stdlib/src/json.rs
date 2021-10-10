@@ -182,7 +182,7 @@ mod _json {
                 if let Some(ref parse_float) = self.parse_float {
                     vm.invoke(parse_float, (buf.to_owned(),))
                 } else {
-                    Ok(vm.ctx.new_float(f64::from_str(buf).unwrap()))
+                    Ok(vm.ctx.new_float(f64::from_str(buf).unwrap()).into())
                 }
             } else if let Some(ref parse_int) = self.parse_int {
                 vm.invoke(parse_int, (buf.to_owned(),))

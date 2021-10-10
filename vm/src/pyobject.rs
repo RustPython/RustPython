@@ -182,8 +182,8 @@ impl PyContext {
         PyRef::new_ref(PyInt::from(i.clone()), self.types.int_type.clone(), None)
     }
 
-    pub fn new_float(&self, value: f64) -> PyObjectRef {
-        PyObject::new(PyFloat::from(value), self.types.float_type.clone(), None)
+    pub fn new_float(&self, value: f64) -> PyRef<PyFloat> {
+        PyRef::new_ref(PyFloat::from(value), self.types.float_type.clone(), None)
     }
 
     pub fn new_complex(&self, value: Complex64) -> PyObjectRef {

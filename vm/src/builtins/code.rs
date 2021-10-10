@@ -81,7 +81,7 @@ impl ConstantBag for PyObjBag<'_> {
         let ctx = &vm.ctx;
         let obj = match constant {
             bytecode::ConstantData::Integer { value } => ctx.new_int(value).into(),
-            bytecode::ConstantData::Float { value } => ctx.new_float(value),
+            bytecode::ConstantData::Float { value } => ctx.new_float(value).into(),
             bytecode::ConstantData::Complex { value } => ctx.new_complex(value),
             bytecode::ConstantData::Str { value } if value.len() <= 20 => {
                 vm.intern_string(value).into()
@@ -107,7 +107,7 @@ impl ConstantBag for PyObjBag<'_> {
         let ctx = &vm.ctx;
         let obj = match constant {
             bytecode::BorrowedConstant::Integer { value } => ctx.new_bigint(value).into(),
-            bytecode::BorrowedConstant::Float { value } => ctx.new_float(value),
+            bytecode::BorrowedConstant::Float { value } => ctx.new_float(value).into(),
             bytecode::BorrowedConstant::Complex { value } => ctx.new_complex(value),
             bytecode::BorrowedConstant::Str { value } if value.len() <= 20 => {
                 vm.intern_string(value).into()

@@ -395,8 +395,10 @@ impl PyComplex {
     #[pymethod(magic)]
     fn getnewargs(&self, vm: &VirtualMachine) -> PyObjectRef {
         let Complex64 { re, im } = self.value;
-        vm.ctx
-            .new_tuple(vec![vm.ctx.new_float(re), vm.ctx.new_float(im)])
+        vm.ctx.new_tuple(vec![
+            vm.ctx.new_float(re).into(),
+            vm.ctx.new_float(im).into(),
+        ])
     }
 }
 

@@ -158,11 +158,12 @@ mod time {
     }
 
     #[pyfunction]
-    fn mktime(t: PyStructTime, vm: &VirtualMachine) -> PyResult {
+    fn mktime(t: PyStructTime, vm: &VirtualMachine) -> PyResult<f64> {
         let datetime = t.to_date_time(vm)?;
         let seconds_since_epoch = datetime.timestamp() as f64;
-        Ok(vm.ctx.new_float(seconds_since_epoch))
+        Ok(seconds_since_epoch)
     }
+
     const CFMT: &str = "%a %b %e %H:%M:%S %Y";
 
     #[pyfunction]

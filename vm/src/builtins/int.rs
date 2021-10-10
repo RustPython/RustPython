@@ -184,8 +184,8 @@ fn inner_truediv(i1: &BigInt, i2: &BigInt, vm: &VirtualMachine) -> PyResult {
         return Err(vm.new_zero_division_error("integer division by zero".to_owned()));
     }
 
-    if let (Some(f1), Some(f2)) = (i2f(i1), i2f(i2)) {
-        Ok(vm.ctx.new_float(f1 / f2))
+    let value = if let (Some(f1), Some(f2)) = (i2f(i1), i2f(i2)) {
+        f1 / f2
     } else {
         let (quotient, mut rem) = i1.div_rem(i2);
         let mut divisor = i2.clone();
@@ -203,11 +203,12 @@ fn inner_truediv(i1: &BigInt, i2: &BigInt, vm: &VirtualMachine) -> PyResult {
                 }
             };
 
-            Ok(vm.ctx.new_float(quotient + rem_part))
+            quotient + rem_part
         } else {
-            Err(vm.new_overflow_error("int too large to convert to float".to_owned()))
+            return Err(vm.new_overflow_error("int too large to convert to float".to_owned()));
         }
-    }
+    };
+    Ok(vm.ctx.new_float(value).into())
 }
 
 impl SlotConstructor for PyInt {
