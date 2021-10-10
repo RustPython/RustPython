@@ -12,14 +12,14 @@
 #[pymodule]
 pub(crate) mod _struct {
     use crate::{
-        builtins::{float, PyBaseExceptionRef, PyBytesRef, PyStr, PyStrRef, PyTupleRef, PyTypeRef},
-        common::str::wchar_t,
-        function::{
-            ArgAsciiBuffer, ArgBytesLike, ArgIntoBool, ArgMemoryBuffer, IntoPyObject, PosArgs,
+        builtins::{
+            float, PyBaseExceptionRef, PyBytes, PyBytesRef, PyStr, PyStrRef, PyTupleRef, PyTypeRef,
         },
+        common::str::wchar_t,
+        function::{ArgBytesLike, ArgIntoBool, ArgMemoryBuffer, IntoPyObject, PosArgs},
         protocol::PyIterReturn,
         slots::{IteratorIterable, SlotConstructor, SlotIterator},
-        PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
+        PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use half::f16;
@@ -202,6 +202,39 @@ pub(crate) mod _struct {
     }
 
     const OVERFLOW_MSG: &str = "total struct size too long";
+
+    struct IntoStructFormatBytes(PyStrRef);
+
+    impl TryFromObject for IntoStructFormatBytes {
+        fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+            // CPython turns str to bytes but we do reversed way here
+            // The only performance difference is this transition cost
+            let fmt = match_class! {
+                match obj {
+                    s @ PyStr => if s.is_ascii() {
+                        Some(s)
+                    } else {
+                        None
+                    },
+                    b @ PyBytes => if b.is_ascii() {
+                        Some(unsafe {
+                            PyStr::new_ascii_unchecked(b.as_bytes().to_vec())
+                        }.into_ref(vm))
+                    } else {
+                        None
+                    },
+                    other => return Err(vm.new_type_error(format!("Struct() argument 1 must be a str or bytes object, not {}", other.class().name()))),
+                }
+            }.ok_or_else(|| vm.new_unicode_decode_error("Struct format must be a ascii string".to_owned()))?;
+            Ok(IntoStructFormatBytes(fmt))
+        }
+    }
+
+    impl IntoStructFormatBytes {
+        fn format_spec(&self, vm: &VirtualMachine) -> PyResult<FormatSpec> {
+            FormatSpec::parse(self.0.as_str().as_bytes(), vm)
+        }
+    }
 
     #[derive(Debug, Clone)]
     pub(crate) struct FormatSpec {
@@ -708,20 +741,19 @@ pub(crate) mod _struct {
     }
 
     #[pyfunction]
-    fn pack(fmt: ArgAsciiBuffer, args: PosArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        let format_spec = fmt.with_ref(|bytes| FormatSpec::parse(bytes, vm))?;
-        format_spec.pack(args.into_vec(), vm)
+    fn pack(fmt: IntoStructFormatBytes, args: PosArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        fmt.format_spec(vm)?.pack(args.into_vec(), vm)
     }
 
     #[pyfunction]
     fn pack_into(
-        fmt: ArgAsciiBuffer,
+        fmt: IntoStructFormatBytes,
         buffer: ArgMemoryBuffer,
         offset: isize,
         args: PosArgs,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let format_spec = fmt.with_ref(|bytes| FormatSpec::parse(bytes, vm))?;
+        let format_spec = fmt.format_spec(vm)?;
         let offset = get_buffer_offset(buffer.len(), offset, format_spec.size, true, vm)?;
         buffer.with_ref(|data| format_spec.pack_into(&mut data[offset..], args.into_vec(), vm))
     }
@@ -744,11 +776,11 @@ pub(crate) mod _struct {
 
     #[pyfunction]
     fn unpack(
-        fmt: ArgAsciiBuffer,
+        fmt: IntoStructFormatBytes,
         buffer: ArgBytesLike,
         vm: &VirtualMachine,
     ) -> PyResult<PyTupleRef> {
-        let format_spec = fmt.with_ref(|bytes| FormatSpec::parse(bytes, vm))?;
+        let format_spec = fmt.format_spec(vm)?;
         buffer.with_ref(|buf| format_spec.unpack(buf, vm))
     }
 
@@ -761,11 +793,11 @@ pub(crate) mod _struct {
 
     #[pyfunction]
     fn unpack_from(
-        fmt: ArgAsciiBuffer,
+        fmt: IntoStructFormatBytes,
         args: UpdateFromArgs,
         vm: &VirtualMachine,
     ) -> PyResult<PyTupleRef> {
-        let format_spec = fmt.with_ref(|bytes| FormatSpec::parse(bytes, vm))?;
+        let format_spec = fmt.format_spec(vm)?;
         let offset =
             get_buffer_offset(args.buffer.len(), args.offset, format_spec.size, false, vm)?;
         args.buffer
@@ -836,18 +868,17 @@ pub(crate) mod _struct {
 
     #[pyfunction]
     fn iter_unpack(
-        fmt: ArgAsciiBuffer,
+        fmt: IntoStructFormatBytes,
         buffer: ArgBytesLike,
         vm: &VirtualMachine,
     ) -> PyResult<UnpackIterator> {
-        let format_spec = fmt.with_ref(|bytes| FormatSpec::parse(bytes, vm))?;
+        let format_spec = fmt.format_spec(vm)?;
         UnpackIterator::new(vm, format_spec, buffer)
     }
 
     #[pyfunction]
-    fn calcsize(fmt: ArgAsciiBuffer, vm: &VirtualMachine) -> PyResult<usize> {
-        let format_spec = fmt.with_ref(|bytes| FormatSpec::parse(bytes, vm))?;
-        Ok(format_spec.size)
+    fn calcsize(fmt: IntoStructFormatBytes, vm: &VirtualMachine) -> PyResult<usize> {
+        Ok(fmt.format_spec(vm)?.size)
     }
 
     #[pyattr]
@@ -855,21 +886,16 @@ pub(crate) mod _struct {
     #[derive(Debug, PyValue)]
     struct PyStruct {
         spec: FormatSpec,
-        fmt_str: PyStrRef,
+        format: PyStrRef,
     }
 
     impl SlotConstructor for PyStruct {
-        type Args = ArgAsciiBuffer;
+        type Args = IntoStructFormatBytes;
 
         fn py_new(cls: PyTypeRef, fmt: Self::Args, vm: &VirtualMachine) -> PyResult {
-            let spec = fmt.with_ref(|bytes| FormatSpec::parse(bytes, vm))?;
-            let fmt_str = match fmt {
-                ArgAsciiBuffer::String(s) => s,
-                buffer => buffer
-                    .with_ref(|bytes| PyStr::from(std::str::from_utf8(bytes).unwrap()))
-                    .into_ref(vm),
-            };
-            PyStruct { spec, fmt_str }.into_pyresult_with_type(vm, cls)
+            let spec = fmt.format_spec(vm)?;
+            let format = fmt.0;
+            PyStruct { spec, format }.into_pyresult_with_type(vm, cls)
         }
     }
 
@@ -877,7 +903,7 @@ pub(crate) mod _struct {
     impl PyStruct {
         #[pyproperty]
         fn format(&self) -> PyStrRef {
-            self.fmt_str.clone()
+            self.format.clone()
         }
 
         #[pyproperty]

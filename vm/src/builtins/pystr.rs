@@ -283,7 +283,7 @@ impl PyStr {
     }
 
     /// SAFETY: Given 'bytes' must be ascii
-    unsafe fn new_ascii_unchecked(bytes: Vec<u8>) -> Self {
+    pub(crate) unsafe fn new_ascii_unchecked(bytes: Vec<u8>) -> Self {
         Self::new_str_unchecked(bytes, PyStrKind::Ascii)
     }
 
