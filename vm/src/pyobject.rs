@@ -10,10 +10,9 @@ use crate::{
         bytearray, bytes,
         code::{self, PyCode},
         getset::{IntoPyGetterFunc, IntoPySetterFunc, PyGetSet},
-        object, pystr,
-        set::{self, PyFrozenSet},
-        PyBaseExceptionRef, PyBoundMethod, PyDict, PyDictRef, PyEllipsis, PyFloat, PyInt, PyIntRef,
-        PyList, PyNone, PyNotImplemented, PyStr, PyTuple, PyTupleRef, PyType, PyTypeRef,
+        object, pystr, PyBaseExceptionRef, PyBoundMethod, PyDict, PyDictRef, PyEllipsis, PyFloat,
+        PyFrozenSet, PyInt, PyIntRef, PyList, PyNone, PyNotImplemented, PyStr, PyTuple, PyTupleRef,
+        PyType, PyTypeRef,
     },
     dictdatatype::Dict,
     exceptions,
@@ -157,6 +156,8 @@ impl PyContext {
         self.not_implemented.clone().into()
     }
 
+    // shortcuts for common type
+
     #[inline]
     pub fn new_int<T: Into<BigInt> + ToPrimitive>(&self, i: T) -> PyIntRef {
         if let Some(i) = i.to_i32() {
@@ -233,12 +234,6 @@ impl PyContext {
 
     pub fn new_list(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
         PyObject::new(PyList::from(elements), self.types.list_type.clone(), None)
-    }
-
-    pub fn new_set(&self) -> set::PySetRef {
-        // Initialized empty, as calling __hash__ is required for adding each object to the set
-        // which requires a VM context - this is done in the set code itself.
-        PyRef::new_ref(set::PySet::default(), self.types.set_type.clone(), None)
     }
 
     pub fn new_dict(&self) -> PyDictRef {

@@ -28,7 +28,6 @@ pub type SetContentType = dictdatatype::Dict<()>;
 pub struct PySet {
     pub(super) inner: PySetInner,
 }
-pub type PySetRef = PyRef<PySet>;
 
 /// frozenset() -> empty frozenset object
 /// frozenset(iterable) -> frozenset object
@@ -403,6 +402,14 @@ macro_rules! multi_args_set {
     }};
 }
 
+impl PySet {
+    pub fn new_ref(ctx: &PyContext) -> PyRef<Self> {
+        // Initialized empty, as calling __hash__ is required for adding each object to the set
+        // which requires a VM context - this is done in the set code itself.
+        PyRef::new_ref(Self::default(), ctx.types.set_type.clone(), None)
+    }
+}
+
 #[pyimpl(with(Hashable, Comparable, Iterable), flags(BASETYPE))]
 impl PySet {
     #[pyslot]
@@ -692,6 +699,7 @@ impl PyFrozenSet {
         for elem in it {
             inner.add(elem, vm)?;
         }
+        // FIXME: empty set check
         Ok(Self { inner })
     }
 

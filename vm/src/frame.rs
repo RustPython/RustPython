@@ -625,7 +625,7 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::BuildSet { size, unpack } => {
-                let set = vm.ctx.new_set();
+                let set = set::PySet::new_ref(&vm.ctx);
                 {
                     let elements = self.pop_multiple(*size as usize);
                     if *unpack {
@@ -662,7 +662,7 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::SetAdd { i } => {
                 let set_obj = self.nth_value(*i);
                 let item = self.pop_value();
-                set::PySetRef::try_from_object(vm, set_obj)?.add(item, vm)?;
+                PyRef::<set::PySet>::try_from_object(vm, set_obj)?.add(item, vm)?;
                 Ok(None)
             }
             bytecode::Instruction::MapAdd { i } => {
