@@ -14,8 +14,8 @@ use crate::{
     },
     utils::Either,
     vm::{ReprGuard, VirtualMachine},
-    PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
+    IdProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
+    PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use std::fmt;
 use std::iter::FromIterator;
@@ -256,13 +256,29 @@ impl PyList {
     fn count(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         let mut i = 0;
         let mut count = 0;
+        let mut borrower = None;
         loop {
-            let elements = self.borrow_vec();
-            let elem = elements.get(i).cloned();
-            drop(elements);
+            let guard = if let Some(x) = borrower.take() {
+                x
+            } else {
+                self.borrow_vec()
+            };
+            let elem = guard.get(i);
             if let Some(elem) = elem {
-                if vm.identical_or_equal(&elem, &needle)? {
+                if elem.is(&needle) {
                     count += 1;
+                    borrower = Some(guard);
+                } else if !elem.class().slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
+                    if vm.bool_eq(elem, &needle)? {
+                        count += 1;
+                        borrower = Some(guard);
+                    }
+                } else {
+                    let elem = elem.clone();
+                    drop(guard);
+                    if vm.bool_eq(&elem, &needle)? {
+                        count += 1;
+                    }
                 }
                 i += 1;
             } else {
