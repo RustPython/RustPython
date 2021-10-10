@@ -404,7 +404,7 @@ impl PyType {
         vm.ctx.not_implemented()
     }
 
-    #[pyproperty(name = "__name__")]
+    #[pyproperty]
     fn __name__(&self) -> String {
         self.name().to_string()
     }
