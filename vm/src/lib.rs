@@ -70,6 +70,7 @@ mod sequence;
 mod signal;
 pub mod sliceable;
 pub mod stdlib;
+pub mod suggestion;
 pub mod types;
 pub mod utils;
 pub mod version;
