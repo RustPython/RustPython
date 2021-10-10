@@ -2,7 +2,11 @@ use super::{
     mappingproxy::PyMappingProxy, object, PyClassMethod, PyDictRef, PyInt, PyList, PyStaticMethod,
     PyStr, PyStrRef, PyTuple, PyTupleRef, PyWeak,
 };
-use crate::common::{ascii, lock::PyRwLock};
+use crate::common::{
+    ascii,
+    borrow::BorrowedValue,
+    lock::{PyRwLock, PyRwLockReadGuard},
+};
 use crate::{
     function::{FuncArgs, KwArgs, OptionalArg},
     protocol::{PyIterReturn, PyMappingMethods},
@@ -400,9 +404,16 @@ impl PyType {
         vm.ctx.not_implemented()
     }
 
-    #[pyproperty(magic)]
-    pub fn name(&self) -> String {
-        self.slot_name().rsplit('.').next().unwrap().to_string()
+    #[pyproperty]
+    fn __name__(&self) -> String {
+        self.name().to_string()
+    }
+
+    pub fn name(&self) -> BorrowedValue<str> {
+        PyRwLockReadGuard::map(self.slots.name.read(), |slot_name| {
+            slot_name.as_ref().unwrap().rsplit('.').next().unwrap()
+        })
+        .into()
     }
 
     #[pymethod(magic)]
@@ -440,7 +451,7 @@ impl PyType {
                     Some(found)
                 }
             })
-            .unwrap_or_else(|| vm.ctx.new_utf8_str(self.name()))
+            .unwrap_or_else(|| vm.ctx.new_utf8_str(self.name().deref()))
     }
 
     #[pyproperty(magic)]
@@ -653,7 +664,7 @@ impl PyType {
     fn text_signature(&self) -> Option<String> {
         self.slots
             .doc
-            .and_then(|doc| get_text_signature_from_internal_doc(self.name().as_str(), doc))
+            .and_then(|doc| get_text_signature_from_internal_doc(&self.name(), doc))
             .map(|signature| signature.to_string())
     }
 }

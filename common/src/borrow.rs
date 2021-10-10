@@ -2,7 +2,10 @@ use crate::lock::{
     MapImmutable, PyImmutableMappedMutexGuard, PyMappedMutexGuard, PyMappedRwLockReadGuard,
     PyMappedRwLockWriteGuard, PyMutexGuard, PyRwLockReadGuard, PyRwLockWriteGuard,
 };
-use std::ops::{Deref, DerefMut};
+use std::{
+    fmt,
+    ops::{Deref, DerefMut},
+};
 
 macro_rules! impl_from {
     ($lt:lifetime, $gen:ident, $t:ty, $($var:ident($from:ty),)*) => {
@@ -61,6 +64,12 @@ impl<T: ?Sized> Deref for BorrowedValue<'_, T> {
             Self::ReadLock(r) => r,
             Self::MappedReadLock(m) => m,
         }
+    }
+}
+
+impl fmt::Display for BorrowedValue<'_, str> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Display::fmt(self.deref(), f)
     }
 }
 
