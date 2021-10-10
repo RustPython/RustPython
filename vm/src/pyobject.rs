@@ -10,7 +10,6 @@ use crate::{
         bytearray, bytes,
         code::{self, PyCode},
         getset::{IntoPyGetterFunc, IntoPySetterFunc, PyGetSet},
-        namespace::PyNamespace,
         object, pystr,
         set::{self, PyFrozenSet},
         PyBaseExceptionRef, PyBoundMethod, PyDict, PyDictRef, PyEllipsis, PyFloat, PyInt, PyIntRef,
@@ -248,14 +247,6 @@ impl PyContext {
 
     pub fn new_class(&self, name: &str, base: &PyTypeRef, slots: PyTypeSlots) -> PyTypeRef {
         create_type_with_slots(name, &self.types.type_type, base, slots)
-    }
-
-    pub fn new_namespace(&self) -> PyObjectRef {
-        PyObject::new(
-            PyNamespace,
-            self.types.namespace_type.clone(),
-            Some(self.new_dict()),
-        )
     }
 
     pub(crate) fn new_stringref(&self, s: String) -> pystr::PyStrRef {
