@@ -29,7 +29,7 @@ impl PyValue for PyComplex {
 
 impl IntoPyObject for Complex64 {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_complex(self)
+        PyComplex::new_ref(self, &vm.ctx).into()
     }
 }
 
@@ -186,12 +186,18 @@ impl SlotConstructor for PyComplex {
     }
 }
 
-#[pyimpl(flags(BASETYPE), with(Comparable, Hashable, SlotConstructor))]
 impl PyComplex {
+    pub fn new_ref(value: Complex64, ctx: &PyContext) -> PyRef<Self> {
+        PyRef::new_ref(Self::from(value), ctx.types.complex_type.clone(), None)
+    }
+
     pub fn to_complex(&self) -> Complex64 {
         self.value
     }
+}
 
+#[pyimpl(flags(BASETYPE), with(Comparable, Hashable, SlotConstructor))]
+impl PyComplex {
     #[pymethod(magic)]
     fn complex(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRef<PyComplex> {
         if zelf.is(&vm.ctx.types.complex_type) {
@@ -393,10 +399,9 @@ impl PyComplex {
     }
 
     #[pymethod(magic)]
-    fn getnewargs(&self, vm: &VirtualMachine) -> PyObjectRef {
+    fn getnewargs(&self) -> (f64, f64) {
         let Complex64 { re, im } = self.value;
-        vm.ctx
-            .new_tuple(vec![vm.ctx.new_float(re), vm.ctx.new_float(im)])
+        (re, im)
     }
 }
 

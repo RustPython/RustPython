@@ -207,7 +207,7 @@ mod re {
                             vm.ctx.new_utf8_str(s)
                         })
                         .collect();
-                    vm.ctx.new_tuple(out)
+                    vm.ctx.new_tuple(out).into()
                 }
             })
             .collect();
@@ -368,19 +368,19 @@ mod re {
     impl PyMatch {
         #[pymethod]
         fn start(&self, group: OptionalArg, vm: &VirtualMachine) -> PyResult {
-            let group = group.unwrap_or_else(|| vm.ctx.new_int(0));
+            let group = group.unwrap_or_else(|| vm.ctx.new_int(0).into());
             let start = self
                 .get_bounds(group, vm)?
-                .map_or_else(|| vm.ctx.new_int(-1), |r| vm.ctx.new_int(r.start));
+                .map_or_else(|| vm.ctx.new_int(-1).into(), |r| vm.ctx.new_int(r.start).into());
             Ok(start)
         }
 
         #[pymethod]
         fn end(&self, group: OptionalArg, vm: &VirtualMachine) -> PyResult {
-            let group = group.unwrap_or_else(|| vm.ctx.new_int(0));
+            let group = group.unwrap_or_else(|| vm.ctx.new_int(0).into());
             let end = self
                 .get_bounds(group, vm)?
-                .map_or_else(|| vm.ctx.new_int(-1), |r| vm.ctx.new_int(r.end));
+                .map_or_else(|| vm.ctx.new_int(-1).into(), |r| vm.ctx.new_int(r.end).into());
             Ok(end)
         }
 
@@ -427,13 +427,13 @@ mod re {
                         .into_iter()
                         .map(|id| self.get_group(id, vm).map(|g| g.into_pyobject(vm)))
                         .collect();
-                    Ok(vm.ctx.new_tuple(output?))
+                    Ok(vm.ctx.new_tuple(output?)).into()
                 }
             }
         }
 
         #[pymethod]
-        fn groups(&self, default: OptionalArg, vm: &VirtualMachine) -> PyObjectRef {
+        fn groups(&self, default: OptionalArg, vm: &VirtualMachine) -> PyTupleRef {
             let default = default.into_option();
             let groups = self
                 .captures

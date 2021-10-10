@@ -1,4 +1,4 @@
-use super::{PositionIterInternal, PyDictRef, PyIntRef, PyStrRef, PyTupleRef, PyTypeRef};
+use super::{PositionIterInternal, PyDictRef, PyIntRef, PyStrRef, PyTuple, PyTupleRef, PyTypeRef};
 use crate::{
     anystr::{self, AnyStr},
     bytesinner::{
@@ -377,10 +377,10 @@ impl PyBytes {
     }
 
     #[pymethod]
-    fn partition(&self, sep: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn partition(&self, sep: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         let sub = PyBytesInner::try_from_borrowed_object(vm, &sep)?;
         let (front, has_mid, back) = self.inner.partition(&sub, vm)?;
-        Ok(vm.ctx.new_tuple(vec![
+        Ok(vm.new_tuple((
             vm.ctx.new_bytes(front),
             if has_mid {
                 sep
@@ -388,14 +388,14 @@ impl PyBytes {
                 vm.ctx.new_bytes(Vec::new())
             },
             vm.ctx.new_bytes(back),
-        ]))
+        )))
     }
 
     #[pymethod]
-    fn rpartition(&self, sep: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn rpartition(&self, sep: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         let sub = PyBytesInner::try_from_borrowed_object(vm, &sep)?;
         let (back, has_mid, front) = self.inner.rpartition(&sub, vm)?;
-        Ok(vm.ctx.new_tuple(vec![
+        Ok(vm.new_tuple((
             vm.ctx.new_bytes(front),
             if has_mid {
                 sep
@@ -403,7 +403,7 @@ impl PyBytes {
                 vm.ctx.new_bytes(Vec::new())
             },
             vm.ctx.new_bytes(back),
-        ]))
+        )))
     }
 
     #[pymethod]
@@ -491,7 +491,7 @@ impl PyBytes {
             .iter()
             .map(|x| x.into_pyobject(vm))
             .collect();
-        PyTupleRef::with_elements(param, &vm.ctx)
+        PyTuple::new_ref(param, &vm.ctx)
     }
 
     #[pymethod(magic)]
@@ -511,7 +511,7 @@ impl PyBytes {
         let bytes = PyBytes::from(zelf.inner.elements.clone()).into_pyobject(vm);
         (
             zelf.as_object().clone_class(),
-            PyTupleRef::with_elements(vec![bytes], &vm.ctx),
+            PyTuple::new_ref(vec![bytes], &vm.ctx),
             zelf.as_object().dict(),
         )
     }
@@ -634,7 +634,7 @@ impl PyBytesIterator {
     }
 
     #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> PyObjectRef {
+    fn reduce(&self, vm: &VirtualMachine) -> PyTupleRef {
         self.internal
             .lock()
             .builtins_iter_reduce(|x| x.clone().into(), vm)
@@ -652,7 +652,7 @@ impl SlotIterator for PyBytesIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal.lock().next(|bytes, pos| {
             Ok(match bytes.as_bytes().get(pos) {
-                Some(&x) => PyIterReturn::Return(vm.ctx.new_int(x)),
+                Some(&x) => PyIterReturn::Return(vm.ctx.new_int(x).into()),
                 None => PyIterReturn::StopIteration(None),
             })
         })

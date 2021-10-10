@@ -1,5 +1,6 @@
 use super::PyTypeRef;
 use crate::{
+    builtins::PyTupleRef,
     function::{ArgIntoBool, IntoPyObject, OptionalArg, PosArgs},
     protocol::{PyIter, PyIterReturn},
     slots::{IteratorIterable, SlotConstructor, SlotIterator},
@@ -40,7 +41,7 @@ impl SlotConstructor for PyZip {
 #[pyimpl(with(SlotIterator, SlotConstructor), flags(BASETYPE))]
 impl PyZip {
     #[pymethod(magic)]
-    fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+    fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         let cls = zelf.clone_class().into_pyobject(vm);
         let iterators = zelf
             .iterators
@@ -49,10 +50,9 @@ impl PyZip {
             .collect::<Vec<_>>();
         let tuple_iter = vm.ctx.new_tuple(iterators);
         Ok(if zelf.strict.load(atomic::Ordering::Acquire) {
-            vm.ctx
-                .new_tuple(vec![cls, tuple_iter, vm.ctx.new_bool(true)])
+            vm.new_tuple((cls, tuple_iter, true))
         } else {
-            vm.ctx.new_tuple(vec![cls, tuple_iter])
+            vm.new_tuple((cls, tuple_iter))
         })
     }
 
@@ -103,7 +103,7 @@ impl SlotIterator for PyZip {
             };
             next_objs.push(item);
         }
-        Ok(PyIterReturn::Return(vm.ctx.new_tuple(next_objs)))
+        Ok(PyIterReturn::Return(vm.ctx.new_tuple(next_objs).into()))
     }
 }
 

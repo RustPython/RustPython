@@ -373,15 +373,14 @@ impl PyDict {
     }
 
     #[pymethod]
-    fn popitem(&self, vm: &VirtualMachine) -> PyResult {
-        if let Some((key, value)) = self.entries.pop_back() {
-            Ok(vm.ctx.new_tuple(vec![key, value]))
-        } else {
+    fn popitem(&self, vm: &VirtualMachine) -> PyResult<(PyObjectRef, PyObjectRef)> {
+        let (key, value) = self.entries.pop_back().ok_or_else(|| {
             let err_msg = vm
                 .ctx
                 .new_ascii_literal(ascii!("popitem(): dictionary is empty"));
-            Err(vm.new_key_error(err_msg))
-        }
+            vm.new_key_error(err_msg)
+        })?;
+        Ok((key, value))
     }
 
     pub fn from_attributes(attrs: PyAttributes, vm: &VirtualMachine) -> PyResult<Self> {
@@ -909,7 +908,7 @@ dict_view! {
     "dict_itemiterator",
     "dict_reverseitemiterator",
     |vm: &VirtualMachine, key: PyObjectRef, value: PyObjectRef|
-        vm.ctx.new_tuple(vec![key, value])
+        vm.new_tuple((key, value)).into()
 }
 
 #[pyimpl(with(DictView, Comparable, Iterable))]

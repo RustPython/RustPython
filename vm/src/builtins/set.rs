@@ -1,7 +1,7 @@
 /*
  * Builtin set type with a sequence of unique items.
  */
-use super::{builtins_iter, IterStatus, PositionIterInternal, PyDictRef, PyTypeRef};
+use super::{builtins_iter, IterStatus, PositionIterInternal, PyDictRef, PyTupleRef, PyTypeRef};
 use crate::common::{ascii, hash::PyHash, lock::PyMutex, rc::PyRc};
 use crate::{
     dictdatatype::{self, DictSize},
@@ -381,7 +381,7 @@ fn extract_set(obj: &PyObjectRef) -> Option<&PySetInner> {
 fn reduce_set(
     zelf: &PyObjectRef,
     vm: &VirtualMachine,
-) -> PyResult<(PyTypeRef, PyObjectRef, Option<PyDictRef>)> {
+) -> PyResult<(PyTypeRef, PyTupleRef, Option<PyDictRef>)> {
     Ok((
         zelf.clone_class(),
         vm.ctx.new_tuple(vec![vm.ctx.new_list(
@@ -618,7 +618,7 @@ impl PySet {
     fn reduce(
         zelf: PyRef<Self>,
         vm: &VirtualMachine,
-    ) -> PyResult<(PyTypeRef, PyObjectRef, Option<PyDictRef>)> {
+    ) -> PyResult<(PyTypeRef, PyTupleRef, Option<PyDictRef>)> {
         reduce_set(&zelf.into(), vm)
     }
 }
@@ -808,7 +808,7 @@ impl PyFrozenSet {
     fn reduce(
         zelf: PyRef<Self>,
         vm: &VirtualMachine,
-    ) -> PyResult<(PyTypeRef, PyObjectRef, Option<PyDictRef>)> {
+    ) -> PyResult<(PyTypeRef, PyTupleRef, Option<PyDictRef>)> {
         reduce_set(&zelf.into(), vm)
     }
 }

@@ -644,7 +644,7 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::BuildTuple { size, unpack } => {
                 let elements = self.get_elements(vm, *size as usize, *unpack)?;
                 let list_obj = vm.ctx.new_tuple(elements);
-                self.push_value(list_obj);
+                self.push_value(list_obj.into());
                 Ok(None)
             }
             bytecode::Instruction::BuildMap {
@@ -895,7 +895,7 @@ impl ExecutingFrame<'_> {
                 // TODO: figure out a better way to communicate PyMethod::Attribute - CPython uses
                 // target==NULL, maybe we could use a sentinel value or something?
                 self.push_value(target);
-                self.push_value(vm.ctx.new_bool(is_method));
+                self.push_value(vm.ctx.new_bool(is_method).into());
                 self.push_value(func);
                 Ok(None)
             }
@@ -1635,7 +1635,7 @@ impl ExecutingFrame<'_> {
             bytecode::UnaryOperator::Invert => vm._invert(&a)?,
             bytecode::UnaryOperator::Not => {
                 let value = a.try_to_bool(vm)?;
-                vm.ctx.new_bool(!value)
+                vm.ctx.new_bool(!value).into()
             }
         };
         self.push_value(value);
@@ -1690,11 +1690,13 @@ impl ExecutingFrame<'_> {
             bytecode::ComparisonOperator::LessOrEqual => vm.obj_cmp(a, b, PyComparisonOp::Le)?,
             bytecode::ComparisonOperator::Greater => vm.obj_cmp(a, b, PyComparisonOp::Gt)?,
             bytecode::ComparisonOperator::GreaterOrEqual => vm.obj_cmp(a, b, PyComparisonOp::Ge)?,
-            bytecode::ComparisonOperator::Is => vm.ctx.new_bool(self._is(a, b)),
-            bytecode::ComparisonOperator::IsNot => vm.ctx.new_bool(self._is_not(a, b)),
-            bytecode::ComparisonOperator::In => vm.ctx.new_bool(self._in(vm, a, b)?),
-            bytecode::ComparisonOperator::NotIn => vm.ctx.new_bool(self._not_in(vm, a, b)?),
-            bytecode::ComparisonOperator::ExceptionMatch => vm.ctx.new_bool(vm.isinstance(&a, &b)?),
+            bytecode::ComparisonOperator::Is => vm.ctx.new_bool(self._is(a, b)).into(),
+            bytecode::ComparisonOperator::IsNot => vm.ctx.new_bool(self._is_not(a, b)).into(),
+            bytecode::ComparisonOperator::In => vm.ctx.new_bool(self._in(vm, a, b)?).into(),
+            bytecode::ComparisonOperator::NotIn => vm.ctx.new_bool(self._not_in(vm, a, b)?).into(),
+            bytecode::ComparisonOperator::ExceptionMatch => {
+                vm.ctx.new_bool(vm.isinstance(&a, &b)?).into()
+            }
         };
 
         self.push_value(value);

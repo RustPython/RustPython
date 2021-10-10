@@ -47,7 +47,7 @@ mod _scproxy {
                 .and_then(|v| v.downcast::<CFNumber>())
                 .and_then(|v| v.to_i32())
                 .unwrap_or(0);
-        result.set_item("exclude_simple", vm.ctx.new_bool(v), vm)?;
+        result.set_item("exclude_simple", vm.ctx.new_bool(v).into(), vm)?;
 
         if let Some(an_array) = proxy_dict
             .find(unsafe { kSCPropNetProxiesExceptionsList })
@@ -65,7 +65,7 @@ mod _scproxy {
                         .into_pyobject(vm)
                 })
                 .collect();
-            result.set_item("exceptions", vm.ctx.new_tuple(v), vm)?;
+            result.set_item("exceptions", vm.ctx.new_tuple(v).into(), vm)?;
         }
 
         Ok(Some(result))

@@ -2,7 +2,7 @@
  * iterator types
  */
 
-use super::{PyInt, PyTypeRef};
+use super::{PyInt, PyTupleRef, PyTypeRef};
 use crate::{
     function::ArgCallable,
     protocol::PyIterReturn,
@@ -54,23 +54,18 @@ impl<T> PositionIterInternal<T> {
         }
     }
 
-    fn _reduce<F>(&self, func: PyObjectRef, f: F, vm: &VirtualMachine) -> PyObjectRef
+    fn _reduce<F>(&self, func: PyObjectRef, f: F, vm: &VirtualMachine) -> PyTupleRef
     where
         F: FnOnce(&T) -> PyObjectRef,
     {
         if let IterStatus::Active(obj) = &self.status {
-            vm.ctx.new_tuple(vec![
-                func,
-                vm.ctx.new_tuple(vec![f(obj)]),
-                vm.ctx.new_int(self.position),
-            ])
+            vm.new_tuple((func, (f(obj),), self.position))
         } else {
-            vm.ctx
-                .new_tuple(vec![func, vm.ctx.new_tuple(vec![vm.ctx.new_list(vec![])])])
+            vm.new_tuple((func, (vm.ctx.new_list(vec![]),)))
         }
     }
 
-    pub fn builtins_iter_reduce<F>(&self, f: F, vm: &VirtualMachine) -> PyObjectRef
+    pub fn builtins_iter_reduce<F>(&self, f: F, vm: &VirtualMachine) -> PyTupleRef
     where
         F: FnOnce(&T) -> PyObjectRef,
     {
@@ -78,7 +73,7 @@ impl<T> PositionIterInternal<T> {
         self._reduce(iter, f, vm)
     }
 
-    pub fn builtins_reversed_reduce<F>(&self, f: F, vm: &VirtualMachine) -> PyObjectRef
+    pub fn builtins_reversed_reduce<F>(&self, f: F, vm: &VirtualMachine) -> PyTupleRef
     where
         F: FnOnce(&T) -> PyObjectRef,
     {
@@ -195,7 +190,7 @@ impl PySequenceIterator {
     }
 
     #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> PyObjectRef {
+    fn reduce(&self, vm: &VirtualMachine) -> PyTupleRef {
         self.internal.lock().builtins_iter_reduce(|x| x.clone(), vm)
     }
 

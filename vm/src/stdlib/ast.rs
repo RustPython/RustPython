@@ -148,9 +148,9 @@ impl<T: NamedNode> Node for ast::Located<T> {
 
 fn node_add_location(node: &PyObjectRef, location: ast::Location, vm: &VirtualMachine) {
     let dict = node.dict().unwrap();
-    dict.set_item("lineno", vm.ctx.new_int(location.row()), vm)
+    dict.set_item("lineno", vm.ctx.new_int(location.row()).into(), vm)
         .unwrap();
-    dict.set_item("col_offset", vm.ctx.new_int(location.column()), vm)
+    dict.set_item("col_offset", vm.ctx.new_int(location.column()).into(), vm)
         .unwrap();
 }
 
@@ -166,7 +166,7 @@ impl Node for String {
 
 impl Node for usize {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_int(self)
+        vm.ctx.new_int(self).into()
     }
 
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
@@ -176,7 +176,7 @@ impl Node for usize {
 
 impl Node for bool {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_int(self as u8)
+        vm.ctx.new_int(self as u8).into()
     }
 
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
@@ -188,15 +188,16 @@ impl Node for ast::Constant {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
         match self {
             ast::Constant::None => vm.ctx.none(),
-            ast::Constant::Bool(b) => vm.ctx.new_bool(b),
+            ast::Constant::Bool(b) => vm.ctx.new_bool(b).into(),
             ast::Constant::Str(s) => vm.ctx.new_utf8_str(s),
             ast::Constant::Bytes(b) => vm.ctx.new_bytes(b),
-            ast::Constant::Int(i) => vm.ctx.new_int(i),
+            ast::Constant::Int(i) => vm.ctx.new_int(i).into(),
             ast::Constant::Tuple(t) => vm
                 .ctx
-                .new_tuple(t.into_iter().map(|c| c.ast_to_object(vm)).collect()),
-            ast::Constant::Float(f) => vm.ctx.new_float(f),
-            ast::Constant::Complex { real, imag } => vm.ctx.new_complex(Complex64::new(real, imag)),
+                .new_tuple(t.into_iter().map(|c| c.ast_to_object(vm)).collect())
+                .into(),
+            ast::Constant::Float(f) => vm.ctx.new_float(f).into(),
+            ast::Constant::Complex { real, imag } => vm.new_pyobj(Complex64::new(real, imag)),
             ast::Constant::Ellipsis => vm.ctx.ellipsis(),
         }
     }
@@ -239,7 +240,7 @@ impl Node for ast::Constant {
 
 impl Node for ast::ConversionFlag {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_int(self as u8)
+        vm.ctx.new_int(self as u8).into()
     }
 
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {

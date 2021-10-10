@@ -189,10 +189,10 @@ fn _ssl_enum_certificates(store_name: PyStrRef, vm: &VirtualMachine) -> PyResult
         let enc_type = match enc_type {
             wincrypt::X509_ASN_ENCODING => vm.ctx.new_ascii_literal(ascii!("x509_asn")),
             wincrypt::PKCS_7_ASN_ENCODING => vm.ctx.new_ascii_literal(ascii!("pkcs_7_asn")),
-            other => vm.ctx.new_int(other),
+            other => vm.ctx.new_int(other).into(),
         };
-        let usage = match c.valid_uses()? {
-            ValidUses::All => vm.ctx.new_bool(true),
+        let usage: PyObjectRef = match c.valid_uses()? {
+            ValidUses::All => vm.ctx.new_bool(true).into(),
             ValidUses::Oids(oids) => {
                 PyFrozenSet::from_iter(vm, oids.into_iter().map(|oid| vm.ctx.new_utf8_str(oid)))
                     .unwrap()
@@ -200,7 +200,7 @@ fn _ssl_enum_certificates(store_name: PyStrRef, vm: &VirtualMachine) -> PyResult
                     .into()
             }
         };
-        Ok(vm.ctx.new_tuple(vec![cert, enc_type, usage]))
+        Ok(vm.new_tuple((cert, enc_type, usage)).into())
     });
     let certs = certs
         .collect::<Result<Vec<_>, _>>()
@@ -956,7 +956,7 @@ impl PySslSocket {
             return Err(convert_ssl_error(vm, err));
         };
         let ret = match inner_buffer {
-            Either::A(_buf) => vm.ctx.new_int(count),
+            Either::A(_buf) => vm.ctx.new_int(count).into(),
             Either::B(mut buf) => {
                 buf.truncate(n);
                 buf.shrink_to_fit();
@@ -989,7 +989,10 @@ fn convert_openssl_error(vm: &VirtualMachine, err: ErrorStack) -> PyBaseExceptio
                 format!("{} ({}:{})", errstr, file, line)
             };
             let reason = sys::ERR_GET_REASON(e.code());
-            vm.new_exception(cls, vec![vm.ctx.new_int(reason), vm.ctx.new_utf8_str(msg)])
+            vm.new_exception(
+                cls,
+                vec![vm.ctx.new_int(reason).into(), vm.ctx.new_utf8_str(msg)],
+            )
         }
         None => vm.new_exception_empty(cls),
     }
@@ -1065,21 +1068,22 @@ fn cert_to_py(vm: &VirtualMachine, cert: &X509Ref, binary: bool) -> PyResult {
     } else {
         let dict = vm.ctx.new_dict();
 
-        let name_to_py = |name: &x509::X509NameRef| {
-            name.entries()
+        let name_to_py = |name: &x509::X509NameRef| -> PyResult {
+            let list = name
+                .entries()
                 .map(|entry| {
                     let txt = obj2txt(entry.object(), false).into_pyobject(vm);
                     let data = vm.ctx.new_utf8_str(entry.data().as_utf8()?.to_owned());
-                    Ok(vm.ctx.new_tuple(vec![vm.ctx.new_tuple(vec![txt, data])]))
+                    Ok(vm.new_tuple(((txt, data),)).into())
                 })
                 .collect::<Result<_, _>>()
-                .map(|list| vm.ctx.new_tuple(list))
-                .map_err(|e| convert_openssl_error(vm, e))
+                .map_err(|e| convert_openssl_error(vm, e))?;
+            Ok(vm.ctx.new_tuple(list).into())
         };
 
         dict.set_item("subject", name_to_py(cert.subject_name())?, vm)?;
         dict.set_item("issuer", name_to_py(cert.issuer_name())?, vm)?;
-        dict.set_item("version", vm.ctx.new_int(cert.version()), vm)?;
+        dict.set_item("version", vm.new_pyobj(cert.version()), vm)?;
 
         let serial_num = cert
             .serial_number()
@@ -1109,20 +1113,17 @@ fn cert_to_py(vm: &VirtualMachine, cert: &X509Ref, binary: bool) -> PyResult {
                 .iter()
                 .filter_map(|gen_name| {
                     if let Some(email) = gen_name.email() {
-                        Some(vm.ctx.new_tuple(vec![
-                            vm.ctx.new_ascii_literal(ascii!("email")),
-                            vm.ctx.new_utf8_str(email),
-                        ]))
+                        Some(vm.new_tuple((ascii!("email"), email)).into())
                     } else if let Some(dnsname) = gen_name.dnsname() {
-                        Some(vm.ctx.new_tuple(vec![
-                            vm.ctx.new_ascii_literal(ascii!("DNS")),
-                            vm.ctx.new_utf8_str(dnsname),
-                        ]))
+                        Some(vm.new_tuple((ascii!("DNS"), dnsname)).into())
                     } else if let Some(ip) = gen_name.ipaddress() {
-                        Some(vm.ctx.new_tuple(vec![
-                            vm.ctx.new_ascii_literal(ascii!("IP Address")),
-                            vm.ctx.new_utf8_str(String::from_utf8_lossy(ip).into_owned()),
-                        ]))
+                        Some(
+                            vm.new_tuple((
+                                ascii!("IP Address"),
+                                String::from_utf8_lossy(ip).into_owned(),
+                            ))
+                            .into(),
+                        )
                     } else {
                         // TODO: convert every type of general name:
                         // https://github.com/python/cpython/blob/3.6/Modules/_ssl.c#L1092-L1231
@@ -1130,7 +1131,7 @@ fn cert_to_py(vm: &VirtualMachine, cert: &X509Ref, binary: bool) -> PyResult {
                     }
                 })
                 .collect();
-            dict.set_item("subjectAltName", vm.ctx.new_tuple(san), vm)?;
+            dict.set_item("subjectAltName", vm.ctx.new_tuple(san).into(), vm)?;
         };
 
         dict.into()

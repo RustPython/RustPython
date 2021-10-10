@@ -226,7 +226,7 @@ impl PathOrFd {
     pub fn filename(&self, vm: &VirtualMachine) -> PyObjectRef {
         match self {
             PathOrFd::Path(path) => path.filename(vm).unwrap_or_else(|_| vm.ctx.none()),
-            PathOrFd::Fd(fd) => vm.ctx.new_int(*fd),
+            PathOrFd::Fd(fd) => vm.ctx.new_int(*fd).into(),
         }
     }
 }
@@ -555,7 +555,7 @@ pub(super) mod _os {
             .with_ref(|b| file.write(b))
             .map_err(|err| err.into_pyexception(vm))?;
 
-        Ok(vm.ctx.new_int(written))
+        Ok(vm.ctx.new_int(written).into())
     }
 
     #[pyfunction]
@@ -1234,13 +1234,13 @@ pub(super) mod _os {
     #[pyfunction]
     fn getpid(vm: &VirtualMachine) -> PyObjectRef {
         let pid = std::process::id();
-        vm.ctx.new_int(pid)
+        vm.ctx.new_int(pid).into()
     }
 
     #[pyfunction]
     fn cpu_count(vm: &VirtualMachine) -> PyObjectRef {
         let cpu_count = num_cpus::get();
-        vm.ctx.new_int(cpu_count)
+        vm.ctx.new_int(cpu_count).into()
     }
 
     #[pyfunction]
@@ -1347,7 +1347,7 @@ pub(super) mod _os {
                 let (a, m) = parse_tup(&ns).ok_or_else(|| {
                     vm.new_type_error("utime: 'ns' must be a tuple of two ints".to_owned())
                 })?;
-                let ns_in_sec = vm.ctx.new_int(1_000_000_000);
+                let ns_in_sec = vm.ctx.new_int(1_000_000_000).into();
                 let ns_to_dur = |obj: PyObjectRef| {
                     let divmod = vm._divmod(&obj, &ns_in_sec)?;
                     let (div, rem) =

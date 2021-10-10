@@ -60,7 +60,7 @@ impl Write for PyWriter<'_> {
 }
 
 pub fn file_readline(obj: &PyObjectRef, size: Option<usize>, vm: &VirtualMachine) -> PyResult {
-    let args = size.map_or_else(Vec::new, |size| vec![vm.ctx.new_int(size)]);
+    let args = size.map_or_else(Vec::new, |size| vec![vm.ctx.new_int(size).into()]);
     let ret = vm.call_method(obj, "readline", args)?;
     let eof_err = || {
         vm.new_exception(

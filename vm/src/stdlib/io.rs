@@ -78,8 +78,8 @@ mod _io {
     };
     use crate::{
         builtins::{
-            PyBaseExceptionRef, PyByteArray, PyBytes, PyBytesRef, PyMemoryView, PyStr, PyStrRef,
-            PyType, PyTypeRef,
+            PyBaseExceptionRef, PyByteArray, PyBytes, PyBytesRef, PyIntRef, PyMemoryView, PyStr,
+            PyStrRef, PyType, PyTypeRef,
         },
         exceptions,
         function::{
@@ -370,7 +370,7 @@ mod _io {
         }
 
         #[pyattr]
-        fn __closed(ctx: &PyContext) -> PyObjectRef {
+        fn __closed(ctx: &PyContext) -> PyIntRef {
             ctx.new_bool(false)
         }
 
@@ -543,7 +543,7 @@ mod _io {
     pub(super) fn iobase_close(file: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if !file_closed(file, vm)? {
             let res = vm.call_method(file, "flush", ());
-            vm.set_attr(file, "__closed", vm.ctx.new_bool(true))?;
+            vm.set_attr(file, "__closed", vm.new_pyobj(true))?;
             res?;
         }
         Ok(())
@@ -2327,7 +2327,7 @@ mod _io {
                 0 => cookie,
                 // SEEK_CUR
                 1 => {
-                    if vm.bool_eq(&cookie, &vm.ctx.new_int(0))? {
+                    if vm.bool_eq(&cookie, &vm.ctx.new_int(0).into())? {
                         vm.call_method(&textio.buffer, "tell", ())?
                     } else {
                         return Err(new_unsupported_operation(
@@ -2338,7 +2338,7 @@ mod _io {
                 }
                 // SEEK_END
                 2 => {
-                    if vm.bool_eq(&cookie, &vm.ctx.new_int(0))? {
+                    if vm.bool_eq(&cookie, &vm.ctx.new_int(0).into())? {
                         drop(textio);
                         vm.call_method(zelf.as_object(), "flush", ())?;
                         let mut textio = zelf.lock(vm)?;
@@ -2349,7 +2349,7 @@ mod _io {
                         }
                         let res = vm.call_method(&textio.buffer, "seek", (0, 2))?;
                         if let Some((encoder, _)) = &textio.encoder {
-                            let start_of_stream = vm.bool_eq(&res, &vm.ctx.new_int(0))?;
+                            let start_of_stream = vm.bool_eq(&res, &vm.ctx.new_int(0).into())?;
                             reset_encoder(encoder, start_of_stream)?;
                         }
                         return Ok(res);
@@ -2366,7 +2366,7 @@ mod _io {
                 }
             };
             use crate::slots::PyComparisonOp;
-            if vm.bool_cmp(&cookie, &vm.ctx.new_int(0), PyComparisonOp::Lt)? {
+            if vm.bool_cmp(&cookie, &vm.ctx.new_int(0).into(), PyComparisonOp::Lt)? {
                 return Err(
                     vm.new_value_error(format!("negative seek position {}", vm.to_repr(&cookie)?))
                 );
@@ -3107,7 +3107,7 @@ mod _io {
             let bytes = data.as_str().as_bytes();
 
             match self.buffer(vm)?.write(bytes) {
-                Some(value) => Ok(vm.ctx.new_int(value)),
+                Some(value) => Ok(vm.ctx.new_int(value).into()),
                 None => Err(vm.new_type_error("Error Writing String".to_owned())),
             }
         }

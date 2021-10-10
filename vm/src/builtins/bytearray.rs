@@ -1,6 +1,7 @@
 //! Implementation of the python bytearray object.
 use super::{
-    PositionIterInternal, PyBytes, PyBytesRef, PyDictRef, PyIntRef, PyStrRef, PyTupleRef, PyTypeRef,
+    PositionIterInternal, PyBytes, PyBytesRef, PyDictRef, PyIntRef, PyStrRef, PyTuple, PyTupleRef,
+    PyTypeRef,
 };
 use crate::common::{
     borrow::{BorrowedValue, BorrowedValueMut},
@@ -534,29 +535,29 @@ impl PyByteArray {
     }
 
     #[pymethod]
-    fn partition(&self, sep: PyBytesInner, vm: &VirtualMachine) -> PyResult {
+    fn partition(&self, sep: PyBytesInner, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         // sep ALWAYS converted to  bytearray even it's bytes or memoryview
         // so its ok to accept PyBytesInner
         let value = self.inner();
         let (front, has_mid, back) = value.partition(&sep, vm)?;
-        Ok(vm.ctx.new_tuple(vec![
+        Ok(vm.new_tuple((
             vm.ctx.new_bytearray(front.to_vec()),
             vm.ctx
                 .new_bytearray(if has_mid { sep.elements } else { Vec::new() }),
             vm.ctx.new_bytearray(back.to_vec()),
-        ]))
+        )))
     }
 
     #[pymethod]
-    fn rpartition(&self, sep: PyBytesInner, vm: &VirtualMachine) -> PyResult {
+    fn rpartition(&self, sep: PyBytesInner, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         let value = self.inner();
         let (back, has_mid, front) = value.rpartition(&sep, vm)?;
-        Ok(vm.ctx.new_tuple(vec![
+        Ok(vm.new_tuple((
             vm.ctx.new_bytearray(front.to_vec()),
             vm.ctx
                 .new_bytearray(if has_mid { sep.elements } else { Vec::new() }),
             vm.ctx.new_bytearray(back.to_vec()),
-        ]))
+        )))
     }
 
     #[pymethod]
@@ -655,7 +656,7 @@ impl PyByteArray {
         let bytes = PyBytes::from(zelf.borrow_buf().to_vec()).into_pyobject(vm);
         (
             zelf.as_object().clone_class(),
-            PyTupleRef::with_elements(vec![bytes], &vm.ctx),
+            PyTuple::new_ref(vec![bytes], &vm.ctx),
             zelf.as_object().dict(),
         )
     }
@@ -791,7 +792,7 @@ impl PyByteArrayIterator {
         self.internal.lock().length_hint(|obj| obj.len())
     }
     #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> PyObjectRef {
+    fn reduce(&self, vm: &VirtualMachine) -> PyTupleRef {
         self.internal
             .lock()
             .builtins_iter_reduce(|x| x.clone().into(), vm)
@@ -810,7 +811,7 @@ impl SlotIterator for PyByteArrayIterator {
         zelf.internal.lock().next(|bytearray, pos| {
             let buf = bytearray.borrow_buf();
             Ok(match buf.get(pos) {
-                Some(&x) => PyIterReturn::Return(vm.ctx.new_int(x)),
+                Some(&x) => PyIterReturn::Return(vm.ctx.new_int(x).into()),
                 None => PyIterReturn::StopIteration(None),
             })
         })

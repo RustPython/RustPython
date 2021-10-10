@@ -10,12 +10,10 @@ use crate::{
         bytearray, bytes,
         code::{self, PyCode},
         getset::{IntoPyGetterFunc, IntoPySetterFunc, PyGetSet},
-        namespace::PyNamespace,
         object, pystr,
         set::{self, PyFrozenSet},
-        PyBaseExceptionRef, PyBoundMethod, PyComplex, PyDict, PyDictRef, PyEllipsis, PyFloat,
-        PyInt, PyIntRef, PyList, PyNone, PyNotImplemented, PyStaticMethod, PyTuple, PyTupleRef,
-        PyType, PyTypeRef,
+        PyBaseExceptionRef, PyBoundMethod, PyDict, PyDictRef, PyEllipsis, PyFloat, PyInt, PyIntRef,
+        PyList, PyNone, PyNotImplemented, PyStaticMethod, PyTuple, PyTupleRef, PyType, PyTypeRef,
     },
     dictdatatype::Dict,
     exceptions,
@@ -26,7 +24,6 @@ use crate::{
     VirtualMachine,
 };
 use num_bigint::BigInt;
-use num_complex::Complex64;
 use num_traits::ToPrimitive;
 use std::any::Any;
 use std::collections::HashMap;
@@ -161,37 +158,29 @@ impl PyContext {
     }
 
     #[inline]
-    pub fn new_int<T: Into<BigInt> + ToPrimitive>(&self, i: T) -> PyObjectRef {
+    pub fn new_int<T: Into<BigInt> + ToPrimitive>(&self, i: T) -> PyIntRef {
         if let Some(i) = i.to_i32() {
             if i >= Self::INT_CACHE_POOL_MIN && i <= Self::INT_CACHE_POOL_MAX {
                 let inner_idx = (i - Self::INT_CACHE_POOL_MIN) as usize;
-                return self.int_cache_pool[inner_idx].as_object().clone();
+                return self.int_cache_pool[inner_idx].clone();
             }
         }
-        PyObject::new(PyInt::from(i), self.types.int_type.clone(), None)
+        PyRef::new_ref(PyInt::from(i), self.types.int_type.clone(), None)
     }
 
     #[inline]
-    pub fn new_bigint(&self, i: &BigInt) -> PyObjectRef {
+    pub fn new_bigint(&self, i: &BigInt) -> PyIntRef {
         if let Some(i) = i.to_i32() {
             if i >= Self::INT_CACHE_POOL_MIN && i <= Self::INT_CACHE_POOL_MAX {
                 let inner_idx = (i - Self::INT_CACHE_POOL_MIN) as usize;
-                return self.int_cache_pool[inner_idx].as_object().clone();
+                return self.int_cache_pool[inner_idx].clone();
             }
         }
-        PyObject::new(PyInt::from(i.clone()), self.types.int_type.clone(), None)
+        PyRef::new_ref(PyInt::from(i.clone()), self.types.int_type.clone(), None)
     }
 
-    pub fn new_float(&self, value: f64) -> PyObjectRef {
-        PyObject::new(PyFloat::from(value), self.types.float_type.clone(), None)
-    }
-
-    pub fn new_complex(&self, value: Complex64) -> PyObjectRef {
-        PyObject::new(
-            PyComplex::from(value),
-            self.types.complex_type.clone(),
-            None,
-        )
+    pub fn new_float(&self, value: f64) -> PyRef<PyFloat> {
+        PyRef::new_ref(PyFloat::from(value), self.types.float_type.clone(), None)
     }
 
     pub fn new_utf8_str<S>(&self, s: S) -> PyObjectRef
@@ -229,17 +218,17 @@ impl PyContext {
     }
 
     #[inline]
-    pub fn new_bool(&self, b: bool) -> PyObjectRef {
+    pub fn new_bool(&self, b: bool) -> PyIntRef {
         let value = if b {
             &self.true_value
         } else {
             &self.false_value
         };
-        value.clone().into()
+        value.clone()
     }
 
-    pub fn new_tuple(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
-        PyTupleRef::with_elements(elements, self).into()
+    pub fn new_tuple(&self, elements: Vec<PyObjectRef>) -> PyTupleRef {
+        PyTuple::new_ref(elements, self)
     }
 
     pub fn new_list(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
@@ -258,14 +247,6 @@ impl PyContext {
 
     pub fn new_class(&self, name: &str, base: &PyTypeRef, slots: PyTypeSlots) -> PyTypeRef {
         create_type_with_slots(name, &self.types.type_type, base, slots)
-    }
-
-    pub fn new_namespace(&self) -> PyObjectRef {
-        PyObject::new(
-            PyNamespace,
-            self.types.namespace_type.clone(),
-            Some(self.new_dict()),
-        )
     }
 
     pub(crate) fn new_stringref(&self, s: String) -> pystr::PyStrRef {
@@ -1066,12 +1047,11 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
     }
 
     #[pymethod(magic)]
-    fn reduce(zelf: PyRef<PyTuple>, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_tuple(vec![
-            zelf.clone_class().into(),
-            vm.ctx
-                .new_tuple(vec![vm.ctx.new_tuple(zelf.as_slice().to_vec())]),
-        ])
+    fn reduce(zelf: PyRef<PyTuple>, vm: &VirtualMachine) -> PyTupleRef {
+        vm.new_tuple((
+            zelf.clone_class(),
+            (vm.ctx.new_tuple(zelf.as_slice().to_vec()),),
+        ))
     }
 
     #[extend_class]

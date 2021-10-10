@@ -75,7 +75,11 @@ mod _json {
         ) -> PyResult<PyIterReturn> {
             let c = match s.chars().next() {
                 Some(c) => c,
-                None => return Ok(PyIterReturn::StopIteration(Some(vm.ctx.new_int(idx)))),
+                None => {
+                    return Ok(PyIterReturn::StopIteration(Some(
+                        vm.ctx.new_int(idx).into(),
+                    )))
+                }
             };
             let next_idx = idx + c.len_utf8();
             match c {
@@ -115,29 +119,30 @@ mod _json {
                 ($s:literal, $val:expr) => {
                     if s.starts_with($s) {
                         return Ok(PyIterReturn::Return(
-                            vm.ctx.new_tuple(vec![$val, vm.ctx.new_int(idx + $s.len())]),
+                            vm.new_tuple(($val, idx + $s.len())).into(),
                         ));
                     }
                 };
             }
 
             parse_const!("null", vm.ctx.none());
-            parse_const!("true", vm.ctx.new_bool(true));
-            parse_const!("false", vm.ctx.new_bool(false));
+            parse_const!("true", true);
+            parse_const!("false", false);
 
             if let Some((res, len)) = self.parse_number(s, vm) {
-                return Ok(PyIterReturn::Return(
-                    vm.ctx.new_tuple(vec![res?, vm.ctx.new_int(idx + len)]),
-                ));
+                return Ok(PyIterReturn::Return(vm.new_tuple((res?, idx + len)).into()));
             }
 
             macro_rules! parse_constant {
                 ($s:literal) => {
                     if s.starts_with($s) {
-                        return Ok(PyIterReturn::Return(vm.ctx.new_tuple(vec![
-                            vm.invoke(&self.parse_constant, ($s.to_owned(),))?,
-                            vm.ctx.new_int(idx + $s.len()),
-                        ])));
+                        return Ok(PyIterReturn::Return(
+                            vm.new_tuple((
+                                vm.invoke(&self.parse_constant, ($s.to_owned(),))?,
+                                idx + $s.len(),
+                            ))
+                            .into(),
+                        ));
                     }
                 };
             }
@@ -146,7 +151,9 @@ mod _json {
             parse_constant!("Infinity");
             parse_constant!("-Infinity");
 
-            Ok(PyIterReturn::StopIteration(Some(vm.ctx.new_int(idx))))
+            Ok(PyIterReturn::StopIteration(Some(
+                vm.ctx.new_int(idx).into(),
+            )))
         }
 
         fn parse_number(&self, s: &str, vm: &VirtualMachine) -> Option<(PyResult, usize)> {
@@ -175,12 +182,12 @@ mod _json {
                 if let Some(ref parse_float) = self.parse_float {
                     vm.invoke(parse_float, (buf.to_owned(),))
                 } else {
-                    Ok(vm.ctx.new_float(f64::from_str(buf).unwrap()))
+                    Ok(vm.ctx.new_float(f64::from_str(buf).unwrap()).into())
                 }
             } else if let Some(ref parse_int) = self.parse_int {
                 vm.invoke(parse_int, (buf.to_owned(),))
             } else {
-                Ok(vm.ctx.new_int(BigInt::from_str(buf).unwrap()))
+                Ok(vm.new_pyobj(BigInt::from_str(buf).unwrap()))
             };
             Some((ret, buf.len()))
         }
@@ -197,7 +204,9 @@ mod _json {
             let idx = idx as usize;
             let mut chars = pystr.as_str().chars();
             if idx > 0 && chars.nth(idx - 1).is_none() {
-                return Ok(PyIterReturn::StopIteration(Some(vm.ctx.new_int(idx))));
+                return Ok(PyIterReturn::StopIteration(Some(
+                    vm.ctx.new_int(idx).into(),
+                )));
             }
             zelf.parse(chars.as_str(), pystr.clone(), idx, zelf.clone().into(), vm)
         }

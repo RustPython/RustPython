@@ -615,7 +615,7 @@ mod _collections {
             };
             (
                 zelf.clone_class(),
-                (deque, vm.ctx.new_int(internal.position)),
+                (deque, vm.ctx.new_int(internal.position).into()),
             )
         }
     }
@@ -682,7 +682,7 @@ mod _collections {
             };
             Ok((
                 zelf.clone_class(),
-                (deque, vm.ctx.new_int(internal.position)),
+                (deque, vm.ctx.new_int(internal.position).into()),
             ))
         }
     }

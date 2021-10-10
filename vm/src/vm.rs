@@ -10,7 +10,7 @@ use crate::{
     builtins::{
         code::{self, PyCode},
         module, object,
-        tuple::{PyTuple, PyTupleRef, PyTupleTyped},
+        tuple::{IntoPyTuple, PyTuple, PyTupleRef, PyTupleTyped},
         PyBaseException, PyBaseExceptionRef, PyDictRef, PyInt, PyIntRef, PyList, PyModule, PyStr,
         PyStrRef, PyTypeRef,
     },
@@ -353,7 +353,7 @@ impl VirtualMachine {
                 let io = import::import_builtin(self, "_io")?;
                 let set_stdio = |name, fd, mode: &str| {
                     let stdio = crate::stdlib::io::open(
-                        self.ctx.new_int(fd),
+                        self.ctx.new_int(fd).into(),
                         Some(mode),
                         Default::default(),
                         self,
@@ -570,8 +570,12 @@ impl VirtualMachine {
     }
 
     /// Create a new python object
-    pub fn new_pyobj<T: IntoPyObject>(&self, value: T) -> PyObjectRef {
+    pub fn new_pyobj(&self, value: impl IntoPyObject) -> PyObjectRef {
         value.into_pyobject(self)
+    }
+
+    pub fn new_tuple(&self, value: impl IntoPyTuple) -> PyTupleRef {
+        value.into_pytuple(self)
     }
 
     pub fn new_code_object(&self, code: impl code::IntoCodeObject) -> PyRef<PyCode> {
@@ -964,7 +968,7 @@ impl VirtualMachine {
                 };
                 let from_list = match from_list {
                     Some(tup) => tup.into_pyobject(self),
-                    None => self.ctx.new_tuple(vec![]),
+                    None => self.new_tuple(()).into(),
                 };
                 self.invoke(&import_func, (module, globals, locals, from_list, level))
                     .map_err(|exc| import::remove_importlib_frames(self, &exc))
@@ -1995,7 +1999,11 @@ impl VirtualMachine {
     }
 
     // https://docs.python.org/3/reference/expressions.html#membership-test-operations
-    fn _membership_iter_search(&self, haystack: PyObjectRef, needle: PyObjectRef) -> PyResult {
+    fn _membership_iter_search(
+        &self,
+        haystack: PyObjectRef,
+        needle: PyObjectRef,
+    ) -> PyResult<PyIntRef> {
         let iter = haystack.get_iter(self)?;
         loop {
             if let PyIterReturn::Return(element) = iter.next(self)? {
@@ -2013,7 +2021,9 @@ impl VirtualMachine {
     pub fn _membership(&self, haystack: PyObjectRef, needle: PyObjectRef) -> PyResult {
         match PyMethod::get_special(haystack, "__contains__", self)? {
             Ok(method) => method.invoke((needle,), self),
-            Err(haystack) => self._membership_iter_search(haystack, needle),
+            Err(haystack) => self
+                ._membership_iter_search(haystack, needle)
+                .map(Into::into),
         }
     }
 
@@ -2291,8 +2301,8 @@ mod tests {
     #[test]
     fn test_add_py_integers() {
         Interpreter::default().enter(|vm| {
-            let a = vm.ctx.new_int(33_i32);
-            let b = vm.ctx.new_int(12_i32);
+            let a = vm.ctx.new_int(33_i32).into();
+            let b = vm.ctx.new_int(12_i32).into();
             let res = vm._add(&a, &b).unwrap();
             let value = int::get_value(&res);
             assert_eq!(*value, 45_i32.to_bigint().unwrap());
@@ -2303,7 +2313,7 @@ mod tests {
     fn test_multiply_str() {
         Interpreter::default().enter(|vm| {
             let a = vm.ctx.new_ascii_literal(crate::common::ascii!("Hello "));
-            let b = vm.ctx.new_int(4_i32);
+            let b = vm.ctx.new_int(4_i32).into();
             let res = vm._mul(&a, &b).unwrap();
             let value = res.payload::<PyStr>().unwrap();
             assert_eq!(value.as_ref(), "Hello Hello Hello Hello ")

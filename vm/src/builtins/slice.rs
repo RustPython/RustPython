@@ -1,6 +1,6 @@
 // sliceobject.{h,c} in CPython
 
-use super::{PyInt, PyIntRef, PyTypeRef};
+use super::{PyInt, PyIntRef, PyTupleRef, PyTypeRef};
 use crate::{
     function::{FuncArgs, IntoPyObject, OptionalArg},
     slots::{Comparable, Hashable, PyComparisonOp, SlotConstructor, Unhashable},
@@ -203,18 +203,13 @@ impl PySlice {
     }
 
     #[pymethod]
-    fn indices(&self, length: PyIntRef, vm: &VirtualMachine) -> PyResult {
+    fn indices(&self, length: PyIntRef, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         let length = length.as_bigint();
         if length.is_negative() {
-            Err(vm.new_value_error("length should not be negative.".to_owned()))
-        } else {
-            let (start, stop, step) = self.inner_indices(length, vm)?;
-            Ok(vm.ctx.new_tuple(vec![
-                vm.ctx.new_int(start),
-                vm.ctx.new_int(stop),
-                vm.ctx.new_int(step),
-            ]))
+            return Err(vm.new_value_error("length should not be negative.".to_owned()));
         }
+        let (start, stop, step) = self.inner_indices(length, vm)?;
+        Ok(vm.new_tuple((start, stop, step)))
     }
 }
 

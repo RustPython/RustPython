@@ -139,7 +139,7 @@ impl<'de> Visitor<'de> for PyObjectDeserializer<'de> {
     where
         E: serde::de::Error,
     {
-        Ok(self.vm.ctx.new_bool(value))
+        Ok(self.vm.ctx.new_bool(value).into())
     }
 
     // Other signed integers delegate to this method by default, it’s the only one needed
@@ -147,7 +147,7 @@ impl<'de> Visitor<'de> for PyObjectDeserializer<'de> {
     where
         E: serde::de::Error,
     {
-        Ok(self.vm.ctx.new_int(value))
+        Ok(self.vm.ctx.new_int(value).into())
     }
 
     // Other unsigned integers delegate to this method by default, it’s the only one needed
@@ -155,14 +155,14 @@ impl<'de> Visitor<'de> for PyObjectDeserializer<'de> {
     where
         E: serde::de::Error,
     {
-        Ok(self.vm.ctx.new_int(value))
+        Ok(self.vm.ctx.new_int(value).into())
     }
 
     fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>
     where
         E: serde::de::Error,
     {
-        Ok(self.vm.ctx.new_float(value))
+        Ok(self.vm.ctx.new_float(value).into())
     }
 
     fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>

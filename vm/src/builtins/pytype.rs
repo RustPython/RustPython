@@ -364,7 +364,7 @@ impl PyType {
     }
 
     #[pyproperty(magic)]
-    fn bases(&self, vm: &VirtualMachine) -> PyObjectRef {
+    fn bases(&self, vm: &VirtualMachine) -> PyTupleRef {
         vm.ctx
             .new_tuple(self.bases.iter().map(|x| x.as_object().clone()).collect())
     }

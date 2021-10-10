@@ -763,7 +763,7 @@ mod tests {
             let dict = Dict::default();
             assert_eq!(0, dict.len());
 
-            let key1 = vm.ctx.new_bool(true);
+            let key1 = vm.new_pyobj(true);
             let value1 = vm.ctx.new_ascii_literal(ascii!("abc"));
             dict.insert(&vm, key1.clone(), value1.clone()).unwrap();
             assert_eq!(1, dict.len());

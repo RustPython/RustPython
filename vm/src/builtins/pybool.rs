@@ -11,7 +11,7 @@ use std::fmt::{Debug, Formatter};
 
 impl IntoPyObject for bool {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_bool(self)
+        vm.ctx.new_bool(self).into()
     }
 }
 
@@ -105,7 +105,7 @@ impl SlotConstructor for PyBool {
             )));
         }
         let val = x.map_or(Ok(false), |val| val.try_to_bool(vm))?;
-        Ok(vm.ctx.new_bool(val))
+        Ok(vm.ctx.new_bool(val).into())
     }
 }
 

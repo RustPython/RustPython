@@ -1,7 +1,7 @@
 use super::{
     int::{PyInt, PyIntRef},
     iter::IterStatus::{self, Exhausted},
-    PositionIterInternal, PyBytesRef, PyDict, PyTypeRef,
+    PositionIterInternal, PyBytesRef, PyDict, PyTupleRef, PyTypeRef,
 };
 use crate::{
     anystr::{self, adjust_indices, AnyStr, AnyStrContainer, AnyStrWrapper},
@@ -18,6 +18,7 @@ use crate::{
     IdProtocol, ItemProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef,
     PyRef, PyResult, PyValue, TryIntoRef, TypeProtocol, VirtualMachine,
 };
+use ascii::{AsciiStr, AsciiString};
 use bstr::ByteSlice;
 use itertools::Itertools;
 use num_traits::ToPrimitive;
@@ -117,15 +118,21 @@ where
     }
 }
 
+impl From<AsciiString> for PyStr {
+    fn from(s: AsciiString) -> Self {
+        unsafe { Self::new_ascii_unchecked(s.into()) }
+    }
+}
+
 impl From<String> for PyStr {
-    fn from(s: String) -> PyStr {
+    fn from(s: String) -> Self {
         s.into_boxed_str().into()
     }
 }
 
 impl From<Box<str>> for PyStr {
     #[inline]
-    fn from(value: Box<str>) -> PyStr {
+    fn from(value: Box<str>) -> Self {
         // doing the check is ~10x faster for ascii, and is actually only 2% slower worst case for
         // non-ascii; see https://github.com/RustPython/RustPython/pull/2586#issuecomment-844611532
         let is_ascii = value.is_ascii();
@@ -150,6 +157,13 @@ impl fmt::Display for PyStr {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(self.as_str(), f)
+    }
+}
+
+impl TryIntoRef<PyStr> for AsciiString {
+    #[inline]
+    fn try_into_ref(self, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
+        Ok(unsafe { PyStr::new_ascii_unchecked(self.into()) }.into_ref(vm))
     }
 }
 
@@ -196,7 +210,7 @@ impl PyStrIterator {
     }
 
     #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> PyObjectRef {
+    fn reduce(&self, vm: &VirtualMachine) -> PyTupleRef {
         self.internal
             .lock()
             .0
@@ -1166,14 +1180,14 @@ impl PyStr {
                     if to_str.len() == from_str.len() {
                         for (c1, c2) in from_str.as_str().chars().zip(to_str.as_str().chars()) {
                             new_dict.set_item(
-                                vm.ctx.new_int(c1 as u32),
-                                vm.ctx.new_int(c2 as u32),
+                                vm.new_pyobj(c1 as u32),
+                                vm.new_pyobj(c2 as u32),
                                 vm,
                             )?;
                         }
                         if let OptionalArg::Present(none_str) = none_str {
                             for c in none_str.as_str().chars() {
-                                new_dict.set_item(vm.ctx.new_int(c as u32), vm.ctx.none(), vm)?;
+                                new_dict.set_item(vm.new_pyobj(c as u32), vm.ctx.none(), vm)?;
                             }
                         }
                         Ok(new_dict.into_pyobject(vm))
@@ -1315,6 +1329,12 @@ impl IntoPyObject for &str {
 impl IntoPyObject for &String {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.new_utf8_str(self.clone())
+    }
+}
+
+impl IntoPyObject for &AsciiStr {
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.new_ascii_literal(self)
     }
 }
 
@@ -1530,7 +1550,7 @@ mod tests {
             let text = PyStr::from("abc");
             let translated = text.translate(translated, &vm).unwrap();
             assert_eq!(translated, "🎅xda".to_owned());
-            let translated = text.translate(vm.ctx.new_int(3), &vm);
+            let translated = text.translate(vm.ctx.new_int(3).into(), &vm);
             assert_eq!(
                 translated.unwrap_err().class().name().deref(),
                 "TypeError".to_owned()

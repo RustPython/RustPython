@@ -94,13 +94,13 @@ mod decl {
     }
 
     #[pyfunction]
-    fn crc32(data: ArgBytesLike, value: OptionalArg<u32>, vm: &VirtualMachine) -> PyResult {
+    fn crc32(data: ArgBytesLike, value: OptionalArg<u32>) -> u32 {
         let crc = value.unwrap_or(0);
 
         let mut digest = crc32::Digest::new_with_initial(crc32::IEEE, crc);
         data.with_ref(|bytes| digest.write(bytes));
 
-        Ok(vm.ctx.new_int(digest.sum32()))
+        digest.sum32()
     }
 
     #[derive(FromArgs)]

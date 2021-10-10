@@ -2,7 +2,7 @@
 
 */
 
-use super::{PyStrRef, PyTypeRef};
+use super::{PyStrRef, PyTupleRef, PyTypeRef};
 use crate::{
     bytecode::{self, BorrowedConstant, Constant, ConstantBag},
     function::FuncArgs,
@@ -80,22 +80,22 @@ impl ConstantBag for PyObjBag<'_> {
         let vm = self.0;
         let ctx = &vm.ctx;
         let obj = match constant {
-            bytecode::ConstantData::Integer { value } => ctx.new_int(value),
-            bytecode::ConstantData::Float { value } => ctx.new_float(value),
-            bytecode::ConstantData::Complex { value } => ctx.new_complex(value),
+            bytecode::ConstantData::Integer { value } => ctx.new_int(value).into(),
+            bytecode::ConstantData::Float { value } => ctx.new_float(value).into(),
+            bytecode::ConstantData::Complex { value } => vm.new_pyobj(value),
             bytecode::ConstantData::Str { value } if value.len() <= 20 => {
                 vm.intern_string(value).into()
             }
             bytecode::ConstantData::Str { value } => vm.ctx.new_utf8_str(value),
             bytecode::ConstantData::Bytes { value } => ctx.new_bytes(value.to_vec()),
-            bytecode::ConstantData::Boolean { value } => ctx.new_bool(value),
+            bytecode::ConstantData::Boolean { value } => ctx.new_bool(value).into(),
             bytecode::ConstantData::Code { code } => ctx.new_code_object(code.map_bag(self)).into(),
             bytecode::ConstantData::Tuple { elements } => {
                 let elements = elements
                     .into_iter()
                     .map(|constant| self.make_constant(constant).0)
                     .collect();
-                ctx.new_tuple(elements)
+                ctx.new_tuple(elements).into()
             }
             bytecode::ConstantData::None => ctx.none(),
             bytecode::ConstantData::Ellipsis => ctx.ellipsis(),
@@ -106,15 +106,15 @@ impl ConstantBag for PyObjBag<'_> {
         let vm = self.0;
         let ctx = &vm.ctx;
         let obj = match constant {
-            bytecode::BorrowedConstant::Integer { value } => ctx.new_bigint(value),
-            bytecode::BorrowedConstant::Float { value } => ctx.new_float(value),
-            bytecode::BorrowedConstant::Complex { value } => ctx.new_complex(value),
+            bytecode::BorrowedConstant::Integer { value } => ctx.new_bigint(value).into(),
+            bytecode::BorrowedConstant::Float { value } => ctx.new_float(value).into(),
+            bytecode::BorrowedConstant::Complex { value } => vm.new_pyobj(value),
             bytecode::BorrowedConstant::Str { value } if value.len() <= 20 => {
                 vm.intern_string(value).into()
             }
             bytecode::BorrowedConstant::Str { value } => vm.ctx.new_utf8_str(value),
             bytecode::BorrowedConstant::Bytes { value } => ctx.new_bytes(value.to_vec()),
-            bytecode::BorrowedConstant::Boolean { value } => ctx.new_bool(value),
+            bytecode::BorrowedConstant::Boolean { value } => ctx.new_bool(value).into(),
             bytecode::BorrowedConstant::Code { code } => {
                 ctx.new_code_object(code.map_clone_bag(self)).into()
             }
@@ -123,7 +123,7 @@ impl ConstantBag for PyObjBag<'_> {
                     .into_iter()
                     .map(|constant| self.make_constant_borrowed(constant).0)
                     .collect();
-                ctx.new_tuple(elements)
+                ctx.new_tuple(elements).into()
             }
             bytecode::BorrowedConstant::None => ctx.none(),
             bytecode::BorrowedConstant::Ellipsis => ctx.ellipsis(),
@@ -233,7 +233,7 @@ impl PyRef<PyCode> {
     }
 
     #[pyproperty]
-    fn co_consts(self, vm: &VirtualMachine) -> PyObjectRef {
+    fn co_consts(self, vm: &VirtualMachine) -> PyTupleRef {
         let consts = self.code.constants.iter().map(|x| x.0.clone()).collect();
         vm.ctx.new_tuple(consts)
     }
@@ -249,7 +249,7 @@ impl PyRef<PyCode> {
     }
 
     #[pyproperty]
-    fn co_varnames(self, vm: &VirtualMachine) -> PyObjectRef {
+    fn co_varnames(self, vm: &VirtualMachine) -> PyTupleRef {
         let varnames = self
             .code
             .varnames

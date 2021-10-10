@@ -158,11 +158,12 @@ mod time {
     }
 
     #[pyfunction]
-    fn mktime(t: PyStructTime, vm: &VirtualMachine) -> PyResult {
+    fn mktime(t: PyStructTime, vm: &VirtualMachine) -> PyResult<f64> {
         let datetime = t.to_date_time(vm)?;
         let seconds_since_epoch = datetime.timestamp() as f64;
-        Ok(vm.ctx.new_float(seconds_since_epoch))
+        Ok(seconds_since_epoch)
     }
+
     const CFMT: &str = "%a %b %e %H:%M:%S %Y";
 
     #[pyfunction]
@@ -302,15 +303,15 @@ mod time {
     impl PyStructTime {
         fn new(vm: &VirtualMachine, tm: NaiveDateTime, isdst: i32) -> Self {
             PyStructTime {
-                tm_year: vm.ctx.new_int(tm.year()),
-                tm_mon: vm.ctx.new_int(tm.month()),
-                tm_mday: vm.ctx.new_int(tm.day()),
-                tm_hour: vm.ctx.new_int(tm.hour()),
-                tm_min: vm.ctx.new_int(tm.minute()),
-                tm_sec: vm.ctx.new_int(tm.second()),
-                tm_wday: vm.ctx.new_int(tm.weekday().num_days_from_monday()),
-                tm_yday: vm.ctx.new_int(tm.ordinal()),
-                tm_isdst: vm.ctx.new_int(isdst),
+                tm_year: vm.ctx.new_int(tm.year()).into(),
+                tm_mon: vm.ctx.new_int(tm.month()).into(),
+                tm_mday: vm.ctx.new_int(tm.day()).into(),
+                tm_hour: vm.ctx.new_int(tm.hour()).into(),
+                tm_min: vm.ctx.new_int(tm.minute()).into(),
+                tm_sec: vm.ctx.new_int(tm.second()).into(),
+                tm_wday: vm.ctx.new_int(tm.weekday().num_days_from_monday()).into(),
+                tm_yday: vm.ctx.new_int(tm.ordinal()).into(),
+                tm_isdst: vm.ctx.new_int(isdst).into(),
             }
         }
 

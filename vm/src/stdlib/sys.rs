@@ -3,7 +3,7 @@ use crate::common::{
     hash::{PyHash, PyUHash},
 };
 use crate::{
-    builtins::{PyStr, PyStrRef, PyTypeRef},
+    builtins::{PyStr, PyStrRef, PyTupleRef, PyTypeRef},
     exceptions,
     frame::FrameRef,
     function::{FuncArgs, OptionalArg, PosArgs},
@@ -240,12 +240,12 @@ fn sys_exc_info(vm: &VirtualMachine) -> (PyObjectRef, PyObjectRef, PyObjectRef) 
     }
 }
 
-fn sys_git_info(vm: &VirtualMachine) -> PyObjectRef {
-    vm.ctx.new_tuple(vec![
-        vm.ctx.new_ascii_literal(ascii!("RustPython")),
-        vm.ctx.new_utf8_str(version::get_git_identifier()),
-        vm.ctx.new_utf8_str(version::get_git_revision()),
-    ])
+fn sys_git_info(vm: &VirtualMachine) -> PyTupleRef {
+    vm.new_tuple((
+        ascii!("RustPython"),
+        version::get_git_identifier(),
+        version::get_git_revision(),
+    ))
 }
 
 fn sys_exit(code: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
@@ -540,9 +540,10 @@ pub(crate) fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: Py
 
     let xopts = ctx.new_dict();
     for (key, value) in &vm.state.settings.xopts {
-        let value = value
-            .as_ref()
-            .map_or_else(|| ctx.new_bool(true), |s| ctx.new_utf8_str(s.clone()));
+        let value = value.as_ref().map_or_else(
+            || ctx.new_bool(true).into(),
+            |s| ctx.new_utf8_str(s.clone()),
+        );
         xopts.set_item(&**key, value, vm).unwrap();
     }
 
