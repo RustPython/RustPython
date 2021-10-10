@@ -74,7 +74,7 @@ impl PyMemoryView {
     }
 
     fn parse_format(format: &str, vm: &VirtualMachine) -> PyResult<FormatSpec> {
-        FormatSpec::parse(format, vm)
+        FormatSpec::parse(format.as_bytes(), vm)
     }
 
     pub fn from_buffer(buffer: PyBuffer, vm: &VirtualMachine) -> PyResult<Self> {
