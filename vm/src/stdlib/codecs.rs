@@ -157,7 +157,7 @@ mod _codecs {
             reason: &str,
         ) -> PyResult<(PyStrRef, Option<PyBytesRef>, usize)> {
             let vm = self.vm;
-            let data_bytes = vm.ctx.new_bytes(data.to_vec());
+            let data_bytes: PyObjectRef = vm.ctx.new_bytes(data.to_vec()).into();
             let decode_exc = vm.new_exception(
                 vm.ctx.exceptions.unicode_decode_error.clone(),
                 vec![

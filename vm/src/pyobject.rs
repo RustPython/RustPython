@@ -201,12 +201,8 @@ impl PyContext {
         )
     }
 
-    pub fn new_bytes(&self, data: Vec<u8>) -> PyObjectRef {
-        PyObject::new(
-            bytes::PyBytes::from(data),
-            self.types.bytes_type.clone(),
-            None,
-        )
+    pub fn new_bytes(&self, data: Vec<u8>) -> PyRef<bytes::PyBytes> {
+        bytes::PyBytes::new_ref(data, self)
     }
 
     #[inline]

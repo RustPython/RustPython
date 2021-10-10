@@ -198,7 +198,7 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
             );
             let mut vec = vec![0; u8_array.length() as usize];
             u8_array.copy_to(&mut vec);
-            vm.ctx.new_bytes(vec)
+            vm.ctx.new_bytes(vec).into()
         } else {
             let dict = vm.ctx.new_dict();
             for pair in object_entries(&Object::from(js_val)) {

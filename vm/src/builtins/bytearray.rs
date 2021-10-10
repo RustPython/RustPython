@@ -227,8 +227,8 @@ impl PyByteArray {
     }
 
     #[pymethod]
-    fn maketrans(from: PyBytesInner, to: PyBytesInner, vm: &VirtualMachine) -> PyResult {
-        PyBytesInner::maketrans(from, to, vm)
+    fn maketrans(from: PyBytesInner, to: PyBytesInner) -> PyResult<Vec<u8>> {
+        PyBytesInner::maketrans(from, to)
     }
 
     #[pymethod]
@@ -388,7 +388,7 @@ impl PyByteArray {
     fn fromhex(cls: PyTypeRef, string: PyStrRef, vm: &VirtualMachine) -> PyResult {
         let bytes = PyBytesInner::fromhex(string.as_str(), vm)?;
         let bytes = vm.ctx.new_bytes(bytes);
-        Callable::call(&cls, vec![bytes].into(), vm)
+        Callable::call(&cls, vec![bytes.into()].into(), vm)
     }
 
     #[pymethod]

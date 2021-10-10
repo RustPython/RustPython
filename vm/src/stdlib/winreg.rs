@@ -277,7 +277,7 @@ fn reg_to_py(value: RegValue, vm: &VirtualMachine) -> PyResult {
             if value.bytes.is_empty() {
                 Ok(vm.ctx.none())
             } else {
-                Ok(vm.ctx.new_bytes(value.bytes))
+                Ok(vm.ctx.new_bytes(value.bytes).into())
             }
         }
     }

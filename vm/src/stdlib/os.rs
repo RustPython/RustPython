@@ -39,11 +39,11 @@ impl OutputMode {
                     #[cfg(any(unix, target_os = "wasi"))]
                     {
                         use ffi_ext::OsStringExt;
-                        Ok(vm.ctx.new_bytes(path.into_os_string().into_vec()))
+                        Ok(vm.ctx.new_bytes(path.into_os_string().into_vec()).into())
                     }
                     #[cfg(windows)]
                     {
-                        path_as_string(path).map(|s| vm.ctx.new_bytes(s.into_bytes()))
+                        path_as_string(path).map(|s| vm.ctx.new_bytes(s.into_bytes()).into())
                     }
                 }
             }
@@ -537,7 +537,7 @@ pub(super) mod _os {
     }
 
     #[pyfunction]
-    fn read(fd: i32, n: usize, vm: &VirtualMachine) -> PyResult {
+    fn read(fd: i32, n: usize, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
         let mut buffer = vec![0u8; n];
         let mut file = Fd(fd);
         let n = file

@@ -13,7 +13,7 @@ pub(crate) mod module {
     use crate::{
         builtins::PyStrRef,
         stdlib::os::{DirFd, PyPathLike, SupportFunc, TargetIsDirectory, _os},
-        PyResult, VirtualMachine,
+        PyObjectRef, PyResult, VirtualMachine,
     };
     use std::env;
     #[cfg(unix)]
@@ -50,13 +50,9 @@ pub(crate) mod module {
 
         let environ = vm.ctx.new_dict();
         for (key, value) in env::vars_os() {
-            environ
-                .set_item(
-                    vm.ctx.new_bytes(key.into_vec()),
-                    vm.ctx.new_bytes(value.into_vec()),
-                    vm,
-                )
-                .unwrap();
+            let key: PyObjectRef = vm.ctx.new_bytes(key.into_vec()).into();
+            let value: PyObjectRef = vm.ctx.new_bytes(value.into_vec()).into();
+            environ.set_item(key, value, vm).unwrap();
         }
 
         environ

@@ -3237,7 +3237,7 @@ mod _io {
 
         //Retrieves the entire bytes object value from the underlying buffer
         #[pymethod]
-        fn getvalue(self, vm: &VirtualMachine) -> PyResult {
+        fn getvalue(self, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
             Ok(vm.ctx.new_bytes(self.buffer(vm)?.getvalue()))
         }
 

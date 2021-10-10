@@ -59,7 +59,7 @@ impl From<PyBytesInner> for PyBytes {
 
 impl IntoPyObject for Vec<u8> {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_bytes(self)
+        vm.ctx.new_bytes(self).into()
     }
 }
 
@@ -98,6 +98,12 @@ impl SlotConstructor for PyBytes {
 
     fn py_new(cls: PyTypeRef, options: Self::Args, vm: &VirtualMachine) -> PyResult {
         options.get_bytes(cls, vm).into_pyresult(vm)
+    }
+}
+
+impl PyBytes {
+    pub fn new_ref(data: Vec<u8>, ctx: &PyContext) -> PyRef<Self> {
+        PyRef::new_ref(Self::from(data), ctx.types.bytes_type.clone(), None)
     }
 }
 
@@ -142,8 +148,8 @@ impl PyBytes {
     }
 
     #[pymethod(magic)]
-    fn add(&self, other: ArgBytesLike, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_bytes(self.inner.add(&*other.borrow_buf()))
+    fn add(&self, other: ArgBytesLike) -> Vec<u8> {
+        self.inner.add(&*other.borrow_buf())
     }
 
     #[pymethod(magic)]
@@ -156,8 +162,8 @@ impl PyBytes {
     }
 
     #[pymethod]
-    fn maketrans(from: PyBytesInner, to: PyBytesInner, vm: &VirtualMachine) -> PyResult {
-        PyBytesInner::maketrans(from, to, vm)
+    fn maketrans(from: PyBytesInner, to: PyBytesInner) -> PyResult<Vec<u8>> {
+        PyBytesInner::maketrans(from, to)
     }
 
     #[pymethod(magic)]
@@ -238,7 +244,7 @@ impl PyBytes {
     #[pyclassmethod]
     fn fromhex(cls: PyTypeRef, string: PyStrRef, vm: &VirtualMachine) -> PyResult {
         let bytes = PyBytesInner::fromhex(string.as_str(), vm)?;
-        let bytes = vm.ctx.new_bytes(bytes);
+        let bytes = vm.ctx.new_bytes(bytes).into();
         Callable::call(&cls, vec![bytes].into(), vm)
     }
 
@@ -368,13 +374,13 @@ impl PyBytes {
     #[pymethod]
     fn split(&self, options: ByteInnerSplitOptions, vm: &VirtualMachine) -> PyResult {
         self.inner
-            .split(options, |s, vm| vm.ctx.new_bytes(s.to_vec()), vm)
+            .split(options, |s, vm| vm.ctx.new_bytes(s.to_vec()).into(), vm)
     }
 
     #[pymethod]
     fn rsplit(&self, options: ByteInnerSplitOptions, vm: &VirtualMachine) -> PyResult {
         self.inner
-            .rsplit(options, |s, vm| vm.ctx.new_bytes(s.to_vec()), vm)
+            .rsplit(options, |s, vm| vm.ctx.new_bytes(s.to_vec()).into(), vm)
     }
 
     #[pymethod]
@@ -386,7 +392,7 @@ impl PyBytes {
             if has_mid {
                 sep
             } else {
-                vm.ctx.new_bytes(Vec::new())
+                vm.ctx.new_bytes(Vec::new()).into()
             },
             vm.ctx.new_bytes(back),
         )))
@@ -401,7 +407,7 @@ impl PyBytes {
             if has_mid {
                 sep
             } else {
-                vm.ctx.new_bytes(Vec::new())
+                vm.ctx.new_bytes(Vec::new()).into()
             },
             vm.ctx.new_bytes(back),
         )))
@@ -416,7 +422,7 @@ impl PyBytes {
     fn splitlines(&self, options: anystr::SplitLinesArgs, vm: &VirtualMachine) -> PyObjectRef {
         let lines = self
             .inner
-            .splitlines(options, |x| vm.ctx.new_bytes(x.to_vec()));
+            .splitlines(options, |x| vm.ctx.new_bytes(x.to_vec()).into());
         vm.ctx.new_list(lines)
     }
 

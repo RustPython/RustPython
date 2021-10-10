@@ -276,13 +276,9 @@ pub mod module {
 
         let environ = vm.ctx.new_dict();
         for (key, value) in env::vars_os() {
-            environ
-                .set_item(
-                    vm.ctx.new_bytes(key.into_vec()),
-                    vm.ctx.new_bytes(value.into_vec()),
-                    vm,
-                )
-                .unwrap();
+            let key: PyObjectRef = vm.ctx.new_bytes(key.into_vec()).into();
+            let value: PyObjectRef = vm.ctx.new_bytes(value.into_vec()).into();
+            environ.set_item(key, value, vm).unwrap();
         }
 
         environ
