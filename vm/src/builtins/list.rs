@@ -2,6 +2,7 @@ use super::{PositionIterInternal, PyGenericAlias, PySliceRef, PyTupleRef, PyType
 use crate::common::lock::{
     PyMappedRwLockReadGuard, PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
 };
+use crate::sliceable::saturate_index;
 use crate::{
     function::{ArgIterable, FuncArgs, IntoPyObject, OptionalArg},
     protocol::{PyIterReturn, PyMappingMethods},
@@ -20,7 +21,7 @@ use crate::{
 use std::fmt;
 use std::iter::FromIterator;
 use std::mem::size_of;
-use std::ops::DerefMut;
+use std::ops::{DerefMut, Range};
 
 /// Built-in mutable sequence.
 ///
@@ -252,13 +253,22 @@ impl PyList {
         Ok(zelf.clone())
     }
 
-    fn iter_any_equal<F>(&self, needle: &PyObjectRef, mut f: F, vm: &VirtualMachine) -> PyResult<usize>
+    fn _iter_equal<F>(
+        &self,
+        needle: &PyObjectRef,
+        range: Range<usize>,
+        mut f: F,
+        vm: &VirtualMachine,
+    ) -> PyResult<usize>
     where
         F: FnMut(&PyObjectRef) -> bool,
     {
-        let mut i = 0;
         let mut borrower = None;
+        let mut i = range.start;
         Ok(loop {
+            if i <= range.end {
+                break usize::MAX;
+            }
             let guard = if let Some(x) = borrower.take() {
                 x
             } else {
@@ -294,12 +304,13 @@ impl PyList {
         })
     }
 
-    fn iter_foreach_equal<F>(&self, needle: &PyObjectRef, mut f: F, vm: &VirtualMachine) -> PyResult<()>
+    fn foreach_equal<F>(&self, needle: &PyObjectRef, mut f: F, vm: &VirtualMachine) -> PyResult<()>
     where
         F: FnMut(&PyObjectRef),
     {
-        self.iter_any_equal(
+        self._iter_equal(
             needle,
+            0..usize::MAX,
             |elem| {
                 f(elem);
                 false
@@ -309,24 +320,25 @@ impl PyList {
         .map(|_| ())
     }
 
+    fn find_equal(
+        &self,
+        needle: &PyObjectRef,
+        range: Range<usize>,
+        vm: &VirtualMachine,
+    ) -> PyResult<usize> {
+        self._iter_equal(needle, range, |_| true, vm)
+    }
+
     #[pymethod]
     fn count(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         let mut count = 0;
-        self.iter_foreach_equal(&needle, |_| count += 1, vm)?;
+        self.foreach_equal(&needle, |_| count += 1, vm)?;
         Ok(count)
     }
 
     #[pymethod(magic)]
-    pub fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        // TODO: to_vec() cause copy which leads to cost O(N). It need to be improved.
-        let elements = self.borrow_vec().to_vec();
-        for elem in elements.iter() {
-            if vm.identical_or_equal(elem, &needle)? {
-                return Ok(true);
-            }
-        }
-
-        Ok(false)
+    fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        Ok(self.find_equal(&needle, 0..usize::MAX, vm)? != usize::MAX)
     }
 
     #[pymethod]
@@ -337,33 +349,17 @@ impl PyList {
         stop: OptionalArg<isize>,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
-        let mut start = start.into_option().unwrap_or(0);
-        if start < 0 {
-            start += self.borrow_vec().len() as isize;
-            if start < 0 {
-                start = 0;
-            }
+        let len = self.len();
+        let start = start.map(|i| saturate_index(i, len)).unwrap_or(0);
+        let stop = stop
+            .map(|i| saturate_index(i, len))
+            .unwrap_or(sys::MAXSIZE as usize);
+        let index = self.find_equal(&needle, start..stop, vm)?;
+        if index == usize::MAX {
+            Err(vm.new_value_error(format!("'{}' is not in list", vm.to_str(&needle)?)))
+        } else {
+            Ok(index)
         }
-        let mut stop = stop.into_option().unwrap_or(sys::MAXSIZE);
-        if stop < 0 {
-            stop += self.borrow_vec().len() as isize;
-            if stop < 0 {
-                stop = 0;
-            }
-        }
-        // TODO: to_vec() cause copy which leads to cost O(N). It need to be improved.
-        let elements = self.borrow_vec().to_vec();
-        for (index, element) in elements
-            .iter()
-            .enumerate()
-            .take(stop as usize)
-            .skip(start as usize)
-        {
-            if vm.identical_or_equal(element, &needle)? {
-                return Ok(index);
-            }
-        }
-        Err(vm.new_value_error(format!("'{}' is not in list", vm.to_str(&needle)?)))
     }
 
     #[pymethod]
@@ -384,17 +380,9 @@ impl PyList {
 
     #[pymethod]
     fn remove(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        // TODO: to_vec() cause copy which leads to cost O(N). It need to be improved.
-        let elements = self.borrow_vec().to_vec();
-        let mut ri: Option<usize> = None;
-        for (index, element) in elements.iter().enumerate() {
-            if vm.identical_or_equal(element, &needle)? {
-                ri = Some(index);
-                break;
-            }
-        }
+        let index = self.find_equal(&needle, 0..usize::MAX, vm)?;
 
-        if let Some(index) = ri {
+        if index != usize::MAX {
             // defer delete out of borrow
             Ok(self.borrow_vec_mut().remove(index))
         } else {
