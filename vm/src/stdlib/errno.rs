@@ -59,22 +59,23 @@ const ERROR_CODES: &[(&str, i32)] = &[
         cfg(not(any(
             target_os = "openbsd",
             target_os = "freebsd",
+            target_os = "wasi",
             windows
         ))),
         ENODATA
     ),
-    e!(cfg(not(windows)), ENOTBLK),
+    e!(cfg(not(any(windows, target_os = "wasi"))), ENOTBLK),
     e!(EOPNOTSUPP),
     e!(ENOSYS),
     e!(EPIPE),
     e!(EINVAL),
     e!(cfg(not(windows)), EOVERFLOW),
     e!(EINTR),
-    e!(EUSERS),
+    e!(cfg(not(target_os = "wasi")), EUSERS),
     e!(ENOTEMPTY),
     e!(ENOBUFS),
     e!(cfg(not(windows)), EPROTO),
-    e!(EREMOTE),
+    e!(cfg(not(target_os = "wasi")), EREMOTE),
     e!(ECHILD),
     e!(ELOOP),
     e!(EXDEV),
@@ -82,13 +83,13 @@ const ERROR_CODES: &[(&str, i32)] = &[
     e!(ESRCH),
     e!(EMSGSIZE),
     e!(EAFNOSUPPORT),
-    e!(EHOSTDOWN),
-    e!(EPFNOSUPPORT),
+    e!(cfg(not(target_os = "wasi")), EHOSTDOWN),
+    e!(cfg(not(target_os = "wasi")), EPFNOSUPPORT),
     e!(ENOPROTOOPT),
     e!(EBUSY),
     e!(EAGAIN),
     e!(EISCONN),
-    e!(ESHUTDOWN),
+    e!(cfg(not(target_os = "wasi")), ESHUTDOWN),
     e!(EBADF),
     e!(cfg(not(any(target_os = "openbsd", windows))), EMULTIHOP),
     e!(EIO),
@@ -121,6 +122,7 @@ const ERROR_CODES: &[(&str, i32)] = &[
         cfg(not(any(
             target_os = "openbsd",
             target_os = "freebsd",
+            target_os = "wasi",
             windows
         ))),
         ENOSTR
@@ -137,6 +139,7 @@ const ERROR_CODES: &[(&str, i32)] = &[
         cfg(not(any(
             target_os = "openbsd",
             target_os = "freebsd",
+            target_os = "wasi",
             windows
         ))),
         ENOSR
@@ -150,16 +153,17 @@ const ERROR_CODES: &[(&str, i32)] = &[
     e!(cfg(not(any(target_os = "redox", windows))), ENOTSUP),
     e!(ENAMETOOLONG),
     e!(ENOTTY),
-    e!(ESOCKTNOSUPPORT),
+    e!(cfg(not(target_os = "wasi")), ESOCKTNOSUPPORT),
     e!(
         cfg(not(any(
             target_os = "openbsd",
             target_os = "freebsd",
+            target_os = "wasi",
             windows
         ))),
         ETIME
     ),
-    e!(ETOOMANYREFS),
+    e!(cfg(not(target_os = "wasi")), ETOOMANYREFS),
     e!(EMFILE),
     e!(cfg(not(windows)), ETXTBSY),
     e!(EINPROGRESS),
