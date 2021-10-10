@@ -666,9 +666,14 @@ impl VirtualMachine {
         self.new_exception_msg(type_error, msg)
     }
 
-    pub fn new_name_error(&self, msg: String) -> PyBaseExceptionRef {
-        let name_error = self.ctx.exceptions.name_error.clone();
-        self.new_exception_msg(name_error, msg)
+    pub fn new_name_error(&self, msg: String, name: &PyStrRef) -> PyBaseExceptionRef {
+        let name_error_type = self.ctx.exceptions.name_error.clone();
+        let name_error = self.new_exception_msg(name_error_type, msg);
+        name_error
+            .as_object()
+            .set_attr("name", name.clone(), self)
+            .unwrap();
+        name_error
     }
 
     pub fn new_unsupported_unary_error(&self, a: &PyObjectRef, op: &str) -> PyBaseExceptionRef {

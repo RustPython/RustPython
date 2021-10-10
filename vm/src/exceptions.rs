@@ -721,7 +721,9 @@ impl ExceptionZoo {
         });
 
         extend_exception!(PyMemoryError, ctx, &excs.memory_error);
-        extend_exception!(PyNameError, ctx, &excs.name_error);
+        extend_exception!(PyNameError, ctx, &excs.name_error, {
+            "name" => ctx.none(),
+        });
         extend_exception!(PyUnboundLocalError, ctx, &excs.unbound_local_error);
 
         // os errors:
