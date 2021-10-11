@@ -670,13 +670,6 @@ where
 
     #[pymethod(magic)]
     fn reversed(&self) -> Self::ReverseIter;
-
-    fn to_set(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PySetInner> {
-        let len = zelf.dict().len();
-        let zelf: PyObjectRef = Self::iter(zelf, vm)?;
-        let iter = PyIterIter::new(vm, zelf, Some(len));
-        PySetInner::from_iter(iter, vm)
-    }
 }
 
 macro_rules! dict_view {
@@ -911,8 +904,16 @@ dict_view! {
         vm.new_tuple((key, value)).into()
 }
 
-#[pyimpl(with(DictView, Comparable, Iterable))]
-impl PyDictKeys {
+// Set operations defined on set-like views of the dictionary.
+#[pyimpl]
+trait ViewSetOps: DictView {
+    fn to_set(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PySetInner> {
+        let len = zelf.dict().len();
+        let zelf: PyObjectRef = Self::iter(zelf, vm)?;
+        let iter = PyIterIter::new(vm, zelf, Some(len));
+        PySetInner::from_iter(iter, vm)
+    }
+
     #[pymethod(name = "__rxor__")]
     #[pymethod(magic)]
     fn xor(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySet> {
@@ -946,43 +947,13 @@ impl PyDictKeys {
     }
 }
 
-#[pyimpl(with(DictView, Comparable, Iterable))]
-impl PyDictValues {}
+impl ViewSetOps for PyDictKeys {}
+#[pyimpl(with(DictView, Comparable, Iterable, ViewSetOps))]
+impl PyDictKeys {}
 
-#[pyimpl(with(DictView, Comparable, Iterable))]
+impl ViewSetOps for PyDictItems {}
+#[pyimpl(with(DictView, Comparable, Iterable, ViewSetOps))]
 impl PyDictItems {
-    #[pymethod(name = "__rxor__")]
-    #[pymethod(magic)]
-    fn xor(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySet> {
-        let zelf = Self::to_set(zelf, vm)?;
-        let inner = zelf.symmetric_difference(other, vm)?;
-        Ok(PySet { inner })
-    }
-
-    #[pymethod(name = "__rand__")]
-    #[pymethod(magic)]
-    fn and(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySet> {
-        let zelf = Self::to_set(zelf, vm)?;
-        let inner = zelf.intersection(other, vm)?;
-        Ok(PySet { inner })
-    }
-
-    #[pymethod(name = "__ror__")]
-    #[pymethod(magic)]
-    fn or(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySet> {
-        let zelf = Self::to_set(zelf, vm)?;
-        let inner = zelf.union(other, vm)?;
-        Ok(PySet { inner })
-    }
-
-    #[pymethod(name = "__rsub__")]
-    #[pymethod(magic)]
-    fn sub(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySet> {
-        let zelf = Self::to_set(zelf, vm)?;
-        let inner = zelf.difference(other, vm)?;
-        Ok(PySet { inner })
-    }
-
     #[pymethod(magic)]
     fn contains(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         let needle = match_class! {
@@ -1003,6 +974,9 @@ impl PyDictItems {
         vm.identical_or_equal(&found, &value)
     }
 }
+
+#[pyimpl(with(DictView, Comparable, Iterable))]
+impl PyDictValues {}
 
 pub(crate) fn init(context: &PyContext) {
     PyDict::extend_class(context, &context.types.dict_type);
