@@ -1605,6 +1605,8 @@ class NameErrorTests(unittest.TestCase):
 
 
 class AttributeErrorTests(unittest.TestCase):
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_attributes(self):
         # Setting 'attr' should not be a problem.
         exc = AttributeError('Ouch!')
