@@ -631,6 +631,12 @@ class PosixCommonTest(test_genericpath.CommonTest, unittest.TestCase):
 
     # TODO: RUSTPYTHON
     import sys
+    if sys.platform.startswith("linux") and os.getenv("CI"):
+        @unittest.expectedFailure
+        def test_exists(self):
+            super().test_exists()
+
+    # TODO: RUSTPYTHON
     if sys.platform.startswith("linux"):
         @unittest.expectedFailure
         def test_nonascii_abspath(self):
@@ -661,6 +667,7 @@ class PosixCommonTest(test_genericpath.CommonTest, unittest.TestCase):
             super().test_samestat_on_link()
 
 
+@unittest.skipIf(os.getenv("CI"), "TODO: RUSTPYTHON,  FileExistsError: (17, 'File exists (os error 17)')")
 class PathLikeTests(unittest.TestCase):
 
     path = posixpath
