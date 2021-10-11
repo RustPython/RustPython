@@ -2,16 +2,21 @@ use super::{
     mappingproxy::PyMappingProxy, object, PyClassMethod, PyDictRef, PyInt, PyList, PyStaticMethod,
     PyStr, PyStrRef, PyTuple, PyTupleRef, PyWeak,
 };
-use crate::common::{ascii, lock::PyRwLock};
+use crate::common::{
+    ascii,
+    borrow::BorrowedValue,
+    lock::{PyRwLock, PyRwLockReadGuard},
+};
 use crate::{
     function::{FuncArgs, KwArgs, OptionalArg},
-    protocol::PyIterReturn,
+    protocol::{PyIterReturn, PyMappingMethods},
     slots::{self, Callable, PyTypeFlags, PyTypeSlots, SlotGetattro, SlotSetattro},
     utils::Either,
     IdProtocol, PyAttributes, PyClassImpl, PyContext, PyLease, PyObjectRef, PyRef, PyResult,
-    PyValue, TryFromObject, TypeProtocol, VirtualMachine,
+    PyValue, TypeProtocol, VirtualMachine,
 };
 use itertools::Itertools;
+use num_traits::ToPrimitive;
 use std::collections::HashSet;
 use std::fmt;
 use std::ops::Deref;
@@ -186,7 +191,7 @@ impl PyType {
                         let new = vm
                             .get_attribute_opt(cls.as_object().clone(), "__new__")?
                             .unwrap();
-                        args.prepend_arg(cls.into_object());
+                        args.prepend_arg(cls.into());
                         vm.invoke(&new, args)
                     };
                 update_slot!(new, func);
@@ -263,12 +268,60 @@ impl PyType {
             }
             "__next__" => {
                 let func: slots::IterNextFunc = |zelf, vm| {
-                    PyIterReturn::from_result(
+                    PyIterReturn::from_pyresult(
                         vm.call_special_method(zelf.clone(), "__next__", ()),
                         vm,
                     )
                 };
                 update_slot!(iternext, func);
+            }
+            "__len__" | "__getitem__" | "__setitem__" | "__delitem__" => {
+                macro_rules! then_some_closure {
+                    ($cond:expr, $closure:expr) => {
+                        if $cond {
+                            Some($closure)
+                        } else {
+                            None
+                        }
+                    };
+                }
+
+                let func: slots::MappingFunc = |zelf, _vm| {
+                    Ok(PyMappingMethods {
+                        length: then_some_closure!(zelf.has_class_attr("__len__"), |zelf, vm| {
+                            vm.call_special_method(zelf, "__len__", ()).map(|obj| {
+                                obj.payload_if_subclass::<PyInt>(vm)
+                                    .map(|length_obj| {
+                                        length_obj.as_bigint().to_usize().ok_or_else(|| {
+                                            vm.new_value_error(
+                                                "__len__() should return >= 0".to_owned(),
+                                            )
+                                        })
+                                    })
+                                    .unwrap()
+                            })?
+                        }),
+                        subscript: then_some_closure!(
+                            zelf.has_class_attr("__getitem__"),
+                            |zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine| {
+                                vm.call_special_method(zelf, "__getitem__", (needle,))
+                            }
+                        ),
+                        ass_subscript: then_some_closure!(
+                            zelf.has_class_attr("__setitem__") | zelf.has_class_attr("__delitem__"),
+                            |zelf, needle, value, vm| match value {
+                                Some(value) => vm
+                                    .call_special_method(zelf, "__setitem__", (needle, value),)
+                                    .map(|_| Ok(()))?,
+                                None => vm
+                                    .call_special_method(zelf, "__delitem__", (needle,))
+                                    .map(|_| Ok(()))?,
+                            }
+                        ),
+                    })
+                };
+                update_slot!(as_mapping, func);
+                // TODO: need to update sequence protocol too
             }
             _ => {}
         }
@@ -311,7 +364,7 @@ impl PyType {
     }
 
     #[pyproperty(magic)]
-    fn bases(&self, vm: &VirtualMachine) -> PyObjectRef {
+    fn bases(&self, vm: &VirtualMachine) -> PyTupleRef {
         vm.ctx
             .new_tuple(self.bases.iter().map(|x| x.as_object().clone()).collect())
     }
@@ -331,7 +384,7 @@ impl PyType {
         let attributes: Vec<PyObjectRef> = zelf
             .get_attributes()
             .drain()
-            .map(|(k, _)| vm.ctx.new_utf8_str(k))
+            .map(|(k, _)| vm.ctx.new_str(k).into())
             .collect();
         PyList::from(attributes)
     }
@@ -351,9 +404,16 @@ impl PyType {
         vm.ctx.not_implemented()
     }
 
-    #[pyproperty(magic)]
-    pub fn name(&self) -> String {
-        self.slot_name().rsplit('.').next().unwrap().to_string()
+    #[pyproperty]
+    fn __name__(&self) -> String {
+        self.name().to_string()
+    }
+
+    pub fn name(&self) -> BorrowedValue<str> {
+        PyRwLockReadGuard::map(self.slots.name.read(), |slot_name| {
+            slot_name.as_ref().unwrap().rsplit('.').next().unwrap()
+        })
+        .into()
     }
 
     #[pymethod(magic)]
@@ -391,7 +451,7 @@ impl PyType {
                     Some(found)
                 }
             })
-            .unwrap_or_else(|| vm.ctx.new_utf8_str(self.name()))
+            .unwrap_or_else(|| vm.ctx.new_str(self.name().deref()).into())
     }
 
     #[pyproperty(magic)]
@@ -409,7 +469,7 @@ impl PyType {
                     Some(found)
                 }
             })
-            .unwrap_or_else(|| vm.ctx.new_ascii_literal(ascii!("builtins")))
+            .unwrap_or_else(|| vm.ctx.new_str(ascii!("builtins")).into())
     }
 
     #[pyproperty(magic, setter)]
@@ -443,12 +503,8 @@ impl PyType {
     }
 
     #[pymethod]
-    fn mro(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_list(
-            zelf.iter_mro()
-                .map(|cls| cls.clone().into_object())
-                .collect(),
-        )
+    fn mro(zelf: PyRef<Self>) -> Vec<PyObjectRef> {
+        zelf.iter_mro().map(|cls| cls.clone().into()).collect()
     }
     #[pyslot]
     fn slot_new(metatype: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -456,7 +512,7 @@ impl PyType {
 
         let is_type_type = metatype.is(&vm.ctx.types.type_type);
         if is_type_type && args.args.len() == 1 && args.kwargs.is_empty() {
-            return Ok(args.args[0].clone_class().into_object());
+            return Ok(args.args[0].clone_class().into());
         }
 
         if args.args.len() != 3 {
@@ -538,12 +594,14 @@ impl PyType {
         if !attributes.contains_key("__dict__") {
             attributes.insert(
                 "__dict__".to_owned(),
-                vm.ctx.new_getset(
-                    "__dict__",
-                    vm.ctx.types.object_type.clone(),
-                    subtype_get_dict,
-                    subtype_set_dict,
-                ),
+                vm.ctx
+                    .new_getset(
+                        "__dict__",
+                        vm.ctx.types.object_type.clone(),
+                        subtype_get_dict,
+                        subtype_set_dict,
+                    )
+                    .into(),
             );
         }
 
@@ -583,16 +641,12 @@ impl PyType {
 
         if let Some(initter) = typ.get_super_attr("__init_subclass__") {
             let initter = vm
-                .call_get_descriptor_specific(
-                    initter.clone(),
-                    None,
-                    Some(typ.clone().into_object()),
-                )
+                .call_get_descriptor_specific(initter.clone(), None, Some(typ.clone().into()))
                 .unwrap_or(Ok(initter))?;
             vm.invoke(&initter, kwargs)?;
         };
 
-        Ok(typ.into_object())
+        Ok(typ.into())
     }
 
     #[pyproperty(magic)]
@@ -611,7 +665,7 @@ impl PyType {
     fn text_signature(&self) -> Option<String> {
         self.slots
             .doc
-            .and_then(|doc| get_text_signature_from_internal_doc(self.name().as_str(), doc))
+            .and_then(|doc| get_text_signature_from_internal_doc(&self.name(), doc))
             .map(|signature| signature.to_string())
     }
 }
@@ -654,8 +708,8 @@ impl SlotGetattro for PyType {
                 .is_some()
             {
                 if let Some(descr_get) = attr_class.mro_find_map(|cls| cls.slots.descr_get.load()) {
-                    let mcl = PyLease::into_pyref(mcl).into_object();
-                    return descr_get(attr.clone(), Some(zelf.into_object()), Some(mcl), vm);
+                    let mcl = PyLease::into_pyref(mcl).into();
+                    return descr_get(attr.clone(), Some(zelf.into()), Some(mcl), vm);
                 }
             }
         }
@@ -665,7 +719,7 @@ impl SlotGetattro for PyType {
         if let Some(ref attr) = zelf_attr {
             if let Some(descr_get) = attr.class().mro_find_map(|cls| cls.slots.descr_get.load()) {
                 drop(mcl);
-                return descr_get(attr.clone(), None, Some(zelf.into_object()), vm);
+                return descr_get(attr.clone(), None, Some(zelf.into()), vm);
             }
         }
 
@@ -673,7 +727,7 @@ impl SlotGetattro for PyType {
             Ok(cls_attr)
         } else if let Some(attr) = mcl_attr {
             drop(mcl);
-            vm.call_if_get_descriptor(attr, zelf.into_object())
+            vm.call_if_get_descriptor(attr, zelf.into())
         } else {
             Err(vm.new_attribute_error(format!(
                 "type object '{}' has no attribute '{}'",
@@ -694,7 +748,7 @@ impl SlotSetattro for PyType {
         if let Some(attr) = zelf.get_class_attr(attr_name.as_str()) {
             let descr_set = attr.class().mro_find_map(|cls| cls.slots.descr_set.load());
             if let Some(descriptor) = descr_set {
-                return descriptor(attr, zelf.clone().into_object(), value, vm);
+                return descriptor(attr, zelf.clone().into(), value, vm);
             }
         }
         let assign = value.is_some();
@@ -707,7 +761,7 @@ impl SlotSetattro for PyType {
             if prev_value.is_none() {
                 return Err(vm.new_exception(
                     vm.ctx.exceptions.attribute_error.clone(),
-                    vec![attr_name.into_object()],
+                    vec![attr_name.into()],
                 ));
             }
         }
@@ -761,7 +815,7 @@ fn subtype_get_dict(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
                 cls.name()
             )))
         })?,
-        None => object::object_get_dict(obj, vm)?.into_object(),
+        None => object::object_get_dict(obj, vm)?.into(),
     };
     Ok(ret)
 }
@@ -782,7 +836,7 @@ fn subtype_set_dict(obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -
             descr_set(descr, obj, Some(value), vm)
         }
         None => {
-            object::object_set_dict(obj, PyDictRef::try_from_object(vm, value)?, vm)?;
+            object::object_set_dict(obj, value.try_into_value(vm)?, vm)?;
             Ok(())
         }
     }

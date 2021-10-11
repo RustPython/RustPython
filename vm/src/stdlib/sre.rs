@@ -4,13 +4,15 @@ pub(crate) use _sre::make_module;
 mod _sre {
     use crate::{
         builtins::{
-            PyCallableIterator, PyDictRef, PyInt, PyList, PyListRef, PyStr, PyStrRef, PyTupleRef,
+            PyCallableIterator, PyDictRef, PyInt, PyList, PyListRef, PyStr, PyStrRef, PyTuple,
+            PyTupleRef,
         },
         common::{ascii, hash::PyHash},
-        function::{ArgCallable, OptionalArg, PosArgs},
+        function::{ArgCallable, IntoPyObject, OptionalArg, PosArgs},
         protocol::PyBuffer,
         slots::{Comparable, Hashable},
-        IntoPyObject, ItemProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue,
+        stdlib::sys,
+        ItemProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue,
         TryFromBorrowedObject, TryFromObject, VirtualMachine,
     };
     use core::str;
@@ -56,10 +58,12 @@ mod _sre {
         match this {
             StrDrive::Str(s) => vm
                 .ctx
-                .new_utf8_str(s.chars().take(end).skip(start).collect::<String>()),
+                .new_str(s.chars().take(end).skip(start).collect::<String>())
+                .into(),
             StrDrive::Bytes(b) => vm
                 .ctx
-                .new_bytes(b.iter().take(end).skip(start).cloned().collect()),
+                .new_bytes(b.iter().take(end).skip(start).cloned().collect())
+                .into(),
         }
     }
 
@@ -95,7 +99,7 @@ mod _sre {
         string: PyObjectRef,
         #[pyarg(any, default = "0")]
         pos: usize,
-        #[pyarg(any, default = "isize::MAX as usize")]
+        #[pyarg(any, default = "sys::MAXSIZE as usize")]
         endpos: usize,
     }
 
@@ -263,11 +267,8 @@ mod _sre {
                             m.get_slice(zelf.groups, state.string, vm)
                                 .unwrap_or_else(|| vm.ctx.none())
                         } else {
-                            m.groups(
-                                OptionalArg::Present(vm.ctx.new_ascii_literal(ascii!(""))),
-                                vm,
-                            )?
-                            .into_object()
+                            m.groups(OptionalArg::Present(vm.ctx.new_str(ascii!("")).into()), vm)?
+                                .into()
                         };
 
                         matchlist.push(item);
@@ -295,7 +296,7 @@ mod _sre {
                 must_advance: AtomicCell::new(false),
             }
             .into_ref(vm);
-            let search = vm.get_method(scanner.into_object(), "search").unwrap()?;
+            let search = vm.get_method(scanner.into(), "search").unwrap()?;
             let search = ArgCallable::try_from_object(vm, search)?;
             let iterator = PyCallableIterator::new(search, vm.ctx.none());
             Ok(iterator)
@@ -349,7 +350,7 @@ mod _sre {
                     let m = Match::new(&state, zelf.clone(), split_args.string.clone());
 
                     // add groups (if any)
-                    for i in 1..zelf.groups + 1 {
+                    for i in 1..=zelf.groups {
                         splitlist.push(
                             m.get_slice(i, state.string, vm)
                                 .unwrap_or_else(|| vm.ctx.none()),
@@ -500,9 +501,9 @@ mod _sre {
                 let list = PyList::from(sublist).into_object(vm);
 
                 let join_type = if zelf.isbytes {
-                    vm.ctx.new_bytes(vec![])
+                    vm.ctx.new_bytes(vec![]).into()
                 } else {
-                    vm.ctx.new_ascii_literal(ascii!(""))
+                    vm.ctx.new_str(ascii!("")).into()
                 };
                 let ret = vm.call_method(&join_type, "join", (list,))?;
 
@@ -612,8 +613,8 @@ mod _sre {
                 .and_then(|i| self.pattern.indexgroup.get(i).cloned().flatten())
         }
         #[pyproperty]
-        fn re(&self) -> PyObjectRef {
-            self.pattern.clone().into_object()
+        fn re(&self) -> PyRef<Pattern> {
+            self.pattern.clone()
         }
         #[pyproperty]
         fn string(&self) -> PyObjectRef {
@@ -621,7 +622,7 @@ mod _sre {
         }
         #[pyproperty]
         fn regs(&self, vm: &VirtualMachine) -> PyTupleRef {
-            PyTupleRef::with_elements(
+            PyTuple::new_ref(
                 self.regs.iter().map(|&x| x.into_pyobject(vm)).collect(),
                 &vm.ctx,
             )
@@ -678,7 +679,7 @@ mod _sre {
                     if v.len() == 1 {
                         Ok(v.pop().unwrap())
                     } else {
-                        Ok(vm.ctx.new_tuple(v))
+                        Ok(vm.ctx.new_tuple(v).into())
                     }
                 })
         }
@@ -715,7 +716,7 @@ mod _sre {
                                 .unwrap_or_else(|| default.clone())
                         })
                         .collect();
-                    Ok(PyTupleRef::with_elements(v, &vm.ctx))
+                    Ok(PyTuple::new_ref(v, &vm.ctx))
                 })
         }
 

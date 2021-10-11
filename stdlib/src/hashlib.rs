@@ -48,9 +48,7 @@ mod hashlib {
 
         #[pyslot]
         fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            Ok(PyHasher::new("md5", HashWrapper::md5())
-                .into_ref(vm)
-                .into_object())
+            Ok(PyHasher::new("md5", HashWrapper::md5()).into_object(vm))
         }
 
         #[pyproperty]
@@ -59,8 +57,8 @@ mod hashlib {
         }
 
         #[pyproperty]
-        fn digest_size(&self, vm: &VirtualMachine) -> PyResult {
-            Ok(vm.ctx.new_int(self.read().digest_size()))
+        fn digest_size(&self) -> usize {
+            self.read().digest_size()
         }
 
         #[pymethod]

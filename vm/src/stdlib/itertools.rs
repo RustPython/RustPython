@@ -7,12 +7,12 @@ mod decl {
         rc::PyRc,
     };
     use crate::{
-        builtins::{int, PyInt, PyIntRef, PyTupleRef, PyTypeRef},
-        function::{ArgCallable, FuncArgs, OptionalArg, OptionalOption, PosArgs},
+        builtins::{int, PyInt, PyIntRef, PyTuple, PyTupleRef, PyTypeRef},
+        function::{ArgCallable, FuncArgs, IntoPyObject, OptionalArg, OptionalOption, PosArgs},
         protocol::{PyIter, PyIterReturn},
         slots::{IteratorIterable, SlotConstructor, SlotIterator},
-        IdProtocol, IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, PyWeakRef, TypeProtocol,
-        VirtualMachine,
+        stdlib::sys,
+        IdProtocol, PyObjectRef, PyRef, PyResult, PyValue, PyWeakRef, TypeProtocol, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use num_bigint::BigInt;
@@ -268,10 +268,7 @@ mod decl {
         ) -> PyResult {
             let times = match times.into_option() {
                 Some(int) => {
-                    let val = int.as_bigint();
-                    if *val > BigInt::from(isize::MAX) {
-                        return Err(vm.new_overflow_error("Cannot fit in isize.".to_owned()));
-                    }
+                    let val: isize = int.try_to_primitive(vm)?;
                     // times always >= 0.
                     Some(PyRwLock::new(val.to_usize().unwrap_or(0)))
                 }
@@ -284,28 +281,21 @@ mod decl {
     #[pyimpl(with(SlotIterator, SlotConstructor), flags(BASETYPE))]
     impl PyItertoolsRepeat {
         #[pymethod(magic)]
-        fn length_hint(&self, vm: &VirtualMachine) -> PyResult {
-            match self.times {
-                Some(ref times) => Ok(vm.ctx.new_int(*times.read())),
-                // Return TypeError, length_hint picks this up and returns the default.
-                None => Err(vm.new_type_error("length of unsized object.".to_owned())),
-            }
+        fn length_hint(&self, vm: &VirtualMachine) -> PyResult<usize> {
+            // Return TypeError, length_hint picks this up and returns the default.
+            let times = self
+                .times
+                .as_ref()
+                .ok_or_else(|| vm.new_type_error("length of unsized object.".to_owned()))?;
+            Ok(*times.read())
         }
 
         #[pymethod(magic)]
-        fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
             let cls = zelf.clone_class().into_pyobject(vm);
             Ok(match zelf.times {
-                Some(ref times) => vm.ctx.new_tuple(vec![
-                    cls,
-                    vm.ctx.new_tuple(vec![
-                        zelf.object.clone(),
-                        vm.ctx.new_int(*times.read()).into_pyobject(vm),
-                    ]),
-                ]),
-                None => vm
-                    .ctx
-                    .new_tuple(vec![cls, vm.ctx.new_tuple(vec![zelf.object.clone()])]),
+                Some(ref times) => vm.new_tuple((cls, (zelf.object.clone(), *times.read()))),
+                None => vm.new_tuple((cls, (zelf.object.clone(),))),
             })
         }
 
@@ -338,7 +328,7 @@ mod decl {
     #[derive(Debug, PyValue)]
     struct PyItertoolsStarmap {
         function: PyObjectRef,
-        iter: PyIter,
+        iterable: PyIter,
     }
 
     #[derive(FromArgs)]
@@ -357,8 +347,7 @@ mod decl {
             Self::Args { function, iterable }: Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult {
-            let iter = iterable;
-            PyItertoolsStarmap { function, iter }.into_pyresult_with_type(vm, cls)
+            PyItertoolsStarmap { function, iterable }.into_pyresult_with_type(vm, cls)
         }
     }
 
@@ -367,11 +356,11 @@ mod decl {
     impl IteratorIterable for PyItertoolsStarmap {}
     impl SlotIterator for PyItertoolsStarmap {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            let obj = zelf.iter.next(vm)?;
+            let obj = zelf.iterable.next(vm)?;
             let function = &zelf.function;
             match obj {
                 PyIterReturn::Return(obj) => {
-                    PyIterReturn::from_result(vm.invoke(function, vm.extract_elements(&obj)?), vm)
+                    PyIterReturn::from_pyresult(vm.invoke(function, vm.extract_elements(&obj)?), vm)
                 }
                 PyIterReturn::StopIteration(v) => Ok(PyIterReturn::StopIteration(v)),
             }
@@ -496,7 +485,7 @@ mod decl {
                         }
                     };
                     let pred = predicate.clone();
-                    let pred_value = vm.invoke(&pred.into_object(), (obj.clone(),))?;
+                    let pred_value = vm.invoke(&pred, (obj.clone(),))?;
                     if !pred_value.try_to_bool(vm)? {
                         zelf.start_flag.store(true);
                         return Ok(PyIterReturn::Return(obj));
@@ -706,7 +695,7 @@ mod decl {
         step: usize,
     }
 
-    // Restrict obj to ints with value 0 <= val <= sys.maxsize (isize::MAX).
+    // Restrict obj to ints with value 0 <= val <= sys.maxsize
     // On failure (out of range, non-int object) a ValueError is raised.
     fn pyobject_to_opt_usize(
         obj: PyObjectRef,
@@ -717,13 +706,13 @@ mod decl {
         if is_int {
             let value = int::get_value(&obj).to_usize();
             if let Some(value) = value {
-                // Only succeeds for values for which 0 <= value <= isize::MAX
-                if value <= isize::MAX as usize {
+                // Only succeeds for values for which 0 <= value <= sys.maxsize
+                if value <= sys::MAXSIZE as usize {
                     return Ok(value);
                 }
             }
         }
-        // We don't have an int or value was < 0 or > maxsize (isize::MAX)
+        // We don't have an int or value was < 0 or > sys.maxsize
         return Err(vm.new_value_error(format!(
             "{} argument for islice() must be None or an integer: 0 <= x <= sys.maxsize.",
             name
@@ -1021,7 +1010,7 @@ mod decl {
                 tee_vec.push(vm.call_method(&copyable, "__copy__", ())?);
             }
 
-            Ok(PyTupleRef::with_elements(tee_vec, &vm.ctx).into_object())
+            Ok(PyTuple::new_ref(tee_vec, &vm.ctx).into())
         }
     }
 
@@ -1037,17 +1026,15 @@ mod decl {
                 index: AtomicCell::new(0),
             }
             .into_ref_with_type(vm, class.clone())?
-            .into_object())
+            .into())
         }
 
         #[pymethod(magic)]
-        fn copy(&self, vm: &VirtualMachine) -> PyResult {
-            Ok(PyItertoolsTee {
+        fn copy(&self) -> Self {
+            Self {
                 tee_data: PyRc::clone(&self.tee_data),
                 index: AtomicCell::new(self.index.load()),
             }
-            .into_ref_with_type(vm, Self::class(vm).clone())?
-            .into_object())
         }
     }
     impl IteratorIterable for PyItertoolsTee {}
@@ -1156,7 +1143,7 @@ mod decl {
 
             zelf.update_idxs(idxs);
 
-            Ok(PyIterReturn::Return(res))
+            Ok(PyIterReturn::Return(res.into()))
         }
     }
 
@@ -1221,7 +1208,7 @@ mod decl {
 
             if r == 0 {
                 zelf.exhausted.store(true);
-                return Ok(PyIterReturn::Return(vm.ctx.new_tuple(vec![])));
+                return Ok(PyIterReturn::Return(vm.new_tuple(()).into()));
             }
 
             let res = vm.ctx.new_tuple(
@@ -1255,7 +1242,7 @@ mod decl {
                 }
             }
 
-            Ok(PyIterReturn::Return(res))
+            Ok(PyIterReturn::Return(res.into()))
         }
     }
 
@@ -1312,7 +1299,7 @@ mod decl {
 
             if r == 0 {
                 zelf.exhausted.store(true);
-                return Ok(PyIterReturn::Return(vm.ctx.new_tuple(vec![])));
+                return Ok(PyIterReturn::Return(vm.new_tuple(()).into()));
             }
 
             let mut indices = zelf.indices.write();
@@ -1341,7 +1328,7 @@ mod decl {
                 }
             }
 
-            Ok(PyIterReturn::Return(res))
+            Ok(PyIterReturn::Return(res.into()))
         }
     }
 
@@ -1420,7 +1407,7 @@ mod decl {
 
             if n == 0 {
                 zelf.exhausted.store(true);
-                return Ok(PyIterReturn::Return(vm.ctx.new_tuple(vec![])));
+                return Ok(PyIterReturn::Return(vm.new_tuple(()).into()));
             }
 
             let mut result = zelf.result.write();
@@ -1465,14 +1452,16 @@ mod decl {
             }
 
             Ok(PyIterReturn::Return(
-                vm.ctx.new_tuple(
-                    result
-                        .as_ref()
-                        .unwrap()
-                        .iter()
-                        .map(|&i| zelf.pool[i].clone())
-                        .collect(),
-                ),
+                vm.ctx
+                    .new_tuple(
+                        result
+                            .as_ref()
+                            .unwrap()
+                            .iter()
+                            .map(|&i| zelf.pool[i].clone())
+                            .collect(),
+                    )
+                    .into(),
             ))
         }
     }
@@ -1511,26 +1500,25 @@ mod decl {
     impl SlotIterator for PyItertoolsZipLongest {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             if zelf.iterators.is_empty() {
-                Ok(PyIterReturn::StopIteration(None))
-            } else {
-                let mut result: Vec<PyObjectRef> = Vec::new();
-                let mut numactive = zelf.iterators.len();
-
-                for idx in 0..zelf.iterators.len() {
-                    let next_obj = match zelf.iterators[idx].next(vm)? {
-                        PyIterReturn::Return(obj) => obj,
-                        PyIterReturn::StopIteration(v) => {
-                            numactive -= 1;
-                            if numactive == 0 {
-                                return Ok(PyIterReturn::StopIteration(v));
-                            }
-                            zelf.fillvalue.clone()
-                        }
-                    };
-                    result.push(next_obj);
-                }
-                Ok(PyIterReturn::Return(vm.ctx.new_tuple(result)))
+                return Ok(PyIterReturn::StopIteration(None));
             }
+            let mut result: Vec<PyObjectRef> = Vec::new();
+            let mut numactive = zelf.iterators.len();
+
+            for idx in 0..zelf.iterators.len() {
+                let next_obj = match zelf.iterators[idx].next(vm)? {
+                    PyIterReturn::Return(obj) => obj,
+                    PyIterReturn::StopIteration(v) => {
+                        numactive -= 1;
+                        if numactive == 0 {
+                            return Ok(PyIterReturn::StopIteration(v));
+                        }
+                        zelf.fillvalue.clone()
+                    }
+                };
+                result.push(next_obj);
+            }
+            Ok(PyIterReturn::Return(vm.ctx.new_tuple(result).into()))
         }
     }
 
@@ -1571,7 +1559,7 @@ mod decl {
                 PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
             };
             *zelf.old.write() = Some(new.clone());
-            Ok(PyIterReturn::Return(vm.ctx.new_tuple(vec![old, new])))
+            Ok(PyIterReturn::Return(vm.new_tuple((old, new)).into()))
         }
     }
 }

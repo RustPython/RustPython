@@ -2,7 +2,7 @@
 
 use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::{
-    builtins::PyStrRef, exceptions::IntoPyException, PyClassImpl, PyObjectRef, PyRef, PyResult,
+    builtins::PyStrRef, function::IntoPyException, PyClassImpl, PyObjectRef, PyRef, PyResult,
     PyValue, TryFromObject, VirtualMachine,
 };
 use std::convert::TryInto;
@@ -227,7 +227,7 @@ fn reg_to_py(value: RegValue, vm: &VirtualMachine) -> PyResult {
                     vm.new_value_error(format!("{} value is wrong length", stringify!(name)))
                 })
             };
-            i.map(|i| vm.ctx.new_int(i))
+            i.map(|i| vm.ctx.new_int(i).into())
         }};
     }
     let bytes_to_wide = |b: &[u8]| -> Option<&[u16]> {
@@ -251,11 +251,11 @@ fn reg_to_py(value: RegValue, vm: &VirtualMachine) -> PyResult {
                 .position(|w| *w == 0)
                 .unwrap_or_else(|| wide_slice.len());
             let s = String::from_utf16_lossy(&wide_slice[..nul_pos]);
-            Ok(vm.ctx.new_utf8_str(s))
+            Ok(vm.ctx.new_str(s).into())
         }
         RegType::REG_MULTI_SZ => {
             if value.bytes.is_empty() {
-                return Ok(vm.ctx.new_list(vec![]));
+                return Ok(vm.ctx.new_list(vec![]).into());
             }
             let wide_slice = bytes_to_wide(&value.bytes).ok_or_else(|| {
                 vm.new_value_error(
@@ -269,15 +269,15 @@ fn reg_to_py(value: RegValue, vm: &VirtualMachine) -> PyResult {
             };
             let strings = wide_slice
                 .split(|c| *c == 0)
-                .map(|s| vm.ctx.new_utf8_str(String::from_utf16_lossy(s)))
+                .map(|s| vm.new_pyobj(String::from_utf16_lossy(s)))
                 .collect();
-            Ok(vm.ctx.new_list(strings))
+            Ok(vm.ctx.new_list(strings).into())
         }
         _ => {
             if value.bytes.is_empty() {
                 Ok(vm.ctx.none())
             } else {
-                Ok(vm.ctx.new_bytes(value.bytes))
+                Ok(vm.ctx.new_bytes(value.bytes).into())
             }
         }
     }
@@ -303,12 +303,12 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     macro_rules! add_constants {
         (hkey, $($name:ident),*$(,)?) => {
             extend_module!(vm, module, {
-                $((stringify!($name)) => ctx.new_int(winreg::enums::$name as usize)),*
+                $((stringify!($name)) => vm.new_pyobj(winreg::enums::$name as usize)),*
             })
         };
         (winnt, $($name:ident),*$(,)?) => {
             extend_module!(vm, module, {
-                $((stringify!($name)) => ctx.new_int(winapi::um::winnt::$name)),*
+                $((stringify!($name)) => vm.new_pyobj(winapi::um::winnt::$name)),*
             })
         };
     }

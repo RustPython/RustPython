@@ -8,9 +8,10 @@ mod _string {
     use crate::common::ascii;
     use crate::{
         builtins::{PyList, PyStrRef},
-        exceptions::IntoPyException,
         format::{FieldName, FieldNamePart, FieldType, FormatPart, FormatString, FromTemplate},
-        IntoPyObject, PyObjectRef, PyResult, VirtualMachine,
+        function::IntoPyException,
+        function::IntoPyObject,
+        PyObjectRef, PyResult, VirtualMachine,
     };
     use std::mem;
 
@@ -75,7 +76,7 @@ mod _string {
         let field_name = FieldName::parse(text.as_str()).map_err(|e| e.into_pyexception(vm))?;
 
         let first = match field_name.field_type {
-            FieldType::Auto => vm.ctx.new_ascii_literal(ascii!("")),
+            FieldType::Auto => vm.ctx.new_str(ascii!("")).into(),
             FieldType::Index(index) => index.into_pyobject(vm),
             FieldType::Keyword(attribute) => attribute.into_pyobject(vm),
         };

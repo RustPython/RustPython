@@ -11,10 +11,9 @@ pub(crate) use _operator::make_module;
 mod _operator {
     use crate::common::cmp;
     use crate::{
-        builtins::{PyInt, PyIntRef, PyStrRef, PyTypeRef},
+        builtins::{PyInt, PyIntRef, PyStrRef, PyTupleRef, PyTypeRef},
         function::{ArgBytesLike, FuncArgs, KwArgs, OptionalArg},
-        iterator,
-        protocol::{PyIter, PyIterReturn},
+        protocol::PyIter,
         slots::{
             Callable,
             PyComparisonOp::{Eq, Ge, Gt, Le, Lt, Ne},
@@ -220,7 +219,8 @@ mod _operator {
     #[pyfunction(name = "countOf")]
     fn count_of(a: PyIter, b: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         let mut count: usize = 0;
-        while let PyIterReturn::Return(element) = a.next(vm)? {
+        for element in a.iter_without_hint::<PyObjectRef>(vm)? {
+            let element = element?;
             if element.is(&b) || vm.bool_eq(&b, &element)? {
                 count += 1;
             }
@@ -243,12 +243,11 @@ mod _operator {
     /// Return the number of occurrences of b in a.
     #[pyfunction(name = "indexOf")]
     fn index_of(a: PyIter, b: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-        let mut index: usize = 0;
-        while let PyIterReturn::Return(element) = a.next(vm)? {
+        for (index, element) in a.iter_without_hint::<PyObjectRef>(vm)?.enumerate() {
+            let element = element?;
             if element.is(&b) || vm.bool_eq(&b, &element)? {
                 return Ok(index);
             }
-            index += 1;
         }
         Err(vm.new_value_error("sequence.index(x): x not in sequence".to_owned()))
     }
@@ -272,7 +271,7 @@ mod _operator {
     /// Otherwise, it may over- or under-estimate by an arbitrary amount.
     /// The result will be an integer >= 0.
     #[pyfunction]
-    fn length_hint(obj: PyObjectRef, default: OptionalArg, vm: &VirtualMachine) -> PyResult {
+    fn length_hint(obj: PyObjectRef, default: OptionalArg, vm: &VirtualMachine) -> PyResult<usize> {
         let default: usize = default
             .map(|v| {
                 if !v.isinstance(&vm.ctx.types.int_type) {
@@ -284,7 +283,7 @@ mod _operator {
                 v.payload::<PyInt>().unwrap().try_to_primitive(vm)
             })
             .unwrap_or(Ok(0))?;
-        iterator::length_hint(vm, obj).map(|v| vm.ctx.new_int(v.unwrap_or(default)))
+        vm.length_hint(obj).map(|v| v.unwrap_or(default))
     }
 
     // Inplace Operators
@@ -469,13 +468,11 @@ mod _operator {
         }
 
         #[pymethod(magic)]
-        fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<(PyTypeRef, PyTupleRef)> {
             let attrs = vm
                 .ctx
                 .new_tuple(zelf.attrs.iter().map(|v| v.as_object()).cloned().collect());
-            Ok(vm
-                .ctx
-                .new_tuple(vec![zelf.clone_class().into_object(), attrs]))
+            Ok((zelf.clone_class(), attrs))
         }
 
         // Go through dotted parts of string and call getattr on whatever is returned.
@@ -505,7 +502,7 @@ mod _operator {
             for o in zelf.attrs.iter() {
                 results.push(Self::get_single_attr(obj.clone(), o.as_str(), vm)?);
             }
-            Ok(vm.ctx.new_tuple(results))
+            Ok(vm.ctx.new_tuple(results).into())
         }
     }
 
@@ -559,8 +556,7 @@ mod _operator {
         #[pymethod(magic)]
         fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyObjectRef {
             let items = vm.ctx.new_tuple(zelf.items.to_vec());
-            vm.ctx
-                .new_tuple(vec![zelf.clone_class().into_object(), items])
+            vm.new_pyobj((zelf.clone_class(), items))
         }
 
         fn call(zelf: &PyRef<Self>, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -573,7 +569,7 @@ mod _operator {
             for item in zelf.items.iter() {
                 results.push(obj.get_item(item.clone(), vm)?);
             }
-            Ok(vm.ctx.new_tuple(results))
+            Ok(vm.ctx.new_tuple(results).into())
         }
     }
 
@@ -642,15 +638,12 @@ mod _operator {
         }
 
         #[pymethod(magic)]
-        fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
             // With no kwargs, return (type(obj), (name, *args)) tuple.
             if zelf.args.kwargs.is_empty() {
                 let mut pargs = vec![zelf.name.as_object().to_owned()];
                 pargs.append(&mut zelf.args.args.clone());
-                Ok(vm.ctx.new_tuple(vec![
-                    zelf.clone_class().into_object(),
-                    vm.ctx.new_tuple(pargs),
-                ]))
+                Ok(vm.new_tuple((zelf.clone_class(), vm.ctx.new_tuple(pargs))))
             } else {
                 // If we have kwargs, create a partial function that contains them and pass back that
                 // along with the args.
@@ -658,16 +651,11 @@ mod _operator {
                 let callable = vm.invoke(
                     &partial,
                     FuncArgs::new(
-                        vec![
-                            zelf.clone_class().into_object(),
-                            zelf.name.as_object().to_owned(),
-                        ],
+                        vec![zelf.clone_class().into(), zelf.name.as_object().to_owned()],
                         KwArgs::new(zelf.args.kwargs.clone()),
                     ),
                 )?;
-                Ok(vm
-                    .ctx
-                    .new_tuple(vec![callable, vm.ctx.new_tuple(zelf.args.args.clone())]))
+                Ok(vm.new_tuple((callable, vm.ctx.new_tuple(zelf.args.args.clone()))))
             }
         }
 

@@ -16,10 +16,7 @@ struct ModuleContext {
     errors: Vec<syn::Error>,
 }
 
-pub fn impl_pymodule(
-    attr: AttributeArgs,
-    module_item: Item,
-) -> std::result::Result<TokenStream, Diagnostic> {
+pub fn impl_pymodule(attr: AttributeArgs, module_item: Item) -> Result<TokenStream> {
     let (doc, mut module_item) = match module_item {
         Item::Mod(m) => (m.attrs.doc(), m),
         other => bail_span!(other, "#[pymodule] can only be on a full module"),
@@ -292,8 +289,8 @@ impl ModuleItem for FunctionItem {
                 vm.ctx.make_funcdef(#py_name, #ident)
                     #doc
                     .into_function()
-                    .with_module(vm.ctx.new_utf8_str(#module.to_owned()))
-                    .build(&vm.ctx)
+                    .with_module(vm.new_pyobj(#module.to_owned()))
+                    .into_ref(&vm.ctx)
             );
             quote! {
                 vm.__module_set_attr(&module, #py_name, #new_func).unwrap();
@@ -353,7 +350,7 @@ impl ModuleItem for ClassItem {
                 );
                 let item = quote! {
                     let new_class = #new_class;
-                    new_class.set_str_attr("__module__", vm.ctx.new_utf8_str(#module_name));
+                    new_class.set_str_attr("__module__", vm.new_pyobj(#module_name));
                     vm.__module_set_attr(&module, #py_name, new_class).unwrap();
                 };
 

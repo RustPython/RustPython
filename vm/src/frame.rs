@@ -13,14 +13,13 @@ use crate::{
     bytecode,
     coroutine::Coro,
     exceptions::{self, ExceptionCtor},
-    function::FuncArgs,
-    iterator,
+    function::{FuncArgs, IntoPyResult},
     protocol::{PyIter, PyIterReturn},
     scope::Scope,
     slots::PyComparisonOp,
     stdlib::builtins,
-    IdProtocol, IntoPyResult, ItemProtocol, PyMethod, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol, VirtualMachine,
+    IdProtocol, ItemProtocol, PyMethod, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol, VirtualMachine,
 };
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -126,42 +125,6 @@ impl PyValue for Frame {
 pub enum ExecutionResult {
     Return(PyObjectRef),
     Yield(PyObjectRef),
-}
-
-impl ExecutionResult {
-    /// Extract an ExecutionResult from a PyResult returned from e.g. gen.__next__() or gen.send()
-    pub fn from_result(vm: &VirtualMachine, res: PyResult) -> PyResult<Self> {
-        match res {
-            Ok(val) => Ok(ExecutionResult::Yield(val)),
-            Err(err) => {
-                if err.isinstance(&vm.ctx.exceptions.stop_iteration) {
-                    Ok(ExecutionResult::Return(iterator::stop_iter_value(vm, &err)))
-                } else {
-                    Err(err)
-                }
-            }
-        }
-    }
-
-    /// Turn an ExecutionResult into a PyResult that would be returned from a generator or coroutine
-    pub fn into_result(self, async_stopiter: bool, vm: &VirtualMachine) -> PyResult {
-        match self {
-            ExecutionResult::Yield(value) => Ok(value),
-            ExecutionResult::Return(value) => {
-                let stop_iteration = if async_stopiter {
-                    vm.ctx.exceptions.stop_async_iteration.clone()
-                } else {
-                    vm.ctx.exceptions.stop_iteration.clone()
-                };
-                let args = if vm.is_none(&value) {
-                    vec![]
-                } else {
-                    vec![value]
-                };
-                Err(vm.new_exception(stop_iteration, args))
-            }
-        }
-    }
 }
 
 /// A valid execution result, or an exception
@@ -428,25 +391,27 @@ impl ExecutingFrame<'_> {
         exc_val: PyObjectRef,
         exc_tb: PyObjectRef,
     ) -> PyResult<ExecutionResult> {
-        if let Some(coro) = self.yield_from_target() {
+        if let Some(gen) = self.yield_from_target() {
             use crate::utils::Either;
             // borrow checker shenanigans - we only need to use exc_type/val/tb if the following
             // variable is Some
-            let thrower = if let Some(coro) = self.builtin_coro(coro) {
+            let thrower = if let Some(coro) = self.builtin_coro(gen) {
                 Some(Either::A(coro))
             } else {
-                vm.get_attribute_opt(coro.clone(), "throw")?.map(Either::B)
+                vm.get_attribute_opt(gen.clone(), "throw")?.map(Either::B)
             };
             if let Some(thrower) = thrower {
                 let ret = match thrower {
-                    Either::A(coro) => coro.throw(exc_type, exc_val, exc_tb, vm),
+                    Either::A(coro) => coro
+                        .throw(gen, exc_type, exc_val, exc_tb, vm)
+                        .into_pyresult(vm), // FIXME:
                     Either::B(meth) => vm.invoke(&meth, vec![exc_type, exc_val, exc_tb]),
                 };
                 return ret.map(ExecutionResult::Yield).or_else(|err| {
                     self.pop_value();
                     self.update_lasti(|i| *i += 1);
                     if err.isinstance(&vm.ctx.exceptions.stop_iteration) {
-                        let val = iterator::stop_iter_value(vm, &err);
+                        let val = vm.unwrap_or_none(err.get_arg(0));
                         self.push_value(val);
                         self.run(vm)
                     } else {
@@ -623,7 +588,7 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::LoadClosure(i) => {
                 let value = self.cells_frees[*i as usize].clone();
-                self.push_value(value.into_object());
+                self.push_value(value.into());
                 Ok(None)
             }
             bytecode::Instruction::Subscript => self.execute_subscript(vm),
@@ -649,18 +614,18 @@ impl ExecutingFrame<'_> {
                     .iter()
                     .map(|pyobj| pyobj.payload::<PyStr>().unwrap().as_ref())
                     .collect::<String>();
-                let str_obj = vm.ctx.new_utf8_str(s);
-                self.push_value(str_obj);
+                let str_obj = vm.ctx.new_str(s);
+                self.push_value(str_obj.into());
                 Ok(None)
             }
             bytecode::Instruction::BuildList { size, unpack } => {
                 let elements = self.get_elements(vm, *size as usize, *unpack)?;
                 let list_obj = vm.ctx.new_list(elements);
-                self.push_value(list_obj);
+                self.push_value(list_obj.into());
                 Ok(None)
             }
             bytecode::Instruction::BuildSet { size, unpack } => {
-                let set = vm.ctx.new_set();
+                let set = set::PySet::new_ref(&vm.ctx);
                 {
                     let elements = self.pop_multiple(*size as usize);
                     if *unpack {
@@ -673,13 +638,13 @@ impl ExecutingFrame<'_> {
                         }
                     }
                 }
-                self.push_value(set.into_object());
+                self.push_value(set.into());
                 Ok(None)
             }
             bytecode::Instruction::BuildTuple { size, unpack } => {
                 let elements = self.get_elements(vm, *size as usize, *unpack)?;
                 let list_obj = vm.ctx.new_tuple(elements);
-                self.push_value(list_obj);
+                self.push_value(list_obj.into());
                 Ok(None)
             }
             bytecode::Instruction::BuildMap {
@@ -697,7 +662,7 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::SetAdd { i } => {
                 let set_obj = self.nth_value(*i);
                 let item = self.pop_value();
-                set::PySetRef::try_from_object(vm, set_obj)?.add(item, vm)?;
+                PyRef::<set::PySet>::try_from_object(vm, set_obj)?.add(item, vm)?;
                 Ok(None)
             }
             bytecode::Instruction::MapAdd { i } => {
@@ -741,7 +706,7 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::SetupAnnotation => {
                 if !self.locals.contains_key("__annotations__", vm) {
                     self.locals
-                        .set_item("__annotations__", vm.ctx.new_dict().into_object(), vm)?;
+                        .set_item("__annotations__", vm.ctx.new_dict().into(), vm)?;
                 }
                 Ok(None)
             }
@@ -858,7 +823,7 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::GetIter => {
                 let iterated_obj = self.pop_value();
                 let iter_obj = iterated_obj.get_iter(vm)?;
-                self.push_value(iter_obj.into_object());
+                self.push_value(iter_obj.into());
                 Ok(None)
             }
             bytecode::Instruction::GetAwaitable => {
@@ -930,7 +895,7 @@ impl ExecutingFrame<'_> {
                 // TODO: figure out a better way to communicate PyMethod::Attribute - CPython uses
                 // target==NULL, maybe we could use a sentinel value or something?
                 self.push_value(target);
-                self.push_value(vm.ctx.new_bool(is_method));
+                self.push_value(vm.ctx.new_bool(is_method).into());
                 self.push_value(func);
                 Ok(None)
             }
@@ -1049,9 +1014,9 @@ impl ExecutingFrame<'_> {
                 use bytecode::ConversionFlag;
                 let value = self.pop_value();
                 let value = match conversion {
-                    ConversionFlag::Str => vm.to_str(&value)?.into_object(),
-                    ConversionFlag::Repr => vm.to_repr(&value)?.into_object(),
-                    ConversionFlag::Ascii => vm.ctx.new_utf8_str(builtins::ascii(value, vm)?),
+                    ConversionFlag::Str => vm.to_str(&value)?.into(),
+                    ConversionFlag::Repr => vm.to_repr(&value)?.into(),
+                    ConversionFlag::Ascii => vm.ctx.new_str(builtins::ascii(value, vm)?).into(),
                     ConversionFlag::None => value,
                 };
 
@@ -1145,7 +1110,7 @@ impl ExecutingFrame<'_> {
                     let all: Vec<PyStrRef> = vm.extract_elements(&all)?;
                     let all: Vec<String> = all
                         .into_iter()
-                        .map(|name| name.as_ref().to_owned())
+                        .map(|name| name.as_str().to_owned())
                         .collect();
                     Box::new(move |name| all.contains(&name.to_owned()))
                 } else {
@@ -1205,7 +1170,7 @@ impl ExecutingFrame<'_> {
                         });
                         vm.contextualize_exception(&exception);
                         vm.set_exception(Some(exception.clone()));
-                        self.push_value(exception.into_object());
+                        self.push_value(exception.into());
                         self.jump(handler);
                         return Ok(None);
                     }
@@ -1310,7 +1275,7 @@ impl ExecutingFrame<'_> {
             }
         }
 
-        self.push_value(map_obj.into_object());
+        self.push_value(map_obj.into());
         Ok(None)
     }
 
@@ -1325,7 +1290,7 @@ impl ExecutingFrame<'_> {
             step,
         }
         .into_ref(vm);
-        self.push_value(obj.into_object());
+        self.push_value(obj.into());
         Ok(None)
     }
 
@@ -1439,14 +1404,19 @@ impl ExecutingFrame<'_> {
         })
     }
 
-    fn _send(&self, coro: &PyObjectRef, val: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match self.builtin_coro(coro) {
-            Some(coro) => coro.send(val, vm),
+    fn _send(
+        &self,
+        gen: &PyObjectRef,
+        val: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyIterReturn> {
+        match self.builtin_coro(gen) {
+            Some(coro) => coro.send(gen, val, vm),
             // FIXME: turn return type to PyResult<PyIterReturn> then ExecutionResult will be simplified
-            None if vm.is_none(&val) => PyIter::new(coro).next(vm).into_pyresult(vm),
+            None if vm.is_none(&val) => PyIter::new(gen).next(vm),
             None => {
-                let meth = vm.get_attribute(coro.clone(), "send")?;
-                vm.invoke(&meth, (val,))
+                let meth = vm.get_attribute(gen.clone(), "send")?;
+                PyIterReturn::from_pyresult(vm.invoke(&meth, (val,)), vm)
             }
         }
     }
@@ -1454,20 +1424,18 @@ impl ExecutingFrame<'_> {
     fn execute_yield_from(&mut self, vm: &VirtualMachine) -> FrameResult {
         // Value send into iterator:
         let val = self.pop_value();
-
         let coro = self.last_value_ref();
+        let result = self._send(coro, val, vm)?;
 
-        let result = self._send(coro, val, vm);
-
-        let result = ExecutionResult::from_result(vm, result)?;
-
+        // PyIterReturn returned from e.g. gen.__next__() or gen.send()
         match result {
-            ExecutionResult::Yield(value) => {
+            PyIterReturn::Return(value) => {
                 // Set back program counter:
                 self.update_lasti(|i| *i -= 1);
                 Ok(Some(ExecutionResult::Yield(value)))
             }
-            ExecutionResult::Return(value) => {
+            PyIterReturn::StopIteration(value) => {
+                let value = vm.unwrap_or_none(value);
                 self.pop_value();
                 self.push_value(value);
                 Ok(None)
@@ -1496,7 +1464,7 @@ impl ExecutingFrame<'_> {
 
         let middle_elements = elements.drain(before..).collect();
         let t = vm.ctx.new_list(middle_elements);
-        self.push_value(t);
+        self.push_value(t.into());
 
         // Lastly the first reversed values:
         self.state.stack.extend(elements.into_iter().rev());
@@ -1560,7 +1528,7 @@ impl ExecutingFrame<'_> {
         let annotations = if flags.contains(bytecode::MakeFunctionFlags::ANNOTATIONS) {
             self.pop_value()
         } else {
-            vm.ctx.new_dict().into_object()
+            vm.ctx.new_dict().into()
         };
 
         let kw_only_defaults = if flags.contains(bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS) {
@@ -1598,7 +1566,7 @@ impl ExecutingFrame<'_> {
         vm.set_attr(&func_obj, "__doc__", vm.ctx.none())?;
 
         let name = qualified_name.as_str().split('.').next_back().unwrap();
-        vm.set_attr(&func_obj, "__name__", vm.ctx.new_utf8_str(name))?;
+        vm.set_attr(&func_obj, "__name__", vm.new_pyobj(name))?;
         vm.set_attr(&func_obj, "__qualname__", qualified_name)?;
         let module = vm.unwrap_or_none(self.globals.get_item_option("__name__", vm)?);
         vm.set_attr(&func_obj, "__module__", module)?;
@@ -1667,7 +1635,7 @@ impl ExecutingFrame<'_> {
             bytecode::UnaryOperator::Invert => vm._invert(&a)?,
             bytecode::UnaryOperator::Not => {
                 let value = a.try_to_bool(vm)?;
-                vm.ctx.new_bool(!value)
+                vm.ctx.new_bool(!value).into()
             }
         };
         self.push_value(value);
@@ -1722,11 +1690,13 @@ impl ExecutingFrame<'_> {
             bytecode::ComparisonOperator::LessOrEqual => vm.obj_cmp(a, b, PyComparisonOp::Le)?,
             bytecode::ComparisonOperator::Greater => vm.obj_cmp(a, b, PyComparisonOp::Gt)?,
             bytecode::ComparisonOperator::GreaterOrEqual => vm.obj_cmp(a, b, PyComparisonOp::Ge)?,
-            bytecode::ComparisonOperator::Is => vm.ctx.new_bool(self._is(a, b)),
-            bytecode::ComparisonOperator::IsNot => vm.ctx.new_bool(self._is_not(a, b)),
-            bytecode::ComparisonOperator::In => vm.ctx.new_bool(self._in(vm, a, b)?),
-            bytecode::ComparisonOperator::NotIn => vm.ctx.new_bool(self._not_in(vm, a, b)?),
-            bytecode::ComparisonOperator::ExceptionMatch => vm.ctx.new_bool(vm.isinstance(&a, &b)?),
+            bytecode::ComparisonOperator::Is => vm.ctx.new_bool(self._is(a, b)).into(),
+            bytecode::ComparisonOperator::IsNot => vm.ctx.new_bool(self._is_not(a, b)).into(),
+            bytecode::ComparisonOperator::In => vm.ctx.new_bool(self._in(vm, a, b)?).into(),
+            bytecode::ComparisonOperator::NotIn => vm.ctx.new_bool(self._not_in(vm, a, b)?).into(),
+            bytecode::ComparisonOperator::ExceptionMatch => {
+                vm.ctx.new_bool(vm.isinstance(&a, &b)?).into()
+            }
         };
 
         self.push_value(value);
@@ -1750,7 +1720,7 @@ impl ExecutingFrame<'_> {
     }
 
     fn delete_attr(&mut self, vm: &VirtualMachine, attr: bytecode::NameIdx) -> FrameResult {
-        let attr_name = self.code.names[attr as usize].clone().into_object();
+        let attr_name = self.code.names[attr as usize].clone();
         let parent = self.pop_value();
         vm.del_attr(&parent, attr_name)?;
         Ok(None)

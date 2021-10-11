@@ -1,8 +1,8 @@
 use crate::{
     builtins::{PyBaseExceptionRef, PyBytesRef, PyStr, PyStrRef, PyTuple, PyTupleRef},
     common::{ascii, lock::PyRwLock},
-    IntoPyObject, PyContext, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
-    VirtualMachine,
+    function::IntoPyObject,
+    PyContext, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
 };
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -51,7 +51,7 @@ impl PyCodec {
     }
 
     pub fn is_text_codec(&self, vm: &VirtualMachine) -> PyResult<bool> {
-        let is_text = vm.get_attribute_opt(self.0.clone().into_object(), "_is_text_encoding")?;
+        let is_text = vm.get_attribute_opt(self.0.clone().into(), "_is_text_encoding")?;
         is_text.map_or(Ok(true), |is_text| is_text.try_to_bool(vm))
     }
 
@@ -62,7 +62,7 @@ impl PyCodec {
         vm: &VirtualMachine,
     ) -> PyResult {
         let args = match errors {
-            Some(errors) => vec![obj, errors.into_object()],
+            Some(errors) => vec![obj, errors.into()],
             None => vec![obj],
         };
         let res = vm.invoke(self.get_encode_func(), args)?;
@@ -84,7 +84,7 @@ impl PyCodec {
         vm: &VirtualMachine,
     ) -> PyResult {
         let args = match errors {
-            Some(errors) => vec![obj, errors.into_object()],
+            Some(errors) => vec![obj, errors.into()],
             None => vec![obj],
         };
         let res = vm.invoke(self.get_decode_func(), args)?;
@@ -105,7 +105,7 @@ impl PyCodec {
         vm: &VirtualMachine,
     ) -> PyResult {
         let args = match errors {
-            Some(e) => vec![e.into_object()],
+            Some(e) => vec![e.into()],
             None => vec![],
         };
         vm.call_method(self.0.as_object(), "incrementalencoder", args)
@@ -117,7 +117,7 @@ impl PyCodec {
         vm: &VirtualMachine,
     ) -> PyResult {
         let args = match errors {
-            Some(e) => vec![e.into_object()],
+            Some(e) => vec![e.into()],
             None => vec![],
         };
         vm.call_method(self.0.as_object(), "incrementaldecoder", args)
@@ -138,7 +138,7 @@ impl TryFromObject for PyCodec {
 impl IntoPyObject for PyCodec {
     #[inline]
     fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
-        self.0.into_object()
+        self.0.into()
     }
 }
 
@@ -173,7 +173,7 @@ impl CodecsRegistry {
             ),
         ];
         let errors = std::array::IntoIter::new(errors)
-            .map(|(name, f)| (name.to_owned(), f))
+            .map(|(name, f)| (name.to_owned(), f.into()))
             .collect();
         let inner = RegistryInner {
             search_path: Vec::new(),
@@ -204,7 +204,7 @@ impl CodecsRegistry {
         let encoding = PyStr::from(encoding.into_owned()).into_ref(vm);
         for func in search_path {
             let res = vm.invoke(&func, (encoding.clone(),))?;
-            let res = <Option<PyCodec>>::try_from_object(vm, res)?;
+            let res: Option<PyCodec> = res.try_into_value(vm)?;
             if let Some(codec) = res {
                 let mut inner = self.inner.write();
                 // someone might have raced us to this, so use theirs
@@ -271,7 +271,7 @@ impl CodecsRegistry {
     ) -> PyResult<PyBytesRef> {
         let codec = self._lookup_text_encoding(encoding, "codecs.encode()", vm)?;
         codec
-            .encode(obj.into_object(), errors, vm)?
+            .encode(obj.into(), errors, vm)?
             .downcast()
             .map_err(|obj| {
                 vm.new_type_error(format!(
@@ -334,9 +334,9 @@ fn normalize_encoding_name(encoding: &str) -> Cow<'_, str> {
 // TODO: exceptions with custom payloads
 fn extract_unicode_error_range(err: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Range<usize>> {
     let start = vm.get_attribute(err.clone(), "start")?;
-    let start = usize::try_from_object(vm, start)?;
+    let start = start.try_into_value(vm)?;
     let end = vm.get_attribute(err.clone(), "end")?;
-    let end = usize::try_from_object(vm, end)?;
+    let end = end.try_into_value(vm)?;
     Ok(Range { start, end })
 }
 
@@ -367,7 +367,7 @@ fn strict_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 fn ignore_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(PyObjectRef, usize)> {
     if is_encode_ish_err(&err, vm) || is_decode_err(&err, vm) {
         let range = extract_unicode_error_range(&err, vm)?;
-        Ok((vm.ctx.new_ascii_literal(ascii!("")), range.end))
+        Ok((vm.ctx.new_str(ascii!("")).into(), range.end))
     } else {
         Err(bad_err_type(err, vm))
     }

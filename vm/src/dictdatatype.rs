@@ -1,15 +1,16 @@
-use crate::builtins::{PyStr, PyStrRef};
-/// Ordered dictionary implementation.
-/// Inspired by: https://morepypy.blogspot.com/2015/01/faster-more-memory-efficient-and-more.html
-/// And: https://www.youtube.com/watch?v=p33CVV29OG8
-/// And: http://code.activestate.com/recipes/578375/
 use crate::common::{
     hash,
     lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
 };
-use crate::vm::VirtualMachine;
-use crate::{IdProtocol, IntoPyObject, PyObjectRef, PyRefExact, PyResult, TypeProtocol};
-use crossbeam_utils::atomic::AtomicCell;
+/// Ordered dictionary implementation.
+/// Inspired by: https://morepypy.blogspot.com/2015/01/faster-more-memory-efficient-and-more.html
+/// And: https://www.youtube.com/watch?v=p33CVV29OG8
+/// And: http://code.activestate.com/recipes/578375/
+use crate::{
+    builtins::{PyStr, PyStrRef},
+    function::IntoPyObject,
+    IdProtocol, PyObjectRef, PyRefExact, PyResult, TypeProtocol, VirtualMachine,
+};
 use std::fmt;
 use std::mem::size_of;
 
@@ -110,8 +111,8 @@ struct DictEntry<T> {
 #[derive(Debug, PartialEq)]
 pub struct DictSize {
     indices_size: usize,
-    entries_size: usize,
-    used: usize,
+    pub entries_size: usize,
+    pub used: usize,
     filled: usize,
 }
 
@@ -479,45 +480,30 @@ impl<T: Clone> Dict<T> {
         self.read().size()
     }
 
-    pub fn next_entry(&self, position: &mut EntryIndex) -> Option<(PyObjectRef, T)> {
+    pub fn next_entry(&self, mut position: EntryIndex) -> Option<(usize, PyObjectRef, T)> {
         let inner = self.read();
         loop {
-            let entry = inner.entries.get(*position)?;
-            *position += 1;
+            let entry = inner.entries.get(position)?;
+            position += 1;
             if let Some(entry) = entry {
-                break Some((entry.key.clone(), entry.value.clone()));
+                break Some((position, entry.key.clone(), entry.value.clone()));
             }
         }
     }
 
-    pub fn next_entry_atomic(&self, position: &AtomicCell<usize>) -> Option<(PyObjectRef, T)> {
+    pub fn prev_entry(&self, mut position: EntryIndex) -> Option<(usize, PyObjectRef, T)> {
         let inner = self.read();
         loop {
-            let position_usize = position.fetch_add(1);
-            let entry = inner.entries.get(position_usize)?;
+            let entry = inner.entries.get(position)?;
+            position = position.saturating_sub(1);
             if let Some(entry) = entry {
-                break Some((entry.key.clone(), entry.value.clone()));
-            }
-        }
-    }
-
-    pub fn next_entry_atomic_reversed(
-        &self,
-        position: &AtomicCell<usize>,
-    ) -> Option<(PyObjectRef, T)> {
-        let inner = self.read();
-        loop {
-            let position_usize = position.fetch_add(1);
-            let position_index = inner.entries.len().checked_sub(position_usize + 1)?;
-            let entry = inner.entries.get(position_index)?;
-            if let Some(entry) = entry {
-                break Some((entry.key.clone(), entry.value.clone()));
+                break Some((position, entry.key.clone(), entry.value.clone()));
             }
         }
     }
 
     pub fn len_from_entry_index(&self, position: EntryIndex) -> usize {
-        self.read().entries.len() - position
+        self.read().entries.len().saturating_sub(position)
     }
 
     pub fn has_changed_size(&self, old: &DictSize) -> bool {
@@ -731,7 +717,7 @@ impl DictKey for &str {
             Ok(pystr.as_str() == *self)
         } else {
             // Fall back to PyObjectRef implementation.
-            let s = vm.ctx.new_utf8_str(*self);
+            let s = vm.ctx.new_str(*self);
             s.key_eq(vm, other_key)
         }
     }
@@ -777,13 +763,13 @@ mod tests {
             let dict = Dict::default();
             assert_eq!(0, dict.len());
 
-            let key1 = vm.ctx.new_bool(true);
-            let value1 = vm.ctx.new_ascii_literal(ascii!("abc"));
+            let key1 = vm.new_pyobj(true);
+            let value1 = vm.new_pyobj(ascii!("abc"));
             dict.insert(&vm, key1.clone(), value1.clone()).unwrap();
             assert_eq!(1, dict.len());
 
-            let key2 = vm.ctx.new_ascii_literal(ascii!("x"));
-            let value2 = vm.ctx.new_ascii_literal(ascii!("def"));
+            let key2 = vm.new_pyobj(ascii!("x"));
+            let value2 = vm.new_pyobj(ascii!("def"));
             dict.insert(&vm, key2.clone(), value2.clone()).unwrap();
             assert_eq!(2, dict.len());
 
@@ -824,7 +810,7 @@ mod tests {
     fn check_hash_equivalence(text: &str) {
         Interpreter::default().enter(|vm| {
             let value1 = text;
-            let value2 = vm.ctx.new_utf8_str(value1.to_owned());
+            let value2 = vm.new_pyobj(value1.to_owned());
 
             let hash1 = value1.key_hash(&vm).expect("Hash should not fail.");
             let hash2 = value2.key_hash(&vm).expect("Hash should not fail.");

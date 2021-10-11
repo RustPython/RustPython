@@ -56,7 +56,7 @@ macro_rules! extend_class {
 macro_rules! py_namespace {
     ( $vm:expr, { $($name:expr => $value:expr),* $(,)* }) => {
         {
-            let namespace = $vm.ctx.new_namespace();
+            let namespace = $crate::builtins::PyNamespace::new_ref(&$vm.ctx).into();
             $(
                 $vm.__module_set_attr(&namespace, $name, $value).unwrap();
             )*
@@ -77,15 +77,14 @@ macro_rules! py_namespace {
 /// use num_traits::Zero;
 ///
 /// use rustpython_vm::match_class;
-/// use rustpython_vm::builtins::PyFloat;
-/// use rustpython_vm::builtins::PyInt;
-/// use rustpython_vm::PyValue;
+/// use rustpython_vm::builtins::{PyFloat, PyInt};
+/// use rustpython_vm::{PyValue};
 ///
 /// # rustpython_vm::Interpreter::default().enter(|vm| {
-/// let obj = PyInt::from(0).into_ref(&vm).into_object();
+/// let obj = PyInt::from(0).into_object(vm);
 /// assert_eq!(
 ///     "int",
-///     match_class!(match obj.clone() {
+///     match_class!(match obj {
 ///         PyInt => "int",
 ///         PyFloat => "float",
 ///         _ => "neither",
@@ -102,12 +101,11 @@ macro_rules! py_namespace {
 /// use num_traits::Zero;
 ///
 /// use rustpython_vm::match_class;
-/// use rustpython_vm::builtins::PyFloat;
-/// use rustpython_vm::builtins::PyInt;
-/// use rustpython_vm::PyValue;
+/// use rustpython_vm::builtins::{PyFloat, PyInt};
+/// use rustpython_vm::{ PyValue};
 ///
 /// # rustpython_vm::Interpreter::default().enter(|vm| {
-/// let obj = PyInt::from(0).into_ref(vm).into_object();
+/// let obj = PyInt::from(0).into_object(vm);
 ///
 /// let int_value = match_class!(match obj {
 ///     i @ PyInt => i.as_bigint().clone(),
@@ -210,7 +208,7 @@ macro_rules! class_or_notimplemented {
     ($t:ty, $obj:expr) => {
         match $crate::PyObjectRef::downcast_ref::<$t>($obj) {
             Some(pyref) => pyref,
-            None => return Ok($crate::PyArithmaticValue::NotImplemented),
+            None => return Ok($crate::PyArithmeticValue::NotImplemented),
         }
     };
 }
@@ -226,8 +224,8 @@ macro_rules! named_function {
                 [<$module _ $func>],
             )
             .into_function()
-            .with_module(ctx.new_utf8_str(stringify!($module).to_owned()))
-            .build(ctx)
+            .with_module(ctx.new_str(stringify!($module).to_owned()).into())
+            .into_ref(ctx)
         }
     }};
 }

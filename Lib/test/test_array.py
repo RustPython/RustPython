@@ -247,8 +247,6 @@ class BaseTest:
         self.assertNotEqual(id(a), id(b))
         self.assertEqual(a, b)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_reduce_ex(self):
         a = array.array(self.typecode, self.example)
         for protocol in range(3):
@@ -256,8 +254,6 @@ class BaseTest:
         for protocol in range(3, pickle.HIGHEST_PROTOCOL + 1):
             self.assertIs(a.__reduce_ex__(protocol)[0], array_reconstructor)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pickle(self):
         for protocol in range(pickle.HIGHEST_PROTOCOL + 1):
             a = array.array(self.typecode, self.example)
@@ -273,8 +269,6 @@ class BaseTest:
             self.assertEqual(a.x, b.x)
             self.assertEqual(type(a), type(b))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pickle_for_empty_array(self):
         for protocol in range(pickle.HIGHEST_PROTOCOL + 1):
             a = array.array(self.typecode)

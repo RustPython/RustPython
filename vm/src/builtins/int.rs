@@ -1,13 +1,13 @@
-use super::{float, IntoPyBool, PyByteArray, PyBytes, PyStr, PyStrRef, PyTypeRef};
+use super::{float, PyByteArray, PyBytes, PyStr, PyStrRef, PyTypeRef};
 use crate::{
     bytesinner::PyBytesInner,
     common::hash,
     format::FormatSpec,
-    function::{OptionalArg, OptionalOption},
+    function::{ArgIntoBool, IntoPyObject, IntoPyResult, OptionalArg, OptionalOption},
     slots::{Comparable, Hashable, PyComparisonOp, SlotConstructor},
-    try_value_from_borrowed_object, IdProtocol, IntoPyObject, IntoPyResult, PyArithmaticValue,
-    PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromBorrowedObject, TypeProtocol, VirtualMachine,
+    try_value_from_borrowed_object, IdProtocol, PyArithmeticValue, PyClassImpl, PyComparisonValue,
+    PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromBorrowedObject, TypeProtocol,
+    VirtualMachine,
 };
 use bstr::ByteSlice;
 use num_bigint::{BigInt, BigUint, Sign};
@@ -60,7 +60,7 @@ impl PyValue for PyInt {
     }
 
     fn into_object(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_int(self.value)
+        vm.ctx.new_int(self.value).into()
     }
 
     fn special_retrieve(vm: &VirtualMachine, obj: &PyObjectRef) -> Option<PyResult<PyRef<Self>>> {
@@ -72,32 +72,20 @@ macro_rules! impl_into_pyobject_int {
     ($($t:ty)*) => {$(
         impl IntoPyObject for $t {
             fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-                vm.ctx.new_int(self)
+                vm.ctx.new_int(self).into()
             }
         }
     )*};
 }
 
-impl_into_pyobject_int!(isize i8 i16 i32 i64 usize u8 u16 u32 u64 BigInt);
-
-pub(crate) fn try_to_primitive<'a, I>(i: &'a BigInt, vm: &VirtualMachine) -> PyResult<I>
-where
-    I: PrimInt + TryFrom<&'a BigInt>,
-{
-    I::try_from(i).map_err(|_| {
-        vm.new_overflow_error(format!(
-            "Python int too large to convert to Rust {}",
-            std::any::type_name::<I>()
-        ))
-    })
-}
+impl_into_pyobject_int!(isize i8 i16 i32 i64 i128 usize u8 u16 u32 u64 u128 BigInt);
 
 macro_rules! impl_try_from_object_int {
     ($(($t:ty, $to_prim:ident),)*) => {$(
         impl TryFromBorrowedObject for $t {
             fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Self> {
                 try_value_from_borrowed_object(vm, obj, |int: &PyInt| {
-                    try_to_primitive(int.as_bigint(), vm)
+                    int.try_to_primitive(vm)
                 })
             }
         }
@@ -110,42 +98,39 @@ impl_try_from_object_int!(
     (i16, to_i16),
     (i32, to_i32),
     (i64, to_i64),
+    (i128, to_i128),
     (usize, to_usize),
     (u8, to_u8),
     (u16, to_u16),
     (u32, to_u32),
     (u64, to_u64),
+    (u128, to_u128),
 );
-
-impl TryFromBorrowedObject for BigInt {
-    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Self> {
-        try_value_from_borrowed_object(vm, obj, |int: &PyInt| Ok(int.as_bigint().clone()))
-    }
-}
 
 fn inner_pow(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
     if int2.is_negative() {
         let v1 = try_to_float(int1, vm)?;
         let v2 = try_to_float(int2, vm)?;
-        float::float_pow(v1, v2, vm).into_pyresult(vm)
+        float::float_pow(v1, v2, vm)
     } else {
-        Ok(if let Some(v2) = int2.to_u64() {
-            vm.ctx.new_int(Pow::pow(int1, v2))
+        let value = if let Some(v2) = int2.to_u64() {
+            return Ok(vm.ctx.new_int(Pow::pow(int1, v2)).into());
         } else if int1.is_one() {
-            vm.ctx.new_int(1)
+            1
         } else if int1.is_zero() {
-            vm.ctx.new_int(0)
+            0
         } else if int1 == &BigInt::from(-1) {
             if int2.is_odd() {
-                vm.ctx.new_int(-1)
+                -1
             } else {
-                vm.ctx.new_int(1)
+                1
             }
         } else {
             // missing feature: BigInt exp
             // practically, exp over u64 is not possible to calculate anyway
-            vm.ctx.not_implemented()
-        })
+            return Ok(vm.ctx.not_implemented());
+        };
+        Ok(vm.ctx.new_int(value).into())
     }
 }
 
@@ -153,7 +138,7 @@ fn inner_mod(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
     if int2.is_zero() {
         Err(vm.new_zero_division_error("integer modulo by zero".to_owned()))
     } else {
-        Ok(vm.ctx.new_int(int1.mod_floor(int2)))
+        Ok(vm.ctx.new_int(int1.mod_floor(int2)).into())
     }
 }
 
@@ -161,19 +146,16 @@ fn inner_floordiv(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult
     if int2.is_zero() {
         Err(vm.new_zero_division_error("integer division by zero".to_owned()))
     } else {
-        Ok(vm.ctx.new_int(int1.div_floor(int2)))
+        Ok(vm.ctx.new_int(int1.div_floor(int2)).into())
     }
 }
 
 fn inner_divmod(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
     if int2.is_zero() {
-        Err(vm.new_zero_division_error("integer division or modulo by zero".to_owned()))
-    } else {
-        let (div, modulo) = int1.div_mod_floor(int2);
-        Ok(vm
-            .ctx
-            .new_tuple(vec![vm.ctx.new_int(div), vm.ctx.new_int(modulo)]))
+        return Err(vm.new_zero_division_error("integer division or modulo by zero".to_owned()));
     }
+    let (div, modulo) = int1.div_mod_floor(int2);
+    Ok(vm.new_tuple((div, modulo)).into())
 }
 
 fn inner_shift<F>(int1: &BigInt, int2: &BigInt, shift_op: F, vm: &VirtualMachine) -> PyResult
@@ -183,12 +165,12 @@ where
     if int2.is_negative() {
         Err(vm.new_value_error("negative shift count".to_owned()))
     } else if int1.is_zero() {
-        Ok(vm.ctx.new_int(0))
+        Ok(vm.ctx.new_int(0).into())
     } else {
         let int2 = int2.to_usize().ok_or_else(|| {
             vm.new_overflow_error("the number is too large to convert to int".to_owned())
         })?;
-        Ok(vm.ctx.new_int(shift_op(int1, int2)))
+        Ok(vm.ctx.new_int(shift_op(int1, int2)).into())
     }
 }
 
@@ -198,8 +180,8 @@ fn inner_truediv(i1: &BigInt, i2: &BigInt, vm: &VirtualMachine) -> PyResult {
         return Err(vm.new_zero_division_error("integer division by zero".to_owned()));
     }
 
-    if let (Some(f1), Some(f2)) = (i2f(i1), i2f(i2)) {
-        Ok(vm.ctx.new_float(f1 / f2))
+    let value = if let (Some(f1), Some(f2)) = (i2f(i1), i2f(i2)) {
+        f1 / f2
     } else {
         let (quotient, mut rem) = i1.div_rem(i2);
         let mut divisor = i2.clone();
@@ -217,11 +199,12 @@ fn inner_truediv(i1: &BigInt, i2: &BigInt, vm: &VirtualMachine) -> PyResult {
                 }
             };
 
-            Ok(vm.ctx.new_float(quotient + rem_part))
+            quotient + rem_part
         } else {
-            Err(vm.new_overflow_error("int too large to convert to float".to_owned()))
+            return Err(vm.new_overflow_error("int too large to convert to float".to_owned()));
         }
-    }
+    };
+    Ok(vm.ctx.new_float(value).into())
 }
 
 impl SlotConstructor for PyInt {
@@ -269,13 +252,9 @@ impl PyInt {
         T: Into<BigInt> + ToPrimitive,
     {
         if cls.is(&vm.ctx.types.int_type) {
-            Ok(vm.ctx.new_int(value).downcast().unwrap())
+            Ok(vm.ctx.new_int(value))
         } else if cls.is(&vm.ctx.types.bool_type) {
-            Ok(vm
-                .ctx
-                .new_bool(!value.into().eq(&BigInt::zero()))
-                .downcast()
-                .unwrap())
+            Ok(vm.ctx.new_bool(!value.into().eq(&BigInt::zero())))
         } else {
             PyInt::from(value).into_ref_with_type(vm, cls)
         }
@@ -306,18 +285,23 @@ impl PyInt {
     where
         I: PrimInt + TryFrom<&'a BigInt>,
     {
-        try_to_primitive(self.as_bigint(), vm)
+        I::try_from(self.as_bigint()).map_err(|_| {
+            vm.new_overflow_error(format!(
+                "Python int too large to convert to Rust {}",
+                std::any::type_name::<I>()
+            ))
+        })
     }
 
     #[inline]
-    fn int_op<F>(&self, other: PyObjectRef, op: F, vm: &VirtualMachine) -> PyArithmaticValue<BigInt>
+    fn int_op<F>(&self, other: PyObjectRef, op: F, vm: &VirtualMachine) -> PyArithmeticValue<BigInt>
     where
         F: Fn(&BigInt, &BigInt) -> BigInt,
     {
         let r = other
             .payload_if_subclass::<PyInt>(vm)
             .map(|other| op(&self.value, &other.value));
-        PyArithmaticValue::from_option(r)
+        PyArithmeticValue::from_option(r)
     }
 
     #[inline]
@@ -337,23 +321,23 @@ impl PyInt {
 impl PyInt {
     #[pymethod(name = "__radd__")]
     #[pymethod(magic)]
-    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<BigInt> {
+    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmeticValue<BigInt> {
         self.int_op(other, |a, b| a + b, vm)
     }
 
     #[pymethod(magic)]
-    fn sub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<BigInt> {
+    fn sub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmeticValue<BigInt> {
         self.int_op(other, |a, b| a - b, vm)
     }
 
     #[pymethod(magic)]
-    fn rsub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<BigInt> {
+    fn rsub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmeticValue<BigInt> {
         self.int_op(other, |a, b| b - a, vm)
     }
 
     #[pymethod(name = "__rmul__")]
     #[pymethod(magic)]
-    fn mul(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<BigInt> {
+    fn mul(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmeticValue<BigInt> {
         self.int_op(other, |a, b| a * b, vm)
     }
 
@@ -399,19 +383,19 @@ impl PyInt {
 
     #[pymethod(name = "__rxor__")]
     #[pymethod(magic)]
-    pub fn xor(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<BigInt> {
+    pub fn xor(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmeticValue<BigInt> {
         self.int_op(other, |a, b| a ^ b, vm)
     }
 
     #[pymethod(name = "__ror__")]
     #[pymethod(magic)]
-    pub fn or(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<BigInt> {
+    pub fn or(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmeticValue<BigInt> {
         self.int_op(other, |a, b| a | b, vm)
     }
 
     #[pymethod(name = "__rand__")]
     #[pymethod(magic)]
-    pub fn and(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmaticValue<BigInt> {
+    pub fn and(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmeticValue<BigInt> {
         self.int_op(other, |a, b| a & b, vm)
     }
 
@@ -466,7 +450,7 @@ impl PyInt {
                         } else {
                             a.modpow(b, modulus)
                         };
-                        Ok(vm.ctx.new_int(i))
+                        Ok(vm.ctx.new_int(i).into())
                     },
                     vm,
                 )
@@ -604,8 +588,8 @@ impl PyInt {
     }
 
     #[pymethod]
-    fn as_integer_ratio(&self, vm: &VirtualMachine) -> (PyObjectRef, BigInt) {
-        (vm.ctx.new_bigint(&self.value), BigInt::one())
+    fn as_integer_ratio(&self, vm: &VirtualMachine) -> (PyRef<Self>, i32) {
+        (vm.ctx.new_bigint(&self.value), 1)
     }
 
     #[pymethod]
@@ -657,9 +641,7 @@ impl PyInt {
             return Err(vm.new_overflow_error("can't convert negative int to unsigned".to_owned()));
         }
 
-        let byte_len = args.length.as_bigint().to_usize().ok_or_else(|| {
-            vm.new_overflow_error("Python int too large to convert to C ssize_t".to_owned())
-        })?;
+        let byte_len = args.length.try_to_primitive(vm)?;
 
         let mut origin_bytes = match (args.byteorder.as_str(), signed) {
             ("big", true) => value.to_signed_bytes_be(),
@@ -699,7 +681,7 @@ impl PyInt {
         Ok(bytes.into())
     }
     #[pyproperty]
-    fn real(&self, vm: &VirtualMachine) -> PyObjectRef {
+    fn real(&self, vm: &VirtualMachine) -> PyRef<Self> {
         // subclasses must return int here
         vm.ctx.new_bigint(&self.value)
     }
@@ -765,7 +747,7 @@ struct IntFromByteArgs {
     bytes: PyBytesInner,
     byteorder: PyStrRef,
     #[pyarg(named, optional)]
-    signed: OptionalArg<IntoPyBool>,
+    signed: OptionalArg<ArgIntoBool>,
 }
 
 #[derive(FromArgs)]
@@ -773,7 +755,7 @@ struct IntToByteArgs {
     length: PyIntRef,
     byteorder: PyStrRef,
     #[pyarg(named, optional)]
-    signed: OptionalArg<IntoPyBool>,
+    signed: OptionalArg<ArgIntoBool>,
 }
 
 fn try_int_radix(obj: &PyObjectRef, base: u32, vm: &VirtualMachine) -> PyResult<BigInt> {

@@ -11,9 +11,9 @@ fn _weakref_getweakrefcount(obj: PyObjectRef) -> usize {
     PyObjectRef::weak_count(&obj)
 }
 
-fn _weakref_getweakrefs(_obj: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+fn _weakref_getweakrefs(_obj: PyObjectRef) -> Vec<PyObjectRef> {
     // TODO: implement this, may require a different gc
-    vm.ctx.new_list(vec![])
+    Vec::new()
 }
 
 fn _weakref_remove_dead_weakref(_obj: PyObjectRef, _key: PyObjectRef) {

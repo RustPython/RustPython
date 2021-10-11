@@ -15,17 +15,22 @@
 
 use crate::{extract_spans, Diagnostic};
 use once_cell::sync::Lazy;
-use proc_macro2::{Span, TokenStream as TokenStream2};
+use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use rustpython_bytecode::{CodeObject, FrozenModule};
 use rustpython_compiler as compile;
-use std::collections::HashMap;
-use std::env;
-use std::fs;
-use std::path::{Path, PathBuf};
-use syn::parse::{Parse, ParseStream, Result as ParseResult};
-use syn::spanned::Spanned;
-use syn::{self, parse2, Lit, LitByteStr, LitStr, Macro, Meta, MetaNameValue, Token};
+use std::{
+    collections::HashMap,
+    env, fs,
+    path::{Path, PathBuf},
+};
+use syn::{
+    self,
+    parse::{Parse, ParseStream, Result as ParseResult},
+    parse2,
+    spanned::Spanned,
+    Lit, LitByteStr, LitStr, Macro, Meta, MetaNameValue, Token,
+};
 
 static CARGO_MANIFEST_DIR: Lazy<PathBuf> = Lazy::new(|| {
     PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not present"))
@@ -281,7 +286,7 @@ impl PyCompileInput {
         }
 
         let source = source.ok_or_else(|| {
-            Diagnostic::span_error(
+            syn::Error::new(
                 self.span,
                 "Must have either file or source in py_compile!()/py_freeze!()",
             )
@@ -335,7 +340,7 @@ struct PyCompileArgs {
     crate_name: syn::Path,
 }
 
-pub fn impl_py_compile(input: TokenStream2) -> Result<TokenStream2, Diagnostic> {
+pub fn impl_py_compile(input: TokenStream) -> Result<TokenStream, Diagnostic> {
     let input: PyCompileInput = parse2(input)?;
     let args = input.parse(false)?;
 
@@ -353,7 +358,7 @@ pub fn impl_py_compile(input: TokenStream2) -> Result<TokenStream2, Diagnostic> 
     Ok(output)
 }
 
-pub fn impl_py_freeze(input: TokenStream2) -> Result<TokenStream2, Diagnostic> {
+pub fn impl_py_freeze(input: TokenStream) -> Result<TokenStream, Diagnostic> {
     let input: PyCompileInput = parse2(input)?;
     let args = input.parse(true)?;
 

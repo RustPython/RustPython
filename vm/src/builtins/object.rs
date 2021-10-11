@@ -2,7 +2,7 @@ use super::{PyDict, PyDictRef, PyList, PyStr, PyStrRef, PyType, PyTypeRef};
 use crate::common::hash::PyHash;
 use crate::{
     function::FuncArgs, slots::PyComparisonOp, utils::Either, IdProtocol, ItemProtocol,
-    PyArithmaticValue, PyAttributes, PyClassImpl, PyComparisonValue, PyContext, PyObject,
+    PyArithmeticValue, PyAttributes, PyClassImpl, PyComparisonValue, PyContext, PyObject,
     PyObjectRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
 
@@ -68,7 +68,7 @@ impl PyBaseObject {
                     .mro_find_map(|cls| cls.slots.richcompare.load())
                     .unwrap();
                 let value = match cmp(zelf, other, PyComparisonOp::Eq, vm)? {
-                    Either::A(obj) => PyArithmaticValue::from_object(vm, obj)
+                    Either::A(obj) => PyArithmeticValue::from_object(vm, obj)
                         .map(|obj| obj.try_to_bool(vm))
                         .transpose()?,
                     Either::B(value) => value,
@@ -240,8 +240,8 @@ impl PyBaseObject {
     fn init(_args: FuncArgs) {}
 
     #[pyproperty(name = "__class__")]
-    fn get_class(obj: PyObjectRef) -> PyObjectRef {
-        obj.clone_class().into_object()
+    fn get_class(obj: PyObjectRef) -> PyTypeRef {
+        obj.clone_class()
     }
 
     #[pyproperty(name = "__class__", setter)]
@@ -254,7 +254,8 @@ impl PyBaseObject {
                     Ok(())
                 }
                 Err(value) => {
-                    let type_repr = &value.class().name();
+                    let value_class = value.class();
+                    let type_repr = &value_class.name();
                     Err(vm.new_type_error(format!(
                         "__class__ must be set to a class, not '{}' object",
                         type_repr
@@ -285,7 +286,7 @@ impl PyBaseObject {
     fn reduce_ex(obj: PyObjectRef, proto: usize, vm: &VirtualMachine) -> PyResult {
         if let Some(reduce) = vm.get_attribute_opt(obj.clone(), "__reduce__")? {
             let object_reduce = vm.ctx.types.object_type.get_attr("__reduce__").unwrap();
-            let class_reduce = vm.get_attribute(obj.clone_class().into_object(), "__reduce__")?;
+            let class_reduce = vm.get_attribute(obj.clone_class().into(), "__reduce__")?;
             if !class_reduce.is(&object_reduce) {
                 return vm.invoke(&reduce, ());
             }

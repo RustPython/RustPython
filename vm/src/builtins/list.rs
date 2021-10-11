@@ -1,25 +1,22 @@
-use super::{
-    int,
-    iter::IterStatus::{self, Active, Exhausted},
-    PyGenericAlias, PyInt, PySliceRef, PyTypeRef,
-};
+use super::{PositionIterInternal, PyGenericAlias, PySliceRef, PyTupleRef, PyTypeRef};
 use crate::common::lock::{
-    PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
+    PyMappedRwLockReadGuard, PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
 };
 use crate::{
-    function::{ArgIterable, FuncArgs, OptionalArg},
-    protocol::PyIterReturn,
+    function::{ArgIterable, FuncArgs, IntoPyObject, OptionalArg},
+    protocol::{PyIterReturn, PyMappingMethods},
     sequence::{self, SimpleSeq},
     sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
     slots::{
-        Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotIterator, Unhashable,
+        AsMapping, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotIterator,
+        Unhashable,
     },
+    stdlib::sys,
     utils::Either,
     vm::{ReprGuard, VirtualMachine},
     PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol,
 };
-use crossbeam_utils::atomic::AtomicCell;
 use std::fmt;
 use std::iter::FromIterator;
 use std::mem::size_of;
@@ -62,7 +59,17 @@ impl PyValue for PyList {
     }
 }
 
+impl IntoPyObject for Vec<PyObjectRef> {
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+        PyList::new_ref(self, &vm.ctx).into()
+    }
+}
+
 impl PyList {
+    pub fn new_ref(elements: Vec<PyObjectRef>, ctx: &PyContext) -> PyRef<Self> {
+        PyRef::new_ref(Self::from(elements), ctx.types.list_type.clone(), None)
+    }
+
     pub fn borrow_vec(&self) -> PyMappedRwLockReadGuard<'_, [PyObjectRef]> {
         PyRwLockReadGuard::map(self.elements.read(), |v| &**v)
     }
@@ -82,7 +89,7 @@ pub(crate) struct SortOptions {
 
 pub type PyListRef = PyRef<PyList>;
 
-#[pyimpl(with(Iterable, Hashable, Comparable), flags(BASETYPE))]
+#[pyimpl(with(AsMapping, Iterable, Hashable, Comparable), flags(BASETYPE))]
 impl PyList {
     #[pymethod]
     pub(crate) fn append(&self, x: PyObjectRef) {
@@ -104,18 +111,17 @@ impl PyList {
     }
 
     #[pymethod(magic)]
-    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(other) = other.payload_if_subclass::<PyList>(vm) {
-            let mut elements = self.borrow_vec().to_vec();
-            elements.extend(other.borrow_vec().iter().cloned());
-            Ok(vm.ctx.new_list(elements))
-        } else {
-            Err(vm.new_type_error(format!(
+    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyListRef> {
+        let other = other.payload_if_subclass::<PyList>(vm).ok_or_else(|| {
+            vm.new_type_error(format!(
                 "Cannot add {} and {}",
                 Self::class(vm).name(),
                 other.class().name()
-            )))
-        }
+            ))
+        })?;
+        let mut elements = self.borrow_vec().to_vec();
+        elements.extend(other.borrow_vec().iter().cloned());
+        Ok(Self::new_ref(elements, &vm.ctx))
     }
 
     #[pymethod(magic)]
@@ -123,7 +129,7 @@ impl PyList {
         if let Ok(new_elements) = vm.extract_elements(&other) {
             let mut e = new_elements;
             zelf.borrow_vec_mut().append(&mut e);
-            zelf.into_object()
+            zelf.into()
         } else {
             vm.ctx.not_implemented()
         }
@@ -140,8 +146,8 @@ impl PyList {
     }
 
     #[pymethod]
-    fn copy(&self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_list(self.borrow_vec().to_vec())
+    fn copy(&self, vm: &VirtualMachine) -> PyListRef {
+        Self::new_ref(self.borrow_vec().to_vec(), &vm.ctx)
     }
 
     #[pymethod(magic)]
@@ -161,16 +167,9 @@ impl PyList {
 
     #[pymethod(magic)]
     fn reversed(zelf: PyRef<Self>) -> PyListReverseIterator {
-        let final_position = zelf.borrow_vec().len();
-        // Mark iterator as exhausted immediately if its empty.
+        let position = zelf.len().saturating_sub(1);
         PyListReverseIterator {
-            position: AtomicCell::new(final_position.saturating_sub(1)),
-            status: AtomicCell::new(if final_position == 0 {
-                Exhausted
-            } else {
-                Active
-            }),
-            list: zelf,
+            internal: PyMutex::new(PositionIterInternal::new(zelf, position)),
         }
     }
 
@@ -178,7 +177,7 @@ impl PyList {
     fn getitem(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let result = match zelf.borrow_vec().get_item(vm, needle, Self::NAME)? {
             Either::A(obj) => obj,
-            Either::B(vec) => vm.ctx.new_list(vec),
+            Either::B(vec) => Self::new_ref(vec, &vm.ctx).into(),
         };
         Ok(result)
     }
@@ -236,11 +235,11 @@ impl PyList {
 
     #[pymethod(magic)]
     #[pymethod(name = "__rmul__")]
-    fn mul(&self, value: isize, vm: &VirtualMachine) -> PyResult {
+    fn mul(&self, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         let new_elements = sequence::seq_mul(vm, &self.borrow_vec(), value)?
             .cloned()
             .collect();
-        Ok(vm.ctx.new_list(new_elements))
+        Ok(Self::new_ref(new_elements, &vm.ctx))
     }
 
     #[pymethod(magic)]
@@ -293,7 +292,7 @@ impl PyList {
                 start = 0;
             }
         }
-        let mut stop = stop.into_option().unwrap_or(isize::MAX);
+        let mut stop = stop.into_option().unwrap_or(sys::MAXSIZE);
         if stop < 0 {
             stop += self.borrow_vec().len() as isize;
             if stop < 0 {
@@ -353,8 +352,8 @@ impl PyList {
     }
 
     #[pymethod(magic)]
-    fn delitem(&self, subscript: SequenceIndex, vm: &VirtualMachine) -> PyResult<()> {
-        match subscript {
+    fn delitem(&self, subscript: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        match SequenceIndex::try_from_object_for(vm, subscript, Self::NAME)? {
             SequenceIndex::Int(index) => self.delindex(index, vm),
             SequenceIndex::Slice(slice) => self.delslice(slice, vm),
         }
@@ -416,12 +415,43 @@ impl PyList {
     }
 }
 
+impl AsMapping for PyList {
+    fn as_mapping(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyMappingMethods> {
+        Ok(PyMappingMethods {
+            length: Some(Self::length),
+            subscript: Some(Self::subscript),
+            ass_subscript: Some(Self::ass_subscript),
+        })
+    }
+
+    #[inline]
+    fn length(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+        Self::downcast_ref(&zelf, vm).map(|zelf| Ok(zelf.len()))?
+    }
+
+    #[inline]
+    fn subscript(zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Self::downcast(zelf, vm).map(|zelf| Self::getitem(zelf, needle, vm))?
+    }
+
+    #[inline]
+    fn ass_subscript(
+        zelf: PyObjectRef,
+        needle: PyObjectRef,
+        value: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        Self::downcast_ref(&zelf, vm).map(|zelf| match value {
+            Some(value) => zelf.setitem(needle, value, vm),
+            None => zelf.delitem(needle, vm),
+        })?
+    }
+}
+
 impl Iterable for PyList {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         Ok(PyListIterator {
-            position: AtomicCell::new(0),
-            status: AtomicCell::new(Active),
-            list: zelf,
+            internal: PyMutex::new(PositionIterInternal::new(zelf, 0)),
         }
         .into_object(vm))
     }
@@ -476,9 +506,7 @@ fn do_sort(
 #[pyclass(module = false, name = "list_iterator")]
 #[derive(Debug)]
 pub struct PyListIterator {
-    pub position: AtomicCell<usize>,
-    status: AtomicCell<IterStatus>,
-    pub list: PyListRef,
+    internal: PyMutex<PositionIterInternal<PyListRef>>,
 }
 
 impl PyValue for PyListIterator {
@@ -491,61 +519,41 @@ impl PyValue for PyListIterator {
 impl PyListIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
-        match self.status.load() {
-            Active => {
-                let list = self.list.borrow_vec();
-                let pos = self.position.load();
-                list.len().saturating_sub(pos)
-            }
-            Exhausted => 0,
-        }
+        self.internal.lock().length_hint(|obj| obj.len())
     }
 
     #[pymethod(magic)]
     fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        // When we're exhausted, just return.
-        if let Exhausted = self.status.load() {
-            return Ok(());
-        }
-        let position = list_state(self.list.len(), state, vm)?;
-        self.position.store(position);
-        Ok(())
+        self.internal
+            .lock()
+            .set_state(state, |obj, pos| pos.min(obj.len()), vm)
     }
 
     #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> PyResult {
-        let pos = if let Exhausted = self.status.load() {
-            None
-        } else {
-            Some(self.position.load())
-        };
-        list_reduce(self.list.clone(), pos, false, vm)
+    fn reduce(&self, vm: &VirtualMachine) -> PyTupleRef {
+        self.internal
+            .lock()
+            .builtins_iter_reduce(|x| x.clone().into(), vm)
     }
 }
 
 impl IteratorIterable for PyListIterator {}
 impl SlotIterator for PyListIterator {
     fn next(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        if let Exhausted = zelf.status.load() {
-            return Ok(PyIterReturn::StopIteration(None));
-        }
-        let list = zelf.list.borrow_vec();
-        let pos = zelf.position.fetch_add(1);
-        if let Some(obj) = list.get(pos) {
-            Ok(PyIterReturn::Return(obj.clone()))
-        } else {
-            zelf.status.store(Exhausted);
-            Ok(PyIterReturn::StopIteration(None))
-        }
+        zelf.internal.lock().next(|list, pos| {
+            let vec = list.borrow_vec();
+            Ok(match vec.get(pos) {
+                Some(x) => PyIterReturn::Return(x.clone()),
+                None => PyIterReturn::StopIteration(None),
+            })
+        })
     }
 }
 
 #[pyclass(module = false, name = "list_reverseiterator")]
 #[derive(Debug)]
 pub struct PyListReverseIterator {
-    pub position: AtomicCell<usize>,
-    pub status: AtomicCell<IterStatus>,
-    pub list: PyListRef,
+    internal: PyMutex<PositionIterInternal<PyListRef>>,
 }
 
 impl PyValue for PyListReverseIterator {
@@ -558,100 +566,35 @@ impl PyValue for PyListReverseIterator {
 impl PyListReverseIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
-        match self.status.load() {
-            Active => {
-                let position = self.position.load();
-                if position > self.list.len() {
-                    // List was mutated. Report zero, next call to `__next__` will
-                    // fail and set iterator to Exhausted.
-                    0
-                } else {
-                    position + 1
-                }
-            }
-            Exhausted => 0,
-        }
+        self.internal.lock().rev_length_hint(|obj| obj.len())
     }
 
     #[pymethod(magic)]
     fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        // When we're exhausted, just return.
-        if let Exhausted = self.status.load() {
-            return Ok(());
-        }
-
-        // Max for position is list.len() - 1.
-        let position = list_state(self.list.len().saturating_sub(1), state, vm)?;
-        self.position.store(position);
-        Ok(())
+        self.internal
+            .lock()
+            .set_state(state, |obj, pos| pos.min(obj.len()), vm)
     }
 
     #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> PyResult {
-        let pos = if let Exhausted = self.status.load() {
-            None
-        } else {
-            Some(self.position.load())
-        };
-        list_reduce(self.list.clone(), pos, true, vm)
+    fn reduce(&self, vm: &VirtualMachine) -> PyTupleRef {
+        self.internal
+            .lock()
+            .builtins_reversed_reduce(|x| x.clone().into(), vm)
     }
 }
 
 impl IteratorIterable for PyListReverseIterator {}
 impl SlotIterator for PyListReverseIterator {
     fn next(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        if let Exhausted = zelf.status.load() {
-            return Ok(PyIterReturn::StopIteration(None));
-        }
-        let list = zelf.list.borrow_vec();
-        let pos = zelf.position.fetch_sub(1);
-        if pos > 0 {
-            if let Some(obj) = list.get(pos) {
-                return Ok(PyIterReturn::Return(obj.clone()));
-            }
-        }
-        // We either are == 0 or list.get returned None. Either way, set status
-        // to exhausted and return last item if pos == 0.
-        zelf.status.store(Exhausted);
-        if pos == 0 {
-            if let Some(obj) = list.get(pos) {
-                return Ok(PyIterReturn::Return(obj.clone()));
-            }
-        }
-        Ok(PyIterReturn::StopIteration(None))
+        zelf.internal.lock().rev_next(|list, pos| {
+            let vec = list.borrow_vec();
+            Ok(match vec.get(pos) {
+                Some(x) => PyIterReturn::Return(x.clone()),
+                None => PyIterReturn::StopIteration(None),
+            })
+        })
     }
-}
-
-// Common reducer for forward and reverse list iterators.
-fn list_reduce(
-    list: PyRef<PyList>,
-    position: Option<usize>,
-    reverse: bool,
-    vm: &VirtualMachine,
-) -> PyResult {
-    let attr = if reverse { "reversed" } else { "iter" };
-    let iter = vm.get_attribute(vm.builtins.clone(), attr)?;
-    let elems = match position {
-        None => vec![iter, vm.ctx.new_tuple(vec![vm.ctx.new_list(vec![])])],
-        Some(position) => vec![
-            iter,
-            vm.ctx.new_tuple(vec![list.into_object()]),
-            vm.ctx.new_int(position),
-        ],
-    };
-    Ok(vm.ctx.new_tuple(elems))
-}
-
-// Common function to extract state. Clamps it in range [0, length].
-fn list_state(length: usize, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-    let position = state
-        .payload::<PyInt>()
-        .ok_or_else(|| vm.new_type_error("an integer is required.".to_owned()))?;
-    let position = std::cmp::min(
-        int::try_to_primitive(position.as_bigint(), vm).unwrap_or(0),
-        length,
-    );
-    Ok(position)
 }
 
 pub fn init(context: &PyContext) {

@@ -361,10 +361,6 @@ class ProcessTestCase(BaseTestCase):
                           self._assert_python, pre_args,
                           executable=NONEXISTING_CMD[0])
 
-    # TODO: RUSTPYTHON
-    if sys.platform != "win32":
-        test_executable_takes_precedence = unittest.expectedFailure(test_executable_takes_precedence)
-
     @unittest.skipIf(mswindows, "executable argument replaces shell")
     def test_executable_replaces_shell(self):
         # Check that the executable argument replaces the default shell
@@ -431,8 +427,6 @@ class ProcessTestCase(BaseTestCase):
         temp_dir = self._normalize_cwd(temp_dir)
         self._assert_cwd(temp_dir, sys.executable, cwd=FakePath(temp_dir))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipIf(mswindows, "pending resolution of issue #15533")
     def test_cwd_with_relative_arg(self):
         # Check that Popen looks for args[0] relative to cwd if args[0]
@@ -449,8 +443,6 @@ class ProcessTestCase(BaseTestCase):
             python_dir = self._normalize_cwd(python_dir)
             self._assert_cwd(python_dir, rel_python, cwd=python_dir)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipIf(mswindows, "pending resolution of issue #15533")
     def test_cwd_with_relative_executable(self):
         # Check that Popen looks for executable relative to cwd if executable
@@ -483,10 +475,6 @@ class ProcessTestCase(BaseTestCase):
                               [rel_python], cwd=wrong_dir)
             wrong_dir = self._normalize_cwd(wrong_dir)
             self._assert_cwd(wrong_dir, abs_python, cwd=wrong_dir)
-
-    # TODO: RUSTPYTHON
-    if sys.platform != "win32":
-        test_cwd_with_absolute_arg = unittest.expectedFailure(test_cwd_with_absolute_arg)
 
     @unittest.skipIf(sys.base_prefix != sys.prefix,
                      'Test is not venv-compatible')
@@ -1257,10 +1245,6 @@ class ProcessTestCase(BaseTestCase):
                                  stdout=subprocess.PIPE,
                                  stderr=subprocess.PIPE)
 
-    # TODO: RUSTPYTHON
-    if sys.platform != "win32":
-        test_leaking_fds_on_error = unittest.expectedFailure(test_leaking_fds_on_error)
-
     def test_nonexisting_with_pipes(self):
         # bpo-30121: Popen with pipes must close properly pipes on error.
         # Previously, os.close() was called with a Windows handle which is not
@@ -1755,8 +1739,6 @@ class POSIXProcessTestCase(BaseTestCase):
         def __del__(self):
             pass
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @mock.patch("subprocess._posixsubprocess.fork_exec")
     def test_exception_errpipe_normal(self, fork_exec):
         """Test error passing done through errpipe_write in the good case"""
@@ -3512,10 +3494,6 @@ class ContextManagerTests(BaseTestCase):
                                   stdout=subprocess.PIPE,
                                   stderr=subprocess.PIPE) as proc:
                 pass
-
-    # TODO: RUSTPYTHON
-    if sys.platform != "win32":
-        test_invalid_args = unittest.expectedFailure(test_invalid_args)
 
     def test_broken_pipe_cleanup(self):
         """Broken pipe error should not prevent wait() (Issue 21619)"""

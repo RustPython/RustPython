@@ -46,7 +46,7 @@ pub(crate) struct AstNode;
 impl AstNode {
     #[pymethod(magic)]
     fn init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let fields = vm.get_attribute(zelf.clone_class().into_object(), "_fields")?;
+        let fields = vm.get_attribute(zelf.clone_class().into(), "_fields")?;
         let fields = vm.extract_elements::<PyStrRef>(&fields)?;
         let numargs = args.args.len();
         if numargs > fields.len() {
@@ -90,11 +90,13 @@ trait NamedNode: Node {
 
 impl<T: Node> Node for Vec<T> {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_list(
-            self.into_iter()
-                .map(|node| node.ast_to_object(vm))
-                .collect(),
-        )
+        vm.ctx
+            .new_list(
+                self.into_iter()
+                    .map(|node| node.ast_to_object(vm))
+                    .collect(),
+            )
+            .into()
     }
 
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
@@ -148,15 +150,15 @@ impl<T: NamedNode> Node for ast::Located<T> {
 
 fn node_add_location(node: &PyObjectRef, location: ast::Location, vm: &VirtualMachine) {
     let dict = node.dict().unwrap();
-    dict.set_item("lineno", vm.ctx.new_int(location.row()), vm)
+    dict.set_item("lineno", vm.ctx.new_int(location.row()).into(), vm)
         .unwrap();
-    dict.set_item("col_offset", vm.ctx.new_int(location.column()), vm)
+    dict.set_item("col_offset", vm.ctx.new_int(location.column()).into(), vm)
         .unwrap();
 }
 
 impl Node for String {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_utf8_str(self)
+        vm.ctx.new_str(self).into()
     }
 
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
@@ -166,17 +168,17 @@ impl Node for String {
 
 impl Node for usize {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_int(self)
+        vm.ctx.new_int(self).into()
     }
 
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
-        Self::try_from_object(vm, object)
+        object.try_into_value(vm)
     }
 }
 
 impl Node for bool {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_int(self as u8)
+        vm.ctx.new_int(self as u8).into()
     }
 
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
@@ -188,15 +190,16 @@ impl Node for ast::Constant {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
         match self {
             ast::Constant::None => vm.ctx.none(),
-            ast::Constant::Bool(b) => vm.ctx.new_bool(b),
-            ast::Constant::Str(s) => vm.ctx.new_utf8_str(s),
-            ast::Constant::Bytes(b) => vm.ctx.new_bytes(b),
-            ast::Constant::Int(i) => vm.ctx.new_int(i),
+            ast::Constant::Bool(b) => vm.ctx.new_bool(b).into(),
+            ast::Constant::Str(s) => vm.ctx.new_str(s).into(),
+            ast::Constant::Bytes(b) => vm.ctx.new_bytes(b).into(),
+            ast::Constant::Int(i) => vm.ctx.new_int(i).into(),
             ast::Constant::Tuple(t) => vm
                 .ctx
-                .new_tuple(t.into_iter().map(|c| c.ast_to_object(vm)).collect()),
-            ast::Constant::Float(f) => vm.ctx.new_float(f),
-            ast::Constant::Complex { real, imag } => vm.ctx.new_complex(Complex64::new(real, imag)),
+                .new_tuple(t.into_iter().map(|c| c.ast_to_object(vm)).collect())
+                .into(),
+            ast::Constant::Float(f) => vm.ctx.new_float(f).into(),
+            ast::Constant::Complex { real, imag } => vm.new_pyobj(Complex64::new(real, imag)),
             ast::Constant::Ellipsis => vm.ctx.ellipsis(),
         }
     }
@@ -239,7 +242,7 @@ impl Node for ast::Constant {
 
 impl Node for ast::ConversionFlag {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_int(self as u8)
+        vm.ctx.new_int(self as u8).into()
     }
 
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
@@ -269,7 +272,7 @@ pub(crate) fn compile(
     let code = rustpython_compiler_core::compile::compile_top(&ast, filename.to_owned(), opts)
         // TODO: use vm.new_syntax_error()
         .map_err(|err| vm.new_value_error(err.to_string()))?;
-    Ok(vm.new_code_object(code).into_object())
+    Ok(vm.new_code_object(code).into())
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {

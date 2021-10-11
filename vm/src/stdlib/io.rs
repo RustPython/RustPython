@@ -78,19 +78,20 @@ mod _io {
     };
     use crate::{
         builtins::{
-            PyBaseExceptionRef, PyByteArray, PyBytes, PyBytesRef, PyMemoryView, PyStr, PyStrRef,
-            PyType, PyTypeRef,
+            PyBaseExceptionRef, PyByteArray, PyBytes, PyBytesRef, PyIntRef, PyMemoryView, PyStr,
+            PyStrRef, PyType, PyTypeRef,
         },
         exceptions,
         function::{
-            ArgBytesLike, ArgIterable, ArgMemoryBuffer, FuncArgs, OptionalArg, OptionalOption,
+            ArgBytesLike, ArgIterable, ArgMemoryBuffer, FuncArgs, IntoPyObject, OptionalArg,
+            OptionalOption,
         },
-        protocol::{BufferInternal, BufferOptions, PyBuffer, PyIterReturn, ResizeGuard},
-        slots::{Iterable, SlotConstructor, SlotIterator},
+        protocol::{BufferInternal, BufferOptions, BufferResizeGuard, PyBuffer, PyIterReturn},
+        slots::{Iterable, SlotConstructor, SlotDestructor, SlotIterator},
         utils::Either,
         vm::{ReprGuard, VirtualMachine},
-        IdProtocol, IntoPyObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
-        TryFromObject, TypeProtocol,
+        IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
+        TryFromBorrowedObject, TryFromObject, TypeProtocol,
     };
     use bstr::ByteSlice;
     use crossbeam_utils::atomic::AtomicCell;
@@ -158,7 +159,7 @@ mod _io {
     fn os_err(vm: &VirtualMachine, err: io::Error) -> PyBaseExceptionRef {
         #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
         {
-            use crate::exceptions::IntoPyException;
+            use crate::function::IntoPyException;
             err.into_pyexception(vm)
         }
         #[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
@@ -181,10 +182,10 @@ mod _io {
     ) -> PyResult<SeekFrom> {
         let seek = match how {
             OptionalArg::Present(0) | OptionalArg::Missing => {
-                SeekFrom::Start(u64::try_from_object(vm, offset)?)
+                SeekFrom::Start(offset.try_into_value(vm)?)
             }
-            OptionalArg::Present(1) => SeekFrom::Current(i64::try_from_object(vm, offset)?),
-            OptionalArg::Present(2) => SeekFrom::End(i64::try_from_object(vm, offset)?),
+            OptionalArg::Present(1) => SeekFrom::Current(offset.try_into_value(vm)?),
+            OptionalArg::Present(2) => SeekFrom::End(offset.try_into_value(vm)?),
             _ => return Err(vm.new_value_error("invalid value for how".to_owned())),
         };
         Ok(seek)
@@ -344,7 +345,7 @@ mod _io {
     #[derive(Debug, PyValue)]
     struct _IOBase;
 
-    #[pyimpl(with(SlotIterator), flags(BASETYPE, HAS_DICT))]
+    #[pyimpl(with(SlotIterator, SlotDestructor), flags(BASETYPE, HAS_DICT))]
     impl _IOBase {
         #[pymethod]
         fn seek(
@@ -369,7 +370,7 @@ mod _io {
         }
 
         #[pyattr]
-        fn __closed(ctx: &PyContext) -> PyObjectRef {
+        fn __closed(ctx: &PyContext) -> PyIntRef {
             ctx.new_bool(false)
         }
 
@@ -377,17 +378,6 @@ mod _io {
         fn enter(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             check_closed(&instance, vm)?;
             Ok(instance)
-        }
-
-        #[pyslot]
-        fn slot_del(instance: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            let _ = vm.call_method(instance, "close", ());
-            Ok(())
-        }
-
-        #[pymethod(magic)]
-        fn del(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            Self::slot_del(&instance, vm)
         }
 
         #[pymethod(magic)]
@@ -457,10 +447,10 @@ mod _io {
             instance: PyObjectRef,
             hint: OptionalOption<isize>,
             vm: &VirtualMachine,
-        ) -> PyResult {
+        ) -> PyResult<Vec<PyObjectRef>> {
             let hint = hint.flatten().unwrap_or(-1);
             if hint <= 0 {
-                return Ok(vm.ctx.new_list(vm.extract_elements(&instance)?));
+                return vm.extract_elements(&instance);
             }
             let hint = hint as usize;
             let mut ret = Vec::new();
@@ -475,7 +465,7 @@ mod _io {
                     break;
                 }
             }
-            Ok(vm.ctx.new_list(ret))
+            Ok(ret)
         }
 
         #[pymethod]
@@ -512,6 +502,18 @@ mod _io {
         }
     }
 
+    impl SlotDestructor for _IOBase {
+        fn slot_del(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            let _ = vm.call_method(zelf, "close", ());
+            Ok(())
+        }
+
+        #[cold]
+        fn del(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<()> {
+            unreachable!("slot_del is implemented")
+        }
+    }
+
     impl Iterable for _IOBase {
         fn slot_iter(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             check_closed(&zelf, vm)?;
@@ -541,7 +543,7 @@ mod _io {
     pub(super) fn iobase_close(file: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if !file_closed(file, vm)? {
             let res = vm.call_method(file, "flush", ());
-            vm.set_attr(file, "__closed", vm.ctx.new_bool(true))?;
+            vm.set_attr(file, "__closed", vm.new_pyobj(true))?;
             res?;
         }
         Ok(())
@@ -625,7 +627,7 @@ mod _io {
             method: &str,
             vm: &VirtualMachine,
         ) -> PyResult<usize> {
-            let b = ArgMemoryBuffer::new(vm, &bufobj)?;
+            let b = ArgMemoryBuffer::try_from_borrowed_object(vm, &bufobj)?;
             let l = b.len();
             let data = vm.call_method(&zelf, method, (l,))?;
             if data.is(&bufobj) {
@@ -955,7 +957,7 @@ mod _io {
 
             let mut remaining = buf_len;
             let mut written = 0;
-            let buffer = obj.into_buffer();
+            let buffer: PyBuffer = obj.into();
             while remaining > self.buffer.len() {
                 let res = self.raw_write(Some(buffer.clone()), written..buf_len, vm)?;
                 match res {
@@ -1631,14 +1633,14 @@ mod _io {
             let mut data = self.reader().lock(vm)?;
             let raw = data.check_init(vm)?;
             ensure_unclosed(raw, "readinto of closed file", vm)?;
-            data.readinto_generic(buf.into_buffer(), false, vm)
+            data.readinto_generic(buf.into(), false, vm)
         }
         #[pymethod]
         fn readinto1(&self, buf: ArgMemoryBuffer, vm: &VirtualMachine) -> PyResult<Option<usize>> {
             let mut data = self.reader().lock(vm)?;
             let raw = data.check_init(vm)?;
             ensure_unclosed(raw, "readinto of closed file", vm)?;
-            data.readinto_generic(buf.into_buffer(), true, vm)
+            data.readinto_generic(buf.into(), true, vm)
         }
     }
 
@@ -2325,7 +2327,7 @@ mod _io {
                 0 => cookie,
                 // SEEK_CUR
                 1 => {
-                    if vm.bool_eq(&cookie, &vm.ctx.new_int(0))? {
+                    if vm.bool_eq(&cookie, &vm.ctx.new_int(0).into())? {
                         vm.call_method(&textio.buffer, "tell", ())?
                     } else {
                         return Err(new_unsupported_operation(
@@ -2336,7 +2338,7 @@ mod _io {
                 }
                 // SEEK_END
                 2 => {
-                    if vm.bool_eq(&cookie, &vm.ctx.new_int(0))? {
+                    if vm.bool_eq(&cookie, &vm.ctx.new_int(0).into())? {
                         drop(textio);
                         vm.call_method(zelf.as_object(), "flush", ())?;
                         let mut textio = zelf.lock(vm)?;
@@ -2347,7 +2349,7 @@ mod _io {
                         }
                         let res = vm.call_method(&textio.buffer, "seek", (0, 2))?;
                         if let Some((encoder, _)) = &textio.encoder {
-                            let start_of_stream = vm.bool_eq(&res, &vm.ctx.new_int(0))?;
+                            let start_of_stream = vm.bool_eq(&res, &vm.ctx.new_int(0).into())?;
                             reset_encoder(encoder, start_of_stream)?;
                         }
                         return Ok(res);
@@ -2364,7 +2366,7 @@ mod _io {
                 }
             };
             use crate::slots::PyComparisonOp;
-            if vm.bool_cmp(&cookie, &vm.ctx.new_int(0), PyComparisonOp::Lt)? {
+            if vm.bool_cmp(&cookie, &vm.ctx.new_int(0).into(), PyComparisonOp::Lt)? {
                 return Err(
                     vm.new_value_error(format!("negative seek position {}", vm.to_repr(&cookie)?))
                 );
@@ -2416,7 +2418,7 @@ mod _io {
                 let start_of_stream = cookie.start_pos == 0 && cookie.dec_flags == 0;
                 reset_encoder(encoder, start_of_stream)?;
             }
-            Ok(cookie_obj.into_object())
+            Ok(cookie_obj.into())
         }
 
         #[pymethod]
@@ -2923,7 +2925,7 @@ mod _io {
             let chunk_size = std::cmp::max(self.chunk_size, size_hint);
             let input_chunk = vm.call_method(&self.buffer, method, (chunk_size,))?;
 
-            let buf = ArgBytesLike::new(vm, &input_chunk).map_err(|_| {
+            let buf = ArgBytesLike::try_from_borrowed_object(vm, &input_chunk).map_err(|_| {
                 vm.new_type_error(format!(
                     "underlying {}() should have returned a bytes-like object, not '{}'",
                     method,
@@ -3105,7 +3107,7 @@ mod _io {
             let bytes = data.as_str().as_bytes();
 
             match self.buffer(vm)?.write(bytes) {
-                Some(value) => Ok(vm.ctx.new_int(value)),
+                Some(value) => Ok(vm.ctx.new_int(value).into()),
                 None => Err(vm.new_type_error("Error Writing String".to_owned())),
             }
         }
@@ -3114,7 +3116,7 @@ mod _io {
         #[pymethod]
         fn getvalue(self, vm: &VirtualMachine) -> PyResult {
             match String::from_utf8(self.buffer(vm)?.getvalue()) {
-                Ok(result) => Ok(vm.ctx.new_utf8_str(result)),
+                Ok(result) => Ok(vm.ctx.new_str(result).into()),
                 Err(_) => Err(vm.new_value_error("Error Retrieving Value".to_owned())),
             }
         }
@@ -3144,7 +3146,7 @@ mod _io {
 
             let value = String::from_utf8(data)
                 .map_err(|_| vm.new_value_error("Error Retrieving Value".to_owned()))?;
-            Ok(vm.ctx.new_utf8_str(value))
+            Ok(vm.ctx.new_str(value).into())
         }
 
         #[pymethod]
@@ -3235,7 +3237,7 @@ mod _io {
 
         //Retrieves the entire bytes object value from the underlying buffer
         #[pymethod]
-        fn getvalue(self, vm: &VirtualMachine) -> PyResult {
+        fn getvalue(self, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
             Ok(vm.ctx.new_bytes(self.buffer(vm)?.getvalue()))
         }
 
@@ -3345,7 +3347,7 @@ mod _io {
         }
     }
 
-    impl<'a> ResizeGuard<'a> for BytesIO {
+    impl<'a> BufferResizeGuard<'a> for BytesIO {
         type Resizable = PyRwLockWriteGuard<'a, BufferedIO>;
 
         fn try_resizable(&'a self, vm: &VirtualMachine) -> PyResult<Self::Resizable> {
@@ -3535,9 +3537,7 @@ mod _io {
 
         // check file descriptor validity
         #[cfg(unix)]
-        if let Ok(crate::stdlib::os::PathOrFd::Fd(fd)) =
-            TryFromObject::try_from_object(vm, file.clone())
-        {
+        if let Ok(crate::stdlib::os::PathOrFd::Fd(fd)) = file.clone().try_into_value(vm) {
             nix::fcntl::fcntl(fd, nix::fcntl::F_GETFD)
                 .map_err(|_| crate::stdlib::os::errno_err(vm))?;
         }
@@ -3609,7 +3609,7 @@ mod _io {
                         line_buffering,
                     ),
                 )?;
-                vm.set_attr(&wrapper, "mode", vm.ctx.new_utf8_str(mode_string))?;
+                vm.set_attr(&wrapper, "mode", vm.new_pyobj(mode_string))?;
                 Ok(wrapper)
             }
             EncodeMode::Bytes => Ok(buffered),
@@ -3683,10 +3683,9 @@ mod fileio {
     use crate::{
         builtins::{PyStr, PyStrRef, PyTypeRef},
         crt_fd::Fd,
-        exceptions::IntoPyException,
-        function::OptionalOption,
-        function::{ArgBytesLike, ArgMemoryBuffer},
-        function::{FuncArgs, OptionalArg},
+        function::{
+            ArgBytesLike, ArgMemoryBuffer, FuncArgs, IntoPyException, OptionalArg, OptionalOption,
+        },
         stdlib::os,
         PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
     };

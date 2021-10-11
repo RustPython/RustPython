@@ -2,7 +2,7 @@
 
 # [RustPython](https://rustpython.github.io/)
 
-A Python-3 (CPython >= 3.8.0) Interpreter written in Rust :snake: :scream:
+A Python-3 (CPython >= 3.9.0) Interpreter written in Rust :snake: :scream:
 :metal:.
 
 [![Build Status](https://github.com/RustPython/RustPython/workflows/CI/badge.svg)](https://github.com/RustPython/RustPython/actions?query=workflow%3ACI)
@@ -38,6 +38,9 @@ Or use the interactive shell:
     Welcome to rustpython
     >>>>> 2+2
     4
+    
+NOTE: For windows users, please set `RUSTPYTHONPATH` environment variable as `Lib` path in project directory.
+(e.g. When RustPython directory is `C:\RustPython`, set `RUSTPYTHONPATH` as `C:\RustPython\Lib`)
 
 You can also install and run RustPython with the following:
 

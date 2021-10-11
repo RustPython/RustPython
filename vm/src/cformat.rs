@@ -1,9 +1,10 @@
 //! Implementation of Printf-Style string formatting
-//! [https://docs.python.org/3/library/stdtypes.html#printf-style-string-formatting]
+//! as per the [Python Docs](https://docs.python.org/3/library/stdtypes.html#printf-style-string-formatting).
 
 use crate::common::float_ops;
 use crate::{
-    builtins::{int, try_f64_to_bigint, tuple, IntoPyFloat, PyBytes, PyFloat, PyInt, PyStr},
+    builtins::{try_f64_to_bigint, tuple, PyBytes, PyFloat, PyInt, PyStr},
+    function::ArgIntoFloat,
     protocol::PyBuffer,
     ItemProtocol, PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject, TypeProtocol,
     VirtualMachine,
@@ -431,7 +432,7 @@ impl CFormatSpec {
                 }
             },
             CFormatType::Float(_) => {
-                let value = IntoPyFloat::try_from_object(vm, obj)?.to_f64();
+                let value = ArgIntoFloat::try_from_object(vm, obj)?.to_f64();
                 Ok(self.format_float(value).into_bytes())
             }
             CFormatType::Character => {
@@ -504,7 +505,7 @@ impl CFormatSpec {
                 }
             },
             CFormatType::Float(_) => {
-                let value = IntoPyFloat::try_from_object(vm, obj)?.to_f64();
+                let value = ArgIntoFloat::try_from_object(vm, obj)?.to_f64();
                 Ok(self.format_float(value))
             }
             CFormatType::Character => {
@@ -561,13 +562,12 @@ fn try_update_quantity_from_tuple<'a, I: Iterator<Item = &'a PyObjectRef>>(
     match q {
         Some(CFormatQuantity::FromValuesTuple) => match elements.next() {
             Some(width_obj) => {
-                if !width_obj.isinstance(&vm.ctx.types.int_type) {
-                    Err(vm.new_type_error("* wants int".to_owned()))
-                } else {
-                    let i = int::get_value(width_obj);
-                    let i = int::try_to_primitive::<isize>(i, vm)? as usize;
+                if let Some(i) = width_obj.payload::<PyInt>() {
+                    let i = i.try_to_primitive::<isize>(vm)? as usize;
                     *q = Some(CFormatQuantity::Amount(i));
                     Ok(())
+                } else {
+                    Err(vm.new_type_error("* wants int".to_owned()))
                 }
             }
             None => Err(vm.new_type_error("not enough arguments for format string".to_owned())),

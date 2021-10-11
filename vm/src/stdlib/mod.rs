@@ -4,7 +4,7 @@ mod atexit;
 pub mod builtins;
 mod codecs;
 mod collections;
-mod errno;
+pub mod errno;
 mod functools;
 mod imp;
 pub mod io;
@@ -34,10 +34,8 @@ pub mod nt;
 pub mod posix;
 #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
 #[cfg(not(any(unix, windows)))]
-pub(crate) mod posix_compat;
-#[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
-#[cfg(not(any(unix, windows)))]
-pub use posix_compat as posix;
+#[path = "posix_compat.rs"]
+pub mod posix;
 
 #[cfg(windows)]
 pub(crate) mod msvcrt;

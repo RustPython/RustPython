@@ -1,9 +1,9 @@
 use crate::{
     builtins::{float, int, pybool, PyBaseExceptionRef, PyDictRef, PyFunction, PyStrRef},
     bytecode::CodeFlags,
-    function::FuncArgs,
-    IdProtocol, IntoPyObject, ItemProtocol, PyObjectRef, PyRef, PyResult, TryFromObject,
-    TypeProtocol, VirtualMachine,
+    function::{FuncArgs, IntoPyObject},
+    IdProtocol, ItemProtocol, PyObjectRef, PyRef, PyResult, TryFromObject, TypeProtocol,
+    VirtualMachine,
 };
 use num_traits::ToPrimitive;
 use rustpython_jit::{AbiValue, Args, CompiledCode, JitArgumentError, JitType};
@@ -81,7 +81,7 @@ pub fn get_jit_arg_types(func: &PyRef<PyFunction>, vm: &VirtualMachine) -> PyRes
         return Ok(Vec::new());
     }
 
-    let annotations = vm.get_attribute(func.clone().into_object(), "__annotations__")?;
+    let annotations = vm.get_attribute(func.clone().into(), "__annotations__")?;
     if vm.is_none(&annotations) {
         Err(new_jit_error(
             "Jitting function requires arguments to have annotations".to_owned(),

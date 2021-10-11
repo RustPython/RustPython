@@ -1,9 +1,12 @@
-use super::{PyInt, PyIntRef, PySlice, PySliceRef, PyTypeRef};
+use super::{PyInt, PyIntRef, PySlice, PySliceRef, PyTupleRef, PyTypeRef};
+use crate::builtins::builtins_iter;
 use crate::common::hash::PyHash;
 use crate::{
     function::{FuncArgs, OptionalArg},
-    protocol::PyIterReturn,
-    slots::{Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotIterator},
+    protocol::{PyIterReturn, PyMappingMethods},
+    slots::{
+        AsMapping, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotIterator,
+    },
     IdProtocol, IntoPyRef, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol, VirtualMachine,
 };
@@ -31,8 +34,8 @@ fn iter_search(
 ) -> PyResult<usize> {
     let mut count = 0;
     let iter = obj.get_iter(vm)?;
-    while let PyIterReturn::Return(element) = iter.next(vm)? {
-        if vm.bool_eq(&item, &element)? {
+    for element in iter.iter_without_hint(vm)? {
+        if vm.bool_eq(&item, &element?)? {
             match flag {
                 SearchType::Index => return Ok(count),
                 SearchType::Contains => return Ok(1),
@@ -98,7 +101,7 @@ impl PyRange {
 
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.length().is_zero()
+        self.compute_length().is_zero()
     }
 
     #[inline]
@@ -116,7 +119,7 @@ impl PyRange {
         }
 
         if index.is_negative() {
-            let length = self.length();
+            let length = self.compute_length();
             let index: BigInt = &length + index;
             if index.is_negative() {
                 return None;
@@ -143,7 +146,7 @@ impl PyRange {
     }
 
     #[inline]
-    fn length(&self) -> BigInt {
+    fn compute_length(&self) -> BigInt {
         let start = self.start.as_bigint();
         let stop = self.stop.as_bigint();
         let step = self.step.as_bigint();
@@ -173,7 +176,7 @@ pub fn init(context: &PyContext) {
     PyRangeIterator::extend_class(context, &context.types.range_iterator_type);
 }
 
-#[pyimpl(with(Hashable, Comparable, Iterable))]
+#[pyimpl(with(AsMapping, Hashable, Comparable, Iterable))]
 impl PyRange {
     fn new(cls: PyTypeRef, stop: PyIntRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         PyRange {
@@ -251,7 +254,7 @@ impl PyRange {
 
     #[pymethod(magic)]
     fn len(&self) -> BigInt {
-        self.length()
+        self.compute_length()
     }
 
     #[pymethod(magic)]
@@ -289,7 +292,7 @@ impl PyRange {
     }
 
     #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> (PyTypeRef, PyObjectRef) {
+    fn reduce(&self, vm: &VirtualMachine) -> (PyTypeRef, PyTupleRef) {
         let range_paramters: Vec<PyObjectRef> = vec![&self.start, &self.stop, &self.step]
             .iter()
             .map(|x| x.as_object().clone())
@@ -331,11 +334,11 @@ impl PyRange {
     }
 
     #[pymethod(magic)]
-    fn getitem(&self, subscript: RangeIndex, vm: &VirtualMachine) -> PyResult {
-        match subscript {
+    fn getitem(&self, subscript: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        match RangeIndex::try_from_object(vm, subscript)? {
             RangeIndex::Slice(slice) => {
                 let (mut substart, mut substop, mut substep) =
-                    slice.inner_indices(&self.length(), vm)?;
+                    slice.inner_indices(&self.compute_length(), vm)?;
                 let range_step = &self.step;
                 let range_start = &self.start;
 
@@ -349,10 +352,10 @@ impl PyRange {
                     step: substep.into_pyref(vm),
                 }
                 .into_ref(vm)
-                .into_object())
+                .into())
             }
             RangeIndex::Int(index) => match self.get(index.as_bigint()) {
-                Some(value) => Ok(vm.ctx.new_int(value)),
+                Some(value) => Ok(vm.ctx.new_int(value).into()),
                 None => Err(vm.new_index_error("range object index out of range".to_owned())),
             },
         }
@@ -368,26 +371,56 @@ impl PyRange {
             PyRange::new_from(cls, start, stop, step, vm)
         }?;
 
-        Ok(range.into_object())
+        Ok(range.into())
+    }
+}
+
+impl AsMapping for PyRange {
+    fn as_mapping(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyMappingMethods> {
+        Ok(PyMappingMethods {
+            length: Some(Self::length),
+            subscript: Some(Self::subscript),
+            ass_subscript: None,
+        })
+    }
+
+    #[inline]
+    fn length(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+        Self::downcast_ref(&zelf, vm).map(|zelf| Ok(zelf.len().to_usize().unwrap()))?
+    }
+
+    #[inline]
+    fn subscript(zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Self::downcast_ref(&zelf, vm).map(|zelf| zelf.getitem(needle, vm))?
+    }
+
+    #[inline]
+    fn ass_subscript(
+        zelf: PyObjectRef,
+        _needle: PyObjectRef,
+        _value: Option<PyObjectRef>,
+        _vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        unreachable!("ass_subscript not implemented for {}", zelf.class())
     }
 }
 
 impl Hashable for PyRange {
     fn hash(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
-        let length = zelf.length();
+        let length = zelf.compute_length();
         let elements = if length.is_zero() {
-            [vm.ctx.new_int(length), vm.ctx.none(), vm.ctx.none()]
+            [vm.ctx.new_int(length).into(), vm.ctx.none(), vm.ctx.none()]
         } else if length.is_one() {
             [
-                vm.ctx.new_int(length),
-                zelf.start().into_object(),
+                vm.ctx.new_int(length).into(),
+                zelf.start().into(),
                 vm.ctx.none(),
             ]
         } else {
             [
-                vm.ctx.new_int(length),
-                zelf.start().into_object(),
-                zelf.step().into_object(),
+                vm.ctx.new_int(length).into(),
+                zelf.start().into(),
+                zelf.step().into(),
             ]
         };
         crate::utils::hash_iter(elements.iter(), vm)
@@ -406,8 +439,8 @@ impl Comparable for PyRange {
                 return Ok(true.into());
             }
             let rhs = class_or_notimplemented!(Self, other);
-            let lhs_len = zelf.length();
-            let eq = if lhs_len != rhs.length() {
+            let lhs_len = zelf.compute_length();
+            let eq = if lhs_len != rhs.compute_length() {
                 false
             } else if lhs_len.is_zero() {
                 true
@@ -502,7 +535,7 @@ impl PyLongRangeIterator {
     }
 
     #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> PyResult {
+    fn reduce(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         range_iter_reduce(
             self.start.clone(),
             self.length.clone(),
@@ -520,14 +553,13 @@ impl SlotIterator for PyLongRangeIterator {
         // (since fetch_add wraps). This would result in the iterator spinning again
         // from the beginning.
         let index = BigInt::from(zelf.index.fetch_add(1));
-        if index < zelf.length {
-            Ok(PyIterReturn::Return(
-                vm.ctx
-                    .new_int(zelf.start.clone() + index * zelf.step.clone()),
-            ))
+        let r = if index < zelf.length {
+            let value = zelf.start.clone() + index * zelf.step.clone();
+            PyIterReturn::Return(vm.ctx.new_int(value).into())
         } else {
-            Ok(PyIterReturn::StopIteration(None))
-        }
+            PyIterReturn::StopIteration(None)
+        };
+        Ok(r)
     }
 }
 
@@ -573,7 +605,7 @@ impl PyRangeIterator {
     }
 
     #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> PyResult {
+    fn reduce(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         range_iter_reduce(
             BigInt::from(self.start),
             BigInt::from(self.length),
@@ -591,13 +623,13 @@ impl SlotIterator for PyRangeIterator {
         // (since fetch_add wraps). This would result in the iterator spinning again
         // from the beginning.
         let index = zelf.index.fetch_add(1);
-        if index < zelf.length {
-            Ok(PyIterReturn::Return(
-                vm.ctx.new_int(zelf.start + (index as isize) * zelf.step),
-            ))
+        let r = if index < zelf.length {
+            let value = zelf.start + (index as isize) * zelf.step;
+            PyIterReturn::Return(vm.ctx.new_int(value).into())
         } else {
-            Ok(PyIterReturn::StopIteration(None))
-        }
+            PyIterReturn::StopIteration(None)
+        };
+        Ok(r)
     }
 }
 
@@ -607,19 +639,15 @@ fn range_iter_reduce(
     step: BigInt,
     index: usize,
     vm: &VirtualMachine,
-) -> PyResult {
-    let iter = vm.get_attribute(vm.builtins.clone(), "iter")?;
+) -> PyResult<PyTupleRef> {
+    let iter = builtins_iter(vm).clone();
     let stop = start.clone() + length * step.clone();
     let range = PyRange {
         start: PyInt::from(start).into_ref(vm),
         stop: PyInt::from(stop).into_ref(vm),
         step: PyInt::from(step).into_ref(vm),
     };
-    Ok(vm.ctx.new_tuple(vec![
-        iter,
-        vm.ctx.new_tuple(vec![range.into_object(vm)]),
-        vm.ctx.new_int(index),
-    ]))
+    Ok(vm.new_tuple((iter, (range,), index)))
 }
 
 // Silently clips state (i.e index) in range [0, usize::MAX].

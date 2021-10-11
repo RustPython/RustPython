@@ -642,8 +642,6 @@ class DictTest(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             d3.items() > d2.items()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_dictview_set_operations_on_keys(self):
         k1 = {1:1, 2:2}.keys()
         k2 = {1:1, 2:2, 3:3}.keys()
@@ -659,8 +657,6 @@ class DictTest(unittest.TestCase):
         self.assertEqual(k1 ^ k2, {3})
         self.assertEqual(k1 ^ k3, {1,2,4})
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_dictview_set_operations_on_items(self):
         k1 = {1:1, 2:2}.items()
         k2 = {1:1, 2:2, 3:3}.items()
@@ -1304,8 +1300,6 @@ class DictTest(unittest.TestCase):
         except RuntimeError:  # implementation defined
             pass
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_dictitems_contains_use_after_free(self):
         class X:
             def __eq__(self, other):

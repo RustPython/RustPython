@@ -1,8 +1,9 @@
 use super::{PyInt, PyStrRef, PyTypeRef};
 use crate::{
-    function::OptionalArg, slots::SlotConstructor, IdProtocol, IntoPyObject, PyClassImpl,
-    PyContext, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject, TypeProtocol,
-    VirtualMachine,
+    function::{IntoPyObject, OptionalArg},
+    slots::SlotConstructor,
+    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject,
+    TypeProtocol, VirtualMachine,
 };
 use num_bigint::Sign;
 use num_traits::Zero;
@@ -10,7 +11,7 @@ use std::fmt::{Debug, Formatter};
 
 impl IntoPyObject for bool {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_bool(self)
+        vm.ctx.new_bool(self).into()
     }
 }
 
@@ -96,14 +97,15 @@ impl SlotConstructor for PyBool {
 
     fn py_new(zelf: PyTypeRef, x: Self::Args, vm: &VirtualMachine) -> PyResult {
         if !zelf.isinstance(&vm.ctx.types.type_type) {
-            let actual_type = &zelf.class().name();
+            let actual_class = zelf.class();
+            let actual_type = &actual_class.name();
             return Err(vm.new_type_error(format!(
                 "requires a 'type' object but received a '{}'",
                 actual_type
             )));
         }
         let val = x.map_or(Ok(false), |val| val.try_to_bool(vm))?;
-        Ok(vm.ctx.new_bool(val))
+        Ok(vm.ctx.new_bool(val).into())
     }
 }
 
@@ -180,26 +182,4 @@ pub(crate) fn get_value(obj: &PyObjectRef) -> bool {
 
 fn get_py_int(obj: &PyObjectRef) -> &PyInt {
     obj.payload::<PyInt>().unwrap()
-}
-
-#[derive(Debug, Default, Copy, Clone, PartialEq)]
-pub struct IntoPyBool {
-    value: bool,
-}
-
-impl IntoPyBool {
-    pub const TRUE: IntoPyBool = IntoPyBool { value: true };
-    pub const FALSE: IntoPyBool = IntoPyBool { value: false };
-
-    pub fn to_bool(self) -> bool {
-        self.value
-    }
-}
-
-impl TryFromObject for IntoPyBool {
-    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        Ok(IntoPyBool {
-            value: obj.try_to_bool(vm)?,
-        })
-    }
 }

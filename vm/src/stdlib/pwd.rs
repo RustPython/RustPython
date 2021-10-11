@@ -1,7 +1,7 @@
 use crate::{
     builtins::{PyIntRef, PyStrRef},
-    exceptions::IntoPyException,
-    IntoPyObject, PyClassImpl, PyObjectRef, PyResult, PyStructSequence, VirtualMachine,
+    function::{IntoPyException, IntoPyObject},
+    PyClassImpl, PyObjectRef, PyResult, PyStructSequence, VirtualMachine,
 };
 use nix::unistd::{self, User};
 use std::convert::TryFrom;
@@ -52,7 +52,8 @@ fn pwd_getpwnam(name: PyStrRef, vm: &VirtualMachine) -> PyResult<Passwd> {
             let name_repr = vm.to_repr(name.as_object())?;
             let message = vm
                 .ctx
-                .new_utf8_str(format!("getpwnam(): name not found: {}", name_repr));
+                .new_str(format!("getpwnam(): name not found: {}", name_repr))
+                .into();
             Err(vm.new_key_error(message))
         }
     }
@@ -69,14 +70,15 @@ fn pwd_getpwuid(uid: PyIntRef, vm: &VirtualMachine) -> PyResult<Passwd> {
         None => {
             let message = vm
                 .ctx
-                .new_utf8_str(format!("getpwuid(): uid not found: {}", uid.as_bigint()));
+                .new_str(format!("getpwuid(): uid not found: {}", uid.as_bigint()))
+                .into();
             Err(vm.new_key_error(message))
         }
     }
 }
 
 // TODO: maybe merge this functionality into nix?
-fn pwd_getpwall(vm: &VirtualMachine) -> PyResult {
+fn pwd_getpwall(vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
     // setpwent, getpwent, etc are not thread safe. Could use fgetpwent_r, but this is easier
     static GETPWALL: parking_lot::Mutex<()> = parking_lot::const_mutex(());
     let _guard = GETPWALL.lock();
@@ -90,7 +92,7 @@ fn pwd_getpwall(vm: &VirtualMachine) -> PyResult {
     }
     unsafe { libc::endpwent() };
 
-    Ok(vm.ctx.new_list(list))
+    Ok(list)
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {

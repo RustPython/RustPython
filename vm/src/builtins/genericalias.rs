@@ -1,5 +1,5 @@
 use crate::{
-    builtins::{PyStr, PyTupleRef, PyTypeRef},
+    builtins::{PyStr, PyTuple, PyTupleRef, PyTypeRef},
     common::hash,
     slots::{Hashable, SlotConstructor},
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
@@ -46,7 +46,7 @@ impl PyGenericAlias {
         let args: PyTupleRef = if let Ok(tuple) = PyTupleRef::try_from_object(vm, args.clone()) {
             tuple
         } else {
-            PyTupleRef::with_elements(vec![args], &vm.ctx)
+            PyTuple::new_ref(vec![args], &vm.ctx)
         };
 
         let parameters = make_parameters(&args, vm);
@@ -137,7 +137,7 @@ fn make_parameters(args: &PyTupleRef, vm: &VirtualMachine) -> PyTupleRef {
         }
     }
 
-    PyTupleRef::with_elements(parameters, &vm.ctx)
+    PyTuple::new_ref(parameters, &vm.ctx)
 }
 
 impl Hashable for PyGenericAlias {

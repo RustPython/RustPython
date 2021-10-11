@@ -1,3 +1,4 @@
+use ascii::AsciiString;
 use std::ops::{Bound, RangeBounds};
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -62,11 +63,11 @@ pub fn zfill(bytes: &[u8], width: usize) -> Vec<u8> {
 
 /// Convert a string to ascii compatible, escaping unicodes into escape
 /// sequences.
-pub fn to_ascii(value: &str) -> String {
-    let mut ascii = String::new();
+pub fn to_ascii(value: &str) -> AsciiString {
+    let mut ascii = Vec::new();
     for c in value.chars() {
         if c.is_ascii() {
-            ascii.push(c)
+            ascii.push(c as u8);
         } else {
             let c = c as i64;
             let hex = if c < 0x100 {
@@ -76,10 +77,10 @@ pub fn to_ascii(value: &str) -> String {
             } else {
                 format!("\\U{:08x}", c)
             };
-            ascii.push_str(&hex)
+            ascii.append(&mut hex.into_bytes());
         }
     }
-    ascii
+    unsafe { AsciiString::from_ascii_unchecked(ascii) }
 }
 
 #[doc(hidden)]

@@ -76,7 +76,7 @@ impl SlotDescriptor for PyProperty {
     ) -> PyResult {
         let (zelf, obj) = Self::_unwrap(zelf, obj, vm)?;
         if vm.is_none(&obj) {
-            Ok(zelf.into_object())
+            Ok(zelf.into())
         } else if let Some(getter) = zelf.getter.read().as_ref() {
             vm.invoke(getter, (obj,))
         } else {

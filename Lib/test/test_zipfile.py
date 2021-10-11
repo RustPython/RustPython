@@ -600,8 +600,6 @@ class StoredTestsWithSourceFile(AbstractTestsWithSourceFile,
             zinfo = zipfp.getinfo(TESTFN)
             self.assertEqual(zinfo.date_time, (1980, 1, 1, 0, 0, 0))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_add_file_after_2107(self):
         # Set atime and mtime to 2108-12-30
         ts = 4386268800

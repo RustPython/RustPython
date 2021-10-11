@@ -1,7 +1,8 @@
 use super::{PyDictRef, PyStr, PyStrRef, PyTypeRef};
 use crate::{
-    function::FuncArgs, slots::SlotGetattro, IntoPyObject, ItemProtocol, PyClassImpl, PyContext,
-    PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    function::{FuncArgs, IntoPyObject},
+    slots::SlotGetattro,
+    ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "module")]
@@ -60,7 +61,7 @@ impl PyModule {
         init_module_dict(
             vm,
             &zelf.as_object().dict().unwrap(),
-            args.name.into_object(),
+            args.name.into(),
             args.doc.into_pyobject(vm),
         );
     }
@@ -83,13 +84,13 @@ impl PyModule {
     }
 
     #[pymethod(magic)]
-    fn dir(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+    fn dir(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         let dict = zelf
             .as_object()
             .dict()
             .ok_or_else(|| vm.new_value_error("module has no dict".to_owned()))?;
         let attrs = dict.into_iter().map(|(k, _v)| k).collect();
-        Ok(vm.ctx.new_list(attrs))
+        Ok(attrs)
     }
 }
 

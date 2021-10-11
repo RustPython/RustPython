@@ -25,7 +25,7 @@ macro_rules! create_property {
             move |this: &PyExpatLikeXmlParser, func: PyObjectRef| *this.$element.write() = func,
         );
 
-        $attributes.insert($name.to_owned(), attr);
+        $attributes.insert($name.to_owned(), attr.into());
     };
 }
 
@@ -71,7 +71,7 @@ mod _pyexpat {
                 end_element: MutableObject::new(vm.ctx.none()),
                 character_data: MutableObject::new(vm.ctx.none()),
                 entity_decl: MutableObject::new(vm.ctx.none()),
-                buffer_text: MutableObject::new(vm.ctx.new_bool(false)),
+                buffer_text: MutableObject::new(vm.ctx.new_bool(false).into()),
             }
             .into_ref(vm))
         }
@@ -131,14 +131,14 @@ mod _pyexpat {
                         for attribute in attributes {
                             dict.set_item(
                                 attribute.name.local_name.as_str(),
-                                vm.ctx.new_utf8_str(attribute.value),
+                                vm.ctx.new_str(attribute.value).into(),
                                 vm,
                             )
                             .unwrap();
                         }
 
                         let name_str = PyStr::from(name.local_name).into_ref(vm);
-                        invoke_handler(vm, &self.start_element, (name_str, dict.into_object()));
+                        invoke_handler(vm, &self.start_element, (name_str, dict));
                     }
                     Ok(XmlEvent::EndElement { name, .. }) => {
                         let name_str = PyStr::from(name.local_name).into_ref(vm);

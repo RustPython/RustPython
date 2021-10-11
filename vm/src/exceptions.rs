@@ -4,22 +4,19 @@ use crate::{
     builtins::{
         traceback::PyTracebackRef, PyNone, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
     },
-    function::{ArgIterable, FuncArgs},
+    function::{ArgIterable, FuncArgs, IntoPyException, IntoPyObject},
     py_io::{self, Write},
     stdlib::sys,
-    IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    StaticType, TryFromObject, TypeProtocol, VirtualMachine,
+    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
+    TryFromObject, TypeProtocol, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
 use std::{
     collections::HashSet,
     io::{self, BufRead, BufReader},
+    ops::Deref,
 };
-
-pub trait IntoPyException {
-    fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef;
-}
 
 impl std::fmt::Debug for PyBaseException {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -179,7 +176,8 @@ pub fn write_exception_inner<W: Write>(
     let varargs = exc.args();
     let args_repr = exception_args_as_string(vm, varargs, true);
 
-    let exc_name = exc.class().name();
+    let exc_class = exc.class();
+    let exc_name = exc_class.name();
     match args_repr.len() {
         0 => writeln!(output, "{}", exc_name),
         1 => writeln!(output, "{}: {}", exc_name, args_repr[0]),
@@ -233,7 +231,7 @@ impl TryFromObject for ExceptionCtor {
                 if cls.issubclass(&vm.ctx.exceptions.base_exception_type) {
                     Ok(Self::Class(cls))
                 } else {
-                    Err(cls.into_object())
+                    Err(cls.into())
                 }
             })
             .or_else(|obj| obj.downcast::<PyBaseException>().map(Self::Instance))
@@ -253,7 +251,7 @@ pub fn invoke(
 ) -> PyResult<PyBaseExceptionRef> {
     // TODO: fast-path built-in exceptions by directly instantiating them? Is that really worth it?
     let res = vm.invoke(cls.as_object(), args)?;
-    PyBaseExceptionRef::try_from_object(vm, res)
+    res.try_into_value(vm)
 }
 
 impl ExceptionCtor {
@@ -299,7 +297,7 @@ pub fn split(
     vm: &VirtualMachine,
 ) -> (PyObjectRef, PyObjectRef, PyObjectRef) {
     let tb = exc.traceback().into_pyobject(vm);
-    (exc.clone_class().into_object(), exc.into_object(), tb)
+    (exc.clone_class().into(), exc.into(), tb)
 }
 
 /// Similar to PyErr_NormalizeException in CPython
@@ -418,7 +416,7 @@ impl PyBaseException {
             cause: PyRwLock::new(None),
             context: PyRwLock::new(None),
             suppress_context: AtomicCell::new(false),
-            args: PyRwLock::new(PyTupleRef::with_elements(args, &vm.ctx)),
+            args: PyRwLock::new(PyTuple::new_ref(args, &vm.ctx)),
         }
     }
 
@@ -429,7 +427,7 @@ impl PyBaseException {
 
     #[pymethod(magic)]
     pub(crate) fn init(zelf: PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-        *zelf.args.write() = PyTupleRef::with_elements(args.args, &vm.ctx);
+        *zelf.args.write() = PyTuple::new_ref(args.args, &vm.ctx);
         Ok(())
     }
 
@@ -445,7 +443,7 @@ impl PyBaseException {
     #[pyproperty(setter)]
     fn set_args(&self, args: ArgIterable, vm: &VirtualMachine) -> PyResult<()> {
         let args = args.iter(vm)?.collect::<PyResult<Vec<_>>>()?;
-        *self.args.write() = PyTupleRef::with_elements(args, &vm.ctx);
+        *self.args.write() = PyTuple::new_ref(args, &vm.ctx);
         Ok(())
     }
 
@@ -454,7 +452,7 @@ impl PyBaseException {
         self.traceback.read().clone()
     }
 
-    #[pyproperty(name = "__traceback__", setter)]
+    #[pyproperty(magic, setter)]
     pub fn set_traceback(&self, traceback: Option<PyTracebackRef>) {
         *self.traceback.write() = traceback;
     }
@@ -464,7 +462,7 @@ impl PyBaseException {
         self.cause.read().clone()
     }
 
-    #[pyproperty(name = "__cause__", setter)]
+    #[pyproperty(magic, setter)]
     pub fn set_cause(&self, cause: Option<PyRef<Self>>) {
         let mut c = self.cause.write();
         self.set_suppress_context(true);
@@ -476,7 +474,7 @@ impl PyBaseException {
         self.context.read().clone()
     }
 
-    #[pyproperty(name = "__context__", setter)]
+    #[pyproperty(magic, setter)]
     pub fn set_context(&self, context: Option<PyRef<Self>>) {
         *self.context.write() = context;
     }
@@ -882,7 +880,7 @@ impl serde::Serialize for SerializeException<'_> {
         use serde::ser::*;
 
         let mut struc = s.serialize_struct("PyBaseException", 7)?;
-        struc.serialize_field("exc_type", &self.exc.class().name())?;
+        struc.serialize_field("exc_type", self.exc.class().name().deref())?;
         let tbs = {
             struct Tracebacks(PyTracebackRef);
             impl serde::Serialize for Tracebacks {
@@ -954,11 +952,13 @@ impl<C: widestring::UChar> IntoPyException for widestring::NulError<C> {
 pub(super) mod types {
     use crate::common::lock::PyRwLock;
     use crate::{
-        builtins::{traceback::PyTracebackRef, PyTupleRef, PyTypeRef},
-        function::FuncArgs,
-        PyRef, PyResult, VirtualMachine,
+        builtins::{traceback::PyTracebackRef, PyInt, PyTupleRef, PyTypeRef},
+        exceptions::invoke,
+        function::{FuncArgs, IntoPyResult},
+        PyObjectRef, PyRef, PyResult, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
+    use std::ops::Deref;
 
     // This module is designed to be used as `use builtins::*;`.
     // Do not add any pub symbols not included in builtins module.
@@ -1085,7 +1085,7 @@ pub(super) mod types {
         args: FuncArgs,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let exc_self = zelf.into_object();
+        let exc_self = zelf.into();
         vm.set_attr(
             &exc_self,
             "name",
@@ -1150,8 +1150,90 @@ pub(super) mod types {
         PyOSError,
         PyException,
         os_error,
-        "Base class for I/O related errors."
+        "Base class for I/O related errors.",
+        os_error_new,
+        base_exception_init,
     }
+    #[cfg(not(target_arch = "wasm32"))]
+    fn os_error_optional_new(
+        args: Vec<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> Option<PyResult<PyBaseExceptionRef>> {
+        use crate::stdlib::errno::errors;
+
+        let len = args.len();
+        if len >= 2 {
+            let args = args.as_slice();
+            let errno = &args[0];
+            let error = match errno.payload_if_subclass::<PyInt>(vm) {
+                Some(errno) => match errno.try_to_primitive::<i32>(vm) {
+                    Ok(errno) => {
+                        let excs = &vm.ctx.exceptions;
+                        let error = match errno {
+                            errors::EWOULDBLOCK => Some(excs.blocking_io_error.clone()),
+                            errors::EALREADY => Some(excs.blocking_io_error.clone()),
+                            errors::EINPROGRESS => Some(excs.blocking_io_error.clone()),
+                            errors::EPIPE => Some(excs.broken_pipe_error.clone()),
+                            errors::ESHUTDOWN => Some(excs.broken_pipe_error.clone()),
+                            errors::ECHILD => Some(excs.child_process_error.clone()),
+                            errors::ECONNABORTED => Some(excs.connection_aborted_error.clone()),
+                            errors::ECONNREFUSED => Some(excs.connection_refused_error.clone()),
+                            errors::ECONNRESET => Some(excs.connection_reset_error.clone()),
+                            errors::EEXIST => Some(excs.file_exists_error.clone()),
+                            errors::ENOENT => Some(excs.file_not_found_error.clone()),
+                            errors::EISDIR => Some(excs.is_a_directory_error.clone()),
+                            errors::ENOTDIR => Some(excs.not_a_directory_error.clone()),
+                            errors::EINTR => Some(excs.interrupted_error.clone()),
+                            errors::EACCES => Some(excs.permission_error.clone()),
+                            errors::EPERM => Some(excs.permission_error.clone()),
+                            errors::ESRCH => Some(excs.process_lookup_error.clone()),
+                            errors::ETIMEDOUT => Some(excs.timeout_error.clone()),
+                            _ => None,
+                        };
+
+                        if error.is_some() {
+                            Some(invoke(error?, args.to_vec(), vm))
+                        } else {
+                            None
+                        }
+                    }
+                    Err(_) => None,
+                },
+                None => None,
+            };
+
+            error
+        } else {
+            None
+        }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    fn os_error_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        // We need this method, because of how `CPython` copies `init`
+        // from `BaseException` in `SimpleExtendsException` macro.
+        // See: `BaseException_new`
+        if cls.name().deref() == vm.ctx.exceptions.os_error.name().deref() {
+            match os_error_optional_new(args.args.to_vec(), vm) {
+                Some(error) => error.unwrap().into_pyresult(vm),
+                None => PyBaseException::slot_new(cls, args, vm),
+            }
+        } else {
+            PyBaseException::slot_new(cls, args, vm)
+        }
+    }
+    #[cfg(target_arch = "wasm32")]
+    fn os_error_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        PyBaseException::slot_new(cls, args, vm)
+    }
+
+    fn base_exception_init(
+        zelf: PyRef<PyBaseException>,
+        args: FuncArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        PyBaseException::init(zelf, args, vm)
+    }
+
     define_exception! {
         PyBlockingIOError,
         PyOSError,

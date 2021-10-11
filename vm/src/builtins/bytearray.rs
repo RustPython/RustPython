@@ -1,9 +1,12 @@
 //! Implementation of the python bytearray object.
-use super::{PyBytes, PyBytesRef, PyDictRef, PyIntRef, PyStrRef, PyTupleRef, PyTypeRef};
+use super::{
+    PositionIterInternal, PyBytes, PyBytesRef, PyDictRef, PyIntRef, PyStrRef, PyTuple, PyTupleRef,
+    PyTypeRef,
+};
 use crate::common::{
     borrow::{BorrowedValue, BorrowedValueMut},
     lock::{
-        PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyRwLock, PyRwLockReadGuard,
+        PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyMutex, PyRwLock, PyRwLockReadGuard,
         PyRwLockWriteGuard,
     },
 };
@@ -14,16 +17,18 @@ use crate::{
         ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerSplitOptions,
         ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
     },
-    function::{ArgBytesLike, ArgIterable, FuncArgs, OptionalArg, OptionalOption},
-    protocol::{BufferInternal, BufferOptions, PyBuffer, PyIterReturn, ResizeGuard},
+    function::{ArgBytesLike, ArgIterable, FuncArgs, IntoPyObject, OptionalArg, OptionalOption},
+    protocol::{
+        BufferInternal, BufferOptions, BufferResizeGuard, PyBuffer, PyIterReturn, PyMappingMethods,
+    },
     sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
     slots::{
-        AsBuffer, Callable, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp,
-        SlotIterator, Unhashable,
+        AsBuffer, AsMapping, Callable, Comparable, Hashable, Iterable, IteratorIterable,
+        PyComparisonOp, SlotIterator, Unhashable,
     },
     utils::Either,
-    IdProtocol, IntoPyObject, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef,
-    PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
+    IdProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
+    PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
 use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;
@@ -50,6 +55,10 @@ pub struct PyByteArray {
 pub type PyByteArrayRef = PyRef<PyByteArray>;
 
 impl PyByteArray {
+    pub fn new_ref(data: Vec<u8>, ctx: &PyContext) -> PyRef<Self> {
+        PyRef::new_ref(Self::from(data), ctx.types.bytearray_type.clone(), None)
+    }
+
     fn from_inner(inner: PyBytesInner) -> Self {
         PyByteArray {
             inner: PyRwLock::new(inner),
@@ -87,15 +96,13 @@ impl PyValue for PyByteArray {
 /// Fill bytearray class methods dictionary.
 pub(crate) fn init(context: &PyContext) {
     PyByteArray::extend_class(context, &context.types.bytearray_type);
-    let bytearray_type = &context.types.bytearray_type;
-    extend_class!(context, bytearray_type, {
-        "maketrans" => context.new_method("maketrans", bytearray_type.clone(), PyBytesInner::maketrans),
-    });
-
     PyByteArrayIterator::extend_class(context, &context.types.bytearray_iterator_type);
 }
 
-#[pyimpl(flags(BASETYPE), with(Hashable, Comparable, AsBuffer, Iterable))]
+#[pyimpl(
+    flags(BASETYPE),
+    with(Hashable, Comparable, AsBuffer, AsMapping, Iterable)
+)]
 impl PyByteArray {
     #[pyslot]
     fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -120,8 +127,11 @@ impl PyByteArray {
     }
 
     #[pymethod(magic)]
-    fn repr(&self) -> String {
-        self.inner().repr("bytearray(", ")")
+    fn repr(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        let class = zelf.class();
+        let class_name = class.name();
+        let s = zelf.inner().repr(Some(&class_name));
+        Ok(s)
     }
 
     #[pymethod(magic)]
@@ -140,8 +150,8 @@ impl PyByteArray {
     }
 
     #[pymethod(magic)]
-    fn add(&self, other: ArgBytesLike, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_bytearray(self.inner().add(&*other.borrow_buf()))
+    fn add(&self, other: ArgBytesLike) -> Self {
+        self.inner().add(&*other.borrow_buf()).into()
     }
 
     #[pymethod(magic)]
@@ -201,9 +211,9 @@ impl PyByteArray {
     }
 
     #[pymethod(magic)]
-    pub fn delitem(&self, needle: SequenceIndex, vm: &VirtualMachine) -> PyResult<()> {
+    pub fn delitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let elements = &mut self.try_resizable(vm)?.elements;
-        match needle {
+        match SequenceIndex::try_from_object_for(vm, needle, Self::NAME)? {
             SequenceIndex::Int(int) => {
                 if let Some(idx) = elements.wrap_index(int) {
                     elements.remove(idx);
@@ -214,6 +224,11 @@ impl PyByteArray {
             }
             SequenceIndex::Slice(slice) => elements.delete_slice(vm, &slice),
         }
+    }
+
+    #[pymethod]
+    fn maketrans(from: PyBytesInner, to: PyBytesInner) -> PyResult<Vec<u8>> {
+        PyBytesInner::maketrans(from, to)
     }
 
     #[pymethod]
@@ -373,7 +388,7 @@ impl PyByteArray {
     fn fromhex(cls: PyTypeRef, string: PyStrRef, vm: &VirtualMachine) -> PyResult {
         let bytes = PyBytesInner::fromhex(string.as_str(), vm)?;
         let bytes = vm.ctx.new_bytes(bytes);
-        Callable::call(&cls, vec![bytes].into(), vm)
+        Callable::call(&cls, vec![bytes.into()].into(), vm)
     }
 
     #[pymethod]
@@ -512,41 +527,53 @@ impl PyByteArray {
     }
 
     #[pymethod]
-    fn split(&self, options: ByteInnerSplitOptions, vm: &VirtualMachine) -> PyResult {
-        self.inner()
-            .split(options, |s, vm| vm.ctx.new_bytearray(s.to_vec()), vm)
+    fn split(
+        &self,
+        options: ByteInnerSplitOptions,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<PyObjectRef>> {
+        self.inner().split(
+            options,
+            |s, vm| Self::new_ref(s.to_vec(), &vm.ctx).into(),
+            vm,
+        )
     }
 
     #[pymethod]
-    fn rsplit(&self, options: ByteInnerSplitOptions, vm: &VirtualMachine) -> PyResult {
-        self.inner()
-            .rsplit(options, |s, vm| vm.ctx.new_bytearray(s.to_vec()), vm)
+    fn rsplit(
+        &self,
+        options: ByteInnerSplitOptions,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<PyObjectRef>> {
+        self.inner().rsplit(
+            options,
+            |s, vm| Self::new_ref(s.to_vec(), &vm.ctx).into(),
+            vm,
+        )
     }
 
     #[pymethod]
-    fn partition(&self, sep: PyBytesInner, vm: &VirtualMachine) -> PyResult {
+    fn partition(&self, sep: PyBytesInner, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         // sep ALWAYS converted to  bytearray even it's bytes or memoryview
         // so its ok to accept PyBytesInner
         let value = self.inner();
         let (front, has_mid, back) = value.partition(&sep, vm)?;
-        Ok(vm.ctx.new_tuple(vec![
-            vm.ctx.new_bytearray(front.to_vec()),
-            vm.ctx
-                .new_bytearray(if has_mid { sep.elements } else { Vec::new() }),
-            vm.ctx.new_bytearray(back.to_vec()),
-        ]))
+        Ok(vm.new_tuple((
+            Self::new_ref(front.to_vec(), &vm.ctx),
+            Self::new_ref(if has_mid { sep.elements } else { Vec::new() }, &vm.ctx),
+            Self::new_ref(back.to_vec(), &vm.ctx),
+        )))
     }
 
     #[pymethod]
-    fn rpartition(&self, sep: PyBytesInner, vm: &VirtualMachine) -> PyResult {
+    fn rpartition(&self, sep: PyBytesInner, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         let value = self.inner();
         let (back, has_mid, front) = value.rpartition(&sep, vm)?;
-        Ok(vm.ctx.new_tuple(vec![
-            vm.ctx.new_bytearray(front.to_vec()),
-            vm.ctx
-                .new_bytearray(if has_mid { sep.elements } else { Vec::new() }),
-            vm.ctx.new_bytearray(back.to_vec()),
-        ]))
+        Ok(vm.new_tuple((
+            Self::new_ref(front.to_vec(), &vm.ctx),
+            Self::new_ref(if has_mid { sep.elements } else { Vec::new() }, &vm.ctx),
+            Self::new_ref(back.to_vec(), &vm.ctx),
+        )))
     }
 
     #[pymethod]
@@ -555,11 +582,9 @@ impl PyByteArray {
     }
 
     #[pymethod]
-    fn splitlines(&self, options: anystr::SplitLinesArgs, vm: &VirtualMachine) -> PyObjectRef {
-        let lines = self
-            .inner()
-            .splitlines(options, |x| vm.ctx.new_bytearray(x.to_vec()));
-        vm.ctx.new_list(lines)
+    fn splitlines(&self, options: anystr::SplitLinesArgs, vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        self.inner()
+            .splitlines(options, |x| Self::new_ref(x.to_vec(), &vm.ctx).into())
     }
 
     #[pymethod]
@@ -625,7 +650,7 @@ impl PyByteArray {
 
     #[pymethod]
     fn decode(zelf: PyRef<Self>, args: DecodeArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        bytes_decode(zelf.into_object(), args, vm)
+        bytes_decode(zelf.into(), args, vm)
     }
 
     #[pymethod(magic)]
@@ -645,7 +670,7 @@ impl PyByteArray {
         let bytes = PyBytes::from(zelf.borrow_buf().to_vec()).into_pyobject(vm);
         (
             zelf.as_object().clone_class(),
-            PyTupleRef::with_elements(vec![bytes], &vm.ctx),
+            PyTuple::new_ref(vec![bytes], &vm.ctx),
             zelf.as_object().dict(),
         )
     }
@@ -698,7 +723,7 @@ impl BufferInternal for PyRef<PyByteArray> {
     }
 }
 
-impl<'a> ResizeGuard<'a> for PyByteArray {
+impl<'a> BufferResizeGuard<'a> for PyByteArray {
     type Resizable = PyRwLockWriteGuard<'a, PyBytesInner>;
 
     fn try_resizable(&'a self, vm: &VirtualMachine) -> PyResult<Self::Resizable> {
@@ -712,13 +737,47 @@ impl<'a> ResizeGuard<'a> for PyByteArray {
     }
 }
 
+impl AsMapping for PyByteArray {
+    fn as_mapping(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyMappingMethods> {
+        Ok(PyMappingMethods {
+            length: Some(Self::length),
+            subscript: Some(Self::subscript),
+            ass_subscript: Some(Self::ass_subscript),
+        })
+    }
+
+    #[inline]
+    fn length(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+        Self::downcast_ref(&zelf, vm).map(|zelf| Ok(zelf.len()))?
+    }
+
+    #[inline]
+    fn subscript(zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Self::downcast_ref(&zelf, vm).map(|zelf| zelf.getitem(needle, vm))?
+    }
+
+    #[inline]
+    fn ass_subscript(
+        zelf: PyObjectRef,
+        needle: PyObjectRef,
+        value: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        match value {
+            Some(value) => {
+                Self::downcast(zelf, vm).map(|zelf| Self::setitem(zelf, needle, value, vm))
+            }
+            None => Self::downcast_ref(&zelf, vm).map(|zelf| zelf.delitem(needle, vm)),
+        }?
+    }
+}
+
 impl Unhashable for PyByteArray {}
 
 impl Iterable for PyByteArray {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         Ok(PyByteArrayIterator {
-            position: AtomicCell::new(0),
-            bytearray: zelf,
+            internal: PyMutex::new(PositionIterInternal::new(zelf, 0)),
         }
         .into_object(vm))
     }
@@ -731,8 +790,7 @@ impl Iterable for PyByteArray {
 #[pyclass(module = false, name = "bytearray_iterator")]
 #[derive(Debug)]
 pub struct PyByteArrayIterator {
-    position: AtomicCell<usize>,
-    bytearray: PyByteArrayRef,
+    internal: PyMutex<PositionIterInternal<PyByteArrayRef>>,
 }
 
 impl PyValue for PyByteArrayIterator {
@@ -742,16 +800,34 @@ impl PyValue for PyByteArrayIterator {
 }
 
 #[pyimpl(with(SlotIterator))]
-impl PyByteArrayIterator {}
+impl PyByteArrayIterator {
+    #[pymethod(magic)]
+    fn length_hint(&self) -> usize {
+        self.internal.lock().length_hint(|obj| obj.len())
+    }
+    #[pymethod(magic)]
+    fn reduce(&self, vm: &VirtualMachine) -> PyTupleRef {
+        self.internal
+            .lock()
+            .builtins_iter_reduce(|x| x.clone().into(), vm)
+    }
+
+    #[pymethod(magic)]
+    fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.internal
+            .lock()
+            .set_state(state, |obj, pos| pos.min(obj.len()), vm)
+    }
+}
 impl IteratorIterable for PyByteArrayIterator {}
 impl SlotIterator for PyByteArrayIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        let pos = zelf.position.fetch_add(1);
-        let r = if let Some(&ret) = zelf.bytearray.borrow_buf().get(pos) {
-            PyIterReturn::Return(ret.into_pyobject(vm))
-        } else {
-            PyIterReturn::StopIteration(None)
-        };
-        Ok(r)
+        zelf.internal.lock().next(|bytearray, pos| {
+            let buf = bytearray.borrow_buf();
+            Ok(match buf.get(pos) {
+                Some(&x) => PyIterReturn::Return(vm.ctx.new_int(x).into()),
+                None => PyIterReturn::StopIteration(None),
+            })
+        })
     }
 }

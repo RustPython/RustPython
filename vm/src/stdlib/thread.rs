@@ -2,10 +2,10 @@
 
 use crate::{
     builtins::{PyDictRef, PyStrRef, PyTupleRef, PyTypeRef},
-    exceptions::{self, IntoPyException},
-    function::{ArgCallable, FuncArgs, KwArgs, OptionalArg},
+    exceptions,
+    function::{ArgCallable, FuncArgs, IntoPyException, KwArgs, OptionalArg},
     py_io,
-    slots::{SlotGetattro, SlotSetattro},
+    slots::{SlotConstructor, SlotGetattro, SlotSetattro},
     utils::Either,
     IdProtocol, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
     VirtualMachine,
@@ -103,7 +103,7 @@ impl fmt::Debug for PyLock {
     }
 }
 
-#[pyimpl]
+#[pyimpl(with(SlotConstructor))]
 impl PyLock {
     #[pymethod]
     #[pymethod(name = "acquire_lock")]
@@ -135,6 +135,13 @@ impl PyLock {
     #[pymethod(magic)]
     fn repr(zelf: PyRef<Self>) -> String {
         repr_lock_impl!(zelf)
+    }
+}
+
+impl SlotConstructor for PyLock {
+    type Args = FuncArgs;
+    fn py_new(_cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
+        Err(vm.new_type_error("cannot create '_thread.lock' instances".to_owned()))
     }
 }
 
@@ -246,7 +253,7 @@ fn run_thread(func: ArgCallable, args: FuncArgs, vm: &VirtualMachine) {
             // TODO: sys.unraisablehook
             let stderr = std::io::stderr();
             let mut stderr = py_io::IoWriter(stderr.lock());
-            let repr = vm.to_repr(&func.into_object()).ok();
+            let repr = vm.to_repr(func.as_ref()).ok();
             let repr = repr
                 .as_ref()
                 .map_or("<object repr() failed>", |s| s.as_str());
@@ -312,12 +319,15 @@ impl SlotGetattro for PyLocal {
     fn getattro(zelf: PyRef<Self>, attr: PyStrRef, vm: &VirtualMachine) -> PyResult {
         let ldict = zelf.ldict(vm);
         if attr.as_str() == "__dict__" {
-            Ok(ldict.into_object())
+            Ok(ldict.into())
         } else {
-            let zelf = zelf.into_object();
-            vm.generic_getattribute_opt(zelf.clone(), attr.clone(), Some(ldict))?
+            vm.generic_getattribute_opt(zelf.clone().into(), attr.clone(), Some(ldict))?
                 .ok_or_else(|| {
-                    vm.new_attribute_error(format!("{} has no attribute '{}'", zelf, attr))
+                    vm.new_attribute_error(format!(
+                        "{} has no attribute '{}'",
+                        zelf.as_object(),
+                        attr
+                    ))
                 })
         }
     }

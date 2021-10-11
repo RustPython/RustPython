@@ -1,13 +1,11 @@
-use crate::builtins::{PyStrRef, PyTypeRef};
-use crate::common::hash::PyHash;
-use crate::common::lock::PyRwLock;
-use crate::function::{FromArgs, FuncArgs, OptionalArg};
-use crate::protocol::{PyBuffer, PyIterReturn};
-use crate::utils::Either;
-use crate::VirtualMachine;
+use crate::common::{hash::PyHash, lock::PyRwLock};
 use crate::{
-    IdProtocol, IntoPyResult, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
+    builtins::{PyStrRef, PyTypeRef},
+    function::{FromArgs, FuncArgs, IntoPyResult, OptionalArg},
+    protocol::{PyBuffer, PyIterReturn, PyMappingMethods},
+    utils::Either,
+    IdProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use std::cmp::Ordering;
@@ -70,6 +68,7 @@ pub(crate) type GetattroFunc = fn(PyObjectRef, PyStrRef, &VirtualMachine) -> PyR
 pub(crate) type SetattroFunc =
     fn(&PyObjectRef, PyStrRef, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>;
 pub(crate) type BufferFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<PyBuffer>;
+pub(crate) type MappingFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<PyMappingMethods>;
 pub(crate) type IterFunc = fn(PyObjectRef, &VirtualMachine) -> PyResult;
 pub(crate) type IterNextFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<PyIterReturn>;
 
@@ -85,7 +84,7 @@ pub struct PyTypeSlots {
     // Method suites for standard classes
     // tp_as_number
     // tp_as_sequence
-    // tp_as_mapping
+    pub as_mapping: AtomicCell<Option<MappingFunc>>,
 
     // More standard operations (here for binary compatibility)
     pub hash: AtomicCell<Option<HashFunc>>,
@@ -160,6 +159,7 @@ pub trait SlotConstructor: PyValue {
 
 #[pyimpl]
 pub trait SlotDestructor: PyValue {
+    #[inline] // for __del__
     #[pyslot]
     fn slot_del(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if let Some(zelf) = zelf.downcast_ref() {
@@ -169,9 +169,9 @@ pub trait SlotDestructor: PyValue {
         }
     }
 
-    #[pymethod(magic)]
-    fn __del__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<()> {
-        Self::del(&zelf, vm)
+    #[pymethod]
+    fn __del__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        Self::slot_del(&zelf, vm)
     }
 
     fn del(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<()>;
@@ -215,7 +215,7 @@ pub trait SlotDescriptor: PyValue {
     }
 
     fn _zelf(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        PyRef::<Self>::try_from_object(vm, zelf)
+        zelf.try_into_value(vm)
     }
 
     fn _unwrap(
@@ -530,6 +530,50 @@ pub trait AsBuffer: PyValue {
     }
 
     fn as_buffer(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyBuffer>;
+}
+
+#[pyimpl]
+pub trait AsMapping: PyValue {
+    #[pyslot]
+    fn slot_as_mapping(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<PyMappingMethods> {
+        let zelf = zelf
+            .downcast_ref()
+            .ok_or_else(|| vm.new_type_error("unexpected payload for as_mapping".to_owned()))?;
+        Self::as_mapping(zelf, vm)
+    }
+
+    fn downcast(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        zelf.downcast::<Self>().map_err(|obj| {
+            vm.new_type_error(format!(
+                "{} type is required, not {}",
+                Self::class(vm),
+                obj.class()
+            ))
+        })
+    }
+
+    fn downcast_ref<'a>(zelf: &'a PyObjectRef, vm: &VirtualMachine) -> PyResult<&'a PyRef<Self>> {
+        zelf.downcast_ref::<Self>().ok_or_else(|| {
+            vm.new_type_error(format!(
+                "{} type is required, not {}",
+                Self::class(vm),
+                zelf.class()
+            ))
+        })
+    }
+
+    fn as_mapping(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyMappingMethods>;
+
+    fn length(zelf: PyObjectRef, _vm: &VirtualMachine) -> PyResult<usize>;
+
+    fn subscript(zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult;
+
+    fn ass_subscript(
+        zelf: PyObjectRef,
+        needle: PyObjectRef,
+        value: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()>;
 }
 
 #[pyimpl]

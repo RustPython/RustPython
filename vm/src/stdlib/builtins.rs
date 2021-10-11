@@ -1,6 +1,6 @@
 //! Builtin function definitions.
 //!
-//! Implements functions listed here: https://docs.python.org/3/library/builtins.html
+//! Implements the list of [builtin Python functions](https://docs.python.org/3/library/builtins.html).
 use crate::{PyObjectRef, VirtualMachine};
 
 /// Built-in functions, exceptions, and other objects.
@@ -8,22 +8,22 @@ use crate::{PyObjectRef, VirtualMachine};
 /// Noteworthy: None is the `nil' object; Ellipsis represents `...' in slices.
 #[pymodule]
 mod builtins {
-    use crate::builtins::{
-        enumerate::PyReverseSequenceIterator,
-        function::{PyCellRef, PyFunctionRef},
-        int::{self, PyIntRef},
-        iter::PyCallableIterator,
-        list::{PyList, SortOptions},
-        IntoPyBool, PyByteArray, PyBytes, PyBytesRef, PyCode, PyDictRef, PyStr, PyStrRef,
-        PyTupleRef, PyTypeRef,
-    };
     #[cfg(feature = "rustpython-compiler")]
     use crate::compile;
     use crate::{
+        builtins::{
+            enumerate::PyReverseSequenceIterator,
+            function::{PyCellRef, PyFunctionRef},
+            int::PyIntRef,
+            iter::PyCallableIterator,
+            list::{PyList, SortOptions},
+            PyByteArray, PyBytes, PyBytesRef, PyCode, PyDictRef, PyStr, PyStrRef, PyTuple,
+            PyTupleRef, PyTypeRef,
+        },
         common::{hash::PyHash, str::to_ascii},
         function::{
-            ArgBytesLike, ArgCallable, ArgIterable, FuncArgs, KwArgs, OptionalArg, OptionalOption,
-            PosArgs,
+            ArgBytesLike, ArgCallable, ArgIntoBool, ArgIterable, FuncArgs, KwArgs, OptionalArg,
+            OptionalOption, PosArgs,
         },
         protocol::{PyIter, PyIterReturn},
         py_io,
@@ -32,10 +32,10 @@ mod builtins {
         slots::PyComparisonOp,
         stdlib::sys,
         utils::Either,
-        IdProtocol, ItemProtocol, PyArithmaticValue, PyClassImpl, PyObjectRef, PyRef, PyResult,
+        IdProtocol, ItemProtocol, PyArithmeticValue, PyClassImpl, PyObjectRef, PyRef, PyResult,
         PyValue, TryFromObject, TypeProtocol, VirtualMachine,
     };
-    use num_traits::{Signed, Zero};
+    use num_traits::{Signed, ToPrimitive, Zero};
 
     #[pyfunction]
     fn abs(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -43,7 +43,7 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn all(iterable: ArgIterable<IntoPyBool>, vm: &VirtualMachine) -> PyResult<bool> {
+    fn all(iterable: ArgIterable<ArgIntoBool>, vm: &VirtualMachine) -> PyResult<bool> {
         for item in iterable.iter(vm)? {
             if !item?.to_bool() {
                 return Ok(false);
@@ -53,7 +53,7 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn any(iterable: ArgIterable<IntoPyBool>, vm: &VirtualMachine) -> PyResult<bool> {
+    fn any(iterable: ArgIterable<ArgIntoBool>, vm: &VirtualMachine) -> PyResult<bool> {
         for item in iterable.iter(vm)? {
             if item?.to_bool() {
                 return Ok(true);
@@ -63,7 +63,7 @@ mod builtins {
     }
 
     #[pyfunction]
-    pub fn ascii(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
+    pub fn ascii(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<ascii::AsciiString> {
         let repr = vm.to_repr(&obj)?;
         let ascii = to_ascii(repr.as_str());
         Ok(ascii)
@@ -87,8 +87,12 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn chr(i: u32, vm: &VirtualMachine) -> PyResult<String> {
-        match std::char::from_u32(i) {
+    fn chr(i: PyIntRef, vm: &VirtualMachine) -> PyResult<String> {
+        match i
+            .try_to_primitive::<isize>(vm)?
+            .to_u32()
+            .and_then(char::from_u32)
+        {
             Some(value) => Ok(value.to_string()),
             None => Err(vm.new_value_error("chr() arg not in range(0x110000)".to_owned())),
         }
@@ -153,9 +157,7 @@ mod builtins {
                         .map_err(|e| vm.new_unicode_decode_error(e.to_string()))?,
                 };
 
-                let flags = args
-                    .flags
-                    .map_or(Ok(0), |v| int::try_to_primitive(v.as_bigint(), vm))?;
+                let flags = args.flags.map_or(Ok(0), |v| v.try_to_primitive(vm))?;
 
                 if (flags & ast::PY_COMPILE_FLAG_AST_ONLY).is_zero() {
                     #[cfg(not(feature = "rustpython-compiler"))]
@@ -167,10 +169,10 @@ mod builtins {
                         let mode = mode_str
                             .parse::<compile::Mode>()
                             .map_err(|err| vm.new_value_error(err.to_string()))?;
-
-                        vm.compile(source, mode, args.filename.as_str().to_owned())
-                            .map(|o| o.into_object())
-                            .map_err(|err| vm.new_syntax_error(&err))
+                        let code = vm
+                            .compile(source, mode, args.filename.as_str().to_owned())
+                            .map_err(|err| vm.new_syntax_error(&err))?;
+                        Ok(code.into())
                     }
                 } else {
                     let mode = mode_str
@@ -184,7 +186,7 @@ mod builtins {
 
     #[pyfunction]
     fn delattr(obj: PyObjectRef, attr: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-        vm.del_attr(&obj, attr.into_object())
+        vm.del_attr(&obj, attr)
     }
 
     #[pyfunction]
@@ -221,7 +223,7 @@ mod builtins {
             let (globals, locals) = match self.globals {
                 Some(globals) => {
                     if !globals.contains_key("__builtins__", vm) {
-                        let builtins_dict = vm.builtins.dict().unwrap().into_object();
+                        let builtins_dict = vm.builtins.dict().unwrap().into();
                         globals.set_item("__builtins__", builtins_dict, vm)?;
                     }
                     let locals = self.locals.unwrap_or_else(|| globals.clone());
@@ -377,7 +379,7 @@ mod builtins {
             let prompt = prompt.as_ref().map_or("", |s| s.as_str());
             let mut readline = Readline::new(());
             match readline.readline(prompt) {
-                ReadlineResult::Line(s) => Ok(vm.ctx.new_utf8_str(s)),
+                ReadlineResult::Line(s) => Ok(vm.ctx.new_str(s).into()),
                 ReadlineResult::Eof => {
                     Err(vm.new_exception_empty(vm.ctx.exceptions.eof_error.clone()))
                 }
@@ -419,7 +421,7 @@ mod builtins {
             let callable = ArgCallable::try_from_object(vm, iter_target)?;
             let iterator = PyCallableIterator::new(callable, sentinel)
                 .into_ref(vm)
-                .into_object();
+                .into();
             Ok(PyIter::new(iterator))
         } else {
             iter_target.get_iter(vm)
@@ -536,7 +538,7 @@ mod builtins {
             format!("0o{:o}", n)
         };
 
-        Ok(vm.ctx.new_utf8_str(s))
+        Ok(vm.ctx.new_str(s).into())
     }
 
     #[pyfunction]
@@ -600,8 +602,8 @@ mod builtins {
                             Ok(x) => x,
                             Err(e) => return Some(Err(e)),
                         };
-                        if let PyArithmaticValue::Implemented(x) =
-                            PyArithmaticValue::from_object(vm, result)
+                        if let PyArithmeticValue::Implemented(x) =
+                            PyArithmeticValue::from_object(vm, result)
                         {
                             return Some(Ok(x));
                         }
@@ -632,7 +634,7 @@ mod builtins {
 
     #[pyfunction]
     pub fn exit(exit_code_arg: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
-        let code = exit_code_arg.unwrap_or_else(|| vm.ctx.new_int(0));
+        let code = exit_code_arg.unwrap_or_else(|| vm.ctx.new_int(0).into());
         Err(vm.new_exception(vm.ctx.exceptions.system_exit.clone(), vec![code]))
     }
 
@@ -642,8 +644,8 @@ mod builtins {
         sep: Option<PyStrRef>,
         #[pyarg(named, default)]
         end: Option<PyStrRef>,
-        #[pyarg(named, default = "IntoPyBool::FALSE")]
-        flush: IntoPyBool,
+        #[pyarg(named, default = "ArgIntoBool::FALSE")]
+        flush: ArgIntoBool,
         #[pyarg(named, default)]
         file: Option<PyObjectRef>,
     }
@@ -736,7 +738,7 @@ mod builtins {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        vm.set_attr(&obj, attr.into_object(), value)?;
+        vm.set_attr(&obj, attr, value)?;
         Ok(())
     }
 
@@ -761,7 +763,9 @@ mod builtins {
     #[pyfunction]
     fn sum(SumArgs { iterable, start }: SumArgs, vm: &VirtualMachine) -> PyResult {
         // Start with zero and add at will:
-        let mut sum = start.into_option().unwrap_or_else(|| vm.ctx.new_int(0));
+        let mut sum = start
+            .into_option()
+            .unwrap_or_else(|| vm.ctx.new_int(0).into());
 
         match_class!(match sum {
             PyStr =>
@@ -797,7 +801,7 @@ mod builtins {
                 vm.new_type_error("vars() argument must have __dict__ attribute".to_owned())
             })
         } else {
-            Ok(vm.current_locals()?.into_object())
+            Ok(vm.current_locals()?.into())
         }
     }
 
@@ -810,7 +814,7 @@ mod builtins {
         vm: &VirtualMachine,
     ) -> PyResult {
         let name = qualified_name.as_str().split('.').next_back().unwrap();
-        let name_obj = vm.ctx.new_utf8_str(name);
+        let name_obj = vm.ctx.new_str(name);
 
         let mut metaclass = if let Some(metaclass) = kwargs.pop_kwarg("metaclass") {
             PyTypeRef::try_from_object(vm, metaclass)?
@@ -820,7 +824,7 @@ mod builtins {
 
         let mut new_bases: Option<Vec<PyObjectRef>> = None;
 
-        let bases = PyTupleRef::with_elements(bases.into_vec(), &vm.ctx);
+        let bases = PyTuple::new_ref(bases.into_vec(), &vm.ctx);
 
         for (i, base) in bases.as_slice().iter().enumerate() {
             if base.isinstance(&vm.ctx.types.type_type) {
@@ -846,7 +850,7 @@ mod builtins {
             new_bases.extend_from_slice(entries.as_slice());
         }
 
-        let new_bases = new_bases.map(|v| PyTupleRef::with_elements(v, &vm.ctx));
+        let new_bases = new_bases.map(|v| PyTuple::new_ref(v, &vm.ctx));
         let (orig_bases, bases) = match new_bases {
             Some(new) => (Some(bases), new),
             None => (None, bases),
@@ -865,13 +869,13 @@ mod builtins {
             }
         }
 
-        let bases = bases.into_object();
+        let bases: PyObjectRef = bases.into();
 
         // Prepare uses full __getattribute__ resolution chain.
-        let prepare = vm.get_attribute(metaclass.clone().into_object(), "__prepare__")?;
+        let prepare = vm.get_attribute(metaclass.clone().into(), "__prepare__")?;
         let namespace = vm.invoke(
             &prepare,
-            FuncArgs::new(vec![name_obj.clone(), bases.clone()], kwargs.clone()),
+            FuncArgs::new(vec![name_obj.clone().into(), bases.clone()], kwargs.clone()),
         )?;
 
         let namespace = PyDictRef::try_from_object(vm, namespace)?;
@@ -880,12 +884,12 @@ mod builtins {
         let classcell = <Option<PyCellRef>>::try_from_object(vm, classcell)?;
 
         if let Some(orig_bases) = orig_bases {
-            namespace.set_item("__orig_bases__", orig_bases.into_object(), vm)?;
+            namespace.set_item("__orig_bases__", orig_bases.into(), vm)?;
         }
 
         let class = vm.invoke(
             metaclass.as_object(),
-            FuncArgs::new(vec![name_obj, bases, namespace.into_object()], kwargs),
+            FuncArgs::new(vec![name_obj.into(), bases, namespace.into()], kwargs),
         )?;
 
         if let Some(ref classcell) = classcell {

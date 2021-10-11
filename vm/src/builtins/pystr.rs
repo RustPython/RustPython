@@ -1,31 +1,32 @@
 use super::{
-    int::{try_to_primitive, PyInt, PyIntRef},
-    iter::IterStatus::{self, Active, Exhausted},
-    PyBytesRef, PyDict, PyTypeRef,
+    int::{PyInt, PyIntRef},
+    iter::IterStatus::{self, Exhausted},
+    PositionIterInternal, PyBytesRef, PyDict, PyTupleRef, PyTypeRef,
 };
 use crate::{
     anystr::{self, adjust_indices, AnyStr, AnyStrContainer, AnyStrWrapper},
-    exceptions::IntoPyException,
     format::{FormatSpec, FormatString, FromTemplate},
-    function::{ArgIterable, FuncArgs, OptionalArg, OptionalOption},
+    function::{ArgIterable, FuncArgs, IntoPyException, IntoPyObject, OptionalArg, OptionalOption},
     protocol::PyIterReturn,
     sliceable::PySliceableSequence,
     slots::{
         Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotConstructor,
         SlotIterator,
     },
+    stdlib::sys,
     utils::Either,
-    IdProtocol, IntoPyObject, ItemProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext,
-    PyObjectRef, PyRef, PyResult, PyValue, TryIntoRef, TypeProtocol, VirtualMachine,
+    IdProtocol, ItemProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef,
+    PyRef, PyResult, PyValue, TryIntoRef, TypeProtocol, VirtualMachine,
 };
+use ascii::{AsciiStr, AsciiString};
 use bstr::ByteSlice;
-use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
 use num_traits::ToPrimitive;
 use rustpython_common::{
     ascii,
     atomic::{self, PyAtomic, Radium},
     hash,
+    lock::PyMutex,
 };
 use std::mem::size_of;
 use std::ops::Range;
@@ -108,24 +109,39 @@ impl AsRef<str> for PyStrRef {
     }
 }
 
-impl<T> From<&T> for PyStr
-where
-    T: AsRef<str> + ?Sized,
-{
-    fn from(s: &T) -> PyStr {
-        s.as_ref().to_owned().into()
+impl<'a> From<&'a AsciiStr> for PyStr {
+    fn from(s: &'a AsciiStr) -> Self {
+        s.to_owned().into()
+    }
+}
+
+impl From<AsciiString> for PyStr {
+    fn from(s: AsciiString) -> Self {
+        unsafe { Self::new_ascii_unchecked(s.into()) }
+    }
+}
+
+impl<'a> From<&'a str> for PyStr {
+    fn from(s: &'a str) -> Self {
+        s.to_owned().into()
     }
 }
 
 impl From<String> for PyStr {
-    fn from(s: String) -> PyStr {
+    fn from(s: String) -> Self {
         s.into_boxed_str().into()
+    }
+}
+
+impl<'a> From<std::borrow::Cow<'a, str>> for PyStr {
+    fn from(s: std::borrow::Cow<'a, str>) -> Self {
+        s.into_owned().into()
     }
 }
 
 impl From<Box<str>> for PyStr {
     #[inline]
-    fn from(value: Box<str>) -> PyStr {
+    fn from(value: Box<str>) -> Self {
         // doing the check is ~10x faster for ascii, and is actually only 2% slower worst case for
         // non-ascii; see https://github.com/RustPython/RustPython/pull/2586#issuecomment-844611532
         let is_ascii = value.is_ascii();
@@ -153,6 +169,13 @@ impl fmt::Display for PyStr {
     }
 }
 
+impl TryIntoRef<PyStr> for AsciiString {
+    #[inline]
+    fn try_into_ref(self, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
+        Ok(unsafe { PyStr::new_ascii_unchecked(self.into()) }.into_ref(vm))
+    }
+}
+
 impl TryIntoRef<PyStr> for String {
     #[inline]
     fn try_into_ref(self, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
@@ -170,9 +193,7 @@ impl TryIntoRef<PyStr> for &str {
 #[pyclass(module = false, name = "str_iterator")]
 #[derive(Debug)]
 pub struct PyStrIterator {
-    string: PyStrRef,
-    position: PyAtomic<usize>,
-    status: AtomicCell<IterStatus>,
+    internal: PyMutex<(PositionIterInternal<PyStrRef>, usize)>,
 }
 
 impl PyValue for PyStrIterator {
@@ -185,81 +206,51 @@ impl PyValue for PyStrIterator {
 impl PyStrIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
-        match self.status.load() {
-            Active => {
-                let pos = self.position.load(atomic::Ordering::SeqCst);
-                self.string.len().saturating_sub(pos)
-            }
-            Exhausted => 0,
-        }
+        self.internal.lock().0.length_hint(|obj| obj.char_len())
     }
 
     #[pymethod(magic)]
     fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        // When we're exhausted, just return.
-        if let Exhausted = self.status.load() {
-            return Ok(());
-        }
-        let pos = state
-            .payload::<PyInt>()
-            .ok_or_else(|| vm.new_type_error("an integer is required.".to_owned()))?;
-        let pos = std::cmp::min(
-            try_to_primitive(pos.as_bigint(), vm).unwrap_or(0),
-            self.string.len(),
-        );
-        self.position.store(pos, atomic::Ordering::SeqCst);
-        Ok(())
+        let mut internal = self.internal.lock();
+        internal.1 = usize::MAX;
+        internal
+            .0
+            .set_state(state, |obj, pos| pos.min(obj.char_len()), vm)
     }
 
     #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> PyResult {
-        let iter = vm.get_attribute(vm.builtins.clone(), "iter")?;
-        Ok(vm.ctx.new_tuple(match self.status.load() {
-            Exhausted => vec![
-                iter,
-                vm.ctx.new_tuple(vec![vm.ctx.new_ascii_literal(ascii!(""))]),
-            ],
-            Active => vec![
-                iter,
-                vm.ctx.new_tuple(vec![self.string.clone().into_object()]),
-                vm.ctx
-                    .new_int(self.position.load(atomic::Ordering::Relaxed)),
-            ],
-        }))
+    fn reduce(&self, vm: &VirtualMachine) -> PyTupleRef {
+        self.internal
+            .lock()
+            .0
+            .builtins_iter_reduce(|x| x.clone().into(), vm)
     }
 }
 
 impl IteratorIterable for PyStrIterator {}
 impl SlotIterator for PyStrIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        if let Exhausted = zelf.status.load() {
-            return Ok(PyIterReturn::StopIteration(None));
-        }
-        let value = &*zelf.string.as_str();
-        let mut start = zelf.position.load(atomic::Ordering::SeqCst);
-        loop {
-            if start == value.len() {
-                zelf.status.store(Exhausted);
-                return Ok(PyIterReturn::StopIteration(None));
-            }
-            let ch = match value[start..].chars().next() {
-                Some(ch) => ch,
-                None => {
-                    zelf.status.store(Exhausted);
-                    return Ok(PyIterReturn::StopIteration(None));
-                }
-            };
+        let mut internal = zelf.internal.lock();
 
-            match zelf.position.compare_exchange_weak(
-                start,
-                start + ch.len_utf8(),
-                atomic::Ordering::Release,
-                atomic::Ordering::Relaxed,
-            ) {
-                Ok(_) => break Ok(PyIterReturn::Return(ch.into_pyobject(vm))),
-                Err(cur) => start = cur,
+        if let IterStatus::Active(s) = &internal.0.status {
+            let value = s.as_str();
+
+            if internal.1 == usize::MAX {
+                if let Some((offset, ch)) = value.char_indices().nth(internal.0.position) {
+                    internal.0.position += 1;
+                    internal.1 = offset + ch.len_utf8();
+                    return Ok(PyIterReturn::Return(ch.into_pyobject(vm)));
+                }
+            } else if let Some(value) = value.get(internal.1..) {
+                if let Some(ch) = value.chars().next() {
+                    internal.0.position += 1;
+                    internal.1 += ch.len_utf8();
+                    return Ok(PyIterReturn::Return(ch.into_pyobject(vm)));
+                }
             }
+            internal.0.status = Exhausted;
         }
+        Ok(PyIterReturn::StopIteration(None))
     }
 }
 
@@ -295,7 +286,7 @@ impl SlotConstructor for PyStr {
             }
         };
         if string.class().is(&cls) {
-            Ok(string.into_object())
+            Ok(string.into())
         } else {
             PyStr::from(string.as_str()).into_pyresult_with_type(vm, cls)
         }
@@ -315,8 +306,12 @@ impl PyStr {
     }
 
     /// SAFETY: Given 'bytes' must be ascii
-    unsafe fn new_ascii_unchecked(bytes: Vec<u8>) -> Self {
+    pub(crate) unsafe fn new_ascii_unchecked(bytes: Vec<u8>) -> Self {
         Self::new_str_unchecked(bytes, PyStrKind::Ascii)
+    }
+
+    pub fn new_ref(s: impl Into<Self>, ctx: &PyContext) -> PyRef<Self> {
+        PyRef::new_ref(s.into(), ctx.types.str_type.clone(), None)
     }
 
     fn new_substr(&self, s: String) -> Self {
@@ -433,7 +428,7 @@ impl PyStr {
         match self.kind {
             PyStrKindData::Utf8(ref char_len) => {
                 let len = self.as_str().chars().count();
-                // len cannot be usize::MAX, since vec.capacity() < isize::MAX
+                // len cannot be usize::MAX, since vec.capacity() < sys.maxsize
                 char_len.store(len, atomic::Ordering::Relaxed);
                 len
             }
@@ -509,7 +504,7 @@ impl PyStr {
                 ch if (ch as u32) < 0x10000 => 6, // \uHHHH
                 _ => 10,                          // \uHHHHHHHH
             };
-            if out_len > (isize::MAX as usize) - incr {
+            if out_len > (sys::MAXSIZE as usize) - incr {
                 return Err(vm.new_overflow_error("string is too long to generate repr".to_owned()));
             }
             out_len += incr;
@@ -605,7 +600,7 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn split(&self, args: SplitArgs, vm: &VirtualMachine) -> PyResult {
+    fn split(&self, args: SplitArgs, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         let elements = match self.kind.kind() {
             PyStrKind::Ascii => self.as_str().py_split(
                 args,
@@ -635,27 +630,27 @@ impl PyStr {
             PyStrKind::Utf8 => self.as_str().py_split(
                 args,
                 vm,
-                |v, s, vm| v.split(s).map(|s| vm.ctx.new_utf8_str(s)).collect(),
-                |v, s, n, vm| v.splitn(n, s).map(|s| vm.ctx.new_utf8_str(s)).collect(),
-                |v, n, vm| v.py_split_whitespace(n, |s| vm.ctx.new_utf8_str(s)),
+                |v, s, vm| v.split(s).map(|s| vm.ctx.new_str(s).into()).collect(),
+                |v, s, n, vm| v.splitn(n, s).map(|s| vm.ctx.new_str(s).into()).collect(),
+                |v, n, vm| v.py_split_whitespace(n, |s| vm.ctx.new_str(s).into()),
             ),
         }?;
-        Ok(vm.ctx.new_list(elements))
+        Ok(elements)
     }
 
     #[pymethod]
-    fn rsplit(&self, args: SplitArgs, vm: &VirtualMachine) -> PyResult {
+    fn rsplit(&self, args: SplitArgs, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         let mut elements = self.as_str().py_split(
             args,
             vm,
-            |v, s, vm| v.rsplit(s).map(|s| vm.ctx.new_utf8_str(s)).collect(),
-            |v, s, n, vm| v.rsplitn(n, s).map(|s| vm.ctx.new_utf8_str(s)).collect(),
-            |v, n, vm| v.py_rsplit_whitespace(n, |s| vm.ctx.new_utf8_str(s)),
+            |v, s, vm| v.rsplit(s).map(|s| vm.ctx.new_str(s).into()).collect(),
+            |v, s, n, vm| v.rsplitn(n, s).map(|s| vm.ctx.new_str(s).into()).collect(),
+            |v, n, vm| v.py_rsplit_whitespace(n, |s| vm.ctx.new_str(s).into()),
         )?;
         // Unlike Python rsplit, Rust rsplitn returns an iterator that
         // starts from the end of the string.
         elements.reverse();
-        Ok(vm.ctx.new_list(elements))
+        Ok(elements)
     }
 
     #[pymethod]
@@ -922,11 +917,9 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn splitlines(&self, args: anystr::SplitLinesArgs, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_list(
-            self.as_str()
-                .py_splitlines(args, |s| self.new_substr(s.to_owned()).into_pyobject(vm)),
-        )
+    fn splitlines(&self, args: anystr::SplitLinesArgs, vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        self.as_str()
+            .py_splitlines(args, |s| self.new_substr(s.to_owned()).into_pyobject(vm))
     }
 
     #[pymethod]
@@ -981,16 +974,16 @@ impl PyStr {
             || self.as_str().splitn(2, sep.as_str()),
             vm,
         )?;
-        Ok((
+        let partition = (
             self.new_substr(front),
             if has_mid {
-                sep.into_object()
+                sep
             } else {
-                vm.ctx.new_ascii_literal(ascii!(""))
+                vm.ctx.new_str(ascii!(""))
             },
             self.new_substr(back),
-        )
-            .into_pyobject(vm))
+        );
+        Ok(partition.into_pyobject(vm))
     }
 
     #[pymethod]
@@ -1003,9 +996,9 @@ impl PyStr {
         Ok((
             self.new_substr(front),
             if has_mid {
-                sep.into_object()
+                sep
             } else {
-                vm.ctx.new_ascii_literal(ascii!(""))
+                vm.ctx.new_str(ascii!(""))
             },
             self.new_substr(back),
         )
@@ -1198,14 +1191,14 @@ impl PyStr {
                     if to_str.len() == from_str.len() {
                         for (c1, c2) in from_str.as_str().chars().zip(to_str.as_str().chars()) {
                             new_dict.set_item(
-                                vm.ctx.new_int(c1 as u32),
-                                vm.ctx.new_int(c2 as u32),
+                                vm.new_pyobj(c1 as u32),
+                                vm.new_pyobj(c2 as u32),
                                 vm,
                             )?;
                         }
                         if let OptionalArg::Present(none_str) = none_str {
                             for c in none_str.as_str().chars() {
-                                new_dict.set_item(vm.ctx.new_int(c as u32), vm.ctx.none(), vm)?;
+                                new_dict.set_item(vm.new_pyobj(c as u32), vm.ctx.none(), vm)?;
                             }
                         }
                         Ok(new_dict.into_pyobject(vm))
@@ -1294,9 +1287,7 @@ impl Comparable for PyStr {
 impl Iterable for PyStr {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         Ok(PyStrIterator {
-            position: Radium::new(0),
-            string: zelf,
-            status: AtomicCell::new(Active),
+            internal: PyMutex::new((PositionIterInternal::new(zelf, 0), 0)),
         }
         .into_object(vm))
     }
@@ -1330,25 +1321,37 @@ impl PyValue for PyStr {
 
 impl IntoPyObject for String {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_utf8_str(self)
+        vm.ctx.new_str(self).into()
     }
 }
 
 impl IntoPyObject for char {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_utf8_str(self.to_string())
+        vm.ctx.new_str(self.to_string()).into()
     }
 }
 
 impl IntoPyObject for &str {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_utf8_str(self)
+        vm.ctx.new_str(self).into()
     }
 }
 
 impl IntoPyObject for &String {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_utf8_str(self.clone())
+        vm.ctx.new_str(self.clone()).into()
+    }
+}
+
+impl IntoPyObject for &AsciiStr {
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.new_str(self).into()
+    }
+}
+
+impl IntoPyObject for AsciiString {
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.new_str(self).into()
     }
 }
 
@@ -1497,6 +1500,7 @@ fn char_is_printable(c: char) -> bool {
 mod tests {
     use super::*;
     use crate::Interpreter;
+    use std::ops::Deref;
 
     #[test]
     fn str_title() {
@@ -1548,13 +1552,15 @@ mod tests {
     fn str_maketrans_and_translate() {
         Interpreter::default().enter(|vm| {
             let table = vm.ctx.new_dict();
-            table.set_item("a", vm.ctx.new_utf8_str("🎅"), &vm).unwrap();
+            table
+                .set_item("a", vm.ctx.new_str("🎅").into(), &vm)
+                .unwrap();
             table.set_item("b", vm.ctx.none(), &vm).unwrap();
             table
-                .set_item("c", vm.ctx.new_ascii_literal(ascii!("xda")), &vm)
+                .set_item("c", vm.ctx.new_str(ascii!("xda")).into(), &vm)
                 .unwrap();
             let translated = PyStr::maketrans(
-                table.into_object(),
+                table.into(),
                 OptionalArg::Missing,
                 OptionalArg::Missing,
                 &vm,
@@ -1563,9 +1569,9 @@ mod tests {
             let text = PyStr::from("abc");
             let translated = text.translate(translated, &vm).unwrap();
             assert_eq!(translated, "🎅xda".to_owned());
-            let translated = text.translate(vm.ctx.new_int(3), &vm);
+            let translated = text.translate(vm.ctx.new_int(3).into(), &vm);
             assert_eq!(
-                translated.unwrap_err().class().name(),
+                translated.unwrap_err().class().name().deref(),
                 "TypeError".to_owned()
             );
         })

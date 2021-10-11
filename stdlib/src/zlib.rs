@@ -1,7 +1,7 @@
-pub(crate) use decl::make_module;
+pub(crate) use zlib::make_module;
 
-#[pymodule(name = "zlib")]
-mod decl {
+#[pymodule]
+mod zlib {
     use crate::common::lock::PyMutex;
     use crate::vm::{
         builtins::{PyBaseExceptionRef, PyBytes, PyBytesRef, PyIntRef, PyTypeRef},
@@ -96,7 +96,11 @@ mod decl {
 
     /// Returns a bytes object containing compressed data.
     #[pyfunction]
-    fn compress(data: ArgBytesLike, level: OptionalArg<i32>, vm: &VirtualMachine) -> PyResult {
+    fn compress(
+        data: ArgBytesLike,
+        level: OptionalArg<i32>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyBytesRef> {
         let compression = compression_from_int(level.into_option())
             .ok_or_else(|| new_zlib_error("Bad compression level", vm))?;
 

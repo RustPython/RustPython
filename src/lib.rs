@@ -86,17 +86,10 @@ where
         }
     }
 
-    // We only include the standard library bytecode in WASI when initializing
-    let init_param = if cfg!(target_os = "wasi") {
-        InitParameter::Internal
-    } else {
-        InitParameter::External
-    };
-
     let interp = Interpreter::new_with_init(settings, |vm| {
         add_stdlib(vm);
         init(vm);
-        init_param
+        InitParameter::External
     });
 
     let exitcode = interp.enter(move |vm| {
@@ -341,9 +334,9 @@ fn create_settings(matches: &ArgMatches) -> PySettings {
 
     // BUILDTIME_RUSTPYTHONPATH should be set when distributing
     if let Some(paths) = option_env!("BUILDTIME_RUSTPYTHONPATH") {
-        settings.path_list.extend(
-            std::env::split_paths(paths).map(|path| path.into_os_string().into_string().unwrap()),
-        )
+        settings
+            .path_list
+            .extend(split_paths(paths).map(|path| path.into_os_string().into_string().unwrap()))
     } else {
         settings.path_list.extend(maybe_pylib);
     }
@@ -476,7 +469,7 @@ fn get_paths(env_variable_name: &str) -> impl Iterator<Item = String> + '_ {
     env::var_os(env_variable_name)
         .into_iter()
         .flat_map(move |paths| {
-            env::split_paths(&paths)
+            split_paths(&paths)
                 .map(|path| {
                     path.into_os_string()
                         .into_string()
@@ -484,6 +477,17 @@ fn get_paths(env_variable_name: &str) -> impl Iterator<Item = String> + '_ {
                 })
                 .collect::<Vec<_>>()
         })
+}
+#[cfg(not(target_os = "wasi"))]
+use env::split_paths;
+#[cfg(target_os = "wasi")]
+fn split_paths<T: AsRef<std::ffi::OsStr> + ?Sized>(
+    s: &T,
+) -> impl Iterator<Item = std::path::PathBuf> + '_ {
+    use std::os::wasi::ffi::OsStrExt;
+    let s = s.as_ref().as_bytes();
+    s.split(|b| *b == b':')
+        .map(|x| std::ffi::OsStr::from_bytes(x).to_owned().into())
 }
 
 #[cfg(feature = "flame-it")]
@@ -609,7 +613,7 @@ fn _run_string(vm: &VirtualMachine, scope: Scope, source: &str, source_path: Str
     // trace!("Code object: {:?}", code_obj.borrow());
     scope
         .globals
-        .set_item("__file__", vm.ctx.new_utf8_str(source_path), vm)?;
+        .set_item("__file__", vm.new_pyobj(source_path), vm)?;
     vm.run_code_obj(code_obj, scope)
 }
 
@@ -633,10 +637,11 @@ fn get_importer(path: &str, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>
     if let Some(importer) = path_importer_cache.get_item_option(path, vm)? {
         return Ok(Some(importer));
     }
-    let path = vm.ctx.new_utf8_str(path);
+    let path = vm.ctx.new_str(path);
     let path_hooks = vm.get_attribute(vm.sys_module.clone(), "path_hooks")?;
     let mut importer = None;
-    for path_hook in vm.extract_elements(&path_hooks)? {
+    let path_hooks: Vec<PyObjectRef> = vm.extract_elements(&path_hooks)?;
+    for path_hook in path_hooks {
         match vm.invoke(&path_hook, (path.clone(),)) {
             Ok(imp) => {
                 importer = Some(imp);
@@ -647,7 +652,7 @@ fn get_importer(path: &str, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>
         }
     }
     Ok(if let Some(imp) = importer {
-        let imp = path_importer_cache.get_or_insert(vm, path, || imp.clone())?;
+        let imp = path_importer_cache.get_or_insert(vm, path.into(), || imp.clone())?;
         Some(imp)
     } else {
         None
@@ -663,17 +668,14 @@ fn insert_sys_path(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<()> {
 fn run_script(vm: &VirtualMachine, scope: Scope, script_file: &str) -> PyResult<()> {
     debug!("Running file {}", script_file);
     if get_importer(script_file, vm)?.is_some() {
-        insert_sys_path(vm, vm.ctx.new_utf8_str(script_file))?;
+        insert_sys_path(vm, vm.ctx.new_str(script_file).into())?;
         let runpy = vm.import("runpy", None, 0)?;
         let run_module_as_main = vm.get_attribute(runpy, "_run_module_as_main")?;
-        vm.invoke(
-            &run_module_as_main,
-            (vm.ctx.new_utf8_str("__main__"), false),
-        )?;
+        vm.invoke(&run_module_as_main, (vm.ctx.new_str("__main__"), false))?;
         return Ok(());
     }
     let dir = Path::new(script_file).parent().unwrap().to_str().unwrap();
-    insert_sys_path(vm, vm.ctx.new_utf8_str(dir))?;
+    insert_sys_path(vm, vm.ctx.new_str(dir).into())?;
 
     match std::fs::read_to_string(script_file) {
         Ok(source) => {

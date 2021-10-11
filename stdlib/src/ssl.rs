@@ -5,15 +5,17 @@ use crate::common::{
 };
 use crate::vm::{
     builtins::{PyBaseException, PyBaseExceptionRef, PyStrRef, PyType, PyTypeRef, PyWeak},
-    exceptions::{self, IntoPyException},
-    extend_module,
-    function::{ArgBytesLike, ArgCallable, ArgMemoryBuffer, ArgStrOrBytesLike, OptionalArg},
+    exceptions, extend_module,
+    function::{
+        ArgBytesLike, ArgCallable, ArgMemoryBuffer, ArgStrOrBytesLike, IntoPyException,
+        IntoPyObject, OptionalArg,
+    },
     named_function, py_module,
     slots::SlotConstructor,
     stdlib::os::PyPathLike,
     types::create_simple_type,
     utils::{Either, ToCString},
-    IntoPyObject, ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use foreign_types_shared::{ForeignType, ForeignTypeRef};
@@ -22,7 +24,7 @@ use openssl::{
     error::ErrorStack,
     nid::Nid,
     ssl::{self, SslContextBuilder, SslOptions, SslVerifyMode},
-    x509::{self, X509Object, X509Ref, X509},
+    x509::{self, X509Ref, X509},
 };
 use std::convert::TryFrom;
 use std::ffi::CStr;
@@ -30,25 +32,42 @@ use std::fmt;
 use std::io::{Read, Write};
 use std::time::Instant;
 
-mod sys {
-    #![allow(non_camel_case_types, unused)]
-    use libc::{c_char, c_double, c_int, c_long, c_void};
-    pub use openssl_sys::*;
-    extern "C" {
-        pub fn OBJ_txt2obj(s: *const c_char, no_name: c_int) -> *mut ASN1_OBJECT;
-        pub fn OBJ_nid2obj(n: c_int) -> *mut ASN1_OBJECT;
-        pub fn X509_get_default_cert_file_env() -> *const c_char;
-        pub fn X509_get_default_cert_file() -> *const c_char;
-        pub fn X509_get_default_cert_dir_env() -> *const c_char;
-        pub fn X509_get_default_cert_dir() -> *const c_char;
-        #[cfg(ossl111)]
-        pub fn SSL_CTX_set_post_handshake_auth(ctx: *mut SSL_CTX, val: c_int);
-        pub fn RAND_add(buf: *const c_void, num: c_int, randomness: c_double);
-        pub fn RAND_pseudo_bytes(buf: *const u8, num: c_int) -> c_int;
-        pub fn X509_get_version(x: *const X509) -> c_long;
-        pub fn SSLv3_method() -> *const SSL_METHOD;
-        pub fn TLSv1_method() -> *const SSL_METHOD;
-        pub fn COMP_get_type(meth: *const COMP_METHOD) -> i32;
+use openssl_sys as sys;
+
+mod bio {
+    //! based off rust-openssl's private `bio` module
+
+    use super::*;
+
+    use libc::c_int;
+    use std::marker::PhantomData;
+
+    pub struct MemBioSlice<'a>(*mut sys::BIO, PhantomData<&'a [u8]>);
+
+    impl<'a> Drop for MemBioSlice<'a> {
+        fn drop(&mut self) {
+            unsafe {
+                sys::BIO_free_all(self.0);
+            }
+        }
+    }
+
+    impl<'a> MemBioSlice<'a> {
+        pub fn new(buf: &'a [u8]) -> Result<MemBioSlice<'a>, ErrorStack> {
+            openssl::init();
+
+            assert!(buf.len() <= c_int::max_value() as usize);
+            let bio = unsafe { sys::BIO_new_mem_buf(buf.as_ptr() as *const _, buf.len() as c_int) };
+            if bio.is_null() {
+                return Err(ErrorStack::get());
+            }
+
+            Ok(MemBioSlice(bio, PhantomData))
+        }
+
+        pub fn as_ptr(&self) -> *mut sys::BIO {
+            self.0
+        }
     }
 }
 
@@ -113,18 +132,27 @@ fn nid2obj(nid: Nid) -> Option<Asn1Object> {
 fn obj2txt(obj: &Asn1ObjectRef, no_name: bool) -> Option<String> {
     let no_name = if no_name { 1 } else { 0 };
     let ptr = obj.as_ptr();
-    let s = unsafe {
+    let b = unsafe {
         let buflen = sys::OBJ_obj2txt(std::ptr::null_mut(), 0, ptr, no_name);
         assert!(buflen >= 0);
         if buflen == 0 {
             return None;
         }
-        let mut buf = vec![0u8; buflen as usize];
-        let ret = sys::OBJ_obj2txt(buf.as_mut_ptr() as *mut libc::c_char, buflen, ptr, no_name);
+        let buflen = buflen as usize;
+        let mut buf = Vec::<u8>::with_capacity(buflen + 1);
+        let ret = sys::OBJ_obj2txt(
+            buf.as_mut_ptr() as *mut libc::c_char,
+            buf.capacity() as _,
+            ptr,
+            no_name,
+        );
         assert!(ret >= 0);
-        String::from_utf8(buf)
-            .unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned())
+        // SAFETY: OBJ_obj2txt initialized the buffer successfully
+        buf.set_len(buflen);
+        buf
     };
+    let s =
+        String::from_utf8(b).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned());
     Some(s)
 }
 
@@ -140,7 +168,7 @@ fn obj2py(obj: &Asn1ObjectRef) -> PyNid {
 }
 
 #[cfg(windows)]
-fn _ssl_enum_certificates(store_name: PyStrRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+fn _ssl_enum_certificates(store_name: PyStrRef, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
     use crate::vm::builtins::PyFrozenSet;
     use schannel::{cert_context::ValidUses, cert_store::CertStore, RawPointer};
     use winapi::um::wincrypt;
@@ -159,25 +187,25 @@ fn _ssl_enum_certificates(store_name: PyStrRef, vm: &VirtualMachine) -> PyResult
             (*ptr).dwCertEncodingType
         };
         let enc_type = match enc_type {
-            wincrypt::X509_ASN_ENCODING => vm.ctx.new_ascii_literal(ascii!("x509_asn")),
-            wincrypt::PKCS_7_ASN_ENCODING => vm.ctx.new_ascii_literal(ascii!("pkcs_7_asn")),
-            other => vm.ctx.new_int(other),
+            wincrypt::X509_ASN_ENCODING => vm.new_pyobj(ascii!("x509_asn")),
+            wincrypt::PKCS_7_ASN_ENCODING => vm.new_pyobj(ascii!("pkcs_7_asn")),
+            other => vm.new_pyobj(other),
         };
-        let usage = match c.valid_uses()? {
-            ValidUses::All => vm.ctx.new_bool(true),
+        let usage: PyObjectRef = match c.valid_uses()? {
+            ValidUses::All => vm.ctx.new_bool(true).into(),
             ValidUses::Oids(oids) => {
-                PyFrozenSet::from_iter(vm, oids.into_iter().map(|oid| vm.ctx.new_utf8_str(oid)))
+                PyFrozenSet::from_iter(vm, oids.into_iter().map(|oid| vm.ctx.new_str(oid).into()))
                     .unwrap()
                     .into_ref(vm)
-                    .into_object()
+                    .into()
             }
         };
-        Ok(vm.ctx.new_tuple(vec![cert, enc_type, usage]))
+        Ok(vm.new_tuple((cert, enc_type, usage)).into())
     });
     let certs = certs
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e: std::io::Error| e.into_pyexception(vm))?;
-    Ok(vm.ctx.new_list(certs))
+    Ok(certs)
 }
 
 #[derive(FromArgs)]
@@ -243,7 +271,7 @@ fn _ssl_rand_pseudo_bytes(n: i32, vm: &VirtualMachine) -> PyResult<(Vec<u8>, boo
         return Err(vm.new_value_error("num must be positive".to_owned()));
     }
     let mut buf = vec![0; n as usize];
-    let ret = unsafe { sys::RAND_pseudo_bytes(buf.as_mut_ptr(), n) };
+    let ret = unsafe { sys::RAND_bytes(buf.as_mut_ptr(), n) };
     match ret {
         0 | 1 => Ok((buf, ret == 1)),
         _ => Err(convert_openssl_error(vm, ErrorStack::get())),
@@ -277,7 +305,6 @@ impl SlotConstructor for PySslContext {
         let method = match proto {
             // SslVersion::Ssl3 => unsafe { ssl::SslMethod::from_ptr(sys::SSLv3_method()) },
             SslVersion::Tls => ssl::SslMethod::tls(),
-            SslVersion::Tls1 => unsafe { ssl::SslMethod::from_ptr(sys::TLSv1_method()) },
             // TODO: Tls1_1, Tls1_2 ?
             SslVersion::TlsClient => ssl::SslMethod::tls_client(),
             SslVersion::TlsServer => ssl::SslMethod::tls_server(),
@@ -461,22 +488,22 @@ impl PySslContext {
         }
 
         if let Some(cadata) = args.cadata {
-            let cert = match cadata {
+            let certs = match cadata {
                 Either::A(s) => {
-                    if !s.as_str().is_ascii() {
+                    if !s.is_ascii() {
                         return Err(vm.new_type_error("Must be an ascii string".to_owned()));
                     }
-                    X509::from_pem(s.as_str().as_bytes())
+                    X509::stack_from_pem(s.as_str().as_bytes())
                 }
-                Either::B(b) => b.with_ref(X509::from_der),
+                Either::B(b) => b.with_ref(x509_stack_from_der),
             };
-            let cert = cert.map_err(|e| convert_openssl_error(vm, e))?;
-            let ret = self.exec_ctx(|ctx| {
-                let store = ctx.cert_store();
-                unsafe { sys::X509_STORE_add_cert(store.as_ptr(), cert.as_ptr()) }
-            });
-            if ret <= 0 {
-                return Err(convert_openssl_error(vm, ErrorStack::get()));
+            let certs = certs.map_err(|e| convert_openssl_error(vm, e))?;
+            let mut ctx = self.builder();
+            let store = ctx.cert_store_mut();
+            for cert in certs {
+                store
+                    .add_cert(cert)
+                    .map_err(|e| convert_openssl_error(vm, e))?;
             }
         }
 
@@ -510,23 +537,22 @@ impl PySslContext {
     }
 
     #[pymethod]
-    fn get_ca_certs(&self, binary_form: OptionalArg<bool>, vm: &VirtualMachine) -> PyResult {
-        use openssl::stack::StackRef;
+    fn get_ca_certs(
+        &self,
+        binary_form: OptionalArg<bool>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<PyObjectRef>> {
         let binary_form = binary_form.unwrap_or(false);
-        let certs = unsafe {
-            let stack =
-                sys::X509_STORE_get0_objects(self.exec_ctx(|ctx| ctx.cert_store().as_ptr()));
-            assert!(!stack.is_null());
-            StackRef::<X509Object>::from_ptr(stack)
-        };
-        let certs = certs
-            .iter()
-            .filter_map(|cert| {
-                let cert = cert.x509()?;
-                Some(cert_to_py(vm, cert, binary_form))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(vm.ctx.new_list(certs))
+        self.exec_ctx(|ctx| {
+            let certs = ctx
+                .cert_store()
+                .objects()
+                .iter()
+                .filter_map(|obj| obj.x509())
+                .map(|cert| cert_to_py(vm, cert, binary_form))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(certs)
+        })
     }
 
     #[pymethod]
@@ -934,11 +960,11 @@ impl PySslSocket {
             return Err(convert_ssl_error(vm, err));
         };
         let ret = match inner_buffer {
-            Either::A(_buf) => vm.ctx.new_int(count),
+            Either::A(_buf) => vm.ctx.new_int(count).into(),
             Either::B(mut buf) => {
                 buf.truncate(n);
                 buf.shrink_to_fit();
-                vm.ctx.new_bytes(buf)
+                vm.ctx.new_bytes(buf).into()
             }
         };
         Ok(ret)
@@ -949,19 +975,33 @@ fn ssl_error(vm: &VirtualMachine) -> PyTypeRef {
     vm.class("_ssl", "SSLError")
 }
 
+#[track_caller]
 fn convert_openssl_error(vm: &VirtualMachine, err: ErrorStack) -> PyBaseExceptionRef {
     let cls = ssl_error(vm);
     match err.errors().last() {
         Some(e) => {
+            let caller = std::panic::Location::caller();
+            let (file, line) = (caller.file(), caller.line());
+            let file = file
+                .rsplit_once(&['/', '\\'][..])
+                .map_or(file, |(_, basename)| basename);
             // TODO: map the error codes to code names, e.g. "CERTIFICATE_VERIFY_FAILED", just requires a big hashmap/dict
             let errstr = e.reason().unwrap_or("unknown error");
-            let msg = format!("{} (_ssl.c:{})", errstr, e.line());
+            let msg = if let Some(lib) = e.library() {
+                format!("[{}] {} ({}:{})", lib, errstr, file, line)
+            } else {
+                format!("{} ({}:{})", errstr, file, line)
+            };
             let reason = sys::ERR_GET_REASON(e.code());
-            vm.new_exception(cls, vec![vm.ctx.new_int(reason), vm.ctx.new_utf8_str(msg)])
+            vm.new_exception(
+                cls,
+                vec![vm.ctx.new_int(reason).into(), vm.ctx.new_str(msg).into()],
+            )
         }
         None => vm.new_exception_empty(cls),
     }
 }
+#[track_caller]
 fn convert_ssl_error(
     vm: &VirtualMachine,
     e: impl std::borrow::Borrow<ssl::Error>,
@@ -992,6 +1032,33 @@ fn convert_ssl_error(
     vm.new_exception_msg(cls, msg.to_owned())
 }
 
+fn x509_stack_from_der(der: &[u8]) -> Result<Vec<X509>, ErrorStack> {
+    unsafe {
+        openssl::init();
+        let bio = bio::MemBioSlice::new(der)?;
+
+        let mut certs = vec![];
+        loop {
+            let r = sys::d2i_X509_bio(bio.as_ptr(), std::ptr::null_mut());
+            if r.is_null() {
+                let err = sys::ERR_peek_last_error();
+                if sys::ERR_GET_LIB(err) == sys::ERR_LIB_ASN1
+                    && sys::ERR_GET_REASON(err) == sys::ASN1_R_HEADER_TOO_LONG
+                {
+                    sys::ERR_clear_error();
+                    break;
+                }
+
+                return Err(ErrorStack::get());
+            } else {
+                certs.push(X509::from_ptr(r));
+            }
+        }
+
+        Ok(certs)
+    }
+}
+
 type CipherTuple = (&'static str, &'static str, i32);
 
 fn cipher_to_tuple(cipher: &ssl::SslCipherRef) -> CipherTuple {
@@ -1001,27 +1068,26 @@ fn cipher_to_tuple(cipher: &ssl::SslCipherRef) -> CipherTuple {
 fn cert_to_py(vm: &VirtualMachine, cert: &X509Ref, binary: bool) -> PyResult {
     let r = if binary {
         let b = cert.to_der().map_err(|e| convert_openssl_error(vm, e))?;
-        vm.ctx.new_bytes(b)
+        vm.ctx.new_bytes(b).into()
     } else {
         let dict = vm.ctx.new_dict();
 
-        let name_to_py = |name: &x509::X509NameRef| {
-            name.entries()
+        let name_to_py = |name: &x509::X509NameRef| -> PyResult {
+            let list = name
+                .entries()
                 .map(|entry| {
                     let txt = obj2txt(entry.object(), false).into_pyobject(vm);
-                    let data = vm.ctx.new_utf8_str(entry.data().as_utf8()?.to_owned());
-                    Ok(vm.ctx.new_tuple(vec![vm.ctx.new_tuple(vec![txt, data])]))
+                    let data = vm.ctx.new_str(entry.data().as_utf8()?.to_owned());
+                    Ok(vm.new_tuple(((txt, data),)).into())
                 })
                 .collect::<Result<_, _>>()
-                .map(|list| vm.ctx.new_tuple(list))
-                .map_err(|e| convert_openssl_error(vm, e))
+                .map_err(|e| convert_openssl_error(vm, e))?;
+            Ok(vm.ctx.new_tuple(list).into())
         };
 
         dict.set_item("subject", name_to_py(cert.subject_name())?, vm)?;
         dict.set_item("issuer", name_to_py(cert.issuer_name())?, vm)?;
-
-        let version = unsafe { sys::X509_get_version(cert.as_ptr()) };
-        dict.set_item("version", vm.ctx.new_int(version), vm)?;
+        dict.set_item("version", vm.new_pyobj(cert.version()), vm)?;
 
         let serial_num = cert
             .serial_number()
@@ -1030,18 +1096,18 @@ fn cert_to_py(vm: &VirtualMachine, cert: &X509Ref, binary: bool) -> PyResult {
             .map_err(|e| convert_openssl_error(vm, e))?;
         dict.set_item(
             "serialNumber",
-            vm.ctx.new_utf8_str(serial_num.to_owned()),
+            vm.ctx.new_str(serial_num.to_owned()).into(),
             vm,
         )?;
 
         dict.set_item(
             "notBefore",
-            vm.ctx.new_utf8_str(cert.not_before().to_string()),
+            vm.ctx.new_str(cert.not_before().to_string()).into(),
             vm,
         )?;
         dict.set_item(
             "notAfter",
-            vm.ctx.new_utf8_str(cert.not_after().to_string()),
+            vm.ctx.new_str(cert.not_after().to_string()).into(),
             vm,
         )?;
 
@@ -1051,20 +1117,17 @@ fn cert_to_py(vm: &VirtualMachine, cert: &X509Ref, binary: bool) -> PyResult {
                 .iter()
                 .filter_map(|gen_name| {
                     if let Some(email) = gen_name.email() {
-                        Some(vm.ctx.new_tuple(vec![
-                            vm.ctx.new_ascii_literal(ascii!("email")),
-                            vm.ctx.new_utf8_str(email),
-                        ]))
+                        Some(vm.new_tuple((ascii!("email"), email)).into())
                     } else if let Some(dnsname) = gen_name.dnsname() {
-                        Some(vm.ctx.new_tuple(vec![
-                            vm.ctx.new_ascii_literal(ascii!("DNS")),
-                            vm.ctx.new_utf8_str(dnsname),
-                        ]))
+                        Some(vm.new_tuple((ascii!("DNS"), dnsname)).into())
                     } else if let Some(ip) = gen_name.ipaddress() {
-                        Some(vm.ctx.new_tuple(vec![
-                            vm.ctx.new_ascii_literal(ascii!("IP Address")),
-                            vm.ctx.new_utf8_str(String::from_utf8_lossy(ip).into_owned()),
-                        ]))
+                        Some(
+                            vm.new_tuple((
+                                ascii!("IP Address"),
+                                String::from_utf8_lossy(ip).into_owned(),
+                            ))
+                            .into(),
+                        )
                     } else {
                         // TODO: convert every type of general name:
                         // https://github.com/python/cpython/blob/3.6/Modules/_ssl.c#L1092-L1231
@@ -1072,10 +1135,10 @@ fn cert_to_py(vm: &VirtualMachine, cert: &X509Ref, binary: bool) -> PyResult {
                     }
                 })
                 .collect();
-            dict.set_item("subjectAltName", vm.ctx.new_tuple(san), vm)?;
+            dict.set_item("subjectAltName", vm.ctx.new_tuple(san).into(), vm)?;
         };
 
-        dict.into_object()
+        dict.into()
     };
     Ok(r)
 }
@@ -1150,11 +1213,11 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "_test_decode_cert" => named_function!(ctx, _ssl, _test_decode_cert),
 
         // Constants
-        "OPENSSL_VERSION" => ctx.new_utf8_str(openssl::version::version()),
+        "OPENSSL_VERSION" => ctx.new_str(openssl::version::version()),
         "OPENSSL_VERSION_NUMBER" => ctx.new_int(openssl::version::number()),
         "OPENSSL_VERSION_INFO" => parse_version_info(openssl::version::number()).into_pyobject(vm),
         "_OPENSSL_API_VERSION" => parse_version_info(openssl_api_version).into_pyobject(vm),
-        "_DEFAULT_CIPHERS" => ctx.new_utf8_str(DEFAULT_CIPHER_STRING),
+        "_DEFAULT_CIPHERS" => ctx.new_str(DEFAULT_CIPHER_STRING),
         // "PROTOCOL_SSLv2" => ctx.new_int(SslVersion::Ssl2 as u32), unsupported
         // "PROTOCOL_SSLv3" => ctx.new_int(SslVersion::Ssl3 as u32),
         "PROTOCOL_SSLv23" => ctx.new_int(SslVersion::Tls as u32),
