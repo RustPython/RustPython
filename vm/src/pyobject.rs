@@ -626,15 +626,6 @@ impl<T: PyObjectPayload> TryIntoRef<T> for PyRef<T> {
     }
 }
 
-impl<T> TryIntoRef<T> for PyObjectRef
-where
-    T: PyValue,
-{
-    fn try_into_ref(self, vm: &VirtualMachine) -> PyResult<PyRef<T>> {
-        TryFromObject::try_from_object(vm, self)
-    }
-}
-
 /// Implemented by any type that can be created from a Python object.
 ///
 /// Any type that implements `TryFromObject` is automatically `FromArgs`, and
