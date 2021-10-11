@@ -10,6 +10,7 @@ use crate::{
     builtins::{
         code::{self, PyCode},
         module, object,
+        pystr::IntoPyStrRef,
         tuple::{IntoPyTuple, PyTuple, PyTupleRef, PyTupleTyped},
         PyBaseException, PyBaseExceptionRef, PyDictRef, PyInt, PyIntRef, PyList, PyModule, PyStr,
         PyStrRef, PyTypeRef,
@@ -29,7 +30,7 @@ use crate::{
     stdlib,
     utils::Either,
     IdProtocol, ItemProtocol, PyArithmeticValue, PyContext, PyLease, PyMethod, PyObject,
-    PyObjectRef, PyRef, PyRefExact, PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
+    PyObjectRef, PyRef, PyRefExact, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::{Signed, ToPrimitive};
@@ -781,14 +782,10 @@ impl VirtualMachine {
         syntax_error
     }
 
-    pub fn new_import_error(
-        &self,
-        msg: String,
-        name: impl TryIntoRef<PyStr>,
-    ) -> PyBaseExceptionRef {
+    pub fn new_import_error(&self, msg: String, name: impl IntoPyStrRef) -> PyBaseExceptionRef {
         let import_error = self.ctx.exceptions.import_error.clone();
         let exc = self.new_exception_msg(import_error, msg);
-        self.set_attr(exc.as_object(), "name", name.try_into_ref(self))
+        self.set_attr(exc.as_object(), "name", name.into_pystr_ref(self))
             .unwrap();
         exc
     }
@@ -917,11 +914,11 @@ impl VirtualMachine {
     #[inline]
     pub fn import(
         &self,
-        module: impl TryIntoRef<PyStr>,
+        module: impl IntoPyStrRef,
         from_list: Option<PyTupleTyped<PyStrRef>>,
         level: usize,
     ) -> PyResult {
-        self._import_inner(module.try_into_ref(self), from_list, level)
+        self._import_inner(module.into_pystr_ref(self), from_list, level)
     }
 
     fn _import_inner(
@@ -1364,9 +1361,9 @@ impl VirtualMachine {
     #[cfg_attr(feature = "flame-it", flame("VirtualMachine"))]
     pub fn get_attribute<T>(&self, obj: PyObjectRef, attr_name: T) -> PyResult
     where
-        T: TryIntoRef<PyStr>,
+        T: IntoPyStrRef,
     {
-        let attr_name = attr_name.try_into_ref(self);
+        let attr_name = attr_name.into_pystr_ref(self);
         vm_trace!("vm.__getattribute__: {:?} {:?}", obj, attr_name);
         let getattro = obj
             .class()
@@ -1381,7 +1378,7 @@ impl VirtualMachine {
         attr_name: T,
     ) -> PyResult<Option<PyObjectRef>>
     where
-        T: TryIntoRef<PyStr>,
+        T: IntoPyStrRef,
     {
         match self.get_attribute(obj, attr_name) {
             Ok(attr) => Ok(Some(attr)),
@@ -1416,15 +1413,15 @@ impl VirtualMachine {
 
     pub fn set_attr<K, V>(&self, obj: &PyObjectRef, attr_name: K, attr_value: V) -> PyResult<()>
     where
-        K: TryIntoRef<PyStr>,
+        K: IntoPyStrRef,
         V: Into<PyObjectRef>,
     {
-        let attr_name = attr_name.try_into_ref(self);
+        let attr_name = attr_name.into_pystr_ref(self);
         self.call_set_attr(obj, attr_name, Some(attr_value.into()))
     }
 
-    pub fn del_attr(&self, obj: &PyObjectRef, attr_name: impl TryIntoRef<PyStr>) -> PyResult<()> {
-        let attr_name = attr_name.try_into_ref(self);
+    pub fn del_attr(&self, obj: &PyObjectRef, attr_name: impl IntoPyStrRef) -> PyResult<()> {
+        let attr_name = attr_name.into_pystr_ref(self);
         self.call_set_attr(obj, attr_name, None)
     }
 
@@ -2134,11 +2131,11 @@ impl VirtualMachine {
     pub fn __module_set_attr(
         &self,
         module: &PyObjectRef,
-        attr_name: impl TryIntoRef<PyStr>,
+        attr_name: impl IntoPyStrRef,
         attr_value: impl Into<PyObjectRef>,
     ) -> PyResult<()> {
         let val = attr_value.into();
-        object::setattr(module, attr_name.try_into_ref(self), Some(val), self)
+        object::setattr(module, attr_name.into_pystr_ref(self), Some(val), self)
     }
 }
 

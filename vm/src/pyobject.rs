@@ -407,11 +407,6 @@ impl<T: PyValue> IntoPyObject for PyRefExact<T> {
         self.obj.into()
     }
 }
-impl<T: PyValue> TryIntoRef<T> for PyRefExact<T> {
-    fn try_into_ref(self, _vm: &VirtualMachine) -> PyRef<T> {
-        self.obj
-    }
-}
 
 pub trait IdProtocol {
     fn get_id(&self) -> usize;
@@ -610,19 +605,6 @@ impl<T: TryFromObject> TryFromObject for Option<T> {
         } else {
             T::try_from_object(vm, obj).map(Some)
         }
-    }
-}
-
-/// Allows coercion of a types into PyRefs, so that we can write functions that can take
-/// refs, pyobject refs or basic types.
-pub trait TryIntoRef<T: PyObjectPayload> {
-    fn try_into_ref(self, vm: &VirtualMachine) -> PyRef<T>;
-}
-
-impl<T: PyObjectPayload> TryIntoRef<T> for PyRef<T> {
-    #[inline]
-    fn try_into_ref(self, _vm: &VirtualMachine) -> PyRef<T> {
-        self
     }
 }
 
