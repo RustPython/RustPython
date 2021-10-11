@@ -171,22 +171,22 @@ impl fmt::Display for PyStr {
 
 impl TryIntoRef<PyStr> for AsciiString {
     #[inline]
-    fn try_into_ref(self, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
-        Ok(unsafe { PyStr::new_ascii_unchecked(self.into()) }.into_ref(vm))
+    fn try_into_ref(self, vm: &VirtualMachine) -> PyRef<PyStr> {
+        unsafe { PyStr::new_ascii_unchecked(self.into()) }.into_ref(vm)
     }
 }
 
 impl TryIntoRef<PyStr> for String {
     #[inline]
-    fn try_into_ref(self, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
-        Ok(PyStr::from(self).into_ref(vm))
+    fn try_into_ref(self, vm: &VirtualMachine) -> PyRef<PyStr> {
+        PyStr::from(self).into_ref(vm)
     }
 }
 
 impl TryIntoRef<PyStr> for &str {
     #[inline]
-    fn try_into_ref(self, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
-        Ok(PyStr::from(self).into_ref(vm))
+    fn try_into_ref(self, vm: &VirtualMachine) -> PyRef<PyStr> {
+        PyStr::from(self).into_ref(vm)
     }
 }
 
