@@ -314,7 +314,7 @@ impl ModuleItem for ClassItem {
                 let noattr = class_attr.try_remove_name("noattr")?;
                 if noattr.is_none() {
                     return Err(syn::Error::new_spanned(
-                        class_attr,
+                        ident,
                         format!(
                             "#[{name}] requires #[pyattr] to be a module attribute. \
                              To keep it free type, try #[{name}(noattr)]",
@@ -381,8 +381,8 @@ impl ModuleItem for AttributeItem {
                 let py_name = get_py_name(&attr, ident)?;
                 (
                     py_name.clone(),
-                    quote! {
-                        vm.__module_set_attr(&module, #py_name, vm.new_pyobj(#ident(vm))).unwrap();
+                    quote_spanned! { ident.span() =>
+                        vm.__module_set_attr(module, #py_name, vm.new_pyobj(#ident(vm))).unwrap();
                     },
                 )
             }
@@ -390,8 +390,8 @@ impl ModuleItem for AttributeItem {
                 let py_name = get_py_name(&attr, ident)?;
                 (
                     py_name.clone(),
-                    quote! {
-                        vm.__module_set_attr(&module, #py_name, vm.new_pyobj(#ident)).unwrap();
+                    quote_spanned! { ident.span() =>
+                        vm.__module_set_attr(module, #py_name, vm.new_pyobj(#ident)).unwrap();
                     },
                 )
             }
@@ -409,8 +409,8 @@ impl ModuleItem for AttributeItem {
                     } else {
                         ident.to_string()
                     };
-                    let tokens = quote! {
-                        vm.__module_set_attr(&module, #py_name, vm.new_pyobj(#ident)).unwrap();
+                    let tokens = quote_spanned! { ident.span() =>
+                        vm.__module_set_attr(module, #py_name, vm.new_pyobj(#ident)).unwrap();
                     };
                     args.context
                         .module_extend_items
