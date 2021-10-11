@@ -1896,7 +1896,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "getaddrinfo" => named_function!(ctx, _socket, getaddrinfo),
         "gethostbyaddr" => named_function!(ctx, _socket, gethostbyaddr),
         "gethostbyname" => named_function!(ctx, _socket, gethostbyname),
-        "gethostbyname_ex" => named_function!(ctx, _socket, gethostbyname),
+        "gethostbyname_ex" => named_function!(ctx, _socket, gethostbyname_ex),
         "getnameinfo" => named_function!(ctx, _socket, getnameinfo),
         // constants
         "AF_UNSPEC" => ctx.new_int(0),
