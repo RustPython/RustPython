@@ -1301,10 +1301,10 @@ fn _socket_gethostbyname(name: PyStrRef, vm: &VirtualMachine) -> PyResult<String
     }
 }
 
-fn _socket_gethostbyaddr_ex(
+fn _socket_gethostbyname_ex(
     name: PyStrRef,
     vm: &VirtualMachine,
-) -> PyResult<(String, PyObjectRef, PyObjectRef)> {
+) -> PyResult<(String, PyListRef, PyListRef)> {
     let addr = get_addr(vm, name, c::AF_UNSPEC)?;
     let (hostname, _) = dns_lookup::getnameinfo(&addr, 0)
         .map_err(|e| convert_socket_error(vm, e, SocketError::HError))?;
@@ -1312,7 +1312,7 @@ fn _socket_gethostbyaddr_ex(
         hostname,
         vm.ctx.new_list(vec![]),
         vm.ctx
-            .new_list(vec![vm.ctx.new_utf8_str(addr.ip().to_string())]),
+            .new_list(vec![vm.ctx.new_str(addr.ip().to_string()).into()]),
     ))
 }
 
