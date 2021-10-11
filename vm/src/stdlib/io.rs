@@ -447,10 +447,10 @@ mod _io {
             instance: PyObjectRef,
             hint: OptionalOption<isize>,
             vm: &VirtualMachine,
-        ) -> PyResult {
+        ) -> PyResult<Vec<PyObjectRef>> {
             let hint = hint.flatten().unwrap_or(-1);
             if hint <= 0 {
-                return Ok(vm.ctx.new_list(vm.extract_elements(&instance)?));
+                return vm.extract_elements(&instance);
             }
             let hint = hint as usize;
             let mut ret = Vec::new();
@@ -465,7 +465,7 @@ mod _io {
                     break;
                 }
             }
-            Ok(vm.ctx.new_list(ret))
+            Ok(ret)
         }
 
         #[pymethod]

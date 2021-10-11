@@ -672,7 +672,7 @@ impl PyBytesInner {
         options: ByteInnerSplitOptions,
         convert: F,
         vm: &VirtualMachine,
-    ) -> PyResult<PyObjectRef>
+    ) -> PyResult<Vec<PyObjectRef>>
     where
         F: Fn(&[u8], &VirtualMachine) -> PyObjectRef,
     {
@@ -683,7 +683,7 @@ impl PyBytesInner {
             |v, s, n, vm| v.splitn_str(n, s).map(|v| convert(v, vm)).collect(),
             |v, n, vm| v.py_split_whitespace(n, |v| convert(v, vm)),
         )?;
-        Ok(vm.ctx.new_list(elements))
+        Ok(elements)
     }
 
     pub fn rsplit<F>(
@@ -691,7 +691,7 @@ impl PyBytesInner {
         options: ByteInnerSplitOptions,
         convert: F,
         vm: &VirtualMachine,
-    ) -> PyResult<PyObjectRef>
+    ) -> PyResult<Vec<PyObjectRef>>
     where
         F: Fn(&[u8], &VirtualMachine) -> PyObjectRef,
     {
@@ -703,7 +703,7 @@ impl PyBytesInner {
             |v, n, vm| v.py_rsplit_whitespace(n, |v| convert(v, vm)),
         )?;
         elements.reverse();
-        Ok(vm.ctx.new_list(elements))
+        Ok(elements)
     }
 
     pub fn partition(

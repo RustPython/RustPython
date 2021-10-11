@@ -614,14 +614,14 @@ impl ExecutingFrame<'_> {
                     .iter()
                     .map(|pyobj| pyobj.payload::<PyStr>().unwrap().as_ref())
                     .collect::<String>();
-                let str_obj = vm.ctx.new_str(s).into();
-                self.push_value(str_obj);
+                let str_obj = vm.ctx.new_str(s);
+                self.push_value(str_obj.into());
                 Ok(None)
             }
             bytecode::Instruction::BuildList { size, unpack } => {
                 let elements = self.get_elements(vm, *size as usize, *unpack)?;
                 let list_obj = vm.ctx.new_list(elements);
-                self.push_value(list_obj);
+                self.push_value(list_obj.into());
                 Ok(None)
             }
             bytecode::Instruction::BuildSet { size, unpack } => {
@@ -1464,7 +1464,7 @@ impl ExecutingFrame<'_> {
 
         let middle_elements = elements.drain(before..).collect();
         let t = vm.ctx.new_list(middle_elements);
-        self.push_value(t);
+        self.push_value(t.into());
 
         // Lastly the first reversed values:
         self.state.stack.extend(elements.into_iter().rev());

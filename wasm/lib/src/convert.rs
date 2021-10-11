@@ -186,7 +186,7 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
                 .into_iter()
                 .map(|val| js_to_py(vm, val.expect("Iteration over array failed")))
                 .collect();
-            vm.ctx.new_list(elems)
+            vm.ctx.new_list(elems).into()
         } else if ArrayBuffer::is_view(&js_val) || js_val.is_instance_of::<ArrayBuffer>() {
             // unchecked_ref because if it's not an ArrayByffer it could either be a TypedArray
             // or a DataView, but they all have a `buffer` property

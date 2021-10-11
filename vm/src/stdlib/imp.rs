@@ -41,8 +41,8 @@ mod lock {
 
 use lock::{_imp_acquire_lock, _imp_lock_held, _imp_release_lock};
 
-fn _imp_extension_suffixes(vm: &VirtualMachine) -> PyResult {
-    Ok(vm.ctx.new_list(vec![]))
+fn _imp_extension_suffixes() -> PyResult<Vec<PyObjectRef>> {
+    Ok(Vec::new())
 }
 
 fn _imp_is_builtin(name: PyStrRef, vm: &VirtualMachine) -> bool {

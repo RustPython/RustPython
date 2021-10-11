@@ -939,13 +939,13 @@ mod array {
         }
 
         #[pymethod]
-        fn tolist(&self, vm: &VirtualMachine) -> PyResult {
+        fn tolist(&self, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
             let array = self.read();
             let mut v = Vec::with_capacity(array.len());
             for obj in array.iter(vm) {
                 v.push(obj?);
             }
-            Ok(vm.ctx.new_list(v))
+            Ok(v)
         }
 
         #[pymethod]

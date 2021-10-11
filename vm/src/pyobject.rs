@@ -10,8 +10,8 @@ use crate::{
         bytes,
         getset::{IntoPyGetterFunc, IntoPySetterFunc, PyGetSet},
         object, pystr, PyBaseExceptionRef, PyBoundMethod, PyDict, PyDictRef, PyEllipsis, PyFloat,
-        PyFrozenSet, PyInt, PyIntRef, PyList, PyNone, PyNotImplemented, PyStr, PyTuple, PyTupleRef,
-        PyType, PyTypeRef,
+        PyFrozenSet, PyInt, PyIntRef, PyList, PyListRef, PyNone, PyNotImplemented, PyStr, PyTuple,
+        PyTupleRef, PyType, PyTypeRef,
     },
     dictdatatype::Dict,
     exceptions,
@@ -205,12 +205,12 @@ impl PyContext {
         PyTuple::new_ref(elements, self)
     }
 
-    pub fn new_list(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
-        PyObject::new(PyList::from(elements), self.types.list_type.clone(), None)
+    pub fn new_list(&self, elements: Vec<PyObjectRef>) -> PyListRef {
+        PyList::new_ref(elements, self)
     }
 
     pub fn new_dict(&self) -> PyDictRef {
-        PyRef::new_ref(PyDict::default(), self.types.dict_type.clone(), None)
+        PyDict::new_ref(self)
     }
 
     pub fn new_class(&self, name: &str, base: &PyTypeRef, slots: PyTypeSlots) -> PyTypeRef {

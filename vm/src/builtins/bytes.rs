@@ -372,13 +372,21 @@ impl PyBytes {
     }
 
     #[pymethod]
-    fn split(&self, options: ByteInnerSplitOptions, vm: &VirtualMachine) -> PyResult {
+    fn split(
+        &self,
+        options: ByteInnerSplitOptions,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<PyObjectRef>> {
         self.inner
             .split(options, |s, vm| vm.ctx.new_bytes(s.to_vec()).into(), vm)
     }
 
     #[pymethod]
-    fn rsplit(&self, options: ByteInnerSplitOptions, vm: &VirtualMachine) -> PyResult {
+    fn rsplit(
+        &self,
+        options: ByteInnerSplitOptions,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<PyObjectRef>> {
         self.inner
             .rsplit(options, |s, vm| vm.ctx.new_bytes(s.to_vec()).into(), vm)
     }
@@ -419,11 +427,9 @@ impl PyBytes {
     }
 
     #[pymethod]
-    fn splitlines(&self, options: anystr::SplitLinesArgs, vm: &VirtualMachine) -> PyObjectRef {
-        let lines = self
-            .inner
-            .splitlines(options, |x| vm.ctx.new_bytes(x.to_vec()).into());
-        vm.ctx.new_list(lines)
+    fn splitlines(&self, options: anystr::SplitLinesArgs, vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        self.inner
+            .splitlines(options, |x| vm.ctx.new_bytes(x.to_vec()).into())
     }
 
     #[pymethod]

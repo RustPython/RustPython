@@ -3,7 +3,7 @@ use crate::common::{
     hash::{PyHash, PyUHash},
 };
 use crate::{
-    builtins::{PyStr, PyStrRef, PyTupleRef, PyTypeRef},
+    builtins::{PyListRef, PyStr, PyStrRef, PyTupleRef, PyTypeRef},
     exceptions,
     frame::FrameRef,
     function::{FuncArgs, OptionalArg, PosArgs},
@@ -22,7 +22,7 @@ use std::{env, mem, path};
 pub(crate) const MAXSIZE: isize = isize::MAX;
 const MAXUNICODE: u32 = std::char::MAX as u32;
 
-fn argv(vm: &VirtualMachine) -> PyObjectRef {
+fn argv(vm: &VirtualMachine) -> PyListRef {
     vm.ctx.new_list(
         vm.state
             .settings

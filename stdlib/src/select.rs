@@ -1,4 +1,4 @@
-use crate::vm::{PyObjectRef, PyResult, TryFromObject, VirtualMachine};
+use crate::vm::{builtins::PyListRef, PyObjectRef, PyResult, TryFromObject, VirtualMachine};
 use std::{io, mem};
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
@@ -165,7 +165,7 @@ mod decl {
         xlist: PyObjectRef,
         timeout: OptionalOption<Either<f64, isize>>,
         vm: &VirtualMachine,
-    ) -> PyResult<(PyObjectRef, PyObjectRef, PyObjectRef)> {
+    ) -> PyResult<(PyListRef, PyListRef, PyListRef)> {
         let mut timeout = timeout.flatten().map(|e| match e {
             Either::A(f) => f,
             Either::B(i) => i as f64,
@@ -336,7 +336,11 @@ mod decl {
             }
 
             #[pymethod]
-            fn poll(&self, timeout: OptionalOption, vm: &VirtualMachine) -> PyResult {
+            fn poll(
+                &self,
+                timeout: OptionalOption,
+                vm: &VirtualMachine,
+            ) -> PyResult<Vec<PyObjectRef>> {
                 let mut fds = self.fds.lock();
                 let timeout_ms = match timeout.flatten() {
                     Some(ms) => {
@@ -380,12 +384,11 @@ mod decl {
                         Err(e) => return Err(e.into_pyexception(vm)),
                     }
                 }
-                let list = fds
+                Ok(fds
                     .iter()
                     .filter(|pfd| pfd.revents != 0)
                     .map(|pfd| (pfd.fd, pfd.revents & 0xfff).into_pyobject(vm))
-                    .collect();
-                Ok(vm.ctx.new_list(list))
+                    .collect())
             }
         }
     }

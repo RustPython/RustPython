@@ -600,7 +600,7 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn split(&self, args: SplitArgs, vm: &VirtualMachine) -> PyResult {
+    fn split(&self, args: SplitArgs, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         let elements = match self.kind.kind() {
             PyStrKind::Ascii => self.as_str().py_split(
                 args,
@@ -635,11 +635,11 @@ impl PyStr {
                 |v, n, vm| v.py_split_whitespace(n, |s| vm.ctx.new_str(s).into()),
             ),
         }?;
-        Ok(vm.ctx.new_list(elements))
+        Ok(elements)
     }
 
     #[pymethod]
-    fn rsplit(&self, args: SplitArgs, vm: &VirtualMachine) -> PyResult {
+    fn rsplit(&self, args: SplitArgs, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         let mut elements = self.as_str().py_split(
             args,
             vm,
@@ -650,7 +650,7 @@ impl PyStr {
         // Unlike Python rsplit, Rust rsplitn returns an iterator that
         // starts from the end of the string.
         elements.reverse();
-        Ok(vm.ctx.new_list(elements))
+        Ok(elements)
     }
 
     #[pymethod]
@@ -917,11 +917,9 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn splitlines(&self, args: anystr::SplitLinesArgs, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_list(
-            self.as_str()
-                .py_splitlines(args, |s| self.new_substr(s.to_owned()).into_pyobject(vm)),
-        )
+    fn splitlines(&self, args: anystr::SplitLinesArgs, vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        self.as_str()
+            .py_splitlines(args, |s| self.new_substr(s.to_owned()).into_pyobject(vm))
     }
 
     #[pymethod]

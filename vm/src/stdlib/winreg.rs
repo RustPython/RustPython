@@ -255,7 +255,7 @@ fn reg_to_py(value: RegValue, vm: &VirtualMachine) -> PyResult {
         }
         RegType::REG_MULTI_SZ => {
             if value.bytes.is_empty() {
-                return Ok(vm.ctx.new_list(vec![]));
+                return Ok(vm.ctx.new_list(vec![]).into());
             }
             let wide_slice = bytes_to_wide(&value.bytes).ok_or_else(|| {
                 vm.new_value_error(
@@ -271,7 +271,7 @@ fn reg_to_py(value: RegValue, vm: &VirtualMachine) -> PyResult {
                 .split(|c| *c == 0)
                 .map(|s| vm.new_pyobj(String::from_utf16_lossy(s)))
                 .collect();
-            Ok(vm.ctx.new_list(strings))
+            Ok(vm.ctx.new_list(strings).into())
         }
         _ => {
             if value.bytes.is_empty() {

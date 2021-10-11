@@ -78,7 +78,7 @@ fn pwd_getpwuid(uid: PyIntRef, vm: &VirtualMachine) -> PyResult<Passwd> {
 }
 
 // TODO: maybe merge this functionality into nix?
-fn pwd_getpwall(vm: &VirtualMachine) -> PyResult {
+fn pwd_getpwall(vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
     // setpwent, getpwent, etc are not thread safe. Could use fgetpwent_r, but this is easier
     static GETPWALL: parking_lot::Mutex<()> = parking_lot::const_mutex(());
     let _guard = GETPWALL.lock();
@@ -92,7 +92,7 @@ fn pwd_getpwall(vm: &VirtualMachine) -> PyResult {
     }
     unsafe { libc::endpwent() };
 
-    Ok(vm.ctx.new_list(list))
+    Ok(list)
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {

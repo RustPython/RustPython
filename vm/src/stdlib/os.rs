@@ -614,7 +614,7 @@ pub(super) mod _os {
     const LISTDIR_FD: bool = cfg!(all(unix, not(target_os = "redox")));
 
     #[pyfunction]
-    fn listdir(path: OptionalArg<PathOrFd>, vm: &VirtualMachine) -> PyResult {
+    fn listdir(path: OptionalArg<PathOrFd>, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         let path = path.unwrap_or_else(|| PathOrFd::Path(PyPathLike::new_str(".")));
         let list = match path {
             PathOrFd::Path(path) => {
@@ -662,7 +662,7 @@ pub(super) mod _os {
                 }
             }
         };
-        Ok(vm.ctx.new_list(list))
+        Ok(list)
     }
 
     #[pyfunction]

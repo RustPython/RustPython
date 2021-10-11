@@ -527,7 +527,11 @@ impl PyByteArray {
     }
 
     #[pymethod]
-    fn split(&self, options: ByteInnerSplitOptions, vm: &VirtualMachine) -> PyResult {
+    fn split(
+        &self,
+        options: ByteInnerSplitOptions,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<PyObjectRef>> {
         self.inner().split(
             options,
             |s, vm| Self::new_ref(s.to_vec(), &vm.ctx).into(),
@@ -536,7 +540,11 @@ impl PyByteArray {
     }
 
     #[pymethod]
-    fn rsplit(&self, options: ByteInnerSplitOptions, vm: &VirtualMachine) -> PyResult {
+    fn rsplit(
+        &self,
+        options: ByteInnerSplitOptions,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<PyObjectRef>> {
         self.inner().rsplit(
             options,
             |s, vm| Self::new_ref(s.to_vec(), &vm.ctx).into(),
@@ -574,11 +582,9 @@ impl PyByteArray {
     }
 
     #[pymethod]
-    fn splitlines(&self, options: anystr::SplitLinesArgs, vm: &VirtualMachine) -> PyObjectRef {
-        let lines = self
-            .inner()
-            .splitlines(options, |x| Self::new_ref(x.to_vec(), &vm.ctx).into());
-        vm.ctx.new_list(lines)
+    fn splitlines(&self, options: anystr::SplitLinesArgs, vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        self.inner()
+            .splitlines(options, |x| Self::new_ref(x.to_vec(), &vm.ctx).into())
     }
 
     #[pymethod]
