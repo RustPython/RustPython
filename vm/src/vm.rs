@@ -325,7 +325,7 @@ impl VirtualMachine {
         }
 
         stdlib::builtins::make_module(self, self.builtins.clone());
-        stdlib::sys::make_module(self, self.sys_module.clone(), self.builtins.clone());
+        stdlib::sys::init_module(self, &self.sys_module, &self.builtins);
 
         let mut inner_init = || -> PyResult<()> {
             #[cfg(not(target_arch = "wasm32"))]
