@@ -5756,6 +5756,7 @@ class SendfileUsingSendTest(ThreadedTCPSocketTest):
             self.assertEqual(sent, count)
             self.assertEqual(file.tell(), count)
 
+    @unittest.skipIf(sys.platform == "darwin", "TODO: RUSTPYTHON, killed (for OOM?)")
     def testCount(self):
         count = 5000007
         conn = self.accept_conn()
@@ -5827,6 +5828,7 @@ class SendfileUsingSendTest(ThreadedTCPSocketTest):
             sent = meth(file)
             self.assertEqual(sent, self.FILESIZE)
 
+    @unittest.skipIf(sys.platform == "darwin", "TODO: RUSTPYTHON, killed (for OOM?)")
     def testWithTimeout(self):
         conn = self.accept_conn()
         data = self.recv_data(conn)

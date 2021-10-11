@@ -101,6 +101,7 @@ pub mod module {
     const EX_CONFIG: i8 = exitcode::CONFIG as i8;
 
     #[cfg(any(
+        target_os = "macos",
         target_os = "linux",
         target_os = "android",
         target_os = "freebsd",
@@ -111,6 +112,7 @@ pub mod module {
     #[pyattr]
     const SCHED_RR: i32 = libc::SCHED_RR;
     #[cfg(any(
+        target_os = "macos",
         target_os = "linux",
         target_os = "android",
         target_os = "freebsd",
@@ -121,6 +123,7 @@ pub mod module {
     #[pyattr]
     const SCHED_FIFO: i32 = libc::SCHED_FIFO;
     #[cfg(any(
+        target_os = "macos",
         target_os = "linux",
         target_os = "freebsd",
         target_os = "dragonfly",
