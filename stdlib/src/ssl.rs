@@ -168,7 +168,7 @@ fn obj2py(obj: &Asn1ObjectRef) -> PyNid {
 }
 
 #[cfg(windows)]
-fn _ssl_enum_certificates(store_name: PyStrRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+fn _ssl_enum_certificates(store_name: PyStrRef, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
     use crate::vm::builtins::PyFrozenSet;
     use schannel::{cert_context::ValidUses, cert_store::CertStore, RawPointer};
     use winapi::um::wincrypt;
@@ -205,7 +205,7 @@ fn _ssl_enum_certificates(store_name: PyStrRef, vm: &VirtualMachine) -> PyResult
     let certs = certs
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e: std::io::Error| e.into_pyexception(vm))?;
-    Ok(vm.ctx.new_list(certs))
+    Ok(certs)
 }
 
 #[derive(FromArgs)]
@@ -537,7 +537,11 @@ impl PySslContext {
     }
 
     #[pymethod]
-    fn get_ca_certs(&self, binary_form: OptionalArg<bool>, vm: &VirtualMachine) -> PyResult {
+    fn get_ca_certs(
+        &self,
+        binary_form: OptionalArg<bool>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<PyObjectRef>> {
         let binary_form = binary_form.unwrap_or(false);
         self.exec_ctx(|ctx| {
             let certs = ctx
@@ -547,7 +551,7 @@ impl PySslContext {
                 .filter_map(|obj| obj.x509())
                 .map(|cert| cert_to_py(vm, cert, binary_form))
                 .collect::<Result<Vec<_>, _>>()?;
-            Ok(vm.ctx.new_list(certs))
+            Ok(certs)
         })
     }
 

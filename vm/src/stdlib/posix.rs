@@ -226,14 +226,12 @@ pub mod module {
     }
 
     #[pyfunction]
-    fn getgroups(vm: &VirtualMachine) -> PyResult {
+    fn getgroups(vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         let group_ids = getgroups_impl().map_err(|e| e.into_pyexception(vm))?;
-        Ok(vm.ctx.new_list(
-            group_ids
-                .into_iter()
-                .map(|gid| vm.ctx.new_int(gid.as_raw()).into())
-                .collect(),
-        ))
+        Ok(group_ids
+            .into_iter()
+            .map(|gid| vm.ctx.new_int(gid.as_raw()).into())
+            .collect())
     }
 
     #[pyfunction]
@@ -1476,16 +1474,14 @@ pub mod module {
         target_os = "openbsd"
     ))]
     #[pyfunction]
-    fn getgrouplist(user: PyStrRef, group: u32, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+    fn getgrouplist(user: PyStrRef, group: u32, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         let user = CString::new(user.as_str()).unwrap();
         let gid = Gid::from_raw(group);
         let group_ids = unistd::getgrouplist(&user, gid).map_err(|err| err.into_pyexception(vm))?;
-        Ok(vm.ctx.new_list(
-            group_ids
-                .into_iter()
-                .map(|gid| vm.new_pyobj(gid.as_raw()))
-                .collect(),
-        ))
+        Ok(group_ids
+            .into_iter()
+            .map(|gid| vm.new_pyobj(gid.as_raw()))
+            .collect())
     }
 
     #[cfg(not(target_os = "redox"))]

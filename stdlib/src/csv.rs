@@ -163,7 +163,7 @@ impl SlotIterator for Reader {
                 Ok(vm.ctx.new_str(s).into())
             })
             .collect::<Result<_, _>>()?;
-        Ok(PyIterReturn::Return(vm.ctx.new_list(out)))
+        Ok(PyIterReturn::Return(vm.ctx.new_list(out).into()))
     }
 }
 

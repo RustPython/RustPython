@@ -90,11 +90,13 @@ trait NamedNode: Node {
 
 impl<T: Node> Node for Vec<T> {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_list(
-            self.into_iter()
-                .map(|node| node.ast_to_object(vm))
-                .collect(),
-        )
+        vm.ctx
+            .new_list(
+                self.into_iter()
+                    .map(|node| node.ast_to_object(vm))
+                    .collect(),
+            )
+            .into()
     }
 
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {

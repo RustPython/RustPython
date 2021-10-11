@@ -53,6 +53,12 @@ impl PyValue for PyDict {
     }
 }
 
+impl PyDict {
+    pub fn new_ref(ctx: &PyContext) -> PyRef<Self> {
+        PyRef::new_ref(Self::default(), ctx.types.dict_type.clone(), None)
+    }
+}
+
 // Python dict methods:
 #[allow(clippy::len_without_is_empty)]
 #[pyimpl(with(AsMapping, Hashable, Comparable, Iterable), flags(BASETYPE))]

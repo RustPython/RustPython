@@ -383,11 +383,9 @@ fn reduce_set(
 ) -> PyResult<(PyTypeRef, PyTupleRef, Option<PyDictRef>)> {
     Ok((
         zelf.clone_class(),
-        vm.ctx.new_tuple(vec![vm.ctx.new_list(
-            extract_set(zelf)
-                .unwrap_or(&PySetInner::default())
-                .elements(),
-        )]),
+        vm.new_tuple((extract_set(zelf)
+            .unwrap_or(&PySetInner::default())
+            .elements(),)),
         zelf.dict(),
     ))
 }
@@ -898,12 +896,14 @@ impl PySetIterator {
         let internal = zelf.internal.lock();
         Ok((
             builtins_iter(vm).clone(),
-            (vm.ctx.new_list(match &internal.status {
-                IterStatus::Exhausted => vec![],
-                IterStatus::Active(dict) => {
-                    dict.keys().into_iter().skip(internal.position).collect()
-                }
-            }),),
+            (vm.ctx
+                .new_list(match &internal.status {
+                    IterStatus::Exhausted => vec![],
+                    IterStatus::Active(dict) => {
+                        dict.keys().into_iter().skip(internal.position).collect()
+                    }
+                })
+                .into(),),
         ))
     }
 }

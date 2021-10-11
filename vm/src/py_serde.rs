@@ -195,7 +195,7 @@ impl<'de> Visitor<'de> for PyObjectDeserializer<'de> {
         while let Some(value) = access.next_element_seed(self.clone())? {
             seq.push(value);
         }
-        Ok(self.vm.ctx.new_list(seq))
+        Ok(self.vm.ctx.new_list(seq).into())
     }
 
     fn visit_map<M>(self, mut access: M) -> Result<Self::Value, M::Error>

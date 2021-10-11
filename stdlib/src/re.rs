@@ -211,7 +211,7 @@ mod re {
                 }
             })
             .collect();
-        Ok(vm.ctx.new_list(out))
+        Ok(vm.ctx.new_list(out).into())
     }
 
     fn do_split(
@@ -224,7 +224,7 @@ mod re {
             .as_ref()
             .map_or(false, |i| i.as_bigint().is_negative())
         {
-            return Ok(vm.ctx.new_list(vec![search_text.into()]));
+            return Ok(vm.ctx.new_list(vec![search_text.into()]).into());
         }
         let maxsplit = maxsplit
             .map(|i| i.try_to_primitive::<usize>(vm))
@@ -257,7 +257,7 @@ mod re {
                 )
             })
             .collect();
-        Ok(vm.ctx.new_list(split))
+        Ok(vm.ctx.new_list(split).into())
     }
 
     fn make_regex(vm: &VirtualMachine, pattern: &str, flags: PyRegexFlags) -> PyResult<PyPattern> {

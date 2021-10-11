@@ -3,7 +3,7 @@ use crate::common::lock::{
     PyMappedRwLockReadGuard, PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
 };
 use crate::{
-    function::{ArgIterable, FuncArgs, OptionalArg},
+    function::{ArgIterable, FuncArgs, IntoPyObject, OptionalArg},
     protocol::{PyIterReturn, PyMappingMethods},
     sequence::{self, SimpleSeq},
     sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
@@ -59,7 +59,17 @@ impl PyValue for PyList {
     }
 }
 
+impl IntoPyObject for Vec<PyObjectRef> {
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+        PyList::new_ref(self, &vm.ctx).into()
+    }
+}
+
 impl PyList {
+    pub fn new_ref(elements: Vec<PyObjectRef>, ctx: &PyContext) -> PyRef<Self> {
+        PyRef::new_ref(Self::from(elements), ctx.types.list_type.clone(), None)
+    }
+
     pub fn borrow_vec(&self) -> PyMappedRwLockReadGuard<'_, [PyObjectRef]> {
         PyRwLockReadGuard::map(self.elements.read(), |v| &**v)
     }
@@ -101,18 +111,17 @@ impl PyList {
     }
 
     #[pymethod(magic)]
-    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(other) = other.payload_if_subclass::<PyList>(vm) {
-            let mut elements = self.borrow_vec().to_vec();
-            elements.extend(other.borrow_vec().iter().cloned());
-            Ok(vm.ctx.new_list(elements))
-        } else {
-            Err(vm.new_type_error(format!(
+    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyListRef> {
+        let other = other.payload_if_subclass::<PyList>(vm).ok_or_else(|| {
+            vm.new_type_error(format!(
                 "Cannot add {} and {}",
                 Self::class(vm).name(),
                 other.class().name()
-            )))
-        }
+            ))
+        })?;
+        let mut elements = self.borrow_vec().to_vec();
+        elements.extend(other.borrow_vec().iter().cloned());
+        Ok(Self::new_ref(elements, &vm.ctx))
     }
 
     #[pymethod(magic)]
@@ -137,8 +146,8 @@ impl PyList {
     }
 
     #[pymethod]
-    fn copy(&self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_list(self.borrow_vec().to_vec())
+    fn copy(&self, vm: &VirtualMachine) -> PyListRef {
+        Self::new_ref(self.borrow_vec().to_vec(), &vm.ctx)
     }
 
     #[pymethod(magic)]
@@ -168,7 +177,7 @@ impl PyList {
     fn getitem(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let result = match zelf.borrow_vec().get_item(vm, needle, Self::NAME)? {
             Either::A(obj) => obj,
-            Either::B(vec) => vm.ctx.new_list(vec),
+            Either::B(vec) => Self::new_ref(vec, &vm.ctx).into(),
         };
         Ok(result)
     }
@@ -226,11 +235,11 @@ impl PyList {
 
     #[pymethod(magic)]
     #[pymethod(name = "__rmul__")]
-    fn mul(&self, value: isize, vm: &VirtualMachine) -> PyResult {
+    fn mul(&self, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         let new_elements = sequence::seq_mul(vm, &self.borrow_vec(), value)?
             .cloned()
             .collect();
-        Ok(vm.ctx.new_list(new_elements))
+        Ok(Self::new_ref(new_elements, &vm.ctx))
     }
 
     #[pymethod(magic)]

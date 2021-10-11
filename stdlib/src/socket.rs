@@ -1,6 +1,6 @@
 use crate::common::lock::{PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard};
 use crate::vm::{
-    builtins::{PyBaseExceptionRef, PyStrRef, PyTupleRef, PyTypeRef},
+    builtins::{PyBaseExceptionRef, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
     extend_module,
     function::{
         ArgBytesLike, ArgMemoryBuffer, FuncArgs, IntoPyException, IntoPyObject, OptionalArg,
@@ -1240,7 +1240,7 @@ struct GAIOptions {
     flags: i32,
 }
 
-fn _socket_getaddrinfo(opts: GAIOptions, vm: &VirtualMachine) -> PyResult {
+fn _socket_getaddrinfo(opts: GAIOptions, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
     let hints = dns_lookup::AddrInfoHints {
         socktype: opts.ty,
         protocol: opts.proto,
@@ -1275,13 +1275,13 @@ fn _socket_getaddrinfo(opts: GAIOptions, vm: &VirtualMachine) -> PyResult {
         })
         .collect::<io::Result<Vec<_>>>()
         .map_err(|e| e.into_pyexception(vm))?;
-    Ok(vm.ctx.new_list(list))
+    Ok(list)
 }
 
 fn _socket_gethostbyaddr(
     addr: PyStrRef,
     vm: &VirtualMachine,
-) -> PyResult<(String, PyObjectRef, PyObjectRef)> {
+) -> PyResult<(String, PyListRef, PyListRef)> {
     let addr = get_addr(vm, addr, c::AF_UNSPEC)?;
     let (hostname, _) = dns_lookup::getnameinfo(&addr, 0)
         .map_err(|e| convert_socket_error(vm, e, SocketError::HError))?;
@@ -1455,7 +1455,7 @@ fn _socket_if_indextoname(index: IfIndex, vm: &VirtualMachine) -> PyResult<Strin
     target_os = "netbsd",
     target_os = "openbsd",
 ))]
-fn _socket_if_nameindex(vm: &VirtualMachine) -> PyResult {
+fn _socket_if_nameindex(vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
     #[cfg(not(windows))]
     {
         let list = if_nameindex()
@@ -1469,7 +1469,7 @@ fn _socket_if_nameindex(vm: &VirtualMachine) -> PyResult {
             })
             .collect();
 
-        return Ok(vm.ctx.new_list(list));
+        return Ok(list);
 
         // all the stuff below should be in nix soon, hopefully
 
@@ -1530,7 +1530,7 @@ fn _socket_if_nameindex(vm: &VirtualMachine) -> PyResult {
             Ok(tup.into_pyobject(vm))
         });
         let list = list.collect::<PyResult<_>>()?;
-        return Ok(vm.ctx.new_list(list));
+        return Ok(list);
 
         fn get_name(luid: &winapi::shared::ifdef::NET_LUID) -> io::Result<widestring::WideCString> {
             let mut buf = [0; c::IF_NAMESIZE + 1];

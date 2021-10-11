@@ -503,9 +503,8 @@ impl PyType {
     }
 
     #[pymethod]
-    fn mro(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx
-            .new_list(zelf.iter_mro().map(|cls| cls.clone().into()).collect())
+    fn mro(zelf: PyRef<Self>) -> Vec<PyObjectRef> {
+        zelf.iter_mro().map(|cls| cls.clone().into()).collect()
     }
     #[pyslot]
     fn slot_new(metatype: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {

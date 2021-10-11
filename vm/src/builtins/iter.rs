@@ -61,7 +61,7 @@ impl<T> PositionIterInternal<T> {
         if let IterStatus::Active(obj) = &self.status {
             vm.new_tuple((func, (f(obj),), self.position))
         } else {
-            vm.new_tuple((func, (vm.ctx.new_list(vec![]),)))
+            vm.new_tuple((func, (vm.ctx.new_list(Vec::new()),)))
         }
     }
 
