@@ -950,7 +950,12 @@ trait ViewSetOps: DictView {
 
 impl ViewSetOps for PyDictKeys {}
 #[pyimpl(with(DictView, Comparable, Iterable, ViewSetOps))]
-impl PyDictKeys {}
+impl PyDictKeys {
+    #[pymethod(magic)]
+    fn contains(zelf: PyRef<Self>, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        zelf.dict().contains(key, vm)
+    }
+}
 
 impl ViewSetOps for PyDictItems {}
 #[pyimpl(with(DictView, Comparable, Iterable, ViewSetOps))]
