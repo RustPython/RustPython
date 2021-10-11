@@ -83,7 +83,7 @@ pub(crate) mod module {
 
         for (key, value) in env::vars() {
             environ
-                .set_item(vm.ctx.new_utf8_str(key), vm.ctx.new_utf8_str(value), vm)
+                .set_item(vm.new_pyobj(key), vm.new_pyobj(value), vm)
                 .unwrap();
         }
         environ

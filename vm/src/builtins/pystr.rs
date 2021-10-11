@@ -109,12 +109,9 @@ impl AsRef<str> for PyStrRef {
     }
 }
 
-impl<T> From<&T> for PyStr
-where
-    T: AsRef<str> + ?Sized,
-{
-    fn from(s: &T) -> PyStr {
-        s.as_ref().to_owned().into()
+impl<'a> From<&'a AsciiStr> for PyStr {
+    fn from(s: &'a AsciiStr) -> Self {
+        s.to_owned().into()
     }
 }
 
@@ -124,9 +121,21 @@ impl From<AsciiString> for PyStr {
     }
 }
 
+impl<'a> From<&'a str> for PyStr {
+    fn from(s: &'a str) -> Self {
+        s.to_owned().into()
+    }
+}
+
 impl From<String> for PyStr {
     fn from(s: String) -> Self {
         s.into_boxed_str().into()
+    }
+}
+
+impl<'a> From<std::borrow::Cow<'a, str>> for PyStr {
+    fn from(s: std::borrow::Cow<'a, str>) -> Self {
+        s.into_owned().into()
     }
 }
 
@@ -621,9 +630,9 @@ impl PyStr {
             PyStrKind::Utf8 => self.as_str().py_split(
                 args,
                 vm,
-                |v, s, vm| v.split(s).map(|s| vm.ctx.new_utf8_str(s)).collect(),
-                |v, s, n, vm| v.splitn(n, s).map(|s| vm.ctx.new_utf8_str(s)).collect(),
-                |v, n, vm| v.py_split_whitespace(n, |s| vm.ctx.new_utf8_str(s)),
+                |v, s, vm| v.split(s).map(|s| vm.ctx.new_str(s).into()).collect(),
+                |v, s, n, vm| v.splitn(n, s).map(|s| vm.ctx.new_str(s).into()).collect(),
+                |v, n, vm| v.py_split_whitespace(n, |s| vm.ctx.new_str(s).into()),
             ),
         }?;
         Ok(vm.ctx.new_list(elements))
@@ -634,9 +643,9 @@ impl PyStr {
         let mut elements = self.as_str().py_split(
             args,
             vm,
-            |v, s, vm| v.rsplit(s).map(|s| vm.ctx.new_utf8_str(s)).collect(),
-            |v, s, n, vm| v.rsplitn(n, s).map(|s| vm.ctx.new_utf8_str(s)).collect(),
-            |v, n, vm| v.py_rsplit_whitespace(n, |s| vm.ctx.new_utf8_str(s)),
+            |v, s, vm| v.rsplit(s).map(|s| vm.ctx.new_str(s).into()).collect(),
+            |v, s, n, vm| v.rsplitn(n, s).map(|s| vm.ctx.new_str(s).into()).collect(),
+            |v, n, vm| v.py_rsplit_whitespace(n, |s| vm.ctx.new_str(s).into()),
         )?;
         // Unlike Python rsplit, Rust rsplitn returns an iterator that
         // starts from the end of the string.
@@ -970,9 +979,9 @@ impl PyStr {
         let partition = (
             self.new_substr(front),
             if has_mid {
-                sep.into()
+                sep
             } else {
-                vm.ctx.new_ascii_literal(ascii!(""))
+                vm.ctx.new_str(ascii!(""))
             },
             self.new_substr(back),
         );
@@ -989,9 +998,9 @@ impl PyStr {
         Ok((
             self.new_substr(front),
             if has_mid {
-                sep.into()
+                sep
             } else {
-                vm.ctx.new_ascii_literal(ascii!(""))
+                vm.ctx.new_str(ascii!(""))
             },
             self.new_substr(back),
         )
@@ -1314,31 +1323,37 @@ impl PyValue for PyStr {
 
 impl IntoPyObject for String {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_utf8_str(self)
+        vm.ctx.new_str(self).into()
     }
 }
 
 impl IntoPyObject for char {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_utf8_str(self.to_string())
+        vm.ctx.new_str(self.to_string()).into()
     }
 }
 
 impl IntoPyObject for &str {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_utf8_str(self)
+        vm.ctx.new_str(self).into()
     }
 }
 
 impl IntoPyObject for &String {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_utf8_str(self.clone())
+        vm.ctx.new_str(self.clone()).into()
     }
 }
 
 impl IntoPyObject for &AsciiStr {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_ascii_literal(self)
+        vm.ctx.new_str(self).into()
+    }
+}
+
+impl IntoPyObject for AsciiString {
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.new_str(self).into()
     }
 }
 
@@ -1539,10 +1554,12 @@ mod tests {
     fn str_maketrans_and_translate() {
         Interpreter::default().enter(|vm| {
             let table = vm.ctx.new_dict();
-            table.set_item("a", vm.ctx.new_utf8_str("🎅"), &vm).unwrap();
+            table
+                .set_item("a", vm.ctx.new_str("🎅").into(), &vm)
+                .unwrap();
             table.set_item("b", vm.ctx.none(), &vm).unwrap();
             table
-                .set_item("c", vm.ctx.new_ascii_literal(ascii!("xda")), &vm)
+                .set_item("c", vm.ctx.new_str(ascii!("xda")).into(), &vm)
                 .unwrap();
             let translated = PyStr::maketrans(
                 table.into(),

@@ -132,11 +132,7 @@ fn bench_rustpy_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchmar
             if let Some(idx) = iterations {
                 scope
                     .locals
-                    .set_item(
-                        vm.ctx.new_ascii_literal(ascii!("ITERATIONS")),
-                        vm.new_pyobj(idx),
-                        vm,
-                    )
+                    .set_item(vm.new_pyobj(ascii!("ITERATIONS")), vm.new_pyobj(idx), vm)
                     .expect("Error adding ITERATIONS local variable");
             }
             let setup_result = vm.run_code_obj(setup_code.clone(), scope.clone());

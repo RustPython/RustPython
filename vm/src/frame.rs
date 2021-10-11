@@ -614,7 +614,7 @@ impl ExecutingFrame<'_> {
                     .iter()
                     .map(|pyobj| pyobj.payload::<PyStr>().unwrap().as_ref())
                     .collect::<String>();
-                let str_obj = vm.ctx.new_utf8_str(s);
+                let str_obj = vm.ctx.new_str(s).into();
                 self.push_value(str_obj);
                 Ok(None)
             }
@@ -1016,7 +1016,7 @@ impl ExecutingFrame<'_> {
                 let value = match conversion {
                     ConversionFlag::Str => vm.to_str(&value)?.into(),
                     ConversionFlag::Repr => vm.to_repr(&value)?.into(),
-                    ConversionFlag::Ascii => vm.ctx.new_utf8_str(builtins::ascii(value, vm)?),
+                    ConversionFlag::Ascii => vm.ctx.new_str(builtins::ascii(value, vm)?).into(),
                     ConversionFlag::None => value,
                 };
 
@@ -1566,7 +1566,7 @@ impl ExecutingFrame<'_> {
         vm.set_attr(&func_obj, "__doc__", vm.ctx.none())?;
 
         let name = qualified_name.as_str().split('.').next_back().unwrap();
-        vm.set_attr(&func_obj, "__name__", vm.ctx.new_utf8_str(name))?;
+        vm.set_attr(&func_obj, "__name__", vm.new_pyobj(name))?;
         vm.set_attr(&func_obj, "__qualname__", qualified_name)?;
         let module = vm.unwrap_or_none(self.globals.get_item_option("__name__", vm)?);
         vm.set_attr(&func_obj, "__module__", module)?;

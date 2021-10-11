@@ -58,7 +58,8 @@ mod _sre {
         match this {
             StrDrive::Str(s) => vm
                 .ctx
-                .new_utf8_str(s.chars().take(end).skip(start).collect::<String>()),
+                .new_str(s.chars().take(end).skip(start).collect::<String>())
+                .into(),
             StrDrive::Bytes(b) => vm
                 .ctx
                 .new_bytes(b.iter().take(end).skip(start).cloned().collect())
@@ -266,11 +267,8 @@ mod _sre {
                             m.get_slice(zelf.groups, state.string, vm)
                                 .unwrap_or_else(|| vm.ctx.none())
                         } else {
-                            m.groups(
-                                OptionalArg::Present(vm.ctx.new_ascii_literal(ascii!(""))),
-                                vm,
-                            )?
-                            .into()
+                            m.groups(OptionalArg::Present(vm.ctx.new_str(ascii!("")).into()), vm)?
+                                .into()
                         };
 
                         matchlist.push(item);
@@ -505,7 +503,7 @@ mod _sre {
                 let join_type = if zelf.isbytes {
                     vm.ctx.new_bytes(vec![]).into()
                 } else {
-                    vm.ctx.new_ascii_literal(ascii!(""))
+                    vm.ctx.new_str(ascii!("")).into()
                 };
                 let ret = vm.call_method(&join_type, "join", (list,))?;
 

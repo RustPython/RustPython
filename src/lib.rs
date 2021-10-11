@@ -613,7 +613,7 @@ fn _run_string(vm: &VirtualMachine, scope: Scope, source: &str, source_path: Str
     // trace!("Code object: {:?}", code_obj.borrow());
     scope
         .globals
-        .set_item("__file__", vm.ctx.new_utf8_str(source_path), vm)?;
+        .set_item("__file__", vm.new_pyobj(source_path), vm)?;
     vm.run_code_obj(code_obj, scope)
 }
 
@@ -637,7 +637,7 @@ fn get_importer(path: &str, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>
     if let Some(importer) = path_importer_cache.get_item_option(path, vm)? {
         return Ok(Some(importer));
     }
-    let path = vm.ctx.new_utf8_str(path);
+    let path = vm.ctx.new_str(path);
     let path_hooks = vm.get_attribute(vm.sys_module.clone(), "path_hooks")?;
     let mut importer = None;
     let path_hooks: Vec<PyObjectRef> = vm.extract_elements(&path_hooks)?;
@@ -652,7 +652,7 @@ fn get_importer(path: &str, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>
         }
     }
     Ok(if let Some(imp) = importer {
-        let imp = path_importer_cache.get_or_insert(vm, path, || imp.clone())?;
+        let imp = path_importer_cache.get_or_insert(vm, path.into(), || imp.clone())?;
         Some(imp)
     } else {
         None
@@ -668,17 +668,14 @@ fn insert_sys_path(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<()> {
 fn run_script(vm: &VirtualMachine, scope: Scope, script_file: &str) -> PyResult<()> {
     debug!("Running file {}", script_file);
     if get_importer(script_file, vm)?.is_some() {
-        insert_sys_path(vm, vm.ctx.new_utf8_str(script_file))?;
+        insert_sys_path(vm, vm.ctx.new_str(script_file).into())?;
         let runpy = vm.import("runpy", None, 0)?;
         let run_module_as_main = vm.get_attribute(runpy, "_run_module_as_main")?;
-        vm.invoke(
-            &run_module_as_main,
-            (vm.ctx.new_utf8_str("__main__"), false),
-        )?;
+        vm.invoke(&run_module_as_main, (vm.ctx.new_str("__main__"), false))?;
         return Ok(());
     }
     let dir = Path::new(script_file).parent().unwrap().to_str().unwrap();
-    insert_sys_path(vm, vm.ctx.new_utf8_str(dir))?;
+    insert_sys_path(vm, vm.ctx.new_str(dir).into())?;
 
     match std::fs::read_to_string(script_file) {
         Ok(source) => {

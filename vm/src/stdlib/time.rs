@@ -170,7 +170,7 @@ mod time {
     fn asctime(t: OptionalArg<PyStructTime>, vm: &VirtualMachine) -> PyResult {
         let instant = t.naive_or_local(vm)?;
         let formatted_time = instant.format(CFMT).to_string();
-        Ok(vm.ctx.new_utf8_str(formatted_time))
+        Ok(vm.ctx.new_str(formatted_time).into())
     }
 
     #[pyfunction]
@@ -183,7 +183,7 @@ mod time {
     fn strftime(format: PyStrRef, t: OptionalArg<PyStructTime>, vm: &VirtualMachine) -> PyResult {
         let instant = t.naive_or_local(vm)?;
         let formatted_time = instant.format(format.as_str()).to_string();
-        Ok(vm.ctx.new_utf8_str(formatted_time))
+        Ok(vm.ctx.new_str(formatted_time).into())
     }
 
     #[pyfunction]

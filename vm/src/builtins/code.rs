@@ -86,7 +86,7 @@ impl ConstantBag for PyObjBag<'_> {
             bytecode::ConstantData::Str { value } if value.len() <= 20 => {
                 vm.intern_string(value).into()
             }
-            bytecode::ConstantData::Str { value } => vm.ctx.new_utf8_str(value),
+            bytecode::ConstantData::Str { value } => vm.ctx.new_str(value).into(),
             bytecode::ConstantData::Bytes { value } => ctx.new_bytes(value.to_vec()).into(),
             bytecode::ConstantData::Boolean { value } => ctx.new_bool(value).into(),
             bytecode::ConstantData::Code { code } => vm.new_code_object(code.map_bag(self)).into(),
@@ -112,7 +112,7 @@ impl ConstantBag for PyObjBag<'_> {
             bytecode::BorrowedConstant::Str { value } if value.len() <= 20 => {
                 vm.intern_string(value).into()
             }
-            bytecode::BorrowedConstant::Str { value } => vm.ctx.new_utf8_str(value),
+            bytecode::BorrowedConstant::Str { value } => vm.ctx.new_str(value).into(),
             bytecode::BorrowedConstant::Bytes { value } => ctx.new_bytes(value.to_vec()).into(),
             bytecode::BorrowedConstant::Boolean { value } => ctx.new_bool(value).into(),
             bytecode::BorrowedConstant::Code { code } => {

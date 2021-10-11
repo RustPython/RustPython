@@ -114,15 +114,15 @@ mod _codecs {
             reason: &str,
         ) -> PyResult<(encodings::EncodeReplace<PyStrRef, PyBytesRef>, usize)> {
             let vm = self.vm;
-            let data_str = vm.ctx.new_utf8_str(data);
+            let data_str = vm.ctx.new_str(data).into();
             let encode_exc = vm.new_exception(
                 vm.ctx.exceptions.unicode_encode_error.clone(),
                 vec![
-                    vm.ctx.new_utf8_str(self.encoding),
+                    vm.ctx.new_str(self.encoding).into(),
                     data_str,
                     vm.ctx.new_int(char_range.start).into(),
                     vm.ctx.new_int(char_range.end).into(),
-                    vm.ctx.new_utf8_str(reason),
+                    vm.ctx.new_str(reason).into(),
                 ],
             );
             let res = vm.invoke(self.handler_func()?, (encode_exc,))?;
@@ -161,11 +161,11 @@ mod _codecs {
             let decode_exc = vm.new_exception(
                 vm.ctx.exceptions.unicode_decode_error.clone(),
                 vec![
-                    vm.ctx.new_utf8_str(self.encoding),
+                    vm.ctx.new_str(self.encoding).into(),
                     data_bytes.clone(),
                     vm.ctx.new_int(byte_range.start).into(),
                     vm.ctx.new_int(byte_range.end).into(),
-                    vm.ctx.new_utf8_str(reason),
+                    vm.ctx.new_str(reason).into(),
                 ],
             );
             let res = vm.invoke(self.handler_func()?, (decode_exc.clone(),))?;
@@ -219,11 +219,11 @@ mod _codecs {
             vm.new_exception(
                 vm.ctx.exceptions.unicode_encode_error.clone(),
                 vec![
-                    vm.ctx.new_utf8_str(self.encoding),
-                    vm.ctx.new_utf8_str(data),
+                    vm.ctx.new_str(self.encoding).into(),
+                    vm.ctx.new_str(data).into(),
                     vm.ctx.new_int(char_range.start).into(),
                     vm.ctx.new_int(char_range.end).into(),
-                    vm.ctx.new_utf8_str(reason),
+                    vm.ctx.new_str(reason).into(),
                 ],
             )
         }

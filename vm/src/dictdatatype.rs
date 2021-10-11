@@ -717,7 +717,7 @@ impl DictKey for &str {
             Ok(pystr.as_str() == *self)
         } else {
             // Fall back to PyObjectRef implementation.
-            let s = vm.ctx.new_utf8_str(*self);
+            let s = vm.ctx.new_str(*self);
             s.key_eq(vm, other_key)
         }
     }
@@ -764,12 +764,12 @@ mod tests {
             assert_eq!(0, dict.len());
 
             let key1 = vm.new_pyobj(true);
-            let value1 = vm.ctx.new_ascii_literal(ascii!("abc"));
+            let value1 = vm.new_pyobj(ascii!("abc"));
             dict.insert(&vm, key1.clone(), value1.clone()).unwrap();
             assert_eq!(1, dict.len());
 
-            let key2 = vm.ctx.new_ascii_literal(ascii!("x"));
-            let value2 = vm.ctx.new_ascii_literal(ascii!("def"));
+            let key2 = vm.new_pyobj(ascii!("x"));
+            let value2 = vm.new_pyobj(ascii!("def"));
             dict.insert(&vm, key2.clone(), value2.clone()).unwrap();
             assert_eq!(2, dict.len());
 
@@ -810,7 +810,7 @@ mod tests {
     fn check_hash_equivalence(text: &str) {
         Interpreter::default().enter(|vm| {
             let value1 = text;
-            let value2 = vm.ctx.new_utf8_str(value1.to_owned());
+            let value2 = vm.new_pyobj(value1.to_owned());
 
             let hash1 = value1.key_hash(&vm).expect("Hash should not fail.");
             let hash2 = value2.key_hash(&vm).expect("Hash should not fail.");

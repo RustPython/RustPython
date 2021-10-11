@@ -183,22 +183,8 @@ impl PyContext {
         PyRef::new_ref(PyFloat::from(value), self.types.float_type.clone(), None)
     }
 
-    pub fn new_utf8_str<S>(&self, s: S) -> PyObjectRef
-    where
-        S: Into<pystr::PyStr>,
-    {
-        PyObject::new(s.into(), self.types.str_type.clone(), None)
-    }
-
-    #[inline]
-    pub fn new_ascii_literal(&self, s: &ascii::AsciiStr) -> PyObjectRef {
-        PyObject::new(
-            unsafe {
-                pystr::PyStr::new_str_unchecked(s.as_bytes().to_owned(), pystr::PyStrKind::Ascii)
-            },
-            self.types.str_type.clone(),
-            None,
-        )
+    pub fn new_str(&self, s: impl Into<pystr::PyStr>) -> PyRef<PyStr> {
+        pystr::PyStr::new_ref(s, self)
     }
 
     pub fn new_bytes(&self, data: Vec<u8>) -> PyRef<bytes::PyBytes> {
@@ -910,10 +896,10 @@ pub trait PyClassImpl: PyClassDef {
         }
         Self::impl_extend_class(ctx, class);
         if let Some(doc) = Self::DOC {
-            class.set_str_attr("__doc__", ctx.new_utf8_str(doc));
+            class.set_str_attr("__doc__", ctx.new_str(doc));
         }
         if let Some(module_name) = Self::MODULE_NAME {
-            class.set_str_attr("__module__", ctx.new_utf8_str(module_name));
+            class.set_str_attr("__module__", ctx.new_str(module_name));
         }
         if class.slots.new.load().is_some() {
             let bound: PyObjectRef =

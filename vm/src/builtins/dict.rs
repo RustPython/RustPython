@@ -326,7 +326,7 @@ impl PyDict {
             Self::merge_object(&self.entries, dict_obj, vm)?;
         }
         for (key, value) in kwargs.into_iter() {
-            self.entries.insert(vm, vm.ctx.new_utf8_str(key), value)?;
+            self.entries.insert(vm, vm.new_pyobj(key), value)?;
         }
         Ok(())
     }
@@ -377,7 +377,8 @@ impl PyDict {
         let (key, value) = self.entries.pop_back().ok_or_else(|| {
             let err_msg = vm
                 .ctx
-                .new_ascii_literal(ascii!("popitem(): dictionary is empty"));
+                .new_str(ascii!("popitem(): dictionary is empty"))
+                .into();
             vm.new_key_error(err_msg)
         })?;
         Ok((key, value))
@@ -387,7 +388,7 @@ impl PyDict {
         let dict = DictContentType::default();
 
         for (key, value) in attrs {
-            dict.insert(vm, vm.ctx.new_utf8_str(key), value)?;
+            dict.insert(vm, vm.new_pyobj(key), value)?;
         }
 
         Ok(PyDict { entries: dict })

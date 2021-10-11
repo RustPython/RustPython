@@ -224,7 +224,7 @@ macro_rules! named_function {
                 [<$module _ $func>],
             )
             .into_function()
-            .with_module(ctx.new_utf8_str(stringify!($module).to_owned()))
+            .with_module(ctx.new_str(stringify!($module).to_owned()).into())
             .into_ref(ctx)
         }
     }};

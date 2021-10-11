@@ -187,14 +187,14 @@ fn _ssl_enum_certificates(store_name: PyStrRef, vm: &VirtualMachine) -> PyResult
             (*ptr).dwCertEncodingType
         };
         let enc_type = match enc_type {
-            wincrypt::X509_ASN_ENCODING => vm.ctx.new_ascii_literal(ascii!("x509_asn")),
-            wincrypt::PKCS_7_ASN_ENCODING => vm.ctx.new_ascii_literal(ascii!("pkcs_7_asn")),
-            other => vm.ctx.new_int(other).into(),
+            wincrypt::X509_ASN_ENCODING => vm.new_pyobj(ascii!("x509_asn")),
+            wincrypt::PKCS_7_ASN_ENCODING => vm.new_pyobj(ascii!("pkcs_7_asn")),
+            other => vm.new_pyobj(other),
         };
         let usage: PyObjectRef = match c.valid_uses()? {
             ValidUses::All => vm.ctx.new_bool(true).into(),
             ValidUses::Oids(oids) => {
-                PyFrozenSet::from_iter(vm, oids.into_iter().map(|oid| vm.ctx.new_utf8_str(oid)))
+                PyFrozenSet::from_iter(vm, oids.into_iter().map(|oid| vm.ctx.new_str(oid).into()))
                     .unwrap()
                     .into_ref(vm)
                     .into()
@@ -991,7 +991,7 @@ fn convert_openssl_error(vm: &VirtualMachine, err: ErrorStack) -> PyBaseExceptio
             let reason = sys::ERR_GET_REASON(e.code());
             vm.new_exception(
                 cls,
-                vec![vm.ctx.new_int(reason).into(), vm.ctx.new_utf8_str(msg)],
+                vec![vm.ctx.new_int(reason).into(), vm.ctx.new_str(msg).into()],
             )
         }
         None => vm.new_exception_empty(cls),
@@ -1073,7 +1073,7 @@ fn cert_to_py(vm: &VirtualMachine, cert: &X509Ref, binary: bool) -> PyResult {
                 .entries()
                 .map(|entry| {
                     let txt = obj2txt(entry.object(), false).into_pyobject(vm);
-                    let data = vm.ctx.new_utf8_str(entry.data().as_utf8()?.to_owned());
+                    let data = vm.ctx.new_str(entry.data().as_utf8()?.to_owned());
                     Ok(vm.new_tuple(((txt, data),)).into())
                 })
                 .collect::<Result<_, _>>()
@@ -1092,18 +1092,18 @@ fn cert_to_py(vm: &VirtualMachine, cert: &X509Ref, binary: bool) -> PyResult {
             .map_err(|e| convert_openssl_error(vm, e))?;
         dict.set_item(
             "serialNumber",
-            vm.ctx.new_utf8_str(serial_num.to_owned()),
+            vm.ctx.new_str(serial_num.to_owned()).into(),
             vm,
         )?;
 
         dict.set_item(
             "notBefore",
-            vm.ctx.new_utf8_str(cert.not_before().to_string()),
+            vm.ctx.new_str(cert.not_before().to_string()).into(),
             vm,
         )?;
         dict.set_item(
             "notAfter",
-            vm.ctx.new_utf8_str(cert.not_after().to_string()),
+            vm.ctx.new_str(cert.not_after().to_string()).into(),
             vm,
         )?;
 
@@ -1209,11 +1209,11 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "_test_decode_cert" => named_function!(ctx, _ssl, _test_decode_cert),
 
         // Constants
-        "OPENSSL_VERSION" => ctx.new_utf8_str(openssl::version::version()),
+        "OPENSSL_VERSION" => ctx.new_str(openssl::version::version()),
         "OPENSSL_VERSION_NUMBER" => ctx.new_int(openssl::version::number()),
         "OPENSSL_VERSION_INFO" => parse_version_info(openssl::version::number()).into_pyobject(vm),
         "_OPENSSL_API_VERSION" => parse_version_info(openssl_api_version).into_pyobject(vm),
-        "_DEFAULT_CIPHERS" => ctx.new_utf8_str(DEFAULT_CIPHER_STRING),
+        "_DEFAULT_CIPHERS" => ctx.new_str(DEFAULT_CIPHER_STRING),
         // "PROTOCOL_SSLv2" => ctx.new_int(SslVersion::Ssl2 as u32), unsupported
         // "PROTOCOL_SSLv3" => ctx.new_int(SslVersion::Ssl3 as u32),
         "PROTOCOL_SSLv23" => ctx.new_int(SslVersion::Tls as u32),
