@@ -1302,6 +1302,21 @@ fn _socket_gethostbyname(name: PyStrRef, vm: &VirtualMachine) -> PyResult<String
     }
 }
 
+fn _socket_gethostbyaddr_ex(
+    name: PyStrRef,
+    vm: &VirtualMachine,
+) -> PyResult<(String, PyObjectRef, PyObjectRef)> {
+    let addr = get_addr(vm, name, c::AF_UNSPEC)?;
+    let (hostname, _) = dns_lookup::getnameinfo(&addr, 0)
+        .map_err(|e| convert_socket_error(vm, e, SocketError::HError))?;
+    Ok((
+        hostname,
+        vm.ctx.new_list(vec![]),
+        vm.ctx
+            .new_list(vec![vm.ctx.new_utf8_str(addr.ip().to_string())]),
+    ))
+}
+
 fn _socket_inet_pton(af_inet: i32, ip_string: PyStrRef, vm: &VirtualMachine) -> PyResult {
     match af_inet {
         c::AF_INET => ip_string
@@ -1882,6 +1897,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "getaddrinfo" => named_function!(ctx, _socket, getaddrinfo),
         "gethostbyaddr" => named_function!(ctx, _socket, gethostbyaddr),
         "gethostbyname" => named_function!(ctx, _socket, gethostbyname),
+        "gethostbyname_ex" => named_function!(ctx, _socket, gethostbyname),
         "getnameinfo" => named_function!(ctx, _socket, getnameinfo),
         // constants
         "AF_UNSPEC" => ctx.new_int(0),
