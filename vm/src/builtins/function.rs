@@ -408,7 +408,7 @@ impl SlotDescriptor for PyFunction {
         let obj = if vm.is_none(&obj) && !Self::_cls_is(&cls, &obj.class()) {
             zelf.into()
         } else {
-            vm.ctx.new_bound_method(zelf.into(), obj)
+            PyBoundMethod::new_ref(obj, zelf.into(), &vm.ctx).into()
         };
         Ok(obj)
     }
@@ -423,9 +423,8 @@ impl Callable for PyFunction {
 #[pyclass(module = false, name = "method")]
 #[derive(Debug)]
 pub struct PyBoundMethod {
-    // TODO: these shouldn't be public
     object: PyObjectRef,
-    pub function: PyObjectRef,
+    function: PyObjectRef,
 }
 
 impl Callable for PyBoundMethod {
@@ -480,15 +479,25 @@ impl SlotConstructor for PyBoundMethod {
     }
 }
 
+impl PyBoundMethod {
+    fn new(object: PyObjectRef, function: PyObjectRef) -> Self {
+        PyBoundMethod { object, function }
+    }
+
+    pub fn new_ref(object: PyObjectRef, function: PyObjectRef, ctx: &PyContext) -> PyRef<Self> {
+        PyRef::new_ref(
+            Self::new(object, function),
+            ctx.types.bound_method_type.clone(),
+            None,
+        )
+    }
+}
+
 #[pyimpl(
     with(Callable, Comparable, SlotGetattro, SlotConstructor),
     flags(HAS_DICT)
 )]
 impl PyBoundMethod {
-    pub fn new(object: PyObjectRef, function: PyObjectRef) -> Self {
-        PyBoundMethod { object, function }
-    }
-
     #[pymethod(magic)]
     fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
         let funcname =

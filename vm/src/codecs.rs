@@ -173,7 +173,7 @@ impl CodecsRegistry {
             ),
         ];
         let errors = std::array::IntoIter::new(errors)
-            .map(|(name, f)| (name.to_owned(), f))
+            .map(|(name, f)| (name.to_owned(), f.into()))
             .collect();
         let inner = RegistryInner {
             search_path: Vec::new(),

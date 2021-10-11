@@ -43,7 +43,7 @@ mod fcntl {
                 if ret < 0 {
                     return Err(os::errno_err(vm));
                 }
-                return Ok(vm.ctx.new_bytes(buf[..arg_len].to_vec()));
+                return Ok(vm.ctx.new_bytes(buf[..arg_len].to_vec()).into());
             }
             OptionalArg::Present(Either::B(i)) => i.as_u32_mask(),
             OptionalArg::Missing => 0,
@@ -96,7 +96,7 @@ mod fcntl {
                 if ret < 0 {
                     return Err(os::errno_err(vm));
                 }
-                Ok(vm.ctx.new_bytes(buf[..buf_len].to_vec()))
+                Ok(vm.ctx.new_bytes(buf[..buf_len].to_vec()).into())
             }
             Either::B(i) => {
                 let ret = unsafe { libc::ioctl(fd, request as _, i) };

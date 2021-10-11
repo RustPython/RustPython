@@ -301,6 +301,10 @@ impl PyStr {
         Self::new_str_unchecked(bytes, PyStrKind::Ascii)
     }
 
+    pub fn new_ref(s: impl Into<Self>, ctx: &PyContext) -> PyRef<Self> {
+        PyRef::new_ref(s.into(), ctx.types.str_type.clone(), None)
+    }
+
     fn new_substr(&self, s: String) -> Self {
         let kind = if self.kind.kind() == PyStrKind::Ascii || s.is_ascii() {
             PyStrKind::Ascii

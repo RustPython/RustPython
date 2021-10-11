@@ -358,7 +358,7 @@ impl PyBytesInner {
     ) -> PyResult {
         let obj = match self.elements.get_item(vm, needle, owner_type)? {
             Either::A(byte) => vm.new_pyobj(byte),
-            Either::B(bytes) => vm.ctx.new_bytes(bytes),
+            Either::B(bytes) => vm.ctx.new_bytes(bytes).into(),
         };
         Ok(obj)
     }
@@ -583,7 +583,7 @@ impl PyBytesInner {
         Ok(self.elements.py_find(&needle, range, find))
     }
 
-    pub fn maketrans(from: PyBytesInner, to: PyBytesInner, vm: &VirtualMachine) -> PyResult {
+    pub fn maketrans(from: PyBytesInner, to: PyBytesInner) -> PyResult<Vec<u8>> {
         let mut res = vec![];
 
         for i in 0..=255 {
@@ -594,7 +594,7 @@ impl PyBytesInner {
             });
         }
 
-        Ok(vm.ctx.new_bytes(res))
+        Ok(res)
     }
 
     pub fn translate(

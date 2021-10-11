@@ -87,9 +87,9 @@ impl ConstantBag for PyObjBag<'_> {
                 vm.intern_string(value).into()
             }
             bytecode::ConstantData::Str { value } => vm.ctx.new_utf8_str(value),
-            bytecode::ConstantData::Bytes { value } => ctx.new_bytes(value.to_vec()),
+            bytecode::ConstantData::Bytes { value } => ctx.new_bytes(value.to_vec()).into(),
             bytecode::ConstantData::Boolean { value } => ctx.new_bool(value).into(),
-            bytecode::ConstantData::Code { code } => ctx.new_code_object(code.map_bag(self)).into(),
+            bytecode::ConstantData::Code { code } => vm.new_code_object(code.map_bag(self)).into(),
             bytecode::ConstantData::Tuple { elements } => {
                 let elements = elements
                     .into_iter()
@@ -113,10 +113,10 @@ impl ConstantBag for PyObjBag<'_> {
                 vm.intern_string(value).into()
             }
             bytecode::BorrowedConstant::Str { value } => vm.ctx.new_utf8_str(value),
-            bytecode::BorrowedConstant::Bytes { value } => ctx.new_bytes(value.to_vec()),
+            bytecode::BorrowedConstant::Bytes { value } => ctx.new_bytes(value.to_vec()).into(),
             bytecode::BorrowedConstant::Boolean { value } => ctx.new_bool(value).into(),
             bytecode::BorrowedConstant::Code { code } => {
-                ctx.new_code_object(code.map_clone_bag(self)).into()
+                vm.new_code_object(code.map_clone_bag(self)).into()
             }
             bytecode::BorrowedConstant::Tuple { elements } => {
                 let elements = elements
@@ -170,6 +170,13 @@ impl Deref for PyCode {
 impl PyCode {
     pub fn new(code: CodeObject) -> PyCode {
         PyCode { code }
+    }
+
+    /// Create a new `PyRef<PyCode>` from a `code::CodeObject`. If you have a non-mapped codeobject or
+    /// this is giving you a type error even though you've passed a `CodeObject`, try
+    /// [`vm.new_code_object()`](VirtualMachine::new_code_object) instead.
+    pub fn new_ref(code: CodeObject, ctx: &PyContext) -> PyRef<Self> {
+        PyRef::new_ref(PyCode { code }, ctx.types.code_type.clone(), None)
     }
 }
 

@@ -96,7 +96,11 @@ mod zlib {
 
     /// Returns a bytes object containing compressed data.
     #[pyfunction]
-    fn compress(data: ArgBytesLike, level: OptionalArg<i32>, vm: &VirtualMachine) -> PyResult {
+    fn compress(
+        data: ArgBytesLike,
+        level: OptionalArg<i32>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyBytesRef> {
         let compression = compression_from_int(level.into_option())
             .ok_or_else(|| new_zlib_error("Bad compression level", vm))?;
 

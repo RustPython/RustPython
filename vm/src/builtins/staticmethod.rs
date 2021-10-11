@@ -1,7 +1,9 @@
-use super::PyTypeRef;
+use super::{PyStr, PyTypeRef};
 use crate::{
+    builtins::builtinfunc::PyBuiltinMethod,
+    function::IntoPyNativeFunc,
     slots::{SlotConstructor, SlotDescriptor},
-    PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue, VirtualMachine,
+    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "staticmethod")]
@@ -39,6 +41,21 @@ impl SlotConstructor for PyStaticMethod {
 
     fn py_new(cls: PyTypeRef, callable: Self::Args, vm: &VirtualMachine) -> PyResult {
         PyStaticMethod { callable }.into_pyresult_with_type(vm, cls)
+    }
+}
+
+impl PyStaticMethod {
+    pub fn new_ref<F, FKind>(
+        name: impl Into<PyStr>,
+        class: PyTypeRef,
+        f: F,
+        ctx: &PyContext,
+    ) -> PyRef<Self>
+    where
+        F: IntoPyNativeFunc<FKind>,
+    {
+        let callable = PyBuiltinMethod::new_ref(name, class, f, ctx).into();
+        PyRef::new_ref(Self { callable }, ctx.types.staticmethod_type.clone(), None)
     }
 }
 

@@ -25,7 +25,7 @@ macro_rules! create_property {
             move |this: &PyExpatLikeXmlParser, func: PyObjectRef| *this.$element.write() = func,
         );
 
-        $attributes.insert($name.to_owned(), attr);
+        $attributes.insert($name.to_owned(), attr.into());
     };
 }
 

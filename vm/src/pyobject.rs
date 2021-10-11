@@ -6,14 +6,12 @@ use crate::common::{
 pub use crate::pyobjectrc::{PyObject, PyObjectRef, PyObjectWeak, PyObjectWrap, PyRef, PyWeakRef};
 use crate::{
     builtins::{
-        builtinfunc::PyNativeFuncDef,
-        bytearray, bytes,
-        code::{self, PyCode},
+        builtinfunc::{PyBuiltinFunction, PyBuiltinMethod, PyNativeFuncDef},
+        bytes,
         getset::{IntoPyGetterFunc, IntoPySetterFunc, PyGetSet},
-        object, pystr,
-        set::{self, PyFrozenSet},
-        PyBaseExceptionRef, PyBoundMethod, PyDict, PyDictRef, PyEllipsis, PyFloat, PyInt, PyIntRef,
-        PyList, PyNone, PyNotImplemented, PyStaticMethod, PyTuple, PyTupleRef, PyType, PyTypeRef,
+        object, pystr, PyBaseExceptionRef, PyBoundMethod, PyDict, PyDictRef, PyEllipsis, PyFloat,
+        PyFrozenSet, PyInt, PyIntRef, PyList, PyNone, PyNotImplemented, PyStr, PyTuple, PyTupleRef,
+        PyType, PyTypeRef,
     },
     dictdatatype::Dict,
     exceptions,
@@ -157,6 +155,8 @@ impl PyContext {
         self.not_implemented.clone().into()
     }
 
+    // shortcuts for common type
+
     #[inline]
     pub fn new_int<T: Into<BigInt> + ToPrimitive>(&self, i: T) -> PyIntRef {
         if let Some(i) = i.to_i32() {
@@ -201,20 +201,8 @@ impl PyContext {
         )
     }
 
-    pub fn new_bytes(&self, data: Vec<u8>) -> PyObjectRef {
-        PyObject::new(
-            bytes::PyBytes::from(data),
-            self.types.bytes_type.clone(),
-            None,
-        )
-    }
-
-    pub fn new_bytearray(&self, data: Vec<u8>) -> PyObjectRef {
-        PyObject::new(
-            bytearray::PyByteArray::from(data),
-            self.types.bytearray_type.clone(),
-            None,
-        )
+    pub fn new_bytes(&self, data: Vec<u8>) -> PyRef<bytes::PyBytes> {
+        bytes::PyBytes::new_ref(data, self)
     }
 
     #[inline]
@@ -235,12 +223,6 @@ impl PyContext {
         PyObject::new(PyList::from(elements), self.types.list_type.clone(), None)
     }
 
-    pub fn new_set(&self) -> set::PySetRef {
-        // Initialized empty, as calling __hash__ is required for adding each object to the set
-        // which requires a VM context - this is done in the set code itself.
-        PyRef::new_ref(set::PySet::default(), self.types.set_type.clone(), None)
-    }
-
     pub fn new_dict(&self) -> PyDictRef {
         PyRef::new_ref(PyDict::default(), self.types.dict_type.clone(), None)
     }
@@ -249,19 +231,16 @@ impl PyContext {
         create_type_with_slots(name, &self.types.type_type, base, slots)
     }
 
-    pub(crate) fn new_stringref(&self, s: String) -> pystr::PyStrRef {
-        PyRef::new_ref(pystr::PyStr::from(s), self.types.str_type.clone(), None)
-    }
-
     #[inline]
-    pub fn make_funcdef<F, FKind>(&self, name: impl Into<String>, f: F) -> PyNativeFuncDef
+    pub fn make_funcdef<F, FKind>(&self, name: impl Into<PyStr>, f: F) -> PyNativeFuncDef
     where
         F: IntoPyNativeFunc<FKind>,
     {
-        PyNativeFuncDef::new(f.into_func(), self.new_stringref(name.into()))
+        PyNativeFuncDef::new(f.into_func(), PyStr::new_ref(name, self))
     }
 
-    pub fn new_function<F, FKind>(&self, name: impl Into<String>, f: F) -> PyObjectRef
+    // #[deprecated]
+    pub fn new_function<F, FKind>(&self, name: impl Into<PyStr>, f: F) -> PyRef<PyBuiltinFunction>
     where
         F: IntoPyNativeFunc<FKind>,
     {
@@ -270,41 +249,14 @@ impl PyContext {
 
     pub fn new_method<F, FKind>(
         &self,
-        name: impl Into<String>,
+        name: impl Into<PyStr>,
         class: PyTypeRef,
         f: F,
-    ) -> PyObjectRef
+    ) -> PyRef<PyBuiltinMethod>
     where
         F: IntoPyNativeFunc<FKind>,
     {
-        self.make_funcdef(name, f).build_method(self, class)
-    }
-
-    pub fn new_classmethod<F, FKind>(
-        &self,
-        name: impl Into<String>,
-        class: PyTypeRef,
-        f: F,
-    ) -> PyObjectRef
-    where
-        F: IntoPyNativeFunc<FKind>,
-    {
-        self.make_funcdef(name, f).build_classmethod(self, class)
-    }
-    pub fn new_staticmethod<F, FKind>(
-        &self,
-        name: impl Into<String>,
-        class: PyTypeRef,
-        f: F,
-    ) -> PyObjectRef
-    where
-        F: IntoPyNativeFunc<FKind>,
-    {
-        PyObject::new(
-            PyStaticMethod::from(self.new_method(name, class, f)),
-            self.types.staticmethod_type.clone(),
-            None,
-        )
+        PyBuiltinMethod::new_ref(name, class, f, self)
     }
 
     pub fn new_readonly_getset<F, T>(
@@ -312,11 +264,11 @@ impl PyContext {
         name: impl Into<String>,
         class: PyTypeRef,
         f: F,
-    ) -> PyObjectRef
+    ) -> PyRef<PyGetSet>
     where
         F: IntoPyGetterFunc<T>,
     {
-        PyObject::new(
+        PyRef::new_ref(
             PyGetSet::new(name.into(), class).with_get(f),
             self.types.getset_type.clone(),
             None,
@@ -329,34 +281,23 @@ impl PyContext {
         class: PyTypeRef,
         g: G,
         s: S,
-    ) -> PyObjectRef
+    ) -> PyRef<PyGetSet>
     where
         G: IntoPyGetterFunc<T>,
         S: IntoPySetterFunc<U>,
     {
-        PyObject::new(
+        PyRef::new_ref(
             PyGetSet::new(name.into(), class).with_get(g).with_set(s),
             self.types.getset_type.clone(),
             None,
         )
     }
 
-    /// Create a new `PyRef<PyCode>` from a `code::CodeObject`. If you have a non-mapped codeobject or
-    /// this is giving you a type error even though you've passed a `CodeObject`, try
-    /// [`vm.new_code_object()`](VirtualMachine::new_code_object) instead.
-    pub fn new_code_object(&self, code: code::CodeObject) -> PyRef<PyCode> {
-        PyRef::new_ref(PyCode::new(code), self.types.code_type.clone(), None)
-    }
-
-    pub fn new_bound_method(&self, function: PyObjectRef, object: PyObjectRef) -> PyObjectRef {
-        PyObject::new(
-            PyBoundMethod::new(object, function),
-            self.types.bound_method_type.clone(),
-            None,
-        )
-    }
-
     pub fn new_base_object(&self, class: PyTypeRef, dict: Option<PyDictRef>) -> PyObjectRef {
+        debug_assert_eq!(
+            class.slots.flags.contains(PyTypeFlags::HAS_DICT),
+            dict.is_some()
+        );
         PyObject::new(object::PyBaseObject, class, dict)
     }
 }
@@ -975,7 +916,9 @@ pub trait PyClassImpl: PyClassDef {
             class.set_str_attr("__module__", ctx.new_utf8_str(module_name));
         }
         if class.slots.new.load().is_some() {
-            let bound = ctx.new_bound_method(ctx.slot_new_wrapper.clone(), class.clone().into());
+            let bound: PyObjectRef =
+                PyBoundMethod::new_ref(class.clone().into(), ctx.slot_new_wrapper.clone(), ctx)
+                    .into();
             class.set_str_attr("__new__", bound);
         }
     }

@@ -960,7 +960,7 @@ impl PySslSocket {
             Either::B(mut buf) => {
                 buf.truncate(n);
                 buf.shrink_to_fit();
-                vm.ctx.new_bytes(buf)
+                vm.ctx.new_bytes(buf).into()
             }
         };
         Ok(ret)
@@ -1064,7 +1064,7 @@ fn cipher_to_tuple(cipher: &ssl::SslCipherRef) -> CipherTuple {
 fn cert_to_py(vm: &VirtualMachine, cert: &X509Ref, binary: bool) -> PyResult {
     let r = if binary {
         let b = cert.to_der().map_err(|e| convert_openssl_error(vm, e))?;
-        vm.ctx.new_bytes(b)
+        vm.ctx.new_bytes(b).into()
     } else {
         let dict = vm.ctx.new_dict();
 

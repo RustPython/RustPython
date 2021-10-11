@@ -61,7 +61,8 @@ mod _sre {
                 .new_utf8_str(s.chars().take(end).skip(start).collect::<String>()),
             StrDrive::Bytes(b) => vm
                 .ctx
-                .new_bytes(b.iter().take(end).skip(start).cloned().collect()),
+                .new_bytes(b.iter().take(end).skip(start).cloned().collect())
+                .into(),
         }
     }
 
@@ -502,7 +503,7 @@ mod _sre {
                 let list = PyList::from(sublist).into_object(vm);
 
                 let join_type = if zelf.isbytes {
-                    vm.ctx.new_bytes(vec![])
+                    vm.ctx.new_bytes(vec![]).into()
                 } else {
                     vm.ctx.new_ascii_literal(ascii!(""))
                 };

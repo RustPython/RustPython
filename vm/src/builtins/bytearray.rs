@@ -55,6 +55,10 @@ pub struct PyByteArray {
 pub type PyByteArrayRef = PyRef<PyByteArray>;
 
 impl PyByteArray {
+    pub fn new_ref(data: Vec<u8>, ctx: &PyContext) -> PyRef<Self> {
+        PyRef::new_ref(Self::from(data), ctx.types.bytearray_type.clone(), None)
+    }
+
     fn from_inner(inner: PyBytesInner) -> Self {
         PyByteArray {
             inner: PyRwLock::new(inner),
@@ -92,11 +96,6 @@ impl PyValue for PyByteArray {
 /// Fill bytearray class methods dictionary.
 pub(crate) fn init(context: &PyContext) {
     PyByteArray::extend_class(context, &context.types.bytearray_type);
-    let bytearray_type = &context.types.bytearray_type;
-    extend_class!(context, bytearray_type, {
-        "maketrans" => context.new_method("maketrans", bytearray_type.clone(), PyBytesInner::maketrans),
-    });
-
     PyByteArrayIterator::extend_class(context, &context.types.bytearray_iterator_type);
 }
 
@@ -151,8 +150,8 @@ impl PyByteArray {
     }
 
     #[pymethod(magic)]
-    fn add(&self, other: ArgBytesLike, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_bytearray(self.inner().add(&*other.borrow_buf()))
+    fn add(&self, other: ArgBytesLike) -> Self {
+        self.inner().add(&*other.borrow_buf()).into()
     }
 
     #[pymethod(magic)]
@@ -225,6 +224,11 @@ impl PyByteArray {
             }
             SequenceIndex::Slice(slice) => elements.delete_slice(vm, &slice),
         }
+    }
+
+    #[pymethod]
+    fn maketrans(from: PyBytesInner, to: PyBytesInner) -> PyResult<Vec<u8>> {
+        PyBytesInner::maketrans(from, to)
     }
 
     #[pymethod]
@@ -384,7 +388,7 @@ impl PyByteArray {
     fn fromhex(cls: PyTypeRef, string: PyStrRef, vm: &VirtualMachine) -> PyResult {
         let bytes = PyBytesInner::fromhex(string.as_str(), vm)?;
         let bytes = vm.ctx.new_bytes(bytes);
-        Callable::call(&cls, vec![bytes].into(), vm)
+        Callable::call(&cls, vec![bytes.into()].into(), vm)
     }
 
     #[pymethod]
@@ -524,14 +528,20 @@ impl PyByteArray {
 
     #[pymethod]
     fn split(&self, options: ByteInnerSplitOptions, vm: &VirtualMachine) -> PyResult {
-        self.inner()
-            .split(options, |s, vm| vm.ctx.new_bytearray(s.to_vec()), vm)
+        self.inner().split(
+            options,
+            |s, vm| Self::new_ref(s.to_vec(), &vm.ctx).into(),
+            vm,
+        )
     }
 
     #[pymethod]
     fn rsplit(&self, options: ByteInnerSplitOptions, vm: &VirtualMachine) -> PyResult {
-        self.inner()
-            .rsplit(options, |s, vm| vm.ctx.new_bytearray(s.to_vec()), vm)
+        self.inner().rsplit(
+            options,
+            |s, vm| Self::new_ref(s.to_vec(), &vm.ctx).into(),
+            vm,
+        )
     }
 
     #[pymethod]
@@ -541,10 +551,9 @@ impl PyByteArray {
         let value = self.inner();
         let (front, has_mid, back) = value.partition(&sep, vm)?;
         Ok(vm.new_tuple((
-            vm.ctx.new_bytearray(front.to_vec()),
-            vm.ctx
-                .new_bytearray(if has_mid { sep.elements } else { Vec::new() }),
-            vm.ctx.new_bytearray(back.to_vec()),
+            Self::new_ref(front.to_vec(), &vm.ctx),
+            Self::new_ref(if has_mid { sep.elements } else { Vec::new() }, &vm.ctx),
+            Self::new_ref(back.to_vec(), &vm.ctx),
         )))
     }
 
@@ -553,10 +562,9 @@ impl PyByteArray {
         let value = self.inner();
         let (back, has_mid, front) = value.rpartition(&sep, vm)?;
         Ok(vm.new_tuple((
-            vm.ctx.new_bytearray(front.to_vec()),
-            vm.ctx
-                .new_bytearray(if has_mid { sep.elements } else { Vec::new() }),
-            vm.ctx.new_bytearray(back.to_vec()),
+            Self::new_ref(front.to_vec(), &vm.ctx),
+            Self::new_ref(if has_mid { sep.elements } else { Vec::new() }, &vm.ctx),
+            Self::new_ref(back.to_vec(), &vm.ctx),
         )))
     }
 
@@ -569,7 +577,7 @@ impl PyByteArray {
     fn splitlines(&self, options: anystr::SplitLinesArgs, vm: &VirtualMachine) -> PyObjectRef {
         let lines = self
             .inner()
-            .splitlines(options, |x| vm.ctx.new_bytearray(x.to_vec()));
+            .splitlines(options, |x| Self::new_ref(x.to_vec(), &vm.ctx).into());
         vm.ctx.new_list(lines)
     }
 

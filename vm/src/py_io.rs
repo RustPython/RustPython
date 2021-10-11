@@ -86,7 +86,7 @@ pub fn file_readline(obj: &PyObjectRef, size: Option<usize>, vm: &VirtualMachine
                 return Err(eof_err());
             }
             if buf.last() == Some(&b'\n') {
-                vm.ctx.new_bytes(buf[..buf.len() - 1].to_owned())
+                vm.ctx.new_bytes(buf[..buf.len() - 1].to_owned()).into()
             } else {
                 b.into()
             }

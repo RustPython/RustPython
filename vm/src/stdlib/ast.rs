@@ -190,7 +190,7 @@ impl Node for ast::Constant {
             ast::Constant::None => vm.ctx.none(),
             ast::Constant::Bool(b) => vm.ctx.new_bool(b).into(),
             ast::Constant::Str(s) => vm.ctx.new_utf8_str(s),
-            ast::Constant::Bytes(b) => vm.ctx.new_bytes(b),
+            ast::Constant::Bytes(b) => vm.ctx.new_bytes(b).into(),
             ast::Constant::Int(i) => vm.ctx.new_int(i).into(),
             ast::Constant::Tuple(t) => vm
                 .ctx

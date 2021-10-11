@@ -8,7 +8,7 @@ use crate::{
     scope::Scope,
     version::get_git_revision,
     vm::{InitParameter, VirtualMachine},
-    ItemProtocol, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    ItemProtocol, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use rand::Rng;
 
@@ -56,7 +56,8 @@ pub(crate) fn init_importlib(
             if magic.len() != 4 {
                 magic = rand::thread_rng().gen::<[u8; 4]>().to_vec();
             }
-            vm.set_attr(&importlib_external, "MAGIC_NUMBER", vm.ctx.new_bytes(magic))?;
+            let magic: PyObjectRef = vm.ctx.new_bytes(magic).into();
+            vm.set_attr(&importlib_external, "MAGIC_NUMBER", magic)?;
             let zipimport_res = (|| -> PyResult<()> {
                 let zipimport = vm.import("zipimport", None, 0)?;
                 let zipimporter = vm.get_attribute(zipimport, "zipimporter")?;

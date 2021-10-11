@@ -346,7 +346,7 @@ pub(crate) mod _struct {
                     FormatType::Str => {
                         let (str_data, rest) = data.split_at(code.repeat);
                         // string is just stored inline
-                        items.push(vm.ctx.new_bytes(str_data.to_vec()));
+                        items.push(vm.ctx.new_bytes(str_data.to_vec()).into());
                         data = rest;
                     }
                     FormatType::Pascal => {
@@ -760,7 +760,7 @@ pub(crate) mod _struct {
     }
 
     fn unpack_char(vm: &VirtualMachine, data: &[u8]) -> PyObjectRef {
-        vm.ctx.new_bytes(vec![data[0]])
+        vm.ctx.new_bytes(vec![data[0]]).into()
     }
 
     fn unpack_pascal(vm: &VirtualMachine, data: &[u8]) -> PyObjectRef {
@@ -768,11 +768,11 @@ pub(crate) mod _struct {
             Some(x) => x,
             None => {
                 // cpython throws an internal SystemError here
-                return vm.ctx.new_bytes(vec![]);
+                return vm.ctx.new_bytes(vec![]).into();
             }
         };
         let len = std::cmp::min(len as usize, data.len());
-        vm.ctx.new_bytes(data[..len].to_vec())
+        vm.ctx.new_bytes(data[..len].to_vec()).into()
     }
 
     #[pyfunction]

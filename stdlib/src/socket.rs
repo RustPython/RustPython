@@ -839,10 +839,9 @@ impl PySocket {
                 )
             };
             if ret < 0 {
-                Err(crate::vm::stdlib::os::errno_err(vm))
-            } else {
-                Ok(vm.ctx.new_int(flag).into())
+                return Err(crate::vm::stdlib::os::errno_err(vm));
             }
+            Ok(vm.ctx.new_int(flag).into())
         } else {
             if buflen <= 0 || buflen > 1024 {
                 return Err(vm.new_os_error("getsockopt buflen out of range".to_owned()));
@@ -853,10 +852,9 @@ impl PySocket {
                 unsafe { c::getsockopt(fd, level, name, buf.as_mut_ptr() as *mut _, &mut buflen) };
             buf.truncate(buflen as usize);
             if ret < 0 {
-                Err(crate::vm::stdlib::os::errno_err(vm))
-            } else {
-                Ok(vm.ctx.new_bytes(buf))
+                return Err(crate::vm::stdlib::os::errno_err(vm));
             }
+            Ok(vm.ctx.new_bytes(buf).into())
         }
     }
 
@@ -1024,7 +1022,7 @@ fn get_addr_tuple(addr: &socket2::SockAddr, vm: &VirtualMachine) -> PyObjectRef 
             {
                 let abstractaddrlen = addr_len - sun_path_offset;
                 let abstractpath = &path_u8[..abstractaddrlen];
-                vm.ctx.new_bytes(abstractpath.to_vec())
+                vm.ctx.new_bytes(abstractpath.to_vec()).into()
             } else {
                 let len = memchr::memchr(b'\0', path_u8).unwrap_or_else(|| path_u8.len());
                 let path = &path_u8[..len];
@@ -1304,24 +1302,24 @@ fn _socket_gethostbyname(name: PyStrRef, vm: &VirtualMachine) -> PyResult<String
     }
 }
 
-fn _socket_inet_pton(af_inet: i32, ip_string: PyStrRef, vm: &VirtualMachine) -> PyResult {
-    match af_inet {
+fn _socket_inet_pton(af_inet: i32, ip_string: PyStrRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+    static ERROR_MSG: &str = "illegal IP address string passed to inet_pton";
+    let ip_addr = match af_inet {
         c::AF_INET => ip_string
             .as_str()
             .parse::<Ipv4Addr>()
-            .map(|ip_addr| vm.ctx.new_bytes(ip_addr.octets().to_vec()))
-            .map_err(|_| {
-                vm.new_os_error("illegal IP address string passed to inet_pton".to_owned())
-            }),
+            .map_err(|_| vm.new_os_error(ERROR_MSG.to_owned()))?
+            .octets()
+            .to_vec(),
         c::AF_INET6 => ip_string
             .as_str()
             .parse::<Ipv6Addr>()
-            .map(|ip_addr| vm.ctx.new_bytes(ip_addr.octets().to_vec()))
-            .map_err(|_| {
-                vm.new_os_error("illegal IP address string passed to inet_pton".to_owned())
-            }),
-        _ => Err(vm.new_os_error("Address family not supported by protocol".to_owned())),
-    }
+            .map_err(|_| vm.new_os_error(ERROR_MSG.to_owned()))?
+            .octets()
+            .to_vec(),
+        _ => return Err(vm.new_os_error("Address family not supported by protocol".to_owned())),
+    };
+    Ok(ip_addr)
 }
 
 fn _socket_inet_ntop(
