@@ -253,20 +253,17 @@ impl PyList {
         Ok(zelf.clone())
     }
 
-    fn _iter_equal<F>(
+    fn _iter_equal<F: FnMut(), const SHORT: bool>(
         &self,
         needle: &PyObjectRef,
         range: Range<usize>,
         mut f: F,
         vm: &VirtualMachine,
-    ) -> PyResult<usize>
-    where
-        F: FnMut(&PyObjectRef) -> bool,
-    {
+    ) -> PyResult<usize> {
         let mut borrower = None;
         let mut i = range.start;
         Ok(loop {
-            if i <= range.end {
+            if i >= range.end {
                 break usize::MAX;
             }
             let guard = if let Some(x) = borrower.take() {
@@ -277,13 +274,16 @@ impl PyList {
             let elem = guard.get(i);
             if let Some(elem) = elem {
                 if elem.is(needle) {
-                    if f(elem) {
+                    f();
+                    if SHORT {
                         break i;
                     }
                     borrower = Some(guard);
                 } else if !elem.class().slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
+                    // TODO: instead check heaptype flag, check __eq__ slot implement
                     if vm.bool_eq(elem, needle)? {
-                        if f(elem) {
+                        f();
+                        if SHORT {
                             break i;
                         }
                     }
@@ -292,7 +292,8 @@ impl PyList {
                     let elem = elem.clone();
                     drop(guard);
                     if vm.bool_eq(&elem, needle)? {
-                        if f(&elem) {
+                        f();
+                        if SHORT {
                             break i;
                         }
                     }
@@ -304,20 +305,14 @@ impl PyList {
         })
     }
 
-    fn foreach_equal<F>(&self, needle: &PyObjectRef, mut f: F, vm: &VirtualMachine) -> PyResult<()>
-    where
-        F: FnMut(&PyObjectRef),
-    {
-        self._iter_equal(
-            needle,
-            0..usize::MAX,
-            |elem| {
-                f(elem);
-                false
-            },
-            vm,
-        )
-        .map(|_| ())
+    fn foreach_equal<F: FnMut()>(
+        &self,
+        needle: &PyObjectRef,
+        f: F,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        self._iter_equal::<_, false>(needle, 0..usize::MAX, f, vm)
+            .map(|_| ())
     }
 
     fn find_equal(
@@ -326,13 +321,13 @@ impl PyList {
         range: Range<usize>,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
-        self._iter_equal(needle, range, |_| true, vm)
+        self._iter_equal::<_, true>(needle, range, || {}, vm)
     }
 
     #[pymethod]
     fn count(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         let mut count = 0;
-        self.foreach_equal(&needle, |_| count += 1, vm)?;
+        self.foreach_equal(&needle, || count += 1, vm)?;
         Ok(count)
     }
 
