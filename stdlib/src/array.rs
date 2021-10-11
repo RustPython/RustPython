@@ -13,7 +13,7 @@ mod array {
     use crate::vm::{
         builtins::{
             PyByteArray, PyBytes, PyBytesRef, PyDictRef, PyFloat, PyInt, PyIntRef, PyList,
-            PyListRef, PySliceRef, PyStr, PyStrRef, PyTypeRef,
+            PyListRef, PySliceRef, PyStr, PyStrRef, PyTupleRef, PyTypeRef,
         },
         class_or_notimplemented,
         function::{
@@ -1117,7 +1117,7 @@ mod array {
             zelf: PyRef<Self>,
             proto: usize,
             vm: &VirtualMachine,
-        ) -> PyResult<(PyObjectRef, PyObjectRef, Option<PyDictRef>)> {
+        ) -> PyResult<(PyObjectRef, PyTupleRef, Option<PyDictRef>)> {
             if proto < 3 {
                 return Self::reduce(zelf, vm);
             }
@@ -1131,7 +1131,7 @@ mod array {
             let func = vm.get_attribute(module, "_array_reconstructor")?;
             Ok((
                 func,
-                vm.ctx.new_tuple(vec![cls, typecode, code, bytes]),
+                vm.new_tuple((cls, typecode, code, bytes)),
                 zelf.as_object().dict(),
             ))
         }
@@ -1140,7 +1140,7 @@ mod array {
         fn reduce(
             zelf: PyRef<Self>,
             vm: &VirtualMachine,
-        ) -> PyResult<(PyObjectRef, PyObjectRef, Option<PyDictRef>)> {
+        ) -> PyResult<(PyObjectRef, PyTupleRef, Option<PyDictRef>)> {
             let array = zelf.read();
             let cls = zelf.as_object().clone_class().into_object();
             let typecode = vm.ctx.new_utf8_str(array.typecode_str());
@@ -1153,7 +1153,7 @@ mod array {
             let values = vm.ctx.new_list(values);
             Ok((
                 cls,
-                vm.ctx.new_tuple(vec![typecode, values]),
+                vm.new_tuple((typecode, values)),
                 zelf.as_object().dict(),
             ))
         }
