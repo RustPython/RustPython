@@ -433,8 +433,7 @@ impl PyByteArray {
         let (affix, range) = options.get_value(self.len());
         self.borrow_buf().py_startsendswith(
             affix,
-            range,
-            AnyStr::get_bytes,
+            anystr::AnyStrRange::BytesRange(range),
             "endswith",
             "bytes",
             |s, x: &PyBytesInner| s.ends_with(&x.elements[..]),
@@ -451,8 +450,7 @@ impl PyByteArray {
         let (affix, range) = options.get_value(self.len());
         self.borrow_buf().py_startsendswith(
             affix,
-            range,
-            AnyStr::get_bytes,
+            anystr::AnyStrRange::BytesRange(range),
             "startswith",
             "bytes",
             |s, x: &PyBytesInner| s.starts_with(&x.elements[..]),

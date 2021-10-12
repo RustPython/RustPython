@@ -4,7 +4,7 @@ use super::{
     PositionIterInternal, PyBytesRef, PyDict, PyTupleRef, PyTypeRef,
 };
 use crate::{
-    anystr::{self, adjust_indices, AnyStr, AnyStrContainer, AnyStrWrapper},
+    anystr::{self, adjust_indices, AnyStr, AnyStrContainer, AnyStrRange, AnyStrWrapper},
     format::{FormatSpec, FormatString, FromTemplate},
     function::{ArgIterable, FuncArgs, IntoPyException, IntoPyObject, OptionalArg, OptionalOption},
     protocol::PyIterReturn,
@@ -697,11 +697,10 @@ impl PyStr {
         let (affix, range) = args.get_value(len);
         self.as_str().py_startsendswith(
             affix,
-            range,
             if has_subrange {
-                str::get_chars
+                AnyStrRange::CharsRange(range)
             } else {
-                str::get_bytes
+                AnyStrRange::BytesRange(range)
             },
             "endswith",
             "str",
@@ -721,11 +720,10 @@ impl PyStr {
         let (affix, range) = args.get_value(len);
         self.as_str().py_startsendswith(
             affix,
-            range,
             if has_subrange {
-                str::get_chars
+                AnyStrRange::CharsRange(range)
             } else {
-                str::get_bytes
+                AnyStrRange::BytesRange(range)
             },
             "startswith",
             "str",

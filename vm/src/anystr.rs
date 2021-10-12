@@ -8,6 +8,19 @@ use crate::{
 use num_traits::{cast::ToPrimitive, sign::Signed};
 use std::str::FromStr;
 
+pub enum AnyStrRange {
+    CharsRange(std::ops::Range<usize>),
+    BytesRange(std::ops::Range<usize>),
+}
+
+impl AnyStrRange {
+    pub fn is_normal(&self) -> bool {
+        match self {
+            AnyStrRange::CharsRange(range) | AnyStrRange::BytesRange(range) => range.is_normal(),
+        }
+    }
+}
+
 #[derive(FromArgs)]
 pub struct SplitArgs<'s, T: TryFromObject + AnyStrWrapper<'s>> {
     #[pyarg(any, default)]
@@ -195,11 +208,10 @@ pub trait AnyStr<'s>: 's {
         F: Fn(&Self) -> PyObjectRef;
 
     #[inline]
-    fn py_startsendswith<T, F, FS>(
+    fn py_startsendswith<T, F>(
         &self,
         affix: PyObjectRef,
-        range: std::ops::Range<usize>,
-        slicer: FS,
+        range: AnyStrRange,
         func_name: &str,
         py_type_name: &str,
         func: F,
@@ -208,12 +220,14 @@ pub trait AnyStr<'s>: 's {
     where
         T: TryFromObject,
         F: Fn(&Self, &T) -> bool,
-        FS: Fn(&Self, std::ops::Range<usize>) -> &Self,
     {
         if !range.is_normal() {
             return Ok(false);
         }
-        let value = slicer(self, range);
+        let value = match range {
+            AnyStrRange::BytesRange(range) => self.get_bytes(range),
+            AnyStrRange::CharsRange(range) => self.get_chars(range),
+        };
 
         single_or_tuple_any(
             affix,
