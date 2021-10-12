@@ -213,7 +213,7 @@ pub trait AnyStr<'s>: 's {
         if !range.is_normal() {
             return Ok(false);
         }
-        let value = slicer(&self, range);
+        let value = slicer(self, range);
 
         single_or_tuple_any(
             affix,
