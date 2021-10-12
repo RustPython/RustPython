@@ -1301,6 +1301,21 @@ fn _socket_gethostbyname(name: PyStrRef, vm: &VirtualMachine) -> PyResult<String
     }
 }
 
+fn _socket_gethostbyname_ex(
+    name: PyStrRef,
+    vm: &VirtualMachine,
+) -> PyResult<(String, PyListRef, PyListRef)> {
+    let addr = get_addr(vm, name, c::AF_UNSPEC)?;
+    let (hostname, _) = dns_lookup::getnameinfo(&addr, 0)
+        .map_err(|e| convert_socket_error(vm, e, SocketError::HError))?;
+    Ok((
+        hostname,
+        vm.ctx.new_list(vec![]),
+        vm.ctx
+            .new_list(vec![vm.ctx.new_str(addr.ip().to_string()).into()]),
+    ))
+}
+
 fn _socket_inet_pton(af_inet: i32, ip_string: PyStrRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
     static ERROR_MSG: &str = "illegal IP address string passed to inet_pton";
     let ip_addr = match af_inet {
@@ -1881,6 +1896,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "getaddrinfo" => named_function!(ctx, _socket, getaddrinfo),
         "gethostbyaddr" => named_function!(ctx, _socket, gethostbyaddr),
         "gethostbyname" => named_function!(ctx, _socket, gethostbyname),
+        "gethostbyname_ex" => named_function!(ctx, _socket, gethostbyname_ex),
         "getnameinfo" => named_function!(ctx, _socket, getnameinfo),
         // constants
         "AF_UNSPEC" => ctx.new_int(0),
