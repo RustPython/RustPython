@@ -1047,7 +1047,7 @@ impl PyMethod {
         let getattro = cls.mro_find_map(|cls| cls.slots.getattro.load()).unwrap();
         if getattro as usize != object::PyBaseObject::getattro as usize {
             drop(cls);
-            return getattro(obj, name, vm).map(Self::Attribute);
+            return obj.get_attr(name, vm).map(Self::Attribute);
         }
 
         let mut is_method = false;
