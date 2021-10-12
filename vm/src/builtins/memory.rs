@@ -1,4 +1,4 @@
-use super::{PyBytes, PyBytesRef, PyList, PyListRef, PySliceRef, PyStr, PyStrRef, PyTypeRef};
+use super::{PyBytes, PyBytesRef, PyList, PyListRef, PySlice, PyStr, PyStrRef, PyTypeRef};
 use crate::common::{
     borrow::{BorrowedValue, BorrowedValueMut},
     hash::PyHash,
@@ -250,7 +250,7 @@ impl PyMemoryView {
         })
     }
 
-    fn getitem_by_slice(zelf: PyRef<Self>, slice: PySliceRef, vm: &VirtualMachine) -> PyResult {
+    fn getitem_by_slice(zelf: PyRef<Self>, slice: PyRef<PySlice>, vm: &VirtualMachine) -> PyResult {
         // slicing a memoryview return a new memoryview
         let len = zelf.buffer.options.len;
         let (range, step, is_negative_step) =
@@ -368,7 +368,7 @@ impl PyMemoryView {
 
     fn setitem_by_slice(
         zelf: PyRef<Self>,
-        slice: PySliceRef,
+        slice: PyRef<PySlice>,
         items: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {

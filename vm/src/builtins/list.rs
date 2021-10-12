@@ -1,4 +1,4 @@
-use super::{PositionIterInternal, PyGenericAlias, PySliceRef, PyTupleRef, PyTypeRef};
+use super::{PositionIterInternal, PyGenericAlias, PySlice, PyTupleRef, PyTypeRef};
 use crate::common::lock::{
     PyMappedRwLockReadGuard, PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
 };
@@ -210,7 +210,12 @@ impl PyList {
         }
     }
 
-    fn setslice(&self, slice: PySliceRef, sec: ArgIterable, vm: &VirtualMachine) -> PyResult<()> {
+    fn setslice(
+        &self,
+        slice: PyRef<PySlice>,
+        sec: ArgIterable,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         let items: Result<Vec<PyObjectRef>, _> = sec.iter(vm)?.collect();
         let items = items?;
         let slice = slice.to_saturated(vm)?;
@@ -492,7 +497,7 @@ impl PyList {
         removed.map(drop)
     }
 
-    fn delslice(&self, slice: PySliceRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn delslice(&self, slice: PyRef<PySlice>, vm: &VirtualMachine) -> PyResult<()> {
         let slice = slice.to_saturated(vm)?;
         self.borrow_vec_mut().delete_slice(vm, slice)
     }

@@ -1,4 +1,6 @@
 //! This package contains the python basic/builtin types
+//! 7 common PyRef type aliases are exposed - PyBytesRef, PyDictRef, PyIntRef, PyListRef, PyStrRef, PyTypeRef, PyTupleRef
+//! Do not add more PyRef type aliases. They will be rare enough to use directly PyRef<T>.
 
 pub(crate) mod asyncgenerator;
 pub use asyncgenerator::PyAsyncGen;
@@ -67,7 +69,7 @@ pub use set::{PyFrozenSet, PySet};
 pub(crate) mod singletons;
 pub use singletons::{PyNone, PyNotImplemented};
 pub(crate) mod slice;
-pub use slice::{PyEllipsis, PySlice, PySliceRef};
+pub use slice::{PyEllipsis, PySlice};
 pub(crate) mod staticmethod;
 pub use staticmethod::PyStaticMethod;
 pub(crate) mod traceback;

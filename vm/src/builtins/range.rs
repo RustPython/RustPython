@@ -1,4 +1,4 @@
-use super::{PyInt, PyIntRef, PySlice, PySliceRef, PyTupleRef, PyTypeRef};
+use super::{PyInt, PyIntRef, PySlice, PyTupleRef, PyTypeRef};
 use crate::builtins::builtins_iter;
 use crate::common::hash::PyHash;
 use crate::{
@@ -664,7 +664,7 @@ fn range_state(length: &BigInt, state: PyObjectRef, vm: &VirtualMachine) -> PyRe
 
 pub enum RangeIndex {
     Int(PyIntRef),
-    Slice(PySliceRef),
+    Slice(PyRef<PySlice>),
 }
 
 impl TryFromObject for RangeIndex {
