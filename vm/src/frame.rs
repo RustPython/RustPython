@@ -2,13 +2,10 @@ use crate::common::{boxvec::BoxVec, lock::PyMutex};
 use crate::{
     builtins::{
         asyncgenerator::PyAsyncGenWrappedValue,
-        coroutine::PyCoroutine,
         function::{PyCell, PyCellRef, PyFunction},
-        generator::PyGenerator,
-        list, pystr, set,
-        traceback::PyTraceback,
         tuple::{PyTuple, PyTupleTyped},
-        PyBaseExceptionRef, PyCode, PyDict, PyDictRef, PySlice, PyStr, PyStrRef, PyTypeRef,
+        PyBaseExceptionRef, PyCode, PyCoroutine, PyDict, PyDictRef, PyGenerator, PyListRef, PySet,
+        PySlice, PyStr, PyStrRef, PyTraceback, PyTypeRef,
     },
     bytecode,
     coroutine::Coro,
@@ -625,7 +622,7 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::BuildSet { size, unpack } => {
-                let set = set::PySet::new_ref(&vm.ctx);
+                let set = PySet::new_ref(&vm.ctx);
                 {
                     let elements = self.pop_multiple(*size as usize);
                     if *unpack {
@@ -654,30 +651,46 @@ impl ExecutingFrame<'_> {
             } => self.execute_build_map(vm, *size, *unpack, *for_call),
             bytecode::Instruction::BuildSlice { step } => self.execute_build_slice(vm, *step),
             bytecode::Instruction::ListAppend { i } => {
-                let list_obj = self.nth_value(*i);
+                let obj = self.nth_value(*i);
+                let list: PyListRef = unsafe {
+                    // SAFETY: trust compiler
+                    obj.downcast_unchecked()
+                };
                 let item = self.pop_value();
-                list::PyListRef::try_from_object(vm, list_obj)?.append(item);
+                list.append(item);
                 Ok(None)
             }
             bytecode::Instruction::SetAdd { i } => {
-                let set_obj = self.nth_value(*i);
+                let obj = self.nth_value(*i);
+                let set: PyRef<PySet> = unsafe {
+                    // SAFETY: trust compiler
+                    obj.downcast_unchecked()
+                };
                 let item = self.pop_value();
-                PyRef::<set::PySet>::try_from_object(vm, set_obj)?.add(item, vm)?;
+                set.add(item, vm)?;
                 Ok(None)
             }
             bytecode::Instruction::MapAdd { i } => {
-                let dict_obj = self.nth_value(*i + 1);
+                let obj = self.nth_value(*i + 1);
+                let dict: PyDictRef = unsafe {
+                    // SAFETY: trust compiler
+                    obj.downcast_unchecked()
+                };
                 let key = self.pop_value();
                 let value = self.pop_value();
-                PyDictRef::try_from_object(vm, dict_obj)?.set_item(key, value, vm)?;
+                dict.set_item(key, value, vm)?;
                 Ok(None)
             }
             bytecode::Instruction::MapAddRev { i } => {
                 // change order of evalutio of key and value to support Py3.8 Named expressions in dict comprehension
-                let dict_obj = self.nth_value(*i + 1);
+                let obj = self.nth_value(*i + 1);
+                let dict: PyDictRef = unsafe {
+                    // SAFETY: trust compiler
+                    obj.downcast_unchecked()
+                };
                 let value = self.pop_value();
                 let key = self.pop_value();
-                PyDictRef::try_from_object(vm, dict_obj)?.set_item(key, value, vm)?;
+                dict.set_item(key, value, vm)?;
                 Ok(None)
             }
             bytecode::Instruction::BinaryOperation { op } => self.execute_binop(vm, *op),
@@ -1324,7 +1337,7 @@ impl ExecutingFrame<'_> {
             let mut kwargs = IndexMap::new();
             for (key, value) in kw_dict.into_iter() {
                 let key = key
-                    .payload_if_subclass::<pystr::PyStr>(vm)
+                    .payload_if_subclass::<PyStr>(vm)
                     .ok_or_else(|| vm.new_type_error("keywords must be strings".to_owned()))?;
                 kwargs.insert(key.as_str().to_owned(), value);
             }

@@ -231,6 +231,12 @@ impl PyObjectRef {
         }
     }
 
+    /// # Safety
+    /// T must be the exact payload type
+    pub unsafe fn downcast_unchecked<T: PyObjectPayload>(self) -> PyRef<T> {
+        PyRef::from_obj_unchecked(self)
+    }
+
     pub(crate) fn class_lock(&self) -> &PyRwLock<PyTypeRef> {
         &self.rc.inner.typ
     }
@@ -416,7 +422,8 @@ impl<T: PyObjectPayload> Clone for PyRef<T> {
 impl<T: PyObjectPayload> PyRef<T> {
     /// Safety: payload type of `obj` must be `T`
     unsafe fn from_obj_unchecked(obj: PyObjectRef) -> Self {
-        PyRef {
+        debug_assert!(obj.payload_is::<T>());
+        Self {
             obj,
             _payload: PhantomData,
         }
