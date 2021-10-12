@@ -1,6 +1,6 @@
 use super::{
-    mappingproxy::PyMappingProxy, object, PyClassMethod, PyDictRef, PyInt, PyList, PyStaticMethod,
-    PyStr, PyStrRef, PyTuple, PyTupleRef, PyWeak,
+    mappingproxy::PyMappingProxy, object, PyClassMethod, PyDictRef, PyList, PyStaticMethod, PyStr,
+    PyStrRef, PyTuple, PyTupleRef, PyWeak,
 };
 use crate::common::{
     ascii,
@@ -9,14 +9,11 @@ use crate::common::{
 };
 use crate::{
     function::{FuncArgs, KwArgs, OptionalArg},
-    protocol::{PyIterReturn, PyMappingMethods},
-    types::{self, Callable, PyComparisonOp, PyTypeFlags, PyTypeSlots, SlotGetattro, SlotSetattro},
-    utils::Either,
-    IdProtocol, PyAttributes, PyClassImpl, PyComparisonValue, PyContext, PyLease, PyObjectRef,
-    PyRef, PyResult, PyValue, StaticType, TypeProtocol, VirtualMachine,
+    types::{Callable, PyTypeFlags, PyTypeSlots, SlotGetattro, SlotSetattro},
+    IdProtocol, PyAttributes, PyClassImpl, PyContext, PyLease, PyObjectRef, PyRef, PyResult,
+    PyValue, StaticType, TypeProtocol, VirtualMachine,
 };
 use itertools::Itertools;
-use num_traits::ToPrimitive;
 use std::collections::HashSet;
 use std::fmt;
 use std::ops::Deref;
@@ -195,161 +192,6 @@ impl PyType {
 
         attributes
     }
-
-    pub(crate) fn update_slot(&self, name: &str, add: bool) {
-        macro_rules! update_slot {
-            ($name:ident, $func:expr) => {{
-                self.slots.$name.store(if add { Some($func) } else { None });
-            }};
-        }
-        match name {
-            "__new__" => {
-                let func: types::NewFunc =
-                    |cls: PyTypeRef, mut args: FuncArgs, vm: &VirtualMachine| {
-                        let new = vm
-                            .get_attribute_opt(cls.as_object().clone(), "__new__")?
-                            .unwrap();
-                        args.prepend_arg(cls.into());
-                        vm.invoke(&new, args)
-                    };
-                update_slot!(new, func);
-            }
-            "__call__" => {
-                let func: types::GenericMethod =
-                    |zelf, args, vm| vm.call_special_method(zelf.clone(), "__call__", args);
-                update_slot!(call, func);
-            }
-            "__get__" => {
-                let func: types::DescrGetFunc =
-                    |zelf, obj, cls, vm| vm.call_special_method(zelf, "__get__", (obj, cls));
-                update_slot!(descr_get, func);
-            }
-            "__set__" | "__delete__" => {
-                let func: types::DescrSetFunc = |zelf, obj, value, vm| {
-                    match value {
-                        Some(val) => vm.call_special_method(zelf, "__set__", (obj, val)),
-                        None => vm.call_special_method(zelf, "__delete__", (obj,)),
-                    }
-                    .map(drop)
-                };
-                update_slot!(descr_set, func);
-            }
-            "__hash__" => {
-                let func: types::HashFunc = |zelf, vm| {
-                    let hash_obj = vm.call_special_method(zelf.clone(), "__hash__", ())?;
-                    match hash_obj.payload_if_subclass::<PyInt>(vm) {
-                        Some(py_int) => {
-                            Ok(rustpython_common::hash::hash_bigint(py_int.as_bigint()))
-                        }
-                        None => Err(vm
-                            .new_type_error("__hash__ method should return an integer".to_owned())),
-                    }
-                } as _;
-                update_slot!(hash, func);
-            }
-            "__del__" => {
-                let func: types::DelFunc = |zelf, vm| {
-                    vm.call_special_method(zelf.clone(), "__del__", ())?;
-                    Ok(())
-                } as _;
-                update_slot!(del, func);
-            }
-            "__eq__" | "__ne__" | "__le__" | "__lt__" | "__ge__" | "__gt__" => {
-                update_slot!(richcompare, richcompare_wrapper);
-            }
-            "__getattribute__" => {
-                let func: types::GetattroFunc =
-                    |zelf, name, vm| vm.call_special_method(zelf, "__getattribute__", (name,));
-                update_slot!(getattro, func);
-            }
-            "__setattr__" => {
-                let func: types::SetattroFunc = |zelf, name, value, vm| {
-                    match value {
-                        Some(value) => {
-                            vm.call_special_method(zelf.clone(), "__setattr__", (name, value))?;
-                        }
-                        None => {
-                            vm.call_special_method(zelf.clone(), "__delattr__", (name,))?;
-                        }
-                    };
-                    Ok(())
-                };
-                update_slot!(setattro, func);
-            }
-            "__iter__" => {
-                let func: types::IterFunc = |zelf, vm| vm.call_special_method(zelf, "__iter__", ());
-                update_slot!(iter, func);
-            }
-            "__next__" => {
-                let func: types::IterNextFunc = |zelf, vm| {
-                    PyIterReturn::from_pyresult(
-                        vm.call_special_method(zelf.clone(), "__next__", ()),
-                        vm,
-                    )
-                };
-                update_slot!(iternext, func);
-            }
-            "__len__" | "__getitem__" | "__setitem__" | "__delitem__" => {
-                macro_rules! then_some_closure {
-                    ($cond:expr, $closure:expr) => {
-                        if $cond {
-                            Some($closure)
-                        } else {
-                            None
-                        }
-                    };
-                }
-
-                let func: types::MappingFunc = |zelf, _vm| {
-                    Ok(PyMappingMethods {
-                        length: then_some_closure!(zelf.has_class_attr("__len__"), |zelf, vm| {
-                            vm.call_special_method(zelf, "__len__", ()).map(|obj| {
-                                obj.payload_if_subclass::<PyInt>(vm)
-                                    .map(|length_obj| {
-                                        length_obj.as_bigint().to_usize().ok_or_else(|| {
-                                            vm.new_value_error(
-                                                "__len__() should return >= 0".to_owned(),
-                                            )
-                                        })
-                                    })
-                                    .unwrap()
-                            })?
-                        }),
-                        subscript: then_some_closure!(
-                            zelf.has_class_attr("__getitem__"),
-                            |zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine| {
-                                vm.call_special_method(zelf, "__getitem__", (needle,))
-                            }
-                        ),
-                        ass_subscript: then_some_closure!(
-                            zelf.has_class_attr("__setitem__") | zelf.has_class_attr("__delitem__"),
-                            |zelf, needle, value, vm| match value {
-                                Some(value) => vm
-                                    .call_special_method(zelf, "__setitem__", (needle, value),)
-                                    .map(|_| Ok(()))?,
-                                None => vm
-                                    .call_special_method(zelf, "__delitem__", (needle,))
-                                    .map(|_| Ok(()))?,
-                            }
-                        ),
-                    })
-                };
-                update_slot!(as_mapping, func);
-                // TODO: need to update sequence protocol too
-            }
-            _ => {}
-        }
-    }
-}
-
-fn richcompare_wrapper(
-    zelf: &PyObjectRef,
-    other: &PyObjectRef,
-    op: PyComparisonOp,
-    vm: &VirtualMachine,
-) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
-    vm.call_special_method(zelf.clone(), op.method_name(), (other.clone(),))
-        .map(Either::A)
 }
 
 impl PyTypeRef {
