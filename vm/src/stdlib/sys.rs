@@ -1,4 +1,6 @@
-use crate::{ItemProtocol, PyClassImpl, PyObjectRef, PyResult, VirtualMachine};
+use crate::{
+    function::IntoPyObject, ItemProtocol, PyClassImpl, PyObjectRef, PyResult, VirtualMachine,
+};
 
 pub(crate) use sys::{MAXSIZE, MULTIARCH};
 
@@ -690,6 +692,7 @@ pub(crate) fn init_module(vm: &VirtualMachine, module: &PyObjectRef, builtins: &
     modules.set_item("sys", module.clone(), vm).unwrap();
     modules.set_item("builtins", builtins.clone(), vm).unwrap();
     extend_module!(vm, module, {
+        "__doc__" => sys::DOC.to_owned().into_pyobject(vm),
         "modules" => modules,
     });
 }
