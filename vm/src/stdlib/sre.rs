@@ -4,8 +4,7 @@ pub(crate) use _sre::make_module;
 mod _sre {
     use crate::{
         builtins::{
-            PyCallableIterator, PyDictRef, PyInt, PyList, PyListRef, PyStr, PyStrRef, PyTuple,
-            PyTupleRef,
+            PyCallableIterator, PyDictRef, PyInt, PyList, PyStr, PyStrRef, PyTuple, PyTupleRef,
         },
         common::{ascii, hash::PyHash},
         function::{ArgCallable, IntoPyObject, OptionalArg, PosArgs},
@@ -247,7 +246,7 @@ mod _sre {
             zelf: PyRef<Pattern>,
             string_args: StringArgs,
             vm: &VirtualMachine,
-        ) -> PyResult<PyListRef> {
+        ) -> PyResult<Vec<PyObjectRef>> {
             zelf.with_state(
                 string_args.string.clone(),
                 string_args.pos,
@@ -277,7 +276,7 @@ mod _sre {
                         state.start = state.string_position;
                         state.reset();
                     }
-                    Ok(PyList::from(matchlist).into_ref(vm))
+                    Ok(matchlist)
                 },
             )
         }
@@ -332,7 +331,7 @@ mod _sre {
             zelf: PyRef<Pattern>,
             split_args: SplitArgs,
             vm: &VirtualMachine,
-        ) -> PyResult<PyListRef> {
+        ) -> PyResult<Vec<PyObjectRef>> {
             zelf.with_state(split_args.string.clone(), 0, usize::MAX, vm, |mut state| {
                 let mut splitlist: Vec<PyObjectRef> = Vec::new();
 
@@ -367,7 +366,7 @@ mod _sre {
                 // get segment following last match (even if empty)
                 splitlist.push(slice_drive(&state.string, last, state.string.count(), vm));
 
-                Ok(PyList::from(splitlist).into_ref(vm))
+                Ok(splitlist)
             })
         }
 

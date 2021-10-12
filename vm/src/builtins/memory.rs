@@ -501,7 +501,7 @@ impl PyMemoryView {
     }
 
     #[pymethod]
-    fn tolist(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyListRef> {
+    fn tolist(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         zelf.try_not_released(vm)?;
 
         let bytes = &*zelf.obj_bytes();
@@ -516,7 +516,7 @@ impl PyMemoryView {
             })
             .try_collect()?;
 
-        Ok(PyList::from(elements).into_ref(vm))
+        Ok(elements)
     }
 
     #[pymethod]
@@ -845,7 +845,7 @@ fn format_unpack(
     })
 }
 
-pub fn unpack_bytes_seq_to_list(
+fn unpack_bytes_seq_to_list(
     bytes: &[u8],
     format: &str,
     vm: &VirtualMachine,

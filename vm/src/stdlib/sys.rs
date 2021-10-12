@@ -11,7 +11,7 @@ mod sys {
         hash::{PyHash, PyUHash},
     };
     use crate::{
-        builtins::{PyDictRef, PyListRef, PyNamespace, PyStr, PyStrRef, PyTupleRef, PyTypeRef},
+        builtins::{PyDictRef, PyNamespace, PyStr, PyStrRef, PyTupleRef, PyTypeRef},
         frame::FrameRef,
         function::{FuncArgs, OptionalArg, PosArgs},
         stdlib::builtins,
@@ -99,15 +99,13 @@ mod sys {
     // alphabetical order with segments of pyattr and others
 
     #[pyattr]
-    fn argv(vm: &VirtualMachine) -> PyListRef {
-        vm.ctx.new_list(
-            vm.state
-                .settings
-                .argv
-                .iter()
-                .map(|arg| vm.ctx.new_str(arg.clone()).into())
-                .collect(),
-        )
+    fn argv(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        vm.state
+            .settings
+            .argv
+            .iter()
+            .map(|arg| vm.ctx.new_str(arg.clone()).into())
+            .collect()
     }
 
     #[pyattr]

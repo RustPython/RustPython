@@ -111,7 +111,7 @@ impl PyList {
     }
 
     #[pymethod(magic)]
-    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyListRef> {
+    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         let other = other.payload_if_subclass::<PyList>(vm).ok_or_else(|| {
             vm.new_type_error(format!(
                 "Cannot add {} and {}",
@@ -146,7 +146,7 @@ impl PyList {
     }
 
     #[pymethod]
-    fn copy(&self, vm: &VirtualMachine) -> PyListRef {
+    fn copy(&self, vm: &VirtualMachine) -> PyRef<Self> {
         Self::new_ref(self.borrow_vec().to_vec(), &vm.ctx)
     }
 
