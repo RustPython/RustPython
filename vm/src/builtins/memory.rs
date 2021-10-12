@@ -9,7 +9,7 @@ use crate::{
     bytesinner::bytes_to_hex,
     function::{FuncArgs, IntoPyObject, OptionalArg},
     protocol::{BufferInternal, BufferOptions, PyBuffer, PyMappingMethods},
-    sliceable::{wrap_index, SaturatedIndices, SequenceIndex},
+    sliceable::{wrap_index, SaturatedSlice, SequenceIndex},
     slots::{AsBuffer, AsMapping, Comparable, Hashable, PyComparisonOp, SlotConstructor},
     stdlib::pystruct::FormatSpec,
     utils::Either,
@@ -254,7 +254,7 @@ impl PyMemoryView {
         // slicing a memoryview return a new memoryview
         let len = zelf.buffer.options.len;
         let (range, step, is_negative_step) =
-            SaturatedIndices::new(&slice, vm)?.adjust_indices(len);
+            SaturatedSlice::with_slice(&slice, vm)?.adjust_indices(len);
         let abs_step = step.unwrap();
         let step = if is_negative_step {
             -(abs_step as isize)
@@ -395,7 +395,7 @@ impl PyMemoryView {
         }
 
         let (range, step, is_negative_step) =
-            SaturatedIndices::new(&slice, vm)?.adjust_indices(zelf.buffer.options.len);
+            SaturatedSlice::with_slice(&slice, vm)?.adjust_indices(zelf.buffer.options.len);
 
         let bytes = items.to_contiguous();
         assert_eq!(bytes.len(), len * itemsize);

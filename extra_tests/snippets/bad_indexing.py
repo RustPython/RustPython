@@ -12,7 +12,7 @@ class BadIndex:
         return 1
 
 
-def run_setitem():
+def run_setslice():
     with assert_raises(IndexError):
         e[BadIndex()] = 42
     e[BadIndex():0:-1] = e
@@ -20,7 +20,7 @@ def run_setitem():
     e[0:10:BadIndex()] = e
 
 
-def run_delitem():
+def run_delslice():
     del e[BadIndex():0:-1]
     del e[0:BadIndex():1]
     del e[0:10:BadIndex()]
@@ -28,8 +28,5 @@ def run_delitem():
 # Check types 
 instances = [list(), bytearray(), array('b')]
 for e in instances:
-    print("Trying for ", type(e).__name__)
-    run_setitem()
-    print("setitem ok")
-    run_delitem()
-    print("delitem ok")
+    run_setslice()
+    run_delslice()

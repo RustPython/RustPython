@@ -213,7 +213,7 @@ impl PyList {
     fn setslice(&self, slice: PySliceRef, sec: ArgIterable, vm: &VirtualMachine) -> PyResult<()> {
         let items: Result<Vec<PyObjectRef>, _> = sec.iter(vm)?.collect();
         let items = items?;
-        let slice = slice.to_saturated_indices(vm)?;
+        let slice = slice.to_saturated(vm)?;
         let mut elements = self.borrow_vec_mut();
         elements.set_slice_items(vm, slice, items.as_slice())
     }
@@ -374,7 +374,7 @@ impl PyList {
     }
 
     fn delslice(&self, slice: PySliceRef, vm: &VirtualMachine) -> PyResult<()> {
-        let slice = slice.to_saturated_indices(vm)?;
+        let slice = slice.to_saturated(vm)?;
         self.borrow_vec_mut().delete_slice(vm, slice)
     }
 

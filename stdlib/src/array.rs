@@ -23,7 +23,7 @@ mod array {
             BufferInternal, BufferOptions, BufferResizeGuard, PyBuffer, PyIterReturn,
             PyMappingMethods,
         },
-        sliceable::{PySliceableSequence, PySliceableSequenceMut, SaturatedIndices, SequenceIndex},
+        sliceable::{PySliceableSequence, PySliceableSequenceMut, SaturatedSlice, SequenceIndex},
         slots::{
             AsBuffer, AsMapping, Comparable, Iterable, IteratorIterable, PyComparisonOp,
             SlotConstructor, SlotIterator,
@@ -278,7 +278,7 @@ mod array {
                                 SequenceIndex::Slice(slice) => {
                                     // TODO: Use interface similar to set/del item. This can
                                     // still hang.
-                                    let slice = slice.to_saturated_indices(vm)?;
+                                    let slice = slice.to_saturated(vm)?;
                                     let elements = v.get_slice_items(vm, slice)?;
                                     let array: PyArray = ArrayContentType::$n(elements).into();
                                     Ok(array.into_object(vm))
@@ -290,7 +290,7 @@ mod array {
 
                 fn setitem_by_slice(
                     &mut self,
-                    slice: SaturatedIndices,
+                    slice: SaturatedSlice,
                     items: &ArrayContentType,
                     vm: &VirtualMachine
                 ) -> PyResult<()> {
@@ -307,7 +307,7 @@ mod array {
 
                 fn setitem_by_slice_no_resize(
                     &mut self,
-                    slice: SaturatedIndices,
+                    slice: SaturatedSlice,
                     items: &ArrayContentType,
                     vm: &VirtualMachine
                 ) -> PyResult<()> {
@@ -353,7 +353,7 @@ mod array {
 
                 fn delitem_by_slice(
                     &mut self,
-                    slice: SaturatedIndices,
+                    slice: SaturatedSlice,
                     vm: &VirtualMachine
                 ) -> PyResult<()> {
                     match self {
@@ -985,7 +985,7 @@ mod array {
             match SequenceIndex::try_from_object_for(vm, needle, "array")? {
                 SequenceIndex::Int(i) => zelf.write().setitem_by_idx(i, obj, vm),
                 SequenceIndex::Slice(slice) => {
-                    let slice = slice.to_saturated_indices(vm)?;
+                    let slice = slice.to_saturated(vm)?;
                     let cloned;
                     let guard;
                     let items = if zelf.is(&obj) {
@@ -1019,7 +1019,7 @@ mod array {
             match SequenceIndex::try_from_object_for(vm, needle, "array")? {
                 SequenceIndex::Int(i) => zelf.try_resizable(vm)?.delitem_by_idx(i, vm),
                 SequenceIndex::Slice(slice) => {
-                    let slice = slice.to_saturated_indices(vm)?;
+                    let slice = slice.to_saturated(vm)?;
                     zelf.try_resizable(vm)?.delitem_by_slice(slice, vm)
                 }
             }

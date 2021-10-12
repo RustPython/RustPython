@@ -182,7 +182,7 @@ impl PyByteArray {
                 }
             }
             SequenceIndex::Slice(slice) => {
-                let slice = slice.to_saturated_indices(vm)?;
+                let slice = slice.to_saturated(vm)?;
                 let items = if zelf.is(&value) {
                     zelf.borrow_buf().to_vec()
                 } else {
@@ -224,7 +224,7 @@ impl PyByteArray {
                 }
             }
             SequenceIndex::Slice(slice) => {
-                let slice = slice.to_saturated_indices(vm)?;
+                let slice = slice.to_saturated(vm)?;
                 let elements = &mut self.try_resizable(vm)?.elements;
                 elements.delete_slice(vm, slice)
             }

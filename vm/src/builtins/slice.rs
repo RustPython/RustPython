@@ -71,8 +71,8 @@ impl PySlice {
         ))
     }
 
-    pub fn to_saturated_indices(&self, vm: &VirtualMachine) -> PyResult<SaturatedIndices> {
-        SaturatedIndices::new(self, vm)
+    pub fn to_saturated(&self, vm: &VirtualMachine) -> PyResult<SaturatedSlice> {
+        SaturatedSlice::with_slice(self, vm)
     }
 
     #[pyslot]
@@ -255,15 +255,15 @@ impl Unhashable for PySlice {}
 /// sequence length. The reason this is important is due to the fact that an objects
 /// `__index__` might get a lock on the sequence and cause a deadlock.
 #[derive(Copy, Clone, Debug)]
-pub struct SaturatedIndices {
+pub struct SaturatedSlice {
     start: isize,
     stop: isize,
     step: isize,
 }
 
-impl SaturatedIndices {
+impl SaturatedSlice {
     // Equivalent to PySlice_Unpack.
-    pub fn new(slice: &PySlice, vm: &VirtualMachine) -> PyResult<Self> {
+    pub fn with_slice(slice: &PySlice, vm: &VirtualMachine) -> PyResult<Self> {
         let step = to_isize_index(vm, slice.step_ref(vm))?.unwrap_or(1);
         if step == 0 {
             return Err(vm.new_value_error("slice step cannot be zero".to_owned()));
@@ -290,18 +290,18 @@ impl SaturatedIndices {
     /// Convert for usage in indexing the underlying rust collections. Called *after*
     /// __index__ has been called on the Slice which might mutate the collection.
     pub fn adjust_indices(&self, len: usize) -> (Range<usize>, Option<usize>, bool) {
-        // todo: handle this
-        let len = len as isize;
+        // len should always be <= isize::MAX
+        let ilen = len.to_isize().unwrap_or(isize::MAX);
         let (start, stop, step) = (self.start, self.stop, self.step);
         let (start, stop, step, is_negative_step) = if step.is_negative() {
             (
                 if stop == -1 {
-                    len.saturating_add(1)
+                    ilen.saturating_add(1)
                 } else {
                     stop.saturating_add(1)
                 },
                 if start == -1 {
-                    len
+                    ilen
                 } else {
                     start.saturating_add(1)
                 },
@@ -357,7 +357,8 @@ fn to_isize_index(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Option<isi
 }
 
 // Saturate p in range [0, len] inclusive
-pub fn saturate_index(p: isize, len: isize) -> usize {
+pub fn saturate_index(p: isize, len: usize) -> usize {
+    let len = len.to_isize().unwrap_or(isize::MAX);
     let mut p = p;
     if p < 0 {
         p += len;
