@@ -1,9 +1,8 @@
-use num_bigint::BigInt;
-use num_traits::{One, Signed, ToPrimitive, Zero};
+use num_traits::ToPrimitive;
 use std::ops::Range;
 
 use crate::builtins::int::PyInt;
-use crate::builtins::slice::{PySlice, PySliceRef};
+use crate::builtins::slice::{saturate_index, PySlice, PySliceRef, SaturatedIndices};
 use crate::utils::Either;
 use crate::VirtualMachine;
 use crate::{PyObjectRef, PyResult, TypeProtocol};
@@ -27,7 +26,8 @@ pub trait PySliceableSequenceMut {
         slice: &PySlice,
         items: &[Self::Item],
     ) -> PyResult<()> {
-        let (range, step, is_negative_step) = convert_slice(slice, self.as_slice().len(), vm)?;
+        let (range, step, is_negative_step) =
+            SaturatedIndices::new(slice, vm)?.adjust_indices(self.as_slice().len());
         if !is_negative_step && step == Some(1) {
             return if range.end - range.start == items.len() {
                 self.do_set_range(range, items);
@@ -85,7 +85,8 @@ pub trait PySliceableSequenceMut {
         slice: &PySlice,
         items: &[Self::Item],
     ) -> PyResult<()> {
-        let (range, step, is_negative_step) = convert_slice(slice, self.as_slice().len(), vm)?;
+        let (range, step, is_negative_step) =
+            SaturatedIndices::new(slice, vm)?.adjust_indices(self.as_slice().len());
         if !is_negative_step && step == Some(1) {
             self.do_set_range(range, items);
             return Ok(());
@@ -136,7 +137,8 @@ pub trait PySliceableSequenceMut {
     }
 
     fn delete_slice(&mut self, vm: &VirtualMachine, slice: &PySlice) -> PyResult<()> {
-        let (range, step, is_negative_step) = convert_slice(slice, self.as_slice().len(), vm)?;
+        let (range, step, is_negative_step) =
+            SaturatedIndices::new(slice, vm)?.adjust_indices(self.as_slice().len());
         if range.start >= range.end {
             return Ok(());
         }
@@ -228,19 +230,12 @@ pub trait PySliceableSequence {
     }
 
     fn saturate_index(&self, p: isize) -> usize {
-        saturate_index(p, self.len())
-    }
-
-    fn saturate_big_index(&self, slice_pos: &BigInt) -> usize {
-        saturate_big_index(slice_pos, self.len())
-    }
-
-    fn saturate_range(&self, start: &Option<BigInt>, stop: &Option<BigInt>) -> Range<usize> {
-        saturate_range(start, stop, self.len())
+        saturate_index(p, self.len() as isize)
     }
 
     fn get_slice_items(&self, vm: &VirtualMachine, slice: &PySlice) -> PyResult<Self::Sliced> {
-        let (range, step, is_negative_step) = convert_slice(slice, self.len(), vm)?;
+        let (range, step, is_negative_step) =
+            SaturatedIndices::new(slice, vm)?.adjust_indices(self.len());
         if range.start >= range.end {
             return Ok(Self::empty());
         }
@@ -395,100 +390,4 @@ pub(crate) fn wrap_index(p: isize, len: usize) -> Option<usize> {
     } else {
         Some(p)
     }
-}
-
-// return pos is in range [0, len] inclusive
-pub fn saturate_index(p: isize, len: usize) -> usize {
-    let mut p = p;
-    let len = len.to_isize().unwrap();
-    if p < 0 {
-        p += len;
-        if p < 0 {
-            p = 0;
-        }
-    }
-    if p > len {
-        p = len;
-    }
-    p as usize
-}
-
-fn saturate_big_index(slice_pos: &BigInt, len: usize) -> usize {
-    if let Some(pos) = slice_pos.to_isize() {
-        saturate_index(pos, len)
-    } else if slice_pos.is_negative() {
-        // slice past start bound, round to start
-        0
-    } else {
-        // slice past end bound, round to end
-        len
-    }
-}
-
-pub(crate) fn saturate_range(
-    start: &Option<BigInt>,
-    stop: &Option<BigInt>,
-    len: usize,
-) -> Range<usize> {
-    let start = start.as_ref().map_or(0, |x| saturate_big_index(x, len));
-    let stop = stop.as_ref().map_or(len, |x| saturate_big_index(x, len));
-
-    start..stop
-}
-
-pub(crate) fn convert_slice(
-    slice: &PySlice,
-    len: usize,
-    vm: &VirtualMachine,
-) -> PyResult<(Range<usize>, Option<usize>, bool)> {
-    let start = slice.start_index(vm)?;
-    let stop = slice.stop_index(vm)?;
-    let step = slice.step_index(vm)?.unwrap_or_else(BigInt::one);
-
-    if step.is_zero() {
-        return Err(vm.new_value_error("slice step cannot be zero".to_owned()));
-    }
-
-    let (start, stop, step, is_negative_step) = if step.is_negative() {
-        (
-            stop.map(|x| {
-                if x == -BigInt::one() {
-                    len + BigInt::one()
-                } else {
-                    x + 1
-                }
-            }),
-            start.map(|x| {
-                if x == -BigInt::one() {
-                    BigInt::from(len)
-                } else {
-                    x + 1
-                }
-            }),
-            -step,
-            true,
-        )
-    } else {
-        (start, stop, step, false)
-    };
-
-    let step = step.to_usize();
-
-    let range = saturate_range(&start, &stop, len);
-    let range = if range.start >= range.end {
-        range.start..range.start
-    } else {
-        // step overflow
-        if step.is_none() {
-            if is_negative_step {
-                (range.end - 1)..range.end
-            } else {
-                range.start..(range.start + 1)
-            }
-        } else {
-            range
-        }
-    };
-
-    Ok((range, step, is_negative_step))
 }

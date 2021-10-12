@@ -23,7 +23,7 @@ mod array {
             BufferInternal, BufferOptions, BufferResizeGuard, PyBuffer, PyIterReturn,
             PyMappingMethods,
         },
-        sliceable::{saturate_index, PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
+        sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
         slots::{
             AsBuffer, AsMapping, Comparable, Iterable, IteratorIterable, PyComparisonOp,
             SlotConstructor, SlotIterator,
@@ -122,14 +122,14 @@ mod array {
 
                 fn insert(
                     &mut self,
-                    i: usize,
+                    i: isize,
                     obj: PyObjectRef,
                     vm: &VirtualMachine
                 ) -> PyResult<()> {
                     match self {
                         $(ArrayContentType::$n(v) => {
                             let val = <$t>::try_into_from_object(vm, obj)?;
-                            v.insert(i, val);
+                            v.insert(v.saturate_index(i), val);
                         })*
                     }
                     Ok(())
@@ -895,7 +895,6 @@ mod array {
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             let mut w = zelf.try_resizable(vm)?;
-            let i = saturate_index(i, w.len());
             w.insert(i, x, vm)
         }
 
