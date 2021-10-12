@@ -9,7 +9,7 @@ use crate::common::{
 };
 use crate::{
     function::{FuncArgs, KwArgs, OptionalArg},
-    types::{Callable, PyTypeFlags, PyTypeSlots, SlotGetattro, SlotSetattro},
+    types::{Callable, GetAttr, PyTypeFlags, PyTypeSlots, SetAttr},
     IdProtocol, PyAttributes, PyClassImpl, PyContext, PyLease, PyObjectRef, PyRef, PyResult,
     PyValue, StaticType, TypeProtocol, VirtualMachine,
 };
@@ -208,7 +208,7 @@ impl PyTypeRef {
     }
 }
 
-#[pyimpl(with(SlotGetattro, SlotSetattro, Callable), flags(BASETYPE))]
+#[pyimpl(with(GetAttr, SetAttr, Callable), flags(BASETYPE))]
 impl PyType {
     // bound method for every type
     pub(crate) fn __new__(zelf: PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -559,7 +559,7 @@ pub(crate) fn get_text_signature_from_internal_doc<'a>(
     find_signature(name, internal_doc).and_then(get_signature)
 }
 
-impl SlotGetattro for PyType {
+impl GetAttr for PyType {
     fn getattro(zelf: PyRef<Self>, name_str: PyStrRef, vm: &VirtualMachine) -> PyResult {
         let name = name_str.as_str();
         vm_trace!("type.__getattribute__({:?}, {:?})", zelf, name);
@@ -604,7 +604,7 @@ impl SlotGetattro for PyType {
     }
 }
 
-impl SlotSetattro for PyType {
+impl SetAttr for PyType {
     fn setattro(
         zelf: &PyRef<Self>,
         attr_name: PyStrRef,

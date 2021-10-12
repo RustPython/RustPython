@@ -8,7 +8,7 @@ mod _json {
         builtins::{PyBaseExceptionRef, PyStrRef, PyTypeRef},
         function::{FuncArgs, IntoPyObject, IntoPyResult, OptionalArg},
         protocol::PyIterReturn,
-        types::{Callable, SlotConstructor},
+        types::{Callable, Constructor},
         IdProtocol, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
     };
     use num_bigint::BigInt;
@@ -27,7 +27,7 @@ mod _json {
         ctx: PyObjectRef,
     }
 
-    impl SlotConstructor for JsonScanner {
+    impl Constructor for JsonScanner {
         type Args = PyObjectRef;
 
         fn py_new(cls: PyTypeRef, ctx: Self::Args, vm: &VirtualMachine) -> PyResult {
@@ -63,7 +63,7 @@ mod _json {
         }
     }
 
-    #[pyimpl(with(Callable, SlotConstructor))]
+    #[pyimpl(with(Callable, Constructor))]
     impl JsonScanner {
         fn parse(
             &self,

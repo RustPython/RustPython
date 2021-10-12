@@ -4,7 +4,7 @@
 use super::PyTypeRef;
 use crate::{
     function::{IntoPyResult, OwnedParam, RefParam},
-    types::SlotDescriptor,
+    types::GetDescriptor,
     PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyThreadingConstraint, PyValue,
     TryFromObject, TypeProtocol, VirtualMachine,
 };
@@ -241,7 +241,7 @@ impl PyValue for PyGetSet {
     }
 }
 
-impl SlotDescriptor for PyGetSet {
+impl GetDescriptor for PyGetSet {
     fn descr_get(
         zelf: PyObjectRef,
         obj: Option<PyObjectRef>,
@@ -300,7 +300,7 @@ impl PyGetSet {
     }
 }
 
-#[pyimpl(with(SlotDescriptor))]
+#[pyimpl(with(GetDescriptor))]
 impl PyGetSet {
     // Descriptor methods
 

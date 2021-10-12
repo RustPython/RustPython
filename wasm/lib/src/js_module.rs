@@ -8,7 +8,7 @@ use rustpython_vm::{
     builtins::{PyBaseExceptionRef, PyFloatRef, PyStrRef, PyType, PyTypeRef},
     function::{ArgCallable, IntoPyObject, OptionalArg, OptionalOption, PosArgs},
     protocol::PyIterReturn,
-    types::{IteratorIterable, SlotIterator},
+    types::{IterNext, IterNextIterable},
     PyClassImpl, PyObjectRef, PyObjectWrap, PyRef, PyResult, PyValue, TryFromObject,
     VirtualMachine,
 };
@@ -549,7 +549,7 @@ impl fmt::Debug for AwaitPromise {
     }
 }
 
-#[pyimpl(with(SlotIterator))]
+#[pyimpl(with(IterNext))]
 impl AwaitPromise {
     #[pymethod]
     fn send(&self, val: Option<PyObjectRef>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
@@ -583,8 +583,8 @@ impl AwaitPromise {
     }
 }
 
-impl IteratorIterable for AwaitPromise {}
-impl SlotIterator for AwaitPromise {
+impl IterNextIterable for AwaitPromise {}
+impl IterNext for AwaitPromise {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.send(None, vm)
     }

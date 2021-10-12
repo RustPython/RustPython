@@ -25,8 +25,8 @@ mod array {
         },
         sliceable::{PySliceableSequence, PySliceableSequenceMut, SaturatedSlice, SequenceIndex},
         types::{
-            AsBuffer, AsMapping, Comparable, Iterable, IteratorIterable, PyComparisonOp,
-            SlotConstructor, SlotIterator,
+            AsBuffer, AsMapping, Comparable, Constructor, IterNext, IterNextIterable, Iterable,
+            PyComparisonOp,
         },
         IdProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
         TypeProtocol, VirtualMachine,
@@ -638,7 +638,7 @@ mod array {
         init: OptionalArg<PyObjectRef>,
     }
 
-    impl SlotConstructor for PyArray {
+    impl Constructor for PyArray {
         type Args = ArrayNewArgs;
 
         fn py_new(
@@ -698,7 +698,7 @@ mod array {
 
     #[pyimpl(
         flags(BASETYPE),
-        with(Comparable, AsBuffer, AsMapping, Iterable, SlotConstructor)
+        with(Comparable, AsBuffer, AsMapping, Iterable, Constructor)
     )]
     impl PyArray {
         fn read(&self) -> PyRwLockReadGuard<'_, ArrayContentType> {
@@ -1317,11 +1317,11 @@ mod array {
         array: PyArrayRef,
     }
 
-    #[pyimpl(with(SlotIterator))]
+    #[pyimpl(with(IterNext))]
     impl PyArrayIter {}
 
-    impl IteratorIterable for PyArrayIter {}
-    impl SlotIterator for PyArrayIter {
+    impl IterNextIterable for PyArrayIter {}
+    impl IterNext for PyArrayIter {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let pos = zelf.position.fetch_add(1);
             let r = if let Some(item) = zelf.array.read().getitem_by_idx(pos, vm)? {

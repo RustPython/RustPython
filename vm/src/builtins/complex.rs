@@ -1,7 +1,7 @@
 use super::{float, PyStr, PyTypeRef};
 use crate::{
     function::{IntoPyObject, OptionalArg, OptionalOption},
-    types::{Comparable, Hashable, PyComparisonOp, SlotConstructor},
+    types::{Comparable, Constructor, Hashable, PyComparisonOp},
     IdProtocol,
     PyArithmeticValue::{self, *},
     PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
@@ -110,7 +110,7 @@ fn inner_pow(v1: Complex64, v2: Complex64, vm: &VirtualMachine) -> PyResult<Comp
     }
 }
 
-impl SlotConstructor for PyComplex {
+impl Constructor for PyComplex {
     type Args = ComplexArgs;
 
     fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
@@ -196,7 +196,7 @@ impl PyComplex {
     }
 }
 
-#[pyimpl(flags(BASETYPE), with(Comparable, Hashable, SlotConstructor))]
+#[pyimpl(flags(BASETYPE), with(Comparable, Hashable, Constructor))]
 impl PyComplex {
     #[pymethod(magic)]
     fn complex(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRef<PyComplex> {

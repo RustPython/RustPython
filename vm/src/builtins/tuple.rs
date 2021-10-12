@@ -7,8 +7,8 @@ use crate::{
     sliceable::PySliceableSequence,
     stdlib::sys,
     types::{
-        AsMapping, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp,
-        SlotConstructor, SlotIterator, Unconstructible,
+        AsMapping, Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable,
+        PyComparisonOp, Unconstructible,
     },
     utils::Either,
     vm::{ReprGuard, VirtualMachine},
@@ -89,7 +89,7 @@ impl PyTuple {
 
 pub type PyTupleRef = PyRef<PyTuple>;
 
-impl SlotConstructor for PyTuple {
+impl Constructor for PyTuple {
     type Args = OptionalArg<PyObjectRef>;
 
     fn py_new(cls: PyTypeRef, iterable: Self::Args, vm: &VirtualMachine) -> PyResult {
@@ -142,7 +142,7 @@ impl PyTuple {
 
 #[pyimpl(
     flags(BASETYPE),
-    with(AsMapping, Hashable, Comparable, Iterable, SlotConstructor)
+    with(AsMapping, Hashable, Comparable, Iterable, Constructor)
 )]
 impl PyTuple {
     #[pymethod(magic)]
@@ -379,7 +379,7 @@ impl PyValue for PyTupleIterator {
     }
 }
 
-#[pyimpl(with(SlotConstructor, SlotIterator))]
+#[pyimpl(with(Constructor, IterNext))]
 impl PyTupleIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
@@ -402,8 +402,8 @@ impl PyTupleIterator {
 }
 impl Unconstructible for PyTupleIterator {}
 
-impl IteratorIterable for PyTupleIterator {}
-impl SlotIterator for PyTupleIterator {
+impl IterNextIterable for PyTupleIterator {}
+impl IterNext for PyTupleIterator {
     fn next(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal.lock().next(|tuple, pos| {
             Ok(if let Some(ret) = tuple.as_slice().get(pos) {

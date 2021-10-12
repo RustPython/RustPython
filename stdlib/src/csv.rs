@@ -15,7 +15,7 @@ mod _csv {
         function::{ArgIterable, ArgumentError, FromArgs, FuncArgs},
         match_class,
         protocol::{PyIter, PyIterReturn},
-        types::{IteratorIterable, SlotIterator},
+        types::{IterNext, IterNextIterable},
         PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
     };
     use itertools::{self, Itertools};
@@ -168,10 +168,10 @@ mod _csv {
         }
     }
 
-    #[pyimpl(with(SlotIterator))]
+    #[pyimpl(with(IterNext))]
     impl Reader {}
-    impl IteratorIterable for Reader {}
-    impl SlotIterator for Reader {
+    impl IterNextIterable for Reader {}
+    impl IterNext for Reader {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let string = match zelf.iter.next(vm)? {
                 PyIterReturn::Return(obj) => obj,

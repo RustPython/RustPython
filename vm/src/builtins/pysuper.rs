@@ -6,7 +6,7 @@ See also [CPython source code.](https://github.com/python/cpython/blob/50b48572d
 use super::{PyStrRef, PyType, PyTypeRef};
 use crate::{
     function::OptionalArg,
-    types::{SlotConstructor, SlotDescriptor, SlotGetattro},
+    types::{Constructor, GetAttr, GetDescriptor},
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
     VirtualMachine,
 };
@@ -32,7 +32,7 @@ pub struct PySuperNewArgs {
     py_obj: OptionalArg<PyObjectRef>,
 }
 
-impl SlotConstructor for PySuper {
+impl Constructor for PySuper {
     type Args = PySuperNewArgs;
 
     fn py_new(
@@ -95,7 +95,7 @@ impl SlotConstructor for PySuper {
     }
 }
 
-#[pyimpl(with(SlotGetattro, SlotDescriptor, SlotConstructor))]
+#[pyimpl(with(GetAttr, GetDescriptor, Constructor))]
 impl PySuper {
     fn new(typ: PyTypeRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
         let obj = if vm.is_none(&obj) {
@@ -117,7 +117,7 @@ impl PySuper {
     }
 }
 
-impl SlotGetattro for PySuper {
+impl GetAttr for PySuper {
     fn getattro(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
         let skip = |zelf: PyRef<Self>, name| vm.generic_getattribute(zelf.into(), name);
         let (obj, start_type): (PyObjectRef, PyTypeRef) = match zelf.obj.clone() {
@@ -153,7 +153,7 @@ impl SlotGetattro for PySuper {
     }
 }
 
-impl SlotDescriptor for PySuper {
+impl GetDescriptor for PySuper {
     fn descr_get(
         zelf: PyObjectRef,
         obj: Option<PyObjectRef>,

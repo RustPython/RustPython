@@ -9,8 +9,8 @@ use crate::{
     function::{ArgIterable, FuncArgs, IntoPyObject, KwArgs, OptionalArg},
     protocol::{PyIterIter, PyIterReturn, PyMappingMethods},
     types::{
-        AsMapping, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp,
-        SlotConstructor, SlotIterator, Unconstructible, Unhashable,
+        AsMapping, Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable,
+        PyComparisonOp, Unconstructible, Unhashable,
     },
     vm::{ReprGuard, VirtualMachine},
     IdProtocol, ItemProtocol,
@@ -762,7 +762,7 @@ macro_rules! dict_view {
             }
         }
 
-        #[pyimpl(with(SlotConstructor, SlotIterator))]
+        #[pyimpl(with(Constructor, IterNext))]
         impl $iter_name {
             fn new(dict: PyDictRef) -> Self {
                 $iter_name {
@@ -778,8 +778,8 @@ macro_rules! dict_view {
         }
         impl Unconstructible for $iter_name {}
 
-        impl IteratorIterable for $iter_name {}
-        impl SlotIterator for $iter_name {
+        impl IterNextIterable for $iter_name {}
+        impl IterNext for $iter_name {
             #[allow(clippy::redundant_closure_call)]
             fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
                 let mut internal = zelf.internal.lock();
@@ -819,7 +819,7 @@ macro_rules! dict_view {
             }
         }
 
-        #[pyimpl(with(SlotConstructor, SlotIterator))]
+        #[pyimpl(with(Constructor, IterNext))]
         impl $reverse_iter_name {
             fn new(dict: PyDictRef) -> Self {
                 let size = dict.size();
@@ -839,8 +839,8 @@ macro_rules! dict_view {
         }
         impl Unconstructible for $reverse_iter_name {}
 
-        impl IteratorIterable for $reverse_iter_name {}
-        impl SlotIterator for $reverse_iter_name {
+        impl IterNextIterable for $reverse_iter_name {}
+        impl IterNext for $reverse_iter_name {
             #[allow(clippy::redundant_closure_call)]
             fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
                 let mut internal = zelf.internal.lock();

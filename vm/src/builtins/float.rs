@@ -3,7 +3,7 @@ use crate::common::{float_ops, hash};
 use crate::{
     format::FormatSpec,
     function::{IntoPyObject, OptionalArg, OptionalOption},
-    types::{Comparable, Hashable, PyComparisonOp, SlotConstructor},
+    types::{Comparable, Constructor, Hashable, PyComparisonOp},
     IdProtocol,
     PyArithmeticValue::{self, *},
     PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
@@ -156,7 +156,7 @@ pub fn float_pow(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult {
     }
 }
 
-impl SlotConstructor for PyFloat {
+impl Constructor for PyFloat {
     type Args = OptionalArg<PyObjectRef>;
 
     fn py_new(cls: PyTypeRef, arg: Self::Args, vm: &VirtualMachine) -> PyResult {
@@ -197,7 +197,7 @@ impl SlotConstructor for PyFloat {
     }
 }
 
-#[pyimpl(flags(BASETYPE), with(Comparable, Hashable, SlotConstructor))]
+#[pyimpl(flags(BASETYPE), with(Comparable, Hashable, Constructor))]
 impl PyFloat {
     #[pymethod(magic)]
     fn format(&self, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {

@@ -1,7 +1,7 @@
 use super::PyTypeRef;
 use crate::{
     function::{IntoPyObject, KwArgs},
-    types::SlotConstructor,
+    types::Constructor,
     PyClassImpl, PyContext, PyRef, PyResult, PyValue, VirtualMachine,
 };
 
@@ -18,7 +18,7 @@ impl PyValue for PyNamespace {
     }
 }
 
-impl SlotConstructor for PyNamespace {
+impl Constructor for PyNamespace {
     type Args = KwArgs;
 
     fn py_new(cls: PyTypeRef, kwargs: Self::Args, vm: &VirtualMachine) -> PyResult {
@@ -36,7 +36,7 @@ impl PyNamespace {
     }
 }
 
-#[pyimpl(flags(BASETYPE, HAS_DICT), with(SlotConstructor))]
+#[pyimpl(flags(BASETYPE, HAS_DICT), with(Constructor))]
 impl PyNamespace {}
 
 pub fn init(context: &PyContext) {

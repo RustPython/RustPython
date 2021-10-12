@@ -328,7 +328,7 @@ impl PyType {
 }
 
 #[pyimpl]
-pub trait SlotConstructor: PyValue {
+pub trait Constructor: PyValue {
     type Args: FromArgs;
 
     #[pyslot]
@@ -343,7 +343,7 @@ pub trait SlotConstructor: PyValue {
 /// For types that cannot be instantiated through Python code.
 pub trait Unconstructible: PyValue {}
 
-impl<T> SlotConstructor for T
+impl<T> Constructor for T
 where
     T: Unconstructible,
 {
@@ -355,7 +355,7 @@ where
 }
 
 #[pyimpl]
-pub trait SlotDestructor: PyValue {
+pub trait Destructor: PyValue {
     #[inline] // for __del__
     #[pyslot]
     fn slot_del(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
@@ -392,7 +392,7 @@ pub trait Callable: PyValue {
 }
 
 #[pyimpl]
-pub trait SlotDescriptor: PyValue {
+pub trait GetDescriptor: PyValue {
     #[pyslot]
     fn descr_get(
         zelf: PyObjectRef,
@@ -657,7 +657,7 @@ impl PyComparisonOp {
 }
 
 #[pyimpl]
-pub trait SlotGetattro: PyValue {
+pub trait GetAttr: PyValue {
     #[pyslot]
     fn slot_getattro(obj: PyObjectRef, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
         if let Ok(zelf) = obj.downcast::<Self>() {
@@ -677,7 +677,7 @@ pub trait SlotGetattro: PyValue {
 }
 
 #[pyimpl]
-pub trait SlotSetattro: PyValue {
+pub trait SetAttr: PyValue {
     #[pyslot]
     fn slot_setattro(
         obj: &PyObjectRef,
@@ -788,8 +788,9 @@ pub trait Iterable: PyValue {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult;
 }
 
+// `Iterator` fits better, but to avoid confusion with rust std::iter::Iterator
 #[pyimpl(with(Iterable))]
-pub trait SlotIterator: PyValue + Iterable {
+pub trait IterNext: PyValue + Iterable {
     #[pyslot]
     fn slot_iternext(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         if let Some(zelf) = zelf.downcast_ref() {
@@ -807,11 +808,11 @@ pub trait SlotIterator: PyValue + Iterable {
     }
 }
 
-pub trait IteratorIterable: PyValue {}
+pub trait IterNextIterable: PyValue {}
 
 impl<T> Iterable for T
 where
-    T: IteratorIterable,
+    T: IterNextIterable,
 {
     fn slot_iter(zelf: PyObjectRef, _vm: &VirtualMachine) -> PyResult {
         Ok(zelf)

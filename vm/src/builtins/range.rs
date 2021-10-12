@@ -5,8 +5,8 @@ use crate::{
     function::{FuncArgs, OptionalArg},
     protocol::{PyIterReturn, PyMappingMethods},
     types::{
-        AsMapping, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp,
-        SlotConstructor, SlotIterator, Unconstructible,
+        AsMapping, Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable,
+        PyComparisonOp, Unconstructible,
     },
     IdProtocol, IntoPyRef, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol, VirtualMachine,
@@ -512,7 +512,7 @@ impl PyValue for PyLongRangeIterator {
     }
 }
 
-#[pyimpl(with(SlotConstructor, SlotIterator))]
+#[pyimpl(with(Constructor, IterNext))]
 impl PyLongRangeIterator {
     #[pyslot]
     fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -548,8 +548,8 @@ impl PyLongRangeIterator {
 }
 impl Unconstructible for PyLongRangeIterator {}
 
-impl IteratorIterable for PyLongRangeIterator {}
-impl SlotIterator for PyLongRangeIterator {
+impl IterNextIterable for PyLongRangeIterator {}
+impl IterNext for PyLongRangeIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         // TODO: In pathological case (index == usize::MAX) this can wrap around
         // (since fetch_add wraps). This would result in the iterator spinning again
@@ -582,7 +582,7 @@ impl PyValue for PyRangeIterator {
     }
 }
 
-#[pyimpl(with(SlotConstructor, SlotIterator))]
+#[pyimpl(with(Constructor, IterNext))]
 impl PyRangeIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
@@ -614,8 +614,8 @@ impl PyRangeIterator {
 }
 impl Unconstructible for PyRangeIterator {}
 
-impl IteratorIterable for PyRangeIterator {}
-impl SlotIterator for PyRangeIterator {
+impl IterNextIterable for PyRangeIterator {}
+impl IterNext for PyRangeIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         // TODO: In pathological case (index == usize::MAX) this can wrap around
         // (since fetch_add wraps). This would result in the iterator spinning again

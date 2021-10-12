@@ -1,7 +1,7 @@
 use super::{PyInt, PyStrRef, PyTypeRef};
 use crate::{
     function::{IntoPyObject, OptionalArg},
-    types::SlotConstructor,
+    types::Constructor,
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject,
     TypeProtocol, VirtualMachine,
 };
@@ -92,7 +92,7 @@ impl Debug for PyBool {
     }
 }
 
-impl SlotConstructor for PyBool {
+impl Constructor for PyBool {
     type Args = OptionalArg<PyObjectRef>;
 
     fn py_new(zelf: PyTypeRef, x: Self::Args, vm: &VirtualMachine) -> PyResult {
@@ -109,7 +109,7 @@ impl SlotConstructor for PyBool {
     }
 }
 
-#[pyimpl(with(SlotConstructor))]
+#[pyimpl(with(Constructor))]
 impl PyBool {
     #[pymethod(magic)]
     fn repr(zelf: bool) -> String {

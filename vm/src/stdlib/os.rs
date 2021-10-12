@@ -430,7 +430,7 @@ pub(super) mod _os {
         function::{ArgBytesLike, FuncArgs, IntoPyException, IntoPyObject, OptionalArg},
         protocol::PyIterReturn,
         suppress_iph,
-        types::{IteratorIterable, SlotIterator},
+        types::{IterNext, IterNextIterable},
         utils::Either,
         vm::{ReprGuard, VirtualMachine},
         IntoPyRef, PyObjectRef, PyRef, PyResult, PyStructSequence, PyValue, TryFromObject,
@@ -878,7 +878,7 @@ pub(super) mod _os {
         mode: OutputMode,
     }
 
-    #[pyimpl(with(SlotIterator))]
+    #[pyimpl(with(IterNext))]
     impl ScandirIterator {
         #[pymethod]
         fn close(&self) {
@@ -895,8 +895,8 @@ pub(super) mod _os {
             zelf.close()
         }
     }
-    impl IteratorIterable for ScandirIterator {}
-    impl SlotIterator for ScandirIterator {
+    impl IterNextIterable for ScandirIterator {}
+    impl IterNext for ScandirIterator {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             if zelf.exhausted.load() {
                 return Ok(PyIterReturn::StopIteration(None));

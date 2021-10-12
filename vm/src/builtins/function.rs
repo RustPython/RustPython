@@ -11,7 +11,7 @@ use crate::{
     frame::Frame,
     function::{FuncArgs, OptionalArg},
     scope::Scope,
-    types::{Callable, Comparable, PyComparisonOp, SlotConstructor, SlotDescriptor, SlotGetattro},
+    types::{Callable, Comparable, Constructor, GetAttr, GetDescriptor, PyComparisonOp},
     IdProtocol, ItemProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
     PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
@@ -327,7 +327,7 @@ impl PyValue for PyFunction {
     }
 }
 
-#[pyimpl(with(SlotDescriptor, Callable), flags(HAS_DICT, METHOD_DESCR))]
+#[pyimpl(with(GetDescriptor, Callable), flags(HAS_DICT, METHOD_DESCR))]
 impl PyFunction {
     #[pyproperty(magic)]
     fn code(&self) -> PyRef<PyCode> {
@@ -397,7 +397,7 @@ impl PyFunction {
     }
 }
 
-impl SlotDescriptor for PyFunction {
+impl GetDescriptor for PyFunction {
     fn descr_get(
         zelf: PyObjectRef,
         obj: Option<PyObjectRef>,
@@ -450,7 +450,7 @@ impl Comparable for PyBoundMethod {
     }
 }
 
-impl SlotGetattro for PyBoundMethod {
+impl GetAttr for PyBoundMethod {
     fn getattro(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
         if let Some(obj) = zelf.get_class_attr(name.as_str()) {
             return vm.call_if_get_descriptor(obj, zelf.into());
@@ -467,7 +467,7 @@ pub struct PyBoundMethodNewArgs {
     object: PyObjectRef,
 }
 
-impl SlotConstructor for PyBoundMethod {
+impl Constructor for PyBoundMethod {
     type Args = PyBoundMethodNewArgs;
 
     fn py_new(
@@ -493,10 +493,7 @@ impl PyBoundMethod {
     }
 }
 
-#[pyimpl(
-    with(Callable, Comparable, SlotGetattro, SlotConstructor),
-    flags(HAS_DICT)
-)]
+#[pyimpl(with(Callable, Comparable, GetAttr, Constructor), flags(HAS_DICT))]
 impl PyBoundMethod {
     #[pymethod(magic)]
     fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
@@ -577,7 +574,7 @@ impl PyValue for PyCell {
     }
 }
 
-impl SlotConstructor for PyCell {
+impl Constructor for PyCell {
     type Args = OptionalArg;
 
     fn py_new(cls: PyTypeRef, value: Self::Args, vm: &VirtualMachine) -> PyResult {
@@ -585,7 +582,7 @@ impl SlotConstructor for PyCell {
     }
 }
 
-#[pyimpl(with(SlotConstructor))]
+#[pyimpl(with(Constructor))]
 impl PyCell {
     pub fn new(contents: Option<PyObjectRef>) -> Self {
         Self {

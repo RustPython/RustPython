@@ -11,8 +11,8 @@ use crate::{
     sliceable::PySliceableSequence,
     stdlib::sys,
     types::{
-        Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotConstructor,
-        SlotIterator, Unconstructible,
+        Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable, PyComparisonOp,
+        Unconstructible,
     },
     utils::Either,
     IdProtocol, ItemProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef,
@@ -220,7 +220,7 @@ impl PyValue for PyStrIterator {
     }
 }
 
-#[pyimpl(with(SlotConstructor, SlotIterator))]
+#[pyimpl(with(Constructor, IterNext))]
 impl PyStrIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
@@ -246,8 +246,8 @@ impl PyStrIterator {
 }
 impl Unconstructible for PyStrIterator {}
 
-impl IteratorIterable for PyStrIterator {}
-impl SlotIterator for PyStrIterator {
+impl IterNextIterable for PyStrIterator {}
+impl IterNext for PyStrIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let mut internal = zelf.internal.lock();
 
@@ -283,7 +283,7 @@ pub struct StrArgs {
     errors: OptionalArg<PyStrRef>,
 }
 
-impl SlotConstructor for PyStr {
+impl Constructor for PyStr {
     type Args = StrArgs;
 
     fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
@@ -364,7 +364,7 @@ impl PyStr {
     }
 }
 
-#[pyimpl(flags(BASETYPE), with(Hashable, Comparable, Iterable, SlotConstructor))]
+#[pyimpl(flags(BASETYPE), with(Hashable, Comparable, Iterable, Constructor))]
 impl PyStr {
     #[pymethod(magic)]
     fn add(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {

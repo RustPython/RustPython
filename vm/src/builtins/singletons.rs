@@ -1,6 +1,6 @@
 use super::PyTypeRef;
 use crate::{
-    function::IntoPyObject, types::SlotConstructor, PyClassImpl, PyContext, PyObjectRef, PyResult,
+    function::IntoPyObject, types::Constructor, PyClassImpl, PyContext, PyObjectRef, PyResult,
     PyValue, TypeProtocol, VirtualMachine,
 };
 
@@ -31,7 +31,7 @@ impl<T: IntoPyObject> IntoPyObject for Option<T> {
     }
 }
 
-impl SlotConstructor for PyNone {
+impl Constructor for PyNone {
     type Args = ();
 
     fn py_new(_: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
@@ -39,7 +39,7 @@ impl SlotConstructor for PyNone {
     }
 }
 
-#[pyimpl(with(SlotConstructor))]
+#[pyimpl(with(Constructor))]
 impl PyNone {
     #[pymethod(magic)]
     fn repr(&self) -> String {
@@ -62,7 +62,7 @@ impl PyValue for PyNotImplemented {
     }
 }
 
-impl SlotConstructor for PyNotImplemented {
+impl Constructor for PyNotImplemented {
     type Args = ();
 
     fn py_new(_: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
@@ -70,7 +70,7 @@ impl SlotConstructor for PyNotImplemented {
     }
 }
 
-#[pyimpl(with(SlotConstructor))]
+#[pyimpl(with(Constructor))]
 impl PyNotImplemented {
     // TODO: As per https://bugs.python.org/issue35712, using NotImplemented
     // in boolean contexts will need to raise a DeprecationWarning in 3.9

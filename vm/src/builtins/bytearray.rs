@@ -23,8 +23,8 @@ use crate::{
     },
     sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
     types::{
-        AsBuffer, AsMapping, Callable, Comparable, Hashable, Iterable, IteratorIterable,
-        PyComparisonOp, SlotConstructor, SlotIterator, Unconstructible, Unhashable,
+        AsBuffer, AsMapping, Callable, Comparable, Constructor, Hashable, IterNext,
+        IterNextIterable, Iterable, PyComparisonOp, Unconstructible, Unhashable,
     },
     utils::Either,
     IdProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
@@ -816,7 +816,7 @@ impl PyValue for PyByteArrayIterator {
     }
 }
 
-#[pyimpl(with(SlotConstructor, SlotIterator))]
+#[pyimpl(with(Constructor, IterNext))]
 impl PyByteArrayIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
@@ -838,8 +838,8 @@ impl PyByteArrayIterator {
 }
 impl Unconstructible for PyByteArrayIterator {}
 
-impl IteratorIterable for PyByteArrayIterator {}
-impl SlotIterator for PyByteArrayIterator {
+impl IterNextIterable for PyByteArrayIterator {}
+impl IterNext for PyByteArrayIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal.lock().next(|bytearray, pos| {
             let buf = bytearray.borrow_buf();

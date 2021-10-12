@@ -2,7 +2,7 @@ use super::PyTypeRef;
 use crate::common::hash::PyHash;
 use crate::{
     function::{FuncArgs, OptionalArg},
-    types::{Callable, Comparable, Hashable, PyComparisonOp, SlotConstructor},
+    types::{Callable, Comparable, Constructor, Hashable, PyComparisonOp},
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyObjectWeak, PyRef, PyResult, PyValue,
     TypeProtocol, VirtualMachine,
 };
@@ -50,7 +50,7 @@ impl Callable for PyWeak {
     }
 }
 
-impl SlotConstructor for PyWeak {
+impl Constructor for PyWeak {
     type Args = WeakNewArgs;
 
     // TODO callbacks
@@ -66,7 +66,7 @@ impl SlotConstructor for PyWeak {
     }
 }
 
-#[pyimpl(with(Callable, Hashable, Comparable, SlotConstructor), flags(BASETYPE))]
+#[pyimpl(with(Callable, Hashable, Comparable, Constructor), flags(BASETYPE))]
 impl PyWeak {
     #[pymethod(magic)]
     fn repr(zelf: PyRef<Self>) -> String {

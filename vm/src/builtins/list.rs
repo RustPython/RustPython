@@ -9,8 +9,8 @@ use crate::{
     sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
     stdlib::sys,
     types::{
-        AsMapping, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp,
-        SlotConstructor, SlotIterator, Unconstructible, Unhashable,
+        AsMapping, Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable,
+        PyComparisonOp, Unconstructible, Unhashable,
     },
     utils::Either,
     vm::{ReprGuard, VirtualMachine},
@@ -517,7 +517,7 @@ impl PyValue for PyListIterator {
     }
 }
 
-#[pyimpl(with(SlotConstructor, SlotIterator))]
+#[pyimpl(with(Constructor, IterNext))]
 impl PyListIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
@@ -540,8 +540,8 @@ impl PyListIterator {
 }
 impl Unconstructible for PyListIterator {}
 
-impl IteratorIterable for PyListIterator {}
-impl SlotIterator for PyListIterator {
+impl IterNextIterable for PyListIterator {}
+impl IterNext for PyListIterator {
     fn next(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal.lock().next(|list, pos| {
             let vec = list.borrow_vec();
@@ -565,7 +565,7 @@ impl PyValue for PyListReverseIterator {
     }
 }
 
-#[pyimpl(with(SlotConstructor, SlotIterator))]
+#[pyimpl(with(Constructor, IterNext))]
 impl PyListReverseIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
@@ -588,8 +588,8 @@ impl PyListReverseIterator {
 }
 impl Unconstructible for PyListReverseIterator {}
 
-impl IteratorIterable for PyListReverseIterator {}
-impl SlotIterator for PyListReverseIterator {
+impl IterNextIterable for PyListReverseIterator {}
+impl IterNext for PyListReverseIterator {
     fn next(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal.lock().rev_next(|list, pos| {
             let vec = list.borrow_vec();

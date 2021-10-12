@@ -15,9 +15,8 @@ mod _operator {
         function::{ArgBytesLike, FuncArgs, KwArgs, OptionalArg},
         protocol::PyIter,
         types::{
-            Callable,
+            Callable, Constructor,
             PyComparisonOp::{Eq, Ge, Gt, Le, Lt, Ne},
-            SlotConstructor,
         },
         utils::Either,
         vm::ReprGuard,
@@ -594,7 +593,7 @@ mod _operator {
         args: FuncArgs,
     }
 
-    impl SlotConstructor for PyMethodCaller {
+    impl Constructor for PyMethodCaller {
         type Args = (PyObjectRef, FuncArgs);
 
         fn py_new(cls: PyTypeRef, (name, args): Self::Args, vm: &VirtualMachine) -> PyResult {
@@ -606,7 +605,7 @@ mod _operator {
         }
     }
 
-    #[pyimpl(with(Callable, SlotConstructor))]
+    #[pyimpl(with(Callable, Constructor))]
     impl PyMethodCaller {
         #[pymethod(magic)]
         fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {

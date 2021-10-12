@@ -2,7 +2,7 @@ use super::{pytype, PyClassMethod, PyStr, PyStrRef, PyTypeRef};
 use crate::{
     builtins::PyBoundMethod,
     function::{FuncArgs, IntoPyNativeFunc, PyNativeFunc},
-    types::{Callable, SlotDescriptor},
+    types::{Callable, GetDescriptor},
     PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
 use std::fmt;
@@ -167,7 +167,7 @@ impl fmt::Debug for PyBuiltinMethod {
     }
 }
 
-impl SlotDescriptor for PyBuiltinMethod {
+impl GetDescriptor for PyBuiltinMethod {
     fn descr_get(
         zelf: PyObjectRef,
         obj: Option<PyObjectRef>,
@@ -207,7 +207,7 @@ impl PyBuiltinMethod {
     }
 }
 
-#[pyimpl(with(SlotDescriptor, Callable), flags(METHOD_DESCR))]
+#[pyimpl(with(GetDescriptor, Callable), flags(METHOD_DESCR))]
 impl PyBuiltinMethod {
     #[pyproperty(magic)]
     fn name(&self) -> PyStrRef {

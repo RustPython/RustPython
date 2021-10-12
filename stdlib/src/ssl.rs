@@ -37,7 +37,7 @@ mod _ssl {
                 IntoPyObject, OptionalArg,
             },
             stdlib::os::PyPathLike,
-            types::SlotConstructor,
+            types::Constructor,
             utils::{Either, ToCString},
             ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
         },
@@ -461,7 +461,7 @@ mod _ssl {
         unsafe { ssl::SslContextRef::from_ptr(x.as_ptr()) }
     }
 
-    impl SlotConstructor for PySslContext {
+    impl Constructor for PySslContext {
         type Args = i32;
 
         fn py_new(cls: PyTypeRef, proto_version: Self::Args, vm: &VirtualMachine) -> PyResult {
@@ -522,7 +522,7 @@ mod _ssl {
         }
     }
 
-    #[pyimpl(flags(BASETYPE), with(SlotConstructor))]
+    #[pyimpl(flags(BASETYPE), with(Constructor))]
     impl PySslContext {
         fn builder(&self) -> PyRwLockWriteGuard<'_, SslContextBuilder> {
             self.ctx.write()

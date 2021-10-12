@@ -1,7 +1,7 @@
 use super::{PyDictRef, PyStr, PyStrRef, PyTypeRef};
 use crate::{
     function::{FuncArgs, IntoPyObject},
-    types::SlotGetattro,
+    types::GetAttr,
     ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 
@@ -45,7 +45,7 @@ struct ModuleInitArgs {
     doc: Option<PyStrRef>,
 }
 
-#[pyimpl(with(SlotGetattro), flags(BASETYPE, HAS_DICT))]
+#[pyimpl(with(GetAttr), flags(BASETYPE, HAS_DICT))]
 impl PyModule {
     #[pyslot]
     fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -94,7 +94,7 @@ impl PyModule {
     }
 }
 
-impl SlotGetattro for PyModule {
+impl GetAttr for PyModule {
     fn getattro(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
         if let Some(attr) =
             vm.generic_getattribute_opt(zelf.as_object().clone(), name.clone(), None)?

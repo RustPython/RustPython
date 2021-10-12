@@ -86,7 +86,7 @@ mod _io {
             OptionalOption,
         },
         protocol::{BufferInternal, BufferOptions, BufferResizeGuard, PyBuffer, PyIterReturn},
-        types::{Iterable, SlotConstructor, SlotDestructor, SlotIterator},
+        types::{Constructor, Destructor, IterNext, Iterable},
         utils::Either,
         vm::{ReprGuard, VirtualMachine},
         IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
@@ -344,7 +344,7 @@ mod _io {
     #[derive(Debug, PyValue)]
     struct _IOBase;
 
-    #[pyimpl(with(SlotIterator, SlotDestructor), flags(BASETYPE, HAS_DICT))]
+    #[pyimpl(with(IterNext, Destructor), flags(BASETYPE, HAS_DICT))]
     impl _IOBase {
         #[pymethod]
         fn seek(
@@ -501,7 +501,7 @@ mod _io {
         }
     }
 
-    impl SlotDestructor for _IOBase {
+    impl Destructor for _IOBase {
         fn slot_del(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             let _ = vm.call_method(zelf, "close", ());
             Ok(())
@@ -524,7 +524,7 @@ mod _io {
         }
     }
 
-    impl SlotIterator for _IOBase {
+    impl IterNext for _IOBase {
         fn slot_iternext(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let line = vm.call_method(zelf, "readline", ())?;
             Ok(if !line.clone().try_to_bool(vm)? {
@@ -3054,7 +3054,7 @@ mod _io {
         newline: Newlines,
     }
 
-    impl SlotConstructor for StringIO {
+    impl Constructor for StringIO {
         type Args = StringIONewArgs;
 
         #[allow(unused_variables)]
@@ -3075,7 +3075,7 @@ mod _io {
         }
     }
 
-    #[pyimpl(flags(BASETYPE, HAS_DICT), with(PyRef, SlotConstructor))]
+    #[pyimpl(flags(BASETYPE, HAS_DICT), with(PyRef, Constructor))]
     impl StringIO {
         fn buffer(&self, vm: &VirtualMachine) -> PyResult<PyRwLockWriteGuard<'_, BufferedIO>> {
             if !self.closed.load() {
@@ -3193,7 +3193,7 @@ mod _io {
 
     type BytesIORef = PyRef<BytesIO>;
 
-    impl SlotConstructor for BytesIO {
+    impl Constructor for BytesIO {
         type Args = OptionalArg<Option<PyBytesRef>>;
 
         fn py_new(cls: PyTypeRef, object: Self::Args, vm: &VirtualMachine) -> PyResult {
@@ -3210,7 +3210,7 @@ mod _io {
         }
     }
 
-    #[pyimpl(flags(BASETYPE, HAS_DICT), with(PyRef, SlotConstructor))]
+    #[pyimpl(flags(BASETYPE, HAS_DICT), with(PyRef, Constructor))]
     impl BytesIO {
         fn buffer(&self, vm: &VirtualMachine) -> PyResult<PyRwLockWriteGuard<'_, BufferedIO>> {
             if !self.closed.load() {
