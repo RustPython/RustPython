@@ -224,8 +224,6 @@ class DictSetTest(unittest.TestCase):
         # Again.
         self.assertIsInstance(r, str)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipIf(sys.platform == "win32", "thread 'main' has overflowed its stack")
     def test_deeply_nested_repr(self):
         d = {}

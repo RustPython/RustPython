@@ -216,7 +216,7 @@ fn sys_setrecursionlimit(recursion_limit: i32, vm: &VirtualMachine) -> PyResult<
         .ok_or_else(|| {
             vm.new_value_error("recursion limit must be greater than or equal to one".to_owned())
         })?;
-    let recursion_depth = vm.frames.borrow().len();
+    let recursion_depth = vm.current_recursion_depth();
 
     if recursion_limit > recursion_depth + 1 {
         vm.recursion_limit.set(recursion_limit);
