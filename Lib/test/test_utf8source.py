@@ -15,7 +15,7 @@ class PEP3120Test(unittest.TestCase):
         )
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure # "badsyntax_pep3120.py" may make the WASM CI fail
+    @unittest.expectedFailure
     def test_badsyntax(self):
         try:
             import test.badsyntax_pep3120
