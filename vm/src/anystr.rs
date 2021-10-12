@@ -8,19 +8,6 @@ use crate::{
 use num_traits::{cast::ToPrimitive, sign::Signed};
 use std::str::FromStr;
 
-pub enum AnyStrRange {
-    CharsRange(std::ops::Range<usize>),
-    BytesRange(std::ops::Range<usize>),
-}
-
-impl AnyStrRange {
-    pub fn is_normal(&self) -> bool {
-        match self {
-            AnyStrRange::CharsRange(range) | AnyStrRange::BytesRange(range) => range.is_normal(),
-        }
-    }
-}
-
 #[derive(FromArgs)]
 pub struct SplitArgs<'s, T: TryFromObject + AnyStrWrapper<'s>> {
     #[pyarg(any, default)]
@@ -74,13 +61,31 @@ pub struct StartsEndsWithArgs {
 }
 
 impl StartsEndsWithArgs {
-    pub fn get_value(self, len: usize) -> (PyObjectRef, std::ops::Range<usize>) {
-        let range = adjust_indices(self.start, self.end, len);
+    pub fn get_value(self, len: usize) -> (PyObjectRef, Option<std::ops::Range<usize>>) {
+        let range = if self.start.is_some() || self.end.is_some() {
+            Some(adjust_indices(self.start, self.end, len))
+        } else {
+            None
+        };
         (self.affix, range)
     }
 
-    pub fn has_subrange(&self) -> bool {
-        self.start.is_some() || self.end.is_some()
+    #[inline]
+    pub fn prepare<'s, S, F>(self, s: &'s S, len: usize, substr: F) -> Option<(PyObjectRef, &'s S)>
+    where
+        S: ?Sized + AnyStr<'s>,
+        F: Fn(&'s S, std::ops::Range<usize>) -> &'s S,
+    {
+        let (affix, range) = self.get_value(len);
+        let substr = if let Some(range) = range {
+            if !range.is_normal() {
+                return None;
+            }
+            substr(s, range)
+        } else {
+            s
+        };
+        Some((affix, substr))
     }
 }
 
@@ -211,7 +216,6 @@ pub trait AnyStr<'s>: 's {
     fn py_startsendswith<T, F>(
         &self,
         affix: PyObjectRef,
-        range: AnyStrRange,
         func_name: &str,
         py_type_name: &str,
         func: F,
@@ -221,17 +225,9 @@ pub trait AnyStr<'s>: 's {
         T: TryFromObject,
         F: Fn(&Self, &T) -> bool,
     {
-        if !range.is_normal() {
-            return Ok(false);
-        }
-        let value = match range {
-            AnyStrRange::BytesRange(range) => self.get_bytes(range),
-            AnyStrRange::CharsRange(range) => self.get_chars(range),
-        };
-
         single_or_tuple_any(
             affix,
-            &|s: &T| Ok(func(value, s)),
+            &|s: &T| Ok(func(self, s)),
             &|o| {
                 format!(
                     "{} first arg must be {} or a tuple of {}, not {}",

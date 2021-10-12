@@ -4,7 +4,7 @@ use super::{
     PositionIterInternal, PyBytesRef, PyDict, PyTupleRef, PyTypeRef,
 };
 use crate::{
-    anystr::{self, adjust_indices, AnyStr, AnyStrContainer, AnyStrRange, AnyStrWrapper},
+    anystr::{self, adjust_indices, AnyStr, AnyStrContainer, AnyStrWrapper},
     format::{FormatSpec, FormatString, FromTemplate},
     function::{ArgIterable, FuncArgs, IntoPyException, IntoPyObject, OptionalArg, OptionalOption},
     protocol::PyIterReturn,
@@ -687,21 +687,14 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn endswith(&self, args: anystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
-        let has_subrange = args.has_subrange();
-        let len = if args.has_subrange() {
-            self.char_len()
-        } else {
-            self.byte_len()
-        };
-        let (affix, range) = args.get_value(len);
-        self.as_str().py_startsendswith(
+    fn endswith(&self, options: anystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        let (affix, substr) =
+            match options.prepare(self.as_str(), self.len(), |s, r| s.get_chars(r)) {
+                Some(x) => x,
+                None => return Ok(false),
+            };
+        substr.py_startsendswith(
             affix,
-            if has_subrange {
-                AnyStrRange::CharsRange(range)
-            } else {
-                AnyStrRange::BytesRange(range)
-            },
             "endswith",
             "str",
             |s, x: &PyStrRef| s.ends_with(x.as_str()),
@@ -710,21 +703,18 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn startswith(&self, args: anystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
-        let has_subrange = args.has_subrange();
-        let len = if has_subrange {
-            self.char_len()
-        } else {
-            self.byte_len()
-        };
-        let (affix, range) = args.get_value(len);
-        self.as_str().py_startsendswith(
+    fn startswith(
+        &self,
+        options: anystr::StartsEndsWithArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<bool> {
+        let (affix, substr) =
+            match options.prepare(self.as_str(), self.len(), |s, r| s.get_chars(r)) {
+                Some(x) => x,
+                None => return Ok(false),
+            };
+        substr.py_startsendswith(
             affix,
-            if has_subrange {
-                AnyStrRange::CharsRange(range)
-            } else {
-                AnyStrRange::BytesRange(range)
-            },
             "startswith",
             "str",
             |s, x: &PyStrRef| s.starts_with(x.as_str()),

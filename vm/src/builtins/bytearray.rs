@@ -430,10 +430,14 @@ impl PyByteArray {
 
     #[pymethod]
     fn endswith(&self, options: anystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
-        let (affix, range) = options.get_value(self.len());
-        self.borrow_buf().py_startsendswith(
+        let borrowed = self.borrow_buf();
+        let (affix, substr) =
+            match options.prepare(&*borrowed, borrowed.len(), |s, r| s.get_bytes(r)) {
+                Some(x) => x,
+                None => return Ok(false),
+            };
+        substr.py_startsendswith(
             affix,
-            anystr::AnyStrRange::BytesRange(range),
             "endswith",
             "bytes",
             |s, x: &PyBytesInner| s.ends_with(&x.elements[..]),
@@ -447,10 +451,14 @@ impl PyByteArray {
         options: anystr::StartsEndsWithArgs,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
-        let (affix, range) = options.get_value(self.len());
-        self.borrow_buf().py_startsendswith(
+        let borrowed = self.borrow_buf();
+        let (affix, substr) =
+            match options.prepare(&*borrowed, borrowed.len(), |s, r| s.get_bytes(r)) {
+                Some(x) => x,
+                None => return Ok(false),
+            };
+        substr.py_startsendswith(
             affix,
-            anystr::AnyStrRange::BytesRange(range),
             "startswith",
             "bytes",
             |s, x: &PyBytesInner| s.starts_with(&x.elements[..]),
