@@ -1174,6 +1174,20 @@ impl VirtualMachine {
             .invoke(args, self)
     }
 
+    pub fn dir(&self, obj: Option<PyObjectRef>) -> PyResult<PyList> {
+        let seq = match obj {
+            Some(obj) => self
+                .get_special_method(obj, "__dir__")?
+                .map_err(|_obj| self.new_type_error("object does not provide __dir__".to_owned()))?
+                .invoke((), self)?,
+            None => self.call_method(self.current_locals()?.as_object(), "keys", ())?,
+        };
+        let items = self.extract_elements(&seq)?;
+        let lst = PyList::from(items);
+        lst.sort(Default::default(), self)?;
+        Ok(lst)
+    }
+
     #[inline]
     pub(crate) fn get_special_method(
         &self,

@@ -191,15 +191,7 @@ mod builtins {
 
     #[pyfunction]
     fn dir(obj: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<PyList> {
-        let seq = match obj {
-            OptionalArg::Present(obj) => vm
-                .get_special_method(obj, "__dir__")?
-                .map_err(|_obj| vm.new_type_error("object does not provide __dir__".to_owned()))?
-                .invoke((), vm)?,
-            OptionalArg::Missing => vm.call_method(vm.current_locals()?.as_object(), "keys", ())?,
-        };
-        let sorted = sorted(seq, Default::default(), vm)?;
-        Ok(sorted)
+        vm.dir(obj.into_option())
     }
 
     #[pyfunction]
