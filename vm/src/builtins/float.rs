@@ -94,7 +94,7 @@ macro_rules! impl_try_from_object_float {
     ($($t:ty),*) => {
         $(impl TryFromObject for $t {
             fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-                PyFloatRef::try_from_object(vm, obj).map(|f| f.to_f64() as $t)
+                PyRef::<PyFloat>::try_from_object(vm, obj).map(|f| f.to_f64() as $t)
             }
         })*
     };
@@ -538,8 +538,6 @@ impl Hashable for PyFloat {
         Ok(hash::hash_float(zelf.to_f64()))
     }
 }
-
-pub type PyFloatRef = PyRef<PyFloat>;
 
 // Retrieve inner float value:
 pub(crate) fn get_value(obj: &PyObjectRef) -> f64 {

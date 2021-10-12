@@ -3,10 +3,10 @@ pub(crate) use math::make_module;
 #[pymodule]
 mod math {
     use crate::vm::{
-        builtins::{try_bigint_to_f64, try_f64_to_bigint, PyFloatRef, PyInt, PyIntRef},
+        builtins::{try_bigint_to_f64, try_f64_to_bigint, PyFloat, PyInt, PyIntRef},
         function::{ArgIntoFloat, ArgIterable, OptionalArg, PosArgs},
         utils::Either,
-        PyObjectRef, PyResult, PySequence, TypeProtocol, VirtualMachine,
+        PyObjectRef, PyRef, PyResult, PySequence, TypeProtocol, VirtualMachine,
     };
     use num_bigint::BigInt;
     use num_traits::{One, Signed, Zero};
@@ -460,7 +460,11 @@ mod math {
     }
 
     #[pyfunction]
-    fn ldexp(x: Either<PyFloatRef, PyIntRef>, i: PyIntRef, vm: &VirtualMachine) -> PyResult<f64> {
+    fn ldexp(
+        x: Either<PyRef<PyFloat>, PyIntRef>,
+        i: PyIntRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<f64> {
         let value = match x {
             Either::A(f) => f.to_f64(),
             Either::B(z) => try_bigint_to_f64(z.as_bigint(), vm)?,
