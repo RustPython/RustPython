@@ -2,7 +2,9 @@ use num_traits::ToPrimitive;
 use std::ops::Range;
 
 use crate::builtins::int::PyInt;
-use crate::builtins::slice::{saturate_index, PySlice, PySliceRef, SaturatedIndices};
+// export through slicable module, not slice.
+pub use crate::builtins::slice::SaturatedIndices;
+use crate::builtins::slice::{saturate_index, PySlice, PySliceRef};
 use crate::utils::Either;
 use crate::VirtualMachine;
 use crate::{PyObjectRef, PyResult, TypeProtocol};
@@ -23,11 +25,10 @@ pub trait PySliceableSequenceMut {
     fn set_slice_items_no_resize(
         &mut self,
         vm: &VirtualMachine,
-        slice: &PySlice,
+        slice: SaturatedIndices,
         items: &[Self::Item],
     ) -> PyResult<()> {
-        let (range, step, is_negative_step) =
-            SaturatedIndices::new(slice, vm)?.adjust_indices(self.as_slice().len());
+        let (range, step, is_negative_step) = slice.adjust_indices(self.as_slice().len());
         if !is_negative_step && step == Some(1) {
             return if range.end - range.start == items.len() {
                 self.do_set_range(range, items);
@@ -82,11 +83,10 @@ pub trait PySliceableSequenceMut {
     fn set_slice_items(
         &mut self,
         vm: &VirtualMachine,
-        slice: &PySlice,
+        slice: SaturatedIndices,
         items: &[Self::Item],
     ) -> PyResult<()> {
-        let (range, step, is_negative_step) =
-            SaturatedIndices::new(slice, vm)?.adjust_indices(self.as_slice().len());
+        let (range, step, is_negative_step) = slice.adjust_indices(self.as_slice().len());
         if !is_negative_step && step == Some(1) {
             self.do_set_range(range, items);
             return Ok(());
@@ -136,9 +136,8 @@ pub trait PySliceableSequenceMut {
         }
     }
 
-    fn delete_slice(&mut self, vm: &VirtualMachine, slice: &PySlice) -> PyResult<()> {
-        let (range, step, is_negative_step) =
-            SaturatedIndices::new(slice, vm)?.adjust_indices(self.as_slice().len());
+    fn delete_slice(&mut self, _vm: &VirtualMachine, slice: SaturatedIndices) -> PyResult<()> {
+        let (range, step, is_negative_step) = slice.adjust_indices(self.as_slice().len());
         if range.start >= range.end {
             return Ok(());
         }
@@ -233,9 +232,12 @@ pub trait PySliceableSequence {
         saturate_index(p, self.len() as isize)
     }
 
-    fn get_slice_items(&self, vm: &VirtualMachine, slice: &PySlice) -> PyResult<Self::Sliced> {
-        let (range, step, is_negative_step) =
-            SaturatedIndices::new(slice, vm)?.adjust_indices(self.len());
+    fn get_slice_items(
+        &self,
+        _vm: &VirtualMachine,
+        slice: SaturatedIndices,
+    ) -> PyResult<Self::Sliced> {
+        let (range, step, is_negative_step) = slice.adjust_indices(self.len());
         if range.start >= range.end {
             return Ok(Self::empty());
         }
@@ -273,7 +275,10 @@ pub trait PySliceableSequence {
                 })?;
                 Ok(Either::A(self.do_get(pos_index)))
             }
-            SequenceIndex::Slice(slice) => Ok(Either::B(self.get_slice_items(vm, &slice)?)),
+            SequenceIndex::Slice(slice) => {
+                let slice = slice.to_saturated_indices(vm)?;
+                Ok(Either::B(self.get_slice_items(vm, slice)?))
+            }
         }
     }
 }

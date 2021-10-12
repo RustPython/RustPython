@@ -71,7 +71,7 @@ impl PySlice {
         ))
     }
 
-    pub fn to_raw_indices(&self, vm: &VirtualMachine) -> PyResult<SaturatedIndices> {
+    pub fn to_saturated_indices(&self, vm: &VirtualMachine) -> PyResult<SaturatedIndices> {
         SaturatedIndices::new(self, vm)
     }
 
@@ -247,13 +247,14 @@ impl Comparable for PySlice {
 
 impl Unhashable for PySlice {}
 
-/// A saturated slice with values ranging in [isize::MIN, isize::MAX]. Used for 
+/// A saturated slice with values ranging in [isize::MIN, isize::MAX]. Used for
 /// slicable sequences that require indices in the aforementioned range.
-/// 
+///
 /// Invokes `__index__` on the PySliceRef during construction so as to separate the
 /// transformation from PyObject into isize and the adjusting of the slice to a given
 /// sequence length. The reason this is important is due to the fact that an objects
-/// `__index__` might get a lock on the sequence and cause a deadlock. 
+/// `__index__` might get a lock on the sequence and cause a deadlock.
+#[derive(Copy, Clone, Debug)]
 pub struct SaturatedIndices {
     start: isize,
     stop: isize,
