@@ -4,7 +4,7 @@ use crate::common::hash::PyHash;
 use crate::{
     function::{FuncArgs, OptionalArg},
     protocol::{PyIterReturn, PyMappingMethods},
-    slots::{
+    types::{
         AsMapping, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp,
         SlotConstructor, SlotIterator, Unconstructible,
     },

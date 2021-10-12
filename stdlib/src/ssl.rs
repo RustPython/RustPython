@@ -36,9 +36,8 @@ mod _ssl {
                 ArgBytesLike, ArgCallable, ArgMemoryBuffer, ArgStrOrBytesLike, IntoPyException,
                 IntoPyObject, OptionalArg,
             },
-            slots::SlotConstructor,
             stdlib::os::PyPathLike,
-            types::create_simple_type,
+            types::SlotConstructor,
             utils::{Either, ToCString},
             ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
         },
@@ -182,7 +181,9 @@ mod _ssl {
             static ERROR: PyTypeRef;
         }
         ERROR
-            .get_or_init(|| create_simple_type("SSLError", &vm.ctx.exceptions.os_error))
+            .get_or_init(|| {
+                PyType::new_simple_ref("SSLError", &vm.ctx.exceptions.os_error).unwrap()
+            })
             .clone()
     }
 
@@ -194,13 +195,12 @@ mod _ssl {
         ERROR
             .get_or_init(|| {
                 let ssl_error = ssl_error(vm);
-                PyType::new(
-                    vm.ctx.types.type_type.clone(),
+                PyType::new_ref(
                     "SSLCertVerificationError",
-                    ssl_error.clone(),
                     vec![ssl_error, vm.ctx.exceptions.value_error.clone()],
                     Default::default(),
                     PyBaseException::make_slots(),
+                    vm.ctx.types.type_type.clone(),
                 )
                 .unwrap()
             })
@@ -213,7 +213,7 @@ mod _ssl {
             static ERROR: PyTypeRef;
         }
         ERROR
-            .get_or_init(|| create_simple_type("SSLZeroReturnError", &ssl_error(vm)))
+            .get_or_init(|| PyType::new_simple_ref("SSLZeroReturnError", &ssl_error(vm)).unwrap())
             .clone()
     }
 
@@ -223,7 +223,7 @@ mod _ssl {
             static ERROR: PyTypeRef;
         }
         ERROR
-            .get_or_init(|| create_simple_type("SSLWantReadError", &ssl_error(vm)))
+            .get_or_init(|| PyType::new_simple_ref("SSLWantReadError", &ssl_error(vm)).unwrap())
             .clone()
     }
 
@@ -233,7 +233,7 @@ mod _ssl {
             static ERROR: PyTypeRef;
         }
         ERROR
-            .get_or_init(|| create_simple_type("SSLWantWriteError", &ssl_error(vm)))
+            .get_or_init(|| PyType::new_simple_ref("SSLWantWriteError", &ssl_error(vm)).unwrap())
             .clone()
     }
 
@@ -243,7 +243,7 @@ mod _ssl {
             static ERROR: PyTypeRef;
         }
         ERROR
-            .get_or_init(|| create_simple_type("SSLSyscallError", &ssl_error(vm)))
+            .get_or_init(|| PyType::new_simple_ref("SSLSyscallError", &ssl_error(vm)).unwrap())
             .clone()
     }
 
@@ -253,7 +253,7 @@ mod _ssl {
             static ERROR: PyTypeRef;
         }
         ERROR
-            .get_or_init(|| create_simple_type("SSLEOFError", &ssl_error(vm)))
+            .get_or_init(|| PyType::new_simple_ref("SSLEOFError", &ssl_error(vm)).unwrap())
             .clone()
     }
 

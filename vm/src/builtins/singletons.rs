@@ -1,6 +1,6 @@
 use super::PyTypeRef;
 use crate::{
-    function::IntoPyObject, slots::SlotConstructor, PyClassImpl, PyContext, PyObjectRef, PyResult,
+    function::IntoPyObject, types::SlotConstructor, PyClassImpl, PyContext, PyObjectRef, PyResult,
     PyValue, TypeProtocol, VirtualMachine,
 };
 

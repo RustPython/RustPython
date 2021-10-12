@@ -1,7 +1,7 @@
 use super::{PyStrRef, PyTypeRef, PyWeak};
 use crate::{
     function::OptionalArg,
-    slots::{SlotConstructor, SlotSetattro},
+    types::{SlotConstructor, SlotSetattro},
     PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 

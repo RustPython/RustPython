@@ -14,7 +14,7 @@ mod _operator {
         builtins::{PyInt, PyIntRef, PyStrRef, PyTupleRef, PyTypeRef},
         function::{ArgBytesLike, FuncArgs, KwArgs, OptionalArg},
         protocol::PyIter,
-        slots::{
+        types::{
             Callable,
             PyComparisonOp::{Eq, Ge, Gt, Le, Lt, Ne},
             SlotConstructor,

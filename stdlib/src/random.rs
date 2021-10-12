@@ -8,7 +8,7 @@ mod _random {
     use crate::vm::{
         builtins::{PyIntRef, PyTypeRef},
         function::OptionalOption,
-        slots::SlotConstructor,
+        types::SlotConstructor,
         PyObjectRef, PyResult, PyValue, VirtualMachine,
     };
     use num_bigint::{BigInt, Sign};

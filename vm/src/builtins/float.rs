@@ -3,7 +3,7 @@ use crate::common::{float_ops, hash};
 use crate::{
     format::FormatSpec,
     function::{IntoPyObject, OptionalArg, OptionalOption},
-    slots::{Comparable, Hashable, PyComparisonOp, SlotConstructor},
+    types::{Comparable, Hashable, PyComparisonOp, SlotConstructor},
     IdProtocol,
     PyArithmeticValue::{self, *},
     PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,

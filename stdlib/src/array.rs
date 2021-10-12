@@ -24,7 +24,7 @@ mod array {
             PyMappingMethods,
         },
         sliceable::{PySliceableSequence, PySliceableSequenceMut, SaturatedSlice, SequenceIndex},
-        slots::{
+        types::{
             AsBuffer, AsMapping, Comparable, Iterable, IteratorIterable, PyComparisonOp,
             SlotConstructor, SlotIterator,
         },

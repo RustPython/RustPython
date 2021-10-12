@@ -6,7 +6,7 @@ use super::{PyInt, PyTupleRef, PyTypeRef};
 use crate::{
     function::ArgCallable,
     protocol::PyIterReturn,
-    slots::{IteratorIterable, SlotIterator},
+    types::{IteratorIterable, SlotIterator},
     ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 use rustpython_common::{

@@ -5,11 +5,11 @@ use crate::{
     protocol::{PyIterReturn, PyMappingMethods},
     sequence::{self, SimpleSeq},
     sliceable::PySliceableSequence,
-    slots::{
+    stdlib::sys,
+    types::{
         AsMapping, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp,
         SlotConstructor, SlotIterator, Unconstructible,
     },
-    stdlib::sys,
     utils::Either,
     vm::{ReprGuard, VirtualMachine},
     IdProtocol, PyArithmeticValue, PyClassDef, PyClassImpl, PyComparisonValue, PyContext,

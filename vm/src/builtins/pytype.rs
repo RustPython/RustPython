@@ -10,10 +10,10 @@ use crate::common::{
 use crate::{
     function::{FuncArgs, KwArgs, OptionalArg},
     protocol::{PyIterReturn, PyMappingMethods},
-    slots::{self, Callable, PyTypeFlags, PyTypeSlots, SlotGetattro, SlotSetattro},
+    types::{self, Callable, PyComparisonOp, PyTypeFlags, PyTypeSlots, SlotGetattro, SlotSetattro},
     utils::Either,
-    IdProtocol, PyAttributes, PyClassImpl, PyContext, PyLease, PyObjectRef, PyRef, PyResult,
-    PyValue, TypeProtocol, VirtualMachine,
+    IdProtocol, PyAttributes, PyClassImpl, PyComparisonValue, PyContext, PyLease, PyObjectRef,
+    PyRef, PyResult, PyValue, StaticType, TypeProtocol, VirtualMachine,
 };
 use itertools::Itertools;
 use num_traits::ToPrimitive;
@@ -55,13 +55,31 @@ impl PyValue for PyType {
 }
 
 impl PyType {
-    pub fn new(
+    pub fn new_simple_ref(name: &str, base: &PyTypeRef) -> Result<PyRef<Self>, String> {
+        Self::new_ref(
+            name,
+            vec![base.clone()],
+            Default::default(),
+            Default::default(),
+            Self::static_type().clone(),
+        )
+    }
+    pub fn new_ref(
+        name: &str,
+        bases: Vec<PyRef<Self>>,
+        attrs: PyAttributes,
+        slots: PyTypeSlots,
         metaclass: PyRef<Self>,
+    ) -> Result<PyRef<Self>, String> {
+        Self::new_verbose_ref(name, bases[0].clone(), bases, attrs, slots, metaclass)
+    }
+    fn new_verbose_ref(
         name: &str,
         base: PyRef<Self>,
         bases: Vec<PyRef<Self>>,
         attrs: PyAttributes,
         mut slots: PyTypeSlots,
+        metaclass: PyRef<Self>,
     ) -> Result<PyRef<Self>, String> {
         // Check for duplicates in bases.
         let mut unique_bases = HashSet::new();
@@ -186,7 +204,7 @@ impl PyType {
         }
         match name {
             "__new__" => {
-                let func: slots::NewFunc =
+                let func: types::NewFunc =
                     |cls: PyTypeRef, mut args: FuncArgs, vm: &VirtualMachine| {
                         let new = vm
                             .get_attribute_opt(cls.as_object().clone(), "__new__")?
@@ -197,17 +215,17 @@ impl PyType {
                 update_slot!(new, func);
             }
             "__call__" => {
-                let func: slots::GenericMethod =
+                let func: types::GenericMethod =
                     |zelf, args, vm| vm.call_special_method(zelf.clone(), "__call__", args);
                 update_slot!(call, func);
             }
             "__get__" => {
-                let func: slots::DescrGetFunc =
+                let func: types::DescrGetFunc =
                     |zelf, obj, cls, vm| vm.call_special_method(zelf, "__get__", (obj, cls));
                 update_slot!(descr_get, func);
             }
             "__set__" | "__delete__" => {
-                let func: slots::DescrSetFunc = |zelf, obj, value, vm| {
+                let func: types::DescrSetFunc = |zelf, obj, value, vm| {
                     match value {
                         Some(val) => vm.call_special_method(zelf, "__set__", (obj, val)),
                         None => vm.call_special_method(zelf, "__delete__", (obj,)),
@@ -217,7 +235,7 @@ impl PyType {
                 update_slot!(descr_set, func);
             }
             "__hash__" => {
-                let func: slots::HashFunc = |zelf, vm| {
+                let func: types::HashFunc = |zelf, vm| {
                     let hash_obj = vm.call_special_method(zelf.clone(), "__hash__", ())?;
                     match hash_obj.payload_if_subclass::<PyInt>(vm) {
                         Some(py_int) => {
@@ -230,26 +248,22 @@ impl PyType {
                 update_slot!(hash, func);
             }
             "__del__" => {
-                let func: slots::DelFunc = |zelf, vm| {
+                let func: types::DelFunc = |zelf, vm| {
                     vm.call_special_method(zelf.clone(), "__del__", ())?;
                     Ok(())
                 } as _;
                 update_slot!(del, func);
             }
             "__eq__" | "__ne__" | "__le__" | "__lt__" | "__ge__" | "__gt__" => {
-                let func: slots::RichCompareFunc = |zelf, other, op, vm| {
-                    vm.call_special_method(zelf.clone(), op.method_name(), (other.clone(),))
-                        .map(Either::A)
-                } as _;
-                update_slot!(richcompare, func);
+                update_slot!(richcompare, richcompare_wrapper);
             }
             "__getattribute__" => {
-                let func: slots::GetattroFunc =
+                let func: types::GetattroFunc =
                     |zelf, name, vm| vm.call_special_method(zelf, "__getattribute__", (name,));
                 update_slot!(getattro, func);
             }
             "__setattr__" => {
-                let func: slots::SetattroFunc = |zelf, name, value, vm| {
+                let func: types::SetattroFunc = |zelf, name, value, vm| {
                     match value {
                         Some(value) => {
                             vm.call_special_method(zelf.clone(), "__setattr__", (name, value))?;
@@ -263,11 +277,11 @@ impl PyType {
                 update_slot!(setattro, func);
             }
             "__iter__" => {
-                let func: slots::IterFunc = |zelf, vm| vm.call_special_method(zelf, "__iter__", ());
+                let func: types::IterFunc = |zelf, vm| vm.call_special_method(zelf, "__iter__", ());
                 update_slot!(iter, func);
             }
             "__next__" => {
-                let func: slots::IterNextFunc = |zelf, vm| {
+                let func: types::IterNextFunc = |zelf, vm| {
                     PyIterReturn::from_pyresult(
                         vm.call_special_method(zelf.clone(), "__next__", ()),
                         vm,
@@ -286,7 +300,7 @@ impl PyType {
                     };
                 }
 
-                let func: slots::MappingFunc = |zelf, _vm| {
+                let func: types::MappingFunc = |zelf, _vm| {
                     Ok(PyMappingMethods {
                         length: then_some_closure!(zelf.has_class_attr("__len__"), |zelf, vm| {
                             vm.call_special_method(zelf, "__len__", ()).map(|obj| {
@@ -326,6 +340,16 @@ impl PyType {
             _ => {}
         }
     }
+}
+
+fn richcompare_wrapper(
+    zelf: &PyObjectRef,
+    other: &PyObjectRef,
+    op: PyComparisonOp,
+    vm: &VirtualMachine,
+) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
+    vm.call_special_method(zelf.clone(), op.method_name(), (other.clone(),))
+        .map(Either::A)
 }
 
 impl PyTypeRef {
@@ -611,7 +635,7 @@ impl PyType {
         let flags = PyTypeFlags::heap_type_flags() | PyTypeFlags::HAS_DICT;
         let slots = PyTypeSlots::from_flags(flags);
 
-        let typ = Self::new(metatype, name.as_str(), base, bases, attributes, slots)
+        let typ = Self::new_verbose_ref(name.as_str(), base, bases, attributes, slots, metatype)
             .map_err(|e| vm.new_type_error(e))?;
 
         // avoid deadlock
@@ -1045,22 +1069,20 @@ mod tests {
         let object = &context.types.object_type;
         let type_type = &context.types.type_type;
 
-        let a = PyType::new(
-            type_type.clone(),
+        let a = PyType::new_ref(
             "A",
-            object.clone(),
             vec![object.clone()],
             PyAttributes::default(),
             Default::default(),
+            type_type.clone(),
         )
         .unwrap();
-        let b = PyType::new(
-            type_type.clone(),
+        let b = PyType::new_ref(
             "B",
-            object.clone(),
             vec![object.clone()],
             PyAttributes::default(),
             Default::default(),
+            type_type.clone(),
         )
         .unwrap();
 

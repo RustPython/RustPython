@@ -19,7 +19,7 @@ pub(crate) mod _struct {
         common::str::wchar_t,
         function::{ArgBytesLike, ArgIntoBool, ArgMemoryBuffer, IntoPyObject, PosArgs},
         protocol::PyIterReturn,
-        slots::{IteratorIterable, SlotConstructor, SlotIterator},
+        types::{IteratorIterable, SlotConstructor, SlotIterator},
         PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;

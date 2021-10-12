@@ -4,7 +4,7 @@ use crate::{
     frame::FrameRef,
     function::OptionalArg,
     protocol::PyIterReturn,
-    slots::{IteratorIterable, SlotIterator},
+    types::{IteratorIterable, SlotIterator},
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 

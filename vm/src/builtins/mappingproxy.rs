@@ -2,7 +2,7 @@ use super::{PyDict, PyList, PyStrRef, PyTuple, PyTypeRef};
 use crate::{
     function::{IntoPyObject, OptionalArg},
     protocol::{PyMapping, PyMappingMethods},
-    slots::{AsMapping, Iterable, SlotConstructor},
+    types::{AsMapping, Iterable, SlotConstructor},
     ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol, VirtualMachine,
 };

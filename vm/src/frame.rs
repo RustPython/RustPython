@@ -13,8 +13,8 @@ use crate::{
     function::{FuncArgs, IntoPyResult},
     protocol::{PyIter, PyIterReturn},
     scope::Scope,
-    slots::PyComparisonOp,
     stdlib::builtins,
+    types::PyComparisonOp,
     IdProtocol, ItemProtocol, PyMethod, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol, VirtualMachine,
 };

@@ -32,11 +32,11 @@ pub mod module {
     use crate::{
         builtins::{PyDictRef, PyInt, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
         function::{IntoPyException, IntoPyObject, OptionalArg},
-        slots::SlotConstructor,
         stdlib::os::{
             errno_err, DirFd, FollowSymlinks, PathOrFd, PyPathLike, SupportFunc, TargetIsDirectory,
             _os, fs_metadata, IOErrorBuilder,
         },
+        types::SlotConstructor,
         utils::{Either, ToCString},
         ItemProtocol, PyObjectRef, PyResult, PyValue, TryFromObject, VirtualMachine,
     };

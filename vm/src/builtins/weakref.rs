@@ -2,7 +2,7 @@ use super::PyTypeRef;
 use crate::common::hash::PyHash;
 use crate::{
     function::{FuncArgs, OptionalArg},
-    slots::{Callable, Comparable, Hashable, PyComparisonOp, SlotConstructor},
+    types::{Callable, Comparable, Hashable, PyComparisonOp, SlotConstructor},
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyObjectWeak, PyRef, PyResult, PyValue,
     TypeProtocol, VirtualMachine,
 };

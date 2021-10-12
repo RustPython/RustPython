@@ -12,7 +12,7 @@ mod _collections {
         function::{FuncArgs, KwArgs, OptionalArg},
         protocol::PyIterReturn,
         sequence, sliceable,
-        slots::{
+        types::{
             Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotConstructor,
             SlotIterator, Unhashable,
         },

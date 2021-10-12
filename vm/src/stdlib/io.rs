@@ -86,7 +86,7 @@ mod _io {
             OptionalOption,
         },
         protocol::{BufferInternal, BufferOptions, BufferResizeGuard, PyBuffer, PyIterReturn},
-        slots::{Iterable, SlotConstructor, SlotDestructor, SlotIterator},
+        types::{Iterable, SlotConstructor, SlotDestructor, SlotIterator},
         utils::Either,
         vm::{ReprGuard, VirtualMachine},
         IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
@@ -2375,7 +2375,7 @@ mod _io {
                         .new_value_error(format!("invalid whence ({}, should be 0, 1 or 2)", how)))
                 }
             };
-            use crate::slots::PyComparisonOp;
+            use crate::types::PyComparisonOp;
             if vm.bool_cmp(&cookie, &vm.ctx.new_int(0).into(), PyComparisonOp::Lt)? {
                 return Err(
                     vm.new_value_error(format!("negative seek position {}", vm.to_repr(&cookie)?))
@@ -3631,16 +3631,15 @@ mod _io {
     }
 
     pub(super) fn make_unsupportedop(ctx: &PyContext) -> PyTypeRef {
-        PyType::new(
-            ctx.types.type_type.clone(),
+        PyType::new_ref(
             "UnsupportedOperation",
-            ctx.exceptions.os_error.clone(),
             vec![
                 ctx.exceptions.os_error.clone(),
                 ctx.exceptions.value_error.clone(),
             ],
             Default::default(),
             Default::default(),
+            ctx.types.type_type.clone(),
         )
         .unwrap()
     }

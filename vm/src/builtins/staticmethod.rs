@@ -2,7 +2,7 @@ use super::{PyStr, PyTypeRef};
 use crate::{
     builtins::builtinfunc::PyBuiltinMethod,
     function::IntoPyNativeFunc,
-    slots::{SlotConstructor, SlotDescriptor},
+    types::{SlotConstructor, SlotDescriptor},
     PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 

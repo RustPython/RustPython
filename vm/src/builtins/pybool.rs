@@ -1,7 +1,7 @@
 use super::{PyInt, PyStrRef, PyTypeRef};
 use crate::{
     function::{IntoPyObject, OptionalArg},
-    slots::SlotConstructor,
+    types::SlotConstructor,
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject,
     TypeProtocol, VirtualMachine,
 };

@@ -10,8 +10,8 @@ mod decl {
         builtins::{int, PyInt, PyIntRef, PyTuple, PyTupleRef, PyTypeRef},
         function::{ArgCallable, FuncArgs, IntoPyObject, OptionalArg, OptionalOption, PosArgs},
         protocol::{PyIter, PyIterReturn},
-        slots::{IteratorIterable, SlotConstructor, SlotIterator},
         stdlib::sys,
+        types::{IteratorIterable, SlotConstructor, SlotIterator},
         IdProtocol, PyObjectRef, PyRef, PyResult, PyValue, PyWeakRef, TypeProtocol, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;

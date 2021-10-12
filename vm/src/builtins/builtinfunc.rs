@@ -2,7 +2,7 @@ use super::{pytype, PyClassMethod, PyStr, PyStrRef, PyTypeRef};
 use crate::{
     builtins::PyBoundMethod,
     function::{FuncArgs, IntoPyNativeFunc, PyNativeFunc},
-    slots::{Callable, SlotDescriptor},
+    types::{Callable, SlotDescriptor},
     PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
 use std::fmt;

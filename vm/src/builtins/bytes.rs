@@ -10,7 +10,7 @@ use crate::{
         ArgBytesLike, ArgIterable, IntoPyObject, IntoPyResult, OptionalArg, OptionalOption,
     },
     protocol::{BufferInternal, BufferOptions, PyBuffer, PyIterReturn, PyMappingMethods},
-    slots::{
+    types::{
         AsBuffer, AsMapping, Callable, Comparable, Hashable, Iterable, IteratorIterable,
         PyComparisonOp, SlotConstructor, SlotIterator, Unconstructible,
     },

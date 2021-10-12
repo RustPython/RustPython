@@ -3,7 +3,7 @@ use crate::common::lock::{PyMutex, PyRwLock};
 use crate::{
     function::{IntoPyObject, OptionalArg},
     protocol::{PyIter, PyIterReturn},
-    slots::{IteratorIterable, SlotConstructor, SlotIterator},
+    types::{IteratorIterable, SlotConstructor, SlotIterator},
     ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 use num_bigint::BigInt;

@@ -8,7 +8,7 @@ use crate::{
     dictdatatype::{self, DictKey},
     function::{ArgIterable, FuncArgs, IntoPyObject, KwArgs, OptionalArg},
     protocol::{PyIterIter, PyIterReturn, PyMappingMethods},
-    slots::{
+    types::{
         AsMapping, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp,
         SlotConstructor, SlotIterator, Unconstructible, Unhashable,
     },

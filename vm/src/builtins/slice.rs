@@ -2,7 +2,7 @@
 use super::{PyInt, PyIntRef, PyTupleRef, PyTypeRef};
 use crate::{
     function::{FuncArgs, IntoPyObject, OptionalArg},
-    slots::{Comparable, Hashable, PyComparisonOp, SlotConstructor, Unhashable},
+    types::{Comparable, Hashable, PyComparisonOp, SlotConstructor, Unhashable},
     PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
     VirtualMachine,
 };

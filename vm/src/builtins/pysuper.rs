@@ -6,7 +6,7 @@ See also [CPython source code.](https://github.com/python/cpython/blob/50b48572d
 use super::{PyStrRef, PyType, PyTypeRef};
 use crate::{
     function::OptionalArg,
-    slots::{SlotConstructor, SlotDescriptor, SlotGetattro},
+    types::{SlotConstructor, SlotDescriptor, SlotGetattro},
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
     VirtualMachine,
 };

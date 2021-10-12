@@ -3,7 +3,7 @@ use crate::{
     builtins::PyTupleRef,
     function::{ArgIntoBool, IntoPyObject, OptionalArg, PosArgs},
     protocol::{PyIter, PyIterReturn},
-    slots::{IteratorIterable, SlotConstructor, SlotIterator},
+    types::{IteratorIterable, SlotConstructor, SlotIterator},
     PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
     VirtualMachine,
 };

@@ -7,7 +7,7 @@ use crate::{
     dictdatatype::{self, DictSize},
     function::{ArgIterable, FuncArgs, OptionalArg, PosArgs},
     protocol::PyIterReturn,
-    slots::{
+    types::{
         Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotConstructor,
         SlotIterator, Unconstructible, Unhashable,
     },

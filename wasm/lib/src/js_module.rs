@@ -5,11 +5,10 @@ use crate::{
 };
 use js_sys::{Array, Object, Promise, Reflect};
 use rustpython_vm::{
-    builtins::{PyBaseExceptionRef, PyFloatRef, PyStrRef, PyTypeRef},
+    builtins::{PyBaseExceptionRef, PyFloatRef, PyStrRef, PyType, PyTypeRef},
     function::{ArgCallable, IntoPyObject, OptionalArg, OptionalOption, PosArgs},
     protocol::PyIterReturn,
-    slots::{IteratorIterable, SlotIterator},
-    types::create_simple_type,
+    types::{IteratorIterable, SlotIterator},
     PyClassImpl, PyObjectRef, PyObjectWrap, PyRef, PyResult, PyValue, TryFromObject,
     VirtualMachine,
 };
@@ -601,7 +600,7 @@ fn new_js_error(vm: &VirtualMachine, err: JsValue) -> PyBaseExceptionRef {
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
-    let js_error = create_simple_type("JSError", &ctx.exceptions.exception_type);
+    let js_error = PyType::new_simple_ref("JSError", &ctx.exceptions.exception_type).unwrap();
     extend_class!(ctx, &js_error, {
         "value" => ctx.new_readonly_getset("value", js_error.clone(), |exc: PyBaseExceptionRef| exc.get_arg(0)),
     });

@@ -4,7 +4,7 @@
 use super::PyTypeRef;
 use crate::{
     function::{IntoPyResult, OwnedParam, RefParam},
-    slots::SlotDescriptor,
+    types::SlotDescriptor,
     PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyThreadingConstraint, PyValue,
     TryFromObject, TypeProtocol, VirtualMachine,
 };

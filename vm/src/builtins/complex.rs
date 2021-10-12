@@ -1,7 +1,7 @@
 use super::{float, PyStr, PyTypeRef};
 use crate::{
     function::{IntoPyObject, OptionalArg, OptionalOption},
-    slots::{Comparable, Hashable, PyComparisonOp, SlotConstructor},
+    types::{Comparable, Hashable, PyComparisonOp, SlotConstructor},
     IdProtocol,
     PyArithmeticValue::{self, *},
     PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,

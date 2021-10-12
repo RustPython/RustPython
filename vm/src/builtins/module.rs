@@ -1,7 +1,7 @@
 use super::{PyDictRef, PyStr, PyStrRef, PyTypeRef};
 use crate::{
     function::{FuncArgs, IntoPyObject},
-    slots::SlotGetattro,
+    types::SlotGetattro,
     ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 
@@ -57,7 +57,7 @@ impl PyModule {
         debug_assert!(crate::TypeProtocol::class(zelf.as_object())
             .slots
             .flags
-            .has_feature(crate::slots::PyTypeFlags::HAS_DICT));
+            .has_feature(crate::types::PyTypeFlags::HAS_DICT));
         init_module_dict(
             vm,
             &zelf.as_object().dict().unwrap(),

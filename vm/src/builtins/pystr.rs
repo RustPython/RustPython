@@ -9,11 +9,11 @@ use crate::{
     function::{ArgIterable, FuncArgs, IntoPyException, IntoPyObject, OptionalArg, OptionalOption},
     protocol::PyIterReturn,
     sliceable::PySliceableSequence,
-    slots::{
+    stdlib::sys,
+    types::{
         Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotConstructor,
         SlotIterator, Unconstructible,
     },
-    stdlib::sys,
     utils::Either,
     IdProtocol, ItemProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef,
     PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,

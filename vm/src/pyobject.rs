@@ -17,8 +17,8 @@ use crate::{
     exceptions,
     function::{IntoFuncArgs, IntoPyNativeFunc, IntoPyObject, IntoPyResult},
     protocol::PyMapping,
-    slots::{PyTypeFlags, PyTypeSlots},
-    types::{create_type_with_slots, TypeZoo},
+    types::TypeZoo,
+    types::{PyTypeFlags, PyTypeSlots},
     VirtualMachine,
 };
 use num_bigint::BigInt;
@@ -214,7 +214,14 @@ impl PyContext {
     }
 
     pub fn new_class(&self, name: &str, base: &PyTypeRef, slots: PyTypeSlots) -> PyTypeRef {
-        create_type_with_slots(name, &self.types.type_type, base, slots)
+        PyType::new_ref(
+            name,
+            vec![base.clone()],
+            Default::default(),
+            slots,
+            self.types.type_type.clone(),
+        )
+        .unwrap()
     }
 
     #[inline]
@@ -827,12 +834,14 @@ pub trait StaticType {
     where
         Self: PyClassImpl,
     {
-        create_type_with_slots(
+        PyType::new_ref(
             Self::NAME,
-            Self::static_metaclass(),
-            Self::static_baseclass(),
+            vec![Self::static_baseclass().clone()],
+            Default::default(),
             Self::make_slots(),
+            Self::static_metaclass().clone(),
         )
+        .unwrap()
     }
 }
 

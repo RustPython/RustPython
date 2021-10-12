@@ -69,7 +69,6 @@ pub mod scope;
 mod sequence;
 mod signal;
 pub mod sliceable;
-pub mod slots;
 pub mod stdlib;
 pub mod types;
 pub mod utils;

@@ -2,7 +2,7 @@ use crate::{
     builtins::{PyList, PyStr, PyStrRef, PyTuple, PyTupleRef, PyTypeRef},
     common::hash,
     function::IntoPyObject,
-    slots::{Hashable, SlotConstructor, SlotGetattro},
+    types::{Hashable, SlotConstructor, SlotGetattro},
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol, VirtualMachine,
 };

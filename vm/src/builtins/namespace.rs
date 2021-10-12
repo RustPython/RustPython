@@ -1,7 +1,7 @@
 use super::PyTypeRef;
 use crate::{
     function::{IntoPyObject, KwArgs},
-    slots::SlotConstructor,
+    types::SlotConstructor,
     PyClassImpl, PyContext, PyRef, PyResult, PyValue, VirtualMachine,
 };
 

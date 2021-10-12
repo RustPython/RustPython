@@ -68,7 +68,7 @@ pub(crate) fn impl_pyimpl(attr: AttributeArgs, item: Item) -> Result<TokenStream
             quote! {
                 #imp
                 impl ::rustpython_vm::PyClassImpl for #ty {
-                    const TP_FLAGS: ::rustpython_vm::slots::PyTypeFlags = ::rustpython_vm::slots::PyTypeFlags::from_bits_truncate(#flags);
+                    const TP_FLAGS: ::rustpython_vm::types::PyTypeFlags = ::rustpython_vm::types::PyTypeFlags::from_bits_truncate(#flags);
 
                     fn impl_extend_class(
                         ctx: &::rustpython_vm::PyContext,
@@ -80,7 +80,7 @@ pub(crate) fn impl_pyimpl(attr: AttributeArgs, item: Item) -> Result<TokenStream
                         #(#class_extensions)*
                     }
 
-                    fn extend_slots(slots: &mut ::rustpython_vm::slots::PyTypeSlots) {
+                    fn extend_slots(slots: &mut ::rustpython_vm::types::PyTypeSlots) {
                         #with_slots
                         #slots_impl
                     }
@@ -114,7 +114,7 @@ pub(crate) fn impl_pyimpl(attr: AttributeArgs, item: Item) -> Result<TokenStream
                     }
                 },
                 parse_quote! {
-                    fn __extend_slots(slots: &mut ::rustpython_vm::slots::PyTypeSlots) {
+                    fn __extend_slots(slots: &mut ::rustpython_vm::types::PyTypeSlots) {
                         #with_slots
                         #slots_impl
                     }
@@ -863,11 +863,11 @@ struct ExtractedImplAttrs {
 fn extract_impl_attrs(attr: AttributeArgs, item: &Ident) -> Result<ExtractedImplAttrs> {
     let mut withs = Vec::new();
     let mut with_slots = Vec::new();
-    let mut flags = vec![quote! { ::rustpython_vm::slots::PyTypeFlags::DEFAULT.bits() }];
+    let mut flags = vec![quote! { ::rustpython_vm::types::PyTypeFlags::DEFAULT.bits() }];
     #[cfg(debug_assertions)]
     {
         flags.push(quote! {
-            | ::rustpython_vm::slots::PyTypeFlags::_CREATED_WITH_FLAGS.bits()
+            | ::rustpython_vm::types::PyTypeFlags::_CREATED_WITH_FLAGS.bits()
         });
     }
 
@@ -905,7 +905,7 @@ fn extract_impl_attrs(attr: AttributeArgs, item: &Ident) -> Result<ExtractedImpl
                             NestedMeta::Meta(Meta::Path(path)) => {
                                 if let Some(ident) = path.get_ident() {
                                     flags.push(quote_spanned! { ident.span() =>
-                                        | ::rustpython_vm::slots::PyTypeFlags::#ident.bits()
+                                        | ::rustpython_vm::types::PyTypeFlags::#ident.bits()
                                     });
                                 } else {
                                     bail_span!(

@@ -22,7 +22,7 @@ use crate::{
         BufferInternal, BufferOptions, BufferResizeGuard, PyBuffer, PyIterReturn, PyMappingMethods,
     },
     sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
-    slots::{
+    types::{
         AsBuffer, AsMapping, Callable, Comparable, Hashable, Iterable, IteratorIterable,
         PyComparisonOp, SlotConstructor, SlotIterator, Unconstructible, Unhashable,
     },

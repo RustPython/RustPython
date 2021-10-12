@@ -8,7 +8,7 @@ mod _json {
         builtins::{PyBaseExceptionRef, PyStrRef, PyTypeRef},
         function::{FuncArgs, IntoPyObject, IntoPyResult, OptionalArg},
         protocol::PyIterReturn,
-        slots::{Callable, SlotConstructor},
+        types::{Callable, SlotConstructor},
         IdProtocol, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
     };
     use num_bigint::BigInt;

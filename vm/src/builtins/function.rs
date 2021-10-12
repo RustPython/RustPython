@@ -11,7 +11,7 @@ use crate::{
     frame::Frame,
     function::{FuncArgs, OptionalArg},
     scope::Scope,
-    slots::{Callable, Comparable, PyComparisonOp, SlotConstructor, SlotDescriptor, SlotGetattro},
+    types::{Callable, Comparable, PyComparisonOp, SlotConstructor, SlotDescriptor, SlotGetattro},
     IdProtocol, ItemProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
     PyResult, PyValue, TypeProtocol, VirtualMachine,
 };

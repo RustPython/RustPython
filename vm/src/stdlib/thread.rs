@@ -8,7 +8,7 @@ pub(crate) mod _thread {
         builtins::{PyDictRef, PyStrRef, PyTupleRef, PyTypeRef},
         function::{ArgCallable, FuncArgs, IntoPyException, KwArgs, OptionalArg},
         py_io,
-        slots::{SlotConstructor, SlotGetattro, SlotSetattro},
+        types::{SlotConstructor, SlotGetattro, SlotSetattro},
         utils::Either,
         IdProtocol, ItemProtocol, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
         VirtualMachine,

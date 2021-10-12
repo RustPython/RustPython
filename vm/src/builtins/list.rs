@@ -7,11 +7,11 @@ use crate::{
     protocol::{PyIterReturn, PyMappingMethods},
     sequence::{self, SimpleSeq},
     sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
-    slots::{
+    stdlib::sys,
+    types::{
         AsMapping, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp,
         SlotConstructor, SlotIterator, Unconstructible, Unhashable,
     },
-    stdlib::sys,
     utils::Either,
     vm::{ReprGuard, VirtualMachine},
     PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
