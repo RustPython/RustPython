@@ -182,16 +182,17 @@ impl PyByteArray {
                 }
             }
             SequenceIndex::Slice(slice) => {
+                let slice = slice.to_saturated(vm)?;
                 let items = if zelf.is(&value) {
                     zelf.borrow_buf().to_vec()
                 } else {
                     bytes_from_object(vm, &value)?
                 };
                 if let Ok(mut w) = zelf.try_resizable(vm) {
-                    w.elements.set_slice_items(vm, &slice, items.as_slice())
+                    w.elements.set_slice_items(vm, slice, items.as_slice())
                 } else {
                     zelf.borrow_buf_mut()
-                        .set_slice_items_no_resize(vm, &slice, items.as_slice())
+                        .set_slice_items_no_resize(vm, slice, items.as_slice())
                 }
             }
         }
@@ -212,9 +213,9 @@ impl PyByteArray {
 
     #[pymethod(magic)]
     pub fn delitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let elements = &mut self.try_resizable(vm)?.elements;
         match SequenceIndex::try_from_object_for(vm, needle, Self::NAME)? {
             SequenceIndex::Int(int) => {
+                let elements = &mut self.try_resizable(vm)?.elements;
                 if let Some(idx) = elements.wrap_index(int) {
                     elements.remove(idx);
                     Ok(())
@@ -222,7 +223,11 @@ impl PyByteArray {
                     Err(vm.new_index_error("index out of range".to_owned()))
                 }
             }
-            SequenceIndex::Slice(slice) => elements.delete_slice(vm, &slice),
+            SequenceIndex::Slice(slice) => {
+                let slice = slice.to_saturated(vm)?;
+                let elements = &mut self.try_resizable(vm)?.elements;
+                elements.delete_slice(vm, slice)
+            }
         }
     }
 

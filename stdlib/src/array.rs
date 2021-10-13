@@ -13,7 +13,7 @@ mod array {
     use crate::vm::{
         builtins::{
             PyByteArray, PyBytes, PyBytesRef, PyDictRef, PyFloat, PyInt, PyIntRef, PyList,
-            PyListRef, PySliceRef, PyStr, PyStrRef, PyTupleRef, PyTypeRef,
+            PyListRef, PyStr, PyStrRef, PyTupleRef, PyTypeRef,
         },
         class_or_notimplemented,
         function::{
@@ -23,7 +23,7 @@ mod array {
             BufferInternal, BufferOptions, BufferResizeGuard, PyBuffer, PyIterReturn,
             PyMappingMethods,
         },
-        sliceable::{saturate_index, PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
+        sliceable::{PySliceableSequence, PySliceableSequenceMut, SaturatedSlice, SequenceIndex},
         slots::{
             AsBuffer, AsMapping, Comparable, Iterable, IteratorIterable, PyComparisonOp,
             SlotConstructor, SlotIterator,
@@ -122,14 +122,14 @@ mod array {
 
                 fn insert(
                     &mut self,
-                    i: usize,
+                    i: isize,
                     obj: PyObjectRef,
                     vm: &VirtualMachine
                 ) -> PyResult<()> {
                     match self {
                         $(ArrayContentType::$n(v) => {
                             let val = <$t>::try_into_from_object(vm, obj)?;
-                            v.insert(i, val);
+                            v.insert(v.saturate_index(i), val);
                         })*
                     }
                     Ok(())
@@ -276,7 +276,10 @@ mod array {
                                     v.get(pos_index).unwrap().into_pyresult(vm)
                                 }
                                 SequenceIndex::Slice(slice) => {
-                                    let elements = v.get_slice_items(vm, &slice)?;
+                                    // TODO: Use interface similar to set/del item. This can
+                                    // still hang.
+                                    let slice = slice.to_saturated(vm)?;
+                                    let elements = v.get_slice_items(vm, slice)?;
                                     let array: PyArray = ArrayContentType::$n(elements).into();
                                     Ok(array.into_object(vm))
                                 }
@@ -287,13 +290,13 @@ mod array {
 
                 fn setitem_by_slice(
                     &mut self,
-                    slice: PySliceRef,
+                    slice: SaturatedSlice,
                     items: &ArrayContentType,
                     vm: &VirtualMachine
                 ) -> PyResult<()> {
                     match self {
                         $(Self::$n(elements) => if let ArrayContentType::$n(items) = items {
-                            elements.set_slice_items(vm, &slice, items)
+                            elements.set_slice_items(vm, slice, items)
                         } else {
                             Err(vm.new_type_error(
                                 "bad argument type for built-in operation".to_owned()
@@ -304,13 +307,13 @@ mod array {
 
                 fn setitem_by_slice_no_resize(
                     &mut self,
-                    slice: PySliceRef,
+                    slice: SaturatedSlice,
                     items: &ArrayContentType,
                     vm: &VirtualMachine
                 ) -> PyResult<()> {
                     match self {
                         $(Self::$n(elements) => if let ArrayContentType::$n(items) = items {
-                            elements.set_slice_items_no_resize(vm, &slice, items)
+                            elements.set_slice_items_no_resize(vm, slice, items)
                         } else {
                             Err(vm.new_type_error(
                                 "bad argument type for built-in operation".to_owned()
@@ -350,12 +353,12 @@ mod array {
 
                 fn delitem_by_slice(
                     &mut self,
-                    slice: PySliceRef,
+                    slice: SaturatedSlice,
                     vm: &VirtualMachine
                 ) -> PyResult<()> {
                     match self {
                         $(ArrayContentType::$n(elements) => {
-                            elements.delete_slice(vm, &slice)
+                            elements.delete_slice(vm, slice)
                         })*
                     }
                 }
@@ -895,7 +898,6 @@ mod array {
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             let mut w = zelf.try_resizable(vm)?;
-            let i = saturate_index(i, w.len());
             w.insert(i, x, vm)
         }
 
@@ -983,6 +985,7 @@ mod array {
             match SequenceIndex::try_from_object_for(vm, needle, "array")? {
                 SequenceIndex::Int(i) => zelf.write().setitem_by_idx(i, obj, vm),
                 SequenceIndex::Slice(slice) => {
+                    let slice = slice.to_saturated(vm)?;
                     let cloned;
                     let guard;
                     let items = if zelf.is(&obj) {
@@ -1015,7 +1018,10 @@ mod array {
         fn delitem(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             match SequenceIndex::try_from_object_for(vm, needle, "array")? {
                 SequenceIndex::Int(i) => zelf.try_resizable(vm)?.delitem_by_idx(i, vm),
-                SequenceIndex::Slice(slice) => zelf.try_resizable(vm)?.delitem_by_slice(slice, vm),
+                SequenceIndex::Slice(slice) => {
+                    let slice = slice.to_saturated(vm)?;
+                    zelf.try_resizable(vm)?.delitem_by_slice(slice, vm)
+                }
             }
         }
 
