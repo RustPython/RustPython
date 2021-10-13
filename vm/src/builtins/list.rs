@@ -8,8 +8,8 @@ use crate::{
     sequence::{self, SimpleSeq},
     sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
     slots::{
-        AsMapping, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotIterator,
-        Unhashable,
+        AsMapping, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp,
+        SlotConstructor, SlotIterator, Unconstructible, Unhashable,
     },
     stdlib::sys,
     utils::Either,
@@ -517,7 +517,7 @@ impl PyValue for PyListIterator {
     }
 }
 
-#[pyimpl(with(SlotIterator))]
+#[pyimpl(with(SlotConstructor, SlotIterator))]
 impl PyListIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
@@ -538,6 +538,7 @@ impl PyListIterator {
             .builtins_iter_reduce(|x| x.clone().into(), vm)
     }
 }
+impl Unconstructible for PyListIterator {}
 
 impl IteratorIterable for PyListIterator {}
 impl SlotIterator for PyListIterator {
@@ -564,7 +565,7 @@ impl PyValue for PyListReverseIterator {
     }
 }
 
-#[pyimpl(with(SlotIterator))]
+#[pyimpl(with(SlotConstructor, SlotIterator))]
 impl PyListReverseIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
@@ -585,6 +586,7 @@ impl PyListReverseIterator {
             .builtins_reversed_reduce(|x| x.clone().into(), vm)
     }
 }
+impl Unconstructible for PyListReverseIterator {}
 
 impl IteratorIterable for PyListReverseIterator {}
 impl SlotIterator for PyListReverseIterator {

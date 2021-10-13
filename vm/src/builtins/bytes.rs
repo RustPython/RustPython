@@ -12,7 +12,7 @@ use crate::{
     protocol::{BufferInternal, BufferOptions, PyBuffer, PyIterReturn, PyMappingMethods},
     slots::{
         AsBuffer, AsMapping, Callable, Comparable, Hashable, Iterable, IteratorIterable,
-        PyComparisonOp, SlotConstructor, SlotIterator,
+        PyComparisonOp, SlotConstructor, SlotIterator, Unconstructible,
     },
     utils::Either,
     IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
@@ -639,7 +639,7 @@ impl PyValue for PyBytesIterator {
     }
 }
 
-#[pyimpl(with(SlotIterator))]
+#[pyimpl(with(SlotConstructor, SlotIterator))]
 impl PyBytesIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
@@ -660,6 +660,8 @@ impl PyBytesIterator {
             .set_state(state, |obj, pos| pos.min(obj.len()), vm)
     }
 }
+impl Unconstructible for PyBytesIterator {}
+
 impl IteratorIterable for PyBytesIterator {}
 impl SlotIterator for PyBytesIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {

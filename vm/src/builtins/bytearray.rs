@@ -24,7 +24,7 @@ use crate::{
     sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
     slots::{
         AsBuffer, AsMapping, Callable, Comparable, Hashable, Iterable, IteratorIterable,
-        PyComparisonOp, SlotIterator, Unhashable,
+        PyComparisonOp, SlotConstructor, SlotIterator, Unconstructible, Unhashable,
     },
     utils::Either,
     IdProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
@@ -804,7 +804,7 @@ impl PyValue for PyByteArrayIterator {
     }
 }
 
-#[pyimpl(with(SlotIterator))]
+#[pyimpl(with(SlotConstructor, SlotIterator))]
 impl PyByteArrayIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
@@ -824,6 +824,8 @@ impl PyByteArrayIterator {
             .set_state(state, |obj, pos| pos.min(obj.len()), vm)
     }
 }
+impl Unconstructible for PyByteArrayIterator {}
+
 impl IteratorIterable for PyByteArrayIterator {}
 impl SlotIterator for PyByteArrayIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {

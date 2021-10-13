@@ -5,7 +5,8 @@ use crate::{
     function::{FuncArgs, OptionalArg},
     protocol::{PyIterReturn, PyMappingMethods},
     slots::{
-        AsMapping, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotIterator,
+        AsMapping, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp,
+        SlotConstructor, SlotIterator, Unconstructible,
     },
     IdProtocol, IntoPyRef, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol, VirtualMachine,
@@ -511,7 +512,7 @@ impl PyValue for PyLongRangeIterator {
     }
 }
 
-#[pyimpl(with(SlotIterator))]
+#[pyimpl(with(SlotConstructor, SlotIterator))]
 impl PyLongRangeIterator {
     #[pyslot]
     fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -545,6 +546,7 @@ impl PyLongRangeIterator {
         )
     }
 }
+impl Unconstructible for PyLongRangeIterator {}
 
 impl IteratorIterable for PyLongRangeIterator {}
 impl SlotIterator for PyLongRangeIterator {
@@ -580,13 +582,8 @@ impl PyValue for PyRangeIterator {
     }
 }
 
-#[pyimpl(with(SlotIterator))]
+#[pyimpl(with(SlotConstructor, SlotIterator))]
 impl PyRangeIterator {
-    #[pyslot]
-    fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        Err(vm.new_type_error("cannot create 'range_iterator' instances".to_owned()))
-    }
-
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
         let index = self.index.load();
@@ -615,6 +612,7 @@ impl PyRangeIterator {
         )
     }
 }
+impl Unconstructible for PyRangeIterator {}
 
 impl IteratorIterable for PyRangeIterator {}
 impl SlotIterator for PyRangeIterator {
