@@ -1,8 +1,8 @@
 use crate::{
-    builtins::{PyList, PyStr, PyTuple, PyTupleRef, PyTypeRef},
+    builtins::{PyList, PyStr, PyStrRef, PyTuple, PyTupleRef, PyTypeRef},
     common::hash,
     function::IntoPyObject,
-    slots::{Hashable, SlotConstructor},
+    slots::{Hashable, SlotConstructor, SlotGetattro},
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol, VirtualMachine,
 };
@@ -52,7 +52,7 @@ impl SlotConstructor for PyGenericAlias {
     }
 }
 
-#[pyimpl(with(Hashable), flags(BASETYPE))]
+#[pyimpl(with(Hashable, SlotGetattro), flags(BASETYPE))]
 impl PyGenericAlias {
     pub fn new(origin: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> Self {
         let args: PyTupleRef = if let Ok(tuple) = PyTupleRef::try_from_object(vm, args.clone()) {
@@ -166,6 +166,17 @@ fn make_parameters(args: &PyTupleRef, vm: &VirtualMachine) -> PyTupleRef {
 impl Hashable for PyGenericAlias {
     fn hash(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<hash::PyHash> {
         Ok(vm._hash(zelf.origin.as_object())? ^ vm._hash(zelf.args.as_object())?)
+    }
+}
+
+impl SlotGetattro for PyGenericAlias {
+    fn getattro(zelf: PyRef<Self>, attr: PyStrRef, vm: &VirtualMachine) -> PyResult {
+        for exc in ATTR_EXCEPTIONS.iter() {
+            if *(*exc) == attr.to_string() {
+                return vm.generic_getattribute(zelf.as_object().clone(), attr);
+            }
+        }
+        vm.get_attribute(zelf.origin(), attr)
     }
 }
 
