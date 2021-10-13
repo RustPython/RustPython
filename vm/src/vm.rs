@@ -902,7 +902,7 @@ impl VirtualMachine {
     }
 
     pub fn to_repr(&self, obj: &PyObjectRef) -> PyResult<PyStrRef> {
-        self.with_recursion(" while getting the repr of an object", || {
+        self.with_recursion("while getting the repr of an object", || {
             let repr = self.call_special_method(obj.clone(), "__repr__", ())?;
             repr.try_into_value(self)
         })
@@ -1057,7 +1057,7 @@ impl VirtualMachine {
 
         if let Ok(tuple) = PyTupleRef::try_from_object(self, cls.clone()) {
             for typ in tuple.as_slice().iter() {
-                if self.isinstance(obj, typ)? {
+                if self.with_recursion("in __instancecheck__", || self.isinstance(obj, typ))? {
                     return Ok(true);
                 }
             }
@@ -1065,7 +1065,8 @@ impl VirtualMachine {
         }
 
         if let Ok(meth) = self.get_special_method(cls.clone(), "__instancecheck__")? {
-            let ret = meth.invoke((obj.clone(),), self)?;
+            let ret =
+                self.with_recursion("in __instancecheck__", || meth.invoke((obj.clone(),), self))?;
             return ret.try_to_bool(self);
         }
 
@@ -1139,7 +1140,7 @@ impl VirtualMachine {
 
         if let Ok(tuple) = PyTupleRef::try_from_object(self, cls.clone()) {
             for typ in tuple.as_slice().iter() {
-                if self.issubclass(subclass, typ)? {
+                if self.with_recursion("in __subclasscheck__", || self.issubclass(subclass, typ))? {
                     return Ok(true);
                 }
             }
@@ -1147,7 +1148,9 @@ impl VirtualMachine {
         }
 
         if let Ok(meth) = self.get_special_method(cls.clone(), "__subclasscheck__")? {
-            let ret = meth.invoke((subclass.clone(),), self)?;
+            let ret = self.with_recursion("in __subclasscheck__", || {
+                meth.invoke((subclass.clone(),), self)
+            })?;
             return ret.try_to_bool(self);
         }
 
