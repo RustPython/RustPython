@@ -672,8 +672,7 @@ impl PyType {
 
 const SIGNATURE_END_MARKER: &str = ")\n--\n\n";
 fn get_signature(doc: &str) -> Option<&str> {
-    doc.find(SIGNATURE_END_MARKER)
-        .map(|index| &doc[..index + 1])
+    doc.find(SIGNATURE_END_MARKER).map(|index| &doc[..=index])
 }
 
 fn find_signature<'a>(name: &str, doc: &'a str) -> Option<&'a str> {
