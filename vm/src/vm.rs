@@ -512,8 +512,8 @@ impl VirtualMachine {
     /// Used to run the body of a (possibly) recursive function. It will raise a
     /// RecursionError if recursive functions are nested far too many times,
     /// preventing a stack overflow.
-    pub fn with_recursion<R, F: FnOnce() -> PyResult<R>>(&self, f: F) -> PyResult<R> {
-        self.check_recursive_call("")?;
+    pub fn with_recursion<R, F: FnOnce() -> PyResult<R>>(&self, _where: &str, f: F) -> PyResult<R> {
+        self.check_recursive_call(_where)?;
         self.recursion_depth.set(self.recursion_depth.get() + 1);
         let result = f();
         self.recursion_depth.set(self.recursion_depth.get() - 1);
@@ -525,7 +525,7 @@ impl VirtualMachine {
         frame: FrameRef,
         f: F,
     ) -> PyResult<R> {
-        self.with_recursion(|| {
+        self.with_recursion("", || {
             self.frames.borrow_mut().push(frame.clone());
             let result = f(frame);
             // defer dec frame
@@ -902,7 +902,7 @@ impl VirtualMachine {
     }
 
     pub fn to_repr(&self, obj: &PyObjectRef) -> PyResult<PyStrRef> {
-        self.with_recursion(|| {
+        self.with_recursion(" while getting the repr of an object", || {
             let repr = self.call_special_method(obj.clone(), "__repr__", ())?;
             repr.try_into_value(self)
         })
