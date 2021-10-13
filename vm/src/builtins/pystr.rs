@@ -705,9 +705,14 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn endswith(&self, args: anystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
-        self.as_str().py_startsendswith(
-            args,
+    fn endswith(&self, options: anystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        let (affix, substr) =
+            match options.prepare(self.as_str(), self.len(), |s, r| s.get_chars(r)) {
+                Some(x) => x,
+                None => return Ok(false),
+            };
+        substr.py_startsendswith(
+            affix,
             "endswith",
             "str",
             |s, x: &PyStrRef| s.ends_with(x.as_str()),
@@ -716,9 +721,18 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn startswith(&self, args: anystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
-        self.as_str().py_startsendswith(
-            args,
+    fn startswith(
+        &self,
+        options: anystr::StartsEndsWithArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<bool> {
+        let (affix, substr) =
+            match options.prepare(self.as_str(), self.len(), |s, r| s.get_chars(r)) {
+                Some(x) => x,
+                None => return Ok(false),
+            };
+        substr.py_startsendswith(
+            affix,
             "startswith",
             "str",
             |s, x: &PyStrRef| s.starts_with(x.as_str()),

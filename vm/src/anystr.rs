@@ -61,9 +61,31 @@ pub struct StartsEndsWithArgs {
 }
 
 impl StartsEndsWithArgs {
-    fn get_value(self, len: usize) -> (PyObjectRef, std::ops::Range<usize>) {
-        let range = adjust_indices(self.start, self.end, len);
+    pub fn get_value(self, len: usize) -> (PyObjectRef, Option<std::ops::Range<usize>>) {
+        let range = if self.start.is_some() || self.end.is_some() {
+            Some(adjust_indices(self.start, self.end, len))
+        } else {
+            None
+        };
         (self.affix, range)
+    }
+
+    #[inline]
+    pub fn prepare<'s, S, F>(self, s: &'s S, len: usize, substr: F) -> Option<(PyObjectRef, &'s S)>
+    where
+        S: ?Sized + AnyStr<'s>,
+        F: Fn(&'s S, std::ops::Range<usize>) -> &'s S,
+    {
+        let (affix, range) = self.get_value(len);
+        let substr = if let Some(range) = range {
+            if !range.is_normal() {
+                return None;
+            }
+            substr(s, range)
+        } else {
+            s
+        };
+        Some((affix, substr))
     }
 }
 
@@ -145,7 +167,9 @@ pub trait AnyStr<'s>: 's {
     // FIXME: get_chars is expensive for str
     fn get_chars(&self, range: std::ops::Range<usize>) -> &Self;
     fn bytes_len(&self) -> usize;
-    // fn chars_len(&self) -> usize;  // cannot access to cache here
+    // NOTE: str::chars().count() consumes the O(n) time. But pystr::char_len does cache.
+    //       So using chars_len directly is too expensive and the below method shouldn't be implemented.
+    // fn chars_len(&self) -> usize;
     fn is_empty(&self) -> bool;
 
     fn py_add(&self, other: &Self) -> Self::Container {
@@ -191,7 +215,7 @@ pub trait AnyStr<'s>: 's {
     #[inline]
     fn py_startsendswith<T, F>(
         &self,
-        args: StartsEndsWithArgs,
+        affix: PyObjectRef,
         func_name: &str,
         py_type_name: &str,
         func: F,
@@ -201,14 +225,9 @@ pub trait AnyStr<'s>: 's {
         T: TryFromObject,
         F: Fn(&Self, &T) -> bool,
     {
-        let (affix, range) = args.get_value(self.bytes_len());
-        if !range.is_normal() {
-            return Ok(false);
-        }
-        let value = self.get_bytes(range);
         single_or_tuple_any(
             affix,
-            &|s: &T| Ok(func(value, s)),
+            &|s: &T| Ok(func(self, s)),
             &|o| {
                 format!(
                     "{} first arg must be {} or a tuple of {}, not {}",
