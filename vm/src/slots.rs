@@ -157,6 +157,20 @@ pub trait SlotConstructor: PyValue {
     fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult;
 }
 
+/// For types that cannot be instantiated through Python code.
+pub trait Unconstructible: PyValue {}
+
+impl<T> SlotConstructor for T
+where
+    T: Unconstructible,
+{
+    type Args = FuncArgs;
+
+    fn py_new(cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
+        Err(vm.new_type_error(format!("cannot create {} instances", cls.slot_name())))
+    }
+}
+
 #[pyimpl]
 pub trait SlotDestructor: PyValue {
     #[inline] // for __del__
