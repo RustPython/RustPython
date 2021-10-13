@@ -25,7 +25,7 @@ mod termios {
     };
 
     #[pyfunction]
-    fn tcgetattr(fd: i32, vm: &VirtualMachine) -> PyResult {
+    fn tcgetattr(fd: i32, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         let termios = Termios::from_fd(fd).map_err(|e| termios_error(e, vm))?;
         let noncanon = (termios.c_lflag & termios::ICANON) == 0;
         let cc = termios
@@ -33,8 +33,8 @@ mod termios {
             .iter()
             .enumerate()
             .map(|(i, &c)| match i {
-                termios::VMIN | termios::VTIME if noncanon => vm.ctx.new_int(c),
-                _ => vm.ctx.new_bytes(vec![c as u8]),
+                termios::VMIN | termios::VTIME if noncanon => vm.ctx.new_int(c).into(),
+                _ => vm.ctx.new_bytes(vec![c as u8]).into(),
             })
             .collect::<Vec<_>>();
         let out = vec![
@@ -44,9 +44,9 @@ mod termios {
             termios.c_lflag.into_pyobject(vm),
             termios::cfgetispeed(&termios).into_pyobject(vm),
             termios::cfgetospeed(&termios).into_pyobject(vm),
-            vm.ctx.new_list(cc),
+            vm.ctx.new_list(cc).into(),
         ];
-        Ok(vm.ctx.new_list(out))
+        Ok(out)
     }
 
     #[pyfunction]
@@ -99,7 +99,7 @@ mod termios {
             error_type(vm),
             vec![
                 err.raw_os_error().into_pyobject(vm),
-                vm.ctx.new_utf8_str(err.to_string()),
+                vm.ctx.new_str(err.to_string()).into(),
             ],
         )
     }

@@ -8,7 +8,7 @@ use crate::{
     scope::Scope,
     version::get_git_revision,
     vm::{InitParameter, VirtualMachine},
-    ItemProtocol, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    ItemProtocol, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use rand::Rng;
 
@@ -56,7 +56,8 @@ pub(crate) fn init_importlib(
             if magic.len() != 4 {
                 magic = rand::thread_rng().gen::<[u8; 4]>().to_vec();
             }
-            vm.set_attr(&importlib_external, "MAGIC_NUMBER", vm.ctx.new_bytes(magic))?;
+            let magic: PyObjectRef = vm.ctx.new_bytes(magic).into();
+            vm.set_attr(&importlib_external, "MAGIC_NUMBER", magic)?;
             let zipimport_res = (|| -> PyResult<()> {
                 let zipimport = vm.import("zipimport", None, 0)?;
                 let zipimporter = vm.get_attribute(zipimport, "zipimporter")?;
@@ -124,9 +125,9 @@ pub fn import_codeobj(
     set_file_attr: bool,
 ) -> PyResult {
     let attrs = vm.ctx.new_dict();
-    attrs.set_item("__name__", vm.ctx.new_utf8_str(module_name), vm)?;
+    attrs.set_item("__name__", vm.ctx.new_str(module_name).into(), vm)?;
     if set_file_attr {
-        attrs.set_item("__file__", vm.ctx.new_utf8_str(&code_obj.source_path), vm)?;
+        attrs.set_item("__file__", code_obj.source_path.as_object().clone(), vm)?;
     }
     let module = vm.new_module(module_name, attrs.clone(), None);
 

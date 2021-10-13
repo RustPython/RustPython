@@ -2,13 +2,10 @@ use crate::common::{boxvec::BoxVec, lock::PyMutex};
 use crate::{
     builtins::{
         asyncgenerator::PyAsyncGenWrappedValue,
-        coroutine::PyCoroutine,
         function::{PyCell, PyCellRef, PyFunction},
-        generator::PyGenerator,
-        list, pystr, set,
-        traceback::PyTraceback,
         tuple::{PyTuple, PyTupleTyped},
-        PyBaseExceptionRef, PyCode, PyDict, PyDictRef, PySlice, PyStr, PyStrRef, PyTypeRef,
+        PyBaseExceptionRef, PyCode, PyCoroutine, PyDict, PyDictRef, PyGenerator, PyListRef, PySet,
+        PySlice, PyStr, PyStrRef, PyTraceback, PyTypeRef,
     },
     bytecode,
     coroutine::Coro,
@@ -614,18 +611,18 @@ impl ExecutingFrame<'_> {
                     .iter()
                     .map(|pyobj| pyobj.payload::<PyStr>().unwrap().as_ref())
                     .collect::<String>();
-                let str_obj = vm.ctx.new_utf8_str(s);
-                self.push_value(str_obj);
+                let str_obj = vm.ctx.new_str(s);
+                self.push_value(str_obj.into());
                 Ok(None)
             }
             bytecode::Instruction::BuildList { size, unpack } => {
                 let elements = self.get_elements(vm, *size as usize, *unpack)?;
                 let list_obj = vm.ctx.new_list(elements);
-                self.push_value(list_obj);
+                self.push_value(list_obj.into());
                 Ok(None)
             }
             bytecode::Instruction::BuildSet { size, unpack } => {
-                let set = vm.ctx.new_set();
+                let set = PySet::new_ref(&vm.ctx);
                 {
                     let elements = self.pop_multiple(*size as usize);
                     if *unpack {
@@ -644,7 +641,7 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::BuildTuple { size, unpack } => {
                 let elements = self.get_elements(vm, *size as usize, *unpack)?;
                 let list_obj = vm.ctx.new_tuple(elements);
-                self.push_value(list_obj);
+                self.push_value(list_obj.into());
                 Ok(None)
             }
             bytecode::Instruction::BuildMap {
@@ -654,30 +651,46 @@ impl ExecutingFrame<'_> {
             } => self.execute_build_map(vm, *size, *unpack, *for_call),
             bytecode::Instruction::BuildSlice { step } => self.execute_build_slice(vm, *step),
             bytecode::Instruction::ListAppend { i } => {
-                let list_obj = self.nth_value(*i);
+                let obj = self.nth_value(*i);
+                let list: PyListRef = unsafe {
+                    // SAFETY: trust compiler
+                    obj.downcast_unchecked()
+                };
                 let item = self.pop_value();
-                list::PyListRef::try_from_object(vm, list_obj)?.append(item);
+                list.append(item);
                 Ok(None)
             }
             bytecode::Instruction::SetAdd { i } => {
-                let set_obj = self.nth_value(*i);
+                let obj = self.nth_value(*i);
+                let set: PyRef<PySet> = unsafe {
+                    // SAFETY: trust compiler
+                    obj.downcast_unchecked()
+                };
                 let item = self.pop_value();
-                set::PySetRef::try_from_object(vm, set_obj)?.add(item, vm)?;
+                set.add(item, vm)?;
                 Ok(None)
             }
             bytecode::Instruction::MapAdd { i } => {
-                let dict_obj = self.nth_value(*i + 1);
+                let obj = self.nth_value(*i + 1);
+                let dict: PyDictRef = unsafe {
+                    // SAFETY: trust compiler
+                    obj.downcast_unchecked()
+                };
                 let key = self.pop_value();
                 let value = self.pop_value();
-                PyDictRef::try_from_object(vm, dict_obj)?.set_item(key, value, vm)?;
+                dict.set_item(key, value, vm)?;
                 Ok(None)
             }
             bytecode::Instruction::MapAddRev { i } => {
                 // change order of evalutio of key and value to support Py3.8 Named expressions in dict comprehension
-                let dict_obj = self.nth_value(*i + 1);
+                let obj = self.nth_value(*i + 1);
+                let dict: PyDictRef = unsafe {
+                    // SAFETY: trust compiler
+                    obj.downcast_unchecked()
+                };
                 let value = self.pop_value();
                 let key = self.pop_value();
-                PyDictRef::try_from_object(vm, dict_obj)?.set_item(key, value, vm)?;
+                dict.set_item(key, value, vm)?;
                 Ok(None)
             }
             bytecode::Instruction::BinaryOperation { op } => self.execute_binop(vm, *op),
@@ -895,7 +908,7 @@ impl ExecutingFrame<'_> {
                 // TODO: figure out a better way to communicate PyMethod::Attribute - CPython uses
                 // target==NULL, maybe we could use a sentinel value or something?
                 self.push_value(target);
-                self.push_value(vm.ctx.new_bool(is_method));
+                self.push_value(vm.ctx.new_bool(is_method).into());
                 self.push_value(func);
                 Ok(None)
             }
@@ -1016,7 +1029,7 @@ impl ExecutingFrame<'_> {
                 let value = match conversion {
                     ConversionFlag::Str => vm.to_str(&value)?.into(),
                     ConversionFlag::Repr => vm.to_repr(&value)?.into(),
-                    ConversionFlag::Ascii => vm.ctx.new_utf8_str(builtins::ascii(value, vm)?),
+                    ConversionFlag::Ascii => vm.ctx.new_str(builtins::ascii(value, vm)?).into(),
                     ConversionFlag::None => value,
                 };
 
@@ -1324,7 +1337,7 @@ impl ExecutingFrame<'_> {
             let mut kwargs = IndexMap::new();
             for (key, value) in kw_dict.into_iter() {
                 let key = key
-                    .payload_if_subclass::<pystr::PyStr>(vm)
+                    .payload_if_subclass::<PyStr>(vm)
                     .ok_or_else(|| vm.new_type_error("keywords must be strings".to_owned()))?;
                 kwargs.insert(key.as_str().to_owned(), value);
             }
@@ -1464,7 +1477,7 @@ impl ExecutingFrame<'_> {
 
         let middle_elements = elements.drain(before..).collect();
         let t = vm.ctx.new_list(middle_elements);
-        self.push_value(t);
+        self.push_value(t.into());
 
         // Lastly the first reversed values:
         self.state.stack.extend(elements.into_iter().rev());
@@ -1566,7 +1579,7 @@ impl ExecutingFrame<'_> {
         vm.set_attr(&func_obj, "__doc__", vm.ctx.none())?;
 
         let name = qualified_name.as_str().split('.').next_back().unwrap();
-        vm.set_attr(&func_obj, "__name__", vm.ctx.new_utf8_str(name))?;
+        vm.set_attr(&func_obj, "__name__", vm.new_pyobj(name))?;
         vm.set_attr(&func_obj, "__qualname__", qualified_name)?;
         let module = vm.unwrap_or_none(self.globals.get_item_option("__name__", vm)?);
         vm.set_attr(&func_obj, "__module__", module)?;
@@ -1635,7 +1648,7 @@ impl ExecutingFrame<'_> {
             bytecode::UnaryOperator::Invert => vm._invert(&a)?,
             bytecode::UnaryOperator::Not => {
                 let value = a.try_to_bool(vm)?;
-                vm.ctx.new_bool(!value)
+                vm.ctx.new_bool(!value).into()
             }
         };
         self.push_value(value);
@@ -1690,11 +1703,13 @@ impl ExecutingFrame<'_> {
             bytecode::ComparisonOperator::LessOrEqual => vm.obj_cmp(a, b, PyComparisonOp::Le)?,
             bytecode::ComparisonOperator::Greater => vm.obj_cmp(a, b, PyComparisonOp::Gt)?,
             bytecode::ComparisonOperator::GreaterOrEqual => vm.obj_cmp(a, b, PyComparisonOp::Ge)?,
-            bytecode::ComparisonOperator::Is => vm.ctx.new_bool(self._is(a, b)),
-            bytecode::ComparisonOperator::IsNot => vm.ctx.new_bool(self._is_not(a, b)),
-            bytecode::ComparisonOperator::In => vm.ctx.new_bool(self._in(vm, a, b)?),
-            bytecode::ComparisonOperator::NotIn => vm.ctx.new_bool(self._not_in(vm, a, b)?),
-            bytecode::ComparisonOperator::ExceptionMatch => vm.ctx.new_bool(vm.isinstance(&a, &b)?),
+            bytecode::ComparisonOperator::Is => vm.ctx.new_bool(self._is(a, b)).into(),
+            bytecode::ComparisonOperator::IsNot => vm.ctx.new_bool(self._is_not(a, b)).into(),
+            bytecode::ComparisonOperator::In => vm.ctx.new_bool(self._in(vm, a, b)?).into(),
+            bytecode::ComparisonOperator::NotIn => vm.ctx.new_bool(self._not_in(vm, a, b)?).into(),
+            bytecode::ComparisonOperator::ExceptionMatch => {
+                vm.ctx.new_bool(vm.isinstance(&a, &b)?).into()
+            }
         };
 
         self.push_value(value);

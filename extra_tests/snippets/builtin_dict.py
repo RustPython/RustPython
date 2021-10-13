@@ -26,3 +26,25 @@ with assert_raises(StopIteration):
         next(dict_reversed)
 assert 'dict' in dict().__doc__
 
+d = {'a': 123, 'b': 456}
+assert 1 not in d.items()
+assert 'a' not in d.items()
+assert 'a', 123 not in d.items()
+assert () not in d.items()
+assert (1) not in d.items()
+assert ('a') not in d.items()
+assert ('a', 123) in d.items()
+assert ('b', 456) in d.items()
+assert ('a', 123, 3) not in d.items()
+assert ('a', 123, 'b', 456) not in d.items()
+
+d = {1: 10, "a": "ABC", (3,4): 5}
+assert 1 in d.keys()
+assert (1) in d.keys()
+assert "a" in d.keys()
+assert (3,4) in d.keys()
+assert () not in d.keys()
+assert 10 not in d.keys()
+assert (1, 10) not in d.keys()
+assert "abc" not in d.keys()
+assert ((3,4),5) not in d.keys()

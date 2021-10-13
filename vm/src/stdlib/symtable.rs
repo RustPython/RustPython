@@ -5,7 +5,7 @@ mod symtable {
     use crate::{
         builtins::PyStrRef,
         compile::{self, Symbol, SymbolScope, SymbolTable, SymbolTableType},
-        PyRef, PyResult, PyValue, VirtualMachine,
+        PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
     };
     use std::fmt;
 
@@ -93,23 +93,23 @@ mod symtable {
                 }
                 .into_ref(vm))
             } else {
-                Err(vm.new_key_error(vm.ctx.new_utf8_str(format!("lookup {} failed", name))))
+                Err(vm.new_key_error(vm.ctx.new_str(format!("lookup {} failed", name)).into()))
             }
         }
 
         #[pymethod]
-        fn get_identifiers(&self, vm: &VirtualMachine) -> PyResult {
+        fn get_identifiers(&self, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
             let symbols = self
                 .symtable
                 .symbols
                 .keys()
-                .map(|s| vm.ctx.new_utf8_str(s))
+                .map(|s| vm.ctx.new_str(s.as_str()).into())
                 .collect();
-            Ok(vm.ctx.new_list(symbols))
+            Ok(symbols)
         }
 
         #[pymethod]
-        fn get_symbols(&self, vm: &VirtualMachine) -> PyResult {
+        fn get_symbols(&self, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
             let symbols = self
                 .symtable
                 .symbols
@@ -129,7 +129,7 @@ mod symtable {
                     .into()
                 })
                 .collect();
-            Ok(vm.ctx.new_list(symbols))
+            Ok(symbols)
         }
 
         #[pymethod]
@@ -138,14 +138,14 @@ mod symtable {
         }
 
         #[pymethod]
-        fn get_children(&self, vm: &VirtualMachine) -> PyResult {
+        fn get_children(&self, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
             let children = self
                 .symtable
                 .sub_tables
                 .iter()
                 .map(|t| to_py_symbol_table(t.clone()).into_object(vm))
                 .collect();
-            Ok(vm.ctx.new_list(children))
+            Ok(children)
         }
     }
 
@@ -227,24 +227,25 @@ mod symtable {
         }
 
         #[pymethod]
-        fn get_namespaces(&self, vm: &VirtualMachine) -> PyResult {
+        fn get_namespaces(&self, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
             let namespaces = self
                 .namespaces
                 .iter()
                 .map(|table| to_py_symbol_table(table.clone()).into_object(vm))
                 .collect();
-            Ok(vm.ctx.new_list(namespaces))
+            Ok(namespaces)
         }
 
         #[pymethod]
         fn get_namespace(&self, vm: &VirtualMachine) -> PyResult {
             if self.namespaces.len() != 1 {
-                Err(vm.new_value_error("namespace is bound to multiple namespaces".to_owned()))
-            } else {
-                Ok(to_py_symbol_table(self.namespaces.first().unwrap().clone())
-                    .into_ref(vm)
-                    .into())
+                return Err(
+                    vm.new_value_error("namespace is bound to multiple namespaces".to_owned())
+                );
             }
+            Ok(to_py_symbol_table(self.namespaces.first().unwrap().clone())
+                .into_ref(vm)
+                .into())
         }
     }
 }

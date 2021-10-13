@@ -2,7 +2,7 @@ use super::PyTypeRef;
 use crate::{
     function::{IntoPyObject, KwArgs},
     slots::SlotConstructor,
-    PyClassImpl, PyContext, PyResult, PyValue, VirtualMachine,
+    PyClassImpl, PyContext, PyRef, PyResult, PyValue, VirtualMachine,
 };
 
 /// A simple attribute-based namespace.
@@ -27,6 +27,12 @@ impl SlotConstructor for PyNamespace {
             vm.set_attr(zelf.as_object(), name, value)?;
         }
         Ok(zelf.into_pyobject(vm))
+    }
+}
+
+impl PyNamespace {
+    pub fn new_ref(ctx: &PyContext) -> PyRef<Self> {
+        PyRef::new_ref(Self, ctx.types.namespace_type.clone(), Some(ctx.new_dict()))
     }
 }
 

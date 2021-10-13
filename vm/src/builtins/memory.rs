@@ -74,7 +74,7 @@ impl PyMemoryView {
     }
 
     fn parse_format(format: &str, vm: &VirtualMachine) -> PyResult<FormatSpec> {
-        FormatSpec::parse(format, vm)
+        FormatSpec::parse(format.as_bytes(), vm)
     }
 
     pub fn from_buffer(buffer: PyBuffer, vm: &VirtualMachine) -> PyResult<Self> {
@@ -210,7 +210,7 @@ impl PyMemoryView {
     #[pyproperty]
     fn format(&self, vm: &VirtualMachine) -> PyResult<PyStr> {
         self.try_not_released(vm)
-            .map(|_| PyStr::from(&self.buffer.options.format))
+            .map(|_| PyStr::from(self.buffer.options.format.clone()))
     }
 
     #[pymethod(magic)]

@@ -1,7 +1,7 @@
 use super::{
     int::{PyInt, PyIntRef},
     iter::IterStatus::{self, Exhausted},
-    PositionIterInternal, PyBytesRef, PyDict, PyTypeRef,
+    PositionIterInternal, PyBytesRef, PyDict, PyTupleRef, PyTypeRef,
 };
 use crate::{
     anystr::{self, adjust_indices, AnyStr, AnyStrContainer, AnyStrWrapper},
@@ -18,6 +18,7 @@ use crate::{
     IdProtocol, ItemProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef,
     PyRef, PyResult, PyValue, TryIntoRef, TypeProtocol, VirtualMachine,
 };
+use ascii::{AsciiStr, AsciiString};
 use bstr::ByteSlice;
 use itertools::Itertools;
 use num_traits::ToPrimitive;
@@ -108,24 +109,39 @@ impl AsRef<str> for PyStrRef {
     }
 }
 
-impl<T> From<&T> for PyStr
-where
-    T: AsRef<str> + ?Sized,
-{
-    fn from(s: &T) -> PyStr {
-        s.as_ref().to_owned().into()
+impl<'a> From<&'a AsciiStr> for PyStr {
+    fn from(s: &'a AsciiStr) -> Self {
+        s.to_owned().into()
+    }
+}
+
+impl From<AsciiString> for PyStr {
+    fn from(s: AsciiString) -> Self {
+        unsafe { Self::new_ascii_unchecked(s.into()) }
+    }
+}
+
+impl<'a> From<&'a str> for PyStr {
+    fn from(s: &'a str) -> Self {
+        s.to_owned().into()
     }
 }
 
 impl From<String> for PyStr {
-    fn from(s: String) -> PyStr {
+    fn from(s: String) -> Self {
         s.into_boxed_str().into()
+    }
+}
+
+impl<'a> From<std::borrow::Cow<'a, str>> for PyStr {
+    fn from(s: std::borrow::Cow<'a, str>) -> Self {
+        s.into_owned().into()
     }
 }
 
 impl From<Box<str>> for PyStr {
     #[inline]
-    fn from(value: Box<str>) -> PyStr {
+    fn from(value: Box<str>) -> Self {
         // doing the check is ~10x faster for ascii, and is actually only 2% slower worst case for
         // non-ascii; see https://github.com/RustPython/RustPython/pull/2586#issuecomment-844611532
         let is_ascii = value.is_ascii();
@@ -150,6 +166,13 @@ impl fmt::Display for PyStr {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(self.as_str(), f)
+    }
+}
+
+impl TryIntoRef<PyStr> for AsciiString {
+    #[inline]
+    fn try_into_ref(self, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
+        Ok(unsafe { PyStr::new_ascii_unchecked(self.into()) }.into_ref(vm))
     }
 }
 
@@ -196,7 +219,7 @@ impl PyStrIterator {
     }
 
     #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> PyObjectRef {
+    fn reduce(&self, vm: &VirtualMachine) -> PyTupleRef {
         self.internal
             .lock()
             .0
@@ -283,8 +306,12 @@ impl PyStr {
     }
 
     /// SAFETY: Given 'bytes' must be ascii
-    unsafe fn new_ascii_unchecked(bytes: Vec<u8>) -> Self {
+    pub(crate) unsafe fn new_ascii_unchecked(bytes: Vec<u8>) -> Self {
         Self::new_str_unchecked(bytes, PyStrKind::Ascii)
+    }
+
+    pub fn new_ref(s: impl Into<Self>, ctx: &PyContext) -> PyRef<Self> {
+        PyRef::new_ref(s.into(), ctx.types.str_type.clone(), None)
     }
 
     fn new_substr(&self, s: String) -> Self {
@@ -573,7 +600,7 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn split(&self, args: SplitArgs, vm: &VirtualMachine) -> PyResult {
+    fn split(&self, args: SplitArgs, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         let elements = match self.kind.kind() {
             PyStrKind::Ascii => self.as_str().py_split(
                 args,
@@ -603,27 +630,27 @@ impl PyStr {
             PyStrKind::Utf8 => self.as_str().py_split(
                 args,
                 vm,
-                |v, s, vm| v.split(s).map(|s| vm.ctx.new_utf8_str(s)).collect(),
-                |v, s, n, vm| v.splitn(n, s).map(|s| vm.ctx.new_utf8_str(s)).collect(),
-                |v, n, vm| v.py_split_whitespace(n, |s| vm.ctx.new_utf8_str(s)),
+                |v, s, vm| v.split(s).map(|s| vm.ctx.new_str(s).into()).collect(),
+                |v, s, n, vm| v.splitn(n, s).map(|s| vm.ctx.new_str(s).into()).collect(),
+                |v, n, vm| v.py_split_whitespace(n, |s| vm.ctx.new_str(s).into()),
             ),
         }?;
-        Ok(vm.ctx.new_list(elements))
+        Ok(elements)
     }
 
     #[pymethod]
-    fn rsplit(&self, args: SplitArgs, vm: &VirtualMachine) -> PyResult {
+    fn rsplit(&self, args: SplitArgs, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         let mut elements = self.as_str().py_split(
             args,
             vm,
-            |v, s, vm| v.rsplit(s).map(|s| vm.ctx.new_utf8_str(s)).collect(),
-            |v, s, n, vm| v.rsplitn(n, s).map(|s| vm.ctx.new_utf8_str(s)).collect(),
-            |v, n, vm| v.py_rsplit_whitespace(n, |s| vm.ctx.new_utf8_str(s)),
+            |v, s, vm| v.rsplit(s).map(|s| vm.ctx.new_str(s).into()).collect(),
+            |v, s, n, vm| v.rsplitn(n, s).map(|s| vm.ctx.new_str(s).into()).collect(),
+            |v, n, vm| v.py_rsplit_whitespace(n, |s| vm.ctx.new_str(s).into()),
         )?;
         // Unlike Python rsplit, Rust rsplitn returns an iterator that
         // starts from the end of the string.
         elements.reverse();
-        Ok(vm.ctx.new_list(elements))
+        Ok(elements)
     }
 
     #[pymethod]
@@ -890,11 +917,9 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn splitlines(&self, args: anystr::SplitLinesArgs, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_list(
-            self.as_str()
-                .py_splitlines(args, |s| self.new_substr(s.to_owned()).into_pyobject(vm)),
-        )
+    fn splitlines(&self, args: anystr::SplitLinesArgs, vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        self.as_str()
+            .py_splitlines(args, |s| self.new_substr(s.to_owned()).into_pyobject(vm))
     }
 
     #[pymethod]
@@ -952,9 +977,9 @@ impl PyStr {
         let partition = (
             self.new_substr(front),
             if has_mid {
-                sep.into()
+                sep
             } else {
-                vm.ctx.new_ascii_literal(ascii!(""))
+                vm.ctx.new_str(ascii!(""))
             },
             self.new_substr(back),
         );
@@ -971,9 +996,9 @@ impl PyStr {
         Ok((
             self.new_substr(front),
             if has_mid {
-                sep.into()
+                sep
             } else {
-                vm.ctx.new_ascii_literal(ascii!(""))
+                vm.ctx.new_str(ascii!(""))
             },
             self.new_substr(back),
         )
@@ -1166,14 +1191,14 @@ impl PyStr {
                     if to_str.len() == from_str.len() {
                         for (c1, c2) in from_str.as_str().chars().zip(to_str.as_str().chars()) {
                             new_dict.set_item(
-                                vm.ctx.new_int(c1 as u32),
-                                vm.ctx.new_int(c2 as u32),
+                                vm.new_pyobj(c1 as u32),
+                                vm.new_pyobj(c2 as u32),
                                 vm,
                             )?;
                         }
                         if let OptionalArg::Present(none_str) = none_str {
                             for c in none_str.as_str().chars() {
-                                new_dict.set_item(vm.ctx.new_int(c as u32), vm.ctx.none(), vm)?;
+                                new_dict.set_item(vm.new_pyobj(c as u32), vm.ctx.none(), vm)?;
                             }
                         }
                         Ok(new_dict.into_pyobject(vm))
@@ -1296,25 +1321,37 @@ impl PyValue for PyStr {
 
 impl IntoPyObject for String {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_utf8_str(self)
+        vm.ctx.new_str(self).into()
     }
 }
 
 impl IntoPyObject for char {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_utf8_str(self.to_string())
+        vm.ctx.new_str(self.to_string()).into()
     }
 }
 
 impl IntoPyObject for &str {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_utf8_str(self)
+        vm.ctx.new_str(self).into()
     }
 }
 
 impl IntoPyObject for &String {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_utf8_str(self.clone())
+        vm.ctx.new_str(self.clone()).into()
+    }
+}
+
+impl IntoPyObject for &AsciiStr {
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.new_str(self).into()
+    }
+}
+
+impl IntoPyObject for AsciiString {
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.new_str(self).into()
     }
 }
 
@@ -1463,6 +1500,7 @@ fn char_is_printable(c: char) -> bool {
 mod tests {
     use super::*;
     use crate::Interpreter;
+    use std::ops::Deref;
 
     #[test]
     fn str_title() {
@@ -1514,10 +1552,12 @@ mod tests {
     fn str_maketrans_and_translate() {
         Interpreter::default().enter(|vm| {
             let table = vm.ctx.new_dict();
-            table.set_item("a", vm.ctx.new_utf8_str("🎅"), &vm).unwrap();
+            table
+                .set_item("a", vm.ctx.new_str("🎅").into(), &vm)
+                .unwrap();
             table.set_item("b", vm.ctx.none(), &vm).unwrap();
             table
-                .set_item("c", vm.ctx.new_ascii_literal(ascii!("xda")), &vm)
+                .set_item("c", vm.ctx.new_str(ascii!("xda")).into(), &vm)
                 .unwrap();
             let translated = PyStr::maketrans(
                 table.into(),
@@ -1529,9 +1569,9 @@ mod tests {
             let text = PyStr::from("abc");
             let translated = text.translate(translated, &vm).unwrap();
             assert_eq!(translated, "🎅xda".to_owned());
-            let translated = text.translate(vm.ctx.new_int(3), &vm);
+            let translated = text.translate(vm.ctx.new_int(3).into(), &vm);
             assert_eq!(
-                translated.unwrap_err().class().name(),
+                translated.unwrap_err().class().name().deref(),
                 "TypeError".to_owned()
             );
         })

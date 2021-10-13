@@ -1,5 +1,5 @@
 use crate::{
-    builtins::PyStrRef,
+    builtins::{PyStr, PyStrRef},
     common::borrow::{BorrowedValue, BorrowedValueMut},
     protocol::PyBuffer,
     PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject, VirtualMachine,
@@ -143,6 +143,50 @@ impl ArgStrOrBytesLike {
         match self {
             Self::Buf(b) => b.borrow_buf(),
             Self::Str(s) => s.as_str().as_bytes().into(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum ArgAsciiBuffer {
+    String(PyStrRef),
+    Buffer(ArgBytesLike),
+}
+
+impl TryFromObject for ArgAsciiBuffer {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        match obj.downcast::<PyStr>() {
+            Ok(string) => {
+                if string.as_str().is_ascii() {
+                    Ok(ArgAsciiBuffer::String(string))
+                } else {
+                    Err(vm.new_value_error(
+                        "string argument should contain only ASCII characters".to_owned(),
+                    ))
+                }
+            }
+            Err(obj) => ArgBytesLike::try_from_object(vm, obj).map(ArgAsciiBuffer::Buffer),
+        }
+    }
+}
+
+impl ArgAsciiBuffer {
+    pub fn len(&self) -> usize {
+        match self {
+            Self::String(s) => s.as_str().len(),
+            Self::Buffer(buffer) => buffer.len(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    #[inline]
+    pub fn with_ref<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
+        match self {
+            Self::String(s) => f(s.as_str().as_bytes()),
+            Self::Buffer(buffer) => buffer.with_ref(f),
         }
     }
 }

@@ -1,7 +1,7 @@
 /*
  * Builtin set type with a sequence of unique items.
  */
-use super::{builtins_iter, IterStatus, PositionIterInternal, PyDictRef, PyTypeRef};
+use super::{builtins_iter, IterStatus, PositionIterInternal, PyDictRef, PyTupleRef, PyTypeRef};
 use crate::common::{ascii, hash::PyHash, lock::PyMutex, rc::PyRc};
 use crate::{
     dictdatatype::{self, DictSize},
@@ -15,7 +15,7 @@ use crate::{
     IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol,
 };
-use std::fmt;
+use std::{fmt, ops::Deref};
 
 pub type SetContentType = dictdatatype::Dict<()>;
 
@@ -28,7 +28,6 @@ pub type SetContentType = dictdatatype::Dict<()>;
 pub struct PySet {
     pub(super) inner: PySetInner,
 }
-pub type PySetRef = PyRef<PySet>;
 
 /// frozenset() -> empty frozenset object
 /// frozenset(iterable) -> frozenset object
@@ -126,7 +125,7 @@ impl PySetInner {
         Ok(true)
     }
 
-    fn union(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySetInner> {
+    pub(super) fn union(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySetInner> {
         let set = self.clone();
         for item in other.iter(vm)? {
             set.add(item?, vm)?;
@@ -135,7 +134,11 @@ impl PySetInner {
         Ok(set)
     }
 
-    fn intersection(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySetInner> {
+    pub(super) fn intersection(
+        &self,
+        other: ArgIterable,
+        vm: &VirtualMachine,
+    ) -> PyResult<PySetInner> {
         let set = PySetInner::default();
         for item in other.iter(vm)? {
             let obj = item?;
@@ -146,7 +149,11 @@ impl PySetInner {
         Ok(set)
     }
 
-    fn difference(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySetInner> {
+    pub(super) fn difference(
+        &self,
+        other: ArgIterable,
+        vm: &VirtualMachine,
+    ) -> PyResult<PySetInner> {
         let set = self.copy();
         for item in other.iter(vm)? {
             set.content.delete_if_exists(vm, &item?)?;
@@ -264,7 +271,7 @@ impl PySetInner {
         if let Some((key, _)) = self.content.pop_back() {
             Ok(key)
         } else {
-            let err_msg = vm.ctx.new_ascii_literal(ascii!("pop from an empty set"));
+            let err_msg = vm.ctx.new_str(ascii!("pop from an empty set")).into();
             Err(vm.new_key_error(err_msg))
         }
     }
@@ -373,14 +380,12 @@ fn extract_set(obj: &PyObjectRef) -> Option<&PySetInner> {
 fn reduce_set(
     zelf: &PyObjectRef,
     vm: &VirtualMachine,
-) -> PyResult<(PyTypeRef, PyObjectRef, Option<PyDictRef>)> {
+) -> PyResult<(PyTypeRef, PyTupleRef, Option<PyDictRef>)> {
     Ok((
         zelf.clone_class(),
-        vm.ctx.new_tuple(vec![vm.ctx.new_list(
-            extract_set(zelf)
-                .unwrap_or(&PySetInner::default())
-                .elements(),
-        )]),
+        vm.new_tuple((extract_set(zelf)
+            .unwrap_or(&PySetInner::default())
+            .elements(),)),
         zelf.dict(),
     ))
 }
@@ -393,6 +398,14 @@ macro_rules! multi_args_set {
         }
         Ok(Self { inner: res })
     }};
+}
+
+impl PySet {
+    pub fn new_ref(ctx: &PyContext) -> PyRef<Self> {
+        // Initialized empty, as calling __hash__ is required for adding each object to the set
+        // which requires a VM context - this is done in the set code itself.
+        PyRef::new_ref(Self::default(), ctx.types.set_type.clone(), None)
+    }
 }
 
 #[pyimpl(with(Hashable, Comparable, Iterable), flags(BASETYPE))]
@@ -504,12 +517,14 @@ impl PySet {
 
     #[pymethod(magic)]
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        let class_name = zelf.class().name();
+        let class = zelf.class();
+        let borrowed_name = class.name();
+        let class_name = borrowed_name.deref();
         let s = if zelf.inner.len() == 0 {
             format!("{}()", class_name)
         } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
             let name = if class_name != "set" {
-                Some(class_name.as_str())
+                Some(class_name)
             } else {
                 None
             };
@@ -517,7 +532,7 @@ impl PySet {
         } else {
             format!("{}(...)", class_name)
         };
-        Ok(vm.ctx.new_utf8_str(s))
+        Ok(vm.ctx.new_str(s).into())
     }
 
     #[pymethod]
@@ -608,7 +623,7 @@ impl PySet {
     fn reduce(
         zelf: PyRef<Self>,
         vm: &VirtualMachine,
-    ) -> PyResult<(PyTypeRef, PyObjectRef, Option<PyDictRef>)> {
+    ) -> PyResult<(PyTypeRef, PyTupleRef, Option<PyDictRef>)> {
         reduce_set(&zelf.into(), vm)
     }
 }
@@ -682,6 +697,7 @@ impl PyFrozenSet {
         for elem in it {
             inner.add(elem, vm)?;
         }
+        // FIXME: empty set check
         Ok(Self { inner })
     }
 
@@ -782,7 +798,8 @@ impl PyFrozenSet {
     #[pymethod(magic)]
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         let inner = &zelf.inner;
-        let class_name = zelf.class().name();
+        let class = zelf.class();
+        let class_name = class.name();
         let s = if inner.len() == 0 {
             format!("{}()", class_name)
         } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
@@ -790,14 +807,14 @@ impl PyFrozenSet {
         } else {
             format!("{}(...)", class_name)
         };
-        Ok(vm.ctx.new_utf8_str(s))
+        Ok(vm.ctx.new_str(s).into())
     }
 
     #[pymethod(magic)]
     fn reduce(
         zelf: PyRef<Self>,
         vm: &VirtualMachine,
-    ) -> PyResult<(PyTypeRef, PyObjectRef, Option<PyDictRef>)> {
+    ) -> PyResult<(PyTypeRef, PyTupleRef, Option<PyDictRef>)> {
         reduce_set(&zelf.into(), vm)
     }
 }
@@ -879,12 +896,14 @@ impl PySetIterator {
         let internal = zelf.internal.lock();
         Ok((
             builtins_iter(vm).clone(),
-            (vm.ctx.new_list(match &internal.status {
-                IterStatus::Exhausted => vec![],
-                IterStatus::Active(dict) => {
-                    dict.keys().into_iter().skip(internal.position).collect()
-                }
-            }),),
+            (vm.ctx
+                .new_list(match &internal.status {
+                    IterStatus::Exhausted => vec![],
+                    IterStatus::Active(dict) => {
+                        dict.keys().into_iter().skip(internal.position).collect()
+                    }
+                })
+                .into(),),
         ))
     }
 }

@@ -1,4 +1,4 @@
-use super::{IterStatus, PositionIterInternal, PyIntRef, PyTypeRef};
+use super::{IterStatus, PositionIterInternal, PyIntRef, PyTupleRef, PyTypeRef};
 use crate::common::lock::{PyMutex, PyRwLock};
 use crate::{
     function::{IntoPyObject, OptionalArg},
@@ -101,7 +101,7 @@ impl PyReverseSequenceIterator {
     }
 
     #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> PyObjectRef {
+    fn reduce(&self, vm: &VirtualMachine) -> PyTupleRef {
         self.internal
             .lock()
             .builtins_reversed_reduce(|x| x.clone(), vm)

@@ -4,7 +4,8 @@ pub(crate) use _sre::make_module;
 mod _sre {
     use crate::{
         builtins::{
-            PyCallableIterator, PyDictRef, PyInt, PyList, PyListRef, PyStr, PyStrRef, PyTupleRef,
+            PyCallableIterator, PyDictRef, PyInt, PyList, PyListRef, PyStr, PyStrRef, PyTuple,
+            PyTupleRef,
         },
         common::{ascii, hash::PyHash},
         function::{ArgCallable, IntoPyObject, OptionalArg, PosArgs},
@@ -57,10 +58,12 @@ mod _sre {
         match this {
             StrDrive::Str(s) => vm
                 .ctx
-                .new_utf8_str(s.chars().take(end).skip(start).collect::<String>()),
+                .new_str(s.chars().take(end).skip(start).collect::<String>())
+                .into(),
             StrDrive::Bytes(b) => vm
                 .ctx
-                .new_bytes(b.iter().take(end).skip(start).cloned().collect()),
+                .new_bytes(b.iter().take(end).skip(start).cloned().collect())
+                .into(),
         }
     }
 
@@ -264,11 +267,8 @@ mod _sre {
                             m.get_slice(zelf.groups, state.string, vm)
                                 .unwrap_or_else(|| vm.ctx.none())
                         } else {
-                            m.groups(
-                                OptionalArg::Present(vm.ctx.new_ascii_literal(ascii!(""))),
-                                vm,
-                            )?
-                            .into()
+                            m.groups(OptionalArg::Present(vm.ctx.new_str(ascii!("")).into()), vm)?
+                                .into()
                         };
 
                         matchlist.push(item);
@@ -501,9 +501,9 @@ mod _sre {
                 let list = PyList::from(sublist).into_object(vm);
 
                 let join_type = if zelf.isbytes {
-                    vm.ctx.new_bytes(vec![])
+                    vm.ctx.new_bytes(vec![]).into()
                 } else {
-                    vm.ctx.new_ascii_literal(ascii!(""))
+                    vm.ctx.new_str(ascii!("")).into()
                 };
                 let ret = vm.call_method(&join_type, "join", (list,))?;
 
@@ -622,7 +622,7 @@ mod _sre {
         }
         #[pyproperty]
         fn regs(&self, vm: &VirtualMachine) -> PyTupleRef {
-            PyTupleRef::with_elements(
+            PyTuple::new_ref(
                 self.regs.iter().map(|&x| x.into_pyobject(vm)).collect(),
                 &vm.ctx,
             )
@@ -679,7 +679,7 @@ mod _sre {
                     if v.len() == 1 {
                         Ok(v.pop().unwrap())
                     } else {
-                        Ok(vm.ctx.new_tuple(v))
+                        Ok(vm.ctx.new_tuple(v).into())
                     }
                 })
         }
@@ -716,7 +716,7 @@ mod _sre {
                                 .unwrap_or_else(|| default.clone())
                         })
                         .collect();
-                    Ok(PyTupleRef::with_elements(v, &vm.ctx))
+                    Ok(PyTuple::new_ref(v, &vm.ctx))
                 })
         }
 

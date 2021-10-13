@@ -14,7 +14,7 @@ use std::marker::PhantomData;
 use std::ops::RangeInclusive;
 
 pub use argument::{ArgCallable, ArgIterable};
-pub use buffer::{ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike};
+pub use buffer::{ArgAsciiBuffer, ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike};
 pub use number::{ArgIntoBool, ArgIntoComplex, ArgIntoFloat};
 
 /// Implemented by any type that can be returned from a built-in Python function.
@@ -182,7 +182,8 @@ impl FuncArgs {
                     Ok(Some(kwarg))
                 } else {
                     let expected_ty_name = &ty.name();
-                    let actual_ty_name = &kwarg.class().name();
+                    let kwarg_class = kwarg.class();
+                    let actual_ty_name = &kwarg_class.name();
                     Err(vm.new_type_error(format!(
                         "argument of type {} is required for named parameter `{}` (got: {})",
                         expected_ty_name, key, actual_ty_name
@@ -433,7 +434,7 @@ impl<T> AsRef<[T]> for PosArgs<T> {
 }
 
 impl<T: PyValue> PosArgs<PyRef<T>> {
-    pub fn into_tuple(self, vm: &VirtualMachine) -> PyObjectRef {
+    pub fn into_tuple(self, vm: &VirtualMachine) -> PyTupleRef {
         vm.ctx
             .new_tuple(self.0.into_iter().map(Into::into).collect())
     }

@@ -186,7 +186,7 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
                 .into_iter()
                 .map(|val| js_to_py(vm, val.expect("Iteration over array failed")))
                 .collect();
-            vm.ctx.new_list(elems)
+            vm.ctx.new_list(elems).into()
         } else if ArrayBuffer::is_view(&js_val) || js_val.is_instance_of::<ArrayBuffer>() {
             // unchecked_ref because if it's not an ArrayByffer it could either be a TypedArray
             // or a DataView, but they all have a `buffer` property
@@ -198,7 +198,7 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
             );
             let mut vec = vec![0; u8_array.length() as usize];
             u8_array.copy_to(&mut vec);
-            vm.ctx.new_bytes(vec)
+            vm.ctx.new_bytes(vec).into()
         } else {
             let dict = vm.ctx.new_dict();
             for pair in object_entries(&Object::from(js_val)) {
@@ -215,24 +215,26 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
         }
     } else if js_val.is_function() {
         let func = js_sys::Function::from(js_val);
-        vm.ctx.new_function(
-            func.name(),
-            move |args: FuncArgs, vm: &VirtualMachine| -> PyResult {
-                let this = Object::new();
-                for (k, v) in args.kwargs {
-                    Reflect::set(&this, &k.into(), &py_to_js(vm, v))
-                        .expect("property to be settable");
-                }
-                let js_args = args
-                    .args
-                    .into_iter()
-                    .map(|v| py_to_js(vm, v))
-                    .collect::<Array>();
-                func.apply(&this, &js_args)
-                    .map(|val| js_to_py(vm, val))
-                    .map_err(|err| js_err_to_py_err(vm, &err))
-            },
-        )
+        vm.ctx
+            .new_function(
+                String::from(func.name()),
+                move |args: FuncArgs, vm: &VirtualMachine| -> PyResult {
+                    let this = Object::new();
+                    for (k, v) in args.kwargs {
+                        Reflect::set(&this, &k.into(), &py_to_js(vm, v))
+                            .expect("property to be settable");
+                    }
+                    let js_args = args
+                        .args
+                        .into_iter()
+                        .map(|v| py_to_js(vm, v))
+                        .collect::<Array>();
+                    func.apply(&this, &js_args)
+                        .map(|val| js_to_py(vm, val))
+                        .map_err(|err| js_err_to_py_err(vm, &err))
+                },
+            )
+            .into()
     } else if let Some(err) = js_val.dyn_ref::<js_sys::Error>() {
         js_err_to_py_err(vm, err).into()
     } else if js_val.is_undefined() {

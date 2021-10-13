@@ -92,7 +92,7 @@ impl PyFunction {
         // Pack other positional arguments in to *args:
         if code.flags.contains(bytecode::CodeFlags::HAS_VARARGS) {
             let vararg_value = vm.ctx.new_tuple(args_iter.collect());
-            fastlocals[vararg_offset] = Some(vararg_value);
+            fastlocals[vararg_offset] = Some(vararg_value.into());
             vararg_offset += 1;
         } else {
             // Check the number of positional arguments
@@ -408,7 +408,7 @@ impl SlotDescriptor for PyFunction {
         let obj = if vm.is_none(&obj) && !Self::_cls_is(&cls, &obj.class()) {
             zelf.into()
         } else {
-            vm.ctx.new_bound_method(zelf.into(), obj)
+            PyBoundMethod::new_ref(obj, zelf.into(), &vm.ctx).into()
         };
         Ok(obj)
     }
@@ -423,9 +423,8 @@ impl Callable for PyFunction {
 #[pyclass(module = false, name = "method")]
 #[derive(Debug)]
 pub struct PyBoundMethod {
-    // TODO: these shouldn't be public
     object: PyObjectRef,
-    pub function: PyObjectRef,
+    function: PyObjectRef,
 }
 
 impl Callable for PyBoundMethod {
@@ -480,15 +479,25 @@ impl SlotConstructor for PyBoundMethod {
     }
 }
 
+impl PyBoundMethod {
+    fn new(object: PyObjectRef, function: PyObjectRef) -> Self {
+        PyBoundMethod { object, function }
+    }
+
+    pub fn new_ref(object: PyObjectRef, function: PyObjectRef, ctx: &PyContext) -> PyRef<Self> {
+        PyRef::new_ref(
+            Self::new(object, function),
+            ctx.types.bound_method_type.clone(),
+            None,
+        )
+    }
+}
+
 #[pyimpl(
     with(Callable, Comparable, SlotGetattro, SlotConstructor),
     flags(HAS_DICT)
 )]
 impl PyBoundMethod {
-    pub fn new(object: PyObjectRef, function: PyObjectRef) -> Self {
-        PyBoundMethod { object, function }
-    }
-
     #[pymethod(magic)]
     fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
         let funcname =
@@ -536,10 +545,13 @@ impl PyBoundMethod {
             // We need to add object's part manually.
             let obj_name = vm.get_attribute_opt(self.object.clone(), "__qualname__")?;
             let obj_name: Option<PyStrRef> = obj_name.and_then(|o| o.downcast().ok());
-            return Ok(vm.ctx.new_utf8_str(format!(
-                "{}.__new__",
-                obj_name.as_ref().map_or("?", |s| s.as_str())
-            )));
+            return Ok(vm
+                .ctx
+                .new_str(format!(
+                    "{}.__new__",
+                    obj_name.as_ref().map_or("?", |s| s.as_str())
+                ))
+                .into());
         }
 
         vm.get_attribute(self.function.clone(), "__qualname__")

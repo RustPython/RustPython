@@ -173,7 +173,7 @@ impl CodecsRegistry {
             ),
         ];
         let errors = std::array::IntoIter::new(errors)
-            .map(|(name, f)| (name.to_owned(), f))
+            .map(|(name, f)| (name.to_owned(), f.into()))
             .collect();
         let inner = RegistryInner {
             search_path: Vec::new(),
@@ -367,7 +367,7 @@ fn strict_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 fn ignore_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(PyObjectRef, usize)> {
     if is_encode_ish_err(&err, vm) || is_decode_err(&err, vm) {
         let range = extract_unicode_error_range(&err, vm)?;
-        Ok((vm.ctx.new_ascii_literal(ascii!("")), range.end))
+        Ok((vm.ctx.new_str(ascii!("")).into(), range.end))
     } else {
         Err(bad_err_type(err, vm))
     }

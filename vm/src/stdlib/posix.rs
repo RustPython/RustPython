@@ -226,14 +226,12 @@ pub mod module {
     }
 
     #[pyfunction]
-    fn getgroups(vm: &VirtualMachine) -> PyResult {
+    fn getgroups(vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         let group_ids = getgroups_impl().map_err(|e| e.into_pyexception(vm))?;
-        Ok(vm.ctx.new_list(
-            group_ids
-                .into_iter()
-                .map(|gid| vm.ctx.new_int(gid.as_raw()))
-                .collect(),
-        ))
+        Ok(group_ids
+            .into_iter()
+            .map(|gid| vm.ctx.new_int(gid.as_raw()).into())
+            .collect())
     }
 
     #[pyfunction]
@@ -276,13 +274,9 @@ pub mod module {
 
         let environ = vm.ctx.new_dict();
         for (key, value) in env::vars_os() {
-            environ
-                .set_item(
-                    vm.ctx.new_bytes(key.into_vec()),
-                    vm.ctx.new_bytes(value.into_vec()),
-                    vm,
-                )
-                .unwrap();
+            let key: PyObjectRef = vm.ctx.new_bytes(key.into_vec()).into();
+            let value: PyObjectRef = vm.ctx.new_bytes(value.into_vec()).into();
+            environ.set_item(key, value, vm).unwrap();
         }
 
         environ
@@ -492,8 +486,9 @@ pub mod module {
         ))]
         fn try_to_libc(&self, vm: &VirtualMachine) -> PyResult<libc::sched_param> {
             use crate::TypeProtocol;
+            let priority_class = self.sched_priority.class();
+            let priority_type = priority_class.name();
             let priority = self.sched_priority.clone();
-            let priority_type = priority.class().name();
             let value = priority.downcast::<PyInt>().map_err(|_| {
                 vm.new_type_error(format!(
                     "an integer is required (got type {})",
@@ -846,53 +841,51 @@ pub mod module {
     #[pyfunction]
     fn getppid(vm: &VirtualMachine) -> PyObjectRef {
         let ppid = unistd::getppid().as_raw();
-        vm.ctx.new_int(ppid)
+        vm.ctx.new_int(ppid).into()
     }
 
     #[pyfunction]
     fn getgid(vm: &VirtualMachine) -> PyObjectRef {
         let gid = unistd::getgid().as_raw();
-        vm.ctx.new_int(gid)
+        vm.ctx.new_int(gid).into()
     }
 
     #[pyfunction]
     fn getegid(vm: &VirtualMachine) -> PyObjectRef {
         let egid = unistd::getegid().as_raw();
-        vm.ctx.new_int(egid)
+        vm.ctx.new_int(egid).into()
     }
 
     #[pyfunction]
     fn getpgid(pid: u32, vm: &VirtualMachine) -> PyResult {
-        match unistd::getpgid(Some(Pid::from_raw(pid as i32))) {
-            Ok(pgid) => Ok(vm.ctx.new_int(pgid.as_raw())),
-            Err(err) => Err(err.into_pyexception(vm)),
-        }
+        let pgid =
+            unistd::getpgid(Some(Pid::from_raw(pid as i32))).map_err(|e| e.into_pyexception(vm))?;
+        Ok(vm.new_pyobj(pgid.as_raw()))
     }
 
     #[pyfunction]
-    fn getpgrp(vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.new_int(unistd::getpgrp().as_raw()))
+    fn getpgrp(vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.new_int(unistd::getpgrp().as_raw()).into()
     }
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn getsid(pid: u32, vm: &VirtualMachine) -> PyResult {
-        match unistd::getsid(Some(Pid::from_raw(pid as i32))) {
-            Ok(sid) => Ok(vm.ctx.new_int(sid.as_raw())),
-            Err(err) => Err(err.into_pyexception(vm)),
-        }
+        let sid =
+            unistd::getsid(Some(Pid::from_raw(pid as i32))).map_err(|e| e.into_pyexception(vm))?;
+        Ok(vm.new_pyobj(sid.as_raw()))
     }
 
     #[pyfunction]
     fn getuid(vm: &VirtualMachine) -> PyObjectRef {
         let uid = unistd::getuid().as_raw();
-        vm.ctx.new_int(uid)
+        vm.ctx.new_int(uid).into()
     }
 
     #[pyfunction]
     fn geteuid(vm: &VirtualMachine) -> PyObjectRef {
         let euid = unistd::geteuid().as_raw();
-        vm.ctx.new_int(euid)
+        vm.ctx.new_int(euid).into()
     }
 
     #[pyfunction]
@@ -957,14 +950,12 @@ pub mod module {
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn openpty(vm: &VirtualMachine) -> PyResult {
+    fn openpty(vm: &VirtualMachine) -> PyResult<(i32, i32)> {
         let r = nix::pty::openpty(None, None).map_err(|err| err.into_pyexception(vm))?;
         for fd in &[r.master, r.slave] {
             super::raw_set_inheritable(*fd, false).map_err(|e| e.into_pyexception(vm))?;
         }
-        Ok(vm
-            .ctx
-            .new_tuple(vec![vm.ctx.new_int(r.master), vm.ctx.new_int(r.slave)]))
+        Ok((r.master, r.slave))
     }
 
     #[pyfunction]
@@ -974,7 +965,7 @@ pub mod module {
             Err(errno_err(vm))
         } else {
             let name = unsafe { CStr::from_ptr(name) }.to_str().unwrap();
-            Ok(vm.ctx.new_utf8_str(name))
+            Ok(vm.ctx.new_str(name).into())
         }
     }
 
@@ -1483,16 +1474,14 @@ pub mod module {
         target_os = "openbsd"
     ))]
     #[pyfunction]
-    fn getgrouplist(user: PyStrRef, group: u32, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+    fn getgrouplist(user: PyStrRef, group: u32, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         let user = CString::new(user.as_str()).unwrap();
         let gid = Gid::from_raw(group);
         let group_ids = unistd::getgrouplist(&user, gid).map_err(|err| err.into_pyexception(vm))?;
-        Ok(vm.ctx.new_list(
-            group_ids
-                .into_iter()
-                .map(|gid| vm.ctx.new_int(gid.as_raw()))
-                .collect(),
-        ))
+        Ok(group_ids
+            .into_iter()
+            .map(|gid| vm.new_pyobj(gid.as_raw()))
+            .collect())
     }
 
     #[cfg(not(target_os = "redox"))]
@@ -1525,7 +1514,7 @@ pub mod module {
         if errno() != 0 {
             Err(errno_err(vm))
         } else {
-            Ok(vm.ctx.new_int(retval))
+            Ok(vm.ctx.new_int(retval).into())
         }
     }
 
@@ -1796,7 +1785,7 @@ pub mod module {
             args.count as usize,
         )
         .map_err(|err| err.into_pyexception(vm))?;
-        Ok(vm.ctx.new_int(res as u64))
+        Ok(vm.ctx.new_int(res as u64).into())
     }
 
     #[cfg(target_os = "macos")]
@@ -1854,6 +1843,6 @@ pub mod module {
             trailers,
         );
         res.map_err(|err| err.into_pyexception(vm))?;
-        Ok(vm.ctx.new_int(written as u64))
+        Ok(vm.ctx.new_int(written as u64).into())
     }
 }

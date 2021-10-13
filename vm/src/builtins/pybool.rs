@@ -11,7 +11,7 @@ use std::fmt::{Debug, Formatter};
 
 impl IntoPyObject for bool {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_bool(self)
+        vm.ctx.new_bool(self).into()
     }
 }
 
@@ -97,14 +97,15 @@ impl SlotConstructor for PyBool {
 
     fn py_new(zelf: PyTypeRef, x: Self::Args, vm: &VirtualMachine) -> PyResult {
         if !zelf.isinstance(&vm.ctx.types.type_type) {
-            let actual_type = &zelf.class().name();
+            let actual_class = zelf.class();
+            let actual_type = &actual_class.name();
             return Err(vm.new_type_error(format!(
                 "requires a 'type' object but received a '{}'",
                 actual_type
             )));
         }
         let val = x.map_or(Ok(false), |val| val.try_to_bool(vm))?;
-        Ok(vm.ctx.new_bool(val))
+        Ok(vm.ctx.new_bool(val).into())
     }
 }
 

@@ -12,13 +12,15 @@
 #[pymodule]
 pub(crate) mod _struct {
     use crate::{
-        builtins::{float, PyBaseExceptionRef, PyBytesRef, PyStr, PyStrRef, PyTupleRef, PyTypeRef},
+        builtins::{
+            float, PyBaseExceptionRef, PyBytes, PyBytesRef, PyStr, PyStrRef, PyTuple, PyTupleRef,
+            PyTypeRef,
+        },
         common::str::wchar_t,
         function::{ArgBytesLike, ArgIntoBool, ArgMemoryBuffer, IntoPyObject, PosArgs},
         protocol::PyIterReturn,
         slots::{IteratorIterable, SlotConstructor, SlotIterator},
-        utils::Either,
-        PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
+        PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use half::f16;
@@ -202,6 +204,39 @@ pub(crate) mod _struct {
 
     const OVERFLOW_MSG: &str = "total struct size too long";
 
+    struct IntoStructFormatBytes(PyStrRef);
+
+    impl TryFromObject for IntoStructFormatBytes {
+        fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+            // CPython turns str to bytes but we do reversed way here
+            // The only performance difference is this transition cost
+            let fmt = match_class! {
+                match obj {
+                    s @ PyStr => if s.is_ascii() {
+                        Some(s)
+                    } else {
+                        None
+                    },
+                    b @ PyBytes => if b.is_ascii() {
+                        Some(unsafe {
+                            PyStr::new_ascii_unchecked(b.as_bytes().to_vec())
+                        }.into_ref(vm))
+                    } else {
+                        None
+                    },
+                    other => return Err(vm.new_type_error(format!("Struct() argument 1 must be a str or bytes object, not {}", other.class().name()))),
+                }
+            }.ok_or_else(|| vm.new_unicode_decode_error("Struct format must be a ascii string".to_owned()))?;
+            Ok(IntoStructFormatBytes(fmt))
+        }
+    }
+
+    impl IntoStructFormatBytes {
+        fn format_spec(&self, vm: &VirtualMachine) -> PyResult<FormatSpec> {
+            FormatSpec::parse(self.0.as_str().as_bytes(), vm)
+        }
+    }
+
     #[derive(Debug, Clone)]
     pub(crate) struct FormatSpec {
         endianness: Endianness,
@@ -211,24 +246,8 @@ pub(crate) mod _struct {
     }
 
     impl FormatSpec {
-        fn decode_and_parse(
-            vm: &VirtualMachine,
-            fmt: &Either<PyStrRef, PyBytesRef>,
-        ) -> PyResult<FormatSpec> {
-            let decoded_fmt = match fmt {
-                Either::A(string) => string.as_str(),
-                Either::B(bytes) if bytes.is_ascii() => std::str::from_utf8(bytes).unwrap(),
-                _ => {
-                    return Err(vm.new_unicode_decode_error(
-                        "Struct format must be a ascii string".to_owned(),
-                    ))
-                }
-            };
-            FormatSpec::parse(decoded_fmt, vm)
-        }
-
-        pub fn parse(fmt: &str, vm: &VirtualMachine) -> PyResult<FormatSpec> {
-            let mut chars = fmt.bytes().peekable();
+        pub fn parse(fmt: &[u8], vm: &VirtualMachine) -> PyResult<FormatSpec> {
+            let mut chars = fmt.iter().copied().peekable();
 
             // First determine "@", "<", ">","!" or "="
             let endianness = parse_endianness(&mut chars);
@@ -327,7 +346,7 @@ pub(crate) mod _struct {
                     FormatType::Str => {
                         let (str_data, rest) = data.split_at(code.repeat);
                         // string is just stored inline
-                        items.push(vm.ctx.new_bytes(str_data.to_vec()));
+                        items.push(vm.ctx.new_bytes(str_data.to_vec()).into());
                         data = rest;
                     }
                     FormatType::Pascal => {
@@ -346,7 +365,7 @@ pub(crate) mod _struct {
                 };
             }
 
-            Ok(PyTupleRef::with_elements(items, &vm.ctx))
+            Ok(PyTuple::new_ref(items, &vm.ctx))
         }
 
         #[inline]
@@ -399,10 +418,10 @@ pub(crate) mod _struct {
                     let mut repeat = 0isize;
                     while let Some(b'0'..=b'9') = chars.peek() {
                         if let Some(c) = chars.next() {
-                            let current_digit = (c as char).to_digit(10).unwrap() as isize;
+                            let current_digit = c - b'0';
                             repeat = repeat
                                 .checked_mul(10)
-                                .and_then(|r| r.checked_add(current_digit))
+                                .and_then(|r| r.checked_add(current_digit as _))
                                 .ok_or_else(|| OVERFLOW_MSG.to_owned())?;
                         }
                     }
@@ -486,12 +505,18 @@ pub(crate) mod _struct {
             }
             buffer_len - (-offset as usize)
         } else {
-            if offset as usize >= buffer_len {
+            let offset = offset as usize;
+            let (op, op_action) = if is_pack {
+                ("pack_into", "packing")
+            } else {
+                ("unpack_from", "unpacking")
+            };
+            if offset >= buffer_len {
                 let msg = format!(
                     "{op} requires a buffer of at least {required} bytes for {op_action} {needed} \
                     bytes at offset {offset} (actual buffer size is {buffer_len})",
-                    op = if is_pack { "pack_into" } else { "unpack_from" },
-                    op_action = if is_pack { "packing" } else { "unpacking" },
+                    op = op,
+                    op_action = op_action,
                     required = needed + offset as usize,
                     needed = needed,
                     offset = offset,
@@ -499,7 +524,7 @@ pub(crate) mod _struct {
                 );
                 return Err(new_struct_error(vm, msg));
             }
-            offset as usize
+            offset
         };
 
         if (buffer_len - offset_from_start) < needed {
@@ -582,7 +607,7 @@ pub(crate) mod _struct {
 
                 fn unpack<E: ByteOrder>(vm: &VirtualMachine, rdr: &[u8]) -> PyObjectRef {
                     let i = <$T>::unpack_int::<E>(rdr);
-                    vm.ctx.new_int(i)
+                    vm.ctx.new_int(i).into()
                 }
             }
         };
@@ -673,7 +698,7 @@ pub(crate) mod _struct {
 
         fn unpack<E: ByteOrder>(vm: &VirtualMachine, rdr: &[u8]) -> PyObjectRef {
             let i = u8::unpack_int::<E>(rdr);
-            vm.ctx.new_bool(i != 0)
+            vm.ctx.new_bool(i != 0).into()
         }
     }
 
@@ -717,30 +742,25 @@ pub(crate) mod _struct {
     }
 
     #[pyfunction]
-    fn pack(
-        fmt: Either<PyStrRef, PyBytesRef>,
-        args: PosArgs,
-        vm: &VirtualMachine,
-    ) -> PyResult<Vec<u8>> {
-        let format_spec = FormatSpec::decode_and_parse(vm, &fmt)?;
-        format_spec.pack(args.into_vec(), vm)
+    fn pack(fmt: IntoStructFormatBytes, args: PosArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        fmt.format_spec(vm)?.pack(args.into_vec(), vm)
     }
 
     #[pyfunction]
     fn pack_into(
-        fmt: Either<PyStrRef, PyBytesRef>,
+        fmt: IntoStructFormatBytes,
         buffer: ArgMemoryBuffer,
         offset: isize,
         args: PosArgs,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let format_spec = FormatSpec::decode_and_parse(vm, &fmt)?;
+        let format_spec = fmt.format_spec(vm)?;
         let offset = get_buffer_offset(buffer.len(), offset, format_spec.size, true, vm)?;
         buffer.with_ref(|data| format_spec.pack_into(&mut data[offset..], args.into_vec(), vm))
     }
 
     fn unpack_char(vm: &VirtualMachine, data: &[u8]) -> PyObjectRef {
-        vm.ctx.new_bytes(vec![data[0]])
+        vm.ctx.new_bytes(vec![data[0]]).into()
     }
 
     fn unpack_pascal(vm: &VirtualMachine, data: &[u8]) -> PyObjectRef {
@@ -748,20 +768,20 @@ pub(crate) mod _struct {
             Some(x) => x,
             None => {
                 // cpython throws an internal SystemError here
-                return vm.ctx.new_bytes(vec![]);
+                return vm.ctx.new_bytes(vec![]).into();
             }
         };
         let len = std::cmp::min(len as usize, data.len());
-        vm.ctx.new_bytes(data[..len].to_vec())
+        vm.ctx.new_bytes(data[..len].to_vec()).into()
     }
 
     #[pyfunction]
     fn unpack(
-        fmt: Either<PyStrRef, PyBytesRef>,
+        fmt: IntoStructFormatBytes,
         buffer: ArgBytesLike,
         vm: &VirtualMachine,
     ) -> PyResult<PyTupleRef> {
-        let format_spec = FormatSpec::decode_and_parse(vm, &fmt)?;
+        let format_spec = fmt.format_spec(vm)?;
         buffer.with_ref(|buf| format_spec.unpack(buf, vm))
     }
 
@@ -774,11 +794,11 @@ pub(crate) mod _struct {
 
     #[pyfunction]
     fn unpack_from(
-        fmt: Either<PyStrRef, PyBytesRef>,
+        fmt: IntoStructFormatBytes,
         args: UpdateFromArgs,
         vm: &VirtualMachine,
     ) -> PyResult<PyTupleRef> {
-        let format_spec = FormatSpec::decode_and_parse(vm, &fmt)?;
+        let format_spec = fmt.format_spec(vm)?;
         let offset =
             get_buffer_offset(args.buffer.len(), args.offset, format_spec.size, false, vm)?;
         args.buffer
@@ -849,18 +869,17 @@ pub(crate) mod _struct {
 
     #[pyfunction]
     fn iter_unpack(
-        fmt: Either<PyStrRef, PyBytesRef>,
+        fmt: IntoStructFormatBytes,
         buffer: ArgBytesLike,
         vm: &VirtualMachine,
     ) -> PyResult<UnpackIterator> {
-        let format_spec = FormatSpec::decode_and_parse(vm, &fmt)?;
+        let format_spec = fmt.format_spec(vm)?;
         UnpackIterator::new(vm, format_spec, buffer)
     }
 
     #[pyfunction]
-    fn calcsize(fmt: Either<PyStrRef, PyBytesRef>, vm: &VirtualMachine) -> PyResult<usize> {
-        let format_spec = FormatSpec::decode_and_parse(vm, &fmt)?;
-        Ok(format_spec.size)
+    fn calcsize(fmt: IntoStructFormatBytes, vm: &VirtualMachine) -> PyResult<usize> {
+        Ok(fmt.format_spec(vm)?.size)
     }
 
     #[pyattr]
@@ -868,20 +887,16 @@ pub(crate) mod _struct {
     #[derive(Debug, PyValue)]
     struct PyStruct {
         spec: FormatSpec,
-        fmt_str: PyStrRef,
+        format: PyStrRef,
     }
 
     impl SlotConstructor for PyStruct {
-        type Args = Either<PyStrRef, PyBytesRef>;
+        type Args = IntoStructFormatBytes;
 
         fn py_new(cls: PyTypeRef, fmt: Self::Args, vm: &VirtualMachine) -> PyResult {
-            let spec = FormatSpec::decode_and_parse(vm, &fmt)?;
-            let fmt_str = match fmt {
-                Either::A(s) => s,
-                Either::B(b) => PyStr::from(std::str::from_utf8(b.as_bytes()).unwrap())
-                    .into_ref_with_type(vm, vm.ctx.types.str_type.clone())?,
-            };
-            PyStruct { spec, fmt_str }.into_pyresult_with_type(vm, cls)
+            let spec = fmt.format_spec(vm)?;
+            let format = fmt.0;
+            PyStruct { spec, format }.into_pyresult_with_type(vm, cls)
         }
     }
 
@@ -889,7 +904,7 @@ pub(crate) mod _struct {
     impl PyStruct {
         #[pyproperty]
         fn format(&self) -> PyStrRef {
-            self.fmt_str.clone()
+            self.format.clone()
         }
 
         #[pyproperty]

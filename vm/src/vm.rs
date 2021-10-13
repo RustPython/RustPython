@@ -10,7 +10,7 @@ use crate::{
     builtins::{
         code::{self, PyCode},
         module, object,
-        tuple::{PyTuple, PyTupleRef, PyTupleTyped},
+        tuple::{IntoPyTuple, PyTuple, PyTupleRef, PyTupleTyped},
         PyBaseException, PyBaseExceptionRef, PyDictRef, PyInt, PyIntRef, PyList, PyModule, PyStr,
         PyStrRef, PyTypeRef,
     },
@@ -307,13 +307,13 @@ impl VirtualMachine {
         module::init_module_dict(
             &vm,
             &builtins_dict,
-            vm.ctx.new_ascii_literal(ascii!("builtins")),
+            vm.ctx.new_str(ascii!("builtins")).into(),
             vm.ctx.none(),
         );
         module::init_module_dict(
             &vm,
             &sysmod_dict,
-            vm.ctx.new_ascii_literal(ascii!("sys")),
+            vm.ctx.new_str(ascii!("sys")).into(),
             vm.ctx.none(),
         );
         vm
@@ -327,7 +327,7 @@ impl VirtualMachine {
         }
 
         stdlib::builtins::make_module(self, self.builtins.clone());
-        stdlib::sys::make_module(self, self.sys_module.clone(), self.builtins.clone());
+        stdlib::sys::init_module(self, &self.sys_module, &self.builtins);
 
         let mut inner_init = || -> PyResult<()> {
             #[cfg(not(target_arch = "wasm32"))]
@@ -355,7 +355,7 @@ impl VirtualMachine {
                 let io = import::import_builtin(self, "_io")?;
                 let set_stdio = |name, fd, mode: &str| {
                     let stdio = crate::stdlib::io::open(
-                        self.ctx.new_int(fd),
+                        self.ctx.new_int(fd).into(),
                         Some(mode),
                         Default::default(),
                         self,
@@ -589,12 +589,16 @@ impl VirtualMachine {
     }
 
     /// Create a new python object
-    pub fn new_pyobj<T: IntoPyObject>(&self, value: T) -> PyObjectRef {
+    pub fn new_pyobj(&self, value: impl IntoPyObject) -> PyObjectRef {
         value.into_pyobject(self)
     }
 
+    pub fn new_tuple(&self, value: impl IntoPyTuple) -> PyTupleRef {
+        value.into_pytuple(self)
+    }
+
     pub fn new_code_object(&self, code: impl code::IntoCodeObject) -> PyRef<PyCode> {
-        self.ctx.new_code_object(code.into_codeobj(self))
+        PyCode::new_ref(code.into_codeobj(self), &self.ctx)
     }
 
     pub fn new_module(&self, name: &str, dict: PyDictRef, doc: Option<&str>) -> PyObjectRef {
@@ -647,7 +651,7 @@ impl VirtualMachine {
     /// [exceptions::invoke]: rustpython_vm::exceptions::invoke
     /// [exceptions::ctor]: rustpython_vm::exceptions::ExceptionCtor
     pub fn new_exception_msg(&self, exc_type: PyTypeRef, msg: String) -> PyBaseExceptionRef {
-        self.new_exception(exc_type, vec![self.ctx.new_utf8_str(msg)])
+        self.new_exception(exc_type, vec![self.ctx.new_str(msg).into()])
     }
 
     pub fn new_lookup_error(&self, msg: String) -> PyBaseExceptionRef {
@@ -790,7 +794,7 @@ impl VirtualMachine {
         self.set_attr(
             syntax_error.as_object(),
             "filename",
-            self.ctx.new_utf8_str(error.source_path.clone()),
+            self.ctx.new_str(error.source_path.clone()),
         )
         .unwrap();
         syntax_error
@@ -985,7 +989,7 @@ impl VirtualMachine {
                 };
                 let from_list = match from_list {
                     Some(tup) => tup.into_pyobject(self),
-                    None => self.ctx.new_tuple(vec![]),
+                    None => self.new_tuple(()).into(),
                 };
                 self.invoke(&import_func, (module, globals, locals, from_list, level))
                     .map_err(|exc| import::remove_importlib_frames(self, &exc))
@@ -1261,7 +1265,7 @@ impl VirtualMachine {
         }
 
         let frame = frame_ref.unwrap().as_object().clone();
-        let event = self.ctx.new_utf8_str(event.to_string());
+        let event = self.ctx.new_str(event.to_string()).into();
         let args = vec![frame, event, self.ctx.none()];
 
         // temporarily disable tracing, during the call to the
@@ -2016,7 +2020,11 @@ impl VirtualMachine {
     }
 
     // https://docs.python.org/3/reference/expressions.html#membership-test-operations
-    fn _membership_iter_search(&self, haystack: PyObjectRef, needle: PyObjectRef) -> PyResult {
+    fn _membership_iter_search(
+        &self,
+        haystack: PyObjectRef,
+        needle: PyObjectRef,
+    ) -> PyResult<PyIntRef> {
         let iter = haystack.get_iter(self)?;
         loop {
             if let PyIterReturn::Return(element) = iter.next(self)? {
@@ -2034,7 +2042,9 @@ impl VirtualMachine {
     pub fn _membership(&self, haystack: PyObjectRef, needle: PyObjectRef) -> PyResult {
         match PyMethod::get_special(haystack, "__contains__", self)? {
             Ok(method) => method.invoke((needle,), self),
-            Err(haystack) => self._membership_iter_search(haystack, needle),
+            Err(haystack) => self
+                ._membership_iter_search(haystack, needle)
+                .map(Into::into),
         }
     }
 
@@ -2312,8 +2322,8 @@ mod tests {
     #[test]
     fn test_add_py_integers() {
         Interpreter::default().enter(|vm| {
-            let a = vm.ctx.new_int(33_i32);
-            let b = vm.ctx.new_int(12_i32);
+            let a = vm.ctx.new_int(33_i32).into();
+            let b = vm.ctx.new_int(12_i32).into();
             let res = vm._add(&a, &b).unwrap();
             let value = int::get_value(&res);
             assert_eq!(*value, 45_i32.to_bigint().unwrap());
@@ -2323,8 +2333,8 @@ mod tests {
     #[test]
     fn test_multiply_str() {
         Interpreter::default().enter(|vm| {
-            let a = vm.ctx.new_ascii_literal(crate::common::ascii!("Hello "));
-            let b = vm.ctx.new_int(4_i32);
+            let a = vm.new_pyobj(crate::common::ascii!("Hello "));
+            let b = vm.new_pyobj(4_i32);
             let res = vm._mul(&a, &b).unwrap();
             let value = res.payload::<PyStr>().unwrap();
             assert_eq!(value.as_ref(), "Hello Hello Hello Hello ")

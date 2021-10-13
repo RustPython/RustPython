@@ -2,7 +2,11 @@ use super::{
     mappingproxy::PyMappingProxy, object, PyClassMethod, PyDictRef, PyInt, PyList, PyStaticMethod,
     PyStr, PyStrRef, PyTuple, PyTupleRef, PyWeak,
 };
-use crate::common::{ascii, lock::PyRwLock};
+use crate::common::{
+    ascii,
+    borrow::BorrowedValue,
+    lock::{PyRwLock, PyRwLockReadGuard},
+};
 use crate::{
     function::{FuncArgs, KwArgs, OptionalArg},
     protocol::{PyIterReturn, PyMappingMethods},
@@ -360,7 +364,7 @@ impl PyType {
     }
 
     #[pyproperty(magic)]
-    fn bases(&self, vm: &VirtualMachine) -> PyObjectRef {
+    fn bases(&self, vm: &VirtualMachine) -> PyTupleRef {
         vm.ctx
             .new_tuple(self.bases.iter().map(|x| x.as_object().clone()).collect())
     }
@@ -380,7 +384,7 @@ impl PyType {
         let attributes: Vec<PyObjectRef> = zelf
             .get_attributes()
             .drain()
-            .map(|(k, _)| vm.ctx.new_utf8_str(k))
+            .map(|(k, _)| vm.ctx.new_str(k).into())
             .collect();
         PyList::from(attributes)
     }
@@ -400,9 +404,16 @@ impl PyType {
         vm.ctx.not_implemented()
     }
 
-    #[pyproperty(magic)]
-    pub fn name(&self) -> String {
-        self.slot_name().rsplit('.').next().unwrap().to_string()
+    #[pyproperty]
+    fn __name__(&self) -> String {
+        self.name().to_string()
+    }
+
+    pub fn name(&self) -> BorrowedValue<str> {
+        PyRwLockReadGuard::map(self.slots.name.read(), |slot_name| {
+            slot_name.as_ref().unwrap().rsplit('.').next().unwrap()
+        })
+        .into()
     }
 
     #[pymethod(magic)]
@@ -440,7 +451,7 @@ impl PyType {
                     Some(found)
                 }
             })
-            .unwrap_or_else(|| vm.ctx.new_utf8_str(self.name()))
+            .unwrap_or_else(|| vm.ctx.new_str(self.name().deref()).into())
     }
 
     #[pyproperty(magic)]
@@ -458,7 +469,7 @@ impl PyType {
                     Some(found)
                 }
             })
-            .unwrap_or_else(|| vm.ctx.new_ascii_literal(ascii!("builtins")))
+            .unwrap_or_else(|| vm.ctx.new_str(ascii!("builtins")).into())
     }
 
     #[pyproperty(magic, setter)]
@@ -492,9 +503,8 @@ impl PyType {
     }
 
     #[pymethod]
-    fn mro(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx
-            .new_list(zelf.iter_mro().map(|cls| cls.clone().into()).collect())
+    fn mro(zelf: PyRef<Self>) -> Vec<PyObjectRef> {
+        zelf.iter_mro().map(|cls| cls.clone().into()).collect()
     }
     #[pyslot]
     fn slot_new(metatype: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -584,12 +594,14 @@ impl PyType {
         if !attributes.contains_key("__dict__") {
             attributes.insert(
                 "__dict__".to_owned(),
-                vm.ctx.new_getset(
-                    "__dict__",
-                    vm.ctx.types.object_type.clone(),
-                    subtype_get_dict,
-                    subtype_set_dict,
-                ),
+                vm.ctx
+                    .new_getset(
+                        "__dict__",
+                        vm.ctx.types.object_type.clone(),
+                        subtype_get_dict,
+                        subtype_set_dict,
+                    )
+                    .into(),
             );
         }
 
@@ -653,7 +665,7 @@ impl PyType {
     fn text_signature(&self) -> Option<String> {
         self.slots
             .doc
-            .and_then(|doc| get_text_signature_from_internal_doc(self.name().as_str(), doc))
+            .and_then(|doc| get_text_signature_from_internal_doc(&self.name(), doc))
             .map(|signature| signature.to_string())
     }
 }

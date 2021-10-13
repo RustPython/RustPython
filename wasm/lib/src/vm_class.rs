@@ -264,7 +264,7 @@ impl WASMVirtualMachine {
                 .map_err(convert::syntax_err)?;
             let attrs = vm.ctx.new_dict();
             attrs
-                .set_item("__name__", vm.ctx.new_utf8_str(&name), vm)
+                .set_item("__name__", vm.new_pyobj(name.as_str()), vm)
                 .into_js(vm)?;
 
             if let Some(imports) = imports {

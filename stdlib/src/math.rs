@@ -430,7 +430,7 @@ mod math {
         if result_or_err.is_err() {
             if let Ok(Some(v)) = x.try_to_f64(vm) {
                 let v = try_f64_to_bigint(v.ceil(), vm)?;
-                return Ok(vm.ctx.new_int(v));
+                return Ok(vm.ctx.new_int(v).into());
             }
         }
         result_or_err
@@ -442,7 +442,7 @@ mod math {
         if result_or_err.is_err() {
             if let Ok(Some(v)) = x.try_to_f64(vm) {
                 let v = try_f64_to_bigint(v.floor(), vm)?;
-                return Ok(vm.ctx.new_int(v));
+                return Ok(vm.ctx.new_int(v).into());
             }
         }
         result_or_err

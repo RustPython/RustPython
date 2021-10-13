@@ -57,8 +57,8 @@ mod hashlib {
         }
 
         #[pyproperty]
-        fn digest_size(&self, vm: &VirtualMachine) -> PyResult {
-            Ok(vm.ctx.new_int(self.read().digest_size()))
+        fn digest_size(&self) -> usize {
+            self.read().digest_size()
         }
 
         #[pymethod]

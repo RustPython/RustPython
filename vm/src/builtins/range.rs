@@ -1,4 +1,4 @@
-use super::{PyInt, PyIntRef, PySlice, PySliceRef, PyTypeRef};
+use super::{PyInt, PyIntRef, PySlice, PySliceRef, PyTupleRef, PyTypeRef};
 use crate::builtins::builtins_iter;
 use crate::common::hash::PyHash;
 use crate::{
@@ -292,7 +292,7 @@ impl PyRange {
     }
 
     #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> (PyTypeRef, PyObjectRef) {
+    fn reduce(&self, vm: &VirtualMachine) -> (PyTypeRef, PyTupleRef) {
         let range_paramters: Vec<PyObjectRef> = vec![&self.start, &self.stop, &self.step]
             .iter()
             .map(|x| x.as_object().clone())
@@ -355,7 +355,7 @@ impl PyRange {
                 .into())
             }
             RangeIndex::Int(index) => match self.get(index.as_bigint()) {
-                Some(value) => Ok(vm.ctx.new_int(value)),
+                Some(value) => Ok(vm.ctx.new_int(value).into()),
                 None => Err(vm.new_index_error("range object index out of range".to_owned())),
             },
         }
@@ -409,12 +409,16 @@ impl Hashable for PyRange {
     fn hash(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
         let length = zelf.compute_length();
         let elements = if length.is_zero() {
-            [vm.ctx.new_int(length), vm.ctx.none(), vm.ctx.none()]
+            [vm.ctx.new_int(length).into(), vm.ctx.none(), vm.ctx.none()]
         } else if length.is_one() {
-            [vm.ctx.new_int(length), zelf.start().into(), vm.ctx.none()]
+            [
+                vm.ctx.new_int(length).into(),
+                zelf.start().into(),
+                vm.ctx.none(),
+            ]
         } else {
             [
-                vm.ctx.new_int(length),
+                vm.ctx.new_int(length).into(),
                 zelf.start().into(),
                 zelf.step().into(),
             ]
@@ -531,7 +535,7 @@ impl PyLongRangeIterator {
     }
 
     #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> PyResult {
+    fn reduce(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         range_iter_reduce(
             self.start.clone(),
             self.length.clone(),
@@ -549,14 +553,13 @@ impl SlotIterator for PyLongRangeIterator {
         // (since fetch_add wraps). This would result in the iterator spinning again
         // from the beginning.
         let index = BigInt::from(zelf.index.fetch_add(1));
-        if index < zelf.length {
-            Ok(PyIterReturn::Return(
-                vm.ctx
-                    .new_int(zelf.start.clone() + index * zelf.step.clone()),
-            ))
+        let r = if index < zelf.length {
+            let value = zelf.start.clone() + index * zelf.step.clone();
+            PyIterReturn::Return(vm.ctx.new_int(value).into())
         } else {
-            Ok(PyIterReturn::StopIteration(None))
-        }
+            PyIterReturn::StopIteration(None)
+        };
+        Ok(r)
     }
 }
 
@@ -602,7 +605,7 @@ impl PyRangeIterator {
     }
 
     #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> PyResult {
+    fn reduce(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         range_iter_reduce(
             BigInt::from(self.start),
             BigInt::from(self.length),
@@ -620,13 +623,13 @@ impl SlotIterator for PyRangeIterator {
         // (since fetch_add wraps). This would result in the iterator spinning again
         // from the beginning.
         let index = zelf.index.fetch_add(1);
-        if index < zelf.length {
-            Ok(PyIterReturn::Return(
-                vm.ctx.new_int(zelf.start + (index as isize) * zelf.step),
-            ))
+        let r = if index < zelf.length {
+            let value = zelf.start + (index as isize) * zelf.step;
+            PyIterReturn::Return(vm.ctx.new_int(value).into())
         } else {
-            Ok(PyIterReturn::StopIteration(None))
-        }
+            PyIterReturn::StopIteration(None)
+        };
+        Ok(r)
     }
 }
 
@@ -636,7 +639,7 @@ fn range_iter_reduce(
     step: BigInt,
     index: usize,
     vm: &VirtualMachine,
-) -> PyResult {
+) -> PyResult<PyTupleRef> {
     let iter = builtins_iter(vm).clone();
     let stop = start.clone() + length * step.clone();
     let range = PyRange {
@@ -644,11 +647,7 @@ fn range_iter_reduce(
         stop: PyInt::from(stop).into_ref(vm),
         step: PyInt::from(step).into_ref(vm),
     };
-    Ok(vm.ctx.new_tuple(vec![
-        iter,
-        vm.ctx.new_tuple(vec![range.into_object(vm)]),
-        vm.ctx.new_int(index),
-    ]))
+    Ok(vm.new_tuple((iter, (range,), index)))
 }
 
 // Silently clips state (i.e index) in range [0, usize::MAX].

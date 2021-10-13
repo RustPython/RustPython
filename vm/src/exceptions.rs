@@ -15,6 +15,7 @@ use itertools::Itertools;
 use std::{
     collections::HashSet,
     io::{self, BufRead, BufReader},
+    ops::Deref,
 };
 
 impl std::fmt::Debug for PyBaseException {
@@ -175,7 +176,8 @@ pub fn write_exception_inner<W: Write>(
     let varargs = exc.args();
     let args_repr = exception_args_as_string(vm, varargs, true);
 
-    let exc_name = exc.class().name();
+    let exc_class = exc.class();
+    let exc_name = exc_class.name();
     match args_repr.len() {
         0 => writeln!(output, "{}", exc_name),
         1 => writeln!(output, "{}: {}", exc_name, args_repr[0]),
@@ -414,7 +416,7 @@ impl PyBaseException {
             cause: PyRwLock::new(None),
             context: PyRwLock::new(None),
             suppress_context: AtomicCell::new(false),
-            args: PyRwLock::new(PyTupleRef::with_elements(args, &vm.ctx)),
+            args: PyRwLock::new(PyTuple::new_ref(args, &vm.ctx)),
         }
     }
 
@@ -425,7 +427,7 @@ impl PyBaseException {
 
     #[pymethod(magic)]
     pub(crate) fn init(zelf: PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-        *zelf.args.write() = PyTupleRef::with_elements(args.args, &vm.ctx);
+        *zelf.args.write() = PyTuple::new_ref(args.args, &vm.ctx);
         Ok(())
     }
 
@@ -441,7 +443,7 @@ impl PyBaseException {
     #[pyproperty(setter)]
     fn set_args(&self, args: ArgIterable, vm: &VirtualMachine) -> PyResult<()> {
         let args = args.iter(vm)?.collect::<PyResult<Vec<_>>>()?;
-        *self.args.write() = PyTupleRef::with_elements(args, &vm.ctx);
+        *self.args.write() = PyTuple::new_ref(args, &vm.ctx);
         Ok(())
     }
 
@@ -878,7 +880,7 @@ impl serde::Serialize for SerializeException<'_> {
         use serde::ser::*;
 
         let mut struc = s.serialize_struct("PyBaseException", 7)?;
-        struc.serialize_field("exc_type", &self.exc.class().name())?;
+        struc.serialize_field("exc_type", self.exc.class().name().deref())?;
         let tbs = {
             struct Tracebacks(PyTracebackRef);
             impl serde::Serialize for Tracebacks {
@@ -956,6 +958,7 @@ pub(super) mod types {
         PyObjectRef, PyRef, PyResult, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
+    use std::ops::Deref;
 
     // This module is designed to be used as `use builtins::*;`.
     // Do not add any pub symbols not included in builtins module.
@@ -1209,7 +1212,7 @@ pub(super) mod types {
         // We need this method, because of how `CPython` copies `init`
         // from `BaseException` in `SimpleExtendsException` macro.
         // See: `BaseException_new`
-        if cls.name() == vm.ctx.exceptions.os_error.name() {
+        if cls.name().deref() == vm.ctx.exceptions.os_error.name().deref() {
             match os_error_optional_new(args.args.to_vec(), vm) {
                 Some(error) => error.unwrap().into_pyresult(vm),
                 None => PyBaseException::slot_new(cls, args, vm),

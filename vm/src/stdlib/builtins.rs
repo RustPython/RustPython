@@ -8,18 +8,18 @@ use crate::{PyObjectRef, VirtualMachine};
 /// Noteworthy: None is the `nil' object; Ellipsis represents `...' in slices.
 #[pymodule]
 mod builtins {
-    use crate::builtins::{
-        enumerate::PyReverseSequenceIterator,
-        function::{PyCellRef, PyFunctionRef},
-        int::PyIntRef,
-        iter::PyCallableIterator,
-        list::{PyList, SortOptions},
-        PyByteArray, PyBytes, PyBytesRef, PyCode, PyDictRef, PyStr, PyStrRef, PyTupleRef,
-        PyTypeRef,
-    };
     #[cfg(feature = "rustpython-compiler")]
     use crate::compile;
     use crate::{
+        builtins::{
+            enumerate::PyReverseSequenceIterator,
+            function::{PyCellRef, PyFunctionRef},
+            int::PyIntRef,
+            iter::PyCallableIterator,
+            list::{PyList, SortOptions},
+            PyByteArray, PyBytes, PyBytesRef, PyCode, PyDictRef, PyStr, PyStrRef, PyTuple,
+            PyTupleRef, PyTypeRef,
+        },
         common::{hash::PyHash, str::to_ascii},
         function::{
             ArgBytesLike, ArgCallable, ArgIntoBool, ArgIterable, FuncArgs, KwArgs, OptionalArg,
@@ -63,7 +63,7 @@ mod builtins {
     }
 
     #[pyfunction]
-    pub fn ascii(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
+    pub fn ascii(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<ascii::AsciiString> {
         let repr = vm.to_repr(&obj)?;
         let ascii = to_ascii(repr.as_str());
         Ok(ascii)
@@ -379,7 +379,7 @@ mod builtins {
             let prompt = prompt.as_ref().map_or("", |s| s.as_str());
             let mut readline = Readline::new(());
             match readline.readline(prompt) {
-                ReadlineResult::Line(s) => Ok(vm.ctx.new_utf8_str(s)),
+                ReadlineResult::Line(s) => Ok(vm.ctx.new_str(s).into()),
                 ReadlineResult::Eof => {
                     Err(vm.new_exception_empty(vm.ctx.exceptions.eof_error.clone()))
                 }
@@ -538,7 +538,7 @@ mod builtins {
             format!("0o{:o}", n)
         };
 
-        Ok(vm.ctx.new_utf8_str(s))
+        Ok(vm.ctx.new_str(s).into())
     }
 
     #[pyfunction]
@@ -634,7 +634,7 @@ mod builtins {
 
     #[pyfunction]
     pub fn exit(exit_code_arg: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
-        let code = exit_code_arg.unwrap_or_else(|| vm.ctx.new_int(0));
+        let code = exit_code_arg.unwrap_or_else(|| vm.ctx.new_int(0).into());
         Err(vm.new_exception(vm.ctx.exceptions.system_exit.clone(), vec![code]))
     }
 
@@ -763,7 +763,9 @@ mod builtins {
     #[pyfunction]
     fn sum(SumArgs { iterable, start }: SumArgs, vm: &VirtualMachine) -> PyResult {
         // Start with zero and add at will:
-        let mut sum = start.into_option().unwrap_or_else(|| vm.ctx.new_int(0));
+        let mut sum = start
+            .into_option()
+            .unwrap_or_else(|| vm.ctx.new_int(0).into());
 
         match_class!(match sum {
             PyStr =>
@@ -812,7 +814,7 @@ mod builtins {
         vm: &VirtualMachine,
     ) -> PyResult {
         let name = qualified_name.as_str().split('.').next_back().unwrap();
-        let name_obj = vm.ctx.new_utf8_str(name);
+        let name_obj = vm.ctx.new_str(name);
 
         let mut metaclass = if let Some(metaclass) = kwargs.pop_kwarg("metaclass") {
             PyTypeRef::try_from_object(vm, metaclass)?
@@ -822,7 +824,7 @@ mod builtins {
 
         let mut new_bases: Option<Vec<PyObjectRef>> = None;
 
-        let bases = PyTupleRef::with_elements(bases.into_vec(), &vm.ctx);
+        let bases = PyTuple::new_ref(bases.into_vec(), &vm.ctx);
 
         for (i, base) in bases.as_slice().iter().enumerate() {
             if base.isinstance(&vm.ctx.types.type_type) {
@@ -848,7 +850,7 @@ mod builtins {
             new_bases.extend_from_slice(entries.as_slice());
         }
 
-        let new_bases = new_bases.map(|v| PyTupleRef::with_elements(v, &vm.ctx));
+        let new_bases = new_bases.map(|v| PyTuple::new_ref(v, &vm.ctx));
         let (orig_bases, bases) = match new_bases {
             Some(new) => (Some(bases), new),
             None => (None, bases),
@@ -873,7 +875,7 @@ mod builtins {
         let prepare = vm.get_attribute(metaclass.clone().into(), "__prepare__")?;
         let namespace = vm.invoke(
             &prepare,
-            FuncArgs::new(vec![name_obj.clone(), bases.clone()], kwargs.clone()),
+            FuncArgs::new(vec![name_obj.clone().into(), bases.clone()], kwargs.clone()),
         )?;
 
         let namespace = PyDictRef::try_from_object(vm, namespace)?;
@@ -887,7 +889,7 @@ mod builtins {
 
         let class = vm.invoke(
             metaclass.as_object(),
-            FuncArgs::new(vec![name_obj, bases, namespace.into()], kwargs),
+            FuncArgs::new(vec![name_obj.into(), bases, namespace.into()], kwargs),
         )?;
 
         if let Some(ref classcell) = classcell {

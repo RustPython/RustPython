@@ -56,9 +56,9 @@ macro_rules! extend_class {
 macro_rules! py_namespace {
     ( $vm:expr, { $($name:expr => $value:expr),* $(,)* }) => {
         {
-            let namespace = $vm.ctx.new_namespace();
+            let namespace = $crate::builtins::PyNamespace::new_ref(&$vm.ctx);
             $(
-                $vm.__module_set_attr(&namespace, $name, $value).unwrap();
+                $vm.__module_set_attr(namespace.as_object(), $name, $value).unwrap();
             )*
             namespace
         }
@@ -224,8 +224,8 @@ macro_rules! named_function {
                 [<$module _ $func>],
             )
             .into_function()
-            .with_module(ctx.new_utf8_str(stringify!($module).to_owned()))
-            .build(ctx)
+            .with_module(ctx.new_str(stringify!($module).to_owned()).into())
+            .into_ref(ctx)
         }
     }};
 }

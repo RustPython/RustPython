@@ -17,13 +17,11 @@ mod keyword {
     }
 
     #[pyattr]
-    fn kwlist(vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_list(
-            lexer::KEYWORDS
-                .keys()
-                .sorted()
-                .map(|k| vm.ctx.new_utf8_str(k))
-                .collect(),
-        )
+    fn kwlist(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        lexer::KEYWORDS
+            .keys()
+            .sorted()
+            .map(|&k| vm.ctx.new_str(k).into())
+            .collect()
     }
 }

@@ -35,12 +35,12 @@ impl PyValue for PyFloat {
 
 impl IntoPyObject for f64 {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_float(self)
+        vm.ctx.new_float(self).into()
     }
 }
 impl IntoPyObject for f32 {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_float(f64::from(self))
+        vm.ctx.new_float(f64::from(self)).into()
     }
 }
 
@@ -406,7 +406,7 @@ impl PyFloat {
             let float = float_ops::round_float_digits(self.value, ndigits).ok_or_else(|| {
                 vm.new_overflow_error("overflow occurred during round".to_owned())
             })?;
-            vm.ctx.new_float(float)
+            vm.ctx.new_float(float).into()
         } else {
             let fract = self.value.fract();
             let value = if (fract.abs() - 0.5).abs() < f64::EPSILON {
@@ -419,7 +419,7 @@ impl PyFloat {
                 self.value.round()
             };
             let int = try_to_bigint(value, vm)?;
-            vm.ctx.new_int(int)
+            vm.ctx.new_int(int).into()
         };
         Ok(value)
     }
@@ -455,7 +455,7 @@ impl PyFloat {
     }
 
     #[pymethod]
-    fn as_integer_ratio(&self, vm: &VirtualMachine) -> PyResult {
+    fn as_integer_ratio(&self, vm: &VirtualMachine) -> PyResult<(PyIntRef, PyIntRef)> {
         let value = self.value;
         if !value.is_finite() {
             return Err(if value.is_infinite() {
@@ -470,7 +470,7 @@ impl PyFloat {
         let ratio = Ratio::from_float(value).unwrap();
         let numer = vm.ctx.new_bigint(ratio.numer());
         let denom = vm.ctx.new_bigint(ratio.denom());
-        Ok(vm.ctx.new_tuple(vec![numer, denom]))
+        Ok((numer, denom))
     }
 
     #[pymethod]

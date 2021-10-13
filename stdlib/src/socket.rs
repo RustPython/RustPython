@@ -1,6 +1,6 @@
 use crate::common::lock::{PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard};
 use crate::vm::{
-    builtins::{PyBaseExceptionRef, PyStrRef, PyTupleRef, PyTypeRef},
+    builtins::{PyBaseExceptionRef, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
     extend_module,
     function::{
         ArgBytesLike, ArgMemoryBuffer, FuncArgs, IntoPyException, IntoPyObject, OptionalArg,
@@ -839,10 +839,9 @@ impl PySocket {
                 )
             };
             if ret < 0 {
-                Err(crate::vm::stdlib::os::errno_err(vm))
-            } else {
-                Ok(vm.ctx.new_int(flag))
+                return Err(crate::vm::stdlib::os::errno_err(vm));
             }
+            Ok(vm.ctx.new_int(flag).into())
         } else {
             if buflen <= 0 || buflen > 1024 {
                 return Err(vm.new_os_error("getsockopt buflen out of range".to_owned()));
@@ -853,10 +852,9 @@ impl PySocket {
                 unsafe { c::getsockopt(fd, level, name, buf.as_mut_ptr() as *mut _, &mut buflen) };
             buf.truncate(buflen as usize);
             if ret < 0 {
-                Err(crate::vm::stdlib::os::errno_err(vm))
-            } else {
-                Ok(vm.ctx.new_bytes(buf))
+                return Err(crate::vm::stdlib::os::errno_err(vm));
             }
+            Ok(vm.ctx.new_bytes(buf).into())
         }
     }
 
@@ -1024,12 +1022,11 @@ fn get_addr_tuple(addr: &socket2::SockAddr, vm: &VirtualMachine) -> PyObjectRef 
             {
                 let abstractaddrlen = addr_len - sun_path_offset;
                 let abstractpath = &path_u8[..abstractaddrlen];
-                vm.ctx.new_bytes(abstractpath.to_vec())
+                vm.ctx.new_bytes(abstractpath.to_vec()).into()
             } else {
                 let len = memchr::memchr(b'\0', path_u8).unwrap_or_else(|| path_u8.len());
                 let path = &path_u8[..len];
-                vm.ctx
-                    .new_utf8_str(String::from_utf8_lossy(path).into_owned())
+                vm.ctx.new_str(String::from_utf8_lossy(path)).into()
             }
         }
         // TODO: support more address families
@@ -1037,10 +1034,10 @@ fn get_addr_tuple(addr: &socket2::SockAddr, vm: &VirtualMachine) -> PyObjectRef 
     }
 }
 
-fn _socket_gethostname(vm: &VirtualMachine) -> PyResult {
+fn _socket_gethostname(vm: &VirtualMachine) -> PyResult<PyStrRef> {
     gethostname()
         .into_string()
-        .map(|hostname| vm.ctx.new_utf8_str(hostname))
+        .map(|hostname| vm.ctx.new_str(hostname))
         .map_err(|err| vm.new_os_error(err.into_string().unwrap()))
 }
 
@@ -1057,11 +1054,11 @@ fn _socket_inet_aton(ip_string: PyStrRef, vm: &VirtualMachine) -> PyResult<Vec<u
         .map_err(|_| vm.new_os_error("illegal IP address string passed to inet_aton".to_owned()))
 }
 
-fn _socket_inet_ntoa(packed_ip: ArgBytesLike, vm: &VirtualMachine) -> PyResult {
+fn _socket_inet_ntoa(packed_ip: ArgBytesLike, vm: &VirtualMachine) -> PyResult<PyStrRef> {
     let packed_ip = packed_ip.borrow_buf();
     let packed_ip = <&[u8; 4]>::try_from(&*packed_ip)
         .map_err(|_| vm.new_os_error("packed IP wrong length for inet_ntoa".to_owned()))?;
-    Ok(vm.ctx.new_utf8_str(Ipv4Addr::from(*packed_ip).to_string()))
+    Ok(vm.ctx.new_str(Ipv4Addr::from(*packed_ip).to_string()))
 }
 
 fn cstr_opt_as_ptr(x: &OptionalArg<ffi::CString>) -> *const libc::c_char {
@@ -1072,7 +1069,7 @@ fn _socket_getservbyname(
     servicename: PyStrRef,
     protocolname: OptionalArg<PyStrRef>,
     vm: &VirtualMachine,
-) -> PyResult {
+) -> PyResult<u16> {
     let cstr_name = servicename.to_cstring(vm)?;
     let cstr_proto = protocolname
         .as_ref()
@@ -1084,7 +1081,7 @@ fn _socket_getservbyname(
         return Err(vm.new_os_error("service/proto not found".to_owned()));
     }
     let port = unsafe { (*serv).s_port };
-    Ok(vm.ctx.new_int(u16::from_be(port as u16)))
+    Ok(u16::from_be(port as u16))
 }
 
 fn _socket_getservbyport(
@@ -1243,7 +1240,7 @@ struct GAIOptions {
     flags: i32,
 }
 
-fn _socket_getaddrinfo(opts: GAIOptions, vm: &VirtualMachine) -> PyResult {
+fn _socket_getaddrinfo(opts: GAIOptions, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
     let hints = dns_lookup::AddrInfoHints {
         socktype: opts.ty,
         protocol: opts.proto,
@@ -1266,24 +1263,25 @@ fn _socket_getaddrinfo(opts: GAIOptions, vm: &VirtualMachine) -> PyResult {
     let list = addrs
         .map(|ai| {
             ai.map(|ai| {
-                vm.ctx.new_tuple(vec![
-                    vm.ctx.new_int(ai.address),
-                    vm.ctx.new_int(ai.socktype),
-                    vm.ctx.new_int(ai.protocol),
-                    ai.canonname.into_pyobject(vm),
+                vm.new_tuple((
+                    ai.address,
+                    ai.socktype,
+                    ai.protocol,
+                    ai.canonname,
                     get_ip_addr_tuple(&ai.sockaddr, vm),
-                ])
+                ))
+                .into()
             })
         })
         .collect::<io::Result<Vec<_>>>()
         .map_err(|e| e.into_pyexception(vm))?;
-    Ok(vm.ctx.new_list(list))
+    Ok(list)
 }
 
 fn _socket_gethostbyaddr(
     addr: PyStrRef,
     vm: &VirtualMachine,
-) -> PyResult<(String, PyObjectRef, PyObjectRef)> {
+) -> PyResult<(String, PyListRef, PyListRef)> {
     let addr = get_addr(vm, addr, c::AF_UNSPEC)?;
     let (hostname, _) = dns_lookup::getnameinfo(&addr, 0)
         .map_err(|e| convert_socket_error(vm, e, SocketError::HError))?;
@@ -1291,7 +1289,7 @@ fn _socket_gethostbyaddr(
         hostname,
         vm.ctx.new_list(vec![]),
         vm.ctx
-            .new_list(vec![vm.ctx.new_utf8_str(addr.ip().to_string())]),
+            .new_list(vec![vm.ctx.new_str(addr.ip().to_string()).into()]),
     ))
 }
 
@@ -1303,24 +1301,39 @@ fn _socket_gethostbyname(name: PyStrRef, vm: &VirtualMachine) -> PyResult<String
     }
 }
 
-fn _socket_inet_pton(af_inet: i32, ip_string: PyStrRef, vm: &VirtualMachine) -> PyResult {
-    match af_inet {
+fn _socket_gethostbyname_ex(
+    name: PyStrRef,
+    vm: &VirtualMachine,
+) -> PyResult<(String, PyListRef, PyListRef)> {
+    let addr = get_addr(vm, name, c::AF_UNSPEC)?;
+    let (hostname, _) = dns_lookup::getnameinfo(&addr, 0)
+        .map_err(|e| convert_socket_error(vm, e, SocketError::HError))?;
+    Ok((
+        hostname,
+        vm.ctx.new_list(vec![]),
+        vm.ctx
+            .new_list(vec![vm.ctx.new_str(addr.ip().to_string()).into()]),
+    ))
+}
+
+fn _socket_inet_pton(af_inet: i32, ip_string: PyStrRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+    static ERROR_MSG: &str = "illegal IP address string passed to inet_pton";
+    let ip_addr = match af_inet {
         c::AF_INET => ip_string
             .as_str()
             .parse::<Ipv4Addr>()
-            .map(|ip_addr| vm.ctx.new_bytes(ip_addr.octets().to_vec()))
-            .map_err(|_| {
-                vm.new_os_error("illegal IP address string passed to inet_pton".to_owned())
-            }),
+            .map_err(|_| vm.new_os_error(ERROR_MSG.to_owned()))?
+            .octets()
+            .to_vec(),
         c::AF_INET6 => ip_string
             .as_str()
             .parse::<Ipv6Addr>()
-            .map(|ip_addr| vm.ctx.new_bytes(ip_addr.octets().to_vec()))
-            .map_err(|_| {
-                vm.new_os_error("illegal IP address string passed to inet_pton".to_owned())
-            }),
-        _ => Err(vm.new_os_error("Address family not supported by protocol".to_owned())),
-    }
+            .map_err(|_| vm.new_os_error(ERROR_MSG.to_owned()))?
+            .octets()
+            .to_vec(),
+        _ => return Err(vm.new_os_error("Address family not supported by protocol".to_owned())),
+    };
+    Ok(ip_addr)
 }
 
 fn _socket_inet_ntop(
@@ -1353,7 +1366,7 @@ fn _socket_getprotobyname(name: PyStrRef, vm: &VirtualMachine) -> PyResult {
         return Err(vm.new_os_error("protocol not found".to_owned()));
     }
     let num = unsafe { (*proto).p_proto };
-    Ok(vm.ctx.new_int(num))
+    Ok(vm.ctx.new_int(num).into())
 }
 
 fn _socket_getnameinfo(
@@ -1457,7 +1470,7 @@ fn _socket_if_indextoname(index: IfIndex, vm: &VirtualMachine) -> PyResult<Strin
     target_os = "netbsd",
     target_os = "openbsd",
 ))]
-fn _socket_if_nameindex(vm: &VirtualMachine) -> PyResult {
+fn _socket_if_nameindex(vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
     #[cfg(not(windows))]
     {
         let list = if_nameindex()
@@ -1471,7 +1484,7 @@ fn _socket_if_nameindex(vm: &VirtualMachine) -> PyResult {
             })
             .collect();
 
-        return Ok(vm.ctx.new_list(list));
+        return Ok(list);
 
         // all the stuff below should be in nix soon, hopefully
 
@@ -1532,7 +1545,7 @@ fn _socket_if_nameindex(vm: &VirtualMachine) -> PyResult {
             Ok(tup.into_pyobject(vm))
         });
         let list = list.collect::<PyResult<_>>()?;
-        return Ok(vm.ctx.new_list(list));
+        return Ok(list);
 
         fn get_name(luid: &winapi::shared::ifdef::NET_LUID) -> io::Result<widestring::WideCString> {
             let mut buf = [0; c::IF_NAMESIZE + 1];
@@ -1727,7 +1740,7 @@ fn convert_socket_error(
     };
     vm.new_exception(
         exception_cls.get().unwrap().clone(),
-        vec![vm.ctx.new_int(err.error_num()), vm.ctx.new_utf8_str(strerr)],
+        vec![vm.new_pyobj(err.error_num()), vm.ctx.new_str(strerr).into()],
     )
 }
 
@@ -1883,6 +1896,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "getaddrinfo" => named_function!(ctx, _socket, getaddrinfo),
         "gethostbyaddr" => named_function!(ctx, _socket, gethostbyaddr),
         "gethostbyname" => named_function!(ctx, _socket, gethostbyname),
+        "gethostbyname_ex" => named_function!(ctx, _socket, gethostbyname_ex),
         "getnameinfo" => named_function!(ctx, _socket, getnameinfo),
         // constants
         "AF_UNSPEC" => ctx.new_int(0),

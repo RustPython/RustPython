@@ -189,12 +189,12 @@ mod re {
                 1 => {
                     let full = captures.get(0).unwrap().as_bytes();
                     let full = String::from_utf8_lossy(full).into_owned();
-                    vm.ctx.new_utf8_str(full)
+                    vm.ctx.new_str(full).into()
                 }
                 2 => {
                     let capture = captures.get(1).unwrap().as_bytes();
                     let capture = String::from_utf8_lossy(capture).into_owned();
-                    vm.ctx.new_utf8_str(capture)
+                    vm.ctx.new_str(capture).into()
                 }
                 _ => {
                     let out = captures
@@ -204,14 +204,14 @@ mod re {
                             let s = m
                                 .map(|m| String::from_utf8_lossy(m.as_bytes()).into_owned())
                                 .unwrap_or_default();
-                            vm.ctx.new_utf8_str(s)
+                            vm.ctx.new_str(s).into()
                         })
                         .collect();
-                    vm.ctx.new_tuple(out)
+                    vm.ctx.new_tuple(out).into()
                 }
             })
             .collect();
-        Ok(vm.ctx.new_list(out))
+        Ok(vm.ctx.new_list(out).into())
     }
 
     fn do_split(
@@ -224,7 +224,7 @@ mod re {
             .as_ref()
             .map_or(false, |i| i.as_bigint().is_negative())
         {
-            return Ok(vm.ctx.new_list(vec![search_text.into()]));
+            return Ok(vm.ctx.new_list(vec![search_text.into()]).into());
         }
         let maxsplit = maxsplit
             .map(|i| i.try_to_primitive::<usize>(vm))
@@ -253,11 +253,11 @@ mod re {
             .into_iter()
             .map(|v| {
                 vm.unwrap_or_none(
-                    v.map(|v| vm.ctx.new_utf8_str(String::from_utf8_lossy(v).into_owned())),
+                    v.map(|v| vm.ctx.new_str(String::from_utf8_lossy(v).into_owned()).into()),
                 )
             })
             .collect();
-        Ok(vm.ctx.new_list(split))
+        Ok(vm.ctx.new_list(split).into())
     }
 
     fn make_regex(vm: &VirtualMachine, pattern: &str, flags: PyRegexFlags) -> PyResult<PyPattern> {
@@ -330,12 +330,12 @@ mod re {
         }
 
         #[pymethod]
-        fn sub(&self, repl: PyStrRef, text: PyStrRef, vm: &VirtualMachine) -> PyResult {
+        fn sub(&self, repl: PyStrRef, text: PyStrRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
             let replaced_text = self
                 .regex
                 .replace_all(text.as_str().as_bytes(), repl.as_str().as_bytes());
             let replaced_text = String::from_utf8_lossy(&replaced_text).into_owned();
-            Ok(vm.ctx.new_utf8_str(replaced_text))
+            Ok(vm.ctx.new_str(replaced_text))
         }
 
         #[pymethod]
@@ -344,8 +344,8 @@ mod re {
         }
 
         #[pyproperty]
-        fn pattern(&self, vm: &VirtualMachine) -> PyResult {
-            Ok(vm.ctx.new_utf8_str(self.pattern.clone()))
+        fn pattern(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+            Ok(vm.ctx.new_str(self.pattern.clone()))
         }
 
         #[pymethod]
@@ -368,19 +368,19 @@ mod re {
     impl PyMatch {
         #[pymethod]
         fn start(&self, group: OptionalArg, vm: &VirtualMachine) -> PyResult {
-            let group = group.unwrap_or_else(|| vm.ctx.new_int(0));
+            let group = group.unwrap_or_else(|| vm.ctx.new_int(0).into());
             let start = self
                 .get_bounds(group, vm)?
-                .map_or_else(|| vm.ctx.new_int(-1), |r| vm.ctx.new_int(r.start));
+                .map_or_else(|| vm.ctx.new_int(-1).into(), |r| vm.ctx.new_int(r.start).into());
             Ok(start)
         }
 
         #[pymethod]
         fn end(&self, group: OptionalArg, vm: &VirtualMachine) -> PyResult {
-            let group = group.unwrap_or_else(|| vm.ctx.new_int(0));
+            let group = group.unwrap_or_else(|| vm.ctx.new_int(0).into());
             let end = self
                 .get_bounds(group, vm)?
-                .map_or_else(|| vm.ctx.new_int(-1), |r| vm.ctx.new_int(r.end));
+                .map_or_else(|| vm.ctx.new_int(-1).into(), |r| vm.ctx.new_int(r.end).into());
             Ok(end)
         }
 
@@ -427,13 +427,13 @@ mod re {
                         .into_iter()
                         .map(|id| self.get_group(id, vm).map(|g| g.into_pyobject(vm)))
                         .collect();
-                    Ok(vm.ctx.new_tuple(output?))
+                    Ok(vm.ctx.new_tuple(output?)).into()
                 }
             }
         }
 
         #[pymethod]
-        fn groups(&self, default: OptionalArg, vm: &VirtualMachine) -> PyObjectRef {
+        fn groups(&self, default: OptionalArg, vm: &VirtualMachine) -> PyTupleRef {
             let default = default.into_option();
             let groups = self
                 .captures

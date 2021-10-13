@@ -358,7 +358,7 @@ impl PyBytesInner {
     ) -> PyResult {
         let obj = match self.elements.get_item(vm, needle, owner_type)? {
             Either::A(byte) => vm.new_pyobj(byte),
-            Either::B(bytes) => vm.ctx.new_bytes(bytes),
+            Either::B(bytes) => vm.ctx.new_bytes(bytes).into(),
         };
         Ok(obj)
     }
@@ -583,7 +583,7 @@ impl PyBytesInner {
         Ok(self.elements.py_find(&needle, range, find))
     }
 
-    pub fn maketrans(from: PyBytesInner, to: PyBytesInner, vm: &VirtualMachine) -> PyResult {
+    pub fn maketrans(from: PyBytesInner, to: PyBytesInner) -> PyResult<Vec<u8>> {
         let mut res = vec![];
 
         for i in 0..=255 {
@@ -594,7 +594,7 @@ impl PyBytesInner {
             });
         }
 
-        Ok(vm.ctx.new_bytes(res))
+        Ok(res)
     }
 
     pub fn translate(
@@ -672,7 +672,7 @@ impl PyBytesInner {
         options: ByteInnerSplitOptions,
         convert: F,
         vm: &VirtualMachine,
-    ) -> PyResult<PyObjectRef>
+    ) -> PyResult<Vec<PyObjectRef>>
     where
         F: Fn(&[u8], &VirtualMachine) -> PyObjectRef,
     {
@@ -683,7 +683,7 @@ impl PyBytesInner {
             |v, s, n, vm| v.splitn_str(n, s).map(|v| convert(v, vm)).collect(),
             |v, n, vm| v.py_split_whitespace(n, |v| convert(v, vm)),
         )?;
-        Ok(vm.ctx.new_list(elements))
+        Ok(elements)
     }
 
     pub fn rsplit<F>(
@@ -691,7 +691,7 @@ impl PyBytesInner {
         options: ByteInnerSplitOptions,
         convert: F,
         vm: &VirtualMachine,
-    ) -> PyResult<PyObjectRef>
+    ) -> PyResult<Vec<PyObjectRef>>
     where
         F: Fn(&[u8], &VirtualMachine) -> PyObjectRef,
     {
@@ -703,7 +703,7 @@ impl PyBytesInner {
             |v, n, vm| v.py_rsplit_whitespace(n, |v| convert(v, vm)),
         )?;
         elements.reverse();
-        Ok(vm.ctx.new_list(elements))
+        Ok(elements)
     }
 
     pub fn partition(
