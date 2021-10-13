@@ -478,16 +478,16 @@ mod sys {
                     "recursion limit must be greater than or equal to one".to_owned(),
                 )
             })?;
-        let recursion_depth = vm.frames.borrow().len();
+        let recursion_depth = vm.current_recursion_depth();
 
         if recursion_limit > recursion_depth + 1 {
             vm.recursion_limit.set(recursion_limit);
             Ok(())
         } else {
             Err(vm.new_recursion_error(format!(
-            "cannot set the recursion limit to {} at the recursion depth {}: the limit is too low",
-            recursion_limit, recursion_depth
-        )))
+                "cannot set the recursion limit to {} at the recursion depth {}: the limit is too low",
+                recursion_limit, recursion_depth
+            )))
         }
     }
 

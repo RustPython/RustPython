@@ -62,6 +62,7 @@ pub struct VirtualMachine {
     pub repr_guards: RefCell<HashSet<usize>>,
     pub state: PyRc<PyGlobalState>,
     pub initialized: bool,
+    recursion_depth: Cell<usize>,
 }
 
 #[derive(Debug, Default)]
@@ -297,6 +298,7 @@ impl VirtualMachine {
                 codec_registry,
             }),
             initialized: false,
+            recursion_depth: Cell::new(0),
         };
 
         let frozen = frozen::map_frozen(&vm, frozen::get_module_inits()).collect();
@@ -464,6 +466,7 @@ impl VirtualMachine {
             repr_guards: RefCell::default(),
             state: self.state.clone(),
             initialized: self.initialized,
+            recursion_depth: Cell::new(0),
         };
         PyThread { thread_vm }
     }
@@ -502,17 +505,33 @@ impl VirtualMachine {
         }
     }
 
+    pub fn current_recursion_depth(&self) -> usize {
+        self.recursion_depth.get()
+    }
+
+    /// Used to run the body of a (possibly) recursive function. It will raise a
+    /// RecursionError if recursive functions are nested far too many times,
+    /// preventing a stack overflow.
+    pub fn with_recursion<R, F: FnOnce() -> PyResult<R>>(&self, _where: &str, f: F) -> PyResult<R> {
+        self.check_recursive_call(_where)?;
+        self.recursion_depth.set(self.recursion_depth.get() + 1);
+        let result = f();
+        self.recursion_depth.set(self.recursion_depth.get() - 1);
+        result
+    }
+
     pub fn with_frame<R, F: FnOnce(FrameRef) -> PyResult<R>>(
         &self,
         frame: FrameRef,
         f: F,
     ) -> PyResult<R> {
-        self.check_recursive_call("")?;
-        self.frames.borrow_mut().push(frame.clone());
-        let result = f(frame);
-        // defer dec frame
-        let _popped = self.frames.borrow_mut().pop();
-        result
+        self.with_recursion("", || {
+            self.frames.borrow_mut().push(frame.clone());
+            let result = f(frame);
+            // defer dec frame
+            let _popped = self.frames.borrow_mut().pop();
+            result
+        })
     }
 
     pub fn run_frame(&self, frame: FrameRef) -> PyResult<ExecutionResult> {
@@ -520,7 +539,7 @@ impl VirtualMachine {
     }
 
     fn check_recursive_call(&self, _where: &str) -> PyResult<()> {
-        if self.frames.borrow().len() > self.recursion_limit.get() {
+        if self.recursion_depth.get() > self.recursion_limit.get() {
             Err(self.new_recursion_error(format!("maximum recursion depth exceeded {}", _where)))
         } else {
             Ok(())
@@ -887,8 +906,10 @@ impl VirtualMachine {
     }
 
     pub fn to_repr(&self, obj: &PyObjectRef) -> PyResult<PyStrRef> {
-        let repr = self.call_special_method(obj.clone(), "__repr__", ())?;
-        repr.try_into_value(self)
+        self.with_recursion(" while getting the repr of an object", || {
+            let repr = self.call_special_method(obj.clone(), "__repr__", ())?;
+            repr.try_into_value(self)
+        })
     }
 
     pub fn to_index_opt(&self, obj: PyObjectRef) -> Option<PyResult<PyIntRef>> {
