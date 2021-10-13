@@ -7,9 +7,11 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "errorcode" => errorcode.clone(),
     });
     for (name, code) in ERROR_CODES {
-        let name = vm.new_pyobj(*name);
+        let name = vm.ctx.new_str(*name);
         let code = vm.new_pyobj(*code);
-        errorcode.set_item(code.clone(), name.clone(), vm).unwrap();
+        errorcode
+            .set_item(code.clone(), name.clone().into(), vm)
+            .unwrap();
         vm.set_attr(&module, name, code).unwrap();
     }
     module

@@ -3,8 +3,8 @@ use super::{PyInt, PyIntRef, PyTupleRef, PyTypeRef};
 use crate::{
     function::{FuncArgs, IntoPyObject, OptionalArg},
     slots::{Comparable, Hashable, PyComparisonOp, SlotConstructor, Unhashable},
-    PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryIntoRef,
-    TypeProtocol, VirtualMachine,
+    PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    VirtualMachine,
 };
 use num_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, ToPrimitive, Zero};
@@ -115,7 +115,7 @@ impl PySlice {
             step = One::one();
         } else {
             // Clone the value, not the reference.
-            let this_step: PyRef<PyInt> = self.step(vm).try_into_ref(vm)?;
+            let this_step: PyRef<PyInt> = self.step(vm).try_into_value(vm)?;
             step = this_step.as_bigint().clone();
 
             if step.is_zero() {
@@ -149,7 +149,7 @@ impl PySlice {
                 lower.clone()
             };
         } else {
-            let this_start: PyRef<PyInt> = self.start(vm).try_into_ref(vm)?;
+            let this_start: PyRef<PyInt> = self.start(vm).try_into_value(vm)?;
             start = this_start.as_bigint().clone();
 
             if start < Zero::zero() {
@@ -169,7 +169,7 @@ impl PySlice {
         if vm.is_none(&self.stop) {
             stop = if backwards { lower } else { upper };
         } else {
-            let this_stop: PyRef<PyInt> = self.stop(vm).try_into_ref(vm)?;
+            let this_stop: PyRef<PyInt> = self.stop(vm).try_into_value(vm)?;
             stop = this_stop.as_bigint().clone();
 
             if stop < Zero::zero() {

@@ -16,7 +16,7 @@ use crate::{
     stdlib::sys,
     utils::Either,
     IdProtocol, ItemProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef,
-    PyRef, PyResult, PyValue, TryIntoRef, TypeProtocol, VirtualMachine,
+    PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
 use ascii::{AsciiStr, AsciiString};
 use bstr::ByteSlice;
@@ -169,24 +169,42 @@ impl fmt::Display for PyStr {
     }
 }
 
-impl TryIntoRef<PyStr> for AsciiString {
+pub trait IntoPyStrRef {
+    fn into_pystr_ref(self, vm: &VirtualMachine) -> PyStrRef;
+}
+
+impl IntoPyStrRef for PyStrRef {
     #[inline]
-    fn try_into_ref(self, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
-        Ok(unsafe { PyStr::new_ascii_unchecked(self.into()) }.into_ref(vm))
+    fn into_pystr_ref(self, _vm: &VirtualMachine) -> PyRef<PyStr> {
+        self
     }
 }
 
-impl TryIntoRef<PyStr> for String {
+impl IntoPyStrRef for PyStr {
     #[inline]
-    fn try_into_ref(self, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
-        Ok(PyStr::from(self).into_ref(vm))
+    fn into_pystr_ref(self, vm: &VirtualMachine) -> PyRef<PyStr> {
+        self.into_ref(vm)
     }
 }
 
-impl TryIntoRef<PyStr> for &str {
+impl IntoPyStrRef for AsciiString {
     #[inline]
-    fn try_into_ref(self, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
-        Ok(PyStr::from(self).into_ref(vm))
+    fn into_pystr_ref(self, vm: &VirtualMachine) -> PyRef<PyStr> {
+        PyStr::from(self).into_ref(vm)
+    }
+}
+
+impl IntoPyStrRef for String {
+    #[inline]
+    fn into_pystr_ref(self, vm: &VirtualMachine) -> PyRef<PyStr> {
+        PyStr::from(self).into_ref(vm)
+    }
+}
+
+impl IntoPyStrRef for &str {
+    #[inline]
+    fn into_pystr_ref(self, vm: &VirtualMachine) -> PyRef<PyStr> {
+        PyStr::from(self).into_ref(vm)
     }
 }
 

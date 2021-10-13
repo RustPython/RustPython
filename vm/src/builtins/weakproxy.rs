@@ -47,14 +47,14 @@ impl SlotConstructor for PyWeakProxy {
 impl PyWeakProxy {
     // TODO: callbacks
     #[pymethod(magic)]
-    fn getattr(&self, attr_name: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match self.weak.upgrade() {
-            Some(obj) => vm.get_attribute(obj, attr_name),
-            None => Err(vm.new_exception_msg(
+    fn getattr(&self, attr_name: PyStrRef, vm: &VirtualMachine) -> PyResult {
+        let obj = self.weak.upgrade().ok_or_else(|| {
+            vm.new_exception_msg(
                 vm.ctx.exceptions.reference_error.clone(),
                 "weakly-referenced object no longer exists".to_owned(),
-            )),
-        }
+            )
+        })?;
+        vm.get_attribute(obj, attr_name)
     }
 }
 
