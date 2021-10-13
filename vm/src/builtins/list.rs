@@ -266,7 +266,7 @@ impl PyList {
     }
 
     #[pymethod(magic)]
-    fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+    pub fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         // TODO: to_vec() cause copy which leads to cost O(N). It need to be improved.
         let elements = self.borrow_vec().to_vec();
         for elem in elements.iter() {

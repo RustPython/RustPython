@@ -1,11 +1,23 @@
 use crate::{
-    builtins::{PyStr, PyTuple, PyTupleRef, PyTypeRef},
+    builtins::{PyList, PyStr, PyTuple, PyTupleRef, PyTypeRef},
     common::hash,
+    function::IntoPyObject,
     slots::{Hashable, SlotConstructor},
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol, VirtualMachine,
 };
 use std::fmt;
+
+static ATTR_EXCEPTIONS: [&str; 8] = [
+    "__origin__",
+    "__args__",
+    "__parameters__",
+    "__mro_entries__",
+    "__reduce_ex__", // needed so we don't look up object.__reduce_ex__
+    "__reduce__",
+    "__copy__",
+    "__deepcopy__",
+];
 
 #[pyclass(module = "types", name = "GenericAlias")]
 pub struct PyGenericAlias {
@@ -110,6 +122,17 @@ impl PyGenericAlias {
     #[pyproperty(magic)]
     fn origin(&self) -> PyObjectRef {
         self.origin.as_object().clone()
+    }
+
+    #[pymethod(magic)]
+    fn dir(&self, vm: &VirtualMachine) -> PyResult<PyList> {
+        let dir = vm.dir(Some(self.origin()))?;
+        for exc in ATTR_EXCEPTIONS.iter() {
+            if !dir.contains((*exc).into_pyobject(vm), vm)? {
+                dir.append((*exc).into_pyobject(vm));
+            }
+        }
+        Ok(dir)
     }
 }
 
