@@ -5,7 +5,6 @@ use rustpython_vm::readline::{Readline, ReadlineResult};
 use rustpython_vm::{
     builtins::PyBaseExceptionRef,
     compile::{self, CompileError, CompileErrorType},
-    exceptions::print_exception,
     scope::Scope,
     PyResult, TypeProtocol, VirtualMachine,
 };
@@ -130,7 +129,7 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
                 repl.save_history(&repl_history_path).unwrap();
                 return Err(exc);
             }
-            print_exception(vm, exc);
+            vm.print_exception(exc);
         }
     }
     repl.save_history(&repl_history_path).unwrap();

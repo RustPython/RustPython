@@ -12,7 +12,6 @@ mod sys {
     };
     use crate::{
         builtins::{PyDictRef, PyListRef, PyNamespace, PyStr, PyStrRef, PyTupleRef, PyTypeRef},
-        exceptions,
         frame::FrameRef,
         function::{FuncArgs, OptionalArg, PosArgs},
         stdlib::builtins,
@@ -308,15 +307,15 @@ mod sys {
         exc_tb: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let exc = exceptions::normalize(exc_type, exc_val, exc_tb, vm)?;
+        let exc = vm.normalize_exception(exc_type, exc_val, exc_tb)?;
         let stderr = super::get_stderr(vm)?;
-        exceptions::write_exception(&mut crate::py_io::PyWriter(stderr, vm), vm, &exc)
+        vm.write_exception(&mut crate::py_io::PyWriter(stderr, vm), &exc)
     }
 
     #[pyfunction]
     fn exc_info(vm: &VirtualMachine) -> (PyObjectRef, PyObjectRef, PyObjectRef) {
         match vm.topmost_exception() {
-            Some(exception) => exceptions::split(exception, vm),
+            Some(exception) => vm.split_exception(exception),
             None => (vm.ctx.none(), vm.ctx.none(), vm.ctx.none()),
         }
     }

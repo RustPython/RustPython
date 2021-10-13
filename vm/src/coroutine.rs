@@ -1,7 +1,6 @@
 use crate::{
     builtins::{PyBaseExceptionRef, PyStrRef},
     common::lock::PyMutex,
-    exceptions,
     frame::{ExecutionResult, FrameRef},
     protocol::PyIterReturn,
     IdProtocol, PyObjectRef, PyResult, TypeProtocol, VirtualMachine,
@@ -140,7 +139,7 @@ impl Coro {
         vm: &VirtualMachine,
     ) -> PyResult<PyIterReturn> {
         if self.closed.load() {
-            return Err(exceptions::normalize(exc_type, exc_val, exc_tb, vm)?);
+            return Err(vm.normalize_exception(exc_type, exc_val, exc_tb)?);
         }
         let result = self.run_with_context(gen, vm, |f| f.gen_throw(vm, exc_type, exc_val, exc_tb));
         self.maybe_close(&result);

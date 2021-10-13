@@ -13,8 +13,8 @@ fn run(vm: &vm::VirtualMachine) -> vm::PyResult<()> {
 
     let res = vm.run_code_obj(vm.new_code_object(module), scope);
 
-    if let Err(err) = res {
-        vm::exceptions::print_exception(&vm, err);
+    if let Err(exc) = res {
+        vm.print_exception(exc);
     }
 
     Ok(())

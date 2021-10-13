@@ -18,7 +18,6 @@ use crate::{
     bytecode,
     codecs::CodecsRegistry,
     common::{ascii, hash::HashSecret, lock::PyMutex, rc::PyRc},
-    exceptions,
     frame::{ExecutionResult, Frame, FrameRef},
     frozen,
     function::{FuncArgs, IntoFuncArgs, IntoPyObject},
@@ -482,7 +481,7 @@ impl VirtualMachine {
                         stdlib::sys::PyStderr(self),
                         "Error in atexit._run_exitfuncs:"
                     );
-                    exceptions::print_exception(self, e);
+                    self.print_exception(e);
                 }
             }
         }
@@ -835,7 +834,7 @@ impl VirtualMachine {
         {
             let show_backtrace = std::env::var_os("RUST_BACKTRACE").map_or(false, |v| &v != "0");
             let after = if show_backtrace {
-                exceptions::print_exception(self, exc);
+                self.print_exception(exc);
                 "exception backtrace above"
             } else {
                 "run with RUST_BACKTRACE=1 to see Python backtrace"
@@ -851,7 +850,7 @@ impl VirtualMachine {
                 fn error(s: &str);
             }
             let mut s = String::new();
-            exceptions::write_exception(&mut s, self, &exc).unwrap();
+            self.write_exception(&mut s, &exc).unwrap();
             error(&s);
             panic!("{}; exception backtrace above", msg)
         }

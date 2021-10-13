@@ -81,7 +81,6 @@ mod _io {
             PyBaseExceptionRef, PyByteArray, PyBytes, PyBytesRef, PyIntRef, PyMemoryView, PyStr,
             PyStrRef, PyType, PyTypeRef,
         },
-        exceptions,
         function::{
             ArgBytesLike, ArgIterable, ArgMemoryBuffer, FuncArgs, IntoPyObject, OptionalArg,
             OptionalOption,
@@ -1539,7 +1538,7 @@ mod _io {
             }
             let flush_res = data.flush(vm);
             let close_res = vm.call_method(data.raw.as_ref().unwrap(), "close", ());
-            exceptions::chain(flush_res, close_res)
+            exeption_chain(flush_res, close_res)
         }
 
         #[pymethod]
@@ -1555,7 +1554,7 @@ mod _io {
             let data = zelf.lock(vm)?;
             let raw = data.raw.as_ref().unwrap();
             let close_res = vm.call_method(raw, "close", ());
-            exceptions::chain(flush_res, close_res)
+            exeption_chain(flush_res, close_res)
         }
 
         #[pymethod]
@@ -1641,6 +1640,17 @@ mod _io {
             let raw = data.check_init(vm)?;
             ensure_unclosed(raw, "readinto of closed file", vm)?;
             data.readinto_generic(buf.into(), true, vm)
+        }
+    }
+
+    fn exeption_chain<T>(e1: PyResult<()>, e2: PyResult<T>) -> PyResult<T> {
+        match (e1, e2) {
+            (Err(e1), Err(e)) => {
+                e.set_context(Some(e1));
+                Err(e)
+            }
+            (Err(e), Ok(_)) | (Ok(()), Err(e)) => Err(e),
+            (Ok(()), Ok(close_res)) => Ok(close_res),
         }
     }
 
@@ -1831,7 +1841,7 @@ mod _io {
         fn close(&self, vm: &VirtualMachine) -> PyResult {
             let write_res = self.write.close_strict(vm).map(drop);
             let read_res = self.read.close_strict(vm);
-            exceptions::chain(write_res, read_res)
+            exeption_chain(write_res, read_res)
         }
     }
 
@@ -2855,7 +2865,7 @@ mod _io {
             }
             let flush_res = vm.call_method(zelf.as_object(), "flush", ()).map(drop);
             let close_res = vm.call_method(&buffer, "close", ()).map(drop);
-            exceptions::chain(flush_res, close_res)
+            exeption_chain(flush_res, close_res)
         }
         #[pyproperty]
         fn closed(&self, vm: &VirtualMachine) -> PyResult {
