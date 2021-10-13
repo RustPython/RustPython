@@ -52,7 +52,7 @@ impl SlotConstructor for PyGenericAlias {
     }
 }
 
-#[pyimpl(with(Hashable, SlotGetattro), flags(BASETYPE))]
+#[pyimpl(with(Hashable, SlotConstructor, SlotGetattro), flags(BASETYPE))]
 impl PyGenericAlias {
     pub fn new(origin: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> Self {
         let args: PyTupleRef = if let Ok(tuple) = PyTupleRef::try_from_object(vm, args.clone()) {
