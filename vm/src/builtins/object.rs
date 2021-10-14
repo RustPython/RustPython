@@ -161,12 +161,12 @@ impl PyBaseObject {
 
     #[pyslot]
     fn slot_setattro(
-        obj: &PyObjectRef,
+        obj: PyObjectPtr,
         attr_name: PyStrRef,
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        setattr(obj, attr_name, value, vm)
+        setattr(&*obj, attr_name, value, vm)
     }
 
     /// Return str(self).

@@ -61,7 +61,7 @@ impl PyObjectRef {
                     ))
                 })?
         };
-        setattro(self, attr_name, attr_value, vm)
+        self.with_ptr(|zelf| setattro(zelf, attr_name, attr_value, vm))
     }
 
     // PyObject *PyObject_GenericGetAttr(PyObject *o, PyObject *name)

@@ -133,7 +133,7 @@ pub(crate) type HashFunc = fn(PyObjectPtr, &VirtualMachine) -> PyResult<PyHash>;
 // CallFunc = GenericMethod
 pub(crate) type GetattroFunc = fn(PyObjectRef, PyStrRef, &VirtualMachine) -> PyResult;
 pub(crate) type SetattroFunc =
-    fn(&PyObjectRef, PyStrRef, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>;
+    fn(PyObjectPtr, PyStrRef, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>;
 pub(crate) type AsBufferFunc = fn(PyObjectPtr, &VirtualMachine) -> PyResult<PyBuffer>;
 pub(crate) type RichCompareFunc = fn(
     PyObjectPtr,
@@ -209,17 +209,18 @@ fn getattro_wrapper(zelf: PyObjectRef, name: PyStrRef, vm: &VirtualMachine) -> P
 }
 
 fn setattro_wrapper(
-    zelf: &PyObjectRef,
+    zelf: PyObjectPtr,
     name: PyStrRef,
     value: Option<PyObjectRef>,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
+    let zelf = (*zelf).clone();
     match value {
         Some(value) => {
-            vm.call_special_method(zelf.clone(), "__setattr__", (name, value))?;
+            vm.call_special_method(zelf, "__setattr__", (name, value))?;
         }
         None => {
-            vm.call_special_method(zelf.clone(), "__delattr__", (name,))?;
+            vm.call_special_method(zelf, "__delattr__", (name,))?;
         }
     };
     Ok(())
@@ -712,7 +713,7 @@ pub trait SetAttr: PyValue {
     #[pyslot]
     #[inline]
     fn slot_setattro(
-        obj: &PyObjectRef,
+        obj: PyObjectPtr,
         name: PyStrRef,
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,
