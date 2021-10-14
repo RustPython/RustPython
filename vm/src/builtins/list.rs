@@ -10,8 +10,8 @@ use crate::{
     sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
     stdlib::sys,
     types::{
-        AsMapping, Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable,
-        PyComparisonOp, Unconstructible, Unhashable,
+        richcompare_wrapper, AsMapping, Comparable, Constructor, Hashable, IterNext,
+        IterNextIterable, Iterable, PyComparisonOp, Unconstructible, Unhashable,
     },
     utils::Either,
     vm::{ReprGuard, VirtualMachine},
@@ -279,8 +279,9 @@ impl PyList {
                         break i;
                     }
                     borrower = Some(guard);
-                } else if !elem.class().slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
-                    // TODO: instead check heaptype flag, check __eq__ slot implement
+                } else if elem.class().slots.richcompare.load().map(|x| x as usize)
+                    != Some(richcompare_wrapper as usize)
+                {
                     if vm.bool_eq(elem, needle)? {
                         f();
                         if SHORT {
@@ -332,7 +333,7 @@ impl PyList {
     }
 
     #[pymethod(magic)]
-    fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+    pub(crate) fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         Ok(self.find_equal(&needle, 0..usize::MAX, vm)? != usize::MAX)
     }
 

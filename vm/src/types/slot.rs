@@ -225,7 +225,7 @@ fn setattro_wrapper(
     Ok(())
 }
 
-fn richcompare_wrapper(
+pub(crate) fn richcompare_wrapper(
     zelf: &PyObjectRef,
     other: &PyObjectRef,
     op: PyComparisonOp,
