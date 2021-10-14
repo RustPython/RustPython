@@ -176,7 +176,7 @@ class AutoFileTests:
         finally:
             os.close(fd)
 
-    @unittest.skipIf(getattr(sys, '_rustpython_debugbuild', False), "stack overflow on debug build")
+    @unittest.skipIf(getattr(sys, '_rustpython_debugbuild', False), "TODO: RUSTPYTHON, stack overflow on debug build")
     def testRecursiveRepr(self):
         # Issue #25455
         with swap_attr(self.f, 'name', self.f):
@@ -603,7 +603,6 @@ class OtherFileTests:
             self.assertRaises(ValueError, self.FileIO, "/some/invalid/name", "rt")
             self.assertEqual(w.warnings, [])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def testUnclosedFDOnException(self):
         class MyException(Exception): pass
         class MyFileIO(self.FileIO):
@@ -624,6 +623,11 @@ class COtherFileTests(OtherFileTests, unittest.TestCase):
     @unittest.expectedFailure
     def testInvalidFd(self):
         super().testInvalidFd()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def testUnclosedFDOnException(self):
+        super().testUnclosedFDOnException()
 
     @cpython_only
     def testInvalidFd_overflow(self):

@@ -800,7 +800,6 @@ class IOTest(unittest.TestCase):
         self.assertFalse(closed[0])  # flush() called before file closed
         f.flush = lambda: None  # break reference loop
 
-    @unittest.skip("TODO: RUSTPYTHON, specifics of operation order in close()")
     def test_flush_error_on_close(self):
         # raw file
         # Issue #5700: io.FileIO calls flush() after file closed
@@ -1039,9 +1038,6 @@ class CIOTest(IOTest):
         super().test_destructor(self)
 
 class PyIOTest(IOTest):
-    def test_optional_abilities(self):
-        super().test_optional_abilities()
-
     pass
 
 
@@ -1155,7 +1151,6 @@ class CommonBufferedTests:
             except RuntimeError:
                 pass
 
-    @unittest.skip("TODO: RUSTPYTHON, specifics of operation order in close()")
     def test_flush_error_on_close(self):
         # Test that buffered file is closed despite failed flush
         # and that flush() is called before file closed.
@@ -1602,6 +1597,11 @@ class CBufferedReaderTest(BufferedReaderTest, SizeofTest):
         with self.assertRaisesRegex(TypeError, "BufferedReader"):
             self.tp(io.BytesIO(), 1024, 1024, 1024)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_flush_error_on_close(self):
+        super().test_flush_error_on_close()
+
 
 class PyBufferedReaderTest(BufferedReaderTest):
     tp = pyio.BufferedReader
@@ -1954,6 +1954,11 @@ class CBufferedWriterTest(BufferedWriterTest, SizeofTest):
         # Issue #17275
         with self.assertRaisesRegex(TypeError, "BufferedWriter"):
             self.tp(io.BytesIO(), 1024, 1024, 1024)
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_flush_error_on_close(self):
+        super().test_flush_error_on_close()
 
 
 class PyBufferedWriterTest(BufferedWriterTest):
@@ -2434,8 +2439,12 @@ class CBufferedRandomTest(BufferedRandomTest, SizeofTest):
         with self.assertRaisesRegex(TypeError, "BufferedRandom"):
             self.tp(io.BytesIO(), 1024, 1024, 1024)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_flush_error_on_close(self):
+        super().test_flush_error_on_close()
 
-@unittest.skip("TODO: RUSTPYTHON, BufferError: Existing exports of data: object cannot be re-sized")
+
 class PyBufferedRandomTest(BufferedRandomTest):
     tp = pyio.BufferedRandom
 
@@ -2628,7 +2637,6 @@ class TextIOWrapperTest(unittest.TestCase):
         with self.assertRaisesRegex(LookupError, "is not a text encoding"):
             self.TextIOWrapper(b, encoding="hex")
 
-    @unittest.skip('TODO: RUSTPYTHON')
     def test_detach(self):
         r = self.BytesIO()
         b = self.BufferedWriter(r)
@@ -2690,7 +2698,6 @@ class TextIOWrapperTest(unittest.TestCase):
         t.write("A\rB")
         self.assertEqual(r.getvalue(), b"XY\nZA\rB")
 
-    @unittest.skip('TODO: RUSTPYTHON')
     def test_reconfigure_line_buffering(self):
         r = self.BytesIO()
         b = self.BufferedWriter(r, 1000)
@@ -3757,8 +3764,18 @@ class CTextIOWrapperTest(TextIOWrapperTest):
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
+    def test_detach(self):
+        super().test_detach()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_reconfigure_encoding_read(self):
         super().test_reconfigure_encoding_read()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_reconfigure_line_buffering(self):
+        super().test_reconfigure_line_buffering()
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
@@ -3920,20 +3937,7 @@ class PyTextIOWrapperTest(TextIOWrapperTest):
     def test_newlines(self):
         super().test_newlines()
 
-    def test_line_buffering(self):
-        super().test_line_buffering()
 
-    def test_seeking_too(self):
-        super().test_seeking_too()
-
-    def test_bufio_write_through(self):
-        super().test_bufio_write_through()
-
-    def test_seeking(self):
-        super().test_seeking()
-
-
-@unittest.skip("TODO: RUSTPYTHON, incremental decoder")
 class IncrementalNewlineDecoderTest(unittest.TestCase):
 
     def check_newline_decoding_utf8(self, decoder):
@@ -4011,6 +4015,8 @@ class IncrementalNewlineDecoderTest(unittest.TestCase):
         self.assertEqual(decoder.decode(input), "abc")
         self.assertEqual(decoder.newlines, None)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_newline_decoder(self):
         encodings = (
             # None meaning the IncrementalNewlineDecoder takes unicode input
@@ -4028,6 +4034,8 @@ class IncrementalNewlineDecoderTest(unittest.TestCase):
         self.check_newline_decoding_utf8(decoder)
         self.assertRaises(TypeError, decoder.setstate, 42)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_newline_bytes(self):
         # Issue 5433: Excessive optimization in IncrementalNewlineDecoder
         def _check(dec):
@@ -4041,6 +4049,8 @@ class IncrementalNewlineDecoderTest(unittest.TestCase):
         dec = self.IncrementalNewlineDecoder(None, translate=True)
         _check(dec)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_translate(self):
         # issue 35062
         for translate in (-2, -1, 1, 2):
@@ -4106,7 +4116,6 @@ class MiscIOTest(unittest.TestCase):
         f.close()
         g.close()
 
-    @unittest.skip("TODO: RUSTPYTHON, check if fd is seekable fileio")
     def test_open_pipe_with_append(self):
         # bpo-27805: Ignore ESPIPE from lseek() in open().
         r, w = os.pipe()
@@ -4415,7 +4424,6 @@ class PyMiscIOTest(MiscIOTest):
     io = pyio
 
 
-
 @unittest.skipIf(os.name == 'nt', 'POSIX signals required for this test.')
 class SignalsTest(unittest.TestCase):
 
@@ -4486,7 +4494,6 @@ class SignalsTest(unittest.TestCase):
     def test_interrupted_write_buffered(self):
         self.check_interrupted_write(b"xy", b"xy", mode="wb")
 
-    @unittest.skip("TODO: RUSTPYTHON, hangs?")
     def test_interrupted_write_text(self):
         self.check_interrupted_write("xy", b"xy", mode="w", encoding="ascii")
 
