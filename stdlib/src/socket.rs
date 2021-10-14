@@ -50,16 +50,17 @@ mod _socket {
     #[pyattr(name = "has_ipv6")]
     const HAS_IPV6: bool = true;
     #[pyattr]
-    const AF_UNSPEC: i32 = 0;
-    #[pyattr]
-    const SOL_TCP: u32 = 6;
-    #[pyattr]
     use c::{
-        AF_INET, AF_INET6, IPPROTO_IP, IPPROTO_IP as IPPROTO_IPIP, IPPROTO_IPV6, IPPROTO_TCP,
-        IPPROTO_UDP, MSG_OOB, MSG_PEEK, MSG_WAITALL, NI_NAMEREQD, NI_NOFQDN, NI_NUMERICHOST,
-        NI_NUMERICSERV, SHUT_RD, SHUT_RDWR, SHUT_WR, SOCK_DGRAM, SOCK_STREAM, SOL_SOCKET,
-        SO_BROADCAST, SO_ERROR, SO_LINGER, SO_OOBINLINE, SO_REUSEADDR, SO_TYPE, TCP_NODELAY,
+        AF_INET, AF_INET6, AF_UNSPEC, IPPROTO_IP, IPPROTO_IP as IPPROTO_IPIP, IPPROTO_IPV6,
+        IPPROTO_TCP, IPPROTO_TCP as SOL_TCP, IPPROTO_UDP, MSG_OOB, MSG_PEEK, MSG_WAITALL,
+        NI_NAMEREQD, NI_NOFQDN, NI_NUMERICHOST, NI_NUMERICSERV, SHUT_RD, SHUT_RDWR, SHUT_WR,
+        SOCK_DGRAM, SOCK_STREAM, SOL_SOCKET, SO_BROADCAST, SO_ERROR, SO_LINGER, SO_OOBINLINE,
+        SO_REUSEADDR, SO_TYPE, TCP_NODELAY,
     };
+
+    #[cfg(unix)]
+    #[pyattr]
+    use c::{AF_UNIX, SO_REUSEPORT};
 
     #[cfg(not(target_os = "freebsd"))]
     #[pyattr]
@@ -68,6 +69,13 @@ mod _socket {
     #[cfg(not(target_os = "redox"))]
     #[pyattr]
     use c::{SOCK_RAW, SOCK_RDM, SOCK_SEQPACKET};
+
+    #[cfg(windows)]
+    #[pyattr]
+    use winapi::shared::ws2def::{
+        IPPROTO_CBT, IPPROTO_ICLFXBM, IPPROTO_IGP, IPPROTO_L2TP, IPPROTO_PGM, IPPROTO_RDP,
+        IPPROTO_SCTP, IPPROTO_ST,
+    };
 
     #[pyattr]
     fn error(vm: &VirtualMachine) -> PyTypeRef {
@@ -119,13 +127,6 @@ mod _socket {
             })
             .clone()
     }
-
-    #[cfg(windows)]
-    #[pyattr]
-    use c::{
-        IPPROTO_CBT, IPPROTO_ICLFXBM, IPPROTO_IGP, IPPROTO_L2TP, IPPROTO_PGM, IPPROTO_RDP,
-        IPPROTO_SCTP, IPPROTO_ST,
-    };
 
     #[pyfunction]
     fn htonl(x: u32) -> u32 {
