@@ -74,7 +74,8 @@ class CmdLineTest(unittest.TestCase):
         rc, out, err = assert_python_ok('-vv')
         self.assertNotIn(b'stack overflow', err)
 
-    @unittest.skip("TODO: RUSTPYTHON, TypeError: unexpected type bytes")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipIf(interpreter_requires_environment(),
                      'Cannot run -E tests when PYTHON env vars are required.')
     def test_xoptions(self):
@@ -203,8 +204,7 @@ class CmdLineTest(unittest.TestCase):
         if not stdout.startswith(pattern):
             raise AssertionError("%a doesn't start with %a" % (stdout, pattern))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'unexpected invalid UTF-8 code point'")
     @unittest.skipIf(sys.platform == 'win32',
                      'Windows has a native unicode API')
     def test_invalid_utf8_arg(self):
@@ -463,19 +463,23 @@ class CmdLineTest(unittest.TestCase):
         self.assertEqual(support.strip_python_stderr(err), b'')
         self.assertEqual(p.returncode, 42)
 
-    @unittest.skip("TODO: RUSTPYTHON, NotImplementedError: preexec_fn not supported yet")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_no_stdin(self):
         self._test_no_stdio(['stdin'])
 
-    @unittest.skip("TODO: RUSTPYTHON, NotImplementedError: preexec_fn not supported yet")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_no_stdout(self):
         self._test_no_stdio(['stdout'])
 
-    @unittest.skip("TODO: RUSTPYTHON, NotImplementedError: preexec_fn not supported yet")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_no_stderr(self):
         self._test_no_stdio(['stderr'])
 
-    @unittest.skip("TODO: RUSTPYTHON, NotImplementedError: preexec_fn not supported yet")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_no_std_streams(self):
         self._test_no_stdio(['stdin', 'stdout', 'stderr'])
 
@@ -771,7 +775,8 @@ class CmdLineTest(unittest.TestCase):
         self.assertEqual(proc.stdout.rstrip(), name)
         self.assertEqual(proc.returncode, 0)
 
-    @unittest.skip("TODO: RUSTPYTHON, No module named '_testcapi'")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_pythonmalloc(self):
         # Test the PYTHONMALLOC environment variable
         pymalloc = support.with_pymalloc()

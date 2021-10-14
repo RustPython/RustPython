@@ -492,7 +492,6 @@ def testfunction_kw(self, *, kw):
     return self
 
 
-@unittest.skip("TODO: RUSTPYTHON, vectorcall support")
 class TestPEP590(unittest.TestCase):
 
     # TODO: RUSTPYTHON
