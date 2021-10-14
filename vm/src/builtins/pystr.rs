@@ -11,7 +11,7 @@ use crate::{
     sliceable::PySliceableSequence,
     slots::{
         Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotConstructor,
-        SlotIterator,
+        SlotIterator, Unconstructible,
     },
     stdlib::sys,
     utils::Either,
@@ -220,7 +220,7 @@ impl PyValue for PyStrIterator {
     }
 }
 
-#[pyimpl(with(SlotIterator))]
+#[pyimpl(with(SlotConstructor, SlotIterator))]
 impl PyStrIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
@@ -244,6 +244,7 @@ impl PyStrIterator {
             .builtins_iter_reduce(|x| x.clone().into(), vm)
     }
 }
+impl Unconstructible for PyStrIterator {}
 
 impl IteratorIterable for PyStrIterator {}
 impl SlotIterator for PyStrIterator {

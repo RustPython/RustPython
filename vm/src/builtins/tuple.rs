@@ -7,7 +7,7 @@ use crate::{
     sliceable::PySliceableSequence,
     slots::{
         AsMapping, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp,
-        SlotConstructor, SlotIterator,
+        SlotConstructor, SlotIterator, Unconstructible,
     },
     stdlib::sys,
     utils::Either,
@@ -379,7 +379,7 @@ impl PyValue for PyTupleIterator {
     }
 }
 
-#[pyimpl(with(SlotIterator))]
+#[pyimpl(with(SlotConstructor, SlotIterator))]
 impl PyTupleIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
@@ -400,6 +400,7 @@ impl PyTupleIterator {
             .builtins_iter_reduce(|x| x.clone().into(), vm)
     }
 }
+impl Unconstructible for PyTupleIterator {}
 
 impl IteratorIterable for PyTupleIterator {}
 impl SlotIterator for PyTupleIterator {

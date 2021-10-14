@@ -9,8 +9,8 @@ use crate::{
     function::{ArgIterable, FuncArgs, IntoPyObject, KwArgs, OptionalArg},
     protocol::{PyIterIter, PyIterReturn, PyMappingMethods},
     slots::{
-        AsMapping, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotIterator,
-        Unhashable,
+        AsMapping, Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp,
+        SlotConstructor, SlotIterator, Unconstructible, Unhashable,
     },
     vm::{ReprGuard, VirtualMachine},
     IdProtocol, ItemProtocol,
@@ -762,7 +762,7 @@ macro_rules! dict_view {
             }
         }
 
-        #[pyimpl(with(SlotIterator))]
+        #[pyimpl(with(SlotConstructor, SlotIterator))]
         impl $iter_name {
             fn new(dict: PyDictRef) -> Self {
                 $iter_name {
@@ -776,6 +776,7 @@ macro_rules! dict_view {
                 self.internal.lock().length_hint(|_| self.size.entries_size)
             }
         }
+        impl Unconstructible for $iter_name {}
 
         impl IteratorIterable for $iter_name {}
         impl SlotIterator for $iter_name {
@@ -818,7 +819,7 @@ macro_rules! dict_view {
             }
         }
 
-        #[pyimpl(with(SlotIterator))]
+        #[pyimpl(with(SlotConstructor, SlotIterator))]
         impl $reverse_iter_name {
             fn new(dict: PyDictRef) -> Self {
                 let size = dict.size();
@@ -836,6 +837,7 @@ macro_rules! dict_view {
                     .rev_length_hint(|_| self.size.entries_size)
             }
         }
+        impl Unconstructible for $reverse_iter_name {}
 
         impl IteratorIterable for $reverse_iter_name {}
         impl SlotIterator for $reverse_iter_name {

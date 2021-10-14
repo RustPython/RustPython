@@ -9,7 +9,7 @@ use crate::{
     protocol::PyIterReturn,
     slots::{
         Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotConstructor,
-        SlotIterator, Unhashable,
+        SlotIterator, Unconstructible, Unhashable,
     },
     vm::{ReprGuard, VirtualMachine},
     IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
@@ -884,7 +884,7 @@ impl PyValue for PySetIterator {
     }
 }
 
-#[pyimpl(with(SlotIterator))]
+#[pyimpl(with(SlotConstructor, SlotIterator))]
 impl PySetIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
@@ -907,6 +907,7 @@ impl PySetIterator {
         ))
     }
 }
+impl Unconstructible for PySetIterator {}
 
 impl IteratorIterable for PySetIterator {}
 impl SlotIterator for PySetIterator {
