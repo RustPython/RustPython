@@ -4,10 +4,10 @@ pub(crate) use _winapi::make_module;
 #[pymodule]
 mod _winapi {
     use crate::{
-        stdlib::os::errno_err,
         builtins::{PyListRef, PyStrRef},
         function::{IntoPyException, OptionalArg},
         protocol::PyMapping,
+        stdlib::os::errno_err,
         ItemProtocol, PyObjectRef, PyResult, PySequence, TryFromObject, VirtualMachine,
     };
     use std::ptr::{null, null_mut};
