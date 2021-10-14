@@ -1,15 +1,33 @@
 #![allow(non_snake_case)]
 
+#[pymodule]
+mod winreg {
+    // access rights
+    #[pyattr]
+    pub use winapi::um::winnt::{
+        KEY_ALL_ACCESS, KEY_CREATE_LINK, KEY_CREATE_SUB_KEY, KEY_ENUMERATE_SUB_KEYS, KEY_EXECUTE,
+        KEY_NOTIFY, KEY_QUERY_VALUE, KEY_READ, KEY_SET_VALUE, KEY_WOW64_32KEY, KEY_WOW64_64KEY,
+        KEY_WRITE,
+    };
+    // value types
+    #[pyattr]
+    pub use winapi::um::winnt::{
+        REG_BINARY, REG_DWORD, REG_DWORD_BIG_ENDIAN, REG_DWORD_LITTLE_ENDIAN, REG_EXPAND_SZ,
+        REG_FULL_RESOURCE_DESCRIPTOR, REG_LINK, REG_MULTI_SZ, REG_NONE, REG_QWORD,
+        REG_QWORD_LITTLE_ENDIAN, REG_RESOURCE_LIST, REG_RESOURCE_REQUIREMENTS_LIST, REG_SZ,
+    };
+}
+
 use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::{
     builtins::PyStrRef, function::IntoPyException, PyClassImpl, PyObjectRef, PyRef, PyResult,
     PyValue, TryFromObject, VirtualMachine,
 };
+use ::winreg::{enums::RegType, RegKey, RegValue};
 use std::convert::TryInto;
 use std::ffi::OsStr;
 use std::io;
 use winapi::shared::winerror;
-use winreg::{enums::RegType, RegKey, RegValue};
 
 #[pyclass(module = "winreg", name = "HKEYType")]
 #[derive(Debug, PyValue)]
@@ -39,13 +57,13 @@ impl PyHKEY {
 
     #[pymethod]
     fn Close(&self) {
-        let null_key = RegKey::predef(0 as winreg::HKEY);
+        let null_key = RegKey::predef(0 as ::winreg::HKEY);
         let key = std::mem::replace(&mut *self.key_mut(), null_key);
         drop(key);
     }
     #[pymethod]
     fn Detach(&self) -> usize {
-        let null_key = RegKey::predef(0 as winreg::HKEY);
+        let null_key = RegKey::predef(0 as ::winreg::HKEY);
         let key = std::mem::replace(&mut *self.key_mut(), null_key);
         let handle = key.raw_handle();
         std::mem::forget(key);
@@ -68,13 +86,13 @@ impl PyHKEY {
 
 enum Hkey {
     PyHKEY(PyHKEYRef),
-    Constant(winreg::HKEY),
+    Constant(::winreg::HKEY),
 }
 impl TryFromObject for Hkey {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         obj.downcast()
             .map(Self::PyHKEY)
-            .or_else(|o| usize::try_from_object(vm, o).map(|i| Self::Constant(i as winreg::HKEY)))
+            .or_else(|o| usize::try_from_object(vm, o).map(|i| Self::Constant(i as ::winreg::HKEY)))
     }
 }
 impl Hkey {
@@ -104,7 +122,7 @@ struct OpenKeyArgs {
     sub_key: Option<PyStrRef>,
     #[pyarg(any, default = "0")]
     reserved: i32,
-    #[pyarg(any, default = "winreg::enums::KEY_READ")]
+    #[pyarg(any, default = "::winreg::enums::KEY_READ")]
     access: u32,
 }
 
@@ -204,7 +222,7 @@ fn winreg_SetValue(
     value: PyStrRef,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
-    if typ != winreg::enums::REG_SZ as u32 {
+    if typ != winreg::REG_SZ as u32 {
         return Err(vm.new_type_error("type must be winreg.REG_SZ".to_owned()));
     }
     let subkey = subkey.as_ref().map_or("", |s| s.as_str());
@@ -284,9 +302,10 @@ fn reg_to_py(value: RegValue, vm: &VirtualMachine) -> PyResult {
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+    let module = winreg::make_module(vm);
     let ctx = &vm.ctx;
     let hkey_type = PyHKEY::make_class(ctx);
-    let module = py_module!(vm, "winreg", {
+    extend_module!(vm, module, {
         "HKEYType" => hkey_type,
         "OpenKey" => named_function!(ctx, winreg, OpenKey),
         "OpenKeyEx" => named_function!(ctx, winreg, OpenKey),
@@ -301,20 +320,14 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     });
 
     macro_rules! add_constants {
-        (hkey, $($name:ident),*$(,)?) => {
+        ($($name:ident),*$(,)?) => {
             extend_module!(vm, module, {
-                $((stringify!($name)) => vm.new_pyobj(winreg::enums::$name as usize)),*
-            })
-        };
-        (winnt, $($name:ident),*$(,)?) => {
-            extend_module!(vm, module, {
-                $((stringify!($name)) => vm.new_pyobj(winapi::um::winnt::$name)),*
+                $((stringify!($name)) => vm.new_pyobj(::winreg::enums::$name as usize)),*
             })
         };
     }
 
     add_constants!(
-        hkey,
         HKEY_CLASSES_ROOT,
         HKEY_CURRENT_USER,
         HKEY_LOCAL_MACHINE,
@@ -323,37 +336,5 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         HKEY_CURRENT_CONFIG,
         HKEY_DYN_DATA,
     );
-    add_constants!(
-        winnt,
-        // access rights
-        KEY_ALL_ACCESS,
-        KEY_WRITE,
-        KEY_READ,
-        KEY_EXECUTE,
-        KEY_QUERY_VALUE,
-        KEY_SET_VALUE,
-        KEY_CREATE_SUB_KEY,
-        KEY_ENUMERATE_SUB_KEYS,
-        KEY_NOTIFY,
-        KEY_CREATE_LINK,
-        KEY_WOW64_64KEY,
-        KEY_WOW64_32KEY,
-        // value types
-        REG_BINARY,
-        REG_DWORD,
-        REG_DWORD_LITTLE_ENDIAN,
-        REG_DWORD_BIG_ENDIAN,
-        REG_EXPAND_SZ,
-        REG_LINK,
-        REG_MULTI_SZ,
-        REG_NONE,
-        REG_QWORD,
-        REG_QWORD_LITTLE_ENDIAN,
-        REG_RESOURCE_LIST,
-        REG_FULL_RESOURCE_DESCRIPTOR,
-        REG_RESOURCE_REQUIREMENTS_LIST,
-        REG_SZ,
-    );
-
     module
 }
