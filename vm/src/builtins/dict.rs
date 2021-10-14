@@ -957,16 +957,17 @@ trait ViewSetOps: DictView {
 }
 
 impl ViewSetOps for PyDictKeys {}
-#[pyimpl(with(DictView, Comparable, Iterable, ViewSetOps))]
+#[pyimpl(with(DictView, Constructor, Comparable, Iterable, ViewSetOps))]
 impl PyDictKeys {
     #[pymethod(magic)]
     fn contains(zelf: PyRef<Self>, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         zelf.dict().contains(key, vm)
     }
 }
+impl Unconstructible for PyDictKeys {}
 
 impl ViewSetOps for PyDictItems {}
-#[pyimpl(with(DictView, Comparable, Iterable, ViewSetOps))]
+#[pyimpl(with(DictView, Constructor, Comparable, Iterable, ViewSetOps))]
 impl PyDictItems {
     #[pymethod(magic)]
     fn contains(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
@@ -988,9 +989,11 @@ impl PyDictItems {
         vm.identical_or_equal(&found, &value)
     }
 }
+impl Unconstructible for PyDictItems {}
 
-#[pyimpl(with(DictView, Comparable, Iterable))]
+#[pyimpl(with(DictView, Constructor, Comparable, Iterable))]
 impl PyDictValues {}
+impl Unconstructible for PyDictValues {}
 
 pub(crate) fn init(context: &PyContext) {
     PyDict::extend_class(context, &context.types.dict_type);

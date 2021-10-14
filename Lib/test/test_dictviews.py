@@ -6,8 +6,6 @@ import unittest
 
 class DictSetTest(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_constructors_not_callable(self):
         kt = type({}.keys())
         self.assertRaises(TypeError, kt, {})
@@ -231,8 +229,6 @@ class DictSetTest(unittest.TestCase):
             d = {42: d.values()}
         self.assertRaises(RecursionError, repr, d)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_copy(self):
         d = {1: 10, "a": "ABC"}
         self.assertRaises(TypeError, copy.copy, d.keys())
