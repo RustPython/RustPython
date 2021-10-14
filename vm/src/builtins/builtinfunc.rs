@@ -2,7 +2,7 @@ use super::{pytype, PyClassMethod, PyStr, PyStrRef, PyTypeRef};
 use crate::{
     builtins::PyBoundMethod,
     function::{FuncArgs, IntoPyNativeFunc, PyNativeFunc},
-    types::{Callable, GetDescriptor},
+    types::{Callable, Constructor, GetDescriptor, Unconstructible},
     PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
 use std::fmt;
@@ -99,7 +99,7 @@ impl Callable for PyBuiltinFunction {
     }
 }
 
-#[pyimpl(with(Callable), flags(HAS_DICT))]
+#[pyimpl(with(Callable, Constructor), flags(HAS_DICT))]
 impl PyBuiltinFunction {
     #[pyproperty(magic)]
     fn module(&self, vm: &VirtualMachine) -> PyObjectRef {
@@ -142,6 +142,7 @@ impl PyBuiltinFunction {
         })
     }
 }
+impl Unconstructible for PyBuiltinFunction {}
 
 // `PyBuiltinMethod` is similar to both `PyMethodDescrObject` in
 // https://github.com/python/cpython/blob/main/Include/descrobject.h
@@ -207,7 +208,7 @@ impl PyBuiltinMethod {
     }
 }
 
-#[pyimpl(with(GetDescriptor, Callable), flags(METHOD_DESCR))]
+#[pyimpl(with(GetDescriptor, Callable, Constructor), flags(METHOD_DESCR))]
 impl PyBuiltinMethod {
     #[pyproperty(magic)]
     fn name(&self) -> PyStrRef {
@@ -237,6 +238,7 @@ impl PyBuiltinMethod {
         )
     }
 }
+impl Unconstructible for PyBuiltinMethod {}
 
 pub fn init(context: &PyContext) {
     PyBuiltinFunction::extend_class(context, &context.types.builtin_function_or_method_type);

@@ -4,7 +4,7 @@ use crate::{
     frame::FrameRef,
     function::OptionalArg,
     protocol::PyIterReturn,
-    types::{IterNext, IterNextIterable},
+    types::{Constructor, IterNext, IterNextIterable, Unconstructible},
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 
@@ -21,7 +21,7 @@ impl PyValue for PyCoroutine {
     }
 }
 
-#[pyimpl(with(IterNext))]
+#[pyimpl(with(Constructor, IterNext))]
 impl PyCoroutine {
     pub fn as_coro(&self) -> &Coro {
         &self.inner
@@ -103,6 +103,7 @@ impl PyCoroutine {
         None
     }
 }
+impl Unconstructible for PyCoroutine {}
 
 impl IterNextIterable for PyCoroutine {}
 impl IterNext for PyCoroutine {
