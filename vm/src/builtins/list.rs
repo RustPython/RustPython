@@ -333,8 +333,14 @@ impl PyList {
                         }
                     } else {
                         match needle_cmp(needle, elem, PyComparisonOp::Eq, vm)? {
-                            Either::B(PyComparisonValue::Implemented(value)) => value,
+                            Either::B(PyComparisonValue::Implemented(value)) => {
+                                drop(elem_cls);
+                                borrower = Some(guard);
+                                value
+                            }
                             Either::A(obj) if !obj.is(&vm.ctx.not_implemented) => {
+                                drop(elem_cls);
+                                borrower = Some(guard);
                                 obj.try_to_bool(vm)?
                             }
                             _ => {
