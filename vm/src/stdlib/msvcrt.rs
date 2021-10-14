@@ -2,10 +2,10 @@ pub use msvcrt::*;
 
 #[pymodule]
 mod msvcrt {
-    use super::os::errno_err;
     use crate::{
         builtins::{PyBytes, PyStrRef},
-        suppress_iph, PyObjectRef, PyRef, PyResult, VirtualMachine,
+        stdlib::os::errno_err,
+        suppress_iph, PyRef, PyResult, VirtualMachine,
     };
     use itertools::Itertools;
     use winapi::{
