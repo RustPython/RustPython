@@ -1876,8 +1876,6 @@ impl VirtualMachine {
         op: PyComparisonOp,
     ) -> PyResult<Either<PyObjectRef, bool>> {
         let swapped = op.swapped();
-        // TODO: _Py_EnterRecursiveCall(tstate, " in comparison")
-
         let call_cmp = |obj: &PyObjectRef, other, op| {
             let cmp = obj
                 .class()
@@ -1896,17 +1894,19 @@ impl VirtualMachine {
             !v_class.is(&w_class) && w_class.issubclass(&v_class)
         };
         if is_strict_subclass {
-            let res = call_cmp(w, v, swapped)?;
+            let res = self.with_recursion("in comparison", || call_cmp(w, v, swapped))?;
             checked_reverse_op = true;
             if let PyArithmeticValue::Implemented(x) = res {
                 return Ok(x);
             }
         }
-        if let PyArithmeticValue::Implemented(x) = call_cmp(v, w, op)? {
+        if let PyArithmeticValue::Implemented(x) =
+            self.with_recursion("in comparison", || call_cmp(v, w, op))?
+        {
             return Ok(x);
         }
         if !checked_reverse_op {
-            let res = call_cmp(w, v, swapped)?;
+            let res = self.with_recursion("in comparison", || call_cmp(w, v, swapped))?;
             if let PyArithmeticValue::Implemented(x) = res {
                 return Ok(x);
             }
@@ -1916,7 +1916,6 @@ impl VirtualMachine {
             PyComparisonOp::Ne => Ok(Either::B(!v.is(&w))),
             _ => Err(self.new_unsupported_binop_error(v, w, op.operator_token())),
         }
-        // TODO: _Py_LeaveRecursiveCall(tstate);
     }
 
     pub fn bool_cmp(&self, a: &PyObjectRef, b: &PyObjectRef, op: PyComparisonOp) -> PyResult<bool> {
