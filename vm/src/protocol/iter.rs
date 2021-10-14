@@ -129,16 +129,6 @@ impl TryFromObject for PyIter<PyObjectRef> {
     }
 }
 
-impl PyObjectRef {
-    /// Takes an object and returns an iterator for it.
-    /// This is typically a new iterator but if the argument is an iterator, this
-    /// returns itself.
-    pub fn get_iter(self, vm: &VirtualMachine) -> PyResult<PyIter> {
-        // PyObject_GetIter
-        PyIter::try_from_object(vm, self)
-    }
-}
-
 pub enum PyIterReturn<T = PyObjectRef> {
     Return(T),
     StopIteration(Option<PyObjectRef>),

@@ -502,6 +502,8 @@ where
     fn slot_hash(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<PyHash> {
         Err(vm.new_type_error(format!("unhashable type: '{}'", zelf.class().name())))
     }
+
+    #[cold]
     fn hash(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyHash> {
         unreachable!("slot_hash is implemented for unhashable types");
     }
