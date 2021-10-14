@@ -127,7 +127,7 @@ impl Default for PyTypeFlags {
     }
 }
 
-pub(crate) type GenericMethod = fn(&PyObjectRef, FuncArgs, &VirtualMachine) -> PyResult;
+pub(crate) type GenericMethod = fn(PyObjectPtr, FuncArgs, &VirtualMachine) -> PyResult;
 pub(crate) type AsMappingFunc = fn(&PyObjectRef, &VirtualMachine) -> PyMappingMethods;
 pub(crate) type HashFunc = fn(PyObjectPtr, &VirtualMachine) -> PyResult<PyHash>;
 // CallFunc = GenericMethod
@@ -200,8 +200,8 @@ fn hash_wrapper(zelf: PyObjectPtr, vm: &VirtualMachine) -> PyResult<PyHash> {
     }
 }
 
-fn call_wrapper(zelf: &PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-    vm.call_special_method(zelf.clone(), "__call__", args)
+fn call_wrapper(zelf: PyObjectPtr, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    vm.call_special_method((*zelf).clone(), "__call__", args)
 }
 
 fn getattro_wrapper(zelf: PyObjectRef, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
@@ -385,7 +385,7 @@ pub trait Callable: PyValue {
 
     #[inline]
     #[pyslot]
-    fn slot_call(zelf: &PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn slot_call(zelf: PyObjectPtr, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         if let Some(zelf) = zelf.downcast_ref() {
             Self::call(zelf, args.bind(vm)?, vm)
         } else {
@@ -395,8 +395,8 @@ pub trait Callable: PyValue {
 
     #[inline]
     #[pymethod]
-    fn __call__(zelf: PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        Self::call(&zelf, args.bind(vm)?, vm)
+    fn __call__(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        zelf.with_ptr(|zelf| Self::slot_call(zelf, args.bind(vm)?, vm))
     }
     fn call(zelf: &PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult;
 }
