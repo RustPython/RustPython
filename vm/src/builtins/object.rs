@@ -3,7 +3,7 @@ use crate::common::hash::PyHash;
 use crate::{
     function::FuncArgs, types::PyComparisonOp, utils::Either, IdProtocol, ItemProtocol,
     PyArithmeticValue, PyAttributes, PyClassImpl, PyComparisonValue, PyContext, PyObject,
-    PyObjectRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
+    PyObjectPtr, PyObjectRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
 
 /// object()
@@ -296,14 +296,14 @@ impl PyBaseObject {
     }
 
     #[pyslot]
-    fn slot_hash(zelf: &PyObjectRef, _vm: &VirtualMachine) -> PyResult<PyHash> {
+    fn slot_hash(zelf: PyObjectPtr, _vm: &VirtualMachine) -> PyResult<PyHash> {
         Ok(zelf.get_id() as _)
     }
 
     /// Return hash(self).
     #[pymethod(magic)]
     fn hash(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyHash> {
-        Self::slot_hash(&zelf, vm)
+        zelf.with_ptr(|zelf| Self::slot_hash(zelf, vm))
     }
 }
 

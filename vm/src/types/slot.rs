@@ -4,8 +4,8 @@ use crate::{
     function::{FromArgs, FuncArgs, IntoPyResult, OptionalArg},
     protocol::{PyBuffer, PyIterReturn, PyMappingMethods},
     utils::Either,
-    IdProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
-    VirtualMachine,
+    IdProtocol, PyComparisonValue, PyObjectPtr, PyObjectRef, PyRef, PyResult, PyValue,
+    TypeProtocol, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::ToPrimitive;
@@ -129,7 +129,7 @@ impl Default for PyTypeFlags {
 
 pub(crate) type GenericMethod = fn(&PyObjectRef, FuncArgs, &VirtualMachine) -> PyResult;
 pub(crate) type AsMappingFunc = fn(&PyObjectRef, &VirtualMachine) -> PyMappingMethods;
-pub(crate) type HashFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<PyHash>;
+pub(crate) type HashFunc = fn(PyObjectPtr, &VirtualMachine) -> PyResult<PyHash>;
 // CallFunc = GenericMethod
 pub(crate) type GetattroFunc = fn(PyObjectRef, PyStrRef, &VirtualMachine) -> PyResult;
 pub(crate) type SetattroFunc =
@@ -192,8 +192,8 @@ fn as_mapping_wrapper(zelf: &PyObjectRef, _vm: &VirtualMachine) -> PyMappingMeth
     }
 }
 
-fn hash_wrapper(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<PyHash> {
-    let hash_obj = vm.call_special_method(zelf.clone(), "__hash__", ())?;
+fn hash_wrapper(zelf: PyObjectPtr, vm: &VirtualMachine) -> PyResult<PyHash> {
+    let hash_obj = vm.call_special_method((*zelf).clone(), "__hash__", ())?;
     match hash_obj.payload_if_subclass::<PyInt>(vm) {
         Some(py_int) => Ok(rustpython_common::hash::hash_bigint(py_int.as_bigint())),
         None => Err(vm.new_type_error("__hash__ method should return an integer".to_owned())),
@@ -476,7 +476,7 @@ pub trait GetDescriptor: PyValue {
 pub trait Hashable: PyValue {
     #[inline]
     #[pyslot]
-    fn slot_hash(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<PyHash> {
+    fn slot_hash(zelf: PyObjectPtr, vm: &VirtualMachine) -> PyResult<PyHash> {
         if let Some(zelf) = zelf.downcast_ref() {
             Self::hash(zelf, vm)
         } else {
@@ -487,7 +487,7 @@ pub trait Hashable: PyValue {
     #[inline]
     #[pymethod]
     fn __hash__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyHash> {
-        Self::slot_hash(&zelf, vm)
+        zelf.with_ptr(|zelf| Self::slot_hash(zelf, vm))
     }
 
     fn hash(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash>;
@@ -499,7 +499,7 @@ impl<T> Hashable for T
 where
     T: Unhashable,
 {
-    fn slot_hash(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<PyHash> {
+    fn slot_hash(zelf: PyObjectPtr, vm: &VirtualMachine) -> PyResult<PyHash> {
         Err(vm.new_type_error(format!("unhashable type: '{}'", zelf.class().name())))
     }
 

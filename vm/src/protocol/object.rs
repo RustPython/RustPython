@@ -230,7 +230,7 @@ impl PyObjectRef {
             .class()
             .mro_find_map(|cls| cls.slots.hash.load())
             .unwrap(); // hash always exist
-        hash(self, vm)
+        self.with_ptr(|zelf| hash(zelf, vm))
     }
 
     // const hash_not_implemented: fn(&PyObjectRef, &VirtualMachine) ->PyResult<PyHash> = crate::types::Unhashable::slot_hash;

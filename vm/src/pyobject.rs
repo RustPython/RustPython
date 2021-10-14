@@ -3,7 +3,9 @@ use crate::common::{
     rc::PyRc,
     static_cell,
 };
-pub use crate::pyobjectrc::{PyObject, PyObjectRef, PyObjectWeak, PyObjectWrap, PyRef, PyWeakRef};
+pub use crate::pyobjectrc::{
+    PyObject, PyObjectPtr, PyObjectRef, PyObjectWeak, PyObjectWrap, PyRef, PyWeakRef,
+};
 use crate::{
     builtins::{
         builtinfunc::{PyBuiltinFunction, PyBuiltinMethod, PyNativeFuncDef},
