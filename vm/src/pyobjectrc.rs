@@ -363,9 +363,9 @@ impl Drop for PyObjectRef {
 
         // CPython-compatible drop implementation
         let zelf = self.clone();
-        if let Some(del_slot) = self.class().mro_find_map(|cls| cls.slots.del.load()) {
+        if let Some(slot_del) = self.class().mro_find_map(|cls| cls.slots.del.load()) {
             let ret = crate::vm::thread::with_vm(&zelf, |vm| {
-                if let Err(e) = del_slot(&zelf, vm) {
+                if let Err(e) = zelf.with_ptr(|zelf| slot_del(zelf, vm)) {
                     print_del_error(e, &zelf, vm);
                 }
             });

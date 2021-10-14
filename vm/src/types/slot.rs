@@ -148,7 +148,7 @@ pub(crate) type DescrGetFunc =
 pub(crate) type DescrSetFunc =
     fn(PyObjectRef, PyObjectRef, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>;
 pub(crate) type NewFunc = fn(PyTypeRef, FuncArgs, &VirtualMachine) -> PyResult;
-pub(crate) type DelFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<()>;
+pub(crate) type DelFunc = fn(PyObjectPtr, &VirtualMachine) -> PyResult<()>;
 
 fn as_mapping_wrapper(zelf: &PyObjectRef, _vm: &VirtualMachine) -> PyMappingMethods {
     macro_rules! then_some_closure {
@@ -273,8 +273,8 @@ fn new_wrapper(cls: PyTypeRef, mut args: FuncArgs, vm: &VirtualMachine) -> PyRes
     vm.invoke(&new, args)
 }
 
-fn del_wrapper(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-    vm.call_special_method(zelf.clone(), "__del__", ())?;
+fn del_wrapper(zelf: PyObjectPtr, vm: &VirtualMachine) -> PyResult<()> {
+    vm.call_special_method((*zelf).clone(), "__del__", ())?;
     Ok(())
 }
 
@@ -363,7 +363,7 @@ where
 pub trait Destructor: PyValue {
     #[inline] // for __del__
     #[pyslot]
-    fn slot_del(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn slot_del(zelf: PyObjectPtr, vm: &VirtualMachine) -> PyResult<()> {
         if let Some(zelf) = zelf.downcast_ref() {
             Self::del(zelf, vm)
         } else {
@@ -373,7 +373,7 @@ pub trait Destructor: PyValue {
 
     #[pymethod]
     fn __del__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        Self::slot_del(&zelf, vm)
+        zelf.with_ptr(|zelf| Self::slot_del(zelf, vm))
     }
 
     fn del(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<()>;

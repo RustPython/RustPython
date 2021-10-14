@@ -89,7 +89,7 @@ mod _io {
         types::{Constructor, Destructor, IterNext, Iterable},
         utils::Either,
         vm::{ReprGuard, VirtualMachine},
-        IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
+        IdProtocol, PyContext, PyObjectPtr, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
         TryFromBorrowedObject, TryFromObject, TypeProtocol,
     };
     use bstr::ByteSlice;
@@ -502,8 +502,8 @@ mod _io {
     }
 
     impl Destructor for _IOBase {
-        fn slot_del(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            let _ = vm.call_method(zelf, "close", ());
+        fn slot_del(zelf: PyObjectPtr, vm: &VirtualMachine) -> PyResult<()> {
+            let _ = vm.call_method(&*zelf, "close", ());
             Ok(())
         }
 
