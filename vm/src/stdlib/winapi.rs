@@ -1,5 +1,27 @@
 #![allow(non_snake_case)]
 
+#[pymodule]
+mod _winapi {
+    #[pyattr]
+    use winapi::{
+        shared::winerror::WAIT_TIMEOUT,
+        um::{
+            winbase::{
+                ABOVE_NORMAL_PRIORITY_CLASS, BELOW_NORMAL_PRIORITY_CLASS,
+                CREATE_BREAKAWAY_FROM_JOB, CREATE_DEFAULT_ERROR_MODE, CREATE_NEW_CONSOLE,
+                CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW, DETACHED_PROCESS, FILE_TYPE_CHAR,
+                FILE_TYPE_DISK, FILE_TYPE_PIPE, FILE_TYPE_REMOTE, FILE_TYPE_UNKNOWN,
+                HIGH_PRIORITY_CLASS, IDLE_PRIORITY_CLASS, INFINITE, NORMAL_PRIORITY_CLASS,
+                REALTIME_PRIORITY_CLASS, STARTF_USESHOWWINDOW, STARTF_USESTDHANDLES,
+                STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, WAIT_ABANDONED,
+                WAIT_ABANDONED_0, WAIT_OBJECT_0,
+            },
+            winnt::DUPLICATE_SAME_ACCESS,
+            winuser::SW_HIDE,
+        },
+    };
+}
+
 use super::os::errno_err;
 use crate::{
     builtins::{PyListRef, PyStrRef},
@@ -10,8 +32,8 @@ use crate::{
 use std::ptr::{null, null_mut};
 use winapi::shared::winerror;
 use winapi::um::{
-    fileapi, handleapi, namedpipeapi, processenv, processthreadsapi, synchapi, winbase, winnt,
-    winnt::HANDLE, winuser,
+    fileapi, handleapi, namedpipeapi, processenv, processthreadsapi, synchapi, winbase,
+    winnt::HANDLE,
 };
 
 fn GetLastError() -> u32 {
@@ -354,8 +376,9 @@ fn _winapi_TerminateProcess(h: usize, exit_code: u32, vm: &VirtualMachine) -> Py
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+    let module = _winapi::make_module(vm);
     let ctx = &vm.ctx;
-    py_module!(vm, "_winapi", {
+    extend_module!(vm, module, {
         "CloseHandle" => named_function!(ctx, _winapi, CloseHandle),
         "GetStdHandle" => named_function!(ctx, _winapi, GetStdHandle),
         "CreatePipe" => named_function!(ctx, _winapi, CreatePipe),
@@ -365,35 +388,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "WaitForSingleObject" => named_function!(ctx, _winapi, WaitForSingleObject),
         "GetExitCodeProcess" => named_function!(ctx, _winapi, GetExitCodeProcess),
         "TerminateProcess" => named_function!(ctx, _winapi, TerminateProcess),
-
-        "WAIT_OBJECT_0" => ctx.new_int(winbase::WAIT_OBJECT_0),
-        "WAIT_ABANDONED" => ctx.new_int(winbase::WAIT_ABANDONED),
-        "WAIT_ABANDONED_0" => ctx.new_int(winbase::WAIT_ABANDONED_0),
-        "WAIT_TIMEOUT" => ctx.new_int(winerror::WAIT_TIMEOUT),
-        "INFINITE" => ctx.new_int(winbase::INFINITE),
-        "CREATE_NEW_CONSOLE" => ctx.new_int(winbase::CREATE_NEW_CONSOLE),
-        "CREATE_NEW_PROCESS_GROUP" => ctx.new_int(winbase::CREATE_NEW_PROCESS_GROUP),
-        "STD_INPUT_HANDLE" => ctx.new_int(winbase::STD_INPUT_HANDLE),
-        "STD_OUTPUT_HANDLE" => ctx.new_int(winbase::STD_OUTPUT_HANDLE),
-        "STD_ERROR_HANDLE" => ctx.new_int(winbase::STD_ERROR_HANDLE),
-        "SW_HIDE" => ctx.new_int(winuser::SW_HIDE),
-        "STARTF_USESTDHANDLES" => ctx.new_int(winbase::STARTF_USESTDHANDLES),
-        "STARTF_USESHOWWINDOW" => ctx.new_int(winbase::STARTF_USESHOWWINDOW),
-        "ABOVE_NORMAL_PRIORITY_CLASS" => ctx.new_int(winbase::ABOVE_NORMAL_PRIORITY_CLASS),
-        "BELOW_NORMAL_PRIORITY_CLASS" => ctx.new_int(winbase::BELOW_NORMAL_PRIORITY_CLASS),
-        "HIGH_PRIORITY_CLASS" => ctx.new_int(winbase::HIGH_PRIORITY_CLASS),
-        "IDLE_PRIORITY_CLASS" => ctx.new_int(winbase::IDLE_PRIORITY_CLASS),
-        "NORMAL_PRIORITY_CLASS" => ctx.new_int(winbase::NORMAL_PRIORITY_CLASS),
-        "REALTIME_PRIORITY_CLASS" => ctx.new_int(winbase::REALTIME_PRIORITY_CLASS),
-        "CREATE_NO_WINDOW" => ctx.new_int(winbase::CREATE_NO_WINDOW),
-        "DETACHED_PROCESS" => ctx.new_int(winbase::DETACHED_PROCESS),
-        "CREATE_DEFAULT_ERROR_MODE" => ctx.new_int(winbase::CREATE_DEFAULT_ERROR_MODE),
-        "CREATE_BREAKAWAY_FROM_JOB" => ctx.new_int(winbase::CREATE_BREAKAWAY_FROM_JOB),
-        "DUPLICATE_SAME_ACCESS" => ctx.new_int(winnt::DUPLICATE_SAME_ACCESS),
-        "FILE_TYPE_CHAR" => ctx.new_int(winbase::FILE_TYPE_CHAR),
-        "FILE_TYPE_DISK" => ctx.new_int(winbase::FILE_TYPE_DISK),
-        "FILE_TYPE_PIPE" => ctx.new_int(winbase::FILE_TYPE_PIPE),
-        "FILE_TYPE_REMOTE" => ctx.new_int(winbase::FILE_TYPE_REMOTE),
-        "FILE_TYPE_UNKNOWN" => ctx.new_int(winbase::FILE_TYPE_UNKNOWN),
-    })
+    });
+    module
 }
