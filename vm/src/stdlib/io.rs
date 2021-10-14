@@ -525,8 +525,8 @@ mod _io {
     }
 
     impl IterNext for _IOBase {
-        fn slot_iternext(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            let line = vm.call_method(zelf, "readline", ())?;
+        fn slot_iternext(zelf: PyObjectPtr, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+            let line = vm.call_method(&*zelf, "readline", ())?;
             Ok(if !line.clone().try_to_bool(vm)? {
                 PyIterReturn::StopIteration(None)
             } else {

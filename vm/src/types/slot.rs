@@ -142,7 +142,7 @@ pub(crate) type RichCompareFunc = fn(
     &VirtualMachine,
 ) -> PyResult<Either<PyObjectRef, PyComparisonValue>>;
 pub(crate) type IterFunc = fn(PyObjectRef, &VirtualMachine) -> PyResult;
-pub(crate) type IterNextFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<PyIterReturn>;
+pub(crate) type IterNextFunc = fn(PyObjectPtr, &VirtualMachine) -> PyResult<PyIterReturn>;
 pub(crate) type DescrGetFunc =
     fn(PyObjectRef, Option<PyObjectRef>, Option<PyObjectRef>, &VirtualMachine) -> PyResult;
 pub(crate) type DescrSetFunc =
@@ -239,8 +239,8 @@ fn iter_wrapper(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     vm.call_special_method(zelf, "__iter__", ())
 }
 
-fn iternext_wrapper(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-    PyIterReturn::from_pyresult(vm.call_special_method(zelf.clone(), "__next__", ()), vm)
+fn iternext_wrapper(zelf: PyObjectPtr, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    PyIterReturn::from_pyresult(vm.call_special_method((*zelf).clone(), "__next__", ()), vm)
 }
 
 fn descr_get_wrapper(
@@ -828,7 +828,7 @@ pub trait Iterable: PyValue {
 #[pyimpl(with(Iterable))]
 pub trait IterNext: PyValue + Iterable {
     #[pyslot]
-    fn slot_iternext(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn slot_iternext(zelf: PyObjectPtr, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         if let Some(zelf) = zelf.downcast_ref() {
             Self::next(zelf, vm)
         } else {
@@ -841,7 +841,8 @@ pub trait IterNext: PyValue + Iterable {
     #[inline]
     #[pymethod]
     fn __next__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Self::slot_iternext(&zelf, vm).into_pyresult(vm)
+        zelf.with_ptr(|zelf| Self::slot_iternext(zelf, vm))
+            .into_pyresult(vm)
     }
 }
 
