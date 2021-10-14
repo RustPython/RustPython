@@ -12,9 +12,9 @@ mod _collections {
         function::{FuncArgs, KwArgs, OptionalArg},
         protocol::PyIterReturn,
         sequence, sliceable,
-        slots::{
-            Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotConstructor,
-            SlotIterator, Unhashable,
+        types::{
+            Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable,
+            PyComparisonOp, Unhashable,
         },
         vm::ReprGuard,
         PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
@@ -572,7 +572,7 @@ mod _collections {
         index: OptionalArg<isize>,
     }
 
-    impl SlotConstructor for PyDequeIterator {
+    impl Constructor for PyDequeIterator {
         type Args = (DequeIterArgs, KwArgs);
 
         fn py_new(
@@ -589,7 +589,7 @@ mod _collections {
         }
     }
 
-    #[pyimpl(with(SlotIterator, SlotConstructor))]
+    #[pyimpl(with(IterNext, Constructor))]
     impl PyDequeIterator {
         pub(crate) fn new(deque: PyDequeRef) -> Self {
             PyDequeIterator {
@@ -620,8 +620,8 @@ mod _collections {
         }
     }
 
-    impl IteratorIterable for PyDequeIterator {}
-    impl SlotIterator for PyDequeIterator {
+    impl IterNextIterable for PyDequeIterator {}
+    impl IterNext for PyDequeIterator {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             zelf.internal.lock().next(|deque, pos| {
                 if zelf.state != deque.state.load() {
@@ -645,7 +645,7 @@ mod _collections {
         internal: PyMutex<PositionIterInternal<PyDequeRef>>,
     }
 
-    impl SlotConstructor for PyReverseDequeIterator {
+    impl Constructor for PyReverseDequeIterator {
         type Args = (DequeIterArgs, KwArgs);
 
         fn py_new(
@@ -663,7 +663,7 @@ mod _collections {
         }
     }
 
-    #[pyimpl(with(SlotIterator, SlotConstructor))]
+    #[pyimpl(with(IterNext, Constructor))]
     impl PyReverseDequeIterator {
         #[pymethod(magic)]
         fn length_hint(&self) -> usize {
@@ -687,8 +687,8 @@ mod _collections {
         }
     }
 
-    impl IteratorIterable for PyReverseDequeIterator {}
-    impl SlotIterator for PyReverseDequeIterator {
+    impl IterNextIterable for PyReverseDequeIterator {}
+    impl IterNext for PyReverseDequeIterator {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             zelf.internal.lock().next(|deque, pos| {
                 if deque.state.load() != zelf.state {

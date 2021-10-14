@@ -1,4 +1,4 @@
-use crate::slots::PyComparisonOp;
+use crate::types::PyComparisonOp;
 use crate::vm::VirtualMachine;
 use crate::{PyObjectRef, PyResult};
 

@@ -32,11 +32,11 @@ pub mod module {
     use crate::{
         builtins::{PyDictRef, PyInt, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
         function::{IntoPyException, IntoPyObject, OptionalArg},
-        slots::SlotConstructor,
         stdlib::os::{
             errno_err, DirFd, FollowSymlinks, PathOrFd, PyPathLike, SupportFunc, TargetIsDirectory,
             _os, fs_metadata, IOErrorBuilder,
         },
+        types::Constructor,
         utils::{Either, ToCString},
         ItemProtocol, PyObjectRef, PyResult, PyValue, TryFromObject, VirtualMachine,
     };
@@ -462,7 +462,7 @@ pub mod module {
         }
     }
 
-    #[pyimpl(with(SlotConstructor))]
+    #[pyimpl(with(Constructor))]
     impl SchedParam {
         #[pyproperty]
         fn sched_priority(&self, vm: &VirtualMachine) -> PyObjectRef {
@@ -504,7 +504,7 @@ pub mod module {
     pub struct SchedParamArg {
         sched_priority: PyObjectRef,
     }
-    impl SlotConstructor for SchedParam {
+    impl Constructor for SchedParam {
         type Args = SchedParamArg;
         fn py_new(cls: PyTypeRef, arg: Self::Args, vm: &VirtualMachine) -> PyResult {
             SchedParam {

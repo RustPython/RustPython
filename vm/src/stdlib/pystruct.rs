@@ -19,7 +19,7 @@ pub(crate) mod _struct {
         common::str::wchar_t,
         function::{ArgBytesLike, ArgIntoBool, ArgMemoryBuffer, IntoPyObject, PosArgs},
         protocol::PyIterReturn,
-        slots::{IteratorIterable, SlotConstructor, SlotIterator},
+        types::{Constructor, IterNext, IterNextIterable},
         PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
@@ -843,15 +843,15 @@ pub(crate) mod _struct {
         }
     }
 
-    #[pyimpl(with(SlotIterator))]
+    #[pyimpl(with(IterNext))]
     impl UnpackIterator {
         #[pymethod(magic)]
         fn length_hint(&self) -> usize {
             self.buffer.len().saturating_sub(self.offset.load()) / self.format_spec.size
         }
     }
-    impl IteratorIterable for UnpackIterator {}
-    impl SlotIterator for UnpackIterator {
+    impl IterNextIterable for UnpackIterator {}
+    impl IterNext for UnpackIterator {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let size = zelf.format_spec.size;
             let offset = zelf.offset.fetch_add(size);
@@ -890,7 +890,7 @@ pub(crate) mod _struct {
         format: PyStrRef,
     }
 
-    impl SlotConstructor for PyStruct {
+    impl Constructor for PyStruct {
         type Args = IntoStructFormatBytes;
 
         fn py_new(cls: PyTypeRef, fmt: Self::Args, vm: &VirtualMachine) -> PyResult {
@@ -900,7 +900,7 @@ pub(crate) mod _struct {
         }
     }
 
-    #[pyimpl(with(SlotConstructor))]
+    #[pyimpl(with(Constructor))]
     impl PyStruct {
         #[pyproperty]
         fn format(&self) -> PyStrRef {

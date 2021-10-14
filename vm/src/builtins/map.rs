@@ -2,7 +2,7 @@ use super::PyTypeRef;
 use crate::{
     function::PosArgs,
     protocol::{PyIter, PyIterReturn},
-    slots::{IteratorIterable, SlotConstructor, SlotIterator},
+    types::{Constructor, IterNext, IterNextIterable},
     PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 
@@ -23,7 +23,7 @@ impl PyValue for PyMap {
     }
 }
 
-impl SlotConstructor for PyMap {
+impl Constructor for PyMap {
     type Args = (PyObjectRef, PosArgs<PyIter>);
 
     fn py_new(cls: PyTypeRef, (mapper, iterators): Self::Args, vm: &VirtualMachine) -> PyResult {
@@ -32,7 +32,7 @@ impl SlotConstructor for PyMap {
     }
 }
 
-#[pyimpl(with(SlotIterator, SlotConstructor), flags(BASETYPE))]
+#[pyimpl(with(IterNext, Constructor), flags(BASETYPE))]
 impl PyMap {
     #[pymethod(magic)]
     fn length_hint(&self, vm: &VirtualMachine) -> PyResult<usize> {
@@ -44,8 +44,8 @@ impl PyMap {
     }
 }
 
-impl IteratorIterable for PyMap {}
-impl SlotIterator for PyMap {
+impl IterNextIterable for PyMap {}
+impl IterNext for PyMap {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let mut next_objs = Vec::new();
         for iterator in zelf.iterators.iter() {

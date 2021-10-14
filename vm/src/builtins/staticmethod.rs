@@ -2,7 +2,7 @@ use super::{PyStr, PyTypeRef};
 use crate::{
     builtins::builtinfunc::PyBuiltinMethod,
     function::IntoPyNativeFunc,
-    slots::{SlotConstructor, SlotDescriptor},
+    types::{Constructor, GetDescriptor},
     PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 
@@ -18,7 +18,7 @@ impl PyValue for PyStaticMethod {
     }
 }
 
-impl SlotDescriptor for PyStaticMethod {
+impl GetDescriptor for PyStaticMethod {
     fn descr_get(
         zelf: PyObjectRef,
         _obj: Option<PyObjectRef>,
@@ -36,7 +36,7 @@ impl From<PyObjectRef> for PyStaticMethod {
     }
 }
 
-impl SlotConstructor for PyStaticMethod {
+impl Constructor for PyStaticMethod {
     type Args = PyObjectRef;
 
     fn py_new(cls: PyTypeRef, callable: Self::Args, vm: &VirtualMachine) -> PyResult {
@@ -59,7 +59,7 @@ impl PyStaticMethod {
     }
 }
 
-#[pyimpl(with(SlotDescriptor, SlotConstructor), flags(BASETYPE, HAS_DICT))]
+#[pyimpl(with(GetDescriptor, Constructor), flags(BASETYPE, HAS_DICT))]
 impl PyStaticMethod {}
 
 pub fn init(context: &PyContext) {

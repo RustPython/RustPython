@@ -3,7 +3,7 @@ use crate::{
     builtins::PyTupleRef,
     function::{ArgIntoBool, IntoPyObject, OptionalArg, PosArgs},
     protocol::{PyIter, PyIterReturn},
-    slots::{IteratorIterable, SlotConstructor, SlotIterator},
+    types::{Constructor, IterNext, IterNextIterable},
     PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
     VirtualMachine,
 };
@@ -28,7 +28,7 @@ pub struct PyZipNewArgs {
     strict: OptionalArg<bool>,
 }
 
-impl SlotConstructor for PyZip {
+impl Constructor for PyZip {
     type Args = (PosArgs<PyIter>, PyZipNewArgs);
 
     fn py_new(cls: PyTypeRef, (iterators, args): Self::Args, vm: &VirtualMachine) -> PyResult {
@@ -38,7 +38,7 @@ impl SlotConstructor for PyZip {
     }
 }
 
-#[pyimpl(with(SlotIterator, SlotConstructor), flags(BASETYPE))]
+#[pyimpl(with(IterNext, Constructor), flags(BASETYPE))]
 impl PyZip {
     #[pymethod(magic)]
     fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
@@ -65,8 +65,8 @@ impl PyZip {
     }
 }
 
-impl IteratorIterable for PyZip {}
-impl SlotIterator for PyZip {
+impl IterNextIterable for PyZip {}
+impl IterNext for PyZip {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         if zelf.iterators.is_empty() {
             return Ok(PyIterReturn::StopIteration(None));

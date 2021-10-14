@@ -1,7 +1,7 @@
 use super::PyTypeRef;
 use crate::{
     builtins::PyBoundMethod,
-    slots::{SlotConstructor, SlotDescriptor},
+    types::{Constructor, GetDescriptor},
     PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
 
@@ -43,7 +43,7 @@ impl PyValue for PyClassMethod {
     }
 }
 
-impl SlotDescriptor for PyClassMethod {
+impl GetDescriptor for PyClassMethod {
     fn descr_get(
         zelf: PyObjectRef,
         obj: Option<PyObjectRef>,
@@ -56,7 +56,7 @@ impl SlotDescriptor for PyClassMethod {
     }
 }
 
-impl SlotConstructor for PyClassMethod {
+impl Constructor for PyClassMethod {
     type Args = PyObjectRef;
 
     fn py_new(cls: PyTypeRef, callable: Self::Args, vm: &VirtualMachine) -> PyResult {
@@ -70,7 +70,7 @@ impl PyClassMethod {
     }
 }
 
-#[pyimpl(with(SlotDescriptor, SlotConstructor), flags(BASETYPE, HAS_DICT))]
+#[pyimpl(with(GetDescriptor, Constructor), flags(BASETYPE, HAS_DICT))]
 impl PyClassMethod {
     #[pyproperty(magic)]
     fn func(&self) -> PyObjectRef {

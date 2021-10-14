@@ -2,7 +2,7 @@ use crate::{
     builtins::{PyList, PyStr, PyStrRef, PyTuple, PyTupleRef, PyTypeRef},
     common::hash,
     function::IntoPyObject,
-    slots::{Hashable, SlotConstructor, SlotGetattro},
+    types::{Constructor, GetAttr, Hashable},
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol, VirtualMachine,
 };
@@ -44,7 +44,7 @@ pub struct GenericAliasArgs {
     arguments: PyObjectRef,
 }
 
-impl SlotConstructor for PyGenericAlias {
+impl Constructor for PyGenericAlias {
     type Args = GenericAliasArgs;
 
     fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
@@ -52,7 +52,7 @@ impl SlotConstructor for PyGenericAlias {
     }
 }
 
-#[pyimpl(with(Hashable, SlotConstructor, SlotGetattro), flags(BASETYPE))]
+#[pyimpl(with(Hashable, Constructor, GetAttr), flags(BASETYPE))]
 impl PyGenericAlias {
     pub fn new(origin: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> Self {
         let args: PyTupleRef = if let Ok(tuple) = PyTupleRef::try_from_object(vm, args.clone()) {
@@ -169,7 +169,7 @@ impl Hashable for PyGenericAlias {
     }
 }
 
-impl SlotGetattro for PyGenericAlias {
+impl GetAttr for PyGenericAlias {
     fn getattro(zelf: PyRef<Self>, attr: PyStrRef, vm: &VirtualMachine) -> PyResult {
         for exc in ATTR_EXCEPTIONS.iter() {
             if *(*exc) == attr.to_string() {

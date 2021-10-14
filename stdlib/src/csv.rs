@@ -11,12 +11,11 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 mod _csv {
     use crate::common::lock::PyMutex;
     use crate::vm::{
-        builtins::{PyStr, PyStrRef, PyTypeRef},
+        builtins::{PyStr, PyStrRef, PyType, PyTypeRef},
         function::{ArgIterable, ArgumentError, FromArgs, FuncArgs},
         match_class,
         protocol::{PyIter, PyIterReturn},
-        slots::{IteratorIterable, SlotIterator},
-        types::create_simple_type,
+        types::{IterNext, IterNextIterable},
         PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
     };
     use itertools::{self, Itertools};
@@ -33,7 +32,7 @@ mod _csv {
 
     #[pyattr(name = "Error")]
     fn error(vm: &VirtualMachine) -> PyTypeRef {
-        create_simple_type("Error", &vm.ctx.exceptions.exception_type)
+        PyType::new_simple_ref("Error", &vm.ctx.exceptions.exception_type).unwrap()
     }
 
     #[pyfunction]
@@ -169,10 +168,10 @@ mod _csv {
         }
     }
 
-    #[pyimpl(with(SlotIterator))]
+    #[pyimpl(with(IterNext))]
     impl Reader {}
-    impl IteratorIterable for Reader {}
-    impl SlotIterator for Reader {
+    impl IterNextIterable for Reader {}
+    impl IterNext for Reader {
         fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let string = match zelf.iter.next(vm)? {
                 PyIterReturn::Return(obj) => obj,

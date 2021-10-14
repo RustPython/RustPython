@@ -4,8 +4,8 @@
 use super::PyTypeRef;
 use crate::common::lock::PyRwLock;
 use crate::{
-    function::FuncArgs, slots::SlotDescriptor, PyClassImpl, PyContext, PyObjectRef, PyRef,
-    PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
+    function::FuncArgs, types::GetDescriptor, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
+    PyValue, TryFromObject, TypeProtocol, VirtualMachine,
 };
 
 /// Property attribute.
@@ -67,7 +67,7 @@ struct PropertyArgs {
     doc: Option<PyObjectRef>,
 }
 
-impl SlotDescriptor for PyProperty {
+impl GetDescriptor for PyProperty {
     fn descr_get(
         zelf: PyObjectRef,
         obj: Option<PyObjectRef>,
@@ -85,7 +85,7 @@ impl SlotDescriptor for PyProperty {
     }
 }
 
-#[pyimpl(with(SlotDescriptor), flags(BASETYPE))]
+#[pyimpl(with(GetDescriptor), flags(BASETYPE))]
 impl PyProperty {
     #[pyslot]
     fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {

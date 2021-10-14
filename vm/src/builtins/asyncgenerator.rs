@@ -5,7 +5,7 @@ use crate::{
     frame::FrameRef,
     function::OptionalArg,
     protocol::PyIterReturn,
-    slots::{IteratorIterable, SlotIterator},
+    types::{IterNext, IterNextIterable},
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
     VirtualMachine,
 };
@@ -183,7 +183,7 @@ impl PyValue for PyAsyncGenASend {
     }
 }
 
-#[pyimpl(with(SlotIterator))]
+#[pyimpl(with(IterNext))]
 impl PyAsyncGenASend {
     #[pymethod(name = "__await__")]
     fn r#await(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
@@ -256,8 +256,8 @@ impl PyAsyncGenASend {
     }
 }
 
-impl IteratorIterable for PyAsyncGenASend {}
-impl SlotIterator for PyAsyncGenASend {
+impl IterNextIterable for PyAsyncGenASend {}
+impl IterNext for PyAsyncGenASend {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         PyIterReturn::from_pyresult(zelf.send(vm.ctx.none(), vm), vm)
     }
@@ -278,7 +278,7 @@ impl PyValue for PyAsyncGenAThrow {
     }
 }
 
-#[pyimpl(with(SlotIterator))]
+#[pyimpl(with(IterNext))]
 impl PyAsyncGenAThrow {
     #[pymethod(name = "__await__")]
     fn r#await(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
@@ -402,8 +402,8 @@ impl PyAsyncGenAThrow {
     }
 }
 
-impl IteratorIterable for PyAsyncGenAThrow {}
-impl SlotIterator for PyAsyncGenAThrow {
+impl IterNextIterable for PyAsyncGenAThrow {}
+impl IterNext for PyAsyncGenAThrow {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         PyIterReturn::from_pyresult(zelf.send(vm.ctx.none(), vm), vm)
     }

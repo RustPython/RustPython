@@ -1,7 +1,7 @@
 use super::{PyStrRef, PyTypeRef, PyWeak};
 use crate::{
     function::OptionalArg,
-    slots::{SlotConstructor, SlotSetattro},
+    types::{Constructor, SetAttr},
     PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 
@@ -25,7 +25,7 @@ pub struct WeakProxyNewArgs {
     callback: OptionalArg<PyObjectRef>,
 }
 
-impl SlotConstructor for PyWeakProxy {
+impl Constructor for PyWeakProxy {
     type Args = WeakProxyNewArgs;
 
     fn py_new(
@@ -43,7 +43,7 @@ impl SlotConstructor for PyWeakProxy {
     }
 }
 
-#[pyimpl(with(SlotSetattro, SlotConstructor))]
+#[pyimpl(with(SetAttr, Constructor))]
 impl PyWeakProxy {
     // TODO: callbacks
     #[pymethod(magic)]
@@ -58,7 +58,7 @@ impl PyWeakProxy {
     }
 }
 
-impl SlotSetattro for PyWeakProxy {
+impl SetAttr for PyWeakProxy {
     fn setattro(
         zelf: &PyRef<Self>,
         attr_name: PyStrRef,

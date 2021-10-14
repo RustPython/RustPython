@@ -1,6 +1,6 @@
 use super::{
-    mappingproxy::PyMappingProxy, object, PyClassMethod, PyDictRef, PyInt, PyList, PyStaticMethod,
-    PyStr, PyStrRef, PyTuple, PyTupleRef, PyWeak,
+    mappingproxy::PyMappingProxy, object, PyClassMethod, PyDictRef, PyList, PyStaticMethod, PyStr,
+    PyStrRef, PyTuple, PyTupleRef, PyWeak,
 };
 use crate::common::{
     ascii,
@@ -9,14 +9,11 @@ use crate::common::{
 };
 use crate::{
     function::{FuncArgs, KwArgs, OptionalArg},
-    protocol::{PyIterReturn, PyMappingMethods},
-    slots::{self, Callable, PyTypeFlags, PyTypeSlots, SlotGetattro, SlotSetattro},
-    utils::Either,
+    types::{Callable, GetAttr, PyTypeFlags, PyTypeSlots, SetAttr},
     IdProtocol, PyAttributes, PyClassImpl, PyContext, PyLease, PyObjectRef, PyRef, PyResult,
-    PyValue, TypeProtocol, VirtualMachine,
+    PyValue, StaticType, TypeProtocol, VirtualMachine,
 };
 use itertools::Itertools;
-use num_traits::ToPrimitive;
 use std::collections::HashSet;
 use std::fmt;
 use std::ops::Deref;
@@ -55,13 +52,31 @@ impl PyValue for PyType {
 }
 
 impl PyType {
-    pub fn new(
+    pub fn new_simple_ref(name: &str, base: &PyTypeRef) -> Result<PyRef<Self>, String> {
+        Self::new_ref(
+            name,
+            vec![base.clone()],
+            Default::default(),
+            Default::default(),
+            Self::static_type().clone(),
+        )
+    }
+    pub fn new_ref(
+        name: &str,
+        bases: Vec<PyRef<Self>>,
+        attrs: PyAttributes,
+        slots: PyTypeSlots,
         metaclass: PyRef<Self>,
+    ) -> Result<PyRef<Self>, String> {
+        Self::new_verbose_ref(name, bases[0].clone(), bases, attrs, slots, metaclass)
+    }
+    fn new_verbose_ref(
         name: &str,
         base: PyRef<Self>,
         bases: Vec<PyRef<Self>>,
         attrs: PyAttributes,
         mut slots: PyTypeSlots,
+        metaclass: PyRef<Self>,
     ) -> Result<PyRef<Self>, String> {
         // Check for duplicates in bases.
         let mut unique_bases = HashSet::new();
@@ -177,155 +192,6 @@ impl PyType {
 
         attributes
     }
-
-    pub(crate) fn update_slot(&self, name: &str, add: bool) {
-        macro_rules! update_slot {
-            ($name:ident, $func:expr) => {{
-                self.slots.$name.store(if add { Some($func) } else { None });
-            }};
-        }
-        match name {
-            "__new__" => {
-                let func: slots::NewFunc =
-                    |cls: PyTypeRef, mut args: FuncArgs, vm: &VirtualMachine| {
-                        let new = vm
-                            .get_attribute_opt(cls.as_object().clone(), "__new__")?
-                            .unwrap();
-                        args.prepend_arg(cls.into());
-                        vm.invoke(&new, args)
-                    };
-                update_slot!(new, func);
-            }
-            "__call__" => {
-                let func: slots::GenericMethod =
-                    |zelf, args, vm| vm.call_special_method(zelf.clone(), "__call__", args);
-                update_slot!(call, func);
-            }
-            "__get__" => {
-                let func: slots::DescrGetFunc =
-                    |zelf, obj, cls, vm| vm.call_special_method(zelf, "__get__", (obj, cls));
-                update_slot!(descr_get, func);
-            }
-            "__set__" | "__delete__" => {
-                let func: slots::DescrSetFunc = |zelf, obj, value, vm| {
-                    match value {
-                        Some(val) => vm.call_special_method(zelf, "__set__", (obj, val)),
-                        None => vm.call_special_method(zelf, "__delete__", (obj,)),
-                    }
-                    .map(drop)
-                };
-                update_slot!(descr_set, func);
-            }
-            "__hash__" => {
-                let func: slots::HashFunc = |zelf, vm| {
-                    let hash_obj = vm.call_special_method(zelf.clone(), "__hash__", ())?;
-                    match hash_obj.payload_if_subclass::<PyInt>(vm) {
-                        Some(py_int) => {
-                            Ok(rustpython_common::hash::hash_bigint(py_int.as_bigint()))
-                        }
-                        None => Err(vm
-                            .new_type_error("__hash__ method should return an integer".to_owned())),
-                    }
-                } as _;
-                update_slot!(hash, func);
-            }
-            "__del__" => {
-                let func: slots::DelFunc = |zelf, vm| {
-                    vm.call_special_method(zelf.clone(), "__del__", ())?;
-                    Ok(())
-                } as _;
-                update_slot!(del, func);
-            }
-            "__eq__" | "__ne__" | "__le__" | "__lt__" | "__ge__" | "__gt__" => {
-                let func: slots::RichCompareFunc = |zelf, other, op, vm| {
-                    vm.call_special_method(zelf.clone(), op.method_name(), (other.clone(),))
-                        .map(Either::A)
-                } as _;
-                update_slot!(richcompare, func);
-            }
-            "__getattribute__" => {
-                let func: slots::GetattroFunc =
-                    |zelf, name, vm| vm.call_special_method(zelf, "__getattribute__", (name,));
-                update_slot!(getattro, func);
-            }
-            "__setattr__" => {
-                let func: slots::SetattroFunc = |zelf, name, value, vm| {
-                    match value {
-                        Some(value) => {
-                            vm.call_special_method(zelf.clone(), "__setattr__", (name, value))?;
-                        }
-                        None => {
-                            vm.call_special_method(zelf.clone(), "__delattr__", (name,))?;
-                        }
-                    };
-                    Ok(())
-                };
-                update_slot!(setattro, func);
-            }
-            "__iter__" => {
-                let func: slots::IterFunc = |zelf, vm| vm.call_special_method(zelf, "__iter__", ());
-                update_slot!(iter, func);
-            }
-            "__next__" => {
-                let func: slots::IterNextFunc = |zelf, vm| {
-                    PyIterReturn::from_pyresult(
-                        vm.call_special_method(zelf.clone(), "__next__", ()),
-                        vm,
-                    )
-                };
-                update_slot!(iternext, func);
-            }
-            "__len__" | "__getitem__" | "__setitem__" | "__delitem__" => {
-                macro_rules! then_some_closure {
-                    ($cond:expr, $closure:expr) => {
-                        if $cond {
-                            Some($closure)
-                        } else {
-                            None
-                        }
-                    };
-                }
-
-                let func: slots::MappingFunc = |zelf, _vm| {
-                    Ok(PyMappingMethods {
-                        length: then_some_closure!(zelf.has_class_attr("__len__"), |zelf, vm| {
-                            vm.call_special_method(zelf, "__len__", ()).map(|obj| {
-                                obj.payload_if_subclass::<PyInt>(vm)
-                                    .map(|length_obj| {
-                                        length_obj.as_bigint().to_usize().ok_or_else(|| {
-                                            vm.new_value_error(
-                                                "__len__() should return >= 0".to_owned(),
-                                            )
-                                        })
-                                    })
-                                    .unwrap()
-                            })?
-                        }),
-                        subscript: then_some_closure!(
-                            zelf.has_class_attr("__getitem__"),
-                            |zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine| {
-                                vm.call_special_method(zelf, "__getitem__", (needle,))
-                            }
-                        ),
-                        ass_subscript: then_some_closure!(
-                            zelf.has_class_attr("__setitem__") | zelf.has_class_attr("__delitem__"),
-                            |zelf, needle, value, vm| match value {
-                                Some(value) => vm
-                                    .call_special_method(zelf, "__setitem__", (needle, value),)
-                                    .map(|_| Ok(()))?,
-                                None => vm
-                                    .call_special_method(zelf, "__delitem__", (needle,))
-                                    .map(|_| Ok(()))?,
-                            }
-                        ),
-                    })
-                };
-                update_slot!(as_mapping, func);
-                // TODO: need to update sequence protocol too
-            }
-            _ => {}
-        }
-    }
 }
 
 impl PyTypeRef {
@@ -342,7 +208,7 @@ impl PyTypeRef {
     }
 }
 
-#[pyimpl(with(SlotGetattro, SlotSetattro, Callable), flags(BASETYPE))]
+#[pyimpl(with(GetAttr, SetAttr, Callable), flags(BASETYPE))]
 impl PyType {
     // bound method for every type
     pub(crate) fn __new__(zelf: PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -611,7 +477,7 @@ impl PyType {
         let flags = PyTypeFlags::heap_type_flags() | PyTypeFlags::HAS_DICT;
         let slots = PyTypeSlots::from_flags(flags);
 
-        let typ = Self::new(metatype, name.as_str(), base, bases, attributes, slots)
+        let typ = Self::new_verbose_ref(name.as_str(), base, bases, attributes, slots, metatype)
             .map_err(|e| vm.new_type_error(e))?;
 
         // avoid deadlock
@@ -693,7 +559,7 @@ pub(crate) fn get_text_signature_from_internal_doc<'a>(
     find_signature(name, internal_doc).and_then(get_signature)
 }
 
-impl SlotGetattro for PyType {
+impl GetAttr for PyType {
     fn getattro(zelf: PyRef<Self>, name_str: PyStrRef, vm: &VirtualMachine) -> PyResult {
         let name = name_str.as_str();
         vm_trace!("type.__getattribute__({:?}, {:?})", zelf, name);
@@ -738,7 +604,7 @@ impl SlotGetattro for PyType {
     }
 }
 
-impl SlotSetattro for PyType {
+impl SetAttr for PyType {
     fn setattro(
         zelf: &PyRef<Self>,
         attr_name: PyStrRef,
@@ -1045,22 +911,20 @@ mod tests {
         let object = &context.types.object_type;
         let type_type = &context.types.type_type;
 
-        let a = PyType::new(
-            type_type.clone(),
+        let a = PyType::new_ref(
             "A",
-            object.clone(),
             vec![object.clone()],
             PyAttributes::default(),
             Default::default(),
+            type_type.clone(),
         )
         .unwrap();
-        let b = PyType::new(
-            type_type.clone(),
+        let b = PyType::new_ref(
             "B",
-            object.clone(),
             vec![object.clone()],
             PyAttributes::default(),
             Default::default(),
+            type_type.clone(),
         )
         .unwrap();
 

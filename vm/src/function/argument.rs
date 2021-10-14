@@ -48,7 +48,7 @@ impl TryFromObject for ArgCallable {
 /// objects using a generic type parameter that implements `TryFromObject`.
 pub struct ArgIterable<T = PyObjectRef> {
     iterable: PyObjectRef,
-    iterfn: Option<crate::slots::IterFunc>,
+    iterfn: Option<crate::types::IterFunc>,
     _item: PhantomData<T>,
 }
 

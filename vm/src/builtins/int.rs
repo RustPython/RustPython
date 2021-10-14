@@ -4,10 +4,10 @@ use crate::{
     common::hash,
     format::FormatSpec,
     function::{ArgIntoBool, IntoPyObject, IntoPyResult, OptionalArg, OptionalOption},
-    slots::{Comparable, Hashable, PyComparisonOp, SlotConstructor},
-    try_value_from_borrowed_object, IdProtocol, PyArithmeticValue, PyClassImpl, PyComparisonValue,
-    PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromBorrowedObject, TypeProtocol,
-    VirtualMachine,
+    try_value_from_borrowed_object,
+    types::{Comparable, Constructor, Hashable, PyComparisonOp},
+    IdProtocol, PyArithmeticValue, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
+    PyResult, PyValue, TryFromBorrowedObject, TypeProtocol, VirtualMachine,
 };
 use bstr::ByteSlice;
 use num_bigint::{BigInt, BigUint, Sign};
@@ -207,7 +207,7 @@ fn inner_truediv(i1: &BigInt, i2: &BigInt, vm: &VirtualMachine) -> PyResult {
     Ok(vm.ctx.new_float(value).into())
 }
 
-impl SlotConstructor for PyInt {
+impl Constructor for PyInt {
     type Args = IntOptions;
 
     fn py_new(cls: PyTypeRef, options: Self::Args, vm: &VirtualMachine) -> PyResult {
@@ -317,7 +317,7 @@ impl PyInt {
     }
 }
 
-#[pyimpl(flags(BASETYPE), with(Comparable, Hashable, SlotConstructor))]
+#[pyimpl(flags(BASETYPE), with(Comparable, Hashable, Constructor))]
 impl PyInt {
     #[pymethod(name = "__radd__")]
     #[pymethod(magic)]

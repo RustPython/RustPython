@@ -3,7 +3,7 @@ use crate::common::lock::{PyMutex, PyRwLock};
 use crate::{
     function::{IntoPyObject, OptionalArg},
     protocol::{PyIter, PyIterReturn},
-    slots::{IteratorIterable, SlotConstructor, SlotIterator},
+    types::{Constructor, IterNext, IterNextIterable},
     ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 use num_bigint::BigInt;
@@ -29,7 +29,7 @@ pub struct EnumerateArgs {
     start: OptionalArg<PyIntRef>,
 }
 
-impl SlotConstructor for PyEnumerate {
+impl Constructor for PyEnumerate {
     type Args = EnumerateArgs;
 
     fn py_new(
@@ -46,11 +46,11 @@ impl SlotConstructor for PyEnumerate {
     }
 }
 
-#[pyimpl(with(SlotIterator, SlotConstructor), flags(BASETYPE))]
+#[pyimpl(with(IterNext, Constructor), flags(BASETYPE))]
 impl PyEnumerate {}
 
-impl IteratorIterable for PyEnumerate {}
-impl SlotIterator for PyEnumerate {
+impl IterNextIterable for PyEnumerate {}
+impl IterNext for PyEnumerate {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let next_obj = match zelf.iterator.next(vm)? {
             PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
@@ -75,7 +75,7 @@ impl PyValue for PyReverseSequenceIterator {
     }
 }
 
-#[pyimpl(with(SlotIterator))]
+#[pyimpl(with(IterNext))]
 impl PyReverseSequenceIterator {
     pub fn new(obj: PyObjectRef, len: usize) -> Self {
         let position = len.saturating_sub(1);
@@ -108,8 +108,8 @@ impl PyReverseSequenceIterator {
     }
 }
 
-impl IteratorIterable for PyReverseSequenceIterator {}
-impl SlotIterator for PyReverseSequenceIterator {
+impl IterNextIterable for PyReverseSequenceIterator {}
+impl IterNext for PyReverseSequenceIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal
             .lock()

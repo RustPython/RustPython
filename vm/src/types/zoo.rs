@@ -2,10 +2,10 @@ use crate::builtins::{
     asyncgenerator, builtinfunc, bytearray, bytes, classmethod, code, complex, coroutine, dict,
     enumerate, filter, float, frame, function, generator, genericalias, getset, int, iter, list,
     map, mappingproxy, memory, module, namespace, object, property, pybool, pystr, pysuper,
-    pytype::{self, PyType, PyTypeRef},
+    pytype::{self, PyTypeRef},
     range, set, singletons, slice, staticmethod, traceback, tuple, weakproxy, weakref, zip,
 };
-use crate::{slots::PyTypeSlots, PyAttributes, PyContext, StaticType};
+use crate::{PyContext, StaticType};
 
 /// Holder of references to builtin types.
 #[derive(Debug, Clone)]
@@ -214,26 +214,4 @@ impl TypeZoo {
         traceback::init(context);
         genericalias::init(context);
     }
-}
-
-pub fn create_simple_type(name: &str, base: &PyTypeRef) -> PyTypeRef {
-    create_type_with_slots(name, PyType::static_type(), base, Default::default())
-}
-
-pub fn create_type_with_slots(
-    name: &str,
-    type_type: &PyTypeRef,
-    base: &PyTypeRef,
-    slots: PyTypeSlots,
-) -> PyTypeRef {
-    let dict = PyAttributes::default();
-    PyType::new(
-        type_type.clone(),
-        name,
-        base.clone(),
-        vec![base.clone()],
-        dict,
-        slots,
-    )
-    .expect("Failed to create a new type in internal code.")
 }

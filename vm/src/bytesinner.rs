@@ -7,7 +7,7 @@ use crate::{
     function::ArgIterable,
     function::{OptionalArg, OptionalOption},
     sliceable::PySliceableSequence,
-    slots::PyComparisonOp,
+    types::PyComparisonOp,
     utils::Either,
     IdProtocol, PyComparisonValue, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject,
     VirtualMachine,

@@ -6,7 +6,7 @@ use super::{PyInt, PyTupleRef, PyTypeRef};
 use crate::{
     function::ArgCallable,
     protocol::PyIterReturn,
-    slots::{IteratorIterable, SlotIterator},
+    types::{IterNext, IterNextIterable},
     ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 use rustpython_common::{
@@ -169,7 +169,7 @@ impl PyValue for PySequenceIterator {
     }
 }
 
-#[pyimpl(with(SlotIterator))]
+#[pyimpl(with(IterNext))]
 impl PySequenceIterator {
     pub fn new(obj: PyObjectRef) -> Self {
         Self {
@@ -200,8 +200,8 @@ impl PySequenceIterator {
     }
 }
 
-impl IteratorIterable for PySequenceIterator {}
-impl SlotIterator for PySequenceIterator {
+impl IterNextIterable for PySequenceIterator {}
+impl IterNext for PySequenceIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal
             .lock()
@@ -222,7 +222,7 @@ impl PyValue for PyCallableIterator {
     }
 }
 
-#[pyimpl(with(SlotIterator))]
+#[pyimpl(with(IterNext))]
 impl PyCallableIterator {
     pub fn new(callable: ArgCallable, sentinel: PyObjectRef) -> Self {
         Self {
@@ -232,8 +232,8 @@ impl PyCallableIterator {
     }
 }
 
-impl IteratorIterable for PyCallableIterator {}
-impl SlotIterator for PyCallableIterator {
+impl IterNextIterable for PyCallableIterator {}
+impl IterNext for PyCallableIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let status = zelf.status.upgradable_read();
         if let IterStatus::Active(callable) = &*status {

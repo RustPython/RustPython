@@ -8,7 +8,7 @@ pub(crate) mod _thread {
         builtins::{PyDictRef, PyStrRef, PyTupleRef, PyTypeRef},
         function::{ArgCallable, FuncArgs, IntoPyException, KwArgs, OptionalArg},
         py_io,
-        slots::{SlotConstructor, SlotGetattro, SlotSetattro},
+        types::{Constructor, GetAttr, SetAttr},
         utils::Either,
         IdProtocol, ItemProtocol, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
         VirtualMachine,
@@ -106,7 +106,7 @@ pub(crate) mod _thread {
         }
     }
 
-    #[pyimpl(with(SlotConstructor))]
+    #[pyimpl(with(Constructor))]
     impl Lock {
         #[pymethod]
         #[pymethod(name = "acquire_lock")]
@@ -141,7 +141,7 @@ pub(crate) mod _thread {
         }
     }
 
-    impl SlotConstructor for Lock {
+    impl Constructor for Lock {
         type Args = FuncArgs;
         fn py_new(_cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("cannot create '_thread.lock' instances".to_owned()))
@@ -312,7 +312,7 @@ pub(crate) mod _thread {
         data: ThreadLocal<PyDictRef>,
     }
 
-    #[pyimpl(with(SlotGetattro, SlotSetattro), flags(BASETYPE))]
+    #[pyimpl(with(GetAttr, SetAttr), flags(BASETYPE))]
     impl Local {
         fn ldict(&self, vm: &VirtualMachine) -> PyDictRef {
             self.data.get_or(|| vm.ctx.new_dict()).clone()
@@ -327,7 +327,7 @@ pub(crate) mod _thread {
         }
     }
 
-    impl SlotGetattro for Local {
+    impl GetAttr for Local {
         fn getattro(zelf: PyRef<Self>, attr: PyStrRef, vm: &VirtualMachine) -> PyResult {
             let ldict = zelf.ldict(vm);
             if attr.as_str() == "__dict__" {
@@ -345,7 +345,7 @@ pub(crate) mod _thread {
         }
     }
 
-    impl SlotSetattro for Local {
+    impl SetAttr for Local {
         fn setattro(
             zelf: &PyRef<Self>,
             attr: PyStrRef,

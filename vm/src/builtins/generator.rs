@@ -8,7 +8,7 @@ use crate::{
     frame::FrameRef,
     function::OptionalArg,
     protocol::PyIterReturn,
-    slots::{IteratorIterable, SlotIterator},
+    types::{IterNext, IterNextIterable},
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 
@@ -24,7 +24,7 @@ impl PyValue for PyGenerator {
     }
 }
 
-#[pyimpl(with(SlotIterator))]
+#[pyimpl(with(IterNext))]
 impl PyGenerator {
     pub fn as_coro(&self) -> &Coro {
         &self.inner
@@ -96,8 +96,8 @@ impl PyGenerator {
     }
 }
 
-impl IteratorIterable for PyGenerator {}
-impl SlotIterator for PyGenerator {
+impl IterNextIterable for PyGenerator {}
+impl IterNext for PyGenerator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         Self::send(zelf.clone(), vm.ctx.none(), vm)
     }

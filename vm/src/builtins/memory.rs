@@ -10,8 +10,8 @@ use crate::{
     function::{FuncArgs, IntoPyObject, OptionalArg},
     protocol::{BufferInternal, BufferOptions, PyBuffer, PyMappingMethods},
     sliceable::{wrap_index, SaturatedSlice, SequenceIndex},
-    slots::{AsBuffer, AsMapping, Comparable, Hashable, PyComparisonOp, SlotConstructor},
     stdlib::pystruct::FormatSpec,
+    types::{AsBuffer, AsMapping, Comparable, Constructor, Hashable, PyComparisonOp},
     utils::Either,
     IdProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
     PyResult, PyValue, TryFromBorrowedObject, TryFromObject, TypeProtocol, VirtualMachine,
@@ -43,7 +43,7 @@ pub struct PyMemoryView {
     hash: OnceCell<PyHash>,
 }
 
-impl SlotConstructor for PyMemoryView {
+impl Constructor for PyMemoryView {
     type Args = PyMemoryViewNewArgs;
 
     fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
@@ -53,7 +53,7 @@ impl SlotConstructor for PyMemoryView {
     }
 }
 
-#[pyimpl(with(Hashable, Comparable, AsBuffer, AsMapping, SlotConstructor))]
+#[pyimpl(with(Hashable, Comparable, AsBuffer, AsMapping, Constructor))]
 impl PyMemoryView {
     #[cfg(debug_assertions)]
     fn validate(self) -> Self {

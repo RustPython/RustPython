@@ -10,8 +10,8 @@ mod _sre {
         common::{ascii, hash::PyHash},
         function::{ArgCallable, IntoPyObject, OptionalArg, PosArgs},
         protocol::PyBuffer,
-        slots::{Comparable, Hashable},
         stdlib::sys,
+        types::{Comparable, Hashable},
         ItemProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue,
         TryFromBorrowedObject, TryFromObject, VirtualMachine,
     };
@@ -531,7 +531,7 @@ mod _sre {
         fn cmp(
             zelf: &PyRef<Self>,
             other: &PyObjectRef,
-            op: crate::slots::PyComparisonOp,
+            op: crate::types::PyComparisonOp,
             vm: &VirtualMachine,
         ) -> PyResult<PyComparisonValue> {
             if let Some(res) = op.identical_optimization(zelf, other) {

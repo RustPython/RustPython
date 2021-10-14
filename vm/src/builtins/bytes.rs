@@ -10,9 +10,9 @@ use crate::{
         ArgBytesLike, ArgIterable, IntoPyObject, IntoPyResult, OptionalArg, OptionalOption,
     },
     protocol::{BufferInternal, BufferOptions, PyBuffer, PyIterReturn, PyMappingMethods},
-    slots::{
-        AsBuffer, AsMapping, Callable, Comparable, Hashable, Iterable, IteratorIterable,
-        PyComparisonOp, SlotConstructor, SlotIterator, Unconstructible,
+    types::{
+        AsBuffer, AsMapping, Callable, Comparable, Constructor, Hashable, IterNext,
+        IterNextIterable, Iterable, PyComparisonOp, Unconstructible,
     },
     utils::Either,
     IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
@@ -93,7 +93,7 @@ pub(crate) fn init(context: &PyContext) {
     PyBytesIterator::extend_class(context, &context.types.bytes_iterator_type);
 }
 
-impl SlotConstructor for PyBytes {
+impl Constructor for PyBytes {
     type Args = ByteInnerNewOptions;
 
     fn py_new(cls: PyTypeRef, options: Self::Args, vm: &VirtualMachine) -> PyResult {
@@ -109,7 +109,7 @@ impl PyBytes {
 
 #[pyimpl(
     flags(BASETYPE),
-    with(AsMapping, Hashable, Comparable, AsBuffer, Iterable, SlotConstructor)
+    with(AsMapping, Hashable, Comparable, AsBuffer, Iterable, Constructor)
 )]
 impl PyBytes {
     #[pymethod(magic)]
@@ -649,7 +649,7 @@ impl PyValue for PyBytesIterator {
     }
 }
 
-#[pyimpl(with(SlotConstructor, SlotIterator))]
+#[pyimpl(with(Constructor, IterNext))]
 impl PyBytesIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
@@ -672,8 +672,8 @@ impl PyBytesIterator {
 }
 impl Unconstructible for PyBytesIterator {}
 
-impl IteratorIterable for PyBytesIterator {}
-impl SlotIterator for PyBytesIterator {
+impl IterNextIterable for PyBytesIterator {}
+impl IterNext for PyBytesIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal.lock().next(|bytes, pos| {
             Ok(match bytes.as_bytes().get(pos) {

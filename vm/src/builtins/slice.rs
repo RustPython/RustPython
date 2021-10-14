@@ -2,7 +2,7 @@
 use super::{PyInt, PyIntRef, PyTupleRef, PyTypeRef};
 use crate::{
     function::{FuncArgs, IntoPyObject, OptionalArg},
-    slots::{Comparable, Hashable, PyComparisonOp, SlotConstructor, Unhashable},
+    types::{Comparable, Constructor, Hashable, PyComparisonOp, Unhashable},
     PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
     VirtualMachine,
 };
@@ -382,7 +382,7 @@ impl PyValue for PyEllipsis {
     }
 }
 
-impl SlotConstructor for PyEllipsis {
+impl Constructor for PyEllipsis {
     type Args = ();
 
     fn py_new(_cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
@@ -390,7 +390,7 @@ impl SlotConstructor for PyEllipsis {
     }
 }
 
-#[pyimpl(with(SlotConstructor))]
+#[pyimpl(with(Constructor))]
 impl PyEllipsis {
     #[pymethod(magic)]
     fn repr(&self) -> String {

@@ -7,9 +7,9 @@ use crate::{
     dictdatatype::{self, DictSize},
     function::{ArgIterable, FuncArgs, OptionalArg, PosArgs},
     protocol::PyIterReturn,
-    slots::{
-        Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotConstructor,
-        SlotIterator, Unconstructible, Unhashable,
+    types::{
+        Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable, PyComparisonOp,
+        Unconstructible, Unhashable,
     },
     vm::{ReprGuard, VirtualMachine},
     IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
@@ -659,7 +659,7 @@ macro_rules! multi_args_frozenset {
     }};
 }
 
-impl SlotConstructor for PyFrozenSet {
+impl Constructor for PyFrozenSet {
     type Args = OptionalArg<PyObjectRef>;
 
     fn py_new(cls: PyTypeRef, iterable: Self::Args, vm: &VirtualMachine) -> PyResult {
@@ -686,7 +686,7 @@ impl SlotConstructor for PyFrozenSet {
     }
 }
 
-#[pyimpl(flags(BASETYPE), with(Hashable, Comparable, Iterable, SlotConstructor))]
+#[pyimpl(flags(BASETYPE), with(Hashable, Comparable, Iterable, Constructor))]
 impl PyFrozenSet {
     // Also used by ssl.rs windows.
     pub fn from_iter(
@@ -884,7 +884,7 @@ impl PyValue for PySetIterator {
     }
 }
 
-#[pyimpl(with(SlotConstructor, SlotIterator))]
+#[pyimpl(with(Constructor, IterNext))]
 impl PySetIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
@@ -909,8 +909,8 @@ impl PySetIterator {
 }
 impl Unconstructible for PySetIterator {}
 
-impl IteratorIterable for PySetIterator {}
-impl SlotIterator for PySetIterator {
+impl IterNextIterable for PySetIterator {}
+impl IterNext for PySetIterator {
     fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let mut internal = zelf.internal.lock();
         if let IterStatus::Active(dict) = &internal.status {

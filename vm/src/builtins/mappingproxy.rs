@@ -2,7 +2,7 @@ use super::{PyDict, PyList, PyStrRef, PyTuple, PyTypeRef};
 use crate::{
     function::{IntoPyObject, OptionalArg},
     protocol::{PyMapping, PyMappingMethods},
-    slots::{AsMapping, Iterable, SlotConstructor},
+    types::{AsMapping, Constructor, Iterable},
     ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol, VirtualMachine,
 };
@@ -33,7 +33,7 @@ impl PyMappingProxy {
     }
 }
 
-impl SlotConstructor for PyMappingProxy {
+impl Constructor for PyMappingProxy {
     type Args = PyObjectRef;
 
     fn py_new(cls: PyTypeRef, mapping: Self::Args, vm: &VirtualMachine) -> PyResult {
@@ -54,7 +54,7 @@ impl SlotConstructor for PyMappingProxy {
     }
 }
 
-#[pyimpl(with(AsMapping, Iterable, SlotConstructor))]
+#[pyimpl(with(AsMapping, Iterable, Constructor))]
 impl PyMappingProxy {
     fn get_inner(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
         let opt = match &self.mapping {
