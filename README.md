@@ -180,7 +180,7 @@ the best ways to get started are below:
 
 Most tasks are listed in the
 [issue tracker](https://github.com/RustPython/RustPython/issues). Check issues
-labeled with `good first issue` if you wish to start coding.
+labeled with [good first issue](https://github.com/RustPython/RustPython/issues?q=label%3A%22good+first+issue%22+is%3Aissue+is%3Aopen+) if you wish to start coding.
 
 To enhance CPython compatibility, try to increase unittest coverage by checking this article: [How to contribute to RustPython by CPython unittest](https://rustpython.github.io/guideline/2020/04/04/how-to-contribute-by-cpython-unittest.html)
 
