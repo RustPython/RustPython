@@ -8,7 +8,7 @@ use crate::{
     frame::FrameRef,
     function::OptionalArg,
     protocol::PyIterReturn,
-    types::{IterNext, IterNextIterable},
+    types::{Constructor, IterNext, IterNextIterable, Unconstructible},
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 
@@ -24,7 +24,7 @@ impl PyValue for PyGenerator {
     }
 }
 
-#[pyimpl(with(IterNext))]
+#[pyimpl(with(Constructor, IterNext))]
 impl PyGenerator {
     pub fn as_coro(&self) -> &Coro {
         &self.inner
@@ -95,6 +95,7 @@ impl PyGenerator {
         self.inner.frame().yield_from_target()
     }
 }
+impl Unconstructible for PyGenerator {}
 
 impl IterNextIterable for PyGenerator {}
 impl IterNext for PyGenerator {

@@ -3028,8 +3028,6 @@ class ElementIterTest(unittest.TestCase):
         self.assertEqual(summarize_list(doc.getiterator(None)), all_tags)
         self.assertEqual(summarize_list(doc.getiterator('*')), all_tags)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_copy(self):
         a = ET.Element('a')
         it = a.iter()

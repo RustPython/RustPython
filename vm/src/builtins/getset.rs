@@ -4,7 +4,7 @@
 use super::PyTypeRef;
 use crate::{
     function::{IntoPyResult, OwnedParam, RefParam},
-    types::GetDescriptor,
+    types::{Constructor, GetDescriptor, Unconstructible},
     PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyThreadingConstraint, PyValue,
     TryFromObject, TypeProtocol, VirtualMachine,
 };
@@ -300,7 +300,7 @@ impl PyGetSet {
     }
 }
 
-#[pyimpl(with(GetDescriptor))]
+#[pyimpl(with(GetDescriptor, Constructor))]
 impl PyGetSet {
     // Descriptor methods
 
@@ -361,6 +361,7 @@ impl PyGetSet {
         format!("{}.{}", self.class.slot_name(), self.name.clone())
     }
 }
+impl Unconstructible for PyGetSet {}
 
 pub(crate) fn init(context: &PyContext) {
     PyGetSet::extend_class(context, &context.types.getset_type);

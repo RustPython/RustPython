@@ -5,7 +5,7 @@ use crate::{
     frame::FrameRef,
     function::OptionalArg,
     protocol::PyIterReturn,
-    types::{IterNext, IterNextIterable},
+    types::{Constructor, IterNext, IterNextIterable, Unconstructible},
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
     VirtualMachine,
 };
@@ -26,7 +26,7 @@ impl PyValue for PyAsyncGen {
     }
 }
 
-#[pyimpl]
+#[pyimpl(with(Constructor))]
 impl PyAsyncGen {
     pub fn as_coro(&self) -> &Coro {
         &self.inner
@@ -124,6 +124,7 @@ impl PyAsyncGen {
         self.inner.frame().code.clone()
     }
 }
+impl Unconstructible for PyAsyncGen {}
 
 #[pyclass(module = false, name = "async_generator_wrapped_value")]
 #[derive(Debug)]
