@@ -19,6 +19,8 @@ env:
 
 jobs:
   rust_tests:
+    env:
+      RUST_BACKTRACE: full
     name: Run rust tests
     runs-on:  ${{ matrix.os }}
     strategy:
@@ -97,6 +99,8 @@ jobs:
           command: check
 
   snippets_cpython:
+    env:
+      RUST_BACKTRACE: full
     name: Run snippets and cpython tests
     runs-on:  ${{ matrix.os }}
     strategy:
