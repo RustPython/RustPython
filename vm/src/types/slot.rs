@@ -486,8 +486,8 @@ pub trait Hashable: PyValue {
 
     #[inline]
     #[pymethod]
-    fn __hash__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
-        Self::hash(&zelf, vm)
+    fn __hash__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyHash> {
+        Self::slot_hash(&zelf, vm)
     }
 
     fn hash(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash>;
