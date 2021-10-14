@@ -418,12 +418,12 @@ impl PyList {
 }
 
 impl AsMapping for PyList {
-    fn as_mapping(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyMappingMethods> {
-        Ok(PyMappingMethods {
+    fn as_mapping(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
+        PyMappingMethods {
             length: Some(Self::length),
             subscript: Some(Self::subscript),
             ass_subscript: Some(Self::ass_subscript),
-        })
+        }
     }
 
     #[inline]

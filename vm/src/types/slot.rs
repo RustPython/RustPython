@@ -767,7 +767,7 @@ pub trait AsMapping: PyValue {
         let zelf = zelf
             .downcast_ref()
             .ok_or_else(|| vm.new_type_error("unexpected payload for as_mapping".to_owned()))?;
-        Self::as_mapping(zelf, vm)
+        Ok(Self::as_mapping(zelf, vm))
     }
 
     #[inline]
@@ -792,7 +792,7 @@ pub trait AsMapping: PyValue {
         })
     }
 
-    fn as_mapping(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyMappingMethods>;
+    fn as_mapping(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyMappingMethods;
 
     fn length(zelf: PyObjectRef, _vm: &VirtualMachine) -> PyResult<usize>;
 
