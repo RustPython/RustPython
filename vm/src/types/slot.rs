@@ -128,7 +128,7 @@ impl Default for PyTypeFlags {
 }
 
 pub(crate) type GenericMethod = fn(PyObjectPtr, FuncArgs, &VirtualMachine) -> PyResult;
-pub(crate) type AsMappingFunc = fn(&PyObjectRef, &VirtualMachine) -> PyMappingMethods;
+pub(crate) type AsMappingFunc = fn(PyObjectPtr, &VirtualMachine) -> PyMappingMethods;
 pub(crate) type HashFunc = fn(PyObjectPtr, &VirtualMachine) -> PyResult<PyHash>;
 // CallFunc = GenericMethod
 pub(crate) type GetattroFunc = fn(PyObjectRef, PyStrRef, &VirtualMachine) -> PyResult;
@@ -150,7 +150,7 @@ pub(crate) type DescrSetFunc =
 pub(crate) type NewFunc = fn(PyTypeRef, FuncArgs, &VirtualMachine) -> PyResult;
 pub(crate) type DelFunc = fn(PyObjectPtr, &VirtualMachine) -> PyResult<()>;
 
-fn as_mapping_wrapper(zelf: &PyObjectRef, _vm: &VirtualMachine) -> PyMappingMethods {
+fn as_mapping_wrapper(zelf: PyObjectPtr, _vm: &VirtualMachine) -> PyMappingMethods {
     macro_rules! then_some_closure {
         ($cond:expr, $closure:expr) => {
             if $cond {
@@ -768,7 +768,7 @@ pub trait AsBuffer: PyValue {
 pub trait AsMapping: PyValue {
     #[inline]
     #[pyslot]
-    fn slot_as_mapping(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyMappingMethods {
+    fn slot_as_mapping(zelf: PyObjectPtr, vm: &VirtualMachine) -> PyMappingMethods {
         let zelf = unsafe { zelf.downcast_unchecked_ref::<Self>() };
         Self::as_mapping(zelf, vm)
     }
