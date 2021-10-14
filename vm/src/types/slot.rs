@@ -128,7 +128,7 @@ impl Default for PyTypeFlags {
 }
 
 pub(crate) type GenericMethod = fn(&PyObjectRef, FuncArgs, &VirtualMachine) -> PyResult;
-pub(crate) type AsMappingFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<PyMappingMethods>;
+pub(crate) type AsMappingFunc = fn(&PyObjectRef, &VirtualMachine) -> PyMappingMethods;
 pub(crate) type HashFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<PyHash>;
 // CallFunc = GenericMethod
 pub(crate) type GetattroFunc = fn(PyObjectRef, PyStrRef, &VirtualMachine) -> PyResult;
@@ -150,7 +150,7 @@ pub(crate) type DescrSetFunc =
 pub(crate) type NewFunc = fn(PyTypeRef, FuncArgs, &VirtualMachine) -> PyResult;
 pub(crate) type DelFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<()>;
 
-fn as_mapping_wrapper(zelf: &PyObjectRef, _vm: &VirtualMachine) -> PyResult<PyMappingMethods> {
+fn as_mapping_wrapper(zelf: &PyObjectRef, _vm: &VirtualMachine) -> PyMappingMethods {
     macro_rules! then_some_closure {
         ($cond:expr, $closure:expr) => {
             if $cond {
@@ -160,7 +160,7 @@ fn as_mapping_wrapper(zelf: &PyObjectRef, _vm: &VirtualMachine) -> PyResult<PyMa
             }
         };
     }
-    Ok(PyMappingMethods {
+    PyMappingMethods {
         length: then_some_closure!(zelf.has_class_attr("__len__"), |zelf, vm| {
             vm.call_special_method(zelf, "__len__", ()).map(|obj| {
                 obj.payload_if_subclass::<PyInt>(vm)
@@ -189,7 +189,7 @@ fn as_mapping_wrapper(zelf: &PyObjectRef, _vm: &VirtualMachine) -> PyResult<PyMa
                     .map(|_| Ok(()))?,
             }
         ),
-    })
+    }
 }
 
 fn hash_wrapper(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<PyHash> {
@@ -763,11 +763,9 @@ pub trait AsBuffer: PyValue {
 pub trait AsMapping: PyValue {
     #[inline]
     #[pyslot]
-    fn slot_as_mapping(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<PyMappingMethods> {
-        let zelf = zelf
-            .downcast_ref()
-            .ok_or_else(|| vm.new_type_error("unexpected payload for as_mapping".to_owned()))?;
-        Ok(Self::as_mapping(zelf, vm))
+    fn slot_as_mapping(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyMappingMethods {
+        let zelf = unsafe { zelf.downcast_unchecked_ref::<Self>() };
+        Self::as_mapping(zelf, vm)
     }
 
     #[inline]

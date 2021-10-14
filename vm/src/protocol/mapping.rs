@@ -36,7 +36,7 @@ impl PyMapping<PyObjectRef> {
         let obj_cls = self.0.class();
         for cls in obj_cls.iter_mro() {
             if let Some(f) = cls.slots.as_mapping.load() {
-                return f(&self.0, vm).unwrap();
+                return f(&self.0, vm);
             }
         }
         PyMappingMethods::default()
