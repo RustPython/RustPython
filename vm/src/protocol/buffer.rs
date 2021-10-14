@@ -108,7 +108,7 @@ impl TryFromBorrowedObject for PyBuffer {
         let obj_cls = obj.class();
         for cls in obj_cls.iter_mro() {
             if let Some(f) = cls.slots.as_buffer.as_ref() {
-                return f(obj, vm);
+                return obj.with_ptr(|obj| f(obj, vm));
             }
         }
         Err(vm.new_type_error(format!(

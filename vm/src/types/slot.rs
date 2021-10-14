@@ -134,7 +134,7 @@ pub(crate) type HashFunc = fn(PyObjectPtr, &VirtualMachine) -> PyResult<PyHash>;
 pub(crate) type GetattroFunc = fn(PyObjectRef, PyStrRef, &VirtualMachine) -> PyResult;
 pub(crate) type SetattroFunc =
     fn(&PyObjectRef, PyStrRef, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>;
-pub(crate) type AsBufferFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<PyBuffer>;
+pub(crate) type AsBufferFunc = fn(PyObjectPtr, &VirtualMachine) -> PyResult<PyBuffer>;
 pub(crate) type RichCompareFunc = fn(
     PyObjectPtr,
     PyObjectPtr,
@@ -754,7 +754,7 @@ pub trait AsBuffer: PyValue {
     // TODO: `flags` parameter
     #[inline]
     #[pyslot]
-    fn slot_as_buffer(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<PyBuffer> {
+    fn slot_as_buffer(zelf: PyObjectPtr, vm: &VirtualMachine) -> PyResult<PyBuffer> {
         let zelf = zelf
             .downcast_ref()
             .ok_or_else(|| vm.new_type_error("unexpected payload for as_buffer".to_owned()))?;
