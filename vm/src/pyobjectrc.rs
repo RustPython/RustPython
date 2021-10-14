@@ -122,6 +122,8 @@ impl<T> Drop for PyObject<T> {
     }
 }
 
+type PyObjectRefInner = PyObject<Erased>;
+
 /// The `PyObjectRef` is one of the most used types. It is a reference to a
 /// python object. A single python object can have multiple references, and
 /// this reference counting is accounted for by this type. Use the `.clone()`
@@ -130,13 +132,13 @@ impl<T> Drop for PyObject<T> {
 #[derive(Clone)]
 #[repr(transparent)]
 pub struct PyObjectRef {
-    rc: PyRc<PyObject<Erased>>,
+    rc: PyRc<PyObjectRefInner>,
 }
 
 #[derive(Clone)]
 #[repr(transparent)]
 pub struct PyObjectWeak {
-    weak: PyWeak<PyObject<Erased>>,
+    weak: PyWeak<PyObjectRefInner>,
 }
 
 pub trait PyObjectWrap
@@ -175,7 +177,7 @@ impl PyObjectRef {
 
     fn new<T: PyObjectPayload>(value: PyObject<T>) -> Self {
         let inner = PyRc::into_raw(PyRc::new(value));
-        let rc = unsafe { PyRc::from_raw(inner as *const PyObject<Erased>) };
+        let rc = unsafe { PyRc::from_raw(inner as *const PyObjectRefInner) };
         Self { rc }
     }
 
@@ -304,6 +306,17 @@ impl PyObjectRef {
             self.payload()
         } else {
             None
+        }
+    }
+
+    #[inline]
+    pub fn with_ptr<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(PyObjectPtr) -> R,
+    {
+        unsafe {
+            // SAFETY: self will be alive until f is done
+            f(PyObjectPtr::new(self))
         }
     }
 }
@@ -618,6 +631,33 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef) {
         .push(PyWeak::downgrade(type_type.as_object()));
 
     (type_type, object_type)
+}
+
+#[derive(Clone, Copy)]
+pub struct PyObjectPtr {
+    obj: *mut PyObjectRefInner,
+}
+
+impl PyObjectPtr {
+    /// # Safety
+    ///
+    /// `obj` *MUST* be alive until this ptr is destroyed.
+    /// Do not directly call this function without helper functions.
+    unsafe fn new(obj: &PyObjectRef) -> Self {
+        let obj = std::mem::transmute_copy(obj);
+        Self { obj }
+    }
+}
+
+impl Deref for PyObjectPtr {
+    type Target = PyObjectRef;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe {
+            // SAFETY: only when PyObjectRef = PyRc<PyObjectRefInner>
+            std::mem::transmute(&self.obj)
+        }
+    }
 }
 
 #[cfg(test)]
