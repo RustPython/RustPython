@@ -164,6 +164,7 @@ fn make_parameters(args: &PyTupleRef, vm: &VirtualMachine) -> PyTupleRef {
 }
 
 impl Hashable for PyGenericAlias {
+    #[inline]
     fn hash(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<hash::PyHash> {
         Ok(vm._hash(zelf.origin.as_object())? ^ vm._hash(zelf.args.as_object())?)
     }

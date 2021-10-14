@@ -63,13 +63,13 @@ macro_rules! into_func_args_from_tuple {
             #[inline]
             fn into_args(self, vm: &VirtualMachine) -> FuncArgs {
                 let ($($n,)*) = self;
-                vec![$($n.into_pyobject(vm),)*].into()
+                PosArgs::new(vec![$($n.into_pyobject(vm),)*]).into()
             }
 
             #[inline]
             fn into_method_args(self, obj: PyObjectRef, vm: &VirtualMachine) -> FuncArgs {
                 let ($($n,)*) = self;
-                vec![obj, $($n.into_pyobject(vm),)*].into()
+                PosArgs::new(vec![obj, $($n.into_pyobject(vm),)*]).into()
             }
         }
     };

@@ -729,6 +729,7 @@ impl Comparable for PyInt {
 }
 
 impl Hashable for PyInt {
+    #[inline]
     fn hash(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<hash::PyHash> {
         Ok(hash::hash_bigint(zelf.as_bigint()))
     }

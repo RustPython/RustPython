@@ -336,6 +336,7 @@ impl AsMapping for PyTuple {
 }
 
 impl Hashable for PyTuple {
+    #[inline]
     fn hash(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
         crate::utils::hash_iter(zelf.elements.iter(), vm)
     }

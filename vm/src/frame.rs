@@ -402,7 +402,7 @@ impl ExecutingFrame<'_> {
                     Either::A(coro) => coro
                         .throw(gen, exc_type, exc_val, exc_tb, vm)
                         .into_pyresult(vm), // FIXME:
-                    Either::B(meth) => vm.invoke(&meth, vec![exc_type, exc_val, exc_tb]),
+                    Either::B(meth) => vm.invoke(&meth, (exc_type, exc_val, exc_tb)),
                 };
                 return ret.map(ExecutionResult::Yield).or_else(|err| {
                     self.pop_value();

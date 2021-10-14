@@ -490,8 +490,11 @@ mod _operator {
             }
             Ok(obj)
         }
+    }
 
-        fn call(zelf: &PyRef<Self>, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    impl Callable for PyAttrGetter {
+        type Args = PyObjectRef;
+        fn call(zelf: &PyRef<Self>, obj: Self::Args, vm: &VirtualMachine) -> PyResult {
             // Handle case where we only have one attribute.
             if zelf.attrs.len() == 1 {
                 return Self::get_single_attr(obj, zelf.attrs[0].as_str(), vm);
@@ -502,13 +505,6 @@ mod _operator {
                 results.push(Self::get_single_attr(obj.clone(), o.as_str(), vm)?);
             }
             Ok(vm.ctx.new_tuple(results).into())
-        }
-    }
-
-    impl Callable for PyAttrGetter {
-        fn call(zelf: &PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            let obj = args.bind::<PyObjectRef>(vm)?;
-            PyAttrGetter::call(zelf, obj, vm)
         }
     }
 
@@ -557,8 +553,11 @@ mod _operator {
             let items = vm.ctx.new_tuple(zelf.items.to_vec());
             vm.new_pyobj((zelf.clone_class(), items))
         }
+    }
 
-        fn call(zelf: &PyRef<Self>, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    impl Callable for PyItemGetter {
+        type Args = PyObjectRef;
+        fn call(zelf: &PyRef<Self>, obj: Self::Args, vm: &VirtualMachine) -> PyResult {
             // Handle case where we only have one attribute.
             if zelf.items.len() == 1 {
                 return obj.get_item(zelf.items[0].clone(), vm);
@@ -569,13 +568,6 @@ mod _operator {
                 results.push(obj.get_item(item.clone(), vm)?);
             }
             Ok(vm.ctx.new_tuple(results).into())
-        }
-    }
-
-    impl Callable for PyItemGetter {
-        fn call(zelf: &PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            let obj = args.bind::<PyObjectRef>(vm)?;
-            PyItemGetter::call(zelf, obj, vm)
         }
     }
 
@@ -657,16 +649,13 @@ mod _operator {
                 Ok(vm.new_tuple((callable, vm.ctx.new_tuple(zelf.args.args.clone()))))
             }
         }
-
-        fn call(zelf: &PyRef<Self>, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            vm.call_method(&obj, zelf.name.as_str(), zelf.args.clone())
-        }
     }
 
     impl Callable for PyMethodCaller {
-        fn call(zelf: &PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            let obj = args.bind::<PyObjectRef>(vm)?;
-            PyMethodCaller::call(zelf, obj, vm)
+        type Args = PyObjectRef;
+        #[inline]
+        fn call(zelf: &PyRef<Self>, obj: Self::Args, vm: &VirtualMachine) -> PyResult {
+            vm.call_method(&obj, zelf.name.as_str(), zelf.args.clone())
         }
     }
 }

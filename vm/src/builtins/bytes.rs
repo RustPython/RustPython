@@ -1,6 +1,7 @@
 use super::{PositionIterInternal, PyDictRef, PyIntRef, PyStrRef, PyTuple, PyTupleRef, PyTypeRef};
 use crate::{
     anystr::{self, AnyStr},
+    builtins::PyType,
     bytesinner::{
         bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
         ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
@@ -245,7 +246,7 @@ impl PyBytes {
     fn fromhex(cls: PyTypeRef, string: PyStrRef, vm: &VirtualMachine) -> PyResult {
         let bytes = PyBytesInner::fromhex(string.as_str(), vm)?;
         let bytes = vm.ctx.new_bytes(bytes).into();
-        Callable::call(&cls, vec![bytes].into(), vm)
+        PyType::call(&cls, vec![bytes].into(), vm)
     }
 
     #[pymethod]
@@ -598,6 +599,7 @@ impl AsMapping for PyBytes {
 }
 
 impl Hashable for PyBytes {
+    #[inline]
     fn hash(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
         Ok(zelf.inner.hash(vm))
     }

@@ -12,6 +12,7 @@ use crate::common::{
 };
 use crate::{
     anystr::{self, AnyStr},
+    builtins::PyType,
     bytesinner::{
         bytes_decode, bytes_from_object, value_from_object, ByteInnerFindOptions,
         ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerSplitOptions,
@@ -393,7 +394,7 @@ impl PyByteArray {
     fn fromhex(cls: PyTypeRef, string: PyStrRef, vm: &VirtualMachine) -> PyResult {
         let bytes = PyBytesInner::fromhex(string.as_str(), vm)?;
         let bytes = vm.ctx.new_bytes(bytes);
-        Callable::call(&cls, vec![bytes.into()].into(), vm)
+        PyType::call(&cls, vec![bytes.into()].into(), vm)
     }
 
     #[pymethod]
