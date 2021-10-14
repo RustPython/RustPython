@@ -39,12 +39,12 @@ impl PyBaseObject {
 
     #[pyslot]
     fn slot_richcompare(
-        zelf: &PyObjectRef,
-        other: &PyObjectRef,
+        zelf: PyObjectPtr,
+        other: PyObjectPtr,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
-        Self::cmp(zelf, other, op, vm).map(Either::B)
+        Self::cmp(&*zelf, &*other, op, vm).map(Either::B)
     }
 
     #[inline(always)]
@@ -67,7 +67,9 @@ impl PyBaseObject {
                     .class()
                     .mro_find_map(|cls| cls.slots.richcompare.load())
                     .unwrap();
-                let value = match cmp(zelf, other, PyComparisonOp::Eq, vm)? {
+                let value = match PyObjectPtr::with((zelf, other), |(zelf, other)| {
+                    cmp(zelf, other, PyComparisonOp::Eq, vm)
+                })? {
                     Either::A(obj) => PyArithmeticValue::from_object(vm, obj)
                         .map(|obj| obj.try_to_bool(vm))
                         .transpose()?,

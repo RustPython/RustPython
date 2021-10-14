@@ -14,8 +14,8 @@ use crate::{
     },
     utils::Either,
     vm::{ReprGuard, VirtualMachine},
-    IdProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
-    PyResult, PyValue, TryFromObject, TypeProtocol,
+    IdProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectPtr, PyObjectRef,
+    PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use std::fmt;
 use std::iter::FromIterator;
@@ -305,8 +305,8 @@ impl PyList {
                     drop(elem_cls);
 
                     fn cmp(
-                        elem: &PyObjectRef,
-                        needle: &PyObjectRef,
+                        elem: PyObjectPtr,
+                        needle: PyObjectPtr,
                         elem_cmp: RichCompareFunc,
                         needle_cmp: RichCompareFunc,
                         vm: &VirtualMachine,
@@ -329,14 +329,20 @@ impl PyList {
                     if elem_cmp as usize == richcompare_wrapper as usize {
                         let elem = elem.clone();
                         drop(guard);
-                        cmp(&elem, needle, elem_cmp, needle_cmp, vm)?
+                        PyObjectPtr::with((&elem, needle), |(elem, needle)| {
+                            cmp(elem, needle, elem_cmp, needle_cmp, vm)
+                        })?
                     } else {
-                        let eq = cmp(elem, needle, elem_cmp, needle_cmp, vm)?;
+                        let eq = PyObjectPtr::with((elem, needle), |(elem, needle)| {
+                            cmp(elem, needle, elem_cmp, needle_cmp, vm)
+                        })?;
                         borrower = Some(guard);
                         eq
                     }
                 } else {
-                    match needle_cmp(needle, elem, PyComparisonOp::Eq, vm)? {
+                    match PyObjectPtr::with((elem, needle), |(elem, needle)| {
+                        needle_cmp(needle, elem, PyComparisonOp::Eq, vm)
+                    })? {
                         Either::B(PyComparisonValue::Implemented(value)) => {
                             drop(elem_cls);
                             borrower = Some(guard);
@@ -354,8 +360,8 @@ impl PyList {
                             drop(elem_cls);
 
                             fn cmp(
-                                elem: &PyObjectRef,
-                                needle: &PyObjectRef,
+                                elem: PyObjectPtr,
+                                needle: PyObjectPtr,
                                 elem_cmp: RichCompareFunc,
                                 vm: &VirtualMachine,
                             ) -> PyResult<bool> {
@@ -371,9 +377,13 @@ impl PyList {
                             if elem_cmp as usize == richcompare_wrapper as usize {
                                 let elem = elem.clone();
                                 drop(guard);
-                                cmp(&elem, needle, elem_cmp, vm)?
+                                PyObjectPtr::with((&elem, needle), |(elem, needle)| {
+                                    cmp(elem, needle, elem_cmp, vm)
+                                })?
                             } else {
-                                let eq = cmp(elem, needle, elem_cmp, vm)?;
+                                let eq = PyObjectPtr::with((elem, needle), |(elem, needle)| {
+                                    cmp(elem, needle, elem_cmp, vm)
+                                })?;
                                 borrower = Some(guard);
                                 eq
                             }

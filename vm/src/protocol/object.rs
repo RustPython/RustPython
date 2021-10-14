@@ -93,15 +93,16 @@ impl PyObjectRef {
         vm: &VirtualMachine,
     ) -> PyResult<Either<PyObjectRef, bool>> {
         let swapped = op.swapped();
-        let call_cmp = |obj: &PyObjectRef, other, op| {
+        let call_cmp = |obj: &PyObjectRef, other: &PyObjectRef, op| {
             let cmp = obj
                 .class()
                 .mro_find_map(|cls| cls.slots.richcompare.load())
                 .unwrap();
-            Ok(match cmp(obj, other, op, vm)? {
+            let r = match obj.with_ptr(|obj| other.with_ptr(|other| cmp(obj, other, op, vm)))? {
                 Either::A(obj) => PyArithmeticValue::from_object(vm, obj).map(Either::A),
                 Either::B(arithmetic) => arithmetic.map(Either::B),
-            })
+            };
+            Ok(r)
         };
 
         let mut checked_reverse_op = false;

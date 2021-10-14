@@ -136,8 +136,8 @@ pub(crate) type SetattroFunc =
     fn(&PyObjectRef, PyStrRef, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>;
 pub(crate) type AsBufferFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<PyBuffer>;
 pub(crate) type RichCompareFunc = fn(
-    &PyObjectRef,
-    &PyObjectRef,
+    PyObjectPtr,
+    PyObjectPtr,
     PyComparisonOp,
     &VirtualMachine,
 ) -> PyResult<Either<PyObjectRef, PyComparisonValue>>;
@@ -226,12 +226,12 @@ fn setattro_wrapper(
 }
 
 pub(crate) fn richcompare_wrapper(
-    zelf: &PyObjectRef,
-    other: &PyObjectRef,
+    zelf: PyObjectPtr,
+    other: PyObjectPtr,
     op: PyComparisonOp,
     vm: &VirtualMachine,
 ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
-    vm.call_special_method(zelf.clone(), op.method_name(), (other.clone(),))
+    vm.call_special_method((*zelf).clone(), op.method_name(), ((*other).clone(),))
         .map(Either::A)
 }
 
@@ -514,13 +514,13 @@ pub trait Comparable: PyValue {
     #[inline]
     #[pyslot]
     fn slot_richcompare(
-        zelf: &PyObjectRef,
-        other: &PyObjectRef,
+        zelf: PyObjectPtr,
+        other: PyObjectPtr,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
         if let Some(zelf) = zelf.downcast_ref() {
-            Self::cmp(zelf, other, op, vm).map(Either::B)
+            Self::cmp(zelf, &*other, op, vm).map(Either::B)
         } else {
             Err(vm.new_type_error(format!("unexpected payload for {}", op.method_name())))
         }

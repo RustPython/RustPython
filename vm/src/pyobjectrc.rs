@@ -652,6 +652,15 @@ impl<'a> PyObjectPtr<'a> {
         let obj = std::mem::transmute_copy(obj);
         Self { obj }
     }
+
+    // TODO: make variadic sized tuple generic
+    pub fn with<F, R>(objs: (&PyObjectRef, &PyObjectRef), f: F) -> R
+    where
+        F: FnOnce((PyObjectPtr, PyObjectPtr)) -> R,
+    {
+        objs.0
+            .with_ptr(|obj1| objs.1.with_ptr(|obj2| f((obj1, obj2))))
+    }
 }
 
 impl<'a> Deref for PyObjectPtr<'a> {
