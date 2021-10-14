@@ -1,9 +1,13 @@
 use crate::VirtualMachine;
 use crate::{ItemProtocol, PyObjectRef};
 
+#[pymodule]
+mod errno {}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+    let module = errno::make_module(vm);
     let errorcode = vm.ctx.new_dict();
-    let module = py_module!(vm, "errno", {
+    extend_module!(vm, module, {
         "errorcode" => errorcode.clone(),
     });
     for (name, code) in ERROR_CODES {
