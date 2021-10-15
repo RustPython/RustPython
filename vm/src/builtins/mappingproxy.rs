@@ -151,12 +151,12 @@ impl PyMappingProxy {
 }
 
 impl AsMapping for PyMappingProxy {
-    fn as_mapping(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyMappingMethods> {
-        Ok(PyMappingMethods {
+    fn as_mapping(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
+        PyMappingMethods {
             length: None,
             subscript: Some(Self::subscript),
             ass_subscript: None,
-        })
+        }
     }
 
     #[inline]
