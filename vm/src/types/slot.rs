@@ -1,4 +1,5 @@
 use crate::common::{hash::PyHash, lock::PyRwLock};
+use crate::PyArithmeticValue;
 use crate::{
     builtins::{PyInt, PyStrRef, PyType, PyTypeRef},
     function::{FromArgs, FuncArgs, IntoPyResult, OptionalArg},
@@ -9,6 +10,7 @@ use crate::{
 };
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::ToPrimitive;
+use std::borrow::Cow;
 use std::cmp::Ordering;
 
 // The corresponding field in CPython is `tp_` prefixed.
@@ -23,7 +25,7 @@ pub struct PyTypeSlots {
 
     // Method suites for standard classes
     // tp_as_number
-    // tp_as_sequence
+    pub as_sequence: AtomicCell<Option<AsSequenceFunc>>,
     pub as_mapping: AtomicCell<Option<AsMappingFunc>>,
 
     // More standard operations (here for binary compatibility)
@@ -151,19 +153,22 @@ pub(crate) type DescrSetFunc =
     fn(PyObjectRef, PyObjectRef, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>;
 pub(crate) type NewFunc = fn(PyTypeRef, FuncArgs, &VirtualMachine) -> PyResult;
 pub(crate) type DelFunc = fn(&PyObject, &VirtualMachine) -> PyResult<()>;
+pub(crate) type AsSequenceFunc =
+    fn(&PyObject, &VirtualMachine) -> Cow<'static, PySequenceMethods>;
+
+macro_rules! then_some_closure {
+    ($cond:expr, $closure:expr) => {
+        if $cond {
+            Some($closure)
+        } else {
+            None
+        }
+    };
+}
 
 pub use crate::builtins::object::{generic_getattr, generic_setattr};
 
 fn as_mapping_wrapper(zelf: &PyObject, _vm: &VirtualMachine) -> PyMappingMethods {
-    macro_rules! then_some_closure {
-        ($cond:expr, $closure:expr) => {
-            if $cond {
-                Some($closure)
-            } else {
-                None
-            }
-        };
-    }
     PyMappingMethods {
         length: then_some_closure!(zelf.has_class_attr("__len__"), |mapping, vm| {
             vm.call_special_method(mapping.obj.to_owned(), "__len__", ())
@@ -200,6 +205,90 @@ fn as_mapping_wrapper(zelf: &PyObject, _vm: &VirtualMachine) -> PyMappingMethods
             }
         ),
     }
+}
+
+fn as_sequence_wrapper(
+    zelf: &PyObject,
+    _vm: &VirtualMachine,
+) -> Cow<'static, PySequenceMethods> {
+    Cow::Owned(PySequenceMethods {
+        length: then_some_closure!(zelf.has_class_attr("__len__"), |zelf, vm| {
+            vm.obj_len_opt(zelf).unwrap()
+        }),
+        concat: then_some_closure!(zelf.has_class_attr("__add__"), |zelf, other, vm| {
+            if PySequence::check(zelf, vm) && PySequence::check(other, vm) {
+                let ret = vm.call_special_method(zelf.clone(), "__add__", (other.clone(),))?;
+                if let PyArithmeticValue::Implemented(obj) = PyArithmeticValue::from_object(vm, ret)
+                {
+                    return Ok(obj);
+                }
+            }
+            Err(vm.new_type_error(format!("'{}' object can't be concatenated", zelf)))
+        }),
+        repeat: then_some_closure!(zelf.has_class_attr("__mul__"), |zelf, n, vm| {
+            if PySequence::check(zelf, vm) {
+                let ret =
+                    vm.call_special_method(zelf.clone(), "__mul__", (n.into_pyobject(vm),))?;
+                if let PyArithmeticValue::Implemented(obj) = PyArithmeticValue::from_object(vm, ret)
+                {
+                    return Ok(obj);
+                }
+            }
+            Err(vm.new_type_error(format!("'{}' object can't be repeated", zelf)))
+        }),
+        inplace_concat: then_some_closure!(
+            zelf.has_class_attr("__iadd__") || zelf.has_class_attr("__add__"),
+            |zelf, other, vm| {
+                if PySequence::check(&zelf, vm) && PySequence::check(other, vm) {
+                    if let Ok(f) = vm.get_special_method(zelf.clone(), "__iadd__")? {
+                        let ret = f.invoke((other.clone(),), vm)?;
+                        if let PyArithmeticValue::Implemented(obj) =
+                            PyArithmeticValue::from_object(vm, ret)
+                        {
+                            return Ok(obj);
+                        }
+                    }
+                    if let Ok(f) = vm.get_special_method(zelf.clone(), "__add__")? {
+                        let ret = f.invoke((other.clone(),), vm)?;
+                        if let PyArithmeticValue::Implemented(obj) =
+                            PyArithmeticValue::from_object(vm, ret)
+                        {
+                            return Ok(obj);
+                        }
+                    }
+                }
+                Err(vm.new_type_error(format!("'{}' object can't be concatenated", zelf)))
+            }
+        ),
+        inplace_repeat: then_some_closure!(
+            zelf.has_class_attr("__imul__") || zelf.has_class_attr("__mul__"),
+            |zelf, n, vm| {
+                if PySequence::check(&zelf, vm) {
+                    if let Ok(f) = vm.get_special_method(zelf.clone(), "__imul__")? {
+                        let ret = f.invoke((n.into_pyobject(vm),), vm)?;
+                        if let PyArithmeticValue::Implemented(obj) =
+                            PyArithmeticValue::from_object(vm, ret)
+                        {
+                            return Ok(obj);
+                        }
+                    }
+                    if let Ok(f) = vm.get_special_method(zelf.clone(), "__mul__")? {
+                        let ret = f.invoke((n.into_pyobject(vm),), vm)?;
+                        if let PyArithmeticValue::Implemented(obj) =
+                            PyArithmeticValue::from_object(vm, ret)
+                        {
+                            return Ok(obj);
+                        }
+                    }
+                }
+                Err(vm.new_type_error(format!("'{}' object can't be repeated", zelf)))
+            }
+        ),
+        item: None,
+        ass_item: None,
+        // TODO: IterSearch
+        contains: None,
+    })
 }
 
 fn hash_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyHash> {
@@ -302,7 +391,10 @@ impl PyType {
         match name {
             "__len__" | "__getitem__" | "__setitem__" | "__delitem__" => {
                 update_slot!(as_mapping, as_mapping_wrapper);
-                // TODO: need to update sequence protocol too
+                update_slot!(as_sequence, as_sequence_wrapper);
+            }
+            "__add__" | "__iadd__" | "__mul__" | "__imul__" => {
+                update_slot!(as_sequence, as_sequence_wrapper);
             }
             "__hash__" => {
                 update_slot!(hash, hash_wrapper);
@@ -789,6 +881,20 @@ pub trait AsMapping: PyValue {
     fn mapping_downcast<'a>(mapping: &'a PyMapping) -> &'a PyObjectView<Self> {
         unsafe { mapping.obj.downcast_unchecked_ref() }
     }
+}
+
+#[pyimpl]
+pub trait AsSequence: PyValue {
+    #[inline]
+    #[pyslot]
+    fn slot_as_sequence(
+        zelf: &PyObject,
+        vm: &VirtualMachine,
+    ) -> Cow<'static, PySequenceMethods> {
+        let zelf = unsafe { zelf.downcast_unchecked_ref::<Self>() };
+        Self::as_sequence(zelf, vm)
+    }
+    fn as_sequence(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> Cow<'static, PySequenceMethods>;
 }
 
 #[pyimpl]

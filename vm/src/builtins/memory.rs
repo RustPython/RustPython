@@ -1,19 +1,20 @@
 use super::{
     PyBytes, PyBytesRef, PyInt, PyListRef, PySlice, PyStr, PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
 };
-use crate::common::{
-    borrow::{BorrowedValue, BorrowedValueMut},
-    hash::PyHash,
-    lock::OnceCell,
-};
 use crate::{
     bytesinner::bytes_to_hex,
+    common::{
+        borrow::{BorrowedValue, BorrowedValueMut},
+        hash::PyHash,
+        lock::OnceCell,
+        static_cell,
+    },
     function::{FuncArgs, IntoPyObject, OptionalArg},
     protocol::{BufferDescriptor, BufferMethods, PyBuffer, PyMappingMethods, VecBuffer},
     sequence::SequenceOp,
     sliceable::wrap_index,
     stdlib::pystruct::FormatSpec,
-    types::{AsBuffer, AsMapping, Comparable, Constructor, Hashable, PyComparisonOp},
+    types::{AsBuffer, AsMapping, AsSequence, Comparable, Constructor, Hashable, PyComparisonOp},
     utils::Either,
     IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyObjectView,
     PyObjectWrap, PyRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject, TypeProtocol,
@@ -21,7 +22,7 @@ use crate::{
 };
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
-use std::{cmp::Ordering, fmt::Debug, mem::ManuallyDrop, ops::Range};
+use std::{borrow::Cow, cmp::Ordering, fmt::Debug, mem::ManuallyDrop, ops::Range};
 
 #[derive(FromArgs)]
 pub struct PyMemoryViewNewArgs {
@@ -974,6 +975,22 @@ impl PyMemoryView {
 impl AsMapping for PyMemoryView {
     fn as_mapping(_zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
         Self::MAPPING_METHODS
+    }
+}
+
+impl AsSequence for PyMemoryView {
+    fn as_sequence(_zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> Cow<'static, PySequenceMethods> {
+        static_cell! {
+            static METHODS: PySequenceMethods;
+        }
+        Cow::Borrowed(METHODS.get_or_init(|| PySequenceMethods {
+            length: Some(|zelf, vm| zelf.payload::<Self>().unwrap().len(vm)),
+            item: Some(|zelf, i, vm| {
+                let zelf = zelf.clone().downcast::<Self>().unwrap();
+                zelf.getitem_by_idx(i, vm)
+            }),
+            ..Default::default()
+        }))
     }
 }
 
