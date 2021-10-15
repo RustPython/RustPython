@@ -614,11 +614,9 @@ impl VirtualMachine {
 
     /// Instantiate an exception with arguments.
     /// This function should only be used with builtin exception types; if a user-defined exception
-    /// type is passed in, it may not be fully initialized; try using [`exceptions::invoke`]
-    /// or [`exceptions::ExceptionCtor`] instead.
-    ///
-    /// [exceptions::invoke]: rustpython_vm::exceptions::invoke
-    /// [exceptions::ctor]: rustpython_vm::exceptions::ExceptionCtor
+    /// type is passed in, it may not be fully initialized; try using
+    /// [`vm.invoke_exception()`][Self::invoke_exception] or
+    /// [`exceptions::ExceptionCtor`][crate::exceptions::ExceptionCtor] instead.
     pub fn new_exception(&self, exc_type: PyTypeRef, args: Vec<PyObjectRef>) -> PyBaseExceptionRef {
         // TODO: add repr of args into logging?
 
@@ -634,22 +632,18 @@ impl VirtualMachine {
 
     /// Instantiate an exception with no arguments.
     /// This function should only be used with builtin exception types; if a user-defined exception
-    /// type is passed in, it may not be fully initialized; try using [`exceptions::invoke`]
-    /// or [`exceptions::ExceptionCtor`] instead.
-    ///
-    /// [exceptions::invoke]: rustpython_vm::exceptions::invoke
-    /// [exceptions::ctor]: rustpython_vm::exceptions::ExceptionCtor
+    /// type is passed in, it may not be fully initialized; try using
+    /// [`vm.invoke_exception()`][Self::invoke_exception] or
+    /// [`exceptions::ExceptionCtor`][crate::exceptions::ExceptionCtor] instead.
     pub fn new_exception_empty(&self, exc_type: PyTypeRef) -> PyBaseExceptionRef {
         self.new_exception(exc_type, vec![])
     }
 
     /// Instantiate an exception with `msg` as the only argument.
     /// This function should only be used with builtin exception types; if a user-defined exception
-    /// type is passed in, it may not be fully initialized; try using [`exceptions::invoke`]
-    /// or [`exceptions::ExceptionCtor`] instead.
-    ///
-    /// [exceptions::invoke]: rustpython_vm::exceptions::invoke
-    /// [exceptions::ctor]: rustpython_vm::exceptions::ExceptionCtor
+    /// type is passed in, it may not be fully initialized; try using
+    /// [`vm.invoke_exception()`][Self::invoke_exception] or
+    /// [`exceptions::ExceptionCtor`][crate::exceptions::ExceptionCtor] instead.
     pub fn new_exception_msg(&self, exc_type: PyTypeRef, msg: String) -> PyBaseExceptionRef {
         self.new_exception(exc_type, vec![self.ctx.new_str(msg).into()])
     }
