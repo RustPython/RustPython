@@ -26,10 +26,11 @@ where
     T: Borrow<PyObjectRef>;
 
 impl PyMapping<PyObjectRef> {
-    pub fn check(obj: &PyObjectRef) -> bool {
+    pub fn check(obj: &PyObjectRef, vm: &VirtualMachine) -> bool {
         obj.class()
             .mro_find_map(|x| x.slots.as_mapping.load())
-            .is_some()
+            .map(|f| f(obj, vm).subscript.is_some())
+            .unwrap_or(false)
     }
 
     pub fn methods(&self, vm: &VirtualMachine) -> PyMappingMethods {
@@ -119,7 +120,7 @@ impl IntoPyObject for PyMapping<PyObjectRef> {
 
 impl TryFromObject for PyMapping<PyObjectRef> {
     fn try_from_object(vm: &VirtualMachine, mapping: PyObjectRef) -> PyResult<Self> {
-        if Self::check(&mapping) {
+        if Self::check(&mapping, vm) {
             Ok(Self::new(mapping))
         } else {
             Err(vm.new_type_error(format!("{} is not a mapping object", mapping.class())))

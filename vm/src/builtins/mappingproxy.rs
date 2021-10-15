@@ -37,7 +37,7 @@ impl Constructor for PyMappingProxy {
     type Args = PyObjectRef;
 
     fn py_new(cls: PyTypeRef, mapping: Self::Args, vm: &VirtualMachine) -> PyResult {
-        if !PyMapping::check(&mapping)
+        if !PyMapping::check(&mapping, vm)
             || mapping.payload_if_subclass::<PyList>(vm).is_some()
             || mapping.payload_if_subclass::<PyTuple>(vm).is_some()
         {
