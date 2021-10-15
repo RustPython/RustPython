@@ -538,8 +538,9 @@ impl VirtualMachine {
         self.with_frame(frame, |f| f.run(self))
     }
 
+    // To be called right before raising the recursion depth.
     fn check_recursive_call(&self, _where: &str) -> PyResult<()> {
-        if self.recursion_depth.get() > self.recursion_limit.get() {
+        if self.recursion_depth.get() >= self.recursion_limit.get() {
             Err(self.new_recursion_error(format!("maximum recursion depth exceeded {}", _where)))
         } else {
             Ok(())
