@@ -479,7 +479,7 @@ mod sys {
             })?;
         let recursion_depth = vm.current_recursion_depth();
 
-        if recursion_limit > recursion_depth + 1 {
+        if recursion_limit > recursion_depth {
             vm.recursion_limit.set(recursion_limit);
             Ok(())
         } else {
