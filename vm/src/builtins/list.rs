@@ -2,16 +2,15 @@ use super::{PositionIterInternal, PyGenericAlias, PySliceRef, PyTupleRef, PyType
 use crate::common::lock::{
     PyMappedRwLockReadGuard, PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
 };
-use crate::sliceable::saturate_index;
 use crate::{
     function::{ArgIterable, FuncArgs, IntoPyObject, OptionalArg},
     protocol::{PyIterReturn, PyMappingMethods},
     sequence::{self, SimpleSeq},
-    sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
+    sliceable::{saturate_index, PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
     stdlib::sys,
     types::{
         richcompare_wrapper, AsMapping, Comparable, Constructor, Hashable, IterNext,
-        IterNextIterable, Iterable, PyComparisonOp, Unconstructible, Unhashable,
+        IterNextIterable, Iterable, PyComparisonOp, RichCompareFunc, Unconstructible, Unhashable,
     },
     utils::Either,
     vm::{ReprGuard, VirtualMachine},
@@ -268,7 +267,7 @@ impl PyList {
         let mut borrower = None;
         let mut i = range.start;
 
-        Ok(loop {
+        let index = loop {
             if i >= range.end {
                 break usize::MAX;
             }
@@ -278,114 +277,117 @@ impl PyList {
                 self.borrow_vec()
             };
 
-            let elem = guard.get(i);
+            let elem = if let Some(x) = guard.get(i) {
+                x
+            } else {
+                break usize::MAX;
+            };
 
-            if let Some(elem) = elem {
-                if elem.is(needle) {
+            if elem.is(needle) {
+                f();
+                if SHORT {
+                    break i;
+                }
+                borrower = Some(guard);
+            } else {
+                let elem_cls = elem.class();
+                let reverse_first = !elem_cls.is(&needle_cls) && elem_cls.issubclass(&needle_cls);
+
+                let eq = if reverse_first {
+                    let elem_cmp = elem_cls
+                        .mro_find_map(|cls| cls.slots.richcompare.load())
+                        .unwrap();
+                    drop(elem_cls);
+
+                    fn cmp(
+                        elem: &PyObjectRef,
+                        needle: &PyObjectRef,
+                        elem_cmp: RichCompareFunc,
+                        needle_cmp: RichCompareFunc,
+                        vm: &VirtualMachine,
+                    ) -> PyResult<bool> {
+                        match elem_cmp(elem, needle, PyComparisonOp::Eq, vm)? {
+                            Either::B(PyComparisonValue::Implemented(value)) => Ok(value),
+                            Either::A(obj) if !obj.is(&vm.ctx.not_implemented) => {
+                                obj.try_to_bool(vm)
+                            }
+                            _ => match needle_cmp(needle, elem, PyComparisonOp::Eq, vm)? {
+                                Either::B(PyComparisonValue::Implemented(value)) => Ok(value),
+                                Either::A(obj) if !obj.is(&vm.ctx.not_implemented) => {
+                                    obj.try_to_bool(vm)
+                                }
+                                _ => Ok(false),
+                            },
+                        }
+                    }
+
+                    if elem_cmp as usize == richcompare_wrapper as usize {
+                        let elem = elem.clone();
+                        drop(guard);
+                        cmp(&elem, needle, elem_cmp, needle_cmp, vm)?
+                    } else {
+                        let eq = cmp(elem, needle, elem_cmp, needle_cmp, vm)?;
+                        borrower = Some(guard);
+                        eq
+                    }
+                } else {
+                    match needle_cmp(needle, elem, PyComparisonOp::Eq, vm)? {
+                        Either::B(PyComparisonValue::Implemented(value)) => {
+                            drop(elem_cls);
+                            borrower = Some(guard);
+                            value
+                        }
+                        Either::A(obj) if !obj.is(&vm.ctx.not_implemented) => {
+                            drop(elem_cls);
+                            borrower = Some(guard);
+                            obj.try_to_bool(vm)?
+                        }
+                        _ => {
+                            let elem_cmp = elem_cls
+                                .mro_find_map(|cls| cls.slots.richcompare.load())
+                                .unwrap();
+                            drop(elem_cls);
+
+                            fn cmp(
+                                elem: &PyObjectRef,
+                                needle: &PyObjectRef,
+                                elem_cmp: RichCompareFunc,
+                                vm: &VirtualMachine,
+                            ) -> PyResult<bool> {
+                                match elem_cmp(elem, needle, PyComparisonOp::Eq, vm)? {
+                                    Either::B(PyComparisonValue::Implemented(value)) => Ok(value),
+                                    Either::A(obj) if !obj.is(&vm.ctx.not_implemented) => {
+                                        obj.try_to_bool(vm)
+                                    }
+                                    _ => Ok(false),
+                                }
+                            }
+
+                            if elem_cmp as usize == richcompare_wrapper as usize {
+                                let elem = elem.clone();
+                                drop(guard);
+                                cmp(&elem, needle, elem_cmp, vm)?
+                            } else {
+                                let eq = cmp(elem, needle, elem_cmp, vm)?;
+                                borrower = Some(guard);
+                                eq
+                            }
+                        }
+                    }
+                };
+
+                if eq {
                     f();
                     if SHORT {
                         break i;
                     }
-                    borrower = Some(guard);
-                } else {
-                    let elem_cls = elem.class();
-                    let reverse_first =
-                        !elem_cls.is(&needle_cls) && elem_cls.issubclass(&needle_cls);
-
-                    let eq = if reverse_first {
-                        let elem_cmp = elem_cls
-                            .mro_find_map(|cls| cls.slots.richcompare.load())
-                            .unwrap();
-                        drop(elem_cls);
-
-                        if elem_cmp as usize == richcompare_wrapper as usize {
-                            let elem = elem.clone();
-                            drop(guard);
-                            match elem_cmp(&elem, needle, PyComparisonOp::Eq, vm)? {
-                                Either::B(PyComparisonValue::Implemented(value)) => value,
-                                Either::A(obj) if !obj.is(&vm.ctx.not_implemented) => {
-                                    obj.try_to_bool(vm)?
-                                }
-                                _ => match needle_cmp(needle, &elem, PyComparisonOp::Eq, vm)? {
-                                    Either::B(PyComparisonValue::Implemented(value)) => value,
-                                    Either::A(obj) if !obj.is(&vm.ctx.not_implemented) => {
-                                        obj.try_to_bool(vm)?
-                                    }
-                                    _ => false,
-                                },
-                            }
-                        } else {
-                            let eq = match elem_cmp(elem, needle, PyComparisonOp::Eq, vm)? {
-                                Either::B(PyComparisonValue::Implemented(value)) => value,
-                                Either::A(obj) if !obj.is(&vm.ctx.not_implemented) => {
-                                    obj.try_to_bool(vm)?
-                                }
-                                _ => match needle_cmp(needle, elem, PyComparisonOp::Eq, vm)? {
-                                    Either::B(PyComparisonValue::Implemented(value)) => value,
-                                    Either::A(obj) if !obj.is(&vm.ctx.not_implemented) => {
-                                        obj.try_to_bool(vm)?
-                                    }
-                                    _ => false,
-                                },
-                            };
-                            borrower = Some(guard);
-                            eq
-                        }
-                    } else {
-                        match needle_cmp(needle, elem, PyComparisonOp::Eq, vm)? {
-                            Either::B(PyComparisonValue::Implemented(value)) => {
-                                drop(elem_cls);
-                                borrower = Some(guard);
-                                value
-                            }
-                            Either::A(obj) if !obj.is(&vm.ctx.not_implemented) => {
-                                drop(elem_cls);
-                                borrower = Some(guard);
-                                obj.try_to_bool(vm)?
-                            }
-                            _ => {
-                                let elem_cmp = elem_cls
-                                    .mro_find_map(|cls| cls.slots.richcompare.load())
-                                    .unwrap();
-                                drop(elem_cls);
-
-                                if elem_cmp as usize == richcompare_wrapper as usize {
-                                    let elem = elem.clone();
-                                    drop(guard);
-                                    match elem_cmp(&elem, needle, PyComparisonOp::Eq, vm)? {
-                                        Either::B(PyComparisonValue::Implemented(value)) => value,
-                                        Either::A(obj) if !obj.is(&vm.ctx.not_implemented) => {
-                                            obj.try_to_bool(vm)?
-                                        }
-                                        _ => false,
-                                    }
-                                } else {
-                                    let eq = match elem_cmp(elem, needle, PyComparisonOp::Eq, vm)? {
-                                        Either::B(PyComparisonValue::Implemented(value)) => value,
-                                        Either::A(obj) if !obj.is(&vm.ctx.not_implemented) => {
-                                            obj.try_to_bool(vm)?
-                                        }
-                                        _ => false,
-                                    };
-                                    borrower = Some(guard);
-                                    eq
-                                }
-                            }
-                        }
-                    };
-
-                    if eq {
-                        f();
-                        if SHORT {
-                            break i;
-                        }
-                    }
                 }
-                i += 1;
-            } else {
-                break usize::MAX;
             }
-        })
+            i += 1;
+        };
+
+        // TODO: Optioned<usize>
+        Ok(index)
     }
 
     fn foreach_equal<F: FnMut()>(
