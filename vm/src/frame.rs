@@ -99,7 +99,7 @@ pub struct Frame {
 
     pub fastlocals: PyMutex<Box<[Option<PyObjectRef>]>>,
     pub(crate) cells_frees: Box<[PyCellRef]>,
-    pub locals: PyDictRef,
+    pub locals: PyObjectRef,
     pub globals: PyDictRef,
     pub builtins: PyDictRef,
 
@@ -179,7 +179,7 @@ impl FrameRef {
         f(exec)
     }
 
-    pub fn locals(&self, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+    pub fn locals(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let locals = &self.locals;
         let code = &**self.code;
         let map = &code.varnames;
@@ -275,7 +275,7 @@ struct ExecutingFrame<'a> {
     code: &'a PyRef<PyCode>,
     fastlocals: &'a PyMutex<Box<[Option<PyObjectRef>]>>,
     cells_frees: &'a [PyCellRef],
-    locals: &'a PyDictRef,
+    locals: &'a PyObjectRef,
     globals: &'a PyDictRef,
     builtins: &'a PyDictRef,
     object: &'a FrameRef,
@@ -496,12 +496,15 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::LoadNameAny(idx) => {
                 let name = &self.code.names[*idx as usize];
-                let x = self.locals.get_item_option(name.clone(), vm)?;
-                let x = match x {
+                // Try using locals as dict first, if not, fallback to generic method.
+                let x = match self.locals.clone().downcast_exact::<PyDict>(vm) {
+                    Ok(d) => d.get_item_option(name.clone(), vm)?,
+                    Err(o) => o.get_item(name.clone(), vm).ok(),
+                };
+                self.push_value(match x {
                     Some(x) => x,
                     None => self.load_global_or_builtin(name, vm)?,
-                };
-                self.push_value(x);
+                });
                 Ok(None)
             }
             bytecode::Instruction::LoadGlobal(idx) => {
@@ -521,14 +524,17 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::LoadClassDeref(i) => {
                 let i = *i as usize;
                 let name = self.code.freevars[i - self.code.cellvars.len()].clone();
-                let value = if let Some(value) = self.locals.get_item_option(name, vm)? {
-                    value
-                } else {
-                    self.cells_frees[i]
-                        .get()
-                        .ok_or_else(|| self.unbound_cell_exception(i, vm))?
+                // Try using locals as dict first, if not, fallback to generic method.
+                let value = match self.locals.clone().downcast_exact::<PyDict>(vm) {
+                    Ok(d) => d.get_item_option(name, vm)?,
+                    Err(o) => o.get_item(name, vm).ok(),
                 };
-                self.push_value(value);
+                self.push_value(match value {
+                    Some(v) => v,
+                    None => self.cells_frees[i]
+                        .get()
+                        .ok_or_else(|| self.unbound_cell_exception(i, vm))?,
+                });
                 Ok(None)
             }
             bytecode::Instruction::StoreFast(idx) => {
@@ -717,7 +723,15 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::YieldFrom => self.execute_yield_from(vm),
             bytecode::Instruction::SetupAnnotation => {
-                if !self.locals.contains_key("__annotations__", vm) {
+                // Try using locals as dict first, if not, fallback to generic method.
+                let has_annotations = match self.locals.clone().downcast_exact::<PyDict>(vm) {
+                    Ok(d) => d.contains_key("__annotations__", vm),
+                    Err(o) => {
+                        let needle = vm.new_pyobj("__annotations__");
+                        self._in(vm, needle, o)?
+                    }
+                };
+                if !has_annotations {
                     self.locals
                         .set_item("__annotations__", vm.ctx.new_dict().into(), vm)?;
                 }
@@ -1822,15 +1836,11 @@ impl fmt::Debug for Frame {
             .map(|elem| format!("\n  > {:?}", elem))
             .collect::<String>();
         // TODO: fix this up
-        let dict = self.locals.clone();
-        let local_str = dict
-            .into_iter()
-            .map(|elem| format!("\n  {:?} = {:?}", elem.0, elem.1))
-            .collect::<String>();
+        let locals = self.locals.clone();
         write!(
             f,
-            "Frame Object {{ \n Stack:{}\n Blocks:{}\n Locals:{}\n}}",
-            stack_str, block_str, local_str
+            "Frame Object {{ \n Stack:{}\n Blocks:{}\n Locals:{:?}\n}}",
+            stack_str, block_str, locals
         )
     }
 }

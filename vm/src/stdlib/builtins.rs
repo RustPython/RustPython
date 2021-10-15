@@ -25,7 +25,7 @@ mod builtins {
             ArgBytesLike, ArgCallable, ArgIntoBool, ArgIterable, FuncArgs, KwArgs, OptionalArg,
             OptionalOption, PosArgs,
         },
-        protocol::{PyIter, PyIterReturn},
+        protocol::{PyIter, PyIterReturn, PyMapping},
         py_io,
         readline::{Readline, ReadlineResult},
         scope::Scope,
@@ -206,28 +206,34 @@ mod builtins {
         globals: Option<PyDictRef>,
         // TODO: support any mapping for `locals`
         #[pyarg(any, default)]
-        locals: Option<PyDictRef>,
+        locals: Option<PyObjectRef>,
     }
 
     #[cfg(feature = "rustpython-compiler")]
     impl ScopeArgs {
         fn make_scope(self, vm: &VirtualMachine) -> PyResult<Scope> {
+            // TODO: Other places where user supplies locals object?
+            let locals = self.locals;
+            let get_locals = |default| {
+                locals.map_or(Ok(default), |locals| {
+                    if !PyMapping::check(&locals, vm) {
+                        Err(vm.new_type_error("locals must be a mapping".to_owned()))
+                    } else {
+                        Ok(locals)
+                    }
+                })
+            };
             let (globals, locals) = match self.globals {
                 Some(globals) => {
                     if !globals.contains_key("__builtins__", vm) {
                         let builtins_dict = vm.builtins.dict().unwrap().into();
                         globals.set_item("__builtins__", builtins_dict, vm)?;
                     }
-                    let locals = self.locals.unwrap_or_else(|| globals.clone());
-                    (globals, locals)
+                    (globals.clone(), get_locals(globals.into())?)
                 }
                 None => {
                     let globals = vm.current_globals().clone();
-                    let locals = match self.locals {
-                        Some(l) => l,
-                        None => vm.current_locals()?,
-                    };
-                    (globals, locals)
+                    (globals, vm.current_locals().and_then(get_locals)?)
                 }
             };
 
@@ -426,7 +432,7 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn locals(vm: &VirtualMachine) -> PyResult<PyDictRef> {
+    fn locals(vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         vm.current_locals()
     }
 
@@ -793,7 +799,7 @@ mod builtins {
                 vm.new_type_error("vars() argument must have __dict__ attribute".to_owned())
             })
         } else {
-            Ok(vm.current_locals()?.into())
+            Ok(vm.current_locals()?)
         }
     }
 

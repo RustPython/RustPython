@@ -558,7 +558,7 @@ impl VirtualMachine {
         }
     }
 
-    pub fn current_locals(&self) -> PyResult<PyDictRef> {
+    pub fn current_locals(&self) -> PyResult<PyObjectRef> {
         self.current_frame()
             .expect("called current_locals but no frames on the stack")
             .locals(self)
@@ -1201,7 +1201,7 @@ impl VirtualMachine {
                 .get_special_method(obj, "__dir__")?
                 .map_err(|_obj| self.new_type_error("object does not provide __dir__".to_owned()))?
                 .invoke((), self)?,
-            None => self.call_method(self.current_locals()?.as_object(), "keys", ())?,
+            None => self.call_method(&self.current_locals()?, "keys", ())?,
         };
         let items = self.extract_elements(&seq)?;
         let lst = PyList::from(items);

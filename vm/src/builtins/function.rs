@@ -290,7 +290,8 @@ impl PyFunction {
             vm.ctx.new_dict()
         } else {
             locals.unwrap_or_else(|| self.globals.clone())
-        };
+        }
+        .into();
 
         // Construct frame:
         let frame = Frame::new(
