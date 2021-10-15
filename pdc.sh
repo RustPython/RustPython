@@ -57,7 +57,7 @@ for act in "${ACTIONS[@]}"; do
     done
 done
 
-for pst in "${OST_GLOBAL[@]}"; do
+for pst in "${POST_GLOBAL[@]}"; do
     $pst
 done
 
