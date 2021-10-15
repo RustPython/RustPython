@@ -32,8 +32,8 @@ mod builtins {
         stdlib::sys,
         types::PyComparisonOp,
         utils::Either,
-        IdProtocol, ItemProtocol, PyArithmeticValue, PyClassImpl, PyObjectRef, PyRef, PyResult,
-        PyValue, TryFromObject, TypeProtocol, VirtualMachine,
+        IdProtocol, ItemProtocol, PyArithmeticValue, PyClassImpl, PyObjectRef, PyObjectWrap, PyRef,
+        PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
     };
     use num_traits::{Signed, ToPrimitive, Zero};
 
@@ -204,37 +204,33 @@ mod builtins {
     struct ScopeArgs {
         #[pyarg(any, default)]
         globals: Option<PyDictRef>,
-        // TODO: support any mapping for `locals`
         #[pyarg(any, default)]
-        locals: Option<PyObjectRef>,
+        locals: Option<PyMapping>,
     }
 
     #[cfg(feature = "rustpython-compiler")]
     impl ScopeArgs {
         fn make_scope(self, vm: &VirtualMachine) -> PyResult<Scope> {
-            // TODO: Other places where user supplies locals object?
-            let locals = self.locals;
-            let get_locals = |default| {
-                locals.map_or(Ok(default), |locals| {
-                    if !PyMapping::check(&locals, vm) {
-                        Err(vm.new_type_error("locals must be a mapping".to_owned()))
-                    } else {
-                        Ok(locals)
-                    }
-                })
-            };
             let (globals, locals) = match self.globals {
                 Some(globals) => {
                     if !globals.contains_key("__builtins__", vm) {
                         let builtins_dict = vm.builtins.dict().unwrap().into();
                         globals.set_item("__builtins__", builtins_dict, vm)?;
                     }
-                    (globals.clone(), get_locals(globals.into())?)
+                    (
+                        globals.clone(),
+                        self.locals
+                            .unwrap_or_else(|| PyMapping::new(globals.into())),
+                    )
                 }
-                None => {
-                    let globals = vm.current_globals().clone();
-                    (globals, vm.current_locals().and_then(get_locals)?)
-                }
+                None => (
+                    vm.current_globals().clone(),
+                    if let Some(locals) = self.locals {
+                        locals
+                    } else {
+                        vm.current_locals()?
+                    },
+                ),
             };
 
             let scope = Scope::with_builtins(Some(locals), globals, vm);
@@ -432,7 +428,7 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn locals(vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+    fn locals(vm: &VirtualMachine) -> PyResult<PyMapping> {
         vm.current_locals()
     }
 
@@ -799,7 +795,7 @@ mod builtins {
                 vm.new_type_error("vars() argument must have __dict__ attribute".to_owned())
             })
         } else {
-            Ok(vm.current_locals()?)
+            Ok(vm.current_locals()?.into_object())
         }
     }
 
@@ -876,13 +872,22 @@ mod builtins {
             FuncArgs::new(vec![name_obj.clone().into(), bases.clone()], kwargs.clone()),
         )?;
 
-        let namespace = PyDictRef::try_from_object(vm, namespace)?;
+        // Accept any PyMapping as namespace.
+        let namespace = PyMapping::try_from_object(vm, namespace.clone()).map_err(|_| {
+            vm.new_type_error(format!(
+                "{}.__prepare__() must return a mapping, not {}",
+                metaclass.name(),
+                namespace.class().name()
+            ))
+        })?;
 
         let classcell = function.invoke_with_locals(().into(), Some(namespace.clone()), vm)?;
         let classcell = <Option<PyCellRef>>::try_from_object(vm, classcell)?;
 
         if let Some(orig_bases) = orig_bases {
-            namespace.set_item("__orig_bases__", orig_bases.into(), vm)?;
+            namespace
+                .as_object()
+                .set_item("__orig_bases__", orig_bases.into(), vm)?;
         }
 
         let class = vm.invoke(

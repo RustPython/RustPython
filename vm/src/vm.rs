@@ -22,14 +22,14 @@ use crate::{
     frozen,
     function::{FuncArgs, IntoFuncArgs, IntoPyObject},
     import,
-    protocol::{PyIterIter, PyIterReturn},
+    protocol::{PyIterIter, PyIterReturn, PyMapping},
     scope::Scope,
     signal::NSIG,
     stdlib,
     types::PyComparisonOp,
     utils::Either,
     IdProtocol, ItemProtocol, PyArithmeticValue, PyContext, PyLease, PyMethod, PyObject,
-    PyObjectRef, PyRef, PyRefExact, PyResult, PyValue, TryFromObject, TypeProtocol,
+    PyObjectRef, PyObjectWrap, PyRef, PyRefExact, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::{Signed, ToPrimitive};
@@ -558,7 +558,7 @@ impl VirtualMachine {
         }
     }
 
-    pub fn current_locals(&self) -> PyResult<PyObjectRef> {
+    pub fn current_locals(&self) -> PyResult<PyMapping> {
         self.current_frame()
             .expect("called current_locals but no frames on the stack")
             .locals(self)
@@ -1201,7 +1201,7 @@ impl VirtualMachine {
                 .get_special_method(obj, "__dir__")?
                 .map_err(|_obj| self.new_type_error("object does not provide __dir__".to_owned()))?
                 .invoke((), self)?,
-            None => self.call_method(&self.current_locals()?, "keys", ())?,
+            None => self.call_method(self.current_locals()?.as_object(), "keys", ())?,
         };
         let items = self.extract_elements(&seq)?;
         let lst = PyList::from(items);

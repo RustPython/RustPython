@@ -1,13 +1,14 @@
 use crate::{
     builtins::{pystr::IntoPyStrRef, PyDictRef, PyStrRef},
     function::IntoPyObject,
-    ItemProtocol, PyObjectRef, VirtualMachine,
+    protocol::PyMapping,
+    ItemProtocol, VirtualMachine,
 };
 use std::fmt;
 
 #[derive(Clone)]
 pub struct Scope {
-    pub locals: PyObjectRef,
+    pub locals: PyMapping,
     pub globals: PyDictRef,
 }
 
@@ -20,13 +21,13 @@ impl fmt::Debug for Scope {
 
 impl Scope {
     #[inline]
-    pub fn new(locals: Option<PyObjectRef>, globals: PyDictRef) -> Scope {
-        let locals = locals.unwrap_or_else(|| globals.clone().into());
+    pub fn new(locals: Option<PyMapping>, globals: PyDictRef) -> Scope {
+        let locals = locals.unwrap_or_else(|| PyMapping::new(globals.clone().into()));
         Scope { locals, globals }
     }
 
     pub fn with_builtins(
-        locals: Option<PyObjectRef>,
+        locals: Option<PyMapping>,
         globals: PyDictRef,
         vm: &VirtualMachine,
     ) -> Scope {

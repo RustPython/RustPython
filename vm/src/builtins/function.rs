@@ -10,6 +10,7 @@ use crate::{
     common::lock::PyMutex,
     frame::Frame,
     function::{FuncArgs, OptionalArg},
+    protocol::PyMapping,
     scope::Scope,
     types::{Callable, Comparable, Constructor, GetAttr, GetDescriptor, PyComparisonOp},
     IdProtocol, ItemProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
@@ -267,7 +268,7 @@ impl PyFunction {
     pub fn invoke_with_locals(
         &self,
         func_args: FuncArgs,
-        locals: Option<PyDictRef>,
+        locals: Option<PyMapping>,
         vm: &VirtualMachine,
     ) -> PyResult {
         #[cfg(feature = "jit")]
@@ -287,11 +288,12 @@ impl PyFunction {
         let code = &self.code;
 
         let locals = if self.code.flags.contains(bytecode::CodeFlags::NEW_LOCALS) {
-            vm.ctx.new_dict()
+            PyMapping::new(vm.ctx.new_dict().into())
+        } else if let Some(locals) = locals {
+            locals
         } else {
-            locals.unwrap_or_else(|| self.globals.clone())
-        }
-        .into();
+            PyMapping::new(self.globals.clone().into())
+        };
 
         // Construct frame:
         let frame = Frame::new(
