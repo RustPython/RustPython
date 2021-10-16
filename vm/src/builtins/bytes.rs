@@ -12,7 +12,7 @@ use crate::{
     },
     protocol::{BufferDescriptor, BufferMethods, PyBuffer, PyIterReturn, PyMappingMethods},
     types::{
-        AsBuffer, AsMapping, Callable, Comparable, Constructor, Hashable, IterNext,
+        AsBuffer, AsMapping, AsSequence, Callable, Comparable, Constructor, Hashable, IterNext,
         IterNextIterable, Iterable, PyComparisonOp, Unconstructible,
     },
     utils::Either,
@@ -22,6 +22,7 @@ use crate::{
 use bstr::ByteSlice;
 use std::mem::size_of;
 use std::ops::Deref;
+use std::{borrow::Cow, mem::size_of};
 
 #[pyclass(module = false, name = "bytes")]
 #[derive(Clone, Debug)]
@@ -97,7 +98,15 @@ impl PyBytes {
 
 #[pyimpl(
     flags(BASETYPE),
-    with(AsMapping, Hashable, Comparable, AsBuffer, Iterable, Constructor)
+    with(
+        AsMapping,
+        AsSequence,
+        Hashable,
+        Comparable,
+        AsBuffer,
+        Iterable,
+        Constructor
+    )
 )]
 impl PyBytes {
     #[pymethod(magic)]
@@ -554,6 +563,42 @@ impl AsBuffer for PyBytes {
 impl AsMapping for PyBytes {
     fn as_mapping(_zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
         Self::MAPPING_METHODS
+    }
+}
+
+impl AsSequence for PyBytes {
+    fn as_sequence(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> Cow<'static, PySequenceMethods> {
+        static_cell! {
+            static METHODS: PySequenceMethods;
+        }
+        Cow::Borrowed(METHODS.get_or_init(|| PySequenceMethods {
+            length: Some(|zelf, _vm| Ok(zelf.payload::<Self>().unwrap().len())),
+            concat: Some(|zelf, other, vm| {
+                zelf.payload::<Self>()
+                    .unwrap()
+                    .inner
+                    .concat(other, vm)
+                    .map(|x| vm.ctx.new_bytes(x).into())
+            }),
+            repeat: Some(|zelf, n, vm| {
+                Ok(vm
+                    .ctx
+                    .new_bytes(zelf.payload::<Self>().unwrap().repeat(n))
+                    .into())
+            }),
+            item: Some(|zelf, i, vm| {
+                zelf.payload::<Self>()
+                    .unwrap()
+                    .inner
+                    .item(i, vm)
+                    .map(|x| x.into_pyobject(vm))
+            }),
+            contains: Some(|zelf, other, vm| {
+                let other = <Either<PyBytesInner, PyIntRef>>::try_from_object(vm, other.clone())?;
+                zelf.payload::<Self>().unwrap().contains(other, vm)
+            }),
+            ..Default::default()
+        }))
     }
 }
 

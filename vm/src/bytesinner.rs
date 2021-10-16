@@ -925,6 +925,34 @@ impl PyBytesInner {
     pub fn imul(&mut self, n: isize, vm: &VirtualMachine) -> PyResult<()> {
         self.elements.imul(vm, n)
     }
+
+    pub fn concat(&self, other: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        let buffer = PyBuffer::try_from_borrowed_object(vm, other)?;
+        let borrowed = buffer.as_contiguous();
+        if let Some(other) = borrowed {
+            let mut v = Vec::with_capacity(self.elements.len() + other.len());
+            v.extend_from_slice(&self.elements);
+            v.extend_from_slice(&other);
+            Ok(v)
+        } else {
+            let mut v = self.elements.clone();
+            v.append(&mut buffer.to_contiguous());
+            Ok(v)
+        }
+    }
+
+    pub fn item(&self, mut i: isize, vm: &VirtualMachine) -> PyResult<u8> {
+        let len = self.len() as isize;
+        if i < 0 {
+            i += len;
+            if i < 0 {
+                return Err(vm.new_index_error("index out of range".to_string()));
+            }
+        } else if i >= len {
+            return Err(vm.new_index_error("index out of range".to_string()));
+        }
+        Ok(self.elements[i as usize])
+    }
 }
 
 pub fn try_as_bytes<F, R>(obj: PyObjectRef, f: F) -> Option<R>

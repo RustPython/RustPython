@@ -121,15 +121,13 @@ impl TryFromObject for PyIter<PyObjectRef> {
                     iter.class().name()
                 )))
             }
+        } else if PySequence::check(&iter_target, vm) {
+            Ok(Self(PySequenceIterator::new(iter_target).into_object(vm)))
         } else {
-            if PySequence::check(&iter_target, vm) {
-                Ok(Self(PySequenceIterator::new(iter_target).into_object(vm)))
-            } else {
-                Err(vm.new_type_error(format!(
-                    "'{}' object is not iterable",
-                    iter_target.class().name()
-                )))
-            }
+            Err(vm.new_type_error(format!(
+                "'{}' object is not iterable",
+                iter_target.class().name()
+            )))
         }
     }
 }
