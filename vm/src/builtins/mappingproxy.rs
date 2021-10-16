@@ -1,4 +1,4 @@
-use super::{PyDict, PyList, PyStrRef, PyTuple, PyTypeRef};
+use super::{PyDict, PyGenericAlias, PyList, PyStrRef, PyTuple, PyTypeRef};
 use crate::{
     function::{IntoPyObject, OptionalArg},
     protocol::{PyMapping, PyMappingMethods},
@@ -147,6 +147,11 @@ impl PyMappingProxy {
             }
         };
         Ok(format!("mappingproxy({})", vm.to_repr(&obj)?))
+    }
+
+    #[pyclassmethod(magic)]
+    fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+        PyGenericAlias::new(cls, args, vm)
     }
 }
 

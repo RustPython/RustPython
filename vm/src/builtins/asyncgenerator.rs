@@ -1,4 +1,4 @@
-use super::{PyCode, PyStrRef, PyTypeRef};
+use super::{PyCode, PyGenericAlias, PyStrRef, PyTypeRef};
 use crate::{
     builtins::PyBaseExceptionRef,
     coroutine::Coro,
@@ -122,6 +122,11 @@ impl PyAsyncGen {
     #[pyproperty]
     fn ag_code(&self, _vm: &VirtualMachine) -> PyRef<PyCode> {
         self.inner.frame().code.clone()
+    }
+
+    #[pyclassmethod(magic)]
+    fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+        PyGenericAlias::new(cls, args, vm)
     }
 }
 impl Unconstructible for PyAsyncGen {}

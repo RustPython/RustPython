@@ -1,4 +1,4 @@
-use super::{PositionIterInternal, PyTypeRef};
+use super::{PositionIterInternal, PyGenericAlias, PyTypeRef};
 use crate::common::hash::PyHash;
 use crate::{
     function::{IntoPyObject, OptionalArg},
@@ -302,6 +302,11 @@ impl PyTuple {
             PyTuple::new_ref(zelf.elements.clone().into_vec(), &vm.ctx)
         };
         (tup_arg,)
+    }
+
+    #[pyclassmethod(magic)]
+    fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+        PyGenericAlias::new(cls, args, vm)
     }
 }
 

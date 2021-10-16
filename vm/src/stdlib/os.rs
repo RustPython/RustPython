@@ -429,7 +429,9 @@ pub(super) mod _os {
     };
     use crate::common::lock::{OnceCell, PyRwLock};
     use crate::{
-        builtins::{PyBytesRef, PyIntRef, PyStrRef, PyTuple, PyTupleRef, PyTypeRef},
+        builtins::{
+            PyBytesRef, PyGenericAlias, PyIntRef, PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
+        },
         crt_fd::{Fd, Offset},
         function::{ArgBytesLike, FuncArgs, IntoPyException, IntoPyObject, OptionalArg},
         protocol::PyIterReturn,
@@ -889,6 +891,11 @@ pub(super) mod _os {
             } else {
                 Ok(format!("<{}>", zelf.class()))
             }
+        }
+
+        #[pyclassmethod(magic)]
+        fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+            PyGenericAlias::new(cls, args, vm)
         }
     }
 
