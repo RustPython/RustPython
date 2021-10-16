@@ -1,5 +1,4 @@
 use crate::common::{hash::PyHash, lock::PyRwLock};
-use crate::PyArithmeticValue;
 use crate::{
     builtins::{PyInt, PyStrRef, PyType, PyTypeRef},
     function::{FromArgs, FuncArgs, IntoPyResult, OptionalArg},
@@ -10,6 +9,7 @@ use crate::{
 };
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::ToPrimitive;
+use rustpython_common::static_cell;
 use std::borrow::Cow;
 use std::cmp::Ordering;
 
@@ -153,8 +153,7 @@ pub(crate) type DescrSetFunc =
     fn(PyObjectRef, PyObjectRef, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>;
 pub(crate) type NewFunc = fn(PyTypeRef, FuncArgs, &VirtualMachine) -> PyResult;
 pub(crate) type DelFunc = fn(&PyObject, &VirtualMachine) -> PyResult<()>;
-pub(crate) type AsSequenceFunc =
-    fn(&PyObject, &VirtualMachine) -> Cow<'static, PySequenceMethods>;
+pub(crate) type AsSequenceFunc = fn(&PyObject, &VirtualMachine) -> Cow<'static, PySequenceMethods>;
 
 macro_rules! then_some_closure {
     ($cond:expr, $closure:expr) => {
@@ -207,85 +206,46 @@ fn as_mapping_wrapper(zelf: &PyObject, _vm: &VirtualMachine) -> PyMappingMethods
     }
 }
 
-fn as_sequence_wrapper(
-    zelf: &PyObject,
-    _vm: &VirtualMachine,
-) -> Cow<'static, PySequenceMethods> {
+fn as_sequence_wrapper(zelf: &PyObject, _vm: &VirtualMachine) -> Cow<'static, PySequenceMethods> {
+    static_cell! {
+        static EMPTY: PySequenceMethods;
+    }
+    if !zelf.has_class_attr("__getitem__") {
+        return Cow::Borrowed(EMPTY.get_or_init(PySequenceMethods::default));
+    }
+
     Cow::Owned(PySequenceMethods {
         length: then_some_closure!(zelf.has_class_attr("__len__"), |zelf, vm| {
             vm.obj_len_opt(zelf).unwrap()
         }),
         concat: then_some_closure!(zelf.has_class_attr("__add__"), |zelf, other, vm| {
-            if PySequence::check(zelf, vm) && PySequence::check(other, vm) {
-                let ret = vm.call_special_method(zelf.clone(), "__add__", (other.clone(),))?;
-                if let PyArithmeticValue::Implemented(obj) = PyArithmeticValue::from_object(vm, ret)
-                {
-                    return Ok(obj);
-                }
-            }
-            Err(vm.new_type_error(format!("'{}' object can't be concatenated", zelf)))
+            try_add_for_concat(zelf, other, vm)
         }),
         repeat: then_some_closure!(zelf.has_class_attr("__mul__"), |zelf, n, vm| {
-            if PySequence::check(zelf, vm) {
-                let ret =
-                    vm.call_special_method(zelf.clone(), "__mul__", (n.into_pyobject(vm),))?;
-                if let PyArithmeticValue::Implemented(obj) = PyArithmeticValue::from_object(vm, ret)
-                {
-                    return Ok(obj);
-                }
-            }
-            Err(vm.new_type_error(format!("'{}' object can't be repeated", zelf)))
+            try_mul_for_repeat(zelf, n, vm)
         }),
         inplace_concat: then_some_closure!(
             zelf.has_class_attr("__iadd__") || zelf.has_class_attr("__add__"),
-            |zelf, other, vm| {
-                if PySequence::check(&zelf, vm) && PySequence::check(other, vm) {
-                    if let Ok(f) = vm.get_special_method(zelf.clone(), "__iadd__")? {
-                        let ret = f.invoke((other.clone(),), vm)?;
-                        if let PyArithmeticValue::Implemented(obj) =
-                            PyArithmeticValue::from_object(vm, ret)
-                        {
-                            return Ok(obj);
-                        }
-                    }
-                    if let Ok(f) = vm.get_special_method(zelf.clone(), "__add__")? {
-                        let ret = f.invoke((other.clone(),), vm)?;
-                        if let PyArithmeticValue::Implemented(obj) =
-                            PyArithmeticValue::from_object(vm, ret)
-                        {
-                            return Ok(obj);
-                        }
-                    }
-                }
-                Err(vm.new_type_error(format!("'{}' object can't be concatenated", zelf)))
-            }
+            |zelf, other, vm| { try_iadd_for_inplace_concat(zelf, other, vm) }
         ),
         inplace_repeat: then_some_closure!(
             zelf.has_class_attr("__imul__") || zelf.has_class_attr("__mul__"),
-            |zelf, n, vm| {
-                if PySequence::check(&zelf, vm) {
-                    if let Ok(f) = vm.get_special_method(zelf.clone(), "__imul__")? {
-                        let ret = f.invoke((n.into_pyobject(vm),), vm)?;
-                        if let PyArithmeticValue::Implemented(obj) =
-                            PyArithmeticValue::from_object(vm, ret)
-                        {
-                            return Ok(obj);
-                        }
-                    }
-                    if let Ok(f) = vm.get_special_method(zelf.clone(), "__mul__")? {
-                        let ret = f.invoke((n.into_pyobject(vm),), vm)?;
-                        if let PyArithmeticValue::Implemented(obj) =
-                            PyArithmeticValue::from_object(vm, ret)
-                        {
-                            return Ok(obj);
-                        }
-                    }
-                }
-                Err(vm.new_type_error(format!("'{}' object can't be repeated", zelf)))
+            |zelf, n, vm| { try_imul_for_inplace_repeat(zelf, n, vm) }
+        ),
+        item: Some(|zelf, i, vm| {
+            vm.call_special_method(zelf.clone(), "__getitem__", (i.into_pyobject(vm),))
+        }),
+        ass_item: then_some_closure!(
+            zelf.has_class_attr("__setitem__") | zelf.has_class_attr("__delitem__"),
+            |zelf, i, value, vm| match value {
+                Some(value) => vm
+                    .call_special_method(zelf.clone(), "__setitem__", (i.into_pyobject(vm), value),)
+                    .map(|_| Ok(()))?,
+                None => vm
+                    .call_special_method(zelf.clone(), "__delitem__", (i.into_pyobject(vm),))
+                    .map(|_| Ok(()))?,
             }
         ),
-        item: None,
-        ass_item: None,
         // TODO: IterSearch
         contains: None,
     })
@@ -887,14 +847,14 @@ pub trait AsMapping: PyValue {
 pub trait AsSequence: PyValue {
     #[inline]
     #[pyslot]
-    fn slot_as_sequence(
-        zelf: &PyObject,
-        vm: &VirtualMachine,
-    ) -> Cow<'static, PySequenceMethods> {
+    fn slot_as_sequence(zelf: &PyObject, vm: &VirtualMachine) -> Cow<'static, PySequenceMethods> {
         let zelf = unsafe { zelf.downcast_unchecked_ref::<Self>() };
         Self::as_sequence(zelf, vm)
     }
-    fn as_sequence(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> Cow<'static, PySequenceMethods>;
+    fn as_sequence(
+        zelf: &PyObjectView<Self>,
+        vm: &VirtualMachine,
+    ) -> Cow<'static, PySequenceMethods>;
 }
 
 #[pyimpl]

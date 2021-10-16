@@ -979,7 +979,10 @@ impl AsMapping for PyMemoryView {
 }
 
 impl AsSequence for PyMemoryView {
-    fn as_sequence(_zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> Cow<'static, PySequenceMethods> {
+    fn as_sequence(
+        _zelf: &PyObjectView<Self>,
+        _vm: &VirtualMachine,
+    ) -> Cow<'static, PySequenceMethods> {
         static_cell! {
             static METHODS: PySequenceMethods;
         }
