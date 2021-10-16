@@ -6,21 +6,21 @@ use crate::{
     function::{ArgIterable, FuncArgs, IntoPyObject, OptionalArg},
     protocol::{PyIterReturn, PyMappingMethods},
     sequence::{self, SimpleSeq},
-    sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
+    sliceable::{saturate_index, PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
     stdlib::sys,
     types::{
-        AsMapping, Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable,
-        PyComparisonOp, Unconstructible, Unhashable,
+        richcompare_wrapper, AsMapping, Comparable, Constructor, Hashable, IterNext,
+        IterNextIterable, Iterable, PyComparisonOp, RichCompareFunc, Unconstructible, Unhashable,
     },
     utils::Either,
     vm::{ReprGuard, VirtualMachine},
-    PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
+    IdProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
+    PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use std::fmt;
 use std::iter::FromIterator;
 use std::mem::size_of;
-use std::ops::DerefMut;
+use std::ops::{DerefMut, Range};
 
 /// Built-in mutable sequence.
 ///
@@ -252,30 +252,173 @@ impl PyList {
         Ok(zelf.clone())
     }
 
+    fn _iter_equal<F: FnMut(), const SHORT: bool>(
+        &self,
+        needle: &PyObjectRef,
+        range: Range<usize>,
+        mut f: F,
+        vm: &VirtualMachine,
+    ) -> PyResult<usize> {
+        let needle_cls = needle.class();
+        let needle_cmp = needle_cls
+            .mro_find_map(|cls| cls.slots.richcompare.load())
+            .unwrap();
+
+        let mut borrower = None;
+        let mut i = range.start;
+
+        let index = loop {
+            if i >= range.end {
+                break usize::MAX;
+            }
+            let guard = if let Some(x) = borrower.take() {
+                x
+            } else {
+                self.borrow_vec()
+            };
+
+            let elem = if let Some(x) = guard.get(i) {
+                x
+            } else {
+                break usize::MAX;
+            };
+
+            if elem.is(needle) {
+                f();
+                if SHORT {
+                    break i;
+                }
+                borrower = Some(guard);
+            } else {
+                let elem_cls = elem.class();
+                let reverse_first = !elem_cls.is(&needle_cls) && elem_cls.issubclass(&needle_cls);
+
+                let eq = if reverse_first {
+                    let elem_cmp = elem_cls
+                        .mro_find_map(|cls| cls.slots.richcompare.load())
+                        .unwrap();
+                    drop(elem_cls);
+
+                    fn cmp(
+                        elem: &PyObjectRef,
+                        needle: &PyObjectRef,
+                        elem_cmp: RichCompareFunc,
+                        needle_cmp: RichCompareFunc,
+                        vm: &VirtualMachine,
+                    ) -> PyResult<bool> {
+                        match elem_cmp(elem, needle, PyComparisonOp::Eq, vm)? {
+                            Either::B(PyComparisonValue::Implemented(value)) => Ok(value),
+                            Either::A(obj) if !obj.is(&vm.ctx.not_implemented) => {
+                                obj.try_to_bool(vm)
+                            }
+                            _ => match needle_cmp(needle, elem, PyComparisonOp::Eq, vm)? {
+                                Either::B(PyComparisonValue::Implemented(value)) => Ok(value),
+                                Either::A(obj) if !obj.is(&vm.ctx.not_implemented) => {
+                                    obj.try_to_bool(vm)
+                                }
+                                _ => Ok(false),
+                            },
+                        }
+                    }
+
+                    if elem_cmp as usize == richcompare_wrapper as usize {
+                        let elem = elem.clone();
+                        drop(guard);
+                        cmp(&elem, needle, elem_cmp, needle_cmp, vm)?
+                    } else {
+                        let eq = cmp(elem, needle, elem_cmp, needle_cmp, vm)?;
+                        borrower = Some(guard);
+                        eq
+                    }
+                } else {
+                    match needle_cmp(needle, elem, PyComparisonOp::Eq, vm)? {
+                        Either::B(PyComparisonValue::Implemented(value)) => {
+                            drop(elem_cls);
+                            borrower = Some(guard);
+                            value
+                        }
+                        Either::A(obj) if !obj.is(&vm.ctx.not_implemented) => {
+                            drop(elem_cls);
+                            borrower = Some(guard);
+                            obj.try_to_bool(vm)?
+                        }
+                        _ => {
+                            let elem_cmp = elem_cls
+                                .mro_find_map(|cls| cls.slots.richcompare.load())
+                                .unwrap();
+                            drop(elem_cls);
+
+                            fn cmp(
+                                elem: &PyObjectRef,
+                                needle: &PyObjectRef,
+                                elem_cmp: RichCompareFunc,
+                                vm: &VirtualMachine,
+                            ) -> PyResult<bool> {
+                                match elem_cmp(elem, needle, PyComparisonOp::Eq, vm)? {
+                                    Either::B(PyComparisonValue::Implemented(value)) => Ok(value),
+                                    Either::A(obj) if !obj.is(&vm.ctx.not_implemented) => {
+                                        obj.try_to_bool(vm)
+                                    }
+                                    _ => Ok(false),
+                                }
+                            }
+
+                            if elem_cmp as usize == richcompare_wrapper as usize {
+                                let elem = elem.clone();
+                                drop(guard);
+                                cmp(&elem, needle, elem_cmp, vm)?
+                            } else {
+                                let eq = cmp(elem, needle, elem_cmp, vm)?;
+                                borrower = Some(guard);
+                                eq
+                            }
+                        }
+                    }
+                };
+
+                if eq {
+                    f();
+                    if SHORT {
+                        break i;
+                    }
+                }
+            }
+            i += 1;
+        };
+
+        // TODO: Optioned<usize>
+        Ok(index)
+    }
+
+    fn foreach_equal<F: FnMut()>(
+        &self,
+        needle: &PyObjectRef,
+        f: F,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        self._iter_equal::<_, false>(needle, 0..usize::MAX, f, vm)
+            .map(|_| ())
+    }
+
+    fn find_equal(
+        &self,
+        needle: &PyObjectRef,
+        range: Range<usize>,
+        vm: &VirtualMachine,
+    ) -> PyResult<usize> {
+        self._iter_equal::<_, true>(needle, range, || {}, vm)
+    }
+
     #[pymethod]
     fn count(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-        // TODO: to_vec() cause copy which leads to cost O(N). It need to be improved.
-        let elements = self.borrow_vec().to_vec();
-        let mut count: usize = 0;
-        for elem in elements.iter() {
-            if vm.identical_or_equal(elem, &needle)? {
-                count += 1;
-            }
-        }
+        let mut count = 0;
+        self.foreach_equal(&needle, || count += 1, vm)?;
         Ok(count)
     }
 
     #[pymethod(magic)]
-    pub fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        // TODO: to_vec() cause copy which leads to cost O(N). It need to be improved.
-        let elements = self.borrow_vec().to_vec();
-        for elem in elements.iter() {
-            if vm.identical_or_equal(elem, &needle)? {
-                return Ok(true);
-            }
-        }
-
-        Ok(false)
+    pub(crate) fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        Ok(self.find_equal(&needle, 0..usize::MAX, vm)? != usize::MAX)
     }
 
     #[pymethod]
@@ -286,33 +429,17 @@ impl PyList {
         stop: OptionalArg<isize>,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
-        let mut start = start.into_option().unwrap_or(0);
-        if start < 0 {
-            start += self.borrow_vec().len() as isize;
-            if start < 0 {
-                start = 0;
-            }
+        let len = self.len();
+        let start = start.map(|i| saturate_index(i, len)).unwrap_or(0);
+        let stop = stop
+            .map(|i| saturate_index(i, len))
+            .unwrap_or(sys::MAXSIZE as usize);
+        let index = self.find_equal(&needle, start..stop, vm)?;
+        if index == usize::MAX {
+            Err(vm.new_value_error(format!("'{}' is not in list", vm.to_str(&needle)?)))
+        } else {
+            Ok(index)
         }
-        let mut stop = stop.into_option().unwrap_or(sys::MAXSIZE);
-        if stop < 0 {
-            stop += self.borrow_vec().len() as isize;
-            if stop < 0 {
-                stop = 0;
-            }
-        }
-        // TODO: to_vec() cause copy which leads to cost O(N). It need to be improved.
-        let elements = self.borrow_vec().to_vec();
-        for (index, element) in elements
-            .iter()
-            .enumerate()
-            .take(stop as usize)
-            .skip(start as usize)
-        {
-            if vm.identical_or_equal(element, &needle)? {
-                return Ok(index);
-            }
-        }
-        Err(vm.new_value_error(format!("'{}' is not in list", vm.to_str(&needle)?)))
     }
 
     #[pymethod]
@@ -333,17 +460,9 @@ impl PyList {
 
     #[pymethod]
     fn remove(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        // TODO: to_vec() cause copy which leads to cost O(N). It need to be improved.
-        let elements = self.borrow_vec().to_vec();
-        let mut ri: Option<usize> = None;
-        for (index, element) in elements.iter().enumerate() {
-            if vm.identical_or_equal(element, &needle)? {
-                ri = Some(index);
-                break;
-            }
-        }
+        let index = self.find_equal(&needle, 0..usize::MAX, vm)?;
 
-        if let Some(index) = ri {
+        if index != usize::MAX {
             // defer delete out of borrow
             Ok(self.borrow_vec_mut().remove(index))
         } else {
