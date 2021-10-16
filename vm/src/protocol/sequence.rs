@@ -37,7 +37,13 @@ impl PySequence {
             return false;
         }
         cls.mro_find_map(|x| x.slots.as_sequence.load())
-            .map(|f| f(obj, vm).item.is_some())
+            .map(|f| {
+                // FIXME: we may avoid the check if we assume all the builtins
+                // implement fn item() for the sequence protocol
+                // all the python class must has __getitem__ if they ident as
+                // sequence protocol implemented
+                f(obj, vm).item.is_some()
+            })
             .unwrap_or(false)
     }
 

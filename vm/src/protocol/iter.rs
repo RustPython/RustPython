@@ -1,6 +1,7 @@
 use crate::{
     builtins::iter::PySequenceIterator,
     function::{IntoPyObject, IntoPyResult},
+    protocol::PySequence,
     PyObject, PyObjectRef, PyObjectWrap, PyResult, PyValue, TryFromObject, TypeProtocol,
     VirtualMachine,
 };
@@ -121,11 +122,14 @@ impl TryFromObject for PyIter<PyObjectRef> {
                 )))
             }
         } else {
-            // TODO: __getitem__ method lookup must be replaced by sequence protocol checking
-            vm.get_method_or_type_error(iter_target.clone(), "__getitem__", || {
-                format!("'{}' object is not iterable", iter_target.class().name())
-            })?;
-            Ok(Self(PySequenceIterator::new(iter_target).into_object(vm)))
+            if PySequence::check(&iter_target, vm) {
+                Ok(Self(PySequenceIterator::new(iter_target).into_object(vm)))
+            } else {
+                Err(vm.new_type_error(format!(
+                    "'{}' object is not iterable",
+                    iter_target.class().name()
+                )))
+            }
         }
     }
 }
