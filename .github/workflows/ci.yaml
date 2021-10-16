@@ -18,8 +18,19 @@ env:
     -p rustpython-derive
     -p rustpython
   PLATFORM_INDEPENDENT_TESTS: >-
-    test_argparse test_json test_bytes test_long test_unicode test_array
-    test_asyncgen test_list test_complex test_json test_set test_dis test_calendar
+    test_argparse
+    test_json
+    test_bytes
+    test_long
+    test_unicode
+    test_array
+    test_asyncgen
+    test_list
+    test_complex
+    test_json
+    test_set
+    test_dis
+    test_calendar
 
 jobs:
   rust_tests:
