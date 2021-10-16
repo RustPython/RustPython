@@ -244,6 +244,35 @@ fn write_traceback_entry<W: Write>(
     Ok(())
 }
 
+pub struct DeferredEmptyException<'vm> {
+    typ: &'vm PyTypeRef,
+}
+
+impl<'vm> IntoPyException for DeferredEmptyException<'vm> {
+    fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        vm.new_exception_empty(self.typ.clone())
+    }
+}
+
+pub struct DeferredMessageException<'vm, M>
+where
+    M: FnOnce(&VirtualMachine) -> String,
+{
+    typ: &'vm PyTypeRef,
+    build_message: M,
+}
+
+impl<'vm, M> IntoPyException for DeferredMessageException<'vm, M>
+where
+    M: FnOnce(&VirtualMachine) -> String,
+{
+    fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        let Self { typ, build_message } = self;
+        vm.new_exception_msg(typ.clone(), build_message(vm))
+    }
+}
+
+
 #[derive(Clone)]
 pub enum ExceptionCtor {
     Class(PyTypeRef),
