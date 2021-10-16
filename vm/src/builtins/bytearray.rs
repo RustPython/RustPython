@@ -25,7 +25,7 @@ use crate::{
     },
     sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
     types::{
-        AsBuffer, AsMapping, Callable, Comparable, Constructor, Hashable, IterNext,
+        AsBuffer, AsMapping, AsSequence, Callable, Comparable, Constructor, Hashable, IterNext,
         IterNextIterable, Iterable, PyComparisonOp, Unconstructible, Unhashable,
     },
     utils::Either,
@@ -91,7 +91,7 @@ pub(crate) fn init(context: &PyContext) {
 
 #[pyimpl(
     flags(BASETYPE),
-    with(Hashable, Comparable, AsBuffer, AsMapping, Iterable)
+    with(Hashable, Comparable, AsBuffer, AsMapping, AsSequence, Iterable)
 )]
 impl PyByteArray {
     #[pyslot]
@@ -159,6 +159,17 @@ impl PyByteArray {
         self.inner().contains(needle, vm)
     }
 
+    fn setitem_by_idx(&self, i: isize, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let value = value_from_object(vm, &value)?;
+        let mut elements = self.borrow_buf_mut();
+        if let Some(i) = elements.wrap_index(i) {
+            elements[i] = value;
+            Ok(())
+        } else {
+            Err(vm.new_index_error("index out of range".to_owned()))
+        }
+    }
+
     #[pymethod(magic)]
     fn setitem(
         zelf: PyRef<Self>,
@@ -167,16 +178,7 @@ impl PyByteArray {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         match SequenceIndex::try_from_object_for(vm, needle, Self::NAME)? {
-            SequenceIndex::Int(i) => {
-                let value = value_from_object(vm, &value)?;
-                let mut elements = zelf.borrow_buf_mut();
-                if let Some(i) = elements.wrap_index(i) {
-                    elements[i] = value;
-                    Ok(())
-                } else {
-                    Err(vm.new_index_error("index out of range".to_owned()))
-                }
-            }
+            SequenceIndex::Int(i) => zelf.setitem_by_idx(i, value, vm),
             SequenceIndex::Slice(slice) => {
                 let slice = slice.to_saturated(vm)?;
                 let items = if zelf.is(&value) {
@@ -207,18 +209,20 @@ impl PyByteArray {
         self.inner().getitem(Self::NAME, needle, vm)
     }
 
+    fn delitem_by_idx(&self, i: isize, vm: &VirtualMachine) -> PyResult<()> {
+        let elements = &mut self.try_resizable(vm)?.elements;
+        if let Some(idx) = elements.wrap_index(i) {
+            elements.remove(idx);
+            Ok(())
+        } else {
+            Err(vm.new_index_error("index out of range".to_owned()))
+        }
+    }
+
     #[pymethod(magic)]
     pub fn delitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         match SequenceIndex::try_from_object_for(vm, needle, Self::NAME)? {
-            SequenceIndex::Int(int) => {
-                let elements = &mut self.try_resizable(vm)?.elements;
-                if let Some(idx) = elements.wrap_index(int) {
-                    elements.remove(idx);
-                    Ok(())
-                } else {
-                    Err(vm.new_index_error("index out of range".to_owned()))
-                }
-            }
+            SequenceIndex::Int(i) => self.delitem_by_idx(i, vm),
             SequenceIndex::Slice(slice) => {
                 let slice = slice.to_saturated(vm)?;
                 let elements = &mut self.try_resizable(vm)?.elements;
@@ -757,6 +761,52 @@ impl<'a> BufferResizeGuard<'a> for PyByteArray {
 impl AsMapping for PyByteArray {
     fn as_mapping(_zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
         Self::MAPPING_METHODS
+    }
+}
+
+impl AsSequence for PyByteArray {
+    fn as_sequence(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> Cow<'static, PySequenceMethods> {
+        static_cell! {
+            static METHODS: PySequenceMethods;
+        }
+        Cow::Borrowed(METHODS.get_or_init(|| PySequenceMethods {
+            length: Some(|zelf, _vm| Ok(zelf.payload::<Self>().unwrap().len())),
+            concat: Some(|zelf, other, vm| {
+                zelf.payload::<Self>()
+                    .unwrap()
+                    .inner()
+                    .concat(other, vm)
+                    .map(|x| PyByteArray::from(x).into_object(vm))
+            }),
+            repeat: Some(|zelf, n, vm| {
+                zelf.payload::<Self>()
+                    .unwrap()
+                    .mul(n as isize, vm)
+                    .map(|x| x.into_object(vm))
+            }),
+            item: Some(|zelf, i, vm| zelf.payload::<Self>().unwrap().inner().item(i, vm)),
+            ass_item: Some(|zelf, i, value, vm| {
+                let zelf = zelf.payload::<Self>().unwrap();
+                if let Some(value) = value {
+                    zelf.setitem_by_idx(i, value, vm)
+                } else {
+                    zelf.delitem_by_idx(i, vm)
+                }
+            }),
+            contains: Some(|zelf, other, vm| {
+                let other = <Either<PyBytesInner, PyIntRef>>::try_from_object(vm, other.clone())?;
+                zelf.payload::<Self>().unwrap().contains(other, vm)
+            }),
+            inplace_concat: Some(|zelf, other, vm| {
+                let other = ArgBytesLike::try_from_object(vm, other.clone())?;
+                let zelf = zelf.clone().downcast::<Self>().unwrap();
+                Self::iadd(zelf, other, vm).map(|x| x.into())
+            }),
+            inplace_repeat: Some(|zelf, n, vm| {
+                let zelf = zelf.clone().downcast::<Self>().unwrap();
+                Self::imul(zelf, n as isize, vm).map(|x| x.into())
+            }),
+        }))
     }
 }
 

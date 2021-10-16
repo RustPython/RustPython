@@ -586,13 +586,7 @@ impl AsSequence for PyBytes {
                     .new_bytes(zelf.payload::<Self>().unwrap().repeat(n))
                     .into())
             }),
-            item: Some(|zelf, i, vm| {
-                zelf.payload::<Self>()
-                    .unwrap()
-                    .inner
-                    .item(i, vm)
-                    .map(|x| x.into_pyobject(vm))
-            }),
+            item: Some(|zelf, i, vm| zelf.payload::<Self>().unwrap().inner.item(i, vm)),
             contains: Some(|zelf, other, vm| {
                 let other = <Either<PyBytesInner, PyIntRef>>::try_from_object(vm, other.clone())?;
                 zelf.payload::<Self>().unwrap().contains(other, vm)

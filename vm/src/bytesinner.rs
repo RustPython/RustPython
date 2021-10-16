@@ -941,17 +941,12 @@ impl PyBytesInner {
         }
     }
 
-    pub fn item(&self, mut i: isize, vm: &VirtualMachine) -> PyResult<u8> {
-        let len = self.len() as isize;
-        if i < 0 {
-            i += len;
-            if i < 0 {
-                return Err(vm.new_index_error("index out of range".to_string()));
-            }
-        } else if i >= len {
-            return Err(vm.new_index_error("index out of range".to_string()));
-        }
-        Ok(self.elements[i as usize])
+    pub fn item(&self, i: isize, vm: &VirtualMachine) -> PyResult {
+        let idx = self
+            .elements
+            .wrap_index(i)
+            .ok_or_else(|| vm.new_index_error("index out of range".to_string()))?;
+        Ok(vm.ctx.new_int(self.elements[idx]).into())
     }
 }
 

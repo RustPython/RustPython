@@ -18,12 +18,12 @@ pub struct PySequenceMethods {
     pub length: Option<fn(&PyObjectRef, &VirtualMachine) -> PyResult<usize>>,
     pub concat: Option<fn(&PyObjectRef, &PyObjectRef, &VirtualMachine) -> PyResult>,
     pub repeat: Option<fn(&PyObjectRef, usize, &VirtualMachine) -> PyResult>,
-    pub inplace_concat: Option<fn(&PyObjectRef, &PyObjectRef, &VirtualMachine) -> PyResult>,
-    pub inplace_repeat: Option<fn(&PyObjectRef, usize, &VirtualMachine) -> PyResult>,
     pub item: Option<fn(&PyObjectRef, isize, &VirtualMachine) -> PyResult>,
     pub ass_item:
         Option<fn(&PyObjectRef, isize, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>>,
     pub contains: Option<fn(&PyObjectRef, &PyObjectRef, &VirtualMachine) -> PyResult<bool>>,
+    pub inplace_concat: Option<fn(&PyObjectRef, &PyObjectRef, &VirtualMachine) -> PyResult>,
+    pub inplace_repeat: Option<fn(&PyObjectRef, usize, &VirtualMachine) -> PyResult>,
 }
 
 impl PySequenceMethods {
