@@ -872,13 +872,16 @@ mod builtins {
         let bases: PyObjectRef = bases.into();
 
         // Prepare uses full __getattribute__ resolution chain.
-        // TODO RUSTPYTHON: Doesn't do what we want all the time:
-        // e.g class M(metaclass=2): pass should fail with 'int not callable'.
-        let prepare = vm.get_attribute(metaclass.clone(), "__prepare__")?;
-        let namespace = vm.invoke(
-            &prepare,
-            FuncArgs::new(vec![name_obj.clone().into(), bases.clone()], kwargs.clone()),
-        )?;
+        // If an AttributeError was raised (None), return an empty dict,
+        // else invoke prepare callable.
+        let namespace = vm
+            .get_attribute_opt(metaclass.clone(), "__prepare__")?
+            .map_or(Ok(vm.ctx.new_dict().into()), |prepare| {
+                vm.invoke(
+                    &prepare,
+                    FuncArgs::new(vec![name_obj.clone().into(), bases.clone()], kwargs.clone()),
+                )
+            })?;
 
         // Accept any PyMapping as namespace.
         let namespace = PyMapping::try_from_object(vm, namespace.clone()).map_err(|_| {
