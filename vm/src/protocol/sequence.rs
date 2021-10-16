@@ -1,8 +1,10 @@
 use std::borrow::{Borrow, Cow};
 
-use crate::builtins::PySlice;
-use crate::function::IntoPyObject;
+use itertools::Itertools;
+
 use crate::{
+    builtins::{PyList, PySlice},
+    function::IntoPyObject,
     IdProtocol, PyArithmeticValue, PyObjectRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
 
@@ -193,6 +195,26 @@ impl PySequence {
 
     pub fn del_slice(&self, start: isize, stop: isize, vm: &VirtualMachine) -> PyResult<()> {
         self._ass_slice(start, stop, None, vm)
+    }
+
+    pub fn tuple(&self, vm: &VirtualMachine) -> PyResult {
+        if self.obj.class().is(&vm.ctx.types.tuple_type) {
+            return Ok(self.obj.clone());
+        }
+        if self.obj.class().is(&vm.ctx.types.list_type) {
+            let list = self.obj.payload::<PyList>().unwrap();
+            return Ok(vm.ctx.new_tuple(list.borrow_vec().to_vec()).into());
+        }
+
+        let iter = self.obj.clone().get_iter(vm)?;
+        let iter = iter.iter(vm)?;
+        Ok(vm.ctx.new_tuple(iter.try_collect()?).into())
+    }
+
+    pub fn list(&self, vm: &VirtualMachine) -> PyResult {
+        let list = vm.ctx.new_list(vec![]);
+        list.extend(self.obj.clone(), vm)?;
+        Ok(list.into())
     }
 }
 

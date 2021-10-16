@@ -96,7 +96,7 @@ impl PyList {
     }
 
     #[pymethod]
-    fn extend(&self, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    pub(crate) fn extend(&self, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let mut new_elements = vm.extract_elements(&x)?;
         self.borrow_vec_mut().append(&mut new_elements);
         Ok(())
