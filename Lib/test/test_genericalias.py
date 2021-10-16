@@ -10,17 +10,17 @@ from collections.abc import *
 from concurrent.futures import Future
 from concurrent.futures.thread import _WorkItem
 from contextlib import AbstractContextManager, AbstractAsyncContextManager
-from contextvars import ContextVar, Token
+# XXX RUSTPYTHON TODO: from contextvars import ContextVar, Token
 from dataclasses import Field
 from functools import partial, partialmethod, cached_property
-from mailbox import Mailbox, _PartialFile
+# XXX RUSTPYTHON TODO: from mailbox import Mailbox, _PartialFile
 try:
     import ctypes
 except ImportError:
     ctypes = None
 from difflib import SequenceMatcher
-from filecmp import dircmp
-from fileinput import FileInput
+# XXX RUSTPYTHON TODO: from filecmp import dircmp
+# XXX RUSTPYTHON TODO: from fileinput import FileInput
 from itertools import chain
 from http.cookies import Morsel
 from multiprocessing.managers import ValueProxy
@@ -51,20 +51,20 @@ class BaseTest(unittest.TestCase):
     generic_types = [type, tuple, list, dict, set, frozenset, enumerate,
                      defaultdict, deque,
                      SequenceMatcher,
-                     dircmp,
-                     FileInput,
+                     # XXX RUSTPYTHON TODO: dircmp,
+                     # XXX RUSTPYTHON TODO: FileInput,
                      OrderedDict, Counter, UserDict, UserList,
                      Pattern, Match,
-                     partial, partialmethod, cached_property,
-                     AbstractContextManager, AbstractAsyncContextManager,
+                     partialmethod, cached_property, # XXX RUSTPYTHON TODO: partial
+                     # XXX RUSTPYTHON TODO: AbstractContextManager, AbstractAsyncContextManager,
                      Awaitable, Coroutine,
                      AsyncIterable, AsyncIterator,
                      AsyncGenerator, Generator,
                      Iterable, Iterator,
                      Reversible,
                      Container, Collection,
-                     Mailbox, _PartialFile,
-                     ContextVar, Token,
+                     # XXX RUSTPYTHON TODO: Mailbox, _PartialFile,
+                     # XXX RUSTPYTHON TODO: ContextVar, Token,
                      Field,
                      Set, MutableSet,
                      Mapping, MutableMapping, MappingView,
