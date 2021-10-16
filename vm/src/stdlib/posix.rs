@@ -105,7 +105,8 @@ pub mod module {
         target_os = "android",
         target_os = "freebsd",
         target_os = "dragonfly",
-        target_os = "netbsd"
+        target_os = "netbsd",
+        target_os = "macos"
     ))]
     #[pyattr]
     const SCHED_RR: i32 = libc::SCHED_RR;
@@ -114,7 +115,8 @@ pub mod module {
         target_os = "android",
         target_os = "freebsd",
         target_os = "dragonfly",
-        target_os = "netbsd"
+        target_os = "netbsd",
+        target_os = "macos"
     ))]
     #[pyattr]
     const SCHED_FIFO: i32 = libc::SCHED_FIFO;
@@ -122,7 +124,8 @@ pub mod module {
         target_os = "linux",
         target_os = "freebsd",
         target_os = "dragonfly",
-        target_os = "netbsd"
+        target_os = "netbsd",
+        target_os = "macos"
     ))]
     #[pyattr]
     const SCHED_OTHER: i32 = libc::SCHED_OTHER;
