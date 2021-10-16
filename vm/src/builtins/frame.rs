@@ -5,6 +5,7 @@
 use super::{PyCode, PyDictRef, PyStrRef};
 use crate::{
     frame::{Frame, FrameRef},
+    protocol::PyMapping,
     types::{Constructor, Unconstructible},
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, VirtualMachine,
 };
@@ -44,7 +45,7 @@ impl FrameRef {
     }
 
     #[pyproperty]
-    fn f_locals(self, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+    fn f_locals(self, vm: &VirtualMachine) -> PyResult<PyMapping> {
         self.locals(vm)
     }
 

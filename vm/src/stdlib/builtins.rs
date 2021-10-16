@@ -25,15 +25,15 @@ mod builtins {
             ArgBytesLike, ArgCallable, ArgIntoBool, ArgIterable, FuncArgs, KwArgs, OptionalArg,
             OptionalOption, PosArgs,
         },
-        protocol::{PyIter, PyIterReturn},
+        protocol::{PyIter, PyIterReturn, PyMapping},
         py_io,
         readline::{Readline, ReadlineResult},
         scope::Scope,
         stdlib::sys,
         types::PyComparisonOp,
         utils::Either,
-        IdProtocol, ItemProtocol, PyArithmeticValue, PyClassImpl, PyObjectRef, PyRef, PyResult,
-        PyValue, TryFromObject, TypeProtocol, VirtualMachine,
+        IdProtocol, ItemProtocol, PyArithmeticValue, PyClassImpl, PyObjectRef, PyObjectWrap, PyRef,
+        PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
     };
     use num_traits::{Signed, ToPrimitive, Zero};
 
@@ -204,9 +204,8 @@ mod builtins {
     struct ScopeArgs {
         #[pyarg(any, default)]
         globals: Option<PyDictRef>,
-        // TODO: support any mapping for `locals`
         #[pyarg(any, default)]
-        locals: Option<PyDictRef>,
+        locals: Option<PyMapping>,
     }
 
     #[cfg(feature = "rustpython-compiler")]
@@ -218,17 +217,20 @@ mod builtins {
                         let builtins_dict = vm.builtins.dict().unwrap().into();
                         globals.set_item("__builtins__", builtins_dict, vm)?;
                     }
-                    let locals = self.locals.unwrap_or_else(|| globals.clone());
-                    (globals, locals)
+                    (
+                        globals.clone(),
+                        self.locals
+                            .unwrap_or_else(|| PyMapping::new(globals.into())),
+                    )
                 }
-                None => {
-                    let globals = vm.current_globals().clone();
-                    let locals = match self.locals {
-                        Some(l) => l,
-                        None => vm.current_locals()?,
-                    };
-                    (globals, locals)
-                }
+                None => (
+                    vm.current_globals().clone(),
+                    if let Some(locals) = self.locals {
+                        locals
+                    } else {
+                        vm.current_locals()?
+                    },
+                ),
             };
 
             let scope = Scope::with_builtins(Some(locals), globals, vm);
@@ -426,7 +428,7 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn locals(vm: &VirtualMachine) -> PyResult<PyDictRef> {
+    fn locals(vm: &VirtualMachine) -> PyResult<PyMapping> {
         vm.current_locals()
     }
 
@@ -793,7 +795,7 @@ mod builtins {
                 vm.new_type_error("vars() argument must have __dict__ attribute".to_owned())
             })
         } else {
-            Ok(vm.current_locals()?.into())
+            Ok(vm.current_locals()?.into_object())
         }
     }
 
@@ -870,13 +872,22 @@ mod builtins {
             FuncArgs::new(vec![name_obj.clone().into(), bases.clone()], kwargs.clone()),
         )?;
 
-        let namespace = PyDictRef::try_from_object(vm, namespace)?;
+        // Accept any PyMapping as namespace.
+        let namespace = PyMapping::try_from_object(vm, namespace.clone()).map_err(|_| {
+            vm.new_type_error(format!(
+                "{}.__prepare__() must return a mapping, not {}",
+                metaclass.name(),
+                namespace.class().name()
+            ))
+        })?;
 
         let classcell = function.invoke_with_locals(().into(), Some(namespace.clone()), vm)?;
         let classcell = <Option<PyCellRef>>::try_from_object(vm, classcell)?;
 
         if let Some(orig_bases) = orig_bases {
-            namespace.set_item("__orig_bases__", orig_bases.into(), vm)?;
+            namespace
+                .as_object()
+                .set_item("__orig_bases__", orig_bases.into(), vm)?;
         }
 
         let class = vm.invoke(

@@ -22,14 +22,14 @@ use crate::{
     frozen,
     function::{FuncArgs, IntoFuncArgs, IntoPyObject},
     import,
-    protocol::{PyIterIter, PyIterReturn},
+    protocol::{PyIterIter, PyIterReturn, PyMapping},
     scope::Scope,
     signal::NSIG,
     stdlib,
     types::PyComparisonOp,
     utils::Either,
     IdProtocol, ItemProtocol, PyArithmeticValue, PyContext, PyLease, PyMethod, PyObject,
-    PyObjectRef, PyRef, PyRefExact, PyResult, PyValue, TryFromObject, TypeProtocol,
+    PyObjectRef, PyObjectWrap, PyRef, PyRefExact, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::{Signed, ToPrimitive};
@@ -558,7 +558,7 @@ impl VirtualMachine {
         }
     }
 
-    pub fn current_locals(&self) -> PyResult<PyDictRef> {
+    pub fn current_locals(&self) -> PyResult<PyMapping> {
         self.current_frame()
             .expect("called current_locals but no frames on the stack")
             .locals(self)

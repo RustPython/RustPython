@@ -11,12 +11,12 @@ use crate::{
     coroutine::Coro,
     exceptions::ExceptionCtor,
     function::{FuncArgs, IntoPyResult},
-    protocol::{PyIter, PyIterReturn},
+    protocol::{PyIter, PyIterReturn, PyMapping},
     scope::Scope,
     stdlib::builtins,
     types::PyComparisonOp,
-    IdProtocol, ItemProtocol, PyMethod, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol, VirtualMachine,
+    IdProtocol, ItemProtocol, PyMethod, PyObjectRef, PyObjectWrap, PyRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol, VirtualMachine,
 };
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -99,7 +99,7 @@ pub struct Frame {
 
     pub fastlocals: PyMutex<Box<[Option<PyObjectRef>]>>,
     pub(crate) cells_frees: Box<[PyCellRef]>,
-    pub locals: PyDictRef,
+    pub locals: PyMapping,
     pub globals: PyDictRef,
     pub builtins: PyDictRef,
 
@@ -179,7 +179,7 @@ impl FrameRef {
         f(exec)
     }
 
-    pub fn locals(&self, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+    pub fn locals(&self, vm: &VirtualMachine) -> PyResult<PyMapping> {
         let locals = &self.locals;
         let code = &**self.code;
         let map = &code.varnames;
@@ -188,9 +188,16 @@ impl FrameRef {
             let fastlocals = self.fastlocals.lock();
             for (k, v) in itertools::zip(&map[..j], &**fastlocals) {
                 if let Some(v) = v {
-                    locals.set_item(k.clone(), v.clone(), vm)?;
+                    match locals.as_object().clone().downcast_exact::<PyDict>(vm) {
+                        Ok(d) => d.set_item(k.clone(), v.clone(), vm)?,
+                        Err(o) => o.set_item(k.clone(), v.clone(), vm)?,
+                    };
                 } else {
-                    match locals.del_item(k.clone(), vm) {
+                    let res = match locals.as_object().clone().downcast_exact::<PyDict>(vm) {
+                        Ok(d) => d.del_item(k.clone(), vm),
+                        Err(o) => o.del_item(k.clone(), vm),
+                    };
+                    match res {
                         Ok(()) => {}
                         Err(e) if e.isinstance(&vm.ctx.exceptions.key_error) => {}
                         Err(e) => return Err(e),
@@ -202,9 +209,16 @@ impl FrameRef {
             let map_to_dict = |keys: &[PyStrRef], values: &[PyCellRef]| {
                 for (k, v) in itertools::zip(keys, values) {
                     if let Some(v) = v.get() {
-                        locals.set_item(k.clone(), v, vm)?;
+                        match locals.as_object().clone().downcast_exact::<PyDict>(vm) {
+                            Ok(d) => d.set_item(k.clone(), v, vm)?,
+                            Err(o) => o.set_item(k.clone(), v, vm)?,
+                        };
                     } else {
-                        match locals.del_item(k.clone(), vm) {
+                        let res = match locals.as_object().clone().downcast_exact::<PyDict>(vm) {
+                            Ok(d) => d.del_item(k.clone(), vm),
+                            Err(o) => o.del_item(k.clone(), vm),
+                        };
+                        match res {
                             Ok(()) => {}
                             Err(e) if e.isinstance(&vm.ctx.exceptions.key_error) => {}
                             Err(e) => return Err(e),
@@ -275,7 +289,7 @@ struct ExecutingFrame<'a> {
     code: &'a PyRef<PyCode>,
     fastlocals: &'a PyMutex<Box<[Option<PyObjectRef>]>>,
     cells_frees: &'a [PyCellRef],
-    locals: &'a PyDictRef,
+    locals: &'a PyMapping,
     globals: &'a PyDictRef,
     builtins: &'a PyDictRef,
     object: &'a FrameRef,
@@ -496,12 +510,20 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::LoadNameAny(idx) => {
                 let name = &self.code.names[*idx as usize];
-                let x = self.locals.get_item_option(name.clone(), vm)?;
-                let x = match x {
+                // Try using locals as dict first, if not, fallback to generic method.
+                let x = match self
+                    .locals
+                    .clone()
+                    .into_object()
+                    .downcast_exact::<PyDict>(vm)
+                {
+                    Ok(d) => d.get_item_option(name.clone(), vm)?,
+                    Err(o) => o.get_item(name.clone(), vm).ok(),
+                };
+                self.push_value(match x {
                     Some(x) => x,
                     None => self.load_global_or_builtin(name, vm)?,
-                };
-                self.push_value(x);
+                });
                 Ok(None)
             }
             bytecode::Instruction::LoadGlobal(idx) => {
@@ -521,14 +543,22 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::LoadClassDeref(i) => {
                 let i = *i as usize;
                 let name = self.code.freevars[i - self.code.cellvars.len()].clone();
-                let value = if let Some(value) = self.locals.get_item_option(name, vm)? {
-                    value
-                } else {
-                    self.cells_frees[i]
-                        .get()
-                        .ok_or_else(|| self.unbound_cell_exception(i, vm))?
+                // Try using locals as dict first, if not, fallback to generic method.
+                let value = match self
+                    .locals
+                    .clone()
+                    .into_object()
+                    .downcast_exact::<PyDict>(vm)
+                {
+                    Ok(d) => d.get_item_option(name, vm)?,
+                    Err(o) => o.get_item(name, vm).ok(),
                 };
-                self.push_value(value);
+                self.push_value(match value {
+                    Some(v) => v,
+                    None => self.cells_frees[i]
+                        .get()
+                        .ok_or_else(|| self.unbound_cell_exception(i, vm))?,
+                });
                 Ok(None)
             }
             bytecode::Instruction::StoreFast(idx) => {
@@ -538,8 +568,15 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::StoreLocal(idx) => {
                 let value = self.pop_value();
-                self.locals
-                    .set_item(self.code.names[*idx as usize].clone(), value, vm)?;
+                match self
+                    .locals
+                    .clone()
+                    .into_object()
+                    .downcast_exact::<PyDict>(vm)
+                {
+                    Ok(d) => d.set_item(self.code.names[*idx as usize].clone(), value, vm)?,
+                    Err(o) => o.set_item(self.code.names[*idx as usize].clone(), value, vm)?,
+                };
                 Ok(None)
             }
             bytecode::Instruction::StoreGlobal(idx) => {
@@ -559,7 +596,17 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::DeleteLocal(idx) => {
                 let name = &self.code.names[*idx as usize];
-                match self.locals.del_item(name.clone(), vm) {
+                let res = match self
+                    .locals
+                    .clone()
+                    .into_object()
+                    .downcast_exact::<PyDict>(vm)
+                {
+                    Ok(d) => d.del_item(name.clone(), vm),
+                    Err(o) => o.del_item(name.clone(), vm),
+                };
+
+                match res {
                     Ok(()) => {}
                     Err(e) if e.isinstance(&vm.ctx.exceptions.key_error) => {
                         return Err(vm.new_name_error(format!("name '{}' is not defined", name)))
@@ -717,9 +764,25 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::YieldFrom => self.execute_yield_from(vm),
             bytecode::Instruction::SetupAnnotation => {
-                if !self.locals.contains_key("__annotations__", vm) {
-                    self.locals
-                        .set_item("__annotations__", vm.ctx.new_dict().into(), vm)?;
+                // Try using locals as dict first, if not, fallback to generic method.
+                let has_annotations = match self
+                    .locals
+                    .clone()
+                    .into_object()
+                    .downcast_exact::<PyDict>(vm)
+                {
+                    Ok(d) => d.contains_key("__annotations__", vm),
+                    Err(o) => {
+                        let needle = vm.new_pyobj("__annotations__");
+                        self._in(vm, needle, o)?
+                    }
+                };
+                if !has_annotations {
+                    self.locals.as_object().set_item(
+                        "__annotations__",
+                        vm.ctx.new_dict().into(),
+                        vm,
+                    )?;
                 }
                 Ok(None)
             }
@@ -1132,7 +1195,15 @@ impl ExecutingFrame<'_> {
             for (k, v) in &dict {
                 let k = PyStrRef::try_from_object(vm, k)?;
                 if filter_pred(k.as_str()) {
-                    self.locals.set_item(k, v, vm)?;
+                    match self
+                        .locals
+                        .clone()
+                        .into_object()
+                        .downcast_exact::<PyDict>(vm)
+                    {
+                        Ok(d) => d.set_item(k, v, vm)?,
+                        Err(o) => o.set_item(k, v, vm)?,
+                    };
                 }
             }
         }
@@ -1822,15 +1893,11 @@ impl fmt::Debug for Frame {
             .map(|elem| format!("\n  > {:?}", elem))
             .collect::<String>();
         // TODO: fix this up
-        let dict = self.locals.clone();
-        let local_str = dict
-            .into_iter()
-            .map(|elem| format!("\n  {:?} = {:?}", elem.0, elem.1))
-            .collect::<String>();
+        let locals = self.locals.clone();
         write!(
             f,
-            "Frame Object {{ \n Stack:{}\n Blocks:{}\n Locals:{}\n}}",
-            stack_str, block_str, local_str
+            "Frame Object {{ \n Stack:{}\n Blocks:{}\n Locals:{:?}\n}}",
+            stack_str, block_str, locals
         )
     }
 }
