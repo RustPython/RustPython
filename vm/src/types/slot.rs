@@ -9,7 +9,6 @@ use crate::{
 };
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::ToPrimitive;
-use rustpython_common::static_cell;
 use std::borrow::Cow;
 use std::cmp::Ordering;
 
@@ -207,31 +206,14 @@ fn as_mapping_wrapper(zelf: &PyObject, _vm: &VirtualMachine) -> PyMappingMethods
 }
 
 fn as_sequence_wrapper(zelf: &PyObject, _vm: &VirtualMachine) -> Cow<'static, PySequenceMethods> {
-    static_cell! {
-        static EMPTY: PySequenceMethods;
-    }
     if !zelf.has_class_attr("__getitem__") {
-        return Cow::Borrowed(EMPTY.get_or_init(PySequenceMethods::default));
+        return Cow::Borrowed(PySequenceMethods::not_implemented());
     }
 
     Cow::Owned(PySequenceMethods {
         length: then_some_closure!(zelf.has_class_attr("__len__"), |zelf, vm| {
             vm.obj_len_opt(zelf).unwrap()
         }),
-        concat: then_some_closure!(zelf.has_class_attr("__add__"), |zelf, other, vm| {
-            try_add_for_concat(zelf, other, vm)
-        }),
-        repeat: then_some_closure!(zelf.has_class_attr("__mul__"), |zelf, n, vm| {
-            try_mul_for_repeat(zelf, n, vm)
-        }),
-        inplace_concat: then_some_closure!(
-            zelf.has_class_attr("__iadd__") || zelf.has_class_attr("__add__"),
-            |zelf, other, vm| { try_iadd_for_inplace_concat(zelf, other, vm) }
-        ),
-        inplace_repeat: then_some_closure!(
-            zelf.has_class_attr("__imul__") || zelf.has_class_attr("__mul__"),
-            |zelf, n, vm| { try_imul_for_inplace_repeat(zelf, n, vm) }
-        ),
         item: Some(|zelf, i, vm| {
             vm.call_special_method(zelf.clone(), "__getitem__", (i.into_pyobject(vm),))
         }),
@@ -246,8 +228,7 @@ fn as_sequence_wrapper(zelf: &PyObject, _vm: &VirtualMachine) -> Cow<'static, Py
                     .map(|_| Ok(()))?,
             }
         ),
-        // TODO: IterSearch
-        contains: None,
+        ..Default::default()
     })
 }
 
@@ -351,9 +332,6 @@ impl PyType {
         match name {
             "__len__" | "__getitem__" | "__setitem__" | "__delitem__" => {
                 update_slot!(as_mapping, as_mapping_wrapper);
-                update_slot!(as_sequence, as_sequence_wrapper);
-            }
-            "__add__" | "__iadd__" | "__mul__" | "__imul__" => {
                 update_slot!(as_sequence, as_sequence_wrapper);
             }
             "__hash__" => {

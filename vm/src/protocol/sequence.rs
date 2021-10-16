@@ -4,6 +4,7 @@ use itertools::Itertools;
 
 use crate::{
     builtins::{PyList, PySlice},
+    common::static_cell,
     function::IntoPyObject,
     IdProtocol, PyArithmeticValue, PyObjectRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
@@ -25,6 +26,15 @@ pub struct PySequenceMethods {
     pub contains: Option<fn(&PyObjectRef, &PyObjectRef, &VirtualMachine) -> PyResult<bool>>,
 }
 
+impl PySequenceMethods {
+    pub fn not_implemented() -> &'static Self {
+        static_cell! {
+            static NOT_IMPLEMENTED: PySequenceMethods;
+        }
+        NOT_IMPLEMENTED.get_or_init(Self::default)
+    }
+}
+
 pub struct PySequence {
     obj: PyObjectRef,
     methods: Cow<'static, PySequenceMethods>,
@@ -37,13 +47,7 @@ impl PySequence {
             return false;
         }
         cls.mro_find_map(|x| x.slots.as_sequence.load())
-            .map(|f| {
-                // FIXME: we may avoid the check if we assume all the builtins
-                // implement fn item() for the sequence protocol
-                // all the python class must has __getitem__ if they ident as
-                // sequence protocol implemented
-                f(obj, vm).item.is_some()
-            })
+            .map(|f| f(obj, vm).item.is_some())
             .unwrap_or(false)
     }
 
@@ -287,11 +291,7 @@ impl PySequence {
     }
 }
 
-pub(crate) fn try_add_for_concat(
-    a: &PyObjectRef,
-    b: &PyObjectRef,
-    vm: &VirtualMachine,
-) -> PyResult {
+pub fn try_add_for_concat(a: &PyObjectRef, b: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
     if PySequence::check(b, vm) {
         let ret = vm._add(a, b)?;
         if let PyArithmeticValue::Implemented(ret) = PyArithmeticValue::from_object(vm, ret) {
@@ -304,7 +304,7 @@ pub(crate) fn try_add_for_concat(
     )))
 }
 
-pub(crate) fn try_mul_for_repeat(a: &PyObjectRef, n: usize, vm: &VirtualMachine) -> PyResult {
+pub fn try_mul_for_repeat(a: &PyObjectRef, n: usize, vm: &VirtualMachine) -> PyResult {
     let ret = vm._mul(a, &n.into_pyobject(vm))?;
     if let PyArithmeticValue::Implemented(ret) = PyArithmeticValue::from_object(vm, ret) {
         return Ok(ret);
@@ -312,7 +312,7 @@ pub(crate) fn try_mul_for_repeat(a: &PyObjectRef, n: usize, vm: &VirtualMachine)
     Err(vm.new_type_error(format!("'{}' object can't be repeated", a.class().name())))
 }
 
-pub(crate) fn try_iadd_for_inplace_concat(
+pub fn try_iadd_for_inplace_concat(
     a: &PyObjectRef,
     b: &PyObjectRef,
     vm: &VirtualMachine,
@@ -329,11 +329,7 @@ pub(crate) fn try_iadd_for_inplace_concat(
     )))
 }
 
-pub(crate) fn try_imul_for_inplace_repeat(
-    a: &PyObjectRef,
-    n: usize,
-    vm: &VirtualMachine,
-) -> PyResult {
+pub fn try_imul_for_inplace_repeat(a: &PyObjectRef, n: usize, vm: &VirtualMachine) -> PyResult {
     let ret = vm._imul(a, &n.into_pyobject(vm))?;
     if let PyArithmeticValue::Implemented(ret) = PyArithmeticValue::from_object(vm, ret) {
         return Ok(ret);
