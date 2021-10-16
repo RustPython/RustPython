@@ -222,6 +222,63 @@ impl PySequence {
         list.extend(self.obj.clone(), vm)?;
         Ok(list.into())
     }
+
+    pub fn contains(&self, target: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        if let Some(f) = self.methods().contains {
+            return f(&self.obj, target, vm);
+        }
+
+        let iter = self.obj.clone().get_iter(vm)?;
+        let iter = iter.iter(vm)?;
+
+        for elem in iter {
+            let elem = elem?;
+            if vm.bool_eq(&elem, target)? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    pub fn count(&self, target: &PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+        let mut n = 0;
+
+        let iter = self.obj.clone().get_iter(vm)?;
+        let iter = iter.iter(vm)?;
+
+        for elem in iter {
+            let elem = elem?;
+            if vm.bool_eq(&elem, target)? {
+                if n == isize::MAX as usize {
+                    return Err(vm.new_overflow_error("index exceeds C integer size".to_string()));
+                }
+                n += 1;
+            }
+        }
+
+        Ok(n)
+    }
+
+    pub fn index(&self, target: &PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+        let mut index: isize = -1;
+
+        let iter = self.obj.clone().get_iter(vm)?;
+        let iter = iter.iter(vm)?;
+
+        for elem in iter {
+            if index == isize::MAX {
+                return Err(vm.new_overflow_error("index exceeds C integer size".to_string()));
+            }
+            index += 1;
+
+            let elem = elem?;
+            if vm.bool_eq(&elem, target)? {
+                return Ok(index as usize);
+            }
+        }
+
+        Err(vm.new_value_error("sequence.index(x): x not in sequence".to_string()))
+    }
 }
 
 pub(crate) fn try_add_for_concat(
