@@ -265,6 +265,8 @@ impl IntoPyException for nix::Error {
         io::Error::from(self).into_pyexception(vm)
     }
 }
+
+// TODO: preserve the input `PyObjectRef` of filename and filename2 (Failing check `self.assertIs(err.filename, name, str(func)`)
 pub struct IOErrorBuilder {
     error: io::Error,
     filename: Option<PathOrFd>,

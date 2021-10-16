@@ -3435,7 +3435,7 @@ class OSErrorTests(unittest.TestCase):
 
         self.filenames = self.bytes_filenames + self.unicode_filenames
 
-    # TODO: RUSTPYTHON (AttributeError: 'FileNotFoundError' object has no attribute 'filename')
+    # TODO: RUSTPYTHON (AssertionError: b'@test_22106_tmp\xe7w\xf0' is not b'@test_22106_tmp\xe7w\xf0' : <built-in function chdir>)
     @unittest.expectedFailure
     def test_oserror_filename(self):
         funcs = [
