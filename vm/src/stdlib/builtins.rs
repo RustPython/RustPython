@@ -872,8 +872,6 @@ mod builtins {
         let bases: PyObjectRef = bases.into();
 
         // Prepare uses full __getattribute__ resolution chain.
-        // If an AttributeError was raised (None), return an empty dict,
-        // else invoke prepare callable.
         let namespace = vm
             .get_attribute_opt(metaclass.clone(), "__prepare__")?
             .map_or(Ok(vm.ctx.new_dict().into()), |prepare| {
