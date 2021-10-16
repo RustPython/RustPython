@@ -70,7 +70,10 @@ impl PySequence {
         if let Some(f) = self.methods().length {
             f(&self.obj, vm)
         } else {
-            Err(vm.new_type_error(format!("'{}' is not a sequence or has no len()", &self.obj)))
+            Err(vm.new_type_error(format!(
+                "'{}' is not a sequence or has no len()",
+                self.obj.class().name()
+            )))
         }
     }
 
@@ -114,7 +117,7 @@ impl PySequence {
         }
         Err(vm.new_type_error(format!(
             "'{}' is not a sequence or does not support indexing",
-            &self.obj
+            self.obj.class().name()
         )))
     }
 
@@ -124,7 +127,7 @@ impl PySequence {
         }
         Err(vm.new_type_error(format!(
             "'{}' is not a sequence or doesn't support item {}",
-            &self.obj,
+            self.obj.class().name(),
             if value.is_some() {
                 "assignment"
             } else {
@@ -154,7 +157,10 @@ impl PySequence {
                 return subscript(self.obj.clone(), slice.into_object(vm), vm);
             }
         }
-        Err(vm.new_type_error(format!("'{}' object is unsliceable", &self.obj)))
+        Err(vm.new_type_error(format!(
+            "'{}' object is unsliceable",
+            self.obj.class().name()
+        )))
     }
 
     fn _ass_slice(
@@ -180,7 +186,7 @@ impl PySequence {
         }
         Err(vm.new_type_error(format!(
             "'{}' object doesn't support slice {}",
-            &self.obj,
+            self.obj.class().name(),
             if value.is_some() {
                 "assignment"
             } else {
@@ -292,7 +298,10 @@ pub(crate) fn try_add_for_concat(
             return Ok(ret);
         }
     }
-    Err(vm.new_type_error(format!("'{}' object can't be concatenated", a)))
+    Err(vm.new_type_error(format!(
+        "'{}' object can't be concatenated",
+        a.class().name()
+    )))
 }
 
 pub(crate) fn try_mul_for_repeat(a: &PyObjectRef, n: usize, vm: &VirtualMachine) -> PyResult {
@@ -300,7 +309,7 @@ pub(crate) fn try_mul_for_repeat(a: &PyObjectRef, n: usize, vm: &VirtualMachine)
     if let PyArithmeticValue::Implemented(ret) = PyArithmeticValue::from_object(vm, ret) {
         return Ok(ret);
     }
-    Err(vm.new_type_error(format!("'{}' object can't be repeated", a)))
+    Err(vm.new_type_error(format!("'{}' object can't be repeated", a.class().name())))
 }
 
 pub(crate) fn try_iadd_for_inplace_concat(
@@ -314,7 +323,10 @@ pub(crate) fn try_iadd_for_inplace_concat(
             return Ok(ret);
         }
     }
-    Err(vm.new_type_error(format!("'{}' object can't be concatenated", a)))
+    Err(vm.new_type_error(format!(
+        "'{}' object can't be concatenated",
+        a.class().name()
+    )))
 }
 
 pub(crate) fn try_imul_for_inplace_repeat(
@@ -326,5 +338,5 @@ pub(crate) fn try_imul_for_inplace_repeat(
     if let PyArithmeticValue::Implemented(ret) = PyArithmeticValue::from_object(vm, ret) {
         return Ok(ret);
     }
-    Err(vm.new_type_error(format!("'{}' object can't be repeated", a)))
+    Err(vm.new_type_error(format!("'{}' object can't be repeated", a.class().name())))
 }
