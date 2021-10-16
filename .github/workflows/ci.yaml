@@ -177,7 +177,6 @@ jobs:
             test_pathlib
             test_pwd
             test_py_compile
-            test_set
             test_shutil
             test_sys
             test_unittest
