@@ -82,6 +82,7 @@ pub use rustpython_bytecode as bytecode;
 pub use rustpython_common as common;
 #[cfg(feature = "rustpython-compiler")]
 pub use rustpython_compiler as compile;
+pub use vm::thread::with_vm as _with_current_thread_vm;
 
 #[doc(hidden)]
 pub mod __exports {

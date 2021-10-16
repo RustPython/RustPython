@@ -1,0 +1,10 @@
+[package]
+name = "rustpython-capi"
+version = "0.1.2"
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+libc = "0.2.103"
+rustpython-vm = { path = "../vm" }

@@ -634,6 +634,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef) {
 }
 
 #[derive(Clone, Copy)]
+#[repr(transparent)]
 pub struct PyObjectPtr {
     obj: *mut PyObjectRefInner,
 }
