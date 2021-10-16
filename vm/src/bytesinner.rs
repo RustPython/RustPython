@@ -38,11 +38,11 @@ impl TryFromBorrowedObject for PyBytesInner {
 #[derive(FromArgs)]
 pub struct ByteInnerNewOptions {
     #[pyarg(any, optional)]
-    source: OptionalArg<PyObjectRef>,
+    pub source: OptionalArg<PyObjectRef>,
     #[pyarg(any, optional)]
-    encoding: OptionalArg<PyStrRef>,
+    pub encoding: OptionalArg<PyStrRef>,
     #[pyarg(any, optional)]
-    errors: OptionalArg<PyStrRef>,
+    pub errors: OptionalArg<PyStrRef>,
 }
 
 impl ByteInnerNewOptions {
