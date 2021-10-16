@@ -18,7 +18,7 @@ mod builtins {
             iter::PyCallableIterator,
             list::{PyList, SortOptions},
             PyByteArray, PyBytes, PyBytesRef, PyCode, PyDictRef, PyStr, PyStrRef, PyTuple,
-            PyTupleRef, PyTypeRef,
+            PyTupleRef, PyType,
         },
         common::{hash::PyHash, str::to_ascii},
         function::{
@@ -810,16 +810,9 @@ mod builtins {
         let name = qualified_name.as_str().split('.').next_back().unwrap();
         let name_obj = vm.ctx.new_str(name);
 
-        let mut metaclass = if let Some(metaclass) = kwargs.pop_kwarg("metaclass") {
-            PyTypeRef::try_from_object(vm, metaclass)?
-        } else {
-            vm.ctx.types.type_type.clone()
-        };
-
+        // Update bases.
         let mut new_bases: Option<Vec<PyObjectRef>> = None;
-
         let bases = PyTuple::new_ref(bases.into_vec(), &vm.ctx);
-
         for (i, base) in bases.as_slice().iter().enumerate() {
             if base.isinstance(&vm.ctx.types.type_type) {
                 if let Some(bases) = &mut new_bases {
@@ -850,23 +843,38 @@ mod builtins {
             None => (None, bases),
         };
 
-        for base in bases.as_slice().iter() {
-            let base_class = base.class();
-            if base_class.issubclass(&metaclass) {
-                metaclass = base.clone_class();
-            } else if !metaclass.issubclass(&base_class) {
-                return Err(vm.new_type_error(
-                    "metaclass conflict: the metaclass of a derived class must be a (non-strict) \
-                     subclass of the metaclasses of all its bases"
-                        .to_owned(),
-                ));
+        // Use downcast_exact to keep ref to old object on error.
+        let metaclass = kwargs
+            .pop_kwarg("metaclass")
+            .map(|metaclass| metaclass.downcast_exact::<PyType>(vm))
+            .unwrap_or_else(|| Ok(vm.ctx.types.type_type.clone()));
+
+        let (metaclass, meta_name) = match metaclass {
+            Ok(mut metaclass) => {
+                for base in bases.as_slice().iter() {
+                    let base_class = base.class();
+                    if base_class.issubclass(&metaclass) {
+                        metaclass = base.clone_class();
+                    } else if !metaclass.issubclass(&base_class) {
+                        return Err(vm.new_type_error(
+                            "metaclass conflict: the metaclass of a derived class must be a (non-strict) \
+                            subclass of the metaclasses of all its bases"
+                                .to_owned(),
+                        ));
+                    }
+                }
+                let meta_name = metaclass.slot_name();
+                (metaclass.into(), meta_name)
             }
-        }
+            Err(obj) => (obj, "<metaclass>".to_owned()),
+        };
 
         let bases: PyObjectRef = bases.into();
 
         // Prepare uses full __getattribute__ resolution chain.
-        let prepare = vm.get_attribute(metaclass.clone().into(), "__prepare__")?;
+        // TODO RUSTPYTHON: Doesn't do what we want all the time:
+        // e.g class M(metaclass=2): pass should fail with 'int not callable'.
+        let prepare = vm.get_attribute(metaclass.clone(), "__prepare__")?;
         let namespace = vm.invoke(
             &prepare,
             FuncArgs::new(vec![name_obj.clone().into(), bases.clone()], kwargs.clone()),
@@ -876,7 +884,7 @@ mod builtins {
         let namespace = PyMapping::try_from_object(vm, namespace.clone()).map_err(|_| {
             vm.new_type_error(format!(
                 "{}.__prepare__() must return a mapping, not {}",
-                metaclass.name(),
+                meta_name,
                 namespace.class().name()
             ))
         })?;
@@ -891,7 +899,7 @@ mod builtins {
         }
 
         let class = vm.invoke(
-            metaclass.as_object(),
+            &metaclass,
             FuncArgs::new(vec![name_obj.into(), bases, namespace.into()], kwargs),
         )?;
 

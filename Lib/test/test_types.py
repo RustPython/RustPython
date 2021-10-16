@@ -987,8 +987,6 @@ class ClassCreationTests(unittest.TestCase):
         self.assertIs(ns, expected_ns)
         self.assertEqual(len(kwds), 0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bad___prepare__(self):
         # __prepare__() must return a mapping.
         class BadMeta(type):
