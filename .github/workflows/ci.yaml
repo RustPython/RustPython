@@ -13,6 +13,7 @@ env:
     -p rustpython-compiler
     -p rustpython-parser
     -p rustpython-vm
+    -p rustpython-stdlib
     -p rustpython-jit
     -p rustpython-derive
     -p rustpython
