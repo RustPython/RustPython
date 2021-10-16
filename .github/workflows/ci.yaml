@@ -26,7 +26,6 @@ env:
     test_complex
     test_dis
     test_json
-    test_json
     test_list
     test_long
     test_set
