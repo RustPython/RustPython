@@ -3,7 +3,7 @@ use crate::common::{
     rc::{PyRc, PyWeak},
 };
 use crate::{
-    builtins::{PyDictRef, PyTypeRef},
+    builtins::{PyBaseExceptionRef, PyDictRef, PyTypeRef},
     IdProtocol, PyObjectPayload, TypeProtocol, VirtualMachine,
 };
 use std::any::TypeId;
@@ -353,22 +353,7 @@ impl Drop for PyObjectRef {
         if let Some(del_slot) = self.class().mro_find_map(|cls| cls.slots.del.load()) {
             let ret = crate::vm::thread::with_vm(&zelf, |vm| {
                 if let Err(e) = del_slot(&zelf, vm) {
-                    // exception in del will be ignored but printed
-                    print!("Exception ignored in: ",);
-                    let del_method = zelf.get_class_attr("__del__").unwrap();
-                    let repr = vm.to_repr(&del_method);
-                    match repr {
-                        Ok(v) => println!("{}", v.to_string()),
-                        Err(_) => println!("{}", del_method.class().name()),
-                    }
-                    let tb_module = vm.import("traceback", None, 0).unwrap();
-                    // TODO: set exc traceback
-                    let print_stack = vm.get_attribute(tb_module, "print_stack").unwrap();
-                    vm.invoke(&print_stack, ()).unwrap();
-
-                    if let Ok(repr) = vm.to_repr(e.as_object()) {
-                        println!("{}", repr.as_str());
-                    }
+                    print_del_error(e, &zelf, vm);
                 }
             });
             if ret.is_none() {
@@ -378,6 +363,26 @@ impl Drop for PyObjectRef {
 
         // __del__ might have resurrected the object at this point, but that's fine,
         // inner.strong_count would be >1 now and it'll maybe get dropped the next time
+    }
+}
+
+#[cold]
+fn print_del_error(e: PyBaseExceptionRef, zelf: &PyObjectRef, vm: &VirtualMachine) {
+    // exception in del will be ignored but printed
+    print!("Exception ignored in: ",);
+    let del_method = zelf.get_class_attr("__del__").unwrap();
+    let repr = vm.to_repr(&del_method);
+    match repr {
+        Ok(v) => println!("{}", v.to_string()),
+        Err(_) => println!("{}", del_method.class().name()),
+    }
+    let tb_module = vm.import("traceback", None, 0).unwrap();
+    // TODO: set exc traceback
+    let print_stack = vm.get_attribute(tb_module, "print_stack").unwrap();
+    vm.invoke(&print_stack, ()).unwrap();
+
+    if let Ok(repr) = vm.to_repr(e.as_object()) {
+        println!("{}", repr.as_str());
     }
 }
 
