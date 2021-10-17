@@ -1,4 +1,5 @@
 use std::borrow::{Borrow, Cow};
+use std::fmt::Debug;
 
 use itertools::Itertools;
 
@@ -6,7 +7,8 @@ use crate::{
     builtins::{PyList, PySlice},
     common::static_cell,
     function::IntoPyObject,
-    IdProtocol, PyArithmeticValue, PyObjectRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
+    IdProtocol, PyArithmeticValue, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    VirtualMachine,
 };
 
 // Sequence Protocol
@@ -35,8 +37,24 @@ impl PySequenceMethods {
     }
 }
 
+impl Debug for PySequenceMethods {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PySequenceMethods")
+            .field("length", &self.length.map(|x| x as usize))
+            .field("concat", &self.concat.map(|x| x as usize))
+            .field("repeat", &self.repeat.map(|x| x as usize))
+            .field("item", &self.item.map(|x| x as usize))
+            .field("ass_item", &self.ass_item.map(|x| x as usize))
+            .field("contains", &self.contains.map(|x| x as usize))
+            .field("inplace_concat", &self.inplace_concat.map(|x| x as usize))
+            .field("inplace_repeat", &self.inplace_repeat.map(|x| x as usize))
+            .finish()
+    }
+}
+
+#[derive(Debug)]
 pub struct PySequence {
-    obj: PyObjectRef,
+    pub obj: PyObjectRef,
     methods: Cow<'static, PySequenceMethods>,
 }
 
@@ -288,6 +306,13 @@ impl PySequence {
         }
 
         Err(vm.new_value_error("sequence.index(x): x not in sequence".to_string()))
+    }
+}
+
+impl TryFromObject for PySequence {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        PySequence::from_object(vm, obj)
+            .ok_or_else(|| vm.new_type_error("'{}' is not a sequence".to_string()))
     }
 }
 
