@@ -378,7 +378,7 @@ fn print_del_error(e: PyBaseExceptionRef, zelf: &PyObjectRef, vm: &VirtualMachin
     }
     let tb_module = vm.import("traceback", None, 0).unwrap();
     // TODO: set exc traceback
-    let print_stack = vm.get_attribute(tb_module, "print_stack").unwrap();
+    let print_stack = tb_module.get_attr("print_stack", vm).unwrap();
     vm.invoke(&print_stack, ()).unwrap();
 
     if let Ok(repr) = vm.to_repr(e.as_object()) {

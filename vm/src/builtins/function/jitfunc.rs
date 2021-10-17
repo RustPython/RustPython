@@ -81,7 +81,8 @@ pub fn get_jit_arg_types(func: &PyRef<PyFunction>, vm: &VirtualMachine) -> PyRes
         return Ok(Vec::new());
     }
 
-    let annotations = vm.get_attribute(func.clone().into(), "__annotations__")?;
+    let func_obj: PyObjectRef = func.clone().into();
+    let annotations = func_obj.get_attr("__annotations__", vm)?;
     if vm.is_none(&annotations) {
         Err(new_jit_error(
             "Jitting function requires arguments to have annotations".to_owned(),

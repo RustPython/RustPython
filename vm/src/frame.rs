@@ -827,7 +827,7 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::SetupWith { end } => {
                 let context_manager = self.pop_value();
-                let exit = vm.get_attribute(context_manager.clone(), "__exit__")?;
+                let exit = context_manager.clone().get_attr("__exit__", vm)?;
                 self.push_value(exit);
                 // Call enter:
                 let enter_res = vm.call_special_method(context_manager, "__enter__", ())?;
@@ -837,7 +837,7 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::BeforeAsyncWith => {
                 let mgr = self.pop_value();
-                let aexit = vm.get_attribute(mgr.clone(), "__aexit__")?;
+                let aexit = mgr.clone().get_attr("__aexit__", vm)?;
                 self.push_value(aexit);
                 let aenter_res = vm.call_special_method(mgr, "__aenter__", ())?;
                 self.push_value(aenter_res);
@@ -1041,14 +1041,16 @@ impl ExecutingFrame<'_> {
                 let expr = self.pop_value();
 
                 let displayhook = vm
-                    .get_attribute(vm.sys_module.clone(), "displayhook")
+                    .sys_module
+                    .clone()
+                    .get_attr("displayhook", vm)
                     .map_err(|_| vm.new_runtime_error("lost sys.displayhook".to_owned()))?;
                 vm.invoke(&displayhook, (expr,))?;
 
                 Ok(None)
             }
             bytecode::Instruction::LoadBuildClass => {
-                self.push_value(vm.get_attribute(vm.builtins.clone(), "__build_class__")?);
+                self.push_value(vm.builtins.clone().get_attr("__build_class__", vm)?);
                 Ok(None)
             }
             bytecode::Instruction::UnpackSequence { size } => {
@@ -1166,11 +1168,13 @@ impl ExecutingFrame<'_> {
             return Ok(obj);
         }
         // fallback to importing '{module.__name__}.{name}' from sys.modules
-        let mod_name = vm.get_attribute(module, "__name__").map_err(|_| err())?;
+        let mod_name = module.get_attr("__name__", vm).map_err(|_| err())?;
         let mod_name = mod_name.downcast::<PyStr>().map_err(|_| err())?;
         let full_mod_name = format!("{}.{}", mod_name, name);
         let sys_modules = vm
-            .get_attribute(vm.sys_module.clone(), "modules")
+            .sys_module
+            .clone()
+            .get_attr("modules", vm)
             .map_err(|_| err())?;
         sys_modules.get_item(full_mod_name, vm).map_err(|_| err())
     }
@@ -1499,7 +1503,7 @@ impl ExecutingFrame<'_> {
             // FIXME: turn return type to PyResult<PyIterReturn> then ExecutionResult will be simplified
             None if vm.is_none(&val) => PyIter::new(gen).next(vm),
             None => {
-                let meth = vm.get_attribute(gen.clone(), "send")?;
+                let meth = gen.clone().get_attr("send", vm)?;
                 PyIterReturn::from_pyresult(vm.invoke(&meth, (val,)), vm)
             }
         }
@@ -1790,7 +1794,7 @@ impl ExecutingFrame<'_> {
     fn load_attr(&mut self, vm: &VirtualMachine, attr: bytecode::NameIdx) -> FrameResult {
         let attr_name = self.code.names[attr as usize].clone();
         let parent = self.pop_value();
-        let obj = vm.get_attribute(parent, attr_name)?;
+        let obj = parent.get_attr(attr_name, vm)?;
         self.push_value(obj);
         Ok(None)
     }

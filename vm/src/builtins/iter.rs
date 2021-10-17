@@ -147,14 +147,14 @@ pub fn builtins_iter(vm: &VirtualMachine) -> &PyObjectRef {
     static_cell! {
         static INSTANCE: PyObjectRef;
     }
-    INSTANCE.get_or_init(|| vm.get_attribute(vm.builtins.clone(), "iter").unwrap())
+    INSTANCE.get_or_init(|| vm.builtins.clone().get_attr("iter", vm).unwrap())
 }
 
 pub fn builtins_reversed(vm: &VirtualMachine) -> &PyObjectRef {
     static_cell! {
         static INSTANCE: PyObjectRef;
     }
-    INSTANCE.get_or_init(|| vm.get_attribute(vm.builtins.clone(), "reversed").unwrap())
+    INSTANCE.get_or_init(|| vm.builtins.clone().get_attr("reversed", vm).unwrap())
 }
 
 #[pyclass(module = false, name = "iterator")]

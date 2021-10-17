@@ -150,8 +150,9 @@ fn make_parameters(args: &PyTupleRef, vm: &VirtualMachine) -> PyTupleRef {
     for arg in args.as_slice() {
         if is_typevar(arg.clone()) {
             parameters.push(arg.clone());
-        } else if let Ok(tuple) = vm
-            .get_attribute(arg.clone(), "__parameters__")
+        } else if let Ok(tuple) = arg
+            .clone()
+            .get_attr("__parameters__", vm)
             .and_then(|obj| PyTupleRef::try_from_object(vm, obj))
         {
             for subparam in tuple.as_slice() {
@@ -177,7 +178,7 @@ impl GetAttr for PyGenericAlias {
                 return vm.generic_getattribute(zelf.as_object().clone(), attr);
             }
         }
-        vm.get_attribute(zelf.origin(), attr)
+        zelf.origin().get_attr(attr, vm)
     }
 }
 

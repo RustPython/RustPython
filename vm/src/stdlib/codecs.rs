@@ -350,7 +350,7 @@ mod _codecs {
     ) -> PyResult {
         let f = cell.get_or_try_init(|| {
             let module = vm.import("_pycodecs", None, 0)?;
-            vm.get_attribute(module, name)
+            module.get_attr(name, vm)
         })?;
         vm.invoke(f, args)
     }

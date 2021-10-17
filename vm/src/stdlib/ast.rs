@@ -46,7 +46,8 @@ pub(crate) struct AstNode;
 impl AstNode {
     #[pymethod(magic)]
     fn init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let fields = vm.get_attribute(zelf.clone_class().into(), "_fields")?;
+        let obj: PyObjectRef = zelf.clone_class().into();
+        let fields = obj.get_attr("_fields", vm)?;
         let fields = vm.extract_elements::<PyStrRef>(&fields)?;
         let numargs = args.args.len();
         if numargs > fields.len() {

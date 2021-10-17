@@ -377,8 +377,10 @@ impl PyFunction {
 
     #[pymethod(magic)]
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> String {
-        let qualname = vm
-            .get_attribute(zelf.as_object().clone(), "__qualname__")
+        let qualname = zelf
+            .as_object()
+            .clone()
+            .get_attr("__qualname__", vm)
             .ok()
             .and_then(|qualname_attr| qualname_attr.downcast::<PyStr>().ok())
             .map(|qualname| qualname.as_str().to_owned())
@@ -462,7 +464,7 @@ impl GetAttr for PyBoundMethod {
         if let Some(obj) = zelf.get_class_attr(name.as_str()) {
             return vm.call_if_get_descriptor(obj, zelf.into());
         }
-        vm.get_attribute(zelf.function.clone(), name)
+        zelf.function.clone().get_attr(name, vm)
     }
 }
 
@@ -520,7 +522,7 @@ impl PyBoundMethod {
 
     #[pyproperty(magic)]
     fn doc(&self, vm: &VirtualMachine) -> PyResult {
-        vm.get_attribute(self.function.clone(), "__doc__")
+        self.function.clone().get_attr("__doc__", vm)
     }
 
     #[pyproperty(magic)]
@@ -535,7 +537,7 @@ impl PyBoundMethod {
 
     #[pyproperty(magic)]
     fn module(&self, vm: &VirtualMachine) -> Option<PyObjectRef> {
-        vm.get_attribute(self.function.clone(), "__module__").ok()
+        self.function.clone().get_attr("__module__", vm).ok()
     }
 
     #[pyproperty(magic)]
@@ -557,8 +559,7 @@ impl PyBoundMethod {
                 ))
                 .into());
         }
-
-        vm.get_attribute(self.function.clone(), "__qualname__")
+        self.function.clone().get_attr("__qualname__", vm)
     }
 }
 
