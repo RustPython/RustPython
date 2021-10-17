@@ -812,7 +812,7 @@ impl FormatString {
                     for name_part in parts {
                         match name_part {
                             FieldNamePart::Attribute(attribute) => {
-                                argument = vm.get_attribute(argument, attribute.as_str())?;
+                                argument = argument.get_attr(attribute.as_str(), vm)?;
                             }
                             FieldNamePart::Index(index) => {
                                 argument = argument.get_item(index, vm)?;

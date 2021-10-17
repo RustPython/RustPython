@@ -29,11 +29,11 @@ pub(crate) fn init_importlib(
     let importlib = enter_vm(vm, || {
         let importlib = import_frozen(vm, "_frozen_importlib")?;
         let impmod = import_builtin(vm, "_imp")?;
-        let install = vm.get_attribute(importlib.clone(), "_install")?;
+        let install = importlib.clone().get_attr("_install", vm)?;
         vm.invoke(&install, (vm.sys_module.clone(), impmod))?;
         Ok(importlib)
     })?;
-    vm.import_func = vm.get_attribute(importlib.clone(), "__import__")?;
+    vm.import_func = importlib.clone().get_attr("__import__", vm)?;
 
     if initialize_parameter == InitParameter::External && cfg!(feature = "rustpython-compiler") {
         enter_vm(vm, || {
@@ -47,7 +47,7 @@ pub(crate) fn init_importlib(
             import_builtin(vm, "_io")?;
             import_builtin(vm, "marshal")?;
 
-            let install_external = vm.get_attribute(importlib, "_install_external_importers")?;
+            let install_external = importlib.get_attr("_install_external_importers", vm)?;
             vm.invoke(&install_external, ())?;
             // Set pyc magic number to commit hash. Should be changed when bytecode will be more stable.
             let importlib_external = vm.import("_frozen_importlib_external", None, 0)?;
@@ -60,8 +60,8 @@ pub(crate) fn init_importlib(
             vm.set_attr(&importlib_external, "MAGIC_NUMBER", magic)?;
             let zipimport_res = (|| -> PyResult<()> {
                 let zipimport = vm.import("zipimport", None, 0)?;
-                let zipimporter = vm.get_attribute(zipimport, "zipimporter")?;
-                let path_hooks = vm.get_attribute(vm.sys_module.clone(), "path_hooks")?;
+                let zipimporter = zipimport.get_attr("zipimporter", vm)?;
+                let path_hooks = vm.sys_module.clone().get_attr("path_hooks", vm)?;
                 let path_hooks = list::PyListRef::try_from_object(vm, path_hooks)?;
                 path_hooks.insert(0, zipimporter);
                 Ok(())
@@ -100,7 +100,7 @@ pub fn import_builtin(vm: &VirtualMachine, module_name: &str) -> PyResult {
         })
         .and_then(|make_module_func| {
             let module = make_module_func(vm);
-            let sys_modules = vm.get_attribute(vm.sys_module.clone(), "modules")?;
+            let sys_modules = vm.sys_module.clone().get_attr("modules", vm)?;
             sys_modules.set_item(module_name, module.clone(), vm)?;
             Ok(module)
         })
@@ -132,7 +132,7 @@ pub fn import_codeobj(
     let module = vm.new_module(module_name, attrs.clone(), None);
 
     // Store module in cache to prevent infinite loop with mutual importing libs:
-    let sys_modules = vm.get_attribute(vm.sys_module.clone(), "modules")?;
+    let sys_modules = vm.sys_module.clone().get_attr("modules", vm)?;
     sys_modules.set_item(module_name, module.clone(), vm)?;
 
     // Execute main code in module:

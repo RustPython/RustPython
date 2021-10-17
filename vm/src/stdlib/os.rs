@@ -845,7 +845,7 @@ pub(super) mod _os {
 
         #[pymethod(magic)]
         fn repr(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
-            let name = match vm.get_attribute(zelf.clone(), "name") {
+            let name = match zelf.clone().get_attr("name", vm) {
                 Ok(name) => Some(name),
                 Err(e)
                     if e.isinstance(&vm.ctx.exceptions.attribute_error)
@@ -1733,7 +1733,7 @@ pub fn extend_module(vm: &VirtualMachine, module: &PyObjectRef) {
     let supports_dir_fd = PySet::default().into_ref(vm);
     let supports_follow_symlinks = PySet::default().into_ref(vm);
     for support in support_funcs {
-        let func_obj = vm.get_attribute(module.clone(), support.name).unwrap();
+        let func_obj = module.clone().get_attr(support.name, vm).unwrap();
         if support.fd.unwrap_or(false) {
             supports_fd.clone().add(func_obj.clone(), vm).unwrap();
         }

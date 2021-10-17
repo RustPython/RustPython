@@ -372,7 +372,7 @@ impl VirtualMachine {
                 set_stdio("stdout", 1, "w")?;
                 set_stdio("stderr", 2, "w")?;
 
-                let io_open = self.get_attribute(io, "open")?;
+                let io_open = io.get_attr("open", self)?;
                 self.set_attr(&self.builtins, "open", io_open)?;
             }
 
@@ -573,7 +573,8 @@ impl VirtualMachine {
 
     pub fn try_class(&self, module: &str, class: &str) -> PyResult<PyTypeRef> {
         let class = self
-            .get_attribute(self.import(module, None, 0)?, class)?
+            .import(module, None, 0)?
+            .get_attr(class, self)?
             .downcast()
             .expect("not a class");
         Ok(class)
@@ -583,8 +584,9 @@ impl VirtualMachine {
         let module = self
             .import(module, None, 0)
             .unwrap_or_else(|_| panic!("unable to import {}", module));
-        let class = self
-            .get_attribute(module.clone(), class)
+        let class = module
+            .clone()
+            .get_attr(class, self)
             .unwrap_or_else(|_| panic!("module {} has no class {}", module, class));
         class.downcast().expect("not a class")
     }
@@ -951,7 +953,7 @@ impl VirtualMachine {
         let cached_module = if weird {
             None
         } else {
-            let sys_modules = self.get_attribute(self.sys_module.clone(), "modules")?;
+            let sys_modules = self.sys_module.clone().get_attr("modules", self)?;
             sys_modules.get_item(module.clone(), self).ok()
         };
 
@@ -967,11 +969,13 @@ impl VirtualMachine {
                 }
             }
             None => {
-                let import_func = self
-                    .get_attribute(self.builtins.clone(), "__import__")
-                    .map_err(|_| {
-                        self.new_import_error("__import__ not found".to_owned(), module.clone())
-                    })?;
+                let import_func =
+                    self.builtins
+                        .clone()
+                        .get_attr("__import__", self)
+                        .map_err(|_| {
+                            self.new_import_error("__import__ not found".to_owned(), module.clone())
+                        })?;
 
                 let (locals, globals) = if let Some(frame) = self.current_frame() {
                     (Some(frame.locals.clone()), Some(frame.globals.clone()))
@@ -994,7 +998,7 @@ impl VirtualMachine {
     where
         F: Fn() -> String,
     {
-        self.get_attribute(cls.clone(), "__bases__").map_err(|e| {
+        cls.clone().get_attr("__bases__", self).map_err(|e| {
             // Only mask AttributeErrors.
             if e.class().is(&self.ctx.exceptions.attribute_error) {
                 self.new_type_error(msg())
@@ -1009,7 +1013,7 @@ impl VirtualMachine {
             if obj.class().issubclass(typ.clone()) {
                 Ok(true)
             } else if let Ok(icls) =
-                PyTypeRef::try_from_object(self, self.get_attribute(obj.clone(), "__class__")?)
+                PyTypeRef::try_from_object(self, obj.clone().get_attr("__class__", self)?)
             {
                 if icls.is(&obj.class()) {
                     Ok(false)
@@ -1027,7 +1031,7 @@ impl VirtualMachine {
                 )
             })
             .and_then(|_| {
-                let icls = self.get_attribute(obj.clone(), "__class__")?;
+                let icls = obj.clone().get_attr("__class__", self)?;
                 if self.is_none(&icls) {
                     Ok(false)
                 } else {
@@ -1075,7 +1079,7 @@ impl VirtualMachine {
                 return Ok(true);
             }
 
-            let bases = self.get_attribute(derived, "__bases__")?;
+            let bases = derived.get_attr("__bases__", self)?;
             let tuple = PyTupleRef::try_from_object(self, bases)?;
 
             let n = tuple.len();
@@ -1389,21 +1393,6 @@ impl VirtualMachine {
         Ok(results)
     }
 
-    // get_attribute should be used for full attribute access (usually from user code).
-    #[cfg_attr(feature = "flame-it", flame("VirtualMachine"))]
-    pub fn get_attribute<T>(&self, obj: PyObjectRef, attr_name: T) -> PyResult
-    where
-        T: IntoPyStrRef,
-    {
-        let attr_name = attr_name.into_pystr_ref(self);
-        vm_trace!("vm.__getattribute__: {:?} {:?}", obj, attr_name);
-        let getattro = obj
-            .class()
-            .mro_find_map(|cls| cls.slots.getattro.load())
-            .unwrap();
-        getattro(obj, attr_name, self)
-    }
-
     pub fn get_attribute_opt<T>(
         &self,
         obj: PyObjectRef,
@@ -1412,7 +1401,7 @@ impl VirtualMachine {
     where
         T: IntoPyStrRef,
     {
-        match self.get_attribute(obj, attr_name) {
+        match obj.get_attr(attr_name, self) {
             Ok(attr) => Ok(Some(attr)),
             Err(e) if e.isinstance(&self.ctx.exceptions.attribute_error) => Ok(None),
             Err(e) => Err(e),

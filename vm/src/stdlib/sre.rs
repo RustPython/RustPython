@@ -456,7 +456,7 @@ mod _sre {
                 })?;
                 if is_template {
                     let re = vm.import("re", None, 0)?;
-                    let func = vm.get_attribute(re, "_subx")?;
+                    let func = re.get_attr("_subx", vm)?;
                     let filter = vm.invoke(&func, (zelf.clone(), repl))?;
                     (vm.is_callable(&filter), filter)
                 } else {
@@ -652,7 +652,7 @@ mod _sre {
         #[pymethod]
         fn expand(zelf: PyRef<Match>, template: PyStrRef, vm: &VirtualMachine) -> PyResult {
             let re = vm.import("re", None, 0)?;
-            let func = vm.get_attribute(re, "_expand")?;
+            let func = re.get_attr("_expand", vm)?;
             vm.invoke(&func, (zelf.pattern.clone(), zelf, template))
         }
 

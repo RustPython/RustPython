@@ -9,7 +9,7 @@ use crate::{
     protocol::PyIter,
     pyref_type_error,
     types::{Constructor, PyComparisonOp},
-    PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+    PyObjectRef, PyResult, TryFromObject, TypeProtocol, VirtualMachine,
 };
 
 // RustPython doesn't need these items
@@ -23,8 +23,16 @@ impl PyObjectRef {
         self.get_attr(attr_name, vm).map(|o| vm.is_none(&o))
     }
 
+    // get_attribute should be used for full attribute access (usually from user code).
+    #[cfg_attr(feature = "flame-it", flame("PyObjectRef"))]
     pub fn get_attr(self, attr_name: impl IntoPyStrRef, vm: &VirtualMachine) -> PyResult {
-        vm.get_attribute(self, attr_name)
+        let attr_name = attr_name.into_pystr_ref(vm);
+        vm_trace!("object.__getattribute__: {:?} {:?}", obj, attr_name);
+        let getattro = self
+            .class()
+            .mro_find_map(|cls| cls.slots.getattro.load())
+            .unwrap();
+        getattro(self, attr_name, vm)
     }
 
     // PyObject *PyObject_GenericGetAttr(PyObject *o, PyObject *name)

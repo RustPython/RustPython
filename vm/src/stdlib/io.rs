@@ -111,7 +111,7 @@ mod _io {
     }
 
     fn ensure_unclosed(file: &PyObjectRef, msg: &str, vm: &VirtualMachine) -> PyResult<()> {
-        if vm.get_attribute(file.clone(), "closed")?.try_to_bool(vm)? {
+        if file.clone().get_attr("closed", vm)?.try_to_bool(vm)? {
             Err(vm.new_value_error(msg.to_owned()))
         } else {
             Ok(())
@@ -287,7 +287,7 @@ mod _io {
     }
 
     fn file_closed(file: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        vm.get_attribute(file.clone(), "closed")?.try_to_bool(vm)
+        file.clone().get_attr("closed", vm)?.try_to_bool(vm)
     }
     fn check_closed(file: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if file_closed(file, vm)? {
@@ -411,7 +411,7 @@ mod _io {
 
         #[pyproperty]
         fn closed(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            vm.get_attribute(instance, "__closed")
+            instance.get_attr("__closed", vm)
         }
 
         #[pymethod]
@@ -426,7 +426,7 @@ mod _io {
             vm: &VirtualMachine,
         ) -> PyResult<Vec<u8>> {
             let size = size.to_usize();
-            let read = vm.get_attribute(instance, "read")?;
+            let read = instance.get_attr("read", vm)?;
             let mut res = Vec::new();
             while size.map_or(true, |s| res.len() < s) {
                 let read_res = ArgBytesLike::try_from_object(vm, vm.invoke(&read, (1,))?)?;
@@ -825,7 +825,7 @@ mod _io {
                     }
                 }
             }
-            // vm.invoke(&vm.get_attribute(raw, "seek")?, args)
+            // vm.invoke(&raw.get_attr("seek", vm)?, args)
             if self.writable() {
                 self.flush(vm)?;
             }
@@ -1354,7 +1354,7 @@ mod _io {
     }
 
     pub fn repr_fileobj_name(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<PyStrRef>> {
-        let name = match vm.get_attribute(obj.clone(), "name") {
+        let name = match obj.clone().get_attr("name", vm) {
             Ok(name) => Some(name),
             Err(e)
                 if e.isinstance(&vm.ctx.exceptions.attribute_error)
@@ -1498,15 +1498,18 @@ mod _io {
         }
         #[pyproperty]
         fn closed(&self, vm: &VirtualMachine) -> PyResult {
-            vm.get_attribute(self.lock(vm)?.check_init(vm)?.clone(), "closed")
+            self.lock(vm)?
+                .check_init(vm)?
+                .clone()
+                .get_attr("closed", vm)
         }
         #[pyproperty]
         fn name(&self, vm: &VirtualMachine) -> PyResult {
-            vm.get_attribute(self.lock(vm)?.check_init(vm)?.clone(), "name")
+            self.lock(vm)?.check_init(vm)?.clone().get_attr("name", vm)
         }
         #[pyproperty]
         fn mode(&self, vm: &VirtualMachine) -> PyResult {
-            vm.get_attribute(self.lock(vm)?.check_init(vm)?.clone(), "mode")
+            self.lock(vm)?.check_init(vm)?.clone().get_attr("mode", vm)
         }
         #[pymethod]
         fn fileno(&self, vm: &VirtualMachine) -> PyResult {
@@ -2544,7 +2547,7 @@ mod _io {
         #[pyproperty]
         fn name(&self, vm: &VirtualMachine) -> PyResult {
             let buffer = self.lock(vm)?.buffer.clone();
-            vm.get_attribute(buffer, "name")
+            buffer.get_attr("name", vm)
         }
         #[pyproperty]
         fn encoding(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
@@ -2870,7 +2873,7 @@ mod _io {
         #[pyproperty]
         fn closed(&self, vm: &VirtualMachine) -> PyResult {
             let buffer = self.lock(vm)?.buffer.clone();
-            vm.get_attribute(buffer, "closed")
+            buffer.get_attr("closed", vm)
         }
         #[pyproperty]
         fn buffer(&self, vm: &VirtualMachine) -> PyResult {

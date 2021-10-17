@@ -551,7 +551,9 @@ fn setup_main_module(vm: &VirtualMachine) -> PyResult<Scope> {
         })
         .expect("Failed to initialize __main__.__annotations__");
 
-    vm.get_attribute(vm.sys_module.clone(), "modules")?
+    vm.sys_module
+        .clone()
+        .get_attr("modules", vm)?
         .set_item("__main__", main_module, vm)?;
 
     Ok(scope)
@@ -626,19 +628,19 @@ fn run_command(vm: &VirtualMachine, scope: Scope, source: String) -> PyResult<()
 fn run_module(vm: &VirtualMachine, module: &str) -> PyResult<()> {
     debug!("Running module {}", module);
     let runpy = vm.import("runpy", None, 0)?;
-    let run_module_as_main = vm.get_attribute(runpy, "_run_module_as_main")?;
+    let run_module_as_main = runpy.get_attr("_run_module_as_main", vm)?;
     vm.invoke(&run_module_as_main, (module,))?;
     Ok(())
 }
 
 fn get_importer(path: &str, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
-    let path_importer_cache = vm.get_attribute(vm.sys_module.clone(), "path_importer_cache")?;
+    let path_importer_cache = vm.sys_module.clone().get_attr("path_importer_cache", vm)?;
     let path_importer_cache = PyDictRef::try_from_object(vm, path_importer_cache)?;
     if let Some(importer) = path_importer_cache.get_item_option(path, vm)? {
         return Ok(Some(importer));
     }
     let path = vm.ctx.new_str(path);
-    let path_hooks = vm.get_attribute(vm.sys_module.clone(), "path_hooks")?;
+    let path_hooks = vm.sys_module.clone().get_attr("path_hooks", vm)?;
     let mut importer = None;
     let path_hooks: Vec<PyObjectRef> = vm.extract_elements(&path_hooks)?;
     for path_hook in path_hooks {
@@ -660,7 +662,7 @@ fn get_importer(path: &str, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>
 }
 
 fn insert_sys_path(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<()> {
-    let sys_path = vm.get_attribute(vm.sys_module.clone(), "path").unwrap();
+    let sys_path = vm.sys_module.clone().get_attr("path", vm).unwrap();
     vm.call_method(&sys_path, "insert", (0, obj))?;
     Ok(())
 }
@@ -670,7 +672,7 @@ fn run_script(vm: &VirtualMachine, scope: Scope, script_file: &str) -> PyResult<
     if get_importer(script_file, vm)?.is_some() {
         insert_sys_path(vm, vm.ctx.new_str(script_file).into())?;
         let runpy = vm.import("runpy", None, 0)?;
-        let run_module_as_main = vm.get_attribute(runpy, "_run_module_as_main")?;
+        let run_module_as_main = runpy.get_attr("_run_module_as_main", vm)?;
         vm.invoke(&run_module_as_main, (vm.ctx.new_str("__main__"), false))?;
         return Ok(());
     }

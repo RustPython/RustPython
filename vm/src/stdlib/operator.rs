@@ -482,11 +482,11 @@ mod _operator {
         ) -> PyResult<PyObjectRef> {
             let parts = attr.split('.').collect::<Vec<_>>();
             if parts.len() == 1 {
-                return vm.get_attribute(obj, parts[0]);
+                return obj.get_attr(parts[0], vm);
             }
             let mut obj = obj;
             for part in parts {
-                obj = vm.get_attribute(obj, part)?;
+                obj = obj.get_attr(part, vm)?;
             }
             Ok(obj)
         }
@@ -638,7 +638,7 @@ mod _operator {
             } else {
                 // If we have kwargs, create a partial function that contains them and pass back that
                 // along with the args.
-                let partial = vm.get_attribute(vm.import("functools", None, 0)?, "partial")?;
+                let partial = vm.import("functools", None, 0)?.get_attr("partial", vm)?;
                 let callable = vm.invoke(
                     &partial,
                     FuncArgs::new(

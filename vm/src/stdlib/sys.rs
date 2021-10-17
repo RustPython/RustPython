@@ -725,15 +725,21 @@ impl PyStderr<'_> {
 }
 
 pub fn get_stdin(vm: &VirtualMachine) -> PyResult {
-    vm.get_attribute(vm.sys_module.clone(), "stdin")
+    vm.sys_module
+        .clone()
+        .get_attr("stdin", vm)
         .map_err(|_| vm.new_runtime_error("lost sys.stdin".to_owned()))
 }
 pub fn get_stdout(vm: &VirtualMachine) -> PyResult {
-    vm.get_attribute(vm.sys_module.clone(), "stdout")
+    vm.sys_module
+        .clone()
+        .get_attr("stdout", vm)
         .map_err(|_| vm.new_runtime_error("lost sys.stdout".to_owned()))
 }
 pub fn get_stderr(vm: &VirtualMachine) -> PyResult {
-    vm.get_attribute(vm.sys_module.clone(), "stderr")
+    vm.sys_module
+        .clone()
+        .get_attr("stderr", vm)
         .map_err(|_| vm.new_runtime_error("lost sys.stderr".to_owned()))
 }
 

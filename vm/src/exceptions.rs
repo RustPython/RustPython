@@ -49,7 +49,7 @@ impl VirtualMachine {
                 let _ = self.write_exception(&mut py_io::IoWriter(io::stderr()), exc);
             }
         };
-        if let Ok(excepthook) = vm.get_attribute(vm.sys_module.clone(), "excepthook") {
+        if let Ok(excepthook) = vm.sys_module.clone().get_attr("excepthook", vm) {
             let (exc_type, exc_val, exc_tb) = vm.split_exception(exc.clone());
             if let Err(eh_exc) = vm.invoke(&excepthook, (exc_type, exc_val, exc_tb)) {
                 write_fallback(&eh_exc, "Error in sys.excepthook:");

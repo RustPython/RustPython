@@ -79,7 +79,7 @@ impl<'vm> ShellHelper<'vm> {
                 .ok()??;
 
             for attr in parents {
-                current = self.vm.get_attribute(current.clone(), attr.as_str()).ok()?;
+                current = current.clone().get_attr(attr.as_str(), self.vm).ok()?;
             }
 
             let current_iter = str_iter_method(current, "__dir__").ok()?;

@@ -1134,7 +1134,7 @@ mod array {
             let code = MachineFormatCode::from_typecode(array.typecode()).unwrap();
             let code = PyInt::from(u8::from(code)).into_object(vm);
             let module = vm.import("array", None, 0)?;
-            let func = vm.get_attribute(module, "_array_reconstructor")?;
+            let func = module.get_attr("_array_reconstructor", vm)?;
             Ok((
                 func,
                 vm.new_tuple((cls, typecode, code, bytes)),

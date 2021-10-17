@@ -321,7 +321,7 @@ mod builtins {
         if let OptionalArg::Present(default) = default {
             Ok(vm.get_attribute_opt(obj, attr)?.unwrap_or(default))
         } else {
-            vm.get_attribute(obj, attr)
+            obj.get_attr(attr, vm)
         }
     }
 
@@ -791,7 +791,7 @@ mod builtins {
     #[pyfunction]
     fn vars(obj: OptionalArg, vm: &VirtualMachine) -> PyResult {
         if let OptionalArg::Present(obj) = obj {
-            vm.get_attribute(obj, "__dict__").map_err(|_| {
+            obj.get_attr("__dict__", vm).map_err(|_| {
                 vm.new_type_error("vars() argument must have __dict__ attribute".to_owned())
             })
         } else {

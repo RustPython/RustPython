@@ -54,7 +54,7 @@ impl PyWeakProxy {
                 "weakly-referenced object no longer exists".to_owned(),
             )
         })?;
-        vm.get_attribute(obj, attr_name)
+        obj.get_attr(attr_name, vm)
     }
 }
 
