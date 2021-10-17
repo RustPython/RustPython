@@ -130,8 +130,6 @@ class AttributesTest(unittest.TestCase):
         else:
             self.assertNotIn('winerror', dir(OSError))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_posix_error(self):
         e = OSError(EEXIST, "File already exists", "foo.txt")
         self.assertEqual(e.errno, EEXIST)

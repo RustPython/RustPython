@@ -1040,7 +1040,7 @@ pub(super) mod types {
         builtins::{traceback::PyTracebackRef, PyInt, PyTupleRef, PyTypeRef},
         convert::ToPyResult,
         function::FuncArgs,
-        PyObjectRef, PyRef, PyResult, VirtualMachine,
+        AsObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     #[cfg_attr(target_arch = "wasm32", allow(unused_imports))]
@@ -1240,8 +1240,9 @@ pub(super) mod types {
         os_error,
         "Base class for I/O related errors.",
         os_error_new,
-        base_exception_init,
+        os_error_init,
     }
+
     #[cfg(not(target_arch = "wasm32"))]
     fn os_error_optional_new(
         args: Vec<PyObjectRef>,
@@ -1261,25 +1262,78 @@ pub(super) mod types {
     }
     #[cfg(not(target_arch = "wasm32"))]
     fn os_error_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        // We need this method, because of how `CPython` copies `init`
-        // from `BaseException` in `SimpleExtendsException` macro.
-        // See: `BaseException_new`
-        if cls.name().deref() == vm.ctx.exceptions.os_error.name().deref() {
-            match os_error_optional_new(args.args.to_vec(), vm) {
-                Some(error) => error.to_pyresult(vm),
-                None => PyBaseException::slot_new(cls, args, vm),
-            }
-        } else {
-            PyBaseException::slot_new(cls, args, vm)
-        }
+        let exc_self: PyBaseExceptionRef =
+            if cls.name().deref() == vm.ctx.exceptions.os_error.name().deref() {
+                match os_error_optional_new(args.args.to_vec(), vm) {
+                    Some(error) => error,
+                    None => PyBaseException::new(args.args.to_vec(), vm)
+                        .into_ref_with_type(vm, cls)
+                        .unwrap(),
+                }
+            } else {
+                PyBaseException::new(args.args.to_vec(), vm)
+                    .into_ref_with_type(vm, cls)
+                    .unwrap()
+            };
+
+        os_error_parse_args(&exc_self, &args, vm)?;
+        exc_self.to_pyresult(vm)
     }
     #[cfg(target_arch = "wasm32")]
     fn os_error_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        PyBaseException::slot_new(cls, args, vm)
+        let exc_self = PyBaseException::new(args.args.to_vec(), vm)
+            .into_ref_with_type(vm, cls)
+            .unwrap();
+        os_error_parse_args(&exc_self, &args, vm)?;
+        exc_self.into_pyresult(vm)
     }
 
-    fn base_exception_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-        PyBaseException::init(zelf, args, vm)
+    fn os_error_parse_args(
+        exc_self: &PyBaseExceptionRef,
+        args: &FuncArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        os_error_set_attr(exc_self, args, vm, "errno", 0)?;
+        os_error_set_attr(exc_self, args, vm, "strerror", 1)?;
+
+        os_error_set_attr(exc_self, args, vm, "filename", 2)?;
+        #[cfg(windows)]
+        os_error_set_attr(exc_self, args, vm, "winerror", 3)?;
+        os_error_set_attr(exc_self, args, vm, "filename2", 4)?;
+        Ok(())
+    }
+
+    fn os_error_set_attr(
+        exc_self: &PyBaseExceptionRef,
+        args: &FuncArgs,
+        vm: &VirtualMachine,
+        attr_name: &str,
+        arg_idx: usize,
+    ) -> PyResult<()> {
+        let exc_self = exc_self.as_object();
+
+        if let Some(arg) = args.args.as_slice().get(arg_idx).cloned() {
+            exc_self.set_attr(attr_name, arg, vm)?;
+        } else {
+            exc_self.set_attr(attr_name, vm.ctx.none(), vm)?;
+        }
+
+        Ok(())
+    }
+
+    fn os_error_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        PyBaseException::init(zelf.clone(), args.clone(), vm)?;
+
+        let zelf: PyRef<PyBaseException> = zelf.try_into_value(vm)?;
+        if zelf.class().name().deref() == "BlockingIOError" {
+            os_error_set_attr(&zelf, &args, vm, "errno", 0)?;
+            os_error_set_attr(&zelf, &args, vm, "strerror", 1)?;
+            os_error_set_attr(&zelf, &args, vm, "characters_written", 2)?;
+        } else {
+            os_error_parse_args(&zelf, &args, vm)?;
+        }
+
+        Ok(())
     }
 
     define_exception! {
@@ -1288,6 +1342,7 @@ pub(super) mod types {
         blocking_io_error,
         "I/O operation would block."
     }
+
     define_exception! {
         PyChildProcessError,
         PyOSError,

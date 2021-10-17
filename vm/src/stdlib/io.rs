@@ -33,8 +33,14 @@ impl ToPyException for std::io::Error {
                 .unwrap_or(excs.os_error),
         };
         let errno = self.raw_os_error().to_pyobject(vm);
-        let msg = vm.ctx.new_str(self.to_string()).into();
-        vm.new_exception(exc_type.to_owned(), vec![errno, msg])
+        let msg: PyObjectRef = vm.ctx.new_str(self.to_string()).into();
+        if let Ok(exception) =
+            vm.invoke_exception(exc_type.to_owned(), vec![errno.clone(), msg.clone()])
+        {
+            exception
+        } else {
+            vm.new_exception(exc_type.to_owned(), vec![errno, msg])
+        }
     }
 }
 

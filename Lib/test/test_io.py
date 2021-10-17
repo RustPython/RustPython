@@ -1745,8 +1745,6 @@ class BufferedWriterTest(unittest.TestCase, CommonBufferedTests):
     def test_writes_and_truncates(self):
         self.check_writes(lambda bufio: bufio.truncate(bufio.tell()))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_write_non_blocking(self):
         raw = self.MockNonBlockWriterIO()
         bufio = self.tp(raw, 8)
@@ -4346,13 +4344,9 @@ class MiscIOTest(unittest.TestCase):
                 with self.open(os_helper.TESTFN, **kwargs) as f:
                     self.assertRaises(TypeError, pickle.dumps, f, protocol)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_nonblock_pipe_write_bigbuf(self):
         self._test_nonblock_pipe_write(16*1024)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_nonblock_pipe_write_smallbuf(self):
         self._test_nonblock_pipe_write(1024)
 

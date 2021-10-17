@@ -1549,8 +1549,6 @@ class ProcessTestCase(BaseTestCase):
         fds_after_exception = os.listdir(fd_directory)
         self.assertEqual(fds_before_popen, fds_after_exception)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipIf(mswindows, "behavior currently not supported on Windows")
     def test_file_not_found_includes_filename(self):
         with self.assertRaises(FileNotFoundError) as c:
