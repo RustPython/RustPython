@@ -987,15 +987,17 @@ impl AsSequence for PyMemoryView {
             static METHODS: PySequenceMethods;
         }
         Cow::Borrowed(METHODS.get_or_init(|| PySequenceMethods {
-            length: Some(|zelf, vm| zelf.payload::<Self>().unwrap().len(vm)),
+            length: Some(|zelf, vm| {
+                let zelf = zelf.payload::<Self>().unwrap();
+                zelf.try_not_released(vm)?;
+                zelf.len(vm)
+            }),
             item: Some(|zelf, i, vm| {
                 let zelf = zelf.clone().downcast::<Self>().unwrap();
-                zelf.getitem_by_idx(i, vm)
+                zelf.try_not_released(vm)?;
             }),
-            ..Default::default()
         }))
     }
-}
 
 impl Comparable for PyMemoryView {
     fn cmp(
