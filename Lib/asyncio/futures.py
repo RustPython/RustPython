@@ -184,6 +184,9 @@ class Future:
                 context['source_traceback'] = self._source_traceback
             self._loop.call_exception_handler(context)
 
+    def __class_getitem__(cls, type):
+        return cls
+
     def cancel(self):
         """Cancel the future and schedule callbacks.
 
