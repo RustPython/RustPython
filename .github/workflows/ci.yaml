@@ -17,6 +17,19 @@ env:
     -p rustpython-jit
     -p rustpython-derive
     -p rustpython
+  PLATFORM_INDEPENDENT_TESTS: >-
+    test_argparse
+    test_array
+    test_asyncgen
+    test_bytes
+    test_calendar
+    test_complex
+    test_dis
+    test_json
+    test_list
+    test_long
+    test_set
+    test_unicode
 
 jobs:
   rust_tests:
@@ -145,22 +158,30 @@ jobs:
       - if: runner.os == 'Linux'
         name: run cpython platform-independent tests
         run:
-          target/release/rustpython -m test -v
-            test_argparse test_json test_bytes test_long test_unicode test_array
-            test_asyncgen test_list test_complex test_json test_set test_dis test_calendar
+          target/release/rustpython -m test -v ${{ env.PLATFORM_INDEPENDENT_TESTS }}
       - if: runner.os != 'Windows'
         name: run cpython platform-dependent tests
-        run: target/release/rustpython -m test -v -x
-            test_argparse test_json test_bytes test_long test_unicode test_array
-            test_asyncgen test_list test_complex test_json test_set test_dis test_calendar
+        run: target/release/rustpython -m test -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }}
       - if: runner.os == 'Windows'
         name: run cpython platform-dependent tests (windows partial - fixme)
         run:
-          target/release/rustpython -m test -v -x
-            test_argparse test_json test_bytes test_long test_unicode test_array
-            test_asyncgen test_list test_complex test_json test_set test_dis test_calendar
-            test_pwd test_bool test_cgi test_exception_hierarchy test_glob test_iter test_os test_pathlib
-            test_py_compile test_set test_shutil test_sys test_unittest test_venv test_zipimport test_importlib test_io
+          target/release/rustpython -m test -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }}
+            test_bool
+            test_cgi
+            test_exception_hierarchy
+            test_glob
+            test_importlib
+            test_io
+            test_iter
+            test_os
+            test_pathlib
+            test_pwd
+            test_py_compile
+            test_shutil
+            test_sys
+            test_unittest
+            test_venv
+            test_zipimport
       - if: runner.os == 'Linux'
         name: check that --install-pip succeeds
         run: |
