@@ -86,8 +86,6 @@ class PosixTester(unittest.TestCase):
         for val in group_ids:
             self.assertGreaterEqual(val, 0)
 
-    # TODO: RUSTPYTHON: OverflowError: Python int too large to convert to Rust u32
-    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(posix, 'setresuid'),
                          'test needs posix.setresuid()')
     def test_setresuid(self):
@@ -96,8 +94,6 @@ class PosixTester(unittest.TestCase):
         # -1 means don't change that value.
         self.assertIsNone(posix.setresuid(-1, -1, -1))
 
-    # TODO: RUSTPYTHON: OverflowError: Python int too large to convert to Rust u32
-    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(posix, 'setresuid'),
                          'test needs posix.setresuid()')
     def test_setresuid_exception(self):
@@ -107,8 +103,6 @@ class PosixTester(unittest.TestCase):
             new_user_ids = (current_user_ids[0]+1, -1, -1)
             self.assertRaises(OSError, posix.setresuid, *new_user_ids)
 
-    # TODO: RUSTPYTHON: OverflowError: Python int too large to convert to Rust u32
-    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(posix, 'setresgid'),
                          'test needs posix.setresgid()')
     def test_setresgid(self):
@@ -117,8 +111,6 @@ class PosixTester(unittest.TestCase):
         # -1 means don't change that value.
         self.assertIsNone(posix.setresgid(-1, -1, -1))
 
-    # TODO: RUSTPYTHON: OverflowError: Python int too large to convert to Rust u32
-    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(posix, 'setresgid'),
                          'test needs posix.setresgid()')
     def test_setresgid_exception(self):
