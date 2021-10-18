@@ -204,7 +204,9 @@ fn parse_arguments<'a>(app: App<'a, '_>) -> ArgMatches<'a> {
                 .multiple(true)
                 .value_name("get-pip args")
                 .min_values(0)
-                .help("install the pip package manager for rustpython"),
+                .help("install the pip package manager for rustpython; \
+                        requires rustpython be build with the ssl feature enabled."
+                ),
         )
         .arg(
             Arg::with_name("optimize")
@@ -559,6 +561,33 @@ fn setup_main_module(vm: &VirtualMachine) -> PyResult<Scope> {
     Ok(scope)
 }
 
+#[cfg(feature = "ssl")]
+fn install_pip(scope: Scope, vm: &VirtualMachine) -> PyResult {
+    let get_getpip = rustpython_vm::py_compile!(
+        source = r#"\
+__import__("io").TextIOWrapper(
+    __import__("urllib.request").request.urlopen("https://bootstrap.pypa.io/get-pip.py")
+).read()
+"#,
+        mode = "eval"
+    );
+    eprintln!("downloading get-pip.py...");
+    let getpip_code = vm.run_code_obj(vm.new_code_object(get_getpip), scope.clone())?;
+    let getpip_code: rustpython_vm::builtins::PyStrRef = getpip_code
+        .downcast()
+        .expect("TextIOWrapper.read() should return str");
+    eprintln!("running get-pip.py...");
+    _run_string(vm, scope, getpip_code.as_str(), "get-pip.py".to_owned())
+}
+
+#[cfg(not(feature = "ssl"))]
+fn install_pip(_: Scope, vm: &VirtualMachine) -> PyResult {
+    Err(vm.new_exception_msg(
+        vm.ctx.exceptions.system_error.clone(),
+        "install-pip requires rustpython be build with the 'ssl' feature enabled.".to_owned(),
+    ))
+}
+
 fn run_rustpython(vm: &VirtualMachine, matches: &ArgMatches) -> PyResult<()> {
     let scope = setup_main_module(vm)?;
 
@@ -577,21 +606,7 @@ fn run_rustpython(vm: &VirtualMachine, matches: &ArgMatches) -> PyResult<()> {
     } else if let Some(module) = matches.value_of("m") {
         run_module(vm, module)?;
     } else if matches.is_present("install_pip") {
-        let get_getpip = rustpython_vm::py_compile!(
-            source = r#"\
-__import__("io").TextIOWrapper(
-    __import__("urllib.request").request.urlopen("https://bootstrap.pypa.io/get-pip.py")
-).read()
-"#,
-            mode = "eval"
-        );
-        eprintln!("downloading get-pip.py...");
-        let getpip_code = vm.run_code_obj(vm.new_code_object(get_getpip), scope.clone())?;
-        let getpip_code: rustpython_vm::builtins::PyStrRef = getpip_code
-            .downcast()
-            .expect("TextIOWrapper.read() should return str");
-        eprintln!("running get-pip.py...");
-        _run_string(vm, scope, getpip_code.as_str(), "get-pip.py".to_owned())?;
+        install_pip(scope, vm)?;
     } else if let Some(filename) = matches.value_of("script") {
         run_script(vm, scope.clone(), filename)?;
         if matches.is_present("inspect") {
