@@ -42,11 +42,11 @@ impl PyCodec {
     }
 
     #[inline]
-    pub fn get_encode_func(&self) -> &PyObjectRef {
+    pub fn get_encode_func(&self) -> &crate::PyObj {
         &self.0.as_slice()[0]
     }
     #[inline]
-    pub fn get_decode_func(&self) -> &PyObjectRef {
+    pub fn get_decode_func(&self) -> &crate::PyObj {
         &self.0.as_slice()[1]
     }
 
@@ -332,20 +332,20 @@ fn normalize_encoding_name(encoding: &str) -> Cow<'_, str> {
 }
 
 // TODO: exceptions with custom payloads
-fn extract_unicode_error_range(err: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Range<usize>> {
-    let start = err.clone().get_attr("start", vm)?;
+fn extract_unicode_error_range(err: &crate::PyObj, vm: &VirtualMachine) -> PyResult<Range<usize>> {
+    let start = err.incref().get_attr("start", vm)?;
     let start = start.try_into_value(vm)?;
-    let end = err.clone().get_attr("end", vm)?;
+    let end = err.incref().get_attr("end", vm)?;
     let end = end.try_into_value(vm)?;
     Ok(Range { start, end })
 }
 
 #[inline]
-fn is_decode_err(err: &PyObjectRef, vm: &VirtualMachine) -> bool {
+fn is_decode_err(err: &crate::PyObj, vm: &VirtualMachine) -> bool {
     err.isinstance(&vm.ctx.exceptions.unicode_decode_error)
 }
 #[inline]
-fn is_encode_ish_err(err: &PyObjectRef, vm: &VirtualMachine) -> bool {
+fn is_encode_ish_err(err: &crate::PyObj, vm: &VirtualMachine) -> bool {
     err.isinstance(&vm.ctx.exceptions.unicode_encode_error)
         || err.isinstance(&vm.ctx.exceptions.unicode_translate_error)
 }

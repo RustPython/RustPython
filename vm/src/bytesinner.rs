@@ -9,7 +9,7 @@ use crate::{
     sliceable::PySliceableSequence,
     types::PyComparisonOp,
     utils::Either,
-    IdProtocol, PyComparisonValue, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject,
+    IdProtocol, PyComparisonValue, PyObj, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject,
     VirtualMachine,
 };
 use bstr::ByteSlice;
@@ -30,7 +30,7 @@ impl From<Vec<u8>> for PyBytesInner {
 }
 
 impl TryFromBorrowedObject for PyBytesInner {
-    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Self> {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObj) -> PyResult<Self> {
         bytes_from_object(vm, obj).map(Self::from)
     }
 }
@@ -258,12 +258,7 @@ impl PyBytesInner {
         self.elements.is_empty()
     }
 
-    pub fn cmp(
-        &self,
-        other: &PyObjectRef,
-        op: PyComparisonOp,
-        vm: &VirtualMachine,
-    ) -> PyComparisonValue {
+    pub fn cmp(&self, other: &PyObj, op: PyComparisonOp, vm: &VirtualMachine) -> PyComparisonValue {
         // TODO: bytes can compare with any object implemented buffer protocol
         // but not memoryview, and not equal if compare with unicode str(PyStr)
         PyComparisonValue::from_option(
@@ -1183,7 +1178,7 @@ pub const fn is_py_ascii_whitespace(b: u8) -> bool {
     matches!(b, b'\t' | b'\n' | b'\x0C' | b'\r' | b' ' | b'\x0B')
 }
 
-pub fn bytes_from_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Vec<u8>> {
+pub fn bytes_from_object(vm: &VirtualMachine, obj: &PyObj) -> PyResult<Vec<u8>> {
     if let Ok(elements) = obj.try_bytes_like(vm, |bytes| bytes.to_vec()) {
         return Ok(elements);
     }
@@ -1197,7 +1192,7 @@ pub fn bytes_from_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Vec
     ))
 }
 
-pub fn value_from_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<u8> {
+pub fn value_from_object(vm: &VirtualMachine, obj: &crate::PyObj) -> PyResult<u8> {
     vm.to_index(obj)?
         .as_bigint()
         .to_u8()

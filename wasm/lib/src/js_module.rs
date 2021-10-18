@@ -9,10 +9,9 @@ use rustpython_vm::{
     function::{ArgCallable, IntoPyObject, OptionalArg, OptionalOption, PosArgs},
     protocol::PyIterReturn,
     types::{IterNext, IterNextIterable},
-    PyClassImpl, PyObjectRef, PyObjectWrap, PyRef, PyResult, PyValue, TryFromObject,
+    Py, PyClassImpl, PyObjectRef, PyObjectWrap, PyRef, PyResult, PyValue, TryFromObject,
     VirtualMachine,
 };
-use std::ops::Deref;
 use std::{cell, fmt, future};
 use wasm_bindgen::{closure::Closure, prelude::*, JsCast};
 use wasm_bindgen_futures::{future_to_promise, JsFuture};
@@ -174,7 +173,7 @@ impl PyJsValue {
             .value
             .dyn_ref::<js_sys::Function>()
             .ok_or_else(|| vm.new_type_error("JS value is not callable".to_owned()))?;
-        let js_args = args.iter().map(|x| x.deref()).collect::<Array>();
+        let js_args = args.iter().map(|x| -> &PyJsValue { x }).collect::<Array>();
         let res = match opts.this {
             Some(this) => Reflect::apply(func, &this.value, &js_args),
             None => call_func(func, &js_args),
@@ -189,7 +188,7 @@ impl PyJsValue {
         args: PosArgs<PyJsValueRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyJsValue> {
-        let js_args = args.iter().map(|x| x.deref()).collect::<Array>();
+        let js_args = args.iter().map(|x| -> &PyJsValue { x }).collect::<Array>();
         call_method(&self.value, &name.into_jsvalue(), &js_args)
             .map(PyJsValue::new)
             .map_err(|err| new_js_error(vm, err))
@@ -210,7 +209,7 @@ impl PyJsValue {
             .prototype
             .as_ref()
             .and_then(|proto| proto.value.dyn_ref::<js_sys::Function>());
-        let js_args = args.iter().map(|x| x.deref()).collect::<Array>();
+        let js_args = args.iter().map(|x| -> &PyJsValue { x }).collect::<Array>();
         let constructed_result = if let Some(proto) = proto {
             Reflect::construct_with_new_target(ctor, &js_args, proto)
         } else {
@@ -585,7 +584,7 @@ impl AwaitPromise {
 
 impl IterNextIterable for AwaitPromise {}
 impl IterNext for AwaitPromise {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.send(None, vm)
     }
 }

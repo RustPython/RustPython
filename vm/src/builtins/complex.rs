@@ -4,8 +4,8 @@ use crate::{
     types::{Comparable, Constructor, Hashable, PyComparisonOp},
     IdProtocol,
     PyArithmeticValue::{self, *},
-    PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
-    VirtualMachine,
+    PyClassImpl, PyComparisonValue, PyContext, PyObj, PyObjectRef, PyRef, PyResult, PyValue,
+    TypeProtocol, VirtualMachine,
 };
 use num_complex::Complex64;
 use num_traits::Zero;
@@ -73,7 +73,7 @@ pub fn init(context: &PyContext) {
     PyComplex::extend_class(context, &context.types.complex_type);
 }
 
-fn to_op_complex(value: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<Complex64>> {
+fn to_op_complex(value: &crate::PyObj, vm: &VirtualMachine) -> PyResult<Option<Complex64>> {
     let r = if let Some(complex) = value.payload_if_subclass::<PyComplex>(vm) {
         Some(complex.value)
     } else {
@@ -409,8 +409,8 @@ impl PyComplex {
 
 impl Comparable for PyComplex {
     fn cmp(
-        zelf: &PyRef<Self>,
-        other: &PyObjectRef,
+        zelf: &crate::Py<Self>,
+        other: &PyObj,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
@@ -431,7 +431,7 @@ impl Comparable for PyComplex {
 
 impl Hashable for PyComplex {
     #[inline]
-    fn hash(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<hash::PyHash> {
+    fn hash(zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyResult<hash::PyHash> {
         Ok(hash::hash_complex(&zelf.value))
     }
 }

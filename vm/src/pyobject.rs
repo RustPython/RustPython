@@ -4,7 +4,7 @@ use crate::common::{
     static_cell,
 };
 pub use crate::pyobjectrc::{
-    PyObject, PyObjectPtr, PyObjectRef, PyObjectWeak, PyObjectWrap, PyRef, PyWeakRef,
+    Py, PyObj, PyObject, PyObjectRef, PyObjectWeak, PyObjectWrap, PyRef, PyWeakRef,
 };
 use crate::{
     builtins::{
@@ -53,8 +53,13 @@ pub type PyResult<T = PyObjectRef> = Result<T, PyBaseExceptionRef>; // A valid v
 /// TODO: class attributes should maintain insertion order (use IndexMap here)
 pub type PyAttributes = HashMap<String, PyObjectRef, ahash::RandomState>;
 
-// TODO: remove this impl
+// TODO: remove these 2 impls
 impl fmt::Display for PyObjectRef {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        (**self).fmt(f)
+    }
+}
+impl fmt::Display for PyObj {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "'{}' object", self.class().name())
     }
@@ -305,7 +310,7 @@ impl Default for PyContext {
 
 pub(crate) fn try_value_from_borrowed_object<T, F, R>(
     vm: &VirtualMachine,
-    obj: &PyObjectRef,
+    obj: &PyObj,
     f: F,
 ) -> PyResult<R>
 where
@@ -340,11 +345,11 @@ where
         }
     }
 }
-// the impl Borrow allows to pass PyObjectRef or &PyObjectRef
+// the impl Borrow allows to pass PyObjectRef or &PyObj
 fn pyref_payload_error(
     vm: &VirtualMachine,
     class: &PyTypeRef,
-    obj: impl std::borrow::Borrow<PyObjectRef>,
+    obj: impl std::borrow::Borrow<PyObj>,
 ) -> PyBaseExceptionRef {
     vm.new_runtime_error(format!(
         "Unexpected payload '{}' for type '{}'",
@@ -356,7 +361,7 @@ fn pyref_payload_error(
 pub(crate) fn pyref_type_error(
     vm: &VirtualMachine,
     class: &PyTypeRef,
-    obj: impl std::borrow::Borrow<PyObjectRef>,
+    obj: impl std::borrow::Borrow<PyObj>,
 ) -> PyBaseExceptionRef {
     let expected_type = &*class.name();
     let actual_class = obj.borrow().class();
@@ -368,6 +373,14 @@ pub(crate) fn pyref_type_error(
 }
 
 impl<T: fmt::Display> fmt::Display for PyRef<T>
+where
+    T: PyObjectPayload + fmt::Display,
+{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Display::fmt(&**self, f)
+    }
+}
+impl<T: fmt::Display> fmt::Display for Py<T>
 where
     T: PyObjectPayload + fmt::Display,
 {
@@ -439,6 +452,12 @@ impl<T: PyObjectPayload> IdProtocol for PyRef<T> {
     }
 }
 
+impl<T: PyObjectPayload> IdProtocol for Py<T> {
+    fn get_id(&self) -> usize {
+        self.as_object().get_id()
+    }
+}
+
 impl<'a, T: PyObjectPayload> IdProtocol for PyLease<'a, T> {
     fn get_id(&self) -> usize {
         self.inner.get_id()
@@ -500,7 +519,7 @@ pub trait TypeProtocol {
     /// Determines if `obj` actually an instance of `cls`, this doesn't call __instancecheck__, so only
     /// use this if `cls` is known to have not overridden the base __instancecheck__ magic method.
     #[inline]
-    fn isinstance(&self, cls: &PyTypeRef) -> bool {
+    fn isinstance(&self, cls: &Py<PyType>) -> bool {
         self.class().issubclass(cls)
     }
 }
@@ -510,6 +529,20 @@ impl TypeProtocol for PyObjectRef {
         PyLease {
             inner: self.class_lock().read(),
         }
+    }
+}
+
+impl TypeProtocol for PyObj {
+    fn class(&self) -> PyLease<'_, PyType> {
+        PyLease {
+            inner: self.class_lock().read(),
+        }
+    }
+}
+
+impl<T: PyObjectPayload> TypeProtocol for Py<T> {
+    fn class(&self) -> PyLease<'_, PyType> {
+        self.as_object().class()
     }
 }
 
@@ -536,18 +569,18 @@ where
     fn del_item(&self, key: T, vm: &VirtualMachine) -> PyResult<()>;
 }
 
-impl<T> ItemProtocol<T> for PyObjectRef
+impl<T> ItemProtocol<T> for PyObj
 where
     T: IntoPyObject,
 {
     fn get_item(&self, key: T, vm: &VirtualMachine) -> PyResult {
-        if let Ok(mapping) = PyMapping::try_from_object(vm, self.clone()) {
+        if let Ok(mapping) = PyMapping::try_from_object(vm, self.incref()) {
             if let Some(getitem) = mapping.methods(vm).subscript {
-                return getitem(self.clone(), key.into_pyobject(vm), vm);
+                return getitem(self.incref(), key.into_pyobject(vm), vm);
             }
         }
 
-        match vm.get_special_method(self.clone(), "__getitem__")? {
+        match vm.get_special_method(self.incref(), "__getitem__")? {
             Ok(special_method) => return special_method.invoke((key,), vm),
             Err(obj) => {
                 if obj.isinstance(&vm.ctx.types.type_type) {
@@ -564,13 +597,13 @@ where
     }
 
     fn set_item(&self, key: T, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        if let Ok(mapping) = PyMapping::try_from_object(vm, self.clone()) {
+        if let Ok(mapping) = PyMapping::try_from_object(vm, self.incref()) {
             if let Some(setitem) = mapping.methods(vm).ass_subscript {
-                return setitem(self.clone(), key.into_pyobject(vm), Some(value), vm);
+                return setitem(self.incref(), key.into_pyobject(vm), Some(value), vm);
             }
         }
 
-        vm.get_special_method(self.clone(), "__setitem__")?
+        vm.get_special_method(self.incref(), "__setitem__")?
             .map_err(|obj| {
                 vm.new_type_error(format!(
                     "'{}' does not support item assignment",
@@ -582,13 +615,13 @@ where
     }
 
     fn del_item(&self, key: T, vm: &VirtualMachine) -> PyResult<()> {
-        if let Ok(mapping) = PyMapping::try_from_object(vm, self.clone()) {
+        if let Ok(mapping) = PyMapping::try_from_object(vm, self.incref()) {
             if let Some(setitem) = mapping.methods(vm).ass_subscript {
-                return setitem(self.clone(), key.into_pyobject(vm), None, vm);
+                return setitem(self.incref(), key.into_pyobject(vm), None, vm);
             }
         }
 
-        vm.get_special_method(self.clone(), "__delitem__")?
+        vm.get_special_method(self.incref(), "__delitem__")?
             .map_err(|obj| {
                 vm.new_type_error(format!(
                     "'{}' does not support item deletion",
@@ -635,7 +668,7 @@ impl<T: TryFromBorrowedObject> TryFromObject for T {
 
 pub trait TryFromBorrowedObject: Sized {
     /// Attempt to convert a Python object to a value of this type.
-    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Self>;
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObj) -> PyResult<Self>;
 }
 
 impl PyObjectRef {
@@ -661,11 +694,11 @@ impl PyObjectRef {
 /// Can only be implemented for types that are `repr(transparent)` over a PyObjectRef `obj`,
 /// and logically valid so long as `check(vm, obj)` returns `Ok(())`
 pub unsafe trait TransmuteFromObject: Sized {
-    fn check(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<()>;
+    fn check(vm: &VirtualMachine, obj: &crate::PyObj) -> PyResult<()>;
 }
 
 unsafe impl<T: PyValue> TransmuteFromObject for PyRef<T> {
-    fn check(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<()> {
+    fn check(vm: &VirtualMachine, obj: &crate::PyObj) -> PyResult<()> {
         let class = T::class(vm);
         if obj.isinstance(class) {
             if obj.payload_is::<T>() {
@@ -703,6 +736,13 @@ impl IntoPyObject for PyObjectRef {
     #[inline]
     fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
         self
+    }
+}
+
+impl IntoPyObject for &PyObj {
+    #[inline]
+    fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
+        self.incref()
     }
 }
 
@@ -755,7 +795,7 @@ pub trait PyValue: fmt::Debug + PyThreadingConstraint + Sized + 'static {
     }
 
     #[inline(always)]
-    fn special_retrieve(_vm: &VirtualMachine, _obj: &PyObjectRef) -> Option<PyResult<PyRef<Self>>> {
+    fn special_retrieve(_vm: &VirtualMachine, _obj: &PyObj) -> Option<PyResult<PyRef<Self>>> {
         None
     }
 
@@ -934,7 +974,7 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
 
     #[pymethod(magic)]
     fn repr(zelf: PyRef<PyTuple>, vm: &VirtualMachine) -> PyResult<String> {
-        let format_field = |(value, name)| {
+        let format_field = |(value, name): (&PyObjectRef, _)| {
             let s = vm.to_repr(value)?;
             Ok(format!("{}={}", name, s))
         };

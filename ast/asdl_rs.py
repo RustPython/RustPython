@@ -401,7 +401,7 @@ class ExtendModuleVisitor(EmitVisitor):
 
     def visitModule(self, mod):
         depth = 0
-        self.emit("pub fn extend_module_nodes(vm: &VirtualMachine, module: &PyObjectRef) {", depth)
+        self.emit("pub fn extend_module_nodes(vm: &VirtualMachine, module: &crate::PyObj) {", depth)
         self.emit("extend_module!(vm, module, {", depth + 1)
         for dfn in mod.dfns:
             self.visit(dfn, depth + 2)

@@ -89,12 +89,12 @@ mod _codecs {
             }
         }
         #[inline]
-        fn handler_func(&self) -> PyResult<&PyObjectRef> {
+        fn handler_func(&self) -> PyResult<&crate::PyObj> {
             let vm = self.vm;
-            self.handler.get_or_try_init(|| {
+            Ok(self.handler.get_or_try_init(|| {
                 let errors = self.errors.as_ref().map_or("strict", |s| s.as_str());
                 vm.state.codec_registry.lookup_error(errors, vm)
-            })
+            })?)
         }
     }
     impl encodings::StrBuffer for PyStrRef {
@@ -189,7 +189,7 @@ mod _codecs {
                     let replace = replace
                         .downcast_ref::<PyStr>()
                         .ok_or_else(tuple_err)?
-                        .clone();
+                        .incref();
                     let restart =
                         isize::try_from_borrowed_object(vm, restart).map_err(|_| tuple_err())?;
                     let restart = if restart < 0 {

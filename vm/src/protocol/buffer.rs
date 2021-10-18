@@ -3,7 +3,7 @@
 use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
 use crate::common::rc::PyRc;
 use crate::PyThreadingConstraint;
-use crate::{PyObjectRef, PyResult, TryFromBorrowedObject, TypeProtocol, VirtualMachine};
+use crate::{PyObj, PyObjectRef, PyResult, TryFromBorrowedObject, TypeProtocol, VirtualMachine};
 use std::{borrow::Cow, fmt::Debug};
 
 pub trait BufferInternal: Debug + PyThreadingConstraint {
@@ -104,11 +104,11 @@ impl Default for BufferOptions {
 }
 
 impl TryFromBorrowedObject for PyBuffer {
-    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Self> {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObj) -> PyResult<Self> {
         let obj_cls = obj.class();
         for cls in obj_cls.iter_mro() {
             if let Some(f) = cls.slots.as_buffer.as_ref() {
-                return obj.with_ptr(|obj| f(obj, vm));
+                return f(obj, vm);
             }
         }
         Err(vm.new_type_error(format!(

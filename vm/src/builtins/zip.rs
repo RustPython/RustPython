@@ -67,7 +67,7 @@ impl PyZip {
 
 impl IterNextIterable for PyZip {}
 impl IterNext for PyZip {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         if zelf.iterators.is_empty() {
             return Ok(PyIterReturn::StopIteration(None));
         }

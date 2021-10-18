@@ -10,8 +10,8 @@ pub enum Either<A, B> {
     B(B),
 }
 
-impl<A: AsRef<PyObjectRef>, B: AsRef<PyObjectRef>> AsRef<PyObjectRef> for Either<A, B> {
-    fn as_ref(&self) -> &PyObjectRef {
+impl<A: AsRef<crate::PyObj>, B: AsRef<crate::PyObj>> AsRef<crate::PyObj> for Either<A, B> {
+    fn as_ref(&self) -> &crate::PyObj {
         match self {
             Either::A(a) => a.as_ref(),
             Either::B(b) => b.as_ref(),

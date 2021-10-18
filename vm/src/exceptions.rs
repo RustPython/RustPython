@@ -492,7 +492,7 @@ impl PyBaseException {
     #[pymethod]
     fn with_traceback(zelf: PyRef<Self>, tb: Option<PyTracebackRef>) -> PyResult {
         *zelf.traceback.write() = tb;
-        Ok(zelf.as_object().clone())
+        Ok(zelf.as_object().incref())
     }
 
     #[pymethod(magic)]
@@ -892,7 +892,7 @@ impl serde::Serialize for SerializeException<'_> {
                 fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
                     let mut s = s.serialize_seq(None)?;
                     for tb in self.0.iter() {
-                        s.serialize_element(&*tb)?;
+                        s.serialize_element(&**tb)?;
                     }
                     s.end()
                 }

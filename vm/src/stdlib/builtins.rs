@@ -588,7 +588,7 @@ mod builtins {
                 Err(vm.new_unsupported_binop_error(x, y, "pow"))
             }),
             Some(z) => {
-                let try_pow_value = |obj: &PyObjectRef,
+                let try_pow_value = |obj: &crate::PyObj,
                                      args: (PyObjectRef, PyObjectRef, PyObjectRef)|
                  -> Option<PyResult> {
                     if let Some(method) = obj.get_class_attr("__pow__") {
@@ -778,7 +778,7 @@ mod builtins {
         });
 
         for item in iterable.iter(vm)? {
-            sum = vm._add(&sum, &item?)?;
+            sum = vm._add(&sum, &*item?)?;
         }
         Ok(sum)
     }

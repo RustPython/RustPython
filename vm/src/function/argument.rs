@@ -17,8 +17,8 @@ impl ArgCallable {
     }
 }
 
-impl AsRef<PyObjectRef> for ArgCallable {
-    fn as_ref(&self) -> &PyObjectRef {
+impl AsRef<crate::PyObj> for ArgCallable {
+    fn as_ref(&self) -> &crate::PyObj {
         &self.obj
     }
 }

@@ -8,7 +8,7 @@ use crate::{
         AsMapping, Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable,
         PyComparisonOp, Unconstructible,
     },
-    IdProtocol, IntoPyRef, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    IdProtocol, IntoPyRef, PyClassImpl, PyContext, PyObj, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
@@ -35,8 +35,8 @@ fn iter_search(
 ) -> PyResult<usize> {
     let mut count = 0;
     let iter = obj.get_iter(vm)?;
-    for element in iter.iter_without_hint(vm)? {
-        if vm.bool_eq(&item, &element?)? {
+    for element in iter.iter_without_hint::<PyObjectRef>(vm)? {
+        if vm.bool_eq(&item, &*element?)? {
             match flag {
                 SearchType::Index => return Ok(count),
                 SearchType::Contains => return Ok(1),
@@ -167,7 +167,7 @@ impl PyRange {
     }
 }
 
-// pub fn get_value(obj: &PyObjectRef) -> PyRange {
+// pub fn get_value(obj: &crate::PyObj) -> PyRange {
 //     obj.payload::<PyRange>().unwrap().clone()
 // }
 
@@ -296,7 +296,7 @@ impl PyRange {
     fn reduce(&self, vm: &VirtualMachine) -> (PyTypeRef, PyTupleRef) {
         let range_paramters: Vec<PyObjectRef> = vec![&self.start, &self.stop, &self.step]
             .iter()
-            .map(|x| x.as_object().clone())
+            .map(|x| x.as_object().incref())
             .collect();
         let range_paramters_tuple = vm.ctx.new_tuple(range_paramters);
         (vm.ctx.types.range_type.clone(), range_paramters_tuple)
@@ -377,7 +377,7 @@ impl PyRange {
 }
 
 impl AsMapping for PyRange {
-    fn as_mapping(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
+    fn as_mapping(_zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
         PyMappingMethods {
             length: Some(Self::length),
             subscript: Some(Self::subscript),
@@ -407,7 +407,7 @@ impl AsMapping for PyRange {
 }
 
 impl Hashable for PyRange {
-    fn hash(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+    fn hash(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
         let length = zelf.compute_length();
         let elements = if length.is_zero() {
             [vm.ctx.new_int(length).into(), vm.ctx.none(), vm.ctx.none()]
@@ -430,8 +430,8 @@ impl Hashable for PyRange {
 
 impl Comparable for PyRange {
     fn cmp(
-        zelf: &PyRef<Self>,
-        other: &PyObjectRef,
+        zelf: &crate::Py<Self>,
+        other: &PyObj,
         op: PyComparisonOp,
         _vm: &VirtualMachine,
     ) -> PyResult<crate::PyComparisonValue> {
@@ -550,7 +550,7 @@ impl Unconstructible for PyLongRangeIterator {}
 
 impl IterNextIterable for PyLongRangeIterator {}
 impl IterNext for PyLongRangeIterator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         // TODO: In pathological case (index == usize::MAX) this can wrap around
         // (since fetch_add wraps). This would result in the iterator spinning again
         // from the beginning.
@@ -616,7 +616,7 @@ impl Unconstructible for PyRangeIterator {}
 
 impl IterNextIterable for PyRangeIterator {}
 impl IterNext for PyRangeIterator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         // TODO: In pathological case (index == usize::MAX) this can wrap around
         // (since fetch_add wraps). This would result in the iterator spinning again
         // from the beginning.
@@ -638,7 +638,7 @@ fn range_iter_reduce(
     index: usize,
     vm: &VirtualMachine,
 ) -> PyResult<PyTupleRef> {
-    let iter = builtins_iter(vm).clone();
+    let iter = builtins_iter(vm).incref();
     let stop = start.clone() + length * step.clone();
     let range = PyRange {
         start: PyInt::from(start).into_ref(vm),

@@ -2,7 +2,7 @@ use crate::{
     builtins::{PyStr, PyStrRef},
     exceptions::types::PyBaseExceptionRef,
     sliceable::PySliceableSequence,
-    IdProtocol, PyObjectRef, TypeProtocol, VirtualMachine,
+    IdProtocol, Py, PyObjectRef, TypeProtocol, VirtualMachine,
 };
 use rustpython_common::str::levenshtein::{levenshtein_distance, MOVE_COST};
 use std::iter::ExactSizeIterator;
@@ -17,7 +17,7 @@ fn calculate_suggestions<'a>(
         return None;
     }
 
-    let mut suggestion: Option<&PyStrRef> = None;
+    let mut suggestion: Option<&Py<PyStr>> = None;
     let mut suggestion_distance = usize::MAX;
     let name = name.downcast_ref::<PyStr>()?;
 
@@ -41,17 +41,17 @@ fn calculate_suggestions<'a>(
             suggestion_distance = current_distance;
         }
     }
-    suggestion.cloned()
+    suggestion.map(|r| r.incref())
 }
 
 pub fn offer_suggestions(exc: &PyBaseExceptionRef, vm: &VirtualMachine) -> Option<PyStrRef> {
     if exc.class().is(&vm.ctx.exceptions.attribute_error) {
-        let name = exc.as_object().clone().get_attr("name", vm).unwrap();
-        let obj = exc.as_object().clone().get_attr("obj", vm).unwrap();
+        let name = exc.as_object().incref().get_attr("name", vm).unwrap();
+        let obj = exc.as_object().incref().get_attr("obj", vm).unwrap();
 
         calculate_suggestions(vm.dir(Some(obj)).ok()?.borrow_vec().iter(), &name)
     } else if exc.class().is(&vm.ctx.exceptions.name_error) {
-        let name = exc.as_object().clone().get_attr("name", vm).unwrap();
+        let name = exc.as_object().incref().get_attr("name", vm).unwrap();
         let mut tb = exc.traceback().unwrap();
         while let Some(traceback) = tb.next.clone() {
             tb = traceback;

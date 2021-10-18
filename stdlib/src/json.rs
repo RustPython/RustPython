@@ -9,7 +9,7 @@ mod _json {
         function::{IntoPyObject, IntoPyResult, OptionalArg},
         protocol::PyIterReturn,
         types::{Callable, Constructor},
-        IdProtocol, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+        IdProtocol, Py, PyObjectRef, PyResult, PyValue, VirtualMachine,
     };
     use num_bigint::BigInt;
     use std::str::FromStr;
@@ -195,7 +195,7 @@ mod _json {
 
     impl Callable for JsonScanner {
         type Args = (PyStrRef, isize);
-        fn call(zelf: &PyRef<Self>, (pystr, idx): Self::Args, vm: &VirtualMachine) -> PyResult {
+        fn call(zelf: &Py<Self>, (pystr, idx): Self::Args, vm: &VirtualMachine) -> PyResult {
             if idx < 0 {
                 return Err(vm.new_value_error("idx cannot be negative".to_owned()));
             }
@@ -204,7 +204,7 @@ mod _json {
             if idx > 0 && chars.nth(idx - 1).is_none() {
                 PyIterReturn::StopIteration(Some(vm.ctx.new_int(idx).into())).into_pyresult(vm)
             } else {
-                zelf.parse(chars.as_str(), pystr.clone(), idx, zelf.clone().into(), vm)
+                zelf.parse(chars.as_str(), pystr.clone(), idx, zelf.incref().into(), vm)
                     .and_then(|x| x.into_pyresult(vm))
             }
         }

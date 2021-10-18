@@ -3,8 +3,8 @@ use super::{PyInt, PyIntRef, PyTupleRef, PyTypeRef};
 use crate::{
     function::{FuncArgs, IntoPyObject, OptionalArg},
     types::{Comparable, Constructor, Hashable, PyComparisonOp, Unhashable},
-    PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
-    VirtualMachine,
+    PyClassImpl, PyComparisonValue, PyContext, PyObj, PyObjectRef, PyRef, PyResult, PyValue,
+    TypeProtocol, VirtualMachine,
 };
 use num_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, ToPrimitive, Zero};
@@ -31,7 +31,7 @@ impl PySlice {
         self.start.clone().into_pyobject(vm)
     }
 
-    fn start_ref<'a>(&'a self, vm: &'a VirtualMachine) -> &'a PyObjectRef {
+    fn start_ref<'a>(&'a self, vm: &'a VirtualMachine) -> &'a crate::PyObj {
         match &self.start {
             Some(v) => v,
             None => vm.ctx.none.as_object(),
@@ -48,7 +48,7 @@ impl PySlice {
         self.step.clone().into_pyobject(vm)
     }
 
-    fn step_ref<'a>(&'a self, vm: &'a VirtualMachine) -> &'a PyObjectRef {
+    fn step_ref<'a>(&'a self, vm: &'a VirtualMachine) -> &'a crate::PyObj {
         match &self.step {
             Some(v) => v,
             None => vm.ctx.none.as_object(),
@@ -197,8 +197,8 @@ impl PySlice {
 
 impl Comparable for PySlice {
     fn cmp(
-        zelf: &PyRef<Self>,
-        other: &PyObjectRef,
+        zelf: &crate::Py<Self>,
+        other: &PyObj,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
@@ -334,11 +334,11 @@ impl SaturatedSlice {
 // Go from PyObjectRef to isize w/o overflow error, out of range values are substituted by
 // isize::MIN or isize::MAX depending on type and value of step.
 // Equivalent to PyNumber_AsSsize_t with err equal to None.
-fn to_isize_index(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Option<isize>> {
+fn to_isize_index(vm: &VirtualMachine, obj: &crate::PyObj) -> PyResult<Option<isize>> {
     if vm.is_none(obj) {
         return Ok(None);
     }
-    let result = vm.to_index_opt(obj.clone()).unwrap_or_else(|| {
+    let result = vm.to_index_opt(obj.incref()).unwrap_or_else(|| {
         Err(vm.new_type_error(
             "slice indices must be integers or None or have an __index__ method".to_owned(),
         ))

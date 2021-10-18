@@ -7,7 +7,7 @@ use crate::{
     function::ArgCallable,
     protocol::PyIterReturn,
     types::{IterNext, IterNextIterable},
-    ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue, VirtualMachine,
 };
 use rustpython_common::{
     lock::{PyMutex, PyRwLock, PyRwLockUpgradableReadGuard},
@@ -69,7 +69,7 @@ impl<T> PositionIterInternal<T> {
     where
         F: FnOnce(&T) -> PyObjectRef,
     {
-        let iter = builtins_iter(vm).clone();
+        let iter = builtins_iter(vm).incref();
         self._reduce(iter, f, vm)
     }
 
@@ -77,7 +77,7 @@ impl<T> PositionIterInternal<T> {
     where
         F: FnOnce(&T) -> PyObjectRef,
     {
-        let reversed = builtins_reversed(vm).clone();
+        let reversed = builtins_reversed(vm).incref();
         self._reduce(reversed, f, vm)
     }
 
@@ -143,14 +143,14 @@ impl<T> PositionIterInternal<T> {
     }
 }
 
-pub fn builtins_iter(vm: &VirtualMachine) -> &PyObjectRef {
+pub fn builtins_iter(vm: &VirtualMachine) -> &crate::PyObj {
     static_cell! {
         static INSTANCE: PyObjectRef;
     }
     INSTANCE.get_or_init(|| vm.builtins.clone().get_attr("iter", vm).unwrap())
 }
 
-pub fn builtins_reversed(vm: &VirtualMachine) -> &PyObjectRef {
+pub fn builtins_reversed(vm: &VirtualMachine) -> &crate::PyObj {
     static_cell! {
         static INSTANCE: PyObjectRef;
     }
@@ -202,7 +202,7 @@ impl PySequenceIterator {
 
 impl IterNextIterable for PySequenceIterator {}
 impl IterNext for PySequenceIterator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal
             .lock()
             .next(|obj, pos| PyIterReturn::from_getitem_result(obj.get_item(pos, vm), vm))
@@ -234,7 +234,7 @@ impl PyCallableIterator {
 
 impl IterNextIterable for PyCallableIterator {}
 impl IterNext for PyCallableIterator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let status = zelf.status.upgradable_read();
         if let IterStatus::Active(callable) = &*status {
             let ret = callable.invoke((), vm)?;

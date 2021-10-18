@@ -920,7 +920,7 @@ pub(super) mod _os {
     }
     impl IterNextIterable for ScandirIterator {}
     impl IterNext for ScandirIterator {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             if zelf.exhausted.load() {
                 return Ok(PyIterReturn::StopIteration(None));
             }
@@ -1370,7 +1370,7 @@ pub(super) mod _os {
                 let (a, m) = parse_tup(&ns).ok_or_else(|| {
                     vm.new_type_error("utime: 'ns' must be a tuple of two ints".to_owned())
                 })?;
-                let ns_in_sec = vm.ctx.new_int(1_000_000_000).into();
+                let ns_in_sec: PyObjectRef = vm.ctx.new_int(1_000_000_000).into();
                 let ns_to_dur = |obj: PyObjectRef| {
                     let divmod = vm._divmod(&obj, &ns_in_sec)?;
                     let (div, rem) =
@@ -1746,7 +1746,7 @@ impl<'a> SupportFunc {
     }
 }
 
-pub fn extend_module(vm: &VirtualMachine, module: &PyObjectRef) {
+pub fn extend_module(vm: &VirtualMachine, module: &crate::PyObj) {
     _os::extend_module(vm, module);
 
     let support_funcs = _os::support_funcs();
@@ -1754,7 +1754,7 @@ pub fn extend_module(vm: &VirtualMachine, module: &PyObjectRef) {
     let supports_dir_fd = PySet::default().into_ref(vm);
     let supports_follow_symlinks = PySet::default().into_ref(vm);
     for support in support_funcs {
-        let func_obj = module.clone().get_attr(support.name, vm).unwrap();
+        let func_obj = module.incref().get_attr(support.name, vm).unwrap();
         if support.fd.unwrap_or(false) {
             supports_fd.clone().add(func_obj.clone(), vm).unwrap();
         }

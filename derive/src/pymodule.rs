@@ -76,7 +76,7 @@ pub fn impl_pymodule(attr: AttributeArgs, module_item: Item) -> Result<TokenStre
         parse_quote! {
             pub(crate) fn extend_module(
                 vm: &::rustpython_vm::VirtualMachine,
-                module: &::rustpython_vm::PyObjectRef,
+                module: &::rustpython_vm::PyObj,
             ) {
                 #module_extend_items
             }

@@ -11,7 +11,7 @@ macro_rules! py_module {
 macro_rules! extend_module {
     ( $vm:expr, $module:expr, { $($name:expr => $value:expr),* $(,)? }) => {{
         #[allow(unused_variables)]
-        let module: &$crate::PyObjectRef = &$module;
+        let module: &$crate::PyObj = &$module;
         $(
             $vm.__module_set_attr(&module, $name, $value).unwrap();
         )*
@@ -205,12 +205,13 @@ macro_rules! flame_guard {
 
 #[macro_export]
 macro_rules! class_or_notimplemented {
-    ($t:ty, $obj:expr) => {
-        match $crate::PyObjectRef::downcast_ref::<$t>($obj) {
+    ($t:ty, $obj:expr) => {{
+        let a: &$crate::PyObj = &*$obj;
+        match $crate::PyObj::downcast_ref::<$t>(&a) {
             Some(pyref) => pyref,
             None => return Ok($crate::PyArithmeticValue::NotImplemented),
         }
-    };
+    }};
 }
 
 #[macro_export]

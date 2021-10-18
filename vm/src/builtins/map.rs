@@ -3,7 +3,7 @@ use crate::{
     function::PosArgs,
     protocol::{PyIter, PyIterReturn},
     types::{Constructor, IterNext, IterNextIterable},
-    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue, VirtualMachine,
 };
 
 /// map(func, *iterables) --> map object
@@ -37,7 +37,7 @@ impl PyMap {
     #[pymethod(magic)]
     fn length_hint(&self, vm: &VirtualMachine) -> PyResult<usize> {
         self.iterators.iter().try_fold(0, |prev, cur| {
-            let cur = vm.length_hint(cur.as_ref().clone())?.unwrap_or(0);
+            let cur = vm.length_hint(cur.as_ref().incref())?.unwrap_or(0);
             let max = std::cmp::max(prev, cur);
             Ok(max)
         })
@@ -46,7 +46,7 @@ impl PyMap {
 
 impl IterNextIterable for PyMap {}
 impl IterNext for PyMap {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let mut next_objs = Vec::new();
         for iterator in zelf.iterators.iter() {
             let item = match iterator.next(vm)? {

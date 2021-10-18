@@ -4,7 +4,7 @@ use crate::{
     function::{IntoPyObject, OptionalArg},
     protocol::{PyIter, PyIterReturn},
     types::{Constructor, IterNext, IterNextIterable},
-    ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue, VirtualMachine,
 };
 use num_bigint::BigInt;
 use num_traits::Zero;
@@ -51,7 +51,7 @@ impl PyEnumerate {}
 
 impl IterNextIterable for PyEnumerate {}
 impl IterNext for PyEnumerate {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let next_obj = match zelf.iterator.next(vm)? {
             PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
             PyIterReturn::Return(obj) => obj,
@@ -110,7 +110,7 @@ impl PyReverseSequenceIterator {
 
 impl IterNextIterable for PyReverseSequenceIterator {}
 impl IterNext for PyReverseSequenceIterator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal
             .lock()
             .rev_next(|obj, pos| PyIterReturn::from_getitem_result(obj.get_item(pos, vm), vm))

@@ -28,7 +28,7 @@ pub struct PyConstant(pub PyObjectRef);
 //     Ellipsis(PyObjectRef),
 // }
 
-fn borrow_obj_constant(obj: &PyObjectRef) -> BorrowedConstant<PyConstant> {
+fn borrow_obj_constant(obj: &crate::PyObj) -> BorrowedConstant<PyConstant> {
     match_class!(match obj {
         ref i @ super::int::PyInt => {
             let value = i.as_bigint();
@@ -53,7 +53,7 @@ fn borrow_obj_constant(obj: &PyObjectRef) -> BorrowedConstant<PyConstant> {
         }
         ref t @ super::tuple::PyTuple => {
             BorrowedConstant::Tuple {
-                elements: Box::new(t.as_slice().iter().map(borrow_obj_constant)),
+                elements: Box::new(t.as_slice().iter().map(|o| borrow_obj_constant(o))),
             }
         }
         super::singletons::PyNone => BorrowedConstant::None,

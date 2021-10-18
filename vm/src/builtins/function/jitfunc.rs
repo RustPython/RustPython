@@ -2,8 +2,7 @@ use crate::{
     builtins::{float, int, pybool, PyBaseExceptionRef, PyDictRef, PyFunction, PyStrRef},
     bytecode::CodeFlags,
     function::{FuncArgs, IntoPyObject},
-    IdProtocol, ItemProtocol, PyObjectRef, PyRef, PyResult, TryFromObject, TypeProtocol,
-    VirtualMachine,
+    IdProtocol, ItemProtocol, PyObjectRef, PyResult, TryFromObject, TypeProtocol, VirtualMachine,
 };
 use num_traits::ToPrimitive;
 use rustpython_jit::{AbiValue, Args, CompiledCode, JitArgumentError, JitType};
@@ -63,7 +62,10 @@ fn get_jit_arg_type(dict: &PyDictRef, name: &str, vm: &VirtualMachine) -> PyResu
     }
 }
 
-pub fn get_jit_arg_types(func: &PyRef<PyFunction>, vm: &VirtualMachine) -> PyResult<Vec<JitType>> {
+pub fn get_jit_arg_types(
+    func: &crate::Py<PyFunction>,
+    vm: &VirtualMachine,
+) -> PyResult<Vec<JitType>> {
     let arg_names = func.code.arg_names();
 
     if func
@@ -81,7 +83,7 @@ pub fn get_jit_arg_types(func: &PyRef<PyFunction>, vm: &VirtualMachine) -> PyRes
         return Ok(Vec::new());
     }
 
-    let func_obj: PyObjectRef = func.clone().into();
+    let func_obj: PyObjectRef = func.as_ref().incref();
     let annotations = func_obj.get_attr("__annotations__", vm)?;
     if vm.is_none(&annotations) {
         Err(new_jit_error(
@@ -105,7 +107,7 @@ pub fn get_jit_arg_types(func: &PyRef<PyFunction>, vm: &VirtualMachine) -> PyRes
     }
 }
 
-fn get_jit_value(vm: &VirtualMachine, obj: &PyObjectRef) -> Result<AbiValue, ArgsError> {
+fn get_jit_value(vm: &VirtualMachine, obj: &crate::PyObj) -> Result<AbiValue, ArgsError> {
     // This does exact type checks as subclasses of int/float can't be passed to jitted functions
     let cls = obj.class();
     if cls.is(&vm.ctx.types.int_type) {

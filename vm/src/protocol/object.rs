@@ -10,7 +10,7 @@ use crate::{
     pyref_type_error,
     types::{Constructor, PyComparisonOp},
     utils::Either,
-    IdProtocol, PyArithmeticValue, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
+    IdProtocol, PyArithmeticValue, PyObj, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
     VirtualMachine,
 };
 
@@ -40,6 +40,66 @@ impl PyObjectRef {
         })
     }
 
+    // PyObject *PyObject_GenericGetDict(PyObject *o, void *context)
+    // int PyObject_GenericSetDict(PyObject *o, PyObject *value, void *context)
+
+    pub fn rich_compare(self, other: Self, opid: PyComparisonOp, vm: &VirtualMachine) -> PyResult {
+        self._cmp(&other, opid, vm).map(|res| res.into_pyobject(vm))
+    }
+
+    pub fn bytes(self, vm: &VirtualMachine) -> PyResult {
+        let bytes_type = &vm.ctx.types.bytes_type;
+        match self.downcast_exact::<PyInt>(vm) {
+            Ok(int) => Err(pyref_type_error(vm, bytes_type, int.as_object())),
+            Err(obj) => PyBytes::py_new(
+                bytes_type.clone(),
+                ByteInnerNewOptions {
+                    source: OptionalArg::Present(obj),
+                    encoding: OptionalArg::Missing,
+                    errors: OptionalArg::Missing,
+                },
+                vm,
+            ),
+        }
+    }
+
+    // const hash_not_implemented: fn(&crate::PyObj, &VirtualMachine) ->PyResult<PyHash> = crate::types::Unhashable::slot_hash;
+
+    pub fn is_true(self, vm: &VirtualMachine) -> PyResult<bool> {
+        self.try_to_bool(vm)
+    }
+
+    pub fn not(self, vm: &VirtualMachine) -> PyResult<bool> {
+        self.is_true(vm).map(|x| !x)
+    }
+
+    pub fn length_hint(
+        self,
+        defaultvalue: Option<usize>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<usize>> {
+        Ok(vm.length_hint(self)?.or(defaultvalue))
+    }
+
+    // item protocol
+    // PyObject *PyObject_GetItem(PyObject *o, PyObject *key)
+    // int PyObject_SetItem(PyObject *o, PyObject *key, PyObject *v)
+    // int PyObject_DelItem(PyObject *o, PyObject *key)
+
+    // PyObject *PyObject_Dir(PyObject *o)
+
+    /// Takes an object and returns an iterator for it.
+    /// This is typically a new iterator but if the argument is an iterator, this
+    /// returns itself.
+    pub fn get_iter(self, vm: &VirtualMachine) -> PyResult<PyIter> {
+        // PyObject_GetIter
+        PyIter::try_from_object(vm, self)
+    }
+
+    // PyObject *PyObject_GetAIter(PyObject *o)
+}
+
+impl PyObj {
     pub fn call_set_attr(
         &self,
         vm: &VirtualMachine,
@@ -61,7 +121,7 @@ impl PyObjectRef {
                     ))
                 })?
         };
-        self.with_ptr(|zelf| setattro(zelf, attr_name, attr_value, vm))
+        setattro(self, attr_name, attr_value, vm)
     }
 
     // PyObject *PyObject_GenericGetAttr(PyObject *o, PyObject *name)
@@ -93,12 +153,12 @@ impl PyObjectRef {
         vm: &VirtualMachine,
     ) -> PyResult<Either<PyObjectRef, bool>> {
         let swapped = op.swapped();
-        let call_cmp = |obj: &PyObjectRef, other: &PyObjectRef, op| {
+        let call_cmp = |obj: &crate::PyObj, other: &crate::PyObj, op| {
             let cmp = obj
                 .class()
                 .mro_find_map(|cls| cls.slots.richcompare.load())
                 .unwrap();
-            let r = match obj.with_ptr(|obj| other.with_ptr(|other| cmp(obj, other, op, vm)))? {
+            let r = match cmp(obj, other, op, vm)? {
                 Either::A(obj) => PyArithmeticValue::from_object(vm, obj).map(Either::A),
                 Either::B(arithmetic) => arithmetic.map(Either::B),
             };
@@ -135,14 +195,6 @@ impl PyObjectRef {
             _ => Err(vm.new_unsupported_binop_error(self, other, op.operator_token())),
         }
     }
-
-    // PyObject *PyObject_GenericGetDict(PyObject *o, void *context)
-    // int PyObject_GenericSetDict(PyObject *o, PyObject *value, void *context)
-
-    pub fn rich_compare(self, other: Self, opid: PyComparisonOp, vm: &VirtualMachine) -> PyResult {
-        self._cmp(&other, opid, vm).map(|res| res.into_pyobject(vm))
-    }
-
     pub fn rich_compare_bool(
         &self,
         other: &Self,
@@ -168,36 +220,20 @@ impl PyObjectRef {
     // Container of the virtual machine state:
     pub fn str(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         if self.class().is(&vm.ctx.types.str_type) {
-            Ok(self.clone().downcast().unwrap())
+            Ok(self.incref().downcast().unwrap())
         } else {
-            let s = vm.call_special_method(self.clone(), "__str__", ())?;
+            let s = vm.call_special_method(self.incref(), "__str__", ())?;
             s.try_into_value(vm)
         }
     }
 
-    pub fn bytes(self, vm: &VirtualMachine) -> PyResult {
-        let bytes_type = &vm.ctx.types.bytes_type;
-        match self.downcast_exact::<PyInt>(vm) {
-            Ok(int) => Err(pyref_type_error(vm, bytes_type, int.as_object())),
-            Err(obj) => PyBytes::py_new(
-                bytes_type.clone(),
-                ByteInnerNewOptions {
-                    source: OptionalArg::Present(obj),
-                    encoding: OptionalArg::Missing,
-                    errors: OptionalArg::Missing,
-                },
-                vm,
-            ),
-        }
-    }
-
-    pub fn is_subclass(&self, cls: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+    pub fn is_subclass(&self, cls: &crate::PyObj, vm: &VirtualMachine) -> PyResult<bool> {
         vm.issubclass(self, cls)
     }
 
     /// Determines if `self` is an instance of `cls`, either directly, indirectly or virtually via
     /// the __instancecheck__ magic method.
-    pub fn is_instance(&self, cls: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+    pub fn is_instance(&self, cls: &crate::PyObj, vm: &VirtualMachine) -> PyResult<bool> {
         // cpython first does an exact check on the type, although documentation doesn't state that
         // https://github.com/python/cpython/blob/a24107b04c1277e3c1105f98aff5bfa3a98b33a0/Objects/abstract.c#L2408
         if self.class().is(cls) {
@@ -208,7 +244,7 @@ impl PyObjectRef {
             return vm.abstract_isinstance(self, cls);
         }
 
-        if let Ok(tuple) = PyTupleRef::try_from_object(vm, cls.clone()) {
+        if let Ok(tuple) = PyTupleRef::try_from_object(vm, cls.incref()) {
             for typ in tuple.as_slice().iter() {
                 if vm.with_recursion("in __instancecheck__", || self.is_instance(typ, vm))? {
                     return Ok(true);
@@ -217,9 +253,9 @@ impl PyObjectRef {
             return Ok(false);
         }
 
-        if let Ok(meth) = vm.get_special_method(cls.clone(), "__instancecheck__")? {
+        if let Ok(meth) = vm.get_special_method(cls.incref(), "__instancecheck__")? {
             let ret =
-                vm.with_recursion("in __instancecheck__", || meth.invoke((self.clone(),), vm))?;
+                vm.with_recursion("in __instancecheck__", || meth.invoke((self.incref(),), vm))?;
             return ret.try_to_bool(vm);
         }
 
@@ -231,17 +267,7 @@ impl PyObjectRef {
             .class()
             .mro_find_map(|cls| cls.slots.hash.load())
             .unwrap(); // hash always exist
-        self.with_ptr(|zelf| hash(zelf, vm))
-    }
-
-    // const hash_not_implemented: fn(&PyObjectRef, &VirtualMachine) ->PyResult<PyHash> = crate::types::Unhashable::slot_hash;
-
-    pub fn is_true(self, vm: &VirtualMachine) -> PyResult<bool> {
-        self.try_to_bool(vm)
-    }
-
-    pub fn not(self, vm: &VirtualMachine) -> PyResult<bool> {
-        self.is_true(vm).map(|x| !x)
+        hash(self, vm)
     }
 
     // type protocol
@@ -257,29 +283,4 @@ impl PyObjectRef {
             )))
         })
     }
-
-    pub fn length_hint(
-        self,
-        defaultvalue: Option<usize>,
-        vm: &VirtualMachine,
-    ) -> PyResult<Option<usize>> {
-        Ok(vm.length_hint(self)?.or(defaultvalue))
-    }
-
-    // item protocol
-    // PyObject *PyObject_GetItem(PyObject *o, PyObject *key)
-    // int PyObject_SetItem(PyObject *o, PyObject *key, PyObject *v)
-    // int PyObject_DelItem(PyObject *o, PyObject *key)
-
-    // PyObject *PyObject_Dir(PyObject *o)
-
-    /// Takes an object and returns an iterator for it.
-    /// This is typically a new iterator but if the argument is an iterator, this
-    /// returns itself.
-    pub fn get_iter(self, vm: &VirtualMachine) -> PyResult<PyIter> {
-        // PyObject_GetIter
-        PyIter::try_from_object(vm, self)
-    }
-
-    // PyObject *PyObject_GetAIter(PyObject *o)
 }

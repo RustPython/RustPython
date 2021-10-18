@@ -13,7 +13,7 @@ use crate::{
     protocol::PyMapping,
     scope::Scope,
     types::{Callable, Comparable, Constructor, GetAttr, GetDescriptor, PyComparisonOp},
-    IdProtocol, ItemProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
+    IdProtocol, ItemProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObj, PyObjectRef, PyRef,
     PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
 #[cfg(feature = "jit")]
@@ -379,7 +379,7 @@ impl PyFunction {
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> String {
         let qualname = zelf
             .as_object()
-            .clone()
+            .incref()
             .get_attr("__qualname__", vm)
             .ok()
             .and_then(|qualname_attr| qualname_attr.downcast::<PyStr>().ok())
@@ -422,7 +422,7 @@ impl GetDescriptor for PyFunction {
 impl Callable for PyFunction {
     type Args = FuncArgs;
     #[inline]
-    fn call(zelf: &PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn call(zelf: &crate::Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         zelf.invoke(args, vm)
     }
 }
@@ -437,7 +437,7 @@ pub struct PyBoundMethod {
 impl Callable for PyBoundMethod {
     type Args = FuncArgs;
     #[inline]
-    fn call(zelf: &PyRef<Self>, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn call(zelf: &crate::Py<Self>, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         args.prepend_arg(zelf.object.clone());
         vm.invoke(&zelf.function, args)
     }
@@ -445,8 +445,8 @@ impl Callable for PyBoundMethod {
 
 impl Comparable for PyBoundMethod {
     fn cmp(
-        zelf: &PyRef<Self>,
-        other: &PyObjectRef,
+        zelf: &crate::Py<Self>,
+        other: &PyObj,
         op: PyComparisonOp,
         _vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {

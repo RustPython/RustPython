@@ -13,7 +13,7 @@ use crate::{
     stdlib::pystruct::FormatSpec,
     types::{AsBuffer, AsMapping, Comparable, Constructor, Hashable, PyComparisonOp},
     utils::Either,
-    IdProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
+    IdProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObj, PyObjectRef, PyRef,
     PyResult, PyValue, TryFromBorrowedObject, TryFromObject, TypeProtocol, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
@@ -480,7 +480,7 @@ impl PyMemoryView {
         self.try_not_released(vm).map(|_| self.buffer.options.len)
     }
 
-    fn to_bytes_vec(zelf: &PyRef<Self>) -> Vec<u8> {
+    fn to_bytes_vec(zelf: &crate::Py<Self>) -> Vec<u8> {
         if let Some(bytes) = zelf.as_contiguous() {
             bytes.to_vec()
         } else {
@@ -531,7 +531,7 @@ impl PyMemoryView {
             released: AtomicCell::new(false),
             format_spec: zelf.format_spec.clone(),
             hash: OnceCell::new(),
-            ..*zelf
+            ..**zelf
         }
         .validate()
         .into_ref(vm))
@@ -601,13 +601,13 @@ impl PyMemoryView {
             released: AtomicCell::new(false),
             format_spec,
             hash: OnceCell::new(),
-            ..*zelf
+            ..**zelf
         }
         .validate()
         .into_ref(vm))
     }
 
-    fn eq(zelf: &PyRef<Self>, other: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+    fn eq(zelf: &crate::Py<Self>, other: &PyObj, vm: &VirtualMachine) -> PyResult<bool> {
         if zelf.is(other) {
             return Ok(true);
         }
@@ -677,13 +677,13 @@ impl PyMemoryView {
 }
 
 impl AsBuffer for PyMemoryView {
-    fn as_buffer(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyBuffer> {
+    fn as_buffer(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyBuffer> {
         if zelf.released.load() {
             Err(vm.new_value_error("operation forbidden on released memoryview object".to_owned()))
         } else {
             Ok(PyBuffer::new(
-                zelf.as_object().clone(),
-                zelf.clone(),
+                zelf.as_object().incref(),
+                zelf.incref(),
                 zelf.buffer.options.clone(),
             ))
         }
@@ -737,7 +737,7 @@ impl BufferInternal for PyRef<PyMemoryView> {
 }
 
 impl AsMapping for PyMemoryView {
-    fn as_mapping(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
+    fn as_mapping(_zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
         PyMappingMethods {
             length: Some(Self::length),
             subscript: Some(Self::subscript),
@@ -773,8 +773,8 @@ impl AsMapping for PyMemoryView {
 
 impl Comparable for PyMemoryView {
     fn cmp(
-        zelf: &PyRef<Self>,
-        other: &PyObjectRef,
+        zelf: &crate::Py<Self>,
+        other: &PyObj,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
@@ -794,7 +794,7 @@ impl Comparable for PyMemoryView {
 }
 
 impl Hashable for PyMemoryView {
-    fn hash(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+    fn hash(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
         zelf.hash
             .get_or_try_init(|| {
                 zelf.try_not_released(vm)?;

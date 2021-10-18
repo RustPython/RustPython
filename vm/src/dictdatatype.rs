@@ -235,7 +235,7 @@ impl<T: Clone> Dict<T> {
     /// Store a key
     pub fn insert<K>(&self, vm: &VirtualMachine, key: K, value: T) -> PyResult<()>
     where
-        K: DictKey,
+        K: DictKey + IntoPyObject,
     {
         let hash = key.key_hash(vm)?;
         let _removed = loop {
@@ -337,7 +337,7 @@ impl<T: Clone> Dict<T> {
     /// Delete a key
     pub fn delete<K>(&self, vm: &VirtualMachine, key: K) -> PyResult<()>
     where
-        K: DictKey,
+        K: DictKey + IntoPyObject,
     {
         if self.delete_if_exists(vm, &key)? {
             Ok(())
@@ -369,7 +369,7 @@ impl<T: Clone> Dict<T> {
     pub fn delete_or_insert(
         &self,
         vm: &VirtualMachine,
-        key: &PyObjectRef,
+        key: &crate::PyObj,
         value: T,
     ) -> PyResult<()> {
         let hash = key.key_hash(vm)?;
@@ -384,7 +384,7 @@ impl<T: Clone> Dict<T> {
                 }
             } else {
                 let mut inner = self.write();
-                inner.unchecked_push(index_index, hash, key.clone(), value, entry);
+                inner.unchecked_push(index_index, hash, key.incref(), value, entry);
                 break None;
             }
         };
@@ -393,7 +393,7 @@ impl<T: Clone> Dict<T> {
 
     pub fn setdefault<K, F>(&self, vm: &VirtualMachine, key: K, default: F) -> PyResult<T>
     where
-        K: DictKey,
+        K: DictKey + IntoPyObject,
         F: FnOnce() -> T,
     {
         let hash = key.key_hash(vm)?;
@@ -436,7 +436,7 @@ impl<T: Clone> Dict<T> {
         default: F,
     ) -> PyResult<(PyObjectRef, T)>
     where
-        K: DictKey,
+        K: DictKey + IntoPyObject,
         F: FnOnce() -> T,
     {
         let hash = key.key_hash(vm)?;
@@ -642,24 +642,53 @@ type LookupResult = (IndexEntry, IndexIndex);
 /// the dictionary. Typical usecases are:
 /// - PyObjectRef -> arbitrary python type used as key
 /// - str -> string reference used as key, this is often used internally
-pub trait DictKey: IntoPyObject {
+pub trait DictKey {
     fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue>;
-    fn key_is(&self, other: &PyObjectRef) -> bool;
-    fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool>;
+    fn key_is(&self, other: &crate::PyObj) -> bool;
+    fn key_eq(&self, vm: &VirtualMachine, other_key: &crate::PyObj) -> PyResult<bool>;
 }
 
 /// Implement trait for PyObjectRef such that we can use python objects
 /// to index dictionaries.
 impl DictKey for PyObjectRef {
+    #[inline]
+    fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
+        (**self).key_hash(vm)
+    }
+    #[inline]
+    fn key_is(&self, other: &crate::PyObj) -> bool {
+        (**self).key_is(other)
+    }
+    #[inline]
+    fn key_eq(&self, vm: &VirtualMachine, other_key: &crate::PyObj) -> PyResult<bool> {
+        (**self).key_eq(vm, other_key)
+    }
+}
+
+impl DictKey for &crate::PyObj {
+    #[inline]
+    fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
+        (**self).key_hash(vm)
+    }
+    #[inline]
+    fn key_is(&self, other: &crate::PyObj) -> bool {
+        (**self).key_is(other)
+    }
+    #[inline]
+    fn key_eq(&self, vm: &VirtualMachine, other_key: &crate::PyObj) -> PyResult<bool> {
+        (**self).key_eq(vm, other_key)
+    }
+}
+impl DictKey for crate::PyObj {
     fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
         self.hash(vm)
     }
 
-    fn key_is(&self, other: &PyObjectRef) -> bool {
+    fn key_is(&self, other: &crate::PyObj) -> bool {
         self.is(other)
     }
 
-    fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
+    fn key_eq(&self, vm: &VirtualMachine, other_key: &crate::PyObj) -> PyResult<bool> {
         vm.identical_or_equal(self, other_key)
     }
 }
@@ -669,11 +698,11 @@ impl DictKey for PyStrRef {
         Ok(self.hash(vm))
     }
 
-    fn key_is(&self, other: &PyObjectRef) -> bool {
+    fn key_is(&self, other: &crate::PyObj) -> bool {
         self.is(other)
     }
 
-    fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
+    fn key_eq(&self, vm: &VirtualMachine, other_key: &crate::PyObj) -> PyResult<bool> {
         if self.is(other_key) {
             Ok(true)
         } else if let Some(pystr) = str_exact(other_key, vm) {
@@ -688,10 +717,10 @@ impl DictKey for PyRefExact<PyStr> {
     fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
         (**self).key_hash(vm)
     }
-    fn key_is(&self, other: &PyObjectRef) -> bool {
+    fn key_is(&self, other: &crate::PyObj) -> bool {
         (**self).key_is(other)
     }
-    fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
+    fn key_eq(&self, vm: &VirtualMachine, other_key: &crate::PyObj) -> PyResult<bool> {
         (**self).key_eq(vm, other_key)
     }
 }
@@ -706,13 +735,13 @@ impl DictKey for &str {
         Ok(vm.state.hash_secret.hash_str(*self))
     }
 
-    fn key_is(&self, _other: &PyObjectRef) -> bool {
+    fn key_is(&self, _other: &crate::PyObj) -> bool {
         // No matter who the other pyobject is, we are never the same thing, since
         // we are a str, not a pyobject.
         false
     }
 
-    fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
+    fn key_eq(&self, vm: &VirtualMachine, other_key: &crate::PyObj) -> PyResult<bool> {
         if let Some(pystr) = str_exact(other_key, vm) {
             Ok(pystr.as_str() == *self)
         } else {
@@ -728,16 +757,16 @@ impl DictKey for String {
         self.as_str().key_hash(vm)
     }
 
-    fn key_is(&self, other: &PyObjectRef) -> bool {
+    fn key_is(&self, other: &crate::PyObj) -> bool {
         self.as_str().key_is(other)
     }
 
-    fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObjectRef) -> PyResult<bool> {
+    fn key_eq(&self, vm: &VirtualMachine, other_key: &crate::PyObj) -> PyResult<bool> {
         self.as_str().key_eq(vm, other_key)
     }
 }
 
-fn str_exact<'a>(obj: &'a PyObjectRef, vm: &VirtualMachine) -> Option<&'a PyStr> {
+fn str_exact<'a>(obj: &'a crate::PyObj, vm: &VirtualMachine) -> Option<&'a PyStr> {
     if obj.class().is(&vm.ctx.types.str_type) {
         obj.payload::<PyStr>()
     } else {

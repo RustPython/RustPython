@@ -470,7 +470,7 @@ mod _operator {
         fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<(PyTypeRef, PyTupleRef)> {
             let attrs = vm
                 .ctx
-                .new_tuple(zelf.attrs.iter().map(|v| v.as_object()).cloned().collect());
+                .new_tuple(zelf.attrs.iter().map(|v| v.as_object().incref()).collect());
             Ok((zelf.clone_class(), attrs))
         }
 
@@ -494,7 +494,7 @@ mod _operator {
 
     impl Callable for PyAttrGetter {
         type Args = PyObjectRef;
-        fn call(zelf: &PyRef<Self>, obj: Self::Args, vm: &VirtualMachine) -> PyResult {
+        fn call(zelf: &crate::Py<Self>, obj: Self::Args, vm: &VirtualMachine) -> PyResult {
             // Handle case where we only have one attribute.
             if zelf.attrs.len() == 1 {
                 return Self::get_single_attr(obj, zelf.attrs[0].as_str(), vm);
@@ -557,7 +557,7 @@ mod _operator {
 
     impl Callable for PyItemGetter {
         type Args = PyObjectRef;
-        fn call(zelf: &PyRef<Self>, obj: Self::Args, vm: &VirtualMachine) -> PyResult {
+        fn call(zelf: &crate::Py<Self>, obj: Self::Args, vm: &VirtualMachine) -> PyResult {
             // Handle case where we only have one attribute.
             if zelf.items.len() == 1 {
                 return obj.get_item(zelf.items[0].clone(), vm);
@@ -654,7 +654,7 @@ mod _operator {
     impl Callable for PyMethodCaller {
         type Args = PyObjectRef;
         #[inline]
-        fn call(zelf: &PyRef<Self>, obj: Self::Args, vm: &VirtualMachine) -> PyResult {
+        fn call(zelf: &crate::Py<Self>, obj: Self::Args, vm: &VirtualMachine) -> PyResult {
             vm.call_method(&obj, zelf.name.as_str(), zelf.args.clone())
         }
     }

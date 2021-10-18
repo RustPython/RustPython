@@ -4,7 +4,8 @@ use crate::{
         PyDictRef, PyList,
     },
     function::IntoPyObject,
-    IdProtocol, PyObjectRef, PyObjectWrap, PyResult, TryFromObject, TypeProtocol, VirtualMachine,
+    IdProtocol, PyObj, PyObjectRef, PyObjectWrap, PyResult, TryFromObject, TypeProtocol,
+    VirtualMachine,
 };
 use std::borrow::Borrow;
 
@@ -23,13 +24,13 @@ pub struct PyMappingMethods {
 #[repr(transparent)]
 pub struct PyMapping<T = PyObjectRef>(T)
 where
-    T: Borrow<PyObjectRef>;
+    T: Borrow<crate::PyObj>;
 
 impl PyMapping<PyObjectRef> {
-    pub fn check(obj: &PyObjectRef, vm: &VirtualMachine) -> bool {
+    pub fn check(obj: &PyObj, vm: &VirtualMachine) -> bool {
         obj.class()
             .mro_find_map(|x| x.slots.as_mapping.load())
-            .map(|f| obj.with_ptr(|obj| f(obj, vm)).subscript.is_some())
+            .map(|f| f(obj, vm).subscript.is_some())
             .unwrap_or(false)
     }
 
@@ -37,7 +38,7 @@ impl PyMapping<PyObjectRef> {
         let obj_cls = self.0.class();
         for cls in obj_cls.iter_mro() {
             if let Some(f) = cls.slots.as_mapping.load() {
-                return self.0.with_ptr(|zelf| f(zelf, vm));
+                return f(&self.0, vm);
             }
         }
         PyMappingMethods::default()
@@ -46,7 +47,7 @@ impl PyMapping<PyObjectRef> {
 
 impl<T> PyMapping<T>
 where
-    T: Borrow<PyObjectRef>,
+    T: Borrow<crate::PyObj>,
 {
     pub fn new(obj: T) -> Self {
         Self(obj)
@@ -55,7 +56,7 @@ where
     pub fn keys(&self, vm: &VirtualMachine) -> PyResult {
         if self.0.borrow().is(&vm.ctx.types.dict_type) {
             Ok(
-                PyDictKeys::new(PyDictRef::try_from_object(vm, self.0.borrow().clone())?)
+                PyDictKeys::new(PyDictRef::try_from_object(vm, self.0.borrow().incref())?)
                     .into_pyobject(vm),
             )
         } else {
@@ -66,7 +67,7 @@ where
     pub fn values(&self, vm: &VirtualMachine) -> PyResult {
         if self.0.borrow().is(&vm.ctx.types.dict_type) {
             Ok(
-                PyDictValues::new(PyDictRef::try_from_object(vm, self.0.borrow().clone())?)
+                PyDictValues::new(PyDictRef::try_from_object(vm, self.0.borrow().incref())?)
                     .into_pyobject(vm),
             )
         } else {
@@ -75,7 +76,7 @@ where
     }
 
     fn method_output_as_list(
-        obj: &PyObjectRef,
+        obj: &crate::PyObj,
         method_name: &str,
         vm: &VirtualMachine,
     ) -> PyResult {
@@ -103,11 +104,11 @@ impl PyObjectWrap for PyMapping<PyObjectRef> {
     }
 }
 
-impl<O> AsRef<PyObjectRef> for PyMapping<O>
+impl<O> AsRef<crate::PyObj> for PyMapping<O>
 where
-    O: Borrow<PyObjectRef>,
+    O: Borrow<crate::PyObj>,
 {
-    fn as_ref(&self) -> &PyObjectRef {
+    fn as_ref(&self) -> &crate::PyObj {
         self.0.borrow()
     }
 }

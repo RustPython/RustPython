@@ -722,7 +722,7 @@ pub fn single_or_tuple_any<T, F, M>(
 where
     T: TryFromObject,
     F: Fn(&T) -> PyResult<bool>,
-    M: Fn(&PyObjectRef) -> String,
+    M: Fn(&crate::PyObj) -> String,
 {
     match T::try_from_object(vm, obj.clone()) {
         Ok(single) => (predicate)(&single),

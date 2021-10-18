@@ -2,8 +2,8 @@ use super::{PyDict, PyDictRef, PyList, PyStr, PyStrRef, PyType, PyTypeRef};
 use crate::common::hash::PyHash;
 use crate::{
     function::FuncArgs, types::PyComparisonOp, utils::Either, IdProtocol, ItemProtocol,
-    PyArithmeticValue, PyAttributes, PyClassImpl, PyComparisonValue, PyContext, PyObject,
-    PyObjectPtr, PyObjectRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
+    PyArithmeticValue, PyAttributes, PyClassImpl, PyComparisonValue, PyContext, PyObj, PyObject,
+    PyObjectRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
 
 /// object()
@@ -39,18 +39,18 @@ impl PyBaseObject {
 
     #[pyslot]
     fn slot_richcompare(
-        zelf: PyObjectPtr,
-        other: PyObjectPtr,
+        zelf: &PyObj,
+        other: &PyObj,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
-        Self::cmp(&*zelf, &*other, op, vm).map(Either::B)
+        Self::cmp(zelf, other, op, vm).map(Either::B)
     }
 
     #[inline(always)]
     fn cmp(
-        zelf: &PyObjectRef,
-        other: &PyObjectRef,
+        zelf: &PyObj,
+        other: &PyObj,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
@@ -67,9 +67,7 @@ impl PyBaseObject {
                     .class()
                     .mro_find_map(|cls| cls.slots.richcompare.load())
                     .unwrap();
-                let value = match PyObjectPtr::with((zelf, other), |(zelf, other)| {
-                    cmp(zelf, other, PyComparisonOp::Eq, vm)
-                })? {
+                let value = match cmp(zelf, other, PyComparisonOp::Eq, vm)? {
                     Either::A(obj) => PyArithmeticValue::from_object(vm, obj)
                         .map(|obj| obj.try_to_bool(vm))
                         .transpose()?,
@@ -161,7 +159,7 @@ impl PyBaseObject {
 
     #[pyslot]
     fn slot_setattro(
-        obj: PyObjectPtr,
+        obj: &PyObj,
         attr_name: PyStrRef,
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,
@@ -298,14 +296,14 @@ impl PyBaseObject {
     }
 
     #[pyslot]
-    fn slot_hash(zelf: PyObjectPtr, _vm: &VirtualMachine) -> PyResult<PyHash> {
+    fn slot_hash(zelf: &PyObj, _vm: &VirtualMachine) -> PyResult<PyHash> {
         Ok(zelf.get_id() as _)
     }
 
     /// Return hash(self).
     #[pymethod(magic)]
     fn hash(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyHash> {
-        zelf.with_ptr(|zelf| Self::slot_hash(zelf, vm))
+        Self::slot_hash(&zelf, vm)
     }
 }
 
@@ -320,7 +318,7 @@ pub fn object_set_dict(obj: PyObjectRef, dict: PyDictRef, vm: &VirtualMachine) -
 
 #[cfg_attr(feature = "flame-it", flame)]
 pub(crate) fn setattr(
-    obj: &PyObjectRef,
+    obj: &PyObj,
     attr_name: PyStrRef,
     value: Option<PyObjectRef>,
     vm: &VirtualMachine,
@@ -330,7 +328,7 @@ pub(crate) fn setattr(
     if let Some(attr) = obj.get_class_attr(attr_name.as_str()) {
         let descr_set = attr.class().mro_find_map(|cls| cls.slots.descr_set.load());
         if let Some(descriptor) = descr_set {
-            return descriptor(attr, obj.clone(), value, vm);
+            return descriptor(attr, obj.to_owned(), value, vm);
         }
     }
 

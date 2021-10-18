@@ -3,7 +3,7 @@ use crate::common::hash::PyHash;
 use crate::{
     function::OptionalArg,
     types::{Callable, Comparable, Constructor, Hashable, PyComparisonOp},
-    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyObjectWeak, PyRef, PyResult, PyValue,
+    IdProtocol, PyClassImpl, PyContext, PyObj, PyObjectRef, PyObjectWeak, PyRef, PyResult, PyValue,
     TypeProtocol, VirtualMachine,
 };
 
@@ -17,9 +17,9 @@ pub struct PyWeak {
 }
 
 impl PyWeak {
-    pub fn downgrade(obj: &PyObjectRef) -> PyWeak {
+    pub fn downgrade(obj: &PyObj) -> PyWeak {
         PyWeak {
-            referent: PyObjectRef::downgrade(obj),
+            referent: obj.downgrade(),
             hash: AtomicCell::new(None),
         }
     }
@@ -46,7 +46,7 @@ impl PyValue for PyWeak {
 impl Callable for PyWeak {
     type Args = ();
     #[inline]
-    fn call(zelf: &PyRef<Self>, _: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn call(zelf: &crate::Py<Self>, _: Self::Args, vm: &VirtualMachine) -> PyResult {
         Ok(vm.unwrap_or_none(zelf.upgrade()))
     }
 }
@@ -86,7 +86,7 @@ impl PyWeak {
 }
 
 impl Hashable for PyWeak {
-    fn hash(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+    fn hash(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
         match zelf.hash.load() {
             Some(hash) => Ok(hash),
             None => {
@@ -103,8 +103,8 @@ impl Hashable for PyWeak {
 
 impl Comparable for PyWeak {
     fn cmp(
-        zelf: &PyRef<Self>,
-        other: &PyObjectRef,
+        zelf: &crate::Py<Self>,
+        other: &PyObj,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<crate::PyComparisonValue> {

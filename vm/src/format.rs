@@ -875,7 +875,7 @@ impl FormatString {
         })
     }
 
-    pub(crate) fn format_map(&self, dict: &PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
+    pub(crate) fn format_map(&self, dict: &crate::PyObj, vm: &VirtualMachine) -> PyResult<String> {
         self.format_internal(vm, &mut |field_type| match field_type {
             FieldType::Auto | FieldType::Index(_) => {
                 Err(vm.new_value_error("Format string contains positional fields".to_owned()))

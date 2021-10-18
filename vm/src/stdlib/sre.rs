@@ -11,7 +11,7 @@ mod _sre {
         protocol::PyBuffer,
         stdlib::sys,
         types::{Comparable, Hashable},
-        ItemProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue,
+        ItemProtocol, PyComparisonValue, PyObj, PyObjectRef, PyRef, PyResult, PyValue,
         TryFromBorrowedObject, TryFromObject, VirtualMachine,
     };
     use core::str;
@@ -499,7 +499,7 @@ mod _sre {
 
                 let list = PyList::from(sublist).into_object(vm);
 
-                let join_type = if zelf.isbytes {
+                let join_type: PyObjectRef = if zelf.isbytes {
                     vm.ctx.new_bytes(vec![]).into()
                 } else {
                     vm.ctx.new_str(ascii!("")).into()
@@ -516,7 +516,7 @@ mod _sre {
     }
 
     impl Hashable for Pattern {
-        fn hash(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+        fn hash(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
             let hash = zelf.pattern.hash(vm)?;
             let (_, code, _) = unsafe { zelf.code.align_to::<u8>() };
             let hash = hash ^ vm.state.hash_secret.hash_bytes(code);
@@ -528,8 +528,8 @@ mod _sre {
 
     impl Comparable for Pattern {
         fn cmp(
-            zelf: &PyRef<Self>,
-            other: &PyObjectRef,
+            zelf: &crate::Py<Self>,
+            other: &PyObj,
             op: crate::types::PyComparisonOp,
             vm: &VirtualMachine,
         ) -> PyResult<PyComparisonValue> {
