@@ -211,7 +211,7 @@ impl PyDict {
     #[pymethod(magic)]
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
         let s = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-            let mut str_parts = vec![];
+            let mut str_parts = Vec::with_capacity(zelf.len());
             for (key, value) in zelf {
                 let key_repr = vm.to_repr(&key)?;
                 let value_repr = vm.to_repr(&value)?;
@@ -663,7 +663,7 @@ where
     #[pymethod(magic)]
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
         let s = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-            let mut str_parts = vec![];
+            let mut str_parts = Vec::with_capacity(zelf.len());
             for (key, value) in zelf.dict().clone() {
                 let s = vm.to_repr(&Self::item(vm, key, value))?;
                 str_parts.push(s.as_str().to_owned());
