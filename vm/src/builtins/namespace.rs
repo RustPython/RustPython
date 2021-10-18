@@ -1,8 +1,7 @@
 use super::PyTypeRef;
 use crate::{
-    function::{IntoPyObject, KwArgs},
-    types::Constructor,
-    PyClassImpl, PyContext, PyRef, PyResult, PyValue, VirtualMachine,
+    function::FuncArgs, types::Constructor, PyClassImpl, PyContext, PyRef, PyResult, PyValue,
+    VirtualMachine,
 };
 
 /// A simple attribute-based namespace.
@@ -19,14 +18,10 @@ impl PyValue for PyNamespace {
 }
 
 impl Constructor for PyNamespace {
-    type Args = KwArgs;
+    type Args = FuncArgs;
 
-    fn py_new(cls: PyTypeRef, kwargs: Self::Args, vm: &VirtualMachine) -> PyResult {
-        let zelf = PyNamespace.into_ref_with_type(vm, cls)?;
-        for (name, value) in kwargs.into_iter() {
-            zelf.as_object().set_attr(name, value, vm)?;
-        }
-        Ok(zelf.into_pyobject(vm))
+    fn py_new(cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
+        PyNamespace {}.into_pyresult_with_type(vm, cls)
     }
 }
 
@@ -37,7 +32,18 @@ impl PyNamespace {
 }
 
 #[pyimpl(flags(BASETYPE, HAS_DICT), with(Constructor))]
-impl PyNamespace {}
+impl PyNamespace {
+    #[pymethod(magic)]
+    fn init(zelf: PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        if !args.args.is_empty() {
+            return Err(vm.new_type_error("no positional arguments expected".to_owned()));
+        }
+        for (name, value) in args.kwargs.into_iter() {
+            zelf.as_object().set_attr(name, value, vm)?;
+        }
+        Ok(())
+    }
+}
 
 pub fn init(context: &PyContext) {
     PyNamespace::extend_class(context, &context.types.namespace_type);
