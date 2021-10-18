@@ -3,8 +3,9 @@ use crate::{
     builtins::PyDict,
     function::FuncArgs,
     types::{Comparable, Constructor, PyComparisonOp},
-    PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    VirtualMachine,
+    vm::ReprGuard,
+    IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    TypeProtocol, VirtualMachine,
 };
 
 /// A simple attribute-based namespace.
@@ -45,6 +46,35 @@ impl PyNamespace {
             zelf.as_object().set_attr(name, value, vm)?;
         }
         Ok(())
+    }
+
+    #[pymethod(magic)]
+    fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        let o = zelf.as_object();
+        let name = if o.class().is(&vm.ctx.types.namespace_type) {
+            "namespace".to_owned()
+        } else {
+            o.class().slot_name()
+        };
+
+        let repr = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
+            let parts = if let Some(dict) = zelf.as_object().dict() {
+                let mut parts = Vec::with_capacity(dict.len());
+                for (key, value) in dict {
+                    let k = vm.to_repr(&key)?;
+                    let key_str = k.as_str();
+                    let value_repr = vm.to_repr(&value)?;
+                    parts.push(format!("{}={}", &key_str[1..key_str.len() - 1], value_repr));
+                }
+                parts
+            } else {
+                vec![]
+            };
+            format!("{}({})", name, parts.join(", "))
+        } else {
+            format!("{}(...)", name)
+        };
+        Ok(repr)
     }
 }
 
