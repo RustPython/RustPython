@@ -143,7 +143,8 @@ class TestSuper(unittest.TestCase):
                 return __class__
         self.assertIs(X.f(), X)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test___class___new(self):
         # See issue #23722
         # Ensure zero-arg super() works as soon as type.__new__() is completed
