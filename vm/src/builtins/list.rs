@@ -1,4 +1,4 @@
-use super::{PositionIterInternal, PyGenericAlias, PySliceRef, PyTupleRef, PyTypeRef};
+use super::{PositionIterInternal, PyGenericAlias, PySlice, PyTupleRef, PyTypeRef};
 use crate::common::lock::{
     PyMappedRwLockReadGuard, PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
 };
@@ -111,7 +111,7 @@ impl PyList {
     }
 
     #[pymethod(magic)]
-    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyListRef> {
+    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         let other = other.payload_if_subclass::<PyList>(vm).ok_or_else(|| {
             vm.new_type_error(format!(
                 "Cannot add {} and {}",
@@ -146,7 +146,7 @@ impl PyList {
     }
 
     #[pymethod]
-    fn copy(&self, vm: &VirtualMachine) -> PyListRef {
+    fn copy(&self, vm: &VirtualMachine) -> PyRef<Self> {
         Self::new_ref(self.borrow_vec().to_vec(), &vm.ctx)
     }
 
@@ -210,7 +210,12 @@ impl PyList {
         }
     }
 
-    fn setslice(&self, slice: PySliceRef, sec: ArgIterable, vm: &VirtualMachine) -> PyResult<()> {
+    fn setslice(
+        &self,
+        slice: PyRef<PySlice>,
+        sec: ArgIterable,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         let items: Result<Vec<PyObjectRef>, _> = sec.iter(vm)?.collect();
         let items = items?;
         let slice = slice.to_saturated(vm)?;
@@ -492,7 +497,7 @@ impl PyList {
         removed.map(drop)
     }
 
-    fn delslice(&self, slice: PySliceRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn delslice(&self, slice: PyRef<PySlice>, vm: &VirtualMachine) -> PyResult<()> {
         let slice = slice.to_saturated(vm)?;
         self.borrow_vec_mut().delete_slice(vm, slice)
     }

@@ -1,4 +1,4 @@
-use super::{PyBytes, PyBytesRef, PyList, PyListRef, PySliceRef, PyStr, PyStrRef, PyTypeRef};
+use super::{PyBytes, PyBytesRef, PyList, PyListRef, PySlice, PyStr, PyStrRef, PyTypeRef};
 use crate::common::{
     borrow::{BorrowedValue, BorrowedValueMut},
     hash::PyHash,
@@ -250,7 +250,7 @@ impl PyMemoryView {
         })
     }
 
-    fn getitem_by_slice(zelf: PyRef<Self>, slice: PySliceRef, vm: &VirtualMachine) -> PyResult {
+    fn getitem_by_slice(zelf: PyRef<Self>, slice: PyRef<PySlice>, vm: &VirtualMachine) -> PyResult {
         // slicing a memoryview return a new memoryview
         let len = zelf.buffer.options.len;
         let (range, step, is_negative_step) =
@@ -368,7 +368,7 @@ impl PyMemoryView {
 
     fn setitem_by_slice(
         zelf: PyRef<Self>,
-        slice: PySliceRef,
+        slice: PyRef<PySlice>,
         items: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -501,7 +501,7 @@ impl PyMemoryView {
     }
 
     #[pymethod]
-    fn tolist(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyListRef> {
+    fn tolist(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         zelf.try_not_released(vm)?;
 
         let bytes = &*zelf.obj_bytes();
@@ -516,7 +516,7 @@ impl PyMemoryView {
             })
             .try_collect()?;
 
-        Ok(PyList::from(elements).into_ref(vm))
+        Ok(elements)
     }
 
     #[pymethod]
@@ -845,7 +845,7 @@ fn format_unpack(
     })
 }
 
-pub fn unpack_bytes_seq_to_list(
+fn unpack_bytes_seq_to_list(
     bytes: &[u8],
     format: &str,
     vm: &VirtualMachine,

@@ -5,7 +5,7 @@ use crate::{
 };
 use js_sys::{Array, Object, Promise, Reflect};
 use rustpython_vm::{
-    builtins::{PyBaseExceptionRef, PyFloatRef, PyStrRef, PyType, PyTypeRef},
+    builtins::{PyBaseExceptionRef, PyFloat, PyStrRef, PyType, PyTypeRef},
     function::{ArgCallable, IntoPyObject, OptionalArg, OptionalOption, PosArgs},
     protocol::PyIterReturn,
     types::{IterNext, IterNextIterable},
@@ -110,7 +110,7 @@ impl PyJsValue {
     }
 
     #[pymethod]
-    fn new_from_float(&self, n: PyFloatRef) -> PyJsValue {
+    fn new_from_float(&self, n: PyRef<PyFloat>) -> PyJsValue {
         PyJsValue::new(n.to_f64())
     }
 

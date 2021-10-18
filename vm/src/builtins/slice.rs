@@ -24,8 +24,6 @@ impl PyValue for PySlice {
     }
 }
 
-pub type PySliceRef = PyRef<PySlice>;
-
 #[pyimpl(with(Hashable, Comparable))]
 impl PySlice {
     #[pyproperty]
