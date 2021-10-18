@@ -1,6 +1,9 @@
 use super::PyTypeRef;
 use crate::{
-    function::FuncArgs, types::Constructor, PyClassImpl, PyContext, PyRef, PyResult, PyValue,
+    builtins::PyDict,
+    function::FuncArgs,
+    types::{Comparable, Constructor, PyComparisonOp},
+    PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     VirtualMachine,
 };
 
@@ -31,7 +34,7 @@ impl PyNamespace {
     }
 }
 
-#[pyimpl(flags(BASETYPE, HAS_DICT), with(Constructor))]
+#[pyimpl(flags(BASETYPE, HAS_DICT), with(Constructor, Comparable))]
 impl PyNamespace {
     #[pymethod(magic)]
     fn init(zelf: PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
@@ -42,6 +45,21 @@ impl PyNamespace {
             zelf.as_object().set_attr(name, value, vm)?;
         }
         Ok(())
+    }
+}
+
+impl Comparable for PyNamespace {
+    fn cmp(
+        zelf: &PyRef<Self>,
+        other: &PyObjectRef,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        let other = class_or_notimplemented!(Self, other);
+        match (zelf.as_object().dict(), other.as_object().dict()) {
+            (Some(d1), Some(d2)) => PyDict::cmp(&d1, d2.as_object(), op, vm),
+            _ => Ok(PyComparisonValue::NotImplemented),
+        }
     }
 }
 
