@@ -183,12 +183,16 @@ impl CompilationSource {
                         }
                     }
                     Err(e)
-                })?;
+                });
+
+                if code.is_err() && stem.starts_with("badsyntax_") {
+                    continue;
+                }
 
                 code_map.insert(
                     module_name,
                     FrozenModule {
-                        code,
+                        code: code?,
                         package: is_init,
                     },
                 );

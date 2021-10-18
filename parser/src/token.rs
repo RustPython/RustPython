@@ -10,7 +10,7 @@ pub enum Tok {
     Int { value: BigInt },
     Float { value: f64 },
     Complex { real: f64, imag: f64 },
-    String { value: String, is_fstring: bool },
+    String { value: String, kind: StringKind },
     Bytes { value: Vec<u8> },
     Newline,
     Indent,
@@ -106,6 +106,13 @@ pub enum Tok {
     Yield,
 }
 
+#[derive(PartialEq, Eq, Debug, Clone)]
+pub enum StringKind {
+    Normal,
+    F,
+    U,
+}
+
 impl fmt::Display for Tok {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use Tok::*;
@@ -114,9 +121,11 @@ impl fmt::Display for Tok {
             Int { value } => write!(f, "'{}'", value),
             Float { value } => write!(f, "'{}'", value),
             Complex { real, imag } => write!(f, "{}j{}", real, imag),
-            String { value, is_fstring } => {
-                if *is_fstring {
-                    write!(f, "f")?
+            String { value, kind } => {
+                match kind {
+                    StringKind::F => f.write_str("f")?,
+                    StringKind::U => f.write_str("u")?,
+                    StringKind::Normal => {}
                 }
                 write!(f, "{:?}", value)
             }

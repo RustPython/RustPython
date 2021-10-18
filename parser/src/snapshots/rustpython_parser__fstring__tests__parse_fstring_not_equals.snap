@@ -9,48 +9,59 @@ Located {
         column: 0,
     },
     custom: (),
-    node: FormattedValue {
-        value: Located {
-            location: Location {
-                row: 1,
-                column: 4,
-            },
-            custom: (),
-            node: Compare {
-                left: Located {
-                    location: Location {
-                        row: 1,
-                        column: 2,
-                    },
-                    custom: (),
-                    node: Constant {
-                        value: Int(
-                            1,
-                        ),
-                        kind: None,
-                    },
+    node: JoinedStr {
+        values: [
+            Located {
+                location: Location {
+                    row: 0,
+                    column: 0,
                 },
-                ops: [
-                    NotEq,
-                ],
-                comparators: [
-                    Located {
+                custom: (),
+                node: FormattedValue {
+                    value: Located {
                         location: Location {
                             row: 1,
-                            column: 7,
+                            column: 4,
                         },
                         custom: (),
-                        node: Constant {
-                            value: Int(
-                                2,
-                            ),
-                            kind: None,
+                        node: Compare {
+                            left: Located {
+                                location: Location {
+                                    row: 1,
+                                    column: 2,
+                                },
+                                custom: (),
+                                node: Constant {
+                                    value: Int(
+                                        1,
+                                    ),
+                                    kind: None,
+                                },
+                            },
+                            ops: [
+                                NotEq,
+                            ],
+                            comparators: [
+                                Located {
+                                    location: Location {
+                                        row: 1,
+                                        column: 7,
+                                    },
+                                    custom: (),
+                                    node: Constant {
+                                        value: Int(
+                                            2,
+                                        ),
+                                        kind: None,
+                                    },
+                                },
+                            ],
                         },
                     },
-                ],
+                    conversion: None,
+                    format_spec: None,
+                },
             },
-        },
-        conversion: None,
-        format_spec: None,
+        ],
     },
 }

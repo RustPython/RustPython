@@ -67,6 +67,7 @@ struct Compiler {
     current_source_location: ast::Location,
     qualified_path: Vec<String>,
     done_with_future_stmts: bool,
+    future_annotations: bool,
     ctx: CompileContext,
     class_name: Option<String>,
     opts: CompileOpts,
@@ -196,6 +197,7 @@ impl Compiler {
             current_source_location: ast::Location::default(),
             qualified_path: Vec::new(),
             done_with_future_stmts: false,
+            future_annotations: false,
             ctx: CompileContext {
                 loop_data: None,
                 in_class: false,
@@ -1081,7 +1083,7 @@ impl Compiler {
                 value: "return".to_owned(),
             });
             // value:
-            self.compile_expression(annotation)?;
+            self.compile_annotation(annotation)?;
             num_annotations += 1;
         }
 
@@ -1096,7 +1098,7 @@ impl Compiler {
                 self.emit_constant(ConstantData::Str {
                     value: self.mangle(&arg.node.arg).into_owned(),
                 });
-                self.compile_expression(annotation)?;
+                self.compile_annotation(annotation)?;
                 num_annotations += 1;
             }
         }
@@ -1538,6 +1540,17 @@ impl Compiler {
         Ok(())
     }
 
+    fn compile_annotation(&mut self, annotation: &ast::Expr) -> CompileResult<()> {
+        if self.future_annotations {
+            self.emit_constant(ConstantData::Str {
+                value: annotation.to_string(),
+            });
+        } else {
+            self.compile_expression(annotation)?;
+        }
+        Ok(())
+    }
+
     fn compile_annotated_assign(
         &mut self,
         target: &ast::Expr,
@@ -1555,7 +1568,7 @@ impl Compiler {
         }
 
         // Compile annotation:
-        self.compile_expression(annotation)?;
+        self.compile_annotation(annotation)?;
 
         if let ast::ExprKind::Name { id, .. } = &target.node {
             // Store as dict entry in __annotations__ dict:
@@ -2423,7 +2436,7 @@ impl Compiler {
                 "nested_scopes" | "generators" | "division" | "absolute_import"
                 | "with_statement" | "print_function" | "unicode_literals" => {}
                 // "generator_stop" => {}
-                // "annotations" => {}
+                "annotations" => self.future_annotations = true,
                 other => {
                     return Err(self.error(CompileErrorType::InvalidFutureFeature(other.to_owned())))
                 }

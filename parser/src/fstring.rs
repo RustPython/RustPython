@@ -257,15 +257,7 @@ impl<'a> FStringParser<'a> {
             }))
         }
 
-        let s = match values.len() {
-            0 => self.expr(ExprKind::Constant {
-                value: String::new().into(),
-                kind: None,
-            }),
-            1 => values.into_iter().next().unwrap(),
-            _ => self.expr(ExprKind::JoinedStr { values }),
-        };
-        Ok(s)
+        Ok(self.expr(ExprKind::JoinedStr { values }))
     }
 }
 

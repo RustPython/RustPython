@@ -4,6 +4,8 @@ mod constant;
 mod fold_helpers;
 mod impls;
 mod location;
+#[cfg(feature = "unparse")]
+mod unparse;
 
 pub use ast_gen::*;
 pub use location::Location;

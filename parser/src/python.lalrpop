@@ -10,6 +10,7 @@ use crate::fstring::parse_located_fstring;
 use crate::function::{ArgumentList, parse_args, parse_params};
 use crate::error::LexicalError;
 use crate::lexer;
+use crate::token::StringKind;
 
 use num_bigint::BigInt;
 
@@ -918,8 +919,8 @@ AtomExpr2: ast::Expr = {
 };
 
 SubscriptList: ast::Expr = {
-    <location:@L> <s1:Subscript> <s2:("," Subscript)*> ","? => {
-        if s2.is_empty() {
+    <location:@L> <s1:Subscript> <s2:("," Subscript)*> <trailing_comma:","?> => {
+        if s2.is_empty() && trailing_comma.is_none() {
             s1
         } else {
             let mut dims = vec![s1];
@@ -956,13 +957,14 @@ SliceOp: Option<ast::Expr> = {
 
 Atom: ast::Expr = {
     <location:@L> <s:(@L string)+> =>? {
-        let values = s.into_iter().map(|(loc, (value, is_fstring))| {
-            if is_fstring {
+        let values = s.into_iter().map(|(loc, (value, kind))| {
+            if let StringKind::F = kind {
                 parse_located_fstring(&value, loc)
             } else {
+                let kind = (kind == StringKind::U).then(|| "u".to_owned());
                 Ok(ast::Expr::new(
                     loc,
-                    ast::ExprKind::Constant { value: value.into(), kind: None },
+                    ast::ExprKind::Constant { value: value.into(), kind },
                 ))
             }
         });
@@ -1297,7 +1299,7 @@ extern {
         int => lexer::Tok::Int { value: <BigInt> },
         float => lexer::Tok::Float { value: <f64> },
         complex => lexer::Tok::Complex { real: <f64>, imag: <f64> },
-        string => lexer::Tok::String { value: <String>, is_fstring: <bool> },
+        string => lexer::Tok::String { value: <String>, kind: <StringKind> },
         bytes => lexer::Tok::Bytes { value: <Vec<u8>> },
         name => lexer::Tok::Name { name: <String> },
         "\n" => lexer::Tok::Newline,
