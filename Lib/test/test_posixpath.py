@@ -630,13 +630,13 @@ class PosixCommonTest(test_genericpath.CommonTest, unittest.TestCase):
     attributes = ['relpath', 'samefile', 'sameopenfile', 'samestat']
 
     # TODO: RUSTPYTHON
-    import sys
-    if sys.platform.startswith("linux") and os.getenv("CI"):
+    if os.name == "posix" and os.getenv("CI"):
         @unittest.expectedFailure
         def test_exists(self):
             super().test_exists()
 
     # TODO: RUSTPYTHON
+    import sys
     if sys.platform.startswith("linux"):
         @unittest.expectedFailure
         def test_nonascii_abspath(self):
