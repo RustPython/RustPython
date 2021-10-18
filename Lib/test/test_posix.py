@@ -983,7 +983,7 @@ class PosixTester(unittest.TestCase):
             self.assertEqual(type(k), item_type)
             self.assertEqual(type(v), item_type)
 
-    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'failed to set environment variable'")
+    @unittest.skipUnless(os.name == 'posix', "TODO: RUSTPYTHON, only works on Unix")
     def test_putenv(self):
         with self.assertRaises(ValueError):
             os.putenv('FRUIT\0VEGETABLE', 'cabbage')
