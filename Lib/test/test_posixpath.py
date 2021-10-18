@@ -637,6 +637,11 @@ class PosixCommonTest(test_genericpath.CommonTest, unittest.TestCase):
 
     # TODO: RUSTPYTHON
     import sys
+    @unittest.skipIf(sys.platform.startswith("linux") and os.getenv("CI"), "TODO: RUSTPYTHON, flaky test")
+    def test_filetime(self):
+        super().test_filetime()
+
+    # TODO: RUSTPYTHON
     if sys.platform.startswith("linux"):
         @unittest.expectedFailure
         def test_nonascii_abspath(self):
