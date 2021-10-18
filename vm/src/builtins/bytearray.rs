@@ -9,6 +9,7 @@ use crate::common::{
         PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyMutex, PyRwLock, PyRwLockReadGuard,
         PyRwLockWriteGuard,
     },
+    static_cell,
 };
 use crate::{
     anystr::{self, AnyStr},
@@ -20,7 +21,7 @@ use crate::{
     },
     function::{ArgBytesLike, ArgIterable, FuncArgs, IntoPyObject, OptionalArg, OptionalOption},
     protocol::{
-        BufferInternal, BufferOptions, BufferResizeGuard, PyBuffer, PyIterReturn, PyMappingMethods,
+        BufferMethods, BufferOptions, BufferResizeGuard, PyBuffer, PyIterReturn, PyMappingMethods,
     },
     sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
     types::{
@@ -33,6 +34,7 @@ use crate::{
 };
 use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;
+use rustpython_common::atomic::Radium;
 use std::mem::size_of;
 
 /// "bytearray(iterable_of_ints) -> bytearray\n\
@@ -709,35 +711,36 @@ impl Comparable for PyByteArray {
 }
 
 impl AsBuffer for PyByteArray {
-    fn as_buffer(zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
+    fn as_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
+        static_cell! {
+            static METHODS: BufferMethods;
+        }
+        let methods = METHODS.get_or_init(|| BufferMethods {
+            obj_bytes: |zelf| zelf.payload::<Self>().unwrap().borrow_buf().into(),
+            obj_bytes_mut: |zelf| {
+                let zelf = zelf.payload::<Self>().unwrap();
+                PyRwLockWriteGuard::map(zelf.inner_mut(), |x| &mut *x.elements).into()
+            },
+            release: Some(|zelf| {
+                zelf.payload::<Self>().unwrap().exports.fetch_sub(1);
+            }),
+            retain: Some(|zelf| {
+                zelf.payload::<Self>().unwrap().exports.fetch_add(1);
+            }),
+            contiguous: None,
+            contiguous_mut: None,
+            collect_bytes: None,
+        });
         let buffer = PyBuffer::new(
-            zelf.as_object().to_owned(),
-            zelf.to_owned(),
+            zelf.as_object().clone(),
             BufferOptions {
                 readonly: false,
                 len: zelf.len(),
                 ..Default::default()
             },
+            methods,
         );
         Ok(buffer)
-    }
-}
-
-impl BufferInternal for PyRef<PyByteArray> {
-    fn obj_bytes(&self) -> BorrowedValue<[u8]> {
-        self.borrow_buf().into()
-    }
-
-    fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
-        PyRwLockWriteGuard::map(self.inner_mut(), |inner| &mut *inner.elements).into()
-    }
-
-    fn release(&self) {
-        self.exports.fetch_sub(1);
-    }
-
-    fn retain(&self) {
-        self.exports.fetch_add(1);
     }
 }
 

@@ -85,7 +85,7 @@ mod _io {
             ArgBytesLike, ArgIterable, ArgMemoryBuffer, FuncArgs, IntoPyObject, OptionalArg,
             OptionalOption,
         },
-        protocol::{BufferInternal, BufferOptions, BufferResizeGuard, PyBuffer, PyIterReturn},
+        protocol::{BufferMethods, BufferOptions, BufferResizeGuard, PyBuffer, PyIterReturn},
         types::{Constructor, Destructor, IterNext, Iterable},
         utils::Either,
         vm::{ReprGuard, VirtualMachine},
@@ -1322,25 +1322,38 @@ mod _io {
     // this is a bit fancier than what CPython does, but in CPython if you store
     // the memoryobj for the buffer until after the BufferedIO is destroyed, you
     // can get a use-after-free, so this is a bit safe
+    #[pyclass(noattr, module = false, name = "_buffered_raw_buffer")]
     #[derive(Debug)]
     struct BufferedRawBuffer {
         data: PyMutex<Vec<u8>>,
         range: Range<usize>,
     }
-    impl BufferInternal for BufferedRawBuffer {
-        fn obj_bytes(&self) -> BorrowedValue<[u8]> {
-            BorrowedValue::map(self.data.lock().into(), |data| &data[self.range.clone()])
-        }
+    #[pyimpl(flags(BASETYPE))]
+    impl BufferedRawBuffer {}
 
-        fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
-            BorrowedValueMut::map(self.data.lock().into(), |data| {
-                &mut data[self.range.clone()]
-            })
-        }
+    static BUFFERED_RAW_BUFFER_METHODS: BufferMethods = BufferMethods {
+        obj_bytes: |zelf| {
+            zelf.downcast_ref::<BufferedRawBuffer>(zelf)
+                .unwrap()
+                .data
+                .lock()
+                .into()
+        },
+    };
+    // impl BufferInternal for BufferedRawBuffer {
+    //     fn obj_bytes(&self) -> BorrowedValue<[u8]> {
+    //         BorrowedValue::map(self.data.lock().into(), |data| &data[self.range.clone()])
+    //     }
 
-        fn release(&self) {}
-        fn retain(&self) {}
-    }
+    //     fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
+    //         BorrowedValueMut::map(self.data.lock().into(), |data| {
+    //             &mut data[self.range.clone()]
+    //         })
+    //     }
+
+    //     fn release(&self) {}
+    //     fn retain(&self) {}
+    // }
 
     pub fn get_offset(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Offset> {
         let int = vm.to_index(&obj)?;
@@ -3345,24 +3358,24 @@ mod _io {
         }
     }
 
-    impl BufferInternal for PyRef<BytesIO> {
-        fn obj_bytes(&self) -> BorrowedValue<[u8]> {
-            PyRwLockReadGuard::map(self.buffer.read(), |x| x.cursor.get_ref().as_slice()).into()
-        }
+    // impl BufferInternal for PyRef<BytesIO> {
+    //     fn obj_bytes(&self) -> BorrowedValue<[u8]> {
+    //         PyRwLockReadGuard::map(self.buffer.read(), |x| x.cursor.get_ref().as_slice()).into()
+    //     }
 
-        fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
-            PyRwLockWriteGuard::map(self.buffer.write(), |x| x.cursor.get_mut().as_mut_slice())
-                .into()
-        }
+    //     fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
+    //         PyRwLockWriteGuard::map(self.buffer.write(), |x| x.cursor.get_mut().as_mut_slice())
+    //             .into()
+    //     }
 
-        fn release(&self) {
-            self.exports.fetch_sub(1);
-        }
+    //     fn release(&self) {
+    //         self.exports.fetch_sub(1);
+    //     }
 
-        fn retain(&self) {
-            self.exports.fetch_add(1);
-        }
-    }
+    //     fn retain(&self) {
+    //         self.exports.fetch_add(1);
+    //     }
+    // }
 
     impl<'a> BufferResizeGuard<'a> for BytesIO {
         type Resizable = PyRwLockWriteGuard<'a, BufferedIO>;

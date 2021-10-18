@@ -1234,24 +1234,21 @@ mod array {
         }
     }
 
-    #[derive(Debug)]
-    struct PyArrayBufferInternal(PyRef<PyArray>);
-
-    impl BufferInternal for PyArrayBufferInternal {
+    impl BufferInternal for PyArray {
         fn obj_bytes(&self) -> BorrowedValue<[u8]> {
-            self.0.get_bytes().into()
+            self.get_bytes().into()
         }
 
         fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
-            self.0.get_bytes_mut().into()
+            self.get_bytes_mut().into()
         }
 
         fn release(&self) {
-            self.0.exports.fetch_sub(1);
+            self.exports.fetch_sub(1);
         }
 
         fn retain(&self) {
-            self.0.exports.fetch_add(1);
+            self.exports.fetch_add(1);
         }
     }
 
