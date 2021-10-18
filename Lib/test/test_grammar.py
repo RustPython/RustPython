@@ -179,8 +179,6 @@ class TokenTests(unittest.TestCase):
         self.assertEqual(1 if 0else 0, 0)
         self.assertRaises(SyntaxError, eval, "0 if 1Else 0")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_underscore_literals(self):
         for lit in VALID_UNDERSCORE_LITERALS:
             self.assertEqual(eval(lit), eval(lit.replace('_', '')))

@@ -316,10 +316,21 @@ where
 
             // 1e6 for example:
             if self.chr0 == Some('e') || self.chr0 == Some('E') {
+                if self.chr1 == Some('_') {
+                    return Err(LexicalError {
+                        error: LexicalErrorType::OtherError("Invalid Syntax".to_owned()),
+                        location: self.get_pos(),
+                    });
+                }
                 value_text.push(self.next_char().unwrap().to_ascii_lowercase());
-
                 // Optional +/-
                 if self.chr0 == Some('-') || self.chr0 == Some('+') {
+                    if self.chr1 == Some('_') {
+                        return Err(LexicalError {
+                            error: LexicalErrorType::OtherError("Invalid Syntax".to_owned()),
+                            location: self.get_pos(),
+                        });
+                    }
                     value_text.push(self.next_char().unwrap());
                 }
 
