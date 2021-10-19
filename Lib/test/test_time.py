@@ -52,21 +52,24 @@ class TimeTestCase(unittest.TestCase):
     def setUp(self):
         self.t = time.time()
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON, AttributeError: module 'time' has no attribute 'altzone'
+    @unittest.expectedFailure
     def test_data_attributes(self):
         time.altzone
         time.daylight
         time.timezone
         time.tzname
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON, AttributeError: module 'time' has no attribute 'get_clock_info'
+    @unittest.expectedFailure
     def test_time(self):
         time.time()
         info = time.get_clock_info('time')
         self.assertFalse(info.monotonic)
         self.assertTrue(info.adjustable)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON, AttributeError: module 'time' has no attribute 'monotonic_ns'
+    @unittest.expectedFailure
     def test_time_ns_type(self):
         def check_ns(sec, ns):
             self.assertIsInstance(ns, int)
@@ -156,7 +159,7 @@ class TimeTestCase(unittest.TestCase):
         self.assertRaises(ValueError, time.sleep, -1)
         time.sleep(1.2)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'a Display implementation returned an error unexpectedly: Error'")
     def test_strftime(self):
         tt = time.gmtime(self.t)
         for directive in ('a', 'A', 'b', 'B', 'c', 'd', 'H', 'I',
@@ -229,11 +232,12 @@ class TimeTestCase(unittest.TestCase):
         self.assertRaises(ValueError, func,
                             (1900, 1, 1, 0, 0, 0, 0, 367, -1))
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON, ValueError: invalid struct_time parameter
+    @unittest.expectedFailure
     def test_strftime_bounding_check(self):
         self._bounds_checking(lambda tup: time.strftime('', tup))
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'a Display implementation returned an error unexpectedly: Error'")
     def test_strftime_format_check(self):
         # Test that strftime does not crash on invalid format strings
         # that may trigger a buffer overread. When not triggered,
@@ -247,7 +251,8 @@ class TimeTestCase(unittest.TestCase):
                     except ValueError:
                         pass
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON, ValueError: invalid struct_time parameter
+    @unittest.expectedFailure
     def test_default_values_for_zero(self):
         # Make sure that using all zeros uses the proper default
         # values.  No test for daylight savings since strftime() does
@@ -258,7 +263,8 @@ class TimeTestCase(unittest.TestCase):
             result = time.strftime("%Y %m %d %H %M %S %w %j", (2000,)+(0,)*8)
         self.assertEqual(expected, result)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @skip_if_buggy_ucrt_strfptime
     def test_strptime(self):
         # Should be able to go round-trip from strftime to strptime without
@@ -280,7 +286,8 @@ class TimeTestCase(unittest.TestCase):
         self.assertRaises(TypeError, time.strptime, b'2009', "%Y")
         self.assertRaises(TypeError, time.strptime, '2009', b'%Y')
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_strptime_exception_context(self):
         # check that this doesn't chain exceptions needlessly (see #17572)
         with self.assertRaises(ValueError) as e:
@@ -291,7 +298,8 @@ class TimeTestCase(unittest.TestCase):
             time.strptime('19', '%Y %')
         self.assertIs(e.exception.__suppress_context__, True)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON, ValueError: invalid struct_time parameter
+    @unittest.expectedFailure
     def test_asctime(self):
         time.asctime(time.gmtime(self.t))
 
@@ -307,11 +315,13 @@ class TimeTestCase(unittest.TestCase):
         self.assertRaises(TypeError, time.asctime, ())
         self.assertRaises(TypeError, time.asctime, (0,) * 10)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON, ValueError: invalid struct_time parameter
+    @unittest.expectedFailure
     def test_asctime_bounding_check(self):
         self._bounds_checking(time.asctime)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_ctime(self):
         t = time.mktime((1973, 9, 16, 1, 3, 52, 0, 0, -1))
         self.assertEqual(time.ctime(t), 'Sun Sep 16 01:03:52 1973')
@@ -411,7 +421,8 @@ class TimeTestCase(unittest.TestCase):
             for unreasonable in -1e200, 1e200:
                 self.assertRaises(OverflowError, func, unreasonable)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON, TypeError: unexpected type NoneType
+    @unittest.expectedFailure
     def test_ctime_without_arg(self):
         # Not sure how to check the values, since the clock could tick
         # at any time.  Make sure these are at least accepted and
@@ -419,7 +430,8 @@ class TimeTestCase(unittest.TestCase):
         time.ctime()
         time.ctime(None)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON, TypeError: unexpected type NoneType
+    @unittest.expectedFailure
     def test_gmtime_without_arg(self):
         gt0 = time.gmtime()
         gt1 = time.gmtime(None)
@@ -427,7 +439,8 @@ class TimeTestCase(unittest.TestCase):
         t1 = time.mktime(gt1)
         self.assertAlmostEqual(t1, t0, delta=0.2)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON, TypeError: unexpected type NoneType
+    @unittest.expectedFailure
     def test_localtime_without_arg(self):
         lt0 = time.localtime()
         lt1 = time.localtime(None)
@@ -447,7 +460,7 @@ class TimeTestCase(unittest.TestCase):
 
     # Issue #13309: passing extreme values to mktime() or localtime()
     # borks the glibc's internal timezone data.
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'a Display implementation returned an error unexpectedly: Error'")
     @unittest.skipUnless(platform.libc_ver()[0] != 'glibc',
                          "disabled because of a bug in glibc. Issue #13309")
     def test_mktime_error(self):
@@ -463,7 +476,8 @@ class TimeTestCase(unittest.TestCase):
             pass
         self.assertEqual(time.strftime('%Z', tt), tzname)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON, AttributeError: module 'time' has no attribute 'get_clock_info'
+    @unittest.expectedFailure
     def test_monotonic(self):
         # monotonic() should not go backward
         times = [time.monotonic() for n in range(100)]
@@ -490,7 +504,8 @@ class TimeTestCase(unittest.TestCase):
     def test_perf_counter(self):
         time.perf_counter()
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON, AttributeError: module 'time' has no attribute 'get_clock_info'
+    @unittest.expectedFailure
     def test_process_time(self):
         # process_time() should not include time spend during a sleep
         start = time.process_time()
@@ -504,7 +519,8 @@ class TimeTestCase(unittest.TestCase):
         self.assertTrue(info.monotonic)
         self.assertFalse(info.adjustable)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON, AttributeError: module 'time' has no attribute 'get_clock_info'
+    @unittest.expectedFailure
     def test_thread_time(self):
         if not hasattr(time, 'thread_time'):
             if sys.platform.startswith(('linux', 'win')):
@@ -561,7 +577,8 @@ class TimeTestCase(unittest.TestCase):
         self.assertRaises(ValueError, time.localtime, float("nan"))
         self.assertRaises(ValueError, time.ctime, float("nan"))
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON, AttributeError: module 'time' has no attribute 'get_clock_info'
+    @unittest.expectedFailure
     def test_get_clock_info(self):
         clocks = ['monotonic', 'perf_counter', 'process_time', 'time']
 
@@ -597,19 +614,20 @@ class TestLocale(unittest.TestCase):
         time.strftime("%B", (2009,2,1,0,0,0,0,0,0))
 
 
-@unittest.skip("TODO: RUSTPYTHON")
 class _TestAsctimeYear:
     _format = '%d'
 
     def yearstr(self, y):
         return time.asctime((y,) + (0,) * 8).split()[-1]
 
+    # TODO: RUSTPYTHON, ValueError: invalid struct_time parameter
+    @unittest.expectedFailure
     def test_large_year(self):
         # Check that it doesn't crash for year > 9999
         self.assertEqual(self.yearstr(12345), '12345')
         self.assertEqual(self.yearstr(123456789), '123456789')
 
-@unittest.skip("TODO: RUSTPYTHON")
+@unittest.skip("TODO: RUSTPYTHON, ValueError: invalid struct_time parameter")
 class _TestStrftimeYear:
 
     # Issue 13305:  For years < 1000, the value is not always
@@ -660,6 +678,8 @@ class _TestStrftimeYear:
 class _Test4dYear:
     _format = '%d'
 
+    # TODO: RUSTPYTHON, ValueError: invalid struct_time parameter
+    @unittest.expectedFailure
     def test_year(self, fmt=None, func=None):
         fmt = fmt or self._format
         func = func or self.yearstr
@@ -676,7 +696,8 @@ class _Test4dYear:
         self.assertEqual(self.yearstr(TIME_MAXYEAR).lstrip('+'), str(TIME_MAXYEAR))
         self.assertRaises(OverflowError, self.yearstr, TIME_MAXYEAR + 1)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON, ValueError: invalid struct_time parameter
+    @unittest.expectedFailure
     def test_negative(self):
         self.assertEqual(self.yearstr(-1), self._format % -1)
         self.assertEqual(self.yearstr(-1234), '-1234')
@@ -699,8 +720,8 @@ class TestAsctime4dyear(_TestAsctimeYear, _Test4dYear, unittest.TestCase):
 
 class TestPytime(unittest.TestCase):
     @skip_if_buggy_ucrt_strfptime
-    @unittest.skip("TODO: RUSTPYTHON")
-    #@unittest.skipUnless(time._STRUCT_TM_ITEMS == 11, "needs tm_zone support")
+    @unittest.skip("TODO: RUSTPYTHON, AttributeError: module 'time' has no attribute '_STRUCT_TM_ITEMS'")
+    # @unittest.skipUnless(time._STRUCT_TM_ITEMS == 11, "needs tm_zone support")
     def test_localtime_timezone(self):
 
         # Get the localtime and examine it for the offset and zone.
@@ -735,16 +756,16 @@ class TestPytime(unittest.TestCase):
         self.assertEqual(new_lt.tm_gmtoff, lt.tm_gmtoff)
         self.assertEqual(new_lt9.tm_zone, lt.tm_zone)
     
-    @unittest.skip("TODO: RUSTPYTHON")
-    #@unittest.skipUnless(time._STRUCT_TM_ITEMS == 11, "needs tm_zone support")
+    @unittest.skip("TODO: RUSTPYTHON, AttributeError: module 'time' has no attribute '_STRUCT_TM_ITEMS'")
+    # @unittest.skipUnless(time._STRUCT_TM_ITEMS == 11, "needs tm_zone support")
     def test_strptime_timezone(self):
         t = time.strptime("UTC", "%Z")
         self.assertEqual(t.tm_zone, 'UTC')
         t = time.strptime("+0500", "%z")
         self.assertEqual(t.tm_gmtoff, 5 * 3600)
     
-    @unittest.skip("TODO: RUSTPYTHON")
-    #@unittest.skipUnless(time._STRUCT_TM_ITEMS == 11, "needs tm_zone support")
+    @unittest.skip("TODO: RUSTPYTHON, AttributeError: module 'time' has no attribute '_STRUCT_TM_ITEMS'")
+    # @unittest.skipUnless(time._STRUCT_TM_ITEMS == 11, "needs tm_zone support")
     def test_short_times(self):
 
         import pickle
