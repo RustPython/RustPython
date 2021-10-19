@@ -88,7 +88,7 @@ impl PyReverseSequenceIterator {
     fn length_hint(&self, vm: &VirtualMachine) -> PyResult<usize> {
         let internal = self.internal.lock();
         if let IterStatus::Active(obj) = &internal.status {
-            if internal.position <= vm.obj_len(obj)? {
+            if internal.position <= obj.length(vm)? {
                 return Ok(internal.position + 1);
             }
         }

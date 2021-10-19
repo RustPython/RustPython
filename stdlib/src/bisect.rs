@@ -72,7 +72,7 @@ mod _bisect {
         BisectArgs { a, x, lo, hi }: BisectArgs,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
-        let (mut lo, mut hi) = as_usize(lo, hi, vm.obj_len(&a)?, vm)?;
+        let (mut lo, mut hi) = as_usize(lo, hi, a.length(vm)?, vm)?;
 
         while lo < hi {
             // Handles issue 13496.
@@ -100,7 +100,7 @@ mod _bisect {
         BisectArgs { a, x, lo, hi }: BisectArgs,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
-        let (mut lo, mut hi) = as_usize(lo, hi, vm.obj_len(&a)?, vm)?;
+        let (mut lo, mut hi) = as_usize(lo, hi, a.length(vm)?, vm)?;
 
         while lo < hi {
             // Handles issue 13496.

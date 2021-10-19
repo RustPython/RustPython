@@ -424,7 +424,7 @@ mod builtins {
 
     #[pyfunction]
     fn len(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-        vm.obj_len(&obj)
+        obj.length(vm)
     }
 
     #[pyfunction]
@@ -690,7 +690,7 @@ mod builtins {
             vm.get_method_or_type_error(obj.clone(), "__getitem__", || {
                 "argument to reversed() must be a sequence".to_owned()
             })?;
-            let len = vm.obj_len(&obj)?;
+            let len = obj.length(vm)?;
             let obj_iterator = PyReverseSequenceIterator::new(obj, len);
             Ok(obj_iterator.into_object(vm))
         }

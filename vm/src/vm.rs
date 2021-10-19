@@ -1907,15 +1907,6 @@ impl VirtualMachine {
             })
     }
 
-    pub fn obj_len(&self, obj: &PyObjectRef) -> PyResult<usize> {
-        self.obj_len_opt(obj).unwrap_or_else(|| {
-            Err(self.new_type_error(format!(
-                "object of type '{}' has no len()",
-                obj.class().name()
-            )))
-        })
-    }
-
     pub fn length_hint(&self, iter: PyObjectRef) -> PyResult<Option<usize>> {
         if let Some(len) = self.obj_len_opt(&iter) {
             match len {
