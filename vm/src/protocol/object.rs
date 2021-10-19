@@ -74,7 +74,8 @@ impl PyObjectRef {
     // int PyObject_GenericSetAttr(PyObject *o, PyObject *name, PyObject *value)
 
     pub fn del_attr(&self, attr_name: impl IntoPyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-        vm.del_attr(self, attr_name)
+        let attr_name = attr_name.into_pystr_ref(vm);
+        self.call_set_attr(vm, attr_name, None)
     }
 
     // PyObject *PyObject_GenericGetDict(PyObject *o, void *context)

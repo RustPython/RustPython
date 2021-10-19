@@ -1413,11 +1413,6 @@ impl VirtualMachine {
         }
     }
 
-    pub fn del_attr(&self, obj: &PyObjectRef, attr_name: impl IntoPyStrRef) -> PyResult<()> {
-        let attr_name = attr_name.into_pystr_ref(self);
-        obj.call_set_attr(self, attr_name, None)
-    }
-
     // get_method should be used for internal access to magic methods (by-passing
     // the full getattribute look-up.
     pub fn get_method_or_type_error<F>(
