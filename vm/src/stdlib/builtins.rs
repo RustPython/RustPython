@@ -186,7 +186,7 @@ mod builtins {
 
     #[pyfunction]
     fn delattr(obj: PyObjectRef, attr: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-        vm.del_attr(&obj, attr)
+        obj.del_attr(attr, vm)
     }
 
     #[pyfunction]

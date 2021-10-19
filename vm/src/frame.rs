@@ -1810,7 +1810,7 @@ impl ExecutingFrame<'_> {
     fn delete_attr(&mut self, vm: &VirtualMachine, attr: bytecode::NameIdx) -> FrameResult {
         let attr_name = self.code.names[attr as usize].clone();
         let parent = self.pop_value();
-        vm.del_attr(&parent, attr_name)?;
+        parent.del_attr(attr_name, vm)?;
         Ok(None)
     }
 
