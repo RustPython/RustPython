@@ -1013,7 +1013,7 @@ impl VirtualMachine {
         })
     }
 
-    fn abstract_isinstance(&self, obj: &PyObjectRef, cls: &PyObjectRef) -> PyResult<bool> {
+    pub fn abstract_isinstance(&self, obj: &PyObjectRef, cls: &PyObjectRef) -> PyResult<bool> {
         if let Ok(typ) = PyTypeRef::try_from_object(self, cls.clone()) {
             if obj.class().issubclass(typ.clone()) {
                 Ok(true)
@@ -1044,37 +1044,6 @@ impl VirtualMachine {
                 }
             })
         }
-    }
-
-    /// Determines if `obj` is an instance of `cls`, either directly, indirectly or virtually via
-    /// the __instancecheck__ magic method.
-    pub fn isinstance(&self, obj: &PyObjectRef, cls: &PyObjectRef) -> PyResult<bool> {
-        // cpython first does an exact check on the type, although documentation doesn't state that
-        // https://github.com/python/cpython/blob/a24107b04c1277e3c1105f98aff5bfa3a98b33a0/Objects/abstract.c#L2408
-        if obj.class().is(cls) {
-            return Ok(true);
-        }
-
-        if cls.class().is(&self.ctx.types.type_type) {
-            return self.abstract_isinstance(obj, cls);
-        }
-
-        if let Ok(tuple) = PyTupleRef::try_from_object(self, cls.clone()) {
-            for typ in tuple.as_slice().iter() {
-                if self.with_recursion("in __instancecheck__", || self.isinstance(obj, typ))? {
-                    return Ok(true);
-                }
-            }
-            return Ok(false);
-        }
-
-        if let Ok(meth) = self.get_special_method(cls.clone(), "__instancecheck__")? {
-            let ret =
-                self.with_recursion("in __instancecheck__", || meth.invoke((obj.clone(),), self))?;
-            return ret.try_to_bool(self);
-        }
-
-        self.abstract_isinstance(obj, cls)
     }
 
     fn abstract_issubclass(&self, subclass: PyObjectRef, cls: &PyObjectRef) -> PyResult<bool> {

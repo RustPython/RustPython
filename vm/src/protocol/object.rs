@@ -2,11 +2,12 @@
 //! https://docs.python.org/3/c-api/object.html
 
 use crate::{
-    builtins::{pystr::IntoPyStrRef, PyBytes, PyInt, PyStrRef},
+    builtins::{pystr::IntoPyStrRef, PyBytes, PyInt, PyStrRef, PyTupleRef},
     bytesinner::ByteInnerNewOptions,
     common::{hash::PyHash, str::to_ascii},
     function::OptionalArg,
     protocol::PyIter,
+    pyobject::IdProtocol,
     pyref_type_error,
     types::{Constructor, PyComparisonOp},
     PyObjectRef, PyResult, TryFromObject, TypeProtocol, VirtualMachine,
@@ -127,8 +128,35 @@ impl PyObjectRef {
         vm.issubclass(self, cls)
     }
 
+    /// Determines if `self` is an instance of `cls`, either directly, indirectly or virtually via
+    /// the __instancecheck__ magic method.
     pub fn is_instance(&self, cls: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        vm.isinstance(self, cls)
+        // cpython first does an exact check on the type, although documentation doesn't state that
+        // https://github.com/python/cpython/blob/a24107b04c1277e3c1105f98aff5bfa3a98b33a0/Objects/abstract.c#L2408
+        if self.class().is(cls) {
+            return Ok(true);
+        }
+
+        if cls.class().is(&vm.ctx.types.type_type) {
+            return vm.abstract_isinstance(self, cls);
+        }
+
+        if let Ok(tuple) = PyTupleRef::try_from_object(vm, cls.clone()) {
+            for typ in tuple.as_slice().iter() {
+                if vm.with_recursion("in __instancecheck__", || self.is_instance(typ, vm))? {
+                    return Ok(true);
+                }
+            }
+            return Ok(false);
+        }
+
+        if let Ok(meth) = vm.get_special_method(cls.clone(), "__instancecheck__")? {
+            let ret =
+                vm.with_recursion("in __instancecheck__", || meth.invoke((self.clone(),), vm))?;
+            return ret.try_to_bool(vm);
+        }
+
+        vm.abstract_isinstance(self, cls)
     }
 
     pub fn hash(&self, vm: &VirtualMachine) -> PyResult<PyHash> {
