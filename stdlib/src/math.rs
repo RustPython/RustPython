@@ -345,7 +345,12 @@ mod math {
 
     #[pyfunction]
     fn atanh(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
-        call_math_func!(atanh, x, vm)
+        let x = x.to_f64();
+        if x >= 1.0_f64 || x <= -1.0_f64 {
+            Err(vm.new_value_error("math domain error".to_owned()))
+        } else {
+            Ok(x.atanh())
+        }
     }
 
     #[pyfunction]
