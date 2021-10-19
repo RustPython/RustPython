@@ -4,7 +4,7 @@ use criterion::{
 };
 use rustpython_compiler::Mode;
 use rustpython_vm::{
-    common::ascii, InitParameter, Interpreter, ItemProtocol, PyResult, PySettings,
+    common::ascii, InitParameter, Interpreter, ItemProtocol, PyObjectWrap, PyResult, PySettings,
 };
 use std::path::{Path, PathBuf};
 use std::{ffi, fs, io};
@@ -132,6 +132,7 @@ fn bench_rustpy_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchmar
             if let Some(idx) = iterations {
                 scope
                     .locals
+                    .as_object()
                     .set_item(vm.new_pyobj(ascii!("ITERATIONS")), vm.new_pyobj(idx), vm)
                     .expect("Error adding ITERATIONS local variable");
             }
