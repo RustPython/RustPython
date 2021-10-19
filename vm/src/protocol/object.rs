@@ -151,7 +151,12 @@ impl PyObjectRef {
     // int PyObject_TypeCheck(PyObject *o, PyTypeObject *type)
 
     pub fn length(&self, vm: &VirtualMachine) -> PyResult<usize> {
-        vm.obj_len(self)
+        vm.obj_len_opt(self).unwrap_or_else(|| {
+            Err(vm.new_type_error(format!(
+                "object of type '{}' has no len()",
+                self.class().name()
+            )))
+        })
     }
 
     pub fn length_hint(
