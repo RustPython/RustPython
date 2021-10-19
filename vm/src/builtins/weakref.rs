@@ -93,7 +93,7 @@ impl Hashable for PyWeak {
                 let obj = zelf
                     .upgrade()
                     .ok_or_else(|| vm.new_type_error("weak object has gone away".to_owned()))?;
-                let hash = vm._hash(&obj)?;
+                let hash = obj.hash(vm)?;
                 zelf.hash.store(Some(hash));
                 Ok(hash)
             }
