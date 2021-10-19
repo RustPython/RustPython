@@ -613,7 +613,7 @@ fn do_sort(
     } else {
         PyComparisonOp::Gt
     };
-    let cmp = |a: &PyObjectRef, b: &PyObjectRef| vm.bool_cmp(a, b, op);
+    let cmp = |a: &PyObjectRef, b: &PyObjectRef| a.rich_compare_bool(b, op, vm);
 
     if let Some(ref key_func) = key_func {
         let mut items = values

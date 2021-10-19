@@ -27,37 +27,37 @@ mod _operator {
     /// Same as a < b.
     #[pyfunction]
     fn lt(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        vm.obj_cmp(a, b, Lt)
+        a.rich_compare(b, Lt, vm)
     }
 
     /// Same as a <= b.
     #[pyfunction]
     fn le(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        vm.obj_cmp(a, b, Le)
+        a.rich_compare(b, Le, vm)
     }
 
     /// Same as a > b.
     #[pyfunction]
     fn gt(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        vm.obj_cmp(a, b, Gt)
+        a.rich_compare(b, Gt, vm)
     }
 
     /// Same as a >= b.
     #[pyfunction]
     fn ge(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        vm.obj_cmp(a, b, Ge)
+        a.rich_compare(b, Ge, vm)
     }
 
     /// Same as a == b.
     #[pyfunction]
     fn eq(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        vm.obj_cmp(a, b, Eq)
+        a.rich_compare(b, Eq, vm)
     }
 
     /// Same as a != b.
     #[pyfunction]
     fn ne(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        vm.obj_cmp(a, b, Ne)
+        a.rich_compare(b, Ne, vm)
     }
 
     /// Same as not a.

@@ -77,7 +77,7 @@ mod _bisect {
         while lo < hi {
             // Handles issue 13496.
             let mid = (lo + hi) / 2;
-            if vm.bool_cmp(&a.get_item(mid, vm)?, &x, Lt)? {
+            if a.get_item(mid, vm)?.rich_compare_bool(&x, Lt, vm)? {
                 lo = mid + 1;
             } else {
                 hi = mid;
@@ -105,7 +105,7 @@ mod _bisect {
         while lo < hi {
             // Handles issue 13496.
             let mid = (lo + hi) / 2;
-            if vm.bool_cmp(&x, &a.get_item(mid, vm)?, Lt)? {
+            if x.rich_compare_bool(&a.get_item(mid, vm)?, Lt, vm)? {
                 hi = mid;
             } else {
                 lo = mid + 1;
