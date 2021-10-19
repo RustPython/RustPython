@@ -57,7 +57,7 @@ pub(crate) fn init_importlib(
                 magic = rand::thread_rng().gen::<[u8; 4]>().to_vec();
             }
             let magic: PyObjectRef = vm.ctx.new_bytes(magic).into();
-            vm.set_attr(&importlib_external, "MAGIC_NUMBER", magic)?;
+            importlib_external.set_attr("MAGIC_NUMBER", magic, vm)?;
             let zipimport_res = (|| -> PyResult<()> {
                 let zipimport = vm.import("zipimport", None, 0)?;
                 let zipimporter = zipimport.get_attr("zipimporter", vm)?;

@@ -360,12 +360,12 @@ impl VirtualMachine {
                         Default::default(),
                         self,
                     )?;
-                    self.set_attr(
-                        &self.sys_module,
+                    self.sys_module.set_attr(
                         format!("__{}__", name), // e.g. __stdin__
                         stdio.clone(),
+                        self,
                     )?;
-                    self.set_attr(&self.sys_module, name, stdio)?;
+                    self.sys_module.set_attr(name, stdio, self)?;
                     Ok(())
                 };
                 set_stdio("stdin", 0, "r")?;
@@ -373,7 +373,7 @@ impl VirtualMachine {
                 set_stdio("stderr", 2, "w")?;
 
                 let io_open = io.get_attr("open", self)?;
-                self.set_attr(&self.builtins, "open", io_open)?;
+                self.builtins.set_attr("open", io_open, self)?;
             }
 
             Ok(())
@@ -778,29 +778,34 @@ impl VirtualMachine {
         let syntax_error = self.new_exception_msg(syntax_error_type, error.to_string());
         let lineno = self.ctx.new_int(error.location.row());
         let offset = self.ctx.new_int(error.location.column());
-        self.set_attr(syntax_error.as_object(), "lineno", lineno)
+        syntax_error
+            .as_object()
+            .set_attr("lineno", lineno, self)
             .unwrap();
-        self.set_attr(syntax_error.as_object(), "offset", offset)
+        syntax_error
+            .as_object()
+            .set_attr("offset", offset, self)
             .unwrap();
-        self.set_attr(
-            syntax_error.as_object(),
-            "text",
-            error.statement.clone().into_pyobject(self),
-        )
-        .unwrap();
-        self.set_attr(
-            syntax_error.as_object(),
-            "filename",
-            self.ctx.new_str(error.source_path.clone()),
-        )
-        .unwrap();
+        syntax_error
+            .as_object()
+            .set_attr("text", error.statement.clone().into_pyobject(self), self)
+            .unwrap();
+        syntax_error
+            .as_object()
+            .set_attr(
+                "filename",
+                self.ctx.new_str(error.source_path.clone()),
+                self,
+            )
+            .unwrap();
         syntax_error
     }
 
     pub fn new_import_error(&self, msg: String, name: impl IntoPyStrRef) -> PyBaseExceptionRef {
         let import_error = self.ctx.exceptions.import_error.clone();
         let exc = self.new_exception_msg(import_error, msg);
-        self.set_attr(exc.as_object(), "name", name.into_pystr_ref(self))
+        exc.as_object()
+            .set_attr("name", name.into_pystr_ref(self), self)
             .unwrap();
         exc
     }
@@ -1408,42 +1413,9 @@ impl VirtualMachine {
         }
     }
 
-    pub fn call_set_attr(
-        &self,
-        obj: &PyObjectRef,
-        attr_name: PyStrRef,
-        attr_value: Option<PyObjectRef>,
-    ) -> PyResult<()> {
-        let setattro = {
-            let cls = obj.class();
-            cls.mro_find_map(|cls| cls.slots.setattro.load())
-                .ok_or_else(|| {
-                    let assign = attr_value.is_some();
-                    let has_getattr = cls.mro_find_map(|cls| cls.slots.getattro.load()).is_some();
-                    self.new_type_error(format!(
-                        "'{}' object has {} attributes ({} {})",
-                        cls.name(),
-                        if has_getattr { "only read-only" } else { "no" },
-                        if assign { "assign to" } else { "del" },
-                        attr_name
-                    ))
-                })?
-        };
-        setattro(obj, attr_name, attr_value, self)
-    }
-
-    pub fn set_attr<K, V>(&self, obj: &PyObjectRef, attr_name: K, attr_value: V) -> PyResult<()>
-    where
-        K: IntoPyStrRef,
-        V: Into<PyObjectRef>,
-    {
-        let attr_name = attr_name.into_pystr_ref(self);
-        self.call_set_attr(obj, attr_name, Some(attr_value.into()))
-    }
-
     pub fn del_attr(&self, obj: &PyObjectRef, attr_name: impl IntoPyStrRef) -> PyResult<()> {
         let attr_name = attr_name.into_pystr_ref(self);
-        self.call_set_attr(obj, attr_name, None)
+        obj.call_set_attr(self, attr_name, None)
     }
 
     // get_method should be used for internal access to magic methods (by-passing

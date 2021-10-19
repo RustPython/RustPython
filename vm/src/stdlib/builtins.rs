@@ -732,7 +732,7 @@ mod builtins {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        vm.set_attr(&obj, attr, value)?;
+        obj.set_attr(attr, value, vm)?;
         Ok(())
     }
 

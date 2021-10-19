@@ -16,7 +16,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         errorcode
             .set_item(code.clone(), name.clone().into(), vm)
             .unwrap();
-        vm.set_attr(&module, name, code).unwrap();
+        module.set_attr(name, code, vm).unwrap();
     }
     module
 }

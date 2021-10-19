@@ -289,11 +289,11 @@ mod sys {
             return Ok(());
         }
         // set to none to avoid recursion while printing
-        vm.set_attr(&vm.builtins, "_", vm.ctx.none())?;
+        vm.builtins.set_attr("_", vm.ctx.none(), vm)?;
         // TODO: catch encoding errors
         let repr = vm.to_repr(&obj)?.into();
         builtins::print(PosArgs::new(vec![repr]), Default::default(), vm)?;
-        vm.set_attr(&vm.builtins, "_", obj)?;
+        vm.builtins.set_attr("_", obj, vm)?;
         Ok(())
     }
 

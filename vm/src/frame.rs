@@ -1651,14 +1651,14 @@ impl ExecutingFrame<'_> {
         )
         .into_object(vm);
 
-        vm.set_attr(&func_obj, "__doc__", vm.ctx.none())?;
+        func_obj.set_attr("__doc__", vm.ctx.none(), vm)?;
 
         let name = qualified_name.as_str().split('.').next_back().unwrap();
-        vm.set_attr(&func_obj, "__name__", vm.new_pyobj(name))?;
-        vm.set_attr(&func_obj, "__qualname__", qualified_name)?;
+        func_obj.set_attr("__name__", vm.new_pyobj(name), vm)?;
+        func_obj.set_attr("__qualname__", qualified_name, vm)?;
         let module = vm.unwrap_or_none(self.globals.get_item_option("__name__", vm)?);
-        vm.set_attr(&func_obj, "__module__", module)?;
-        vm.set_attr(&func_obj, "__annotations__", annotations)?;
+        func_obj.set_attr("__module__", module, vm)?;
+        func_obj.set_attr("__annotations__", annotations, vm)?;
 
         self.push_value(func_obj);
         Ok(None)
@@ -1803,7 +1803,7 @@ impl ExecutingFrame<'_> {
         let attr_name = self.code.names[attr as usize].clone();
         let parent = self.pop_value();
         let value = self.pop_value();
-        vm.set_attr(&parent, attr_name, value)?;
+        parent.set_attr(attr_name, value, vm)?;
         Ok(None)
     }
 

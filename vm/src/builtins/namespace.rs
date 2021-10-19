@@ -24,7 +24,7 @@ impl Constructor for PyNamespace {
     fn py_new(cls: PyTypeRef, kwargs: Self::Args, vm: &VirtualMachine) -> PyResult {
         let zelf = PyNamespace.into_ref_with_type(vm, cls)?;
         for (name, value) in kwargs.into_iter() {
-            vm.set_attr(zelf.as_object(), name, value)?;
+            zelf.as_object().set_attr(name, value, vm)?;
         }
         Ok(zelf.into_pyobject(vm))
     }

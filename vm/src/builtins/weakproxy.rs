@@ -66,7 +66,7 @@ impl SetAttr for PyWeakProxy {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         match zelf.weak.upgrade() {
-            Some(obj) => vm.call_set_attr(&obj, attr_name, value),
+            Some(obj) => obj.call_set_attr(vm, attr_name, value),
             None => Err(vm.new_exception_msg(
                 vm.ctx.exceptions.reference_error.clone(),
                 "weakly-referenced object no longer exists".to_owned(),

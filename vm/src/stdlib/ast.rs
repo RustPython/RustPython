@@ -59,7 +59,7 @@ impl AstNode {
             )));
         }
         for (name, arg) in fields.iter().zip(args.args) {
-            vm.set_attr(&zelf, name.clone(), arg)?;
+            zelf.set_attr(name.clone(), arg, vm)?;
         }
         for (key, value) in args.kwargs {
             if let Some(pos) = fields.iter().position(|f| f.as_str() == key) {
@@ -71,7 +71,7 @@ impl AstNode {
                     )));
                 }
             }
-            vm.set_attr(&zelf, key, value)?;
+            zelf.set_attr(key, value, vm)?;
         }
         Ok(())
     }
