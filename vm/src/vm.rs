@@ -1880,14 +1880,6 @@ impl VirtualMachine {
         self._cmp(&a, &b, op).map(|res| res.into_pyobject(self))
     }
 
-    pub fn _hash(&self, obj: &PyObjectRef) -> PyResult<rustpython_common::hash::PyHash> {
-        let hash = obj
-            .class()
-            .mro_find_map(|cls| cls.slots.hash.load())
-            .unwrap(); // hash always exist
-        hash(obj, self)
-    }
-
     pub fn obj_len_opt(&self, obj: &PyObjectRef) -> Option<PyResult<usize>> {
         self.get_special_method(obj.clone(), "__len__")
             .map(Result::ok)

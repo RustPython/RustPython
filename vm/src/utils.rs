@@ -75,14 +75,14 @@ pub fn hash_iter<'a, I: IntoIterator<Item = &'a PyObjectRef>>(
     iter: I,
     vm: &VirtualMachine,
 ) -> PyResult<rustpython_common::hash::PyHash> {
-    vm.state.hash_secret.hash_iter(iter, |obj| vm._hash(obj))
+    vm.state.hash_secret.hash_iter(iter, |obj| obj.hash(vm))
 }
 
 pub fn hash_iter_unordered<'a, I: IntoIterator<Item = &'a PyObjectRef>>(
     iter: I,
     vm: &VirtualMachine,
 ) -> PyResult<rustpython_common::hash::PyHash> {
-    rustpython_common::hash::hash_iter_unordered(iter, |obj| vm._hash(obj))
+    rustpython_common::hash::hash_iter_unordered(iter, |obj| obj.hash(vm))
 }
 
 // TODO: find a better place to put this impl

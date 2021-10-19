@@ -337,7 +337,7 @@ mod builtins {
 
     #[pyfunction]
     fn hash(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyHash> {
-        vm._hash(&obj)
+        obj.hash(vm)
     }
 
     // builtin_help

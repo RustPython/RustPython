@@ -517,7 +517,7 @@ mod _sre {
 
     impl Hashable for Pattern {
         fn hash(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
-            let hash = vm._hash(&zelf.pattern)?;
+            let hash = zelf.pattern.hash(vm)?;
             let (_, code, _) = unsafe { zelf.code.align_to::<u8>() };
             let hash = hash ^ vm.state.hash_secret.hash_bytes(code);
             let hash = hash ^ (zelf.flags.bits() as PyHash);

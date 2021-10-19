@@ -133,7 +133,11 @@ impl PyObjectRef {
     }
 
     pub fn hash(&self, vm: &VirtualMachine) -> PyResult<PyHash> {
-        vm._hash(self)
+        let hash = self
+            .class()
+            .mro_find_map(|cls| cls.slots.hash.load())
+            .unwrap(); // hash always exist
+        hash(self, vm)
     }
 
     // const hash_not_implemented: fn(&PyObjectRef, &VirtualMachine) ->PyResult<PyHash> = crate::types::Unhashable::slot_hash;

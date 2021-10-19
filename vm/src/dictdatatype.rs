@@ -652,7 +652,7 @@ pub trait DictKey: IntoPyObject {
 /// to index dictionaries.
 impl DictKey for PyObjectRef {
     fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
-        vm._hash(self)
+        self.hash(vm)
     }
 
     fn key_is(&self, other: &PyObjectRef) -> bool {
