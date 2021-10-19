@@ -130,8 +130,18 @@ mod math {
     }
 
     #[pyfunction]
-    fn log(x: ArgIntoFloat, base: OptionalArg<ArgIntoFloat>) -> f64 {
-        base.map_or_else(|| x.to_f64().ln(), |base| x.to_f64().log(base.to_f64()))
+    fn log(x: ArgIntoFloat, base: OptionalArg<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult<f64> {
+        let x = x.to_f64();
+        base.map_or_else(
+            || {
+                if x.is_nan() || x > 0.0_f64 {
+                    Ok(x.ln())
+                } else {
+                    Err(vm.new_value_error("math domain error".to_owned()))
+                }
+            },
+            |base| Ok(x.log(base.to_f64())),
+        )
     }
 
     #[pyfunction]
