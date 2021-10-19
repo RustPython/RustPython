@@ -453,11 +453,11 @@ mod _io {
             }
             let hint = hint as usize;
             let mut ret = Vec::new();
-            let it = ArgIterable::try_from_object(vm, instance)?;
+            let it = ArgIterable::<PyObjectRef>::try_from_object(vm, instance)?;
             let mut full_len = 0;
             for line in it.iter(vm)? {
                 let line = line?;
-                let line_len = vm.obj_len(&line)?;
+                let line_len = line.length(vm)?;
                 ret.push(line.clone());
                 full_len += line_len;
                 if full_len > hint {

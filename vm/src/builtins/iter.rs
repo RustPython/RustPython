@@ -181,7 +181,7 @@ impl PySequenceIterator {
     fn length_hint(&self, vm: &VirtualMachine) -> PyObjectRef {
         let internal = self.internal.lock();
         if let IterStatus::Active(obj) = &internal.status {
-            vm.obj_len(obj)
+            obj.length(vm)
                 .map(|x| PyInt::from(x).into_object(vm))
                 .unwrap_or_else(|_| vm.ctx.not_implemented())
         } else {
