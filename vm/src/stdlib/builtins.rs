@@ -402,7 +402,7 @@ mod builtins {
 
     #[pyfunction]
     fn issubclass(subclass: PyObjectRef, typ: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        vm.issubclass(&subclass, &typ)
+        subclass.is_subclass(&typ, vm)
     }
 
     #[pyfunction]
