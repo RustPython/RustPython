@@ -246,7 +246,7 @@ impl WASMVirtualMachine {
             } else {
                 return Err(error());
             };
-            vm.set_attr(&vm.sys_module, "stdout", stdout).unwrap();
+            vm.sys_module.set_attr("stdout", stdout, vm).unwrap();
             Ok(())
         })?
     }

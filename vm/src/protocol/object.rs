@@ -35,6 +35,30 @@ impl PyObjectRef {
         getattro(self, attr_name, vm)
     }
 
+    pub fn call_set_attr(
+        &self,
+        vm: &VirtualMachine,
+        attr_name: PyStrRef,
+        attr_value: Option<PyObjectRef>,
+    ) -> PyResult<()> {
+        let setattro = {
+            let cls = self.class();
+            cls.mro_find_map(|cls| cls.slots.setattro.load())
+                .ok_or_else(|| {
+                    let assign = attr_value.is_some();
+                    let has_getattr = cls.mro_find_map(|cls| cls.slots.getattro.load()).is_some();
+                    vm.new_type_error(format!(
+                        "'{}' object has {} attributes ({} {})",
+                        cls.name(),
+                        if has_getattr { "only read-only" } else { "no" },
+                        if assign { "assign to" } else { "del" },
+                        attr_name
+                    ))
+                })?
+        };
+        setattro(self, attr_name, attr_value, vm)
+    }
+
     // PyObject *PyObject_GenericGetAttr(PyObject *o, PyObject *name)
 
     pub fn set_attr(
@@ -43,7 +67,8 @@ impl PyObjectRef {
         attr_value: impl Into<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        vm.set_attr(self, attr_name, attr_value)
+        let attr_name = attr_name.into_pystr_ref(vm);
+        self.call_set_attr(vm, attr_name, Some(attr_value.into()))
     }
 
     // int PyObject_GenericSetAttr(PyObject *o, PyObject *name, PyObject *value)

@@ -296,11 +296,13 @@ impl IntoPyException for IOErrorBuilder {
         let excp = self.error.into_pyexception(vm);
 
         if let Some(filename) = self.filename {
-            vm.set_attr(excp.as_object(), "filename", filename.filename(vm))
+            excp.as_object()
+                .set_attr("filename", filename.filename(vm), vm)
                 .unwrap();
         }
         if let Some(filename2) = self.filename2 {
-            vm.set_attr(excp.as_object(), "filename2", filename2.filename(vm))
+            excp.as_object()
+                .set_attr("filename2", filename2.filename(vm), vm)
                 .unwrap();
         }
         excp

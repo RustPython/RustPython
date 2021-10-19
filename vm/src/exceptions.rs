@@ -1079,16 +1079,16 @@ pub(super) mod types {
         args: FuncArgs,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let exc_self = zelf.into();
-        vm.set_attr(
-            &exc_self,
+        let zelf: PyObjectRef = zelf.into();
+        zelf.set_attr(
             "name",
             vm.unwrap_or_none(args.kwargs.get("name").cloned()),
+            vm,
         )?;
-        vm.set_attr(
-            &exc_self,
+        zelf.set_attr(
             "path",
             vm.unwrap_or_none(args.kwargs.get("path").cloned()),
+            vm,
         )?;
         Ok(())
     }

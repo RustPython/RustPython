@@ -542,7 +542,7 @@ mod _io {
     pub(super) fn iobase_close(file: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if !file_closed(file, vm)? {
             let res = vm.call_method(file, "flush", ());
-            vm.set_attr(file, "__closed", vm.new_pyobj(true))?;
+            file.set_attr("__closed", vm.new_pyobj(true), vm)?;
             res?;
         }
         Ok(())
@@ -3622,7 +3622,7 @@ mod _io {
                         line_buffering,
                     ),
                 )?;
-                vm.set_attr(&wrapper, "mode", vm.new_pyobj(mode_string))?;
+                wrapper.set_attr("mode", vm.new_pyobj(mode_string), vm)?;
                 Ok(wrapper)
             }
             EncodeMode::Bytes => Ok(buffered),
@@ -3876,7 +3876,7 @@ mod fileio {
             zelf.closefd.store(args.closefd);
             #[cfg(windows)]
             crate::stdlib::msvcrt::setmode_binary(fd);
-            vm.set_attr(zelf.as_object(), "name", name)?;
+            zelf.as_object().set_attr("name", name, vm)?;
             Ok(())
         }
 
