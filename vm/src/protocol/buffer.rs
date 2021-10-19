@@ -8,17 +8,17 @@ use std::{borrow::Cow, fmt::Debug};
 
 pub struct BufferMethods {
     // always reflecting the whole bytes of the most top object
-    obj_bytes: fn(&PyObjectRef) -> BorrowedValue<[u8]>,
+    pub obj_bytes: fn(&PyObjectRef) -> BorrowedValue<[u8]>,
     // always reflecting the whole bytes of the most top object
-    obj_bytes_mut: fn(&PyObjectRef) -> BorrowedValueMut<[u8]>,
+    pub obj_bytes_mut: fn(&PyObjectRef) -> BorrowedValueMut<[u8]>,
     // GUARANTEE: called only if the buffer option is contiguous
-    contiguous: Option<fn(&PyObjectRef) -> BorrowedValue<[u8]>>,
+    pub contiguous: Option<fn(&PyObjectRef) -> BorrowedValue<[u8]>>,
     // GUARANTEE: called only if the buffer option is contiguous
-    contiguous_mut: Option<fn(&PyObjectRef) -> BorrowedValueMut<[u8]>>,
+    pub contiguous_mut: Option<fn(&PyObjectRef) -> BorrowedValueMut<[u8]>>,
     // collect bytes to buf when buffer option is not contiguous
-    collect_bytes: Option<fn(&PyObjectRef, buf: &mut Vec<u8>)>,
-    release: Option<fn(&PyObjectRef)>,
-    retain: Option<fn(&PyObjectRef)>,
+    pub collect_bytes: Option<fn(&PyObjectRef, buf: &mut Vec<u8>)>,
+    pub release: Option<fn(&PyObjectRef)>,
+    pub retain: Option<fn(&PyObjectRef)>,
 }
 
 impl Debug for BufferMethods {
@@ -70,7 +70,7 @@ impl PyBuffer {
 
     pub fn contiguous_or_collect<R, F: FnOnce(&[u8]) -> R>(&self, f: F) -> R {
         let borrowed;
-        let collected;
+        let mut collected;
         let v = if self.options.contiguous {
             borrowed = self._contiguous();
             &*borrowed
@@ -84,10 +84,6 @@ impl PyBuffer {
 
     pub fn clone_with_options(&self, options: BufferOptions) -> Self {
         Self::new(self.obj.clone(), options, self.methods)
-    }
-
-    pub fn move_with_options(self, options: BufferOptions) -> Self {
-        Self { options, ..self }
     }
 
     // SAFETY: should only called if option has contiguous

@@ -3,7 +3,6 @@ pub(crate) use array::make_module;
 #[pymodule(name = "array")]
 mod array {
     use crate::common::{
-        borrow::{BorrowedValue, BorrowedValueMut},
         lock::{
             PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyRwLock, PyRwLockReadGuard,
             PyRwLockWriteGuard,
@@ -20,7 +19,7 @@ mod array {
             ArgBytesLike, ArgIntoFloat, ArgIterable, IntoPyObject, IntoPyResult, OptionalArg,
         },
         protocol::{
-            BufferInternal, BufferOptions, BufferResizeGuard, PyBuffer, PyIterReturn,
+            BufferMethods, BufferOptions, BufferResizeGuard, PyBuffer, PyIterReturn,
             PyMappingMethods,
         },
         sliceable::{PySliceableSequence, PySliceableSequenceMut, SaturatedSlice, SequenceIndex},
@@ -1220,8 +1219,7 @@ mod array {
         fn as_buffer(zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
             let array = zelf.read();
             let buf = PyBuffer::new(
-                zelf.as_object().to_owned(),
-                PyArrayBufferInternal(zelf.to_owned()),
+                zelf.as_object().clone(),
                 BufferOptions {
                     readonly: false,
                     len: array.len(),
@@ -1229,28 +1227,25 @@ mod array {
                     format: array.typecode_str().into(),
                     ..Default::default()
                 },
+                &BUFFER_METHODS,
             );
             Ok(buf)
         }
     }
 
-    impl BufferInternal for PyArray {
-        fn obj_bytes(&self) -> BorrowedValue<[u8]> {
-            self.get_bytes().into()
-        }
-
-        fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
-            self.get_bytes_mut().into()
-        }
-
-        fn release(&self) {
-            self.exports.fetch_sub(1);
-        }
-
-        fn retain(&self) {
-            self.exports.fetch_add(1);
-        }
-    }
+    static BUFFER_METHODS: BufferMethods = BufferMethods {
+        obj_bytes: |zelf| zelf.payload::<PyArray>().unwrap().get_bytes().into(),
+        obj_bytes_mut: |zelf| zelf.payload::<PyArray>().unwrap().get_bytes_mut().into(),
+        contiguous: None,
+        contiguous_mut: None,
+        collect_bytes: None,
+        release: Some(|zelf| {
+            zelf.payload::<PyArray>().unwrap().exports.fetch_sub(1);
+        }),
+        retain: Some(|zelf| {
+            zelf.payload::<PyArray>().unwrap().exports.fetch_add(1);
+        }),
+    };
 
     impl AsMapping for PyArray {
         fn as_mapping(_zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {

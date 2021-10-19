@@ -140,31 +140,15 @@ mod _sre {
             vm: &VirtualMachine,
             f: F,
         ) -> PyResult<R> {
-            let buffer;
-            let guard;
-            let vec;
-            let s;
-            let str_drive = if self.isbytes {
-                buffer = PyBuffer::try_from_borrowed_object(vm, &string)?;
-                let bytes = match buffer.as_contiguous() {
-                    Some(bytes) => {
-                        guard = bytes;
-                        &*guard
-                    }
-                    None => {
-                        vec = buffer.to_contiguous();
-                        vec.as_slice()
-                    }
-                };
-                StrDrive::Bytes(bytes)
+            if self.isbytes {
+                let buffer = PyBuffer::try_from_borrowed_object(vm, &string)?;
+                buffer.contiguous_or_collect(|bytes| f(StrDrive::Bytes(bytes)))
             } else {
-                s = string
+                let s = string
                     .payload::<PyStr>()
                     .ok_or_else(|| vm.new_type_error("expected string".to_owned()))?;
-                StrDrive::Str(s.as_str())
-            };
-
-            f(str_drive)
+                f(StrDrive::Str(s.as_str()))
+            }
         }
 
         fn with_state<R, F: FnOnce(State) -> PyResult<R>>(

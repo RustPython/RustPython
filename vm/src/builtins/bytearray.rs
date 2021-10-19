@@ -4,7 +4,6 @@ use super::{
     PyTypeRef,
 };
 use crate::common::{
-    borrow::{BorrowedValue, BorrowedValueMut},
     lock::{
         PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyMutex, PyRwLock, PyRwLockReadGuard,
         PyRwLockWriteGuard,
@@ -34,7 +33,6 @@ use crate::{
 };
 use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;
-use rustpython_common::atomic::Radium;
 use std::mem::size_of;
 
 /// "bytearray(iterable_of_ints) -> bytearray\n\

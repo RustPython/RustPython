@@ -20,10 +20,7 @@ use crate::{
     PyValue, TryFromBorrowedObject, TypeProtocol, VirtualMachine,
 };
 use bstr::ByteSlice;
-use rustpython_common::{
-    borrow::{BorrowedValue, BorrowedValueMut},
-    lock::PyMutex,
-};
+use rustpython_common::lock::PyMutex;
 use std::mem::size_of;
 use std::ops::Deref;
 

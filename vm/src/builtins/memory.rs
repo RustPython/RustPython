@@ -131,7 +131,7 @@ impl PyMemoryView {
     }
 
     #[pymethod]
-    fn release(&self) {
+    pub fn release(&self) {
         if self.released.compare_exchange(false, true).is_ok() {
             self.buffer._release();
         }
@@ -663,8 +663,6 @@ impl AsBuffer for PyMemoryView {
         }
     }
 }
-
-struct Released;
 
 impl AsMapping for PyMemoryView {
     fn as_mapping(_zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
