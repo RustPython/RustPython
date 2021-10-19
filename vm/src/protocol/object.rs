@@ -227,8 +227,32 @@ impl PyObject {
         }
     }
 
-    pub fn is_subclass(&self, cls: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-        vm.issubclass(self, cls)
+    /// Determines if `self` is a subclass of `cls`, either directly, indirectly or virtually
+    /// via the __subclasscheck__ magic method.
+    pub fn is_subclass(&self, cls: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        if cls.class().is(&vm.ctx.types.type_type) {
+            if self.is(cls) {
+                return Ok(true);
+            }
+            return vm.recursive_issubclass(self, cls);
+        }
+
+        if let Ok(tuple) = PyTupleRef::try_from_object(vm, cls.clone()) {
+            for typ in tuple.as_slice().iter() {
+                if vm.with_recursion("in __subclasscheck__", || self.is_subclass(typ, vm))? {
+                    return Ok(true);
+                }
+            }
+            return Ok(false);
+        }
+
+        if let Ok(meth) = vm.get_special_method(cls.clone(), "__subclasscheck__")? {
+            let ret =
+                vm.with_recursion("in __subclasscheck__", || meth.invoke((self.clone(),), vm))?;
+            return ret.try_to_bool(vm);
+        }
+
+        vm.recursive_issubclass(self, cls)
     }
 
     /// Determines if `self` is an instance of `cls`, either directly, indirectly or virtually via

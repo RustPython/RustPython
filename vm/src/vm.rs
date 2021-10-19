@@ -1041,7 +1041,7 @@ impl VirtualMachine {
         }
     }
 
-    fn abstract_issubclass(&self, subclass: PyObjectRef, cls: &PyObject) -> PyResult<bool> {
+    pub fn abstract_issubclass(&self, subclass: PyObjectRef, cls: &PyObjectRef) -> PyResult<bool> {
         let mut derived = subclass;
         loop {
             if derived.is(cls) {
@@ -1073,7 +1073,11 @@ impl VirtualMachine {
         }
     }
 
-    fn recursive_issubclass(&self, subclass: &PyObject, cls: &PyObject) -> PyResult<bool> {
+    pub fn recursive_issubclass(
+        &self,
+        subclass: &PyObjectRef,
+        cls: &PyObjectRef,
+    ) -> PyResult<bool> {
         if let (Ok(subclass), Ok(cls)) = (
             PyTypeRef::try_from_object(self, subclass.to_owned()),
             PyTypeRef::try_from_object(self, cls.to_owned()),
@@ -1094,35 +1098,6 @@ impl VirtualMachine {
             }))
             .and(self.abstract_issubclass(subclass.to_owned(), cls))
         }
-    }
-
-    /// Determines if `subclass` is a subclass of `cls`, either directly, indirectly or virtually
-    /// via the __subclasscheck__ magic method.
-    pub fn issubclass(&self, subclass: &PyObject, cls: &PyObject) -> PyResult<bool> {
-        if cls.class().is(&self.ctx.types.type_type) {
-            if subclass.is(cls) {
-                return Ok(true);
-            }
-            return self.recursive_issubclass(subclass, cls);
-        }
-
-        if let Ok(tuple) = PyTupleRef::try_from_object(self, cls.to_owned()) {
-            for typ in tuple.as_slice().iter() {
-                if self.with_recursion("in __subclasscheck__", || self.issubclass(subclass, typ))? {
-                    return Ok(true);
-                }
-            }
-            return Ok(false);
-        }
-
-        if let Ok(meth) = self.get_special_method(cls.to_owned(), "__subclasscheck__")? {
-            let ret = self.with_recursion("in __subclasscheck__", || {
-                meth.invoke((subclass.to_owned(),), self)
-            })?;
-            return ret.try_to_bool(self);
-        }
-
-        self.recursive_issubclass(subclass, cls)
     }
 
     pub fn call_get_descriptor_specific(
