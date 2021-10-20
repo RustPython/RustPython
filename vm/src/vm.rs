@@ -892,16 +892,6 @@ impl VirtualMachine {
         obj.unwrap_or_else(|| self.ctx.none())
     }
 
-    // Container of the virtual machine state:
-    pub fn to_str(&self, obj: &PyObjectRef) -> PyResult<PyStrRef> {
-        if obj.class().is(&self.ctx.types.str_type) {
-            Ok(obj.clone().downcast().unwrap())
-        } else {
-            let s = self.call_special_method(obj.clone(), "__str__", ())?;
-            s.try_into_value(self)
-        }
-    }
-
     pub fn to_repr(&self, obj: &PyObjectRef) -> PyResult<PyStrRef> {
         self.with_recursion("while getting the repr of an object", || {
             let repr = self.call_special_method(obj.clone(), "__repr__", ())?;

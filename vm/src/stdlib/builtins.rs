@@ -662,7 +662,7 @@ mod builtins {
                 write(sep.clone())?;
             }
 
-            write(vm.to_str(&object)?)?;
+            write(object.str(vm)?)?;
         }
 
         let end = options
