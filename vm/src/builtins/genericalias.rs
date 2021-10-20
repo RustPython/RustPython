@@ -1,8 +1,8 @@
 use crate::{
-    builtins::{PyList, PyStr, PyStrRef, PyTuple, PyTupleRef, PyTypeRef},
+    builtins::{PyList, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef},
     common::hash,
-    function::IntoPyObject,
-    types::{Constructor, GetAttr, Hashable},
+    function::{FuncArgs, IntoPyObject},
+    types::{Callable, Constructor, GetAttr, Hashable},
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol, VirtualMachine,
 };
@@ -52,7 +52,7 @@ impl Constructor for PyGenericAlias {
     }
 }
 
-#[pyimpl(with(Hashable, Constructor, GetAttr), flags(BASETYPE))]
+#[pyimpl(with(Callable, Constructor, GetAttr, Hashable), flags(BASETYPE))]
 impl PyGenericAlias {
     pub fn new(origin: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> Self {
         let args: PyTupleRef = if let Ok(tuple) = PyTupleRef::try_from_object(vm, args.clone()) {
@@ -134,9 +134,34 @@ impl PyGenericAlias {
         }
         Ok(dir)
     }
+
+    #[pymethod(magic)]
+    fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> (PyTypeRef, (PyTypeRef, PyTupleRef)) {
+        (
+            vm.ctx.types.generic_alias_type.clone(),
+            (zelf.origin.clone(), zelf.args.clone()),
+        )
+    }
+
+    #[pymethod(magic)]
+    fn mro_entries(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyTupleRef {
+        PyTuple::new_ref(vec![self.origin()], &vm.ctx)
+    }
+
+    #[pymethod(magic)]
+    fn instancecheck(_zelf: PyRef<Self>, _obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Err(vm
+            .new_type_error("isinstance() argument 2 cannot be a parameterized generic".to_owned()))
+    }
+
+    #[pymethod(magic)]
+    fn subclasscheck(_zelf: PyRef<Self>, _obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Err(vm
+            .new_type_error("issubclass() argument 2 cannot be a parameterized generic".to_owned()))
+    }
 }
 
-fn is_typevar(obj: PyObjectRef) -> bool {
+fn is_typevar(obj: &PyObjectRef) -> bool {
     let class = obj.class();
     class.slot_name() == "TypeVar"
         && class
@@ -148,7 +173,7 @@ fn is_typevar(obj: PyObjectRef) -> bool {
 fn make_parameters(args: &PyTupleRef, vm: &VirtualMachine) -> PyTupleRef {
     let mut parameters: Vec<PyObjectRef> = vec![];
     for arg in args.as_slice() {
-        if is_typevar(arg.clone()) {
+        if is_typevar(arg) {
             parameters.push(arg.clone());
         } else if let Ok(tuple) = arg
             .clone()
@@ -162,6 +187,22 @@ fn make_parameters(args: &PyTupleRef, vm: &VirtualMachine) -> PyTupleRef {
     }
 
     PyTuple::new_ref(parameters, &vm.ctx)
+}
+
+impl Callable for PyGenericAlias {
+    type Args = FuncArgs;
+    fn call(zelf: &crate::PyObjectView<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        PyType::call(&zelf.origin, args, vm).map(|obj| {
+            if let Err(exc) = obj.set_attr("__orig_class__", zelf.to_owned(), vm) {
+                if !exc.isinstance(&vm.ctx.exceptions.attribute_error)
+                    && !exc.isinstance(&vm.ctx.exceptions.type_error)
+                {
+                    return Err(exc);
+                }
+            }
+            Ok(obj)
+        })?
+    }
 }
 
 impl Hashable for PyGenericAlias {
