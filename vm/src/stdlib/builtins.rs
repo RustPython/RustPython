@@ -397,7 +397,7 @@ mod builtins {
 
     #[pyfunction]
     fn isinstance(obj: PyObjectRef, typ: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        vm.isinstance(&obj, &typ)
+        obj.is_instance(&typ, vm)
     }
 
     #[pyfunction]
