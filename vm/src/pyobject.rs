@@ -1047,7 +1047,7 @@ impl PyMethod {
         let getattro = cls.mro_find_map(|cls| cls.slots.getattro.load()).unwrap();
         if getattro as usize != object::PyBaseObject::getattro as usize {
             drop(cls);
-            return getattro(obj, name, vm).map(Self::Attribute);
+            return obj.get_attr(name, vm).map(Self::Attribute);
         }
 
         let mut is_method = false;
@@ -1103,11 +1103,13 @@ impl PyMethod {
             drop(cls);
             vm.invoke(&getter, (obj, name)).map(Self::Attribute)
         } else {
-            Err(vm.new_attribute_error(format!(
+            let exc = vm.new_attribute_error(format!(
                 "'{}' object has no attribute '{}'",
                 cls.name(),
                 name
-            )))
+            ));
+            vm.set_attribute_error_context(&exc, obj.clone(), name);
+            Err(exc)
         }
     }
 

@@ -98,6 +98,108 @@ pub const fn bytes_is_ascii(x: &str) -> bool {
     true
 }
 
+pub mod levenshtein {
+    use std::cell::RefCell;
+    use std::thread_local;
+
+    pub const MOVE_COST: usize = 2;
+    const CASE_COST: usize = 1;
+    const MAX_STRING_SIZE: usize = 40;
+
+    fn substitution_cost(mut a: u8, mut b: u8) -> usize {
+        if (a & 31) != (b & 31) {
+            return MOVE_COST;
+        }
+        if a == b {
+            return 0;
+        }
+        if (b'A'..=b'Z').contains(&a) {
+            a += b'a' - b'A';
+        }
+        if (b'A'..=b'Z').contains(&b) {
+            b += b'a' - b'A';
+        }
+        if a == b {
+            CASE_COST
+        } else {
+            MOVE_COST
+        }
+    }
+
+    pub fn levenshtein_distance(a: &str, b: &str, max_cost: usize) -> usize {
+        thread_local! {
+            static BUFFER: RefCell<[usize; MAX_STRING_SIZE]> = RefCell::new([0usize; MAX_STRING_SIZE]);
+        }
+
+        if a == b {
+            return 0;
+        }
+
+        let (mut a_bytes, mut b_bytes) = (a.as_bytes(), b.as_bytes());
+        let (mut a_begin, mut a_end) = (0usize, a.len());
+        let (mut b_begin, mut b_end) = (0usize, b.len());
+
+        while a_end > 0 && b_end > 0 && (a_bytes[a_begin] == b_bytes[b_begin]) {
+            a_begin += 1;
+            b_begin += 1;
+            a_end -= 1;
+            b_end -= 1;
+        }
+        while a_end > 0
+            && b_end > 0
+            && (a_bytes[a_begin + a_end - 1] == b_bytes[b_begin + b_end - 1])
+        {
+            a_end -= 1;
+            b_end -= 1;
+        }
+        if a_end == 0 || b_end == 0 {
+            return (a_end + b_end) * MOVE_COST;
+        }
+        if a_end > MAX_STRING_SIZE || b_end > MAX_STRING_SIZE {
+            return max_cost + 1;
+        }
+
+        if b_end < a_end {
+            std::mem::swap(&mut a_bytes, &mut b_bytes);
+            std::mem::swap(&mut a_begin, &mut b_begin);
+            std::mem::swap(&mut a_end, &mut b_end);
+        }
+
+        if (b_end - a_end) * MOVE_COST > max_cost {
+            return max_cost + 1;
+        }
+
+        BUFFER.with(|buffer| {
+            let mut buffer = buffer.borrow_mut();
+            for i in 0..a_end {
+                buffer[i] = (i + 1) * MOVE_COST;
+            }
+
+            let mut result = 0usize;
+            for (b_index, b_code) in b_bytes[b_begin..(b_begin + b_end)].iter().enumerate() {
+                result = b_index * MOVE_COST;
+                let mut distance = result;
+                let mut minimum = usize::MAX;
+                for (a_index, a_code) in a_bytes[a_begin..(a_begin + a_end)].iter().enumerate() {
+                    let substitute = distance + substitution_cost(*b_code, *a_code);
+                    distance = buffer[a_index];
+                    let insert_delete = usize::min(result, distance) + MOVE_COST;
+                    result = usize::min(insert_delete, substitute);
+
+                    buffer[a_index] = result;
+                    if result < minimum {
+                        minimum = result;
+                    }
+                }
+                if minimum > max_cost {
+                    return max_cost + 1;
+                }
+            }
+            result
+        })
+    }
+}
+
 #[macro_export]
 macro_rules! ascii {
     ($x:literal) => {{

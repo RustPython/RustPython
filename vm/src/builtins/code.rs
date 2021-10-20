@@ -256,7 +256,7 @@ impl PyRef<PyCode> {
     }
 
     #[pyproperty]
-    fn co_varnames(self, vm: &VirtualMachine) -> PyTupleRef {
+    pub fn co_varnames(self, vm: &VirtualMachine) -> PyTupleRef {
         let varnames = self
             .code
             .varnames

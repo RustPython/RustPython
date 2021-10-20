@@ -7,6 +7,7 @@ use crate::{
     function::{ArgIterable, FuncArgs, IntoPyException, IntoPyObject},
     py_io::{self, Write},
     stdlib::sys,
+    suggestion::offer_suggestions,
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
     TryFromObject, TypeProtocol, VirtualMachine,
 };
@@ -129,17 +130,22 @@ impl VirtualMachine {
         let varargs = exc.args();
         let args_repr = vm.exception_args_as_string(varargs, true);
 
-        let exc_type = exc.class();
-        let exc_name = exc_type.name();
+        let exc_class = exc.class();
+        let exc_name = exc_class.name();
         match args_repr.len() {
-            0 => writeln!(output, "{}", exc_name),
-            1 => writeln!(output, "{}: {}", exc_name, args_repr[0]),
-            _ => writeln!(
+            0 => write!(output, "{}", exc_name),
+            1 => write!(output, "{}: {}", exc_name, args_repr[0]),
+            _ => write!(
                 output,
                 "{}: ({})",
                 exc_name,
                 args_repr.into_iter().format(", ")
             ),
+        }?;
+
+        match offer_suggestions(exc, vm) {
+            Some(suggestions) => writeln!(output, ". Did you mean: '{}'?", suggestions.to_string()),
+            None => writeln!(output),
         }
     }
 
@@ -697,7 +703,10 @@ impl ExceptionZoo {
         extend_exception!(PyZeroDivisionError, ctx, &excs.zero_division_error);
 
         extend_exception!(PyAssertionError, ctx, &excs.assertion_error);
-        extend_exception!(PyAttributeError, ctx, &excs.attribute_error);
+        extend_exception!(PyAttributeError, ctx, &excs.attribute_error, {
+            "name" => ctx.none(),
+            "obj" => ctx.none(),
+        });
         extend_exception!(PyBufferError, ctx, &excs.buffer_error);
         extend_exception!(PyEOFError, ctx, &excs.eof_error);
 
@@ -713,7 +722,9 @@ impl ExceptionZoo {
         });
 
         extend_exception!(PyMemoryError, ctx, &excs.memory_error);
-        extend_exception!(PyNameError, ctx, &excs.name_error);
+        extend_exception!(PyNameError, ctx, &excs.name_error, {
+            "name" => ctx.none(),
+        });
         extend_exception!(PyUnboundLocalError, ctx, &excs.unbound_local_error);
 
         // os errors:

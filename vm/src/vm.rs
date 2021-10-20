@@ -665,9 +665,14 @@ impl VirtualMachine {
         self.new_exception_msg(type_error, msg)
     }
 
-    pub fn new_name_error(&self, msg: String) -> PyBaseExceptionRef {
-        let name_error = self.ctx.exceptions.name_error.clone();
-        self.new_exception_msg(name_error, msg)
+    pub fn new_name_error(&self, msg: String, name: &PyStrRef) -> PyBaseExceptionRef {
+        let name_error_type = self.ctx.exceptions.name_error.clone();
+        let name_error = self.new_exception_msg(name_error_type, msg);
+        name_error
+            .as_object()
+            .set_attr("name", name.clone(), self)
+            .unwrap();
+        name_error
     }
 
     pub fn new_unsupported_unary_error(&self, a: &PyObjectRef, op: &str) -> PyBaseExceptionRef {
@@ -1368,6 +1373,19 @@ impl VirtualMachine {
             Ok(attr) => Ok(Some(attr)),
             Err(e) if e.isinstance(&self.ctx.exceptions.attribute_error) => Ok(None),
             Err(e) => Err(e),
+        }
+    }
+
+    pub fn set_attribute_error_context(
+        &self,
+        exc: &PyBaseExceptionRef,
+        obj: PyObjectRef,
+        name: PyStrRef,
+    ) {
+        if exc.class().is(&self.ctx.exceptions.attribute_error) {
+            let exc = exc.as_object();
+            exc.set_attr("name", name, self).unwrap();
+            exc.set_attr("obj", obj, self).unwrap();
         }
     }
 

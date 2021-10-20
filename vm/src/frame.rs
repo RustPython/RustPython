@@ -448,10 +448,13 @@ impl ExecutingFrame<'_> {
             )
         } else {
             let name = &self.code.freevars[i - self.code.cellvars.len()];
-            vm.new_name_error(format!(
-                "free variable '{}' referenced before assignment in enclosing scope",
-                name
-            ))
+            vm.new_name_error(
+                format!(
+                    "free variable '{}' referenced before assignment in enclosing scope",
+                    name
+                ),
+                name,
+            )
         }
     }
 
@@ -609,7 +612,9 @@ impl ExecutingFrame<'_> {
                 match res {
                     Ok(()) => {}
                     Err(e) if e.isinstance(&vm.ctx.exceptions.key_error) => {
-                        return Err(vm.new_name_error(format!("name '{}' is not defined", name)))
+                        return Err(
+                            vm.new_name_error(format!("name '{}' is not defined", name), name)
+                        )
                     }
                     Err(e) => return Err(e),
                 }
@@ -620,7 +625,9 @@ impl ExecutingFrame<'_> {
                 match self.globals.del_item(name.clone(), vm) {
                     Ok(()) => {}
                     Err(e) if e.isinstance(&vm.ctx.exceptions.key_error) => {
-                        return Err(vm.new_name_error(format!("name '{}' is not defined", name)))
+                        return Err(
+                            vm.new_name_error(format!("name '{}' is not defined", name), name)
+                        )
                     }
                     Err(e) => return Err(e),
                 }
@@ -1124,7 +1131,7 @@ impl ExecutingFrame<'_> {
     fn load_global_or_builtin(&self, name: &PyStrRef, vm: &VirtualMachine) -> PyResult {
         self.globals
             .get_chain(self.builtins, name.clone(), vm)?
-            .ok_or_else(|| vm.new_name_error(format!("name '{}' is not defined", name)))
+            .ok_or_else(|| vm.new_name_error(format!("name '{}' is not defined", name), name))
     }
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
