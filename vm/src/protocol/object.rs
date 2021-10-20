@@ -7,7 +7,6 @@ use crate::{
     common::{hash::PyHash, str::to_ascii},
     function::{IntoPyObject, OptionalArg},
     protocol::PyIter,
-    pyobject::IdProtocol,
     pyref_type_error,
     types::{Constructor, PyComparisonOp},
     utils::Either,
