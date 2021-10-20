@@ -27,7 +27,6 @@ use crate::{
     signal::NSIG,
     stdlib,
     types::PyComparisonOp,
-    utils::Either,
     IdProtocol, ItemProtocol, PyArithmeticValue, PyContext, PyLease, PyMethod, PyObject,
     PyObjectRef, PyObjectWrap, PyRef, PyRefExact, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
@@ -1786,69 +1785,6 @@ impl VirtualMachine {
             .invoke((), self)
     }
 
-    // Perform a comparison, raising TypeError when the requested comparison
-    // operator is not supported.
-    // see: CPython PyObject_RichCompare
-    fn _cmp(
-        &self,
-        v: &PyObjectRef,
-        w: &PyObjectRef,
-        op: PyComparisonOp,
-    ) -> PyResult<Either<PyObjectRef, bool>> {
-        let swapped = op.swapped();
-        let call_cmp = |obj: &PyObjectRef, other, op| {
-            let cmp = obj
-                .class()
-                .mro_find_map(|cls| cls.slots.richcompare.load())
-                .unwrap();
-            Ok(match cmp(obj, other, op, self)? {
-                Either::A(obj) => PyArithmeticValue::from_object(self, obj).map(Either::A),
-                Either::B(arithmetic) => arithmetic.map(Either::B),
-            })
-        };
-
-        let mut checked_reverse_op = false;
-        let is_strict_subclass = {
-            let v_class = v.class();
-            let w_class = w.class();
-            !v_class.is(&w_class) && w_class.issubclass(&v_class)
-        };
-        if is_strict_subclass {
-            let res = self.with_recursion("in comparison", || call_cmp(w, v, swapped))?;
-            checked_reverse_op = true;
-            if let PyArithmeticValue::Implemented(x) = res {
-                return Ok(x);
-            }
-        }
-        if let PyArithmeticValue::Implemented(x) =
-            self.with_recursion("in comparison", || call_cmp(v, w, op))?
-        {
-            return Ok(x);
-        }
-        if !checked_reverse_op {
-            let res = self.with_recursion("in comparison", || call_cmp(w, v, swapped))?;
-            if let PyArithmeticValue::Implemented(x) = res {
-                return Ok(x);
-            }
-        }
-        match op {
-            PyComparisonOp::Eq => Ok(Either::B(v.is(&w))),
-            PyComparisonOp::Ne => Ok(Either::B(!v.is(&w))),
-            _ => Err(self.new_unsupported_binop_error(v, w, op.operator_token())),
-        }
-    }
-
-    pub fn bool_cmp(&self, a: &PyObjectRef, b: &PyObjectRef, op: PyComparisonOp) -> PyResult<bool> {
-        match self._cmp(a, b, op)? {
-            Either::A(obj) => obj.try_to_bool(self),
-            Either::B(b) => Ok(b),
-        }
-    }
-
-    pub fn obj_cmp(&self, a: PyObjectRef, b: PyObjectRef, op: PyComparisonOp) -> PyResult {
-        self._cmp(&a, &b, op).map(|res| res.into_pyobject(self))
-    }
-
     pub fn obj_len_opt(&self, obj: &PyObjectRef) -> Option<PyResult<usize>> {
         self.get_special_method(obj.clone(), "__len__")
             .map(Result::ok)
@@ -2019,7 +1955,7 @@ impl VirtualMachine {
     }
 
     pub fn bool_eq(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult<bool> {
-        self.bool_cmp(a, b, PyComparisonOp::Eq)
+        a.rich_compare_bool(b, PyComparisonOp::Eq, self)
     }
 
     pub fn identical_or_equal(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult<bool> {
@@ -2031,7 +1967,7 @@ impl VirtualMachine {
     }
 
     pub fn bool_seq_lt(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult<Option<bool>> {
-        let value = if self.bool_cmp(a, b, PyComparisonOp::Lt)? {
+        let value = if a.rich_compare_bool(b, PyComparisonOp::Lt, self)? {
             Some(true)
         } else if !self.bool_eq(a, b)? {
             Some(false)
@@ -2042,7 +1978,7 @@ impl VirtualMachine {
     }
 
     pub fn bool_seq_gt(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult<Option<bool>> {
-        let value = if self.bool_cmp(a, b, PyComparisonOp::Gt)? {
+        let value = if a.rich_compare_bool(b, PyComparisonOp::Gt, self)? {
             Some(true)
         } else if !self.bool_eq(a, b)? {
             Some(false)

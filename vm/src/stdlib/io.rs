@@ -2379,7 +2379,7 @@ mod _io {
                 }
             };
             use crate::types::PyComparisonOp;
-            if vm.bool_cmp(&cookie, &vm.ctx.new_int(0).into(), PyComparisonOp::Lt)? {
+            if cookie.rich_compare_bool(&vm.ctx.new_int(0).into(), PyComparisonOp::Lt, vm)? {
                 return Err(
                     vm.new_value_error(format!("negative seek position {}", vm.to_repr(&cookie)?))
                 );

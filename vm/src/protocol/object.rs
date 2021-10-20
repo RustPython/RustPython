@@ -5,12 +5,14 @@ use crate::{
     builtins::{pystr::IntoPyStrRef, PyBytes, PyInt, PyStrRef, PyTupleRef},
     bytesinner::ByteInnerNewOptions,
     common::{hash::PyHash, str::to_ascii},
-    function::OptionalArg,
+    function::{IntoPyObject, OptionalArg},
     protocol::PyIter,
     pyobject::IdProtocol,
     pyref_type_error,
     types::{Constructor, PyComparisonOp},
-    PyObjectRef, PyResult, TryFromObject, TypeProtocol, VirtualMachine,
+    utils::Either,
+    IdProtocol, PyArithmeticValue, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
+    VirtualMachine,
 };
 
 // RustPython doesn't need these items
@@ -79,11 +81,63 @@ impl PyObjectRef {
         self.call_set_attr(vm, attr_name, None)
     }
 
+    // Perform a comparison, raising TypeError when the requested comparison
+    // operator is not supported.
+    // see: CPython PyObject_RichCompare
+    fn _cmp(
+        &self,
+        other: &Self,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<Either<PyObjectRef, bool>> {
+        let swapped = op.swapped();
+        let call_cmp = |obj: &PyObjectRef, other, op| {
+            let cmp = obj
+                .class()
+                .mro_find_map(|cls| cls.slots.richcompare.load())
+                .unwrap();
+            Ok(match cmp(obj, other, op, vm)? {
+                Either::A(obj) => PyArithmeticValue::from_object(vm, obj).map(Either::A),
+                Either::B(arithmetic) => arithmetic.map(Either::B),
+            })
+        };
+
+        let mut checked_reverse_op = false;
+        let is_strict_subclass = {
+            let self_class = self.class();
+            let other_class = other.class();
+            !self_class.is(&other_class) && other_class.issubclass(&self_class)
+        };
+        if is_strict_subclass {
+            let res = vm.with_recursion("in comparison", || call_cmp(other, self, swapped))?;
+            checked_reverse_op = true;
+            if let PyArithmeticValue::Implemented(x) = res {
+                return Ok(x);
+            }
+        }
+        if let PyArithmeticValue::Implemented(x) =
+            vm.with_recursion("in comparison", || call_cmp(self, other, op))?
+        {
+            return Ok(x);
+        }
+        if !checked_reverse_op {
+            let res = vm.with_recursion("in comparison", || call_cmp(other, self, swapped))?;
+            if let PyArithmeticValue::Implemented(x) = res {
+                return Ok(x);
+            }
+        }
+        match op {
+            PyComparisonOp::Eq => Ok(Either::B(self.is(&other))),
+            PyComparisonOp::Ne => Ok(Either::B(!self.is(&other))),
+            _ => Err(vm.new_unsupported_binop_error(self, other, op.operator_token())),
+        }
+    }
+
     // PyObject *PyObject_GenericGetDict(PyObject *o, void *context)
     // int PyObject_GenericSetDict(PyObject *o, PyObject *value, void *context)
 
     pub fn rich_compare(self, other: Self, opid: PyComparisonOp, vm: &VirtualMachine) -> PyResult {
-        vm.obj_cmp(self, other, opid)
+        self._cmp(&other, opid, vm).map(|res| res.into_pyobject(vm))
     }
 
     pub fn rich_compare_bool(
@@ -92,7 +146,10 @@ impl PyObjectRef {
         opid: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
-        vm.bool_cmp(self, other, opid)
+        match self._cmp(other, opid, vm)? {
+            Either::A(obj) => obj.try_to_bool(vm),
+            Either::B(other) => Ok(other),
+        }
     }
 
     pub fn repr(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {

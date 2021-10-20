@@ -477,14 +477,14 @@ mod builtins {
             let mut x_key = vm.invoke(key_func, (x.clone(),))?;
             for y in candidates_iter {
                 let y_key = vm.invoke(key_func, (y.clone(),))?;
-                if vm.bool_cmp(&y_key, &x_key, op)? {
+                if y_key.rich_compare_bool(&x_key, op, vm)? {
                     x = y;
                     x_key = y_key;
                 }
             }
         } else {
             for y in candidates_iter {
-                if vm.bool_cmp(&y, &x, op)? {
+                if y.rich_compare_bool(&x, op, vm)? {
                     x = y;
                 }
             }
