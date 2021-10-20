@@ -2042,8 +2042,6 @@ class PosixUidGidTests(unittest.TestCase):
         self.assertRaises(OverflowError, os.setreuid, self.UID_OVERFLOW, 0)
         self.assertRaises(OverflowError, os.setreuid, 0, self.UID_OVERFLOW)
 
-    # TODO: RUSTPYTHON (subprocess.CalledProcessError)
-    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(os, 'setreuid'), 'test needs os.setreuid()')
     def test_setreuid_neg1(self):
         # Needs to accept -1.  We run this in a subprocess to avoid
@@ -2061,8 +2059,6 @@ class PosixUidGidTests(unittest.TestCase):
         self.assertRaises(OverflowError, os.setregid, self.GID_OVERFLOW, 0)
         self.assertRaises(OverflowError, os.setregid, 0, self.GID_OVERFLOW)
 
-    # TODO: RUSTPYTHON (subprocess.CalledProcessError)
-    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(os, 'setregid'), 'test needs os.setregid()')
     def test_setregid_neg1(self):
         # Needs to accept -1.  We run this in a subprocess to avoid
