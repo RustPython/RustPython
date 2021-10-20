@@ -1035,9 +1035,9 @@ dependencies = [
 
 [[package]]
 name = "libc"
-version = "0.2.102"
+version = "0.2.104"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a2a5ac8f984bfcf3a823267e5fde638acc3325f6496633a5da6bb6eb2171e103"
+checksum = "7b2f96d100e1cf1929e7719b7edb3b90ab5298072638fccd77be9ce942ecdfce"
 
 [[package]]
 name = "libffi"
@@ -1747,6 +1747,7 @@ dependencies = [
  "log",
  "num-traits",
  "python3-sys",
+ "rustpython-capi",
  "rustpython-compiler",
  "rustpython-parser",
  "rustpython-stdlib",
@@ -1774,6 +1775,14 @@ dependencies = [
  "num-bigint",
  "num-complex",
  "serde",
+]
+
+[[package]]
+name = "rustpython-capi"
+version = "0.1.2"
+dependencies = [
+ "libc",
+ "rustpython-vm",
 ]
 
 [[package]]
