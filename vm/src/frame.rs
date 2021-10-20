@@ -1092,7 +1092,7 @@ impl ExecutingFrame<'_> {
                 use bytecode::ConversionFlag;
                 let value = self.pop_value();
                 let value = match conversion {
-                    ConversionFlag::Str => vm.to_str(&value)?.into(),
+                    ConversionFlag::Str => value.str(vm)?.into(),
                     ConversionFlag::Repr => vm.to_repr(&value)?.into(),
                     ConversionFlag::Ascii => vm.ctx.new_str(builtins::ascii(value, vm)?).into(),
                     ConversionFlag::None => value,

@@ -59,7 +59,7 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
             .sys_module
             .clone()
             .get_attr(prompt_name, vm)
-            .and_then(|prompt| vm.to_str(&prompt));
+            .and_then(|prompt| prompt.str(vm));
         let prompt = match prompt {
             Ok(ref s) => s.as_str(),
             Err(_) => "",

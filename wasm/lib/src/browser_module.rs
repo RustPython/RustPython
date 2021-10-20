@@ -78,8 +78,8 @@ fn browser_fetch(url: PyStrRef, args: FetchArgs, vm: &VirtualMachine) -> PyResul
     if let Some(headers) = headers {
         let h = request.headers();
         for (key, value) in headers {
-            let key = vm.to_str(&key)?;
-            let value = vm.to_str(&value)?;
+            let key = key.str(vm)?;
+            let value = value.str(vm)?;
             h.set(key.as_str(), value.as_str())
                 .map_err(|err| convert::js_py_typeerror(vm, err))?;
         }

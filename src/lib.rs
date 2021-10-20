@@ -121,7 +121,7 @@ where
                             if vm.is_none(arg) {
                                 0
                             } else {
-                                if let Ok(s) = vm.to_str(arg) {
+                                if let Ok(s) = arg.str(vm) {
                                     eprintln!("{}", s);
                                 }
                                 1

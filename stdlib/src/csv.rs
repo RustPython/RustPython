@@ -286,7 +286,7 @@ mod _csv {
                     ref s @ PyStr => s.as_str().as_bytes(),
                     crate::builtins::PyNone => b"",
                     ref obj => {
-                        stringified = vm.to_str(obj)?;
+                        stringified = obj.str(vm)?;
                         stringified.as_str().as_bytes()
                     }
                 });

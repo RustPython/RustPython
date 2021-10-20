@@ -296,7 +296,7 @@ impl Constructor for PyStr {
                         vm,
                     )?
                 } else {
-                    vm.to_str(&input)?
+                    input.str(vm)?
                 }
             }
             OptionalArg::Missing => {

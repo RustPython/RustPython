@@ -7,6 +7,7 @@ use crate::{
     common::{hash::PyHash, str::to_ascii},
     function::OptionalArg,
     protocol::PyIter,
+    pyobject::IdProtocol,
     pyref_type_error,
     types::{Constructor, PyComparisonOp},
     PyObjectRef, PyResult, TryFromObject, TypeProtocol, VirtualMachine,
@@ -104,8 +105,14 @@ impl PyObjectRef {
         Ok(ascii)
     }
 
+    // Container of the virtual machine state:
     pub fn str(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        vm.to_str(self)
+        if self.class().is(&vm.ctx.types.str_type) {
+            Ok(self.clone().downcast().unwrap())
+        } else {
+            let s = vm.call_special_method(self.clone(), "__str__", ())?;
+            s.try_into_value(vm)
+        }
     }
 
     pub fn bytes(self, vm: &VirtualMachine) -> PyResult {

@@ -441,7 +441,7 @@ impl PyList {
             .unwrap_or(sys::MAXSIZE as usize);
         let index = self.find_equal(&needle, start..stop, vm)?;
         if index == usize::MAX {
-            Err(vm.new_value_error(format!("'{}' is not in list", vm.to_str(&needle)?)))
+            Err(vm.new_value_error(format!("'{}' is not in list", needle.str(vm)?)))
         } else {
             Ok(index)
         }
@@ -471,7 +471,7 @@ impl PyList {
             // defer delete out of borrow
             Ok(self.borrow_vec_mut().remove(index))
         } else {
-            Err(vm.new_value_error(format!("'{}' is not in list", vm.to_str(&needle)?)))
+            Err(vm.new_value_error(format!("'{}' is not in list", needle.str(vm)?)))
         }
         .map(drop)
     }

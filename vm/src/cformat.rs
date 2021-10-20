@@ -460,7 +460,7 @@ impl CFormatSpec {
         match &self.format_type {
             CFormatType::String(preconversor) => {
                 let result = match preconversor {
-                    CFormatPreconversor::Str => vm.to_str(&obj)?,
+                    CFormatPreconversor::Str => obj.str(vm)?,
                     CFormatPreconversor::Repr | CFormatPreconversor::Ascii => vm.to_repr(&obj)?,
                     CFormatPreconversor::Bytes => {
                         return Err(vm.new_value_error(
