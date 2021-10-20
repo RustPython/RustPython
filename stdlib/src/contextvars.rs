@@ -27,8 +27,10 @@ mod _contextvars {
     #[derive(FromArgs)]
     struct ContextVarOptions {
         #[pyarg(positional)]
+        #[allow(dead_code)] // TODO: RUSTPYTHON
         name: PyStrRef,
         #[pyarg(any, optional)]
+        #[allow(dead_code)] // TODO: RUSTPYTHON
         default: OptionalArg<PyObjectRef>,
     }
 
