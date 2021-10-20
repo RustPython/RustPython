@@ -2960,7 +2960,6 @@ class TestPath(unittest.TestCase):
         # Check the file iterated all items
         assert entries.count == self.HUGE_ZIPFILE_NUM_ENTRIES
 
-    @unittest.skip("TODO: RUSTPYTHON, appears to hang")
     # @func_timeout.func_set_timeout(3)
     def test_implied_dirs_performance(self):
         data = ['/'.join(string.ascii_lowercase + str(n)) for n in range(10000)]

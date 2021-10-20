@@ -61,15 +61,17 @@ class EncodingTest:
     def test_default_encoding(self):
         self.run_test(self.source_line.encode('utf-8'))
 
+    # TODO: RUSTPYTHON, UnicodeDecodeError: invalid utf-8 sequence of 1 bytes from index 17
+    @unittest.expectedFailure
     # [encoding first line]
-    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'called `Result::unwrap()` on an `Err` value: Utf8Error { valid_up_to: 17, error_len: Some(1) }'")
     def test_encoding_on_first_line(self):
         encoding = 'Latin-1'
         source = self.create_source(encoding)
         self.run_test(source)
 
+    # TODO: RUSTPYTHON, UnicodeDecodeError: invalid utf-8 sequence of 1 bytes from index 34
+    @unittest.expectedFailure
     # [encoding second line]
-    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'called `Result::unwrap()` on an `Err` value: Utf8Error { valid_up_to: 34, error_len: Some(1) }'")
     def test_encoding_on_second_line(self):
         source = b"#/usr/bin/python\n" + self.create_source('Latin-1')
         self.run_test(source)
@@ -87,7 +89,8 @@ class EncodingTest:
         source = codecs.BOM_UTF8 + self.create_source('utf-8')
         self.run_test(source)
 
-    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'called `Result::unwrap()` on an `Err` value: Utf8Error { valid_up_to: 20, error_len: Some(1) }'")
+    # TODO: RUSTPYTHON, UnicodeDecodeError: invalid utf-8 sequence of 1 bytes from index 20
+    @unittest.expectedFailure
     # [BOM conflict]
     def test_bom_conflict(self):
         source = codecs.BOM_UTF8 + self.create_source('latin-1')
