@@ -683,6 +683,25 @@ pub(super) mod _os {
             Either::A(ref s) => s.as_str().as_ref(),
             Either::B(ref b) => super::bytes_as_osstr(b.as_bytes(), vm)?,
         };
+
+        #[cfg(unix)]
+        {
+            use super::ffi_ext::OsStrExt;
+            let check_embedded_null = |s: &ffi::OsStr| ffi::CString::new(s.as_bytes()).is_ok();
+
+            if !check_embedded_null(key) || !check_embedded_null(value) {
+                return Err(vm.new_value_error("embedded null byte".to_string()));
+            }
+        }
+
+        let check_key = |s: &ffi::OsStr| {
+            s.to_str()
+                .map(|vs| !vs.is_empty() && !vs.contains('='))
+                .unwrap_or(false)
+        };
+        if !check_key(key) {
+            return Err(vm.new_value_error("illegal environment variable name".to_string()));
+        }
         env::set_var(key, value);
         Ok(())
     }
