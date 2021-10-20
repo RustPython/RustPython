@@ -2,8 +2,8 @@ pub(crate) use _contextvars::make_module;
 
 #[pymodule]
 mod _contextvars {
-    use rustpython_vm::builtins::{PyStrRef, PyTypeRef};
-    use rustpython_vm::function::OptionalArg;
+    use rustpython_vm::builtins::{PyFunction, PyStrRef, PyTypeRef};
+    use rustpython_vm::function::{ArgCallable, FuncArgs, OptionalArg};
     use rustpython_vm::{PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine};
 
     #[pyattr]
@@ -12,7 +12,66 @@ mod _contextvars {
     struct Context {}
 
     #[pyimpl]
-    impl Context {}
+    impl Context {
+        #[pymethod(magic)]
+        fn init(&self, _vm: &VirtualMachine) -> PyResult<()> {
+            unimplemented!("Context.__init__ is currently under construction")
+        }
+
+        #[pymethod]
+        fn run(
+            &self,
+            _callable: ArgCallable,
+            _args: FuncArgs,
+            _vm: &VirtualMachine,
+        ) -> PyResult<PyFunction> {
+            unimplemented!("Context.run is currently under construction")
+        }
+
+        #[pymethod]
+        fn copy(&self, _vm: &VirtualMachine) -> PyResult<Context> {
+            unimplemented!("Context.copy is currently under construction")
+        }
+
+        #[pymethod(magic)]
+        fn getitem(&self, _var: PyObjectRef) -> PyResult<PyObjectRef> {
+            unimplemented!("Context.__getitem__ is currently under construction")
+        }
+
+        #[pymethod(magic)]
+        fn contains(&self, _var: PyObjectRef) -> PyResult<bool> {
+            unimplemented!("Context.__contains__ is currently under construction")
+        }
+
+        #[pymethod(magic)]
+        fn len(&self) -> usize {
+            unimplemented!("Context.__len__ is currently under construction")
+        }
+
+        #[pymethod(magic)]
+        fn iter(&self) -> PyResult {
+            unimplemented!("Context.__iter__ is currently under construction")
+        }
+
+        #[pymethod]
+        fn get(
+            &self,
+            _key: PyObjectRef,
+            _default: OptionalArg<PyObjectRef>,
+        ) -> PyResult<PyObjectRef> {
+            unimplemented!("Context.get is currently under construction")
+        }
+
+        #[pymethod]
+        fn keys(_zelf: PyRef<Self>, _vm: &VirtualMachine) -> Vec<PyObjectRef> {
+            unimplemented!("Context.keys is currently under construction")
+        }
+
+        #[pymethod]
+        fn values(_zelf: PyRef<Self>, _vm: &VirtualMachine) -> Vec<PyObjectRef> {
+            unimplemented!("Context.values is currently under construction")
+        }
+    }
 
     #[pyattr]
     #[pyclass(name)]
