@@ -1283,8 +1283,6 @@ class SimpleNamespaceTests(unittest.TestCase):
         del ns1.spam
         self.assertEqual(vars(ns1), {})
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_repr(self):
         ns1 = types.SimpleNamespace(x=1, y=2, w=3)
         ns2 = types.SimpleNamespace()
@@ -1295,8 +1293,6 @@ class SimpleNamespaceTests(unittest.TestCase):
         self.assertEqual(repr(ns1), "{name}(x=1, y=2, w=3)".format(name=name))
         self.assertEqual(repr(ns2), "{name}(x='spam', _y=5)".format(name=name))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_equal(self):
         ns1 = types.SimpleNamespace(x=1)
         ns2 = types.SimpleNamespace()
@@ -1335,8 +1331,6 @@ class SimpleNamespaceTests(unittest.TestCase):
         self.assertEqual(ns3.spam, ns2)
         self.assertEqual(ns2.spam.spam, ns2)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_recursive_repr(self):
         ns1 = types.SimpleNamespace(c='cookie')
         ns2 = types.SimpleNamespace()
