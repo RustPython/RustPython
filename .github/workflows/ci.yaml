@@ -108,6 +108,7 @@ jobs:
       - name: Prepare repository for redox compilation
         run: bash scripts/redox/uncomment-cargo.sh
       - name: Check compilation for Redox
+        if: false # FIXME: redoxer toolchain is from ~july 2021, edition2021 isn't stabilized
         uses: coolreader18/redoxer-action@v1
         with:
           command: check
@@ -249,6 +250,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
       - name: Cache cargo dependencies
         uses: actions/cache@v2
         with:
