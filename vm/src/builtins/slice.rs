@@ -338,7 +338,7 @@ fn to_isize_index(vm: &VirtualMachine, obj: &crate::PyObj) -> PyResult<Option<is
     if vm.is_none(obj) {
         return Ok(None);
     }
-    let result = vm.to_index_opt(obj.incref()).unwrap_or_else(|| {
+    let result = vm.to_index_opt(obj.to_owned()).unwrap_or_else(|| {
         Err(vm.new_type_error(
             "slice indices must be integers or None or have an __index__ method".to_owned(),
         ))

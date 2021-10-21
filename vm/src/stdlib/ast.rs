@@ -72,7 +72,7 @@ mod _ast {
 }
 
 fn get_node_field(vm: &VirtualMachine, obj: &crate::PyObj, field: &str, typ: &str) -> PyResult {
-    vm.get_attribute_opt(obj.incref(), field)?.ok_or_else(|| {
+    vm.get_attribute_opt(obj.to_owned(), field)?.ok_or_else(|| {
         vm.new_type_error(format!("required field \"{}\" missing from {}", field, typ))
     })
 }
@@ -83,7 +83,7 @@ fn get_node_field_opt(
     field: &str,
 ) -> PyResult<Option<PyObjectRef>> {
     Ok(vm
-        .get_attribute_opt(obj.incref(), field)?
+        .get_attribute_opt(obj.to_owned(), field)?
         .filter(|obj| !vm.is_none(obj)))
 }
 

@@ -154,16 +154,16 @@ impl ToOwned for PyObj {
 
     #[inline]
     fn to_owned(&self) -> Self::Owned {
-        self.incref()
+        self.with_pyobjectref(Clone::clone)
     }
 }
 
 pub trait PyObjectWrap
 where
-    Self: AsRef<crate::PyObj>,
+    Self: AsRef<PyObj>,
 {
     #[inline(always)]
-    fn as_object(&self) -> &crate::PyObj {
+    fn as_object(&self) -> &PyObj {
         self.as_ref()
     }
 
@@ -254,11 +254,6 @@ impl PyObjectRef {
 }
 
 impl PyObj {
-    #[inline(always)]
-    pub fn incref(&self) -> PyObjectRef {
-        self.with_pyobjectref(Clone::clone)
-    }
-
     #[inline]
     fn with_pyobjectref<R>(&self, f: impl FnOnce(&PyObjectRef) -> R) -> R {
         // SAFETY: we don't use obj after the real lifetime (self) goes out of scope, we wrap it
@@ -439,7 +434,7 @@ impl Drop for PyObjectRef {
 }
 
 #[cold]
-fn print_del_error(e: PyBaseExceptionRef, zelf: &crate::PyObj, vm: &VirtualMachine) {
+fn print_del_error(e: PyBaseExceptionRef, zelf: &PyObj, vm: &VirtualMachine) {
     // exception in del will be ignored but printed
     print!("Exception ignored in: ",);
     let del_method = zelf.get_class_attr("__del__").unwrap();
@@ -477,10 +472,6 @@ impl fmt::Debug for PyObjectWeak {
 pub struct Py<T: PyObjectPayload>(PyInner<T>);
 
 impl<T: PyObjectPayload> Py<T> {
-    pub fn incref(&self) -> PyRef<T> {
-        self.with_pyref(Clone::clone)
-    }
-
     #[inline(always)]
     pub fn as_object(&self) -> &PyObj {
         unsafe { &*(&self.0 as *const PyInner<T> as *const PyObj) }
@@ -488,10 +479,12 @@ impl<T: PyObjectPayload> Py<T> {
 
     #[inline]
     fn with_pyref<R>(&self, f: impl FnOnce(&PyRef<T>) -> R) -> R {
-        // SAFETY: we don't use obj after the real lifetime (self) goes out of scope, we wrap it
-        //         in a ManuallyDrop to prevent double free, and we only pass it by reference
-        let obj = unsafe { ManuallyDrop::new(PyRef::from_raw(self)) };
-        f(&obj)
+        unsafe {
+            // SAFETY: we don't use obj after the real lifetime (self) goes out of scope, we wrap it
+            // in a ManuallyDrop to prevent double free, and we only pass it by reference
+            let obj = ManuallyDrop::new(PyRef::from_raw(self));
+            f(&obj)
+        }
     }
 
     pub fn downgrade(&self) -> PyWeakRef<T> {
@@ -505,7 +498,7 @@ impl<T: PyObjectPayload> ToOwned for Py<T> {
     type Owned = PyRef<T>;
 
     fn to_owned(&self) -> Self::Owned {
-        self.incref()
+        self.with_pyref(Clone::clone)
     }
 }
 
@@ -517,7 +510,7 @@ impl<T: PyObjectPayload> Deref for Py<T> {
     }
 }
 
-impl<T> AsRef<crate::PyObj> for Py<T>
+impl<T> AsRef<PyObj> for Py<T>
 where
     T: PyObjectPayload,
 {
@@ -596,11 +589,11 @@ where
     }
 }
 
-impl<T> AsRef<crate::PyObj> for PyRef<T>
+impl<T> AsRef<PyObj> for PyRef<T>
 where
     T: PyObjectPayload,
 {
-    fn as_ref(&self) -> &crate::PyObj {
+    fn as_ref(&self) -> &PyObj {
         (**self).as_object()
     }
 }

@@ -468,9 +468,12 @@ mod _operator {
 
         #[pymethod(magic)]
         fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<(PyTypeRef, PyTupleRef)> {
-            let attrs = vm
-                .ctx
-                .new_tuple(zelf.attrs.iter().map(|v| v.as_object().incref()).collect());
+            let attrs = vm.ctx.new_tuple(
+                zelf.attrs
+                    .iter()
+                    .map(|v| v.as_object().to_owned())
+                    .collect(),
+            );
             Ok((zelf.clone_class(), attrs))
         }
 

@@ -682,8 +682,8 @@ impl AsBuffer for PyMemoryView {
             Err(vm.new_value_error("operation forbidden on released memoryview object".to_owned()))
         } else {
             Ok(PyBuffer::new(
-                zelf.as_object().incref(),
-                zelf.incref(),
+                zelf.as_object().to_owned(),
+                zelf.to_owned(),
                 zelf.buffer.options.clone(),
             ))
         }

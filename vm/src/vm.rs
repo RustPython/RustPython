@@ -899,7 +899,7 @@ impl VirtualMachine {
 
     pub fn to_repr(&self, obj: &crate::PyObj) -> PyResult<PyStrRef> {
         self.with_recursion("while getting the repr of an object", || {
-            let repr = self.call_special_method(obj.incref(), "__repr__", ())?;
+            let repr = self.call_special_method(obj.to_owned(), "__repr__", ())?;
             repr.try_into_value(self)
         })
     }
@@ -997,7 +997,7 @@ impl VirtualMachine {
     where
         F: Fn() -> String,
     {
-        cls.incref().get_attr("__bases__", self).map_err(|e| {
+        cls.to_owned().get_attr("__bases__", self).map_err(|e| {
             // Only mask AttributeErrors.
             if e.class().is(&self.ctx.exceptions.attribute_error) {
                 self.new_type_error(msg())
@@ -1008,11 +1008,11 @@ impl VirtualMachine {
     }
 
     pub fn abstract_isinstance(&self, obj: &crate::PyObj, cls: &crate::PyObj) -> PyResult<bool> {
-        if let Ok(typ) = PyTypeRef::try_from_object(self, cls.incref()) {
+        if let Ok(typ) = PyTypeRef::try_from_object(self, cls.to_owned()) {
             if obj.class().issubclass(typ.clone()) {
                 Ok(true)
             } else if let Ok(icls) =
-                PyTypeRef::try_from_object(self, obj.incref().get_attr("__class__", self)?)
+                PyTypeRef::try_from_object(self, obj.to_owned().get_attr("__class__", self)?)
             {
                 if icls.is(&obj.class()) {
                     Ok(false)
@@ -1030,7 +1030,7 @@ impl VirtualMachine {
                 )
             })
             .and_then(|_| {
-                let icls: PyObjectRef = obj.incref().get_attr("__class__", self)?;
+                let icls: PyObjectRef = obj.to_owned().get_attr("__class__", self)?;
                 if self.is_none(&icls) {
                     Ok(false)
                 } else {
@@ -1074,8 +1074,8 @@ impl VirtualMachine {
 
     fn recursive_issubclass(&self, subclass: &crate::PyObj, cls: &crate::PyObj) -> PyResult<bool> {
         if let (Ok(subclass), Ok(cls)) = (
-            PyTypeRef::try_from_object(self, subclass.incref()),
-            PyTypeRef::try_from_object(self, cls.incref()),
+            PyTypeRef::try_from_object(self, subclass.to_owned()),
+            PyTypeRef::try_from_object(self, cls.to_owned()),
         ) {
             Ok(subclass.issubclass(cls))
         } else {
@@ -1091,7 +1091,7 @@ impl VirtualMachine {
                     cls.class()
                 )
             }))
-            .and(self.abstract_issubclass(subclass.incref(), cls))
+            .and(self.abstract_issubclass(subclass.to_owned(), cls))
         }
     }
 
@@ -1105,7 +1105,7 @@ impl VirtualMachine {
             return self.recursive_issubclass(subclass, cls);
         }
 
-        if let Ok(tuple) = PyTupleRef::try_from_object(self, cls.incref()) {
+        if let Ok(tuple) = PyTupleRef::try_from_object(self, cls.to_owned()) {
             for typ in tuple.as_slice().iter() {
                 if self.with_recursion("in __subclasscheck__", || self.issubclass(subclass, typ))? {
                     return Ok(true);
@@ -1114,9 +1114,9 @@ impl VirtualMachine {
             return Ok(false);
         }
 
-        if let Ok(meth) = self.get_special_method(cls.incref(), "__subclasscheck__")? {
+        if let Ok(meth) = self.get_special_method(cls.to_owned(), "__subclasscheck__")? {
             let ret = self.with_recursion("in __subclasscheck__", || {
-                meth.invoke((subclass.incref(),), self)
+                meth.invoke((subclass.to_owned(),), self)
             })?;
             return ret.try_to_bool(self);
         }
@@ -1237,8 +1237,8 @@ impl VirtualMachine {
         }
     }
     fn _trace_event_inner(&self, event: TraceEvent) -> PyResult<()> {
-        let trace_func = self.trace_func.borrow().incref();
-        let profile_func = self.profile_func.borrow().incref();
+        let trace_func = self.trace_func.borrow().to_owned();
+        let profile_func = self.profile_func.borrow().to_owned();
         if self.is_none(&trace_func) && self.is_none(&profile_func) {
             return Ok(());
         }
@@ -1248,7 +1248,7 @@ impl VirtualMachine {
             return Ok(());
         }
 
-        let frame = frame_ref.unwrap().as_object().incref();
+        let frame = frame_ref.unwrap().as_object().to_owned();
         let event = self.ctx.new_str(event.to_string()).into();
         let args = vec![frame, event, self.ctx.none()];
 
@@ -1426,9 +1426,9 @@ impl VirtualMachine {
     where
         F: Fn(&VirtualMachine, &crate::PyObj, &crate::PyObj) -> PyResult,
     {
-        if let Some(method_or_err) = self.get_method(obj.incref(), method) {
+        if let Some(method_or_err) = self.get_method(obj.to_owned(), method) {
             let method = method_or_err?;
-            let result = self.invoke(&method, (arg.incref(),))?;
+            let result = self.invoke(&method, (arg.to_owned(),))?;
             if let PyArithmeticValue::Implemented(x) = PyArithmeticValue::from_object(self, result)
             {
                 return Ok(x);
@@ -1770,31 +1770,31 @@ impl VirtualMachine {
     }
 
     pub fn _abs(&self, a: &crate::PyObj) -> PyResult<PyObjectRef> {
-        self.get_special_method(a.incref(), "__abs__")?
+        self.get_special_method(a.to_owned(), "__abs__")?
             .map_err(|_| self.new_unsupported_unary_error(a, "abs()"))?
             .invoke((), self)
     }
 
     pub fn _pos(&self, a: &crate::PyObj) -> PyResult {
-        self.get_special_method(a.incref(), "__pos__")?
+        self.get_special_method(a.to_owned(), "__pos__")?
             .map_err(|_| self.new_unsupported_unary_error(a, "unary +"))?
             .invoke((), self)
     }
 
     pub fn _neg(&self, a: &crate::PyObj) -> PyResult {
-        self.get_special_method(a.incref(), "__neg__")?
+        self.get_special_method(a.to_owned(), "__neg__")?
             .map_err(|_| self.new_unsupported_unary_error(a, "unary -"))?
             .invoke((), self)
     }
 
     pub fn _invert(&self, a: &crate::PyObj) -> PyResult {
-        self.get_special_method(a.incref(), "__invert__")?
+        self.get_special_method(a.to_owned(), "__invert__")?
             .map_err(|_| self.new_unsupported_unary_error(a, "unary ~"))?
             .invoke((), self)
     }
 
     pub fn obj_len_opt(&self, obj: &crate::PyObj) -> Option<PyResult<usize>> {
-        self.get_special_method(obj.incref(), "__len__")
+        self.get_special_method(obj.to_owned(), "__len__")
             .map(Result::ok)
             .transpose()
             .map(|meth| {

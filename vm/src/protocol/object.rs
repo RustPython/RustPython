@@ -220,9 +220,9 @@ impl PyObj {
     // Container of the virtual machine state:
     pub fn str(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         if self.class().is(&vm.ctx.types.str_type) {
-            Ok(self.incref().downcast().unwrap())
+            Ok(self.to_owned().downcast().unwrap())
         } else {
-            let s = vm.call_special_method(self.incref(), "__str__", ())?;
+            let s = vm.call_special_method(self.to_owned(), "__str__", ())?;
             s.try_into_value(vm)
         }
     }
@@ -244,7 +244,7 @@ impl PyObj {
             return vm.abstract_isinstance(self, cls);
         }
 
-        if let Ok(tuple) = PyTupleRef::try_from_object(vm, cls.incref()) {
+        if let Ok(tuple) = PyTupleRef::try_from_object(vm, cls.to_owned()) {
             for typ in tuple.as_slice().iter() {
                 if vm.with_recursion("in __instancecheck__", || self.is_instance(typ, vm))? {
                     return Ok(true);
@@ -253,9 +253,10 @@ impl PyObj {
             return Ok(false);
         }
 
-        if let Ok(meth) = vm.get_special_method(cls.incref(), "__instancecheck__")? {
-            let ret =
-                vm.with_recursion("in __instancecheck__", || meth.invoke((self.incref(),), vm))?;
+        if let Ok(meth) = vm.get_special_method(cls.to_owned(), "__instancecheck__")? {
+            let ret = vm.with_recursion("in __instancecheck__", || {
+                meth.invoke((self.to_owned(),), vm)
+            })?;
             return ret.try_to_bool(vm);
         }
 

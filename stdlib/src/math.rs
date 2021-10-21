@@ -409,7 +409,7 @@ mod math {
     }
 
     fn try_magic_method(func_name: &str, vm: &VirtualMachine, value: &PyObj) -> PyResult {
-        let method = vm.get_method_or_type_error(value.incref(), func_name, || {
+        let method = vm.get_method_or_type_error(value.to_owned(), func_name, || {
             format!(
                 "type '{}' doesn't define '{}' method",
                 value.class().name(),

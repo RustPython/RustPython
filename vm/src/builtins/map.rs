@@ -37,7 +37,7 @@ impl PyMap {
     #[pymethod(magic)]
     fn length_hint(&self, vm: &VirtualMachine) -> PyResult<usize> {
         self.iterators.iter().try_fold(0, |prev, cur| {
-            let cur = vm.length_hint(cur.as_ref().incref())?.unwrap_or(0);
+            let cur = vm.length_hint(cur.as_ref().to_owned())?.unwrap_or(0);
             let max = std::cmp::max(prev, cur);
             Ok(max)
         })

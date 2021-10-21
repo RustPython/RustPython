@@ -492,7 +492,7 @@ impl PyBaseException {
     #[pymethod]
     fn with_traceback(zelf: PyRef<Self>, tb: Option<PyTracebackRef>) -> PyResult {
         *zelf.traceback.write() = tb;
-        Ok(zelf.as_object().incref())
+        Ok(zelf.as_object().to_owned())
     }
 
     #[pymethod(magic)]

@@ -85,7 +85,7 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
         } else if let Some(tuple) = self.pyobject.payload_if_subclass::<PyTuple>(self.vm) {
             serialize_seq_elements(serializer, tuple.as_slice())
         } else if self.pyobject.isinstance(&self.vm.ctx.types.dict_type) {
-            let dict: PyDictRef = self.pyobject.incref().downcast().unwrap();
+            let dict: PyDictRef = self.pyobject.to_owned().downcast().unwrap();
             let pairs: Vec<_> = dict.into_iter().collect();
             let mut map = serializer.serialize_map(Some(pairs.len()))?;
             for (key, e) in pairs.iter() {

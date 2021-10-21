@@ -628,7 +628,7 @@ mod decl {
             state.next_group = false;
 
             let grouper = PyItertoolsGrouper {
-                groupby: zelf.incref(),
+                groupby: zelf.to_owned(),
             }
             .into_ref(vm);
 

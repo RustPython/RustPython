@@ -100,7 +100,7 @@ impl Unconstructible for PyGenerator {}
 impl IterNextIterable for PyGenerator {}
 impl IterNext for PyGenerator {
     fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        Self::send(zelf.incref(), vm.ctx.none(), vm)
+        Self::send(zelf.to_owned(), vm.ctx.none(), vm)
     }
 }
 

@@ -225,14 +225,19 @@ impl PyType {
 
     #[pyproperty(name = "__mro__")]
     fn get_mro(zelf: PyRef<Self>) -> PyTuple {
-        let elements: Vec<PyObjectRef> = zelf.iter_mro().map(|x| x.as_object().incref()).collect();
+        let elements: Vec<PyObjectRef> =
+            zelf.iter_mro().map(|x| x.as_object().to_owned()).collect();
         PyTuple::new_unchecked(elements.into_boxed_slice())
     }
 
     #[pyproperty(magic)]
     fn bases(&self, vm: &VirtualMachine) -> PyTupleRef {
-        vm.ctx
-            .new_tuple(self.bases.iter().map(|x| x.as_object().incref()).collect())
+        vm.ctx.new_tuple(
+            self.bases
+                .iter()
+                .map(|x| x.as_object().to_owned())
+                .collect(),
+        )
     }
 
     #[pyproperty(magic)]
@@ -613,7 +618,7 @@ impl SetAttr for PyType {
         if let Some(attr) = zelf.get_class_attr(attr_name.as_str()) {
             let descr_set = attr.class().mro_find_map(|cls| cls.slots.descr_set.load());
             if let Some(descriptor) = descr_set {
-                return descriptor(attr, zelf.incref().into(), value, vm);
+                return descriptor(attr, zelf.to_owned().into(), value, vm);
             }
         }
         let assign = value.is_some();
@@ -642,7 +647,7 @@ impl Callable for PyType {
     type Args = FuncArgs;
     fn call(zelf: &crate::Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         vm_trace!("type_call: {:?}", zelf);
-        let obj = call_slot_new(zelf.incref(), zelf.incref(), args.clone(), vm)?;
+        let obj = call_slot_new(zelf.to_owned(), zelf.to_owned(), args.clone(), vm)?;
 
         if (zelf.is(&vm.ctx.types.type_type) && args.kwargs.is_empty()) || !obj.isinstance(zelf) {
             return Ok(obj);

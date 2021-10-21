@@ -544,8 +544,8 @@ impl PyBytes {
 impl AsBuffer for PyBytes {
     fn as_buffer(zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
         let buf = PyBuffer::new(
-            zelf.as_object().incref(),
-            zelf.incref(),
+            zelf.as_object().to_owned(),
+            zelf.to_owned(),
             BufferOptions {
                 len: zelf.len(),
                 ..Default::default()

@@ -111,7 +111,7 @@ mod _io {
     }
 
     fn ensure_unclosed(file: &crate::PyObj, msg: &str, vm: &VirtualMachine) -> PyResult<()> {
-        if file.incref().get_attr("closed", vm)?.try_to_bool(vm)? {
+        if file.to_owned().get_attr("closed", vm)?.try_to_bool(vm)? {
             Err(vm.new_value_error(msg.to_owned()))
         } else {
             Ok(())
@@ -287,7 +287,7 @@ mod _io {
     }
 
     fn file_closed(file: &crate::PyObj, vm: &VirtualMachine) -> PyResult<bool> {
-        file.incref().get_attr("closed", vm)?.try_to_bool(vm)
+        file.to_owned().get_attr("closed", vm)?.try_to_bool(vm)
     }
     fn check_closed(file: &crate::PyObj, vm: &VirtualMachine) -> PyResult<()> {
         if file_closed(file, vm)? {
@@ -1357,7 +1357,7 @@ mod _io {
         obj: &crate::PyObj,
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyStrRef>> {
-        let name = match obj.incref().get_attr("name", vm) {
+        let name = match obj.to_owned().get_attr("name", vm) {
             Ok(name) => Some(name),
             Err(e)
                 if e.isinstance(&vm.ctx.exceptions.attribute_error)
@@ -1503,16 +1503,22 @@ mod _io {
         fn closed(&self, vm: &VirtualMachine) -> PyResult {
             self.lock(vm)?
                 .check_init(vm)?
-                .incref()
+                .to_owned()
                 .get_attr("closed", vm)
         }
         #[pyproperty]
         fn name(&self, vm: &VirtualMachine) -> PyResult {
-            self.lock(vm)?.check_init(vm)?.incref().get_attr("name", vm)
+            self.lock(vm)?
+                .check_init(vm)?
+                .to_owned()
+                .get_attr("name", vm)
         }
         #[pyproperty]
         fn mode(&self, vm: &VirtualMachine) -> PyResult {
-            self.lock(vm)?.check_init(vm)?.incref().get_attr("mode", vm)
+            self.lock(vm)?
+                .check_init(vm)?
+                .to_owned()
+                .get_attr("mode", vm)
         }
         #[pymethod]
         fn fileno(&self, vm: &VirtualMachine) -> PyResult {
@@ -3338,7 +3344,7 @@ mod _io {
                 len: self.buffer.read().cursor.get_ref().len(),
                 ..Default::default()
             };
-            let buffer = PyBuffer::new(self.as_object().incref(), self, options);
+            let buffer = PyBuffer::new(self.as_object().to_owned(), self, options);
             let view = PyMemoryView::from_buffer(buffer, vm)?;
             Ok(view)
         }

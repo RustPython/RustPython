@@ -204,8 +204,14 @@ mod _json {
             if idx > 0 && chars.nth(idx - 1).is_none() {
                 PyIterReturn::StopIteration(Some(vm.ctx.new_int(idx).into())).into_pyresult(vm)
             } else {
-                zelf.parse(chars.as_str(), pystr.clone(), idx, zelf.incref().into(), vm)
-                    .and_then(|x| x.into_pyresult(vm))
+                zelf.parse(
+                    chars.as_str(),
+                    pystr.clone(),
+                    idx,
+                    zelf.to_owned().into(),
+                    vm,
+                )
+                .and_then(|x| x.into_pyresult(vm))
             }
         }
     }

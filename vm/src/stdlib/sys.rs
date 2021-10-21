@@ -684,8 +684,10 @@ pub(crate) fn init_module(vm: &VirtualMachine, module: &crate::PyObj, builtins: 
     sys::extend_module(vm, module);
 
     let modules = vm.ctx.new_dict();
-    modules.set_item("sys", module.incref(), vm).unwrap();
-    modules.set_item("builtins", builtins.incref(), vm).unwrap();
+    modules.set_item("sys", module.to_owned(), vm).unwrap();
+    modules
+        .set_item("builtins", builtins.to_owned(), vm)
+        .unwrap();
     extend_module!(vm, module, {
         "__doc__" => sys::DOC.to_owned().into_pyobject(vm),
         "modules" => modules,

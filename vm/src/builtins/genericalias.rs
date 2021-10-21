@@ -99,7 +99,7 @@ impl PyGenericAlias {
 
         Ok(format!(
             "{}[{}]",
-            repr_item(self.origin.as_object().incref(), vm)?,
+            repr_item(self.origin.as_object().to_owned(), vm)?,
             self.args
                 .as_slice()
                 .iter()
@@ -111,17 +111,17 @@ impl PyGenericAlias {
 
     #[pyproperty(magic)]
     fn parameters(&self) -> PyObjectRef {
-        self.parameters.as_object().incref()
+        self.parameters.as_object().to_owned()
     }
 
     #[pyproperty(magic)]
     fn args(&self) -> PyObjectRef {
-        self.args.as_object().incref()
+        self.args.as_object().to_owned()
     }
 
     #[pyproperty(magic)]
     fn origin(&self) -> PyObjectRef {
-        self.origin.as_object().incref()
+        self.origin.as_object().to_owned()
     }
 
     #[pymethod(magic)]
@@ -175,7 +175,7 @@ impl GetAttr for PyGenericAlias {
     fn getattro(zelf: PyRef<Self>, attr: PyStrRef, vm: &VirtualMachine) -> PyResult {
         for exc in ATTR_EXCEPTIONS.iter() {
             if *(*exc) == attr.to_string() {
-                return vm.generic_getattribute(zelf.as_object().incref(), attr);
+                return vm.generic_getattribute(zelf.as_object().to_owned(), attr);
             }
         }
         zelf.origin().get_attr(attr, vm)

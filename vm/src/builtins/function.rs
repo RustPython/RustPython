@@ -379,7 +379,7 @@ impl PyFunction {
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> String {
         let qualname = zelf
             .as_object()
-            .incref()
+            .to_owned()
             .get_attr("__qualname__", vm)
             .ok()
             .and_then(|qualname_attr| qualname_attr.downcast::<PyStr>().ok())

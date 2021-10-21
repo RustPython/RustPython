@@ -1221,8 +1221,8 @@ mod array {
         fn as_buffer(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
             let array = zelf.read();
             let buf = PyBuffer::new(
-                zelf.as_object().incref(),
-                PyArrayBufferInternal(zelf.incref()),
+                zelf.as_object().to_owned(),
+                PyArrayBufferInternal(zelf.to_owned()),
                 BufferOptions {
                     readonly: false,
                     len: array.len(),

@@ -55,7 +55,7 @@ impl PyObj {
         if let Some(float) = self.payload_if_exact::<PyFloat>(vm) {
             return Ok(Some(float.value));
         }
-        if let Some(method) = vm.get_method(self.incref(), "__float__") {
+        if let Some(method) = vm.get_method(self.to_owned(), "__float__") {
             let result = vm.invoke(&method?, ())?;
             // TODO: returning strict subclasses of float in __float__ is deprecated
             return match result.payload::<PyFloat>() {
@@ -66,7 +66,7 @@ impl PyObj {
                 ))),
             };
         }
-        if let Some(r) = vm.to_index_opt(self.incref()).transpose()? {
+        if let Some(r) = vm.to_index_opt(self.to_owned()).transpose()? {
             return Ok(Some(try_bigint_to_f64(r.as_bigint(), vm)?));
         }
         Ok(None)

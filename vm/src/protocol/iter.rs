@@ -49,7 +49,7 @@ where
         &'b self,
         vm: &'a VirtualMachine,
     ) -> PyResult<PyIterIter<'a, U, &'b crate::PyObj>> {
-        let length_hint = vm.length_hint(self.as_ref().incref())?;
+        let length_hint = vm.length_hint(self.as_ref().to_owned())?;
         Ok(PyIterIter::new(vm, self.0.borrow(), length_hint))
     }
 
@@ -64,7 +64,7 @@ where
 impl PyIter<PyObjectRef> {
     /// Returns an iterator over this sequence of objects.
     pub fn into_iter<U>(self, vm: &VirtualMachine) -> PyResult<PyIterIter<U, PyObjectRef>> {
-        let length_hint = vm.length_hint(self.as_object().incref())?;
+        let length_hint = vm.length_hint(self.as_object().to_owned())?;
         Ok(PyIterIter::new(vm, self.0, length_hint))
     }
 }

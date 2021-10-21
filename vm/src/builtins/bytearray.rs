@@ -711,8 +711,8 @@ impl Comparable for PyByteArray {
 impl AsBuffer for PyByteArray {
     fn as_buffer(zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
         let buffer = PyBuffer::new(
-            zelf.as_object().incref(),
-            zelf.incref(),
+            zelf.as_object().to_owned(),
+            zelf.to_owned(),
             BufferOptions {
                 readonly: false,
                 len: zelf.len(),

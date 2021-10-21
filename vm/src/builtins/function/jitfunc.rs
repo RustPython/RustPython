@@ -83,7 +83,7 @@ pub fn get_jit_arg_types(
         return Ok(Vec::new());
     }
 
-    let func_obj: PyObjectRef = func.as_ref().incref();
+    let func_obj: PyObjectRef = func.as_ref().to_owned();
     let annotations = func_obj.get_attr("__annotations__", vm)?;
     if vm.is_none(&annotations) {
         Err(new_jit_error(

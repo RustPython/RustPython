@@ -296,7 +296,7 @@ impl PyRange {
     fn reduce(&self, vm: &VirtualMachine) -> (PyTypeRef, PyTupleRef) {
         let range_paramters: Vec<PyObjectRef> = vec![&self.start, &self.stop, &self.step]
             .iter()
-            .map(|x| x.as_object().incref())
+            .map(|x| x.as_object().to_owned())
             .collect();
         let range_paramters_tuple = vm.ctx.new_tuple(range_paramters);
         (vm.ctx.types.range_type.clone(), range_paramters_tuple)
@@ -638,7 +638,7 @@ fn range_iter_reduce(
     index: usize,
     vm: &VirtualMachine,
 ) -> PyResult<PyTupleRef> {
-    let iter = builtins_iter(vm).incref();
+    let iter = builtins_iter(vm).to_owned();
     let stop = start.clone() + length * step.clone();
     let range = PyRange {
         start: PyInt::from(start).into_ref(vm),

@@ -41,17 +41,17 @@ fn calculate_suggestions<'a>(
             suggestion_distance = current_distance;
         }
     }
-    suggestion.map(|r| r.incref())
+    suggestion.map(|r| r.to_owned())
 }
 
 pub fn offer_suggestions(exc: &PyBaseExceptionRef, vm: &VirtualMachine) -> Option<PyStrRef> {
     if exc.class().is(&vm.ctx.exceptions.attribute_error) {
-        let name = exc.as_object().incref().get_attr("name", vm).unwrap();
-        let obj = exc.as_object().incref().get_attr("obj", vm).unwrap();
+        let name = exc.as_object().to_owned().get_attr("name", vm).unwrap();
+        let obj = exc.as_object().to_owned().get_attr("obj", vm).unwrap();
 
         calculate_suggestions(vm.dir(Some(obj)).ok()?.borrow_vec().iter(), &name)
     } else if exc.class().is(&vm.ctx.exceptions.name_error) {
-        let name = exc.as_object().incref().get_attr("name", vm).unwrap();
+        let name = exc.as_object().to_owned().get_attr("name", vm).unwrap();
         let mut tb = exc.traceback().unwrap();
         while let Some(traceback) = tb.next.clone() {
             tb = traceback;

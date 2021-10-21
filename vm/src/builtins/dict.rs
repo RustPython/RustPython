@@ -489,7 +489,7 @@ impl crate::Py<PyDict> {
         }
 
         if !exact {
-            if let Some(method_or_err) = vm.get_method(self.incref().into(), "__missing__") {
+            if let Some(method_or_err) = vm.get_method(self.to_owned().into(), "__missing__") {
                 let method = method_or_err?;
                 return vm.invoke(&method, (key,)).map(Some);
             }
@@ -640,7 +640,7 @@ impl IntoIterator for &crate::Py<PyDict> {
     type IntoIter = DictIter;
 
     fn into_iter(self) -> Self::IntoIter {
-        DictIter::new(self.incref())
+        DictIter::new(self.to_owned())
     }
 }
 

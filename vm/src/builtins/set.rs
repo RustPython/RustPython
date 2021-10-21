@@ -242,7 +242,9 @@ impl PySetInner {
     }
 
     fn remove(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.retry_op_with_frozenset(&item, vm, |item, vm| self.content.delete(vm, item.incref()))
+        self.retry_op_with_frozenset(&item, vm, |item, vm| {
+            self.content.delete(vm, item.to_owned())
+        })
     }
 
     fn discard(&self, item: &crate::PyObj, vm: &VirtualMachine) -> PyResult<bool> {
@@ -350,7 +352,7 @@ impl PySetInner {
                     // If operation raised KeyError, report original set (set.remove)
                     .map_err(|op_err| {
                         if op_err.isinstance(&vm.ctx.exceptions.key_error) {
-                            vm.new_key_error(item.incref())
+                            vm.new_key_error(item.to_owned())
                         } else {
                             op_err
                         }
@@ -556,7 +558,7 @@ impl PySet {
     #[pymethod(magic)]
     fn ior(zelf: PyRef<Self>, iterable: SetIterable, vm: &VirtualMachine) -> PyResult {
         zelf.inner.update(iterable.iterable, vm)?;
-        Ok(zelf.as_object().incref())
+        Ok(zelf.as_object().to_owned())
     }
 
     #[pymethod]
@@ -578,7 +580,7 @@ impl PySet {
     #[pymethod(magic)]
     fn iand(zelf: PyRef<Self>, iterable: SetIterable, vm: &VirtualMachine) -> PyResult {
         zelf.inner.intersection_update(iterable.iterable, vm)?;
-        Ok(zelf.as_object().incref())
+        Ok(zelf.as_object().to_owned())
     }
 
     #[pymethod]
@@ -590,7 +592,7 @@ impl PySet {
     #[pymethod(magic)]
     fn isub(zelf: PyRef<Self>, iterable: SetIterable, vm: &VirtualMachine) -> PyResult {
         zelf.inner.difference_update(iterable.iterable, vm)?;
-        Ok(zelf.as_object().incref())
+        Ok(zelf.as_object().to_owned())
     }
 
     #[pymethod]
@@ -607,7 +609,7 @@ impl PySet {
     fn ixor(zelf: PyRef<Self>, iterable: SetIterable, vm: &VirtualMachine) -> PyResult {
         zelf.inner
             .symmetric_difference_update(iterable.iterable, vm)?;
-        Ok(zelf.as_object().incref())
+        Ok(zelf.as_object().to_owned())
     }
 
     #[pymethod(magic)]
@@ -887,7 +889,7 @@ impl PySetIterator {
     fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<(PyObjectRef, (PyObjectRef,))> {
         let internal = zelf.internal.lock();
         Ok((
-            builtins_iter(vm).incref(),
+            builtins_iter(vm).to_owned(),
             (vm.ctx
                 .new_list(match &internal.status {
                     IterStatus::Exhausted => vec![],

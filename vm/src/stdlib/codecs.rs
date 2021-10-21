@@ -189,7 +189,7 @@ mod _codecs {
                     let replace = replace
                         .downcast_ref::<PyStr>()
                         .ok_or_else(tuple_err)?
-                        .incref();
+                        .to_owned();
                     let restart =
                         isize::try_from_borrowed_object(vm, restart).map_err(|_| tuple_err())?;
                     let restart = if restart < 0 {

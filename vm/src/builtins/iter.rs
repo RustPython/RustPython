@@ -69,7 +69,7 @@ impl<T> PositionIterInternal<T> {
     where
         F: FnOnce(&T) -> PyObjectRef,
     {
-        let iter = builtins_iter(vm).incref();
+        let iter = builtins_iter(vm).to_owned();
         self._reduce(iter, f, vm)
     }
 
@@ -77,7 +77,7 @@ impl<T> PositionIterInternal<T> {
     where
         F: FnOnce(&T) -> PyObjectRef,
     {
-        let reversed = builtins_reversed(vm).incref();
+        let reversed = builtins_reversed(vm).to_owned();
         self._reduce(reversed, f, vm)
     }
 

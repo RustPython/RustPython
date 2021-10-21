@@ -144,7 +144,7 @@ impl GetAttr for PySuper {
                         descr.clone(),
                         // Only pass 'obj' param if this is instance-mode super (See https://bugs.python.org/issue743267)
                         if obj.is(&start_type) { None } else { Some(obj) },
-                        Some(start_type.as_object().incref()),
+                        Some(start_type.as_object().to_owned()),
                     )
                     .unwrap_or(Ok(descr));
             }

@@ -574,13 +574,13 @@ where
     T: IntoPyObject,
 {
     fn get_item(&self, key: T, vm: &VirtualMachine) -> PyResult {
-        if let Ok(mapping) = PyMapping::try_from_object(vm, self.incref()) {
+        if let Ok(mapping) = PyMapping::try_from_object(vm, self.to_owned()) {
             if let Some(getitem) = mapping.methods(vm).subscript {
-                return getitem(self.incref(), key.into_pyobject(vm), vm);
+                return getitem(self.to_owned(), key.into_pyobject(vm), vm);
             }
         }
 
-        match vm.get_special_method(self.incref(), "__getitem__")? {
+        match vm.get_special_method(self.to_owned(), "__getitem__")? {
             Ok(special_method) => return special_method.invoke((key,), vm),
             Err(obj) => {
                 if obj.isinstance(&vm.ctx.types.type_type) {
@@ -597,13 +597,13 @@ where
     }
 
     fn set_item(&self, key: T, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        if let Ok(mapping) = PyMapping::try_from_object(vm, self.incref()) {
+        if let Ok(mapping) = PyMapping::try_from_object(vm, self.to_owned()) {
             if let Some(setitem) = mapping.methods(vm).ass_subscript {
-                return setitem(self.incref(), key.into_pyobject(vm), Some(value), vm);
+                return setitem(self.to_owned(), key.into_pyobject(vm), Some(value), vm);
             }
         }
 
-        vm.get_special_method(self.incref(), "__setitem__")?
+        vm.get_special_method(self.to_owned(), "__setitem__")?
             .map_err(|obj| {
                 vm.new_type_error(format!(
                     "'{}' does not support item assignment",
@@ -615,13 +615,13 @@ where
     }
 
     fn del_item(&self, key: T, vm: &VirtualMachine) -> PyResult<()> {
-        if let Ok(mapping) = PyMapping::try_from_object(vm, self.incref()) {
+        if let Ok(mapping) = PyMapping::try_from_object(vm, self.to_owned()) {
             if let Some(setitem) = mapping.methods(vm).ass_subscript {
-                return setitem(self.incref(), key.into_pyobject(vm), None, vm);
+                return setitem(self.to_owned(), key.into_pyobject(vm), None, vm);
             }
         }
 
-        vm.get_special_method(self.incref(), "__delitem__")?
+        vm.get_special_method(self.to_owned(), "__delitem__")?
             .map_err(|obj| {
                 vm.new_type_error(format!(
                     "'{}' does not support item deletion",
@@ -742,7 +742,7 @@ impl IntoPyObject for PyObjectRef {
 impl IntoPyObject for &PyObj {
     #[inline]
     fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
-        self.incref()
+        self.to_owned()
     }
 }
 

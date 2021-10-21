@@ -384,7 +384,7 @@ impl<T: Clone> Dict<T> {
                 }
             } else {
                 let mut inner = self.write();
-                inner.unchecked_push(index_index, hash, key.incref(), value, entry);
+                inner.unchecked_push(index_index, hash, key.to_owned(), value, entry);
                 break None;
             }
         };

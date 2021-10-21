@@ -56,7 +56,7 @@ where
     pub fn keys(&self, vm: &VirtualMachine) -> PyResult {
         if self.0.borrow().is(&vm.ctx.types.dict_type) {
             Ok(
-                PyDictKeys::new(PyDictRef::try_from_object(vm, self.0.borrow().incref())?)
+                PyDictKeys::new(PyDictRef::try_from_object(vm, self.0.borrow().to_owned())?)
                     .into_pyobject(vm),
             )
         } else {
@@ -67,7 +67,7 @@ where
     pub fn values(&self, vm: &VirtualMachine) -> PyResult {
         if self.0.borrow().is(&vm.ctx.types.dict_type) {
             Ok(
-                PyDictValues::new(PyDictRef::try_from_object(vm, self.0.borrow().incref())?)
+                PyDictValues::new(PyDictRef::try_from_object(vm, self.0.borrow().to_owned())?)
                     .into_pyobject(vm),
             )
         } else {

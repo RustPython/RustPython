@@ -1754,7 +1754,7 @@ pub fn extend_module(vm: &VirtualMachine, module: &crate::PyObj) {
     let supports_dir_fd = PySet::default().into_ref(vm);
     let supports_follow_symlinks = PySet::default().into_ref(vm);
     for support in support_funcs {
-        let func_obj = module.incref().get_attr(support.name, vm).unwrap();
+        let func_obj = module.to_owned().get_attr(support.name, vm).unwrap();
         if support.fd.unwrap_or(false) {
             supports_fd.clone().add(func_obj.clone(), vm).unwrap();
         }

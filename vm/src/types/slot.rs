@@ -268,7 +268,7 @@ fn descr_set_wrapper(
 
 fn new_wrapper(cls: PyTypeRef, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
     let new = vm
-        .get_attribute_opt(cls.as_object().incref(), "__new__")?
+        .get_attribute_opt(cls.as_object().to_owned(), "__new__")?
         .unwrap();
     args.prepend_arg(cls.into());
     vm.invoke(&new, args)
