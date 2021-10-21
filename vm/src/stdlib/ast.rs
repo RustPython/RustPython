@@ -5,8 +5,8 @@
 
 use crate::{
     builtins::{self, PyStrRef, PyTypeRef},
-    IdProtocol, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue, StaticType,
-    TryFromObject, TypeProtocol, VirtualMachine,
+    IdProtocol, ItemProtocol, PyClassImpl, PyContext, PyObject, PyObjectRef, PyResult, PyValue,
+    StaticType, TryFromObject, TypeProtocol, VirtualMachine,
 };
 use num_complex::Complex64;
 use num_traits::{ToPrimitive, Zero};
@@ -71,19 +71,19 @@ mod _ast {
     use super::PY_COMPILE_FLAG_AST_ONLY;
 }
 
-fn get_node_field(vm: &VirtualMachine, obj: &PyObjectRef, field: &str, typ: &str) -> PyResult {
-    vm.get_attribute_opt(obj.clone(), field)?.ok_or_else(|| {
+fn get_node_field(vm: &VirtualMachine, obj: &PyObject, field: &str, typ: &str) -> PyResult {
+    vm.get_attribute_opt(obj.to_owned(), field)?.ok_or_else(|| {
         vm.new_type_error(format!("required field \"{}\" missing from {}", field, typ))
     })
 }
 
 fn get_node_field_opt(
     vm: &VirtualMachine,
-    obj: &PyObjectRef,
+    obj: &PyObject,
     field: &str,
 ) -> PyResult<Option<PyObjectRef>> {
     Ok(vm
-        .get_attribute_opt(obj.clone(), field)?
+        .get_attribute_opt(obj.to_owned(), field)?
         .filter(|obj| !vm.is_none(obj)))
 }
 
@@ -156,7 +156,7 @@ impl<T: NamedNode> Node for ast::Located<T> {
     }
 }
 
-fn node_add_location(node: &PyObjectRef, location: ast::Location, vm: &VirtualMachine) {
+fn node_add_location(node: &PyObject, location: ast::Location, vm: &VirtualMachine) {
     let dict = node.dict().unwrap();
     dict.set_item("lineno", vm.ctx.new_int(location.row()).into(), vm)
         .unwrap();

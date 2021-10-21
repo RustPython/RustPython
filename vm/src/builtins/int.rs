@@ -6,8 +6,8 @@ use crate::{
     function::{ArgIntoBool, IntoPyObject, IntoPyResult, OptionalArg, OptionalOption},
     try_value_from_borrowed_object,
     types::{Comparable, Constructor, Hashable, PyComparisonOp},
-    IdProtocol, PyArithmeticValue, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
-    PyResult, PyValue, TryFromBorrowedObject, TypeProtocol, VirtualMachine,
+    IdProtocol, PyArithmeticValue, PyClassImpl, PyComparisonValue, PyContext, PyObject,
+    PyObjectRef, PyRef, PyResult, PyValue, TryFromBorrowedObject, TypeProtocol, VirtualMachine,
 };
 use bstr::ByteSlice;
 use num_bigint::{BigInt, BigUint, Sign};
@@ -63,7 +63,7 @@ impl PyValue for PyInt {
         vm.ctx.new_int(self.value).into()
     }
 
-    fn special_retrieve(vm: &VirtualMachine, obj: &PyObjectRef) -> Option<PyResult<PyRef<Self>>> {
+    fn special_retrieve(vm: &VirtualMachine, obj: &PyObject) -> Option<PyResult<PyRef<Self>>> {
         Some(vm.to_index(obj))
     }
 }
@@ -83,7 +83,7 @@ impl_into_pyobject_int!(isize i8 i16 i32 i64 i128 usize u8 u16 u32 u64 u128 BigI
 macro_rules! impl_try_from_object_int {
     ($(($t:ty, $to_prim:ident),)*) => {$(
         impl TryFromBorrowedObject for $t {
-            fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Self> {
+            fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
                 try_value_from_borrowed_object(vm, obj, |int: &PyInt| {
                     int.try_to_primitive(vm)
                 })
@@ -716,8 +716,8 @@ impl PyInt {
 
 impl Comparable for PyInt {
     fn cmp(
-        zelf: &PyRef<Self>,
-        other: &PyObjectRef,
+        zelf: &crate::PyObjectView<Self>,
+        other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
@@ -730,7 +730,7 @@ impl Comparable for PyInt {
 
 impl Hashable for PyInt {
     #[inline]
-    fn hash(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<hash::PyHash> {
+    fn hash(zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyResult<hash::PyHash> {
         Ok(hash::hash_bigint(zelf.as_bigint()))
     }
 }
@@ -759,10 +759,10 @@ struct IntToByteArgs {
     signed: OptionalArg<ArgIntoBool>,
 }
 
-fn try_int_radix(obj: &PyObjectRef, base: u32, vm: &VirtualMachine) -> PyResult<BigInt> {
+fn try_int_radix(obj: &PyObject, base: u32, vm: &VirtualMachine) -> PyResult<BigInt> {
     debug_assert!(base == 0 || (2..=36).contains(&base));
 
-    let opt = match_class!(match obj.clone() {
+    let opt = match_class!(match obj.to_owned() {
         string @ PyStr => {
             let s = string.as_str();
             bytes_to_int(s.as_bytes(), base)
@@ -898,7 +898,7 @@ fn detect_base(c: &u8) -> Option<u32> {
 }
 
 // Retrieve inner int value:
-pub(crate) fn get_value(obj: &PyObjectRef) -> &BigInt {
+pub(crate) fn get_value(obj: &PyObject) -> &BigInt {
     &obj.payload::<PyInt>().unwrap().value
 }
 
@@ -910,8 +910,8 @@ fn i2f(int: &BigInt) -> Option<f64> {
     int.to_f64().filter(|f| f.is_finite())
 }
 
-pub(crate) fn try_int(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<BigInt> {
-    fn try_convert(obj: &PyObjectRef, lit: &[u8], vm: &VirtualMachine) -> PyResult<BigInt> {
+pub(crate) fn try_int(obj: &PyObject, vm: &VirtualMachine) -> PyResult<BigInt> {
+    fn try_convert(obj: &PyObject, lit: &[u8], vm: &VirtualMachine) -> PyResult<BigInt> {
         let base = 10;
         match bytes_to_int(lit, base) {
             Some(i) => Ok(i),
@@ -936,7 +936,7 @@ pub(crate) fn try_int(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<BigInt
     }
     // call __int__, then __index__, then __trunc__ (converting the __trunc__ result via  __index__ if needed)
     // TODO: using __int__ is deprecated and removed in Python 3.10
-    if let Some(method) = vm.get_method(obj.clone(), "__int__") {
+    if let Some(method) = vm.get_method(obj.to_owned(), "__int__") {
         let result = vm.invoke(&method?, ())?;
         return match result.payload::<PyInt>() {
             Some(int_obj) => Ok(int_obj.as_bigint().clone()),
@@ -947,10 +947,10 @@ pub(crate) fn try_int(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<BigInt
         };
     }
     // TODO: returning strict subclasses of int in __index__ is deprecated
-    if let Some(r) = vm.to_index_opt(obj.clone()).transpose()? {
+    if let Some(r) = vm.to_index_opt(obj.to_owned()).transpose()? {
         return Ok(r.as_bigint().clone());
     }
-    if let Some(method) = vm.get_method(obj.clone(), "__trunc__") {
+    if let Some(method) = vm.get_method(obj.to_owned(), "__trunc__") {
         let result = vm.invoke(&method?, ())?;
         return vm
             .to_index_opt(result.clone())

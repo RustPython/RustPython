@@ -802,7 +802,7 @@ mod _ssl {
                 stream: PyRwLock::new(stream),
                 socket_type,
                 server_hostname: args.server_hostname,
-                owner: PyRwLock::new(args.owner.as_ref().map(PyWeak::downgrade)),
+                owner: PyRwLock::new(args.owner.as_ref().map(|o| PyWeak::downgrade(o))),
             })
         }
     }

@@ -189,7 +189,7 @@ impl WASMVirtualMachine {
 
     pub(crate) fn push_held_rc(&self, obj: PyObjectRef) -> Result<PyObjectWeak, JsValue> {
         self.with(|stored_vm| {
-            let weak = PyObjectRef::downgrade(&obj);
+            let weak = obj.downgrade();
             stored_vm.held_objects.borrow_mut().push(obj);
             weak
         })

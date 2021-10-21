@@ -15,8 +15,8 @@ use crate::{
     scope::Scope,
     stdlib::builtins,
     types::PyComparisonOp,
-    IdProtocol, ItemProtocol, PyMethod, PyObjectRef, PyObjectWrap, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol, VirtualMachine,
+    IdProtocol, ItemProtocol, PyMethod, PyObject, PyObjectRef, PyObjectWrap, PyRef, PyResult,
+    PyValue, TryFromObject, TypeProtocol, VirtualMachine,
 };
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -188,12 +188,12 @@ impl FrameRef {
             let fastlocals = self.fastlocals.lock();
             for (k, v) in itertools::zip(&map[..j], &**fastlocals) {
                 if let Some(v) = v {
-                    match locals.as_object().clone().downcast_exact::<PyDict>(vm) {
+                    match locals.as_object().to_owned().downcast_exact::<PyDict>(vm) {
                         Ok(d) => d.set_item(k.clone(), v.clone(), vm)?,
                         Err(o) => o.set_item(k.clone(), v.clone(), vm)?,
                     };
                 } else {
-                    let res = match locals.as_object().clone().downcast_exact::<PyDict>(vm) {
+                    let res = match locals.as_object().to_owned().downcast_exact::<PyDict>(vm) {
                         Ok(d) => d.del_item(k.clone(), vm),
                         Err(o) => o.del_item(k.clone(), vm),
                     };
@@ -209,12 +209,12 @@ impl FrameRef {
             let map_to_dict = |keys: &[PyStrRef], values: &[PyCellRef]| {
                 for (k, v) in itertools::zip(keys, values) {
                     if let Some(v) = v.get() {
-                        match locals.as_object().clone().downcast_exact::<PyDict>(vm) {
+                        match locals.as_object().to_owned().downcast_exact::<PyDict>(vm) {
                             Ok(d) => d.set_item(k.clone(), v, vm)?,
                             Err(o) => o.set_item(k.clone(), v, vm)?,
                         };
                     } else {
-                        let res = match locals.as_object().clone().downcast_exact::<PyDict>(vm) {
+                        let res = match locals.as_object().to_owned().downcast_exact::<PyDict>(vm) {
                             Ok(d) => d.del_item(k.clone(), vm),
                             Err(o) => o.del_item(k.clone(), vm),
                         };
@@ -268,7 +268,7 @@ impl FrameRef {
     }
 
     pub fn yield_from_target(&self) -> Option<PyObjectRef> {
-        self.with_exec(|exec| exec.yield_from_target().cloned())
+        self.with_exec(|exec| exec.yield_from_target().map(PyObject::to_owned))
     }
 
     pub fn lasti(&self) -> u32 {
@@ -383,7 +383,7 @@ impl ExecutingFrame<'_> {
         }
     }
 
-    fn yield_from_target(&self) -> Option<&PyObjectRef> {
+    fn yield_from_target(&self) -> Option<&PyObject> {
         if let Some(bytecode::Instruction::YieldFrom) =
             self.code.instructions.get(self.lasti() as usize)
         {
@@ -409,7 +409,8 @@ impl ExecutingFrame<'_> {
             let thrower = if let Some(coro) = self.builtin_coro(gen) {
                 Some(Either::A(coro))
             } else {
-                vm.get_attribute_opt(gen.clone(), "throw")?.map(Either::B)
+                vm.get_attribute_opt(gen.to_owned(), "throw")?
+                    .map(Either::B)
             };
             if let Some(thrower) = thrower {
                 let ret = match thrower {
@@ -1491,7 +1492,7 @@ impl ExecutingFrame<'_> {
         Err(exception)
     }
 
-    fn builtin_coro<'a>(&self, coro: &'a PyObjectRef) -> Option<&'a Coro> {
+    fn builtin_coro<'a>(&self, coro: &'a PyObject) -> Option<&'a Coro> {
         match_class!(match coro {
             ref g @ PyGenerator => Some(g.as_coro()),
             ref c @ PyCoroutine => Some(c.as_coro()),
@@ -1501,7 +1502,7 @@ impl ExecutingFrame<'_> {
 
     fn _send(
         &self,
-        gen: &PyObjectRef,
+        gen: &PyObject,
         val: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyIterReturn> {
@@ -1510,7 +1511,7 @@ impl ExecutingFrame<'_> {
             // FIXME: turn return type to PyResult<PyIterReturn> then ExecutionResult will be simplified
             None if vm.is_none(&val) => PyIter::new(gen).next(vm),
             None => {
-                let meth = gen.clone().get_attr("send", vm)?;
+                let meth = gen.to_owned().get_attr("send", vm)?;
                 PyIterReturn::from_pyresult(vm.invoke(&meth, (val,)), vm)
             }
         }
@@ -1862,11 +1863,11 @@ impl ExecutingFrame<'_> {
     }
 
     fn last_value(&self) -> PyObjectRef {
-        self.last_value_ref().clone()
+        self.last_value_ref().to_owned()
     }
 
     #[inline]
-    fn last_value_ref(&self) -> &PyObjectRef {
+    fn last_value_ref(&self) -> &PyObject {
         match &*self.state.stack {
             [.., last] => last,
             [] => self.fatal("tried to get top of stack but stack is empty"),

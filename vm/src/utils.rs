@@ -1,7 +1,7 @@
 use crate::{
     builtins::{PyFloat, PyStr},
     function::{IntoPyException, IntoPyObject},
-    PyObjectRef, PyObjectWrap, PyResult, TryFromObject, TypeProtocol, VirtualMachine,
+    PyObject, PyObjectRef, PyObjectWrap, PyResult, TryFromObject, TypeProtocol, VirtualMachine,
 };
 use num_traits::ToPrimitive;
 
@@ -10,8 +10,8 @@ pub enum Either<A, B> {
     B(B),
 }
 
-impl<A: AsRef<PyObjectRef>, B: AsRef<PyObjectRef>> AsRef<PyObjectRef> for Either<A, B> {
-    fn as_ref(&self) -> &PyObjectRef {
+impl<A: AsRef<PyObject>, B: AsRef<PyObject>> AsRef<PyObject> for Either<A, B> {
+    fn as_ref(&self) -> &PyObject {
         match self {
             Either::A(a) => a.as_ref(),
             Either::B(b) => b.as_ref(),

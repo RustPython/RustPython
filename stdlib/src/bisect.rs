@@ -105,7 +105,7 @@ mod _bisect {
         while lo < hi {
             // Handles issue 13496.
             let mid = (lo + hi) / 2;
-            if x.rich_compare_bool(&a.get_item(mid, vm)?, Lt, vm)? {
+            if x.rich_compare_bool(&*a.get_item(mid, vm)?, Lt, vm)? {
                 hi = mid;
             } else {
                 lo = mid + 1;

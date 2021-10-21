@@ -14,8 +14,8 @@ use crate::{
     },
     utils::Either,
     vm::{ReprGuard, VirtualMachine},
-    IdProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
-    PyResult, PyValue, TryFromObject, TypeProtocol,
+    IdProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef,
+    PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use std::fmt;
 use std::iter::FromIterator;
@@ -259,7 +259,7 @@ impl PyList {
 
     fn _iter_equal<F: FnMut(), const SHORT: bool>(
         &self,
-        needle: &PyObjectRef,
+        needle: &PyObject,
         range: Range<usize>,
         mut f: F,
         vm: &VirtualMachine,
@@ -305,8 +305,8 @@ impl PyList {
                     drop(elem_cls);
 
                     fn cmp(
-                        elem: &PyObjectRef,
-                        needle: &PyObjectRef,
+                        elem: &PyObject,
+                        needle: &PyObject,
                         elem_cmp: RichCompareFunc,
                         needle_cmp: RichCompareFunc,
                         vm: &VirtualMachine,
@@ -354,8 +354,8 @@ impl PyList {
                             drop(elem_cls);
 
                             fn cmp(
-                                elem: &PyObjectRef,
-                                needle: &PyObjectRef,
+                                elem: &PyObject,
+                                needle: &PyObject,
                                 elem_cmp: RichCompareFunc,
                                 vm: &VirtualMachine,
                             ) -> PyResult<bool> {
@@ -397,7 +397,7 @@ impl PyList {
 
     fn foreach_equal<F: FnMut()>(
         &self,
-        needle: &PyObjectRef,
+        needle: &PyObject,
         f: F,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -407,7 +407,7 @@ impl PyList {
 
     fn find_equal(
         &self,
-        needle: &PyObjectRef,
+        needle: &PyObject,
         range: Range<usize>,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
@@ -542,7 +542,7 @@ impl PyList {
 }
 
 impl AsMapping for PyList {
-    fn as_mapping(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
+    fn as_mapping(_zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
         PyMappingMethods {
             length: Some(Self::length),
             subscript: Some(Self::subscript),
@@ -585,8 +585,8 @@ impl Iterable for PyList {
 
 impl Comparable for PyList {
     fn cmp(
-        zelf: &PyRef<Self>,
-        other: &PyObjectRef,
+        zelf: &crate::PyObjectView<Self>,
+        other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
@@ -666,7 +666,7 @@ impl Unconstructible for PyListIterator {}
 
 impl IterNextIterable for PyListIterator {}
 impl IterNext for PyListIterator {
-    fn next(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal.lock().next(|list, pos| {
             let vec = list.borrow_vec();
             Ok(match vec.get(pos) {
@@ -714,7 +714,7 @@ impl Unconstructible for PyListReverseIterator {}
 
 impl IterNextIterable for PyListReverseIterator {}
 impl IterNext for PyListReverseIterator {
-    fn next(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal.lock().rev_next(|list, pos| {
             let vec = list.borrow_vec();
             Ok(match vec.get(pos) {

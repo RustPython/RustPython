@@ -127,7 +127,7 @@ pub fn import_codeobj(
     let attrs = vm.ctx.new_dict();
     attrs.set_item("__name__", vm.ctx.new_str(module_name).into(), vm)?;
     if set_file_attr {
-        attrs.set_item("__file__", code_obj.source_path.as_object().clone(), vm)?;
+        attrs.set_item("__file__", code_obj.source_path.as_object().to_owned(), vm)?;
     }
     let module = vm.new_module(module_name, attrs.clone(), None);
 

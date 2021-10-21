@@ -2,8 +2,8 @@ use super::{PyDict, PyDictRef, PyList, PyStr, PyStrRef, PyType, PyTypeRef};
 use crate::common::hash::PyHash;
 use crate::{
     function::FuncArgs, types::PyComparisonOp, utils::Either, IdProtocol, ItemProtocol,
-    PyArithmeticValue, PyAttributes, PyClassImpl, PyComparisonValue, PyContext, PyObject,
-    PyObjectRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
+    PyArithmeticValue, PyAttributes, PyClassImpl, PyComparisonValue, PyContext, PyGenericObject,
+    PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
 
 /// object()
@@ -34,13 +34,13 @@ impl PyBaseObject {
         } else {
             Some(vm.ctx.new_dict())
         };
-        Ok(PyObject::new(PyBaseObject, cls, dict))
+        Ok(PyGenericObject::new(PyBaseObject, cls, dict))
     }
 
     #[pyslot]
     fn slot_richcompare(
-        zelf: &PyObjectRef,
-        other: &PyObjectRef,
+        zelf: &PyObject,
+        other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
@@ -49,8 +49,8 @@ impl PyBaseObject {
 
     #[inline(always)]
     fn cmp(
-        zelf: &PyObjectRef,
-        other: &PyObjectRef,
+        zelf: &PyObject,
+        other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
@@ -159,12 +159,12 @@ impl PyBaseObject {
 
     #[pyslot]
     fn slot_setattro(
-        obj: &PyObjectRef,
+        obj: &PyObject,
         attr_name: PyStrRef,
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        setattr(obj, attr_name, value, vm)
+        setattr(&*obj, attr_name, value, vm)
     }
 
     /// Return str(self).
@@ -296,7 +296,7 @@ impl PyBaseObject {
     }
 
     #[pyslot]
-    fn slot_hash(zelf: &PyObjectRef, _vm: &VirtualMachine) -> PyResult<PyHash> {
+    fn slot_hash(zelf: &PyObject, _vm: &VirtualMachine) -> PyResult<PyHash> {
         Ok(zelf.get_id() as _)
     }
 
@@ -318,7 +318,7 @@ pub fn object_set_dict(obj: PyObjectRef, dict: PyDictRef, vm: &VirtualMachine) -
 
 #[cfg_attr(feature = "flame-it", flame)]
 pub(crate) fn setattr(
-    obj: &PyObjectRef,
+    obj: &PyObject,
     attr_name: PyStrRef,
     value: Option<PyObjectRef>,
     vm: &VirtualMachine,
@@ -328,7 +328,7 @@ pub(crate) fn setattr(
     if let Some(attr) = obj.get_class_attr(attr_name.as_str()) {
         let descr_set = attr.class().mro_find_map(|cls| cls.slots.descr_set.load());
         if let Some(descriptor) = descr_set {
-            return descriptor(attr, obj.clone(), value, vm);
+            return descriptor(attr, obj.to_owned(), value, vm);
         }
     }
 

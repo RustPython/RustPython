@@ -28,8 +28,8 @@ mod array {
             AsBuffer, AsMapping, Comparable, Constructor, IterNext, IterNextIterable, Iterable,
             PyComparisonOp,
         },
-        IdProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-        TypeProtocol, VirtualMachine,
+        IdProtocol, PyComparisonValue, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult,
+        PyValue, TryFromObject, TypeProtocol, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
@@ -1111,7 +1111,7 @@ mod array {
             let iter = Iterator::zip(array_a.iter(vm), array_b.iter(vm));
 
             for (a, b) in iter {
-                if !vm.bool_eq(&a?, &b?)? {
+                if !vm.bool_eq(&*a?, &*b?)? {
                     return Ok(false);
                 }
             }
@@ -1167,8 +1167,8 @@ mod array {
 
     impl Comparable for PyArray {
         fn cmp(
-            zelf: &PyRef<Self>,
-            other: &PyObjectRef,
+            zelf: &PyObjectView<Self>,
+            other: &PyObject,
             op: PyComparisonOp,
             vm: &VirtualMachine,
         ) -> PyResult<PyComparisonValue> {
@@ -1195,8 +1195,12 @@ mod array {
 
                     for (a, b) in iter {
                         let ret = match op {
-                            PyComparisonOp::Lt | PyComparisonOp::Le => vm.bool_seq_lt(&a?, &b?)?,
-                            PyComparisonOp::Gt | PyComparisonOp::Ge => vm.bool_seq_gt(&a?, &b?)?,
+                            PyComparisonOp::Lt | PyComparisonOp::Le => {
+                                vm.bool_seq_lt(&*a?, &*b?)?
+                            }
+                            PyComparisonOp::Gt | PyComparisonOp::Ge => {
+                                vm.bool_seq_gt(&*a?, &*b?)?
+                            }
                             _ => unreachable!(),
                         };
                         if let Some(v) = ret {
@@ -1214,11 +1218,11 @@ mod array {
     }
 
     impl AsBuffer for PyArray {
-        fn as_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
+        fn as_buffer(zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
             let array = zelf.read();
             let buf = PyBuffer::new(
-                zelf.as_object().clone(),
-                PyArrayBufferInternal(zelf.clone()),
+                zelf.as_object().to_owned(),
+                PyArrayBufferInternal(zelf.to_owned()),
                 BufferOptions {
                     readonly: false,
                     len: array.len(),
@@ -1253,7 +1257,7 @@ mod array {
     }
 
     impl AsMapping for PyArray {
-        fn as_mapping(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
+        fn as_mapping(_zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
             PyMappingMethods {
                 length: Some(Self::length),
                 subscript: Some(Self::subscript),
@@ -1322,7 +1326,7 @@ mod array {
 
     impl IterNextIterable for PyArrayIter {}
     impl IterNext for PyArrayIter {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        fn next(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let pos = zelf.position.fetch_add(1);
             let r = if let Some(item) = zelf.array.read().getitem_by_idx(pos, vm)? {
                 PyIterReturn::Return(item)

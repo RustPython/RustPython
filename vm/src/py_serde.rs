@@ -4,13 +4,12 @@ use serde::de::{DeserializeSeed, Visitor};
 use serde::ser::{Serialize, SerializeMap, SerializeSeq};
 
 use crate::builtins::{dict::PyDictRef, float, int, list::PyList, pybool, tuple::PyTuple, PyStr};
-use crate::VirtualMachine;
-use crate::{ItemProtocol, PyObjectRef, TypeProtocol};
+use crate::{ItemProtocol, PyObject, PyObjectRef, TypeProtocol, VirtualMachine};
 
 #[inline]
 pub fn serialize<S>(
     vm: &VirtualMachine,
-    pyobject: &PyObjectRef,
+    pyobject: &PyObject,
     serializer: S,
 ) -> Result<S::Ok, S::Error>
 where
@@ -33,7 +32,7 @@ where
 // We need to have a VM available to serialise a PyObject based on its subclass, so we implement
 // PyObject serialisation via a proxy object which holds a reference to a VM
 pub struct PyObjectSerializer<'s> {
-    pyobject: &'s PyObjectRef,
+    pyobject: &'s PyObject,
     vm: &'s VirtualMachine,
 }
 
@@ -86,7 +85,7 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
         } else if let Some(tuple) = self.pyobject.payload_if_subclass::<PyTuple>(self.vm) {
             serialize_seq_elements(serializer, tuple.as_slice())
         } else if self.pyobject.isinstance(&self.vm.ctx.types.dict_type) {
-            let dict: PyDictRef = self.pyobject.clone().downcast().unwrap();
+            let dict: PyDictRef = self.pyobject.to_owned().downcast().unwrap();
             let pairs: Vec<_> = dict.into_iter().collect();
             let mut map = serializer.serialize_map(Some(pairs.len()))?;
             for (key, e) in pairs.iter() {

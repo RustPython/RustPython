@@ -1,7 +1,7 @@
 use super::IntoFuncArgs;
 use crate::{
-    builtins::iter::PySequenceIterator, protocol::PyIter, protocol::PyIterIter, PyObjectRef,
-    PyObjectWrap, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
+    builtins::iter::PySequenceIterator, protocol::PyIter, protocol::PyIterIter, PyObject,
+    PyObjectRef, PyObjectWrap, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
 };
 use std::marker::PhantomData;
 
@@ -17,8 +17,8 @@ impl ArgCallable {
     }
 }
 
-impl AsRef<PyObjectRef> for ArgCallable {
-    fn as_ref(&self) -> &PyObjectRef {
+impl AsRef<PyObject> for ArgCallable {
+    fn as_ref(&self) -> &PyObject {
         &self.obj
     }
 }

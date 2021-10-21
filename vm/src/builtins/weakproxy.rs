@@ -2,7 +2,7 @@ use super::{PyStrRef, PyTypeRef, PyWeak};
 use crate::{
     function::OptionalArg,
     types::{Constructor, SetAttr},
-    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "weakproxy")]
@@ -60,7 +60,7 @@ impl PyWeakProxy {
 
 impl SetAttr for PyWeakProxy {
     fn setattro(
-        zelf: &PyRef<Self>,
+        zelf: &crate::PyObjectView<Self>,
         attr_name: PyStrRef,
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,

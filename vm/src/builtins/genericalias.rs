@@ -99,7 +99,7 @@ impl PyGenericAlias {
 
         Ok(format!(
             "{}[{}]",
-            repr_item(self.origin.as_object().clone(), vm)?,
+            repr_item(self.origin.as_object().to_owned(), vm)?,
             self.args
                 .as_slice()
                 .iter()
@@ -111,17 +111,17 @@ impl PyGenericAlias {
 
     #[pyproperty(magic)]
     fn parameters(&self) -> PyObjectRef {
-        self.parameters.as_object().clone()
+        self.parameters.as_object().to_owned()
     }
 
     #[pyproperty(magic)]
     fn args(&self) -> PyObjectRef {
-        self.args.as_object().clone()
+        self.args.as_object().to_owned()
     }
 
     #[pyproperty(magic)]
     fn origin(&self) -> PyObjectRef {
-        self.origin.as_object().clone()
+        self.origin.as_object().to_owned()
     }
 
     #[pymethod(magic)]
@@ -166,7 +166,7 @@ fn make_parameters(args: &PyTupleRef, vm: &VirtualMachine) -> PyTupleRef {
 
 impl Hashable for PyGenericAlias {
     #[inline]
-    fn hash(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<hash::PyHash> {
+    fn hash(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<hash::PyHash> {
         Ok(zelf.origin.as_object().hash(vm)? ^ zelf.args.as_object().hash(vm)?)
     }
 }
@@ -175,7 +175,7 @@ impl GetAttr for PyGenericAlias {
     fn getattro(zelf: PyRef<Self>, attr: PyStrRef, vm: &VirtualMachine) -> PyResult {
         for exc in ATTR_EXCEPTIONS.iter() {
             if *(*exc) == attr.to_string() {
-                return vm.generic_getattribute(zelf.as_object().clone(), attr);
+                return vm.generic_getattribute(zelf.as_object().to_owned(), attr);
             }
         }
         zelf.origin().get_attr(attr, vm)

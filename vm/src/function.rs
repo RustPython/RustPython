@@ -4,8 +4,8 @@ mod number;
 
 use crate::{
     builtins::{PyBaseExceptionRef, PyTupleRef, PyTypeRef},
-    PyObjectRef, PyRef, PyResult, PyThreadingConstraint, PyValue, TryFromObject, TypeProtocol,
-    VirtualMachine,
+    PyObject, PyObjectRef, PyRef, PyResult, PyThreadingConstraint, PyValue, TryFromObject,
+    TypeProtocol, VirtualMachine,
 };
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -722,7 +722,7 @@ pub fn single_or_tuple_any<T, F, M>(
 where
     T: TryFromObject,
     F: Fn(&T) -> PyResult<bool>,
-    M: Fn(&PyObjectRef) -> String,
+    M: Fn(&PyObject) -> String,
 {
     match T::try_from_object(vm, obj.clone()) {
         Ok(single) => (predicate)(&single),

@@ -4,7 +4,7 @@ use rustpython_vm::{
     builtins::{PyDictRef, PyStrRef},
     function::{ArgCallable, IntoPyObject, OptionalArg},
     import::import_file,
-    PyClassImpl, PyObject, PyObjectRef, PyResult, PyValue, VirtualMachine,
+    PyClassImpl, PyGenericObject, PyObjectRef, PyResult, PyValue, VirtualMachine,
 };
 use wasm_bindgen::{prelude::*, JsCast};
 use wasm_bindgen_futures::JsFuture;
@@ -236,7 +236,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
     let document_class = Document::make_class(ctx);
 
-    let document = PyObject::new(
+    let document = PyGenericObject::new(
         Document {
             doc: window().document().expect("Document missing from window"),
         },

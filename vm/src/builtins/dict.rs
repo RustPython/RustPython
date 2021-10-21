@@ -15,8 +15,8 @@ use crate::{
     vm::{ReprGuard, VirtualMachine},
     IdProtocol, ItemProtocol,
     PyArithmeticValue::*,
-    PyAttributes, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
-    PyResult, PyValue, TypeProtocol,
+    PyAttributes, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef,
+    PyObjectView, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use rustpython_common::lock::PyMutex;
 use std::fmt;
@@ -159,8 +159,8 @@ impl PyDict {
     }
 
     fn inner_cmp(
-        zelf: &PyRef<Self>,
-        other: &PyDictRef,
+        zelf: &PyObjectView<Self>,
+        other: &PyObjectView<PyDict>,
         op: PyComparisonOp,
         item: bool,
         vm: &VirtualMachine,
@@ -262,7 +262,7 @@ impl PyDict {
 
     /// Set item variant which can be called with multiple
     /// key types, such as str to name a notable one.
-    fn inner_setitem_fast<K: DictKey>(
+    fn inner_setitem_fast<K: DictKey + IntoPyObject>(
         &self,
         key: K,
         value: PyObjectRef,
@@ -416,7 +416,7 @@ impl PyDict {
 }
 
 impl AsMapping for PyDict {
-    fn as_mapping(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
+    fn as_mapping(_zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
         PyMappingMethods {
             length: Some(Self::length),
             subscript: Some(Self::subscript),
@@ -450,8 +450,8 @@ impl AsMapping for PyDict {
 
 impl Comparable for PyDict {
     fn cmp(
-        zelf: &PyRef<Self>,
-        other: &PyObjectRef,
+        zelf: &PyObjectView<Self>,
+        other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
@@ -470,7 +470,7 @@ impl Iterable for PyDict {
     }
 }
 
-impl PyDictRef {
+impl PyObjectView<PyDict> {
     #[inline]
     fn exact_dict(&self, vm: &VirtualMachine) -> bool {
         self.class().is(&vm.ctx.types.dict_type)
@@ -478,7 +478,7 @@ impl PyDictRef {
 
     /// Return an optional inner item, or an error (can be key error as well)
     #[inline]
-    fn inner_getitem_option<K: DictKey>(
+    fn inner_getitem_option<K: DictKey + IntoPyObject>(
         &self,
         key: K,
         exact: bool,
@@ -489,7 +489,7 @@ impl PyDictRef {
         }
 
         if !exact {
-            if let Some(method_or_err) = vm.get_method(self.clone().into(), "__missing__") {
+            if let Some(method_or_err) = vm.get_method(self.to_owned().into(), "__missing__") {
                 let method = method_or_err?;
                 return vm.invoke(&method, (key,)).map(Some);
             }
@@ -498,7 +498,7 @@ impl PyDictRef {
     }
 
     /// Take a python dictionary and convert it to attributes.
-    pub fn to_attributes(self) -> PyAttributes {
+    pub fn to_attributes(&self) -> PyAttributes {
         let mut attrs = PyAttributes::default();
         for (key, value) in self {
             let key: PyStrRef = key.downcast().expect("dict has non-string keys");
@@ -572,9 +572,9 @@ impl PyDictRef {
     }
 }
 
-impl<K> ItemProtocol<K> for PyDictRef
+impl<K> ItemProtocol<K> for PyObjectView<PyDict>
 where
-    K: DictKey,
+    K: DictKey + IntoPyObject,
 {
     fn get_item(&self, key: K, vm: &VirtualMachine) -> PyResult {
         self.as_object().get_item(key, vm)
@@ -599,6 +599,23 @@ where
     }
 }
 
+impl<K> ItemProtocol<K> for PyDictRef
+where
+    K: DictKey + IntoPyObject,
+{
+    fn get_item(&self, key: K, vm: &VirtualMachine) -> PyResult {
+        (**self).get_item(key, vm)
+    }
+
+    fn set_item(&self, key: K, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        (**self).set_item(key, value, vm)
+    }
+
+    fn del_item(&self, key: K, vm: &VirtualMachine) -> PyResult<()> {
+        (**self).del_item(key, vm)
+    }
+}
+
 // Implement IntoIterator so that we can easily iterate dictionaries from rust code.
 impl IntoIterator for PyDictRef {
     type Item = (PyObjectRef, PyObjectRef);
@@ -615,6 +632,15 @@ impl IntoIterator for &PyDictRef {
 
     fn into_iter(self) -> Self::IntoIter {
         DictIter::new(self.clone())
+    }
+}
+
+impl IntoIterator for &PyObjectView<PyDict> {
+    type Item = (PyObjectRef, PyObjectRef);
+    type IntoIter = DictIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        DictIter::new(self.to_owned())
     }
 }
 
@@ -717,8 +743,8 @@ macro_rules! dict_view {
 
         impl Comparable for $name {
             fn cmp(
-                zelf: &PyRef<Self>,
-                other: &PyObjectRef,
+                zelf: &PyObjectView<Self>,
+                other: &PyObject,
                 op: PyComparisonOp,
                 vm: &VirtualMachine,
             ) -> PyResult<PyComparisonValue> {
@@ -781,7 +807,7 @@ macro_rules! dict_view {
         impl IterNextIterable for $iter_name {}
         impl IterNext for $iter_name {
             #[allow(clippy::redundant_closure_call)]
-            fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+            fn next(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
                 let mut internal = zelf.internal.lock();
                 if let IterStatus::Active(dict) = &internal.status {
                     if dict.entries.has_changed_size(&zelf.size) {
@@ -842,7 +868,7 @@ macro_rules! dict_view {
         impl IterNextIterable for $reverse_iter_name {}
         impl IterNext for $reverse_iter_name {
             #[allow(clippy::redundant_closure_call)]
-            fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+            fn next(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
                 let mut internal = zelf.internal.lock();
                 if let IterStatus::Active(dict) = &internal.status {
                     if dict.entries.has_changed_size(&zelf.size) {

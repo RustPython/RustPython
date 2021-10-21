@@ -2,7 +2,7 @@ use super::PyTypeRef;
 use crate::{
     protocol::{PyIter, PyIterReturn},
     types::{Constructor, IterNext, IterNextIterable},
-    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue, VirtualMachine,
 };
 
 /// filter(function or None, iterable) --> filter object
@@ -39,7 +39,7 @@ impl PyFilter {}
 
 impl IterNextIterable for PyFilter {}
 impl IterNext for PyFilter {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let predicate = &zelf.predicate;
         loop {
             let next_obj = match zelf.iterator.next(vm)? {

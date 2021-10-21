@@ -12,7 +12,8 @@ mod decl {
         protocol::{PyIter, PyIterReturn},
         stdlib::sys,
         types::{Constructor, IterNext, IterNextIterable},
-        IdProtocol, PyObjectRef, PyRef, PyResult, PyValue, PyWeakRef, TypeProtocol, VirtualMachine,
+        IdProtocol, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue, PyWeakRef, TypeProtocol,
+        VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use num_bigint::BigInt;
@@ -56,7 +57,7 @@ mod decl {
     }
     impl IterNextIterable for PyItertoolsChain {}
     impl IterNext for PyItertoolsChain {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        fn next(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             loop {
                 let pos = zelf.cur_idx.load();
                 if pos >= zelf.iterables.len() {
@@ -124,7 +125,7 @@ mod decl {
 
     impl IterNextIterable for PyItertoolsCompress {}
     impl IterNext for PyItertoolsCompress {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        fn next(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             loop {
                 let sel_obj = match zelf.selector.next(vm)? {
                     PyIterReturn::Return(obj) => obj,
@@ -186,7 +187,7 @@ mod decl {
     impl PyItertoolsCount {}
     impl IterNextIterable for PyItertoolsCount {}
     impl IterNext for PyItertoolsCount {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        fn next(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let mut cur = zelf.cur.write();
             let result = cur.clone();
             *cur += &zelf.step;
@@ -220,7 +221,7 @@ mod decl {
     impl PyItertoolsCycle {}
     impl IterNextIterable for PyItertoolsCycle {}
     impl IterNext for PyItertoolsCycle {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        fn next(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let item = if let PyIterReturn::Return(item) = zelf.iter.next(vm)? {
                 zelf.saved.write().push(item.clone());
                 item
@@ -311,7 +312,7 @@ mod decl {
 
     impl IterNextIterable for PyItertoolsRepeat {}
     impl IterNext for PyItertoolsRepeat {
-        fn next(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        fn next(zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             if let Some(ref times) = zelf.times {
                 let mut times = times.write();
                 if *times == 0 {
@@ -355,7 +356,7 @@ mod decl {
     impl PyItertoolsStarmap {}
     impl IterNextIterable for PyItertoolsStarmap {}
     impl IterNext for PyItertoolsStarmap {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        fn next(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let obj = zelf.iterable.next(vm)?;
             let function = &zelf.function;
             match obj {
@@ -408,7 +409,7 @@ mod decl {
     impl PyItertoolsTakewhile {}
     impl IterNextIterable for PyItertoolsTakewhile {}
     impl IterNext for PyItertoolsTakewhile {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        fn next(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             if zelf.stop_flag.load() {
                 return Ok(PyIterReturn::StopIteration(None));
             }
@@ -472,7 +473,7 @@ mod decl {
     impl PyItertoolsDropwhile {}
     impl IterNextIterable for PyItertoolsDropwhile {}
     impl IterNext for PyItertoolsDropwhile {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        fn next(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let predicate = &zelf.predicate;
             let iterable = &zelf.iterable;
 
@@ -514,7 +515,7 @@ mod decl {
     }
 
     impl GroupByState {
-        fn is_current(&self, grouper: &PyItertoolsGrouperRef) -> bool {
+        fn is_current(&self, grouper: &PyObjectView<PyItertoolsGrouper>) -> bool {
             self.grouper
                 .as_ref()
                 .and_then(|g| g.upgrade())
@@ -590,7 +591,7 @@ mod decl {
     }
     impl IterNextIterable for PyItertoolsGroupBy {}
     impl IterNext for PyItertoolsGroupBy {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        fn next(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let mut state = zelf.state.lock();
             state.grouper = None;
 
@@ -628,11 +629,11 @@ mod decl {
             state.next_group = false;
 
             let grouper = PyItertoolsGrouper {
-                groupby: zelf.clone(),
+                groupby: zelf.to_owned(),
             }
             .into_ref(vm);
 
-            state.grouper = Some(PyRef::downgrade(&grouper));
+            state.grouper = Some(grouper.downgrade());
             Ok(PyIterReturn::Return(
                 (state.current_key.as_ref().unwrap().clone(), grouper).into_pyobject(vm),
             ))
@@ -646,13 +647,11 @@ mod decl {
         groupby: PyRef<PyItertoolsGroupBy>,
     }
 
-    type PyItertoolsGrouperRef = PyRef<PyItertoolsGrouper>;
-
     #[pyimpl(with(IterNext))]
     impl PyItertoolsGrouper {}
     impl IterNextIterable for PyItertoolsGrouper {}
     impl IterNext for PyItertoolsGrouper {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        fn next(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let old_key = {
                 let mut state = zelf.groupby.state.lock();
 
@@ -785,7 +784,7 @@ mod decl {
 
     impl IterNextIterable for PyItertoolsIslice {}
     impl IterNext for PyItertoolsIslice {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        fn next(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             while zelf.cur.load() < zelf.next.load() {
                 zelf.iterable.next(vm)?;
                 zelf.cur.fetch_add(1);
@@ -850,7 +849,7 @@ mod decl {
     impl PyItertoolsFilterFalse {}
     impl IterNextIterable for PyItertoolsFilterFalse {}
     impl IterNext for PyItertoolsFilterFalse {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        fn next(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let predicate = &zelf.predicate;
             let iterable = &zelf.iterable;
 
@@ -910,7 +909,7 @@ mod decl {
 
     impl IterNextIterable for PyItertoolsAccumulate {}
     impl IterNext for PyItertoolsAccumulate {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        fn next(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let iterable = &zelf.iterable;
 
             let acc_value = zelf.acc_value.read().clone();
@@ -1039,7 +1038,7 @@ mod decl {
     }
     impl IterNextIterable for PyItertoolsTee {}
     impl IterNext for PyItertoolsTee {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        fn next(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let value = match zelf.tee_data.get_item(vm, zelf.index.load())? {
                 PyIterReturn::Return(obj) => obj,
                 PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
@@ -1118,7 +1117,7 @@ mod decl {
     }
     impl IterNextIterable for PyItertoolsProduct {}
     impl IterNext for PyItertoolsProduct {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        fn next(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             // stop signal
             if zelf.stop.load() {
                 return Ok(PyIterReturn::StopIteration(None));
@@ -1197,7 +1196,7 @@ mod decl {
     impl PyItertoolsCombinations {}
     impl IterNextIterable for PyItertoolsCombinations {}
     impl IterNext for PyItertoolsCombinations {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        fn next(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             // stop signal
             if zelf.exhausted.load() {
                 return Ok(PyIterReturn::StopIteration(None));
@@ -1288,7 +1287,7 @@ mod decl {
 
     impl IterNextIterable for PyItertoolsCombinationsWithReplacement {}
     impl IterNext for PyItertoolsCombinationsWithReplacement {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        fn next(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             // stop signal
             if zelf.exhausted.load() {
                 return Ok(PyIterReturn::StopIteration(None));
@@ -1396,7 +1395,7 @@ mod decl {
     impl PyItertoolsPermutations {}
     impl IterNextIterable for PyItertoolsPermutations {}
     impl IterNext for PyItertoolsPermutations {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        fn next(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             // stop signal
             if zelf.exhausted.load() {
                 return Ok(PyIterReturn::StopIteration(None));
@@ -1498,7 +1497,7 @@ mod decl {
     impl PyItertoolsZipLongest {}
     impl IterNextIterable for PyItertoolsZipLongest {}
     impl IterNext for PyItertoolsZipLongest {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        fn next(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             if zelf.iterators.is_empty() {
                 return Ok(PyIterReturn::StopIteration(None));
             }
@@ -1546,7 +1545,7 @@ mod decl {
     impl PyItertoolsPairwise {}
     impl IterNextIterable for PyItertoolsPairwise {}
     impl IterNext for PyItertoolsPairwise {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        fn next(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let old = match zelf.old.read().clone() {
                 None => match zelf.iterator.next(vm)? {
                     PyIterReturn::Return(obj) => obj,

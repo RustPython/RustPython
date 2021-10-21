@@ -1,5 +1,5 @@
 use crate::{
-    function::IntoPyObject, ItemProtocol, PyClassImpl, PyObjectRef, PyResult, VirtualMachine,
+    function::IntoPyObject, ItemProtocol, PyClassImpl, PyObject, PyResult, VirtualMachine,
 };
 
 pub(crate) use sys::{MAXSIZE, MULTIARCH};
@@ -335,7 +335,7 @@ mod sys {
 
     #[pyfunction]
     fn getrefcount(obj: PyObjectRef) -> usize {
-        PyObjectRef::strong_count(&obj)
+        obj.strong_count()
     }
 
     #[pyfunction]
@@ -670,7 +670,7 @@ mod sys {
     impl WindowsVersion {}
 }
 
-pub(crate) fn init_module(vm: &VirtualMachine, module: &PyObjectRef, builtins: &PyObjectRef) {
+pub(crate) fn init_module(vm: &VirtualMachine, module: &PyObject, builtins: &PyObject) {
     let ctx = &vm.ctx;
     let _flags_type = sys::Flags::make_class(ctx);
     let _version_info_type = crate::version::VersionInfo::make_class(ctx);
@@ -686,8 +686,10 @@ pub(crate) fn init_module(vm: &VirtualMachine, module: &PyObjectRef, builtins: &
     sys::extend_module(vm, module);
 
     let modules = vm.ctx.new_dict();
-    modules.set_item("sys", module.clone(), vm).unwrap();
-    modules.set_item("builtins", builtins.clone(), vm).unwrap();
+    modules.set_item("sys", module.to_owned(), vm).unwrap();
+    modules
+        .set_item("builtins", builtins.to_owned(), vm)
+        .unwrap();
     extend_module!(vm, module, {
         "__doc__" => sys::DOC.to_owned().into_pyobject(vm),
         "modules" => modules,
