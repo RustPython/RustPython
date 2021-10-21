@@ -11,6 +11,7 @@ mod bisect;
 mod cmath;
 mod csv;
 mod dis;
+mod gc;
 mod hashlib;
 mod json;
 #[cfg(feature = "rustpython-parser")]
@@ -82,6 +83,7 @@ pub fn get_module_inits() -> StdlibMap {
             "cmath" => cmath::make_module,
             "_csv" => csv::make_module,
             "dis" => dis::make_module,
+            "gc" => gc::make_module,
             "hashlib" => hashlib::make_module,
             "_json" => json::make_module,
             "math" => math::make_module,

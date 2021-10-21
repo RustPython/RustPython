@@ -1402,8 +1402,6 @@ class TestTemporaryDirectory(BaseTestCase):
         finally:
             os.rmdir(dir)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_del_on_shutdown(self):
         # A TemporaryDirectory may be cleaned up during shutdown
         with self.do_create() as dir:
@@ -1436,8 +1434,6 @@ class TestTemporaryDirectory(BaseTestCase):
                 self.assertNotIn("Exception ", err)
                 self.assertIn("ResourceWarning: Implicitly cleaning up", err)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_exit_on_shutdown(self):
         # Issue #22427
         with self.do_create() as dir:

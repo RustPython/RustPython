@@ -2083,8 +2083,6 @@ class FinalizeTestCase(unittest.TestCase):
         assert f3.atexit == True
         assert f4.atexit == True
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_atexit(self):
         prog = ('from test.test_weakref import FinalizeTestCase;'+
                 'FinalizeTestCase.run_in_child()')
