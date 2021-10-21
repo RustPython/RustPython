@@ -8,7 +8,6 @@ mod pwd {
         PyObjectRef, PyResult, PyStructSequence, VirtualMachine,
     };
     use nix::unistd::{self, User};
-    use std::convert::TryFrom;
     use std::ptr::NonNull;
 
     #[pyattr]

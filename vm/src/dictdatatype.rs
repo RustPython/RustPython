@@ -240,8 +240,8 @@ impl<T: Clone> Dict<T> {
         let hash = key.key_hash(vm)?;
         let _removed = loop {
             let (entry_index, index_index) = self.lookup(vm, &key, hash, None)?;
+            let mut inner = self.write();
             if let IndexEntry::Index(index) = entry_index {
-                let mut inner = self.write();
                 // Update existing key
                 if let Some(entry) = inner.entries.get_mut(index) {
                     let entry = entry
@@ -259,7 +259,6 @@ impl<T: Clone> Dict<T> {
                 }
             } else {
                 // New key:
-                let mut inner = self.write();
                 inner.unchecked_push(index_index, hash, key.into_pyobject(vm), value, entry_index);
                 break None;
             }

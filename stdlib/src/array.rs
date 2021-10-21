@@ -35,7 +35,6 @@ mod array {
     use itertools::Itertools;
     use lexical_core::Integer;
     use std::cmp::Ordering;
-    use std::convert::{TryFrom, TryInto};
     use std::{fmt, os::raw};
 
     macro_rules! def_array_enum {

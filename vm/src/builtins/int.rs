@@ -13,7 +13,6 @@ use bstr::ByteSlice;
 use num_bigint::{BigInt, BigUint, Sign};
 use num_integer::Integer;
 use num_traits::{One, Pow, PrimInt, Signed, ToPrimitive, Zero};
-use std::convert::TryFrom;
 use std::fmt;
 use std::mem::size_of;
 

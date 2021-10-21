@@ -185,17 +185,17 @@ fn generate_field((i, field): (usize, &Field)) -> Result<TokenStream> {
     let file_output = match attr.kind {
         ParameterKind::PositionalOnly => {
             quote! {
-                #fieldname: args.take_positional()#middle#ending,
+                #fieldname: args.take_positional()#middle #ending,
             }
         }
         ParameterKind::PositionalOrKeyword => {
             quote! {
-                #fieldname: args.take_positional_keyword(#pyname)#middle#ending,
+                #fieldname: args.take_positional_keyword(#pyname)#middle #ending,
             }
         }
         ParameterKind::KeywordOnly => {
             quote! {
-                #fieldname: args.take_keyword(#pyname)#middle#ending,
+                #fieldname: args.take_keyword(#pyname)#middle #ending,
             }
         }
         ParameterKind::Flatten => unreachable!(),

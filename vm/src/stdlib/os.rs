@@ -1584,7 +1584,6 @@ pub(super) mod _os {
     #[cfg(target_os = "linux")]
     #[pyfunction]
     fn copy_file_range(args: CopyFileRangeArgs, vm: &VirtualMachine) -> PyResult<usize> {
-        use std::convert::{TryFrom, TryInto};
         let p_offset_src = args.offset_src.as_ref().map_or_else(std::ptr::null, |x| x);
         let p_offset_dst = args.offset_dst.as_ref().map_or_else(std::ptr::null, |x| x);
         let count: usize = args

@@ -3,7 +3,7 @@ name = "rustpython-bytecode"
 description = "RustPython specific bytecode."
 version = "0.1.2"
 authors = ["RustPython Team"]
-edition = "2018"
+edition = "2021"
 repository = "https://github.com/RustPython/RustPython"
 license = "MIT"
 

@@ -173,7 +173,8 @@ impl CodecsRegistry {
                 ctx.new_function("surrogateescape_errors", surrogateescape_errors),
             ),
         ];
-        let errors = std::array::IntoIter::new(errors)
+        let errors = errors
+            .into_iter()
             .map(|(name, f)| (name.to_owned(), f.into()))
             .collect();
         let inner = RegistryInner {

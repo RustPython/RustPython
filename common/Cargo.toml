@@ -2,7 +2,7 @@
 name = "rustpython-common"
 version = "0.0.0"
 authors = ["RustPython Team"]
-edition = "2018"
+edition = "2021"
 
 [features]
 threading = ["parking_lot"]

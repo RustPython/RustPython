@@ -53,7 +53,6 @@ mod _ssl {
     };
     use openssl_sys as sys;
     use std::{
-        convert::TryFrom,
         ffi::CStr,
         fmt,
         io::{Read, Write},

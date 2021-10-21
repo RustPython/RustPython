@@ -33,7 +33,6 @@ mod winreg {
         TryFromObject, VirtualMachine,
     };
     use ::winreg::{enums::RegType, RegKey, RegValue};
-    use std::convert::TryInto;
     use std::ffi::OsStr;
     use std::io;
     use winapi::shared::winerror;

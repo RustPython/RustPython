@@ -1878,14 +1878,11 @@ impl ExecutingFrame<'_> {
         self.state.stack[self.state.stack.len() - depth as usize - 1].clone()
     }
 
-    // redox still has an old nightly, and edition 2021 won't be out for a while
-    #[allow(renamed_and_removed_lints)]
-    #[allow(non_fmt_panic)]
     #[cold]
     #[inline(never)]
     fn fatal(&self, msg: &'static str) -> ! {
         dbg!(self);
-        panic!(msg)
+        panic!("{}", msg)
     }
 }
 
