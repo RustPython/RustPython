@@ -12,7 +12,7 @@ use std::fmt;
 use std::mem::ManuallyDrop;
 use std::ops::Deref;
 
-// so, PyObjectRef is basically equivalent to `PyRc<PyObject<dyn PyObjectPayload>>`, except it's
+// so, PyObjectRef is basically equivalent to `PyRc<PyGenericObject<dyn PyObjectPayload>>`, except it's
 // only one pointer in width rather than 2. We do that by manually creating a vtable, and putting
 // a &'static reference to it inside the `PyRc` rather than adjacent to it, like trait objects do.
 // This can lead to faster code since there's just less data to pass around, as well as because of
@@ -29,18 +29,18 @@ use std::ops::Deref;
 // There has to be padding in the space between the 2 fields. But, if that field is a trait object
 // (like `dyn PyObjectPayload`) we don't *know* how much padding there is between the `payload`
 // field and the previous field. So, Rust has to consult the vtable to know the exact offset of
-// `payload` in `PyObject<dyn PyObjectPayload>`, which has a huge performance impact when *every
+// `payload` in `PyGenericObject<dyn PyObjectPayload>`, which has a huge performance impact when *every
 // single payload access* requires a vtable lookup. Thankfully, we're able to avoid that because of
 // the way we use PyObjectRef, in that whenever we want to access the payload we (almost) always
 // access it from a generic function. So, rather than doing
 //
 // - check vtable for payload offset
-// - get offset in PyObject struct
+// - get offset in PyGenericObject struct
 // - call as_any() method of PyObjectPayload
 // - call downcast_ref() method of Any
 // we can just do
 // - check vtable that typeid matches
-// - pointer cast directly to *const PyObject<T>
+// - pointer cast directly to *const PyGenericObject<T>
 //
 // and at that point the compiler can know the offset of `payload` for us because **we've given it a
 // concrete type to work with before we ever access the `payload` field**
@@ -93,11 +93,11 @@ impl<T: fmt::Debug> fmt::Debug for PyInner<T> {
 /// python class, and carries some rust payload optionally. This rust
 /// payload can be a rust float or rust int in case of float and int objects.
 #[repr(transparent)]
-pub struct PyObject<T> {
+pub struct PyGenericObject<T> {
     inner: ManuallyDrop<PyInner<T>>,
 }
 
-impl<T: PyObjectPayload> PyObject<T> {
+impl<T: PyObjectPayload> PyGenericObject<T> {
     #[allow(clippy::new_ret_no_self)]
     pub fn new(payload: T, typ: PyTypeRef, dict: Option<PyDictRef>) -> PyObjectRef {
         let inner = PyInner {
@@ -107,13 +107,13 @@ impl<T: PyObjectPayload> PyObject<T> {
             dict: dict.map(PyRwLock::new),
             payload,
         };
-        PyObjectRef::new(PyObject {
+        PyObjectRef::new(PyGenericObject {
             inner: ManuallyDrop::new(inner),
         })
     }
 }
 
-impl<T> Drop for PyObject<T> {
+impl<T> Drop for PyGenericObject<T> {
     fn drop(&mut self) {
         let erased = &mut *self.inner as *mut _ as *mut PyInner<Erased>;
         // SAFETY: the vtable contains functions that accept payload types that always match up
@@ -140,7 +140,7 @@ pub struct PyObjectWeak {
 }
 
 #[repr(transparent)]
-pub struct PyObj(PyObject<Erased>);
+pub struct PyObj(PyGenericObject<Erased>);
 
 impl Deref for PyObjectRef {
     type Target = PyObj;
@@ -188,8 +188,8 @@ impl PyObjectRef {
         }
     }
 
-    fn new<T: PyObjectPayload>(value: PyObject<T>) -> Self {
-        let inner: *const PyObject<T> = PyRc::into_raw(PyRc::new(value));
+    fn new<T: PyObjectPayload>(value: PyGenericObject<T>) -> Self {
+        let inner: *const PyGenericObject<T> = PyRc::into_raw(PyRc::new(value));
         let rc = unsafe { PyRc::from_raw(inner as *const PyObj) };
         Self { rc }
     }
@@ -574,7 +574,7 @@ impl<T: PyObjectPayload> PyRef<T> {
         typ: crate::builtins::PyTypeRef,
         dict: Option<crate::builtins::PyDictRef>,
     ) -> Self {
-        let obj = PyObject::new(payload, typ, dict);
+        let obj = PyGenericObject::new(payload, typ, dict);
         // SAFETY: we just created the object from a payload of type T
         unsafe { Self::from_obj_unchecked(obj) }
     }

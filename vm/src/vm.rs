@@ -27,8 +27,9 @@ use crate::{
     signal::NSIG,
     stdlib,
     types::PyComparisonOp,
-    IdProtocol, ItemProtocol, PyArithmeticValue, PyContext, PyLease, PyMethod, PyObj, PyObject,
-    PyObjectRef, PyObjectWrap, PyRef, PyRefExact, PyResult, PyValue, TryFromObject, TypeProtocol,
+    IdProtocol, ItemProtocol, PyArithmeticValue, PyContext, PyGenericObject, PyLease, PyMethod,
+    PyObj, PyObjectRef, PyObjectWrap, PyRef, PyRefExact, PyResult, PyValue, TryFromObject,
+    TypeProtocol,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::{Signed, ToPrimitive};
@@ -248,7 +249,7 @@ impl VirtualMachine {
         // make a new module without access to the vm; doesn't
         // set __spec__, __loader__, etc. attributes
         let new_module =
-            |dict| PyObject::new(PyModule {}, ctx.types.module_type.clone(), Some(dict));
+            |dict| PyGenericObject::new(PyModule {}, ctx.types.module_type.clone(), Some(dict));
 
         // Hard-core modules:
         let builtins_dict = ctx.new_dict();
@@ -611,7 +612,7 @@ impl VirtualMachine {
             doc.map(|doc| self.new_pyobj(doc.to_owned()))
                 .unwrap_or_else(|| self.ctx.none()),
         );
-        PyObject::new(PyModule {}, self.ctx.types.module_type.clone(), Some(dict))
+        PyGenericObject::new(PyModule {}, self.ctx.types.module_type.clone(), Some(dict))
     }
 
     /// Instantiate an exception with arguments.
@@ -2059,7 +2060,7 @@ impl<'vm> ReprGuard<'vm> {
         let mut guards = vm.repr_guards.borrow_mut();
 
         // Should this be a flag on the obj itself? putting it in a global variable for now until it
-        // decided the form of the PyObject. https://github.com/RustPython/RustPython/issues/371
+        // decided the form of the PyGenericObject. https://github.com/RustPython/RustPython/issues/371
         let id = obj.get_id();
         if guards.contains(&id) {
             return None;
