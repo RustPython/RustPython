@@ -66,12 +66,12 @@ pub fn get_module_inits() -> StdlibMap {
                 { $( $key:expr => $val:expr),* $(,)? }
             )*
         } => {{
-            let iter = std::array::IntoIter::new([
+            let modules = [
                 $(
                     $(#[cfg($cfg)] (Cow::<'static, str>::from($key), Box::new($val) as StdlibInitFunc),)*
                 )*
-            ]);
-            iter.collect()
+            ];
+            modules.into_iter().collect()
         }};
     }
     modules! {
