@@ -852,7 +852,7 @@ pub(crate) mod _struct {
     }
     impl IterNextIterable for UnpackIterator {}
     impl IterNext for UnpackIterator {
-        fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let size = zelf.format_spec.size;
             let offset = zelf.offset.fetch_add(size);
             zelf.buffer.with_ref(|buf| {

@@ -46,7 +46,7 @@ impl PyValue for PyWeak {
 impl Callable for PyWeak {
     type Args = ();
     #[inline]
-    fn call(zelf: &crate::Py<Self>, _: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn call(zelf: &crate::PyObjectView<Self>, _: Self::Args, vm: &VirtualMachine) -> PyResult {
         Ok(vm.unwrap_or_none(zelf.upgrade()))
     }
 }
@@ -86,7 +86,7 @@ impl PyWeak {
 }
 
 impl Hashable for PyWeak {
-    fn hash(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+    fn hash(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
         match zelf.hash.load() {
             Some(hash) => Ok(hash),
             None => {
@@ -103,7 +103,7 @@ impl Hashable for PyWeak {
 
 impl Comparable for PyWeak {
     fn cmp(
-        zelf: &crate::Py<Self>,
+        zelf: &crate::PyObjectView<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,

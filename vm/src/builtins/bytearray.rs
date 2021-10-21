@@ -290,7 +290,7 @@ impl PyByteArray {
         }
     }
 
-    fn irepeat(zelf: &crate::Py<Self>, n: usize, vm: &VirtualMachine) -> PyResult<()> {
+    fn irepeat(zelf: &crate::PyObjectView<Self>, n: usize, vm: &VirtualMachine) -> PyResult<()> {
         if n == 1 {
             return Ok(());
         }
@@ -696,7 +696,7 @@ impl PyByteArray {
 
 impl Comparable for PyByteArray {
     fn cmp(
-        zelf: &crate::Py<Self>,
+        zelf: &crate::PyObjectView<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
@@ -709,7 +709,7 @@ impl Comparable for PyByteArray {
 }
 
 impl AsBuffer for PyByteArray {
-    fn as_buffer(zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
+    fn as_buffer(zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
         let buffer = PyBuffer::new(
             zelf.as_object().to_owned(),
             zelf.to_owned(),
@@ -756,7 +756,7 @@ impl<'a> BufferResizeGuard<'a> for PyByteArray {
 }
 
 impl AsMapping for PyByteArray {
-    fn as_mapping(_zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
+    fn as_mapping(_zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
         PyMappingMethods {
             length: Some(Self::length),
             subscript: Some(Self::subscript),
@@ -841,7 +841,7 @@ impl Unconstructible for PyByteArrayIterator {}
 
 impl IterNextIterable for PyByteArrayIterator {}
 impl IterNext for PyByteArrayIterator {
-    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal.lock().next(|bytearray, pos| {
             let buf = bytearray.borrow_buf();
             Ok(match buf.get(pos) {

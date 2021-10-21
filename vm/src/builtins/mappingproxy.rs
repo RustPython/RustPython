@@ -151,7 +151,7 @@ impl PyMappingProxy {
 }
 
 impl AsMapping for PyMappingProxy {
-    fn as_mapping(_zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
+    fn as_mapping(_zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
         PyMappingMethods {
             length: None,
             subscript: Some(Self::subscript),

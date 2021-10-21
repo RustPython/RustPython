@@ -28,8 +28,8 @@ mod array {
             AsBuffer, AsMapping, Comparable, Constructor, IterNext, IterNextIterable, Iterable,
             PyComparisonOp,
         },
-        IdProtocol, Py, PyComparisonValue, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
-        TryFromObject, TypeProtocol, VirtualMachine,
+        IdProtocol, PyComparisonValue, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult,
+        PyValue, TryFromObject, TypeProtocol, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
@@ -1167,7 +1167,7 @@ mod array {
 
     impl Comparable for PyArray {
         fn cmp(
-            zelf: &Py<Self>,
+            zelf: &PyObjectView<Self>,
             other: &PyObject,
             op: PyComparisonOp,
             vm: &VirtualMachine,
@@ -1218,7 +1218,7 @@ mod array {
     }
 
     impl AsBuffer for PyArray {
-        fn as_buffer(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
+        fn as_buffer(zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
             let array = zelf.read();
             let buf = PyBuffer::new(
                 zelf.as_object().to_owned(),
@@ -1257,7 +1257,7 @@ mod array {
     }
 
     impl AsMapping for PyArray {
-        fn as_mapping(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
+        fn as_mapping(_zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
             PyMappingMethods {
                 length: Some(Self::length),
                 subscript: Some(Self::subscript),
@@ -1326,7 +1326,7 @@ mod array {
 
     impl IterNextIterable for PyArrayIter {}
     impl IterNext for PyArrayIter {
-        fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        fn next(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let pos = zelf.position.fetch_add(1);
             let r = if let Some(item) = zelf.array.read().getitem_by_idx(pos, vm)? {
                 PyIterReturn::Return(item)

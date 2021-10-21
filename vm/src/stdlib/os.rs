@@ -920,7 +920,7 @@ pub(super) mod _os {
     }
     impl IterNextIterable for ScandirIterator {}
     impl IterNext for ScandirIterator {
-        fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             if zelf.exhausted.load() {
                 return Ok(PyIterReturn::StopIteration(None));
             }

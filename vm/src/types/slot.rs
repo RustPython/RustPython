@@ -4,7 +4,7 @@ use crate::{
     function::{FromArgs, FuncArgs, IntoPyResult, OptionalArg},
     protocol::{PyBuffer, PyIterReturn, PyMappingMethods},
     utils::Either,
-    IdProtocol, Py, PyComparisonValue, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
+    IdProtocol, PyComparisonValue, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue,
     TypeProtocol, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
@@ -377,7 +377,7 @@ pub trait Destructor: PyValue {
         Self::slot_del(&zelf, vm)
     }
 
-    fn del(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()>;
+    fn del(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<()>;
 }
 
 #[pyimpl]
@@ -399,7 +399,7 @@ pub trait Callable: PyValue {
     fn __call__(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         Self::slot_call(&zelf, args.bind(vm)?, vm)
     }
-    fn call(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult;
+    fn call(zelf: &PyObjectView<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult;
 }
 
 #[pyimpl]
@@ -491,7 +491,7 @@ pub trait Hashable: PyValue {
         Self::slot_hash(&zelf, vm)
     }
 
-    fn hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash>;
+    fn hash(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyHash>;
 }
 
 pub trait Unhashable: PyValue {}
@@ -505,7 +505,7 @@ where
     }
 
     #[cold]
-    fn hash(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyHash> {
+    fn hash(_zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyResult<PyHash> {
         unreachable!("slot_hash is implemented for unhashable types");
     }
 }
@@ -528,7 +528,7 @@ pub trait Comparable: PyValue {
     }
 
     fn cmp(
-        zelf: &Py<Self>,
+        zelf: &PyObjectView<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
@@ -698,7 +698,7 @@ pub trait GetAttr: PyValue {
         }
     }
 
-    // TODO: make zelf: &Py<Self>
+    // TODO: make zelf: &PyObjectView<Self>
     fn getattro(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult;
 
     #[inline]
@@ -726,7 +726,7 @@ pub trait SetAttr: PyValue {
     }
 
     fn setattro(
-        zelf: &Py<Self>,
+        zelf: &PyObjectView<Self>,
         name: PyStrRef,
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,
@@ -762,7 +762,7 @@ pub trait AsBuffer: PyValue {
         Self::as_buffer(zelf, vm)
     }
 
-    fn as_buffer(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyBuffer>;
+    fn as_buffer(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyBuffer>;
 }
 
 #[pyimpl]
@@ -786,7 +786,10 @@ pub trait AsMapping: PyValue {
     }
 
     #[inline]
-    fn downcast_ref<'a>(zelf: &'a PyObject, vm: &VirtualMachine) -> PyResult<&'a Py<Self>> {
+    fn downcast_ref<'a>(
+        zelf: &'a PyObject,
+        vm: &VirtualMachine,
+    ) -> PyResult<&'a PyObjectView<Self>> {
         zelf.downcast_ref::<Self>().ok_or_else(|| {
             vm.new_type_error(format!(
                 "{} type is required, not {}",
@@ -796,7 +799,7 @@ pub trait AsMapping: PyValue {
         })
     }
 
-    fn as_mapping(zelf: &Py<Self>, vm: &VirtualMachine) -> PyMappingMethods;
+    fn as_mapping(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyMappingMethods;
 
     fn length(zelf: PyObjectRef, _vm: &VirtualMachine) -> PyResult<usize>;
 
@@ -837,7 +840,7 @@ pub trait IterNext: PyValue + Iterable {
         }
     }
 
-    fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn>;
+    fn next(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn>;
 
     #[inline]
     #[pymethod]

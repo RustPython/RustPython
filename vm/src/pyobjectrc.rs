@@ -206,7 +206,7 @@ impl PyObjectRef {
         }
     }
 
-    pub fn downcast_ref<T: PyObjectPayload>(&self) -> Option<&crate::Py<T>> {
+    pub fn downcast_ref<T: PyObjectPayload>(&self) -> Option<&PyObjectView<T>> {
         if self.payload_is::<T>() {
             // SAFETY: just checked that the payload is T, and PyRef is repr(transparent) over
             // PyObjectRef
@@ -224,7 +224,7 @@ impl PyObjectRef {
 
     /// # Safety
     /// T must be the exact payload type
-    pub unsafe fn downcast_unchecked_ref<T: PyObjectPayload>(&self) -> &crate::Py<T> {
+    pub unsafe fn downcast_unchecked_ref<T: PyObjectPayload>(&self) -> &crate::PyObjectView<T> {
         debug_assert!(self.payload_is::<T>());
         &*(self as *const PyObjectRef as *const PyRef<T>)
     }
@@ -316,7 +316,7 @@ impl PyObject {
     }
 
     #[inline]
-    pub fn payload_if_subclass<T: crate::PyValue>(&self, vm: &crate::VirtualMachine) -> Option<&T> {
+    pub fn payload_if_subclass<T: crate::PyValue>(&self, vm: &VirtualMachine) -> Option<&T> {
         if self.class().issubclass(T::class(vm)) {
             self.payload()
         } else {
@@ -324,11 +324,11 @@ impl PyObject {
         }
     }
 
-    pub fn downcast_ref<T: PyObjectPayload>(&self) -> Option<&crate::Py<T>> {
+    pub fn downcast_ref<T: PyObjectPayload>(&self) -> Option<&PyObjectView<T>> {
         if self.payload_is::<T>() {
             // SAFETY: just checked that the payload is T, and PyRef is repr(transparent) over
             // PyObjectRef
-            Some(unsafe { &*(self as *const PyObject as *const Py<T>) })
+            Some(unsafe { &*(self as *const PyObject as *const PyObjectView<T>) })
         } else {
             None
         }
@@ -336,9 +336,9 @@ impl PyObject {
 
     /// # Safety
     /// T must be the exact payload type
-    pub unsafe fn downcast_unchecked_ref<T: PyObjectPayload>(&self) -> &crate::Py<T> {
+    pub unsafe fn downcast_unchecked_ref<T: PyObjectPayload>(&self) -> &crate::PyObjectView<T> {
         debug_assert!(self.payload_is::<T>());
-        &*(self as *const PyObject as *const Py<T>)
+        &*(self as *const PyObject as *const PyObjectView<T>)
     }
 
     #[inline]
@@ -387,8 +387,8 @@ impl IdProtocol for PyObject {
     }
 }
 
-impl<'a, T: PyObjectPayload> From<&'a Py<T>> for &'a PyObject {
-    fn from(py_ref: &'a Py<T>) -> Self {
+impl<'a, T: PyObjectPayload> From<&'a PyObjectView<T>> for &'a PyObject {
+    fn from(py_ref: &'a PyObjectView<T>) -> Self {
         py_ref.as_object()
     }
 }
@@ -469,9 +469,9 @@ impl fmt::Debug for PyObjectWeak {
 }
 
 #[repr(transparent)]
-pub struct Py<T: PyObjectPayload>(PyInner<T>);
+pub struct PyObjectView<T: PyObjectPayload>(PyInner<T>);
 
-impl<T: PyObjectPayload> Py<T> {
+impl<T: PyObjectPayload> PyObjectView<T> {
     #[inline(always)]
     pub fn as_object(&self) -> &PyObject {
         unsafe { &*(&self.0 as *const PyInner<T> as *const PyObject) }
@@ -494,7 +494,7 @@ impl<T: PyObjectPayload> Py<T> {
     }
 }
 
-impl<T: PyObjectPayload> ToOwned for Py<T> {
+impl<T: PyObjectPayload> ToOwned for PyObjectView<T> {
     type Owned = PyRef<T>;
 
     fn to_owned(&self) -> Self::Owned {
@@ -502,7 +502,7 @@ impl<T: PyObjectPayload> ToOwned for Py<T> {
     }
 }
 
-impl<T: PyObjectPayload> Deref for Py<T> {
+impl<T: PyObjectPayload> Deref for PyObjectView<T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -510,7 +510,7 @@ impl<T: PyObjectPayload> Deref for Py<T> {
     }
 }
 
-impl<T> AsRef<PyObject> for Py<T>
+impl<T> AsRef<PyObject> for PyObjectView<T>
 where
     T: PyObjectPayload,
 {
@@ -519,7 +519,7 @@ where
     }
 }
 
-impl<T: PyObjectPayload> fmt::Debug for Py<T> {
+impl<T: PyObjectPayload> fmt::Debug for PyObjectView<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         (**self).fmt(f)
     }
@@ -537,7 +537,7 @@ impl<T: PyObjectPayload> fmt::Debug for Py<T> {
 #[repr(transparent)]
 pub struct PyRef<T: PyObjectPayload> {
     // invariant: this obj must always have payload of type T
-    obj: PyRc<Py<T>>,
+    obj: PyRc<PyObjectView<T>>,
 }
 
 impl<T: PyObjectPayload> fmt::Debug for PyRef<T> {
@@ -555,7 +555,7 @@ impl<T: PyObjectPayload> Clone for PyRef<T> {
 }
 
 impl<T: PyObjectPayload> PyRef<T> {
-    unsafe fn from_raw(raw: *const Py<T>) -> Self {
+    unsafe fn from_raw(raw: *const PyObjectView<T>) -> Self {
         Self {
             obj: PyRc::from_raw(raw),
         }
@@ -564,7 +564,7 @@ impl<T: PyObjectPayload> PyRef<T> {
     /// Safety: payload type of `obj` must be `T`
     unsafe fn from_obj_unchecked(obj: PyObjectRef) -> Self {
         debug_assert!(obj.payload_is::<T>());
-        let obj = PyRc::from_raw(obj.into_raw() as *const Py<T>);
+        let obj = PyRc::from_raw(obj.into_raw() as *const PyObjectView<T>);
         Self { obj }
     }
 
@@ -598,11 +598,11 @@ where
     }
 }
 
-impl<T> Borrow<Py<T>> for PyRef<T>
+impl<T> Borrow<PyObjectView<T>> for PyRef<T>
 where
     T: PyObjectPayload,
 {
-    fn borrow(&self) -> &Py<T> {
+    fn borrow(&self) -> &PyObjectView<T> {
         self
     }
 }
@@ -611,16 +611,16 @@ impl<T> Deref for PyRef<T>
 where
     T: PyObjectPayload,
 {
-    type Target = Py<T>;
+    type Target = PyObjectView<T>;
 
-    fn deref(&self) -> &Py<T> {
+    fn deref(&self) -> &PyObjectView<T> {
         &self.obj
     }
 }
 
 #[repr(transparent)]
 pub struct PyWeakRef<T: PyObjectPayload> {
-    weak: PyWeak<Py<T>>,
+    weak: PyWeak<PyObjectView<T>>,
 }
 
 impl<T: PyObjectPayload> PyWeakRef<T> {

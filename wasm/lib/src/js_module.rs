@@ -9,7 +9,7 @@ use rustpython_vm::{
     function::{ArgCallable, IntoPyObject, OptionalArg, OptionalOption, PosArgs},
     protocol::PyIterReturn,
     types::{IterNext, IterNextIterable},
-    Py, PyClassImpl, PyObjectRef, PyObjectWrap, PyRef, PyResult, PyValue, TryFromObject,
+    PyClassImpl, PyObjectRef, PyObjectView, PyObjectWrap, PyRef, PyResult, PyValue, TryFromObject,
     VirtualMachine,
 };
 use std::{cell, fmt, future};
@@ -584,7 +584,7 @@ impl AwaitPromise {
 
 impl IterNextIterable for AwaitPromise {}
 impl IterNext for AwaitPromise {
-    fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.send(None, vm)
     }
 }

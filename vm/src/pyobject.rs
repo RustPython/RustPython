@@ -4,7 +4,8 @@ use crate::common::{
     static_cell,
 };
 pub use crate::pyobjectrc::{
-    Py, PyGenericObject, PyObject, PyObjectRef, PyObjectWeak, PyObjectWrap, PyRef, PyWeakRef,
+    PyGenericObject, PyObject, PyObjectRef, PyObjectView, PyObjectWeak, PyObjectWrap, PyRef,
+    PyWeakRef,
 };
 use crate::{
     builtins::{
@@ -380,7 +381,7 @@ where
         fmt::Display::fmt(&**self, f)
     }
 }
-impl<T: fmt::Display> fmt::Display for Py<T>
+impl<T: fmt::Display> fmt::Display for PyObjectView<T>
 where
     T: PyObjectPayload + fmt::Display,
 {
@@ -452,7 +453,7 @@ impl<T: PyObjectPayload> IdProtocol for PyRef<T> {
     }
 }
 
-impl<T: PyObjectPayload> IdProtocol for Py<T> {
+impl<T: PyObjectPayload> IdProtocol for PyObjectView<T> {
     fn get_id(&self) -> usize {
         self.as_object().get_id()
     }
@@ -519,7 +520,7 @@ pub trait TypeProtocol {
     /// Determines if `obj` actually an instance of `cls`, this doesn't call __instancecheck__, so only
     /// use this if `cls` is known to have not overridden the base __instancecheck__ magic method.
     #[inline]
-    fn isinstance(&self, cls: &Py<PyType>) -> bool {
+    fn isinstance(&self, cls: &PyObjectView<PyType>) -> bool {
         self.class().issubclass(cls)
     }
 }
@@ -540,7 +541,7 @@ impl TypeProtocol for PyObject {
     }
 }
 
-impl<T: PyObjectPayload> TypeProtocol for Py<T> {
+impl<T: PyObjectPayload> TypeProtocol for PyObjectView<T> {
     fn class(&self) -> PyLease<'_, PyType> {
         self.as_object().class()
     }

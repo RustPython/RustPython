@@ -16,7 +16,7 @@ use crate::{
     IdProtocol, ItemProtocol,
     PyArithmeticValue::*,
     PyAttributes, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef,
-    PyRef, PyResult, PyValue, TypeProtocol,
+    PyObjectView, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use rustpython_common::lock::PyMutex;
 use std::fmt;
@@ -159,8 +159,8 @@ impl PyDict {
     }
 
     fn inner_cmp(
-        zelf: &crate::Py<Self>,
-        other: &crate::Py<PyDict>,
+        zelf: &PyObjectView<Self>,
+        other: &PyObjectView<PyDict>,
         op: PyComparisonOp,
         item: bool,
         vm: &VirtualMachine,
@@ -416,7 +416,7 @@ impl PyDict {
 }
 
 impl AsMapping for PyDict {
-    fn as_mapping(_zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
+    fn as_mapping(_zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
         PyMappingMethods {
             length: Some(Self::length),
             subscript: Some(Self::subscript),
@@ -450,7 +450,7 @@ impl AsMapping for PyDict {
 
 impl Comparable for PyDict {
     fn cmp(
-        zelf: &crate::Py<Self>,
+        zelf: &PyObjectView<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
@@ -470,7 +470,7 @@ impl Iterable for PyDict {
     }
 }
 
-impl crate::Py<PyDict> {
+impl PyObjectView<PyDict> {
     #[inline]
     fn exact_dict(&self, vm: &VirtualMachine) -> bool {
         self.class().is(&vm.ctx.types.dict_type)
@@ -572,7 +572,7 @@ impl crate::Py<PyDict> {
     }
 }
 
-impl<K> ItemProtocol<K> for crate::Py<PyDict>
+impl<K> ItemProtocol<K> for PyObjectView<PyDict>
 where
     K: DictKey + IntoPyObject,
 {
@@ -635,7 +635,7 @@ impl IntoIterator for &PyDictRef {
     }
 }
 
-impl IntoIterator for &crate::Py<PyDict> {
+impl IntoIterator for &PyObjectView<PyDict> {
     type Item = (PyObjectRef, PyObjectRef);
     type IntoIter = DictIter;
 
@@ -743,7 +743,7 @@ macro_rules! dict_view {
 
         impl Comparable for $name {
             fn cmp(
-                zelf: &crate::Py<Self>,
+                zelf: &PyObjectView<Self>,
                 other: &PyObject,
                 op: PyComparisonOp,
                 vm: &VirtualMachine,
@@ -807,7 +807,7 @@ macro_rules! dict_view {
         impl IterNextIterable for $iter_name {}
         impl IterNext for $iter_name {
             #[allow(clippy::redundant_closure_call)]
-            fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+            fn next(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
                 let mut internal = zelf.internal.lock();
                 if let IterStatus::Active(dict) = &internal.status {
                     if dict.entries.has_changed_size(&zelf.size) {
@@ -868,7 +868,7 @@ macro_rules! dict_view {
         impl IterNextIterable for $reverse_iter_name {}
         impl IterNext for $reverse_iter_name {
             #[allow(clippy::redundant_closure_call)]
-            fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+            fn next(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
                 let mut internal = zelf.internal.lock();
                 if let IterStatus::Active(dict) = &internal.status {
                     if dict.entries.has_changed_size(&zelf.size) {

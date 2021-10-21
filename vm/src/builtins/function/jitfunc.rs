@@ -64,7 +64,7 @@ fn get_jit_arg_type(dict: &PyDictRef, name: &str, vm: &VirtualMachine) -> PyResu
 }
 
 pub fn get_jit_arg_types(
-    func: &crate::Py<PyFunction>,
+    func: &crate::PyObjectView<PyFunction>,
     vm: &VirtualMachine,
 ) -> PyResult<Vec<JitType>> {
     let arg_names = func.code.arg_names();

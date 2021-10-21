@@ -493,7 +493,7 @@ impl PyFloat {
 
 impl Comparable for PyFloat {
     fn cmp(
-        zelf: &crate::Py<Self>,
+        zelf: &crate::PyObjectView<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
@@ -534,7 +534,7 @@ impl Comparable for PyFloat {
 
 impl Hashable for PyFloat {
     #[inline]
-    fn hash(zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyResult<hash::PyHash> {
+    fn hash(zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyResult<hash::PyHash> {
         Ok(hash::hash_float(zelf.to_f64()))
     }
 }

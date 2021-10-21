@@ -542,7 +542,7 @@ impl PyList {
 }
 
 impl AsMapping for PyList {
-    fn as_mapping(_zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
+    fn as_mapping(_zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
         PyMappingMethods {
             length: Some(Self::length),
             subscript: Some(Self::subscript),
@@ -585,7 +585,7 @@ impl Iterable for PyList {
 
 impl Comparable for PyList {
     fn cmp(
-        zelf: &crate::Py<Self>,
+        zelf: &crate::PyObjectView<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
@@ -666,7 +666,7 @@ impl Unconstructible for PyListIterator {}
 
 impl IterNextIterable for PyListIterator {}
 impl IterNext for PyListIterator {
-    fn next(zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal.lock().next(|list, pos| {
             let vec = list.borrow_vec();
             Ok(match vec.get(pos) {
@@ -714,7 +714,7 @@ impl Unconstructible for PyListReverseIterator {}
 
 impl IterNextIterable for PyListReverseIterator {}
 impl IterNext for PyListReverseIterator {
-    fn next(zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal.lock().rev_next(|list, pos| {
             let vec = list.borrow_vec();
             Ok(match vec.get(pos) {

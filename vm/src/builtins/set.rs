@@ -623,7 +623,7 @@ impl PySet {
 
 impl Comparable for PySet {
     fn cmp(
-        zelf: &crate::Py<Self>,
+        zelf: &crate::PyObjectView<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
@@ -814,14 +814,14 @@ impl PyFrozenSet {
 
 impl Hashable for PyFrozenSet {
     #[inline]
-    fn hash(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+    fn hash(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
         zelf.inner.hash(vm)
     }
 }
 
 impl Comparable for PyFrozenSet {
     fn cmp(
-        zelf: &crate::Py<Self>,
+        zelf: &crate::PyObjectView<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
@@ -905,7 +905,7 @@ impl Unconstructible for PySetIterator {}
 
 impl IterNextIterable for PySetIterator {}
 impl IterNext for PySetIterator {
-    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let mut internal = zelf.internal.lock();
         if let IterStatus::Active(dict) = &internal.status {
             if dict.has_changed_size(&zelf.size) {

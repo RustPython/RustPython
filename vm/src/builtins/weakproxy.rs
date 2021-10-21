@@ -60,7 +60,7 @@ impl PyWeakProxy {
 
 impl SetAttr for PyWeakProxy {
     fn setattro(
-        zelf: &crate::Py<Self>,
+        zelf: &crate::PyObjectView<Self>,
         attr_name: PyStrRef,
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,
