@@ -2,7 +2,6 @@ use num_bigint::BigInt;
 use num_complex::Complex64;
 use num_traits::ToPrimitive;
 use siphasher::sip::SipHasher24;
-use std::convert::TryInto;
 use std::hash::{BuildHasher, Hash, Hasher};
 use std::num::Wrapping;
 

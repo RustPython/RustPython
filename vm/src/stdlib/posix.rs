@@ -43,9 +43,6 @@ pub mod module {
     use bitflags::bitflags;
     use nix::fcntl;
     use nix::unistd::{self, Gid, Pid, Uid};
-    #[allow(unused_imports)] // TODO: use will be unnecessary in edition 2021
-    use std::convert::TryFrom;
-    use std::convert::TryInto;
     use std::ffi::{CStr, CString};
     use std::os::unix::ffi as ffi_ext;
     use std::os::unix::io::RawFd;

@@ -7,7 +7,6 @@ mod termios {
         function::IntoPyObject,
         PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     };
-    use std::convert::TryFrom;
     use termios::Termios;
 
     // TODO: more ioctl numbers

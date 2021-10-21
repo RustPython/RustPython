@@ -50,7 +50,6 @@ use rustpython_vm::{
     TypeProtocol, VirtualMachine,
 };
 
-use std::convert::TryInto;
 use std::env;
 use std::path::Path;
 use std::process;

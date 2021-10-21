@@ -10,7 +10,6 @@ use rustpython_bytecode as bytecode;
 mod instructions;
 
 use instructions::FunctionCompiler;
-use std::convert::TryFrom;
 
 #[derive(Debug, thiserror::Error)]
 pub enum JitCompileError {

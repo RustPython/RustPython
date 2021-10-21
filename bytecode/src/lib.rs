@@ -1251,7 +1251,6 @@ pub struct FrozenModule<C: Constant = ConstantData> {
 pub mod frozen_lib {
     use super::*;
     use bincode::{options, Options};
-    use std::convert::TryInto;
     use std::io;
 
     /// Decode a library to a iterable of frozen modules

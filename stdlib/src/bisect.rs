@@ -6,7 +6,6 @@ mod _bisect {
         function::OptionalArg, types::PyComparisonOp::Lt, ItemProtocol, PyObjectRef, PyResult,
         VirtualMachine,
     };
-    use std::convert::TryFrom;
 
     #[derive(FromArgs)]
     struct BisectArgs {

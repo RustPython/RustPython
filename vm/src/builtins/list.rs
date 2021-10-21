@@ -18,7 +18,6 @@ use crate::{
     PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use std::fmt;
-use std::iter::FromIterator;
 use std::mem::size_of;
 use std::ops::{DerefMut, Range};
 

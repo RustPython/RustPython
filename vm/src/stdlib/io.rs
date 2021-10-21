@@ -1343,7 +1343,6 @@ mod _io {
     }
 
     pub fn get_offset(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Offset> {
-        use std::convert::TryInto;
         let int = vm.to_index(&obj)?;
         int.as_bigint().try_into().map_err(|_| {
             vm.new_value_error(format!(
@@ -2120,7 +2119,6 @@ mod _io {
         const BYTES_TO_SKIP_OFF: usize = Self::NEED_EOF_OFF + 1;
         const BYTE_LEN: usize = Self::BYTES_TO_SKIP_OFF + 4;
         fn parse(cookie: &num_bigint::BigInt) -> Option<Self> {
-            use std::convert::TryInto;
             let (_, mut buf) = cookie.to_bytes_le();
             if buf.len() > Self::BYTE_LEN {
                 return None;

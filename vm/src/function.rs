@@ -357,7 +357,7 @@ impl<T> KwArgs<T> {
         self.0.remove(name)
     }
 }
-impl<T> std::iter::FromIterator<(String, T)> for KwArgs<T> {
+impl<T> FromIterator<(String, T)> for KwArgs<T> {
     fn from_iter<I: IntoIterator<Item = (String, T)>>(iter: I) -> Self {
         KwArgs(iter.into_iter().collect())
     }
