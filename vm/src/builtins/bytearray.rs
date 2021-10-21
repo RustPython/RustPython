@@ -28,8 +28,8 @@ use crate::{
         IterNextIterable, Iterable, PyComparisonOp, Unconstructible, Unhashable,
     },
     utils::Either,
-    IdProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObj, PyObjectRef, PyRef,
-    PyResult, PyValue, TypeProtocol, VirtualMachine,
+    IdProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef,
+    PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
 use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;
@@ -697,7 +697,7 @@ impl PyByteArray {
 impl Comparable for PyByteArray {
     fn cmp(
         zelf: &crate::Py<Self>,
-        other: &PyObj,
+        other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
@@ -801,7 +801,7 @@ impl Iterable for PyByteArray {
     }
 }
 
-// fn set_value(obj: &crate::PyObj, value: Vec<u8>) {
+// fn set_value(obj: &PyObject, value: Vec<u8>) {
 //     obj.borrow_mut().kind = PyObjectPayload::Bytes { value };
 // }
 

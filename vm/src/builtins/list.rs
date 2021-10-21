@@ -14,8 +14,8 @@ use crate::{
     },
     utils::Either,
     vm::{ReprGuard, VirtualMachine},
-    IdProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObj, PyObjectRef, PyRef,
-    PyResult, PyValue, TryFromObject, TypeProtocol,
+    IdProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef,
+    PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use std::fmt;
 use std::iter::FromIterator;
@@ -259,7 +259,7 @@ impl PyList {
 
     fn _iter_equal<F: FnMut(), const SHORT: bool>(
         &self,
-        needle: &PyObj,
+        needle: &PyObject,
         range: Range<usize>,
         mut f: F,
         vm: &VirtualMachine,
@@ -305,8 +305,8 @@ impl PyList {
                     drop(elem_cls);
 
                     fn cmp(
-                        elem: &PyObj,
-                        needle: &PyObj,
+                        elem: &PyObject,
+                        needle: &PyObject,
                         elem_cmp: RichCompareFunc,
                         needle_cmp: RichCompareFunc,
                         vm: &VirtualMachine,
@@ -354,8 +354,8 @@ impl PyList {
                             drop(elem_cls);
 
                             fn cmp(
-                                elem: &PyObj,
-                                needle: &PyObj,
+                                elem: &PyObject,
+                                needle: &PyObject,
                                 elem_cmp: RichCompareFunc,
                                 vm: &VirtualMachine,
                             ) -> PyResult<bool> {
@@ -397,7 +397,7 @@ impl PyList {
 
     fn foreach_equal<F: FnMut()>(
         &self,
-        needle: &crate::PyObj,
+        needle: &PyObject,
         f: F,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -407,7 +407,7 @@ impl PyList {
 
     fn find_equal(
         &self,
-        needle: &crate::PyObj,
+        needle: &PyObject,
         range: Range<usize>,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
@@ -586,7 +586,7 @@ impl Iterable for PyList {
 impl Comparable for PyList {
     fn cmp(
         zelf: &crate::Py<Self>,
-        other: &PyObj,
+        other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {

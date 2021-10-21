@@ -89,7 +89,7 @@ mod _io {
         types::{Constructor, Destructor, IterNext, Iterable},
         utils::Either,
         vm::{ReprGuard, VirtualMachine},
-        IdProtocol, PyContext, PyObj, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
+        IdProtocol, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
         TryFromBorrowedObject, TryFromObject, TypeProtocol,
     };
     use bstr::ByteSlice;
@@ -110,7 +110,7 @@ mod _io {
         }
     }
 
-    fn ensure_unclosed(file: &crate::PyObj, msg: &str, vm: &VirtualMachine) -> PyResult<()> {
+    fn ensure_unclosed(file: &PyObject, msg: &str, vm: &VirtualMachine) -> PyResult<()> {
         if file.to_owned().get_attr("closed", vm)?.try_to_bool(vm)? {
             Err(vm.new_value_error(msg.to_owned()))
         } else {
@@ -122,7 +122,7 @@ mod _io {
         vm.new_exception_msg(UNSUPPORTED_OPERATION.get().unwrap().clone(), msg)
     }
 
-    fn _unsupported<T>(vm: &VirtualMachine, zelf: &crate::PyObj, operation: &str) -> PyResult<T> {
+    fn _unsupported<T>(vm: &VirtualMachine, zelf: &PyObject, operation: &str) -> PyResult<T> {
         Err(new_unsupported_operation(
             vm,
             format!("{}.{}() not supported", zelf.class().name(), operation),
@@ -286,10 +286,10 @@ mod _io {
         }
     }
 
-    fn file_closed(file: &crate::PyObj, vm: &VirtualMachine) -> PyResult<bool> {
+    fn file_closed(file: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
         file.to_owned().get_attr("closed", vm)?.try_to_bool(vm)
     }
-    fn check_closed(file: &crate::PyObj, vm: &VirtualMachine) -> PyResult<()> {
+    fn check_closed(file: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
         if file_closed(file, vm)? {
             Err(io_closed_error(vm))
         } else {
@@ -297,7 +297,7 @@ mod _io {
         }
     }
 
-    fn check_readable(file: &crate::PyObj, vm: &VirtualMachine) -> PyResult<()> {
+    fn check_readable(file: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
         if vm.call_method(file, "readable", ())?.try_to_bool(vm)? {
             Ok(())
         } else {
@@ -308,7 +308,7 @@ mod _io {
         }
     }
 
-    fn check_writable(file: &crate::PyObj, vm: &VirtualMachine) -> PyResult<()> {
+    fn check_writable(file: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
         if vm.call_method(file, "writable", ())?.try_to_bool(vm)? {
             Ok(())
         } else {
@@ -319,7 +319,7 @@ mod _io {
         }
     }
 
-    fn check_seekable(file: &crate::PyObj, vm: &VirtualMachine) -> PyResult<()> {
+    fn check_seekable(file: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
         if vm.call_method(file, "seekable", ())?.try_to_bool(vm)? {
             Ok(())
         } else {
@@ -502,7 +502,7 @@ mod _io {
     }
 
     impl Destructor for _IOBase {
-        fn slot_del(zelf: &PyObj, vm: &VirtualMachine) -> PyResult<()> {
+        fn slot_del(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
             let _ = vm.call_method(zelf, "close", ());
             Ok(())
         }
@@ -525,7 +525,7 @@ mod _io {
     }
 
     impl IterNext for _IOBase {
-        fn slot_iternext(zelf: &PyObj, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        fn slot_iternext(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let line = vm.call_method(zelf, "readline", ())?;
             Ok(if !line.clone().try_to_bool(vm)? {
                 PyIterReturn::StopIteration(None)
@@ -539,7 +539,7 @@ mod _io {
         }
     }
 
-    pub(super) fn iobase_close(file: &crate::PyObj, vm: &VirtualMachine) -> PyResult<()> {
+    pub(super) fn iobase_close(file: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
         if !file_closed(file, vm)? {
             let res = vm.call_method(file, "flush", ());
             file.set_attr("__closed", vm.new_pyobj(true), vm)?;
@@ -700,7 +700,7 @@ mod _io {
     }
 
     impl BufferedData {
-        fn check_init(&self, vm: &VirtualMachine) -> PyResult<&crate::PyObj> {
+        fn check_init(&self, vm: &VirtualMachine) -> PyResult<&PyObject> {
             if let Some(raw) = &self.raw {
                 Ok(raw)
             } else {
@@ -1353,10 +1353,7 @@ mod _io {
         })
     }
 
-    pub fn repr_fileobj_name(
-        obj: &crate::PyObj,
-        vm: &VirtualMachine,
-    ) -> PyResult<Option<PyStrRef>> {
+    pub fn repr_fileobj_name(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Option<PyStrRef>> {
         let name = match obj.to_owned().get_attr("name", vm) {
             Ok(name) => Some(name),
             Err(e)
@@ -2165,7 +2162,7 @@ mod _io {
             set_field!(self.bytes_to_skip, BYTES_TO_SKIP_OFF);
             num_bigint::BigUint::from_bytes_le(&buf).into()
         }
-        fn set_decoder_state(&self, decoder: &crate::PyObj, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_decoder_state(&self, decoder: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
             if self.start_pos == 0 && self.dec_flags == 0 {
                 vm.call_method(decoder, "reset", ())?;
             } else {

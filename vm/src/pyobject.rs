@@ -4,7 +4,7 @@ use crate::common::{
     static_cell,
 };
 pub use crate::pyobjectrc::{
-    Py, PyGenericObject, PyObj, PyObjectRef, PyObjectWeak, PyObjectWrap, PyRef, PyWeakRef,
+    Py, PyGenericObject, PyObject, PyObjectRef, PyObjectWeak, PyObjectWrap, PyRef, PyWeakRef,
 };
 use crate::{
     builtins::{
@@ -59,7 +59,7 @@ impl fmt::Display for PyObjectRef {
         (**self).fmt(f)
     }
 }
-impl fmt::Display for PyObj {
+impl fmt::Display for PyObject {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "'{}' object", self.class().name())
     }
@@ -310,7 +310,7 @@ impl Default for PyContext {
 
 pub(crate) fn try_value_from_borrowed_object<T, F, R>(
     vm: &VirtualMachine,
-    obj: &PyObj,
+    obj: &PyObject,
     f: F,
 ) -> PyResult<R>
 where
@@ -345,11 +345,11 @@ where
         }
     }
 }
-// the impl Borrow allows to pass PyObjectRef or &PyObj
+// the impl Borrow allows to pass PyObjectRef or &PyObject
 fn pyref_payload_error(
     vm: &VirtualMachine,
     class: &PyTypeRef,
-    obj: impl std::borrow::Borrow<PyObj>,
+    obj: impl std::borrow::Borrow<PyObject>,
 ) -> PyBaseExceptionRef {
     vm.new_runtime_error(format!(
         "Unexpected payload '{}' for type '{}'",
@@ -361,7 +361,7 @@ fn pyref_payload_error(
 pub(crate) fn pyref_type_error(
     vm: &VirtualMachine,
     class: &PyTypeRef,
-    obj: impl std::borrow::Borrow<PyObj>,
+    obj: impl std::borrow::Borrow<PyObject>,
 ) -> PyBaseExceptionRef {
     let expected_type = &*class.name();
     let actual_class = obj.borrow().class();
@@ -532,7 +532,7 @@ impl TypeProtocol for PyObjectRef {
     }
 }
 
-impl TypeProtocol for PyObj {
+impl TypeProtocol for PyObject {
     fn class(&self) -> PyLease<'_, PyType> {
         PyLease {
             inner: self.class_lock().read(),
@@ -569,7 +569,7 @@ where
     fn del_item(&self, key: T, vm: &VirtualMachine) -> PyResult<()>;
 }
 
-impl<T> ItemProtocol<T> for PyObj
+impl<T> ItemProtocol<T> for PyObject
 where
     T: IntoPyObject,
 {
@@ -668,7 +668,7 @@ impl<T: TryFromBorrowedObject> TryFromObject for T {
 
 pub trait TryFromBorrowedObject: Sized {
     /// Attempt to convert a Python object to a value of this type.
-    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObj) -> PyResult<Self>;
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self>;
 }
 
 impl PyObjectRef {
@@ -694,11 +694,11 @@ impl PyObjectRef {
 /// Can only be implemented for types that are `repr(transparent)` over a PyObjectRef `obj`,
 /// and logically valid so long as `check(vm, obj)` returns `Ok(())`
 pub unsafe trait TransmuteFromObject: Sized {
-    fn check(vm: &VirtualMachine, obj: &crate::PyObj) -> PyResult<()>;
+    fn check(vm: &VirtualMachine, obj: &PyObject) -> PyResult<()>;
 }
 
 unsafe impl<T: PyValue> TransmuteFromObject for PyRef<T> {
-    fn check(vm: &VirtualMachine, obj: &crate::PyObj) -> PyResult<()> {
+    fn check(vm: &VirtualMachine, obj: &PyObject) -> PyResult<()> {
         let class = T::class(vm);
         if obj.isinstance(class) {
             if obj.payload_is::<T>() {
@@ -739,7 +739,7 @@ impl IntoPyObject for PyObjectRef {
     }
 }
 
-impl IntoPyObject for &PyObj {
+impl IntoPyObject for &PyObject {
     #[inline]
     fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
         self.to_owned()
@@ -795,7 +795,7 @@ pub trait PyValue: fmt::Debug + PyThreadingConstraint + Sized + 'static {
     }
 
     #[inline(always)]
-    fn special_retrieve(_vm: &VirtualMachine, _obj: &PyObj) -> Option<PyResult<PyRef<Self>>> {
+    fn special_retrieve(_vm: &VirtualMachine, _obj: &PyObject) -> Option<PyResult<PyRef<Self>>> {
         None
     }
 

@@ -4,7 +4,7 @@ use crate::{
     types::{Comparable, Constructor, Hashable, PyComparisonOp},
     IdProtocol,
     PyArithmeticValue::{self, *},
-    PyClassImpl, PyComparisonValue, PyContext, PyObj, PyObjectRef, PyRef, PyResult, PyValue,
+    PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
     TypeProtocol, VirtualMachine,
 };
 use num_complex::Complex64;
@@ -73,7 +73,7 @@ pub fn init(context: &PyContext) {
     PyComplex::extend_class(context, &context.types.complex_type);
 }
 
-fn to_op_complex(value: &crate::PyObj, vm: &VirtualMachine) -> PyResult<Option<Complex64>> {
+fn to_op_complex(value: &PyObject, vm: &VirtualMachine) -> PyResult<Option<Complex64>> {
     let r = if let Some(complex) = value.payload_if_subclass::<PyComplex>(vm) {
         Some(complex.value)
     } else {
@@ -410,7 +410,7 @@ impl PyComplex {
 impl Comparable for PyComplex {
     fn cmp(
         zelf: &crate::Py<Self>,
-        other: &PyObj,
+        other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {

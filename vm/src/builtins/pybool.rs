@@ -2,7 +2,7 @@ use super::{PyInt, PyStrRef, PyTypeRef};
 use crate::{
     function::{IntoPyObject, OptionalArg},
     types::Constructor,
-    IdProtocol, PyClassImpl, PyContext, PyObj, PyObjectRef, PyResult, PyValue,
+    IdProtocol, PyClassImpl, PyContext, PyObject, PyObjectRef, PyResult, PyValue,
     TryFromBorrowedObject, TypeProtocol, VirtualMachine,
 };
 use num_bigint::Sign;
@@ -16,7 +16,7 @@ impl IntoPyObject for bool {
 }
 
 impl TryFromBorrowedObject for bool {
-    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObj) -> PyResult<bool> {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<bool> {
         if obj.isinstance(&vm.ctx.types.int_type) {
             Ok(get_value(obj))
         } else {
@@ -166,7 +166,7 @@ pub(crate) fn init(context: &PyContext) {
     PyBool::extend_class(context, &context.types.bool_type);
 }
 
-// pub fn not(vm: &VirtualMachine, obj: &crate::PyObj) -> PyResult<bool> {
+// pub fn not(vm: &VirtualMachine, obj: &PyObject) -> PyResult<bool> {
 //     if obj.isinstance(&vm.ctx.types.bool_type) {
 //         let value = get_value(obj);
 //         Ok(!value)
@@ -176,10 +176,10 @@ pub(crate) fn init(context: &PyContext) {
 // }
 
 // Retrieve inner int value:
-pub(crate) fn get_value(obj: &PyObj) -> bool {
+pub(crate) fn get_value(obj: &PyObject) -> bool {
     !obj.payload::<PyInt>().unwrap().as_bigint().is_zero()
 }
 
-fn get_py_int(obj: &crate::PyObj) -> &PyInt {
+fn get_py_int(obj: &PyObject) -> &PyInt {
     obj.payload::<PyInt>().unwrap()
 }

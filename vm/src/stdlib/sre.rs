@@ -11,7 +11,7 @@ mod _sre {
         protocol::PyBuffer,
         stdlib::sys,
         types::{Comparable, Hashable},
-        ItemProtocol, PyComparisonValue, PyObj, PyObjectRef, PyRef, PyResult, PyValue,
+        ItemProtocol, PyComparisonValue, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
         TryFromBorrowedObject, TryFromObject, VirtualMachine,
     };
     use core::str;
@@ -529,7 +529,7 @@ mod _sre {
     impl Comparable for Pattern {
         fn cmp(
             zelf: &crate::Py<Self>,
-            other: &PyObj,
+            other: &PyObject,
             op: crate::types::PyComparisonOp,
             vm: &VirtualMachine,
         ) -> PyResult<PyComparisonValue> {

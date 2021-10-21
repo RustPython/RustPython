@@ -6,7 +6,7 @@ mod math {
         builtins::{try_bigint_to_f64, try_f64_to_bigint, PyFloat, PyInt, PyIntRef},
         function::{ArgIntoFloat, ArgIterable, OptionalArg, PosArgs},
         utils::Either,
-        PyObj, PyObjectRef, PyRef, PyResult, PySequence, TypeProtocol, VirtualMachine,
+        PyObject, PyObjectRef, PyRef, PyResult, PySequence, TypeProtocol, VirtualMachine,
     };
     use num_bigint::BigInt;
     use num_traits::{One, Signed, Zero};
@@ -408,7 +408,7 @@ mod math {
         }
     }
 
-    fn try_magic_method(func_name: &str, vm: &VirtualMachine, value: &PyObj) -> PyResult {
+    fn try_magic_method(func_name: &str, vm: &VirtualMachine, value: &PyObject) -> PyResult {
         let method = vm.get_method_or_type_error(value.to_owned(), func_name, || {
             format!(
                 "type '{}' doesn't define '{}' method",

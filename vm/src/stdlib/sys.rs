@@ -1,4 +1,6 @@
-use crate::{function::IntoPyObject, ItemProtocol, PyClassImpl, PyResult, VirtualMachine};
+use crate::{
+    function::IntoPyObject, ItemProtocol, PyClassImpl, PyObject, PyResult, VirtualMachine,
+};
 
 pub(crate) use sys::{MAXSIZE, MULTIARCH};
 
@@ -668,7 +670,7 @@ mod sys {
     impl WindowsVersion {}
 }
 
-pub(crate) fn init_module(vm: &VirtualMachine, module: &crate::PyObj, builtins: &crate::PyObj) {
+pub(crate) fn init_module(vm: &VirtualMachine, module: &PyObject, builtins: &PyObject) {
     let ctx = &vm.ctx;
     let _flags_type = sys::Flags::make_class(ctx);
     let _version_info_type = crate::version::VersionInfo::make_class(ctx);

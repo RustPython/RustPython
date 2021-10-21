@@ -4,7 +4,7 @@ use crate::{
     builtins::{PyBaseExceptionRef, PyBytes, PyBytesRef, PyInt, PySet, PyStr, PyStrRef},
     function::{ArgumentError, FromArgs, FuncArgs, IntoPyException, IntoPyObject},
     protocol::PyBuffer,
-    PyObjectRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject, TypeProtocol,
+    PyObject, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject, TypeProtocol,
     VirtualMachine,
 };
 use std::ffi;
@@ -1746,7 +1746,7 @@ impl<'a> SupportFunc {
     }
 }
 
-pub fn extend_module(vm: &VirtualMachine, module: &crate::PyObj) {
+pub fn extend_module(vm: &VirtualMachine, module: &PyObject) {
     _os::extend_module(vm, module);
 
     let support_funcs = _os::support_funcs();

@@ -3,8 +3,8 @@ use crate::common::hash::PyHash;
 use crate::{
     function::OptionalArg,
     types::{Callable, Comparable, Constructor, Hashable, PyComparisonOp},
-    IdProtocol, PyClassImpl, PyContext, PyObj, PyObjectRef, PyObjectWeak, PyRef, PyResult, PyValue,
-    TypeProtocol, VirtualMachine,
+    IdProtocol, PyClassImpl, PyContext, PyObject, PyObjectRef, PyObjectWeak, PyRef, PyResult,
+    PyValue, TypeProtocol, VirtualMachine,
 };
 
 use crossbeam_utils::atomic::AtomicCell;
@@ -17,7 +17,7 @@ pub struct PyWeak {
 }
 
 impl PyWeak {
-    pub fn downgrade(obj: &PyObj) -> PyWeak {
+    pub fn downgrade(obj: &PyObject) -> PyWeak {
         PyWeak {
             referent: obj.downgrade(),
             hash: AtomicCell::new(None),
@@ -104,7 +104,7 @@ impl Hashable for PyWeak {
 impl Comparable for PyWeak {
     fn cmp(
         zelf: &crate::Py<Self>,
-        other: &PyObj,
+        other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<crate::PyComparisonValue> {

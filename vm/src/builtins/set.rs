@@ -12,7 +12,7 @@ use crate::{
         Unconstructible, Unhashable,
     },
     vm::{ReprGuard, VirtualMachine},
-    IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObj, PyObjectRef, PyRef, PyResult,
+    IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyRef, PyResult,
     PyValue, TryFromObject, TypeProtocol,
 };
 use std::{fmt, ops::Deref};
@@ -96,7 +96,7 @@ impl PySetInner {
         }
     }
 
-    fn contains(&self, needle: &crate::PyObj, vm: &VirtualMachine) -> PyResult<bool> {
+    fn contains(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
         self.retry_op_with_frozenset(needle, vm, |needle, vm| self.content.contains(vm, needle))
     }
 
@@ -247,7 +247,7 @@ impl PySetInner {
         })
     }
 
-    fn discard(&self, item: &crate::PyObj, vm: &VirtualMachine) -> PyResult<bool> {
+    fn discard(&self, item: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
         self.retry_op_with_frozenset(item, vm, |item, vm| self.content.delete_if_exists(vm, item))
     }
 
@@ -330,12 +330,12 @@ impl PySetInner {
     // on failure to convert and restores item in KeyError on failure (remove).
     fn retry_op_with_frozenset<T, F>(
         &self,
-        item: &crate::PyObj,
+        item: &PyObject,
         vm: &VirtualMachine,
         op: F,
     ) -> PyResult<T>
     where
-        F: Fn(&crate::PyObj, &VirtualMachine) -> PyResult<T>,
+        F: Fn(&PyObject, &VirtualMachine) -> PyResult<T>,
     {
         op(item, vm).or_else(|original_err| {
             item.payload_if_subclass::<PySet>(vm)
@@ -362,7 +362,7 @@ impl PySetInner {
     }
 }
 
-fn extract_set(obj: &PyObj) -> Option<&PySetInner> {
+fn extract_set(obj: &PyObject) -> Option<&PySetInner> {
     match_class!(match obj {
         ref set @ PySet => Some(&set.inner),
         ref frozen @ PyFrozenSet => Some(&frozen.inner),
@@ -371,7 +371,7 @@ fn extract_set(obj: &PyObj) -> Option<&PySetInner> {
 }
 
 fn reduce_set(
-    zelf: &crate::PyObj,
+    zelf: &PyObject,
     vm: &VirtualMachine,
 ) -> PyResult<(PyTypeRef, PyTupleRef, Option<PyDictRef>)> {
     Ok((
@@ -624,7 +624,7 @@ impl PySet {
 impl Comparable for PySet {
     fn cmp(
         zelf: &crate::Py<Self>,
-        other: &PyObj,
+        other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
@@ -822,7 +822,7 @@ impl Hashable for PyFrozenSet {
 impl Comparable for PyFrozenSet {
     fn cmp(
         zelf: &crate::Py<Self>,
-        other: &PyObj,
+        other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {

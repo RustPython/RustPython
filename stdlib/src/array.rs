@@ -28,7 +28,7 @@ mod array {
             AsBuffer, AsMapping, Comparable, Constructor, IterNext, IterNextIterable, Iterable,
             PyComparisonOp,
         },
-        IdProtocol, Py, PyComparisonValue, PyObj, PyObjectRef, PyRef, PyResult, PyValue,
+        IdProtocol, Py, PyComparisonValue, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
         TryFromObject, TypeProtocol, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
@@ -1168,7 +1168,7 @@ mod array {
     impl Comparable for PyArray {
         fn cmp(
             zelf: &Py<Self>,
-            other: &PyObj,
+            other: &PyObject,
             op: PyComparisonOp,
             vm: &VirtualMachine,
         ) -> PyResult<PyComparisonValue> {

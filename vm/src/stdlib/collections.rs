@@ -17,7 +17,7 @@ mod _collections {
             PyComparisonOp, Unhashable,
         },
         vm::ReprGuard,
-        PyComparisonValue, PyObj, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+        PyComparisonValue, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
         VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
@@ -534,7 +534,7 @@ mod _collections {
     impl Comparable for PyDeque {
         fn cmp(
             zelf: &crate::Py<Self>,
-            other: &PyObj,
+            other: &PyObject,
             op: PyComparisonOp,
             vm: &VirtualMachine,
         ) -> PyResult<PyComparisonValue> {

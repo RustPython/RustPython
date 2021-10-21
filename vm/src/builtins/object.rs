@@ -3,7 +3,7 @@ use crate::common::hash::PyHash;
 use crate::{
     function::FuncArgs, types::PyComparisonOp, utils::Either, IdProtocol, ItemProtocol,
     PyArithmeticValue, PyAttributes, PyClassImpl, PyComparisonValue, PyContext, PyGenericObject,
-    PyObj, PyObjectRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
+    PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
 
 /// object()
@@ -39,8 +39,8 @@ impl PyBaseObject {
 
     #[pyslot]
     fn slot_richcompare(
-        zelf: &PyObj,
-        other: &PyObj,
+        zelf: &PyObject,
+        other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
@@ -49,8 +49,8 @@ impl PyBaseObject {
 
     #[inline(always)]
     fn cmp(
-        zelf: &PyObj,
-        other: &PyObj,
+        zelf: &PyObject,
+        other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
@@ -159,7 +159,7 @@ impl PyBaseObject {
 
     #[pyslot]
     fn slot_setattro(
-        obj: &PyObj,
+        obj: &PyObject,
         attr_name: PyStrRef,
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,
@@ -296,7 +296,7 @@ impl PyBaseObject {
     }
 
     #[pyslot]
-    fn slot_hash(zelf: &PyObj, _vm: &VirtualMachine) -> PyResult<PyHash> {
+    fn slot_hash(zelf: &PyObject, _vm: &VirtualMachine) -> PyResult<PyHash> {
         Ok(zelf.get_id() as _)
     }
 
@@ -318,7 +318,7 @@ pub fn object_set_dict(obj: PyObjectRef, dict: PyDictRef, vm: &VirtualMachine) -
 
 #[cfg_attr(feature = "flame-it", flame)]
 pub(crate) fn setattr(
-    obj: &PyObj,
+    obj: &PyObject,
     attr_name: PyStrRef,
     value: Option<PyObjectRef>,
     vm: &VirtualMachine,

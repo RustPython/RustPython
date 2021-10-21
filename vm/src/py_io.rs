@@ -1,7 +1,7 @@
 use crate::{
     builtins::{PyBaseExceptionRef, PyBytes, PyStr},
     common::ascii,
-    PyObjectRef, PyResult, VirtualMachine,
+    PyObject, PyObjectRef, PyResult, VirtualMachine,
 };
 use std::{fmt, io, ops};
 
@@ -59,7 +59,7 @@ impl Write for PyWriter<'_> {
     }
 }
 
-pub fn file_readline(obj: &crate::PyObj, size: Option<usize>, vm: &VirtualMachine) -> PyResult {
+pub fn file_readline(obj: &PyObject, size: Option<usize>, vm: &VirtualMachine) -> PyResult {
     let args = size.map_or_else(Vec::new, |size| vec![vm.ctx.new_int(size).into()]);
     let ret = vm.call_method(obj, "readline", args)?;
     let eof_err = || {

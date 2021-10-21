@@ -28,7 +28,7 @@ use crate::{
     stdlib,
     types::PyComparisonOp,
     IdProtocol, ItemProtocol, PyArithmeticValue, PyContext, PyGenericObject, PyLease, PyMethod,
-    PyObj, PyObjectRef, PyObjectWrap, PyRef, PyRefExact, PyResult, PyValue, TryFromObject,
+    PyObject, PyObjectRef, PyObjectWrap, PyRef, PyRefExact, PyResult, PyValue, TryFromObject,
     TypeProtocol,
 };
 use crossbeam_utils::atomic::AtomicCell;
@@ -72,7 +72,7 @@ struct ExceptionStack {
 }
 
 pub(crate) mod thread {
-    use super::{TypeProtocol, VirtualMachine};
+    use super::{PyObject, TypeProtocol, VirtualMachine};
     use itertools::Itertools;
     use std::cell::RefCell;
     use std::ptr::NonNull;
@@ -91,7 +91,7 @@ pub(crate) mod thread {
         })
     }
 
-    pub fn with_vm<F, R>(obj: &crate::PyObj, f: F) -> Option<R>
+    pub fn with_vm<F, R>(obj: &PyObject, f: F) -> Option<R>
     where
         F: Fn(&VirtualMachine) -> R,
     {
@@ -676,7 +676,7 @@ impl VirtualMachine {
         name_error
     }
 
-    pub fn new_unsupported_unary_error(&self, a: &crate::PyObj, op: &str) -> PyBaseExceptionRef {
+    pub fn new_unsupported_unary_error(&self, a: &PyObject, op: &str) -> PyBaseExceptionRef {
         self.new_type_error(format!(
             "bad operand type for {}: '{}'",
             op,
@@ -686,8 +686,8 @@ impl VirtualMachine {
 
     pub fn new_unsupported_binop_error(
         &self,
-        a: &crate::PyObj,
-        b: &crate::PyObj,
+        a: &PyObject,
+        b: &PyObject,
         op: &str,
     ) -> PyBaseExceptionRef {
         self.new_type_error(format!(
@@ -700,9 +700,9 @@ impl VirtualMachine {
 
     pub fn new_unsupported_ternop_error(
         &self,
-        a: &crate::PyObj,
-        b: &crate::PyObj,
-        c: &crate::PyObj,
+        a: &PyObject,
+        b: &PyObject,
+        c: &PyObject,
         op: &str,
     ) -> PyBaseExceptionRef {
         self.new_type_error(format!(
@@ -884,7 +884,7 @@ impl VirtualMachine {
     }
 
     /// Test whether a python object is `None`.
-    pub fn is_none(&self, obj: &crate::PyObj) -> bool {
+    pub fn is_none(&self, obj: &PyObject) -> bool {
         obj.is(&self.ctx.none)
     }
     pub fn option_if_none(&self, obj: PyObjectRef) -> Option<PyObjectRef> {
@@ -898,7 +898,7 @@ impl VirtualMachine {
         obj.unwrap_or_else(|| self.ctx.none())
     }
 
-    pub fn to_repr(&self, obj: &crate::PyObj) -> PyResult<PyStrRef> {
+    pub fn to_repr(&self, obj: &PyObject) -> PyResult<PyStrRef> {
         self.with_recursion("while getting the repr of an object", || {
             let repr = self.call_special_method(obj.to_owned(), "__repr__", ())?;
             repr.try_into_value(self)
@@ -919,7 +919,7 @@ impl VirtualMachine {
             }),
         }
     }
-    pub fn to_index(&self, obj: &PyObj) -> PyResult<PyIntRef> {
+    pub fn to_index(&self, obj: &PyObject) -> PyResult<PyIntRef> {
         self.to_index_opt(obj.to_owned()).unwrap_or_else(|| {
             Err(self.new_type_error(format!(
                 "'{}' object cannot be interpreted as an integer",
@@ -994,7 +994,7 @@ impl VirtualMachine {
 
     // Equivalent to check_class. Masks Attribute errors (into TypeErrors) and lets everything
     // else go through.
-    fn check_cls<F>(&self, cls: &crate::PyObj, msg: F) -> PyResult
+    fn check_cls<F>(&self, cls: &PyObject, msg: F) -> PyResult
     where
         F: Fn() -> String,
     {
@@ -1008,7 +1008,7 @@ impl VirtualMachine {
         })
     }
 
-    pub fn abstract_isinstance(&self, obj: &crate::PyObj, cls: &crate::PyObj) -> PyResult<bool> {
+    pub fn abstract_isinstance(&self, obj: &PyObject, cls: &PyObject) -> PyResult<bool> {
         if let Ok(typ) = PyTypeRef::try_from_object(self, cls.to_owned()) {
             if obj.class().issubclass(typ.clone()) {
                 Ok(true)
@@ -1041,7 +1041,7 @@ impl VirtualMachine {
         }
     }
 
-    fn abstract_issubclass(&self, subclass: PyObjectRef, cls: &crate::PyObj) -> PyResult<bool> {
+    fn abstract_issubclass(&self, subclass: PyObjectRef, cls: &PyObject) -> PyResult<bool> {
         let mut derived = subclass;
         loop {
             if derived.is(cls) {
@@ -1073,7 +1073,7 @@ impl VirtualMachine {
         }
     }
 
-    fn recursive_issubclass(&self, subclass: &crate::PyObj, cls: &crate::PyObj) -> PyResult<bool> {
+    fn recursive_issubclass(&self, subclass: &PyObject, cls: &PyObject) -> PyResult<bool> {
         if let (Ok(subclass), Ok(cls)) = (
             PyTypeRef::try_from_object(self, subclass.to_owned()),
             PyTypeRef::try_from_object(self, cls.to_owned()),
@@ -1098,7 +1098,7 @@ impl VirtualMachine {
 
     /// Determines if `subclass` is a subclass of `cls`, either directly, indirectly or virtually
     /// via the __subclasscheck__ magic method.
-    pub fn issubclass(&self, subclass: &crate::PyObj, cls: &crate::PyObj) -> PyResult<bool> {
+    pub fn issubclass(&self, subclass: &PyObject, cls: &PyObject) -> PyResult<bool> {
         if cls.class().is(&self.ctx.types.type_type) {
             if subclass.is(cls) {
                 return Ok(true);
@@ -1152,7 +1152,7 @@ impl VirtualMachine {
     }
 
     #[inline]
-    pub fn call_method<T>(&self, obj: &PyObj, method_name: &str, args: T) -> PyResult
+    pub fn call_method<T>(&self, obj: &PyObject, method_name: &str, args: T) -> PyResult
     where
         T: IntoFuncArgs,
     {
@@ -1202,7 +1202,7 @@ impl VirtualMachine {
             .invoke(args, self)
     }
 
-    fn _invoke(&self, callable: &crate::PyObj, args: FuncArgs) -> PyResult {
+    fn _invoke(&self, callable: &PyObject, args: FuncArgs) -> PyResult {
         vm_trace!("Invoke: {:?} {:?}", callable, args);
         let slot_call = callable.class().mro_find_map(|cls| cls.slots.call.load());
         match slot_call {
@@ -1222,7 +1222,7 @@ impl VirtualMachine {
     #[inline(always)]
     pub fn invoke<O, A>(&self, func: &O, args: A) -> PyResult
     where
-        O: AsRef<crate::PyObj>,
+        O: AsRef<PyObject>,
         A: IntoFuncArgs,
     {
         self._invoke(func.as_ref(), args.into_args(self))
@@ -1271,7 +1271,7 @@ impl VirtualMachine {
         Ok(())
     }
 
-    pub fn extract_elements_func<T, F>(&self, value: &PyObj, func: F) -> PyResult<Vec<T>>
+    pub fn extract_elements_func<T, F>(&self, value: &PyObject, func: F) -> PyResult<Vec<T>>
     where
         F: Fn(PyObjectRef) -> PyResult<T>,
     {
@@ -1298,11 +1298,11 @@ impl VirtualMachine {
         }
     }
 
-    pub fn extract_elements<T: TryFromObject>(&self, value: &PyObj) -> PyResult<Vec<T>> {
+    pub fn extract_elements<T: TryFromObject>(&self, value: &PyObject) -> PyResult<Vec<T>> {
         self.extract_elements_func(value, |obj| T::try_from_object(self, obj))
     }
 
-    pub fn map_iterable_object<F, R>(&self, obj: &PyObj, mut f: F) -> PyResult<PyResult<Vec<R>>>
+    pub fn map_iterable_object<F, R>(&self, obj: &PyObject, mut f: F) -> PyResult<PyResult<Vec<R>>>
     where
         F: FnMut(PyObjectRef) -> PyResult<R>,
     {
@@ -1336,7 +1336,7 @@ impl VirtualMachine {
         })
     }
 
-    fn map_pyiter<F, R>(&self, value: &PyObj, mut f: F) -> PyResult<Vec<R>>
+    fn map_pyiter<F, R>(&self, value: &PyObject, mut f: F) -> PyResult<Vec<R>>
     where
         F: FnMut(PyObjectRef) -> PyResult<R>,
     {
@@ -1419,13 +1419,13 @@ impl VirtualMachine {
     /// calls `unsupported` to determine fallback value.
     pub fn call_or_unsupported<F>(
         &self,
-        obj: &crate::PyObj,
-        arg: &crate::PyObj,
+        obj: &PyObject,
+        arg: &PyObject,
         method: &str,
         unsupported: F,
     ) -> PyResult
     where
-        F: Fn(&VirtualMachine, &crate::PyObj, &crate::PyObj) -> PyResult,
+        F: Fn(&VirtualMachine, &PyObject, &PyObject) -> PyResult,
     {
         if let Some(method_or_err) = self.get_method(obj.to_owned(), method) {
             let method = method_or_err?;
@@ -1450,11 +1450,11 @@ impl VirtualMachine {
     /// 3. If above is not implemented, invokes `unsupported` for the result.
     pub fn call_or_reflection(
         &self,
-        lhs: &crate::PyObj,
-        rhs: &crate::PyObj,
+        lhs: &PyObject,
+        rhs: &PyObject,
         default: &str,
         reflection: &str,
-        unsupported: fn(&VirtualMachine, &crate::PyObj, &crate::PyObj) -> PyResult,
+        unsupported: fn(&VirtualMachine, &PyObject, &PyObject) -> PyResult,
     ) -> PyResult {
         // Try to call the default method
         self.call_or_unsupported(lhs, rhs, default, move |vm, lhs, rhs| {
@@ -1531,7 +1531,7 @@ impl VirtualMachine {
         }
     }
 
-    pub fn is_callable(&self, obj: &crate::PyObj) -> bool {
+    pub fn is_callable(&self, obj: &PyObject) -> bool {
         obj.class()
             .mro_find_map(|cls| cls.slots.call.load())
             .is_some()
@@ -1582,13 +1582,13 @@ impl VirtualMachine {
             .map(|code| PyCode::new(self.map_codeobj(code)).into_ref(self))
     }
 
-    pub fn _sub(&self, a: &crate::PyObj, b: &crate::PyObj) -> PyResult {
+    pub fn _sub(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_reflection(a, b, "__sub__", "__rsub__", |vm, a, b| {
             Err(vm.new_unsupported_binop_error(a, b, "-"))
         })
     }
 
-    pub fn _isub(&self, a: &crate::PyObj, b: &crate::PyObj) -> PyResult {
+    pub fn _isub(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_unsupported(a, b, "__isub__", |vm, a, b| {
             vm.call_or_reflection(a, b, "__sub__", "__rsub__", |vm, a, b| {
                 Err(vm.new_unsupported_binop_error(a, b, "-="))
@@ -1596,13 +1596,13 @@ impl VirtualMachine {
         })
     }
 
-    pub fn _add(&self, a: &crate::PyObj, b: &crate::PyObj) -> PyResult {
+    pub fn _add(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_reflection(a, b, "__add__", "__radd__", |vm, a, b| {
             Err(vm.new_unsupported_binop_error(a, b, "+"))
         })
     }
 
-    pub fn _iadd(&self, a: &crate::PyObj, b: &crate::PyObj) -> PyResult {
+    pub fn _iadd(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_unsupported(a, b, "__iadd__", |vm, a, b| {
             vm.call_or_reflection(a, b, "__add__", "__radd__", |vm, a, b| {
                 Err(vm.new_unsupported_binop_error(a, b, "+="))
@@ -1610,13 +1610,13 @@ impl VirtualMachine {
         })
     }
 
-    pub fn _mul(&self, a: &crate::PyObj, b: &crate::PyObj) -> PyResult {
+    pub fn _mul(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_reflection(a, b, "__mul__", "__rmul__", |vm, a, b| {
             Err(vm.new_unsupported_binop_error(a, b, "*"))
         })
     }
 
-    pub fn _imul(&self, a: &crate::PyObj, b: &crate::PyObj) -> PyResult {
+    pub fn _imul(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_unsupported(a, b, "__imul__", |vm, a, b| {
             vm.call_or_reflection(a, b, "__mul__", "__rmul__", |vm, a, b| {
                 Err(vm.new_unsupported_binop_error(a, b, "*="))
@@ -1624,13 +1624,13 @@ impl VirtualMachine {
         })
     }
 
-    pub fn _matmul(&self, a: &crate::PyObj, b: &crate::PyObj) -> PyResult {
+    pub fn _matmul(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_reflection(a, b, "__matmul__", "__rmatmul__", |vm, a, b| {
             Err(vm.new_unsupported_binop_error(a, b, "@"))
         })
     }
 
-    pub fn _imatmul(&self, a: &crate::PyObj, b: &crate::PyObj) -> PyResult {
+    pub fn _imatmul(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_unsupported(a, b, "__imatmul__", |vm, a, b| {
             vm.call_or_reflection(a, b, "__matmul__", "__rmatmul__", |vm, a, b| {
                 Err(vm.new_unsupported_binop_error(a, b, "@="))
@@ -1638,13 +1638,13 @@ impl VirtualMachine {
         })
     }
 
-    pub fn _truediv(&self, a: &crate::PyObj, b: &crate::PyObj) -> PyResult {
+    pub fn _truediv(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_reflection(a, b, "__truediv__", "__rtruediv__", |vm, a, b| {
             Err(vm.new_unsupported_binop_error(a, b, "/"))
         })
     }
 
-    pub fn _itruediv(&self, a: &crate::PyObj, b: &crate::PyObj) -> PyResult {
+    pub fn _itruediv(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_unsupported(a, b, "__itruediv__", |vm, a, b| {
             vm.call_or_reflection(a, b, "__truediv__", "__rtruediv__", |vm, a, b| {
                 Err(vm.new_unsupported_binop_error(a, b, "/="))
@@ -1652,13 +1652,13 @@ impl VirtualMachine {
         })
     }
 
-    pub fn _floordiv(&self, a: &crate::PyObj, b: &crate::PyObj) -> PyResult {
+    pub fn _floordiv(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_reflection(a, b, "__floordiv__", "__rfloordiv__", |vm, a, b| {
             Err(vm.new_unsupported_binop_error(a, b, "//"))
         })
     }
 
-    pub fn _ifloordiv(&self, a: &crate::PyObj, b: &crate::PyObj) -> PyResult {
+    pub fn _ifloordiv(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_unsupported(a, b, "__ifloordiv__", |vm, a, b| {
             vm.call_or_reflection(a, b, "__floordiv__", "__rfloordiv__", |vm, a, b| {
                 Err(vm.new_unsupported_binop_error(a, b, "//="))
@@ -1666,13 +1666,13 @@ impl VirtualMachine {
         })
     }
 
-    pub fn _pow(&self, a: &crate::PyObj, b: &crate::PyObj) -> PyResult {
+    pub fn _pow(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_reflection(a, b, "__pow__", "__rpow__", |vm, a, b| {
             Err(vm.new_unsupported_binop_error(a, b, "**"))
         })
     }
 
-    pub fn _ipow(&self, a: &crate::PyObj, b: &crate::PyObj) -> PyResult {
+    pub fn _ipow(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_unsupported(a, b, "__ipow__", |vm, a, b| {
             vm.call_or_reflection(a, b, "__pow__", "__rpow__", |vm, a, b| {
                 Err(vm.new_unsupported_binop_error(a, b, "**="))
@@ -1680,13 +1680,13 @@ impl VirtualMachine {
         })
     }
 
-    pub fn _mod(&self, a: &crate::PyObj, b: &crate::PyObj) -> PyResult {
+    pub fn _mod(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_reflection(a, b, "__mod__", "__rmod__", |vm, a, b| {
             Err(vm.new_unsupported_binop_error(a, b, "%"))
         })
     }
 
-    pub fn _imod(&self, a: &crate::PyObj, b: &crate::PyObj) -> PyResult {
+    pub fn _imod(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_unsupported(a, b, "__imod__", |vm, a, b| {
             vm.call_or_reflection(a, b, "__mod__", "__rmod__", |vm, a, b| {
                 Err(vm.new_unsupported_binop_error(a, b, "%="))
@@ -1694,19 +1694,19 @@ impl VirtualMachine {
         })
     }
 
-    pub fn _divmod(&self, a: &crate::PyObj, b: &crate::PyObj) -> PyResult {
+    pub fn _divmod(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_reflection(a, b, "__divmod__", "__rdivmod__", |vm, a, b| {
             Err(vm.new_unsupported_binop_error(a, b, "divmod"))
         })
     }
 
-    pub fn _lshift(&self, a: &crate::PyObj, b: &crate::PyObj) -> PyResult {
+    pub fn _lshift(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_reflection(a, b, "__lshift__", "__rlshift__", |vm, a, b| {
             Err(vm.new_unsupported_binop_error(a, b, "<<"))
         })
     }
 
-    pub fn _ilshift(&self, a: &crate::PyObj, b: &crate::PyObj) -> PyResult {
+    pub fn _ilshift(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_unsupported(a, b, "__ilshift__", |vm, a, b| {
             vm.call_or_reflection(a, b, "__lshift__", "__rlshift__", |vm, a, b| {
                 Err(vm.new_unsupported_binop_error(a, b, "<<="))
@@ -1714,13 +1714,13 @@ impl VirtualMachine {
         })
     }
 
-    pub fn _rshift(&self, a: &crate::PyObj, b: &crate::PyObj) -> PyResult {
+    pub fn _rshift(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_reflection(a, b, "__rshift__", "__rrshift__", |vm, a, b| {
             Err(vm.new_unsupported_binop_error(a, b, ">>"))
         })
     }
 
-    pub fn _irshift(&self, a: &crate::PyObj, b: &crate::PyObj) -> PyResult {
+    pub fn _irshift(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_unsupported(a, b, "__irshift__", |vm, a, b| {
             vm.call_or_reflection(a, b, "__rshift__", "__rrshift__", |vm, a, b| {
                 Err(vm.new_unsupported_binop_error(a, b, ">>="))
@@ -1728,13 +1728,13 @@ impl VirtualMachine {
         })
     }
 
-    pub fn _xor(&self, a: &crate::PyObj, b: &crate::PyObj) -> PyResult {
+    pub fn _xor(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_reflection(a, b, "__xor__", "__rxor__", |vm, a, b| {
             Err(vm.new_unsupported_binop_error(a, b, "^"))
         })
     }
 
-    pub fn _ixor(&self, a: &crate::PyObj, b: &crate::PyObj) -> PyResult {
+    pub fn _ixor(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_unsupported(a, b, "__ixor__", |vm, a, b| {
             vm.call_or_reflection(a, b, "__xor__", "__rxor__", |vm, a, b| {
                 Err(vm.new_unsupported_binop_error(a, b, "^="))
@@ -1742,13 +1742,13 @@ impl VirtualMachine {
         })
     }
 
-    pub fn _or(&self, a: &crate::PyObj, b: &crate::PyObj) -> PyResult {
+    pub fn _or(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_reflection(a, b, "__or__", "__ror__", |vm, a, b| {
             Err(vm.new_unsupported_binop_error(a, b, "|"))
         })
     }
 
-    pub fn _ior(&self, a: &crate::PyObj, b: &crate::PyObj) -> PyResult {
+    pub fn _ior(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_unsupported(a, b, "__ior__", |vm, a, b| {
             vm.call_or_reflection(a, b, "__or__", "__ror__", |vm, a, b| {
                 Err(vm.new_unsupported_binop_error(a, b, "|="))
@@ -1756,13 +1756,13 @@ impl VirtualMachine {
         })
     }
 
-    pub fn _and(&self, a: &crate::PyObj, b: &crate::PyObj) -> PyResult {
+    pub fn _and(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_reflection(a, b, "__and__", "__rand__", |vm, a, b| {
             Err(vm.new_unsupported_binop_error(a, b, "&"))
         })
     }
 
-    pub fn _iand(&self, a: &crate::PyObj, b: &crate::PyObj) -> PyResult {
+    pub fn _iand(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_unsupported(a, b, "__iand__", |vm, a, b| {
             vm.call_or_reflection(a, b, "__and__", "__rand__", |vm, a, b| {
                 Err(vm.new_unsupported_binop_error(a, b, "&="))
@@ -1770,31 +1770,31 @@ impl VirtualMachine {
         })
     }
 
-    pub fn _abs(&self, a: &crate::PyObj) -> PyResult<PyObjectRef> {
+    pub fn _abs(&self, a: &PyObject) -> PyResult<PyObjectRef> {
         self.get_special_method(a.to_owned(), "__abs__")?
             .map_err(|_| self.new_unsupported_unary_error(a, "abs()"))?
             .invoke((), self)
     }
 
-    pub fn _pos(&self, a: &crate::PyObj) -> PyResult {
+    pub fn _pos(&self, a: &PyObject) -> PyResult {
         self.get_special_method(a.to_owned(), "__pos__")?
             .map_err(|_| self.new_unsupported_unary_error(a, "unary +"))?
             .invoke((), self)
     }
 
-    pub fn _neg(&self, a: &crate::PyObj) -> PyResult {
+    pub fn _neg(&self, a: &PyObject) -> PyResult {
         self.get_special_method(a.to_owned(), "__neg__")?
             .map_err(|_| self.new_unsupported_unary_error(a, "unary -"))?
             .invoke((), self)
     }
 
-    pub fn _invert(&self, a: &crate::PyObj) -> PyResult {
+    pub fn _invert(&self, a: &PyObject) -> PyResult {
         self.get_special_method(a.to_owned(), "__invert__")?
             .map_err(|_| self.new_unsupported_unary_error(a, "unary ~"))?
             .invoke((), self)
     }
 
-    pub fn obj_len_opt(&self, obj: &crate::PyObj) -> Option<PyResult<usize>> {
+    pub fn obj_len_opt(&self, obj: &PyObject) -> Option<PyResult<usize>> {
         self.get_special_method(obj.to_owned(), "__len__")
             .map(Result::ok)
             .transpose()
@@ -1963,11 +1963,11 @@ impl VirtualMachine {
         }
     }
 
-    pub fn bool_eq(&self, a: &crate::PyObj, b: &crate::PyObj) -> PyResult<bool> {
+    pub fn bool_eq(&self, a: &PyObject, b: &PyObject) -> PyResult<bool> {
         a.rich_compare_bool(b, PyComparisonOp::Eq, self)
     }
 
-    pub fn identical_or_equal(&self, a: &crate::PyObj, b: &crate::PyObj) -> PyResult<bool> {
+    pub fn identical_or_equal(&self, a: &PyObject, b: &PyObject) -> PyResult<bool> {
         if a.is(b) {
             Ok(true)
         } else {
@@ -1975,7 +1975,7 @@ impl VirtualMachine {
         }
     }
 
-    pub fn bool_seq_lt(&self, a: &crate::PyObj, b: &crate::PyObj) -> PyResult<Option<bool>> {
+    pub fn bool_seq_lt(&self, a: &PyObject, b: &PyObject) -> PyResult<Option<bool>> {
         let value = if a.rich_compare_bool(b, PyComparisonOp::Lt, self)? {
             Some(true)
         } else if !self.bool_eq(a, b)? {
@@ -1986,7 +1986,7 @@ impl VirtualMachine {
         Ok(value)
     }
 
-    pub fn bool_seq_gt(&self, a: &crate::PyObj, b: &crate::PyObj) -> PyResult<Option<bool>> {
+    pub fn bool_seq_gt(&self, a: &PyObject, b: &PyObject) -> PyResult<Option<bool>> {
         let value = if a.rich_compare_bool(b, PyComparisonOp::Gt, self)? {
             Some(true)
         } else if !self.bool_eq(a, b)? {
@@ -2014,7 +2014,7 @@ impl VirtualMachine {
     #[doc(hidden)]
     pub fn __module_set_attr(
         &self,
-        module: &crate::PyObj,
+        module: &PyObject,
         attr_name: impl IntoPyStrRef,
         attr_value: impl Into<PyObjectRef>,
     ) -> PyResult<()> {
@@ -2056,7 +2056,7 @@ pub struct ReprGuard<'vm> {
 impl<'vm> ReprGuard<'vm> {
     /// Returns None if the guard against 'obj' is still held otherwise returns the guard. The guard
     /// which is released if dropped.
-    pub fn enter(vm: &'vm VirtualMachine, obj: &crate::PyObj) -> Option<Self> {
+    pub fn enter(vm: &'vm VirtualMachine, obj: &PyObject) -> Option<Self> {
         let mut guards = vm.repr_guards.borrow_mut();
 
         // Should this be a flag on the obj itself? putting it in a global variable for now until it

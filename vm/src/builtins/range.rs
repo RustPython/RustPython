@@ -8,7 +8,7 @@ use crate::{
         AsMapping, Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable,
         PyComparisonOp, Unconstructible,
     },
-    IdProtocol, IntoPyRef, PyClassImpl, PyContext, PyObj, PyObjectRef, PyRef, PyResult, PyValue,
+    IdProtocol, IntoPyRef, PyClassImpl, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
@@ -167,7 +167,7 @@ impl PyRange {
     }
 }
 
-// pub fn get_value(obj: &crate::PyObj) -> PyRange {
+// pub fn get_value(obj: &PyObject) -> PyRange {
 //     obj.payload::<PyRange>().unwrap().clone()
 // }
 
@@ -431,7 +431,7 @@ impl Hashable for PyRange {
 impl Comparable for PyRange {
     fn cmp(
         zelf: &crate::Py<Self>,
-        other: &PyObj,
+        other: &PyObject,
         op: PyComparisonOp,
         _vm: &VirtualMachine,
     ) -> PyResult<crate::PyComparisonValue> {

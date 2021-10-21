@@ -4,7 +4,7 @@ use crate::{
         PyDictRef, PyList,
     },
     function::IntoPyObject,
-    IdProtocol, PyObj, PyObjectRef, PyObjectWrap, PyResult, TryFromObject, TypeProtocol,
+    IdProtocol, PyObject, PyObjectRef, PyObjectWrap, PyResult, TryFromObject, TypeProtocol,
     VirtualMachine,
 };
 use std::borrow::Borrow;
@@ -24,10 +24,10 @@ pub struct PyMappingMethods {
 #[repr(transparent)]
 pub struct PyMapping<T = PyObjectRef>(T)
 where
-    T: Borrow<crate::PyObj>;
+    T: Borrow<PyObject>;
 
 impl PyMapping<PyObjectRef> {
-    pub fn check(obj: &PyObj, vm: &VirtualMachine) -> bool {
+    pub fn check(obj: &PyObject, vm: &VirtualMachine) -> bool {
         obj.class()
             .mro_find_map(|x| x.slots.as_mapping.load())
             .map(|f| f(obj, vm).subscript.is_some())
@@ -47,7 +47,7 @@ impl PyMapping<PyObjectRef> {
 
 impl<T> PyMapping<T>
 where
-    T: Borrow<crate::PyObj>,
+    T: Borrow<PyObject>,
 {
     pub fn new(obj: T) -> Self {
         Self(obj)
@@ -75,11 +75,7 @@ where
         }
     }
 
-    fn method_output_as_list(
-        obj: &crate::PyObj,
-        method_name: &str,
-        vm: &VirtualMachine,
-    ) -> PyResult {
+    fn method_output_as_list(obj: &PyObject, method_name: &str, vm: &VirtualMachine) -> PyResult {
         let meth_output = vm.call_method(obj, method_name, ())?;
         if meth_output.is(&vm.ctx.types.list_type) {
             return Ok(meth_output);
@@ -104,11 +100,11 @@ impl PyObjectWrap for PyMapping<PyObjectRef> {
     }
 }
 
-impl<O> AsRef<crate::PyObj> for PyMapping<O>
+impl<O> AsRef<PyObject> for PyMapping<O>
 where
-    O: Borrow<crate::PyObj>,
+    O: Borrow<PyObject>,
 {
-    fn as_ref(&self) -> &crate::PyObj {
+    fn as_ref(&self) -> &PyObject {
         self.0.borrow()
     }
 }

@@ -6,8 +6,8 @@ use super::{PyStrRef, PyTupleRef, PyTypeRef};
 use crate::{
     bytecode::{self, BorrowedConstant, Constant, ConstantBag},
     function::FuncArgs,
-    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
-    TypeProtocol, VirtualMachine,
+    IdProtocol, PyClassImpl, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
+    StaticType, TypeProtocol, VirtualMachine,
 };
 use num_traits::Zero;
 use std::fmt;
@@ -28,7 +28,7 @@ pub struct PyConstant(pub PyObjectRef);
 //     Ellipsis(PyObjectRef),
 // }
 
-fn borrow_obj_constant(obj: &crate::PyObj) -> BorrowedConstant<PyConstant> {
+fn borrow_obj_constant(obj: &PyObject) -> BorrowedConstant<PyConstant> {
     match_class!(match obj {
         ref i @ super::int::PyInt => {
             let value = i.as_bigint();

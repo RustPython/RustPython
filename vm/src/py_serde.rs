@@ -4,12 +4,12 @@ use serde::de::{DeserializeSeed, Visitor};
 use serde::ser::{Serialize, SerializeMap, SerializeSeq};
 
 use crate::builtins::{dict::PyDictRef, float, int, list::PyList, pybool, tuple::PyTuple, PyStr};
-use crate::{ItemProtocol, PyObj, PyObjectRef, TypeProtocol, VirtualMachine};
+use crate::{ItemProtocol, PyObject, PyObjectRef, TypeProtocol, VirtualMachine};
 
 #[inline]
 pub fn serialize<S>(
     vm: &VirtualMachine,
-    pyobject: &crate::PyObj,
+    pyobject: &PyObject,
     serializer: S,
 ) -> Result<S::Ok, S::Error>
 where
@@ -32,7 +32,7 @@ where
 // We need to have a VM available to serialise a PyObject based on its subclass, so we implement
 // PyObject serialisation via a proxy object which holds a reference to a VM
 pub struct PyObjectSerializer<'s> {
-    pyobject: &'s PyObj,
+    pyobject: &'s PyObject,
     vm: &'s VirtualMachine,
 }
 

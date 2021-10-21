@@ -3,7 +3,7 @@ use super::{PyInt, PyIntRef, PyTupleRef, PyTypeRef};
 use crate::{
     function::{FuncArgs, IntoPyObject, OptionalArg},
     types::{Comparable, Constructor, Hashable, PyComparisonOp, Unhashable},
-    PyClassImpl, PyComparisonValue, PyContext, PyObj, PyObjectRef, PyRef, PyResult, PyValue,
+    PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
     TypeProtocol, VirtualMachine,
 };
 use num_bigint::{BigInt, ToBigInt};
@@ -31,7 +31,7 @@ impl PySlice {
         self.start.clone().into_pyobject(vm)
     }
 
-    fn start_ref<'a>(&'a self, vm: &'a VirtualMachine) -> &'a crate::PyObj {
+    fn start_ref<'a>(&'a self, vm: &'a VirtualMachine) -> &'a PyObject {
         match &self.start {
             Some(v) => v,
             None => vm.ctx.none.as_object(),
@@ -48,7 +48,7 @@ impl PySlice {
         self.step.clone().into_pyobject(vm)
     }
 
-    fn step_ref<'a>(&'a self, vm: &'a VirtualMachine) -> &'a crate::PyObj {
+    fn step_ref<'a>(&'a self, vm: &'a VirtualMachine) -> &'a PyObject {
         match &self.step {
             Some(v) => v,
             None => vm.ctx.none.as_object(),
@@ -198,7 +198,7 @@ impl PySlice {
 impl Comparable for PySlice {
     fn cmp(
         zelf: &crate::Py<Self>,
-        other: &PyObj,
+        other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
@@ -334,7 +334,7 @@ impl SaturatedSlice {
 // Go from PyObjectRef to isize w/o overflow error, out of range values are substituted by
 // isize::MIN or isize::MAX depending on type and value of step.
 // Equivalent to PyNumber_AsSsize_t with err equal to None.
-fn to_isize_index(vm: &VirtualMachine, obj: &crate::PyObj) -> PyResult<Option<isize>> {
+fn to_isize_index(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Option<isize>> {
     if vm.is_none(obj) {
         return Ok(None);
     }

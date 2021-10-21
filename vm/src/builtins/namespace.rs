@@ -4,7 +4,7 @@ use crate::{
     function::FuncArgs,
     types::{Comparable, Constructor, PyComparisonOp},
     vm::ReprGuard,
-    IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObj, PyRef, PyResult, PyValue,
+    IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyRef, PyResult, PyValue,
     TypeProtocol, VirtualMachine,
 };
 
@@ -81,7 +81,7 @@ impl PyNamespace {
 impl Comparable for PyNamespace {
     fn cmp(
         zelf: &crate::Py<Self>,
-        other: &PyObj,
+        other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {

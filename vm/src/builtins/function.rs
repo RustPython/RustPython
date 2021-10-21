@@ -13,8 +13,8 @@ use crate::{
     protocol::PyMapping,
     scope::Scope,
     types::{Callable, Comparable, Constructor, GetAttr, GetDescriptor, PyComparisonOp},
-    IdProtocol, ItemProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObj, PyObjectRef, PyRef,
-    PyResult, PyValue, TypeProtocol, VirtualMachine,
+    IdProtocol, ItemProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef,
+    PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
 #[cfg(feature = "jit")]
 use crate::{common::lock::OnceCell, function::IntoPyObject};
@@ -446,7 +446,7 @@ impl Callable for PyBoundMethod {
 impl Comparable for PyBoundMethod {
     fn cmp(
         zelf: &crate::Py<Self>,
-        other: &PyObj,
+        other: &PyObject,
         op: PyComparisonOp,
         _vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {

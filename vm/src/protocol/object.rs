@@ -10,7 +10,7 @@ use crate::{
     pyref_type_error,
     types::{Constructor, PyComparisonOp},
     utils::Either,
-    IdProtocol, PyArithmeticValue, PyObj, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
+    IdProtocol, PyArithmeticValue, PyObject, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
     VirtualMachine,
 };
 
@@ -63,7 +63,7 @@ impl PyObjectRef {
         }
     }
 
-    // const hash_not_implemented: fn(&crate::PyObj, &VirtualMachine) ->PyResult<PyHash> = crate::types::Unhashable::slot_hash;
+    // const hash_not_implemented: fn(&PyObject, &VirtualMachine) ->PyResult<PyHash> = crate::types::Unhashable::slot_hash;
 
     pub fn is_true(self, vm: &VirtualMachine) -> PyResult<bool> {
         self.try_to_bool(vm)
@@ -99,7 +99,7 @@ impl PyObjectRef {
     // PyObject *PyObject_GetAIter(PyObject *o)
 }
 
-impl PyObj {
+impl PyObject {
     pub fn call_set_attr(
         &self,
         vm: &VirtualMachine,
@@ -153,7 +153,7 @@ impl PyObj {
         vm: &VirtualMachine,
     ) -> PyResult<Either<PyObjectRef, bool>> {
         let swapped = op.swapped();
-        let call_cmp = |obj: &crate::PyObj, other: &crate::PyObj, op| {
+        let call_cmp = |obj: &PyObject, other: &PyObject, op| {
             let cmp = obj
                 .class()
                 .mro_find_map(|cls| cls.slots.richcompare.load())
@@ -227,13 +227,13 @@ impl PyObj {
         }
     }
 
-    pub fn is_subclass(&self, cls: &crate::PyObj, vm: &VirtualMachine) -> PyResult<bool> {
+    pub fn is_subclass(&self, cls: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
         vm.issubclass(self, cls)
     }
 
     /// Determines if `self` is an instance of `cls`, either directly, indirectly or virtually via
     /// the __instancecheck__ magic method.
-    pub fn is_instance(&self, cls: &crate::PyObj, vm: &VirtualMachine) -> PyResult<bool> {
+    pub fn is_instance(&self, cls: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
         // cpython first does an exact check on the type, although documentation doesn't state that
         // https://github.com/python/cpython/blob/a24107b04c1277e3c1105f98aff5bfa3a98b33a0/Objects/abstract.c#L2408
         if self.class().is(cls) {

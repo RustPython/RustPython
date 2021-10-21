@@ -16,7 +16,7 @@ use crate::{
         IterNextIterable, Iterable, PyComparisonOp, Unconstructible,
     },
     utils::Either,
-    IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObj, PyObjectRef, PyRef, PyResult,
+    IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyRef, PyResult,
     PyValue, TryFromBorrowedObject, TypeProtocol, VirtualMachine,
 };
 use bstr::ByteSlice;
@@ -608,7 +608,7 @@ impl Hashable for PyBytes {
 impl Comparable for PyBytes {
     fn cmp(
         zelf: &crate::Py<Self>,
-        other: &PyObj,
+        other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
@@ -687,7 +687,7 @@ impl IterNext for PyBytesIterator {
 }
 
 impl TryFromBorrowedObject for PyBytes {
-    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObj) -> PyResult<Self> {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
         PyBytesInner::try_from_borrowed_object(vm, obj).map(|x| x.into())
     }
 }

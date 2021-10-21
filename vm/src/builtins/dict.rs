@@ -15,8 +15,8 @@ use crate::{
     vm::{ReprGuard, VirtualMachine},
     IdProtocol, ItemProtocol,
     PyArithmeticValue::*,
-    PyAttributes, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObj, PyObjectRef, PyRef,
-    PyResult, PyValue, TypeProtocol,
+    PyAttributes, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef,
+    PyRef, PyResult, PyValue, TypeProtocol,
 };
 use rustpython_common::lock::PyMutex;
 use std::fmt;
@@ -451,7 +451,7 @@ impl AsMapping for PyDict {
 impl Comparable for PyDict {
     fn cmp(
         zelf: &crate::Py<Self>,
-        other: &PyObj,
+        other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
@@ -744,7 +744,7 @@ macro_rules! dict_view {
         impl Comparable for $name {
             fn cmp(
                 zelf: &crate::Py<Self>,
-                other: &PyObj,
+                other: &PyObject,
                 op: PyComparisonOp,
                 vm: &VirtualMachine,
             ) -> PyResult<PyComparisonValue> {

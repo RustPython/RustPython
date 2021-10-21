@@ -3,7 +3,7 @@ use crate::{
     common::lock::PyMutex,
     frame::{ExecutionResult, FrameRef},
     protocol::PyIterReturn,
-    IdProtocol, PyObjectRef, PyResult, TypeProtocol, VirtualMachine,
+    IdProtocol, PyObject, PyObjectRef, PyResult, TypeProtocol, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 
@@ -36,7 +36,7 @@ pub struct Coro {
     exception: PyMutex<Option<PyBaseExceptionRef>>, // exc_state
 }
 
-fn gen_name(gen: &crate::PyObj, vm: &VirtualMachine) -> &'static str {
+fn gen_name(gen: &PyObject, vm: &VirtualMachine) -> &'static str {
     let typ = gen.class();
     if typ.is(&vm.ctx.types.coroutine_type) {
         "coroutine"
@@ -67,7 +67,7 @@ impl Coro {
 
     fn run_with_context<F>(
         &self,
-        gen: &crate::PyObj,
+        gen: &PyObject,
         vm: &VirtualMachine,
         func: F,
     ) -> PyResult<ExecutionResult>
@@ -90,7 +90,7 @@ impl Coro {
 
     pub fn send(
         &self,
-        gen: &crate::PyObj,
+        gen: &PyObject,
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyIterReturn> {
@@ -132,7 +132,7 @@ impl Coro {
     }
     pub fn throw(
         &self,
-        gen: &crate::PyObj,
+        gen: &PyObject,
         exc_type: PyObjectRef,
         exc_val: PyObjectRef,
         exc_tb: PyObjectRef,
@@ -146,7 +146,7 @@ impl Coro {
         Ok(result?.into_iter_return(vm))
     }
 
-    pub fn close(&self, gen: &crate::PyObj, vm: &VirtualMachine) -> PyResult<()> {
+    pub fn close(&self, gen: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
         if self.closed.load() {
             return Ok(());
         }
@@ -183,7 +183,7 @@ impl Coro {
     pub fn set_name(&self, name: PyStrRef) {
         *self.name.lock() = name;
     }
-    pub fn repr(&self, gen: &crate::PyObj, id: usize, vm: &VirtualMachine) -> String {
+    pub fn repr(&self, gen: &PyObject, id: usize, vm: &VirtualMachine) -> String {
         format!(
             "<{} object {} at {:#x}>",
             gen_name(gen, vm),

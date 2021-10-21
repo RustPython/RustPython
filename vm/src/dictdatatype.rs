@@ -9,7 +9,7 @@ use crate::common::{
 use crate::{
     builtins::{PyStr, PyStrRef},
     function::IntoPyObject,
-    IdProtocol, PyObjectRef, PyRefExact, PyResult, TypeProtocol, VirtualMachine,
+    IdProtocol, PyObject, PyObjectRef, PyRefExact, PyResult, TypeProtocol, VirtualMachine,
 };
 use std::fmt;
 use std::mem::size_of;
@@ -366,12 +366,7 @@ impl<T: Clone> Dict<T> {
         Ok(deleted.is_some())
     }
 
-    pub fn delete_or_insert(
-        &self,
-        vm: &VirtualMachine,
-        key: &crate::PyObj,
-        value: T,
-    ) -> PyResult<()> {
+    pub fn delete_or_insert(&self, vm: &VirtualMachine, key: &PyObject, value: T) -> PyResult<()> {
         let hash = key.key_hash(vm)?;
         let _removed = loop {
             let lookup = self.lookup(vm, key, hash, None)?;
@@ -644,8 +639,8 @@ type LookupResult = (IndexEntry, IndexIndex);
 /// - str -> string reference used as key, this is often used internally
 pub trait DictKey {
     fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue>;
-    fn key_is(&self, other: &crate::PyObj) -> bool;
-    fn key_eq(&self, vm: &VirtualMachine, other_key: &crate::PyObj) -> PyResult<bool>;
+    fn key_is(&self, other: &PyObject) -> bool;
+    fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObject) -> PyResult<bool>;
 }
 
 /// Implement trait for PyObjectRef such that we can use python objects
@@ -656,39 +651,39 @@ impl DictKey for PyObjectRef {
         (**self).key_hash(vm)
     }
     #[inline]
-    fn key_is(&self, other: &crate::PyObj) -> bool {
+    fn key_is(&self, other: &PyObject) -> bool {
         (**self).key_is(other)
     }
     #[inline]
-    fn key_eq(&self, vm: &VirtualMachine, other_key: &crate::PyObj) -> PyResult<bool> {
+    fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObject) -> PyResult<bool> {
         (**self).key_eq(vm, other_key)
     }
 }
 
-impl DictKey for &crate::PyObj {
+impl DictKey for &PyObject {
     #[inline]
     fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
         (**self).key_hash(vm)
     }
     #[inline]
-    fn key_is(&self, other: &crate::PyObj) -> bool {
+    fn key_is(&self, other: &PyObject) -> bool {
         (**self).key_is(other)
     }
     #[inline]
-    fn key_eq(&self, vm: &VirtualMachine, other_key: &crate::PyObj) -> PyResult<bool> {
+    fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObject) -> PyResult<bool> {
         (**self).key_eq(vm, other_key)
     }
 }
-impl DictKey for crate::PyObj {
+impl DictKey for PyObject {
     fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
         self.hash(vm)
     }
 
-    fn key_is(&self, other: &crate::PyObj) -> bool {
+    fn key_is(&self, other: &PyObject) -> bool {
         self.is(other)
     }
 
-    fn key_eq(&self, vm: &VirtualMachine, other_key: &crate::PyObj) -> PyResult<bool> {
+    fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObject) -> PyResult<bool> {
         vm.identical_or_equal(self, other_key)
     }
 }
@@ -698,11 +693,11 @@ impl DictKey for PyStrRef {
         Ok(self.hash(vm))
     }
 
-    fn key_is(&self, other: &crate::PyObj) -> bool {
+    fn key_is(&self, other: &PyObject) -> bool {
         self.is(other)
     }
 
-    fn key_eq(&self, vm: &VirtualMachine, other_key: &crate::PyObj) -> PyResult<bool> {
+    fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObject) -> PyResult<bool> {
         if self.is(other_key) {
             Ok(true)
         } else if let Some(pystr) = str_exact(other_key, vm) {
@@ -717,10 +712,10 @@ impl DictKey for PyRefExact<PyStr> {
     fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
         (**self).key_hash(vm)
     }
-    fn key_is(&self, other: &crate::PyObj) -> bool {
+    fn key_is(&self, other: &PyObject) -> bool {
         (**self).key_is(other)
     }
-    fn key_eq(&self, vm: &VirtualMachine, other_key: &crate::PyObj) -> PyResult<bool> {
+    fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObject) -> PyResult<bool> {
         (**self).key_eq(vm, other_key)
     }
 }
@@ -735,13 +730,13 @@ impl DictKey for &str {
         Ok(vm.state.hash_secret.hash_str(*self))
     }
 
-    fn key_is(&self, _other: &crate::PyObj) -> bool {
+    fn key_is(&self, _other: &PyObject) -> bool {
         // No matter who the other pyobject is, we are never the same thing, since
         // we are a str, not a pyobject.
         false
     }
 
-    fn key_eq(&self, vm: &VirtualMachine, other_key: &crate::PyObj) -> PyResult<bool> {
+    fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObject) -> PyResult<bool> {
         if let Some(pystr) = str_exact(other_key, vm) {
             Ok(pystr.as_str() == *self)
         } else {
@@ -757,16 +752,16 @@ impl DictKey for String {
         self.as_str().key_hash(vm)
     }
 
-    fn key_is(&self, other: &crate::PyObj) -> bool {
+    fn key_is(&self, other: &PyObject) -> bool {
         self.as_str().key_is(other)
     }
 
-    fn key_eq(&self, vm: &VirtualMachine, other_key: &crate::PyObj) -> PyResult<bool> {
+    fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObject) -> PyResult<bool> {
         self.as_str().key_eq(vm, other_key)
     }
 }
 
-fn str_exact<'a>(obj: &'a crate::PyObj, vm: &VirtualMachine) -> Option<&'a PyStr> {
+fn str_exact<'a>(obj: &'a PyObject, vm: &VirtualMachine) -> Option<&'a PyStr> {
     if obj.class().is(&vm.ctx.types.str_type) {
         obj.payload::<PyStr>()
     } else {

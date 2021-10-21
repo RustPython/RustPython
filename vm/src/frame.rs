@@ -15,8 +15,8 @@ use crate::{
     scope::Scope,
     stdlib::builtins,
     types::PyComparisonOp,
-    IdProtocol, ItemProtocol, PyMethod, PyObj, PyObjectRef, PyObjectWrap, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol, VirtualMachine,
+    IdProtocol, ItemProtocol, PyMethod, PyObject, PyObjectRef, PyObjectWrap, PyRef, PyResult,
+    PyValue, TryFromObject, TypeProtocol, VirtualMachine,
 };
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -268,7 +268,7 @@ impl FrameRef {
     }
 
     pub fn yield_from_target(&self) -> Option<PyObjectRef> {
-        self.with_exec(|exec| exec.yield_from_target().map(crate::PyObj::to_owned))
+        self.with_exec(|exec| exec.yield_from_target().map(PyObject::to_owned))
     }
 
     pub fn lasti(&self) -> u32 {
@@ -383,7 +383,7 @@ impl ExecutingFrame<'_> {
         }
     }
 
-    fn yield_from_target(&self) -> Option<&crate::PyObj> {
+    fn yield_from_target(&self) -> Option<&PyObject> {
         if let Some(bytecode::Instruction::YieldFrom) =
             self.code.instructions.get(self.lasti() as usize)
         {
@@ -1492,7 +1492,7 @@ impl ExecutingFrame<'_> {
         Err(exception)
     }
 
-    fn builtin_coro<'a>(&self, coro: &'a PyObj) -> Option<&'a Coro> {
+    fn builtin_coro<'a>(&self, coro: &'a PyObject) -> Option<&'a Coro> {
         match_class!(match coro {
             ref g @ PyGenerator => Some(g.as_coro()),
             ref c @ PyCoroutine => Some(c.as_coro()),
@@ -1502,7 +1502,7 @@ impl ExecutingFrame<'_> {
 
     fn _send(
         &self,
-        gen: &crate::PyObj,
+        gen: &PyObject,
         val: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyIterReturn> {
@@ -1867,7 +1867,7 @@ impl ExecutingFrame<'_> {
     }
 
     #[inline]
-    fn last_value_ref(&self) -> &crate::PyObj {
+    fn last_value_ref(&self) -> &PyObject {
         match &*self.state.stack {
             [.., last] => last,
             [] => self.fatal("tried to get top of stack but stack is empty"),

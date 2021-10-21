@@ -6,7 +6,7 @@ use crate::{
     types::{Comparable, Constructor, Hashable, PyComparisonOp},
     IdProtocol,
     PyArithmeticValue::{self, *},
-    PyClassImpl, PyComparisonValue, PyContext, PyObj, PyObjectRef, PyRef, PyResult, PyValue,
+    PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol, VirtualMachine,
 };
 use num_bigint::{BigInt, ToBigInt};
@@ -50,7 +50,7 @@ impl From<f64> for PyFloat {
     }
 }
 
-impl PyObj {
+impl PyObject {
     pub fn try_to_f64(&self, vm: &VirtualMachine) -> PyResult<Option<f64>> {
         if let Some(float) = self.payload_if_exact::<PyFloat>(vm) {
             return Ok(Some(float.value));
@@ -73,13 +73,13 @@ impl PyObj {
     }
 }
 
-pub fn try_float(obj: &crate::PyObj, vm: &VirtualMachine) -> PyResult<f64> {
+pub fn try_float(obj: &PyObject, vm: &VirtualMachine) -> PyResult<f64> {
     obj.try_to_f64(vm)?.ok_or_else(|| {
         vm.new_type_error(format!("must be real number, not {}", obj.class().name()))
     })
 }
 
-pub(crate) fn to_op_float(obj: &PyObj, vm: &VirtualMachine) -> PyResult<Option<f64>> {
+pub(crate) fn to_op_float(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Option<f64>> {
     let v = if let Some(float) = obj.payload_if_subclass::<PyFloat>(vm) {
         Some(float.value)
     } else if let Some(int) = obj.payload_if_subclass::<PyInt>(vm) {
@@ -494,7 +494,7 @@ impl PyFloat {
 impl Comparable for PyFloat {
     fn cmp(
         zelf: &crate::Py<Self>,
-        other: &PyObj,
+        other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
@@ -540,7 +540,7 @@ impl Hashable for PyFloat {
 }
 
 // Retrieve inner float value:
-pub(crate) fn get_value(obj: &crate::PyObj) -> f64 {
+pub(crate) fn get_value(obj: &PyObject) -> f64 {
     obj.payload::<PyFloat>().unwrap().value
 }
 

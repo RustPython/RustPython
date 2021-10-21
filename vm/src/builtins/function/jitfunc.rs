@@ -2,7 +2,8 @@ use crate::{
     builtins::{float, int, pybool, PyBaseExceptionRef, PyDictRef, PyFunction, PyStrRef},
     bytecode::CodeFlags,
     function::{FuncArgs, IntoPyObject},
-    IdProtocol, ItemProtocol, PyObjectRef, PyResult, TryFromObject, TypeProtocol, VirtualMachine,
+    IdProtocol, ItemProtocol, PyObject, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
+    VirtualMachine,
 };
 use num_traits::ToPrimitive;
 use rustpython_jit::{AbiValue, Args, CompiledCode, JitArgumentError, JitType};
@@ -107,7 +108,7 @@ pub fn get_jit_arg_types(
     }
 }
 
-fn get_jit_value(vm: &VirtualMachine, obj: &crate::PyObj) -> Result<AbiValue, ArgsError> {
+fn get_jit_value(vm: &VirtualMachine, obj: &PyObject) -> Result<AbiValue, ArgsError> {
     // This does exact type checks as subclasses of int/float can't be passed to jitted functions
     let cls = obj.class();
     if cls.is(&vm.ctx.types.int_type) {

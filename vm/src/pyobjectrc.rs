@@ -85,7 +85,7 @@ struct PyInner<T> {
 
 impl<T: fmt::Debug> fmt::Debug for PyInner<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "[PyObj {:?}]", &self.payload)
+        write!(f, "[PyObject {:?}]", &self.payload)
     }
 }
 
@@ -130,26 +130,26 @@ impl<T> Drop for PyGenericObject<T> {
 #[derive(Clone)]
 #[repr(transparent)]
 pub struct PyObjectRef {
-    rc: PyRc<PyObj>,
+    rc: PyRc<PyObject>,
 }
 
 #[derive(Clone)]
 #[repr(transparent)]
 pub struct PyObjectWeak {
-    weak: PyWeak<PyObj>,
+    weak: PyWeak<PyObject>,
 }
 
 #[repr(transparent)]
-pub struct PyObj(PyGenericObject<Erased>);
+pub struct PyObject(PyGenericObject<Erased>);
 
 impl Deref for PyObjectRef {
-    type Target = PyObj;
-    fn deref(&self) -> &PyObj {
+    type Target = PyObject;
+    fn deref(&self) -> &PyObject {
         &self.rc
     }
 }
 
-impl ToOwned for PyObj {
+impl ToOwned for PyObject {
     type Owned = PyObjectRef;
 
     #[inline]
@@ -160,10 +160,10 @@ impl ToOwned for PyObj {
 
 pub trait PyObjectWrap
 where
-    Self: AsRef<PyObj>,
+    Self: AsRef<PyObject>,
 {
     #[inline(always)]
-    fn as_object(&self) -> &PyObj {
+    fn as_object(&self) -> &PyObject {
         self.as_ref()
     }
 
@@ -171,7 +171,7 @@ where
 }
 
 impl PyObjectRef {
-    pub fn into_raw(self) -> *const PyObj {
+    pub fn into_raw(self) -> *const PyObject {
         let ptr = self.as_raw();
         std::mem::forget(self);
         ptr
@@ -182,7 +182,7 @@ impl PyObjectRef {
     /// [`PyObjectRef::into_raw`]. The user is responsible for ensuring that the inner data is not
     /// dropped more than once due to mishandling the reference count by calling this function
     /// too many times.
-    pub unsafe fn from_raw(ptr: *const PyObj) -> Self {
+    pub unsafe fn from_raw(ptr: *const PyObject) -> Self {
         Self {
             rc: PyRc::from_raw(ptr.cast()),
         }
@@ -190,7 +190,7 @@ impl PyObjectRef {
 
     fn new<T: PyObjectPayload>(value: PyGenericObject<T>) -> Self {
         let inner: *const PyGenericObject<T> = PyRc::into_raw(PyRc::new(value));
-        let rc = unsafe { PyRc::from_raw(inner as *const PyObj) };
+        let rc = unsafe { PyRc::from_raw(inner as *const PyObject) };
         Self { rc }
     }
 
@@ -253,7 +253,7 @@ impl PyObjectRef {
     }
 }
 
-impl PyObj {
+impl PyObject {
     #[inline]
     fn with_pyobjectref<R>(&self, f: impl FnOnce(&PyObjectRef) -> R) -> R {
         // SAFETY: we don't use obj after the real lifetime (self) goes out of scope, we wrap it
@@ -328,7 +328,7 @@ impl PyObj {
         if self.payload_is::<T>() {
             // SAFETY: just checked that the payload is T, and PyRef is repr(transparent) over
             // PyObjectRef
-            Some(unsafe { &*(self as *const PyObj as *const Py<T>) })
+            Some(unsafe { &*(self as *const PyObject as *const Py<T>) })
         } else {
             None
         }
@@ -338,7 +338,7 @@ impl PyObj {
     /// T must be the exact payload type
     pub unsafe fn downcast_unchecked_ref<T: PyObjectPayload>(&self) -> &crate::Py<T> {
         debug_assert!(self.payload_is::<T>());
-        &*(self as *const PyObj as *const Py<T>)
+        &*(self as *const PyObject as *const Py<T>)
     }
 
     #[inline]
@@ -352,25 +352,25 @@ impl PyObj {
     }
 
     #[inline]
-    pub fn as_raw(&self) -> *const PyObj {
+    pub fn as_raw(&self) -> *const PyObject {
         self
     }
 }
 
-impl Borrow<PyObj> for PyObjectRef {
-    fn borrow(&self) -> &PyObj {
+impl Borrow<PyObject> for PyObjectRef {
+    fn borrow(&self) -> &PyObject {
         self
     }
 }
 
-impl AsRef<PyObj> for PyObjectRef {
-    fn as_ref(&self) -> &PyObj {
+impl AsRef<PyObject> for PyObjectRef {
+    fn as_ref(&self) -> &PyObject {
         self
     }
 }
 
-impl AsRef<PyObj> for PyObj {
-    fn as_ref(&self) -> &PyObj {
+impl AsRef<PyObject> for PyObject {
+    fn as_ref(&self) -> &PyObject {
         self
     }
 }
@@ -381,13 +381,13 @@ impl IdProtocol for PyObjectRef {
     }
 }
 
-impl IdProtocol for PyObj {
+impl IdProtocol for PyObject {
     fn get_id(&self) -> usize {
-        self as *const PyObj as usize
+        self as *const PyObject as usize
     }
 }
 
-impl<'a, T: PyObjectPayload> From<&'a Py<T>> for &'a PyObj {
+impl<'a, T: PyObjectPayload> From<&'a Py<T>> for &'a PyObject {
     fn from(py_ref: &'a Py<T>) -> Self {
         py_ref.as_object()
     }
@@ -434,7 +434,7 @@ impl Drop for PyObjectRef {
 }
 
 #[cold]
-fn print_del_error(e: PyBaseExceptionRef, zelf: &PyObj, vm: &VirtualMachine) {
+fn print_del_error(e: PyBaseExceptionRef, zelf: &PyObject, vm: &VirtualMachine) {
     // exception in del will be ignored but printed
     print!("Exception ignored in: ",);
     let del_method = zelf.get_class_attr("__del__").unwrap();
@@ -473,8 +473,8 @@ pub struct Py<T: PyObjectPayload>(PyInner<T>);
 
 impl<T: PyObjectPayload> Py<T> {
     #[inline(always)]
-    pub fn as_object(&self) -> &PyObj {
-        unsafe { &*(&self.0 as *const PyInner<T> as *const PyObj) }
+    pub fn as_object(&self) -> &PyObject {
+        unsafe { &*(&self.0 as *const PyInner<T> as *const PyObject) }
     }
 
     #[inline]
@@ -510,11 +510,11 @@ impl<T: PyObjectPayload> Deref for Py<T> {
     }
 }
 
-impl<T> AsRef<PyObj> for Py<T>
+impl<T> AsRef<PyObject> for Py<T>
 where
     T: PyObjectPayload,
 {
-    fn as_ref(&self) -> &PyObj {
+    fn as_ref(&self) -> &PyObject {
         self.as_object()
     }
 }
@@ -585,15 +585,15 @@ where
     T: PyObjectPayload,
 {
     fn into_object(self) -> PyObjectRef {
-        unsafe { PyObjectRef::from_raw(PyRc::into_raw(self.obj) as *const PyObj) }
+        unsafe { PyObjectRef::from_raw(PyRc::into_raw(self.obj) as *const PyObject) }
     }
 }
 
-impl<T> AsRef<PyObj> for PyRef<T>
+impl<T> AsRef<PyObject> for PyRef<T>
 where
     T: PyObjectPayload,
 {
-    fn as_ref(&self) -> &PyObj {
+    fn as_ref(&self) -> &PyObject {
         (**self).as_object()
     }
 }

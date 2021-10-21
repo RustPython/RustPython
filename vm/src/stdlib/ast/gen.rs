@@ -3830,7 +3830,7 @@ impl Node for ast::TypeIgnore {
     }
 }
 
-pub fn extend_module_nodes(vm: &VirtualMachine, module: &crate::PyObj) {
+pub fn extend_module_nodes(vm: &VirtualMachine, module: &PyObject) {
     extend_module!(vm, module, {
         "mod" => NodeKindMod::make_class(&vm.ctx),
         "Module" => NodeModule::make_class(&vm.ctx),

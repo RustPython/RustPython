@@ -2,7 +2,7 @@ use crate::{
     builtins::{PyStr, PyStrRef},
     common::borrow::{BorrowedValue, BorrowedValueMut},
     protocol::PyBuffer,
-    PyObj, PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject, VirtualMachine,
+    PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject, VirtualMachine,
 };
 
 // Python/getargs.c
@@ -11,7 +11,7 @@ use crate::{
 #[derive(Debug)]
 pub struct ArgBytesLike(PyBuffer);
 
-impl PyObj {
+impl PyObject {
     pub fn try_bytes_like<R>(
         &self,
         vm: &VirtualMachine,
@@ -70,7 +70,7 @@ impl From<ArgBytesLike> for PyBuffer {
 }
 
 impl TryFromBorrowedObject for ArgBytesLike {
-    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObj) -> PyResult<Self> {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
         let buffer = PyBuffer::try_from_borrowed_object(vm, obj)?;
         if buffer.options.contiguous {
             Ok(Self(buffer))
@@ -112,7 +112,7 @@ impl From<ArgMemoryBuffer> for PyBuffer {
 }
 
 impl TryFromBorrowedObject for ArgMemoryBuffer {
-    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObj) -> PyResult<Self> {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
         let buffer = PyBuffer::try_from_borrowed_object(vm, obj)?;
         if !buffer.options.contiguous {
             Err(vm.new_type_error("non-contiguous buffer is not a bytes-like object".to_owned()))

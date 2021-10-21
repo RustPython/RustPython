@@ -7,7 +7,7 @@ use crate::{
     function::ArgCallable,
     protocol::PyIterReturn,
     types::{IterNext, IterNextIterable},
-    ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue, VirtualMachine,
+    ItemProtocol, PyClassImpl, PyContext, PyObject, PyObjectRef, PyResult, PyValue, VirtualMachine,
 };
 use rustpython_common::{
     lock::{PyMutex, PyRwLock, PyRwLockUpgradableReadGuard},
@@ -143,14 +143,14 @@ impl<T> PositionIterInternal<T> {
     }
 }
 
-pub fn builtins_iter(vm: &VirtualMachine) -> &crate::PyObj {
+pub fn builtins_iter(vm: &VirtualMachine) -> &PyObject {
     static_cell! {
         static INSTANCE: PyObjectRef;
     }
     INSTANCE.get_or_init(|| vm.builtins.clone().get_attr("iter", vm).unwrap())
 }
 
-pub fn builtins_reversed(vm: &VirtualMachine) -> &crate::PyObj {
+pub fn builtins_reversed(vm: &VirtualMachine) -> &PyObject {
     static_cell! {
         static INSTANCE: PyObjectRef;
     }

@@ -2,7 +2,8 @@ use crate::{
     builtins::{PyBaseExceptionRef, PyBytesRef, PyStr, PyStrRef, PyTuple, PyTupleRef},
     common::{ascii, lock::PyRwLock},
     function::IntoPyObject,
-    PyContext, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
+    PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    VirtualMachine,
 };
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -42,11 +43,11 @@ impl PyCodec {
     }
 
     #[inline]
-    pub fn get_encode_func(&self) -> &crate::PyObj {
+    pub fn get_encode_func(&self) -> &PyObject {
         &self.0.as_slice()[0]
     }
     #[inline]
-    pub fn get_decode_func(&self) -> &crate::PyObj {
+    pub fn get_decode_func(&self) -> &PyObject {
         &self.0.as_slice()[1]
     }
 
@@ -332,7 +333,7 @@ fn normalize_encoding_name(encoding: &str) -> Cow<'_, str> {
 }
 
 // TODO: exceptions with custom payloads
-fn extract_unicode_error_range(err: &crate::PyObj, vm: &VirtualMachine) -> PyResult<Range<usize>> {
+fn extract_unicode_error_range(err: &PyObject, vm: &VirtualMachine) -> PyResult<Range<usize>> {
     let start = err.to_owned().get_attr("start", vm)?;
     let start = start.try_into_value(vm)?;
     let end = err.to_owned().get_attr("end", vm)?;
@@ -341,11 +342,11 @@ fn extract_unicode_error_range(err: &crate::PyObj, vm: &VirtualMachine) -> PyRes
 }
 
 #[inline]
-fn is_decode_err(err: &crate::PyObj, vm: &VirtualMachine) -> bool {
+fn is_decode_err(err: &PyObject, vm: &VirtualMachine) -> bool {
     err.isinstance(&vm.ctx.exceptions.unicode_decode_error)
 }
 #[inline]
-fn is_encode_ish_err(err: &crate::PyObj, vm: &VirtualMachine) -> bool {
+fn is_encode_ish_err(err: &PyObject, vm: &VirtualMachine) -> bool {
     err.isinstance(&vm.ctx.exceptions.unicode_encode_error)
         || err.isinstance(&vm.ctx.exceptions.unicode_translate_error)
 }

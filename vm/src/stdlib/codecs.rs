@@ -7,7 +7,7 @@ mod _codecs {
         builtins::{PyBaseExceptionRef, PyBytes, PyBytesRef, PyStr, PyStrRef, PyTuple},
         codecs,
         function::{ArgBytesLike, FuncArgs},
-        IdProtocol, PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
+        IdProtocol, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
     };
     use std::ops::Range;
 
@@ -89,7 +89,7 @@ mod _codecs {
             }
         }
         #[inline]
-        fn handler_func(&self) -> PyResult<&crate::PyObj> {
+        fn handler_func(&self) -> PyResult<&PyObject> {
             let vm = self.vm;
             Ok(self.handler.get_or_try_init(|| {
                 let errors = self.errors.as_ref().map_or("strict", |s| s.as_str());

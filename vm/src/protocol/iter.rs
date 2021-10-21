@@ -1,7 +1,8 @@
 use crate::{
     builtins::iter::PySequenceIterator,
     function::{IntoPyObject, IntoPyResult},
-    PyObjectRef, PyObjectWrap, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
+    PyObject, PyObjectRef, PyObjectWrap, PyResult, PyValue, TryFromObject, TypeProtocol,
+    VirtualMachine,
 };
 use std::borrow::Borrow;
 use std::ops::Deref;
@@ -12,10 +13,10 @@ use std::ops::Deref;
 #[repr(transparent)]
 pub struct PyIter<O = PyObjectRef>(O)
 where
-    O: Borrow<crate::PyObj>;
+    O: Borrow<PyObject>;
 
 impl PyIter<PyObjectRef> {
-    pub fn check(obj: &crate::PyObj) -> bool {
+    pub fn check(obj: &PyObject) -> bool {
         obj.class()
             .mro_find_map(|x| x.slots.iternext.load())
             .is_some()
@@ -24,7 +25,7 @@ impl PyIter<PyObjectRef> {
 
 impl<O> PyIter<O>
 where
-    O: Borrow<crate::PyObj>,
+    O: Borrow<PyObject>,
 {
     pub fn new(obj: O) -> Self {
         Self(obj)
@@ -48,7 +49,7 @@ where
     pub fn iter<'a, 'b, U>(
         &'b self,
         vm: &'a VirtualMachine,
-    ) -> PyResult<PyIterIter<'a, U, &'b crate::PyObj>> {
+    ) -> PyResult<PyIterIter<'a, U, &'b PyObject>> {
         let length_hint = vm.length_hint(self.as_ref().to_owned())?;
         Ok(PyIterIter::new(vm, self.0.borrow(), length_hint))
     }
@@ -56,7 +57,7 @@ where
     pub fn iter_without_hint<'a, 'b, U>(
         &'b self,
         vm: &'a VirtualMachine,
-    ) -> PyResult<PyIterIter<'a, U, &'b crate::PyObj>> {
+    ) -> PyResult<PyIterIter<'a, U, &'b PyObject>> {
         Ok(PyIterIter::new(vm, self.0.borrow(), None))
     }
 }
@@ -75,20 +76,20 @@ impl PyObjectWrap for PyIter<PyObjectRef> {
     }
 }
 
-impl<O> AsRef<crate::PyObj> for PyIter<O>
+impl<O> AsRef<PyObject> for PyIter<O>
 where
-    O: Borrow<crate::PyObj>,
+    O: Borrow<PyObject>,
 {
-    fn as_ref(&self) -> &crate::PyObj {
+    fn as_ref(&self) -> &PyObject {
         self.0.borrow()
     }
 }
 
 impl<O> Deref for PyIter<O>
 where
-    O: Borrow<crate::PyObj>,
+    O: Borrow<PyObject>,
 {
-    type Target = crate::PyObj;
+    type Target = PyObject;
     fn deref(&self) -> &Self::Target {
         self.0.borrow()
     }
@@ -189,7 +190,7 @@ impl IntoPyResult for PyResult<PyIterReturn> {
 // Typical rust `Iter` object for `PyIter`
 pub struct PyIterIter<'a, T, O = PyObjectRef>
 where
-    O: Borrow<crate::PyObj>,
+    O: Borrow<PyObject>,
 {
     vm: &'a VirtualMachine,
     obj: O, // creating PyIter<O> is zero-cost
@@ -199,7 +200,7 @@ where
 
 impl<'a, T, O> PyIterIter<'a, T, O>
 where
-    O: Borrow<crate::PyObj>,
+    O: Borrow<PyObject>,
 {
     pub fn new(vm: &'a VirtualMachine, obj: O, length_hint: Option<usize>) -> Self {
         Self {
@@ -214,7 +215,7 @@ where
 impl<'a, T, O> Iterator for PyIterIter<'a, T, O>
 where
     T: TryFromObject,
-    O: Borrow<crate::PyObj>,
+    O: Borrow<PyObject>,
 {
     type Item = PyResult<T>;
 
