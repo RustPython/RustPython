@@ -1029,7 +1029,11 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
     }
 }
 
-result_like::option_like!(pub PyArithmeticValue, Implemented, NotImplemented);
+#[derive(result_like::OptionLike)]
+pub enum PyArithmeticValue<T> {
+    Implemented(T),
+    NotImplemented,
+}
 
 impl PyArithmeticValue<PyObjectRef> {
     pub fn from_object(vm: &VirtualMachine, obj: PyObjectRef) -> Self {

@@ -9,7 +9,6 @@ use crate::{
 };
 use indexmap::IndexMap;
 use itertools::Itertools;
-use result_like::impl_option_like;
 use std::marker::PhantomData;
 use std::ops::RangeInclusive;
 
@@ -479,13 +478,11 @@ where
 /// An argument that may or may not be provided by the caller.
 ///
 /// This style of argument is not possible in pure Python.
-#[derive(Debug, is_macro::Is)]
+#[derive(Debug, result_like::OptionLike, is_macro::Is)]
 pub enum OptionalArg<T = PyObjectRef> {
     Present(T),
     Missing,
 }
-
-impl_option_like!(OptionalArg, Present, Missing);
 
 impl OptionalArg<PyObjectRef> {
     pub fn unwrap_or_none(self, vm: &VirtualMachine) -> PyObjectRef {
