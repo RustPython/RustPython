@@ -1,7 +1,10 @@
 /*
  * Builtin set type with a sequence of unique items.
  */
-use super::{builtins_iter, IterStatus, PositionIterInternal, PyDictRef, PyTupleRef, PyTypeRef};
+use super::{
+    builtins_iter, IterStatus, PositionIterInternal, PyDictRef, PyGenericAlias, PyTupleRef,
+    PyTypeRef,
+};
 use crate::common::{ascii, hash::PyHash, lock::PyMutex, rc::PyRc};
 use crate::{
     dictdatatype::{self, DictSize},
@@ -619,6 +622,11 @@ impl PySet {
     ) -> PyResult<(PyTypeRef, PyTupleRef, Option<PyDictRef>)> {
         reduce_set(zelf.as_ref(), vm)
     }
+
+    #[pyclassmethod(magic)]
+    fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+        PyGenericAlias::new(cls, args, vm)
+    }
 }
 
 impl Comparable for PySet {
@@ -809,6 +817,11 @@ impl PyFrozenSet {
         vm: &VirtualMachine,
     ) -> PyResult<(PyTypeRef, PyTupleRef, Option<PyDictRef>)> {
         reduce_set(zelf.as_ref(), vm)
+    }
+
+    #[pyclassmethod(magic)]
+    fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+        PyGenericAlias::new(cls, args, vm)
     }
 }
 

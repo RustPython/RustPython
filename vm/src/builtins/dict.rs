@@ -1,6 +1,6 @@
 use super::{
-    set::PySetInner, IterStatus, PositionIterInternal, PyBaseExceptionRef, PySet, PyStrRef,
-    PyTypeRef,
+    set::PySetInner, IterStatus, PositionIterInternal, PyBaseExceptionRef, PyGenericAlias, PySet,
+    PyStrRef, PyTypeRef,
 };
 use crate::{
     builtins::PyTuple,
@@ -412,6 +412,11 @@ impl PyDict {
     #[pymethod(magic)]
     fn reversed(zelf: PyRef<Self>) -> PyDictReverseKeyIterator {
         PyDictReverseKeyIterator::new(zelf)
+    }
+
+    #[pyclassmethod(magic)]
+    fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+        PyGenericAlias::new(cls, args, vm)
     }
 }
 

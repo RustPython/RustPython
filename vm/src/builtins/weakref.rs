@@ -1,4 +1,4 @@
-use super::PyTypeRef;
+use super::{PyGenericAlias, PyTypeRef};
 use crate::common::hash::PyHash;
 use crate::{
     function::OptionalArg,
@@ -82,6 +82,11 @@ impl PyWeak {
         } else {
             format!("<weakref at {:#x}; dead>", id)
         }
+    }
+
+    #[pyclassmethod(magic)]
+    fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+        PyGenericAlias::new(cls, args, vm)
     }
 }
 

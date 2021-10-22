@@ -13,8 +13,8 @@ use crate::{
         bytes,
         getset::{IntoPyGetterFunc, IntoPySetterFunc, PyGetSet},
         object, pystr, PyBaseExceptionRef, PyBoundMethod, PyDict, PyDictRef, PyEllipsis, PyFloat,
-        PyFrozenSet, PyInt, PyIntRef, PyList, PyListRef, PyNone, PyNotImplemented, PyStr, PyTuple,
-        PyTupleRef, PyType, PyTypeRef,
+        PyFrozenSet, PyGenericAlias, PyInt, PyIntRef, PyList, PyListRef, PyNone, PyNotImplemented,
+        PyStr, PyTuple, PyTupleRef, PyType, PyTypeRef,
     },
     dictdatatype::Dict,
     exceptions,
@@ -584,7 +584,12 @@ where
         match vm.get_special_method(self.to_owned(), "__getitem__")? {
             Ok(special_method) => return special_method.invoke((key,), vm),
             Err(obj) => {
-                if obj.isinstance(&vm.ctx.types.type_type) {
+                if obj.class().issubclass(&vm.ctx.types.type_type) {
+                    if obj.is(&vm.ctx.types.type_type) {
+                        return PyGenericAlias::new(obj.clone_class(), key.into_pyobject(vm), vm)
+                            .into_pyresult(vm);
+                    }
+
                     if let Some(class_getitem) = vm.get_attribute_opt(obj, "__class_getitem__")? {
                         return vm.invoke(&class_getitem, (key,));
                     }

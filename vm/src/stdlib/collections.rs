@@ -2,7 +2,7 @@ pub(crate) use _collections::make_module;
 
 #[pymodule]
 mod _collections {
-    use crate::builtins::PositionIterInternal;
+    use crate::builtins::{PositionIterInternal, PyGenericAlias};
     use crate::common::lock::{PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
     use crate::{
         builtins::{
@@ -528,6 +528,11 @@ mod _collections {
                 None => vm.ctx.empty_tuple.clone().into(),
             };
             Ok(vm.new_pyobj((cls, value, vm.ctx.none(), PyDequeIterator::new(zelf))))
+        }
+
+        #[pyclassmethod(magic)]
+        fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+            PyGenericAlias::new(cls, args, vm)
         }
     }
 

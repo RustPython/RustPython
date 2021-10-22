@@ -14,6 +14,7 @@ import os
 import threading
 import collections
 import time
+import types
 import weakref
 import errno
 
@@ -353,3 +354,5 @@ class SimpleQueue(object):
         else:
             with self._wlock:
                 self._writer.send_bytes(obj)
+
+    __class_getitem__ = classmethod(types.GenericAlias)

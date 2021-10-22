@@ -7,7 +7,7 @@ mod decl {
         rc::PyRc,
     };
     use crate::{
-        builtins::{int, PyInt, PyIntRef, PyTuple, PyTupleRef, PyTypeRef},
+        builtins::{int, PyGenericAlias, PyInt, PyIntRef, PyTuple, PyTupleRef, PyTypeRef},
         function::{ArgCallable, FuncArgs, IntoPyObject, OptionalArg, OptionalOption, PosArgs},
         protocol::{PyIter, PyIterReturn},
         stdlib::sys,
@@ -53,6 +53,11 @@ mod decl {
                 cached_iter: PyRwLock::new(None),
             }
             .into_ref_with_type(vm, cls)
+        }
+
+        #[pyclassmethod(magic)]
+        fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+            PyGenericAlias::new(cls, args, vm)
         }
     }
     impl IterNextIterable for PyItertoolsChain {}

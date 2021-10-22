@@ -1,4 +1,4 @@
-use super::{IterStatus, PositionIterInternal, PyIntRef, PyTupleRef, PyTypeRef};
+use super::{IterStatus, PositionIterInternal, PyGenericAlias, PyIntRef, PyTupleRef, PyTypeRef};
 use crate::common::lock::{PyMutex, PyRwLock};
 use crate::{
     function::{IntoPyObject, OptionalArg},
@@ -47,7 +47,12 @@ impl Constructor for PyEnumerate {
 }
 
 #[pyimpl(with(IterNext, Constructor), flags(BASETYPE))]
-impl PyEnumerate {}
+impl PyEnumerate {
+    #[pyclassmethod(magic)]
+    fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+        PyGenericAlias::new(cls, args, vm)
+    }
+}
 
 impl IterNextIterable for PyEnumerate {}
 impl IterNext for PyEnumerate {

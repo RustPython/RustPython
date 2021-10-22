@@ -4,7 +4,8 @@ pub(crate) use _sre::make_module;
 mod _sre {
     use crate::{
         builtins::{
-            PyCallableIterator, PyDictRef, PyInt, PyList, PyStr, PyStrRef, PyTuple, PyTupleRef,
+            PyCallableIterator, PyDictRef, PyGenericAlias, PyInt, PyList, PyStr, PyStrRef, PyTuple,
+            PyTupleRef, PyTypeRef,
         },
         common::{ascii, hash::PyHash},
         function::{ArgCallable, IntoPyObject, OptionalArg, PosArgs},
@@ -513,6 +514,11 @@ mod _sre {
                 })
             })
         }
+
+        #[pyclassmethod(magic)]
+        fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+            PyGenericAlias::new(cls, args, vm)
+        }
     }
 
     impl Hashable for Pattern {
@@ -786,6 +792,11 @@ mod _sre {
                 return None;
             }
             Some(slice_drive(&str_drive, start as usize, end as usize, vm))
+        }
+
+        #[pyclassmethod(magic)]
+        fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+            PyGenericAlias::new(cls, args, vm)
         }
     }
 
