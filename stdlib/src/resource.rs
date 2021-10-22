@@ -43,6 +43,13 @@ mod resource {
     #[pyattr]
     use libc::{RLIMIT_NPTS, RLIMIT_SBSIZE, RLIMIT_SWAP, RLIMIT_VMEM};
 
+    #[cfg(any(target_os = "linux", target_os = "emscripten", target_os = "freebds"))]
+    #[pyattr]
+    use libc::RUSAGE_THREAD;
+    #[cfg(not(any(target_os = "windows", target_os = "redox")))]
+    #[pyattr]
+    use libc::{RUSAGE_CHILDREN, RUSAGE_SELF};
+
     #[pyattr]
     #[pyclass(name = "struct_rusage")]
     #[derive(PyStructSequence)]
