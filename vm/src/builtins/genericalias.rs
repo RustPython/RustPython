@@ -2,9 +2,10 @@ use crate::{
     builtins::{PyList, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef},
     common::hash,
     function::{FuncArgs, IntoPyObject},
-    types::{Callable, Comparable, Constructor, GetAttr, Hashable, PyComparisonOp},
-    IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyRef, PyResult,
-    PyValue, TryFromObject, TypeProtocol, VirtualMachine,
+    protocol::PyMappingMethods,
+    types::{AsMapping, Callable, Comparable, Constructor, GetAttr, Hashable, PyComparisonOp},
+    IdProtocol, ItemProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef,
+    PyObjectView, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
 };
 use std::fmt;
 
@@ -53,7 +54,7 @@ impl Constructor for PyGenericAlias {
 }
 
 #[pyimpl(
-    with(Callable, Comparable, Constructor, GetAttr, Hashable),
+    with(AsMapping, Callable, Comparable, Constructor, GetAttr, Hashable),
     flags(BASETYPE)
 )]
 impl PyGenericAlias {
@@ -190,6 +191,115 @@ fn make_parameters(args: &PyTupleRef, vm: &VirtualMachine) -> PyTupleRef {
     }
 
     PyTuple::new_ref(parameters, &vm.ctx)
+}
+
+#[inline]
+fn tuple_index(tuple: &PyTupleRef, item: &PyObjectRef) -> Option<usize> {
+    tuple.as_slice().iter().position(|element| element.is(item))
+}
+
+fn subs_tvars(
+    obj: PyObjectRef,
+    params: &PyTupleRef,
+    argitems: &[PyObjectRef],
+    vm: &VirtualMachine,
+) -> PyResult {
+    let sub_params = obj.clone().get_attr("__parameters__", vm)?;
+    if let Ok(sub_params) = PyTupleRef::try_from_object(vm, sub_params) {
+        let sub_args = sub_params
+            .as_slice()
+            .iter()
+            .map(|arg| {
+                if let Some(idx) = tuple_index(params, arg) {
+                    argitems[idx].clone()
+                } else {
+                    arg.clone()
+                }
+            })
+            .collect::<Vec<_>>();
+        let sub_args: PyObjectRef = PyTuple::new_ref(sub_args, &vm.ctx).into();
+        obj.get_item(sub_args, vm)
+    } else {
+        Ok(obj)
+    }
+}
+
+impl AsMapping for PyGenericAlias {
+    fn as_mapping(_zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
+        PyMappingMethods {
+            length: None,
+            subscript: Some(Self::subscript),
+            ass_subscript: None,
+        }
+    }
+
+    #[cold]
+    fn length(zelf: PyObjectRef, _vm: &VirtualMachine) -> PyResult<usize> {
+        unreachable!("length not implemented for {}", zelf.class())
+    }
+
+    fn subscript(zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Self::downcast(zelf, vm).map(|zelf| {
+            let num_params = zelf.parameters.len();
+            if num_params == 0 {
+                return Err(vm.new_type_error(format!(
+                    "There are no type variables left in {}",
+                    zelf.repr(vm)?
+                )));
+            }
+
+            let items = PyTupleRef::try_from_object(vm, needle.clone());
+            let arg_items = match items {
+                Ok(ref tuple) => tuple.as_slice(),
+                Err(_) => std::slice::from_ref(&needle),
+            };
+
+            let num_items = arg_items.len();
+            if num_params != num_items {
+                let plural = if num_items > num_params {
+                    "many"
+                } else {
+                    "few"
+                };
+                return Err(vm.new_type_error(format!(
+                    "Too {} arguments for {}",
+                    plural,
+                    zelf.repr(vm)?
+                )));
+            }
+
+            let new_args = zelf
+                .args
+                .as_slice()
+                .iter()
+                .map(|arg| {
+                    if is_typevar(arg) {
+                        let idx = tuple_index(&zelf.parameters, arg).unwrap();
+                        Ok(arg_items[idx].clone())
+                    } else {
+                        subs_tvars(arg.clone(), &zelf.parameters, arg_items, vm)
+                    }
+                })
+                .collect::<PyResult<Vec<_>>>()?;
+
+            Ok(PyGenericAlias::new(
+                zelf.origin.clone(),
+                PyTuple::new_ref(new_args, &vm.ctx).into(),
+                vm,
+            )
+            .into_object(vm))
+        })?
+    }
+
+    #[cold]
+    fn ass_subscript(
+        zelf: PyObjectRef,
+        _needle: PyObjectRef,
+        _value: Option<PyObjectRef>,
+        _vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        unreachable!("ass_subscript not implemented for {}", zelf.class())
+    }
 }
 
 impl Callable for PyGenericAlias {
