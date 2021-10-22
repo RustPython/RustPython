@@ -32,6 +32,8 @@ class ResourceTest(unittest.TestCase):
             self.assertEqual(resource.RLIM_INFINITY, max)
             resource.setrlimit(resource.RLIMIT_FSIZE, (cur, max))
 
+    # TODO: RUSTPYTHON
+    @unittest.skip("file size limit exceeded.")
     def test_fsize_enforced(self):
         try:
             (cur, max) = resource.getrlimit(resource.RLIMIT_FSIZE)
@@ -130,6 +132,8 @@ class ResourceTest(unittest.TestCase):
 
             resource.setrlimit(resource.RLIMIT_CPU, BadSequence())
 
+    # TODO: RUSTPYTHON: module 'resource' has no attribute 'getpagesize'
+    @unittest.expectedFailure
     def test_pagesize(self):
         pagesize = resource.getpagesize()
         self.assertIsInstance(pagesize, int)
