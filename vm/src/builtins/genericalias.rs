@@ -2,9 +2,9 @@ use crate::{
     builtins::{PyList, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef},
     common::hash,
     function::{FuncArgs, IntoPyObject},
-    types::{Callable, Constructor, GetAttr, Hashable},
-    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol, VirtualMachine,
+    types::{Callable, Comparable, Constructor, GetAttr, Hashable, PyComparisonOp},
+    IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyRef, PyResult,
+    PyValue, TryFromObject, TypeProtocol, VirtualMachine,
 };
 use std::fmt;
 
@@ -52,7 +52,10 @@ impl Constructor for PyGenericAlias {
     }
 }
 
-#[pyimpl(with(Callable, Constructor, GetAttr, Hashable), flags(BASETYPE))]
+#[pyimpl(
+    with(Callable, Comparable, Constructor, GetAttr, Hashable),
+    flags(BASETYPE)
+)]
 impl PyGenericAlias {
     pub fn new(origin: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> Self {
         let args: PyTupleRef = if let Ok(tuple) = PyTupleRef::try_from_object(vm, args.clone()) {
@@ -202,6 +205,30 @@ impl Callable for PyGenericAlias {
             }
             Ok(obj)
         })?
+    }
+}
+
+impl Comparable for PyGenericAlias {
+    fn cmp(
+        zelf: &crate::PyObjectView<Self>,
+        other: &PyObject,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        op.eq_only(|| {
+            let other = class_or_notimplemented!(Self, other);
+            Ok(PyComparisonValue::Implemented(
+                if !zelf
+                    .origin()
+                    .rich_compare_bool(&other.origin(), PyComparisonOp::Eq, vm)?
+                {
+                    false
+                } else {
+                    zelf.args()
+                        .rich_compare_bool(&other.args(), PyComparisonOp::Eq, vm)?
+                },
+            ))
+        })
     }
 }
 
