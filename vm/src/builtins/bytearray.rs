@@ -29,7 +29,7 @@ use crate::{
     },
     utils::Either,
     IdProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef,
-    PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
+    PyObjectView, PyObjectWrap, PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
 use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;
@@ -709,7 +709,7 @@ impl Comparable for PyByteArray {
 }
 
 impl AsBuffer for PyByteArray {
-    fn as_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
+    fn as_buffer(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyBuffer> {
         static_cell! {
             static METHODS: BufferMethods;
         }
@@ -730,7 +730,7 @@ impl AsBuffer for PyByteArray {
             collect_bytes: None,
         });
         let buffer = PyBuffer::new(
-            zelf.as_object().clone(),
+            zelf.to_owned().into_object(),
             BufferOptions {
                 readonly: false,
                 len: zelf.len(),

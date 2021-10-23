@@ -88,8 +88,8 @@ mod _io {
         types::{AsBuffer, Constructor, Destructor, IterNext, Iterable},
         utils::Either,
         vm::{ReprGuard, VirtualMachine},
-        IdProtocol, PyContext, PyObjectRef, PyObjectWrap, PyRef, PyResult, PyValue, StaticType,
-        TryFromBorrowedObject, TryFromObject, TypeProtocol,
+        IdProtocol, PyContext, PyObject, PyObjectRef, PyObjectView, PyObjectWrap, PyRef, PyResult,
+        PyValue, StaticType, TryFromBorrowedObject, TryFromObject, TypeProtocol,
     };
     use bstr::ByteSlice;
     use crossbeam_utils::atomic::AtomicCell;
@@ -1356,9 +1356,9 @@ mod _io {
     };
 
     impl AsBuffer for BufferedRawBuffer {
-        fn as_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
+        fn as_buffer(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyBuffer> {
             let buf = PyBuffer::new(
-                zelf.as_object().clone(),
+                zelf.to_owned().into_object(),
                 BufferOptions {
                     len: zelf.range.end - zelf.range.start,
                     ..Default::default()
@@ -3366,7 +3366,11 @@ mod _io {
                 len: self.buffer.read().cursor.get_ref().len(),
                 ..Default::default()
             };
-            let buffer = PyBuffer::new(self.as_object().clone(), options, &BYTES_IO_BUFFER_METHODS);
+            let buffer = PyBuffer::new(
+                self.clone().into_object(),
+                options,
+                &BYTES_IO_BUFFER_METHODS,
+            );
             let view = PyMemoryView::from_buffer(buffer, vm)?;
             Ok(view)
         }

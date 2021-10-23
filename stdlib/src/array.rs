@@ -27,8 +27,8 @@ mod array {
             AsBuffer, AsMapping, Comparable, Constructor, IterNext, IterNextIterable, Iterable,
             PyComparisonOp,
         },
-        IdProtocol, PyComparisonValue, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult,
-        PyValue, TryFromObject, TypeProtocol, VirtualMachine,
+        IdProtocol, PyComparisonValue, PyObject, PyObjectRef, PyObjectView, PyObjectWrap, PyRef,
+        PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
@@ -1219,7 +1219,7 @@ mod array {
         fn as_buffer(zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
             let array = zelf.read();
             let buf = PyBuffer::new(
-                zelf.as_object().clone(),
+                zelf.to_owned().into_object(),
                 BufferOptions {
                     readonly: false,
                     len: array.len(),

@@ -13,7 +13,8 @@ use crate::{
     types::{AsBuffer, AsMapping, Comparable, Constructor, Hashable, PyComparisonOp},
     utils::Either,
     IdProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef,
-    PyRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject, TypeProtocol, VirtualMachine,
+    PyObjectView, PyObjectWrap, PyRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject,
+    TypeProtocol, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
@@ -484,7 +485,7 @@ impl PyMemoryView {
             })
             .try_collect()?;
 
-        Ok(elements)
+        Ok(vm.ctx.new_list(elements))
     }
 
     #[pymethod]
@@ -557,7 +558,7 @@ impl PyMemoryView {
             released: AtomicCell::new(false),
             format_spec,
             hash: OnceCell::new(),
-            ..**zelf
+            ..*self
         }
         .validate()
         .into_ref(vm))
@@ -651,12 +652,12 @@ static BUFFER_METHODS: BufferMethods = BufferMethods {
 };
 
 impl AsBuffer for PyMemoryView {
-    fn as_buffer(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyBuffer> {
+    fn as_buffer(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyBuffer> {
         if zelf.released.load() {
             Err(vm.new_value_error("operation forbidden on released memoryview object".to_owned()))
         } else {
             Ok(PyBuffer::new(
-                zelf.as_object().clone(),
+                zelf.to_owned().into_object(),
                 zelf.buffer.options.clone(),
                 &BUFFER_METHODS,
             ))
@@ -665,7 +666,7 @@ impl AsBuffer for PyMemoryView {
 }
 
 impl AsMapping for PyMemoryView {
-    fn as_mapping(_zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
+    fn as_mapping(_zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
         PyMappingMethods {
             length: Some(Self::length),
             subscript: Some(Self::subscript),
