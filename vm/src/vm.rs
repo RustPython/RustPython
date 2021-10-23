@@ -1035,21 +1035,23 @@ impl VirtualMachine {
                 if self.is_none(&icls) {
                     Ok(false)
                 } else {
-                    self.abstract_issubclass(icls, cls)
+                    self.abstract_issubclass(&icls, cls)
                 }
             })
         }
     }
 
-    pub fn abstract_issubclass(&self, subclass: PyObjectRef, cls: &PyObjectRef) -> PyResult<bool> {
+    pub fn abstract_issubclass(&self, subclass: &PyObject, cls: &PyObject) -> PyResult<bool> {
         let mut derived = subclass;
+        let mut first_item: PyObjectRef;
         loop {
             if derived.is(cls) {
                 return Ok(true);
             }
 
-            let bases = derived.get_attr("__bases__", self)?;
+            let bases = derived.to_owned().get_attr("__bases__", self)?;
             let tuple = PyTupleRef::try_from_object(self, bases)?;
+            first_item = tuple.fast_getitem(0).clone();
 
             let n = tuple.len();
             match n {
@@ -1057,12 +1059,12 @@ impl VirtualMachine {
                     return Ok(false);
                 }
                 1 => {
-                    derived = tuple.fast_getitem(0);
+                    derived = &first_item;
                     continue;
                 }
                 _ => {
                     for i in 0..n {
-                        if let Ok(true) = self.abstract_issubclass(tuple.fast_getitem(i), cls) {
+                        if let Ok(true) = self.abstract_issubclass(&tuple.fast_getitem(i), cls) {
                             return Ok(true);
                         }
                     }
@@ -1073,11 +1075,7 @@ impl VirtualMachine {
         }
     }
 
-    pub fn recursive_issubclass(
-        &self,
-        subclass: &PyObjectRef,
-        cls: &PyObjectRef,
-    ) -> PyResult<bool> {
+    pub fn recursive_issubclass(&self, subclass: &PyObject, cls: &PyObject) -> PyResult<bool> {
         if let (Ok(subclass), Ok(cls)) = (
             PyTypeRef::try_from_object(self, subclass.to_owned()),
             PyTypeRef::try_from_object(self, cls.to_owned()),
@@ -1096,7 +1094,7 @@ impl VirtualMachine {
                     cls.class()
                 )
             }))
-            .and(self.abstract_issubclass(subclass.to_owned(), cls))
+            .and(self.abstract_issubclass(subclass, cls))
         }
     }
 
