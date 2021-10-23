@@ -671,37 +671,32 @@ pub(super) mod _os {
         Ok(list)
     }
 
+    fn pyref_as_str<'a>(
+        obj: &'a Either<PyStrRef, PyBytesRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<&'a str> {
+        Ok(match obj {
+            Either::A(ref s) => s.as_str(),
+            Either::B(ref b) => super::bytes_as_osstr(b.as_bytes(), vm)?
+                .to_str()
+                .ok_or_else(|| {
+                    vm.new_unicode_decode_error("can't decode bytes for utf-8".to_owned())
+                })?,
+        })
+    }
+
     #[pyfunction]
     fn putenv(
         key: Either<PyStrRef, PyBytesRef>,
         value: Either<PyStrRef, PyBytesRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let key: &ffi::OsStr = match key {
-            Either::A(ref s) => s.as_str().as_ref(),
-            Either::B(ref b) => super::bytes_as_osstr(b.as_bytes(), vm)?,
-        };
-        let value: &ffi::OsStr = match value {
-            Either::A(ref s) => s.as_str().as_ref(),
-            Either::B(ref b) => super::bytes_as_osstr(b.as_bytes(), vm)?,
-        };
-
-        #[cfg(unix)]
-        {
-            use super::ffi_ext::OsStrExt;
-            let check_embedded_null = |s: &ffi::OsStr| ffi::CString::new(s.as_bytes()).is_ok();
-
-            if !check_embedded_null(key) || !check_embedded_null(value) {
-                return Err(vm.new_value_error("embedded null byte".to_string()));
-            }
+        let key = pyref_as_str(&key, vm)?;
+        let value = pyref_as_str(&value, vm)?;
+        if key.contains('\0') || value.contains('\0') {
+            return Err(vm.new_value_error("embedded null byte".to_string()));
         }
-
-        let check_key = |s: &ffi::OsStr| {
-            s.to_str()
-                .map(|vs| !vs.is_empty() && !vs.contains('='))
-                .unwrap_or(false)
-        };
-        if !check_key(key) {
+        if key.is_empty() || key.contains('=') {
             return Err(vm.new_value_error("illegal environment variable name".to_string()));
         }
         env::set_var(key, value);
@@ -710,10 +705,13 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn unsetenv(key: Either<PyStrRef, PyBytesRef>, vm: &VirtualMachine) -> PyResult<()> {
-        let key: &ffi::OsStr = match key {
-            Either::A(ref s) => s.as_str().as_ref(),
-            Either::B(ref b) => super::bytes_as_osstr(b.as_bytes(), vm)?,
-        };
+        let key = pyref_as_str(&key, vm)?;
+        if key.contains('\0') {
+            return Err(vm.new_value_error("embedded null byte".to_string()));
+        }
+        if key.is_empty() || key.contains('=') {
+            return Err(vm.new_value_error("illegal environment variable name".to_string()));
+        }
         env::remove_var(key);
         Ok(())
     }
