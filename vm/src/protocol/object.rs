@@ -2,7 +2,7 @@
 //! https://docs.python.org/3/c-api/object.html
 
 use crate::{
-    builtins::{pystr::IntoPyStrRef, PyBytes, PyInt, PyStrRef, PyTupleRef},
+    builtins::{pystr::IntoPyStrRef, PyBytes, PyInt, PyStrRef, PyTupleRef, PyTypeRef},
     bytesinner::ByteInnerNewOptions,
     common::{hash::PyHash, str::to_ascii},
     function::{IntoPyObject, OptionalArg},
@@ -227,8 +227,136 @@ impl PyObject {
         }
     }
 
+    // Equivalent to check_class. Masks Attribute errors (into TypeErrors) and lets everything
+    // else go through.
+    fn check_cls<F>(&self, cls: &PyObject, vm: &VirtualMachine, msg: F) -> PyResult
+    where
+        F: Fn() -> String,
+    {
+        cls.to_owned().get_attr("__bases__", vm).map_err(|e| {
+            // Only mask AttributeErrors.
+            if e.class().is(&vm.ctx.exceptions.attribute_error) {
+                vm.new_type_error(msg())
+            } else {
+                e
+            }
+        })
+    }
+
+    fn abstract_issubclass(&self, cls: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+        let mut derived = self;
+        let mut first_item: PyObjectRef;
+        loop {
+            if derived.is(cls) {
+                return Ok(true);
+            }
+
+            let bases = derived.to_owned().get_attr("__bases__", vm)?;
+            let tuple = PyTupleRef::try_from_object(vm, bases)?;
+
+            let n = tuple.len();
+            match n {
+                0 => {
+                    return Ok(false);
+                }
+                1 => {
+                    first_item = tuple.fast_getitem(0).clone();
+                    derived = &first_item;
+                    continue;
+                }
+                _ => {
+                    for i in 0..n {
+                        if let Ok(true) = tuple.fast_getitem(i).abstract_issubclass(cls, vm) {
+                            return Ok(true);
+                        }
+                    }
+                }
+            }
+
+            return Ok(false);
+        }
+    }
+
+    fn recursive_issubclass(&self, cls: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+        if let (Ok(obj), Ok(cls)) = (
+            PyTypeRef::try_from_object(vm, self.to_owned()),
+            PyTypeRef::try_from_object(vm, cls.to_owned()),
+        ) {
+            Ok(obj.issubclass(cls))
+        } else {
+            self.check_cls(self, vm, || {
+                format!("issubclass() arg 1 must be a class, not {}", self.class())
+            })
+            .and(self.check_cls(cls, vm, || {
+                format!(
+                    "issubclass() arg 2 must be a class or tuple of classes, not {}",
+                    cls.class()
+                )
+            }))
+            .and(self.abstract_issubclass(cls, vm))
+        }
+    }
+
+    /// Determines if `self` is a subclass of `cls`, either directly, indirectly or virtually
+    /// via the __subclasscheck__ magic method.
     pub fn is_subclass(&self, cls: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-        vm.issubclass(self, cls)
+        if cls.class().is(&vm.ctx.types.type_type) {
+            if self.is(cls) {
+                return Ok(true);
+            }
+            return self.recursive_issubclass(cls, vm);
+        }
+
+        if let Ok(tuple) = PyTupleRef::try_from_object(vm, cls.to_owned()) {
+            for typ in tuple.as_slice().iter() {
+                if vm.with_recursion("in __subclasscheck__", || self.is_subclass(typ, vm))? {
+                    return Ok(true);
+                }
+            }
+            return Ok(false);
+        }
+
+        if let Ok(meth) = vm.get_special_method(cls.to_owned(), "__subclasscheck__")? {
+            let ret = vm.with_recursion("in __subclasscheck__", || {
+                meth.invoke((self.to_owned(),), vm)
+            })?;
+            return ret.try_to_bool(vm);
+        }
+
+        self.recursive_issubclass(cls, vm)
+    }
+
+    fn abstract_isinstance(&self, cls: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+        if let Ok(typ) = PyTypeRef::try_from_object(vm, cls.to_owned()) {
+            if self.class().issubclass(typ.clone()) {
+                Ok(true)
+            } else if let Ok(icls) =
+                PyTypeRef::try_from_object(vm, self.to_owned().get_attr("__class__", vm)?)
+            {
+                if icls.is(&self.class()) {
+                    Ok(false)
+                } else {
+                    Ok(icls.issubclass(typ))
+                }
+            } else {
+                Ok(false)
+            }
+        } else {
+            self.check_cls(cls, vm, || {
+                format!(
+                    "isinstance() arg 2 must be a type or tuple of types, not {}",
+                    cls.class()
+                )
+            })
+            .and_then(|_| {
+                let icls: PyObjectRef = self.to_owned().get_attr("__class__", vm)?;
+                if vm.is_none(&icls) {
+                    Ok(false)
+                } else {
+                    icls.abstract_issubclass(cls, vm)
+                }
+            })
+        }
     }
 
     /// Determines if `self` is an instance of `cls`, either directly, indirectly or virtually via
@@ -241,7 +369,7 @@ impl PyObject {
         }
 
         if cls.class().is(&vm.ctx.types.type_type) {
-            return vm.abstract_isinstance(self, cls);
+            return self.abstract_isinstance(cls, vm);
         }
 
         if let Ok(tuple) = PyTupleRef::try_from_object(vm, cls.to_owned()) {
@@ -260,7 +388,7 @@ impl PyObject {
             return ret.try_to_bool(vm);
         }
 
-        vm.abstract_isinstance(self, cls)
+        self.abstract_isinstance(cls, vm)
     }
 
     pub fn hash(&self, vm: &VirtualMachine) -> PyResult<PyHash> {
