@@ -219,7 +219,7 @@ impl PySetInner {
         }
         repr.push('{');
         {
-            let mut parts_iter = self.elements().into_iter().map(|o| vm.to_repr(&o));
+            let mut parts_iter = self.elements().into_iter().map(|o| o.repr(vm));
             repr.push_str(
                 parts_iter
                     .next()

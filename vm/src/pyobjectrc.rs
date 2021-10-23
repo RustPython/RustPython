@@ -438,7 +438,7 @@ fn print_del_error(e: PyBaseExceptionRef, zelf: &PyObject, vm: &VirtualMachine) 
     // exception in del will be ignored but printed
     print!("Exception ignored in: ",);
     let del_method = zelf.get_class_attr("__del__").unwrap();
-    let repr = vm.to_repr(&del_method);
+    let repr = &del_method.repr(vm);
     match repr {
         Ok(v) => println!("{}", v.to_string()),
         Err(_) => println!("{}", del_method.class().name()),
@@ -448,7 +448,7 @@ fn print_del_error(e: PyBaseExceptionRef, zelf: &PyObject, vm: &VirtualMachine) 
     let print_stack = tb_module.get_attr("print_stack", vm).unwrap();
     vm.invoke(&print_stack, ()).unwrap();
 
-    if let Ok(repr) = vm.to_repr(e.as_object()) {
+    if let Ok(repr) = e.as_object().repr(vm) {
         println!("{}", repr.as_str());
     }
 }

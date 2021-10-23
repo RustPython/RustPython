@@ -291,7 +291,7 @@ mod sys {
         // set to none to avoid recursion while printing
         vm.builtins.set_attr("_", vm.ctx.none(), vm)?;
         // TODO: catch encoding errors
-        let repr = vm.to_repr(&obj)?.into();
+        let repr = obj.repr(vm)?.into();
         builtins::print(PosArgs::new(vec![repr]), Default::default(), vm)?;
         vm.builtins.set_attr("_", obj, vm)?;
         Ok(())

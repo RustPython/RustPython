@@ -213,8 +213,8 @@ impl PyDict {
         let s = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
             let mut str_parts = Vec::with_capacity(zelf.len());
             for (key, value) in zelf {
-                let key_repr = vm.to_repr(&key)?;
-                let value_repr = vm.to_repr(&value)?;
+                let key_repr = &key.repr(vm)?;
+                let value_repr = value.repr(vm)?;
                 str_parts.push(format!("{}: {}", key_repr, value_repr));
             }
 
@@ -696,7 +696,7 @@ where
         let s = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
             let mut str_parts = Vec::with_capacity(zelf.len());
             for (key, value) in zelf.dict().clone() {
-                let s = vm.to_repr(&Self::item(vm, key, value))?;
+                let s = &Self::item(vm, key, value).repr(vm)?;
                 str_parts.push(s.as_str().to_owned());
             }
             format!("{}([{}])", Self::NAME, str_parts.join(", "))

@@ -880,7 +880,7 @@ pub(super) mod _os {
             };
             if let Some(name) = name {
                 if let Some(_guard) = ReprGuard::enter(vm, &zelf) {
-                    let repr = vm.to_repr(&name)?;
+                    let repr = name.repr(vm)?;
                     Ok(format!("<{} {}>", zelf.class(), repr))
                 } else {
                     Err(vm.new_runtime_error(format!(

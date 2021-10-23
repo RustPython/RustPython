@@ -146,7 +146,7 @@ impl PyMappingProxy {
                 PyDict::from_attributes(c.attributes.read().clone(), vm)?.into_pyobject(vm)
             }
         };
-        Ok(format!("mappingproxy({})", vm.to_repr(&obj)?))
+        Ok(format!("mappingproxy({})", obj.repr(vm)?))
     }
 
     #[pyclassmethod(magic)]

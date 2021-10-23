@@ -457,7 +457,7 @@ mod _operator {
             let fmt = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
                 let mut parts = Vec::with_capacity(zelf.attrs.len());
                 for part in zelf.attrs.iter() {
-                    parts.push(vm.to_repr(part.as_object())?.as_str().to_owned());
+                    parts.push(part.as_object().repr(vm)?.as_str().to_owned());
                 }
                 parts.join(", ")
             } else {
@@ -546,7 +546,7 @@ mod _operator {
             let fmt = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
                 let mut items = Vec::with_capacity(zelf.items.len());
                 for item in zelf.items.iter() {
-                    items.push(vm.to_repr(item)?.as_str().to_owned());
+                    items.push(item.repr(vm)?.as_str().to_owned());
                 }
                 items.join(", ")
             } else {
@@ -615,11 +615,11 @@ mod _operator {
             let fmt = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
                 let args = &zelf.args.args;
                 let kwargs = &zelf.args.kwargs;
-                let mut fmt = vec![vm.to_repr(zelf.name.as_object())?.as_str().to_owned()];
+                let mut fmt = vec![zelf.name.as_object().repr(vm)?.as_str().to_owned()];
                 if !args.is_empty() {
                     let mut parts = Vec::with_capacity(args.len());
                     for v in args {
-                        parts.push(vm.to_repr(v)?.as_str().to_owned());
+                        parts.push(v.repr(vm)?.as_str().to_owned());
                     }
                     fmt.push(parts.join(", "));
                 }
@@ -627,7 +627,7 @@ mod _operator {
                 if !kwargs.is_empty() {
                     let mut parts = Vec::with_capacity(kwargs.len());
                     for (key, value) in kwargs {
-                        let value_repr = vm.to_repr(value)?;
+                        let value_repr = value.repr(vm)?;
                         parts.push(format!("{}={}", key, value_repr));
                     }
                     fmt.push(parts.join(", "));

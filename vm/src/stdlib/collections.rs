@@ -276,7 +276,7 @@ mod _collections {
                 }
             }
             Err(vm.new_value_error(
-                vm.to_repr(&obj)
+                obj.repr(vm)
                     .map(|repr| format!("{} is not in deque", repr))
                     .unwrap_or_else(|_| String::new()),
             ))
@@ -410,7 +410,7 @@ mod _collections {
                 let deque = zelf.borrow_deque().clone();
                 let elements = deque
                     .iter()
-                    .map(|obj| vm.to_repr(obj))
+                    .map(|obj| obj.repr(vm))
                     .collect::<Result<Vec<_>, _>>()?;
                 let maxlen = zelf
                     .maxlen

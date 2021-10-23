@@ -54,7 +54,7 @@ mod pwd {
         match User::from_name(name.as_str()).map_err(|err| err.into_pyexception(vm))? {
             Some(user) => Ok(Passwd::from(user)),
             None => {
-                let name_repr = vm.to_repr(name.as_object())?;
+                let name_repr = name.as_object().repr(vm)?;
                 let message = vm
                     .ctx
                     .new_str(format!("getpwnam(): name not found: {}", name_repr))

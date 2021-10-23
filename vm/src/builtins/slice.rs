@@ -57,9 +57,9 @@ impl PySlice {
 
     #[pymethod(magic)]
     fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
-        let start_repr = vm.to_repr(self.start_ref(vm))?;
-        let stop_repr = vm.to_repr(&self.stop)?;
-        let step_repr = vm.to_repr(self.step_ref(vm))?;
+        let start_repr = self.start_ref(vm).repr(vm)?;
+        let stop_repr = &self.stop.repr(vm)?;
+        let step_repr = self.step_ref(vm).repr(vm)?;
 
         Ok(format!(
             "slice({}, {}, {})",

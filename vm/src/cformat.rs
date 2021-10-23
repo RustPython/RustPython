@@ -360,7 +360,7 @@ impl CFormatSpec {
         match &self.format_type {
             CFormatType::String(preconversor) => match preconversor {
                 CFormatPreconversor::Repr | CFormatPreconversor::Ascii => {
-                    let s = vm.to_repr(&obj)?;
+                    let s = obj.repr(vm)?;
                     let s = self.format_string(s.as_str().to_owned());
                     Ok(s.into_bytes())
                 }
@@ -461,7 +461,7 @@ impl CFormatSpec {
             CFormatType::String(preconversor) => {
                 let result = match preconversor {
                     CFormatPreconversor::Str => obj.str(vm)?,
-                    CFormatPreconversor::Repr | CFormatPreconversor::Ascii => vm.to_repr(&obj)?,
+                    CFormatPreconversor::Repr | CFormatPreconversor::Ascii => obj.repr(vm)?,
                     CFormatPreconversor::Bytes => {
                         return Err(vm.new_value_error(
                             "unsupported format character 'b' (0x62)".to_owned(),

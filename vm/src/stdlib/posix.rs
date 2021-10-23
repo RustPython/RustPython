@@ -475,7 +475,7 @@ pub mod module {
 
         #[pymethod(magic)]
         fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
-            let sched_priority_repr = vm.to_repr(&self.sched_priority)?;
+            let sched_priority_repr = self.sched_priority.repr(vm)?;
             Ok(format!(
                 "posix.sched_param(sched_priority = {})",
                 sched_priority_repr.as_str()

@@ -898,13 +898,6 @@ impl VirtualMachine {
         obj.unwrap_or_else(|| self.ctx.none())
     }
 
-    pub fn to_repr(&self, obj: &PyObject) -> PyResult<PyStrRef> {
-        self.with_recursion("while getting the repr of an object", || {
-            let repr = self.call_special_method(obj.to_owned(), "__repr__", ())?;
-            repr.try_into_value(self)
-        })
-    }
-
     pub fn to_index_opt(&self, obj: PyObjectRef) -> Option<PyResult<PyIntRef>> {
         match obj.downcast() {
             Ok(val) => Some(Ok(val)),

@@ -1907,7 +1907,7 @@ impl Node for ast::Mod {
         } else {
             return Err(_vm.new_type_error(format!(
                 "expected some sort of mod, but got {}",
-                _vm.to_repr(&_object)?
+                _object.repr(_vm)?
             )));
         })
     }
@@ -2576,7 +2576,7 @@ impl Node for ast::StmtKind {
         } else {
             return Err(_vm.new_type_error(format!(
                 "expected some sort of stmt, but got {}",
-                _vm.to_repr(&_object)?
+                _object.repr(_vm)?
             )));
         })
     }
@@ -3136,7 +3136,7 @@ impl Node for ast::ExprKind {
         } else {
             return Err(_vm.new_type_error(format!(
                 "expected some sort of expr, but got {}",
-                _vm.to_repr(&_object)?
+                _object.repr(_vm)?
             )));
         })
     }
@@ -3178,7 +3178,7 @@ impl Node for ast::ExprContext {
         } else {
             return Err(_vm.new_type_error(format!(
                 "expected some sort of expr_context, but got {}",
-                _vm.to_repr(&_object)?
+                _object.repr(_vm)?
             )));
         })
     }
@@ -3212,7 +3212,7 @@ impl Node for ast::Boolop {
         } else {
             return Err(_vm.new_type_error(format!(
                 "expected some sort of boolop, but got {}",
-                _vm.to_repr(&_object)?
+                _object.repr(_vm)?
             )));
         })
     }
@@ -3334,7 +3334,7 @@ impl Node for ast::Operator {
         } else {
             return Err(_vm.new_type_error(format!(
                 "expected some sort of operator, but got {}",
-                _vm.to_repr(&_object)?
+                _object.repr(_vm)?
             )));
         })
     }
@@ -3384,7 +3384,7 @@ impl Node for ast::Unaryop {
         } else {
             return Err(_vm.new_type_error(format!(
                 "expected some sort of unaryop, but got {}",
-                _vm.to_repr(&_object)?
+                _object.repr(_vm)?
             )));
         })
     }
@@ -3482,7 +3482,7 @@ impl Node for ast::Cmpop {
         } else {
             return Err(_vm.new_type_error(format!(
                 "expected some sort of cmpop, but got {}",
-                _vm.to_repr(&_object)?
+                _object.repr(_vm)?
             )));
         })
     }
@@ -3587,7 +3587,7 @@ impl Node for ast::ExcepthandlerKind {
         } else {
             return Err(_vm.new_type_error(format!(
                 "expected some sort of excepthandler, but got {}",
-                _vm.to_repr(&_object)?
+                _object.repr(_vm)?
             )));
         })
     }
@@ -3824,7 +3824,7 @@ impl Node for ast::TypeIgnore {
         } else {
             return Err(_vm.new_type_error(format!(
                 "expected some sort of type_ignore, but got {}",
-                _vm.to_repr(&_object)?
+                _object.repr(_vm)?
             )));
         })
     }

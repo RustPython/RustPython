@@ -785,7 +785,7 @@ fn try_int_radix(obj: &PyObject, base: u32, vm: &VirtualMachine) -> PyResult<Big
         None => Err(vm.new_value_error(format!(
             "invalid literal for int() with base {}: {}",
             base,
-            vm.to_repr(obj)?,
+            obj.repr(vm)?,
         ))),
     }
 }
@@ -917,7 +917,7 @@ pub(crate) fn try_int(obj: &PyObject, vm: &VirtualMachine) -> PyResult<BigInt> {
             None => Err(vm.new_value_error(format!(
                 "invalid literal for int() with base {}: {}",
                 base,
-                vm.to_repr(obj)?,
+                obj.repr(vm)?,
             ))),
         }
     }

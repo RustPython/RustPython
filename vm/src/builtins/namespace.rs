@@ -61,9 +61,9 @@ impl PyNamespace {
             let parts = if let Some(dict) = zelf.as_object().dict() {
                 let mut parts = Vec::with_capacity(dict.len());
                 for (key, value) in dict {
-                    let k = vm.to_repr(&key)?;
+                    let k = &key.repr(vm)?;
                     let key_str = k.as_str();
-                    let value_repr = vm.to_repr(&value)?;
+                    let value_repr = value.repr(vm)?;
                     parts.push(format!("{}={}", &key_str[1..key_str.len() - 1], value_repr));
                 }
                 parts

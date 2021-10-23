@@ -1366,7 +1366,7 @@ mod _io {
         match name {
             Some(name) => {
                 if let Some(_guard) = ReprGuard::enter(vm, obj) {
-                    vm.to_repr(&name).map(Some)
+                    name.repr(vm).map(Some)
                 } else {
                     Err(vm.new_runtime_error(format!(
                         "reentrant call inside {}.__repr__",
@@ -2385,7 +2385,7 @@ mod _io {
             use crate::types::PyComparisonOp;
             if cookie.rich_compare_bool(vm.ctx.new_int(0).as_ref(), PyComparisonOp::Lt, vm)? {
                 return Err(
-                    vm.new_value_error(format!("negative seek position {}", vm.to_repr(&cookie)?))
+                    vm.new_value_error(format!("negative seek position {}", &cookie.repr(vm)?))
                 );
             }
             drop(textio);
