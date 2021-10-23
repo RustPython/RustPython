@@ -49,7 +49,8 @@ fn iter_search(
         SearchType::Contains => Ok(0),
         SearchType::Index => Err(vm.new_value_error(format!(
             "{} not in range",
-            vm.to_repr(&item)
+            &item
+                .repr(vm)
                 .map(|v| v.as_str().to_owned())
                 .unwrap_or_else(|_| "value".to_owned())
         ))),

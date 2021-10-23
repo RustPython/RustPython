@@ -170,7 +170,7 @@ impl PyBaseObject {
     /// Return str(self).
     #[pymethod(magic)]
     fn str(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        vm.to_repr(&zelf)
+        zelf.repr(vm)
     }
 
     /// Return repr(self).

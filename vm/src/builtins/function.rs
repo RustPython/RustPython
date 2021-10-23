@@ -516,7 +516,7 @@ impl PyBoundMethod {
         Ok(format!(
             "<bound method {} of {}>",
             funcname.as_ref().map_or("?", |s| s.as_str()),
-            vm.to_repr(&self.object)?.as_str(),
+            &self.object.repr(vm)?.as_str(),
         ))
     }
 

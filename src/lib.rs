@@ -128,7 +128,7 @@ where
                         }
                     }),
                     _ => {
-                        if let Ok(r) = vm.to_repr(args.as_object()) {
+                        if let Ok(r) = args.as_object().repr(vm) {
                             eprintln!("{}", r);
                         }
                         1

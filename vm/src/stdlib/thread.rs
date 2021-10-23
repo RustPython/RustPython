@@ -260,7 +260,7 @@ pub(crate) mod _thread {
                 // TODO: sys.unraisablehook
                 let stderr = std::io::stderr();
                 let mut stderr = py_io::IoWriter(stderr.lock());
-                let repr = vm.to_repr(func.as_ref()).ok();
+                let repr = func.as_ref().repr(vm).ok();
                 let repr = repr
                     .as_ref()
                     .map_or("<object repr() failed>", |s| s.as_str());

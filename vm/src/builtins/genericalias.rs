@@ -82,7 +82,7 @@ impl PyGenericAlias {
             if vm.get_attribute_opt(obj.clone(), "__origin__")?.is_some()
                 && vm.get_attribute_opt(obj.clone(), "__args__")?.is_some()
             {
-                return Ok(vm.to_repr(&obj)?.as_str().to_string());
+                return Ok(obj.repr(vm)?.as_str().to_string());
             }
 
             match (
@@ -91,7 +91,7 @@ impl PyGenericAlias {
                 vm.get_attribute_opt(obj.clone(), "__module__")?
                     .and_then(|o| o.downcast_ref::<PyStr>().map(|m| m.as_str().to_string())),
             ) {
-                (None, _) | (_, None) => Ok(vm.to_repr(&obj)?.as_str().to_string()),
+                (None, _) | (_, None) => Ok(obj.repr(vm)?.as_str().to_string()),
                 (Some(qualname), Some(module)) => Ok(if module == "builtins" {
                     qualname
                 } else {

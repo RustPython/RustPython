@@ -400,7 +400,7 @@ mod _sre {
                 .map(|(name, _)| name)
                 .join("|");
 
-            let pattern = vm.to_repr(&self.pattern)?;
+            let pattern = self.pattern.repr(vm)?;
             let truncated: String;
             let s = if pattern.char_len() > 200 {
                 truncated = pattern.as_str().chars().take(200).collect();
@@ -757,7 +757,7 @@ mod _sre {
                         "<re.Match object; span=({}, {}), match={}>",
                         self.regs[0].0,
                         self.regs[0].1,
-                        vm.to_repr(&self.get_slice(0, str_drive, vm).unwrap())?
+                        self.get_slice(0, str_drive, vm).unwrap().repr(vm)?
                     ))
                 })
         }

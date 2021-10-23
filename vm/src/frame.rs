@@ -1101,7 +1101,7 @@ impl ExecutingFrame<'_> {
                 let value = self.pop_value();
                 let value = match conversion {
                     ConversionFlag::Str => value.str(vm)?.into(),
-                    ConversionFlag::Repr => vm.to_repr(&value)?.into(),
+                    ConversionFlag::Repr => value.repr(vm)?.into(),
                     ConversionFlag::Ascii => vm.ctx.new_str(builtins::ascii(value, vm)?).into(),
                     ConversionFlag::None => value,
                 };
@@ -1354,7 +1354,7 @@ impl ExecutingFrame<'_> {
                     #[allow(clippy::collapsible_if)]
                     if for_call {
                         if map_obj.contains_key(key.clone(), vm) {
-                            let key_repr = vm.to_repr(&key)?;
+                            let key_repr = &key.repr(vm)?;
                             let msg = format!(
                                 "got multiple values for keyword argument {}",
                                 key_repr.as_str()

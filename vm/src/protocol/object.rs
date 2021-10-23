@@ -208,11 +208,14 @@ impl PyObject {
     }
 
     pub fn repr(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        vm.to_repr(self)
+        vm.with_recursion("while getting the repr of an object", || {
+            let repr = vm.call_special_method(self.to_owned(), "__repr__", ())?;
+            repr.try_into_value(vm)
+        })
     }
 
     pub fn ascii(&self, vm: &VirtualMachine) -> PyResult<ascii::AsciiString> {
-        let repr = vm.to_repr(self)?;
+        let repr = self.repr(vm)?;
         let ascii = to_ascii(repr.as_str());
         Ok(ascii)
     }

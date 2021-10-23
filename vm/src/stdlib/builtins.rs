@@ -64,7 +64,7 @@ mod builtins {
 
     #[pyfunction]
     pub fn ascii(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<ascii::AsciiString> {
-        let repr = vm.to_repr(&obj)?;
+        let repr = obj.repr(vm)?;
         let ascii = to_ascii(repr.as_str());
         Ok(ascii)
     }
@@ -679,7 +679,7 @@ mod builtins {
 
     #[pyfunction]
     fn repr(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        vm.to_repr(&obj)
+        obj.repr(vm)
     }
 
     #[pyfunction]

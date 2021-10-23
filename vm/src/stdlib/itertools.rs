@@ -307,7 +307,7 @@ mod decl {
 
         #[pymethod(magic)]
         fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
-            let mut fmt = format!("{}", vm.to_repr(&self.object)?);
+            let mut fmt = format!("{}", &self.object.repr(vm)?);
             if let Some(ref times) = self.times {
                 fmt.push_str(&format!(", {}", times.read()));
             }

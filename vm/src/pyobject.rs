@@ -981,7 +981,7 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
     #[pymethod(magic)]
     fn repr(zelf: PyRef<PyTuple>, vm: &VirtualMachine) -> PyResult<String> {
         let format_field = |(value, name): (&PyObjectRef, _)| {
-            let s = vm.to_repr(value)?;
+            let s = value.repr(vm)?;
             Ok(format!("{}={}", name, s))
         };
         let (body, suffix) =

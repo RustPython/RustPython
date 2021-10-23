@@ -160,7 +160,8 @@ impl VirtualMachine {
                         .str(vm)
                         .unwrap_or_else(|_| PyStr::from("<element str() failed>").into_ref(vm))
                 } else {
-                    vm.to_repr(&varargs[0])
+                    varargs[0]
+                        .repr(vm)
                         .unwrap_or_else(|_| PyStr::from("<element repr() failed>").into_ref(vm))
                 };
                 vec![args0_repr]
@@ -168,7 +169,8 @@ impl VirtualMachine {
             _ => varargs
                 .iter()
                 .map(|vararg| {
-                    vm.to_repr(vararg)
+                    vararg
+                        .repr(vm)
                         .unwrap_or_else(|_| PyStr::from("<element repr() failed>").into_ref(vm))
                 })
                 .collect(),

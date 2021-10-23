@@ -201,7 +201,7 @@ impl PyTuple {
         let s = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
             let mut str_parts = Vec::with_capacity(zelf.elements.len());
             for elem in zelf.elements.iter() {
-                let s = vm.to_repr(elem)?;
+                let s = elem.repr(vm)?;
                 str_parts.push(s.as_str().to_owned());
             }
 
