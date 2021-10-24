@@ -73,12 +73,8 @@ impl PyObjectRef {
         self.is_true(vm).map(|x| !x)
     }
 
-    pub fn length_hint(
-        self,
-        defaultvalue: Option<usize>,
-        vm: &VirtualMachine,
-    ) -> PyResult<Option<usize>> {
-        Ok(vm.length_hint(self)?.or(defaultvalue))
+    pub fn length_hint(self, defaultvalue: usize, vm: &VirtualMachine) -> PyResult<usize> {
+        Ok(vm.length_hint_opt(self)?.unwrap_or(defaultvalue))
     }
 
     // item protocol

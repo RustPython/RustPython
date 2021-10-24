@@ -282,7 +282,7 @@ mod _operator {
                 v.payload::<PyInt>().unwrap().try_to_primitive(vm)
             })
             .unwrap_or(Ok(0))?;
-        vm.length_hint(obj).map(|v| v.unwrap_or(default))
+        obj.length_hint(default, vm)
     }
 
     // Inplace Operators

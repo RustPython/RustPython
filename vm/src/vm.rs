@@ -1201,7 +1201,7 @@ impl VirtualMachine {
         F: FnMut(PyObjectRef) -> PyResult<R>,
     {
         let iter = value.to_owned().get_iter(self)?;
-        let cap = match self.length_hint(value.to_owned()) {
+        let cap = match self.length_hint_opt(value.to_owned()) {
             Err(e) if e.class().is(&self.ctx.exceptions.runtime_error) => return Err(e),
             Ok(Some(value)) => Some(value),
             // Use a power of 2 as a default capacity.
@@ -1681,7 +1681,7 @@ impl VirtualMachine {
             })
     }
 
-    pub fn length_hint(&self, iter: PyObjectRef) -> PyResult<Option<usize>> {
+    pub fn length_hint_opt(&self, iter: PyObjectRef) -> PyResult<Option<usize>> {
         if let Some(len) = self.obj_len_opt(&iter) {
             match len {
                 Ok(len) => return Ok(Some(len)),
