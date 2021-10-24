@@ -1154,7 +1154,7 @@ impl VirtualMachine {
                 .map(|obj| func(obj.clone()))
                 .collect()
         } else {
-            self.map_pyiter(value, |obj| func(obj))
+            self.map_pyiter(value, func)
         }
     }
 

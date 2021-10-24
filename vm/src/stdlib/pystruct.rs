@@ -238,6 +238,7 @@ pub(crate) mod _struct {
 
     #[derive(Debug, Clone)]
     pub(crate) struct FormatSpec {
+        #[allow(dead_code)]
         endianness: Endianness,
         codes: Vec<FormatCode>,
         size: usize,
