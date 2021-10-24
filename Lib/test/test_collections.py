@@ -60,11 +60,15 @@ class TestUserObjects(unittest.TestCase):
     def test_dict_protocol(self):
         self._superset_test(UserDict, dict)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_list_copy(self):
         obj = UserList()
         obj.append(123)
         self._copy_test(obj)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_dict_copy(self):
         obj = UserDict()
         obj[123] = "abc"
