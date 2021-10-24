@@ -124,6 +124,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
       - run: cargo install cargo-criterion
       - name: build benchmarks
         run: cargo build --release --benches
