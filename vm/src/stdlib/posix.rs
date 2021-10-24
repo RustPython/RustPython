@@ -66,6 +66,9 @@ pub mod module {
     use libc::{O_NDELAY, O_NOCTTY};
 
     #[pyattr]
+    use libc::{RTLD_GLOBAL, RTLD_LAZY, RTLD_LOCAL, RTLD_NOW};
+
+    #[pyattr]
     const EX_OK: i8 = exitcode::OK as i8;
     #[pyattr]
     const EX_USAGE: i8 = exitcode::USAGE as i8;
