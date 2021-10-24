@@ -69,9 +69,8 @@ mod _io {
     use super::*;
 
     use crate::common::{
-        borrow::{BorrowedValue, BorrowedValueMut},
         lock::{
-            PyMappedThreadMutexGuard, PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
+            PyMappedThreadMutexGuard, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
             PyThreadMutex, PyThreadMutexGuard,
         },
     };
@@ -84,11 +83,13 @@ mod _io {
             ArgBytesLike, ArgIterable, ArgMemoryBuffer, FuncArgs, IntoPyObject, OptionalArg,
             OptionalOption,
         },
-        protocol::{BufferMethods, BufferOptions, BufferResizeGuard, PyBuffer, PyIterReturn},
-        types::{AsBuffer, Constructor, Destructor, IterNext, Iterable},
+        protocol::{
+            BufferMethods, BufferOptions, BufferResizeGuard, PyBuffer, PyIterReturn, VecBuffer,
+        },
+        types::{Constructor, Destructor, IterNext, Iterable},
         utils::Either,
         vm::{ReprGuard, VirtualMachine},
-        IdProtocol, PyContext, PyObject, PyObjectRef, PyObjectView, PyObjectWrap, PyRef, PyResult,
+        IdProtocol, PyContext, PyObject, PyObjectRef, PyObjectWrap, PyRef, PyResult,
         PyValue, StaticType, TryFromBorrowedObject, TryFromObject, TypeProtocol,
     };
     use bstr::ByteSlice;
@@ -875,33 +876,18 @@ mod _io {
                 // TODO: loop if write() raises an interrupt
                 vm.call_method(self.raw.as_ref().unwrap(), "write", (memobj,))?
             } else {
-                let options = BufferOptions {
-                    len,
-                    ..Default::default()
-                };
-                // TODO: see if we can encapsulate this pattern in a function in memory.rs like
-                // fn slice_as_memory<R>(s: &[u8], f: impl FnOnce(PyMemoryViewRef) -> R) -> R
-                let writebuf = BufferedRawBuffer {
-                    data: std::mem::take(&mut self.buffer).into(),
-                    range: buf_range,
-                }
-                .into_ref(vm);
-                let raw = self.raw.as_ref().unwrap();
-                let memobj = PyMemoryView::from_buffer(
-                    PyBuffer {
-                        obj: writebuf.clone().into_object(),
-                        options,
-                        methods: &BUFFERED_RAW_BUFFER_METHODS,
-                    },
-                    vm,
-                )?
-                .into_ref(vm);
+                let v = std::mem::take(&mut self.buffer);
+                let writebuf = VecBuffer::new(v).into_ref(vm);
+                let memobj =
+                    PyMemoryView::from_buffer(writebuf.clone().into_readonly_pybuffer(), vm)?
+                        .into_ref(vm);
 
+                let raw = self.raw.as_ref().unwrap();
                 // TODO: loop if write() raises an interrupt
                 let res = vm.call_method(raw, "write", (memobj.clone(),));
 
                 memobj.release();
-                self.buffer = std::mem::take(&mut writebuf.data.lock());
+                self.buffer = writebuf.take();
 
                 res?
             };
@@ -1114,24 +1100,10 @@ mod _io {
             let res = match v {
                 Either::A(v) => {
                     let v = v.unwrap_or(&mut self.buffer);
-                    let options = BufferOptions {
-                        len,
-                        readonly: false,
-                        ..Default::default()
-                    };
-                    // TODO: see if we can encapsulate this pattern in a function in memory.rs like
-                    // fn slice_as_memory<R>(s: &[u8], f: impl FnOnce(PyMemoryViewRef) -> R) -> R
-                    let readbuf = BufferedRawBuffer {
-                        data: std::mem::take(v).into(),
-                        range: buf_range,
-                    }
-                    .into_ref(vm);
-                    let memobj = PyMemoryView::from_buffer(
-                        PyBuffer {
-                            obj: readbuf.clone().into_object(),
-                            options,
-                            methods: &BUFFERED_RAW_BUFFER_METHODS,
-                        },
+                    let readbuf = VecBuffer::new(std::mem::take(v)).into_ref(vm);
+                    let memobj = PyMemoryView::from_buffer_range(
+                        readbuf.clone().into_pybuffer(),
+                        buf_range,
                         vm,
                     )?
                     .into_ref(vm);
@@ -1141,7 +1113,7 @@ mod _io {
                         vm.call_method(self.raw.as_ref().unwrap(), "readinto", (memobj.clone(),));
 
                     memobj.release();
-                    std::mem::swap(v, &mut readbuf.data.lock());
+                    std::mem::swap(v, &mut readbuf.take());
 
                     res?
                 }
@@ -1317,55 +1289,6 @@ mod _io {
             }
 
             Ok(Some(written))
-        }
-    }
-
-    // this is a bit fancier than what CPython does, but in CPython if you store
-    // the memoryobj for the buffer until after the BufferedIO is destroyed, you
-    // can get a use-after-free, so this is a bit safe
-    #[pyclass(noattr, module = false, name = "_buffered_raw_buffer")]
-    #[derive(Debug, PyValue)]
-    struct BufferedRawBuffer {
-        data: PyMutex<Vec<u8>>,
-        range: Range<usize>,
-    }
-    #[pyimpl(with(AsBuffer))]
-    impl BufferedRawBuffer {}
-
-    static BUFFERED_RAW_BUFFER_METHODS: BufferMethods = BufferMethods {
-        obj_bytes: |zelf| {
-            let zelf = zelf.downcast_ref::<BufferedRawBuffer>().unwrap();
-            BorrowedValue::map(zelf.data.lock().into(), |x| x.as_slice())
-        },
-        obj_bytes_mut: |zelf| {
-            let zelf = zelf.downcast_ref::<BufferedRawBuffer>().unwrap();
-            BorrowedValueMut::map(zelf.data.lock().into(), |x| x.as_mut_slice())
-        },
-        contiguous: Some(|zelf| {
-            let zelf = zelf.downcast_ref::<BufferedRawBuffer>().unwrap();
-            BorrowedValue::map(zelf.data.lock().into(), |x| &x[zelf.range.clone()])
-        }),
-        contiguous_mut: Some(|zelf| {
-            let zelf = zelf.downcast_ref::<BufferedRawBuffer>().unwrap();
-            BorrowedValueMut::map(zelf.data.lock().into(), |x| &mut x[zelf.range.clone()])
-        }),
-        collect_bytes: None,
-        // TODO: export counting to make sure no exports before retrive data to buffer
-        release: None,
-        retain: None,
-    };
-
-    impl AsBuffer for BufferedRawBuffer {
-        fn as_buffer(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyBuffer> {
-            let buf = PyBuffer::new(
-                zelf.to_owned().into_object(),
-                BufferOptions {
-                    len: zelf.range.end - zelf.range.start,
-                    ..Default::default()
-                },
-                &BUFFERED_RAW_BUFFER_METHODS,
-            );
-            Ok(buf)
         }
     }
 
@@ -3377,23 +3300,23 @@ mod _io {
     }
 
     static BYTES_IO_BUFFER_METHODS: BufferMethods = BufferMethods {
-        obj_bytes: |zelf| {
-            let zelf = zelf.downcast_ref::<BytesIO>().unwrap();
+        obj_bytes: |buffer| {
+            let zelf = buffer.obj_as::<BytesIO>();
             PyRwLockReadGuard::map(zelf.buffer.read(), |x| x.cursor.get_ref().as_slice()).into()
         },
-        obj_bytes_mut: |zelf| {
-            let zelf = zelf.downcast_ref::<BytesIO>().unwrap();
+        obj_bytes_mut: |buffer| {
+            let zelf = buffer.obj_as::<BytesIO>();
             PyRwLockWriteGuard::map(zelf.buffer.write(), |x| x.cursor.get_mut().as_mut_slice())
                 .into()
         },
         contiguous: None,
         contiguous_mut: None,
         collect_bytes: None,
-        release: Some(|zelf| {
-            zelf.downcast_ref::<BytesIO>().unwrap().exports.fetch_sub(1);
+        release: Some(|buffer| {
+            buffer.obj_as::<BytesIO>().exports.fetch_sub(1);
         }),
-        retain: Some(|zelf| {
-            zelf.downcast_ref::<BytesIO>().unwrap().exports.fetch_add(1);
+        retain: Some(|buffer| {
+            buffer.obj_as::<BytesIO>().exports.fetch_add(1);
         }),
     };
 

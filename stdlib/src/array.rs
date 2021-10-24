@@ -1234,17 +1234,17 @@ mod array {
     }
 
     static BUFFER_METHODS: BufferMethods = BufferMethods {
-        obj_bytes: |zelf| zelf.payload::<PyArray>().unwrap().get_bytes().into(),
-        obj_bytes_mut: |zelf| zelf.payload::<PyArray>().unwrap().get_bytes_mut().into(),
+        obj_bytes: |buffer| buffer.obj_as::<PyArray>().get_bytes().into(),
+        obj_bytes_mut: |buffer| buffer.obj_as::<PyArray>().get_bytes_mut().into(),
+        release: Some(|buffer| {
+            buffer.obj_as::<PyArray>().exports.fetch_sub(1);
+        }),
+        retain: Some(|buffer| {
+            buffer.obj_as::<PyArray>().exports.fetch_add(1);
+        }),
         contiguous: None,
         contiguous_mut: None,
         collect_bytes: None,
-        release: Some(|zelf| {
-            zelf.payload::<PyArray>().unwrap().exports.fetch_sub(1);
-        }),
-        retain: Some(|zelf| {
-            zelf.payload::<PyArray>().unwrap().exports.fetch_add(1);
-        }),
     };
 
     impl AsMapping for PyArray {

@@ -40,7 +40,7 @@ impl PyObject {
 
 impl ArgBytesLike {
     pub fn borrow_buf(&self) -> BorrowedValue<'_, [u8]> {
-        self.0.as_contiguous().unwrap()
+        self.0._contiguous()
     }
 
     pub fn with_ref<F, R>(&self, f: F) -> R
@@ -51,15 +51,11 @@ impl ArgBytesLike {
     }
 
     pub fn len(&self) -> usize {
-        self.borrow_buf().len()
+        self.0.options.len
     }
 
     pub fn is_empty(&self) -> bool {
-        self.borrow_buf().is_empty()
-    }
-
-    pub fn to_cow(&self) -> std::borrow::Cow<[u8]> {
-        self.borrow_buf().to_vec().into()
+        self.len() == 0
     }
 }
 
@@ -86,7 +82,7 @@ pub struct ArgMemoryBuffer(PyBuffer);
 
 impl ArgMemoryBuffer {
     pub fn borrow_buf_mut(&self) -> BorrowedValueMut<'_, [u8]> {
-        self.0.as_contiguous_mut().unwrap()
+        self.0._contiguous_mut()
     }
 
     pub fn with_ref<F, R>(&self, f: F) -> R
@@ -97,11 +93,11 @@ impl ArgMemoryBuffer {
     }
 
     pub fn len(&self) -> usize {
-        self.borrow_buf_mut().len()
+        self.0.options.len
     }
 
     pub fn is_empty(&self) -> bool {
-        self.borrow_buf_mut().is_empty()
+        self.len() == 0
     }
 }
 

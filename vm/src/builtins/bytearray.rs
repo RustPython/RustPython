@@ -3,12 +3,9 @@ use super::{
     PositionIterInternal, PyBytes, PyBytesRef, PyDictRef, PyIntRef, PyStrRef, PyTuple, PyTupleRef,
     PyTypeRef,
 };
-use crate::common::{
-    lock::{
-        PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyMutex, PyRwLock, PyRwLockReadGuard,
-        PyRwLockWriteGuard,
-    },
-    static_cell,
+use crate::common::lock::{
+    PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyMutex, PyRwLock, PyRwLockReadGuard,
+    PyRwLockWriteGuard,
 };
 use crate::{
     anystr::{self, AnyStr},
@@ -708,27 +705,27 @@ impl Comparable for PyByteArray {
     }
 }
 
+static BUFFER_METHODS: BufferMethods = BufferMethods {
+    obj_bytes: |buffer| buffer.obj_as::<PyByteArray>().borrow_buf().into(),
+    obj_bytes_mut: |buffer| {
+        PyMappedRwLockWriteGuard::map(buffer.obj_as::<PyByteArray>().borrow_buf_mut(), |x| {
+            x.as_mut_slice()
+        })
+        .into()
+    },
+    release: Some(|buffer| {
+        buffer.obj_as::<PyByteArray>().exports.fetch_sub(1);
+    }),
+    retain: Some(|buffer| {
+        buffer.obj_as::<PyByteArray>().exports.fetch_add(1);
+    }),
+    contiguous: None,
+    contiguous_mut: None,
+    collect_bytes: None,
+};
+
 impl AsBuffer for PyByteArray {
-    fn as_buffer(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyBuffer> {
-        static_cell! {
-            static METHODS: BufferMethods;
-        }
-        let methods = METHODS.get_or_init(|| BufferMethods {
-            obj_bytes: |zelf| zelf.payload::<Self>().unwrap().borrow_buf().into(),
-            obj_bytes_mut: |zelf| {
-                let zelf = zelf.payload::<Self>().unwrap();
-                PyRwLockWriteGuard::map(zelf.inner_mut(), |x| &mut *x.elements).into()
-            },
-            release: Some(|zelf| {
-                zelf.payload::<Self>().unwrap().exports.fetch_sub(1);
-            }),
-            retain: Some(|zelf| {
-                zelf.payload::<Self>().unwrap().exports.fetch_add(1);
-            }),
-            contiguous: None,
-            contiguous_mut: None,
-            collect_bytes: None,
-        });
+    fn as_buffer(zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
         let buffer = PyBuffer::new(
             zelf.to_owned().into_object(),
             BufferOptions {
@@ -736,7 +733,7 @@ impl AsBuffer for PyByteArray {
                 len: zelf.len(),
                 ..Default::default()
             },
-            methods,
+            &BUFFER_METHODS,
         );
         Ok(buffer)
     }

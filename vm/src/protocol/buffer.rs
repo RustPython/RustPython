@@ -1,24 +1,30 @@
 //! Buffer protocol
 
-use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
-use crate::common::rc::PyRc;
-use crate::PyThreadingConstraint;
-use crate::{PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, TypeProtocol, VirtualMachine};
+use crate::{
+    builtins::PyTypeRef,
+    common::{
+        borrow::{BorrowedValue, BorrowedValueMut},
+        lock::{MapImmutable, PyMutex, PyMutexGuard},
+    },
+    types::{Constructor, Unconstructible},
+    PyObject, PyObjectPayload, PyObjectRef, PyObjectView, PyObjectWrap, PyRef, PyResult, PyValue,
+    TryFromBorrowedObject, TypeProtocol, VirtualMachine,
+};
 use std::{borrow::Cow, fmt::Debug};
 
 pub struct BufferMethods {
     // always reflecting the whole bytes of the most top object
-    pub obj_bytes: fn(&PyObjectRef) -> BorrowedValue<[u8]>,
+    pub obj_bytes: fn(&PyBuffer) -> BorrowedValue<[u8]>,
     // always reflecting the whole bytes of the most top object
-    pub obj_bytes_mut: fn(&PyObjectRef) -> BorrowedValueMut<[u8]>,
+    pub obj_bytes_mut: fn(&PyBuffer) -> BorrowedValueMut<[u8]>,
     // GUARANTEE: called only if the buffer option is contiguous
-    pub contiguous: Option<fn(&PyObjectRef) -> BorrowedValue<[u8]>>,
+    pub contiguous: Option<fn(&PyBuffer) -> BorrowedValue<[u8]>>,
     // GUARANTEE: called only if the buffer option is contiguous
-    pub contiguous_mut: Option<fn(&PyObjectRef) -> BorrowedValueMut<[u8]>>,
+    pub contiguous_mut: Option<fn(&PyBuffer) -> BorrowedValueMut<[u8]>>,
     // collect bytes to buf when buffer option is not contiguous
-    pub collect_bytes: Option<fn(&PyObjectRef, buf: &mut Vec<u8>)>,
-    pub release: Option<fn(&PyObjectRef)>,
-    pub retain: Option<fn(&PyObjectRef)>,
+    pub collect_bytes: Option<fn(&PyBuffer, buf: &mut Vec<u8>)>,
+    pub release: Option<fn(&PyBuffer)>,
+    pub retain: Option<fn(&PyBuffer)>,
 }
 
 impl Debug for BufferMethods {
@@ -35,11 +41,11 @@ impl Debug for BufferMethods {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PyBuffer {
     pub obj: PyObjectRef,
     pub options: BufferOptions,
-    pub(crate) methods: &'static BufferMethods,
+    methods: &'static BufferMethods,
 }
 
 impl PyBuffer {
@@ -49,9 +55,10 @@ impl PyBuffer {
             options,
             methods,
         };
-        zelf._retain();
+        zelf.retain();
         zelf
     }
+
     pub fn as_contiguous(&self) -> Option<BorrowedValue<[u8]>> {
         self.options.contiguous.then(|| self._contiguous())
     }
@@ -82,51 +89,51 @@ impl PyBuffer {
         f(v)
     }
 
-    pub fn clone_with_options(&self, options: BufferOptions) -> Self {
-        Self::new(self.obj.clone(), options, self.methods)
+    pub fn obj_as<T: PyObjectPayload>(&self) -> &PyObjectView<T> {
+        self.obj.downcast_ref().unwrap()
+    }
+
+    pub fn obj_bytes(&self) -> BorrowedValue<[u8]> {
+        (self.methods.obj_bytes)(self)
+    }
+
+    pub fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
+        (self.methods.obj_bytes_mut)(self)
+    }
+
+    pub fn release(&self) {
+        if let Some(f) = self.methods.release {
+            f(self)
+        }
+    }
+
+    pub fn retain(&self) {
+        if let Some(f) = self.methods.retain {
+            f(self)
+        }
     }
 
     // SAFETY: should only called if option has contiguous
     pub(crate) fn _contiguous(&self) -> BorrowedValue<[u8]> {
         self.methods
             .contiguous
-            .map(|f| f(&self.obj))
-            .unwrap_or_else(|| (self.methods.obj_bytes)(&self.obj))
+            .map(|f| f(self))
+            .unwrap_or_else(|| self.obj_bytes())
     }
 
     // SAFETY: should only called if option has contiguous
     pub(crate) fn _contiguous_mut(&self) -> BorrowedValueMut<[u8]> {
         self.methods
             .contiguous_mut
-            .map(|f| f(&self.obj))
-            .unwrap_or_else(|| (self.methods.obj_bytes_mut)(&self.obj))
-    }
-
-    pub(crate) fn _obj_bytes(&self) -> BorrowedValue<[u8]> {
-        (self.methods.obj_bytes)(&self.obj)
-    }
-
-    pub(crate) fn _obj_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
-        (self.methods.obj_bytes_mut)(&self.obj)
-    }
-
-    pub(crate) fn _release(&self) {
-        if let Some(f) = self.methods.release {
-            f(&self.obj)
-        }
-    }
-
-    pub(crate) fn _retain(&self) {
-        if let Some(f) = self.methods.retain {
-            f(&self.obj)
-        }
+            .map(|f| f(self))
+            .unwrap_or_else(|| self.obj_bytes_mut())
     }
 
     pub(crate) fn _collect_bytes(&self, buf: &mut Vec<u8>) {
         self.methods
             .collect_bytes
-            .map(|f| f(&self.obj, buf))
-            .unwrap_or_else(|| buf.extend_from_slice(&(self.methods.obj_bytes)(&self.obj)))
+            .map(|f| f(self, buf))
+            .unwrap_or_else(|| buf.extend_from_slice(&self.obj_bytes()))
     }
 }
 
@@ -185,13 +192,7 @@ impl TryFromBorrowedObject for PyBuffer {
 // but it is not supported by Rust
 impl Drop for PyBuffer {
     fn drop(&mut self) {
-        self._release();
-    }
-}
-
-impl Clone for PyBuffer {
-    fn clone(&self) -> Self {
-        self.clone_with_options(self.options.clone())
+        self.release();
     }
 }
 
@@ -199,3 +200,64 @@ pub trait BufferResizeGuard<'a> {
     type Resizable: 'a;
     fn try_resizable(&'a self, vm: &VirtualMachine) -> PyResult<Self::Resizable>;
 }
+
+#[pyclass(module = false, name = "vec_buffer")]
+#[derive(Debug)]
+pub struct VecBuffer(PyMutex<Vec<u8>>);
+
+#[pyimpl(flags(BASETYPE), with(Constructor))]
+impl VecBuffer {
+    pub fn new(v: Vec<u8>) -> Self {
+        Self(PyMutex::new(v))
+    }
+    pub fn take(&self) -> Vec<u8> {
+        std::mem::take(&mut *self.0.lock())
+    }
+}
+impl Unconstructible for VecBuffer {}
+impl PyValue for VecBuffer {
+    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+        &vm.ctx.types.vec_buffer_type
+    }
+}
+
+impl PyRef<VecBuffer> {
+    pub fn into_pybuffer(self) -> PyBuffer {
+        let len = self.0.lock().len();
+        PyBuffer::new(
+            self.into_object(),
+            BufferOptions {
+                len,
+                readonly: false,
+                ..Default::default()
+            },
+            &VEC_BUFFER_METHODS,
+        )
+    }
+    pub fn into_readonly_pybuffer(self) -> PyBuffer {
+        let len = self.0.lock().len();
+        PyBuffer::new(
+            self.into_object(),
+            BufferOptions {
+                len,
+                readonly: true,
+                ..Default::default()
+            },
+            &VEC_BUFFER_METHODS,
+        )
+    }
+}
+
+static VEC_BUFFER_METHODS: BufferMethods = BufferMethods {
+    obj_bytes: |buffer| {
+        PyMutexGuard::map_immutable(buffer.obj_as::<VecBuffer>().0.lock(), |x| x.as_slice()).into()
+    },
+    obj_bytes_mut: |buffer| {
+        PyMutexGuard::map(buffer.obj_as::<VecBuffer>().0.lock(), |x| x.as_mut_slice()).into()
+    },
+    contiguous: None,
+    contiguous_mut: None,
+    collect_bytes: None,
+    release: None,
+    retain: None,
+};

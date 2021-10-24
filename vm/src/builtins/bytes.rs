@@ -539,7 +539,7 @@ impl PyBytes {
 }
 
 static BUFFER_METHODS: BufferMethods = BufferMethods {
-    obj_bytes: |zelf| zelf.payload::<PyBytes>().unwrap().as_bytes().into(),
+    obj_bytes: |buffer| buffer.obj_as::<PyBytes>().as_bytes().into(),
     obj_bytes_mut: |_| panic!(),
     contiguous: None,
     contiguous_mut: None,
@@ -549,7 +549,7 @@ static BUFFER_METHODS: BufferMethods = BufferMethods {
 };
 
 impl AsBuffer for PyBytes {
-    fn as_buffer(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyBuffer> {
+    fn as_buffer(zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
         let buf = PyBuffer::new(
             zelf.to_owned().into_object(),
             BufferOptions {
