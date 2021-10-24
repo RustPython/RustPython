@@ -14,13 +14,9 @@ class UserStringTest(
 
     type2test = UserString
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_removeprefix(self):
         super().test_removeprefix()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_removesuffix(self):
         super().test_removesuffix()
 
