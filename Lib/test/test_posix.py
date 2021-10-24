@@ -618,7 +618,7 @@ class PosixTester(unittest.TestCase):
         finally:
             fp.close()
 
-    # TODO: RUSTPYTHON: TypeError: expected str, bytes or os.PathLike object, not 'bytearray'
+    # TODO: RUSTPYTHON: AssertionError: DeprecationWarning not triggered by stat
     @unittest.expectedFailure
     def test_stat(self):
         self.assertTrue(posix.stat(support.TESTFN))
@@ -807,7 +807,7 @@ class PosixTester(unittest.TestCase):
         # the returned strings are of type bytes.
         self.assertIn(os.fsencode(support.TESTFN), posix.listdir(b'.'))
 
-    # TODO: RUSTPYTHON: TypeError: expected str, bytes or os.PathLike object, not 'bytearray'
+    # TODO: RUSTPYTHON: AssertionError: DeprecationWarning not triggered
     @unittest.expectedFailure
     def test_listdir_bytes_like(self):
         for cls in bytearray, memoryview:
@@ -1544,7 +1544,7 @@ class _PosixSpawnMixin:
         # test_close_file() to fail.
         return (sys.executable, '-I', '-S', *args)
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON: AttributeError: module 'test.support' has no attribute 'wait_process'
     @unittest.expectedFailure
     def test_returns_pid(self):
         pidfile = support.TESTFN
@@ -1560,7 +1560,7 @@ class _PosixSpawnMixin:
         with open(pidfile) as f:
             self.assertEqual(f.read(), str(pid))
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON: AssertionError: None != 'no_such_executable'
     @unittest.expectedFailure
     def test_no_such_executable(self):
         no_such_executable = 'no_such_executable'
@@ -1577,7 +1577,7 @@ class _PosixSpawnMixin:
             self.assertEqual(pid2, pid)
             self.assertNotEqual(status, 0)
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON: TypeError: '_Environ' object is not a mapping
     @unittest.expectedFailure
     def test_specify_environment(self):
         envfile = support.TESTFN
@@ -1594,7 +1594,7 @@ class _PosixSpawnMixin:
         with open(envfile) as f:
             self.assertEqual(f.read(), 'bar')
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON: AttributeError: module 'test.support' has no attribute 'wait_process'
     @unittest.expectedFailure
     def test_none_file_actions(self):
         pid = self.spawn_func(
@@ -1605,7 +1605,7 @@ class _PosixSpawnMixin:
         )
         support.wait_process(pid, exitcode=0)
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON: AttributeError: module 'test.support' has no attribute 'wait_process'
     @unittest.expectedFailure
     def test_empty_file_actions(self):
         pid = self.spawn_func(
@@ -1616,7 +1616,7 @@ class _PosixSpawnMixin:
         )
         support.wait_process(pid, exitcode=0)
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON: TypeError: Unexpected keyword argument resetids
     @unittest.expectedFailure
     def test_resetids_explicit_default(self):
         pid = self.spawn_func(
@@ -1627,7 +1627,7 @@ class _PosixSpawnMixin:
         )
         support.wait_process(pid, exitcode=0)
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON: TypeError: Unexpected keyword argument resetids
     @unittest.expectedFailure
     def test_resetids(self):
         pid = self.spawn_func(
@@ -1644,7 +1644,7 @@ class _PosixSpawnMixin:
                             [sys.executable, "-c", "pass"],
                             os.environ, resetids=None)
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON: TypeError: Unexpected keyword argument setpgroup
     @unittest.expectedFailure
     def test_setpgroup(self):
         pid = self.spawn_func(
@@ -1676,7 +1676,7 @@ class _PosixSpawnMixin:
         )
         support.wait_process(pid, exitcode=0)
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON: TypeError: Unexpected keyword argument setsigmask
     @unittest.expectedFailure
     def test_setsigmask_wrong_type(self):
         with self.assertRaises(TypeError):
@@ -1693,7 +1693,7 @@ class _PosixSpawnMixin:
                             os.environ, setsigmask=[signal.NSIG,
                                                     signal.NSIG+1])
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON: TypeError: Unexpected keyword argument setsid
     @unittest.expectedFailure
     def test_setsid(self):
         rfd, wfd = os.pipe()
@@ -1759,7 +1759,7 @@ class _PosixSpawnMixin:
                             [sys.executable, "-c", "pass"],
                             os.environ, setsigdef=[signal.NSIG, signal.NSIG+1])
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON: TypeError: Unexpected keyword argument scheduler
     @unittest.expectedFailure
     @requires_sched
     @unittest.skipIf(sys.platform.startswith(('freebsd', 'netbsd')),
@@ -1781,7 +1781,7 @@ class _PosixSpawnMixin:
         )
         support.wait_process(pid, exitcode=0)
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON: TypeError: Unexpected keyword argument scheduler
     @unittest.expectedFailure
     @requires_sched
     @unittest.skipIf(sys.platform.startswith(('freebsd', 'netbsd')),
@@ -1803,7 +1803,7 @@ class _PosixSpawnMixin:
         )
         support.wait_process(pid, exitcode=0)
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON: AttributeError: module 'test.support' has no attribute 'wait_process'
     @unittest.expectedFailure
     def test_multiple_file_actions(self):
         file_actions = [
@@ -1846,7 +1846,7 @@ class _PosixSpawnMixin:
                                            3, __file__ + '\0',
                                            os.O_RDONLY, 0)])
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON: AttributeError: module 'test.support' has no attribute 'wait_process'
     @unittest.expectedFailure
     def test_open_file(self):
         outfile = support.TESTFN
@@ -1868,7 +1868,7 @@ class _PosixSpawnMixin:
         with open(outfile) as f:
             self.assertEqual(f.read(), 'hello')
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON: AttributeError: module 'test.support' has no attribute 'wait_process'
     @unittest.expectedFailure
     def test_close_file(self):
         closefile = support.TESTFN
@@ -1889,7 +1889,7 @@ class _PosixSpawnMixin:
         with open(closefile) as f:
             self.assertEqual(f.read(), 'is closed %d' % errno.EBADF)
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON: AttributeError: module 'test.support' has no attribute 'wait_process'
     @unittest.expectedFailure
     def test_dup2(self):
         dupfile = support.TESTFN
@@ -1919,7 +1919,7 @@ class TestPosixSpawn(unittest.TestCase, _PosixSpawnMixin):
 class TestPosixSpawnP(unittest.TestCase, _PosixSpawnMixin):
     spawn_func = getattr(posix, 'posix_spawnp', None)
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON: AttributeError: module 'test.support' has no attribute 'wait_process'
     @unittest.expectedFailure
     @support.skip_unless_symlink
     def test_posix_spawnp(self):
