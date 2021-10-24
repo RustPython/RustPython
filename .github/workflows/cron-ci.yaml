@@ -125,6 +125,9 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
+      - uses: actions/setup-python@v2
+        with:
+          python-version: 3.9
       - run: cargo install cargo-criterion
       - name: build benchmarks
         run: cargo build --release --benches
