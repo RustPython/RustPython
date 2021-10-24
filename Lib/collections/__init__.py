@@ -1022,6 +1022,7 @@ class UserDict(_collections_abc.MutableMapping):
         if len(kwargs):
             self.update(kwargs)
     def __len__(self): return len(self.data)
+    def __bool__(self): return bool(self.data)
     def __getitem__(self, key):
         if key in self.data:
             return self.data[key]
@@ -1051,12 +1052,43 @@ class UserDict(_collections_abc.MutableMapping):
             self.data = data
         c.update(self)
         return c
+
     @classmethod
     def fromkeys(cls, iterable, value=None):
         d = cls()
         for key in iterable:
             d[key] = value
         return d
+    def __sizeof__(self):
+        sizeof = _sys.getsizeof
+        n = len(self) + 1                       # number of links including root
+        size = sizeof(self.__dict__)            # instance dictionary
+        size += sizeof(self.__map) * 2          # internal dict and inherited dict
+        size += sizeof(self.__hardroot) * n     # link objects
+        size += sizeof(self.__root) * n         # proxy objects
+        return size
+
+    def __or__(self, other):
+        if isinstance(other, UserDict):
+            return self.__class__(self.data | other.data)
+        if isinstance(other, dict):
+            return self.__class__(self.data | other)
+        return NotImplemented
+
+    def __ror__(self, other):
+        if isinstance(other, UserDict):
+            return self.__class__(other.data | self.data)
+        if isinstance(other, dict):
+            return self.__class__(other | self.data)
+        return NotImplemented
+
+    def __ior__(self, other):
+        if isinstance(other, UserDict):
+            self.data |= other.data
+        else:
+            self.data |= other
+        return self
+
 
 
 
@@ -1086,6 +1118,8 @@ class UserList(_collections_abc.MutableSequence):
         return other.data if isinstance(other, UserList) else other
     def __contains__(self, item): return item in self.data
     def __len__(self): return len(self.data)
+    def __bool__(self): return bool(self.data)
+    def __sizeof__(self): return _sys.getsizeof(self.data)
     def __getitem__(self, i): return self.data[i]
     def __setitem__(self, i, item): self.data[i] = item
     def __delitem__(self, i): del self.data[i]
@@ -1148,12 +1182,13 @@ class UserString(_collections_abc.Sequence):
     def __str__(self): return str(self.data)
     def __repr__(self): return repr(self.data)
     def __int__(self): return int(self.data)
+    def __bool__(self): return bool(self.data)
     def __float__(self): return float(self.data)
     def __complex__(self): return complex(self.data)
     def __hash__(self): return hash(self.data)
     def __getnewargs__(self):
         return (self.data[:],)
-
+    def __sizeof__(self): return _sys.getsizeof(self.data)
     def __eq__(self, string):
         if isinstance(string, UserString):
             return self.data == string.data
@@ -1250,6 +1285,14 @@ class UserString(_collections_abc.Sequence):
     maketrans = str.maketrans
     def partition(self, sep):
         return self.data.partition(sep)
+    def removeprefix(self, prefix, /):
+        if isinstance(prefix, UserString):
+            prefix = prefix.data
+        return self.__class__(self.data.removeprefix(prefix))
+    def removesuffix(self, suffix, /):
+        if isinstance(suffix, UserString):
+            suffix = suffix.data
+        return self.__class__(self.data.removesuffix(suffix))
     def replace(self, old, new, maxsplit=-1):
         if isinstance(old, UserString):
             old = old.data

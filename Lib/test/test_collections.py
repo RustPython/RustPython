@@ -51,30 +51,20 @@ class TestUserObjects(unittest.TestCase):
         self.assertEqual(obj.data, obj_copy.data)
         self.assertIs(obj.test, obj_copy.test)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_str_protocol(self):
         self._superset_test(UserString, str)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_list_protocol(self):
         self._superset_test(UserList, list)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_dict_protocol(self):
         self._superset_test(UserDict, dict)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_list_copy(self):
         obj = UserList()
         obj.append(123)
         self._copy_test(obj)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_dict_copy(self):
         obj = UserDict()
         obj[123] = "abc"
