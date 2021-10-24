@@ -753,7 +753,7 @@ mod _ssl {
             vm: &VirtualMachine,
         ) -> PyResult<PySslSocket> {
             let mut ssl = zelf
-                .exec_ctx(|ctx| ssl::Ssl::new(ctx))
+                .exec_ctx(ssl::Ssl::new)
                 .map_err(|e| convert_openssl_error(vm, e))?;
 
             let socket_type = if args.server_side {
