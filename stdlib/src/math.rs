@@ -130,23 +130,48 @@ mod math {
     }
 
     #[pyfunction]
-    fn log(x: ArgIntoFloat, base: OptionalArg<ArgIntoFloat>) -> f64 {
-        base.map_or_else(|| x.to_f64().ln(), |base| x.to_f64().log(base.to_f64()))
+    fn log(x: ArgIntoFloat, base: OptionalArg<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult<f64> {
+        let x = x.to_f64();
+        base.map_or_else(
+            || {
+                if x.is_nan() || x > 0.0_f64 {
+                    Ok(x.ln())
+                } else {
+                    Err(vm.new_value_error("math domain error".to_owned()))
+                }
+            },
+            |base| Ok(x.log(base.to_f64())),
+        )
     }
 
     #[pyfunction]
-    fn log1p(x: ArgIntoFloat) -> f64 {
-        (x.to_f64() + 1.0).ln()
+    fn log1p(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
+        let x = x.to_f64();
+        if x.is_nan() || x > -1.0_f64 {
+            Ok((x + 1.0_f64).ln())
+        } else {
+            Err(vm.new_value_error("math domain error".to_owned()))
+        }
     }
 
     #[pyfunction]
     fn log2(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
-        call_math_func!(log2, x, vm)
+        let x = x.to_f64();
+        if x.is_nan() || x > 0.0_f64 {
+            Ok(x.log2())
+        } else {
+            Err(vm.new_value_error("math domain error".to_owned()))
+        }
     }
 
     #[pyfunction]
     fn log10(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
-        call_math_func!(log10, x, vm)
+        let x = x.to_f64();
+        if x.is_nan() || x > 0.0_f64 {
+            Ok(x.log10())
+        } else {
+            Err(vm.new_value_error("math domain error".to_owned()))
+        }
     }
 
     #[pyfunction]
@@ -345,7 +370,12 @@ mod math {
 
     #[pyfunction]
     fn atanh(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
-        call_math_func!(atanh, x, vm)
+        let x = x.to_f64();
+        if x >= 1.0_f64 || x <= -1.0_f64 {
+            Err(vm.new_value_error("math domain error".to_owned()))
+        } else {
+            Ok(x.atanh())
+        }
     }
 
     #[pyfunction]
