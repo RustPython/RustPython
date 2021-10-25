@@ -156,7 +156,12 @@ mod math {
 
     #[pyfunction]
     fn log2(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
-        call_math_func!(log2, x, vm)
+        let x = x.to_f64();
+        if x.is_nan() || x > 0.0_f64 {
+            Ok(x.log2())
+        } else {
+            Err(vm.new_value_error("math domain error".to_owned()))
+        }
     }
 
     #[pyfunction]
