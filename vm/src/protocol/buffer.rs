@@ -12,6 +12,7 @@ use crate::{
 };
 use std::{borrow::Cow, fmt::Debug};
 
+#[allow(clippy::type_complexity)]
 pub struct BufferMethods {
     // always reflecting the whole bytes of the most top object
     pub obj_bytes: fn(&PyBuffer) -> BorrowedValue<[u8]>,
@@ -45,8 +46,6 @@ impl Debug for BufferMethods {
 pub struct PyBuffer {
     pub obj: PyObjectRef,
     pub options: BufferOptions,
-    // if true, don't call release when drop
-    pub manually_release: bool,
     methods: &'static BufferMethods,
 }
 
@@ -55,7 +54,6 @@ impl PyBuffer {
         let zelf = Self {
             obj,
             options,
-            manually_release: false,
             methods,
         };
         zelf.retain();
@@ -132,11 +130,22 @@ impl PyBuffer {
             .unwrap_or_else(|| self.obj_bytes_mut())
     }
 
+    // WARNING: should always try to clone from the contiguous first
     pub(crate) fn _collect_bytes(&self, buf: &mut Vec<u8>) {
         self.methods
             .collect_bytes
             .map(|f| f(self, buf))
             .unwrap_or_else(|| buf.extend_from_slice(&self.obj_bytes()))
+    }
+
+    // drop PyBuffer without calling release
+    // after this function, the owner should use forget()
+    // or wrap PyBuffer in the ManaullyDrop to prevent drop()
+    pub(crate) unsafe fn drop_without_release(&mut self) {
+        // self.obj = PyObjectRef::from_raw(0 as *const PyObject);
+        // self.options = BufferOptions::default();
+        std::ptr::drop_in_place(&mut self.obj);
+        std::ptr::drop_in_place(&mut self.options);
     }
 }
 
@@ -193,9 +202,7 @@ impl TryFromBorrowedObject for PyBuffer {
 // but it is not supported by Rust
 impl Drop for PyBuffer {
     fn drop(&mut self) {
-        if !self.manually_release {
-            self.release();
-        }
+        self.release();
     }
 }
 

@@ -19,7 +19,7 @@ use crate::{
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
 use num_traits::ToPrimitive;
-use std::fmt::Debug;
+use std::{fmt::Debug, mem::ManuallyDrop};
 
 #[derive(FromArgs)]
 pub struct PyMemoryViewNewArgs {
@@ -29,7 +29,8 @@ pub struct PyMemoryViewNewArgs {
 #[pyclass(module = false, name = "memoryview")]
 #[derive(Debug)]
 pub struct PyMemoryView {
-    buffer: PyBuffer,
+    // avoid double release when memoryview had released the buffer before drop
+    buffer: ManuallyDrop<PyBuffer>,
     // the released memoryview does not mean the buffer is destoryed
     // because the possible another memeoryview is viewing from it
     released: AtomicCell<bool>,
@@ -93,7 +94,7 @@ impl PyMemoryView {
         let stop = options.len * options.itemsize;
         let format_spec = Self::parse_format(&options.format, vm)?;
         Ok(PyMemoryView {
-            buffer,
+            buffer: ManuallyDrop::new(buffer),
             released: AtomicCell::new(false),
             start: 0,
             stop,
@@ -114,7 +115,7 @@ impl PyMemoryView {
         let itemsize = options.itemsize;
         let format_spec = Self::parse_format(&options.format, vm)?;
         Ok(PyMemoryView {
-            buffer,
+            buffer: ManuallyDrop::new(buffer),
             released: AtomicCell::new(false),
             start: range.start * itemsize,
             stop: range.end * itemsize,
@@ -132,7 +133,6 @@ impl PyMemoryView {
     #[pymethod]
     pub fn release(&self) {
         if self.released.compare_exchange(false, true).is_ok() {
-            self.buffer.manually_release = true;
             self.buffer.release();
         }
     }
@@ -685,6 +685,16 @@ impl AsBuffer for PyMemoryView {
                 zelf.options.clone(),
                 &BUFFER_METHODS,
             ))
+        }
+    }
+}
+
+impl Drop for PyMemoryView {
+    fn drop(&mut self) {
+        if self.released.load() {
+            unsafe { self.buffer.drop_without_release() };
+        } else {
+            unsafe { ManuallyDrop::drop(&mut self.buffer) };
         }
     }
 }

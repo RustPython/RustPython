@@ -876,9 +876,12 @@ mod _io {
             } else {
                 let v = std::mem::take(&mut self.buffer);
                 let writebuf = VecBuffer::new(v).into_ref(vm);
-                let memobj =
-                    PyMemoryView::from_buffer_range(writebuf.clone().into_readonly_pybuffer(), buf_range, vm)?
-                        .into_ref(vm);
+                let memobj = PyMemoryView::from_buffer_range(
+                    writebuf.clone().into_readonly_pybuffer(),
+                    buf_range,
+                    vm,
+                )?
+                .into_ref(vm);
 
                 // TODO: loop if write() raises an interrupt
                 let res = vm.call_method(self.raw.as_ref().unwrap(), "write", (memobj.clone(),));
@@ -3286,11 +3289,7 @@ mod _io {
                 len: self.buffer.read().cursor.get_ref().len(),
                 ..Default::default()
             };
-            let buffer = PyBuffer::new(
-                self.clone().into_object(),
-                options,
-                &BYTES_IO_BUFFER_METHODS,
-            );
+            let buffer = PyBuffer::new(self.into_object(), options, &BYTES_IO_BUFFER_METHODS);
             let view = PyMemoryView::from_buffer(buffer, vm)?;
             Ok(view)
         }

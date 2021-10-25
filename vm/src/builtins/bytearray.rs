@@ -115,6 +115,12 @@ impl PyByteArray {
         Ok(())
     }
 
+    #[cfg(debug_assertions)]
+    #[pyproperty]
+    fn exports(&self) -> usize {
+        self.exports.load()
+    }
+
     #[inline]
     fn inner(&self) -> PyRwLockReadGuard<'_, PyBytesInner> {
         self.inner.read()
