@@ -45,6 +45,8 @@ impl Debug for BufferMethods {
 pub struct PyBuffer {
     pub obj: PyObjectRef,
     pub options: BufferOptions,
+    // if true, don't call release when drop
+    pub manually_release: bool,
     methods: &'static BufferMethods,
 }
 
@@ -53,6 +55,7 @@ impl PyBuffer {
         let zelf = Self {
             obj,
             options,
+            manually_release: false,
             methods,
         };
         zelf.retain();
@@ -174,15 +177,13 @@ impl Default for BufferOptions {
 
 impl TryFromBorrowedObject for PyBuffer {
     fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
-        let obj_cls = obj.class();
-        for cls in obj_cls.iter_mro() {
-            if let Some(f) = cls.slots.as_buffer.as_ref() {
-                return f(obj, vm);
-            }
+        let cls = obj.class();
+        if let Some(f) = cls.mro_find_map(|cls| cls.slots.as_buffer) {
+            return f(obj, vm);
         }
         Err(vm.new_type_error(format!(
             "a bytes-like object is required, not '{}'",
-            obj_cls.name()
+            cls.name()
         )))
     }
 }
@@ -192,7 +193,9 @@ impl TryFromBorrowedObject for PyBuffer {
 // but it is not supported by Rust
 impl Drop for PyBuffer {
     fn drop(&mut self) {
-        self.release();
+        if !self.manually_release {
+            self.release();
+        }
     }
 }
 

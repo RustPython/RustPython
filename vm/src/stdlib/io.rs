@@ -68,11 +68,9 @@ impl TryFromObject for Fildes {
 mod _io {
     use super::*;
 
-    use crate::common::{
-        lock::{
-            PyMappedThreadMutexGuard, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
-            PyThreadMutex, PyThreadMutexGuard,
-        },
+    use crate::common::lock::{
+        PyMappedThreadMutexGuard, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard, PyThreadMutex,
+        PyThreadMutexGuard,
     };
     use crate::{
         builtins::{
@@ -89,8 +87,8 @@ mod _io {
         types::{Constructor, Destructor, IterNext, Iterable},
         utils::Either,
         vm::{ReprGuard, VirtualMachine},
-        IdProtocol, PyContext, PyObject, PyObjectRef, PyObjectWrap, PyRef, PyResult,
-        PyValue, StaticType, TryFromBorrowedObject, TryFromObject, TypeProtocol,
+        IdProtocol, PyContext, PyObject, PyObjectRef, PyObjectWrap, PyRef, PyResult, PyValue,
+        StaticType, TryFromBorrowedObject, TryFromObject, TypeProtocol,
     };
     use bstr::ByteSlice;
     use crossbeam_utils::atomic::AtomicCell;
@@ -879,12 +877,11 @@ mod _io {
                 let v = std::mem::take(&mut self.buffer);
                 let writebuf = VecBuffer::new(v).into_ref(vm);
                 let memobj =
-                    PyMemoryView::from_buffer(writebuf.clone().into_readonly_pybuffer(), vm)?
+                    PyMemoryView::from_buffer_range(writebuf.clone().into_readonly_pybuffer(), buf_range, vm)?
                         .into_ref(vm);
 
-                let raw = self.raw.as_ref().unwrap();
                 // TODO: loop if write() raises an interrupt
-                let res = vm.call_method(raw, "write", (memobj.clone(),));
+                let res = vm.call_method(self.raw.as_ref().unwrap(), "write", (memobj.clone(),));
 
                 memobj.release();
                 self.buffer = writebuf.take();

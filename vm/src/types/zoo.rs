@@ -5,7 +5,7 @@ use crate::builtins::{
     pytype::{self, PyTypeRef},
     range, set, singletons, slice, staticmethod, traceback, tuple, weakproxy, weakref, zip,
 };
-use crate::{PyContext, StaticType, protocol::VecBuffer};
+use crate::{protocol::VecBuffer, PyContext, StaticType};
 
 /// Holder of references to builtin types.
 #[derive(Debug, Clone)]

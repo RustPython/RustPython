@@ -106,21 +106,23 @@ impl PyMemoryView {
     }
 
     pub fn from_buffer_range(
-        mut buffer: PyBuffer,
+        buffer: PyBuffer,
         range: std::ops::Range<usize>,
         vm: &VirtualMachine,
     ) -> PyResult<Self> {
         let options = buffer.options.clone();
         let itemsize = options.itemsize;
         let format_spec = Self::parse_format(&options.format, vm)?;
-        buffer.options.len = range.len();
         Ok(PyMemoryView {
             buffer,
             released: AtomicCell::new(false),
             start: range.start * itemsize,
             stop: range.end * itemsize,
             step: 1,
-            options,
+            options: BufferOptions {
+                len: range.len(),
+                ..options
+            },
             format_spec,
             hash: OnceCell::new(),
         }
@@ -130,6 +132,7 @@ impl PyMemoryView {
     #[pymethod]
     pub fn release(&self) {
         if self.released.compare_exchange(false, true).is_ok() {
+            self.buffer.manually_release = true;
             self.buffer.release();
         }
     }
@@ -379,66 +382,69 @@ impl PyMemoryView {
         let (range, step, is_negative_step) =
             SaturatedSlice::with_slice(&slice, vm)?.adjust_indices(zelf.options.len);
 
-        items.contiguous_or_collect(|bytes| {
-            assert_eq!(bytes.len(), len * itemsize);
+        // TODO: try borrow the vec, now cause deadlock
+        // items.contiguous_or_collect(|bytes| {
+        let mut bytes = vec![];
+        items.collect_bytes(&mut bytes);
+        assert_eq!(bytes.len(), len * itemsize);
 
-            if !is_negative_step && step == Some(1) {
-                if range.end - range.start != len {
-                    return diff_err();
-                }
-
-                if let Some(mut buffer) = zelf.as_contiguous_mut() {
-                    buffer[range.start * itemsize..range.end * itemsize].copy_from_slice(&bytes);
-                    return Ok(());
-                }
+        if !is_negative_step && step == Some(1) {
+            if range.end - range.start != len {
+                return diff_err();
             }
 
-            if let Some(step) = step {
-                let slicelen = if range.end > range.start {
-                    (range.end - range.start - 1) / step + 1
-                } else {
-                    0
-                };
+            if let Some(mut buffer) = zelf.as_contiguous_mut() {
+                buffer[range.start * itemsize..range.end * itemsize].copy_from_slice(&bytes);
+                return Ok(());
+            }
+        }
 
-                if slicelen != len {
-                    return diff_err();
+        if let Some(step) = step {
+            let slicelen = if range.end > range.start {
+                (range.end - range.start - 1) / step + 1
+            } else {
+                0
+            };
+
+            if slicelen != len {
+                return diff_err();
+            }
+
+            let indexes = if is_negative_step {
+                itertools::Either::Left(range.rev().step_by(step))
+            } else {
+                itertools::Either::Right(range.step_by(step))
+            };
+
+            let item_index = (0..len).step_by(itemsize);
+
+            let mut buffer = zelf.buffer.obj_bytes_mut();
+
+            indexes
+                .map(|i| zelf.get_pos(i as isize).unwrap())
+                .zip(item_index)
+                .for_each(|(i, item_i)| {
+                    buffer[i..i + itemsize].copy_from_slice(&bytes[item_i..item_i + itemsize]);
+                });
+            Ok(())
+        } else {
+            let slicelen = if range.start < range.end { 1 } else { 0 };
+            if match len {
+                0 => slicelen == 0,
+                1 => {
+                    let mut buffer = zelf.buffer.obj_bytes_mut();
+                    let i = zelf.get_pos(range.start as isize).unwrap();
+                    buffer[i..i + itemsize].copy_from_slice(&bytes);
+                    true
                 }
-
-                let indexes = if is_negative_step {
-                    itertools::Either::Left(range.rev().step_by(step))
-                } else {
-                    itertools::Either::Right(range.step_by(step))
-                };
-
-                let item_index = (0..len).step_by(itemsize);
-
-                let mut buffer = zelf.buffer.obj_bytes_mut();
-
-                indexes
-                    .map(|i| zelf.get_pos(i as isize).unwrap())
-                    .zip(item_index)
-                    .for_each(|(i, item_i)| {
-                        buffer[i..i + itemsize].copy_from_slice(&bytes[item_i..item_i + itemsize]);
-                    });
+                _ => false,
+            } {
                 Ok(())
             } else {
-                let slicelen = if range.start < range.end { 1 } else { 0 };
-                if match len {
-                    0 => slicelen == 0,
-                    1 => {
-                        let mut buffer = zelf.buffer.obj_bytes_mut();
-                        let i = zelf.get_pos(range.start as isize).unwrap();
-                        buffer[i..i + itemsize].copy_from_slice(&bytes);
-                        true
-                    }
-                    _ => false,
-                } {
-                    Ok(())
-                } else {
-                    diff_err()
-                }
+                diff_err()
             }
-        })
+        }
+        // })
     }
 
     #[pymethod(magic)]
@@ -460,8 +466,7 @@ impl PyMemoryView {
 
     #[pymethod(magic)]
     fn len(&self, vm: &VirtualMachine) -> PyResult<usize> {
-        self.try_not_released(vm)
-            .map(|_| (self.stop - self.start) / self.options.itemsize / self.step.abs() as usize)
+        self.try_not_released(vm).map(|_| self.options.len)
     }
 
     #[pymethod]
@@ -558,7 +563,7 @@ impl PyMemoryView {
                 itemsize,
                 len: bytelen / itemsize,
                 format: format.to_string().into(),
-                ..self.buffer.options.clone()
+                ..self.options.clone()
             },
             format_spec,
             hash: OnceCell::new(),
