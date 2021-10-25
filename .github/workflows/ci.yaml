@@ -58,7 +58,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --verbose ${{ env.CARGO_ARGS }} ${{ env.NON_WASM_PACKAGES }}
+          args: --workspace --exclude rustpython_wasm --verbose ${{ env.CARGO_ARGS }} ${{ env.NON_WASM_PACKAGES }}
       - name: check compilation without threading
         uses: actions-rs/cargo@v1
         with:
