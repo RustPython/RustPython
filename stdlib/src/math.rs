@@ -145,8 +145,13 @@ mod math {
     }
 
     #[pyfunction]
-    fn log1p(x: ArgIntoFloat) -> f64 {
-        (x.to_f64() + 1.0).ln()
+    fn log1p(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
+        let x = x.to_f64();
+        if x.is_nan() || x > -1.0_f64 {
+            Ok((x + 1.0_f64).ln())
+        } else {
+            Err(vm.new_value_error("math domain error".to_owned()))
+        }
     }
 
     #[pyfunction]
