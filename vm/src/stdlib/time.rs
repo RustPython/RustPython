@@ -375,6 +375,20 @@ mod unix {
     use crate::{PyResult, VirtualMachine};
     use std::time::Duration;
 
+    #[cfg(target_os = "solaris")]
+    #[pyattr]
+    use libc::CLOCK_HIGHRES;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    use libc::{CLOCK_BOOTTIME, CLOCK_MONOTONIC_RAW, CLOCK_TAI};
+    #[pyattr]
+    use libc::{
+        CLOCK_MONOTONIC, CLOCK_PROCESS_CPUTIME_ID, CLOCK_REALTIME, CLOCK_THREAD_CPUTIME_ID,
+    };
+    #[cfg(any(target_os = "freebsd", target_os = "openbsd"))]
+    #[pyattr]
+    use libc::{CLOCK_PROF, CLOCK_UPTIME};
+
     #[pyfunction]
     fn sleep(dur: Duration, vm: &VirtualMachine) -> PyResult<()> {
         // this is basically std::thread::sleep, but that catches interrupts and we don't want to;
