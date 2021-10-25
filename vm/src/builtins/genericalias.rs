@@ -204,24 +204,28 @@ fn subs_tvars(
     argitems: &[PyObjectRef],
     vm: &VirtualMachine,
 ) -> PyResult {
-    let sub_params = obj.clone().get_attr("__parameters__", vm)?;
-    if let Ok(sub_params) = PyTupleRef::try_from_object(vm, sub_params) {
-        let sub_args = sub_params
-            .as_slice()
-            .iter()
-            .map(|arg| {
-                if let Some(idx) = tuple_index(params, arg) {
-                    argitems[idx].clone()
-                } else {
-                    arg.clone()
-                }
-            })
-            .collect::<Vec<_>>();
-        let sub_args: PyObjectRef = PyTuple::new_ref(sub_args, &vm.ctx).into();
-        obj.get_item(sub_args, vm)
-    } else {
-        Ok(obj)
-    }
+    obj.clone_class()
+        .get_attr("__parameters__")
+        .and_then(|sub_params| {
+            PyTupleRef::try_from_object(vm, sub_params)
+                .ok()
+                .map(|sub_params| {
+                    let sub_args = sub_params
+                        .as_slice()
+                        .iter()
+                        .map(|arg| {
+                            if let Some(idx) = tuple_index(params, arg) {
+                                argitems[idx].clone()
+                            } else {
+                                arg.clone()
+                            }
+                        })
+                        .collect::<Vec<_>>();
+                    let sub_args: PyObjectRef = PyTuple::new_ref(sub_args, &vm.ctx).into();
+                    obj.get_item(sub_args, vm)
+                })
+        })
+        .unwrap_or(Ok(obj))
 }
 
 impl AsMapping for PyGenericAlias {
