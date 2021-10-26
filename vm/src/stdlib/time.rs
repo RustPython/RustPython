@@ -372,22 +372,157 @@ mod time {
 #[cfg(unix)]
 #[pymodule(name = "time")]
 mod unix {
-    use crate::{PyResult, VirtualMachine};
+    #[allow(unused_imports)]
+    use super::{SEC_TO_NS, US_TO_NS};
+    use crate::{
+        builtins::{try_bigint_to_f64, PyFloat, PyIntRef},
+        utils::Either,
+        PyRef, PyResult, VirtualMachine,
+    };
     use std::time::Duration;
 
     #[cfg(target_os = "solaris")]
     #[pyattr]
     use libc::CLOCK_HIGHRES;
+    #[cfg(not(target_os = "redox"))]
+    use libc::CLOCK_PROCESS_CPUTIME_ID;
     #[cfg(target_os = "linux")]
     #[pyattr]
     use libc::{CLOCK_BOOTTIME, CLOCK_MONOTONIC_RAW, CLOCK_TAI};
     #[pyattr]
-    use libc::{
-        CLOCK_MONOTONIC, CLOCK_PROCESS_CPUTIME_ID, CLOCK_REALTIME, CLOCK_THREAD_CPUTIME_ID,
-    };
+    use libc::{CLOCK_MONOTONIC, CLOCK_REALTIME, CLOCK_THREAD_CPUTIME_ID};
+    #[cfg(target_os = "redox")]
+    // TODO: will be upstreamed to libc sometime soon
+    const CLOCK_PROCESS_CPUTIME_ID: libc::clockid_t = 2;
     #[cfg(any(target_os = "freebsd", target_os = "openbsd"))]
     #[pyattr]
     use libc::{CLOCK_PROF, CLOCK_UPTIME};
+
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+    ))]
+    fn get_clock_time(clk_id: PyIntRef, vm: &VirtualMachine) -> PyResult<Duration> {
+        let mut timespec = std::mem::MaybeUninit::uninit();
+        let ts: libc::timespec = unsafe {
+            if libc::clock_gettime(clk_id.try_to_primitive(vm)?, timespec.as_mut_ptr()) == -1 {
+                return Err(vm.new_os_error("Invalid argument".to_owned()));
+            }
+            timespec.assume_init()
+        };
+        Ok(Duration::new(ts.tv_sec as u64, ts.tv_nsec as u32))
+    }
+    #[cfg(not(any(
+        target_os = "macos",
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+    )))]
+    fn get_clock_time(_clk_id: PyIntRef, vm: &VirtualMachine) -> PyResult<Duration> {
+        Err(vm.new_not_implemented_error("clock_gettime unsupported on this system".to_owned()))
+    }
+
+    #[pyfunction]
+    fn clock_gettime(clk_id: PyIntRef, vm: &VirtualMachine) -> PyResult<f64> {
+        get_clock_time(clk_id, vm).map(|d| d.as_secs_f64())
+    }
+
+    #[pyfunction]
+    fn clock_gettime_ns(clk_id: PyIntRef, vm: &VirtualMachine) -> PyResult<u128> {
+        get_clock_time(clk_id, vm).map(|d| d.as_nanos())
+    }
+
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+    ))]
+    #[pyfunction]
+    fn clock_getres(clk_id: PyIntRef, vm: &VirtualMachine) -> PyResult<f64> {
+        let mut timespec = std::mem::MaybeUninit::uninit();
+        let ts: libc::timespec = unsafe {
+            if libc::clock_getres(clk_id.try_to_primitive(vm)?, timespec.as_mut_ptr()) == -1 {
+                return Err(vm.new_os_error("Invalid argument".to_owned()));
+            }
+            timespec.assume_init()
+        };
+        Ok(Duration::new(ts.tv_sec as u64, ts.tv_nsec as u32).as_secs_f64())
+    }
+
+    #[cfg(not(any(
+        target_os = "macos",
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+    )))]
+    #[pyfunction]
+    fn clock_getres(_clk_id: PyIntRef, vm: &VirtualMachine) -> PyResult<f64> {
+        Err(vm.new_not_implemented_error("clock_getres unsupported on this system".to_owned()))
+    }
+
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+    ))]
+    fn set_clock_time(
+        clk_id: PyIntRef,
+        timespec: libc::timespec,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let res = unsafe { libc::clock_settime(clk_id.try_to_primitive(vm)?, &timespec) };
+        if res == -1 {
+            return Err(vm.new_os_error("Invalid argument".to_owned()));
+        }
+        Ok(())
+    }
+    #[cfg(not(any(
+        target_os = "macos",
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+    )))]
+    fn set_clock_time(_clk_id: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
+        Err(vm.new_not_implemented_error("clock_settime unsupported on this system".to_owned()))
+    }
+
+    #[pyfunction]
+    fn clock_settime(
+        clk_id: PyIntRef,
+        time: Either<PyRef<PyFloat>, PyIntRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let time = match time {
+            Either::A(f) => f.to_f64(),
+            Either::B(z) => try_bigint_to_f64(z.as_bigint(), vm)?,
+        };
+        let nanos = time.fract() * (SEC_TO_NS as f64);
+        let ts = libc::timespec {
+            tv_sec: time.floor() as libc::time_t,
+            tv_nsec: nanos as _,
+        };
+        set_clock_time(clk_id, ts, vm)
+    }
+
+    #[pyfunction]
+    fn clock_settime_ns(clk_id: PyIntRef, time: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
+        let time: i64 = time.try_to_primitive(vm)?;
+        let ts = libc::timespec {
+            tv_sec: time / SEC_TO_NS as libc::time_t,
+            tv_nsec: time.rem_euclid(SEC_TO_NS) as _,
+        };
+        set_clock_time(clk_id, ts, vm)
+    }
 
     #[pyfunction]
     fn sleep(dur: Duration, vm: &VirtualMachine) -> PyResult<()> {
@@ -418,7 +553,7 @@ mod unix {
     pub(super) fn get_thread_time(vm: &VirtualMachine) -> PyResult<Duration> {
         let time: libc::timespec = unsafe {
             let mut time = std::mem::MaybeUninit::uninit();
-            if libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, time.as_mut_ptr()) == -1 {
+            if libc::clock_gettime(CLOCK_THREAD_CPUTIME_ID, time.as_mut_ptr()) == -1 {
                 return Err(vm.new_os_error("Failed to get clock time".to_owned()));
             }
             time.assume_init()
@@ -441,12 +576,6 @@ mod unix {
     ))]
     pub(super) fn get_process_time(vm: &VirtualMachine) -> PyResult<Duration> {
         let time: libc::timespec = unsafe {
-            #[cfg(not(target_os = "redox"))]
-            use libc::CLOCK_PROCESS_CPUTIME_ID;
-            #[cfg(target_os = "redox")]
-            // TODO: will be upstreamed to libc sometime soon
-            const CLOCK_PROCESS_CPUTIME_ID: libc::clockid_t = 2;
-
             let mut time = std::mem::MaybeUninit::uninit();
             if libc::clock_gettime(CLOCK_PROCESS_CPUTIME_ID, time.as_mut_ptr()) == -1 {
                 return Err(vm.new_os_error("Failed to get clock time".to_owned()));
@@ -464,8 +593,6 @@ mod unix {
     ))]
     pub(super) fn get_process_time(vm: &VirtualMachine) -> PyResult<Duration> {
         fn from_timeval(tv: libc::timeval, vm: &VirtualMachine) -> PyResult<i64> {
-            use super::decl::{SEC_TO_NS, US_TO_NS};
-
             (|tv: libc::timeval| {
                 let t = tv.tv_sec.checked_mul(SEC_TO_NS)?;
                 let u = (tv.tv_usec as i64).checked_mul(US_TO_NS)?;

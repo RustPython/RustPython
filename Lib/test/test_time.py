@@ -541,6 +541,8 @@ class TimeTestCase(unittest.TestCase):
         self.assertTrue(info.monotonic)
         self.assertFalse(info.adjustable)
 
+    # TODO: RUSTPYTHON fix time.monotonic, currently calls System::now (i.e CLOCK_REALTIME)
+    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(time, 'clock_settime'),
                          'need time.clock_settime')
     def test_monotonic_settime(self):
