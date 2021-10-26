@@ -412,11 +412,9 @@ impl IterNextIterable for PyTupleIterator {}
 impl IterNext for PyTupleIterator {
     fn next(zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal.lock().next(|tuple, pos| {
-            Ok(if let Some(ret) = tuple.as_slice().get(pos) {
-                PyIterReturn::Return(ret.clone())
-            } else {
-                PyIterReturn::StopIteration(None)
-            })
+            Ok(PyIterReturn::from_result(
+                tuple.as_slice().get(pos).cloned().ok_or(None),
+            ))
         })
     }
 }

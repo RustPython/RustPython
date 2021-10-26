@@ -920,7 +920,7 @@ impl IterNextIterable for PySetIterator {}
 impl IterNext for PySetIterator {
     fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let mut internal = zelf.internal.lock();
-        if let IterStatus::Active(dict) = &internal.status {
+        let next = if let IterStatus::Active(dict) = &internal.status {
             if dict.has_changed_size(&zelf.size) {
                 internal.status = IterStatus::Exhausted;
                 return Err(vm.new_runtime_error("set changed size during iteration".to_owned()));
@@ -928,16 +928,17 @@ impl IterNext for PySetIterator {
             match dict.next_entry(internal.position) {
                 Some((position, key, _)) => {
                     internal.position = position;
-                    Ok(PyIterReturn::Return(key))
+                    PyIterReturn::Return(key)
                 }
                 None => {
                     internal.status = IterStatus::Exhausted;
-                    Ok(PyIterReturn::StopIteration(None))
+                    PyIterReturn::StopIteration(None)
                 }
             }
         } else {
-            Ok(PyIterReturn::StopIteration(None))
-        }
+            PyIterReturn::StopIteration(None)
+        };
+        Ok(next)
     }
 }
 
