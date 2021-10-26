@@ -130,6 +130,7 @@ impl TryFromObject for PyIter<PyObjectRef> {
     }
 }
 
+#[derive(result_like::ResultLike)]
 pub enum PyIterReturn<T = PyObjectRef> {
     Return(T),
     StopIteration(Option<PyObjectRef>),
