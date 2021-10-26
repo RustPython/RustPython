@@ -114,7 +114,13 @@ fn bench_rustpy_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchmar
     settings.dont_write_bytecode = true;
     settings.no_user_site = true;
 
-    Interpreter::new(settings, InitParameter::External).enter(|vm| {
+    Interpreter::new_with_init(settings, |vm| {
+        for (name, init) in rustpython_stdlib::get_module_inits().into_iter() {
+            vm.add_native_module(name, init);
+        }
+        InitParameter::External
+    })
+    .enter(|vm| {
         let setup_code = vm
             .compile(&bench.setup, Mode::Exec, bench.name.to_owned())
             .expect("Error compiling setup code");
