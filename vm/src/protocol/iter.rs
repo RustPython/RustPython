@@ -130,6 +130,7 @@ impl TryFromObject for PyIter<PyObjectRef> {
     }
 }
 
+#[derive(result_like::ResultLike)]
 pub enum PyIterReturn<T = PyObjectRef> {
     Return(T),
     StopIteration(Option<PyObjectRef>),
@@ -222,10 +223,7 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         PyIter::new(self.obj.borrow())
             .next(self.vm)
-            .map(|iret| match iret {
-                PyIterReturn::Return(obj) => Some(obj),
-                PyIterReturn::StopIteration(_) => None,
-            })
+            .map(|iret| iret.into_result().ok())
             .transpose()
             .map(|x| x.and_then(|obj| T::try_from_object(self.vm, obj)))
     }

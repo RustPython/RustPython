@@ -1713,24 +1713,25 @@ dependencies = [
 
 [[package]]
 name = "result-like"
-version = "0.4.0"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c2d674d268c145c999a985cabedc28657253a21027c896e2543af803d8c91871"
+checksum = "2e1f304c2e140605000124bb765715e68efd31a710c3a012da2f316122e25441"
 dependencies = [
  "result-like-derive",
 ]
 
 [[package]]
 name = "result-like-derive"
-version = "0.4.0"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3f0d38e433d043c2abe75de652931f9e77e187273799f1111119e64cdcf90b3d"
+checksum = "a0ebbb466cf8f72ae15736143bd789fdabf9a071fcb17597d963d6aa6dea96aa"
 dependencies = [
  "Inflector",
  "pmutil",
  "proc-macro2",
  "quote",
  "syn",
+ "syn-ext",
 ]
 
 [[package]]
@@ -2336,9 +2337,9 @@ dependencies = [
 
 [[package]]
 name = "syn-ext"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ccfaff88a7edb37fd3a16f24b986500e4a6d4b87218d9b38255e208ca4a08848"
+checksum = "fe0015195d694527a7c4f1479b2f3975644baefb40f0a79c974980b4f25d2b32"
 dependencies = [
  "syn",
 ]

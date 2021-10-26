@@ -668,10 +668,7 @@ impl IterNext for PyListIterator {
     fn next(zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal.lock().next(|list, pos| {
             let vec = list.borrow_vec();
-            Ok(match vec.get(pos) {
-                Some(x) => PyIterReturn::Return(x.clone()),
-                None => PyIterReturn::StopIteration(None),
-            })
+            Ok(PyIterReturn::from_result(vec.get(pos).cloned().ok_or(None)))
         })
     }
 }
@@ -716,10 +713,7 @@ impl IterNext for PyListReverseIterator {
     fn next(zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal.lock().rev_next(|list, pos| {
             let vec = list.borrow_vec();
-            Ok(match vec.get(pos) {
-                Some(x) => PyIterReturn::Return(x.clone()),
-                None => PyIterReturn::StopIteration(None),
-            })
+            Ok(PyIterReturn::from_result(vec.get(pos).cloned().ok_or(None)))
         })
     }
 }

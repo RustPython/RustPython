@@ -678,10 +678,13 @@ impl IterNextIterable for PyBytesIterator {}
 impl IterNext for PyBytesIterator {
     fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal.lock().next(|bytes, pos| {
-            Ok(match bytes.as_bytes().get(pos) {
-                Some(&x) => PyIterReturn::Return(vm.ctx.new_int(x).into()),
-                None => PyIterReturn::StopIteration(None),
-            })
+            Ok(PyIterReturn::from_result(
+                bytes
+                    .as_bytes()
+                    .get(pos)
+                    .map(|&x| vm.new_pyobj(x))
+                    .ok_or(None),
+            ))
         })
     }
 }

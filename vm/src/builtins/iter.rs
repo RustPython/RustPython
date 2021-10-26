@@ -236,17 +236,18 @@ impl IterNextIterable for PyCallableIterator {}
 impl IterNext for PyCallableIterator {
     fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let status = zelf.status.upgradable_read();
-        if let IterStatus::Active(callable) = &*status {
+        let next = if let IterStatus::Active(callable) = &*status {
             let ret = callable.invoke((), vm)?;
             if vm.bool_eq(&ret, &zelf.sentinel)? {
                 *PyRwLockUpgradableReadGuard::upgrade(status) = IterStatus::Exhausted;
-                Ok(PyIterReturn::StopIteration(None))
+                PyIterReturn::StopIteration(None)
             } else {
-                Ok(PyIterReturn::Return(ret))
+                PyIterReturn::Return(ret)
             }
         } else {
-            Ok(PyIterReturn::StopIteration(None))
-        }
+            PyIterReturn::StopIteration(None)
+        };
+        Ok(next)
     }
 }
 

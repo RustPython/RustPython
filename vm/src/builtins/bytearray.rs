@@ -844,10 +844,9 @@ impl IterNext for PyByteArrayIterator {
     fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal.lock().next(|bytearray, pos| {
             let buf = bytearray.borrow_buf();
-            Ok(match buf.get(pos) {
-                Some(&x) => PyIterReturn::Return(vm.ctx.new_int(x).into()),
-                None => PyIterReturn::StopIteration(None),
-            })
+            Ok(PyIterReturn::from_result(
+                buf.get(pos).map(|&x| vm.new_pyobj(x)).ok_or(None),
+            ))
         })
     }
 }

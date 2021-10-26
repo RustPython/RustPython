@@ -105,14 +105,8 @@ impl PyDict {
                     PyIterReturn::StopIteration(_) => break,
                 };
                 let elem_iter = element.get_iter(vm)?;
-                let key = match elem_iter.next(vm)? {
-                    PyIterReturn::Return(obj) => obj,
-                    PyIterReturn::StopIteration(_) => return Err(err(vm)),
-                };
-                let value = match elem_iter.next(vm)? {
-                    PyIterReturn::Return(obj) => obj,
-                    PyIterReturn::StopIteration(_) => return Err(err(vm)),
-                };
+                let key = elem_iter.next(vm)?.into_result().map_err(|_| err(vm))?;
+                let value = elem_iter.next(vm)?.into_result().map_err(|_| err(vm))?;
                 if matches!(elem_iter.next(vm)?, PyIterReturn::Return(_)) {
                     return Err(err(vm));
                 }
@@ -814,7 +808,7 @@ macro_rules! dict_view {
             #[allow(clippy::redundant_closure_call)]
             fn next(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
                 let mut internal = zelf.internal.lock();
-                if let IterStatus::Active(dict) = &internal.status {
+                let next = if let IterStatus::Active(dict) = &internal.status {
                     if dict.entries.has_changed_size(&zelf.size) {
                         internal.status = IterStatus::Exhausted;
                         return Err(vm.new_runtime_error(
@@ -824,16 +818,17 @@ macro_rules! dict_view {
                     match dict.entries.next_entry(internal.position) {
                         Some((position, key, value)) => {
                             internal.position = position;
-                            Ok(PyIterReturn::Return(($result_fn)(vm, key, value)))
+                            PyIterReturn::Return(($result_fn)(vm, key, value))
                         }
                         None => {
                             internal.status = IterStatus::Exhausted;
-                            Ok(PyIterReturn::StopIteration(None))
+                            PyIterReturn::StopIteration(None)
                         }
                     }
                 } else {
-                    Ok(PyIterReturn::StopIteration(None))
-                }
+                    PyIterReturn::StopIteration(None)
+                };
+                Ok(next)
             }
         }
 
@@ -875,7 +870,7 @@ macro_rules! dict_view {
             #[allow(clippy::redundant_closure_call)]
             fn next(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
                 let mut internal = zelf.internal.lock();
-                if let IterStatus::Active(dict) = &internal.status {
+                let next = if let IterStatus::Active(dict) = &internal.status {
                     if dict.entries.has_changed_size(&zelf.size) {
                         internal.status = IterStatus::Exhausted;
                         return Err(vm.new_runtime_error(
@@ -889,16 +884,17 @@ macro_rules! dict_view {
                             } else {
                                 internal.position = position;
                             }
-                            Ok(PyIterReturn::Return(($result_fn)(vm, key, value)))
+                            PyIterReturn::Return(($result_fn)(vm, key, value))
                         }
                         None => {
                             internal.status = IterStatus::Exhausted;
-                            Ok(PyIterReturn::StopIteration(None))
+                            PyIterReturn::StopIteration(None)
                         }
                     }
                 } else {
-                    Ok(PyIterReturn::StopIteration(None))
-                }
+                    PyIterReturn::StopIteration(None)
+                };
+                Ok(next)
             }
         }
     };

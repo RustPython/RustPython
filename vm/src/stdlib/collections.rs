@@ -634,10 +634,9 @@ mod _collections {
                     return Err(vm.new_runtime_error("Deque mutated during iteration".to_owned()));
                 }
                 let deque = deque.borrow_deque();
-                Ok(match deque.get(pos) {
-                    Some(x) => PyIterReturn::Return(x.clone()),
-                    None => PyIterReturn::StopIteration(None),
-                })
+                Ok(PyIterReturn::from_result(
+                    deque.get(pos).cloned().ok_or(None),
+                ))
             })
         }
     }
@@ -701,16 +700,12 @@ mod _collections {
                     return Err(vm.new_runtime_error("Deque mutated during iteration".to_owned()));
                 }
                 let deque = deque.borrow_deque();
-                Ok(
-                    match deque
-                        .len()
-                        .checked_sub(pos + 1)
-                        .and_then(|pos| deque.get(pos))
-                    {
-                        Some(x) => PyIterReturn::Return(x.clone()),
-                        None => PyIterReturn::StopIteration(None),
-                    },
-                )
+                let r = deque
+                    .len()
+                    .checked_sub(pos + 1)
+                    .and_then(|pos| deque.get(pos))
+                    .cloned();
+                Ok(PyIterReturn::from_result(r.ok_or(None)))
             })
         }
     }
