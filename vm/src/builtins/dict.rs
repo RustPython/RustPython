@@ -957,6 +957,33 @@ trait ViewSetOps: DictView {
         let inner = zelf.difference(other, vm)?;
         Ok(PySet { inner })
     }
+
+    fn cmp(
+        zelf: &PyObjectView<Self>,
+        other: &PyObject,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        match_class!(match other {
+            ref dictview @ Self => {
+                PyDict::inner_cmp(
+                    zelf.dict(),
+                    dictview.dict(),
+                    op,
+                    !zelf.class().is(&vm.ctx.types.dict_keys_type),
+                    vm,
+                )
+            }
+            ref _set @ PySet => {
+                let inner = Self::to_set(zelf.to_owned(), vm)?;
+                let zelf_set = PySet { inner }.into_object(vm);
+                PySet::cmp(zelf_set.downcast_ref().unwrap(), other, op, vm)
+            }
+            _ => {
+                Ok(NotImplemented)
+            }
+        })
+    }
 }
 
 impl ViewSetOps for PyDictKeys {}
@@ -976,25 +1003,7 @@ impl Comparable for PyDictKeys {
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
-        match_class!(match other {
-            ref dictview @ Self => {
-                PyDict::inner_cmp(
-                    &zelf.dict,
-                    &dictview.dict,
-                    op,
-                    !zelf.class().is(&vm.ctx.types.dict_keys_type),
-                    vm,
-                )
-            }
-            ref _set @ PySet => {
-                let inner = Self::to_set(zelf.to_owned(), vm)?;
-                let zelf_set = PySet { inner }.into_object(vm);
-                PySet::cmp(zelf_set.downcast_ref().unwrap(), other, op, vm)
-            }
-            _ => {
-                Ok(NotImplemented)
-            }
-        })
+        ViewSetOps::cmp(zelf, other, op, vm)
     }
 }
 
@@ -1030,25 +1039,7 @@ impl Comparable for PyDictItems {
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
-        match_class!(match other {
-            ref dictview @ Self => {
-                PyDict::inner_cmp(
-                    &zelf.dict,
-                    &dictview.dict,
-                    op,
-                    !zelf.class().is(&vm.ctx.types.dict_keys_type),
-                    vm,
-                )
-            }
-            ref _set @ PySet => {
-                let inner = Self::to_set(zelf.to_owned(), vm)?;
-                let zelf_set = PySet { inner }.into_object(vm);
-                PySet::cmp(zelf_set.downcast_ref().unwrap(), other, op, vm)
-            }
-            _ => {
-                Ok(NotImplemented)
-            }
-        })
+        ViewSetOps::cmp(zelf, other, op, vm)
     }
 }
 
