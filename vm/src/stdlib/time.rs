@@ -375,7 +375,7 @@ mod unix {
     #[allow(unused_imports)]
     use super::{SEC_TO_NS, US_TO_NS};
     use crate::{
-        builtins::{try_bigint_to_f64, PyFloat, PyIntRef},
+        builtins::{try_bigint_to_f64, PyFloat, PyIntRef, PyNamespace, PyStrRef},
         utils::Either,
         PyRef, PyResult, VirtualMachine,
     };
@@ -522,6 +522,63 @@ mod unix {
             tv_nsec: time.rem_euclid(SEC_TO_NS) as _,
         };
         set_clock_time(clk_id, ts, vm)
+    }
+
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+    ))]
+    #[pyfunction]
+    fn get_clock_info(name: PyStrRef, vm: &VirtualMachine) -> PyResult<PyRef<PyNamespace>> {
+        let (adj, imp, mono, res) = match name.as_ref() {
+            "monotonic" | "perf_counter" => (
+                false,
+                "time.clock_gettime(CLOCK_MONOTONIC)",
+                true,
+                clock_getres(vm.ctx.new_int(CLOCK_MONOTONIC), vm)?,
+            ),
+            "process_time" => (
+                false,
+                "time.clock_gettime(CLOCK_PROCESS_CPUTIME_ID)",
+                true,
+                clock_getres(vm.ctx.new_int(CLOCK_PROCESS_CPUTIME_ID), vm)?,
+            ),
+            "thread_time" => (
+                false,
+                "time.clock_gettime(CLOCK_THREAD_CPUTIME_ID)",
+                true,
+                clock_getres(vm.ctx.new_int(CLOCK_THREAD_CPUTIME_ID), vm)?,
+            ),
+            "time" => (
+                true,
+                "time.clock_gettime(CLOCK_REALTIME)",
+                false,
+                clock_getres(vm.ctx.new_int(CLOCK_REALTIME), vm)?,
+            ),
+            _ => return Err(vm.new_value_error("unknown clock".to_owned())),
+        };
+
+        Ok(py_namespace!(vm, {
+            "implementation" => vm.new_pyobj(imp),
+            "monotonic" => vm.ctx.new_bool(mono),
+            "adjustable" => vm.ctx.new_bool(adj),
+            "resolution" => vm.ctx.new_float(res),
+        }))
+    }
+
+    #[cfg(not(any(
+        target_os = "macos",
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+    )))]
+    #[pyfunction]
+    fn get_clock_info(_name: PyStrRef, vm: &VirtualMachine) -> PyResult<PyNamespace> {
+        Err(vm.new_not_implemented_error("get_clock_info unsupported on this system".to_owned()))
     }
 
     #[pyfunction]
