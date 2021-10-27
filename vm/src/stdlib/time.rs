@@ -90,10 +90,56 @@ mod time {
         Ok(Date::now() / 1000.0)
     }
 
+    #[cfg(not(any(
+        target_os = "macos",
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+    )))]
     #[pyfunction]
     fn monotonic(vm: &VirtualMachine) -> PyResult<f64> {
-        // TODO: implement proper monotonic time!
+        // TODO: implement proper monotonic time for other platforms.
         Ok(duration_since_system_now(vm)?.as_secs_f64())
+    }
+
+    #[cfg(not(any(
+        target_os = "macos",
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+    )))]
+    #[pyfunction]
+    fn monotonic_ns(vm: &VirtualMachine) -> PyResult<u128> {
+        // TODO: implement proper monotonic time for other platforms.
+        Ok(duration_since_system_now(vm)?.as_nanos())
+    }
+
+    #[cfg(not(any(
+        target_os = "macos",
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+    )))]
+    #[pyfunction]
+    fn perf_counter(vm: &VirtualMachine) -> PyResult<f64> {
+        // TODO: implement proper monotonic time for other platforms.
+        Ok(duration_since_system_now(vm)?.as_secs_f64())
+    }
+
+    #[cfg(not(any(
+        target_os = "macos",
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+    )))]
+    #[pyfunction]
+    fn perf_counter_ns(vm: &VirtualMachine) -> PyResult<u128> {
+        // TODO: implement proper monotonic time for other platforms.
+        Ok(duration_since_system_now(vm)?.as_nanos())
     }
 
     fn pyobj_to_naive_date_time(
@@ -579,6 +625,54 @@ mod unix {
     #[pyfunction]
     fn get_clock_info(_name: PyStrRef, vm: &VirtualMachine) -> PyResult<PyNamespace> {
         Err(vm.new_not_implemented_error("get_clock_info unsupported on this system".to_owned()))
+    }
+
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+    ))]
+    #[pyfunction]
+    fn monotonic(vm: &VirtualMachine) -> PyResult<f64> {
+        clock_gettime(vm.ctx.new_int(CLOCK_MONOTONIC), vm)
+    }
+
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+    ))]
+    #[pyfunction]
+    fn monotonic_ns(vm: &VirtualMachine) -> PyResult<u128> {
+        clock_gettime_ns(vm.ctx.new_int(CLOCK_MONOTONIC), vm)
+    }
+
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+    ))]
+    #[pyfunction]
+    fn perf_counter(vm: &VirtualMachine) -> PyResult<f64> {
+        clock_gettime(vm.ctx.new_int(CLOCK_MONOTONIC), vm)
+    }
+
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+    ))]
+    #[pyfunction]
+    fn perf_counter_ns(vm: &VirtualMachine) -> PyResult<u128> {
+        clock_gettime_ns(vm.ctx.new_int(CLOCK_MONOTONIC), vm)
     }
 
     #[pyfunction]

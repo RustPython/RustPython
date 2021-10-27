@@ -66,8 +66,6 @@ class TimeTestCase(unittest.TestCase):
         self.assertFalse(info.monotonic)
         self.assertTrue(info.adjustable)
 
-    # TODO: RUSTPYTHON, AttributeError: module 'time' has no attribute 'monotonic_ns'
-    @unittest.expectedFailure
     def test_time_ns_type(self):
         def check_ns(sec, ns):
             self.assertIsInstance(ns, int)
@@ -533,8 +531,6 @@ class TimeTestCase(unittest.TestCase):
         self.assertTrue(info.monotonic)
         self.assertFalse(info.adjustable)
 
-    # TODO: RUSTPYTHON fix time.monotonic, currently calls System::now (i.e CLOCK_REALTIME)
-    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(time, 'clock_settime'),
                          'need time.clock_settime')
     def test_monotonic_settime(self):
