@@ -1,3 +1,4 @@
+#![cfg_attr(target_os = "wasi", allow(dead_code))]
 use crate::{PyObjectRef, PyResult, VirtualMachine};
 use std::sync::atomic::{AtomicBool, Ordering};
 

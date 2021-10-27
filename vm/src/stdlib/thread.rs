@@ -1,5 +1,5 @@
 //! Implementation of the _thread module
-
+#[cfg_attr(target_os = "wasi", allow(unused_imports))]
 pub(crate) use _thread::{make_module, RawRMutex};
 
 #[pymodule]
