@@ -175,20 +175,25 @@ fn is_typevar(obj: &PyObjectRef) -> bool {
 }
 
 fn make_parameters(args: &PyTupleRef, vm: &VirtualMachine) -> PyTupleRef {
-    let mut parameters: Vec<PyObjectRef> = vec![];
+    let mut parameters: Vec<PyObjectRef> = Vec::with_capacity(args.len());
     for arg in args.as_slice() {
         if is_typevar(arg) {
-            parameters.push(arg.clone());
-        } else if let Ok(tuple) = arg
+            if !parameters.iter().any(|param| param.is(arg)) {
+                parameters.push(arg.clone());
+            }
+        } else if let Ok(subparams) = arg
             .clone()
             .get_attr("__parameters__", vm)
             .and_then(|obj| PyTupleRef::try_from_object(vm, obj))
         {
-            for subparam in tuple.as_slice() {
-                parameters.push(subparam.clone());
+            for subparam in subparams.as_slice() {
+                if !parameters.iter().any(|param| param.is(subparam)) {
+                    parameters.push(subparam.clone());
+                }
             }
         }
     }
+    parameters.shrink_to_fit();
 
     PyTuple::new_ref(parameters, &vm.ctx)
 }
