@@ -139,7 +139,7 @@ impl FsPath {
         };
         let method = vm.get_method_or_type_error(obj.clone(), "__fspath__", || {
             format!(
-                "expected str, bytes or os.PathLike object, not {}",
+                "should be string, bytes, os.PathLike or integer, not {}",
                 obj.class().name()
             )
         })?;

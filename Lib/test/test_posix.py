@@ -603,8 +603,6 @@ class PosixTester(unittest.TestCase):
                               os.O_RDONLY|os.O_EXLOCK|os.O_NONBLOCK)
             os.close(fd)
 
-    # TODO: RUSTPYTHON: AssertionError: "should be string, bytes, os.PathLike or integer, not" does not match "expected str, bytes or os.PathLike object, not 'float'"
-    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(posix, 'fstat'),
                          'test needs posix.fstat()')
     def test_fstat(self):
