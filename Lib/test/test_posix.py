@@ -1172,11 +1172,8 @@ class PosixTester(unittest.TestCase):
             posix.close(f)
             support.rmtree(support.TESTFN + 'dir')
 
-    # TODO: RUSTPYTHON: AttributeError: module 'os' has no attribute 'mknod'
-    # 
-    # @unittest.skipUnless((os.mknod in os.supports_dir_fd) and hasattr(stat, 'S_IFIFO'),
-    #                      "test requires both stat.S_IFIFO and dir_fd support for os.mknod()")
-    @unittest.expectedFailure
+    @unittest.skipUnless((os.mknod in os.supports_dir_fd) and hasattr(stat, 'S_IFIFO'),
+                         "test requires both stat.S_IFIFO and dir_fd support for os.mknod()")
     def test_mknod_dir_fd(self):
         # Test using mknodat() to create a FIFO (the only use specified
         # by POSIX).

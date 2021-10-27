@@ -413,6 +413,50 @@ pub mod module {
         )
     }
 
+    #[derive(FromArgs)]
+    struct MknodArgs {
+        #[pyarg(any)]
+        path: PyPathLike,
+        #[pyarg(any)]
+        mode: libc::mode_t,
+        #[pyarg(any)]
+        device: libc::dev_t,
+        #[pyarg(flatten)]
+        dir_fd: DirFd<1>,
+    }
+
+    impl MknodArgs {
+        fn mknod(self, vm: &VirtualMachine) -> PyResult<()> {
+            let ret = match self.dir_fd.get_opt() {
+                None => unsafe {
+                    libc::mknod(
+                        self.path.into_cstring(vm)?.as_ptr(),
+                        self.mode,
+                        self.device,
+                    )
+                },
+                Some(non_default_fd) => unsafe {
+                    libc::mknodat(
+                        non_default_fd,
+                        self.path.into_cstring(vm)?.as_ptr(),
+                        self.mode,
+                        self.device,
+                    )
+                },
+            };
+            if ret != 0 {
+                Err(errno_err(vm))
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    #[pyfunction]
+    fn mknod(args: MknodArgs, vm: &VirtualMachine) -> PyResult<()> {
+        args.mknod(vm)
+    }
+
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn nice(increment: i32, vm: &VirtualMachine) -> PyResult<i32> {
@@ -1497,6 +1541,7 @@ pub mod module {
             SupportFunc::new("lchown", None, None, None),
             #[cfg(not(target_os = "redox"))]
             SupportFunc::new("fchown", Some(true), None, Some(true)),
+            SupportFunc::new("mknod", Some(true), Some(true), Some(false)),
             SupportFunc::new("umask", Some(false), Some(false), Some(false)),
             SupportFunc::new("execv", None, None, None),
             SupportFunc::new("pathconf", Some(true), None, None),
