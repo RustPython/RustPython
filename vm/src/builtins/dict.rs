@@ -740,34 +740,6 @@ macro_rules! dict_view {
             }
         }
 
-        impl Comparable for $name {
-            fn cmp(
-                zelf: &PyObjectView<Self>,
-                other: &PyObject,
-                op: PyComparisonOp,
-                vm: &VirtualMachine,
-            ) -> PyResult<PyComparisonValue> {
-                match_class!(match other {
-                    ref dictview @ Self => {
-                        PyDict::inner_cmp(
-                            &zelf.dict,
-                            &dictview.dict,
-                            op,
-                            !zelf.class().is(&vm.ctx.types.dict_keys_type),
-                            vm,
-                        )
-                    }
-                    ref _set @ PySet => {
-                        // TODO: Implement comparison for set
-                        Ok(NotImplemented)
-                    }
-                    _ => {
-                        Ok(NotImplemented)
-                    }
-                })
-            }
-        }
-
         impl PyValue for $name {
             fn class(vm: &VirtualMachine) -> &PyTypeRef {
                 &vm.ctx.types.$class
@@ -981,6 +953,33 @@ trait ViewSetOps: DictView {
         let inner = zelf.difference(other, vm)?;
         Ok(PySet { inner })
     }
+
+    fn cmp(
+        zelf: &PyObjectView<Self>,
+        other: &PyObject,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        match_class!(match other {
+            ref dictview @ Self => {
+                PyDict::inner_cmp(
+                    zelf.dict(),
+                    dictview.dict(),
+                    op,
+                    !zelf.class().is(&vm.ctx.types.dict_keys_type),
+                    vm,
+                )
+            }
+            ref _set @ PySet => {
+                let inner = Self::to_set(zelf.to_owned(), vm)?;
+                let zelf_set = PySet { inner }.into_object(vm);
+                PySet::cmp(zelf_set.downcast_ref().unwrap(), other, op, vm)
+            }
+            _ => {
+                Ok(NotImplemented)
+            }
+        })
+    }
 }
 
 impl ViewSetOps for PyDictKeys {}
@@ -992,6 +991,17 @@ impl PyDictKeys {
     }
 }
 impl Unconstructible for PyDictKeys {}
+
+impl Comparable for PyDictKeys {
+    fn cmp(
+        zelf: &PyObjectView<Self>,
+        other: &PyObject,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        ViewSetOps::cmp(zelf, other, op, vm)
+    }
+}
 
 impl ViewSetOps for PyDictItems {}
 #[pyimpl(with(DictView, Constructor, Comparable, Iterable, ViewSetOps))]
@@ -1018,7 +1028,18 @@ impl PyDictItems {
 }
 impl Unconstructible for PyDictItems {}
 
-#[pyimpl(with(DictView, Constructor, Comparable, Iterable))]
+impl Comparable for PyDictItems {
+    fn cmp(
+        zelf: &PyObjectView<Self>,
+        other: &PyObject,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        ViewSetOps::cmp(zelf, other, op, vm)
+    }
+}
+
+#[pyimpl(with(DictView, Constructor, Iterable))]
 impl PyDictValues {}
 impl Unconstructible for PyDictValues {}
 
