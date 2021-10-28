@@ -15,6 +15,11 @@ use std::mem::ManuallyDrop;
 use std::ops::Deref;
 use std::ptr::{self, NonNull};
 
+#[cfg(feature = "threading")]
+use once_cell::race::OnceBox;
+#[cfg(not(feature = "threading"))]
+type OnceBox<T> = once_cell::unsync::OnceCell<Box<T>>;
+
 // so, PyObjectRef is basically equivalent to `PyRc<PyGenericObject<dyn PyObjectPayload>>`, except it's
 // only one pointer in width rather than 2. We do that by manually creating a vtable, and putting
 // a &'static reference to it inside the `PyRc` rather than adjacent to it, like trait objects do.
@@ -103,7 +108,7 @@ impl<T: fmt::Debug> fmt::Debug for PyInner<T> {
 }
 
 struct WeakRefList {
-    weak_lock: PyMutex<WeakListInner>,
+    inner: OnceBox<PyMutex<WeakListInner>>,
 }
 
 impl fmt::Debug for WeakRefList {
@@ -112,26 +117,35 @@ impl fmt::Debug for WeakRefList {
     }
 }
 
-cfg_if::cfg_if! {
-    if #[cfg(feature = "threading")] {
-        unsafe impl Send for WeakRefList {}
-        unsafe impl Sync for WeakRefList {}
-    }
-}
-
+#[derive(Default)]
 struct WeakListInner {
     list: LinkedList<WeakLink, PyObjectView<PyWeak>>,
     obj: Option<NonNull<PyObject>>,
 }
 
+cfg_if::cfg_if! {
+    if #[cfg(feature = "threading")] {
+        unsafe impl Send for WeakListInner {}
+        unsafe impl Sync for WeakListInner {}
+    }
+}
+
 impl WeakRefList {
     pub fn new() -> Self {
         WeakRefList {
-            weak_lock: PyMutex::new(WeakListInner {
-                list: LinkedList::new(),
-                obj: None,
-            }),
+            inner: OnceBox::new(),
         }
+    }
+
+    /// returns None if there have never been any weakrefs in this list
+    fn try_lock(&self) -> Option<PyMutexGuard<'_, WeakListInner>> {
+        self.inner.get().map(|mu| mu.lock())
+    }
+    fn lock(&self) -> PyMutexGuard<'_, WeakListInner> {
+        self.inner
+            .get()
+            .expect("weakref should be initialized")
+            .lock()
     }
 
     fn add(
@@ -141,7 +155,7 @@ impl WeakRefList {
         callback: Option<PyObjectRef>,
         dict: Option<PyDictRef>,
     ) -> PyObjectWeak {
-        let mut inner = self.weak_lock.lock();
+        let mut inner = self.inner.get_or_init(Default::default).lock();
         if inner.obj.is_none() {
             inner.obj = Some(NonNull::from(obj));
         }
@@ -159,7 +173,10 @@ impl WeakRefList {
     }
 
     fn clear(&self) {
-        let mut inner = self.weak_lock.lock();
+        let mut inner = match self.try_lock() {
+            Some(inner) => inner,
+            None => return,
+        };
         inner.obj = None;
         // TODO: can be an arrayvec
         let mut v = Vec::with_capacity(16);
@@ -201,7 +218,7 @@ impl WeakRefList {
     }
 
     fn count(&self) -> usize {
-        self.weak_lock.lock().list.count()
+        self.try_lock().map_or(0, |inner| inner.list.count())
     }
 }
 
@@ -249,13 +266,7 @@ cfg_if::cfg_if! {
 impl PyWeak {
     pub(crate) fn upgrade(&self) -> Option<PyObjectRef> {
         // TODO: figure out orderings for here, in drop, and the store in WeakRefList::clear
-        let guard = unsafe {
-            self.parent
-                .load(Ordering::SeqCst)
-                .as_ref()?
-                .weak_lock
-                .lock()
-        };
+        let guard = unsafe { self.parent.load(Ordering::SeqCst).as_ref()?.lock() };
         let obj_ptr = guard.obj?;
         unsafe {
             obj_ptr.as_ref().0.refcount.incref();
@@ -267,7 +278,7 @@ impl PyWeak {
     fn drop_inner(&self) {
         let parent_ptr = self.parent.load(Ordering::SeqCst);
         let mut guard = match unsafe { parent_ptr.as_ref() } {
-            Some(parent) => parent.weak_lock.lock(),
+            Some(parent) => parent.lock(),
             // the object is dead - we don't have to worry about removing ourselves from the list
             None => return,
         };

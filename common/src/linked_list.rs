@@ -51,9 +51,8 @@ pub struct LinkedList<L, T> {
     /// Linked list head
     head: Option<NonNull<T>>,
 
-    /// Linked list tail
-    tail: Option<NonNull<T>>,
-
+    // /// Linked list tail
+    // tail: Option<NonNull<T>>,
     /// Node type marker.
     _marker: PhantomData<*const L>,
 }
@@ -139,7 +138,7 @@ impl<L, T> LinkedList<L, T> {
     pub const fn new() -> LinkedList<L, T> {
         LinkedList {
             head: None,
-            tail: None,
+            // tail: None,
             _marker: PhantomData,
         }
     }
@@ -162,40 +161,41 @@ impl<L: Link> LinkedList<L, L::Target> {
 
             self.head = Some(ptr);
 
-            if self.tail.is_none() {
-                self.tail = Some(ptr);
-            }
+            // if self.tail.is_none() {
+            //     self.tail = Some(ptr);
+            // }
         }
     }
 
-    /// Removes the last element from a list and returns it, or None if it is
-    /// empty.
-    pub fn pop_back(&mut self) -> Option<L::Handle> {
-        unsafe {
-            let last = self.tail?;
-            self.tail = L::pointers(last).as_ref().get_prev();
+    // /// Removes the last element from a list and returns it, or None if it is
+    // /// empty.
+    // pub fn pop_back(&mut self) -> Option<L::Handle> {
+    //     unsafe {
+    //         let last = self.tail?;
+    //         self.tail = L::pointers(last).as_ref().get_prev();
 
-            if let Some(prev) = L::pointers(last).as_ref().get_prev() {
-                L::pointers(prev).as_mut().set_next(None);
-            } else {
-                self.head = None
-            }
+    //         if let Some(prev) = L::pointers(last).as_ref().get_prev() {
+    //             L::pointers(prev).as_mut().set_next(None);
+    //         } else {
+    //             self.head = None
+    //         }
 
-            L::pointers(last).as_mut().set_prev(None);
-            L::pointers(last).as_mut().set_next(None);
+    //         L::pointers(last).as_mut().set_prev(None);
+    //         L::pointers(last).as_mut().set_next(None);
 
-            Some(L::from_raw(last))
-        }
-    }
+    //         Some(L::from_raw(last))
+    //     }
+    // }
 
     /// Returns whether the linked list does not contain any node
     pub fn is_empty(&self) -> bool {
-        if self.head.is_some() {
-            return false;
-        }
+        self.head.is_none()
+        // if self.head.is_some() {
+        //     return false;
+        // }
 
-        assert!(self.tail.is_none());
-        true
+        // assert!(self.tail.is_none());
+        // true
     }
 
     /// Removes the specified node from the list
@@ -224,12 +224,12 @@ impl<L: Link> LinkedList<L, L::Target> {
                 .as_mut()
                 .set_prev(L::pointers(node).as_ref().get_prev());
         } else {
-            // This might be the last item in the list
-            if self.tail != Some(node) {
-                return None;
-            }
+            // // This might be the last item in the list
+            // if self.tail != Some(node) {
+            //     return None;
+            // }
 
-            self.tail = L::pointers(node).as_ref().get_prev();
+            // self.tail = L::pointers(node).as_ref().get_prev();
         }
 
         L::pointers(node).as_mut().set_next(None);
@@ -238,10 +238,10 @@ impl<L: Link> LinkedList<L, L::Target> {
         Some(L::from_raw(node))
     }
 
-    pub fn last(&self) -> Option<&L::Target> {
-        let tail = self.tail.as_ref()?;
-        unsafe { Some(&*tail.as_ptr()) }
-    }
+    // pub fn last(&self) -> Option<&L::Target> {
+    //     let tail = self.tail.as_ref()?;
+    //     unsafe { Some(&*tail.as_ptr()) }
+    // }
 
     pub fn count(&self) -> usize {
         std::iter::successors(self.head, |node| unsafe {
@@ -255,7 +255,7 @@ impl<L: Link> fmt::Debug for LinkedList<L, L::Target> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("LinkedList")
             .field("head", &self.head)
-            .field("tail", &self.tail)
+            // .field("tail", &self.tail)
             .finish()
     }
 }
