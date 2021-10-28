@@ -749,16 +749,12 @@ class TestEnum(unittest.TestCase):
         test_pickle_dump_load(self.assertIs, FloatStooges.CURLY)
         test_pickle_dump_load(self.assertIs, FloatStooges)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pickle_enum_function(self):
         if isinstance(Answer, Exception):
             raise Answer
         test_pickle_dump_load(self.assertIs, Answer.him)
         test_pickle_dump_load(self.assertIs, Answer)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pickle_enum_function_with_module(self):
         if isinstance(Question, Exception):
             raise Question
