@@ -6,6 +6,7 @@ use crate::{
     builtins::{try_f64_to_bigint, tuple, PyBytes, PyFloat, PyInt, PyStr},
     function::ArgIntoFloat,
     protocol::PyBuffer,
+    stdlib::builtins,
     ItemProtocol, PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject, TypeProtocol,
     VirtualMachine,
 };
@@ -460,15 +461,16 @@ impl CFormatSpec {
         match &self.format_type {
             CFormatType::String(preconversor) => {
                 let result = match preconversor {
-                    CFormatPreconversor::Str => obj.str(vm)?,
-                    CFormatPreconversor::Repr | CFormatPreconversor::Ascii => obj.repr(vm)?,
+                    CFormatPreconversor::Ascii => builtins::ascii(obj, vm)?.into(),
+                    CFormatPreconversor::Str => obj.str(vm)?.as_str().to_owned(),
+                    CFormatPreconversor::Repr => obj.repr(vm)?.as_str().to_owned(),
                     CFormatPreconversor::Bytes => {
                         return Err(vm.new_value_error(
                             "unsupported format character 'b' (0x62)".to_owned(),
                         ));
                     }
                 };
-                Ok(self.format_string(result.as_str().to_owned()))
+                Ok(self.format_string(result))
             }
             CFormatType::Number(number_type) => match number_type {
                 CNumberType::Decimal => match_class!(match &obj {

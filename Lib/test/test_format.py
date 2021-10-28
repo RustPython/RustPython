@@ -284,8 +284,6 @@ class FormatTest(unittest.TestCase):
         test_exc_common('%x', 3.14, TypeError,
                         "%x format: an integer is required, not float")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_str_format(self):
         testformat("%r", "\u0378", "'\\u0378'")  # non printable
         testformat("%a", "\u0378", "'\\u0378'")  # non printable
