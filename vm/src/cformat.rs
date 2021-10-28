@@ -684,7 +684,7 @@ impl CFormatBytes {
                 Ok(result)
             } else {
                 Err(vm.new_type_error(
-                    "not all arguments converted during string formatting".to_owned(),
+                    "not all arguments converted during bytes formatting".to_owned(),
                 ))
             };
         }
@@ -740,8 +740,7 @@ impl CFormatBytes {
 
         // check that all arguments were converted
         if value_iter.next().is_some() && !is_mapping {
-            Err(vm
-                .new_type_error("not all arguments converted during string formatting".to_owned()))
+            Err(vm.new_type_error("not all arguments converted during bytes formatting".to_owned()))
         } else {
             Ok(result)
         }
