@@ -421,29 +421,43 @@ pub mod module {
         mode: libc::mode_t,
         #[pyarg(any)]
         device: libc::dev_t,
+        #[allow(unused)]
         #[pyarg(flatten)]
         dir_fd: DirFd<1>,
     }
 
     impl MknodArgs {
+        fn _mknod(self, vm: &VirtualMachine) -> PyResult<i32> {
+            Ok(unsafe {
+                libc::mknod(
+                    self.path.clone().into_cstring(vm)?.as_ptr(),
+                    self.mode,
+                    self.device,
+                )
+            })
+        }
+        #[cfg(not(target_os = "macos"))]
         fn mknod(self, vm: &VirtualMachine) -> PyResult<()> {
             let ret = match self.dir_fd.get_opt() {
-                None => unsafe {
-                    libc::mknod(
-                        self.path.into_cstring(vm)?.as_ptr(),
-                        self.mode,
-                        self.device,
-                    )
-                },
+                None => self._mknod(vm)?,
                 Some(non_default_fd) => unsafe {
                     libc::mknodat(
                         non_default_fd,
-                        self.path.into_cstring(vm)?.as_ptr(),
+                        self.path.clone().into_cstring(vm)?.as_ptr(),
                         self.mode,
                         self.device,
                     )
                 },
             };
+            if ret != 0 {
+                Err(errno_err(vm))
+            } else {
+                Ok(())
+            }
+        }
+        #[cfg(target_os = "macos")]
+        fn mknod(self, vm: &VirtualMachine) -> PyResult<()> {
+            let ret = self._mknod(vm)?;
             if ret != 0 {
                 Err(errno_err(vm))
             } else {
@@ -1541,7 +1555,10 @@ pub mod module {
             SupportFunc::new("lchown", None, None, None),
             #[cfg(not(target_os = "redox"))]
             SupportFunc::new("fchown", Some(true), None, Some(true)),
+            #[cfg(not(target_os = "macos"))]
             SupportFunc::new("mknod", Some(true), Some(true), Some(false)),
+            #[cfg(target_os = "macos")]
+            SupportFunc::new("mknod", Some(true), Some(false), Some(false)),
             SupportFunc::new("umask", Some(false), Some(false), Some(false)),
             SupportFunc::new("execv", None, None, None),
             SupportFunc::new("pathconf", Some(true), None, None),
