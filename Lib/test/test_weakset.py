@@ -43,8 +43,6 @@ class TestWeakSet(unittest.TestCase):
     def test_new_or_init(self):
         self.assertRaises(TypeError, WeakSet, [], 2)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_len(self):
         self.assertEqual(len(self.s), len(self.d))
         self.assertEqual(len(self.fs), 1)
@@ -60,8 +58,6 @@ class TestWeakSet(unittest.TestCase):
         del self.obj
         self.assertNotIn(ustr('F'), self.fs)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_union(self):
         u = self.s.union(self.items2)
         for c in self.letters:
@@ -84,8 +80,6 @@ class TestWeakSet(unittest.TestCase):
         self.assertEqual(self.s | set(self.items2), i)
         self.assertEqual(self.s | frozenset(self.items2), i)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_intersection(self):
         s = WeakSet(self.letters)
         i = s.intersection(self.items2)
@@ -123,8 +117,6 @@ class TestWeakSet(unittest.TestCase):
         self.assertEqual(self.s - set(self.items2), i)
         self.assertEqual(self.s - frozenset(self.items2), i)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_symmetric_difference(self):
         i = self.s.symmetric_difference(self.items2)
         for c in self.letters:
@@ -215,8 +207,6 @@ class TestWeakSet(unittest.TestCase):
         self.assertEqual(self.s, dup)
         self.assertNotEqual(id(self.s), id(dup))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_add(self):
         x = ustr('Q')
         self.s.add(x)
@@ -352,8 +342,6 @@ class TestWeakSet(unittest.TestCase):
         s2 = WeakSet()
         self.assertFalse(s1 != s2)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_weak_destroy_while_iterating(self):
         # Issue #7105: iterators shouldn't crash when a key is implicitly removed
         # Create new items to be sure no-one else holds a reference
@@ -370,8 +358,6 @@ class TestWeakSet(unittest.TestCase):
         # The removal has been committed
         self.assertEqual(len(s), len(items))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_weak_destroy_and_mutate_while_iterating(self):
         # Issue #7105: iterators shouldn't crash when a key is implicitly removed
         items = [ustr(c) for c in string.ascii_letters]

@@ -2345,8 +2345,6 @@ class BasicElementTest(ElementTestCase, unittest.TestCase):
         gc_collect()
         self.assertIsNone(wref())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_weakref(self):
         flag = False
         def wref_cb(w):

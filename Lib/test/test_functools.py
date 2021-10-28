@@ -500,8 +500,6 @@ class TestPartialMethod(unittest.TestCase):
 
     a = A()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_arg_combinations(self):
         self.assertEqual(self.a.nothing(), ((self.a,), {}))
         self.assertEqual(self.a.nothing(5), ((self.a, 5), {}))
