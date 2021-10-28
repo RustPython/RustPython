@@ -1,14 +1,14 @@
-use super::{PyStrRef, PyTypeRef, PyWeak};
+use super::{PyStrRef, PyTypeRef};
 use crate::{
     function::OptionalArg,
     types::{Constructor, SetAttr},
-    PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue, VirtualMachine,
+    PyClassImpl, PyContext, PyObjectRef, PyObjectWeak, PyResult, PyValue, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "weakproxy")]
 #[derive(Debug)]
 pub struct PyWeakProxy {
-    weak: PyWeak,
+    weak: PyObjectWeak,
 }
 
 impl PyValue for PyWeakProxy {
@@ -33,11 +33,9 @@ impl Constructor for PyWeakProxy {
         Self::Args { referent, callback }: Self::Args,
         vm: &VirtualMachine,
     ) -> PyResult {
-        if callback.is_present() {
-            panic!("Passed a callback to weakproxy, but weakproxy does not yet support proxies.");
-        }
+        // TODO: PyWeakProxy should use the same payload as PyWeak
         PyWeakProxy {
-            weak: PyWeak::downgrade(&referent),
+            weak: referent.downgrade(callback.into_option(), vm)?,
         }
         .into_pyresult_with_type(vm, cls)
     }

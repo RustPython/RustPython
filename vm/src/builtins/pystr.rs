@@ -89,11 +89,20 @@ impl PyStrKindData {
 /// encoding defaults to sys.getdefaultencoding().
 /// errors defaults to 'strict'."
 #[pyclass(module = false, name = "str")]
-#[derive(Debug)]
 pub struct PyStr {
     bytes: Box<[u8]>,
     kind: PyStrKindData,
     hash: PyAtomic<hash::PyHash>,
+}
+
+impl fmt::Debug for PyStr {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("PyStr")
+            .field("value", &self.as_str())
+            .field("kind", &self.kind)
+            .field("hash", &self.hash)
+            .finish()
+    }
 }
 
 impl AsRef<str> for PyStr {

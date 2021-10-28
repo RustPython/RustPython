@@ -30,7 +30,7 @@ mod _ssl {
         },
         socket::{self, PySocket},
         vm::{
-            builtins::{PyBaseExceptionRef, PyStrRef, PyType, PyTypeRef, PyWeak},
+            builtins::{PyBaseExceptionRef, PyStrRef, PyType, PyTypeRef},
             exceptions,
             function::{
                 ArgBytesLike, ArgCallable, ArgMemoryBuffer, ArgStrOrBytesLike, IntoPyException,
@@ -39,7 +39,7 @@ mod _ssl {
             stdlib::os::PyPathLike,
             types::Constructor,
             utils::{Either, ToCString},
-            ItemProtocol, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+            ItemProtocol, PyObjectRef, PyObjectWeak, PyRef, PyResult, PyValue, VirtualMachine,
         },
     };
     use crossbeam_utils::atomic::AtomicCell;
@@ -773,7 +773,7 @@ mod _ssl {
                 stream: PyRwLock::new(stream),
                 socket_type,
                 server_hostname: args.server_hostname,
-                owner: PyRwLock::new(args.owner.as_ref().map(|o| PyWeak::downgrade(o))),
+                owner: PyRwLock::new(args.owner.map(|o| o.downgrade(None, vm)).transpose()?),
             })
         }
     }
@@ -890,7 +890,7 @@ mod _ssl {
         stream: PyRwLock<ssl::SslStream<SocketStream>>,
         socket_type: SslServerOrClient,
         server_hostname: Option<PyStrRef>,
-        owner: PyRwLock<Option<PyWeak>>,
+        owner: PyRwLock<Option<PyObjectWeak>>,
     }
 
     impl fmt::Debug for PySslSocket {
@@ -903,11 +903,14 @@ mod _ssl {
     impl PySslSocket {
         #[pyproperty]
         fn owner(&self) -> Option<PyObjectRef> {
-            self.owner.read().as_ref().and_then(PyWeak::upgrade)
+            self.owner.read().as_ref().and_then(|weak| weak.upgrade())
         }
         #[pyproperty(setter)]
-        fn set_owner(&self, owner: PyObjectRef) {
-            *self.owner.write() = Some(PyWeak::downgrade(&owner))
+        fn set_owner(&self, owner: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            let mut lock = self.owner.write();
+            lock.take();
+            *lock = Some(owner.downgrade(None, vm)?);
+            Ok(())
         }
         #[pyproperty]
         fn server_side(&self) -> bool {

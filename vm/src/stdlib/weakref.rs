@@ -33,7 +33,7 @@ mod _weakref {
 
     #[pyfunction]
     fn getweakrefcount(obj: PyObjectRef) -> usize {
-        obj.weak_count()
+        obj.weak_count().unwrap_or(0)
     }
 
     #[pyfunction]

@@ -94,6 +94,7 @@ impl PyContext {
         let types = TypeZoo::init();
         let exceptions = exceptions::ExceptionZoo::init();
 
+        #[inline]
         fn create_object<T: PyObjectPayload + PyValue>(payload: T, cls: &PyTypeRef) -> PyRef<T> {
             PyRef::new_ref(payload, cls.clone(), None)
         }
