@@ -421,6 +421,10 @@ impl PyType {
         let (name, bases, dict, kwargs): (PyStrRef, PyTupleRef, PyDictRef, KwArgs) =
             args.clone().bind(vm)?;
 
+        if name.as_str().contains(char::from(0)) {
+            return Err(vm.new_value_error("type name must not contain null characters".to_owned()));
+        }
+
         let bases = bases.as_slice();
         let (metatype, base, bases) = if bases.is_empty() {
             let base = vm.ctx.types.object_type.clone();
@@ -568,6 +572,9 @@ impl PyType {
                 value.class().name()
             ))
         })?;
+        if name.as_str().contains(char::from(0)) {
+            return Err(vm.new_value_error("type name must not contain null characters".to_owned()));
+        }
         *self.slots.name.write() = Some(name.as_str().to_string());
         Ok(())
     }
