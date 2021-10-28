@@ -336,7 +336,6 @@ impl PyType {
 
     #[pyproperty(magic)]
     pub fn module(&self, vm: &VirtualMachine) -> PyObjectRef {
-        // TODO: Implement getting the actual module a builtin type is from
         self.attributes
             .read()
             .get("__module__")
@@ -480,6 +479,15 @@ impl PyType {
         if let Some(f) = attributes.get_mut("__class_getitem__") {
             if f.class().is(&vm.ctx.types.function_type) {
                 *f = PyClassMethod::from(f.clone()).into_object(vm);
+            }
+        }
+
+        if let Some(current_frame) = vm.current_frame() {
+            if !attributes.contains_key("__module__") {
+                attributes.insert(
+                    "__module__".to_string(),
+                    vm.unwrap_or_none(current_frame.globals.get_item_opt("__name__", vm)?),
+                );
             }
         }
 
