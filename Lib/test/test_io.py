@@ -864,8 +864,6 @@ class IOTest(unittest.TestCase):
         with self.open("non-existent", "r", opener=opener) as f:
             self.assertEqual(f.read(), "egg\n")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bad_opener_negative_1(self):
         # Issue #27066.
         def badopener(fname, flags):
@@ -874,8 +872,6 @@ class IOTest(unittest.TestCase):
             open('non-existent', 'r', opener=badopener)
         self.assertEqual(str(cm.exception), 'opener returned -1')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bad_opener_other_negative(self):
         # Issue #27066.
         def badopener(fname, flags):

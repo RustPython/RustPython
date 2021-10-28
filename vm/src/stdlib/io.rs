@@ -3857,7 +3857,7 @@ mod fileio {
                 }
                 let fd = i32::try_from_object(vm, fd)?;
                 if fd < 0 {
-                    return Err(vm.new_os_error("Negative file descriptor".to_owned()));
+                    return Err(vm.new_value_error(format!("opener returned {}", fd)));
                 }
                 fd
             } else if let Some(i) = name.payload::<crate::builtins::PyInt>() {
