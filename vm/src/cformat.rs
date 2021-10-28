@@ -360,10 +360,11 @@ impl CFormatSpec {
     fn bytes_format(&self, vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Vec<u8>> {
         match &self.format_type {
             CFormatType::String(preconversor) => match preconversor {
+                // Unlike strings, %r and %a are identical for bytes: the behaviour corresponds to
+                // %a for strings (not %r)
                 CFormatPreconversor::Repr | CFormatPreconversor::Ascii => {
-                    let s = obj.repr(vm)?;
-                    let s = self.format_string(s.as_str().to_owned());
-                    Ok(s.into_bytes())
+                    let b = builtins::ascii(obj, vm)?.into();
+                    Ok(b)
                 }
                 CFormatPreconversor::Str | CFormatPreconversor::Bytes => {
                     if let Ok(buffer) = PyBuffer::try_from_borrowed_object(vm, &obj) {
