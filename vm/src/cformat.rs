@@ -3,7 +3,7 @@
 
 use crate::common::float_ops;
 use crate::{
-    builtins::{try_f64_to_bigint, tuple, PyBytes, PyFloat, PyInt, PyStr},
+    builtins::{try_f64_to_bigint, tuple, PyByteArray, PyBytes, PyFloat, PyInt, PyStr},
     function::ArgIntoFloat,
     protocol::PyBuffer,
     stdlib::builtins,
@@ -447,12 +447,19 @@ impl CFormatSpec {
                         })?;
                     return Ok(self.format_char(ch).into_bytes());
                 }
-                if let Some(s) = obj.payload::<PyStr>() {
-                    if let Ok(ch) = s.as_str().chars().exactly_one() {
-                        return Ok(self.format_char(ch).into_bytes());
+                if let Some(b) = obj.payload::<PyBytes>() {
+                    if b.len() == 1 {
+                        return Ok(self.format_char(b.as_bytes()[0] as char).into_bytes());
+                    }
+                } else if let Some(ba) = obj.payload::<PyByteArray>() {
+                    let buf = ba.borrow_buf();
+                    if buf.len() == 1 {
+                        return Ok(self.format_char(buf[0] as char).into_bytes());
                     }
                 }
-                Err(vm.new_type_error("%c requires int or char".to_owned()))
+                Err(vm.new_type_error(
+                    "%c requires an integer in range(256) or a single byte".to_owned(),
+                ))
             }
         }
     }
