@@ -1242,9 +1242,6 @@ mod array {
         retain: Some(|buffer| {
             buffer.obj_as::<PyArray>().exports.fetch_add(1);
         }),
-        contiguous: None,
-        contiguous_mut: None,
-        collect_bytes: None,
     };
 
     impl AsMapping for PyArray {

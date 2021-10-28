@@ -64,24 +64,6 @@ impl Constructor for PyMemoryView {
 
 #[pyimpl(with(Hashable, Comparable, AsBuffer, AsMapping, Constructor))]
 impl PyMemoryView {
-    #[cfg(debug_assertions)]
-    fn validate(self) -> Self {
-        let options = &self.options;
-        let bytes_len = options.len * options.itemsize
-            + (self.step.abs() as usize - 1) * options.itemsize * options.len.saturating_sub(1);
-        let buffer_len = self.buffer.obj_bytes().len();
-        assert!(self.start <= self.stop);
-        assert!(self.step != 0);
-        assert!(self.start + bytes_len <= buffer_len);
-        assert!(self.stop <= buffer_len);
-        assert!(self.stop - self.start == bytes_len);
-        self
-    }
-    #[cfg(not(debug_assertions))]
-    fn validate(self) -> Self {
-        self
-    }
-
     fn parse_format(format: &str, vm: &VirtualMachine) -> PyResult<FormatSpec> {
         FormatSpec::parse(format.as_bytes(), vm)
     }
@@ -668,9 +650,9 @@ impl PyMemoryView {
 static BUFFER_METHODS: BufferMethods = BufferMethods {
     obj_bytes: |buffer| buffer.obj_as::<PyMemoryView>().buffer.obj_bytes(),
     obj_bytes_mut: |buffer| buffer.obj_as::<PyMemoryView>().buffer.obj_bytes_mut(),
-    contiguous: Some(|buffer| buffer.obj_as::<PyMemoryView>().contiguous()),
-    contiguous_mut: Some(|buffer| buffer.obj_as::<PyMemoryView>().contiguous_mut()),
-    collect_bytes: Some(|buffer, buf| buffer.obj_as::<PyMemoryView>().collect_bytes(buf)),
+    // contiguous: Some(|buffer| buffer.obj_as::<PyMemoryView>().contiguous()),
+    // contiguous_mut: Some(|buffer| buffer.obj_as::<PyMemoryView>().contiguous_mut()),
+    // collect_bytes: Some(|buffer, buf| buffer.obj_as::<PyMemoryView>().collect_bytes(buf)),
     release: Some(|buffer| buffer.obj_as::<PyMemoryView>().buffer.release()),
     retain: Some(|buffer| buffer.obj_as::<PyMemoryView>().buffer.retain()),
 };
