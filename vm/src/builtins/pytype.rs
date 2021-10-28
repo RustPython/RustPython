@@ -491,6 +491,10 @@ impl PyType {
             }
         }
 
+        attributes
+            .entry("__qualname__".to_string())
+            .or_insert_with(|| vm.ctx.new_str(name.as_str()).into());
+
         // All *classes* should have a dict. Exceptions are *instances* of
         // classes that define __slots__ and instances of built-in classes
         // (with exceptions, e.g function)
