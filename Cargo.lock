@@ -897,6 +897,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "79296f72d53a89096cbc9a88c9547ee8dfe793388674620e2207593d370550ac"
 
 [[package]]
+name = "hexf-parse"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dfa686283ad6dd069f105e5ab091b04c62850d3e4cf5d67debad1933f55023df"
+
+[[package]]
 name = "indexmap"
 version = "1.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1030,6 +1036,36 @@ dependencies = [
  "bitflags",
  "cfg-if 1.0.0",
  "ryu",
+ "static_assertions",
+]
+
+[[package]]
+name = "lexical-parse-float"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "673a01c82cb851a33bb46cacc44c3ad5e7b39ea3b8d22ade21646221df58e45f"
+dependencies = [
+ "lexical-parse-integer",
+ "lexical-util",
+ "static_assertions",
+]
+
+[[package]]
+name = "lexical-parse-integer"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f2c92badda8cc0fc4f3d3cc1c30aaefafb830510c8781ce4e8669881f3ed53ac"
+dependencies = [
+ "lexical-util",
+ "static_assertions",
+]
+
+[[package]]
+name = "lexical-util"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ff669ccaae16ee33af90dc51125755efed17f1309626ba5c12052512b11e291"
+dependencies = [
  "static_assertions",
 ]
 
@@ -1781,8 +1817,8 @@ version = "0.0.0"
 dependencies = [
  "ascii",
  "cfg-if 1.0.0",
- "hexf-parse",
- "lexical-core",
+ "hexf-parse 0.2.1",
+ "lexical-parse-float",
  "libc",
  "lock_api",
  "num-bigint",
@@ -1966,7 +2002,7 @@ dependencies = [
  "getrandom",
  "half",
  "hex",
- "hexf-parse",
+ "hexf-parse 0.1.0",
  "indexmap",
  "is-macro",
  "itertools",
