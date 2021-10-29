@@ -434,7 +434,18 @@ impl CFormatSpec {
                 }
             },
             CFormatType::Float(_) => {
-                let value = ArgIntoFloat::try_from_object(vm, obj)?.to_f64();
+                let type_name = obj.class().name().to_string();
+                let value = ArgIntoFloat::try_from_object(vm, obj)
+                    .map_err(|e| {
+                        if e.isinstance(&vm.ctx.exceptions.type_error) {
+                            // formatfloat in bytesobject.c generates its own specific exception
+                            // text in this case, mirror it here.
+                            vm.new_type_error(format!("float argument required, not {}", type_name))
+                        } else {
+                            e
+                        }
+                    })?
+                    .to_f64();
                 Ok(self.format_float(value).into_bytes())
             }
             CFormatType::Character => {
@@ -462,7 +473,12 @@ impl CFormatSpec {
         }
     }
 
-    fn string_format(&self, vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<String> {
+    fn string_format(
+        &self,
+        vm: &VirtualMachine,
+        obj: PyObjectRef,
+        idx: &usize,
+    ) -> PyResult<String> {
         match &self.format_type {
             CFormatType::String(preconversor) => {
                 let result = match preconversor {
@@ -470,9 +486,11 @@ impl CFormatSpec {
                     CFormatPreconversor::Str => obj.str(vm)?.as_str().to_owned(),
                     CFormatPreconversor::Repr => obj.repr(vm)?.as_str().to_owned(),
                     CFormatPreconversor::Bytes => {
-                        return Err(vm.new_value_error(
-                            "unsupported format character 'b' (0x62)".to_owned(),
-                        ));
+                        // idx is the position of the %, we want the position of the b
+                        return Err(vm.new_value_error(format!(
+                            "unsupported format character 'b' (0x62) at index {}",
+                            idx + 1
+                        )));
                     }
                 };
                 Ok(self.format_string(result))
@@ -841,7 +859,7 @@ impl CFormatString {
         if mapping_required {
             // dict
             return if is_mapping {
-                for (_, part) in &self.parts {
+                for (idx, part) in &self.parts {
                     match part {
                         CFormatPart::Literal(literal) => result.push_str(literal),
                         CFormatPart::Spec(spec) => {
@@ -849,7 +867,7 @@ impl CFormatString {
                                 Some(key) => values_obj.get_item(key, vm)?,
                                 None => unreachable!(),
                             };
-                            let part_result = spec.string_format(vm, value)?;
+                            let part_result = spec.string_format(vm, value, idx)?;
                             result.push_str(&part_result);
                         }
                     }
@@ -868,7 +886,7 @@ impl CFormatString {
         };
         let mut value_iter = values.iter();
 
-        for (_, part) in &mut self.parts {
+        for (idx, part) in &mut self.parts {
             match part {
                 CFormatPart::Literal(literal) => result.push_str(literal),
                 CFormatPart::Spec(spec) => {
@@ -881,7 +899,7 @@ impl CFormatString {
                             vm.new_type_error("not enough arguments for format string".to_owned())
                         ),
                     }?;
-                    let part_result = spec.string_format(vm, value)?;
+                    let part_result = spec.string_format(vm, value, idx)?;
                     result.push_str(&part_result);
                 }
             }
