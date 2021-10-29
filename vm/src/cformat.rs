@@ -666,7 +666,8 @@ impl CFormatBytes {
 
         let is_mapping = values_obj.class().has_attr("__getitem__")
             && !values_obj.isinstance(&vm.ctx.types.tuple_type)
-            && !values_obj.isinstance(&vm.ctx.types.str_type);
+            && !values_obj.isinstance(&vm.ctx.types.bytes_type)
+            && !values_obj.isinstance(&vm.ctx.types.bytearray_type);
 
         if num_specifiers == 0 {
             // literal only
