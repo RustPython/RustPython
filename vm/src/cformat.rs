@@ -275,6 +275,8 @@ impl CFormatSpec {
             _ => self.flags.sign_string(),
         };
 
+        let padded_magnitude_string = self.fill_string(magnitude_string, '0', None, true);
+
         if self.flags.contains(CConversionFlags::ZERO_PAD) {
             let fill_char = if !self.flags.contains(CConversionFlags::LEFT_ADJUST) {
                 '0'
@@ -286,7 +288,7 @@ impl CFormatSpec {
                 "{}{}",
                 signed_prefix,
                 self.fill_string(
-                    magnitude_string,
+                    padded_magnitude_string,
                     fill_char,
                     Some(signed_prefix.chars().count()),
                     false
@@ -294,7 +296,7 @@ impl CFormatSpec {
             )
         } else {
             self.fill_string(
-                format!("{}{}{}", sign_string, prefix, magnitude_string),
+                format!("{}{}{}", sign_string, prefix, padded_magnitude_string),
                 ' ',
                 None,
                 false,
