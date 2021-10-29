@@ -45,12 +45,11 @@ extern crate log;
 
 use clap::{App, AppSettings, Arg, ArgMatches};
 use rustpython_vm::{
-    builtins::PyDictRef, builtins::PyInt, compile, exceptions::print_exception, match_class,
-    scope::Scope, stdlib::sys, InitParameter, Interpreter, ItemProtocol, PyObjectRef, PyResult,
-    PySettings, TryFromObject, TypeProtocol, VirtualMachine,
+    builtins::PyDictRef, builtins::PyInt, compile, match_class, scope::Scope, stdlib::sys,
+    InitParameter, Interpreter, ItemProtocol, PyObjectRef, PyResult, PySettings, TryFromObject,
+    TypeProtocol, VirtualMachine,
 };
 
-use std::convert::TryInto;
 use std::env;
 use std::path::Path;
 use std::process;
@@ -86,17 +85,10 @@ where
         }
     }
 
-    // We only include the standard library bytecode in WASI when initializing
-    let init_param = if cfg!(target_os = "wasi") {
-        InitParameter::Internal
-    } else {
-        InitParameter::External
-    };
-
     let interp = Interpreter::new_with_init(settings, |vm| {
         add_stdlib(vm);
         init(vm);
-        init_param
+        InitParameter::External
     });
 
     let exitcode = interp.enter(move |vm| {
@@ -128,7 +120,7 @@ where
                             if vm.is_none(arg) {
                                 0
                             } else {
-                                if let Ok(s) = vm.to_str(arg) {
+                                if let Ok(s) = arg.str(vm) {
                                     eprintln!("{}", s);
                                 }
                                 1
@@ -136,15 +128,15 @@ where
                         }
                     }),
                     _ => {
-                        if let Ok(r) = vm.to_repr(args.as_object()) {
+                        if let Ok(r) = args.as_object().repr(vm) {
                             eprintln!("{}", r);
                         }
                         1
                     }
                 }
             }
-            Err(err) => {
-                print_exception(vm, err);
+            Err(exc) => {
+                vm.print_exception(exc);
                 1
             }
         };
@@ -211,7 +203,9 @@ fn parse_arguments<'a>(app: App<'a, '_>) -> ArgMatches<'a> {
                 .multiple(true)
                 .value_name("get-pip args")
                 .min_values(0)
-                .help("install the pip package manager for rustpython"),
+                .help("install the pip package manager for rustpython; \
+                        requires rustpython be build with the ssl feature enabled."
+                ),
         )
         .arg(
             Arg::with_name("optimize")
@@ -341,9 +335,9 @@ fn create_settings(matches: &ArgMatches) -> PySettings {
 
     // BUILDTIME_RUSTPYTHONPATH should be set when distributing
     if let Some(paths) = option_env!("BUILDTIME_RUSTPYTHONPATH") {
-        settings.path_list.extend(
-            std::env::split_paths(paths).map(|path| path.into_os_string().into_string().unwrap()),
-        )
+        settings
+            .path_list
+            .extend(split_paths(paths).map(|path| path.into_os_string().into_string().unwrap()))
     } else {
         settings.path_list.extend(maybe_pylib);
     }
@@ -476,7 +470,7 @@ fn get_paths(env_variable_name: &str) -> impl Iterator<Item = String> + '_ {
     env::var_os(env_variable_name)
         .into_iter()
         .flat_map(move |paths| {
-            env::split_paths(&paths)
+            split_paths(&paths)
                 .map(|path| {
                     path.into_os_string()
                         .into_string()
@@ -484,6 +478,17 @@ fn get_paths(env_variable_name: &str) -> impl Iterator<Item = String> + '_ {
                 })
                 .collect::<Vec<_>>()
         })
+}
+#[cfg(not(target_os = "wasi"))]
+use env::split_paths;
+#[cfg(target_os = "wasi")]
+fn split_paths<T: AsRef<std::ffi::OsStr> + ?Sized>(
+    s: &T,
+) -> impl Iterator<Item = std::path::PathBuf> + '_ {
+    use std::os::wasi::ffi::OsStrExt;
+    let s = s.as_ref().as_bytes();
+    s.split(|b| *b == b':')
+        .map(|x| std::ffi::OsStr::from_bytes(x).to_owned().into())
 }
 
 #[cfg(feature = "flame-it")]
@@ -547,10 +552,39 @@ fn setup_main_module(vm: &VirtualMachine) -> PyResult<Scope> {
         })
         .expect("Failed to initialize __main__.__annotations__");
 
-    vm.get_attribute(vm.sys_module.clone(), "modules")?
+    vm.sys_module
+        .clone()
+        .get_attr("modules", vm)?
         .set_item("__main__", main_module, vm)?;
 
     Ok(scope)
+}
+
+#[cfg(feature = "ssl")]
+fn install_pip(scope: Scope, vm: &VirtualMachine) -> PyResult {
+    let get_getpip = rustpython_vm::py_compile!(
+        source = r#"\
+__import__("io").TextIOWrapper(
+    __import__("urllib.request").request.urlopen("https://bootstrap.pypa.io/get-pip.py")
+).read()
+"#,
+        mode = "eval"
+    );
+    eprintln!("downloading get-pip.py...");
+    let getpip_code = vm.run_code_obj(vm.new_code_object(get_getpip), scope.clone())?;
+    let getpip_code: rustpython_vm::builtins::PyStrRef = getpip_code
+        .downcast()
+        .expect("TextIOWrapper.read() should return str");
+    eprintln!("running get-pip.py...");
+    _run_string(vm, scope, getpip_code.as_str(), "get-pip.py".to_owned())
+}
+
+#[cfg(not(feature = "ssl"))]
+fn install_pip(_: Scope, vm: &VirtualMachine) -> PyResult {
+    Err(vm.new_exception_msg(
+        vm.ctx.exceptions.system_error.clone(),
+        "install-pip requires rustpython be build with the 'ssl' feature enabled.".to_owned(),
+    ))
 }
 
 fn run_rustpython(vm: &VirtualMachine, matches: &ArgMatches) -> PyResult<()> {
@@ -571,21 +605,7 @@ fn run_rustpython(vm: &VirtualMachine, matches: &ArgMatches) -> PyResult<()> {
     } else if let Some(module) = matches.value_of("m") {
         run_module(vm, module)?;
     } else if matches.is_present("install_pip") {
-        let get_getpip = rustpython_vm::py_compile!(
-            source = r#"\
-__import__("io").TextIOWrapper(
-    __import__("urllib.request").request.urlopen("https://bootstrap.pypa.io/get-pip.py")
-).read()
-"#,
-            mode = "eval"
-        );
-        eprintln!("downloading get-pip.py...");
-        let getpip_code = vm.run_code_obj(vm.new_code_object(get_getpip), scope.clone())?;
-        let getpip_code: rustpython_vm::builtins::PyStrRef = getpip_code
-            .downcast()
-            .expect("TextIOWrapper.read() should return str");
-        eprintln!("running get-pip.py...");
-        _run_string(vm, scope, getpip_code.as_str(), "get-pip.py".to_owned())?;
+        install_pip(scope, vm)?;
     } else if let Some(filename) = matches.value_of("script") {
         run_script(vm, scope.clone(), filename)?;
         if matches.is_present("inspect") {
@@ -609,7 +629,7 @@ fn _run_string(vm: &VirtualMachine, scope: Scope, source: &str, source_path: Str
     // trace!("Code object: {:?}", code_obj.borrow());
     scope
         .globals
-        .set_item("__file__", vm.ctx.new_utf8_str(source_path), vm)?;
+        .set_item("__file__", vm.new_pyobj(source_path), vm)?;
     vm.run_code_obj(code_obj, scope)
 }
 
@@ -622,21 +642,22 @@ fn run_command(vm: &VirtualMachine, scope: Scope, source: String) -> PyResult<()
 fn run_module(vm: &VirtualMachine, module: &str) -> PyResult<()> {
     debug!("Running module {}", module);
     let runpy = vm.import("runpy", None, 0)?;
-    let run_module_as_main = vm.get_attribute(runpy, "_run_module_as_main")?;
+    let run_module_as_main = runpy.get_attr("_run_module_as_main", vm)?;
     vm.invoke(&run_module_as_main, (module,))?;
     Ok(())
 }
 
 fn get_importer(path: &str, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
-    let path_importer_cache = vm.get_attribute(vm.sys_module.clone(), "path_importer_cache")?;
+    let path_importer_cache = vm.sys_module.clone().get_attr("path_importer_cache", vm)?;
     let path_importer_cache = PyDictRef::try_from_object(vm, path_importer_cache)?;
     if let Some(importer) = path_importer_cache.get_item_option(path, vm)? {
         return Ok(Some(importer));
     }
-    let path = vm.ctx.new_utf8_str(path);
-    let path_hooks = vm.get_attribute(vm.sys_module.clone(), "path_hooks")?;
+    let path = vm.ctx.new_str(path);
+    let path_hooks = vm.sys_module.clone().get_attr("path_hooks", vm)?;
     let mut importer = None;
-    for path_hook in vm.extract_elements(&path_hooks)? {
+    let path_hooks: Vec<PyObjectRef> = vm.extract_elements(&path_hooks)?;
+    for path_hook in path_hooks {
         match vm.invoke(&path_hook, (path.clone(),)) {
             Ok(imp) => {
                 importer = Some(imp);
@@ -647,7 +668,7 @@ fn get_importer(path: &str, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>
         }
     }
     Ok(if let Some(imp) = importer {
-        let imp = path_importer_cache.get_or_insert(vm, path, || imp.clone())?;
+        let imp = path_importer_cache.get_or_insert(vm, path.into(), || imp.clone())?;
         Some(imp)
     } else {
         None
@@ -655,7 +676,7 @@ fn get_importer(path: &str, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>
 }
 
 fn insert_sys_path(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<()> {
-    let sys_path = vm.get_attribute(vm.sys_module.clone(), "path").unwrap();
+    let sys_path = vm.sys_module.clone().get_attr("path", vm).unwrap();
     vm.call_method(&sys_path, "insert", (0, obj))?;
     Ok(())
 }
@@ -663,17 +684,14 @@ fn insert_sys_path(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<()> {
 fn run_script(vm: &VirtualMachine, scope: Scope, script_file: &str) -> PyResult<()> {
     debug!("Running file {}", script_file);
     if get_importer(script_file, vm)?.is_some() {
-        insert_sys_path(vm, vm.ctx.new_utf8_str(script_file))?;
+        insert_sys_path(vm, vm.ctx.new_str(script_file).into())?;
         let runpy = vm.import("runpy", None, 0)?;
-        let run_module_as_main = vm.get_attribute(runpy, "_run_module_as_main")?;
-        vm.invoke(
-            &run_module_as_main,
-            (vm.ctx.new_utf8_str("__main__"), false),
-        )?;
+        let run_module_as_main = runpy.get_attr("_run_module_as_main", vm)?;
+        vm.invoke(&run_module_as_main, (vm.ctx.new_str("__main__"), false))?;
         return Ok(());
     }
     let dir = Path::new(script_file).parent().unwrap().to_str().unwrap();
-    insert_sys_path(vm, vm.ctx.new_utf8_str(dir))?;
+    insert_sys_path(vm, vm.ctx.new_str(dir).into())?;
 
     match std::fs::read_to_string(script_file) {
         Ok(source) => {

@@ -1,8 +1,7 @@
 use crate::{
-    builtins::{pystr::PyStr, PyFloat},
-    exceptions::IntoPyException,
-    IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
-    VirtualMachine,
+    builtins::{PyFloat, PyStr},
+    function::{IntoPyException, IntoPyObject},
+    PyObject, PyObjectRef, PyObjectWrap, PyResult, TryFromObject, TypeProtocol, VirtualMachine,
 };
 use num_traits::ToPrimitive;
 
@@ -11,15 +10,17 @@ pub enum Either<A, B> {
     B(B),
 }
 
-impl<A: PyValue, B: PyValue> Either<PyRef<A>, PyRef<B>> {
-    pub fn as_object(&self) -> &PyObjectRef {
+impl<A: AsRef<PyObject>, B: AsRef<PyObject>> AsRef<PyObject> for Either<A, B> {
+    fn as_ref(&self) -> &PyObject {
         match self {
-            Either::A(a) => a.as_object(),
-            Either::B(b) => b.as_object(),
+            Either::A(a) => a.as_ref(),
+            Either::B(b) => b.as_ref(),
         }
     }
+}
 
-    pub fn into_object(self) -> PyObjectRef {
+impl<A: PyObjectWrap, B: PyObjectWrap> PyObjectWrap for Either<A, B> {
+    fn into_object(self) -> PyObjectRef {
         match self {
             Either::A(a) => a.into_object(),
             Either::B(b) => b.into_object(),
@@ -74,14 +75,14 @@ pub fn hash_iter<'a, I: IntoIterator<Item = &'a PyObjectRef>>(
     iter: I,
     vm: &VirtualMachine,
 ) -> PyResult<rustpython_common::hash::PyHash> {
-    vm.state.hash_secret.hash_iter(iter, |obj| vm._hash(obj))
+    vm.state.hash_secret.hash_iter(iter, |obj| obj.hash(vm))
 }
 
 pub fn hash_iter_unordered<'a, I: IntoIterator<Item = &'a PyObjectRef>>(
     iter: I,
     vm: &VirtualMachine,
 ) -> PyResult<rustpython_common::hash::PyHash> {
-    rustpython_common::hash::hash_iter_unordered(iter, |obj| vm._hash(obj))
+    rustpython_common::hash::hash_iter_unordered(iter, |obj| obj.hash(vm))
 }
 
 // TODO: find a better place to put this impl

@@ -1,7 +1,7 @@
 use super::PyTypeRef;
 use crate::{
-    slots::SlotConstructor, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue,
-    TypeProtocol, VirtualMachine,
+    function::IntoPyObject, types::Constructor, PyClassImpl, PyContext, PyObjectRef, PyResult,
+    PyValue, TypeProtocol, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "NoneType")]
@@ -31,15 +31,15 @@ impl<T: IntoPyObject> IntoPyObject for Option<T> {
     }
 }
 
-impl SlotConstructor for PyNone {
+impl Constructor for PyNone {
     type Args = ();
 
     fn py_new(_: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.none.clone().into_object())
+        Ok(vm.ctx.none.clone().into())
     }
 }
 
-#[pyimpl(with(SlotConstructor))]
+#[pyimpl(with(Constructor))]
 impl PyNone {
     #[pymethod(magic)]
     fn repr(&self) -> String {
@@ -62,15 +62,15 @@ impl PyValue for PyNotImplemented {
     }
 }
 
-impl SlotConstructor for PyNotImplemented {
+impl Constructor for PyNotImplemented {
     type Args = ();
 
     fn py_new(_: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
-        Ok(vm.ctx.not_implemented.clone().into_object())
+        Ok(vm.ctx.not_implemented.clone().into())
     }
 }
 
-#[pyimpl(with(SlotConstructor))]
+#[pyimpl(with(Constructor))]
 impl PyNotImplemented {
     // TODO: As per https://bugs.python.org/issue35712, using NotImplemented
     // in boolean contexts will need to raise a DeprecationWarning in 3.9

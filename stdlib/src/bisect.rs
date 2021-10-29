@@ -3,11 +3,9 @@ pub(crate) use _bisect::make_module;
 #[pymodule]
 mod _bisect {
     use crate::vm::{
-        function::OptionalArg, slots::PyComparisonOp::Lt, ItemProtocol, PyObjectRef, PyResult,
+        function::OptionalArg, types::PyComparisonOp::Lt, ItemProtocol, PyObjectRef, PyResult,
         VirtualMachine,
     };
-    use num_traits::ToPrimitive;
-    use std::convert::TryFrom;
 
     #[derive(FromArgs)]
     struct BisectArgs {
@@ -26,11 +24,7 @@ mod _bisect {
         vm: &VirtualMachine,
     ) -> PyResult<Option<isize>> {
         Ok(match arg {
-            OptionalArg::Present(v) => {
-                Some(vm.to_index(&v)?.as_bigint().to_isize().ok_or_else(|| {
-                    vm.new_index_error("cannot fit 'int' into an index-sized integer".to_owned())
-                })?)
-            }
+            OptionalArg::Present(v) => Some(vm.to_index(&v)?.try_to_primitive(vm)?),
             OptionalArg::Missing => None,
         })
     }
@@ -77,12 +71,12 @@ mod _bisect {
         BisectArgs { a, x, lo, hi }: BisectArgs,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
-        let (mut lo, mut hi) = as_usize(lo, hi, vm.obj_len(&a)?, vm)?;
+        let (mut lo, mut hi) = as_usize(lo, hi, a.length(vm)?, vm)?;
 
         while lo < hi {
             // Handles issue 13496.
             let mid = (lo + hi) / 2;
-            if vm.bool_cmp(&a.get_item(mid, vm)?, &x, Lt)? {
+            if a.get_item(mid, vm)?.rich_compare_bool(&x, Lt, vm)? {
                 lo = mid + 1;
             } else {
                 hi = mid;
@@ -105,12 +99,12 @@ mod _bisect {
         BisectArgs { a, x, lo, hi }: BisectArgs,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
-        let (mut lo, mut hi) = as_usize(lo, hi, vm.obj_len(&a)?, vm)?;
+        let (mut lo, mut hi) = as_usize(lo, hi, a.length(vm)?, vm)?;
 
         while lo < hi {
             // Handles issue 13496.
             let mid = (lo + hi) / 2;
-            if vm.bool_cmp(&x, &a.get_item(mid, vm)?, Lt)? {
+            if x.rich_compare_bool(&*a.get_item(mid, vm)?, Lt, vm)? {
                 hi = mid;
             } else {
                 lo = mid + 1;

@@ -244,7 +244,8 @@ class TestRunExecCounts(unittest.TestCase):
         self.my_py_filename = fix_ext_py(__file__)
         self.addCleanup(sys.settrace, sys.gettrace())
 
-    @unittest.skip("TODO: RUSTPYTHON, KeyError: ('Lib/test/test_trace.py', 43)")
+    # TODO: RUSTPYTHON, KeyError: ('Lib/test/test_trace.py', 43)
+    @unittest.expectedFailure
     def test_exec_counts(self):
         self.tracer = Trace(count=1, trace=0, countfuncs=0, countcallers=0)
         code = r'''traced_func_loop(2, 5)'''
@@ -279,7 +280,8 @@ class TestFuncs(unittest.TestCase):
         if self._saved_tracefunc is not None:
             sys.settrace(self._saved_tracefunc)
 
-    @unittest.skip("TODO: RUSTPYTHON, NotImplementedError")
+    # TODO: RUSTPYTHON, gc
+    @unittest.expectedFailure
     def test_simple_caller(self):
         self.tracer.runfunc(traced_func_simple_caller, 1)
 
@@ -289,7 +291,8 @@ class TestFuncs(unittest.TestCase):
         }
         self.assertEqual(self.tracer.results().calledfuncs, expected)
 
-    @unittest.skip("TODO: RUSTPYTHON, NotImplementedError")
+    # TODO: RUSTPYTHON, gc
+    @unittest.expectedFailure
     def test_arg_errors(self):
         res = self.tracer.runfunc(traced_capturer, 1, 2, self=3, func=4)
         self.assertEqual(res, ((1, 2), {'self': 3, 'func': 4}))
@@ -299,7 +302,8 @@ class TestFuncs(unittest.TestCase):
         with self.assertRaises(TypeError):
             self.tracer.runfunc()
 
-    @unittest.skip("TODO: RUSTPYTHON, NotImplementedError")
+    # TODO: RUSTPYTHON, gc
+    @unittest.expectedFailure
     def test_loop_caller_importing(self):
         self.tracer.runfunc(traced_func_importing_caller, 1)
 
@@ -312,7 +316,8 @@ class TestFuncs(unittest.TestCase):
         }
         self.assertEqual(self.tracer.results().calledfuncs, expected)
 
-    @unittest.skip("TODO: RUSTPYTHON, NotImplementedError")
+    # TODO: RUSTPYTHON, gc
+    @unittest.expectedFailure
     @unittest.skipIf(hasattr(sys, 'gettrace') and sys.gettrace(),
                      'pre-existing trace function throws off measurements')
     def test_inst_method_calling(self):
@@ -326,7 +331,8 @@ class TestFuncs(unittest.TestCase):
         }
         self.assertEqual(self.tracer.results().calledfuncs, expected)
 
-    @unittest.skip("TODO: RUSTPYTHON, NotImplementedError")
+    # TODO: RUSTPYTHON, gc
+    @unittest.expectedFailure
     def test_traced_decorated_function(self):
         self.tracer.runfunc(traced_decorated_function)
 
@@ -349,7 +355,7 @@ class TestCallers(unittest.TestCase):
 
     @unittest.skipIf(hasattr(sys, 'gettrace') and sys.gettrace(),
                      'pre-existing trace function throws off measurements')
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON, Error in atexit._run_exitfuncs")
     def test_loop_caller_importing(self):
         self.tracer.runfunc(traced_func_importing_caller, 1)
 

@@ -1,7 +1,7 @@
 use crate::{
     builtins::{PyBaseExceptionRef, PyBytes, PyStr},
     common::ascii,
-    PyObjectRef, PyResult, VirtualMachine,
+    PyObject, PyObjectRef, PyResult, VirtualMachine,
 };
 use std::{fmt, io, ops};
 
@@ -59,13 +59,13 @@ impl Write for PyWriter<'_> {
     }
 }
 
-pub fn file_readline(obj: &PyObjectRef, size: Option<usize>, vm: &VirtualMachine) -> PyResult {
-    let args = size.map_or_else(Vec::new, |size| vec![vm.ctx.new_int(size)]);
+pub fn file_readline(obj: &PyObject, size: Option<usize>, vm: &VirtualMachine) -> PyResult {
+    let args = size.map_or_else(Vec::new, |size| vec![vm.ctx.new_int(size).into()]);
     let ret = vm.call_method(obj, "readline", args)?;
     let eof_err = || {
         vm.new_exception(
             vm.ctx.exceptions.eof_error.clone(),
-            vec![vm.ctx.new_ascii_literal(ascii!("EOF when reading a line"))],
+            vec![vm.ctx.new_str(ascii!("EOF when reading a line")).into()],
         )
     };
     let ret = match_class!(match ret {
@@ -75,9 +75,9 @@ pub fn file_readline(obj: &PyObjectRef, size: Option<usize>, vm: &VirtualMachine
                 return Err(eof_err());
             }
             if let Some(nonl) = sval.strip_suffix('\n') {
-                vm.ctx.new_utf8_str(nonl)
+                vm.ctx.new_str(nonl).into()
             } else {
-                s.into_object()
+                s.into()
             }
         }
         b @ PyBytes => {
@@ -86,9 +86,9 @@ pub fn file_readline(obj: &PyObjectRef, size: Option<usize>, vm: &VirtualMachine
                 return Err(eof_err());
             }
             if buf.last() == Some(&b'\n') {
-                vm.ctx.new_bytes(buf[..buf.len() - 1].to_owned())
+                vm.ctx.new_bytes(buf[..buf.len() - 1].to_owned()).into()
             } else {
-                b.into_object()
+                b.into()
             }
         }
         _ => return Err(vm.new_type_error("object.readline() returned non-string".to_owned())),

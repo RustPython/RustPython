@@ -5,9 +5,8 @@
 
 use crate::{
     builtins::{self, PyStrRef, PyTypeRef},
-    function::FuncArgs,
-    IdProtocol, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue, StaticType,
-    TryFromObject, TypeProtocol, VirtualMachine,
+    IdProtocol, ItemProtocol, PyClassImpl, PyContext, PyObject, PyObjectRef, PyResult, PyValue,
+    StaticType, TryFromObject, TypeProtocol, VirtualMachine,
 };
 use num_complex::Complex64;
 use num_traits::{ToPrimitive, Zero};
@@ -22,62 +21,71 @@ use rustpython_parser::parser;
 mod gen;
 
 
-fn get_node_field(vm: &VirtualMachine, obj: &PyObjectRef, field: &str, typ: &str) -> PyResult {
-    vm.get_attribute_opt(obj.clone(), field)?.ok_or_else(|| {
+#[pymodule]
+mod _ast {
+    use crate::{
+        builtins::PyStrRef, function::FuncArgs, PyObjectRef, PyResult, PyValue, TypeProtocol,
+        VirtualMachine,
+    };
+    #[pyattr]
+    #[pyclass(module = "_ast", name = "AST")]
+    #[derive(Debug, PyValue)]
+    pub(crate) struct AstNode;
+
+    #[pyimpl(flags(BASETYPE, HAS_DICT))]
+    impl AstNode {
+        #[pymethod(magic)]
+        fn init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+            let obj: PyObjectRef = zelf.clone_class().into();
+            let fields = obj.get_attr("_fields", vm)?;
+            let fields = vm.extract_elements::<PyStrRef>(&fields)?;
+            let numargs = args.args.len();
+            if numargs > fields.len() {
+                return Err(vm.new_type_error(format!(
+                    "{} constructor takes at most {} positional argument{}",
+                    zelf.class().name(),
+                    fields.len(),
+                    if fields.len() == 1 { "" } else { "s" },
+                )));
+            }
+            for (name, arg) in fields.iter().zip(args.args) {
+                zelf.set_attr(name.clone(), arg, vm)?;
+            }
+            for (key, value) in args.kwargs {
+                if let Some(pos) = fields.iter().position(|f| f.as_str() == key) {
+                    if pos < numargs {
+                        return Err(vm.new_type_error(format!(
+                            "{} got multiple values for argument '{}'",
+                            zelf.class().name(),
+                            key
+                        )));
+                    }
+                }
+                zelf.set_attr(key, value, vm)?;
+            }
+            Ok(())
+        }
+    }
+
+    #[pyattr(name = "PyCF_ONLY_AST")]
+    use super::PY_COMPILE_FLAG_AST_ONLY;
+}
+
+fn get_node_field(vm: &VirtualMachine, obj: &PyObject, field: &str, typ: &str) -> PyResult {
+    vm.get_attribute_opt(obj.to_owned(), field)?.ok_or_else(|| {
         vm.new_type_error(format!("required field \"{}\" missing from {}", field, typ))
     })
 }
 
 fn get_node_field_opt(
     vm: &VirtualMachine,
-    obj: &PyObjectRef,
+    obj: &PyObject,
     field: &str,
 ) -> PyResult<Option<PyObjectRef>> {
     Ok(vm
-        .get_attribute_opt(obj.clone(), field)?
+        .get_attribute_opt(obj.to_owned(), field)?
         .filter(|obj| !vm.is_none(obj)))
 }
-
-#[pyclass(module = "_ast", name = "AST")]
-#[derive(Debug, PyValue)]
-pub(crate) struct AstNode;
-
-#[pyimpl(flags(HAS_DICT))]
-impl AstNode {
-    #[pymethod(magic)]
-    fn init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let fields = vm.get_attribute(zelf.clone_class().into_object(), "_fields")?;
-        let fields = vm.extract_elements::<PyStrRef>(&fields)?;
-        let numargs = args.args.len();
-        if numargs > fields.len() {
-            return Err(vm.new_type_error(format!(
-                "{} constructor takes at most {} positional argument{}",
-                zelf.class().name(),
-                fields.len(),
-                if fields.len() == 1 { "" } else { "s" },
-            )));
-        }
-        for (name, arg) in fields.iter().zip(args.args) {
-            vm.set_attr(&zelf, name.clone(), arg)?;
-        }
-        for (key, value) in args.kwargs {
-            if let Some(pos) = fields.iter().position(|f| f.as_str() == key) {
-                if pos < numargs {
-                    return Err(vm.new_type_error(format!(
-                        "{} got multiple values for argument '{}'",
-                        zelf.class().name(),
-                        key
-                    )));
-                }
-            }
-            vm.set_attr(&zelf, key, value)?;
-        }
-        Ok(())
-    }
-}
-
-const MODULE_NAME: &str = "_ast";
-pub const PY_COMPILE_FLAG_AST_ONLY: i32 = 0x0400;
 
 trait Node: Sized {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef;
@@ -90,11 +98,13 @@ trait NamedNode: Node {
 
 impl<T: Node> Node for Vec<T> {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_list(
-            self.into_iter()
-                .map(|node| node.ast_to_object(vm))
-                .collect(),
-        )
+        vm.ctx
+            .new_list(
+                self.into_iter()
+                    .map(|node| node.ast_to_object(vm))
+                    .collect(),
+            )
+            .into()
     }
 
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
@@ -146,17 +156,17 @@ impl<T: NamedNode> Node for ast::Located<T> {
     }
 }
 
-fn node_add_location(node: &PyObjectRef, location: ast::Location, vm: &VirtualMachine) {
+fn node_add_location(node: &PyObject, location: ast::Location, vm: &VirtualMachine) {
     let dict = node.dict().unwrap();
-    dict.set_item("lineno", vm.ctx.new_int(location.row()), vm)
+    dict.set_item("lineno", vm.ctx.new_int(location.row()).into(), vm)
         .unwrap();
-    dict.set_item("col_offset", vm.ctx.new_int(location.column()), vm)
+    dict.set_item("col_offset", vm.ctx.new_int(location.column()).into(), vm)
         .unwrap();
 }
 
 impl Node for String {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_utf8_str(self)
+        vm.ctx.new_str(self).into()
     }
 
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
@@ -166,17 +176,17 @@ impl Node for String {
 
 impl Node for usize {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_int(self)
+        vm.ctx.new_int(self).into()
     }
 
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
-        Self::try_from_object(vm, object)
+        object.try_into_value(vm)
     }
 }
 
 impl Node for bool {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_int(self as u8)
+        vm.ctx.new_int(self as u8).into()
     }
 
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
@@ -188,15 +198,16 @@ impl Node for ast::Constant {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
         match self {
             ast::Constant::None => vm.ctx.none(),
-            ast::Constant::Bool(b) => vm.ctx.new_bool(b),
-            ast::Constant::Str(s) => vm.ctx.new_utf8_str(s),
-            ast::Constant::Bytes(b) => vm.ctx.new_bytes(b),
-            ast::Constant::Int(i) => vm.ctx.new_int(i),
+            ast::Constant::Bool(b) => vm.ctx.new_bool(b).into(),
+            ast::Constant::Str(s) => vm.ctx.new_str(s).into(),
+            ast::Constant::Bytes(b) => vm.ctx.new_bytes(b).into(),
+            ast::Constant::Int(i) => vm.ctx.new_int(i).into(),
             ast::Constant::Tuple(t) => vm
                 .ctx
-                .new_tuple(t.into_iter().map(|c| c.ast_to_object(vm)).collect()),
-            ast::Constant::Float(f) => vm.ctx.new_float(f),
-            ast::Constant::Complex { real, imag } => vm.ctx.new_complex(Complex64::new(real, imag)),
+                .new_tuple(t.into_iter().map(|c| c.ast_to_object(vm)).collect())
+                .into(),
+            ast::Constant::Float(f) => vm.ctx.new_float(f).into(),
+            ast::Constant::Complex { real, imag } => vm.new_pyobj(Complex64::new(real, imag)),
             ast::Constant::Ellipsis => vm.ctx.ellipsis(),
         }
     }
@@ -239,7 +250,7 @@ impl Node for ast::Constant {
 
 impl Node for ast::ConversionFlag {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_int(self as u8)
+        vm.ctx.new_int(self as u8).into()
     }
 
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
@@ -269,18 +280,16 @@ pub(crate) fn compile(
     let code = rustpython_compiler_core::compile::compile_top(&ast, filename.to_owned(), opts)
         // TODO: use vm.new_syntax_error()
         .map_err(|err| vm.new_value_error(err.to_string()))?;
-    Ok(vm.new_code_object(code).into_object())
+    Ok(vm.new_code_object(code).into())
 }
 
-pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
-    let ctx = &vm.ctx;
+// Required crate visibility for inclusion by gen.rs
+pub(crate) use _ast::AstNode;
+// Used by builtins::compile()
+pub const PY_COMPILE_FLAG_AST_ONLY: i32 = 0x0400;
 
-    let ast_base = AstNode::make_class(ctx);
-    let module = py_module!(vm, MODULE_NAME, {
-        // TODO: There's got to be a better way!
-        "AST" => ast_base,
-        "PyCF_ONLY_AST" => ctx.new_int(PY_COMPILE_FLAG_AST_ONLY),
-    });
+pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+    let module = _ast::make_module(vm);
     gen::extend_module_nodes(vm, &module);
     module
 }

@@ -43,7 +43,7 @@ fn run(vm: &vm::VirtualMachine) -> vm::PyResult<()> {
     // typing `quit()` is too long, let's make `on(False)` work instead.
     scope
         .globals
-        .set_item("on", vm.ctx.new_function("on", on), vm)?;
+        .set_item("on", vm.ctx.new_function("on", on).into(), vm)?;
 
     // let's include a fibonacci function, but let's be lazy and write it in Python
     add_python_function!(
@@ -76,8 +76,8 @@ def fib(n):
                     scope.globals.set_item("last", output, vm)?;
                 }
             }
-            Err(e) => {
-                vm::exceptions::print_exception(vm, e);
+            Err(exc) => {
+                vm.print_exception(exc);
             }
         }
     }

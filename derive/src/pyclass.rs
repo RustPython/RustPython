@@ -6,10 +6,11 @@ use crate::util::{
 use proc_macro2::TokenStream;
 use quote::{quote, quote_spanned, ToTokens};
 use std::collections::HashMap;
-use syn::parse::{Parse, ParseStream, Result as ParsingResult};
 use syn::{
-    parse_quote, spanned::Spanned, Attribute, AttributeArgs, Ident, Item, LitStr, Meta, NestedMeta,
-    Result, Token,
+    parse::{Parse, ParseStream, Result as ParsingResult},
+    parse_quote,
+    spanned::Spanned,
+    Attribute, AttributeArgs, Ident, Item, LitStr, Meta, NestedMeta, Result, Token,
 };
 use syn_ext::ext::*;
 
@@ -47,10 +48,7 @@ fn extract_items_into_context<'a, Item>(
     context.errors.ok_or_push(context.getset_items.validate());
 }
 
-pub(crate) fn impl_pyimpl(
-    attr: AttributeArgs,
-    item: Item,
-) -> std::result::Result<TokenStream, Diagnostic> {
+pub(crate) fn impl_pyimpl(attr: AttributeArgs, item: Item) -> Result<TokenStream> {
     let mut context = ImplContext::default();
     let mut tokens = match item {
         Item::Impl(mut imp) => {
@@ -70,7 +68,7 @@ pub(crate) fn impl_pyimpl(
             quote! {
                 #imp
                 impl ::rustpython_vm::PyClassImpl for #ty {
-                    const TP_FLAGS: ::rustpython_vm::slots::PyTypeFlags = ::rustpython_vm::slots::PyTypeFlags::from_bits_truncate(#flags);
+                    const TP_FLAGS: ::rustpython_vm::types::PyTypeFlags = ::rustpython_vm::types::PyTypeFlags::from_bits_truncate(#flags);
 
                     fn impl_extend_class(
                         ctx: &::rustpython_vm::PyContext,
@@ -82,7 +80,7 @@ pub(crate) fn impl_pyimpl(
                         #(#class_extensions)*
                     }
 
-                    fn extend_slots(slots: &mut ::rustpython_vm::slots::PyTypeSlots) {
+                    fn extend_slots(slots: &mut ::rustpython_vm::types::PyTypeSlots) {
                         #with_slots
                         #slots_impl
                     }
@@ -116,7 +114,7 @@ pub(crate) fn impl_pyimpl(
                     }
                 },
                 parse_quote! {
-                    fn __extend_slots(slots: &mut ::rustpython_vm::slots::PyTypeSlots) {
+                    fn __extend_slots(slots: &mut ::rustpython_vm::types::PyTypeSlots) {
                         #with_slots
                         #slots_impl
                     }
@@ -145,7 +143,7 @@ fn generate_class_def(
     base: Option<String>,
     metaclass: Option<String>,
     attrs: &[Attribute],
-) -> std::result::Result<TokenStream, Diagnostic> {
+) -> Result<TokenStream> {
     let doc = attrs.doc().or_else(|| {
         let module_name = module_name.unwrap_or("builtins");
         crate::doc::try_module_item(module_name, name)
@@ -181,8 +179,7 @@ fn generate_class_def(
         return Err(syn::Error::new_spanned(
             ident,
             "PyStructSequence cannot have `base` class attr",
-        )
-        .into());
+        ));
     }
     let base_class = if is_pystruct {
         Some(quote! { rustpython_vm::builtins::PyTuple })
@@ -235,10 +232,7 @@ fn generate_class_def(
     Ok(tokens)
 }
 
-pub(crate) fn impl_pyclass(
-    attr: AttributeArgs,
-    item: Item,
-) -> std::result::Result<TokenStream, Diagnostic> {
+pub(crate) fn impl_pyclass(attr: AttributeArgs, item: Item) -> Result<TokenStream> {
     let (ident, attrs) = pyclass_ident_and_attrs(&item)?;
     let fake_ident = Ident::new("pyclass", item.span());
     let class_meta = ClassItemMeta::from_nested(ident.clone(), fake_ident, attr.into_iter())?;
@@ -270,10 +264,7 @@ pub(crate) fn impl_pyclass(
 /// But, inside `macro_rules` we don't have an opportunity
 /// to add non-literal attributes to `pyclass`.
 /// That's why we have to use this proxy.
-pub(crate) fn impl_pyexception(
-    attr: AttributeArgs,
-    item: Item,
-) -> std::result::Result<TokenStream, Diagnostic> {
+pub(crate) fn impl_pyexception(attr: AttributeArgs, item: Item) -> Result<TokenStream> {
     let class_name = parse_vec_ident(&attr, &item, 0, "first 'class_name'")?;
     let base_class_name = parse_vec_ident(&attr, &item, 1, "second 'base_class_name'")?;
 
@@ -292,9 +283,7 @@ pub(crate) fn impl_pyexception(
     Ok(ret)
 }
 
-pub(crate) fn impl_define_exception(
-    exc_def: PyExceptionDef,
-) -> std::result::Result<TokenStream, Diagnostic> {
+pub(crate) fn impl_define_exception(exc_def: PyExceptionDef) -> Result<TokenStream> {
     let PyExceptionDef {
         class_name,
         base_class,
@@ -550,7 +539,7 @@ where
 
             let value = if args.item.is_const() {
                 // TODO: ctx.new_value
-                quote_spanned!(ident.span() => ctx.new_int(Self::#ident))
+                quote_spanned!(ident.span() => ctx.new_int(Self::#ident).into())
             } else {
                 quote_spanned!(ident.span() => Self::#ident(ctx))
             };
@@ -678,7 +667,7 @@ impl ToTokens for GetSetNursery {
                     #( #cfgs )*
                     class.set_str_attr(
                         #name,
-                        ::rustpython_vm::PyObject::new(
+                        ::rustpython_vm::PyGenericObject::new(
                             ::rustpython_vm::builtins::PyGetSet::new(#name.into(), class.clone())
                                 .with_get(&Self::#getter)
                                 #setter #deleter,
@@ -871,17 +860,14 @@ struct ExtractedImplAttrs {
     flags: TokenStream,
 }
 
-fn extract_impl_attrs(
-    attr: AttributeArgs,
-    item: &Ident,
-) -> std::result::Result<ExtractedImplAttrs, Diagnostic> {
+fn extract_impl_attrs(attr: AttributeArgs, item: &Ident) -> Result<ExtractedImplAttrs> {
     let mut withs = Vec::new();
     let mut with_slots = Vec::new();
-    let mut flags = vec![quote! { ::rustpython_vm::slots::PyTypeFlags::DEFAULT.bits() }];
+    let mut flags = vec![quote! { ::rustpython_vm::types::PyTypeFlags::DEFAULT.bits() }];
     #[cfg(debug_assertions)]
     {
         flags.push(quote! {
-            | ::rustpython_vm::slots::PyTypeFlags::_CREATED_WITH_FLAGS.bits()
+            | ::rustpython_vm::types::PyTypeFlags::_CREATED_WITH_FLAGS.bits()
         });
     }
 
@@ -919,7 +905,7 @@ fn extract_impl_attrs(
                             NestedMeta::Meta(Meta::Path(path)) => {
                                 if let Some(ident) = path.get_ident() {
                                     flags.push(quote_spanned! { ident.span() =>
-                                        | ::rustpython_vm::slots::PyTypeFlags::#ident.bits()
+                                        | ::rustpython_vm::types::PyTypeFlags::#ident.bits()
                                     });
                                 } else {
                                     bail_span!(
@@ -1090,7 +1076,7 @@ fn parse_vec_ident(
     item: &Item,
     index: usize,
     message: &str,
-) -> std::result::Result<String, Diagnostic> {
+) -> Result<String> {
     Ok(attr
         .get(index)
         .ok_or_else(|| {

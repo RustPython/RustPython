@@ -13,12 +13,28 @@ env:
     -p rustpython-compiler
     -p rustpython-parser
     -p rustpython-vm
+    -p rustpython-stdlib
     -p rustpython-jit
     -p rustpython-derive
     -p rustpython
+  PLATFORM_INDEPENDENT_TESTS: >-
+    test_argparse
+    test_array
+    test_asyncgen
+    test_bytes
+    test_calendar
+    test_complex
+    test_dis
+    test_json
+    test_list
+    test_long
+    test_set
+    test_unicode
 
 jobs:
   rust_tests:
+    env:
+      RUST_BACKTRACE: full
     name: Run rust tests
     runs-on:  ${{ matrix.os }}
     strategy:
@@ -42,7 +58,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --verbose ${{ env.CARGO_ARGS }} ${{ env.NON_WASM_PACKAGES }}
+          args: --workspace --exclude rustpython_wasm --verbose ${{ env.CARGO_ARGS }} ${{ env.NON_WASM_PACKAGES }}
       - name: check compilation without threading
         uses: actions-rs/cargo@v1
         with:
@@ -92,11 +108,14 @@ jobs:
       - name: Prepare repository for redox compilation
         run: bash scripts/redox/uncomment-cargo.sh
       - name: Check compilation for Redox
+        if: false # FIXME: redoxer toolchain is from ~july 2021, edition2021 isn't stabilized
         uses: coolreader18/redoxer-action@v1
         with:
           command: check
 
   snippets_cpython:
+    env:
+      RUST_BACKTRACE: full
     name: Run snippets and cpython tests
     runs-on:  ${{ matrix.os }}
     strategy:
@@ -108,7 +127,7 @@ jobs:
       - uses: actions-rs/toolchain@v1
       - uses: actions/setup-python@v2
         with:
-          python-version: 3.8
+          python-version: 3.9
       - name: Set up the Windows environment
         shell: bash
         run: |
@@ -126,32 +145,44 @@ jobs:
           args: --release --verbose ${{ env.CARGO_ARGS }}
       - uses: actions/setup-python@v2
         with:
-          python-version: 3.8
+          python-version: 3.9
       - name: Install pipenv
         run: |
           python -V
           python -m pip install --upgrade pip
           python -m pip install pipenv
-      - run: pipenv install --python 3.8
+      - run: pipenv install --python 3.9
         working-directory: ./extra_tests
       - name: run snippets
         run: pipenv run pytest -v
         working-directory: ./extra_tests
       - if: runner.os == 'Linux'
-        name: run cpython tests
-        run: target/release/rustpython -m test -v
-      - if: runner.os == 'macOS'
-        name: run cpython tests (macOS lightweight)
+        name: run cpython platform-independent tests
         run:
-          target/release/rustpython -m test -v
+          target/release/rustpython -m test -v ${{ env.PLATFORM_INDEPENDENT_TESTS }}
+      - if: runner.os != 'Windows'
+        name: run cpython platform-dependent tests
+        run: target/release/rustpython -m test -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }}
       - if: runner.os == 'Windows'
-        name: run cpython tests (windows partial - fixme)
+        name: run cpython platform-dependent tests (windows partial - fixme)
         run:
-          target/release/rustpython -m test -v -x
-            test_argparse test_json test_bytes test_long test_pwd test_bool test_cgi test_complex
-            test_exception_hierarchy test_glob test_iter test_list test_os test_pathlib
-            test_py_compile test_set test_shutil test_sys test_unicode test_unittest test_venv
-            test_zipimport test_importlib test_io
+          target/release/rustpython -m test -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }}
+            test_bool
+            test_cgi
+            test_exception_hierarchy
+            test_glob
+            test_importlib
+            test_io
+            test_iter
+            test_os
+            test_pathlib
+            test_pwd
+            test_py_compile
+            test_shutil
+            test_sys
+            test_unittest
+            test_venv
+            test_zipimport
       - if: runner.os == 'Linux'
         name: check that --install-pip succeeds
         run: |
@@ -186,7 +217,7 @@ jobs:
           args: --manifest-path=wasm/lib/Cargo.toml -- -Dwarnings
       - uses: actions/setup-python@v2
         with:
-          python-version: 3.8
+          python-version: 3.9
       - name: install flake8
         run: python -m pip install flake8
       - name: run lint
@@ -219,6 +250,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
       - name: Cache cargo dependencies
         uses: actions/cache@v2
         with:
@@ -238,7 +270,7 @@ jobs:
           tar -xzf geckodriver-v0.24.0-linux32.tar.gz -C geckodriver
       - uses: actions/setup-python@v2
         with:
-          python-version: 3.8
+          python-version: 3.9
       - name: Install pipenv
         run: |
           python -V

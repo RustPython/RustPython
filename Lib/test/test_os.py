@@ -2042,8 +2042,6 @@ class PosixUidGidTests(unittest.TestCase):
         self.assertRaises(OverflowError, os.setreuid, self.UID_OVERFLOW, 0)
         self.assertRaises(OverflowError, os.setreuid, 0, self.UID_OVERFLOW)
 
-    # TODO: RUSTPYTHON (subprocess.CalledProcessError)
-    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(os, 'setreuid'), 'test needs os.setreuid()')
     def test_setreuid_neg1(self):
         # Needs to accept -1.  We run this in a subprocess to avoid
@@ -2061,8 +2059,6 @@ class PosixUidGidTests(unittest.TestCase):
         self.assertRaises(OverflowError, os.setregid, self.GID_OVERFLOW, 0)
         self.assertRaises(OverflowError, os.setregid, 0, self.GID_OVERFLOW)
 
-    # TODO: RUSTPYTHON (subprocess.CalledProcessError)
-    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(os, 'setregid'), 'test needs os.setregid()')
     def test_setregid_neg1(self):
         # Needs to accept -1.  We run this in a subprocess to avoid
@@ -3435,7 +3431,7 @@ class OSErrorTests(unittest.TestCase):
 
         self.filenames = self.bytes_filenames + self.unicode_filenames
 
-    # TODO: RUSTPYTHON (AttributeError: 'FileNotFoundError' object has no attribute 'filename')
+    # TODO: RUSTPYTHON (AssertionError: b'@test_22106_tmp\xe7w\xf0' is not b'@test_22106_tmp\xe7w\xf0' : <built-in function chdir>)
     @unittest.expectedFailure
     def test_oserror_filename(self):
         funcs = [

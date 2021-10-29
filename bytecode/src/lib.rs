@@ -874,7 +874,7 @@ impl<C: Constant> fmt::Display for CodeObject<C> {
         self.display_inner(f, false, 1)?;
         for constant in &*self.constants {
             if let BorrowedConstant::Code { code } = constant.borrow_constant() {
-                write!(f, "\nDisassembly of {:?}\n", code)?;
+                writeln!(f, "\nDisassembly of {:?}", code)?;
                 code.fmt(f)?;
             }
         }
@@ -1251,7 +1251,6 @@ pub struct FrozenModule<C: Constant = ConstantData> {
 pub mod frozen_lib {
     use super::*;
     use bincode::{options, Options};
-    use std::convert::TryInto;
     use std::io;
 
     /// Decode a library to a iterable of frozen modules

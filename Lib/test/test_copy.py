@@ -370,7 +370,6 @@ class TestCopy(unittest.TestCase):
         self.assertIsNot(x, y)
         self.assertIsNot(x[0], y[0])
 
-    @unittest.skip("TODO: RUSTPYTHON, segmentation fault")
     def test_deepcopy_reflexive_list(self):
         x = []
         x.append(x)
@@ -398,7 +397,6 @@ class TestCopy(unittest.TestCase):
         y = copy.deepcopy(x)
         self.assertIs(x, y)
 
-    @unittest.skip("TODO: RUSTPYTHON, segmentation fault")
     def test_deepcopy_reflexive_tuple(self):
         x = ([],)
         x[0].append(x)
@@ -416,7 +414,6 @@ class TestCopy(unittest.TestCase):
         self.assertIsNot(x, y)
         self.assertIsNot(x["foo"], y["foo"])
 
-    @unittest.skip("TODO: RUSTPYTHON, segmentation fault")
     def test_deepcopy_reflexive_dict(self):
         x = {}
         x['foo'] = x

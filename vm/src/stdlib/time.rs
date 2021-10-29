@@ -158,18 +158,19 @@ mod time {
     }
 
     #[pyfunction]
-    fn mktime(t: PyStructTime, vm: &VirtualMachine) -> PyResult {
+    fn mktime(t: PyStructTime, vm: &VirtualMachine) -> PyResult<f64> {
         let datetime = t.to_date_time(vm)?;
         let seconds_since_epoch = datetime.timestamp() as f64;
-        Ok(vm.ctx.new_float(seconds_since_epoch))
+        Ok(seconds_since_epoch)
     }
+
     const CFMT: &str = "%a %b %e %H:%M:%S %Y";
 
     #[pyfunction]
     fn asctime(t: OptionalArg<PyStructTime>, vm: &VirtualMachine) -> PyResult {
         let instant = t.naive_or_local(vm)?;
         let formatted_time = instant.format(CFMT).to_string();
-        Ok(vm.ctx.new_utf8_str(formatted_time))
+        Ok(vm.ctx.new_str(formatted_time).into())
     }
 
     #[pyfunction]
@@ -182,7 +183,7 @@ mod time {
     fn strftime(format: PyStrRef, t: OptionalArg<PyStructTime>, vm: &VirtualMachine) -> PyResult {
         let instant = t.naive_or_local(vm)?;
         let formatted_time = instant.format(format.as_str()).to_string();
-        Ok(vm.ctx.new_utf8_str(formatted_time))
+        Ok(vm.ctx.new_str(formatted_time).into())
     }
 
     #[pyfunction]
@@ -302,15 +303,15 @@ mod time {
     impl PyStructTime {
         fn new(vm: &VirtualMachine, tm: NaiveDateTime, isdst: i32) -> Self {
             PyStructTime {
-                tm_year: vm.ctx.new_int(tm.year()),
-                tm_mon: vm.ctx.new_int(tm.month()),
-                tm_mday: vm.ctx.new_int(tm.day()),
-                tm_hour: vm.ctx.new_int(tm.hour()),
-                tm_min: vm.ctx.new_int(tm.minute()),
-                tm_sec: vm.ctx.new_int(tm.second()),
-                tm_wday: vm.ctx.new_int(tm.weekday().num_days_from_monday()),
-                tm_yday: vm.ctx.new_int(tm.ordinal()),
-                tm_isdst: vm.ctx.new_int(isdst),
+                tm_year: vm.ctx.new_int(tm.year()).into(),
+                tm_mon: vm.ctx.new_int(tm.month()).into(),
+                tm_mday: vm.ctx.new_int(tm.day()).into(),
+                tm_hour: vm.ctx.new_int(tm.hour()).into(),
+                tm_min: vm.ctx.new_int(tm.minute()).into(),
+                tm_sec: vm.ctx.new_int(tm.second()).into(),
+                tm_wday: vm.ctx.new_int(tm.weekday().num_days_from_monday()).into(),
+                tm_yday: vm.ctx.new_int(tm.ordinal()).into(),
+                tm_isdst: vm.ctx.new_int(isdst).into(),
             }
         }
 
@@ -318,7 +319,7 @@ mod time {
             let invalid = || vm.new_value_error("invalid struct_time parameter".to_owned());
             macro_rules! field {
                 ($field:ident) => {
-                    TryFromObject::try_from_object(vm, self.$field.clone())?
+                    self.$field.clone().try_into_value(vm)?
                 };
             }
             let dt = NaiveDateTime::new(
@@ -373,6 +374,20 @@ mod time {
 mod unix {
     use crate::{PyResult, VirtualMachine};
     use std::time::Duration;
+
+    #[cfg(target_os = "solaris")]
+    #[pyattr]
+    use libc::CLOCK_HIGHRES;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    use libc::{CLOCK_BOOTTIME, CLOCK_MONOTONIC_RAW, CLOCK_TAI};
+    #[pyattr]
+    use libc::{
+        CLOCK_MONOTONIC, CLOCK_PROCESS_CPUTIME_ID, CLOCK_REALTIME, CLOCK_THREAD_CPUTIME_ID,
+    };
+    #[cfg(any(target_os = "freebsd", target_os = "openbsd"))]
+    #[pyattr]
+    use libc::{CLOCK_PROF, CLOCK_UPTIME};
 
     #[pyfunction]
     fn sleep(dur: Duration, vm: &VirtualMachine) -> PyResult<()> {

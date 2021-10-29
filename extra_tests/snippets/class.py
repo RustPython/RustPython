@@ -1,3 +1,4 @@
+from testutils import assert_raises
 __name__ = "class"
 
 
@@ -287,3 +288,12 @@ assert type(type.mro).__name__ == 'method_descriptor'
 
 B('x', (int,), {}).x()
 A()
+
+
+# Check that any appropriate callable can be used as metaclass key:
+meta = lambda *a, **k: type(*a, **k)
+class _(metaclass=meta): pass
+
+# check that non-callables don't fail on an absent prepare:
+with assert_raises(TypeError, _msg="'int' object not callable"):
+    class _(metaclass=20): pass

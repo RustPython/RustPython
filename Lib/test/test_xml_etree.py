@@ -2515,7 +2515,6 @@ class BadElementTest(ElementTestCase, unittest.TestCase):
         e.append(ET.Element('child'))
         e[0:10:X()]  # shouldn't crash
 
-    @unittest.skip("TODO: RUSTPYTHON, hangs")
     def test_ass_subscr(self):
         # Issue #27863
         class X:
@@ -3029,8 +3028,6 @@ class ElementIterTest(unittest.TestCase):
         self.assertEqual(summarize_list(doc.getiterator(None)), all_tags)
         self.assertEqual(summarize_list(doc.getiterator('*')), all_tags)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_copy(self):
         a = ET.Element('a')
         it = a.iter()

@@ -1,7 +1,8 @@
 use super::{PyDictRef, PyStr, PyStrRef, PyTypeRef};
 use crate::{
-    function::FuncArgs, slots::SlotGetattro, IntoPyObject, ItemProtocol, PyClassImpl, PyContext,
-    PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    function::{FuncArgs, IntoPyObject},
+    types::GetAttr,
+    ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "module")]
@@ -44,7 +45,7 @@ struct ModuleInitArgs {
     doc: Option<PyStrRef>,
 }
 
-#[pyimpl(with(SlotGetattro), flags(BASETYPE, HAS_DICT))]
+#[pyimpl(with(GetAttr), flags(BASETYPE, HAS_DICT))]
 impl PyModule {
     #[pyslot]
     fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -56,18 +57,18 @@ impl PyModule {
         debug_assert!(crate::TypeProtocol::class(zelf.as_object())
             .slots
             .flags
-            .has_feature(crate::slots::PyTypeFlags::HAS_DICT));
+            .has_feature(crate::types::PyTypeFlags::HAS_DICT));
         init_module_dict(
             vm,
             &zelf.as_object().dict().unwrap(),
-            args.name.into_object(),
+            args.name.into(),
             args.doc.into_pyobject(vm),
         );
     }
 
     fn name(zelf: PyRef<Self>, vm: &VirtualMachine) -> Option<String> {
         vm.generic_getattribute_opt(
-            zelf.as_object().clone(),
+            zelf.as_object().to_owned(),
             PyStr::from("__name__").into_ref(vm),
             None,
         )
@@ -78,25 +79,25 @@ impl PyModule {
     #[pymethod(magic)]
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         let importlib = vm.import("_frozen_importlib", None, 0)?;
-        let module_repr = vm.get_attribute(importlib, "_module_repr")?;
+        let module_repr = importlib.get_attr("_module_repr", vm)?;
         vm.invoke(&module_repr, (zelf,))
     }
 
     #[pymethod(magic)]
-    fn dir(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+    fn dir(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         let dict = zelf
             .as_object()
             .dict()
             .ok_or_else(|| vm.new_value_error("module has no dict".to_owned()))?;
         let attrs = dict.into_iter().map(|(k, _v)| k).collect();
-        Ok(vm.ctx.new_list(attrs))
+        Ok(attrs)
     }
 }
 
-impl SlotGetattro for PyModule {
+impl GetAttr for PyModule {
     fn getattro(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
         if let Some(attr) =
-            vm.generic_getattribute_opt(zelf.as_object().clone(), name.clone(), None)?
+            vm.generic_getattribute_opt(zelf.as_object().to_owned(), name.clone(), None)?
         {
             return Ok(attr);
         }

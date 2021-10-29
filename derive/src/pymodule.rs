@@ -16,10 +16,7 @@ struct ModuleContext {
     errors: Vec<syn::Error>,
 }
 
-pub fn impl_pymodule(
-    attr: AttributeArgs,
-    module_item: Item,
-) -> std::result::Result<TokenStream, Diagnostic> {
+pub fn impl_pymodule(attr: AttributeArgs, module_item: Item) -> Result<TokenStream> {
     let (doc, mut module_item) = match module_item {
         Item::Mod(m) => (m.attrs.doc(), m),
         other => bail_span!(other, "#[pymodule] can only be on a full module"),
@@ -79,7 +76,7 @@ pub fn impl_pymodule(
         parse_quote! {
             pub(crate) fn extend_module(
                 vm: &::rustpython_vm::VirtualMachine,
-                module: &::rustpython_vm::PyObjectRef,
+                module: &::rustpython_vm::PyObject,
             ) {
                 #module_extend_items
             }
@@ -292,8 +289,8 @@ impl ModuleItem for FunctionItem {
                 vm.ctx.make_funcdef(#py_name, #ident)
                     #doc
                     .into_function()
-                    .with_module(vm.ctx.new_utf8_str(#module.to_owned()))
-                    .build(&vm.ctx)
+                    .with_module(vm.new_pyobj(#module.to_owned()))
+                    .into_ref(&vm.ctx)
             );
             quote! {
                 vm.__module_set_attr(&module, #py_name, #new_func).unwrap();
@@ -317,7 +314,7 @@ impl ModuleItem for ClassItem {
                 let noattr = class_attr.try_remove_name("noattr")?;
                 if noattr.is_none() {
                     return Err(syn::Error::new_spanned(
-                        class_attr,
+                        ident,
                         format!(
                             "#[{name}] requires #[pyattr] to be a module attribute. \
                              To keep it free type, try #[{name}(noattr)]",
@@ -353,7 +350,7 @@ impl ModuleItem for ClassItem {
                 );
                 let item = quote! {
                     let new_class = #new_class;
-                    new_class.set_str_attr("__module__", vm.ctx.new_utf8_str(#module_name));
+                    new_class.set_str_attr("__module__", vm.new_pyobj(#module_name));
                     vm.__module_set_attr(&module, #py_name, new_class).unwrap();
                 };
 
@@ -384,8 +381,8 @@ impl ModuleItem for AttributeItem {
                 let py_name = get_py_name(&attr, ident)?;
                 (
                     py_name.clone(),
-                    quote! {
-                        vm.__module_set_attr(&module, #py_name, vm.new_pyobj(#ident(vm))).unwrap();
+                    quote_spanned! { ident.span() =>
+                        vm.__module_set_attr(module, #py_name, vm.new_pyobj(#ident(vm))).unwrap();
                     },
                 )
             }
@@ -393,8 +390,8 @@ impl ModuleItem for AttributeItem {
                 let py_name = get_py_name(&attr, ident)?;
                 (
                     py_name.clone(),
-                    quote! {
-                        vm.__module_set_attr(&module, #py_name, vm.new_pyobj(#ident)).unwrap();
+                    quote_spanned! { ident.span() =>
+                        vm.__module_set_attr(module, #py_name, vm.new_pyobj(#ident)).unwrap();
                     },
                 )
             }
@@ -412,8 +409,8 @@ impl ModuleItem for AttributeItem {
                     } else {
                         ident.to_string()
                     };
-                    let tokens = quote! {
-                        vm.__module_set_attr(&module, #py_name, vm.new_pyobj(#ident)).unwrap();
+                    let tokens = quote_spanned! { ident.span() =>
+                        vm.__module_set_attr(module, #py_name, vm.new_pyobj(#ident)).unwrap();
                     };
                     args.context
                         .module_extend_items

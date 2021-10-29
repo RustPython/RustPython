@@ -20,6 +20,7 @@ import collections
 import os
 import time
 import traceback
+import types
 
 # If threading is available then ThreadPool should be provided.  Therefore
 # we avoid top-level imports which are liable to fail on some systems.
@@ -615,6 +616,8 @@ class ApplyResult(object):
             self._error_callback(self._value)
         self._event.set()
         del self._cache[self._job]
+
+    __class_getitem__ = classmethod(types.GenericAlias)
 
 AsyncResult = ApplyResult       # create alias -- see #17805
 

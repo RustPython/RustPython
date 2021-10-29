@@ -2,10 +2,11 @@
 
 */
 
-use super::{PyCode, PyDictRef, PyStrRef, PyTypeRef};
+use super::{PyCode, PyDictRef, PyStrRef};
 use crate::{
     frame::{Frame, FrameRef},
-    function::FuncArgs,
+    protocol::PyMapping,
+    types::{Constructor, Unconstructible},
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, VirtualMachine,
 };
 
@@ -13,16 +14,12 @@ pub fn init(context: &PyContext) {
     FrameRef::extend_class(context, &context.types.frame_type);
 }
 
-#[pyimpl(with(PyRef))]
+#[pyimpl(with(Constructor, PyRef))]
 impl Frame {}
+impl Unconstructible for Frame {}
 
 #[pyimpl]
 impl FrameRef {
-    #[pyslot]
-    fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        Err(vm.new_type_error("Cannot directly create frame object".to_owned()))
-    }
-
     #[pymethod(magic)]
     fn repr(self) -> String {
         "<frame object at .. >".to_owned()
@@ -48,7 +45,7 @@ impl FrameRef {
     }
 
     #[pyproperty]
-    fn f_locals(self, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+    fn f_locals(self, vm: &VirtualMachine) -> PyResult<PyMapping> {
         self.locals(vm)
     }
 

@@ -10,6 +10,7 @@ import warnings
 import collections
 import contextlib
 import traceback
+import types
 
 from . import result
 from .util import (strclass, safe_repr, _count_diff_all_purpose,
@@ -216,6 +217,8 @@ class _AssertRaisesContext(_AssertRaisesBaseContext):
             self._raiseFailure('"{}" does not match "{}"'.format(
                      expected_regex.pattern, str(exc_value)))
         return True
+
+    __class_getitem__ = classmethod(types.GenericAlias)
 
 
 class _AssertWarnsContext(_AssertRaisesBaseContext):

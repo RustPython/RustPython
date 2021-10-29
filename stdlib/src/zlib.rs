@@ -1,12 +1,11 @@
-pub(crate) use decl::make_module;
+pub(crate) use zlib::make_module;
 
-#[pymodule(name = "zlib")]
-mod decl {
+#[pymodule]
+mod zlib {
     use crate::common::lock::PyMutex;
     use crate::vm::{
-        builtins::{PyBaseExceptionRef, PyBytes, PyBytesRef, PyIntRef, PyTypeRef},
+        builtins::{PyBaseExceptionRef, PyBytes, PyBytesRef, PyIntRef, PyType, PyTypeRef},
         function::{ArgBytesLike, OptionalArg},
-        types::create_simple_type,
         IntoPyRef, PyResult, PyValue, VirtualMachine,
     };
     use adler32::RollingAdler32 as Adler32;
@@ -57,7 +56,7 @@ mod decl {
 
     #[pyattr]
     fn error(vm: &VirtualMachine) -> PyTypeRef {
-        create_simple_type("error", &vm.ctx.exceptions.exception_type)
+        PyType::new_simple_ref("error", &vm.ctx.exceptions.exception_type).unwrap()
     }
 
     /// Compute an Adler-32 checksum of data.
@@ -96,7 +95,11 @@ mod decl {
 
     /// Returns a bytes object containing compressed data.
     #[pyfunction]
-    fn compress(data: ArgBytesLike, level: OptionalArg<i32>, vm: &VirtualMachine) -> PyResult {
+    fn compress(
+        data: ArgBytesLike,
+        level: OptionalArg<i32>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyBytesRef> {
         let compression = compression_from_int(level.into_option())
             .ok_or_else(|| new_zlib_error("Bad compression level", vm))?;
 

@@ -7,6 +7,10 @@ name = "Inflector"
 version = "0.11.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fe438c63458706e03479442743baae6c88256498e6431708f6dfc520a26515d3"
+dependencies = [
+ "lazy_static 1.4.0",
+ "regex",
+]
 
 [[package]]
 name = "abort_on_panic"
@@ -1559,9 +1563,9 @@ checksum = "dbf0c48bc1d91375ae5c3cd81e3722dff1abcf81a30960240640d223f59fe0e5"
 
 [[package]]
 name = "proc-macro2"
-version = "1.0.28"
+version = "1.0.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c7ed8b8c7b886ea3ed7dde405212185f423ab44682667c8c6dd14aa1d9f6612"
+checksum = "edc3358ebc67bc8b7fa0c007f945b0b18226f78437d61bec735a9eb96b61ee70"
 dependencies = [
  "unicode-xid",
 ]
@@ -1584,9 +1588,9 @@ dependencies = [
 
 [[package]]
 name = "quote"
-version = "1.0.9"
+version = "1.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3d0b9745dc2debf507c8422de05d7226cc1f0644216dfdfead988f9b1ab32a7"
+checksum = "38bc8cc6a5f2e3655e0899c1b848643b2562f853f114bfec7be120678e3ace05"
 dependencies = [
  "proc-macro2",
 ]
@@ -1745,11 +1749,25 @@ dependencies = [
 
 [[package]]
 name = "result-like"
-version = "0.3.0"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d3e152e91c7b35822c7aeafc7019479ebb6180a5380139c9b5809645d668f2d"
+checksum = "2e1f304c2e140605000124bb765715e68efd31a710c3a012da2f316122e25441"
 dependencies = [
- "is-macro",
+ "result-like-derive",
+]
+
+[[package]]
+name = "result-like-derive"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0ebbb466cf8f72ae15736143bd789fdabf9a071fcb17597d963d6aa6dea96aa"
+dependencies = [
+ "Inflector",
+ "pmutil",
+ "proc-macro2",
+ "quote",
+ "syn",
+ "syn-ext",
 ]
 
 [[package]]
@@ -1795,6 +1813,7 @@ name = "rustpython-ast"
 version = "0.1.0"
 dependencies = [
  "num-bigint",
+ "rustpython-common",
 ]
 
 [[package]]
@@ -1829,6 +1848,7 @@ dependencies = [
  "radium",
  "rand",
  "siphasher",
+ "unic-ucd-category",
  "volatile",
 ]
 
@@ -2342,9 +2362,9 @@ checksum = "6bdef32e8150c2a081110b42772ffe7d7c9032b606bc226c8260fd97e0976601"
 
 [[package]]
 name = "syn"
-version = "1.0.75"
+version = "1.0.80"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b7f58f7e8eaa0009c5fec437aabf511bd9933e4b2d7407bd05273c01a8906ea7"
+checksum = "d010a1623fbd906d51d650a9916aaefc05ffa0e4053ff7fe601167f3e715d194"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2353,9 +2373,9 @@ dependencies = [
 
 [[package]]
 name = "syn-ext"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ccfaff88a7edb37fd3a16f24b986500e4a6d4b87218d9b38255e208ca4a08848"
+checksum = "fe0015195d694527a7c4f1479b2f3975644baefb40f0a79c974980b4f25d2b32"
 dependencies = [
  "syn",
 ]

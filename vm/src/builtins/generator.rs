@@ -4,11 +4,11 @@
 
 use super::{PyCode, PyStrRef, PyTypeRef};
 use crate::{
-    coroutine::{Coro, Variant},
+    coroutine::Coro,
     frame::FrameRef,
     function::OptionalArg,
     protocol::PyIterReturn,
-    slots::{IteratorIterable, SlotIterator},
+    types::{Constructor, IterNext, IterNextIterable, Unconstructible},
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 
@@ -24,7 +24,7 @@ impl PyValue for PyGenerator {
     }
 }
 
-#[pyimpl(with(SlotIterator))]
+#[pyimpl(with(Constructor, IterNext))]
 impl PyGenerator {
     pub fn as_coro(&self) -> &Coro {
         &self.inner
@@ -32,7 +32,7 @@ impl PyGenerator {
 
     pub fn new(frame: FrameRef, name: PyStrRef) -> Self {
         PyGenerator {
-            inner: Coro::new(frame, Variant::Gen, name),
+            inner: Coro::new(frame, name),
         }
     }
 
@@ -47,24 +47,25 @@ impl PyGenerator {
     }
 
     #[pymethod(magic)]
-    fn repr(zelf: PyRef<Self>) -> String {
-        zelf.inner.repr(zelf.get_id())
+    fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> String {
+        zelf.inner.repr(zelf.as_object(), zelf.get_id(), vm)
     }
 
     #[pymethod]
-    fn send(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.inner.send(value, vm)
+    fn send(zelf: PyRef<Self>, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        zelf.inner.send(zelf.as_object(), value, vm)
     }
 
     #[pymethod]
     fn throw(
-        &self,
+        zelf: PyRef<Self>,
         exc_type: PyObjectRef,
         exc_val: OptionalArg,
         exc_tb: OptionalArg,
         vm: &VirtualMachine,
-    ) -> PyResult {
-        self.inner.throw(
+    ) -> PyResult<PyIterReturn> {
+        zelf.inner.throw(
+            zelf.as_object(),
             exc_type,
             exc_val.unwrap_or_none(vm),
             exc_tb.unwrap_or_none(vm),
@@ -73,8 +74,8 @@ impl PyGenerator {
     }
 
     #[pymethod]
-    fn close(&self, vm: &VirtualMachine) -> PyResult<()> {
-        self.inner.close(vm)
+    fn close(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<()> {
+        zelf.inner.close(zelf.as_object(), vm)
     }
 
     #[pyproperty]
@@ -94,12 +95,12 @@ impl PyGenerator {
         self.inner.frame().yield_from_target()
     }
 }
+impl Unconstructible for PyGenerator {}
 
-impl IteratorIterable for PyGenerator {}
-impl SlotIterator for PyGenerator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        // TODO: Fix zelf.send to return PyIterReturn
-        PyIterReturn::from_result(zelf.send(vm.ctx.none(), vm), vm)
+impl IterNextIterable for PyGenerator {}
+impl IterNext for PyGenerator {
+    fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        Self::send(zelf.to_owned(), vm.ctx.none(), vm)
     }
 }
 

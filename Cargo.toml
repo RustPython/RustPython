@@ -1,8 +1,11 @@
+# REDOX START
+# cargo-features = ["edition2021"]
+# REDOX END
 [package]
 name = "rustpython"
 version = "0.1.2"
 authors = ["RustPython Team"]
-edition = "2018"
+edition = "2021"
 description = "A python interpreter written in rust."
 repository = "https://github.com/RustPython/RustPython"
 license = "MIT"
@@ -16,14 +19,14 @@ members = [
 ]
 
 [features]
-default = ["threading", "pylib", "zlib", "stdlib"]
+default = ["threading", "pylib", "stdlib", "zlib"]
 stdlib = ["rustpython-stdlib"]
 flame-it = ["rustpython-vm/flame-it", "flame", "flamescope"]
 freeze-stdlib = ["rustpython-vm/freeze-stdlib"]
 jit = ["rustpython-vm/jit"]
 threading = ["rustpython-vm/threading"]
 pylib = ["rustpython-vm/pylib"]
-zlib = ["rustpython-stdlib/zlib"]
+zlib = ["stdlib", "rustpython-stdlib/zlib"]
 ssl = ["rustpython-stdlib/ssl"]
 ssl-vendor = ["rustpython-stdlib/ssl-vendor"]
 

@@ -4,8 +4,8 @@
 use super::PyTypeRef;
 use crate::common::lock::PyRwLock;
 use crate::{
-    function::FuncArgs, slots::SlotDescriptor, PyClassImpl, PyContext, PyObjectRef, PyRef,
-    PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
+    function::FuncArgs, types::GetDescriptor, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
+    PyValue, TryFromObject, TypeProtocol, VirtualMachine,
 };
 
 /// Property attribute.
@@ -67,7 +67,7 @@ struct PropertyArgs {
     doc: Option<PyObjectRef>,
 }
 
-impl SlotDescriptor for PyProperty {
+impl GetDescriptor for PyProperty {
     fn descr_get(
         zelf: PyObjectRef,
         obj: Option<PyObjectRef>,
@@ -76,7 +76,7 @@ impl SlotDescriptor for PyProperty {
     ) -> PyResult {
         let (zelf, obj) = Self::_unwrap(zelf, obj, vm)?;
         if vm.is_none(&obj) {
-            Ok(zelf.into_object())
+            Ok(zelf.into())
         } else if let Some(getter) = zelf.getter.read().as_ref() {
             vm.invoke(getter, (obj,))
         } else {
@@ -85,7 +85,7 @@ impl SlotDescriptor for PyProperty {
     }
 }
 
-#[pyimpl(with(SlotDescriptor), flags(BASETYPE))]
+#[pyimpl(with(GetDescriptor), flags(BASETYPE))]
 impl PyProperty {
     #[pyslot]
     fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -119,7 +119,7 @@ impl PyProperty {
         match value {
             Some(value) => {
                 if let Some(setter) = zelf.setter.read().as_ref() {
-                    vm.invoke(setter, vec![obj, value]).map(drop)
+                    vm.invoke(setter, (obj, value)).map(drop)
                 } else {
                     Err(vm.new_attribute_error("can't set attribute".to_owned()))
                 }

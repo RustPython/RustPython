@@ -6,8 +6,8 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
     let module = _signal::make_module(vm);
 
-    let sig_dfl = vm.ctx.new_int(SIG_DFL as u8);
-    let sig_ign = vm.ctx.new_int(SIG_IGN as u8);
+    let sig_dfl = vm.new_pyobj(SIG_DFL as u8);
+    let sig_ign = vm.new_pyobj(SIG_IGN as u8);
 
     for signum in 1..NSIG {
         let handler = unsafe { libc::signal(signum as i32, SIG_IGN) };
@@ -24,8 +24,9 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         vm.signal_handlers.as_deref().unwrap().borrow_mut()[signum] = py_handler;
     }
 
-    let int_handler = vm
-        .get_attribute(module.clone(), "default_int_handler")
+    let int_handler = module
+        .clone()
+        .get_attr("default_int_handler", vm)
         .expect("_signal does not have this attr?");
     _signal::signal(libc::SIGINT, int_handler, vm).expect("Failed to set sigint handler");
 
@@ -35,7 +36,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 #[pymodule]
 pub(crate) mod _signal {
     use crate::{
-        exceptions::IntoPyException,
+        function::IntoPyException,
         signal::{check_signals, ANY_TRIGGERED, TRIGGERS},
         PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
     };

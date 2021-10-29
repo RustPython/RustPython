@@ -1,23 +1,28 @@
-use super::sys::MULTIARCH;
-use crate::{IntoPyObject, ItemProtocol, PyObjectRef, VirtualMachine};
+pub(crate) use _sysconfigdata::make_module;
 
-pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
-    let vars = vm.ctx.new_dict();
-    macro_rules! sysvars {
-        ($($key:literal => $value:expr),*$(,)?) => {{
-            $(vars.set_item($key, $value.into_pyobject(vm), vm).unwrap();)*
-        }};
-    }
-    sysvars! {
-        // fake shared module extension
-        "EXT_SUFFIX" => format!(".rustpython-{}", MULTIARCH),
-        "MULTIARCH" => MULTIARCH,
-        // enough for tests to stop expecting urandom() to fail after restricting file resources
-        "HAVE_GETRANDOM" => 1,
-    }
-    include!(concat!(env!("OUT_DIR"), "/env_vars.rs"));
+#[pymodule]
+pub(crate) mod _sysconfigdata {
+    use crate::{
+        builtins::PyDictRef, function::IntoPyObject, stdlib::sys::MULTIARCH, ItemProtocol,
+        VirtualMachine,
+    };
 
-    py_module!(vm, "_sysconfigdata", {
-        "build_time_vars" => vars,
-    })
+    #[pyattr]
+    fn build_time_vars(vm: &VirtualMachine) -> PyDictRef {
+        let vars = vm.ctx.new_dict();
+        macro_rules! sysvars {
+            ($($key:literal => $value:expr),*$(,)?) => {{
+                $(vars.set_item($key, $value.into_pyobject(vm), vm).unwrap();)*
+            }};
+        }
+        sysvars! {
+            // fake shared module extension
+            "EXT_SUFFIX" => format!(".rustpython-{}", MULTIARCH),
+            "MULTIARCH" => MULTIARCH,
+            // enough for tests to stop expecting urandom() to fail after restricting file resources
+            "HAVE_GETRANDOM" => 1,
+        }
+        include!(concat!(env!("OUT_DIR"), "/env_vars.rs"));
+        vars
+    }
 }

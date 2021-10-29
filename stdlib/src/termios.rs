@@ -3,11 +3,10 @@ pub(crate) use self::termios::make_module;
 #[pymodule]
 mod termios {
     use crate::vm::{
-        builtins::PyBaseExceptionRef,
-        builtins::{PyBytes, PyInt, PyListRef, PyTypeRef},
-        IntoPyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+        builtins::{PyBaseExceptionRef, PyBytes, PyInt, PyListRef, PyTypeRef},
+        function::IntoPyObject,
+        PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     };
-    use std::convert::TryFrom;
     use termios::Termios;
 
     // TODO: more ioctl numbers
@@ -25,7 +24,7 @@ mod termios {
     };
 
     #[pyfunction]
-    fn tcgetattr(fd: i32, vm: &VirtualMachine) -> PyResult {
+    fn tcgetattr(fd: i32, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         let termios = Termios::from_fd(fd).map_err(|e| termios_error(e, vm))?;
         let noncanon = (termios.c_lflag & termios::ICANON) == 0;
         let cc = termios
@@ -33,8 +32,8 @@ mod termios {
             .iter()
             .enumerate()
             .map(|(i, &c)| match i {
-                termios::VMIN | termios::VTIME if noncanon => vm.ctx.new_int(c),
-                _ => vm.ctx.new_bytes(vec![c as u8]),
+                termios::VMIN | termios::VTIME if noncanon => vm.ctx.new_int(c).into(),
+                _ => vm.ctx.new_bytes(vec![c as u8]).into(),
             })
             .collect::<Vec<_>>();
         let out = vec![
@@ -44,9 +43,9 @@ mod termios {
             termios.c_lflag.into_pyobject(vm),
             termios::cfgetispeed(&termios).into_pyobject(vm),
             termios::cfgetospeed(&termios).into_pyobject(vm),
-            vm.ctx.new_list(cc),
+            vm.ctx.new_list(cc).into(),
         ];
-        Ok(vm.ctx.new_list(out))
+        Ok(out)
     }
 
     #[pyfunction]
@@ -58,35 +57,32 @@ mod termios {
                 })?
                 .clone();
         let mut termios = Termios::from_fd(fd).map_err(|e| termios_error(e, vm))?;
-        termios.c_iflag = TryFromObject::try_from_object(vm, iflag)?;
-        termios.c_oflag = TryFromObject::try_from_object(vm, oflag)?;
-        termios.c_cflag = TryFromObject::try_from_object(vm, cflag)?;
-        termios.c_lflag = TryFromObject::try_from_object(vm, lflag)?;
-        termios::cfsetispeed(&mut termios, TryFromObject::try_from_object(vm, ispeed)?)
+        termios.c_iflag = iflag.try_into_value(vm)?;
+        termios.c_oflag = oflag.try_into_value(vm)?;
+        termios.c_cflag = cflag.try_into_value(vm)?;
+        termios.c_lflag = lflag.try_into_value(vm)?;
+        termios::cfsetispeed(&mut termios, ispeed.try_into_value(vm)?)
             .map_err(|e| termios_error(e, vm))?;
-        termios::cfsetospeed(&mut termios, TryFromObject::try_from_object(vm, ospeed)?)
+        termios::cfsetospeed(&mut termios, ospeed.try_into_value(vm)?)
             .map_err(|e| termios_error(e, vm))?;
         let cc = PyListRef::try_from_object(vm, cc)?;
-        {
-            let cc = cc.borrow_vec();
-            let cc = <&[PyObjectRef; NCCS]>::try_from(&*cc).map_err(|_| {
-                vm.new_type_error(format!(
-                    "tcsetattr: attributes[6] must be {} element list",
-                    NCCS
-                ))
-            })?;
-            for (cc, x) in termios.c_cc.iter_mut().zip(cc.iter()) {
-                *cc = if let Some(c) = x.payload::<PyBytes>().filter(|b| b.as_bytes().len() == 1) {
-                    c.as_bytes()[0] as _
-                } else if let Some(i) = x.payload::<PyInt>() {
-                    i.try_to_primitive(vm)?
-                } else {
-                    return Err(vm.new_type_error(
-                        "tcsetattr: elements of attributes must be characters or integers"
-                            .to_owned(),
-                    ));
-                };
-            }
+        let cc = cc.borrow_vec();
+        let cc = <&[PyObjectRef; NCCS]>::try_from(&*cc).map_err(|_| {
+            vm.new_type_error(format!(
+                "tcsetattr: attributes[6] must be {} element list",
+                NCCS
+            ))
+        })?;
+        for (cc, x) in termios.c_cc.iter_mut().zip(cc.iter()) {
+            *cc = if let Some(c) = x.payload::<PyBytes>().filter(|b| b.as_bytes().len() == 1) {
+                c.as_bytes()[0] as _
+            } else if let Some(i) = x.payload::<PyInt>() {
+                i.try_to_primitive(vm)?
+            } else {
+                return Err(vm.new_type_error(
+                    "tcsetattr: elements of attributes must be characters or integers".to_owned(),
+                ));
+            };
         }
 
         termios::tcsetattr(fd, when, &termios).map_err(|e| termios_error(e, vm))?;
@@ -96,16 +92,16 @@ mod termios {
 
     fn termios_error(err: std::io::Error, vm: &VirtualMachine) -> PyBaseExceptionRef {
         vm.new_exception(
-            get_termios_error(vm),
+            error_type(vm),
             vec![
                 err.raw_os_error().into_pyobject(vm),
-                vm.ctx.new_utf8_str(err.to_string()),
+                vm.ctx.new_str(err.to_string()).into(),
             ],
         )
     }
 
     #[pyattr(name = "error")]
-    fn get_termios_error(vm: &VirtualMachine) -> PyTypeRef {
+    fn error_type(vm: &VirtualMachine) -> PyTypeRef {
         rustpython_common::static_cell! {
             static TERMIOS_ERROR: PyTypeRef;
         }

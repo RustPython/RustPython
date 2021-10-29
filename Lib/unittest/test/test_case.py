@@ -771,7 +771,6 @@ class Test_TestCase(unittest.TestCase, TestEquality, TestHashing):
         self.assertRaises(self.failureException, self.assertDictEqual, [], d)
         self.assertRaises(self.failureException, self.assertDictEqual, 1, 1)
 
-    @unittest.skip("TODO: RUSTPYTHON; improve sre performance")
     def testAssertSequenceEqualMaxDiff(self):
         self.assertEqual(self.maxDiff, 80*8)
         seq1 = 'a' + 'x' * 80**2
@@ -915,7 +914,6 @@ class Test_TestCase(unittest.TestCase, TestEquality, TestHashing):
         d = 'y' * 40 + '[56 chars]yyyy'
         self.assertEqual(str(cm.exception), "'%sa%s' != '%sb%s'" % (c, d, c, d))
 
-    @unittest.skip("TODO: RUSTPYTHON; weird behavior with typing generics in collections.Counter() constructor")
     def testAssertCountEqual(self):
         a = object()
         self.assertCountEqual([1, 2, 3], [3, 2, 1])
@@ -1404,7 +1402,6 @@ test case
             with self.assertRaises(RuntimeWarning):
                 self.assertWarns(DeprecationWarning, _runtime_warn)
 
-    @unittest.skip("TODO: RUSTPYTHON; tokenize.generate_tokens")
     def testAssertWarnsContext(self):
         # Believe it or not, it is preferable to duplicate all tests above,
         # to make sure the __warningregistry__ $@ is circumvented correctly.
@@ -1501,7 +1498,6 @@ test case
                 self.assertWarnsRegex(RuntimeWarning, "o+",
                                       _runtime_warn, "barz")
 
-    @unittest.skip("TODO: RUSTPYTHON; tokenize.generate_tokens")
     def testAssertWarnsRegexContext(self):
         # Same as above, but with assertWarnsRegex as a context manager
         def _runtime_warn(msg):

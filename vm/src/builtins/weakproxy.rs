@@ -1,8 +1,8 @@
 use super::{PyStrRef, PyTypeRef, PyWeak};
 use crate::{
     function::OptionalArg,
-    slots::{SlotConstructor, SlotSetattro},
-    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    types::{Constructor, SetAttr},
+    PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "weakproxy")]
@@ -25,7 +25,7 @@ pub struct WeakProxyNewArgs {
     callback: OptionalArg<PyObjectRef>,
 }
 
-impl SlotConstructor for PyWeakProxy {
+impl Constructor for PyWeakProxy {
     type Args = WeakProxyNewArgs;
 
     fn py_new(
@@ -43,30 +43,30 @@ impl SlotConstructor for PyWeakProxy {
     }
 }
 
-#[pyimpl(with(SlotSetattro, SlotConstructor))]
+#[pyimpl(with(SetAttr, Constructor))]
 impl PyWeakProxy {
     // TODO: callbacks
     #[pymethod(magic)]
-    fn getattr(&self, attr_name: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match self.weak.upgrade() {
-            Some(obj) => vm.get_attribute(obj, attr_name),
-            None => Err(vm.new_exception_msg(
+    fn getattr(&self, attr_name: PyStrRef, vm: &VirtualMachine) -> PyResult {
+        let obj = self.weak.upgrade().ok_or_else(|| {
+            vm.new_exception_msg(
                 vm.ctx.exceptions.reference_error.clone(),
                 "weakly-referenced object no longer exists".to_owned(),
-            )),
-        }
+            )
+        })?;
+        obj.get_attr(attr_name, vm)
     }
 }
 
-impl SlotSetattro for PyWeakProxy {
+impl SetAttr for PyWeakProxy {
     fn setattro(
-        zelf: &PyRef<Self>,
+        zelf: &crate::PyObjectView<Self>,
         attr_name: PyStrRef,
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         match zelf.weak.upgrade() {
-            Some(obj) => vm.call_set_attr(&obj, attr_name, value),
+            Some(obj) => obj.call_set_attr(vm, attr_name, value),
             None => Err(vm.new_exception_msg(
                 vm.ctx.exceptions.reference_error.clone(),
                 "weakly-referenced object no longer exists".to_owned(),

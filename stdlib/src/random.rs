@@ -8,7 +8,7 @@ mod _random {
     use crate::vm::{
         builtins::{PyIntRef, PyTypeRef},
         function::OptionalOption,
-        slots::SlotConstructor,
+        types::Constructor,
         PyObjectRef, PyResult, PyValue, VirtualMachine,
     };
     use num_bigint::{BigInt, Sign};
@@ -61,7 +61,7 @@ mod _random {
         rng: PyMutex<PyRng>,
     }
 
-    impl SlotConstructor for PyRandom {
+    impl Constructor for PyRandom {
         type Args = OptionalOption<PyObjectRef>;
 
         fn py_new(
@@ -77,7 +77,7 @@ mod _random {
         }
     }
 
-    #[pyimpl(flags(BASETYPE), with(SlotConstructor))]
+    #[pyimpl(flags(BASETYPE), with(Constructor))]
     impl PyRandom {
         #[pymethod]
         fn random(&self) -> f64 {
@@ -143,6 +143,14 @@ mod _random {
                 Sign::Plus
             };
             Ok(BigInt::from_biguint(sign, uint))
+        }
+
+        #[pymethod]
+        fn randbytes(&self, n: usize) -> PyResult<Vec<u8>> {
+            let mut buf = vec![0u8; n];
+            let mut rng = self.rng.lock();
+            rng.fill_bytes(&mut buf);
+            Ok(buf)
         }
     }
 }

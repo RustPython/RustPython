@@ -5,7 +5,6 @@ use rustpython_vm::readline::{Readline, ReadlineResult};
 use rustpython_vm::{
     builtins::PyBaseExceptionRef,
     compile::{self, CompileError, CompileErrorType},
-    exceptions::print_exception,
     scope::Scope,
     PyResult, TypeProtocol, VirtualMachine,
 };
@@ -57,8 +56,10 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
     loop {
         let prompt_name = if continuing { "ps2" } else { "ps1" };
         let prompt = vm
-            .get_attribute(vm.sys_module.clone(), prompt_name)
-            .and_then(|prompt| vm.to_str(&prompt));
+            .sys_module
+            .clone()
+            .get_attr(prompt_name, vm)
+            .and_then(|prompt| prompt.str(vm));
         let prompt = match prompt {
             Ok(ref s) => s.as_str(),
             Err(_) => "",
@@ -130,7 +131,7 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
                 repl.save_history(&repl_history_path).unwrap();
                 return Err(exc);
             }
-            print_exception(vm, exc);
+            vm.print_exception(exc);
         }
     }
     repl.save_history(&repl_history_path).unwrap();

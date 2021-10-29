@@ -20,11 +20,8 @@ NAN = float('nan')
 INF = float('inf')
 NINF = float('-inf')
 
-# TODO: RUSTPYTHON: float_info is so far not supported -> hard code for the moment
-# FLOAT_MAX = sys.float_info.max
-# FLOAT_MIN = sys.float_info.min
-FLOAT_MAX = 1.7976931348623157e+308
-FLOAT_MIN = 2.2250738585072014e-308
+FLOAT_MAX = sys.float_info.max
+FLOAT_MIN = sys.float_info.min
 
 # detect evidence of double-rounding: fsum is not always correctly
 # rounded on machines that suffer from double rounding.
@@ -299,8 +296,6 @@ class MathTests(unittest.TestCase):
         self.ftest('atan(-inf)', math.atan(NINF), -math.pi/2)
         self.assertTrue(math.isnan(math.atan(NAN)))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure 
     def testAtanh(self):
         self.assertRaises(TypeError, math.atan)
         self.ftest('atanh(0)', math.atanh(0), 0)
@@ -1068,8 +1063,6 @@ class MathTests(unittest.TestCase):
         self.assertEqual(math.log(INF), INF)
         self.assertTrue(math.isnan(math.log(NAN)))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testLog1p(self):
         self.assertRaises(TypeError, math.log1p)
         for n in [2, 2**90, 2**300]:
@@ -1650,9 +1643,7 @@ class MathTests(unittest.TestCase):
             self.fail('Failures in test_testfile:\n  ' +
                       '\n  '.join(failures))
 
-    # TODO: RUSTPYTHON
-    # Currently hangs. Function never finishes.
-    @unittest.skip
+    @unittest.skip("TODO: RUSTPYTHON, Currently hangs. Function never finishes.")
     @requires_IEEE_754
     def test_mtestfile(self):
         fail_fmt = "{}: {}({!r}): {}"

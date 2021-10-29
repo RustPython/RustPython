@@ -2486,7 +2486,9 @@ class TestFlag(unittest.TestCase):
         self.assertEqual(Color.ALL.value, 7)
         self.assertEqual(str(Color.BLUE), 'blue')
 
-    @unittest.skip("TODO: RUSTPYTHON, universal newlines")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON, inconsistent test result on Windows due to threading")
     @support.reap_threads
     def test_unique_composite(self):
         # override __eq__ to be identity only
@@ -2917,7 +2919,9 @@ class TestIntFlag(unittest.TestCase):
         self.assertEqual(Color.ALL.value, 7)
         self.assertEqual(str(Color.BLUE), 'blue')
 
-    @unittest.skip("TODO: RUSTPYTHON, universal newlines")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON, inconsistent test result on Windows due to threading")
     @support.reap_threads
     def test_unique_composite(self):
         # override __eq__ to be identity only

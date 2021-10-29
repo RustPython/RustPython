@@ -29,23 +29,23 @@ impl PyTraceback {
         }
     }
 
-    #[pyproperty(name = "tb_frame")]
-    fn frame(&self) -> FrameRef {
+    #[pyproperty]
+    fn tb_frame(&self) -> FrameRef {
         self.frame.clone()
     }
 
-    #[pyproperty(name = "tb_lasti")]
-    fn lasti(&self) -> u32 {
+    #[pyproperty]
+    fn tb_lasti(&self) -> u32 {
         self.lasti
     }
 
-    #[pyproperty(name = "tb_lineno")]
-    fn lineno(&self) -> usize {
+    #[pyproperty]
+    fn tb_lineno(&self) -> usize {
         self.lineno
     }
 
-    #[pyproperty(name = "tb_next")]
-    fn next_get(&self) -> Option<PyRef<Self>> {
+    #[pyproperty]
+    fn tb_next(&self) -> Option<PyRef<Self>> {
         self.next.as_ref().cloned()
     }
 }

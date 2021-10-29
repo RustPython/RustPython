@@ -204,8 +204,6 @@ class ImportTests(unittest.TestCase):
             support.rmtree(test_package_name)
             support.rmtree('__pycache__')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_issue9319(self):
         path = os.path.dirname(__file__)
         self.assertRaises(SyntaxError,

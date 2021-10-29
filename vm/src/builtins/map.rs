@@ -1,10 +1,9 @@
 use super::PyTypeRef;
 use crate::{
     function::PosArgs,
-    iterator,
     protocol::{PyIter, PyIterReturn},
-    slots::{IteratorIterable, SlotConstructor, SlotIterator},
-    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    types::{Constructor, IterNext, IterNextIterable},
+    PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue, VirtualMachine,
 };
 
 /// map(func, *iterables) --> map object
@@ -24,7 +23,7 @@ impl PyValue for PyMap {
     }
 }
 
-impl SlotConstructor for PyMap {
+impl Constructor for PyMap {
     type Args = (PyObjectRef, PosArgs<PyIter>);
 
     fn py_new(cls: PyTypeRef, (mapper, iterators): Self::Args, vm: &VirtualMachine) -> PyResult {
@@ -33,21 +32,21 @@ impl SlotConstructor for PyMap {
     }
 }
 
-#[pyimpl(with(SlotIterator, SlotConstructor), flags(BASETYPE))]
+#[pyimpl(with(IterNext, Constructor), flags(BASETYPE))]
 impl PyMap {
     #[pymethod(magic)]
     fn length_hint(&self, vm: &VirtualMachine) -> PyResult<usize> {
         self.iterators.iter().try_fold(0, |prev, cur| {
-            let cur = iterator::length_hint(vm, cur.as_object().clone())?.unwrap_or(0);
+            let cur = cur.as_ref().to_owned().length_hint(0, vm)?;
             let max = std::cmp::max(prev, cur);
             Ok(max)
         })
     }
 }
 
-impl IteratorIterable for PyMap {}
-impl SlotIterator for PyMap {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+impl IterNextIterable for PyMap {}
+impl IterNext for PyMap {
+    fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let mut next_objs = Vec::new();
         for iterator in zelf.iterators.iter() {
             let item = match iterator.next(vm)? {
@@ -58,7 +57,7 @@ impl SlotIterator for PyMap {
         }
 
         // the mapper itself can raise StopIteration which does stop the map iteration
-        PyIterReturn::from_result(vm.invoke(&zelf.mapper, next_objs), vm)
+        PyIterReturn::from_pyresult(vm.invoke(&zelf.mapper, next_objs), vm)
     }
 }
 

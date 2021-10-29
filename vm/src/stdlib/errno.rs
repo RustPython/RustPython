@@ -1,16 +1,22 @@
 use crate::VirtualMachine;
 use crate::{ItemProtocol, PyObjectRef};
 
+#[pymodule]
+mod errno {}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+    let module = errno::make_module(vm);
     let errorcode = vm.ctx.new_dict();
-    let module = py_module!(vm, "errno", {
+    extend_module!(vm, module, {
         "errorcode" => errorcode.clone(),
     });
     for (name, code) in ERROR_CODES {
-        let name = vm.ctx.new_utf8_str((*name).to_owned());
-        let code = vm.ctx.new_int(*code);
-        errorcode.set_item(code.clone(), name.clone(), vm).unwrap();
-        vm.set_attr(&module, name, code).unwrap();
+        let name = vm.ctx.new_str(*name);
+        let code = vm.new_pyobj(*code);
+        errorcode
+            .set_item(code.clone(), name.clone().into(), vm)
+            .unwrap();
+        module.set_attr(name, code, vm).unwrap();
     }
     module
 }
@@ -39,7 +45,7 @@ pub mod errors {
     }
 }
 
-#[cfg(any(unix, windows))]
+#[cfg(any(unix, windows, target_os = "wasi"))]
 macro_rules! e {
     ($name:ident) => {
         (stringify!($name), errors::$name as _)
@@ -50,7 +56,7 @@ macro_rules! e {
     };
 }
 
-#[cfg(any(unix, windows))]
+#[cfg(any(unix, windows, target_os = "wasi"))]
 const ERROR_CODES: &[(&str, i32)] = &[
     e!(ENODEV),
     e!(EHOSTUNREACH),
@@ -59,22 +65,23 @@ const ERROR_CODES: &[(&str, i32)] = &[
         cfg(not(any(
             target_os = "openbsd",
             target_os = "freebsd",
+            target_os = "wasi",
             windows
         ))),
         ENODATA
     ),
-    e!(cfg(not(windows)), ENOTBLK),
+    e!(cfg(not(any(windows, target_os = "wasi"))), ENOTBLK),
     e!(EOPNOTSUPP),
     e!(ENOSYS),
     e!(EPIPE),
     e!(EINVAL),
     e!(cfg(not(windows)), EOVERFLOW),
     e!(EINTR),
-    e!(EUSERS),
+    e!(cfg(not(target_os = "wasi")), EUSERS),
     e!(ENOTEMPTY),
     e!(ENOBUFS),
     e!(cfg(not(windows)), EPROTO),
-    e!(EREMOTE),
+    e!(cfg(not(target_os = "wasi")), EREMOTE),
     e!(ECHILD),
     e!(ELOOP),
     e!(EXDEV),
@@ -82,13 +89,13 @@ const ERROR_CODES: &[(&str, i32)] = &[
     e!(ESRCH),
     e!(EMSGSIZE),
     e!(EAFNOSUPPORT),
-    e!(EHOSTDOWN),
-    e!(EPFNOSUPPORT),
+    e!(cfg(not(target_os = "wasi")), EHOSTDOWN),
+    e!(cfg(not(target_os = "wasi")), EPFNOSUPPORT),
     e!(ENOPROTOOPT),
     e!(EBUSY),
     e!(EAGAIN),
     e!(EISCONN),
-    e!(ESHUTDOWN),
+    e!(cfg(not(target_os = "wasi")), ESHUTDOWN),
     e!(EBADF),
     e!(cfg(not(any(target_os = "openbsd", windows))), EMULTIHOP),
     e!(EIO),
@@ -121,6 +128,7 @@ const ERROR_CODES: &[(&str, i32)] = &[
         cfg(not(any(
             target_os = "openbsd",
             target_os = "freebsd",
+            target_os = "wasi",
             windows
         ))),
         ENOSTR
@@ -137,6 +145,7 @@ const ERROR_CODES: &[(&str, i32)] = &[
         cfg(not(any(
             target_os = "openbsd",
             target_os = "freebsd",
+            target_os = "wasi",
             windows
         ))),
         ENOSR
@@ -150,16 +159,17 @@ const ERROR_CODES: &[(&str, i32)] = &[
     e!(cfg(not(any(target_os = "redox", windows))), ENOTSUP),
     e!(ENAMETOOLONG),
     e!(ENOTTY),
-    e!(ESOCKTNOSUPPORT),
+    e!(cfg(not(target_os = "wasi")), ESOCKTNOSUPPORT),
     e!(
         cfg(not(any(
             target_os = "openbsd",
             target_os = "freebsd",
+            target_os = "wasi",
             windows
         ))),
         ETIME
     ),
-    e!(ETOOMANYREFS),
+    e!(cfg(not(target_os = "wasi")), ETOOMANYREFS),
     e!(EMFILE),
     e!(cfg(not(windows)), ETXTBSY),
     e!(EINPROGRESS),
@@ -218,5 +228,5 @@ const ERROR_CODES: &[(&str, i32)] = &[
     e!(cfg(windows), WSAENETRESET),
 ];
 
-#[cfg(not(any(unix, windows)))]
+#[cfg(not(any(unix, windows, target_os = "wasi")))]
 const ERROR_CODES: &[(&str, i32)] = &[];

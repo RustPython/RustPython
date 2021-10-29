@@ -23,6 +23,19 @@ pub(crate) struct StoredVirtualMachine {
     held_objects: RefCell<Vec<PyObjectRef>>,
 }
 
+#[pymodule]
+mod _window {}
+
+fn init_window_module(vm: &VirtualMachine) -> PyObjectRef {
+    let module = _window::make_module(vm);
+
+    extend_module!(vm, module, {
+        "window" => js_module::PyJsValue::new(wasm_builtins::window()).into_ref(vm),
+    });
+
+    module
+}
+
 impl StoredVirtualMachine {
     fn new(id: String, inject_browser_module: bool) -> StoredVirtualMachine {
         let mut scope = None;
@@ -31,11 +44,6 @@ impl StoredVirtualMachine {
 
             js_module::setup_js_module(vm);
             if inject_browser_module {
-                fn init_window_module(vm: &VirtualMachine) -> PyObjectRef {
-                    py_module!(vm, "_window", {
-                        "window" => js_module::PyJsValue::new(wasm_builtins::window()).into_ref(vm),
-                    })
-                }
                 vm.add_native_module("_window".to_owned(), Box::new(init_window_module));
                 setup_browser_module(vm);
             }
@@ -189,7 +197,7 @@ impl WASMVirtualMachine {
 
     pub(crate) fn push_held_rc(&self, obj: PyObjectRef) -> Result<PyObjectWeak, JsValue> {
         self.with(|stored_vm| {
-            let weak = PyObjectRef::downgrade(&obj);
+            let weak = obj.downgrade();
             stored_vm.held_objects.borrow_mut().push(obj);
             weak
         })
@@ -246,7 +254,7 @@ impl WASMVirtualMachine {
             } else {
                 return Err(error());
             };
-            vm.set_attr(&vm.sys_module, "stdout", stdout).unwrap();
+            vm.sys_module.set_attr("stdout", stdout, vm).unwrap();
             Ok(())
         })?
     }
@@ -264,7 +272,7 @@ impl WASMVirtualMachine {
                 .map_err(convert::syntax_err)?;
             let attrs = vm.ctx.new_dict();
             attrs
-                .set_item("__name__", vm.ctx.new_utf8_str(&name), vm)
+                .set_item("__name__", vm.new_pyobj(name.as_str()), vm)
                 .into_js(vm)?;
 
             if let Some(imports) = imports {
@@ -282,9 +290,7 @@ impl WASMVirtualMachine {
 
             let module = vm.new_module(&name, attrs, None);
 
-            let sys_modules = vm
-                .get_attribute(vm.sys_module.clone(), "modules")
-                .into_js(vm)?;
+            let sys_modules = vm.sys_module.clone().get_attr("modules", vm).into_js(vm)?;
             sys_modules.set_item(name, module, vm).into_js(vm)?;
 
             Ok(())
@@ -303,9 +309,7 @@ impl WASMVirtualMachine {
                 });
             }
 
-            let sys_modules = vm
-                .get_attribute(vm.sys_module.clone(), "modules")
-                .into_js(vm)?;
+            let sys_modules = vm.sys_module.clone().get_attr("modules", vm).into_js(vm)?;
             sys_modules.set_item(name, py_module, vm).into_js(vm)?;
 
             Ok(())

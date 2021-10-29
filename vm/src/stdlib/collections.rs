@@ -2,7 +2,7 @@ pub(crate) use _collections::make_module;
 
 #[pymodule]
 mod _collections {
-    use crate::builtins::PositionIterInternal;
+    use crate::builtins::{PositionIterInternal, PyGenericAlias};
     use crate::common::lock::{PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
     use crate::{
         builtins::{
@@ -12,16 +12,16 @@ mod _collections {
         function::{FuncArgs, KwArgs, OptionalArg},
         protocol::PyIterReturn,
         sequence, sliceable,
-        slots::{
-            Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotConstructor,
-            SlotIterator, Unhashable,
+        types::{
+            Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable,
+            PyComparisonOp, Unhashable,
         },
         vm::ReprGuard,
-        PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
+        PyComparisonValue, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+        VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
-    use num_traits::ToPrimitive;
     use std::cmp::{max, min};
     use std::collections::VecDeque;
 
@@ -79,7 +79,7 @@ mod _collections {
             PyDeque::default().into_pyresult_with_type(vm, cls)
         }
 
-        #[pymethod(name = "__init__")]
+        #[pymethod(magic)]
         fn init(
             zelf: PyRef<Self>,
             PyDequeOptions { iterable, maxlen }: PyDequeOptions,
@@ -89,19 +89,15 @@ mod _collections {
             // need to move that function elsewhere and refactor usages.
             let maxlen = if let Some(obj) = maxlen.into_option() {
                 if !vm.is_none(&obj) {
-                    let value = obj.payload::<PyInt>().ok_or_else(|| {
-                        vm.new_value_error("maxlen must be non-negative.".to_owned())
-                    })?;
-                    let maxlen = value.as_bigint().to_usize().ok_or_else(|| {
-                        vm.new_value_error("maxlen must be non-negative.".to_owned())
-                    })?;
-                    // Only succeeds for values for which 0 <= value <= isize::MAX
-                    if maxlen > isize::MAX as usize {
-                        return Err(vm.new_overflow_error(
-                            "Python int too large to convert to Rust isize.".to_owned(),
-                        ));
+                    let maxlen: isize = obj
+                        .payload::<PyInt>()
+                        .ok_or_else(|| vm.new_type_error("an integer is required.".to_owned()))?
+                        .try_to_primitive(vm)?;
+
+                    if maxlen.is_negative() {
+                        return Err(vm.new_value_error("maxlen must be non-negative.".to_owned()));
                     }
-                    Some(maxlen)
+                    Some(maxlen as usize)
                 } else {
                     None
                 }
@@ -280,7 +276,7 @@ mod _collections {
                 }
             }
             Err(vm.new_value_error(
-                vm.to_repr(&obj)
+                obj.repr(vm)
                     .map(|repr| format!("{} is not in deque", repr))
                     .unwrap_or_else(|_| String::new()),
             ))
@@ -414,13 +410,18 @@ mod _collections {
                 let deque = zelf.borrow_deque().clone();
                 let elements = deque
                     .iter()
-                    .map(|obj| vm.to_repr(obj))
+                    .map(|obj| obj.repr(vm))
                     .collect::<Result<Vec<_>, _>>()?;
                 let maxlen = zelf
                     .maxlen
                     .map(|maxlen| format!(", maxlen={}", maxlen))
                     .unwrap_or_default();
-                format!("deque([{}]{})", elements.into_iter().format(", "), maxlen)
+                format!(
+                    "{}([{}]{})",
+                    zelf.class().name(),
+                    elements.into_iter().format(", "),
+                    maxlen
+                )
             } else {
                 "[...]".to_owned()
             };
@@ -521,31 +522,24 @@ mod _collections {
 
         #[pymethod(magic)]
         fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-            let cls = zelf.clone_class().into_object();
-            Ok(match zelf.maxlen {
-                Some(v) => vm.ctx.new_tuple(vec![
-                    cls,
-                    vm.ctx.new_tuple(vec![
-                        vm.ctx.empty_tuple.clone().into_object(),
-                        vm.ctx.new_int(v),
-                    ]),
-                    vm.ctx.none(),
-                    PyDequeIterator::new(zelf).into_object(vm),
-                ]),
-                None => vm.ctx.new_tuple(vec![
-                    cls,
-                    vm.ctx.empty_tuple.clone().into_object(),
-                    vm.ctx.none(),
-                    PyDequeIterator::new(zelf).into_object(vm),
-                ]),
-            })
+            let cls = zelf.clone_class();
+            let value = match zelf.maxlen {
+                Some(v) => vm.new_pyobj((vm.ctx.empty_tuple.clone(), v)),
+                None => vm.ctx.empty_tuple.clone().into(),
+            };
+            Ok(vm.new_pyobj((cls, value, vm.ctx.none(), PyDequeIterator::new(zelf))))
+        }
+
+        #[pyclassmethod(magic)]
+        fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+            PyGenericAlias::new(cls, args, vm)
         }
     }
 
     impl Comparable for PyDeque {
         fn cmp(
-            zelf: &PyRef<Self>,
-            other: &PyObjectRef,
+            zelf: &crate::PyObjectView<Self>,
+            other: &PyObject,
             op: PyComparisonOp,
             vm: &VirtualMachine,
         ) -> PyResult<PyComparisonValue> {
@@ -584,7 +578,7 @@ mod _collections {
         index: OptionalArg<isize>,
     }
 
-    impl SlotConstructor for PyDequeIterator {
+    impl Constructor for PyDequeIterator {
         type Args = (DequeIterArgs, KwArgs);
 
         fn py_new(
@@ -601,7 +595,7 @@ mod _collections {
         }
     }
 
-    #[pyimpl(with(SlotIterator, SlotConstructor))]
+    #[pyimpl(with(IterNext, Constructor))]
     impl PyDequeIterator {
         pub(crate) fn new(deque: PyDequeRef) -> Self {
             PyDequeIterator {
@@ -627,23 +621,22 @@ mod _collections {
             };
             (
                 zelf.clone_class(),
-                (deque, vm.ctx.new_int(internal.position)),
+                (deque, vm.ctx.new_int(internal.position).into()),
             )
         }
     }
 
-    impl IteratorIterable for PyDequeIterator {}
-    impl SlotIterator for PyDequeIterator {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    impl IterNextIterable for PyDequeIterator {}
+    impl IterNext for PyDequeIterator {
+        fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             zelf.internal.lock().next(|deque, pos| {
                 if zelf.state != deque.state.load() {
                     return Err(vm.new_runtime_error("Deque mutated during iteration".to_owned()));
                 }
                 let deque = deque.borrow_deque();
-                Ok(match deque.get(pos) {
-                    Some(x) => PyIterReturn::Return(x.clone()),
-                    None => PyIterReturn::StopIteration(None),
-                })
+                Ok(PyIterReturn::from_result(
+                    deque.get(pos).cloned().ok_or(None),
+                ))
             })
         }
     }
@@ -657,7 +650,7 @@ mod _collections {
         internal: PyMutex<PositionIterInternal<PyDequeRef>>,
     }
 
-    impl SlotConstructor for PyReverseDequeIterator {
+    impl Constructor for PyReverseDequeIterator {
         type Args = (DequeIterArgs, KwArgs);
 
         fn py_new(
@@ -675,7 +668,7 @@ mod _collections {
         }
     }
 
-    #[pyimpl(with(SlotIterator, SlotConstructor))]
+    #[pyimpl(with(IterNext, Constructor))]
     impl PyReverseDequeIterator {
         #[pymethod(magic)]
         fn length_hint(&self) -> usize {
@@ -694,29 +687,25 @@ mod _collections {
             };
             Ok((
                 zelf.clone_class(),
-                (deque, vm.ctx.new_int(internal.position)),
+                (deque, vm.ctx.new_int(internal.position).into()),
             ))
         }
     }
 
-    impl IteratorIterable for PyReverseDequeIterator {}
-    impl SlotIterator for PyReverseDequeIterator {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    impl IterNextIterable for PyReverseDequeIterator {}
+    impl IterNext for PyReverseDequeIterator {
+        fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             zelf.internal.lock().next(|deque, pos| {
                 if deque.state.load() != zelf.state {
                     return Err(vm.new_runtime_error("Deque mutated during iteration".to_owned()));
                 }
                 let deque = deque.borrow_deque();
-                Ok(
-                    match deque
-                        .len()
-                        .checked_sub(pos + 1)
-                        .and_then(|pos| deque.get(pos))
-                    {
-                        Some(x) => PyIterReturn::Return(x.clone()),
-                        None => PyIterReturn::StopIteration(None),
-                    },
-                )
+                let r = deque
+                    .len()
+                    .checked_sub(pos + 1)
+                    .and_then(|pos| deque.get(pos))
+                    .cloned();
+                Ok(PyIterReturn::from_result(r.ok_or(None)))
             })
         }
     }

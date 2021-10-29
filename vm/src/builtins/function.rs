@@ -5,21 +5,20 @@ use super::{
     tuple::PyTupleTyped, PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyStrRef,
     PyTupleRef, PyTypeRef,
 };
-#[cfg(feature = "jit")]
-use crate::IntoPyObject;
 use crate::{
     bytecode,
     common::lock::PyMutex,
     frame::Frame,
     function::{FuncArgs, OptionalArg},
+    protocol::PyMapping,
     scope::Scope,
-    slots::{Callable, Comparable, PyComparisonOp, SlotConstructor, SlotDescriptor, SlotGetattro},
-    IdProtocol, ItemProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
-    PyResult, PyValue, TypeProtocol, VirtualMachine,
+    types::{Callable, Comparable, Constructor, GetAttr, GetDescriptor, PyComparisonOp},
+    IdProtocol, ItemProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef,
+    PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
-use itertools::Itertools;
 #[cfg(feature = "jit")]
-use rustpython_common::lock::OnceCell;
+use crate::{common::lock::OnceCell, function::IntoPyObject};
+use itertools::Itertools;
 #[cfg(feature = "jit")]
 use rustpython_jit::CompiledCode;
 use rustpython_vm::builtins::PyStr;
@@ -30,12 +29,12 @@ pub type PyFunctionRef = PyRef<PyFunction>;
 #[derive(Debug)]
 pub struct PyFunction {
     code: PyRef<PyCode>,
-    #[cfg(feature = "jit")]
-    jitted_code: OnceCell<CompiledCode>,
     globals: PyDictRef,
     closure: Option<PyTupleTyped<PyCellRef>>,
     defaults_and_kwdefaults: PyMutex<(Option<PyTupleRef>, Option<PyDictRef>)>,
     name: PyMutex<PyStrRef>,
+    #[cfg(feature = "jit")]
+    jitted_code: OnceCell<CompiledCode>,
 }
 
 impl PyFunction {
@@ -49,12 +48,12 @@ impl PyFunction {
         let name = PyMutex::new(code.obj_name.clone());
         PyFunction {
             code,
-            #[cfg(feature = "jit")]
-            jitted_code: OnceCell::new(),
             globals,
             closure,
             defaults_and_kwdefaults: PyMutex::new((defaults, kw_only_defaults)),
             name,
+            #[cfg(feature = "jit")]
+            jitted_code: OnceCell::new(),
         }
     }
 
@@ -94,7 +93,7 @@ impl PyFunction {
         // Pack other positional arguments in to *args:
         if code.flags.contains(bytecode::CodeFlags::HAS_VARARGS) {
             let vararg_value = vm.ctx.new_tuple(args_iter.collect());
-            fastlocals[vararg_offset] = Some(vararg_value);
+            fastlocals[vararg_offset] = Some(vararg_value.into());
             vararg_offset += 1;
         } else {
             // Check the number of positional arguments
@@ -109,7 +108,7 @@ impl PyFunction {
         // Do we support `**kwargs` ?
         let kwargs = if code.flags.contains(bytecode::CodeFlags::HAS_VARKEYWORDS) {
             let d = vm.ctx.new_dict();
-            fastlocals[vararg_offset] = Some(d.clone().into_object());
+            fastlocals[vararg_offset] = Some(d.clone().into());
             Some(d)
         } else {
             None
@@ -269,7 +268,7 @@ impl PyFunction {
     pub fn invoke_with_locals(
         &self,
         func_args: FuncArgs,
-        locals: Option<PyDictRef>,
+        locals: Option<PyMapping>,
         vm: &VirtualMachine,
     ) -> PyResult {
         #[cfg(feature = "jit")]
@@ -289,9 +288,11 @@ impl PyFunction {
         let code = &self.code;
 
         let locals = if self.code.flags.contains(bytecode::CodeFlags::NEW_LOCALS) {
-            vm.ctx.new_dict()
+            PyMapping::new(vm.ctx.new_dict().into())
+        } else if let Some(locals) = locals {
+            locals
         } else {
-            locals.unwrap_or_else(|| self.globals.clone())
+            PyMapping::new(self.globals.clone().into())
         };
 
         // Construct frame:
@@ -329,7 +330,7 @@ impl PyValue for PyFunction {
     }
 }
 
-#[pyimpl(with(SlotDescriptor, Callable), flags(HAS_DICT, METHOD_DESCR))]
+#[pyimpl(with(GetDescriptor, Callable), flags(HAS_DICT, METHOD_DESCR))]
 impl PyFunction {
     #[pyproperty(magic)]
     fn code(&self) -> PyRef<PyCode> {
@@ -376,8 +377,10 @@ impl PyFunction {
 
     #[pymethod(magic)]
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> String {
-        let qualname = vm
-            .get_attribute(zelf.as_object().clone(), "__qualname__")
+        let qualname = zelf
+            .as_object()
+            .to_owned()
+            .get_attr("__qualname__", vm)
             .ok()
             .and_then(|qualname_attr| qualname_attr.downcast::<PyStr>().ok())
             .map(|qualname| qualname.as_str().to_owned())
@@ -399,7 +402,7 @@ impl PyFunction {
     }
 }
 
-impl SlotDescriptor for PyFunction {
+impl GetDescriptor for PyFunction {
     fn descr_get(
         zelf: PyObjectRef,
         obj: Option<PyObjectRef>,
@@ -407,16 +410,19 @@ impl SlotDescriptor for PyFunction {
         vm: &VirtualMachine,
     ) -> PyResult {
         let (zelf, obj) = Self::_unwrap(zelf, obj, vm)?;
-        if vm.is_none(&obj) && !Self::_cls_is(&cls, &obj.class()) {
-            Ok(zelf.into_object())
+        let obj = if vm.is_none(&obj) && !Self::_cls_is(&cls, &obj.class()) {
+            zelf.into()
         } else {
-            Ok(vm.ctx.new_bound_method(zelf.into_object(), obj))
-        }
+            PyBoundMethod::new_ref(obj, zelf.into(), &vm.ctx).into()
+        };
+        Ok(obj)
     }
 }
 
 impl Callable for PyFunction {
-    fn call(zelf: &PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    type Args = FuncArgs;
+    #[inline]
+    fn call(zelf: &crate::PyObjectView<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         zelf.invoke(args, vm)
     }
 }
@@ -424,13 +430,14 @@ impl Callable for PyFunction {
 #[pyclass(module = false, name = "method")]
 #[derive(Debug)]
 pub struct PyBoundMethod {
-    // TODO: these shouldn't be public
     object: PyObjectRef,
-    pub function: PyObjectRef,
+    function: PyObjectRef,
 }
 
 impl Callable for PyBoundMethod {
-    fn call(zelf: &PyRef<Self>, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    type Args = FuncArgs;
+    #[inline]
+    fn call(zelf: &crate::PyObjectView<Self>, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         args.prepend_arg(zelf.object.clone());
         vm.invoke(&zelf.function, args)
     }
@@ -438,8 +445,8 @@ impl Callable for PyBoundMethod {
 
 impl Comparable for PyBoundMethod {
     fn cmp(
-        zelf: &PyRef<Self>,
-        other: &PyObjectRef,
+        zelf: &crate::PyObjectView<Self>,
+        other: &PyObject,
         op: PyComparisonOp,
         _vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
@@ -452,12 +459,12 @@ impl Comparable for PyBoundMethod {
     }
 }
 
-impl SlotGetattro for PyBoundMethod {
+impl GetAttr for PyBoundMethod {
     fn getattro(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
         if let Some(obj) = zelf.get_class_attr(name.as_str()) {
-            return vm.call_if_get_descriptor(obj, zelf.into_object());
+            return vm.call_if_get_descriptor(obj, zelf.into());
         }
-        vm.get_attribute(zelf.function.clone(), name)
+        zelf.function.clone().get_attr(name, vm)
     }
 }
 
@@ -469,7 +476,7 @@ pub struct PyBoundMethodNewArgs {
     object: PyObjectRef,
 }
 
-impl SlotConstructor for PyBoundMethod {
+impl Constructor for PyBoundMethod {
     type Args = PyBoundMethodNewArgs;
 
     fn py_new(
@@ -481,15 +488,22 @@ impl SlotConstructor for PyBoundMethod {
     }
 }
 
-#[pyimpl(
-    with(Callable, Comparable, SlotGetattro, SlotConstructor),
-    flags(HAS_DICT)
-)]
 impl PyBoundMethod {
-    pub fn new(object: PyObjectRef, function: PyObjectRef) -> Self {
+    fn new(object: PyObjectRef, function: PyObjectRef) -> Self {
         PyBoundMethod { object, function }
     }
 
+    pub fn new_ref(object: PyObjectRef, function: PyObjectRef, ctx: &PyContext) -> PyRef<Self> {
+        PyRef::new_ref(
+            Self::new(object, function),
+            ctx.types.bound_method_type.clone(),
+            None,
+        )
+    }
+}
+
+#[pyimpl(with(Callable, Comparable, GetAttr, Constructor), flags(HAS_DICT))]
+impl PyBoundMethod {
     #[pymethod(magic)]
     fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
         let funcname =
@@ -502,13 +516,13 @@ impl PyBoundMethod {
         Ok(format!(
             "<bound method {} of {}>",
             funcname.as_ref().map_or("?", |s| s.as_str()),
-            vm.to_repr(&self.object)?.as_str(),
+            &self.object.repr(vm)?.as_str(),
         ))
     }
 
     #[pyproperty(magic)]
     fn doc(&self, vm: &VirtualMachine) -> PyResult {
-        vm.get_attribute(self.function.clone(), "__doc__")
+        self.function.clone().get_attr("__doc__", vm)
     }
 
     #[pyproperty(magic)]
@@ -523,7 +537,7 @@ impl PyBoundMethod {
 
     #[pyproperty(magic)]
     fn module(&self, vm: &VirtualMachine) -> Option<PyObjectRef> {
-        vm.get_attribute(self.function.clone(), "__module__").ok()
+        self.function.clone().get_attr("__module__", vm).ok()
     }
 
     #[pyproperty(magic)]
@@ -537,13 +551,15 @@ impl PyBoundMethod {
             // We need to add object's part manually.
             let obj_name = vm.get_attribute_opt(self.object.clone(), "__qualname__")?;
             let obj_name: Option<PyStrRef> = obj_name.and_then(|o| o.downcast().ok());
-            return Ok(vm.ctx.new_utf8_str(format!(
-                "{}.__new__",
-                obj_name.as_ref().map_or("?", |s| s.as_str())
-            )));
+            return Ok(vm
+                .ctx
+                .new_str(format!(
+                    "{}.__new__",
+                    obj_name.as_ref().map_or("?", |s| s.as_str())
+                ))
+                .into());
         }
-
-        vm.get_attribute(self.function.clone(), "__qualname__")
+        self.function.clone().get_attr("__qualname__", vm)
     }
 }
 
@@ -566,7 +582,7 @@ impl PyValue for PyCell {
     }
 }
 
-impl SlotConstructor for PyCell {
+impl Constructor for PyCell {
     type Args = OptionalArg;
 
     fn py_new(cls: PyTypeRef, value: Self::Args, vm: &VirtualMachine) -> PyResult {
@@ -574,7 +590,7 @@ impl SlotConstructor for PyCell {
     }
 }
 
-#[pyimpl(with(SlotConstructor))]
+#[pyimpl(with(Constructor))]
 impl PyCell {
     pub fn new(contents: Option<PyObjectRef>) -> Self {
         Self {

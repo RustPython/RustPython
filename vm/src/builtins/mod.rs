@@ -1,4 +1,6 @@
 //! This package contains the python basic/builtin types
+//! 7 common PyRef type aliases are exposed - PyBytesRef, PyDictRef, PyIntRef, PyListRef, PyStrRef, PyTypeRef, PyTupleRef
+//! Do not add more PyRef type aliases. They will be rare enough to use directly PyRef<T>.
 
 pub(crate) mod asyncgenerator;
 pub use asyncgenerator::PyAsyncGen;
@@ -12,17 +14,17 @@ pub use classmethod::PyClassMethod;
 pub(crate) mod code;
 pub use code::PyCode;
 pub(crate) mod complex;
-pub use complex::{IntoPyComplex, PyComplex};
+pub use complex::PyComplex;
 pub(crate) mod coroutine;
 pub use coroutine::PyCoroutine;
-pub mod dict;
+pub(crate) mod dict;
 pub use dict::{PyDict, PyDictRef};
 pub(crate) mod enumerate;
 pub use enumerate::PyEnumerate;
 pub(crate) mod filter;
 pub use filter::PyFilter;
 pub(crate) mod float;
-pub use float::{IntoPyFloat, PyFloat, PyFloatRef};
+pub use float::PyFloat;
 pub(crate) mod frame;
 pub(crate) mod function;
 pub use function::{PyBoundMethod, PyFunction};
@@ -53,7 +55,7 @@ pub use object::PyBaseObject;
 pub(crate) mod property;
 pub use property::PyProperty;
 pub(crate) mod pybool;
-pub use pybool::{IntoPyBool, PyBool};
+pub use pybool::PyBool;
 pub(crate) mod pystr;
 pub use pystr::{PyStr, PyStrRef};
 pub(crate) mod pysuper;
@@ -67,12 +69,12 @@ pub use set::{PyFrozenSet, PySet};
 pub(crate) mod singletons;
 pub use singletons::{PyNone, PyNotImplemented};
 pub(crate) mod slice;
-pub use slice::{PyEllipsis, PySlice, PySliceRef};
+pub use slice::{PyEllipsis, PySlice};
 pub(crate) mod staticmethod;
 pub use staticmethod::PyStaticMethod;
 pub(crate) mod traceback;
 pub use traceback::PyTraceback;
-pub mod tuple;
+pub(crate) mod tuple;
 pub use tuple::{PyTuple, PyTupleRef};
 pub(crate) mod weakproxy;
 pub use weakproxy::PyWeakProxy;

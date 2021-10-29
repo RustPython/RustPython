@@ -1550,8 +1550,6 @@ class TestBasicOps(unittest.TestCase):
             self.pickletest(proto, b, compare=ans)
 
     # Issue 13454: Crash when deleting backward iterator from tee()
-    # TODO: RUSTPYTHON
-    @unittest.skip("hangs")
     def test_tee_del_backward(self):
         forward, backward = tee(repeat(None, 20000000))
         try:
@@ -1578,8 +1576,7 @@ class TestBasicOps(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "tee"):
             next(a)
 
-    # TODO: RUSTPYTHON - hangs
-    @unittest.skip("hangs")
+    @unittest.skip("TODO: RUSTPYTHON, hangs")
     def test_tee_concurrent(self):
         start = threading.Event()
         finish = threading.Event()

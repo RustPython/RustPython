@@ -1,24 +1,25 @@
-use super::{PositionIterInternal, PyGenericAlias, PySliceRef, PyTypeRef};
+use super::{PositionIterInternal, PyGenericAlias, PySlice, PyTupleRef, PyTypeRef};
 use crate::common::lock::{
     PyMappedRwLockReadGuard, PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
 };
 use crate::{
-    function::{ArgIterable, FuncArgs, OptionalArg},
-    protocol::PyIterReturn,
+    function::{ArgIterable, FuncArgs, IntoPyObject, OptionalArg},
+    protocol::{PyIterReturn, PyMappingMethods},
     sequence::{self, SimpleSeq},
-    sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
-    slots::{
-        Comparable, Hashable, Iterable, IteratorIterable, PyComparisonOp, SlotIterator, Unhashable,
+    sliceable::{saturate_index, PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
+    stdlib::sys,
+    types::{
+        richcompare_wrapper, AsMapping, Comparable, Constructor, Hashable, IterNext,
+        IterNextIterable, Iterable, PyComparisonOp, RichCompareFunc, Unconstructible, Unhashable,
     },
     utils::Either,
     vm::{ReprGuard, VirtualMachine},
-    PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
+    IdProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef,
+    PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use std::fmt;
-use std::iter::FromIterator;
 use std::mem::size_of;
-use std::ops::DerefMut;
+use std::ops::{DerefMut, Range};
 
 /// Built-in mutable sequence.
 ///
@@ -57,7 +58,17 @@ impl PyValue for PyList {
     }
 }
 
+impl IntoPyObject for Vec<PyObjectRef> {
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+        PyList::new_ref(self, &vm.ctx).into()
+    }
+}
+
 impl PyList {
+    pub fn new_ref(elements: Vec<PyObjectRef>, ctx: &PyContext) -> PyRef<Self> {
+        PyRef::new_ref(Self::from(elements), ctx.types.list_type.clone(), None)
+    }
+
     pub fn borrow_vec(&self) -> PyMappedRwLockReadGuard<'_, [PyObjectRef]> {
         PyRwLockReadGuard::map(self.elements.read(), |v| &**v)
     }
@@ -77,7 +88,7 @@ pub(crate) struct SortOptions {
 
 pub type PyListRef = PyRef<PyList>;
 
-#[pyimpl(with(Iterable, Hashable, Comparable), flags(BASETYPE))]
+#[pyimpl(with(AsMapping, Iterable, Hashable, Comparable), flags(BASETYPE))]
 impl PyList {
     #[pymethod]
     pub(crate) fn append(&self, x: PyObjectRef) {
@@ -99,18 +110,17 @@ impl PyList {
     }
 
     #[pymethod(magic)]
-    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(other) = other.payload_if_subclass::<PyList>(vm) {
-            let mut elements = self.borrow_vec().to_vec();
-            elements.extend(other.borrow_vec().iter().cloned());
-            Ok(vm.ctx.new_list(elements))
-        } else {
-            Err(vm.new_type_error(format!(
+    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        let other = other.payload_if_subclass::<PyList>(vm).ok_or_else(|| {
+            vm.new_type_error(format!(
                 "Cannot add {} and {}",
                 Self::class(vm).name(),
                 other.class().name()
-            )))
-        }
+            ))
+        })?;
+        let mut elements = self.borrow_vec().to_vec();
+        elements.extend(other.borrow_vec().iter().cloned());
+        Ok(Self::new_ref(elements, &vm.ctx))
     }
 
     #[pymethod(magic)]
@@ -118,7 +128,7 @@ impl PyList {
         if let Ok(new_elements) = vm.extract_elements(&other) {
             let mut e = new_elements;
             zelf.borrow_vec_mut().append(&mut e);
-            zelf.into_object()
+            zelf.into()
         } else {
             vm.ctx.not_implemented()
         }
@@ -135,8 +145,8 @@ impl PyList {
     }
 
     #[pymethod]
-    fn copy(&self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_list(self.borrow_vec().to_vec())
+    fn copy(&self, vm: &VirtualMachine) -> PyRef<Self> {
+        Self::new_ref(self.borrow_vec().to_vec(), &vm.ctx)
     }
 
     #[pymethod(magic)]
@@ -166,7 +176,7 @@ impl PyList {
     fn getitem(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let result = match zelf.borrow_vec().get_item(vm, needle, Self::NAME)? {
             Either::A(obj) => obj,
-            Either::B(vec) => vm.ctx.new_list(vec),
+            Either::B(vec) => Self::new_ref(vec, &vm.ctx).into(),
         };
         Ok(result)
     }
@@ -199,11 +209,17 @@ impl PyList {
         }
     }
 
-    fn setslice(&self, slice: PySliceRef, sec: ArgIterable, vm: &VirtualMachine) -> PyResult<()> {
+    fn setslice(
+        &self,
+        slice: PyRef<PySlice>,
+        sec: ArgIterable,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         let items: Result<Vec<PyObjectRef>, _> = sec.iter(vm)?.collect();
         let items = items?;
+        let slice = slice.to_saturated(vm)?;
         let mut elements = self.borrow_vec_mut();
-        elements.set_slice_items(vm, &slice, items.as_slice())
+        elements.set_slice_items(vm, slice, items.as_slice())
     }
 
     #[pymethod(magic)]
@@ -212,7 +228,7 @@ impl PyList {
             let elements = zelf.borrow_vec().to_vec();
             let mut str_parts = Vec::with_capacity(elements.len());
             for elem in elements.iter() {
-                let s = vm.to_repr(elem)?;
+                let s = elem.repr(vm)?;
                 str_parts.push(s.as_str().to_owned());
             }
             format!("[{}]", str_parts.join(", "))
@@ -224,11 +240,11 @@ impl PyList {
 
     #[pymethod(magic)]
     #[pymethod(name = "__rmul__")]
-    fn mul(&self, value: isize, vm: &VirtualMachine) -> PyResult {
+    fn mul(&self, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         let new_elements = sequence::seq_mul(vm, &self.borrow_vec(), value)?
             .cloned()
             .collect();
-        Ok(vm.ctx.new_list(new_elements))
+        Ok(Self::new_ref(new_elements, &vm.ctx))
     }
 
     #[pymethod(magic)]
@@ -240,30 +256,173 @@ impl PyList {
         Ok(zelf.clone())
     }
 
+    fn _iter_equal<F: FnMut(), const SHORT: bool>(
+        &self,
+        needle: &PyObject,
+        range: Range<usize>,
+        mut f: F,
+        vm: &VirtualMachine,
+    ) -> PyResult<usize> {
+        let needle_cls = needle.class();
+        let needle_cmp = needle_cls
+            .mro_find_map(|cls| cls.slots.richcompare.load())
+            .unwrap();
+
+        let mut borrower = None;
+        let mut i = range.start;
+
+        let index = loop {
+            if i >= range.end {
+                break usize::MAX;
+            }
+            let guard = if let Some(x) = borrower.take() {
+                x
+            } else {
+                self.borrow_vec()
+            };
+
+            let elem = if let Some(x) = guard.get(i) {
+                x
+            } else {
+                break usize::MAX;
+            };
+
+            if elem.is(needle) {
+                f();
+                if SHORT {
+                    break i;
+                }
+                borrower = Some(guard);
+            } else {
+                let elem_cls = elem.class();
+                let reverse_first = !elem_cls.is(&needle_cls) && elem_cls.issubclass(&needle_cls);
+
+                let eq = if reverse_first {
+                    let elem_cmp = elem_cls
+                        .mro_find_map(|cls| cls.slots.richcompare.load())
+                        .unwrap();
+                    drop(elem_cls);
+
+                    fn cmp(
+                        elem: &PyObject,
+                        needle: &PyObject,
+                        elem_cmp: RichCompareFunc,
+                        needle_cmp: RichCompareFunc,
+                        vm: &VirtualMachine,
+                    ) -> PyResult<bool> {
+                        match elem_cmp(elem, needle, PyComparisonOp::Eq, vm)? {
+                            Either::B(PyComparisonValue::Implemented(value)) => Ok(value),
+                            Either::A(obj) if !obj.is(&vm.ctx.not_implemented) => {
+                                obj.try_to_bool(vm)
+                            }
+                            _ => match needle_cmp(needle, elem, PyComparisonOp::Eq, vm)? {
+                                Either::B(PyComparisonValue::Implemented(value)) => Ok(value),
+                                Either::A(obj) if !obj.is(&vm.ctx.not_implemented) => {
+                                    obj.try_to_bool(vm)
+                                }
+                                _ => Ok(false),
+                            },
+                        }
+                    }
+
+                    if elem_cmp as usize == richcompare_wrapper as usize {
+                        let elem = elem.clone();
+                        drop(guard);
+                        cmp(&elem, needle, elem_cmp, needle_cmp, vm)?
+                    } else {
+                        let eq = cmp(elem, needle, elem_cmp, needle_cmp, vm)?;
+                        borrower = Some(guard);
+                        eq
+                    }
+                } else {
+                    match needle_cmp(needle, elem, PyComparisonOp::Eq, vm)? {
+                        Either::B(PyComparisonValue::Implemented(value)) => {
+                            drop(elem_cls);
+                            borrower = Some(guard);
+                            value
+                        }
+                        Either::A(obj) if !obj.is(&vm.ctx.not_implemented) => {
+                            drop(elem_cls);
+                            borrower = Some(guard);
+                            obj.try_to_bool(vm)?
+                        }
+                        _ => {
+                            let elem_cmp = elem_cls
+                                .mro_find_map(|cls| cls.slots.richcompare.load())
+                                .unwrap();
+                            drop(elem_cls);
+
+                            fn cmp(
+                                elem: &PyObject,
+                                needle: &PyObject,
+                                elem_cmp: RichCompareFunc,
+                                vm: &VirtualMachine,
+                            ) -> PyResult<bool> {
+                                match elem_cmp(elem, needle, PyComparisonOp::Eq, vm)? {
+                                    Either::B(PyComparisonValue::Implemented(value)) => Ok(value),
+                                    Either::A(obj) if !obj.is(&vm.ctx.not_implemented) => {
+                                        obj.try_to_bool(vm)
+                                    }
+                                    _ => Ok(false),
+                                }
+                            }
+
+                            if elem_cmp as usize == richcompare_wrapper as usize {
+                                let elem = elem.clone();
+                                drop(guard);
+                                cmp(&elem, needle, elem_cmp, vm)?
+                            } else {
+                                let eq = cmp(elem, needle, elem_cmp, vm)?;
+                                borrower = Some(guard);
+                                eq
+                            }
+                        }
+                    }
+                };
+
+                if eq {
+                    f();
+                    if SHORT {
+                        break i;
+                    }
+                }
+            }
+            i += 1;
+        };
+
+        // TODO: Optioned<usize>
+        Ok(index)
+    }
+
+    fn foreach_equal<F: FnMut()>(
+        &self,
+        needle: &PyObject,
+        f: F,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        self._iter_equal::<_, false>(needle, 0..usize::MAX, f, vm)
+            .map(|_| ())
+    }
+
+    fn find_equal(
+        &self,
+        needle: &PyObject,
+        range: Range<usize>,
+        vm: &VirtualMachine,
+    ) -> PyResult<usize> {
+        self._iter_equal::<_, true>(needle, range, || {}, vm)
+    }
+
     #[pymethod]
     fn count(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-        // TODO: to_vec() cause copy which leads to cost O(N). It need to be improved.
-        let elements = self.borrow_vec().to_vec();
-        let mut count: usize = 0;
-        for elem in elements.iter() {
-            if vm.identical_or_equal(elem, &needle)? {
-                count += 1;
-            }
-        }
+        let mut count = 0;
+        self.foreach_equal(&needle, || count += 1, vm)?;
         Ok(count)
     }
 
     #[pymethod(magic)]
-    fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        // TODO: to_vec() cause copy which leads to cost O(N). It need to be improved.
-        let elements = self.borrow_vec().to_vec();
-        for elem in elements.iter() {
-            if vm.identical_or_equal(elem, &needle)? {
-                return Ok(true);
-            }
-        }
-
-        Ok(false)
+    pub(crate) fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        Ok(self.find_equal(&needle, 0..usize::MAX, vm)? != usize::MAX)
     }
 
     #[pymethod]
@@ -274,33 +433,17 @@ impl PyList {
         stop: OptionalArg<isize>,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
-        let mut start = start.into_option().unwrap_or(0);
-        if start < 0 {
-            start += self.borrow_vec().len() as isize;
-            if start < 0 {
-                start = 0;
-            }
+        let len = self.len();
+        let start = start.map(|i| saturate_index(i, len)).unwrap_or(0);
+        let stop = stop
+            .map(|i| saturate_index(i, len))
+            .unwrap_or(sys::MAXSIZE as usize);
+        let index = self.find_equal(&needle, start..stop, vm)?;
+        if index == usize::MAX {
+            Err(vm.new_value_error(format!("'{}' is not in list", needle.str(vm)?)))
+        } else {
+            Ok(index)
         }
-        let mut stop = stop.into_option().unwrap_or(isize::MAX);
-        if stop < 0 {
-            stop += self.borrow_vec().len() as isize;
-            if stop < 0 {
-                stop = 0;
-            }
-        }
-        // TODO: to_vec() cause copy which leads to cost O(N). It need to be improved.
-        let elements = self.borrow_vec().to_vec();
-        for (index, element) in elements
-            .iter()
-            .enumerate()
-            .take(stop as usize)
-            .skip(start as usize)
-        {
-            if vm.identical_or_equal(element, &needle)? {
-                return Ok(index);
-            }
-        }
-        Err(vm.new_value_error(format!("'{}' is not in list", vm.to_str(&needle)?)))
     }
 
     #[pymethod]
@@ -321,28 +464,20 @@ impl PyList {
 
     #[pymethod]
     fn remove(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        // TODO: to_vec() cause copy which leads to cost O(N). It need to be improved.
-        let elements = self.borrow_vec().to_vec();
-        let mut ri: Option<usize> = None;
-        for (index, element) in elements.iter().enumerate() {
-            if vm.identical_or_equal(element, &needle)? {
-                ri = Some(index);
-                break;
-            }
-        }
+        let index = self.find_equal(&needle, 0..usize::MAX, vm)?;
 
-        if let Some(index) = ri {
+        if index != usize::MAX {
             // defer delete out of borrow
             Ok(self.borrow_vec_mut().remove(index))
         } else {
-            Err(vm.new_value_error(format!("'{}' is not in list", vm.to_str(&needle)?)))
+            Err(vm.new_value_error(format!("'{}' is not in list", needle.str(vm)?)))
         }
         .map(drop)
     }
 
     #[pymethod(magic)]
-    fn delitem(&self, subscript: SequenceIndex, vm: &VirtualMachine) -> PyResult<()> {
-        match subscript {
+    fn delitem(&self, subscript: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        match SequenceIndex::try_from_object_for(vm, subscript, Self::NAME)? {
             SequenceIndex::Int(index) => self.delindex(index, vm),
             SequenceIndex::Slice(slice) => self.delslice(slice, vm),
         }
@@ -361,8 +496,9 @@ impl PyList {
         removed.map(drop)
     }
 
-    fn delslice(&self, slice: PySliceRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.borrow_vec_mut().delete_slice(vm, &slice)
+    fn delslice(&self, slice: PyRef<PySlice>, vm: &VirtualMachine) -> PyResult<()> {
+        let slice = slice.to_saturated(vm)?;
+        self.borrow_vec_mut().delete_slice(vm, slice)
     }
 
     #[pymethod]
@@ -404,6 +540,39 @@ impl PyList {
     }
 }
 
+impl AsMapping for PyList {
+    fn as_mapping(_zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
+        PyMappingMethods {
+            length: Some(Self::length),
+            subscript: Some(Self::subscript),
+            ass_subscript: Some(Self::ass_subscript),
+        }
+    }
+
+    #[inline]
+    fn length(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+        Self::downcast_ref(&zelf, vm).map(|zelf| Ok(zelf.len()))?
+    }
+
+    #[inline]
+    fn subscript(zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Self::downcast(zelf, vm).map(|zelf| Self::getitem(zelf, needle, vm))?
+    }
+
+    #[inline]
+    fn ass_subscript(
+        zelf: PyObjectRef,
+        needle: PyObjectRef,
+        value: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        Self::downcast_ref(&zelf, vm).map(|zelf| match value {
+            Some(value) => zelf.setitem(needle, value, vm),
+            None => zelf.delitem(needle, vm),
+        })?
+    }
+}
+
 impl Iterable for PyList {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         Ok(PyListIterator {
@@ -415,8 +584,8 @@ impl Iterable for PyList {
 
 impl Comparable for PyList {
     fn cmp(
-        zelf: &PyRef<Self>,
-        other: &PyObjectRef,
+        zelf: &crate::PyObjectView<Self>,
+        other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
@@ -443,12 +612,12 @@ fn do_sort(
     } else {
         PyComparisonOp::Gt
     };
-    let cmp = |a: &PyObjectRef, b: &PyObjectRef| vm.bool_cmp(a, b, op);
+    let cmp = |a: &PyObjectRef, b: &PyObjectRef| a.rich_compare_bool(b, op, vm);
 
     if let Some(ref key_func) = key_func {
         let mut items = values
             .iter()
-            .map(|x| Ok((x.clone(), vm.invoke(key_func, vec![x.clone()])?)))
+            .map(|x| Ok((x.clone(), vm.invoke(key_func, (x.clone(),))?)))
             .collect::<Result<Vec<_>, _>>()?;
         timsort::try_sort_by_gt(&mut items, |a, b| cmp(&a.1, &b.1))?;
         *values = items.into_iter().map(|(val, _)| val).collect();
@@ -471,7 +640,7 @@ impl PyValue for PyListIterator {
     }
 }
 
-#[pyimpl(with(SlotIterator))]
+#[pyimpl(with(Constructor, IterNext))]
 impl PyListIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
@@ -486,22 +655,20 @@ impl PyListIterator {
     }
 
     #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> PyObjectRef {
+    fn reduce(&self, vm: &VirtualMachine) -> PyTupleRef {
         self.internal
             .lock()
-            .builtins_iter_reduce(|x| x.clone().into_object(), vm)
+            .builtins_iter_reduce(|x| x.clone().into(), vm)
     }
 }
+impl Unconstructible for PyListIterator {}
 
-impl IteratorIterable for PyListIterator {}
-impl SlotIterator for PyListIterator {
-    fn next(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+impl IterNextIterable for PyListIterator {}
+impl IterNext for PyListIterator {
+    fn next(zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal.lock().next(|list, pos| {
             let vec = list.borrow_vec();
-            Ok(match vec.get(pos) {
-                Some(x) => PyIterReturn::Return(x.clone()),
-                None => PyIterReturn::StopIteration(None),
-            })
+            Ok(PyIterReturn::from_result(vec.get(pos).cloned().ok_or(None)))
         })
     }
 }
@@ -518,7 +685,7 @@ impl PyValue for PyListReverseIterator {
     }
 }
 
-#[pyimpl(with(SlotIterator))]
+#[pyimpl(with(Constructor, IterNext))]
 impl PyListReverseIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
@@ -533,22 +700,20 @@ impl PyListReverseIterator {
     }
 
     #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> PyObjectRef {
+    fn reduce(&self, vm: &VirtualMachine) -> PyTupleRef {
         self.internal
             .lock()
-            .builtins_reversed_reduce(|x| x.clone().into_object(), vm)
+            .builtins_reversed_reduce(|x| x.clone().into(), vm)
     }
 }
+impl Unconstructible for PyListReverseIterator {}
 
-impl IteratorIterable for PyListReverseIterator {}
-impl SlotIterator for PyListReverseIterator {
-    fn next(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+impl IterNextIterable for PyListReverseIterator {}
+impl IterNext for PyListReverseIterator {
+    fn next(zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal.lock().rev_next(|list, pos| {
             let vec = list.borrow_vec();
-            Ok(match vec.get(pos) {
-                Some(x) => PyIterReturn::Return(x.clone()),
-                None => PyIterReturn::StopIteration(None),
-            })
+            Ok(PyIterReturn::from_result(vec.get(pos).cloned().ok_or(None)))
         })
     }
 }

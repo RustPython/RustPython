@@ -1,8 +1,8 @@
 use super::PyTypeRef;
 use crate::{
     protocol::{PyIter, PyIterReturn},
-    slots::{IteratorIterable, SlotConstructor, SlotIterator},
-    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    types::{Constructor, IterNext, IterNextIterable},
+    PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue, VirtualMachine,
 };
 
 /// filter(function or None, iterable) --> filter object
@@ -22,7 +22,7 @@ impl PyValue for PyFilter {
     }
 }
 
-impl SlotConstructor for PyFilter {
+impl Constructor for PyFilter {
     type Args = (PyObjectRef, PyIter);
 
     fn py_new(cls: PyTypeRef, (function, iterator): Self::Args, vm: &VirtualMachine) -> PyResult {
@@ -34,12 +34,12 @@ impl SlotConstructor for PyFilter {
     }
 }
 
-#[pyimpl(with(SlotIterator, SlotConstructor), flags(BASETYPE))]
+#[pyimpl(with(IterNext, Constructor), flags(BASETYPE))]
 impl PyFilter {}
 
-impl IteratorIterable for PyFilter {}
-impl SlotIterator for PyFilter {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+impl IterNextIterable for PyFilter {}
+impl IterNext for PyFilter {
+    fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let predicate = &zelf.predicate;
         loop {
             let next_obj = match zelf.iterator.next(vm)? {
@@ -51,7 +51,7 @@ impl SlotIterator for PyFilter {
             } else {
                 // the predicate itself can raise StopIteration which does stop the filter
                 // iteration
-                match PyIterReturn::from_result(vm.invoke(predicate, vec![next_obj.clone()]), vm)? {
+                match PyIterReturn::from_pyresult(vm.invoke(predicate, (next_obj.clone(),)), vm)? {
                     PyIterReturn::Return(obj) => obj,
                     PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
                 }

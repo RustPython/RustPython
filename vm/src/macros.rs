@@ -1,17 +1,8 @@
 #[macro_export]
-macro_rules! py_module {
-    ( $vm:expr, $module_name:expr, { $($name:expr => $value:expr),* $(,)? }) => {{
-        let module = $vm.new_module($module_name, $vm.ctx.new_dict(), None);
-        $crate::extend_module!($vm, module, { $($name => $value),* });
-        module
-    }};
-}
-
-#[macro_export]
 macro_rules! extend_module {
     ( $vm:expr, $module:expr, { $($name:expr => $value:expr),* $(,)? }) => {{
         #[allow(unused_variables)]
-        let module: &$crate::PyObjectRef = &$module;
+        let module: &$crate::PyObject = &$module;
         $(
             $vm.__module_set_attr(&module, $name, $value).unwrap();
         )*
@@ -21,12 +12,12 @@ macro_rules! extend_module {
 #[macro_export]
 macro_rules! py_class {
     ( $ctx:expr, $class_name:expr, $class_base:expr, { $($name:tt => $value:expr),* $(,)* }) => {
-        py_class!($ctx, $class_name, $class_base, $crate::slots::PyTypeFlags::BASETYPE, { $($name => $value),* })
+        py_class!($ctx, $class_name, $class_base, $crate::types::PyTypeFlags::BASETYPE, { $($name => $value),* })
     };
     ( $ctx:expr, $class_name:expr, $class_base:expr, $flags:expr, { $($name:tt => $value:expr),* $(,)* }) => {
         {
             #[allow(unused_mut)]
-            let mut slots = $crate::slots::PyTypeSlots::from_flags($crate::slots::PyTypeFlags::DEFAULT | $flags);
+            let mut slots = $crate::types::PyTypeSlots::from_flags($crate::types::PyTypeFlags::DEFAULT | $flags);
             $($crate::py_class!(@extract_slots($ctx, &mut slots, $name, $value));)*
             let py_class = $ctx.new_class($class_name, $class_base, slots);
             $($crate::py_class!(@extract_attrs($ctx, &py_class, $name, $value));)*
@@ -56,9 +47,9 @@ macro_rules! extend_class {
 macro_rules! py_namespace {
     ( $vm:expr, { $($name:expr => $value:expr),* $(,)* }) => {
         {
-            let namespace = $vm.ctx.new_namespace();
+            let namespace = $crate::builtins::PyNamespace::new_ref(&$vm.ctx);
             $(
-                $vm.__module_set_attr(&namespace, $name, $value).unwrap();
+                $vm.__module_set_attr(namespace.as_object(), $name, $value).unwrap();
             )*
             namespace
         }
@@ -77,15 +68,14 @@ macro_rules! py_namespace {
 /// use num_traits::Zero;
 ///
 /// use rustpython_vm::match_class;
-/// use rustpython_vm::builtins::PyFloat;
-/// use rustpython_vm::builtins::PyInt;
-/// use rustpython_vm::PyValue;
+/// use rustpython_vm::builtins::{PyFloat, PyInt};
+/// use rustpython_vm::{PyValue};
 ///
 /// # rustpython_vm::Interpreter::default().enter(|vm| {
-/// let obj = PyInt::from(0).into_ref(&vm).into_object();
+/// let obj = PyInt::from(0).into_object(vm);
 /// assert_eq!(
 ///     "int",
-///     match_class!(match obj.clone() {
+///     match_class!(match obj {
 ///         PyInt => "int",
 ///         PyFloat => "float",
 ///         _ => "neither",
@@ -102,12 +92,11 @@ macro_rules! py_namespace {
 /// use num_traits::Zero;
 ///
 /// use rustpython_vm::match_class;
-/// use rustpython_vm::builtins::PyFloat;
-/// use rustpython_vm::builtins::PyInt;
-/// use rustpython_vm::PyValue;
+/// use rustpython_vm::builtins::{PyFloat, PyInt};
+/// use rustpython_vm::{ PyValue};
 ///
 /// # rustpython_vm::Interpreter::default().enter(|vm| {
-/// let obj = PyInt::from(0).into_ref(vm).into_object();
+/// let obj = PyInt::from(0).into_object(vm);
 ///
 /// let int_value = match_class!(match obj {
 ///     i @ PyInt => i.as_bigint().clone(),
@@ -207,12 +196,13 @@ macro_rules! flame_guard {
 
 #[macro_export]
 macro_rules! class_or_notimplemented {
-    ($t:ty, $obj:expr) => {
-        match $crate::PyObjectRef::downcast_ref::<$t>($obj) {
+    ($t:ty, $obj:expr) => {{
+        let a: &$crate::PyObject = &*$obj;
+        match $crate::PyObject::downcast_ref::<$t>(&a) {
             Some(pyref) => pyref,
             None => return Ok($crate::PyArithmeticValue::NotImplemented),
         }
-    };
+    }};
 }
 
 #[macro_export]
@@ -226,8 +216,8 @@ macro_rules! named_function {
                 [<$module _ $func>],
             )
             .into_function()
-            .with_module(ctx.new_utf8_str(stringify!($module).to_owned()))
-            .build(ctx)
+            .with_module(ctx.new_str(stringify!($module).to_owned()).into())
+            .into_ref(ctx)
         }
     }};
 }

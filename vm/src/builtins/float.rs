@@ -2,11 +2,11 @@ use super::{try_bigint_to_f64, PyBytes, PyInt, PyIntRef, PyStr, PyStrRef, PyType
 use crate::common::{float_ops, hash};
 use crate::{
     format::FormatSpec,
-    function::{OptionalArg, OptionalOption},
-    slots::{Comparable, Hashable, PyComparisonOp, SlotConstructor},
-    IdProtocol, IntoPyObject,
+    function::{IntoPyObject, OptionalArg, OptionalOption},
+    types::{Comparable, Constructor, Hashable, PyComparisonOp},
+    IdProtocol,
     PyArithmeticValue::{self, *},
-    PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol, VirtualMachine,
 };
 use num_bigint::{BigInt, ToBigInt};
@@ -35,12 +35,12 @@ impl PyValue for PyFloat {
 
 impl IntoPyObject for f64 {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_float(self)
+        vm.ctx.new_float(self).into()
     }
 }
 impl IntoPyObject for f32 {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_float(f64::from(self))
+        vm.ctx.new_float(f64::from(self)).into()
     }
 }
 
@@ -50,12 +50,12 @@ impl From<f64> for PyFloat {
     }
 }
 
-impl PyObjectRef {
+impl PyObject {
     pub fn try_to_f64(&self, vm: &VirtualMachine) -> PyResult<Option<f64>> {
         if let Some(float) = self.payload_if_exact::<PyFloat>(vm) {
             return Ok(Some(float.value));
         }
-        if let Some(method) = vm.get_method(self.clone(), "__float__") {
+        if let Some(method) = vm.get_method(self.to_owned(), "__float__") {
             let result = vm.invoke(&method?, ())?;
             // TODO: returning strict subclasses of float in __float__ is deprecated
             return match result.payload::<PyFloat>() {
@@ -66,20 +66,20 @@ impl PyObjectRef {
                 ))),
             };
         }
-        if let Some(r) = vm.to_index_opt(self.clone()).transpose()? {
+        if let Some(r) = vm.to_index_opt(self.to_owned()).transpose()? {
             return Ok(Some(try_bigint_to_f64(r.as_bigint(), vm)?));
         }
         Ok(None)
     }
 }
 
-pub fn try_float(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
+pub fn try_float(obj: &PyObject, vm: &VirtualMachine) -> PyResult<f64> {
     obj.try_to_f64(vm)?.ok_or_else(|| {
         vm.new_type_error(format!("must be real number, not {}", obj.class().name()))
     })
 }
 
-pub(crate) fn to_op_float(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<f64>> {
+pub(crate) fn to_op_float(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Option<f64>> {
     let v = if let Some(float) = obj.payload_if_subclass::<PyFloat>(vm) {
         Some(float.value)
     } else if let Some(int) = obj.payload_if_subclass::<PyInt>(vm) {
@@ -94,7 +94,7 @@ macro_rules! impl_try_from_object_float {
     ($($t:ty),*) => {
         $(impl TryFromObject for $t {
             fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-                PyFloatRef::try_from_object(vm, obj).map(|f| f.to_f64() as $t)
+                PyRef::<PyFloat>::try_from_object(vm, obj).map(|f| f.to_f64() as $t)
             }
         })*
     };
@@ -156,7 +156,7 @@ pub fn float_pow(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult {
     }
 }
 
-impl SlotConstructor for PyFloat {
+impl Constructor for PyFloat {
     type Args = OptionalArg<PyObjectRef>;
 
     fn py_new(cls: PyTypeRef, arg: Self::Args, vm: &VirtualMachine) -> PyResult {
@@ -165,7 +165,7 @@ impl SlotConstructor for PyFloat {
             OptionalArg::Present(val) => {
                 let val = if cls.is(&vm.ctx.types.float_type) {
                     match val.downcast_exact::<PyFloat>(vm) {
-                        Ok(f) => return Ok(f.into_object()),
+                        Ok(f) => return Ok(f.into()),
                         Err(val) => val,
                     }
                 } else {
@@ -197,7 +197,7 @@ impl SlotConstructor for PyFloat {
     }
 }
 
-#[pyimpl(flags(BASETYPE), with(Comparable, Hashable, SlotConstructor))]
+#[pyimpl(flags(BASETYPE), with(Comparable, Hashable, Constructor))]
 impl PyFloat {
     #[pymethod(magic)]
     fn format(&self, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
@@ -406,7 +406,7 @@ impl PyFloat {
             let float = float_ops::round_float_digits(self.value, ndigits).ok_or_else(|| {
                 vm.new_overflow_error("overflow occurred during round".to_owned())
             })?;
-            vm.ctx.new_float(float)
+            vm.ctx.new_float(float).into()
         } else {
             let fract = self.value.fract();
             let value = if (fract.abs() - 0.5).abs() < f64::EPSILON {
@@ -419,7 +419,7 @@ impl PyFloat {
                 self.value.round()
             };
             let int = try_to_bigint(value, vm)?;
-            vm.ctx.new_int(int)
+            vm.ctx.new_int(int).into()
         };
         Ok(value)
     }
@@ -455,7 +455,7 @@ impl PyFloat {
     }
 
     #[pymethod]
-    fn as_integer_ratio(&self, vm: &VirtualMachine) -> PyResult {
+    fn as_integer_ratio(&self, vm: &VirtualMachine) -> PyResult<(PyIntRef, PyIntRef)> {
         let value = self.value;
         if !value.is_finite() {
             return Err(if value.is_infinite() {
@@ -470,7 +470,7 @@ impl PyFloat {
         let ratio = Ratio::from_float(value).unwrap();
         let numer = vm.ctx.new_bigint(ratio.numer());
         let denom = vm.ctx.new_bigint(ratio.denom());
-        Ok(vm.ctx.new_tuple(vec![numer, denom]))
+        Ok((numer, denom))
     }
 
     #[pymethod]
@@ -493,8 +493,8 @@ impl PyFloat {
 
 impl Comparable for PyFloat {
     fn cmp(
-        zelf: &PyRef<Self>,
-        other: &PyObjectRef,
+        zelf: &crate::PyObjectView<Self>,
+        other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
@@ -533,43 +533,15 @@ impl Comparable for PyFloat {
 }
 
 impl Hashable for PyFloat {
-    fn hash(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<hash::PyHash> {
+    #[inline]
+    fn hash(zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyResult<hash::PyHash> {
         Ok(hash::hash_float(zelf.to_f64()))
     }
 }
 
-pub type PyFloatRef = PyRef<PyFloat>;
-
 // Retrieve inner float value:
-pub(crate) fn get_value(obj: &PyObjectRef) -> f64 {
+pub(crate) fn get_value(obj: &PyObject) -> f64 {
     obj.payload::<PyFloat>().unwrap().value
-}
-
-#[derive(Debug, Copy, Clone, PartialEq)]
-#[repr(transparent)]
-pub struct IntoPyFloat {
-    value: f64,
-}
-
-impl IntoPyFloat {
-    pub fn to_f64(self) -> f64 {
-        self.value
-    }
-
-    pub fn vec_into_f64(v: Vec<Self>) -> Vec<f64> {
-        // TODO: Vec::into_raw_parts once stabilized
-        let mut v = std::mem::ManuallyDrop::new(v);
-        let (p, l, c) = (v.as_mut_ptr(), v.len(), v.capacity());
-        // SAFETY: IntoPyFloat is repr(transparent) over f64
-        unsafe { Vec::from_raw_parts(p.cast(), l, c) }
-    }
-}
-
-impl TryFromObject for IntoPyFloat {
-    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        let value = try_float(&obj, vm)?;
-        Ok(IntoPyFloat { value })
-    }
 }
 
 #[rustfmt::skip] // to avoid line splitting

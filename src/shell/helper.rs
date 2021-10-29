@@ -79,7 +79,7 @@ impl<'vm> ShellHelper<'vm> {
                 .ok()??;
 
             for attr in parents {
-                current = self.vm.get_attribute(current.clone(), attr.as_str()).ok()?;
+                current = current.clone().get_attr(attr.as_str(), self.vm).ok()?;
             }
 
             let current_iter = str_iter_method(current, "__dir__").ok()?;
@@ -88,7 +88,7 @@ impl<'vm> ShellHelper<'vm> {
         } else {
             // we need to get a variable based off of globals/builtins
 
-            let globals = str_iter_method(self.globals.as_object().clone(), "keys").ok()?;
+            let globals = str_iter_method(self.globals.as_object().to_owned(), "keys").ok()?;
             let builtins = str_iter_method(self.vm.builtins.clone(), "__dir__").ok()?;
             (first, globals, Some(builtins))
         };

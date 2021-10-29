@@ -7,7 +7,7 @@ mod syslog {
         builtins::{PyStr, PyStrRef},
         function::{OptionalArg, OptionalOption},
         utils::ToCString,
-        PyObjectRef, PyResult, PyValue, TryFromObject, VirtualMachine,
+        PyObjectRef, PyResult, PyValue, VirtualMachine,
     };
     use std::{ffi::CStr, os::raw::c_char};
 
@@ -104,8 +104,8 @@ mod syslog {
     #[pyfunction]
     fn syslog(args: SysLogArgs, vm: &VirtualMachine) -> PyResult<()> {
         let (priority, msg) = match args.message_object.flatten() {
-            Some(s) => (i32::try_from_object(vm, args.priority)?, s),
-            None => (LOG_INFO, PyStrRef::try_from_object(vm, args.priority)?),
+            Some(s) => (args.priority.try_into_value(vm)?, s),
+            None => (LOG_INFO, args.priority.try_into_value(vm)?),
         };
 
         if global_ident().read().is_none() {

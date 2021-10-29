@@ -4,7 +4,7 @@ use criterion::{
 };
 use rustpython_compiler::Mode;
 use rustpython_vm::{
-    common::ascii, InitParameter, Interpreter, ItemProtocol, PyResult, PySettings,
+    common::ascii, InitParameter, Interpreter, ItemProtocol, PyObjectWrap, PyResult, PySettings,
 };
 use std::path::{Path, PathBuf};
 use std::{ffi, fs, io};
@@ -114,7 +114,13 @@ fn bench_rustpy_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchmar
     settings.dont_write_bytecode = true;
     settings.no_user_site = true;
 
-    Interpreter::new(settings, InitParameter::External).enter(|vm| {
+    Interpreter::new_with_init(settings, |vm| {
+        for (name, init) in rustpython_stdlib::get_module_inits().into_iter() {
+            vm.add_native_module(name, init);
+        }
+        InitParameter::External
+    })
+    .enter(|vm| {
         let setup_code = vm
             .compile(&bench.setup, Mode::Exec, bench.name.to_owned())
             .expect("Error compiling setup code");
@@ -132,11 +138,8 @@ fn bench_rustpy_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchmar
             if let Some(idx) = iterations {
                 scope
                     .locals
-                    .set_item(
-                        vm.ctx.new_ascii_literal(ascii!("ITERATIONS")),
-                        vm.ctx.new_int(idx),
-                        vm,
-                    )
+                    .as_object()
+                    .set_item(vm.new_pyobj(ascii!("ITERATIONS")), vm.new_pyobj(idx), vm)
                     .expect("Error adding ITERATIONS local variable");
             }
             let setup_result = vm.run_code_obj(setup_code.clone(), scope.clone());

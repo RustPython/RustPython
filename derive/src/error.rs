@@ -33,7 +33,7 @@ use syn::parse::Error;
 
 macro_rules! err_span {
     ($span:expr, $($msg:tt)*) => (
-        $crate::Diagnostic::spanned_error(&$span, format!($($msg)*))
+        syn::Error::new_spanned(&$span, format!($($msg)*))
     )
 }
 
@@ -84,29 +84,11 @@ impl Diagnostic {
         }
     }
 
-    pub fn span_error<T: Into<String>>(span: Span, text: T) -> Diagnostic {
-        Diagnostic {
-            inner: Repr::Single {
-                text: text.into(),
-                span: Some((span, span)),
-            },
-        }
-    }
-
-    pub fn spans_error<T: Into<String>>(spans: (Span, Span), text: T) -> Diagnostic {
+    pub(crate) fn spans_error<T: Into<String>>(spans: (Span, Span), text: T) -> Diagnostic {
         Diagnostic {
             inner: Repr::Single {
                 text: text.into(),
                 span: Some(spans),
-            },
-        }
-    }
-
-    pub fn spanned_error<T: Into<String>>(node: &dyn ToTokens, text: T) -> Diagnostic {
-        Diagnostic {
-            inner: Repr::Single {
-                text: text.into(),
-                span: extract_spans(node),
             },
         }
     }

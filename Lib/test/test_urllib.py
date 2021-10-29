@@ -523,8 +523,6 @@ Connection: close
         self.assertTrue(e.exception.filename)
         self.assertTrue(e.exception.reason)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_file_notexists(self):
         fd, tmp_file = tempfile.mkstemp()
         tmp_fileurl = 'file://localhost/' + tmp_file.replace(os.path.sep, '/')
@@ -1520,8 +1518,6 @@ class Pathname_Tests(unittest.TestCase):
 class Utility_Tests(unittest.TestCase):
     """Testcase to test the various utility functions in the urllib."""
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_thishost(self):
         """Test the urllib.request.thishost utility function returns a tuple"""
         self.assertIsInstance(urllib.request.thishost(), tuple)

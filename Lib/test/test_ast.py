@@ -329,8 +329,6 @@ class AST_Tests(unittest.TestCase):
         mod.body[0].module = " __future__ ".strip()
         compile(mod, "<test>", "exec")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_base_classes(self):
         self.assertTrue(issubclass(ast.For, ast.stmt))
         self.assertTrue(issubclass(ast.Name, ast.expr))
@@ -1581,8 +1579,6 @@ class ConstantTests(unittest.TestCase):
 
         self.assertEqual(ast.literal_eval(binop), 10+20j)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_string_kind(self):
         c = ast.parse('"x"', mode='eval').body
         self.assertEqual(c.value, "x")
@@ -2011,7 +2007,7 @@ class NodeVisitorTests(unittest.TestCase):
         visitor = Visitor()
         log = []
         with warnings.catch_warnings(record=True) as wlog:
-            warnings.filterwarnings('always', '', PendingDeprecationWarning)
+            warnings.filterwarnings('always', '', DeprecationWarning)
             visitor.visit(mod)
         self.assertEqual(log, [
             (1, 'Num', 42),

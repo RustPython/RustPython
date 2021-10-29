@@ -449,16 +449,6 @@ class ArrayBinASCIITest(BinASCIITest):
     def type2test(self, s):
         return array.array('B', list(s))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_crc32(self):
-        super().test_crc32()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_base64valid(self):
-        super().test_base64valid()
-
 
 class BytearrayBinASCIITest(BinASCIITest):
     type2test = bytearray
@@ -467,15 +457,6 @@ class BytearrayBinASCIITest(BinASCIITest):
 class MemoryviewBinASCIITest(BinASCIITest):
     type2test = memoryview
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_crc32(self):
-        super().test_crc32()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_base64valid(self):
-        super().test_base64valid()
 
 if __name__ == "__main__":
     unittest.main()

@@ -3,8 +3,9 @@ pub(crate) use resource::make_module;
 #[pymodule]
 mod resource {
     use crate::vm::{
-        exceptions::IntoPyException, stdlib::os, IntoPyObject, PyObjectRef, PyResult,
-        PyStructSequence, TryFromBorrowedObject, VirtualMachine,
+        function::{IntoPyException, IntoPyObject},
+        stdlib::os,
+        PyObject, PyObjectRef, PyResult, PyStructSequence, TryFromBorrowedObject, VirtualMachine,
     };
     use std::{io, mem};
 
@@ -41,6 +42,13 @@ mod resource {
     #[cfg(any(target_os = "freebsd", target_os = "solaris", target_os = "illumos"))]
     #[pyattr]
     use libc::{RLIMIT_NPTS, RLIMIT_SBSIZE, RLIMIT_SWAP, RLIMIT_VMEM};
+
+    #[cfg(any(target_os = "linux", target_os = "emscripten", target_os = "freebds"))]
+    #[pyattr]
+    use libc::RUSAGE_THREAD;
+    #[cfg(not(any(target_os = "windows", target_os = "redox")))]
+    #[pyattr]
+    use libc::{RUSAGE_CHILDREN, RUSAGE_SELF};
 
     #[pyattr]
     #[pyclass(name = "struct_rusage")]
@@ -112,7 +120,7 @@ mod resource {
 
     struct Limits(libc::rlimit);
     impl TryFromBorrowedObject for Limits {
-        fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Self> {
+        fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
             let seq = vm.extract_elements::<libc::rlim_t>(obj)?;
             match *seq {
                 [cur, max] => Ok(Self(libc::rlimit {

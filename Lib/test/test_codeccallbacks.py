@@ -190,7 +190,8 @@ class CodecCallbackTest(unittest.TestCase):
         self.assertRaises(UnicodeDecodeError, sin.decode,
                           "utf-8", "test.relaxedutf8")
 
-    @unittest.skip("TODO: RUSTPYTHON, TypeError: character mapping must return integer, None or str")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_charmapencode(self):
         # For charmap encodings the replacement string will be
         # mapped through the encoding again. This means, that
@@ -269,7 +270,8 @@ class CodecCallbackTest(unittest.TestCase):
             b"g[<252><223>]"
         )
 
-    @unittest.skip("TODO: RUSTPYTHON, AttributeError: module 'codecs' has no attribute 'utf_32_encode'")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_longstrings(self):
         # test long strings to check for memory overflow problems
         errors = [ "strict", "ignore", "replace", "xmlcharrefreplace",
@@ -452,7 +454,8 @@ class CodecCallbackTest(unittest.TestCase):
             ("", 2)
         )
 
-    @unittest.skip("TODO: RUSTPYTHON, AttributeError: attribute 'object' of 'BadObjectUnicodeEncodeError' objects is not writable")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_badandgoodreplaceexceptions(self):
         # "replace" complains about a non-exception passed in
         self.assertRaises(
@@ -532,7 +535,8 @@ class CodecCallbackTest(unittest.TestCase):
             ("".join("&#%d;" % c for c in cs), 1 + len(s))
         )
 
-    @unittest.skip("TODO: RUSTPYTHON, TypeError: Expected type 'bytes', not 'bytearray'")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_badandgoodbackslashreplaceexceptions(self):
         # "backslashreplace" complains about a non-exception passed in
         self.assertRaises(
@@ -639,7 +643,8 @@ class CodecCallbackTest(unittest.TestCase):
                     (r, 1 + len(s))
                 )
 
-    @unittest.skip("TODO: RUSTPYTHON, UnicodeEncodeError: ('ascii', 'a�b', 1, 2, 'ouch')")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_badandgoodsurrogateescapeexceptions(self):
         surrogateescape_errors = codecs.lookup_error('surrogateescape')
         # "surrogateescape" complains about a non-exception passed in
@@ -684,7 +689,8 @@ class CodecCallbackTest(unittest.TestCase):
             ("\udc80", 2)
         )
 
-    @unittest.skip("TODO: RUSTPYTHON, TypeError: Expected type 'str', not 'bytes'")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_badandgoodsurrogatepassexceptions(self):
         surrogatepass_errors = codecs.lookup_error('surrogatepass')
         # "surrogatepass" complains about a non-exception passed in
@@ -987,7 +993,8 @@ class CodecCallbackTest(unittest.TestCase):
             text = 'abc<def>ghi'*n
             text.translate(charmap)
 
-    @unittest.skip("TODO: RUSTPYTHON, AttributeError: attribute 'object' of 'UnicodeDecodeError' objects is not writable")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_mutatingdecodehandler(self):
         baddata = [
             ("ascii", b"\xff"),

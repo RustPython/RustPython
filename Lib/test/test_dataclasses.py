@@ -52,8 +52,6 @@ class TestCase(unittest.TestCase):
             class C:
                 x: int = field(default=1, default_factory=int)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_field_repr(self):
         int_field = field(default=1, init=True, repr=False)
         int_field.name = "id"
@@ -1831,7 +1829,8 @@ class TestCase(unittest.TestCase):
                                     'does not support item assignment'):
             fields(C)[0].metadata['test'] = 3
 
-    @unittest.skip("TODO: RUSTPYTHON, TypeError: object of type 'mappingproxy' has no len()")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_field_metadata_custom_mapping(self):
         # Try a custom mapping.
         class SimpleNameSpace:
@@ -1912,7 +1911,8 @@ class TestCase(unittest.TestCase):
         # Check MRO resolution.
         self.assertEqual(Child.__mro__, (Child, Parent, Generic, object))
 
-    @unittest.skip("TODO: RUSTPYTHON, pickle.PicklingError")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_dataclassses_pickleable(self):
         global P, Q, R
         @dataclass
@@ -2945,7 +2945,8 @@ class TestStringAnnotations(unittest.TestCase):
                 # x is not an InitVar, so there will be a member x.
                 self.assertEqual(C(10).x, 10)
 
-    @unittest.skip("TODO: RUSTPYTHON, ImportError: cannot import name 'dataclass_module_1'")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_classvar_module_level_import(self):
         from test import dataclass_module_1
         from test import dataclass_module_1_str
@@ -2987,7 +2988,8 @@ class TestStringAnnotations(unittest.TestCase):
                     # won't exist on the instance.
                     self.assertNotIn('not_iv4', c.__dict__)
 
-    @unittest.skip("TODO: RUSTPYTHON, ImportError: cannot import name 'dataclass_textanno'")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_text_annotations(self):
         from test import dataclass_textanno
 

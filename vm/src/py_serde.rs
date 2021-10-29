@@ -4,13 +4,12 @@ use serde::de::{DeserializeSeed, Visitor};
 use serde::ser::{Serialize, SerializeMap, SerializeSeq};
 
 use crate::builtins::{dict::PyDictRef, float, int, list::PyList, pybool, tuple::PyTuple, PyStr};
-use crate::VirtualMachine;
-use crate::{ItemProtocol, PyObjectRef, TypeProtocol};
+use crate::{ItemProtocol, PyObject, PyObjectRef, TypeProtocol, VirtualMachine};
 
 #[inline]
 pub fn serialize<S>(
     vm: &VirtualMachine,
-    pyobject: &PyObjectRef,
+    pyobject: &PyObject,
     serializer: S,
 ) -> Result<S::Ok, S::Error>
 where
@@ -33,7 +32,7 @@ where
 // We need to have a VM available to serialise a PyObject based on its subclass, so we implement
 // PyObject serialisation via a proxy object which holds a reference to a VM
 pub struct PyObjectSerializer<'s> {
-    pyobject: &'s PyObjectRef,
+    pyobject: &'s PyObject,
     vm: &'s VirtualMachine,
 }
 
@@ -86,7 +85,7 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
         } else if let Some(tuple) = self.pyobject.payload_if_subclass::<PyTuple>(self.vm) {
             serialize_seq_elements(serializer, tuple.as_slice())
         } else if self.pyobject.isinstance(&self.vm.ctx.types.dict_type) {
-            let dict: PyDictRef = self.pyobject.clone().downcast().unwrap();
+            let dict: PyDictRef = self.pyobject.to_owned().downcast().unwrap();
             let pairs: Vec<_> = dict.into_iter().collect();
             let mut map = serializer.serialize_map(Some(pairs.len()))?;
             for (key, e) in pairs.iter() {
@@ -139,7 +138,7 @@ impl<'de> Visitor<'de> for PyObjectDeserializer<'de> {
     where
         E: serde::de::Error,
     {
-        Ok(self.vm.ctx.new_bool(value))
+        Ok(self.vm.ctx.new_bool(value).into())
     }
 
     // Other signed integers delegate to this method by default, it’s the only one needed
@@ -147,7 +146,7 @@ impl<'de> Visitor<'de> for PyObjectDeserializer<'de> {
     where
         E: serde::de::Error,
     {
-        Ok(self.vm.ctx.new_int(value))
+        Ok(self.vm.ctx.new_int(value).into())
     }
 
     // Other unsigned integers delegate to this method by default, it’s the only one needed
@@ -155,14 +154,14 @@ impl<'de> Visitor<'de> for PyObjectDeserializer<'de> {
     where
         E: serde::de::Error,
     {
-        Ok(self.vm.ctx.new_int(value))
+        Ok(self.vm.ctx.new_int(value).into())
     }
 
     fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>
     where
         E: serde::de::Error,
     {
-        Ok(self.vm.ctx.new_float(value))
+        Ok(self.vm.ctx.new_float(value).into())
     }
 
     fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
@@ -177,7 +176,7 @@ impl<'de> Visitor<'de> for PyObjectDeserializer<'de> {
     where
         E: serde::de::Error,
     {
-        Ok(self.vm.ctx.new_utf8_str(value))
+        Ok(self.vm.ctx.new_str(value).into())
     }
 
     fn visit_unit<E>(self) -> Result<Self::Value, E>
@@ -195,7 +194,7 @@ impl<'de> Visitor<'de> for PyObjectDeserializer<'de> {
         while let Some(value) = access.next_element_seed(self.clone())? {
             seq.push(value);
         }
-        Ok(self.vm.ctx.new_list(seq))
+        Ok(self.vm.ctx.new_list(seq).into())
     }
 
     fn visit_map<M>(self, mut access: M) -> Result<Self::Value, M::Error>
@@ -208,6 +207,6 @@ impl<'de> Visitor<'de> for PyObjectDeserializer<'de> {
         while let Some((key_obj, value)) = access.next_entry_seed(self.clone(), self.clone())? {
             dict.set_item(key_obj, value, self.vm).unwrap();
         }
-        Ok(dict.into_object())
+        Ok(dict.into())
     }
 }

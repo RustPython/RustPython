@@ -2,12 +2,12 @@
 
 */
 
-use super::{PyStrRef, PyTypeRef};
+use super::{PyStrRef, PyTupleRef, PyTypeRef};
 use crate::{
     bytecode::{self, BorrowedConstant, Constant, ConstantBag},
     function::FuncArgs,
-    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
-    TypeProtocol, VirtualMachine,
+    IdProtocol, PyClassImpl, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
+    StaticType, TypeProtocol, VirtualMachine,
 };
 use num_traits::Zero;
 use std::fmt;
@@ -28,7 +28,7 @@ pub struct PyConstant(pub PyObjectRef);
 //     Ellipsis(PyObjectRef),
 // }
 
-fn borrow_obj_constant(obj: &PyObjectRef) -> BorrowedConstant<PyConstant> {
+fn borrow_obj_constant(obj: &PyObject) -> BorrowedConstant<PyConstant> {
     match_class!(match obj {
         ref i @ super::int::PyInt => {
             let value = i.as_bigint();
@@ -53,7 +53,7 @@ fn borrow_obj_constant(obj: &PyObjectRef) -> BorrowedConstant<PyConstant> {
         }
         ref t @ super::tuple::PyTuple => {
             BorrowedConstant::Tuple {
-                elements: Box::new(t.as_slice().iter().map(borrow_obj_constant)),
+                elements: Box::new(t.as_slice().iter().map(|o| borrow_obj_constant(o))),
             }
         }
         super::singletons::PyNone => BorrowedConstant::None,
@@ -80,24 +80,22 @@ impl ConstantBag for PyObjBag<'_> {
         let vm = self.0;
         let ctx = &vm.ctx;
         let obj = match constant {
-            bytecode::ConstantData::Integer { value } => ctx.new_int(value),
-            bytecode::ConstantData::Float { value } => ctx.new_float(value),
-            bytecode::ConstantData::Complex { value } => ctx.new_complex(value),
+            bytecode::ConstantData::Integer { value } => ctx.new_int(value).into(),
+            bytecode::ConstantData::Float { value } => ctx.new_float(value).into(),
+            bytecode::ConstantData::Complex { value } => vm.new_pyobj(value),
             bytecode::ConstantData::Str { value } if value.len() <= 20 => {
-                vm.intern_string(value).into_object()
+                vm.intern_string(value).into()
             }
-            bytecode::ConstantData::Str { value } => vm.ctx.new_utf8_str(value),
-            bytecode::ConstantData::Bytes { value } => ctx.new_bytes(value.to_vec()),
-            bytecode::ConstantData::Boolean { value } => ctx.new_bool(value),
-            bytecode::ConstantData::Code { code } => {
-                ctx.new_code_object(code.map_bag(self)).into_object()
-            }
+            bytecode::ConstantData::Str { value } => vm.ctx.new_str(value).into(),
+            bytecode::ConstantData::Bytes { value } => ctx.new_bytes(value.to_vec()).into(),
+            bytecode::ConstantData::Boolean { value } => ctx.new_bool(value).into(),
+            bytecode::ConstantData::Code { code } => vm.new_code_object(code.map_bag(self)).into(),
             bytecode::ConstantData::Tuple { elements } => {
                 let elements = elements
                     .into_iter()
                     .map(|constant| self.make_constant(constant).0)
                     .collect();
-                ctx.new_tuple(elements)
+                ctx.new_tuple(elements).into()
             }
             bytecode::ConstantData::None => ctx.none(),
             bytecode::ConstantData::Ellipsis => ctx.ellipsis(),
@@ -108,24 +106,24 @@ impl ConstantBag for PyObjBag<'_> {
         let vm = self.0;
         let ctx = &vm.ctx;
         let obj = match constant {
-            bytecode::BorrowedConstant::Integer { value } => ctx.new_bigint(value),
-            bytecode::BorrowedConstant::Float { value } => ctx.new_float(value),
-            bytecode::BorrowedConstant::Complex { value } => ctx.new_complex(value),
+            bytecode::BorrowedConstant::Integer { value } => ctx.new_bigint(value).into(),
+            bytecode::BorrowedConstant::Float { value } => ctx.new_float(value).into(),
+            bytecode::BorrowedConstant::Complex { value } => vm.new_pyobj(value),
             bytecode::BorrowedConstant::Str { value } if value.len() <= 20 => {
-                vm.intern_string(value).into_object()
+                vm.intern_string(value).into()
             }
-            bytecode::BorrowedConstant::Str { value } => vm.ctx.new_utf8_str(value),
-            bytecode::BorrowedConstant::Bytes { value } => ctx.new_bytes(value.to_vec()),
-            bytecode::BorrowedConstant::Boolean { value } => ctx.new_bool(value),
+            bytecode::BorrowedConstant::Str { value } => vm.ctx.new_str(value).into(),
+            bytecode::BorrowedConstant::Bytes { value } => ctx.new_bytes(value.to_vec()).into(),
+            bytecode::BorrowedConstant::Boolean { value } => ctx.new_bool(value).into(),
             bytecode::BorrowedConstant::Code { code } => {
-                ctx.new_code_object(code.map_clone_bag(self)).into_object()
+                vm.new_code_object(code.map_clone_bag(self)).into()
             }
             bytecode::BorrowedConstant::Tuple { elements } => {
                 let elements = elements
                     .into_iter()
                     .map(|constant| self.make_constant_borrowed(constant).0)
                     .collect();
-                ctx.new_tuple(elements)
+                ctx.new_tuple(elements).into()
             }
             bytecode::BorrowedConstant::None => ctx.none(),
             bytecode::BorrowedConstant::Ellipsis => ctx.ellipsis(),
@@ -172,6 +170,13 @@ impl Deref for PyCode {
 impl PyCode {
     pub fn new(code: CodeObject) -> PyCode {
         PyCode { code }
+    }
+
+    /// Create a new `PyRef<PyCode>` from a `code::CodeObject`. If you have a non-mapped codeobject or
+    /// this is giving you a type error even though you've passed a `CodeObject`, try
+    /// [`vm.new_code_object()`](VirtualMachine::new_code_object) instead.
+    pub fn new_ref(code: CodeObject, ctx: &PyContext) -> PyRef<Self> {
+        PyRef::new_ref(PyCode { code }, ctx.types.code_type.clone(), None)
     }
 }
 
@@ -235,7 +240,7 @@ impl PyRef<PyCode> {
     }
 
     #[pyproperty]
-    fn co_consts(self, vm: &VirtualMachine) -> PyObjectRef {
+    fn co_consts(self, vm: &VirtualMachine) -> PyTupleRef {
         let consts = self.code.constants.iter().map(|x| x.0.clone()).collect();
         vm.ctx.new_tuple(consts)
     }
@@ -251,12 +256,12 @@ impl PyRef<PyCode> {
     }
 
     #[pyproperty]
-    fn co_varnames(self, vm: &VirtualMachine) -> PyObjectRef {
+    pub fn co_varnames(self, vm: &VirtualMachine) -> PyTupleRef {
         let varnames = self
             .code
             .varnames
             .iter()
-            .map(|s| s.clone().into_object())
+            .map(|s| s.clone().into())
             .collect();
         vm.ctx.new_tuple(varnames)
     }

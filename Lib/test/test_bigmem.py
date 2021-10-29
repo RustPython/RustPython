@@ -198,7 +198,6 @@ class BaseStrTest:
         s += _('A')
         self.assertFalse(s.islower())
 
-    @unittest.skip("TODO: RUSTPYTHON, test failed only in BytesTest")
     @bigmemtest(size=_2G, memuse=2)
     def test_isspace(self, size):
         _ = self.from_latin1
@@ -209,7 +208,6 @@ class BaseStrTest:
         s += _('j')
         self.assertFalse(s.isspace())
 
-    @unittest.skip("TODO: RUSTPYTHON, test failed only in BytesTest")
     @bigmemtest(size=_2G, memuse=2)
     def test_istitle(self, size):
         _ = self.from_latin1
@@ -259,7 +257,6 @@ class BaseStrTest:
         self.assertEqual(len(s), size)
         self.assertEqual(s.count(_('a')), size)
 
-    @unittest.skip("TODO: RUSTPYTHON, test failed only in BytesTest")
     @bigmemtest(size=_2G + 10, memuse=1)
     def test_lstrip(self, size):
         _ = self.from_latin1
@@ -332,7 +329,6 @@ class BaseStrTest:
         self.assertEqual(len(s), size)
         self.assertEqual(s.strip(), SUBSTR.strip())
 
-    @unittest.skip("TODO: RUSTPYTHON, test failed only in BytesTest")
     @bigmemtest(size=_2G + 10, memuse=1)
     def test_rstrip(self, size):
         _ = self.from_latin1
@@ -769,6 +765,16 @@ class StrTest(unittest.TestCase, BaseStrTest):
         self.assertEqual(s.count(_('!')), repeats * 2)
         self.assertEqual(s.count(_('z')), repeats * 3)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_lstrip(self, size):
+        super().test_lstrip(size)
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_rstrip(self, size):
+        super().test_rstrip(size)
+
 
 class BytesTest(unittest.TestCase, BaseStrTest):
 
@@ -791,6 +797,26 @@ class BytesTest(unittest.TestCase, BaseStrTest):
     @bigmemtest(size=_2G, memuse=2)
     def test_swapcase(self, size):
         self._test_swapcase(size)
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_isspace(self, size):
+        super().test_isspace(size)
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_istitle(self, size):
+        super().test_istitle(size)
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_lstrip(self, size):
+        super().test_lstrip(size)
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_rstrip(self, size):
+        super().test_rstrip(size)
 
 
 class BytearrayTest(unittest.TestCase, BaseStrTest):
@@ -817,6 +843,16 @@ class BytearrayTest(unittest.TestCase, BaseStrTest):
 
     test_hash = None
     test_split_large = None
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_isspace(self, size):
+        super().test_isspace(size)
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_istitle(self, size):
+        super().test_istitle(size)
 
 class TupleTest(unittest.TestCase):
 

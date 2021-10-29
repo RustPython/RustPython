@@ -1,7 +1,8 @@
 use super::PyTypeRef;
 use crate::{
-    slots::{SlotConstructor, SlotDescriptor},
-    PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
+    builtins::PyBoundMethod,
+    types::{Constructor, GetDescriptor},
+    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
 
 /// classmethod(function) -> method
@@ -42,7 +43,7 @@ impl PyValue for PyClassMethod {
     }
 }
 
-impl SlotDescriptor for PyClassMethod {
+impl GetDescriptor for PyClassMethod {
     fn descr_get(
         zelf: PyObjectRef,
         obj: Option<PyObjectRef>,
@@ -50,12 +51,12 @@ impl SlotDescriptor for PyClassMethod {
         vm: &VirtualMachine,
     ) -> PyResult {
         let (zelf, obj) = Self::_unwrap(zelf, obj, vm)?;
-        let cls = cls.unwrap_or_else(|| obj.clone_class().into_object());
-        Ok(vm.ctx.new_bound_method(zelf.callable.clone(), cls))
+        let cls = cls.unwrap_or_else(|| obj.clone_class().into());
+        Ok(PyBoundMethod::new_ref(cls, zelf.callable.clone(), &vm.ctx).into())
     }
 }
 
-impl SlotConstructor for PyClassMethod {
+impl Constructor for PyClassMethod {
     type Args = PyObjectRef;
 
     fn py_new(cls: PyTypeRef, callable: Self::Args, vm: &VirtualMachine) -> PyResult {
@@ -63,7 +64,13 @@ impl SlotConstructor for PyClassMethod {
     }
 }
 
-#[pyimpl(with(SlotDescriptor, SlotConstructor), flags(BASETYPE, HAS_DICT))]
+impl PyClassMethod {
+    pub fn new_ref(callable: PyObjectRef, ctx: &PyContext) -> PyRef<Self> {
+        PyRef::new_ref(Self { callable }, ctx.types.classmethod_type.clone(), None)
+    }
+}
+
+#[pyimpl(with(GetDescriptor, Constructor), flags(BASETYPE, HAS_DICT))]
 impl PyClassMethod {
     #[pyproperty(magic)]
     fn func(&self) -> PyObjectRef {

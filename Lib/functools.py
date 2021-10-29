@@ -22,6 +22,7 @@ try:
     from _thread import RLock
 except ModuleNotFoundError:
     from _dummy_thread import RLock
+from types import GenericAlias
 
 
 ################################################################################
@@ -426,6 +427,8 @@ class partialmethod(object):
     @property
     def __isabstractmethod__(self):
         return getattr(self.func, "__isabstractmethod__", False)
+
+    __class_getitem__ = classmethod(GenericAlias)
 
 # Helper functions
 
@@ -977,3 +980,5 @@ class cached_property:
                         )
                         raise TypeError(msg) from None
         return val
+
+    __class_getitem__ = classmethod(GenericAlias)

@@ -1,9 +1,10 @@
-use super::{PyDict, PyStrRef, PyTypeRef};
+use super::{PyDict, PyGenericAlias, PyList, PyStrRef, PyTuple, PyTypeRef};
 use crate::{
-    function::OptionalArg,
-    slots::{Iterable, SlotConstructor},
-    IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, VirtualMachine,
+    function::{IntoPyObject, OptionalArg},
+    protocol::{PyMapping, PyMappingMethods},
+    types::{AsMapping, Constructor, Iterable},
+    ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "mappingproxy")]
@@ -32,18 +33,28 @@ impl PyMappingProxy {
     }
 }
 
-impl SlotConstructor for PyMappingProxy {
+impl Constructor for PyMappingProxy {
     type Args = PyObjectRef;
 
     fn py_new(cls: PyTypeRef, mapping: Self::Args, vm: &VirtualMachine) -> PyResult {
-        Self {
-            mapping: MappingProxyInner::Dict(mapping),
+        if !PyMapping::check(&mapping, vm)
+            || mapping.payload_if_subclass::<PyList>(vm).is_some()
+            || mapping.payload_if_subclass::<PyTuple>(vm).is_some()
+        {
+            Err(vm.new_type_error(format!(
+                "mappingproxy() argument must be a mapping, not {}",
+                mapping.class()
+            )))
+        } else {
+            Self {
+                mapping: MappingProxyInner::Dict(mapping),
+            }
+            .into_pyresult_with_type(vm, cls)
         }
-        .into_pyresult_with_type(vm, cls)
     }
 }
 
-#[pyimpl(with(Iterable, SlotConstructor))]
+#[pyimpl(with(AsMapping, Iterable, Constructor))]
 impl PyMappingProxy {
     fn get_inner(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
         let opt = match &self.mapping {
@@ -81,7 +92,8 @@ impl PyMappingProxy {
                 let key = PyStrRef::try_from_object(vm, key)?;
                 Ok(vm
                     .ctx
-                    .new_bool(class.attributes.read().contains_key(key.as_str())))
+                    .new_bool(class.attributes.read().contains_key(key.as_str()))
+                    .into())
             }
             MappingProxyInner::Dict(obj) => vm._membership(obj.clone(), key),
         }
@@ -126,7 +138,53 @@ impl PyMappingProxy {
             }
         }
     }
+    #[pymethod(magic)]
+    fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
+        let obj = match &self.mapping {
+            MappingProxyInner::Dict(d) => d.clone(),
+            MappingProxyInner::Class(c) => {
+                PyDict::from_attributes(c.attributes.read().clone(), vm)?.into_pyobject(vm)
+            }
+        };
+        Ok(format!("mappingproxy({})", obj.repr(vm)?))
+    }
+
+    #[pyclassmethod(magic)]
+    fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+        PyGenericAlias::new(cls, args, vm)
+    }
 }
+
+impl AsMapping for PyMappingProxy {
+    fn as_mapping(_zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
+        PyMappingMethods {
+            length: None,
+            subscript: Some(Self::subscript),
+            ass_subscript: None,
+        }
+    }
+
+    #[inline]
+    fn length(zelf: PyObjectRef, _vm: &VirtualMachine) -> PyResult<usize> {
+        unreachable!("length not implemented for {}", zelf.class())
+    }
+
+    #[inline]
+    fn subscript(zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Self::downcast_ref(&zelf, vm).map(|zelf| zelf.getitem(needle, vm))?
+    }
+
+    #[cold]
+    fn ass_subscript(
+        zelf: PyObjectRef,
+        _needle: PyObjectRef,
+        _value: Option<PyObjectRef>,
+        _vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        unreachable!("ass_subscript not implemented for {}", zelf.class())
+    }
+}
+
 impl Iterable for PyMappingProxy {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         let obj = match &zelf.mapping {
@@ -137,7 +195,7 @@ impl Iterable for PyMappingProxy {
             }
         };
         let iter = obj.get_iter(vm)?;
-        Ok(iter.into_object())
+        Ok(iter.into())
     }
 }
 

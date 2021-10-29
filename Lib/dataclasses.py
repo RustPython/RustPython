@@ -7,6 +7,7 @@ import keyword
 import builtins
 import functools
 import _thread
+from types import GenericAlias
 
 
 __all__ = ['dataclass',
@@ -217,6 +218,8 @@ class InitVar(metaclass=_InitVarMeta):
             type_name = repr(self.type)
         return f'dataclasses.InitVar[{type_name}]'
 
+    def __class_getitem__(cls, type):
+        return InitVar(type)
 
 # Instances of Field are only ever created from within this module,
 # and only from the field() function, although Field instances are
@@ -284,6 +287,8 @@ class Field:
             # There is a __set_name__ method on the descriptor, call
             # it.
             func(self.default, owner, name)
+
+    __class_getitem__ = classmethod(GenericAlias)
 
 
 class _DataclassParams:

@@ -600,8 +600,6 @@ class StoredTestsWithSourceFile(AbstractTestsWithSourceFile,
             zinfo = zipfp.getinfo(TESTFN)
             self.assertEqual(zinfo.date_time, (1980, 1, 1, 0, 0, 0))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_add_file_after_2107(self):
         # Set atime and mtime to 2108-12-30
         ts = 4386268800
@@ -2962,7 +2960,6 @@ class TestPath(unittest.TestCase):
         # Check the file iterated all items
         assert entries.count == self.HUGE_ZIPFILE_NUM_ENTRIES
 
-    @unittest.skip("TODO: RUSTPYTHON, appears to hang")
     # @func_timeout.func_set_timeout(3)
     def test_implied_dirs_performance(self):
         data = ['/'.join(string.ascii_lowercase + str(n)) for n in range(10000)]

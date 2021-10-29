@@ -241,15 +241,11 @@ class TestIsInstanceIsSubclass(unittest.TestCase):
         self.assertEqual(True, issubclass(int, (int, (float, int))))
         self.assertEqual(True, issubclass(str, (str, (Child, str))))
 
-    # TODO: RUSTPYTHON requires issue 2680 for stack depth detection in Rust
-    @unittest.expectedFailure
     def test_subclass_recursion_limit(self):
         # make sure that issubclass raises RecursionError before the C stack is
         # blown
         self.assertRaises(RecursionError, blowstack, issubclass, str, str)
 
-    # TODO: RUSTPYTHON requires issue 2680 for stack depth detection in Rust
-    @unittest.expectedFailure
     def test_isinstance_recursion_limit(self):
         # make sure that issubclass raises RecursionError before the C stack is
         # blown
@@ -275,7 +271,7 @@ class TestIsInstanceIsSubclass(unittest.TestCase):
 
         self.assertEqual(True, issubclass(B(), int))
 
-    @unittest.skipIf(sys.platform == "win32", "thread 'main' has overflowed its stack")
+    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON, thread 'main' has overflowed its stack")
     def test_infinite_recursion_in_bases(self):
         class X:
             @property

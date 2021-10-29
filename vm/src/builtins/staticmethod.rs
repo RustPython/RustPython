@@ -1,7 +1,9 @@
-use super::PyTypeRef;
+use super::{PyStr, PyTypeRef};
 use crate::{
-    slots::{SlotConstructor, SlotDescriptor},
-    PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue, VirtualMachine,
+    builtins::builtinfunc::PyBuiltinMethod,
+    function::IntoPyNativeFunc,
+    types::{Constructor, GetDescriptor},
+    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "staticmethod")]
@@ -16,7 +18,7 @@ impl PyValue for PyStaticMethod {
     }
 }
 
-impl SlotDescriptor for PyStaticMethod {
+impl GetDescriptor for PyStaticMethod {
     fn descr_get(
         zelf: PyObjectRef,
         _obj: Option<PyObjectRef>,
@@ -34,7 +36,7 @@ impl From<PyObjectRef> for PyStaticMethod {
     }
 }
 
-impl SlotConstructor for PyStaticMethod {
+impl Constructor for PyStaticMethod {
     type Args = PyObjectRef;
 
     fn py_new(cls: PyTypeRef, callable: Self::Args, vm: &VirtualMachine) -> PyResult {
@@ -42,7 +44,22 @@ impl SlotConstructor for PyStaticMethod {
     }
 }
 
-#[pyimpl(with(SlotDescriptor, SlotConstructor), flags(BASETYPE, HAS_DICT))]
+impl PyStaticMethod {
+    pub fn new_ref<F, FKind>(
+        name: impl Into<PyStr>,
+        class: PyTypeRef,
+        f: F,
+        ctx: &PyContext,
+    ) -> PyRef<Self>
+    where
+        F: IntoPyNativeFunc<FKind>,
+    {
+        let callable = PyBuiltinMethod::new_ref(name, class, f, ctx).into();
+        PyRef::new_ref(Self { callable }, ctx.types.staticmethod_type.clone(), None)
+    }
+}
+
+#[pyimpl(with(GetDescriptor, Constructor), flags(BASETYPE, HAS_DICT))]
 impl PyStaticMethod {}
 
 pub fn init(context: &PyContext) {

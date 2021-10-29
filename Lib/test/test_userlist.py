@@ -27,8 +27,6 @@ class UserListTest(list_tests.CommonTest):
             for j in range(-3, 6):
                 self.assertEqual(u[i:j], l[i:j])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_slice_type(self):
         l = [0, 1, 2, 3, 4]
         u = UserList(l)

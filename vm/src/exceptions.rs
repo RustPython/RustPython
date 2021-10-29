@@ -4,22 +4,20 @@ use crate::{
     builtins::{
         traceback::PyTracebackRef, PyNone, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
     },
-    function::{ArgIterable, FuncArgs},
+    function::{ArgIterable, FuncArgs, IntoPyException, IntoPyObject},
     py_io::{self, Write},
     stdlib::sys,
-    IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    StaticType, TryFromObject, TypeProtocol, VirtualMachine,
+    suggestion::offer_suggestions,
+    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
+    TryFromObject, TypeProtocol, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
 use std::{
     collections::HashSet,
     io::{self, BufRead, BufReader},
+    ops::Deref,
 };
-
-pub trait IntoPyException {
-    fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef;
-}
 
 impl std::fmt::Debug for PyBaseException {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -34,48 +32,183 @@ impl PyValue for PyBaseException {
     }
 }
 
-pub fn chain<T>(e1: PyResult<()>, e2: PyResult<T>) -> PyResult<T> {
-    match (e1, e2) {
-        (Err(e1), Err(e)) => {
-            e.set_context(Some(e1));
-            Err(e)
-        }
-        (Err(e), Ok(_)) | (Ok(()), Err(e)) => Err(e),
-        (Ok(()), Ok(close_res)) => Ok(close_res),
-    }
-}
+impl VirtualMachine {
+    // Why `impl VirtualMachine?
+    // These functions are natively free function in CPython - not methods of PyException
 
-/// Print exception chain by calling sys.excepthook
-pub fn print_exception(vm: &VirtualMachine, exc: PyBaseExceptionRef) {
-    let write_fallback = |exc, errstr| {
-        if let Ok(stderr) = sys::get_stderr(vm) {
-            let mut stderr = py_io::PyWriter(stderr, vm);
-            // if this fails stderr might be closed -- ignore it
-            let _ = writeln!(stderr, "{}", errstr);
-            let _ = write_exception(&mut stderr, vm, exc);
+    /// Print exception chain by calling sys.excepthook
+    pub fn print_exception(&self, exc: PyBaseExceptionRef) {
+        let vm = self;
+        let write_fallback = |exc, errstr| {
+            if let Ok(stderr) = sys::get_stderr(vm) {
+                let mut stderr = py_io::PyWriter(stderr, vm);
+                // if this fails stderr might be closed -- ignore it
+                let _ = writeln!(stderr, "{}", errstr);
+                let _ = self.write_exception(&mut stderr, exc);
+            } else {
+                eprintln!("{}\nlost sys.stderr", errstr);
+                let _ = self.write_exception(&mut py_io::IoWriter(io::stderr()), exc);
+            }
+        };
+        if let Ok(excepthook) = vm.sys_module.clone().get_attr("excepthook", vm) {
+            let (exc_type, exc_val, exc_tb) = vm.split_exception(exc.clone());
+            if let Err(eh_exc) = vm.invoke(&excepthook, (exc_type, exc_val, exc_tb)) {
+                write_fallback(&eh_exc, "Error in sys.excepthook:");
+                write_fallback(&exc, "Original exception was:");
+            }
         } else {
-            eprintln!("{}\nlost sys.stderr", errstr);
-            let _ = write_exception(&mut py_io::IoWriter(io::stderr()), vm, exc);
+            write_fallback(&exc, "missing sys.excepthook");
         }
-    };
-    if let Ok(excepthook) = vm.get_attribute(vm.sys_module.clone(), "excepthook") {
-        let (exc_type, exc_val, exc_tb) = split(exc.clone(), vm);
-        if let Err(eh_exc) = vm.invoke(&excepthook, vec![exc_type, exc_val, exc_tb]) {
-            write_fallback(&eh_exc, "Error in sys.excepthook:");
-            write_fallback(&exc, "Original exception was:");
-        }
-    } else {
-        write_fallback(&exc, "missing sys.excepthook");
     }
-}
 
-pub fn write_exception<W: Write>(
-    output: &mut W,
-    vm: &VirtualMachine,
-    exc: &PyBaseExceptionRef,
-) -> Result<(), W::Error> {
-    let seen = &mut HashSet::<usize>::new();
-    write_exception_recursive(output, vm, exc, seen)
+    pub fn write_exception<W: Write>(
+        &self,
+        output: &mut W,
+        exc: &PyBaseExceptionRef,
+    ) -> Result<(), W::Error> {
+        let seen = &mut HashSet::<usize>::new();
+        self.write_exception_recursive(output, exc, seen)
+    }
+
+    fn write_exception_recursive<W: Write>(
+        &self,
+        output: &mut W,
+        exc: &PyBaseExceptionRef,
+        seen: &mut HashSet<usize>,
+    ) -> Result<(), W::Error> {
+        // This function should not be called directly,
+        // use `wite_exception` as a public interface.
+        // It is similar to `print_exception_recursive` from `CPython`.
+        seen.insert(exc.as_object().get_id());
+
+        #[allow(clippy::manual_map)]
+        if let Some((cause_or_context, msg)) = if let Some(cause) = exc.cause() {
+            // This can be a special case: `raise e from e`,
+            // we just ignore it and treat like `raise e` without any extra steps.
+            Some((
+                cause,
+                "\nThe above exception was the direct cause of the following exception:\n",
+            ))
+        } else if let Some(context) = exc.context() {
+            // This can be a special case:
+            //   e = ValueError('e')
+            //   e.__context__ = e
+            // In this case, we just ignore
+            // `__context__` part from going into recursion.
+            Some((
+                context,
+                "\nDuring handling of the above exception, another exception occurred:\n",
+            ))
+        } else {
+            None
+        } {
+            if !seen.contains(&cause_or_context.as_object().get_id()) {
+                self.write_exception_recursive(output, &cause_or_context, seen)?;
+                writeln!(output, "{}", msg)?;
+            } else {
+                seen.insert(cause_or_context.as_object().get_id());
+            }
+        }
+
+        self.write_exception_inner(output, exc)
+    }
+
+    /// Print exception with traceback
+    pub fn write_exception_inner<W: Write>(
+        &self,
+        output: &mut W,
+        exc: &PyBaseExceptionRef,
+    ) -> Result<(), W::Error> {
+        let vm = self;
+        if let Some(tb) = exc.traceback.read().clone() {
+            writeln!(output, "Traceback (most recent call last):")?;
+            for tb in tb.iter() {
+                write_traceback_entry(output, &tb)?;
+            }
+        }
+
+        let varargs = exc.args();
+        let args_repr = vm.exception_args_as_string(varargs, true);
+
+        let exc_class = exc.class();
+        let exc_name = exc_class.name();
+        match args_repr.len() {
+            0 => write!(output, "{}", exc_name),
+            1 => write!(output, "{}: {}", exc_name, args_repr[0]),
+            _ => write!(
+                output,
+                "{}: ({})",
+                exc_name,
+                args_repr.into_iter().format(", ")
+            ),
+        }?;
+
+        match offer_suggestions(exc, vm) {
+            Some(suggestions) => writeln!(output, ". Did you mean: '{}'?", suggestions.to_string()),
+            None => writeln!(output),
+        }
+    }
+
+    fn exception_args_as_string(&self, varargs: PyTupleRef, str_single: bool) -> Vec<PyStrRef> {
+        let vm = self;
+        let varargs = varargs.as_slice();
+        match varargs.len() {
+            0 => vec![],
+            1 => {
+                let args0_repr = if str_single {
+                    varargs[0]
+                        .str(vm)
+                        .unwrap_or_else(|_| PyStr::from("<element str() failed>").into_ref(vm))
+                } else {
+                    varargs[0]
+                        .repr(vm)
+                        .unwrap_or_else(|_| PyStr::from("<element repr() failed>").into_ref(vm))
+                };
+                vec![args0_repr]
+            }
+            _ => varargs
+                .iter()
+                .map(|vararg| {
+                    vararg
+                        .repr(vm)
+                        .unwrap_or_else(|_| PyStr::from("<element repr() failed>").into_ref(vm))
+                })
+                .collect(),
+        }
+    }
+
+    pub fn split_exception(
+        &self,
+        exc: PyBaseExceptionRef,
+    ) -> (PyObjectRef, PyObjectRef, PyObjectRef) {
+        let tb = exc.traceback().into_pyobject(self);
+        (exc.clone_class().into(), exc.into(), tb)
+    }
+
+    /// Similar to PyErr_NormalizeException in CPython
+    pub fn normalize_exception(
+        &self,
+        exc_type: PyObjectRef,
+        exc_val: PyObjectRef,
+        exc_tb: PyObjectRef,
+    ) -> PyResult<PyBaseExceptionRef> {
+        let ctor = ExceptionCtor::try_from_object(self, exc_type)?;
+        let exc = ctor.instantiate_value(exc_val, self)?;
+        if let Some(tb) = Option::<PyTracebackRef>::try_from_object(self, exc_tb)? {
+            exc.set_traceback(Some(tb));
+        }
+        Ok(exc)
+    }
+
+    pub fn invoke_exception(
+        &self,
+        cls: PyTypeRef,
+        args: Vec<PyObjectRef>,
+    ) -> PyResult<PyBaseExceptionRef> {
+        // TODO: fast-path built-in exceptions by directly instantiating them? Is that really worth it?
+        let res = self.invoke(cls.as_object(), args)?;
+        PyBaseExceptionRef::try_from_object(self, res)
+    }
 }
 
 fn print_source_line<W: Write>(
@@ -120,106 +253,6 @@ fn write_traceback_entry<W: Write>(
     Ok(())
 }
 
-fn write_exception_recursive<W: Write>(
-    output: &mut W,
-    vm: &VirtualMachine,
-    exc: &PyBaseExceptionRef,
-    seen: &mut HashSet<usize>,
-) -> Result<(), W::Error> {
-    // This function should not be called directly,
-    // use `wite_exception` as a public interface.
-    // It is similar to `print_exception_recursive` from `CPython`.
-    seen.insert(exc.as_object().get_id());
-
-    #[allow(clippy::manual_map)]
-    if let Some((cause_or_context, msg)) = if let Some(cause) = exc.cause() {
-        // This can be a special case: `raise e from e`,
-        // we just ignore it and treat like `raise e` without any extra steps.
-        Some((
-            cause,
-            "\nThe above exception was the direct cause of the following exception:\n",
-        ))
-    } else if let Some(context) = exc.context() {
-        // This can be a special case:
-        //   e = ValueError('e')
-        //   e.__context__ = e
-        // In this case, we just ignore
-        // `__context__` part from going into recursion.
-        Some((
-            context,
-            "\nDuring handling of the above exception, another exception occurred:\n",
-        ))
-    } else {
-        None
-    } {
-        if !seen.contains(&cause_or_context.as_object().get_id()) {
-            write_exception_recursive(output, vm, &cause_or_context, seen)?;
-            writeln!(output, "{}", msg)?;
-        } else {
-            seen.insert(cause_or_context.as_object().get_id());
-        }
-    }
-
-    write_exception_inner(output, vm, exc)
-}
-
-/// Print exception with traceback
-pub fn write_exception_inner<W: Write>(
-    output: &mut W,
-    vm: &VirtualMachine,
-    exc: &PyBaseExceptionRef,
-) -> Result<(), W::Error> {
-    if let Some(tb) = exc.traceback.read().clone() {
-        writeln!(output, "Traceback (most recent call last):")?;
-        for tb in tb.iter() {
-            write_traceback_entry(output, &tb)?;
-        }
-    }
-
-    let varargs = exc.args();
-    let args_repr = exception_args_as_string(vm, varargs, true);
-
-    let exc_name = exc.class().name();
-    match args_repr.len() {
-        0 => writeln!(output, "{}", exc_name),
-        1 => writeln!(output, "{}: {}", exc_name, args_repr[0]),
-        _ => writeln!(
-            output,
-            "{}: ({})",
-            exc_name,
-            args_repr.into_iter().format(", ")
-        ),
-    }
-}
-
-fn exception_args_as_string(
-    vm: &VirtualMachine,
-    varargs: PyTupleRef,
-    str_single: bool,
-) -> Vec<PyStrRef> {
-    let varargs = varargs.as_slice();
-    match varargs.len() {
-        0 => vec![],
-        1 => {
-            let args0_repr = if str_single {
-                vm.to_str(&varargs[0])
-                    .unwrap_or_else(|_| PyStr::from("<element str() failed>").into_ref(vm))
-            } else {
-                vm.to_repr(&varargs[0])
-                    .unwrap_or_else(|_| PyStr::from("<element repr() failed>").into_ref(vm))
-            };
-            vec![args0_repr]
-        }
-        _ => varargs
-            .iter()
-            .map(|vararg| {
-                vm.to_repr(vararg)
-                    .unwrap_or_else(|_| PyStr::from("<element repr() failed>").into_ref(vm))
-            })
-            .collect(),
-    }
-}
-
 #[derive(Clone)]
 pub enum ExceptionCtor {
     Class(PyTypeRef),
@@ -233,7 +266,7 @@ impl TryFromObject for ExceptionCtor {
                 if cls.issubclass(&vm.ctx.exceptions.base_exception_type) {
                     Ok(Self::Class(cls))
                 } else {
-                    Err(cls.into_object())
+                    Err(cls.into())
                 }
             })
             .or_else(|obj| obj.downcast::<PyBaseException>().map(Self::Instance))
@@ -246,20 +279,10 @@ impl TryFromObject for ExceptionCtor {
     }
 }
 
-pub fn invoke(
-    cls: PyTypeRef,
-    args: Vec<PyObjectRef>,
-    vm: &VirtualMachine,
-) -> PyResult<PyBaseExceptionRef> {
-    // TODO: fast-path built-in exceptions by directly instantiating them? Is that really worth it?
-    let res = vm.invoke(cls.as_object(), args)?;
-    PyBaseExceptionRef::try_from_object(vm, res)
-}
-
 impl ExceptionCtor {
     pub fn instantiate(self, vm: &VirtualMachine) -> PyResult<PyBaseExceptionRef> {
         match self {
-            Self::Class(cls) => invoke(cls, vec![], vm),
+            Self::Class(cls) => vm.invoke_exception(cls, vec![]),
             Self::Instance(exc) => Ok(exc),
         }
     }
@@ -288,33 +311,10 @@ impl ExceptionCtor {
                     exc @ PyBaseException => exc.args().as_slice().to_vec(),
                     obj => vec![obj],
                 });
-                invoke(cls, args, vm)
+                vm.invoke_exception(cls, args)
             }
         }
     }
-}
-
-pub fn split(
-    exc: PyBaseExceptionRef,
-    vm: &VirtualMachine,
-) -> (PyObjectRef, PyObjectRef, PyObjectRef) {
-    let tb = exc.traceback().into_pyobject(vm);
-    (exc.clone_class().into_object(), exc.into_object(), tb)
-}
-
-/// Similar to PyErr_NormalizeException in CPython
-pub fn normalize(
-    exc_type: PyObjectRef,
-    exc_val: PyObjectRef,
-    exc_tb: PyObjectRef,
-    vm: &VirtualMachine,
-) -> PyResult<PyBaseExceptionRef> {
-    let ctor = ExceptionCtor::try_from_object(vm, exc_type)?;
-    let exc = ctor.instantiate_value(exc_val, vm)?;
-    if let Some(tb) = Option::<PyTracebackRef>::try_from_object(vm, exc_tb)? {
-        exc.set_traceback(Some(tb));
-    }
-    Ok(exc)
 }
 
 #[derive(Debug, Clone)]
@@ -418,7 +418,7 @@ impl PyBaseException {
             cause: PyRwLock::new(None),
             context: PyRwLock::new(None),
             suppress_context: AtomicCell::new(false),
-            args: PyRwLock::new(PyTupleRef::with_elements(args, &vm.ctx)),
+            args: PyRwLock::new(PyTuple::new_ref(args, &vm.ctx)),
         }
     }
 
@@ -429,7 +429,7 @@ impl PyBaseException {
 
     #[pymethod(magic)]
     pub(crate) fn init(zelf: PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-        *zelf.args.write() = PyTupleRef::with_elements(args.args, &vm.ctx);
+        *zelf.args.write() = PyTuple::new_ref(args.args, &vm.ctx);
         Ok(())
     }
 
@@ -445,7 +445,7 @@ impl PyBaseException {
     #[pyproperty(setter)]
     fn set_args(&self, args: ArgIterable, vm: &VirtualMachine) -> PyResult<()> {
         let args = args.iter(vm)?.collect::<PyResult<Vec<_>>>()?;
-        *self.args.write() = PyTupleRef::with_elements(args, &vm.ctx);
+        *self.args.write() = PyTuple::new_ref(args, &vm.ctx);
         Ok(())
     }
 
@@ -454,7 +454,7 @@ impl PyBaseException {
         self.traceback.read().clone()
     }
 
-    #[pyproperty(name = "__traceback__", setter)]
+    #[pyproperty(magic, setter)]
     pub fn set_traceback(&self, traceback: Option<PyTracebackRef>) {
         *self.traceback.write() = traceback;
     }
@@ -464,7 +464,7 @@ impl PyBaseException {
         self.cause.read().clone()
     }
 
-    #[pyproperty(name = "__cause__", setter)]
+    #[pyproperty(magic, setter)]
     pub fn set_cause(&self, cause: Option<PyRef<Self>>) {
         let mut c = self.cause.write();
         self.set_suppress_context(true);
@@ -476,7 +476,7 @@ impl PyBaseException {
         self.context.read().clone()
     }
 
-    #[pyproperty(name = "__context__", setter)]
+    #[pyproperty(magic, setter)]
     pub fn set_context(&self, context: Option<PyRef<Self>>) {
         *self.context.write() = context;
     }
@@ -494,12 +494,12 @@ impl PyBaseException {
     #[pymethod]
     fn with_traceback(zelf: PyRef<Self>, tb: Option<PyTracebackRef>) -> PyResult {
         *zelf.traceback.write() = tb;
-        Ok(zelf.as_object().clone())
+        Ok(zelf.as_object().to_owned())
     }
 
     #[pymethod(magic)]
     pub(super) fn str(&self, vm: &VirtualMachine) -> PyStrRef {
-        let str_args = exception_args_as_string(vm, self.args(), true);
+        let str_args = vm.exception_args_as_string(self.args(), true);
         match str_args.into_iter().exactly_one() {
             Err(i) if i.len() == 0 => PyStr::from("").into_ref(vm),
             Ok(s) => s,
@@ -509,7 +509,7 @@ impl PyBaseException {
 
     #[pymethod(magic)]
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> String {
-        let repr_args = exception_args_as_string(vm, zelf.args(), false);
+        let repr_args = vm.exception_args_as_string(zelf.args(), false);
         let cls = zelf.class();
         format!("{}({})", cls.name(), repr_args.iter().format(", "))
     }
@@ -705,7 +705,10 @@ impl ExceptionZoo {
         extend_exception!(PyZeroDivisionError, ctx, &excs.zero_division_error);
 
         extend_exception!(PyAssertionError, ctx, &excs.assertion_error);
-        extend_exception!(PyAttributeError, ctx, &excs.attribute_error);
+        extend_exception!(PyAttributeError, ctx, &excs.attribute_error, {
+            "name" => ctx.none(),
+            "obj" => ctx.none(),
+        });
         extend_exception!(PyBufferError, ctx, &excs.buffer_error);
         extend_exception!(PyEOFError, ctx, &excs.eof_error);
 
@@ -721,7 +724,9 @@ impl ExceptionZoo {
         });
 
         extend_exception!(PyMemoryError, ctx, &excs.memory_error);
-        extend_exception!(PyNameError, ctx, &excs.name_error);
+        extend_exception!(PyNameError, ctx, &excs.name_error, {
+            "name" => ctx.none(),
+        });
         extend_exception!(PyUnboundLocalError, ctx, &excs.unbound_local_error);
 
         // os errors:
@@ -845,7 +850,7 @@ fn make_arg_getter(idx: usize) -> impl Fn(PyBaseExceptionRef) -> Option<PyObject
 fn key_error_str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyStrRef {
     let args = exc.args();
     if args.as_slice().len() == 1 {
-        exception_args_as_string(vm, args, false)
+        vm.exception_args_as_string(args, false)
             .into_iter()
             .exactly_one()
             .unwrap()
@@ -882,14 +887,14 @@ impl serde::Serialize for SerializeException<'_> {
         use serde::ser::*;
 
         let mut struc = s.serialize_struct("PyBaseException", 7)?;
-        struc.serialize_field("exc_type", &self.exc.class().name())?;
+        struc.serialize_field("exc_type", self.exc.class().name().deref())?;
         let tbs = {
             struct Tracebacks(PyTracebackRef);
             impl serde::Serialize for Tracebacks {
                 fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
                     let mut s = s.serialize_seq(None)?;
                     for tb in self.0.iter() {
-                        s.serialize_element(&*tb)?;
+                        s.serialize_element(&**tb)?;
                     }
                     s.end()
                 }
@@ -925,7 +930,9 @@ impl serde::Serialize for SerializeException<'_> {
 
         let rendered = {
             let mut rendered = String::new();
-            write_exception(&mut rendered, self.vm, self.exc).map_err(S::Error::custom)?;
+            self.vm
+                .write_exception(&mut rendered, self.exc)
+                .map_err(S::Error::custom)?;
             rendered
         };
         struc.serialize_field("rendered", &rendered)?;
@@ -954,11 +961,12 @@ impl<C: widestring::UChar> IntoPyException for widestring::NulError<C> {
 pub(super) mod types {
     use crate::common::lock::PyRwLock;
     use crate::{
-        builtins::{traceback::PyTracebackRef, PyTupleRef, PyTypeRef},
-        function::FuncArgs,
-        PyRef, PyResult, VirtualMachine,
+        builtins::{traceback::PyTracebackRef, PyInt, PyTupleRef, PyTypeRef},
+        function::{FuncArgs, IntoPyResult},
+        PyObjectRef, PyRef, PyResult, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
+    use std::ops::Deref;
 
     // This module is designed to be used as `use builtins::*;`.
     // Do not add any pub symbols not included in builtins module.
@@ -1085,16 +1093,16 @@ pub(super) mod types {
         args: FuncArgs,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let exc_self = zelf.into_object();
-        vm.set_attr(
-            &exc_self,
+        let zelf: PyObjectRef = zelf.into();
+        zelf.set_attr(
             "name",
             vm.unwrap_or_none(args.kwargs.get("name").cloned()),
+            vm,
         )?;
-        vm.set_attr(
-            &exc_self,
+        zelf.set_attr(
             "path",
             vm.unwrap_or_none(args.kwargs.get("path").cloned()),
+            vm,
         )?;
         Ok(())
     }
@@ -1150,8 +1158,90 @@ pub(super) mod types {
         PyOSError,
         PyException,
         os_error,
-        "Base class for I/O related errors."
+        "Base class for I/O related errors.",
+        os_error_new,
+        base_exception_init,
     }
+    #[cfg(not(target_arch = "wasm32"))]
+    fn os_error_optional_new(
+        args: Vec<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> Option<PyResult<PyBaseExceptionRef>> {
+        use crate::stdlib::errno::errors;
+
+        let len = args.len();
+        if len >= 2 {
+            let args = args.as_slice();
+            let errno = &args[0];
+            let error = match errno.payload_if_subclass::<PyInt>(vm) {
+                Some(errno) => match errno.try_to_primitive::<i32>(vm) {
+                    Ok(errno) => {
+                        let excs = &vm.ctx.exceptions;
+                        let error = match errno {
+                            errors::EWOULDBLOCK => Some(excs.blocking_io_error.clone()),
+                            errors::EALREADY => Some(excs.blocking_io_error.clone()),
+                            errors::EINPROGRESS => Some(excs.blocking_io_error.clone()),
+                            errors::EPIPE => Some(excs.broken_pipe_error.clone()),
+                            errors::ESHUTDOWN => Some(excs.broken_pipe_error.clone()),
+                            errors::ECHILD => Some(excs.child_process_error.clone()),
+                            errors::ECONNABORTED => Some(excs.connection_aborted_error.clone()),
+                            errors::ECONNREFUSED => Some(excs.connection_refused_error.clone()),
+                            errors::ECONNRESET => Some(excs.connection_reset_error.clone()),
+                            errors::EEXIST => Some(excs.file_exists_error.clone()),
+                            errors::ENOENT => Some(excs.file_not_found_error.clone()),
+                            errors::EISDIR => Some(excs.is_a_directory_error.clone()),
+                            errors::ENOTDIR => Some(excs.not_a_directory_error.clone()),
+                            errors::EINTR => Some(excs.interrupted_error.clone()),
+                            errors::EACCES => Some(excs.permission_error.clone()),
+                            errors::EPERM => Some(excs.permission_error.clone()),
+                            errors::ESRCH => Some(excs.process_lookup_error.clone()),
+                            errors::ETIMEDOUT => Some(excs.timeout_error.clone()),
+                            _ => None,
+                        };
+
+                        if error.is_some() {
+                            Some(vm.invoke_exception(error?, args.to_vec()))
+                        } else {
+                            None
+                        }
+                    }
+                    Err(_) => None,
+                },
+                None => None,
+            };
+
+            error
+        } else {
+            None
+        }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    fn os_error_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        // We need this method, because of how `CPython` copies `init`
+        // from `BaseException` in `SimpleExtendsException` macro.
+        // See: `BaseException_new`
+        if cls.name().deref() == vm.ctx.exceptions.os_error.name().deref() {
+            match os_error_optional_new(args.args.to_vec(), vm) {
+                Some(error) => error.unwrap().into_pyresult(vm),
+                None => PyBaseException::slot_new(cls, args, vm),
+            }
+        } else {
+            PyBaseException::slot_new(cls, args, vm)
+        }
+    }
+    #[cfg(target_arch = "wasm32")]
+    fn os_error_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        PyBaseException::slot_new(cls, args, vm)
+    }
+
+    fn base_exception_init(
+        zelf: PyRef<PyBaseException>,
+        args: FuncArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        PyBaseException::init(zelf, args, vm)
+    }
+
     define_exception! {
         PyBlockingIOError,
         PyOSError,

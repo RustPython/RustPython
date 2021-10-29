@@ -7,7 +7,7 @@ mod _codecs {
         builtins::{PyBaseExceptionRef, PyBytes, PyBytesRef, PyStr, PyStrRef, PyTuple},
         codecs,
         function::{ArgBytesLike, FuncArgs},
-        IdProtocol, PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
+        IdProtocol, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
     };
     use std::ops::Range;
 
@@ -21,7 +21,7 @@ mod _codecs {
         vm.state
             .codec_registry
             .lookup(encoding.as_str(), vm)
-            .map(|codec| codec.into_tuple().into_object())
+            .map(|codec| codec.into_tuple().into())
     }
 
     #[derive(FromArgs)]
@@ -89,12 +89,12 @@ mod _codecs {
             }
         }
         #[inline]
-        fn handler_func(&self) -> PyResult<&PyObjectRef> {
+        fn handler_func(&self) -> PyResult<&PyObject> {
             let vm = self.vm;
-            self.handler.get_or_try_init(|| {
+            Ok(self.handler.get_or_try_init(|| {
                 let errors = self.errors.as_ref().map_or("strict", |s| s.as_str());
                 vm.state.codec_registry.lookup_error(errors, vm)
-            })
+            })?)
         }
     }
     impl encodings::StrBuffer for PyStrRef {
@@ -114,15 +114,15 @@ mod _codecs {
             reason: &str,
         ) -> PyResult<(encodings::EncodeReplace<PyStrRef, PyBytesRef>, usize)> {
             let vm = self.vm;
-            let data_str = vm.ctx.new_utf8_str(data);
+            let data_str = vm.ctx.new_str(data).into();
             let encode_exc = vm.new_exception(
                 vm.ctx.exceptions.unicode_encode_error.clone(),
                 vec![
-                    vm.ctx.new_utf8_str(self.encoding),
+                    vm.ctx.new_str(self.encoding).into(),
                     data_str,
-                    vm.ctx.new_int(char_range.start),
-                    vm.ctx.new_int(char_range.end),
-                    vm.ctx.new_utf8_str(reason),
+                    vm.ctx.new_int(char_range.start).into(),
+                    vm.ctx.new_int(char_range.end).into(),
+                    vm.ctx.new_str(reason).into(),
                 ],
             );
             let res = vm.invoke(self.handler_func()?, (encode_exc,))?;
@@ -157,15 +157,15 @@ mod _codecs {
             reason: &str,
         ) -> PyResult<(PyStrRef, Option<PyBytesRef>, usize)> {
             let vm = self.vm;
-            let data_bytes = vm.ctx.new_bytes(data.to_vec());
+            let data_bytes: PyObjectRef = vm.ctx.new_bytes(data.to_vec()).into();
             let decode_exc = vm.new_exception(
                 vm.ctx.exceptions.unicode_decode_error.clone(),
                 vec![
-                    vm.ctx.new_utf8_str(self.encoding),
+                    vm.ctx.new_str(self.encoding).into(),
                     data_bytes.clone(),
-                    vm.ctx.new_int(byte_range.start),
-                    vm.ctx.new_int(byte_range.end),
-                    vm.ctx.new_utf8_str(reason),
+                    vm.ctx.new_int(byte_range.start).into(),
+                    vm.ctx.new_int(byte_range.end).into(),
+                    vm.ctx.new_str(reason).into(),
                 ],
             );
             let res = vm.invoke(self.handler_func()?, (decode_exc.clone(),))?;
@@ -189,7 +189,7 @@ mod _codecs {
                     let replace = replace
                         .downcast_ref::<PyStr>()
                         .ok_or_else(tuple_err)?
-                        .clone();
+                        .to_owned();
                     let restart =
                         isize::try_from_borrowed_object(vm, restart).map_err(|_| tuple_err())?;
                     let restart = if restart < 0 {
@@ -219,11 +219,11 @@ mod _codecs {
             vm.new_exception(
                 vm.ctx.exceptions.unicode_encode_error.clone(),
                 vec![
-                    vm.ctx.new_utf8_str(self.encoding),
-                    vm.ctx.new_utf8_str(data),
-                    vm.ctx.new_int(char_range.start),
-                    vm.ctx.new_int(char_range.end),
-                    vm.ctx.new_utf8_str(reason),
+                    vm.ctx.new_str(self.encoding).into(),
+                    vm.ctx.new_str(data).into(),
+                    vm.ctx.new_int(char_range.start).into(),
+                    vm.ctx.new_int(char_range.end).into(),
+                    vm.ctx.new_str(reason).into(),
                 ],
             )
         }
@@ -350,7 +350,7 @@ mod _codecs {
     ) -> PyResult {
         let f = cell.get_or_try_init(|| {
             let module = vm.import("_pycodecs", None, 0)?;
-            vm.get_attribute(module, name)
+            module.get_attr(name, vm)
         })?;
         vm.invoke(f, args)
     }

@@ -1,12 +1,14 @@
+use crate::{
+    builtins::{pystr::IntoPyStrRef, PyDictRef, PyStrRef},
+    function::IntoPyObject,
+    protocol::PyMapping,
+    ItemProtocol, VirtualMachine,
+};
 use std::fmt;
-
-use crate::builtins::{PyDictRef, PyStr, PyStrRef};
-use crate::VirtualMachine;
-use crate::{IntoPyObject, ItemProtocol, TryIntoRef};
 
 #[derive(Clone)]
 pub struct Scope {
-    pub locals: PyDictRef,
+    pub locals: PyMapping,
     pub globals: PyDictRef,
 }
 
@@ -19,13 +21,13 @@ impl fmt::Debug for Scope {
 
 impl Scope {
     #[inline]
-    pub fn new(locals: Option<PyDictRef>, globals: PyDictRef) -> Scope {
-        let locals = locals.unwrap_or_else(|| globals.clone());
+    pub fn new(locals: Option<PyMapping>, globals: PyDictRef) -> Scope {
+        let locals = locals.unwrap_or_else(|| PyMapping::new(globals.clone().into()));
         Scope { locals, globals }
     }
 
     pub fn with_builtins(
-        locals: Option<PyDictRef>,
+        locals: Option<PyMapping>,
         globals: PyDictRef,
         vm: &VirtualMachine,
     ) -> Scope {
@@ -129,7 +131,7 @@ impl Scope {
     //     if let Some(value) = self.globals.get_item_option(name.clone(), vm).unwrap() {
     //         Some(value)
     //     } else {
-    //         vm.get_attribute(vm.builtins.clone(), name).ok()
+    //         vm.builtins.clone().get_attr(name, vm).ok()
     //     }
     // }
 
@@ -144,7 +146,7 @@ mod sealed {
     impl Sealed for super::PyStrRef {}
 }
 pub trait PyName:
-    sealed::Sealed + crate::dictdatatype::DictKey + Clone + IntoPyObject + TryIntoRef<PyStr>
+    sealed::Sealed + crate::dictdatatype::DictKey + Clone + IntoPyObject + IntoPyStrRef
 {
 }
 impl PyName for &str {}
