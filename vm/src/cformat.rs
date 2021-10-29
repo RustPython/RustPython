@@ -167,16 +167,22 @@ impl CFormatSpec {
         string: String,
         fill_char: char,
         num_prefix_chars: Option<usize>,
+        fill_with_precision: bool,
     ) -> String {
+        let target_width = if fill_with_precision {
+            &self.precision
+        } else {
+            &self.min_field_width
+        };
         let mut num_chars = string.chars().count();
         if let Some(num_prefix_chars) = num_prefix_chars {
             num_chars += num_prefix_chars;
         }
         let num_chars = num_chars;
 
-        let width = match self.min_field_width {
-            Some(CFormatQuantity::Amount(width)) => cmp::max(width, num_chars),
-            _ => num_chars,
+        let width = match target_width {
+            Some(CFormatQuantity::Amount(width)) => cmp::max(width, &num_chars),
+            _ => &num_chars,
         };
         let fill_chars_needed = width.saturating_sub(num_chars);
         let fill_string = CFormatSpec::compute_fill_string(fill_char, fill_chars_needed);
@@ -204,7 +210,7 @@ impl CFormatSpec {
             }
             _ => string,
         };
-        self.fill_string(string, ' ', None)
+        self.fill_string(string, ' ', None, false)
     }
 
     pub(crate) fn format_string(&self, string: String) -> String {
@@ -282,14 +288,16 @@ impl CFormatSpec {
                 self.fill_string(
                     magnitude_string,
                     fill_char,
-                    Some(signed_prefix.chars().count())
-                )
+                    Some(signed_prefix.chars().count()),
+                    false
+                ),
             )
         } else {
             self.fill_string(
                 format!("{}{}{}", sign_string, prefix, magnitude_string),
                 ' ',
                 None,
+                false,
             )
         }
     }
@@ -347,11 +355,17 @@ impl CFormatSpec {
                 self.fill_string(
                     magnitude_string,
                     fill_char,
-                    Some(sign_string.chars().count())
+                    Some(sign_string.chars().count()),
+                    false
                 )
             )
         } else {
-            self.fill_string(format!("{}{}", sign_string, magnitude_string), ' ', None)
+            self.fill_string(
+                format!("{}{}", sign_string, magnitude_string),
+                ' ',
+                None,
+                false,
+            )
         };
 
         formatted
