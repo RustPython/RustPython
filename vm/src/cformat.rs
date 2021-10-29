@@ -440,12 +440,9 @@ impl CFormatSpec {
             CFormatType::Character => {
                 if let Some(i) = obj.payload::<PyInt>() {
                     let ch = i
-                        .as_bigint()
-                        .to_u32()
-                        .and_then(std::char::from_u32)
-                        .ok_or_else(|| {
-                            vm.new_overflow_error("%c arg not in range(0x110000)".to_owned())
-                        })?;
+                        .try_to_primitive::<u8>(vm)
+                        .map_err(|_| vm.new_overflow_error("%c arg not in range(256)".to_owned()))?
+                        as char;
                     return Ok(self.format_char(ch).into_bytes());
                 }
                 if let Some(b) = obj.payload::<PyBytes>() {
