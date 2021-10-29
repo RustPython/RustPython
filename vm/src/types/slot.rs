@@ -4,8 +4,8 @@ use crate::{
     function::{FromArgs, FuncArgs, IntoPyResult, OptionalArg},
     protocol::{PyBuffer, PyIterReturn, PyMappingMethods},
     utils::Either,
-    IdProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
-    VirtualMachine,
+    IdProtocol, PyComparisonValue, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue,
+    TypeProtocol, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::ToPrimitive;
@@ -127,30 +127,30 @@ impl Default for PyTypeFlags {
     }
 }
 
-pub(crate) type GenericMethod = fn(&PyObjectRef, FuncArgs, &VirtualMachine) -> PyResult;
-pub(crate) type AsMappingFunc = fn(&PyObjectRef, &VirtualMachine) -> PyMappingMethods;
-pub(crate) type HashFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<PyHash>;
+pub(crate) type GenericMethod = fn(&PyObject, FuncArgs, &VirtualMachine) -> PyResult;
+pub(crate) type AsMappingFunc = fn(&PyObject, &VirtualMachine) -> PyMappingMethods;
+pub(crate) type HashFunc = fn(&PyObject, &VirtualMachine) -> PyResult<PyHash>;
 // CallFunc = GenericMethod
 pub(crate) type GetattroFunc = fn(PyObjectRef, PyStrRef, &VirtualMachine) -> PyResult;
 pub(crate) type SetattroFunc =
-    fn(&PyObjectRef, PyStrRef, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>;
-pub(crate) type AsBufferFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<PyBuffer>;
+    fn(&PyObject, PyStrRef, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>;
+pub(crate) type AsBufferFunc = fn(&PyObject, &VirtualMachine) -> PyResult<PyBuffer>;
 pub(crate) type RichCompareFunc = fn(
-    &PyObjectRef,
-    &PyObjectRef,
+    &PyObject,
+    &PyObject,
     PyComparisonOp,
     &VirtualMachine,
 ) -> PyResult<Either<PyObjectRef, PyComparisonValue>>;
 pub(crate) type IterFunc = fn(PyObjectRef, &VirtualMachine) -> PyResult;
-pub(crate) type IterNextFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<PyIterReturn>;
+pub(crate) type IterNextFunc = fn(&PyObject, &VirtualMachine) -> PyResult<PyIterReturn>;
 pub(crate) type DescrGetFunc =
     fn(PyObjectRef, Option<PyObjectRef>, Option<PyObjectRef>, &VirtualMachine) -> PyResult;
 pub(crate) type DescrSetFunc =
     fn(PyObjectRef, PyObjectRef, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>;
 pub(crate) type NewFunc = fn(PyTypeRef, FuncArgs, &VirtualMachine) -> PyResult;
-pub(crate) type DelFunc = fn(&PyObjectRef, &VirtualMachine) -> PyResult<()>;
+pub(crate) type DelFunc = fn(&PyObject, &VirtualMachine) -> PyResult<()>;
 
-fn as_mapping_wrapper(zelf: &PyObjectRef, _vm: &VirtualMachine) -> PyMappingMethods {
+fn as_mapping_wrapper(zelf: &PyObject, _vm: &VirtualMachine) -> PyMappingMethods {
     macro_rules! then_some_closure {
         ($cond:expr, $closure:expr) => {
             if $cond {
@@ -192,16 +192,16 @@ fn as_mapping_wrapper(zelf: &PyObjectRef, _vm: &VirtualMachine) -> PyMappingMeth
     }
 }
 
-fn hash_wrapper(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<PyHash> {
-    let hash_obj = vm.call_special_method(zelf.clone(), "__hash__", ())?;
+fn hash_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyHash> {
+    let hash_obj = vm.call_special_method(zelf.to_owned(), "__hash__", ())?;
     match hash_obj.payload_if_subclass::<PyInt>(vm) {
         Some(py_int) => Ok(rustpython_common::hash::hash_bigint(py_int.as_bigint())),
         None => Err(vm.new_type_error("__hash__ method should return an integer".to_owned())),
     }
 }
 
-fn call_wrapper(zelf: &PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-    vm.call_special_method(zelf.clone(), "__call__", args)
+fn call_wrapper(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    vm.call_special_method(zelf.to_owned(), "__call__", args)
 }
 
 fn getattro_wrapper(zelf: PyObjectRef, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
@@ -209,29 +209,30 @@ fn getattro_wrapper(zelf: PyObjectRef, name: PyStrRef, vm: &VirtualMachine) -> P
 }
 
 fn setattro_wrapper(
-    zelf: &PyObjectRef,
+    zelf: &PyObject,
     name: PyStrRef,
     value: Option<PyObjectRef>,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
+    let zelf = zelf.to_owned();
     match value {
         Some(value) => {
-            vm.call_special_method(zelf.clone(), "__setattr__", (name, value))?;
+            vm.call_special_method(zelf, "__setattr__", (name, value))?;
         }
         None => {
-            vm.call_special_method(zelf.clone(), "__delattr__", (name,))?;
+            vm.call_special_method(zelf, "__delattr__", (name,))?;
         }
     };
     Ok(())
 }
 
-fn richcompare_wrapper(
-    zelf: &PyObjectRef,
-    other: &PyObjectRef,
+pub(crate) fn richcompare_wrapper(
+    zelf: &PyObject,
+    other: &PyObject,
     op: PyComparisonOp,
     vm: &VirtualMachine,
 ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
-    vm.call_special_method(zelf.clone(), op.method_name(), (other.clone(),))
+    vm.call_special_method(zelf.to_owned(), op.method_name(), (other.to_owned(),))
         .map(Either::A)
 }
 
@@ -239,8 +240,8 @@ fn iter_wrapper(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     vm.call_special_method(zelf, "__iter__", ())
 }
 
-fn iternext_wrapper(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-    PyIterReturn::from_pyresult(vm.call_special_method(zelf.clone(), "__next__", ()), vm)
+fn iternext_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    PyIterReturn::from_pyresult(vm.call_special_method(zelf.to_owned(), "__next__", ()), vm)
 }
 
 fn descr_get_wrapper(
@@ -267,14 +268,14 @@ fn descr_set_wrapper(
 
 fn new_wrapper(cls: PyTypeRef, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
     let new = vm
-        .get_attribute_opt(cls.as_object().clone(), "__new__")?
+        .get_attribute_opt(cls.as_object().to_owned(), "__new__")?
         .unwrap();
     args.prepend_arg(cls.into());
     vm.invoke(&new, args)
 }
 
-fn del_wrapper(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-    vm.call_special_method(zelf.clone(), "__del__", ())?;
+fn del_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+    vm.call_special_method(zelf.to_owned(), "__del__", ())?;
     Ok(())
 }
 
@@ -363,7 +364,7 @@ where
 pub trait Destructor: PyValue {
     #[inline] // for __del__
     #[pyslot]
-    fn slot_del(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn slot_del(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
         if let Some(zelf) = zelf.downcast_ref() {
             Self::del(zelf, vm)
         } else {
@@ -376,7 +377,7 @@ pub trait Destructor: PyValue {
         Self::slot_del(&zelf, vm)
     }
 
-    fn del(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<()>;
+    fn del(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<()>;
 }
 
 #[pyimpl]
@@ -385,7 +386,7 @@ pub trait Callable: PyValue {
 
     #[inline]
     #[pyslot]
-    fn slot_call(zelf: &PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn slot_call(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         if let Some(zelf) = zelf.downcast_ref() {
             Self::call(zelf, args.bind(vm)?, vm)
         } else {
@@ -395,10 +396,10 @@ pub trait Callable: PyValue {
 
     #[inline]
     #[pymethod]
-    fn __call__(zelf: PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        Self::call(&zelf, args.bind(vm)?, vm)
+    fn __call__(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        Self::slot_call(&zelf, args.bind(vm)?, vm)
     }
-    fn call(zelf: &PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult;
+    fn call(zelf: &PyObjectView<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult;
 }
 
 #[pyimpl]
@@ -476,7 +477,7 @@ pub trait GetDescriptor: PyValue {
 pub trait Hashable: PyValue {
     #[inline]
     #[pyslot]
-    fn slot_hash(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<PyHash> {
+    fn slot_hash(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyHash> {
         if let Some(zelf) = zelf.downcast_ref() {
             Self::hash(zelf, vm)
         } else {
@@ -486,11 +487,11 @@ pub trait Hashable: PyValue {
 
     #[inline]
     #[pymethod]
-    fn __hash__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
-        Self::hash(&zelf, vm)
+    fn __hash__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyHash> {
+        Self::slot_hash(&zelf, vm)
     }
 
-    fn hash(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash>;
+    fn hash(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyHash>;
 }
 
 pub trait Unhashable: PyValue {}
@@ -499,8 +500,13 @@ impl<T> Hashable for T
 where
     T: Unhashable,
 {
-    fn hash(_zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
-        Err(vm.new_type_error(format!("unhashable type: '{}'", _zelf.class().name())))
+    fn slot_hash(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyHash> {
+        Err(vm.new_type_error(format!("unhashable type: '{}'", zelf.class().name())))
+    }
+
+    #[cold]
+    fn hash(_zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyResult<PyHash> {
+        unreachable!("slot_hash is implemented for unhashable types");
     }
 }
 
@@ -509,8 +515,8 @@ pub trait Comparable: PyValue {
     #[inline]
     #[pyslot]
     fn slot_richcompare(
-        zelf: &PyObjectRef,
-        other: &PyObjectRef,
+        zelf: &PyObject,
+        other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
@@ -522,8 +528,8 @@ pub trait Comparable: PyValue {
     }
 
     fn cmp(
-        zelf: &PyRef<Self>,
-        other: &PyObjectRef,
+        zelf: &PyObjectView<Self>,
+        other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue>;
@@ -692,7 +698,7 @@ pub trait GetAttr: PyValue {
         }
     }
 
-    // TODO: make zelf: &PyRef<Self>
+    // TODO: make zelf: &PyObjectView<Self>
     fn getattro(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult;
 
     #[inline]
@@ -707,7 +713,7 @@ pub trait SetAttr: PyValue {
     #[pyslot]
     #[inline]
     fn slot_setattro(
-        obj: &PyObjectRef,
+        obj: &PyObject,
         name: PyStrRef,
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,
@@ -720,7 +726,7 @@ pub trait SetAttr: PyValue {
     }
 
     fn setattro(
-        zelf: &PyRef<Self>,
+        zelf: &PyObjectView<Self>,
         name: PyStrRef,
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,
@@ -749,21 +755,21 @@ pub trait AsBuffer: PyValue {
     // TODO: `flags` parameter
     #[inline]
     #[pyslot]
-    fn slot_as_buffer(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<PyBuffer> {
+    fn slot_as_buffer(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyBuffer> {
         let zelf = zelf
             .downcast_ref()
             .ok_or_else(|| vm.new_type_error("unexpected payload for as_buffer".to_owned()))?;
         Self::as_buffer(zelf, vm)
     }
 
-    fn as_buffer(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyBuffer>;
+    fn as_buffer(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyBuffer>;
 }
 
 #[pyimpl]
 pub trait AsMapping: PyValue {
     #[inline]
     #[pyslot]
-    fn slot_as_mapping(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyMappingMethods {
+    fn slot_as_mapping(zelf: &PyObject, vm: &VirtualMachine) -> PyMappingMethods {
         let zelf = unsafe { zelf.downcast_unchecked_ref::<Self>() };
         Self::as_mapping(zelf, vm)
     }
@@ -780,7 +786,10 @@ pub trait AsMapping: PyValue {
     }
 
     #[inline]
-    fn downcast_ref<'a>(zelf: &'a PyObjectRef, vm: &VirtualMachine) -> PyResult<&'a PyRef<Self>> {
+    fn downcast_ref<'a>(
+        zelf: &'a PyObject,
+        vm: &VirtualMachine,
+    ) -> PyResult<&'a PyObjectView<Self>> {
         zelf.downcast_ref::<Self>().ok_or_else(|| {
             vm.new_type_error(format!(
                 "{} type is required, not {}",
@@ -790,7 +799,7 @@ pub trait AsMapping: PyValue {
         })
     }
 
-    fn as_mapping(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyMappingMethods;
+    fn as_mapping(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyMappingMethods;
 
     fn length(zelf: PyObjectRef, _vm: &VirtualMachine) -> PyResult<usize>;
 
@@ -823,7 +832,7 @@ pub trait Iterable: PyValue {
 #[pyimpl(with(Iterable))]
 pub trait IterNext: PyValue + Iterable {
     #[pyslot]
-    fn slot_iternext(zelf: &PyObjectRef, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn slot_iternext(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         if let Some(zelf) = zelf.downcast_ref() {
             Self::next(zelf, vm)
         } else {
@@ -831,7 +840,7 @@ pub trait IterNext: PyValue + Iterable {
         }
     }
 
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn>;
+    fn next(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn>;
 
     #[inline]
     #[pymethod]

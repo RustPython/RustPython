@@ -144,7 +144,7 @@ impl GetAttr for PySuper {
                         descr.clone(),
                         // Only pass 'obj' param if this is instance-mode super (See https://bugs.python.org/issue743267)
                         if obj.is(&start_type) { None } else { Some(obj) },
-                        Some(start_type.as_object().clone()),
+                        Some(start_type.as_object().to_owned()),
                     )
                     .unwrap_or(Ok(descr));
             }
@@ -186,7 +186,7 @@ fn supercheck(ty: PyTypeRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<
     if obj.isinstance(&ty) {
         return Ok(obj.clone_class());
     }
-    let class_attr = vm.get_attribute(obj, "__class__")?;
+    let class_attr = obj.get_attr("__class__", vm)?;
     if let Ok(cls) = class_attr.downcast::<PyType>() {
         if !cls.is(&ty) && cls.issubclass(&ty) {
             return Ok(cls);

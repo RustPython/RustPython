@@ -164,14 +164,14 @@ mod _winapi {
             ($attr:ident, $t:ty) => {{
                 si.StartupInfo.$attr = <Option<$t>>::try_from_object(
                     vm,
-                    vm.get_attribute(args.startup_info.clone(), stringify!($attr))?,
+                    args.startup_info.clone().get_attr(stringify!($attr), vm)?,
                 )?
                 .unwrap_or(0) as _
             }};
             ($attr:ident) => {{
                 si.StartupInfo.$attr = <Option<_>>::try_from_object(
                     vm,
-                    vm.get_attribute(args.startup_info.clone(), stringify!($attr))?,
+                    args.startup_info.clone().get_attr(stringify!($attr), vm)?,
                 )?
                 .unwrap_or(0)
             }};
@@ -189,7 +189,7 @@ mod _winapi {
         let env = env.as_mut().map_or_else(null_mut, |v| v.as_mut_ptr());
 
         let mut attrlist = getattributelist(
-            vm.get_attribute(args.startup_info.clone(), "lpAttributeList")?,
+            args.startup_info.clone().get_attr("lpAttributeList", vm)?,
             vm,
         )?;
         si.lpAttributeList = attrlist

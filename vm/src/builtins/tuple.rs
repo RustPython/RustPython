@@ -1,4 +1,4 @@
-use super::{PositionIterInternal, PyTypeRef};
+use super::{PositionIterInternal, PyGenericAlias, PyTypeRef};
 use crate::common::hash::PyHash;
 use crate::{
     function::{IntoPyObject, OptionalArg},
@@ -12,7 +12,7 @@ use crate::{
     },
     utils::Either,
     vm::{ReprGuard, VirtualMachine},
-    IdProtocol, PyArithmeticValue, PyClassDef, PyClassImpl, PyComparisonValue, PyContext,
+    IdProtocol, PyArithmeticValue, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObject,
     PyObjectRef, PyRef, PyResult, PyValue, TransmuteFromObject, TryFromObject, TypeProtocol,
 };
 use rustpython_common::lock::PyMutex;
@@ -201,7 +201,7 @@ impl PyTuple {
         let s = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
             let mut str_parts = Vec::with_capacity(zelf.elements.len());
             for elem in zelf.elements.iter() {
-                let s = vm.to_repr(elem)?;
+                let s = elem.repr(vm)?;
                 str_parts.push(s.as_str().to_owned());
             }
 
@@ -303,10 +303,15 @@ impl PyTuple {
         };
         (tup_arg,)
     }
+
+    #[pyclassmethod(magic)]
+    fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+        PyGenericAlias::new(cls, args, vm)
+    }
 }
 
 impl AsMapping for PyTuple {
-    fn as_mapping(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
+    fn as_mapping(_zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
         PyMappingMethods {
             length: Some(Self::length),
             subscript: Some(Self::subscript),
@@ -337,15 +342,15 @@ impl AsMapping for PyTuple {
 
 impl Hashable for PyTuple {
     #[inline]
-    fn hash(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+    fn hash(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
         crate::utils::hash_iter(zelf.elements.iter(), vm)
     }
 }
 
 impl Comparable for PyTuple {
     fn cmp(
-        zelf: &PyRef<Self>,
-        other: &PyObjectRef,
+        zelf: &crate::PyObjectView<Self>,
+        other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
@@ -405,13 +410,11 @@ impl Unconstructible for PyTupleIterator {}
 
 impl IterNextIterable for PyTupleIterator {}
 impl IterNext for PyTupleIterator {
-    fn next(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal.lock().next(|tuple, pos| {
-            Ok(if let Some(ret) = tuple.as_slice().get(pos) {
-                PyIterReturn::Return(ret.clone())
-            } else {
-                PyIterReturn::StopIteration(None)
-            })
+            Ok(PyIterReturn::from_result(
+                tuple.as_slice().get(pos).cloned().ok_or(None),
+            ))
         })
     }
 }

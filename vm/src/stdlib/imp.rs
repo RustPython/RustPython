@@ -72,8 +72,8 @@ mod _imp {
 
     #[pyfunction]
     fn create_builtin(spec: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let sys_modules = vm.get_attribute(vm.sys_module.clone(), "modules").unwrap();
-        let name = vm.get_attribute(spec, "name")?;
+        let sys_modules = vm.sys_module.clone().get_attr("modules", vm).unwrap();
+        let name = spec.get_attr("name", vm)?;
         let name = PyStrRef::try_from_object(vm, name)?;
 
         if let Ok(module) = sys_modules.get_item(name.clone(), vm) {

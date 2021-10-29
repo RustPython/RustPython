@@ -3,10 +3,10 @@ pub(crate) use math::make_module;
 #[pymodule]
 mod math {
     use crate::vm::{
-        builtins::{try_bigint_to_f64, try_f64_to_bigint, PyFloatRef, PyInt, PyIntRef},
+        builtins::{try_bigint_to_f64, try_f64_to_bigint, PyFloat, PyInt, PyIntRef},
         function::{ArgIntoFloat, ArgIterable, OptionalArg, PosArgs},
         utils::Either,
-        PyObjectRef, PyResult, PySequence, TypeProtocol, VirtualMachine,
+        PyObject, PyObjectRef, PyRef, PyResult, PySequence, TypeProtocol, VirtualMachine,
     };
     use num_bigint::BigInt;
     use num_traits::{One, Signed, Zero};
@@ -130,23 +130,48 @@ mod math {
     }
 
     #[pyfunction]
-    fn log(x: ArgIntoFloat, base: OptionalArg<ArgIntoFloat>) -> f64 {
-        base.map_or_else(|| x.to_f64().ln(), |base| x.to_f64().log(base.to_f64()))
+    fn log(x: ArgIntoFloat, base: OptionalArg<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult<f64> {
+        let x = x.to_f64();
+        base.map_or_else(
+            || {
+                if x.is_nan() || x > 0.0_f64 {
+                    Ok(x.ln())
+                } else {
+                    Err(vm.new_value_error("math domain error".to_owned()))
+                }
+            },
+            |base| Ok(x.log(base.to_f64())),
+        )
     }
 
     #[pyfunction]
-    fn log1p(x: ArgIntoFloat) -> f64 {
-        (x.to_f64() + 1.0).ln()
+    fn log1p(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
+        let x = x.to_f64();
+        if x.is_nan() || x > -1.0_f64 {
+            Ok((x + 1.0_f64).ln())
+        } else {
+            Err(vm.new_value_error("math domain error".to_owned()))
+        }
     }
 
     #[pyfunction]
     fn log2(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
-        call_math_func!(log2, x, vm)
+        let x = x.to_f64();
+        if x.is_nan() || x > 0.0_f64 {
+            Ok(x.log2())
+        } else {
+            Err(vm.new_value_error("math domain error".to_owned()))
+        }
     }
 
     #[pyfunction]
     fn log10(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
-        call_math_func!(log10, x, vm)
+        let x = x.to_f64();
+        if x.is_nan() || x > 0.0_f64 {
+            Ok(x.log10())
+        } else {
+            Err(vm.new_value_error("math domain error".to_owned()))
+        }
     }
 
     #[pyfunction]
@@ -345,7 +370,12 @@ mod math {
 
     #[pyfunction]
     fn atanh(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
-        call_math_func!(atanh, x, vm)
+        let x = x.to_f64();
+        if x >= 1.0_f64 || x <= -1.0_f64 {
+            Err(vm.new_value_error("math domain error".to_owned()))
+        } else {
+            Ok(x.atanh())
+        }
     }
 
     #[pyfunction]
@@ -408,8 +438,8 @@ mod math {
         }
     }
 
-    fn try_magic_method(func_name: &str, vm: &VirtualMachine, value: &PyObjectRef) -> PyResult {
-        let method = vm.get_method_or_type_error(value.clone(), func_name, || {
+    fn try_magic_method(func_name: &str, vm: &VirtualMachine, value: &PyObject) -> PyResult {
+        let method = vm.get_method_or_type_error(value.to_owned(), func_name, || {
             format!(
                 "type '{}' doesn't define '{}' method",
                 value.class().name(),
@@ -460,7 +490,11 @@ mod math {
     }
 
     #[pyfunction]
-    fn ldexp(x: Either<PyFloatRef, PyIntRef>, i: PyIntRef, vm: &VirtualMachine) -> PyResult<f64> {
+    fn ldexp(
+        x: Either<PyRef<PyFloat>, PyIntRef>,
+        i: PyIntRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<f64> {
         let value = match x {
             Either::A(f) => f.to_f64(),
             Either::B(z) => try_bigint_to_f64(z.as_bigint(), vm)?,

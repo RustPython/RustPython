@@ -22,14 +22,14 @@ use crate::{
     frozen,
     function::{FuncArgs, IntoFuncArgs, IntoPyObject},
     import,
-    protocol::{PyIterIter, PyIterReturn},
+    protocol::{PyIterIter, PyIterReturn, PyMapping},
     scope::Scope,
     signal::NSIG,
     stdlib,
     types::PyComparisonOp,
-    utils::Either,
-    IdProtocol, ItemProtocol, PyArithmeticValue, PyContext, PyLease, PyMethod, PyObject,
-    PyObjectRef, PyRef, PyRefExact, PyResult, PyValue, TryFromObject, TypeProtocol,
+    IdProtocol, ItemProtocol, PyArithmeticValue, PyContext, PyGenericObject, PyLease, PyMethod,
+    PyObject, PyObjectRef, PyObjectWrap, PyRef, PyRefExact, PyResult, PyValue, TryFromObject,
+    TypeProtocol,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::{Signed, ToPrimitive};
@@ -72,7 +72,7 @@ struct ExceptionStack {
 }
 
 pub(crate) mod thread {
-    use super::{PyObjectRef, TypeProtocol, VirtualMachine};
+    use super::{PyObject, TypeProtocol, VirtualMachine};
     use itertools::Itertools;
     use std::cell::RefCell;
     use std::ptr::NonNull;
@@ -91,7 +91,7 @@ pub(crate) mod thread {
         })
     }
 
-    pub fn with_vm<F, R>(obj: &PyObjectRef, f: F) -> Option<R>
+    pub fn with_vm<F, R>(obj: &PyObject, f: F) -> Option<R>
     where
         F: Fn(&VirtualMachine) -> R,
     {
@@ -249,7 +249,7 @@ impl VirtualMachine {
         // make a new module without access to the vm; doesn't
         // set __spec__, __loader__, etc. attributes
         let new_module =
-            |dict| PyObject::new(PyModule {}, ctx.types.module_type.clone(), Some(dict));
+            |dict| PyGenericObject::new(PyModule {}, ctx.types.module_type.clone(), Some(dict));
 
         // Hard-core modules:
         let builtins_dict = ctx.new_dict();
@@ -360,20 +360,20 @@ impl VirtualMachine {
                         Default::default(),
                         self,
                     )?;
-                    self.set_attr(
-                        &self.sys_module,
+                    self.sys_module.set_attr(
                         format!("__{}__", name), // e.g. __stdin__
                         stdio.clone(),
+                        self,
                     )?;
-                    self.set_attr(&self.sys_module, name, stdio)?;
+                    self.sys_module.set_attr(name, stdio, self)?;
                     Ok(())
                 };
                 set_stdio("stdin", 0, "r")?;
                 set_stdio("stdout", 1, "w")?;
                 set_stdio("stderr", 2, "w")?;
 
-                let io_open = self.get_attribute(io, "open")?;
-                self.set_attr(&self.builtins, "open", io_open)?;
+                let io_open = io.get_attr("open", self)?;
+                self.builtins.set_attr("open", io_open, self)?;
             }
 
             Ok(())
@@ -558,7 +558,7 @@ impl VirtualMachine {
         }
     }
 
-    pub fn current_locals(&self) -> PyResult<PyDictRef> {
+    pub fn current_locals(&self) -> PyResult<PyMapping> {
         self.current_frame()
             .expect("called current_locals but no frames on the stack")
             .locals(self)
@@ -573,7 +573,8 @@ impl VirtualMachine {
 
     pub fn try_class(&self, module: &str, class: &str) -> PyResult<PyTypeRef> {
         let class = self
-            .get_attribute(self.import(module, None, 0)?, class)?
+            .import(module, None, 0)?
+            .get_attr(class, self)?
             .downcast()
             .expect("not a class");
         Ok(class)
@@ -583,8 +584,9 @@ impl VirtualMachine {
         let module = self
             .import(module, None, 0)
             .unwrap_or_else(|_| panic!("unable to import {}", module));
-        let class = self
-            .get_attribute(module.clone(), class)
+        let class = module
+            .clone()
+            .get_attr(class, self)
             .unwrap_or_else(|_| panic!("module {} has no class {}", module, class));
         class.downcast().expect("not a class")
     }
@@ -610,16 +612,14 @@ impl VirtualMachine {
             doc.map(|doc| self.new_pyobj(doc.to_owned()))
                 .unwrap_or_else(|| self.ctx.none()),
         );
-        PyObject::new(PyModule {}, self.ctx.types.module_type.clone(), Some(dict))
+        PyGenericObject::new(PyModule {}, self.ctx.types.module_type.clone(), Some(dict))
     }
 
     /// Instantiate an exception with arguments.
     /// This function should only be used with builtin exception types; if a user-defined exception
-    /// type is passed in, it may not be fully initialized; try using [`exceptions::invoke`]
-    /// or [`exceptions::ExceptionCtor`] instead.
-    ///
-    /// [exceptions::invoke]: rustpython_vm::exceptions::invoke
-    /// [exceptions::ctor]: rustpython_vm::exceptions::ExceptionCtor
+    /// type is passed in, it may not be fully initialized; try using
+    /// [`vm.invoke_exception()`][Self::invoke_exception] or
+    /// [`exceptions::ExceptionCtor`][crate::exceptions::ExceptionCtor] instead.
     pub fn new_exception(&self, exc_type: PyTypeRef, args: Vec<PyObjectRef>) -> PyBaseExceptionRef {
         // TODO: add repr of args into logging?
 
@@ -635,22 +635,18 @@ impl VirtualMachine {
 
     /// Instantiate an exception with no arguments.
     /// This function should only be used with builtin exception types; if a user-defined exception
-    /// type is passed in, it may not be fully initialized; try using [`exceptions::invoke`]
-    /// or [`exceptions::ExceptionCtor`] instead.
-    ///
-    /// [exceptions::invoke]: rustpython_vm::exceptions::invoke
-    /// [exceptions::ctor]: rustpython_vm::exceptions::ExceptionCtor
+    /// type is passed in, it may not be fully initialized; try using
+    /// [`vm.invoke_exception()`][Self::invoke_exception] or
+    /// [`exceptions::ExceptionCtor`][crate::exceptions::ExceptionCtor] instead.
     pub fn new_exception_empty(&self, exc_type: PyTypeRef) -> PyBaseExceptionRef {
         self.new_exception(exc_type, vec![])
     }
 
     /// Instantiate an exception with `msg` as the only argument.
     /// This function should only be used with builtin exception types; if a user-defined exception
-    /// type is passed in, it may not be fully initialized; try using [`exceptions::invoke`]
-    /// or [`exceptions::ExceptionCtor`] instead.
-    ///
-    /// [exceptions::invoke]: rustpython_vm::exceptions::invoke
-    /// [exceptions::ctor]: rustpython_vm::exceptions::ExceptionCtor
+    /// type is passed in, it may not be fully initialized; try using
+    /// [`vm.invoke_exception()`][Self::invoke_exception] or
+    /// [`exceptions::ExceptionCtor`][crate::exceptions::ExceptionCtor] instead.
     pub fn new_exception_msg(&self, exc_type: PyTypeRef, msg: String) -> PyBaseExceptionRef {
         self.new_exception(exc_type, vec![self.ctx.new_str(msg).into()])
     }
@@ -670,12 +666,17 @@ impl VirtualMachine {
         self.new_exception_msg(type_error, msg)
     }
 
-    pub fn new_name_error(&self, msg: String) -> PyBaseExceptionRef {
-        let name_error = self.ctx.exceptions.name_error.clone();
-        self.new_exception_msg(name_error, msg)
+    pub fn new_name_error(&self, msg: String, name: &PyStrRef) -> PyBaseExceptionRef {
+        let name_error_type = self.ctx.exceptions.name_error.clone();
+        let name_error = self.new_exception_msg(name_error_type, msg);
+        name_error
+            .as_object()
+            .set_attr("name", name.clone(), self)
+            .unwrap();
+        name_error
     }
 
-    pub fn new_unsupported_unary_error(&self, a: &PyObjectRef, op: &str) -> PyBaseExceptionRef {
+    pub fn new_unsupported_unary_error(&self, a: &PyObject, op: &str) -> PyBaseExceptionRef {
         self.new_type_error(format!(
             "bad operand type for {}: '{}'",
             op,
@@ -685,8 +686,8 @@ impl VirtualMachine {
 
     pub fn new_unsupported_binop_error(
         &self,
-        a: &PyObjectRef,
-        b: &PyObjectRef,
+        a: &PyObject,
+        b: &PyObject,
         op: &str,
     ) -> PyBaseExceptionRef {
         self.new_type_error(format!(
@@ -699,9 +700,9 @@ impl VirtualMachine {
 
     pub fn new_unsupported_ternop_error(
         &self,
-        a: &PyObjectRef,
-        b: &PyObjectRef,
-        c: &PyObjectRef,
+        a: &PyObject,
+        b: &PyObject,
+        c: &PyObject,
         op: &str,
     ) -> PyBaseExceptionRef {
         self.new_type_error(format!(
@@ -782,29 +783,34 @@ impl VirtualMachine {
         let syntax_error = self.new_exception_msg(syntax_error_type, error.to_string());
         let lineno = self.ctx.new_int(error.location.row());
         let offset = self.ctx.new_int(error.location.column());
-        self.set_attr(syntax_error.as_object(), "lineno", lineno)
+        syntax_error
+            .as_object()
+            .set_attr("lineno", lineno, self)
             .unwrap();
-        self.set_attr(syntax_error.as_object(), "offset", offset)
+        syntax_error
+            .as_object()
+            .set_attr("offset", offset, self)
             .unwrap();
-        self.set_attr(
-            syntax_error.as_object(),
-            "text",
-            error.statement.clone().into_pyobject(self),
-        )
-        .unwrap();
-        self.set_attr(
-            syntax_error.as_object(),
-            "filename",
-            self.ctx.new_str(error.source_path.clone()),
-        )
-        .unwrap();
+        syntax_error
+            .as_object()
+            .set_attr("text", error.statement.clone().into_pyobject(self), self)
+            .unwrap();
+        syntax_error
+            .as_object()
+            .set_attr(
+                "filename",
+                self.ctx.new_str(error.source_path.clone()),
+                self,
+            )
+            .unwrap();
         syntax_error
     }
 
     pub fn new_import_error(&self, msg: String, name: impl IntoPyStrRef) -> PyBaseExceptionRef {
         let import_error = self.ctx.exceptions.import_error.clone();
         let exc = self.new_exception_msg(import_error, msg);
-        self.set_attr(exc.as_object(), "name", name.into_pystr_ref(self))
+        exc.as_object()
+            .set_attr("name", name.into_pystr_ref(self), self)
             .unwrap();
         exc
     }
@@ -878,7 +884,7 @@ impl VirtualMachine {
     }
 
     /// Test whether a python object is `None`.
-    pub fn is_none(&self, obj: &PyObjectRef) -> bool {
+    pub fn is_none(&self, obj: &PyObject) -> bool {
         obj.is(&self.ctx.none)
     }
     pub fn option_if_none(&self, obj: PyObjectRef) -> Option<PyObjectRef> {
@@ -890,23 +896,6 @@ impl VirtualMachine {
     }
     pub fn unwrap_or_none(&self, obj: Option<PyObjectRef>) -> PyObjectRef {
         obj.unwrap_or_else(|| self.ctx.none())
-    }
-
-    // Container of the virtual machine state:
-    pub fn to_str(&self, obj: &PyObjectRef) -> PyResult<PyStrRef> {
-        if obj.class().is(&self.ctx.types.str_type) {
-            Ok(obj.clone().downcast().unwrap())
-        } else {
-            let s = self.call_special_method(obj.clone(), "__str__", ())?;
-            s.try_into_value(self)
-        }
-    }
-
-    pub fn to_repr(&self, obj: &PyObjectRef) -> PyResult<PyStrRef> {
-        self.with_recursion("while getting the repr of an object", || {
-            let repr = self.call_special_method(obj.clone(), "__repr__", ())?;
-            repr.try_into_value(self)
-        })
     }
 
     pub fn to_index_opt(&self, obj: PyObjectRef) -> Option<PyResult<PyIntRef>> {
@@ -923,8 +912,8 @@ impl VirtualMachine {
             }),
         }
     }
-    pub fn to_index(&self, obj: &PyObjectRef) -> PyResult<PyIntRef> {
-        self.to_index_opt(obj.clone()).unwrap_or_else(|| {
+    pub fn to_index(&self, obj: &PyObject) -> PyResult<PyIntRef> {
+        self.to_index_opt(obj.to_owned()).unwrap_or_else(|| {
             Err(self.new_type_error(format!(
                 "'{}' object cannot be interpreted as an integer",
                 obj.class().name()
@@ -957,7 +946,7 @@ impl VirtualMachine {
         let cached_module = if weird {
             None
         } else {
-            let sys_modules = self.get_attribute(self.sys_module.clone(), "modules")?;
+            let sys_modules = self.sys_module.clone().get_attr("modules", self)?;
             sys_modules.get_item(module.clone(), self).ok()
         };
 
@@ -973,11 +962,13 @@ impl VirtualMachine {
                 }
             }
             None => {
-                let import_func = self
-                    .get_attribute(self.builtins.clone(), "__import__")
-                    .map_err(|_| {
-                        self.new_import_error("__import__ not found".to_owned(), module.clone())
-                    })?;
+                let import_func =
+                    self.builtins
+                        .clone()
+                        .get_attr("__import__", self)
+                        .map_err(|_| {
+                            self.new_import_error("__import__ not found".to_owned(), module.clone())
+                        })?;
 
                 let (locals, globals) = if let Some(frame) = self.current_frame() {
                     (Some(frame.locals.clone()), Some(frame.globals.clone()))
@@ -992,170 +983,6 @@ impl VirtualMachine {
                     .map_err(|exc| import::remove_importlib_frames(self, &exc))
             }
         }
-    }
-
-    // Equivalent to check_class. Masks Attribute errors (into TypeErrors) and lets everything
-    // else go through.
-    fn check_cls<F>(&self, cls: &PyObjectRef, msg: F) -> PyResult
-    where
-        F: Fn() -> String,
-    {
-        self.get_attribute(cls.clone(), "__bases__").map_err(|e| {
-            // Only mask AttributeErrors.
-            if e.class().is(&self.ctx.exceptions.attribute_error) {
-                self.new_type_error(msg())
-            } else {
-                e
-            }
-        })
-    }
-
-    fn abstract_isinstance(&self, obj: &PyObjectRef, cls: &PyObjectRef) -> PyResult<bool> {
-        if let Ok(typ) = PyTypeRef::try_from_object(self, cls.clone()) {
-            if obj.class().issubclass(typ.clone()) {
-                Ok(true)
-            } else if let Ok(icls) =
-                PyTypeRef::try_from_object(self, self.get_attribute(obj.clone(), "__class__")?)
-            {
-                if icls.is(&obj.class()) {
-                    Ok(false)
-                } else {
-                    Ok(icls.issubclass(typ))
-                }
-            } else {
-                Ok(false)
-            }
-        } else {
-            self.check_cls(cls, || {
-                format!(
-                    "isinstance() arg 2 must be a type or tuple of types, not {}",
-                    cls.class()
-                )
-            })
-            .and_then(|_| {
-                let icls = self.get_attribute(obj.clone(), "__class__")?;
-                if self.is_none(&icls) {
-                    Ok(false)
-                } else {
-                    self.abstract_issubclass(icls, cls)
-                }
-            })
-        }
-    }
-
-    /// Determines if `obj` is an instance of `cls`, either directly, indirectly or virtually via
-    /// the __instancecheck__ magic method.
-    pub fn isinstance(&self, obj: &PyObjectRef, cls: &PyObjectRef) -> PyResult<bool> {
-        // cpython first does an exact check on the type, although documentation doesn't state that
-        // https://github.com/python/cpython/blob/a24107b04c1277e3c1105f98aff5bfa3a98b33a0/Objects/abstract.c#L2408
-        if obj.class().is(cls) {
-            return Ok(true);
-        }
-
-        if cls.class().is(&self.ctx.types.type_type) {
-            return self.abstract_isinstance(obj, cls);
-        }
-
-        if let Ok(tuple) = PyTupleRef::try_from_object(self, cls.clone()) {
-            for typ in tuple.as_slice().iter() {
-                if self.with_recursion("in __instancecheck__", || self.isinstance(obj, typ))? {
-                    return Ok(true);
-                }
-            }
-            return Ok(false);
-        }
-
-        if let Ok(meth) = self.get_special_method(cls.clone(), "__instancecheck__")? {
-            let ret =
-                self.with_recursion("in __instancecheck__", || meth.invoke((obj.clone(),), self))?;
-            return ret.try_to_bool(self);
-        }
-
-        self.abstract_isinstance(obj, cls)
-    }
-
-    fn abstract_issubclass(&self, subclass: PyObjectRef, cls: &PyObjectRef) -> PyResult<bool> {
-        let mut derived = subclass;
-        loop {
-            if derived.is(cls) {
-                return Ok(true);
-            }
-
-            let bases = self.get_attribute(derived, "__bases__")?;
-            let tuple = PyTupleRef::try_from_object(self, bases)?;
-
-            let n = tuple.len();
-            match n {
-                0 => {
-                    return Ok(false);
-                }
-                1 => {
-                    derived = tuple.fast_getitem(0);
-                    continue;
-                }
-                _ => {
-                    for i in 0..n {
-                        if let Ok(true) = self.abstract_issubclass(tuple.fast_getitem(i), cls) {
-                            return Ok(true);
-                        }
-                    }
-                }
-            }
-
-            return Ok(false);
-        }
-    }
-
-    fn recursive_issubclass(&self, subclass: &PyObjectRef, cls: &PyObjectRef) -> PyResult<bool> {
-        if let (Ok(subclass), Ok(cls)) = (
-            PyTypeRef::try_from_object(self, subclass.clone()),
-            PyTypeRef::try_from_object(self, cls.clone()),
-        ) {
-            Ok(subclass.issubclass(cls))
-        } else {
-            self.check_cls(subclass, || {
-                format!(
-                    "issubclass() arg 1 must be a class, not {}",
-                    subclass.class()
-                )
-            })
-            .and(self.check_cls(cls, || {
-                format!(
-                    "issubclass() arg 2 must be a class or tuple of classes, not {}",
-                    cls.class()
-                )
-            }))
-            .and(self.abstract_issubclass(subclass.clone(), cls))
-        }
-    }
-
-    /// Determines if `subclass` is a subclass of `cls`, either directly, indirectly or virtually
-    /// via the __subclasscheck__ magic method.
-    pub fn issubclass(&self, subclass: &PyObjectRef, cls: &PyObjectRef) -> PyResult<bool> {
-        if cls.class().is(&self.ctx.types.type_type) {
-            if subclass.is(cls) {
-                return Ok(true);
-            }
-            return self.recursive_issubclass(subclass, cls);
-        }
-
-        if let Ok(tuple) = PyTupleRef::try_from_object(self, cls.clone()) {
-            for typ in tuple.as_slice().iter() {
-                if self.with_recursion("in __subclasscheck__", || self.issubclass(subclass, typ))? {
-                    return Ok(true);
-                }
-            }
-            return Ok(false);
-        }
-
-        if let Ok(meth) = self.get_special_method(cls.clone(), "__subclasscheck__")? {
-            let ret = self.with_recursion("in __subclasscheck__", || {
-                meth.invoke((subclass.clone(),), self)
-            })?;
-            return ret.try_to_bool(self);
-        }
-
-        self.recursive_issubclass(subclass, cls)
     }
 
     pub fn call_get_descriptor_specific(
@@ -1185,14 +1012,18 @@ impl VirtualMachine {
     }
 
     #[inline]
-    pub fn call_method<T>(&self, obj: &PyObjectRef, method_name: &str, args: T) -> PyResult
+    pub fn call_method<T>(&self, obj: &PyObject, method_name: &str, args: T) -> PyResult
     where
         T: IntoFuncArgs,
     {
         flame_guard!(format!("call_method({:?})", method_name));
 
-        PyMethod::get(obj.clone(), PyStr::from(method_name).into_ref(self), self)?
-            .invoke(args, self)
+        PyMethod::get(
+            obj.to_owned(),
+            PyStr::from(method_name).into_ref(self),
+            self,
+        )?
+        .invoke(args, self)
     }
 
     pub fn dir(&self, obj: Option<PyObjectRef>) -> PyResult<PyList> {
@@ -1231,7 +1062,7 @@ impl VirtualMachine {
             .invoke(args, self)
     }
 
-    fn _invoke(&self, callable: &PyObjectRef, args: FuncArgs) -> PyResult {
+    fn _invoke(&self, callable: &PyObject, args: FuncArgs) -> PyResult {
         vm_trace!("Invoke: {:?} {:?}", callable, args);
         let slot_call = callable.class().mro_find_map(|cls| cls.slots.call.load());
         match slot_call {
@@ -1251,7 +1082,7 @@ impl VirtualMachine {
     #[inline(always)]
     pub fn invoke<O, A>(&self, func: &O, args: A) -> PyResult
     where
-        O: AsRef<PyObjectRef>,
+        O: AsRef<PyObject>,
         A: IntoFuncArgs,
     {
         self._invoke(func.as_ref(), args.into_args(self))
@@ -1267,8 +1098,8 @@ impl VirtualMachine {
         }
     }
     fn _trace_event_inner(&self, event: TraceEvent) -> PyResult<()> {
-        let trace_func = self.trace_func.borrow().clone();
-        let profile_func = self.profile_func.borrow().clone();
+        let trace_func = self.trace_func.borrow().to_owned();
+        let profile_func = self.profile_func.borrow().to_owned();
         if self.is_none(&trace_func) && self.is_none(&profile_func) {
             return Ok(());
         }
@@ -1278,7 +1109,7 @@ impl VirtualMachine {
             return Ok(());
         }
 
-        let frame = frame_ref.unwrap().as_object().clone();
+        let frame = frame_ref.unwrap().as_object().to_owned();
         let event = self.ctx.new_str(event.to_string()).into();
         let args = vec![frame, event, self.ctx.none()];
 
@@ -1300,7 +1131,7 @@ impl VirtualMachine {
         Ok(())
     }
 
-    pub fn extract_elements_func<T, F>(&self, value: &PyObjectRef, func: F) -> PyResult<Vec<T>>
+    pub fn extract_elements_func<T, F>(&self, value: &PyObject, func: F) -> PyResult<Vec<T>>
     where
         F: Fn(PyObjectRef) -> PyResult<T>,
     {
@@ -1323,19 +1154,15 @@ impl VirtualMachine {
                 .map(|obj| func(obj.clone()))
                 .collect()
         } else {
-            self.map_pyiter(value, |obj| func(obj))
+            self.map_pyiter(value, func)
         }
     }
 
-    pub fn extract_elements<T: TryFromObject>(&self, value: &PyObjectRef) -> PyResult<Vec<T>> {
+    pub fn extract_elements<T: TryFromObject>(&self, value: &PyObject) -> PyResult<Vec<T>> {
         self.extract_elements_func(value, |obj| T::try_from_object(self, obj))
     }
 
-    pub fn map_iterable_object<F, R>(
-        &self,
-        obj: &PyObjectRef,
-        mut f: F,
-    ) -> PyResult<PyResult<Vec<R>>>
+    pub fn map_iterable_object<F, R>(&self, obj: &PyObject, mut f: F) -> PyResult<PyResult<Vec<R>>>
     where
         F: FnMut(PyObjectRef) -> PyResult<R>,
     {
@@ -1369,12 +1196,12 @@ impl VirtualMachine {
         })
     }
 
-    fn map_pyiter<F, R>(&self, value: &PyObjectRef, mut f: F) -> PyResult<Vec<R>>
+    fn map_pyiter<F, R>(&self, value: &PyObject, mut f: F) -> PyResult<Vec<R>>
     where
         F: FnMut(PyObjectRef) -> PyResult<R>,
     {
-        let iter = value.clone().get_iter(self)?;
-        let cap = match self.length_hint(value.clone()) {
+        let iter = value.to_owned().get_iter(self)?;
+        let cap = match self.length_hint_opt(value.to_owned()) {
             Err(e) if e.class().is(&self.ctx.exceptions.runtime_error) => return Err(e),
             Ok(Some(value)) => Some(value),
             // Use a power of 2 as a default capacity.
@@ -1395,21 +1222,6 @@ impl VirtualMachine {
         Ok(results)
     }
 
-    // get_attribute should be used for full attribute access (usually from user code).
-    #[cfg_attr(feature = "flame-it", flame("VirtualMachine"))]
-    pub fn get_attribute<T>(&self, obj: PyObjectRef, attr_name: T) -> PyResult
-    where
-        T: IntoPyStrRef,
-    {
-        let attr_name = attr_name.into_pystr_ref(self);
-        vm_trace!("vm.__getattribute__: {:?} {:?}", obj, attr_name);
-        let getattro = obj
-            .class()
-            .mro_find_map(|cls| cls.slots.getattro.load())
-            .unwrap();
-        getattro(obj, attr_name, self)
-    }
-
     pub fn get_attribute_opt<T>(
         &self,
         obj: PyObjectRef,
@@ -1418,49 +1230,24 @@ impl VirtualMachine {
     where
         T: IntoPyStrRef,
     {
-        match self.get_attribute(obj, attr_name) {
+        match obj.get_attr(attr_name, self) {
             Ok(attr) => Ok(Some(attr)),
             Err(e) if e.isinstance(&self.ctx.exceptions.attribute_error) => Ok(None),
             Err(e) => Err(e),
         }
     }
 
-    pub fn call_set_attr(
+    pub fn set_attribute_error_context(
         &self,
-        obj: &PyObjectRef,
-        attr_name: PyStrRef,
-        attr_value: Option<PyObjectRef>,
-    ) -> PyResult<()> {
-        let setattro = {
-            let cls = obj.class();
-            cls.mro_find_map(|cls| cls.slots.setattro.load())
-                .ok_or_else(|| {
-                    let assign = attr_value.is_some();
-                    let has_getattr = cls.mro_find_map(|cls| cls.slots.getattro.load()).is_some();
-                    self.new_type_error(format!(
-                        "'{}' object has {} attributes ({} {})",
-                        cls.name(),
-                        if has_getattr { "only read-only" } else { "no" },
-                        if assign { "assign to" } else { "del" },
-                        attr_name
-                    ))
-                })?
-        };
-        setattro(obj, attr_name, attr_value, self)
-    }
-
-    pub fn set_attr<K, V>(&self, obj: &PyObjectRef, attr_name: K, attr_value: V) -> PyResult<()>
-    where
-        K: IntoPyStrRef,
-        V: Into<PyObjectRef>,
-    {
-        let attr_name = attr_name.into_pystr_ref(self);
-        self.call_set_attr(obj, attr_name, Some(attr_value.into()))
-    }
-
-    pub fn del_attr(&self, obj: &PyObjectRef, attr_name: impl IntoPyStrRef) -> PyResult<()> {
-        let attr_name = attr_name.into_pystr_ref(self);
-        self.call_set_attr(obj, attr_name, None)
+        exc: &PyBaseExceptionRef,
+        obj: PyObjectRef,
+        name: PyStrRef,
+    ) {
+        if exc.class().is(&self.ctx.exceptions.attribute_error) {
+            let exc = exc.as_object();
+            exc.set_attr("name", name, self).unwrap();
+            exc.set_attr("obj", obj, self).unwrap();
+        }
     }
 
     // get_method should be used for internal access to magic methods (by-passing
@@ -1492,17 +1279,17 @@ impl VirtualMachine {
     /// calls `unsupported` to determine fallback value.
     pub fn call_or_unsupported<F>(
         &self,
-        obj: &PyObjectRef,
-        arg: &PyObjectRef,
+        obj: &PyObject,
+        arg: &PyObject,
         method: &str,
         unsupported: F,
     ) -> PyResult
     where
-        F: Fn(&VirtualMachine, &PyObjectRef, &PyObjectRef) -> PyResult,
+        F: Fn(&VirtualMachine, &PyObject, &PyObject) -> PyResult,
     {
-        if let Some(method_or_err) = self.get_method(obj.clone(), method) {
+        if let Some(method_or_err) = self.get_method(obj.to_owned(), method) {
             let method = method_or_err?;
-            let result = self.invoke(&method, (arg.clone(),))?;
+            let result = self.invoke(&method, (arg.to_owned(),))?;
             if let PyArithmeticValue::Implemented(x) = PyArithmeticValue::from_object(self, result)
             {
                 return Ok(x);
@@ -1523,11 +1310,11 @@ impl VirtualMachine {
     /// 3. If above is not implemented, invokes `unsupported` for the result.
     pub fn call_or_reflection(
         &self,
-        lhs: &PyObjectRef,
-        rhs: &PyObjectRef,
+        lhs: &PyObject,
+        rhs: &PyObject,
         default: &str,
         reflection: &str,
-        unsupported: fn(&VirtualMachine, &PyObjectRef, &PyObjectRef) -> PyResult,
+        unsupported: fn(&VirtualMachine, &PyObject, &PyObject) -> PyResult,
     ) -> PyResult {
         // Try to call the default method
         self.call_or_unsupported(lhs, rhs, default, move |vm, lhs, rhs| {
@@ -1604,7 +1391,7 @@ impl VirtualMachine {
         }
     }
 
-    pub fn is_callable(&self, obj: &PyObjectRef) -> bool {
+    pub fn is_callable(&self, obj: &PyObject) -> bool {
         obj.class()
             .mro_find_map(|cls| cls.slots.call.load())
             .is_some()
@@ -1655,13 +1442,13 @@ impl VirtualMachine {
             .map(|code| PyCode::new(self.map_codeobj(code)).into_ref(self))
     }
 
-    pub fn _sub(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
+    pub fn _sub(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_reflection(a, b, "__sub__", "__rsub__", |vm, a, b| {
             Err(vm.new_unsupported_binop_error(a, b, "-"))
         })
     }
 
-    pub fn _isub(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
+    pub fn _isub(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_unsupported(a, b, "__isub__", |vm, a, b| {
             vm.call_or_reflection(a, b, "__sub__", "__rsub__", |vm, a, b| {
                 Err(vm.new_unsupported_binop_error(a, b, "-="))
@@ -1669,13 +1456,13 @@ impl VirtualMachine {
         })
     }
 
-    pub fn _add(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
+    pub fn _add(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_reflection(a, b, "__add__", "__radd__", |vm, a, b| {
             Err(vm.new_unsupported_binop_error(a, b, "+"))
         })
     }
 
-    pub fn _iadd(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
+    pub fn _iadd(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_unsupported(a, b, "__iadd__", |vm, a, b| {
             vm.call_or_reflection(a, b, "__add__", "__radd__", |vm, a, b| {
                 Err(vm.new_unsupported_binop_error(a, b, "+="))
@@ -1683,13 +1470,13 @@ impl VirtualMachine {
         })
     }
 
-    pub fn _mul(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
+    pub fn _mul(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_reflection(a, b, "__mul__", "__rmul__", |vm, a, b| {
             Err(vm.new_unsupported_binop_error(a, b, "*"))
         })
     }
 
-    pub fn _imul(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
+    pub fn _imul(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_unsupported(a, b, "__imul__", |vm, a, b| {
             vm.call_or_reflection(a, b, "__mul__", "__rmul__", |vm, a, b| {
                 Err(vm.new_unsupported_binop_error(a, b, "*="))
@@ -1697,13 +1484,13 @@ impl VirtualMachine {
         })
     }
 
-    pub fn _matmul(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
+    pub fn _matmul(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_reflection(a, b, "__matmul__", "__rmatmul__", |vm, a, b| {
             Err(vm.new_unsupported_binop_error(a, b, "@"))
         })
     }
 
-    pub fn _imatmul(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
+    pub fn _imatmul(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_unsupported(a, b, "__imatmul__", |vm, a, b| {
             vm.call_or_reflection(a, b, "__matmul__", "__rmatmul__", |vm, a, b| {
                 Err(vm.new_unsupported_binop_error(a, b, "@="))
@@ -1711,13 +1498,13 @@ impl VirtualMachine {
         })
     }
 
-    pub fn _truediv(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
+    pub fn _truediv(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_reflection(a, b, "__truediv__", "__rtruediv__", |vm, a, b| {
             Err(vm.new_unsupported_binop_error(a, b, "/"))
         })
     }
 
-    pub fn _itruediv(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
+    pub fn _itruediv(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_unsupported(a, b, "__itruediv__", |vm, a, b| {
             vm.call_or_reflection(a, b, "__truediv__", "__rtruediv__", |vm, a, b| {
                 Err(vm.new_unsupported_binop_error(a, b, "/="))
@@ -1725,13 +1512,13 @@ impl VirtualMachine {
         })
     }
 
-    pub fn _floordiv(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
+    pub fn _floordiv(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_reflection(a, b, "__floordiv__", "__rfloordiv__", |vm, a, b| {
             Err(vm.new_unsupported_binop_error(a, b, "//"))
         })
     }
 
-    pub fn _ifloordiv(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
+    pub fn _ifloordiv(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_unsupported(a, b, "__ifloordiv__", |vm, a, b| {
             vm.call_or_reflection(a, b, "__floordiv__", "__rfloordiv__", |vm, a, b| {
                 Err(vm.new_unsupported_binop_error(a, b, "//="))
@@ -1739,13 +1526,13 @@ impl VirtualMachine {
         })
     }
 
-    pub fn _pow(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
+    pub fn _pow(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_reflection(a, b, "__pow__", "__rpow__", |vm, a, b| {
             Err(vm.new_unsupported_binop_error(a, b, "**"))
         })
     }
 
-    pub fn _ipow(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
+    pub fn _ipow(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_unsupported(a, b, "__ipow__", |vm, a, b| {
             vm.call_or_reflection(a, b, "__pow__", "__rpow__", |vm, a, b| {
                 Err(vm.new_unsupported_binop_error(a, b, "**="))
@@ -1753,13 +1540,13 @@ impl VirtualMachine {
         })
     }
 
-    pub fn _mod(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
+    pub fn _mod(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_reflection(a, b, "__mod__", "__rmod__", |vm, a, b| {
             Err(vm.new_unsupported_binop_error(a, b, "%"))
         })
     }
 
-    pub fn _imod(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
+    pub fn _imod(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_unsupported(a, b, "__imod__", |vm, a, b| {
             vm.call_or_reflection(a, b, "__mod__", "__rmod__", |vm, a, b| {
                 Err(vm.new_unsupported_binop_error(a, b, "%="))
@@ -1767,19 +1554,19 @@ impl VirtualMachine {
         })
     }
 
-    pub fn _divmod(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
+    pub fn _divmod(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_reflection(a, b, "__divmod__", "__rdivmod__", |vm, a, b| {
             Err(vm.new_unsupported_binop_error(a, b, "divmod"))
         })
     }
 
-    pub fn _lshift(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
+    pub fn _lshift(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_reflection(a, b, "__lshift__", "__rlshift__", |vm, a, b| {
             Err(vm.new_unsupported_binop_error(a, b, "<<"))
         })
     }
 
-    pub fn _ilshift(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
+    pub fn _ilshift(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_unsupported(a, b, "__ilshift__", |vm, a, b| {
             vm.call_or_reflection(a, b, "__lshift__", "__rlshift__", |vm, a, b| {
                 Err(vm.new_unsupported_binop_error(a, b, "<<="))
@@ -1787,13 +1574,13 @@ impl VirtualMachine {
         })
     }
 
-    pub fn _rshift(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
+    pub fn _rshift(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_reflection(a, b, "__rshift__", "__rrshift__", |vm, a, b| {
             Err(vm.new_unsupported_binop_error(a, b, ">>"))
         })
     }
 
-    pub fn _irshift(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
+    pub fn _irshift(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_unsupported(a, b, "__irshift__", |vm, a, b| {
             vm.call_or_reflection(a, b, "__rshift__", "__rrshift__", |vm, a, b| {
                 Err(vm.new_unsupported_binop_error(a, b, ">>="))
@@ -1801,13 +1588,13 @@ impl VirtualMachine {
         })
     }
 
-    pub fn _xor(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
+    pub fn _xor(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_reflection(a, b, "__xor__", "__rxor__", |vm, a, b| {
             Err(vm.new_unsupported_binop_error(a, b, "^"))
         })
     }
 
-    pub fn _ixor(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
+    pub fn _ixor(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_unsupported(a, b, "__ixor__", |vm, a, b| {
             vm.call_or_reflection(a, b, "__xor__", "__rxor__", |vm, a, b| {
                 Err(vm.new_unsupported_binop_error(a, b, "^="))
@@ -1815,13 +1602,13 @@ impl VirtualMachine {
         })
     }
 
-    pub fn _or(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
+    pub fn _or(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_reflection(a, b, "__or__", "__ror__", |vm, a, b| {
             Err(vm.new_unsupported_binop_error(a, b, "|"))
         })
     }
 
-    pub fn _ior(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
+    pub fn _ior(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_unsupported(a, b, "__ior__", |vm, a, b| {
             vm.call_or_reflection(a, b, "__or__", "__ror__", |vm, a, b| {
                 Err(vm.new_unsupported_binop_error(a, b, "|="))
@@ -1829,13 +1616,13 @@ impl VirtualMachine {
         })
     }
 
-    pub fn _and(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
+    pub fn _and(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_reflection(a, b, "__and__", "__rand__", |vm, a, b| {
             Err(vm.new_unsupported_binop_error(a, b, "&"))
         })
     }
 
-    pub fn _iand(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult {
+    pub fn _iand(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_unsupported(a, b, "__iand__", |vm, a, b| {
             vm.call_or_reflection(a, b, "__and__", "__rand__", |vm, a, b| {
                 Err(vm.new_unsupported_binop_error(a, b, "&="))
@@ -1843,103 +1630,32 @@ impl VirtualMachine {
         })
     }
 
-    pub fn _abs(&self, a: &PyObjectRef) -> PyResult<PyObjectRef> {
-        self.get_special_method(a.clone(), "__abs__")?
+    pub fn _abs(&self, a: &PyObject) -> PyResult<PyObjectRef> {
+        self.get_special_method(a.to_owned(), "__abs__")?
             .map_err(|_| self.new_unsupported_unary_error(a, "abs()"))?
             .invoke((), self)
     }
 
-    pub fn _pos(&self, a: &PyObjectRef) -> PyResult {
-        self.get_special_method(a.clone(), "__pos__")?
+    pub fn _pos(&self, a: &PyObject) -> PyResult {
+        self.get_special_method(a.to_owned(), "__pos__")?
             .map_err(|_| self.new_unsupported_unary_error(a, "unary +"))?
             .invoke((), self)
     }
 
-    pub fn _neg(&self, a: &PyObjectRef) -> PyResult {
-        self.get_special_method(a.clone(), "__neg__")?
+    pub fn _neg(&self, a: &PyObject) -> PyResult {
+        self.get_special_method(a.to_owned(), "__neg__")?
             .map_err(|_| self.new_unsupported_unary_error(a, "unary -"))?
             .invoke((), self)
     }
 
-    pub fn _invert(&self, a: &PyObjectRef) -> PyResult {
-        self.get_special_method(a.clone(), "__invert__")?
+    pub fn _invert(&self, a: &PyObject) -> PyResult {
+        self.get_special_method(a.to_owned(), "__invert__")?
             .map_err(|_| self.new_unsupported_unary_error(a, "unary ~"))?
             .invoke((), self)
     }
 
-    // Perform a comparison, raising TypeError when the requested comparison
-    // operator is not supported.
-    // see: CPython PyObject_RichCompare
-    fn _cmp(
-        &self,
-        v: &PyObjectRef,
-        w: &PyObjectRef,
-        op: PyComparisonOp,
-    ) -> PyResult<Either<PyObjectRef, bool>> {
-        let swapped = op.swapped();
-        let call_cmp = |obj: &PyObjectRef, other, op| {
-            let cmp = obj
-                .class()
-                .mro_find_map(|cls| cls.slots.richcompare.load())
-                .unwrap();
-            Ok(match cmp(obj, other, op, self)? {
-                Either::A(obj) => PyArithmeticValue::from_object(self, obj).map(Either::A),
-                Either::B(arithmetic) => arithmetic.map(Either::B),
-            })
-        };
-
-        let mut checked_reverse_op = false;
-        let is_strict_subclass = {
-            let v_class = v.class();
-            let w_class = w.class();
-            !v_class.is(&w_class) && w_class.issubclass(&v_class)
-        };
-        if is_strict_subclass {
-            let res = self.with_recursion("in comparison", || call_cmp(w, v, swapped))?;
-            checked_reverse_op = true;
-            if let PyArithmeticValue::Implemented(x) = res {
-                return Ok(x);
-            }
-        }
-        if let PyArithmeticValue::Implemented(x) =
-            self.with_recursion("in comparison", || call_cmp(v, w, op))?
-        {
-            return Ok(x);
-        }
-        if !checked_reverse_op {
-            let res = self.with_recursion("in comparison", || call_cmp(w, v, swapped))?;
-            if let PyArithmeticValue::Implemented(x) = res {
-                return Ok(x);
-            }
-        }
-        match op {
-            PyComparisonOp::Eq => Ok(Either::B(v.is(&w))),
-            PyComparisonOp::Ne => Ok(Either::B(!v.is(&w))),
-            _ => Err(self.new_unsupported_binop_error(v, w, op.operator_token())),
-        }
-    }
-
-    pub fn bool_cmp(&self, a: &PyObjectRef, b: &PyObjectRef, op: PyComparisonOp) -> PyResult<bool> {
-        match self._cmp(a, b, op)? {
-            Either::A(obj) => obj.try_to_bool(self),
-            Either::B(b) => Ok(b),
-        }
-    }
-
-    pub fn obj_cmp(&self, a: PyObjectRef, b: PyObjectRef, op: PyComparisonOp) -> PyResult {
-        self._cmp(&a, &b, op).map(|res| res.into_pyobject(self))
-    }
-
-    pub fn _hash(&self, obj: &PyObjectRef) -> PyResult<rustpython_common::hash::PyHash> {
-        let hash = obj
-            .class()
-            .mro_find_map(|cls| cls.slots.hash.load())
-            .unwrap(); // hash always exist
-        hash(obj, self)
-    }
-
-    pub fn obj_len_opt(&self, obj: &PyObjectRef) -> Option<PyResult<usize>> {
-        self.get_special_method(obj.clone(), "__len__")
+    pub fn obj_len_opt(&self, obj: &PyObject) -> Option<PyResult<usize>> {
+        self.get_special_method(obj.to_owned(), "__len__")
             .map(Result::ok)
             .transpose()
             .map(|meth| {
@@ -1965,16 +1681,7 @@ impl VirtualMachine {
             })
     }
 
-    pub fn obj_len(&self, obj: &PyObjectRef) -> PyResult<usize> {
-        self.obj_len_opt(obj).unwrap_or_else(|| {
-            Err(self.new_type_error(format!(
-                "object of type '{}' has no len()",
-                obj.class().name()
-            )))
-        })
-    }
-
-    pub fn length_hint(&self, iter: PyObjectRef) -> PyResult<Option<usize>> {
+    pub fn length_hint_opt(&self, iter: PyObjectRef) -> PyResult<Option<usize>> {
         if let Some(len) = self.obj_len_opt(&iter) {
             match len {
                 Ok(len) => return Ok(Some(len)),
@@ -2116,11 +1823,11 @@ impl VirtualMachine {
         }
     }
 
-    pub fn bool_eq(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult<bool> {
-        self.bool_cmp(a, b, PyComparisonOp::Eq)
+    pub fn bool_eq(&self, a: &PyObject, b: &PyObject) -> PyResult<bool> {
+        a.rich_compare_bool(b, PyComparisonOp::Eq, self)
     }
 
-    pub fn identical_or_equal(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult<bool> {
+    pub fn identical_or_equal(&self, a: &PyObject, b: &PyObject) -> PyResult<bool> {
         if a.is(b) {
             Ok(true)
         } else {
@@ -2128,8 +1835,8 @@ impl VirtualMachine {
         }
     }
 
-    pub fn bool_seq_lt(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult<Option<bool>> {
-        let value = if self.bool_cmp(a, b, PyComparisonOp::Lt)? {
+    pub fn bool_seq_lt(&self, a: &PyObject, b: &PyObject) -> PyResult<Option<bool>> {
+        let value = if a.rich_compare_bool(b, PyComparisonOp::Lt, self)? {
             Some(true)
         } else if !self.bool_eq(a, b)? {
             Some(false)
@@ -2139,8 +1846,8 @@ impl VirtualMachine {
         Ok(value)
     }
 
-    pub fn bool_seq_gt(&self, a: &PyObjectRef, b: &PyObjectRef) -> PyResult<Option<bool>> {
-        let value = if self.bool_cmp(a, b, PyComparisonOp::Gt)? {
+    pub fn bool_seq_gt(&self, a: &PyObject, b: &PyObject) -> PyResult<Option<bool>> {
+        let value = if a.rich_compare_bool(b, PyComparisonOp::Gt, self)? {
             Some(true)
         } else if !self.bool_eq(a, b)? {
             Some(false)
@@ -2167,7 +1874,7 @@ impl VirtualMachine {
     #[doc(hidden)]
     pub fn __module_set_attr(
         &self,
-        module: &PyObjectRef,
+        module: &PyObject,
         attr_name: impl IntoPyStrRef,
         attr_value: impl Into<PyObjectRef>,
     ) -> PyResult<()> {
@@ -2189,7 +1896,10 @@ mod sealed {
 }
 
 /// A sealed marker trait for `DictKey` types that always become an exact instance of `str`
-pub trait Internable: sealed::SealedInternable + crate::dictdatatype::DictKey {}
+pub trait Internable:
+    sealed::SealedInternable + crate::dictdatatype::DictKey + IntoPyObject
+{
+}
 
 impl Internable for String {}
 
@@ -2206,11 +1916,11 @@ pub struct ReprGuard<'vm> {
 impl<'vm> ReprGuard<'vm> {
     /// Returns None if the guard against 'obj' is still held otherwise returns the guard. The guard
     /// which is released if dropped.
-    pub fn enter(vm: &'vm VirtualMachine, obj: &PyObjectRef) -> Option<Self> {
+    pub fn enter(vm: &'vm VirtualMachine, obj: &PyObject) -> Option<Self> {
         let mut guards = vm.repr_guards.borrow_mut();
 
         // Should this be a flag on the obj itself? putting it in a global variable for now until it
-        // decided the form of the PyObject. https://github.com/RustPython/RustPython/issues/371
+        // decided the form of the PyGenericObject. https://github.com/RustPython/RustPython/issues/371
         let id = obj.get_id();
         if guards.contains(&id) {
             return None;
@@ -2328,15 +2038,15 @@ impl PyThread {
 
 #[cfg(test)]
 mod tests {
-    use super::Interpreter;
-    use crate::builtins::{int, PyStr};
+    use super::*;
+    use crate::builtins::int;
     use num_bigint::ToBigInt;
 
     #[test]
     fn test_add_py_integers() {
         Interpreter::default().enter(|vm| {
-            let a = vm.ctx.new_int(33_i32).into();
-            let b = vm.ctx.new_int(12_i32).into();
+            let a: PyObjectRef = vm.ctx.new_int(33_i32).into();
+            let b: PyObjectRef = vm.ctx.new_int(12_i32).into();
             let res = vm._add(&a, &b).unwrap();
             let value = int::get_value(&res);
             assert_eq!(*value, 45_i32.to_bigint().unwrap());

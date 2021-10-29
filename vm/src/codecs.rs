@@ -2,7 +2,8 @@ use crate::{
     builtins::{PyBaseExceptionRef, PyBytesRef, PyStr, PyStrRef, PyTuple, PyTupleRef},
     common::{ascii, lock::PyRwLock},
     function::IntoPyObject,
-    PyContext, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
+    PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    VirtualMachine,
 };
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -42,11 +43,11 @@ impl PyCodec {
     }
 
     #[inline]
-    pub fn get_encode_func(&self) -> &PyObjectRef {
+    pub fn get_encode_func(&self) -> &PyObject {
         &self.0.as_slice()[0]
     }
     #[inline]
-    pub fn get_decode_func(&self) -> &PyObjectRef {
+    pub fn get_decode_func(&self) -> &PyObject {
         &self.0.as_slice()[1]
     }
 
@@ -172,7 +173,8 @@ impl CodecsRegistry {
                 ctx.new_function("surrogateescape_errors", surrogateescape_errors),
             ),
         ];
-        let errors = std::array::IntoIter::new(errors)
+        let errors = errors
+            .into_iter()
             .map(|(name, f)| (name.to_owned(), f.into()))
             .collect();
         let inner = RegistryInner {
@@ -332,20 +334,20 @@ fn normalize_encoding_name(encoding: &str) -> Cow<'_, str> {
 }
 
 // TODO: exceptions with custom payloads
-fn extract_unicode_error_range(err: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Range<usize>> {
-    let start = vm.get_attribute(err.clone(), "start")?;
+fn extract_unicode_error_range(err: &PyObject, vm: &VirtualMachine) -> PyResult<Range<usize>> {
+    let start = err.to_owned().get_attr("start", vm)?;
     let start = start.try_into_value(vm)?;
-    let end = vm.get_attribute(err.clone(), "end")?;
+    let end = err.to_owned().get_attr("end", vm)?;
     let end = end.try_into_value(vm)?;
     Ok(Range { start, end })
 }
 
 #[inline]
-fn is_decode_err(err: &PyObjectRef, vm: &VirtualMachine) -> bool {
+fn is_decode_err(err: &PyObject, vm: &VirtualMachine) -> bool {
     err.isinstance(&vm.ctx.exceptions.unicode_decode_error)
 }
 #[inline]
-fn is_encode_ish_err(err: &PyObjectRef, vm: &VirtualMachine) -> bool {
+fn is_encode_ish_err(err: &PyObject, vm: &VirtualMachine) -> bool {
     err.isinstance(&vm.ctx.exceptions.unicode_encode_error)
         || err.isinstance(&vm.ctx.exceptions.unicode_translate_error)
 }
@@ -396,7 +398,7 @@ fn xmlcharrefreplace_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(
         return Err(bad_err_type(err, vm));
     }
     let range = extract_unicode_error_range(&err, vm)?;
-    let s = PyStrRef::try_from_object(vm, vm.get_attribute(err, "object")?)?;
+    let s = PyStrRef::try_from_object(vm, err.get_attr("object", vm)?)?;
     let s_after_start = crate::common::str::try_get_chars(s.as_str(), range.start..).unwrap_or("");
     let num_chars = range.len();
     // capacity rough guess; assuming that the codepoints are 3 digits in decimal + the &#;
@@ -411,7 +413,7 @@ fn xmlcharrefreplace_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(
 fn backslashreplace_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(String, usize)> {
     if is_decode_err(&err, vm) {
         let range = extract_unicode_error_range(&err, vm)?;
-        let b = PyBytesRef::try_from_object(vm, vm.get_attribute(err, "object")?)?;
+        let b = PyBytesRef::try_from_object(vm, err.get_attr("object", vm)?)?;
         let mut replace = String::with_capacity(4 * range.len());
         for &c in &b[range.clone()] {
             use std::fmt::Write;
@@ -422,7 +424,7 @@ fn backslashreplace_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(S
         return Err(bad_err_type(err, vm));
     }
     let range = extract_unicode_error_range(&err, vm)?;
-    let s = PyStrRef::try_from_object(vm, vm.get_attribute(err, "object")?)?;
+    let s = PyStrRef::try_from_object(vm, err.get_attr("object", vm)?)?;
     let s_after_start = crate::common::str::try_get_chars(s.as_str(), range.start..).unwrap_or("");
     let num_chars = range.len();
     // minimum 4 output bytes per char: \xNN
@@ -444,7 +446,7 @@ fn backslashreplace_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(S
 fn namereplace_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(String, usize)> {
     if err.isinstance(&vm.ctx.exceptions.unicode_encode_error) {
         let range = extract_unicode_error_range(&err, vm)?;
-        let s = PyStrRef::try_from_object(vm, vm.get_attribute(err, "object")?)?;
+        let s = PyStrRef::try_from_object(vm, err.get_attr("object", vm)?)?;
         let s_after_start =
             crate::common::str::try_get_chars(s.as_str(), range.start..).unwrap_or("");
         let num_chars = range.len();
@@ -539,8 +541,8 @@ fn get_standard_encoding(encoding: &str) -> (usize, StandardEncoding) {
 fn surrogatepass_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(String, usize)> {
     if err.isinstance(&vm.ctx.exceptions.unicode_encode_error) {
         let range = extract_unicode_error_range(&err, vm)?;
-        let s = PyStrRef::try_from_object(vm, vm.get_attribute(err.clone(), "object")?)?;
-        let s_encoding = PyStrRef::try_from_object(vm, vm.get_attribute(err.clone(), "encoding")?)?;
+        let s = PyStrRef::try_from_object(vm, err.clone().get_attr("object", vm)?)?;
+        let s_encoding = PyStrRef::try_from_object(vm, err.clone().get_attr("encoding", vm)?)?;
         let (_, standard_encoding) = get_standard_encoding(s_encoding.as_str());
         if let StandardEncoding::Unknown = standard_encoding {
             // Not supported, fail with original exception
@@ -590,8 +592,8 @@ fn surrogatepass_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(Stri
         Ok((out, range.end))
     } else if is_decode_err(&err, vm) {
         let range = extract_unicode_error_range(&err, vm)?;
-        let s = PyStrRef::try_from_object(vm, vm.get_attribute(err.clone(), "object")?)?;
-        let s_encoding = PyStrRef::try_from_object(vm, vm.get_attribute(err.clone(), "encoding")?)?;
+        let s = PyStrRef::try_from_object(vm, err.clone().get_attr("object", vm)?)?;
+        let s_encoding = PyStrRef::try_from_object(vm, err.clone().get_attr("encoding", vm)?)?;
         let (byte_length, standard_encoding) = get_standard_encoding(s_encoding.as_str());
         if let StandardEncoding::Unknown = standard_encoding {
             // Not supported, fail with original exception
@@ -652,7 +654,7 @@ fn surrogatepass_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(Stri
 fn surrogateescape_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(String, usize)> {
     if err.isinstance(&vm.ctx.exceptions.unicode_encode_error) {
         let range = extract_unicode_error_range(&err, vm)?;
-        let s = PyStrRef::try_from_object(vm, vm.get_attribute(err.clone(), "object")?)?;
+        let s = PyStrRef::try_from_object(vm, err.clone().get_attr("object", vm)?)?;
         let s_after_start =
             crate::common::str::try_get_chars(s.as_str(), range.start..).unwrap_or("");
         let num_chars = range.len();
@@ -668,7 +670,7 @@ fn surrogateescape_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(St
         Ok((out, range.end))
     } else if is_decode_err(&err, vm) {
         let range = extract_unicode_error_range(&err, vm)?;
-        let s = PyStrRef::try_from_object(vm, vm.get_attribute(err.clone(), "object")?)?;
+        let s = PyStrRef::try_from_object(vm, err.clone().get_attr("object", vm)?)?;
         let s_after_start = crate::common::str::try_get_chars(s.as_str(), range.start..)
             .unwrap_or("")
             .as_bytes();

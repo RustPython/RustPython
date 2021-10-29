@@ -1,4 +1,4 @@
-use super::{PyDict, PyList, PyStrRef, PyTuple, PyTypeRef};
+use super::{PyDict, PyGenericAlias, PyList, PyStrRef, PyTuple, PyTypeRef};
 use crate::{
     function::{IntoPyObject, OptionalArg},
     protocol::{PyMapping, PyMappingMethods},
@@ -37,7 +37,7 @@ impl Constructor for PyMappingProxy {
     type Args = PyObjectRef;
 
     fn py_new(cls: PyTypeRef, mapping: Self::Args, vm: &VirtualMachine) -> PyResult {
-        if !PyMapping::check(&mapping)
+        if !PyMapping::check(&mapping, vm)
             || mapping.payload_if_subclass::<PyList>(vm).is_some()
             || mapping.payload_if_subclass::<PyTuple>(vm).is_some()
         {
@@ -146,12 +146,17 @@ impl PyMappingProxy {
                 PyDict::from_attributes(c.attributes.read().clone(), vm)?.into_pyobject(vm)
             }
         };
-        Ok(format!("mappingproxy({})", vm.to_repr(&obj)?))
+        Ok(format!("mappingproxy({})", obj.repr(vm)?))
+    }
+
+    #[pyclassmethod(magic)]
+    fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+        PyGenericAlias::new(cls, args, vm)
     }
 }
 
 impl AsMapping for PyMappingProxy {
-    fn as_mapping(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
+    fn as_mapping(_zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
         PyMappingMethods {
             length: None,
             subscript: Some(Self::subscript),

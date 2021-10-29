@@ -34,6 +34,42 @@ impl From<BigInt> for Constant {
     }
 }
 
+#[cfg(feature = "rustpython-common")]
+impl std::fmt::Display for Constant {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Constant::None => f.pad("None"),
+            Constant::Bool(b) => f.pad(if *b { "True" } else { "False" }),
+            Constant::Str(s) => rustpython_common::str::repr(s).fmt(f),
+            Constant::Bytes(b) => f.pad(&rustpython_common::bytes::repr(b)),
+            Constant::Int(i) => i.fmt(f),
+            Constant::Tuple(tup) => {
+                if let [elt] = &**tup {
+                    write!(f, "({},)", elt)
+                } else {
+                    f.write_str("(")?;
+                    for (i, elt) in tup.iter().enumerate() {
+                        if i != 0 {
+                            f.write_str(", ")?;
+                        }
+                        elt.fmt(f)?;
+                    }
+                    f.write_str(")")
+                }
+            }
+            Constant::Float(fp) => f.pad(&rustpython_common::float_ops::to_string(*fp)),
+            Constant::Complex { real, imag } => {
+                if *real == 0.0 {
+                    write!(f, "{}j", imag)
+                } else {
+                    write!(f, "({}{:+}j)", real, imag)
+                }
+            }
+            Constant::Ellipsis => f.pad("..."),
+        }
+    }
+}
+
 /// Transforms a value prior to formatting it.
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[repr(u8)]

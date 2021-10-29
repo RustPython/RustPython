@@ -2,7 +2,7 @@ use super::{PyStrRef, PyTypeRef, PyWeak};
 use crate::{
     function::OptionalArg,
     types::{Constructor, SetAttr},
-    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "weakproxy")]
@@ -54,19 +54,19 @@ impl PyWeakProxy {
                 "weakly-referenced object no longer exists".to_owned(),
             )
         })?;
-        vm.get_attribute(obj, attr_name)
+        obj.get_attr(attr_name, vm)
     }
 }
 
 impl SetAttr for PyWeakProxy {
     fn setattro(
-        zelf: &PyRef<Self>,
+        zelf: &crate::PyObjectView<Self>,
         attr_name: PyStrRef,
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         match zelf.weak.upgrade() {
-            Some(obj) => vm.call_set_attr(&obj, attr_name, value),
+            Some(obj) => obj.call_set_attr(vm, attr_name, value),
             None => Err(vm.new_exception_msg(
                 vm.ctx.exceptions.reference_error.clone(),
                 "weakly-referenced object no longer exists".to_owned(),

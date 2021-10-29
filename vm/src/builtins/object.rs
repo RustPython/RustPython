@@ -2,8 +2,8 @@ use super::{PyDict, PyDictRef, PyList, PyStr, PyStrRef, PyType, PyTypeRef};
 use crate::common::hash::PyHash;
 use crate::{
     function::FuncArgs, types::PyComparisonOp, utils::Either, IdProtocol, ItemProtocol,
-    PyArithmeticValue, PyAttributes, PyClassImpl, PyComparisonValue, PyContext, PyObject,
-    PyObjectRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
+    PyArithmeticValue, PyAttributes, PyClassImpl, PyComparisonValue, PyContext, PyGenericObject,
+    PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
 
 /// object()
@@ -34,13 +34,13 @@ impl PyBaseObject {
         } else {
             Some(vm.ctx.new_dict())
         };
-        Ok(PyObject::new(PyBaseObject, cls, dict))
+        Ok(PyGenericObject::new(PyBaseObject, cls, dict))
     }
 
     #[pyslot]
     fn slot_richcompare(
-        zelf: &PyObjectRef,
-        other: &PyObjectRef,
+        zelf: &PyObject,
+        other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
@@ -49,8 +49,8 @@ impl PyBaseObject {
 
     #[inline(always)]
     fn cmp(
-        zelf: &PyObjectRef,
-        other: &PyObjectRef,
+        zelf: &PyObject,
+        other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
@@ -159,18 +159,18 @@ impl PyBaseObject {
 
     #[pyslot]
     fn slot_setattro(
-        obj: &PyObjectRef,
+        obj: &PyObject,
         attr_name: PyStrRef,
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        setattr(obj, attr_name, value, vm)
+        setattr(&*obj, attr_name, value, vm)
     }
 
     /// Return str(self).
     #[pymethod(magic)]
     fn str(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        vm.to_repr(&zelf)
+        zelf.repr(vm)
     }
 
     /// Return repr(self).
@@ -227,7 +227,7 @@ impl PyBaseObject {
     #[pymethod(magic)]
     fn format(obj: PyObjectRef, format_spec: PyStrRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         if format_spec.as_str().is_empty() {
-            vm.to_str(&obj)
+            obj.str(vm)
         } else {
             Err(vm.new_type_error(format!(
                 "unsupported format string passed to {}.__format__",
@@ -286,7 +286,8 @@ impl PyBaseObject {
     fn reduce_ex(obj: PyObjectRef, proto: usize, vm: &VirtualMachine) -> PyResult {
         if let Some(reduce) = vm.get_attribute_opt(obj.clone(), "__reduce__")? {
             let object_reduce = vm.ctx.types.object_type.get_attr("__reduce__").unwrap();
-            let class_reduce = vm.get_attribute(obj.clone_class().into(), "__reduce__")?;
+            let typ_obj: PyObjectRef = obj.clone_class().into();
+            let class_reduce = typ_obj.get_attr("__reduce__", vm)?;
             if !class_reduce.is(&object_reduce) {
                 return vm.invoke(&reduce, ());
             }
@@ -295,7 +296,7 @@ impl PyBaseObject {
     }
 
     #[pyslot]
-    fn slot_hash(zelf: &PyObjectRef, _vm: &VirtualMachine) -> PyResult<PyHash> {
+    fn slot_hash(zelf: &PyObject, _vm: &VirtualMachine) -> PyResult<PyHash> {
         Ok(zelf.get_id() as _)
     }
 
@@ -317,7 +318,7 @@ pub fn object_set_dict(obj: PyObjectRef, dict: PyDictRef, vm: &VirtualMachine) -
 
 #[cfg_attr(feature = "flame-it", flame)]
 pub(crate) fn setattr(
-    obj: &PyObjectRef,
+    obj: &PyObject,
     attr_name: PyStrRef,
     value: Option<PyObjectRef>,
     vm: &VirtualMachine,
@@ -327,7 +328,7 @@ pub(crate) fn setattr(
     if let Some(attr) = obj.get_class_attr(attr_name.as_str()) {
         let descr_set = attr.class().mro_find_map(|cls| cls.slots.descr_set.load());
         if let Some(descriptor) = descr_set {
-            return descriptor(attr, obj.clone(), value, vm);
+            return descriptor(attr, obj.to_owned(), value, vm);
         }
     }
 
@@ -364,11 +365,11 @@ pub fn init(ctx: &PyContext) {
 fn common_reduce(obj: PyObjectRef, proto: usize, vm: &VirtualMachine) -> PyResult {
     if proto >= 2 {
         let reducelib = vm.import("__reducelib", None, 0)?;
-        let reduce_2 = vm.get_attribute(reducelib, "reduce_2")?;
+        let reduce_2 = reducelib.get_attr("reduce_2", vm)?;
         vm.invoke(&reduce_2, (obj,))
     } else {
         let copyreg = vm.import("copyreg", None, 0)?;
-        let reduce_ex = vm.get_attribute(copyreg, "_reduce_ex")?;
+        let reduce_ex = copyreg.get_attr("_reduce_ex", vm)?;
         vm.invoke(&reduce_ex, (obj, proto))
     }
 }

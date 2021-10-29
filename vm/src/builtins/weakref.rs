@@ -1,10 +1,10 @@
-use super::PyTypeRef;
+use super::{PyGenericAlias, PyTypeRef};
 use crate::common::hash::PyHash;
 use crate::{
     function::OptionalArg,
     types::{Callable, Comparable, Constructor, Hashable, PyComparisonOp},
-    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyObjectWeak, PyRef, PyResult, PyValue,
-    TypeProtocol, VirtualMachine,
+    IdProtocol, PyClassImpl, PyContext, PyObject, PyObjectRef, PyObjectWeak, PyRef, PyResult,
+    PyValue, TypeProtocol, VirtualMachine,
 };
 
 use crossbeam_utils::atomic::AtomicCell;
@@ -17,9 +17,9 @@ pub struct PyWeak {
 }
 
 impl PyWeak {
-    pub fn downgrade(obj: &PyObjectRef) -> PyWeak {
+    pub fn downgrade(obj: &PyObject) -> PyWeak {
         PyWeak {
-            referent: PyObjectRef::downgrade(obj),
+            referent: obj.downgrade(),
             hash: AtomicCell::new(None),
         }
     }
@@ -46,7 +46,7 @@ impl PyValue for PyWeak {
 impl Callable for PyWeak {
     type Args = ();
     #[inline]
-    fn call(zelf: &PyRef<Self>, _: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn call(zelf: &crate::PyObjectView<Self>, _: Self::Args, vm: &VirtualMachine) -> PyResult {
         Ok(vm.unwrap_or_none(zelf.upgrade()))
     }
 }
@@ -83,17 +83,22 @@ impl PyWeak {
             format!("<weakref at {:#x}; dead>", id)
         }
     }
+
+    #[pyclassmethod(magic)]
+    fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+        PyGenericAlias::new(cls, args, vm)
+    }
 }
 
 impl Hashable for PyWeak {
-    fn hash(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+    fn hash(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
         match zelf.hash.load() {
             Some(hash) => Ok(hash),
             None => {
                 let obj = zelf
                     .upgrade()
                     .ok_or_else(|| vm.new_type_error("weak object has gone away".to_owned()))?;
-                let hash = vm._hash(&obj)?;
+                let hash = obj.hash(vm)?;
                 zelf.hash.store(Some(hash));
                 Ok(hash)
             }
@@ -103,8 +108,8 @@ impl Hashable for PyWeak {
 
 impl Comparable for PyWeak {
     fn cmp(
-        zelf: &PyRef<Self>,
-        other: &PyObjectRef,
+        zelf: &crate::PyObjectView<Self>,
+        other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<crate::PyComparisonValue> {

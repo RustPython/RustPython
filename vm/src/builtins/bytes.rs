@@ -16,8 +16,8 @@ use crate::{
         IterNextIterable, Iterable, PyComparisonOp, Unconstructible,
     },
     utils::Either,
-    IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromBorrowedObject, TypeProtocol, VirtualMachine,
+    IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyRef, PyResult,
+    PyValue, TryFromBorrowedObject, TypeProtocol, VirtualMachine,
 };
 use bstr::ByteSlice;
 use rustpython_common::{
@@ -542,10 +542,10 @@ impl PyBytes {
 }
 
 impl AsBuffer for PyBytes {
-    fn as_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
+    fn as_buffer(zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
         let buf = PyBuffer::new(
-            zelf.as_object().clone(),
-            zelf.clone(),
+            zelf.as_object().to_owned(),
+            zelf.to_owned(),
             BufferOptions {
                 len: zelf.len(),
                 ..Default::default()
@@ -569,7 +569,7 @@ impl BufferInternal for PyRef<PyBytes> {
 }
 
 impl AsMapping for PyBytes {
-    fn as_mapping(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
+    fn as_mapping(_zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
         PyMappingMethods {
             length: Some(Self::length),
             subscript: Some(Self::subscript),
@@ -600,15 +600,15 @@ impl AsMapping for PyBytes {
 
 impl Hashable for PyBytes {
     #[inline]
-    fn hash(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+    fn hash(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
         Ok(zelf.inner.hash(vm))
     }
 }
 
 impl Comparable for PyBytes {
     fn cmp(
-        zelf: &PyRef<Self>,
-        other: &PyObjectRef,
+        zelf: &crate::PyObjectView<Self>,
+        other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
@@ -676,18 +676,21 @@ impl Unconstructible for PyBytesIterator {}
 
 impl IterNextIterable for PyBytesIterator {}
 impl IterNext for PyBytesIterator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal.lock().next(|bytes, pos| {
-            Ok(match bytes.as_bytes().get(pos) {
-                Some(&x) => PyIterReturn::Return(vm.ctx.new_int(x).into()),
-                None => PyIterReturn::StopIteration(None),
-            })
+            Ok(PyIterReturn::from_result(
+                bytes
+                    .as_bytes()
+                    .get(pos)
+                    .map(|&x| vm.new_pyobj(x))
+                    .ok_or(None),
+            ))
         })
     }
 }
 
 impl TryFromBorrowedObject for PyBytes {
-    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Self> {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
         PyBytesInner::try_from_borrowed_object(vm, obj).map(|x| x.into())
     }
 }

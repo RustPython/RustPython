@@ -3,6 +3,8 @@
 pub mod atomic;
 pub mod borrow;
 pub mod boxvec;
+pub mod bytes;
+pub mod char;
 pub mod cmp;
 pub mod encodings;
 pub mod float_ops;

@@ -17,8 +17,6 @@ class DictSetTest(unittest.TestCase):
         self.assertRaises(TypeError, vt, {})
         self.assertRaises(TypeError, vt)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_dict_keys(self):
         d = {1: 10, "a": "ABC"}
         keys = d.keys()
@@ -39,8 +37,6 @@ class DictSetTest(unittest.TestCase):
         del e["a"]
         self.assertNotEqual(d.keys(), e.keys())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_dict_items(self):
         d = {1: 10, "a": "ABC"}
         items = d.items()

@@ -1,7 +1,7 @@
 use crate::{
     builtins::{PyFloat, PyStr},
     function::{IntoPyException, IntoPyObject},
-    PyObjectRef, PyObjectWrap, PyResult, TryFromObject, TypeProtocol, VirtualMachine,
+    PyObject, PyObjectRef, PyObjectWrap, PyResult, TryFromObject, TypeProtocol, VirtualMachine,
 };
 use num_traits::ToPrimitive;
 
@@ -10,8 +10,8 @@ pub enum Either<A, B> {
     B(B),
 }
 
-impl<A: AsRef<PyObjectRef>, B: AsRef<PyObjectRef>> AsRef<PyObjectRef> for Either<A, B> {
-    fn as_ref(&self) -> &PyObjectRef {
+impl<A: AsRef<PyObject>, B: AsRef<PyObject>> AsRef<PyObject> for Either<A, B> {
+    fn as_ref(&self) -> &PyObject {
         match self {
             Either::A(a) => a.as_ref(),
             Either::B(b) => b.as_ref(),
@@ -75,14 +75,14 @@ pub fn hash_iter<'a, I: IntoIterator<Item = &'a PyObjectRef>>(
     iter: I,
     vm: &VirtualMachine,
 ) -> PyResult<rustpython_common::hash::PyHash> {
-    vm.state.hash_secret.hash_iter(iter, |obj| vm._hash(obj))
+    vm.state.hash_secret.hash_iter(iter, |obj| obj.hash(vm))
 }
 
 pub fn hash_iter_unordered<'a, I: IntoIterator<Item = &'a PyObjectRef>>(
     iter: I,
     vm: &VirtualMachine,
 ) -> PyResult<rustpython_common::hash::PyHash> {
-    rustpython_common::hash::hash_iter_unordered(iter, |obj| vm._hash(obj))
+    rustpython_common::hash::hash_iter_unordered(iter, |obj| obj.hash(vm))
 }
 
 // TODO: find a better place to put this impl

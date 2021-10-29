@@ -183,7 +183,13 @@ impl CompilationSource {
                         }
                     }
                     Err(e)
-                })?;
+                });
+
+                let code = match code {
+                    Ok(code) => code,
+                    Err(_) if stem.starts_with("badsyntax_") => continue,
+                    Err(e) => return Err(e),
+                };
 
                 code_map.insert(
                     module_name,

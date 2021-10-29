@@ -9,7 +9,7 @@ use crate::{
     sliceable::PySliceableSequence,
     types::PyComparisonOp,
     utils::Either,
-    IdProtocol, PyComparisonValue, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject,
+    IdProtocol, PyComparisonValue, PyObject, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject,
     VirtualMachine,
 };
 use bstr::ByteSlice;
@@ -30,7 +30,7 @@ impl From<Vec<u8>> for PyBytesInner {
 }
 
 impl TryFromBorrowedObject for PyBytesInner {
-    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Self> {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
         bytes_from_object(vm, obj).map(Self::from)
     }
 }
@@ -38,11 +38,11 @@ impl TryFromBorrowedObject for PyBytesInner {
 #[derive(FromArgs)]
 pub struct ByteInnerNewOptions {
     #[pyarg(any, optional)]
-    source: OptionalArg<PyObjectRef>,
+    pub source: OptionalArg<PyObjectRef>,
     #[pyarg(any, optional)]
-    encoding: OptionalArg<PyStrRef>,
+    pub encoding: OptionalArg<PyStrRef>,
     #[pyarg(any, optional)]
-    errors: OptionalArg<PyStrRef>,
+    pub errors: OptionalArg<PyStrRef>,
 }
 
 impl ByteInnerNewOptions {
@@ -236,69 +236,11 @@ pub type ByteInnerSplitOptions<'a> = anystr::SplitArgs<'a, PyBytesInner>;
 
 impl PyBytesInner {
     pub fn repr(&self, class_name: Option<&str>) -> String {
-        use std::fmt::Write;
-
-        let (quote, out_len) = {
-            let mut out_len = 0usize;
-            let mut squote = 0;
-            let mut dquote = 0;
-
-            for &ch in self.elements.iter() {
-                let incr = match ch {
-                    b'\'' => {
-                        squote += 1;
-                        1
-                    }
-                    b'"' => {
-                        dquote += 1;
-                        1
-                    }
-                    b'\\' | b'\t' | b'\r' | b'\n' => 2,
-                    0x20..=0x7e => 1,
-                    _ => 4, // \xHH
-                };
-                // TODO: OverflowError
-                out_len = out_len.checked_add(incr).unwrap();
-            }
-
-            let (quote, num_escaped_quotes) = anystr::choose_quotes_for_repr(squote, dquote);
-            // we'll be adding backslashes in front of the existing inner quotes
-            out_len += num_escaped_quotes;
-
-            // 3 is for b prefix + outer quotes
-            out_len += 3 + class_name.map_or(0, |name| name.len() + 2);
-            (quote, out_len)
-        };
-        let mut res = String::with_capacity(out_len);
-        if let Some(name) = class_name {
-            res.push_str(name);
-            res.push('(');
+        if let Some(class_name) = class_name {
+            rustpython_common::bytes::repr_with(&self.elements, &[class_name, "("], ")")
+        } else {
+            rustpython_common::bytes::repr(&self.elements)
         }
-        res.push('b');
-        res.push(quote);
-        for &ch in self.elements.iter() {
-            match ch {
-                b'\t' => res.push_str("\\t"),
-                b'\n' => res.push_str("\\n"),
-                b'\r' => res.push_str("\\r"),
-                // printable ascii range
-                0x20..=0x7e => {
-                    let ch = ch as char;
-                    if ch == quote || ch == '\\' {
-                        res.push('\\');
-                    }
-                    res.push(ch);
-                }
-                _ => write!(res, "\\x{:02x}", ch).unwrap(),
-            }
-        }
-        res.push(quote);
-        if class_name.is_some() {
-            res.push(')');
-        }
-        debug_assert_eq!(res.len(), out_len);
-
-        res
     }
 
     #[inline]
@@ -318,7 +260,7 @@ impl PyBytesInner {
 
     pub fn cmp(
         &self,
-        other: &PyObjectRef,
+        other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyComparisonValue {
@@ -1241,7 +1183,7 @@ pub const fn is_py_ascii_whitespace(b: u8) -> bool {
     matches!(b, b'\t' | b'\n' | b'\x0C' | b'\r' | b' ' | b'\x0B')
 }
 
-pub fn bytes_from_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Vec<u8>> {
+pub fn bytes_from_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Vec<u8>> {
     if let Ok(elements) = obj.try_bytes_like(vm, |bytes| bytes.to_vec()) {
         return Ok(elements);
     }
@@ -1255,7 +1197,7 @@ pub fn bytes_from_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Vec
     ))
 }
 
-pub fn value_from_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<u8> {
+pub fn value_from_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<u8> {
     vm.to_index(obj)?
         .as_bigint()
         .to_u8()

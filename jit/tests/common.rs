@@ -176,8 +176,6 @@ macro_rules! jit_function {
     };
     ($func_name:ident($($arg_name:ident:$arg_type:ty),*) -> $ret_type:ty => $($t:tt)*) => {
         {
-            use std::convert::TryInto;
-
             let jit_code = jit_function!($func_name => $($t)*);
 
             move |$($arg_name:$arg_type),*| -> Result<$ret_type, rustpython_jit::JitArgumentError> {

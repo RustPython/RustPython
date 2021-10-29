@@ -646,7 +646,7 @@ m = MutatingCompare()
 
 l = [1, 2, 3, m, 4]
 m.list = l
-l.count(4) # TODO: assert l.count(4) == 1
+assert l.count(4) == 1
 
 l = [1, 2, 3, m, 4]
 m.list = l

@@ -7,7 +7,6 @@ mod termios {
         function::IntoPyObject,
         PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     };
-    use std::convert::TryFrom;
     use termios::Termios;
 
     // TODO: more ioctl numbers
@@ -67,26 +66,23 @@ mod termios {
         termios::cfsetospeed(&mut termios, ospeed.try_into_value(vm)?)
             .map_err(|e| termios_error(e, vm))?;
         let cc = PyListRef::try_from_object(vm, cc)?;
-        {
-            let cc = cc.borrow_vec();
-            let cc = <&[PyObjectRef; NCCS]>::try_from(&*cc).map_err(|_| {
-                vm.new_type_error(format!(
-                    "tcsetattr: attributes[6] must be {} element list",
-                    NCCS
-                ))
-            })?;
-            for (cc, x) in termios.c_cc.iter_mut().zip(cc.iter()) {
-                *cc = if let Some(c) = x.payload::<PyBytes>().filter(|b| b.as_bytes().len() == 1) {
-                    c.as_bytes()[0] as _
-                } else if let Some(i) = x.payload::<PyInt>() {
-                    i.try_to_primitive(vm)?
-                } else {
-                    return Err(vm.new_type_error(
-                        "tcsetattr: elements of attributes must be characters or integers"
-                            .to_owned(),
-                    ));
-                };
-            }
+        let cc = cc.borrow_vec();
+        let cc = <&[PyObjectRef; NCCS]>::try_from(&*cc).map_err(|_| {
+            vm.new_type_error(format!(
+                "tcsetattr: attributes[6] must be {} element list",
+                NCCS
+            ))
+        })?;
+        for (cc, x) in termios.c_cc.iter_mut().zip(cc.iter()) {
+            *cc = if let Some(c) = x.payload::<PyBytes>().filter(|b| b.as_bytes().len() == 1) {
+                c.as_bytes()[0] as _
+            } else if let Some(i) = x.payload::<PyInt>() {
+                i.try_to_primitive(vm)?
+            } else {
+                return Err(vm.new_type_error(
+                    "tcsetattr: elements of attributes must be characters or integers".to_owned(),
+                ));
+            };
         }
 
         termios::tcsetattr(fd, when, &termios).map_err(|e| termios_error(e, vm))?;

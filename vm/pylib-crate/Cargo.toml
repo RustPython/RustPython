@@ -5,7 +5,7 @@ authors = ["RustPython Team"]
 description = "A subset of the Python standard library for use with RustPython"
 repository = "https://github.com/RustPython/RustPython"
 license-file = "Lib/PSF-LICENSE"
-edition = "2018"
+edition = "2021"
 include = ["Cargo.toml", "src/**/*.rs", "Lib/", "!Lib/**/test/", "!Lib/**/*.pyc"]
 
 [features]

@@ -1,4 +1,4 @@
-use super::{PyCode, PyStrRef, PyTypeRef};
+use super::{PyCode, PyGenericAlias, PyStrRef, PyTypeRef};
 use crate::{
     builtins::PyBaseExceptionRef,
     coroutine::Coro,
@@ -122,6 +122,11 @@ impl PyAsyncGen {
     #[pyproperty]
     fn ag_code(&self, _vm: &VirtualMachine) -> PyRef<PyCode> {
         self.inner.frame().code.clone()
+    }
+
+    #[pyclassmethod(magic)]
+    fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+        PyGenericAlias::new(cls, args, vm)
     }
 }
 impl Unconstructible for PyAsyncGen {}
@@ -259,7 +264,7 @@ impl PyAsyncGenASend {
 
 impl IterNextIterable for PyAsyncGenASend {}
 impl IterNext for PyAsyncGenASend {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         PyIterReturn::from_pyresult(zelf.send(vm.ctx.none(), vm), vm)
     }
 }
@@ -405,7 +410,7 @@ impl PyAsyncGenAThrow {
 
 impl IterNextIterable for PyAsyncGenAThrow {}
 impl IterNext for PyAsyncGenAThrow {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         PyIterReturn::from_pyresult(zelf.send(vm.ctx.none(), vm), vm)
     }
 }

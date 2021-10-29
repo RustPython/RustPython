@@ -2,8 +2,8 @@ use super::{PyInt, PyStrRef, PyTypeRef};
 use crate::{
     function::{IntoPyObject, OptionalArg},
     types::Constructor,
-    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject,
-    TypeProtocol, VirtualMachine,
+    IdProtocol, PyClassImpl, PyContext, PyObject, PyObjectRef, PyResult, PyValue,
+    TryFromBorrowedObject, TypeProtocol, VirtualMachine,
 };
 use num_bigint::Sign;
 use num_traits::Zero;
@@ -16,7 +16,7 @@ impl IntoPyObject for bool {
 }
 
 impl TryFromBorrowedObject for bool {
-    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<bool> {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<bool> {
         if obj.isinstance(&vm.ctx.types.int_type) {
             Ok(get_value(obj))
         } else {
@@ -119,7 +119,7 @@ impl PyBool {
     #[pymethod(magic)]
     fn format(obj: PyObjectRef, format_spec: PyStrRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         if format_spec.as_str().is_empty() {
-            vm.to_str(&obj)
+            obj.str(vm)
         } else {
             Err(vm.new_type_error("unsupported format string passed to bool.__format__".to_owned()))
         }
@@ -166,7 +166,7 @@ pub(crate) fn init(context: &PyContext) {
     PyBool::extend_class(context, &context.types.bool_type);
 }
 
-// pub fn not(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<bool> {
+// pub fn not(vm: &VirtualMachine, obj: &PyObject) -> PyResult<bool> {
 //     if obj.isinstance(&vm.ctx.types.bool_type) {
 //         let value = get_value(obj);
 //         Ok(!value)
@@ -176,10 +176,10 @@ pub(crate) fn init(context: &PyContext) {
 // }
 
 // Retrieve inner int value:
-pub(crate) fn get_value(obj: &PyObjectRef) -> bool {
+pub(crate) fn get_value(obj: &PyObject) -> bool {
     !obj.payload::<PyInt>().unwrap().as_bigint().is_zero()
 }
 
-fn get_py_int(obj: &PyObjectRef) -> &PyInt {
+fn get_py_int(obj: &PyObject) -> &PyInt {
     obj.payload::<PyInt>().unwrap()
 }

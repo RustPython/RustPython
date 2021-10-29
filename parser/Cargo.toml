@@ -6,7 +6,7 @@ authors = [ "RustPython Team" ]
 build = "build.rs"
 repository = "https://github.com/RustPython/RustPython"
 license = "MIT"
-edition = "2018"
+edition = "2021"
 
 [build-dependencies]
 lalrpop = "0.19.6"

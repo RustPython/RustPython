@@ -107,8 +107,8 @@ impl Unconstructible for PyCoroutine {}
 
 impl IterNextIterable for PyCoroutine {}
 impl IterNext for PyCoroutine {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        Self::send(zelf.clone(), vm.ctx.none(), vm)
+    fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        Self::send(zelf.to_owned(), vm.ctx.none(), vm)
     }
 }
 
@@ -146,8 +146,8 @@ impl PyCoroutineWrapper {
 
 impl IterNextIterable for PyCoroutineWrapper {}
 impl IterNext for PyCoroutineWrapper {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        Self::send(zelf.clone(), vm.ctx.none(), vm)
+    fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        Self::send(zelf.to_owned(), vm.ctx.none(), vm)
     }
 }
 

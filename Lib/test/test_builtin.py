@@ -490,8 +490,6 @@ class BuiltinTest(unittest.TestCase):
                 raise ValueError
         self.assertRaises(ValueError, eval, "foo", {}, X())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_general_eval(self):
         # Tests that general mappings can be used for the locals argument
 

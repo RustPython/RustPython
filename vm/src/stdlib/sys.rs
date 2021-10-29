@@ -1,5 +1,5 @@
 use crate::{
-    function::IntoPyObject, ItemProtocol, PyClassImpl, PyObjectRef, PyResult, VirtualMachine,
+    function::IntoPyObject, ItemProtocol, PyClassImpl, PyObject, PyResult, VirtualMachine,
 };
 
 pub(crate) use sys::{MAXSIZE, MULTIARCH};
@@ -11,7 +11,7 @@ mod sys {
         hash::{PyHash, PyUHash},
     };
     use crate::{
-        builtins::{PyDictRef, PyListRef, PyNamespace, PyStr, PyStrRef, PyTupleRef, PyTypeRef},
+        builtins::{PyDictRef, PyNamespace, PyStr, PyStrRef, PyTupleRef, PyTypeRef},
         frame::FrameRef,
         function::{FuncArgs, OptionalArg, PosArgs},
         stdlib::builtins,
@@ -99,15 +99,13 @@ mod sys {
     // alphabetical order with segments of pyattr and others
 
     #[pyattr]
-    fn argv(vm: &VirtualMachine) -> PyListRef {
-        vm.ctx.new_list(
-            vm.state
-                .settings
-                .argv
-                .iter()
-                .map(|arg| vm.ctx.new_str(arg.clone()).into())
-                .collect(),
-        )
+    fn argv(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        vm.state
+            .settings
+            .argv
+            .iter()
+            .map(|arg| vm.ctx.new_str(arg.clone()).into())
+            .collect()
     }
 
     #[pyattr]
@@ -291,11 +289,11 @@ mod sys {
             return Ok(());
         }
         // set to none to avoid recursion while printing
-        vm.set_attr(&vm.builtins, "_", vm.ctx.none())?;
+        vm.builtins.set_attr("_", vm.ctx.none(), vm)?;
         // TODO: catch encoding errors
-        let repr = vm.to_repr(&obj)?.into();
+        let repr = obj.repr(vm)?.into();
         builtins::print(PosArgs::new(vec![repr]), Default::default(), vm)?;
-        vm.set_attr(&vm.builtins, "_", obj)?;
+        vm.builtins.set_attr("_", obj, vm)?;
         Ok(())
     }
 
@@ -337,7 +335,7 @@ mod sys {
 
     #[pyfunction]
     fn getrefcount(obj: PyObjectRef) -> usize {
-        PyObjectRef::strong_count(&obj)
+        obj.strong_count()
     }
 
     #[pyfunction]
@@ -672,7 +670,7 @@ mod sys {
     impl WindowsVersion {}
 }
 
-pub(crate) fn init_module(vm: &VirtualMachine, module: &PyObjectRef, builtins: &PyObjectRef) {
+pub(crate) fn init_module(vm: &VirtualMachine, module: &PyObject, builtins: &PyObject) {
     let ctx = &vm.ctx;
     let _flags_type = sys::Flags::make_class(ctx);
     let _version_info_type = crate::version::VersionInfo::make_class(ctx);
@@ -688,8 +686,10 @@ pub(crate) fn init_module(vm: &VirtualMachine, module: &PyObjectRef, builtins: &
     sys::extend_module(vm, module);
 
     let modules = vm.ctx.new_dict();
-    modules.set_item("sys", module.clone(), vm).unwrap();
-    modules.set_item("builtins", builtins.clone(), vm).unwrap();
+    modules.set_item("sys", module.to_owned(), vm).unwrap();
+    modules
+        .set_item("builtins", builtins.to_owned(), vm)
+        .unwrap();
     extend_module!(vm, module, {
         "__doc__" => sys::DOC.to_owned().into_pyobject(vm),
         "modules" => modules,
@@ -725,15 +725,21 @@ impl PyStderr<'_> {
 }
 
 pub fn get_stdin(vm: &VirtualMachine) -> PyResult {
-    vm.get_attribute(vm.sys_module.clone(), "stdin")
+    vm.sys_module
+        .clone()
+        .get_attr("stdin", vm)
         .map_err(|_| vm.new_runtime_error("lost sys.stdin".to_owned()))
 }
 pub fn get_stdout(vm: &VirtualMachine) -> PyResult {
-    vm.get_attribute(vm.sys_module.clone(), "stdout")
+    vm.sys_module
+        .clone()
+        .get_attr("stdout", vm)
         .map_err(|_| vm.new_runtime_error("lost sys.stdout".to_owned()))
 }
 pub fn get_stderr(vm: &VirtualMachine) -> PyResult {
-    vm.get_attribute(vm.sys_module.clone(), "stderr")
+    vm.sys_module
+        .clone()
+        .get_attr("stderr", vm)
         .map_err(|_| vm.new_runtime_error("lost sys.stderr".to_owned()))
 }
 

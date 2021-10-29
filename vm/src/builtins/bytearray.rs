@@ -28,8 +28,8 @@ use crate::{
         IterNextIterable, Iterable, PyComparisonOp, Unconstructible, Unhashable,
     },
     utils::Either,
-    IdProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
-    PyResult, PyValue, TypeProtocol, VirtualMachine,
+    IdProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef,
+    PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
 use bstr::ByteSlice;
 use crossbeam_utils::atomic::AtomicCell;
@@ -290,7 +290,7 @@ impl PyByteArray {
         }
     }
 
-    fn irepeat(zelf: &PyRef<Self>, n: usize, vm: &VirtualMachine) -> PyResult<()> {
+    fn irepeat(zelf: &crate::PyObjectView<Self>, n: usize, vm: &VirtualMachine) -> PyResult<()> {
         if n == 1 {
             return Ok(());
         }
@@ -696,8 +696,8 @@ impl PyByteArray {
 
 impl Comparable for PyByteArray {
     fn cmp(
-        zelf: &PyRef<Self>,
-        other: &PyObjectRef,
+        zelf: &crate::PyObjectView<Self>,
+        other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
@@ -709,10 +709,10 @@ impl Comparable for PyByteArray {
 }
 
 impl AsBuffer for PyByteArray {
-    fn as_buffer(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
+    fn as_buffer(zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
         let buffer = PyBuffer::new(
-            zelf.as_object().clone(),
-            zelf.clone(),
+            zelf.as_object().to_owned(),
+            zelf.to_owned(),
             BufferOptions {
                 readonly: false,
                 len: zelf.len(),
@@ -756,7 +756,7 @@ impl<'a> BufferResizeGuard<'a> for PyByteArray {
 }
 
 impl AsMapping for PyByteArray {
-    fn as_mapping(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
+    fn as_mapping(_zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
         PyMappingMethods {
             length: Some(Self::length),
             subscript: Some(Self::subscript),
@@ -801,7 +801,7 @@ impl Iterable for PyByteArray {
     }
 }
 
-// fn set_value(obj: &PyObjectRef, value: Vec<u8>) {
+// fn set_value(obj: &PyObject, value: Vec<u8>) {
 //     obj.borrow_mut().kind = PyObjectPayload::Bytes { value };
 // }
 
@@ -841,13 +841,12 @@ impl Unconstructible for PyByteArrayIterator {}
 
 impl IterNextIterable for PyByteArrayIterator {}
 impl IterNext for PyByteArrayIterator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal.lock().next(|bytearray, pos| {
             let buf = bytearray.borrow_buf();
-            Ok(match buf.get(pos) {
-                Some(&x) => PyIterReturn::Return(vm.ctx.new_int(x).into()),
-                None => PyIterReturn::StopIteration(None),
-            })
+            Ok(PyIterReturn::from_result(
+                buf.get(pos).map(|&x| vm.new_pyobj(x)).ok_or(None),
+            ))
         })
     }
 }

@@ -10,10 +10,11 @@ use crate::{
     common::lock::PyMutex,
     frame::Frame,
     function::{FuncArgs, OptionalArg},
+    protocol::PyMapping,
     scope::Scope,
     types::{Callable, Comparable, Constructor, GetAttr, GetDescriptor, PyComparisonOp},
-    IdProtocol, ItemProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef,
-    PyResult, PyValue, TypeProtocol, VirtualMachine,
+    IdProtocol, ItemProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef,
+    PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
 #[cfg(feature = "jit")]
 use crate::{common::lock::OnceCell, function::IntoPyObject};
@@ -267,7 +268,7 @@ impl PyFunction {
     pub fn invoke_with_locals(
         &self,
         func_args: FuncArgs,
-        locals: Option<PyDictRef>,
+        locals: Option<PyMapping>,
         vm: &VirtualMachine,
     ) -> PyResult {
         #[cfg(feature = "jit")]
@@ -287,9 +288,11 @@ impl PyFunction {
         let code = &self.code;
 
         let locals = if self.code.flags.contains(bytecode::CodeFlags::NEW_LOCALS) {
-            vm.ctx.new_dict()
+            PyMapping::new(vm.ctx.new_dict().into())
+        } else if let Some(locals) = locals {
+            locals
         } else {
-            locals.unwrap_or_else(|| self.globals.clone())
+            PyMapping::new(self.globals.clone().into())
         };
 
         // Construct frame:
@@ -374,8 +377,10 @@ impl PyFunction {
 
     #[pymethod(magic)]
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> String {
-        let qualname = vm
-            .get_attribute(zelf.as_object().clone(), "__qualname__")
+        let qualname = zelf
+            .as_object()
+            .to_owned()
+            .get_attr("__qualname__", vm)
             .ok()
             .and_then(|qualname_attr| qualname_attr.downcast::<PyStr>().ok())
             .map(|qualname| qualname.as_str().to_owned())
@@ -417,7 +422,7 @@ impl GetDescriptor for PyFunction {
 impl Callable for PyFunction {
     type Args = FuncArgs;
     #[inline]
-    fn call(zelf: &PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn call(zelf: &crate::PyObjectView<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         zelf.invoke(args, vm)
     }
 }
@@ -432,7 +437,7 @@ pub struct PyBoundMethod {
 impl Callable for PyBoundMethod {
     type Args = FuncArgs;
     #[inline]
-    fn call(zelf: &PyRef<Self>, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn call(zelf: &crate::PyObjectView<Self>, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         args.prepend_arg(zelf.object.clone());
         vm.invoke(&zelf.function, args)
     }
@@ -440,8 +445,8 @@ impl Callable for PyBoundMethod {
 
 impl Comparable for PyBoundMethod {
     fn cmp(
-        zelf: &PyRef<Self>,
-        other: &PyObjectRef,
+        zelf: &crate::PyObjectView<Self>,
+        other: &PyObject,
         op: PyComparisonOp,
         _vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
@@ -459,7 +464,7 @@ impl GetAttr for PyBoundMethod {
         if let Some(obj) = zelf.get_class_attr(name.as_str()) {
             return vm.call_if_get_descriptor(obj, zelf.into());
         }
-        vm.get_attribute(zelf.function.clone(), name)
+        zelf.function.clone().get_attr(name, vm)
     }
 }
 
@@ -511,13 +516,13 @@ impl PyBoundMethod {
         Ok(format!(
             "<bound method {} of {}>",
             funcname.as_ref().map_or("?", |s| s.as_str()),
-            vm.to_repr(&self.object)?.as_str(),
+            &self.object.repr(vm)?.as_str(),
         ))
     }
 
     #[pyproperty(magic)]
     fn doc(&self, vm: &VirtualMachine) -> PyResult {
-        vm.get_attribute(self.function.clone(), "__doc__")
+        self.function.clone().get_attr("__doc__", vm)
     }
 
     #[pyproperty(magic)]
@@ -532,7 +537,7 @@ impl PyBoundMethod {
 
     #[pyproperty(magic)]
     fn module(&self, vm: &VirtualMachine) -> Option<PyObjectRef> {
-        vm.get_attribute(self.function.clone(), "__module__").ok()
+        self.function.clone().get_attr("__module__", vm).ok()
     }
 
     #[pyproperty(magic)]
@@ -554,8 +559,7 @@ impl PyBoundMethod {
                 ))
                 .into());
         }
-
-        vm.get_attribute(self.function.clone(), "__qualname__")
+        self.function.clone().get_attr("__qualname__", vm)
     }
 }
 

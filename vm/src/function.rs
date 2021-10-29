@@ -4,12 +4,11 @@ mod number;
 
 use crate::{
     builtins::{PyBaseExceptionRef, PyTupleRef, PyTypeRef},
-    PyObjectRef, PyRef, PyResult, PyThreadingConstraint, PyValue, TryFromObject, TypeProtocol,
-    VirtualMachine,
+    PyObject, PyObjectRef, PyRef, PyResult, PyThreadingConstraint, PyValue, TryFromObject,
+    TypeProtocol, VirtualMachine,
 };
 use indexmap::IndexMap;
 use itertools::Itertools;
-use result_like::impl_option_like;
 use std::marker::PhantomData;
 use std::ops::RangeInclusive;
 
@@ -357,7 +356,7 @@ impl<T> KwArgs<T> {
         self.0.remove(name)
     }
 }
-impl<T> std::iter::FromIterator<(String, T)> for KwArgs<T> {
+impl<T> FromIterator<(String, T)> for KwArgs<T> {
     fn from_iter<I: IntoIterator<Item = (String, T)>>(iter: I) -> Self {
         KwArgs(iter.into_iter().collect())
     }
@@ -479,13 +478,11 @@ where
 /// An argument that may or may not be provided by the caller.
 ///
 /// This style of argument is not possible in pure Python.
-#[derive(Debug, is_macro::Is)]
+#[derive(Debug, result_like::OptionLike, is_macro::Is)]
 pub enum OptionalArg<T = PyObjectRef> {
     Present(T),
     Missing,
 }
-
-impl_option_like!(OptionalArg, Present, Missing);
 
 impl OptionalArg<PyObjectRef> {
     pub fn unwrap_or_none(self, vm: &VirtualMachine) -> PyObjectRef {
@@ -722,7 +719,7 @@ pub fn single_or_tuple_any<T, F, M>(
 where
     T: TryFromObject,
     F: Fn(&T) -> PyResult<bool>,
-    M: Fn(&PyObjectRef) -> String,
+    M: Fn(&PyObject) -> String,
 {
     match T::try_from_object(vm, obj.clone()) {
         Ok(single) => (predicate)(&single),

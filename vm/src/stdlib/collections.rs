@@ -2,7 +2,7 @@ pub(crate) use _collections::make_module;
 
 #[pymodule]
 mod _collections {
-    use crate::builtins::PositionIterInternal;
+    use crate::builtins::{PositionIterInternal, PyGenericAlias};
     use crate::common::lock::{PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
     use crate::{
         builtins::{
@@ -17,7 +17,8 @@ mod _collections {
             PyComparisonOp, Unhashable,
         },
         vm::ReprGuard,
-        PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
+        PyComparisonValue, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+        VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
@@ -275,7 +276,7 @@ mod _collections {
                 }
             }
             Err(vm.new_value_error(
-                vm.to_repr(&obj)
+                obj.repr(vm)
                     .map(|repr| format!("{} is not in deque", repr))
                     .unwrap_or_else(|_| String::new()),
             ))
@@ -409,7 +410,7 @@ mod _collections {
                 let deque = zelf.borrow_deque().clone();
                 let elements = deque
                     .iter()
-                    .map(|obj| vm.to_repr(obj))
+                    .map(|obj| obj.repr(vm))
                     .collect::<Result<Vec<_>, _>>()?;
                 let maxlen = zelf
                     .maxlen
@@ -528,12 +529,17 @@ mod _collections {
             };
             Ok(vm.new_pyobj((cls, value, vm.ctx.none(), PyDequeIterator::new(zelf))))
         }
+
+        #[pyclassmethod(magic)]
+        fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+            PyGenericAlias::new(cls, args, vm)
+        }
     }
 
     impl Comparable for PyDeque {
         fn cmp(
-            zelf: &PyRef<Self>,
-            other: &PyObjectRef,
+            zelf: &crate::PyObjectView<Self>,
+            other: &PyObject,
             op: PyComparisonOp,
             vm: &VirtualMachine,
         ) -> PyResult<PyComparisonValue> {
@@ -622,16 +628,15 @@ mod _collections {
 
     impl IterNextIterable for PyDequeIterator {}
     impl IterNext for PyDequeIterator {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             zelf.internal.lock().next(|deque, pos| {
                 if zelf.state != deque.state.load() {
                     return Err(vm.new_runtime_error("Deque mutated during iteration".to_owned()));
                 }
                 let deque = deque.borrow_deque();
-                Ok(match deque.get(pos) {
-                    Some(x) => PyIterReturn::Return(x.clone()),
-                    None => PyIterReturn::StopIteration(None),
-                })
+                Ok(PyIterReturn::from_result(
+                    deque.get(pos).cloned().ok_or(None),
+                ))
             })
         }
     }
@@ -689,22 +694,18 @@ mod _collections {
 
     impl IterNextIterable for PyReverseDequeIterator {}
     impl IterNext for PyReverseDequeIterator {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             zelf.internal.lock().next(|deque, pos| {
                 if deque.state.load() != zelf.state {
                     return Err(vm.new_runtime_error("Deque mutated during iteration".to_owned()));
                 }
                 let deque = deque.borrow_deque();
-                Ok(
-                    match deque
-                        .len()
-                        .checked_sub(pos + 1)
-                        .and_then(|pos| deque.get(pos))
-                    {
-                        Some(x) => PyIterReturn::Return(x.clone()),
-                        None => PyIterReturn::StopIteration(None),
-                    },
-                )
+                let r = deque
+                    .len()
+                    .checked_sub(pos + 1)
+                    .and_then(|pos| deque.get(pos))
+                    .cloned();
+                Ok(PyIterReturn::from_result(r.ok_or(None)))
             })
         }
     }

@@ -337,7 +337,6 @@ class PasswordProtectedSiteTestCase(unittest.TestCase):
         self.assertFalse(parser.can_fetch("*", robots_url))
 
 
-@unittest.skip("TODO: RUSTPYTHON, AttributeError: module 'socket' has no attribute 'setdefaulttimeout'")
 class NetworkTestCase(unittest.TestCase):
 
     base_url = 'http://www.pythontest.net/'

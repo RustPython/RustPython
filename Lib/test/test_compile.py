@@ -61,8 +61,6 @@ class TestSpecifics(unittest.TestCase):
     def test_duplicate_global_local(self):
         self.assertRaises(SyntaxError, exec, 'def f(a): global a; a = 1')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_exec_with_general_mapping_for_locals(self):
 
         class M:

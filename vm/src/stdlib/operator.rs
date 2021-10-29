@@ -27,37 +27,37 @@ mod _operator {
     /// Same as a < b.
     #[pyfunction]
     fn lt(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        vm.obj_cmp(a, b, Lt)
+        a.rich_compare(b, Lt, vm)
     }
 
     /// Same as a <= b.
     #[pyfunction]
     fn le(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        vm.obj_cmp(a, b, Le)
+        a.rich_compare(b, Le, vm)
     }
 
     /// Same as a > b.
     #[pyfunction]
     fn gt(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        vm.obj_cmp(a, b, Gt)
+        a.rich_compare(b, Gt, vm)
     }
 
     /// Same as a >= b.
     #[pyfunction]
     fn ge(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        vm.obj_cmp(a, b, Ge)
+        a.rich_compare(b, Ge, vm)
     }
 
     /// Same as a == b.
     #[pyfunction]
     fn eq(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        vm.obj_cmp(a, b, Eq)
+        a.rich_compare(b, Eq, vm)
     }
 
     /// Same as a != b.
     #[pyfunction]
     fn ne(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        vm.obj_cmp(a, b, Ne)
+        a.rich_compare(b, Ne, vm)
     }
 
     /// Same as not a.
@@ -282,7 +282,7 @@ mod _operator {
                 v.payload::<PyInt>().unwrap().try_to_primitive(vm)
             })
             .unwrap_or(Ok(0))?;
-        vm.length_hint(obj).map(|v| v.unwrap_or(default))
+        obj.length_hint(default, vm)
     }
 
     // Inplace Operators
@@ -457,7 +457,7 @@ mod _operator {
             let fmt = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
                 let mut parts = Vec::with_capacity(zelf.attrs.len());
                 for part in zelf.attrs.iter() {
-                    parts.push(vm.to_repr(part.as_object())?.as_str().to_owned());
+                    parts.push(part.as_object().repr(vm)?.as_str().to_owned());
                 }
                 parts.join(", ")
             } else {
@@ -468,9 +468,12 @@ mod _operator {
 
         #[pymethod(magic)]
         fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<(PyTypeRef, PyTupleRef)> {
-            let attrs = vm
-                .ctx
-                .new_tuple(zelf.attrs.iter().map(|v| v.as_object()).cloned().collect());
+            let attrs = vm.ctx.new_tuple(
+                zelf.attrs
+                    .iter()
+                    .map(|v| v.as_object().to_owned())
+                    .collect(),
+            );
             Ok((zelf.clone_class(), attrs))
         }
 
@@ -482,11 +485,11 @@ mod _operator {
         ) -> PyResult<PyObjectRef> {
             let parts = attr.split('.').collect::<Vec<_>>();
             if parts.len() == 1 {
-                return vm.get_attribute(obj, parts[0]);
+                return obj.get_attr(parts[0], vm);
             }
             let mut obj = obj;
             for part in parts {
-                obj = vm.get_attribute(obj, part)?;
+                obj = obj.get_attr(part, vm)?;
             }
             Ok(obj)
         }
@@ -494,7 +497,11 @@ mod _operator {
 
     impl Callable for PyAttrGetter {
         type Args = PyObjectRef;
-        fn call(zelf: &PyRef<Self>, obj: Self::Args, vm: &VirtualMachine) -> PyResult {
+        fn call(
+            zelf: &crate::PyObjectView<Self>,
+            obj: Self::Args,
+            vm: &VirtualMachine,
+        ) -> PyResult {
             // Handle case where we only have one attribute.
             if zelf.attrs.len() == 1 {
                 return Self::get_single_attr(obj, zelf.attrs[0].as_str(), vm);
@@ -539,7 +546,7 @@ mod _operator {
             let fmt = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
                 let mut items = Vec::with_capacity(zelf.items.len());
                 for item in zelf.items.iter() {
-                    items.push(vm.to_repr(item)?.as_str().to_owned());
+                    items.push(item.repr(vm)?.as_str().to_owned());
                 }
                 items.join(", ")
             } else {
@@ -557,7 +564,11 @@ mod _operator {
 
     impl Callable for PyItemGetter {
         type Args = PyObjectRef;
-        fn call(zelf: &PyRef<Self>, obj: Self::Args, vm: &VirtualMachine) -> PyResult {
+        fn call(
+            zelf: &crate::PyObjectView<Self>,
+            obj: Self::Args,
+            vm: &VirtualMachine,
+        ) -> PyResult {
             // Handle case where we only have one attribute.
             if zelf.items.len() == 1 {
                 return obj.get_item(zelf.items[0].clone(), vm);
@@ -604,11 +615,11 @@ mod _operator {
             let fmt = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
                 let args = &zelf.args.args;
                 let kwargs = &zelf.args.kwargs;
-                let mut fmt = vec![vm.to_repr(zelf.name.as_object())?.as_str().to_owned()];
+                let mut fmt = vec![zelf.name.as_object().repr(vm)?.as_str().to_owned()];
                 if !args.is_empty() {
                     let mut parts = Vec::with_capacity(args.len());
                     for v in args {
-                        parts.push(vm.to_repr(v)?.as_str().to_owned());
+                        parts.push(v.repr(vm)?.as_str().to_owned());
                     }
                     fmt.push(parts.join(", "));
                 }
@@ -616,7 +627,7 @@ mod _operator {
                 if !kwargs.is_empty() {
                     let mut parts = Vec::with_capacity(kwargs.len());
                     for (key, value) in kwargs {
-                        let value_repr = vm.to_repr(value)?;
+                        let value_repr = value.repr(vm)?;
                         parts.push(format!("{}={}", key, value_repr));
                     }
                     fmt.push(parts.join(", "));
@@ -638,7 +649,7 @@ mod _operator {
             } else {
                 // If we have kwargs, create a partial function that contains them and pass back that
                 // along with the args.
-                let partial = vm.get_attribute(vm.import("functools", None, 0)?, "partial")?;
+                let partial = vm.import("functools", None, 0)?.get_attr("partial", vm)?;
                 let callable = vm.invoke(
                     &partial,
                     FuncArgs::new(
@@ -654,7 +665,11 @@ mod _operator {
     impl Callable for PyMethodCaller {
         type Args = PyObjectRef;
         #[inline]
-        fn call(zelf: &PyRef<Self>, obj: Self::Args, vm: &VirtualMachine) -> PyResult {
+        fn call(
+            zelf: &crate::PyObjectView<Self>,
+            obj: Self::Args,
+            vm: &VirtualMachine,
+        ) -> PyResult {
             vm.call_method(&obj, zelf.name.as_str(), zelf.args.clone())
         }
     }

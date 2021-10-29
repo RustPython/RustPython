@@ -5,6 +5,9 @@ on:
 
 name: Periodic checks/tasks
 
+env:
+  CARGO_ARGS: --features ssl,jit
+
 jobs:
   codecov:
     name: Collect code coverage data
@@ -16,11 +19,11 @@ jobs:
           toolchain: nightly
           override: true
           components: llvm-tools-preview
-      - run: sudo apt-get install lcov
+      - run: sudo apt-get update && sudo apt-get -y install lcov
       - uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --release --verbose
+          args: --release --verbose ${{ env.CARGO_ARGS }}
         env:
           RUSTC_WRAPPER: './scripts/codecoverage-rustc-wrapper.sh'
       - uses: actions/setup-python@v2
@@ -38,8 +41,6 @@ jobs:
         working-directory: ./extra_tests
       - name: run cpython tests
         run: LLVM_PROFILE_FILE="$PWD/regrtest.profraw" target/release/rustpython -m test -v
-        env:
-          RUSTPYTHONPATH: ${{ github.workspace }}/Lib
       - name: prepare code coverage data
         run: |
           rusttool() {
@@ -58,6 +59,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
       - name: build rustpython
         uses: actions-rs/cargo@v1
         with:
@@ -88,6 +90,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
       - name: build rustpython
         uses: actions-rs/cargo@v1
         with:
@@ -121,6 +124,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+      - uses: actions/setup-python@v2
+        with:
+          python-version: 3.9
       - run: cargo install cargo-criterion
       - name: build benchmarks
         run: cargo build --release --benches

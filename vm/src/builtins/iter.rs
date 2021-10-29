@@ -7,7 +7,7 @@ use crate::{
     function::ArgCallable,
     protocol::PyIterReturn,
     types::{IterNext, IterNextIterable},
-    ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    ItemProtocol, PyClassImpl, PyContext, PyObject, PyObjectRef, PyResult, PyValue, VirtualMachine,
 };
 use rustpython_common::{
     lock::{PyMutex, PyRwLock, PyRwLockUpgradableReadGuard},
@@ -69,7 +69,7 @@ impl<T> PositionIterInternal<T> {
     where
         F: FnOnce(&T) -> PyObjectRef,
     {
-        let iter = builtins_iter(vm).clone();
+        let iter = builtins_iter(vm).to_owned();
         self._reduce(iter, f, vm)
     }
 
@@ -77,7 +77,7 @@ impl<T> PositionIterInternal<T> {
     where
         F: FnOnce(&T) -> PyObjectRef,
     {
-        let reversed = builtins_reversed(vm).clone();
+        let reversed = builtins_reversed(vm).to_owned();
         self._reduce(reversed, f, vm)
     }
 
@@ -143,18 +143,18 @@ impl<T> PositionIterInternal<T> {
     }
 }
 
-pub fn builtins_iter(vm: &VirtualMachine) -> &PyObjectRef {
+pub fn builtins_iter(vm: &VirtualMachine) -> &PyObject {
     static_cell! {
         static INSTANCE: PyObjectRef;
     }
-    INSTANCE.get_or_init(|| vm.get_attribute(vm.builtins.clone(), "iter").unwrap())
+    INSTANCE.get_or_init(|| vm.builtins.clone().get_attr("iter", vm).unwrap())
 }
 
-pub fn builtins_reversed(vm: &VirtualMachine) -> &PyObjectRef {
+pub fn builtins_reversed(vm: &VirtualMachine) -> &PyObject {
     static_cell! {
         static INSTANCE: PyObjectRef;
     }
-    INSTANCE.get_or_init(|| vm.get_attribute(vm.builtins.clone(), "reversed").unwrap())
+    INSTANCE.get_or_init(|| vm.builtins.clone().get_attr("reversed", vm).unwrap())
 }
 
 #[pyclass(module = false, name = "iterator")]
@@ -181,7 +181,7 @@ impl PySequenceIterator {
     fn length_hint(&self, vm: &VirtualMachine) -> PyObjectRef {
         let internal = self.internal.lock();
         if let IterStatus::Active(obj) = &internal.status {
-            vm.obj_len(obj)
+            obj.length(vm)
                 .map(|x| PyInt::from(x).into_object(vm))
                 .unwrap_or_else(|_| vm.ctx.not_implemented())
         } else {
@@ -202,7 +202,7 @@ impl PySequenceIterator {
 
 impl IterNextIterable for PySequenceIterator {}
 impl IterNext for PySequenceIterator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal
             .lock()
             .next(|obj, pos| PyIterReturn::from_getitem_result(obj.get_item(pos, vm), vm))
@@ -234,19 +234,20 @@ impl PyCallableIterator {
 
 impl IterNextIterable for PyCallableIterator {}
 impl IterNext for PyCallableIterator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let status = zelf.status.upgradable_read();
-        if let IterStatus::Active(callable) = &*status {
+        let next = if let IterStatus::Active(callable) = &*status {
             let ret = callable.invoke((), vm)?;
             if vm.bool_eq(&ret, &zelf.sentinel)? {
                 *PyRwLockUpgradableReadGuard::upgrade(status) = IterStatus::Exhausted;
-                Ok(PyIterReturn::StopIteration(None))
+                PyIterReturn::StopIteration(None)
             } else {
-                Ok(PyIterReturn::Return(ret))
+                PyIterReturn::Return(ret)
             }
         } else {
-            Ok(PyIterReturn::StopIteration(None))
-        }
+            PyIterReturn::StopIteration(None)
+        };
+        Ok(next)
     }
 }
 

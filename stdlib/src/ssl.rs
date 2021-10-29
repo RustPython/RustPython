@@ -53,7 +53,6 @@ mod _ssl {
     };
     use openssl_sys as sys;
     use std::{
-        convert::TryFrom,
         ffi::CStr,
         fmt,
         io::{Read, Write},
@@ -754,7 +753,7 @@ mod _ssl {
             vm: &VirtualMachine,
         ) -> PyResult<PySslSocket> {
             let mut ssl = zelf
-                .exec_ctx(|ctx| ssl::Ssl::new(ctx))
+                .exec_ctx(ssl::Ssl::new)
                 .map_err(|e| convert_openssl_error(vm, e))?;
 
             let socket_type = if args.server_side {
@@ -802,7 +801,7 @@ mod _ssl {
                 stream: PyRwLock::new(stream),
                 socket_type,
                 server_hostname: args.server_hostname,
-                owner: PyRwLock::new(args.owner.as_ref().map(PyWeak::downgrade)),
+                owner: PyRwLock::new(args.owner.as_ref().map(|o| PyWeak::downgrade(o))),
             })
         }
     }

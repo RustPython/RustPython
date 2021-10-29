@@ -1,10 +1,10 @@
-use super::{IterStatus, PositionIterInternal, PyIntRef, PyTupleRef, PyTypeRef};
+use super::{IterStatus, PositionIterInternal, PyGenericAlias, PyIntRef, PyTupleRef, PyTypeRef};
 use crate::common::lock::{PyMutex, PyRwLock};
 use crate::{
     function::{IntoPyObject, OptionalArg},
     protocol::{PyIter, PyIterReturn},
     types::{Constructor, IterNext, IterNextIterable},
-    ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue, VirtualMachine,
 };
 use num_bigint::BigInt;
 use num_traits::Zero;
@@ -47,11 +47,16 @@ impl Constructor for PyEnumerate {
 }
 
 #[pyimpl(with(IterNext, Constructor), flags(BASETYPE))]
-impl PyEnumerate {}
+impl PyEnumerate {
+    #[pyclassmethod(magic)]
+    fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+        PyGenericAlias::new(cls, args, vm)
+    }
+}
 
 impl IterNextIterable for PyEnumerate {}
 impl IterNext for PyEnumerate {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let next_obj = match zelf.iterator.next(vm)? {
             PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
             PyIterReturn::Return(obj) => obj,
@@ -88,7 +93,7 @@ impl PyReverseSequenceIterator {
     fn length_hint(&self, vm: &VirtualMachine) -> PyResult<usize> {
         let internal = self.internal.lock();
         if let IterStatus::Active(obj) = &internal.status {
-            if internal.position <= vm.obj_len(obj)? {
+            if internal.position <= obj.length(vm)? {
                 return Ok(internal.position + 1);
             }
         }
@@ -110,7 +115,7 @@ impl PyReverseSequenceIterator {
 
 impl IterNextIterable for PyReverseSequenceIterator {}
 impl IterNext for PyReverseSequenceIterator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal
             .lock()
             .rev_next(|obj, pos| PyIterReturn::from_getitem_result(obj.get_item(pos, vm), vm))

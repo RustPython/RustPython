@@ -3,7 +3,7 @@ use crate::{
     common::float_ops,
     function::{FuncArgs, IntoPyException},
     stdlib::builtins,
-    ItemProtocol, PyObjectRef, PyResult, TypeProtocol, VirtualMachine,
+    ItemProtocol, PyObject, PyObjectRef, PyResult, TypeProtocol, VirtualMachine,
 };
 use itertools::{Itertools, PeekingNext};
 use num_bigint::{BigInt, Sign};
@@ -812,7 +812,7 @@ impl FormatString {
                     for name_part in parts {
                         match name_part {
                             FieldNamePart::Attribute(attribute) => {
-                                argument = vm.get_attribute(argument, attribute.as_str())?;
+                                argument = argument.get_attr(attribute.as_str(), vm)?;
                             }
                             FieldNamePart::Index(index) => {
                                 argument = argument.get_item(index, vm)?;
@@ -875,7 +875,7 @@ impl FormatString {
         })
     }
 
-    pub(crate) fn format_map(&self, dict: &PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
+    pub(crate) fn format_map(&self, dict: &PyObject, vm: &VirtualMachine) -> PyResult<String> {
         self.format_internal(vm, &mut |field_type| match field_type {
             FieldType::Auto | FieldType::Index(_) => {
                 Err(vm.new_value_error("Format string contains positional fields".to_owned()))
@@ -892,8 +892,8 @@ fn call_object_format(
     format_spec: &str,
 ) -> PyResult<PyStrRef> {
     let argument = match preconversion_spec.and_then(FormatPreconversor::from_char) {
-        Some(FormatPreconversor::Str) => vm.to_str(&argument)?.into(),
-        Some(FormatPreconversor::Repr) => vm.to_repr(&argument)?.into(),
+        Some(FormatPreconversor::Str) => argument.str(vm)?.into(),
+        Some(FormatPreconversor::Repr) => argument.repr(vm)?.into(),
         Some(FormatPreconversor::Ascii) => vm.ctx.new_str(builtins::ascii(argument, vm)?).into(),
         Some(FormatPreconversor::Bytes) => vm.call_method(&argument, "decode", ())?,
         None => argument,

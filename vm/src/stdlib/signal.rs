@@ -24,8 +24,9 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         vm.signal_handlers.as_deref().unwrap().borrow_mut()[signum] = py_handler;
     }
 
-    let int_handler = vm
-        .get_attribute(module.clone(), "default_int_handler")
+    let int_handler = module
+        .clone()
+        .get_attr("default_int_handler", vm)
         .expect("_signal does not have this attr?");
     _signal::signal(libc::SIGINT, int_handler, vm).expect("Failed to set sigint handler");
 

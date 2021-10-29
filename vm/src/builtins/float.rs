@@ -6,7 +6,7 @@ use crate::{
     types::{Comparable, Constructor, Hashable, PyComparisonOp},
     IdProtocol,
     PyArithmeticValue::{self, *},
-    PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol, VirtualMachine,
 };
 use num_bigint::{BigInt, ToBigInt};
@@ -50,12 +50,12 @@ impl From<f64> for PyFloat {
     }
 }
 
-impl PyObjectRef {
+impl PyObject {
     pub fn try_to_f64(&self, vm: &VirtualMachine) -> PyResult<Option<f64>> {
         if let Some(float) = self.payload_if_exact::<PyFloat>(vm) {
             return Ok(Some(float.value));
         }
-        if let Some(method) = vm.get_method(self.clone(), "__float__") {
+        if let Some(method) = vm.get_method(self.to_owned(), "__float__") {
             let result = vm.invoke(&method?, ())?;
             // TODO: returning strict subclasses of float in __float__ is deprecated
             return match result.payload::<PyFloat>() {
@@ -66,20 +66,20 @@ impl PyObjectRef {
                 ))),
             };
         }
-        if let Some(r) = vm.to_index_opt(self.clone()).transpose()? {
+        if let Some(r) = vm.to_index_opt(self.to_owned()).transpose()? {
             return Ok(Some(try_bigint_to_f64(r.as_bigint(), vm)?));
         }
         Ok(None)
     }
 }
 
-pub fn try_float(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
+pub fn try_float(obj: &PyObject, vm: &VirtualMachine) -> PyResult<f64> {
     obj.try_to_f64(vm)?.ok_or_else(|| {
         vm.new_type_error(format!("must be real number, not {}", obj.class().name()))
     })
 }
 
-pub(crate) fn to_op_float(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<f64>> {
+pub(crate) fn to_op_float(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Option<f64>> {
     let v = if let Some(float) = obj.payload_if_subclass::<PyFloat>(vm) {
         Some(float.value)
     } else if let Some(int) = obj.payload_if_subclass::<PyInt>(vm) {
@@ -94,7 +94,7 @@ macro_rules! impl_try_from_object_float {
     ($($t:ty),*) => {
         $(impl TryFromObject for $t {
             fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-                PyFloatRef::try_from_object(vm, obj).map(|f| f.to_f64() as $t)
+                PyRef::<PyFloat>::try_from_object(vm, obj).map(|f| f.to_f64() as $t)
             }
         })*
     };
@@ -493,8 +493,8 @@ impl PyFloat {
 
 impl Comparable for PyFloat {
     fn cmp(
-        zelf: &PyRef<Self>,
-        other: &PyObjectRef,
+        zelf: &crate::PyObjectView<Self>,
+        other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
@@ -534,15 +534,13 @@ impl Comparable for PyFloat {
 
 impl Hashable for PyFloat {
     #[inline]
-    fn hash(zelf: &PyRef<Self>, _vm: &VirtualMachine) -> PyResult<hash::PyHash> {
+    fn hash(zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyResult<hash::PyHash> {
         Ok(hash::hash_float(zelf.to_f64()))
     }
 }
 
-pub type PyFloatRef = PyRef<PyFloat>;
-
 // Retrieve inner float value:
-pub(crate) fn get_value(obj: &PyObjectRef) -> f64 {
+pub(crate) fn get_value(obj: &PyObject) -> f64 {
     obj.payload::<PyFloat>().unwrap().value
 }
 

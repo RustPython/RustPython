@@ -39,7 +39,8 @@ class TestEncode(CTest):
             b"\xCD\x7D\x3D\x4E\x12\x4C\xF9\x79\xD7\x52\xBA\x82\xF2\x27\x4A\x7D\xA0\xCA\x75",
             None)
 
-    @unittest.skip("TODO: RUSTPYTHON, translate the encoder to Rust")
+    # TODO: RUSTPYTHON, TypeError: 'NoneType' object is not callable
+    @unittest.expectedFailure
     def test_bad_str_encoder(self):
         # Issue #31505: There shouldn't be an assertion failure in case
         # c_make_encoder() receives a bad encoder() argument.

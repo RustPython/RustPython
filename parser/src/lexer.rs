@@ -2,6 +2,7 @@
 //!
 //! This means source code is translated into separate tokens.
 
+use super::token::StringKind;
 pub use super::token::Tok;
 use crate::ast::Location;
 use crate::error::{LexicalError, LexicalErrorType};
@@ -315,10 +316,21 @@ where
 
             // 1e6 for example:
             if self.chr0 == Some('e') || self.chr0 == Some('E') {
+                if self.chr1 == Some('_') {
+                    return Err(LexicalError {
+                        error: LexicalErrorType::OtherError("Invalid Syntax".to_owned()),
+                        location: self.get_pos(),
+                    });
+                }
                 value_text.push(self.next_char().unwrap().to_ascii_lowercase());
-
                 // Optional +/-
                 if self.chr0 == Some('-') || self.chr0 == Some('+') {
+                    if self.chr1 == Some('_') {
+                        return Err(LexicalError {
+                            error: LexicalErrorType::OtherError("Invalid Syntax".to_owned()),
+                            location: self.get_pos(),
+                        });
+                    }
                     value_text.push(self.next_char().unwrap());
                 }
 
@@ -498,7 +510,7 @@ where
         &mut self,
         is_bytes: bool,
         is_raw: bool,
-        _is_unicode: bool,
+        is_unicode: bool,
         is_fstring: bool,
     ) -> LexResult {
         let quote_char = self.next_char().unwrap();
@@ -612,9 +624,16 @@ where
                 value: string_content.chars().map(|c| c as u8).collect(),
             }
         } else {
+            let kind = if is_fstring {
+                StringKind::F
+            } else if is_unicode {
+                StringKind::U
+            } else {
+                StringKind::Normal
+            };
             Tok::String {
                 value: string_content,
-                is_fstring,
+                kind,
             }
         };
 
@@ -1272,7 +1291,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{make_tokenizer, NewlineHandler, Tok};
+    use super::{make_tokenizer, NewlineHandler, StringKind, Tok};
     use num_bigint::BigInt;
 
     const WINDOWS_EOL: &str = "\r\n";
@@ -1294,24 +1313,18 @@ mod tests {
         assert_eq!(vec!['b', '\\', '\n'], x);
     }
 
+    fn stok(s: &str) -> Tok {
+        Tok::String {
+            value: s.to_owned(),
+            kind: StringKind::Normal,
+        }
+    }
+
     #[test]
     fn test_raw_string() {
         let source = "r\"\\\\\" \"\\\\\"";
         let tokens = lex_source(source);
-        assert_eq!(
-            tokens,
-            vec![
-                Tok::String {
-                    value: "\\\\".to_owned(),
-                    is_fstring: false,
-                },
-                Tok::String {
-                    value: "\\".to_owned(),
-                    is_fstring: false,
-                },
-                Tok::Newline,
-            ]
-        );
+        assert_eq!(tokens, vec![stok("\\\\"), stok("\\"), Tok::Newline,]);
     }
 
     #[test]
@@ -1602,42 +1615,15 @@ mod tests {
         assert_eq!(
             tokens,
             vec![
-                Tok::String {
-                    value: String::from("double"),
-                    is_fstring: false,
-                },
-                Tok::String {
-                    value: String::from("single"),
-                    is_fstring: false,
-                },
-                Tok::String {
-                    value: String::from("can't"),
-                    is_fstring: false,
-                },
-                Tok::String {
-                    value: String::from("\\\""),
-                    is_fstring: false,
-                },
-                Tok::String {
-                    value: String::from("\t\r\n"),
-                    is_fstring: false,
-                },
-                Tok::String {
-                    value: String::from("\\g"),
-                    is_fstring: false,
-                },
-                Tok::String {
-                    value: String::from("raw\\'"),
-                    is_fstring: false,
-                },
-                Tok::String {
-                    value: String::from("Đ"),
-                    is_fstring: false,
-                },
-                Tok::String {
-                    value: String::from("\u{80}\u{0}a"),
-                    is_fstring: false,
-                },
+                stok("double"),
+                stok("single"),
+                stok("can't"),
+                stok("\\\""),
+                stok("\t\r\n"),
+                stok("\\g"),
+                stok("raw\\'"),
+                stok("Đ"),
+                stok("\u{80}\u{0}a"),
                 Tok::Newline,
             ]
         );
@@ -1653,10 +1639,7 @@ mod tests {
                 assert_eq!(
                     tokens,
                     vec![
-                        Tok::String {
-                            value: String::from("abcdef"),
-                            is_fstring: false,
-                        },
+                        stok("abcdef"),
                         Tok::Newline,
                     ]
                 )
@@ -1743,15 +1726,6 @@ mod tests {
     fn test_escape_unicode_name() {
         let source = r#""\N{EN SPACE}""#;
         let tokens = lex_source(source);
-        assert_eq!(
-            tokens,
-            vec![
-                Tok::String {
-                    value: "\u{2002}".to_owned(),
-                    is_fstring: false,
-                },
-                Tok::Newline
-            ]
-        )
+        assert_eq!(tokens, vec![stok("\u{2002}"), Tok::Newline])
     }
 }

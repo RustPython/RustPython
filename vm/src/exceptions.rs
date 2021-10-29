@@ -7,6 +7,7 @@ use crate::{
     function::{ArgIterable, FuncArgs, IntoPyException, IntoPyObject},
     py_io::{self, Write},
     stdlib::sys,
+    suggestion::offer_suggestions,
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
     TryFromObject, TypeProtocol, VirtualMachine,
 };
@@ -49,7 +50,7 @@ impl VirtualMachine {
                 let _ = self.write_exception(&mut py_io::IoWriter(io::stderr()), exc);
             }
         };
-        if let Ok(excepthook) = vm.get_attribute(vm.sys_module.clone(), "excepthook") {
+        if let Ok(excepthook) = vm.sys_module.clone().get_attr("excepthook", vm) {
             let (exc_type, exc_val, exc_tb) = vm.split_exception(exc.clone());
             if let Err(eh_exc) = vm.invoke(&excepthook, (exc_type, exc_val, exc_tb)) {
                 write_fallback(&eh_exc, "Error in sys.excepthook:");
@@ -129,17 +130,22 @@ impl VirtualMachine {
         let varargs = exc.args();
         let args_repr = vm.exception_args_as_string(varargs, true);
 
-        let exc_type = exc.class();
-        let exc_name = exc_type.name();
+        let exc_class = exc.class();
+        let exc_name = exc_class.name();
         match args_repr.len() {
-            0 => writeln!(output, "{}", exc_name),
-            1 => writeln!(output, "{}: {}", exc_name, args_repr[0]),
-            _ => writeln!(
+            0 => write!(output, "{}", exc_name),
+            1 => write!(output, "{}: {}", exc_name, args_repr[0]),
+            _ => write!(
                 output,
                 "{}: ({})",
                 exc_name,
                 args_repr.into_iter().format(", ")
             ),
+        }?;
+
+        match offer_suggestions(exc, vm) {
+            Some(suggestions) => writeln!(output, ". Did you mean: '{}'?", suggestions.to_string()),
+            None => writeln!(output),
         }
     }
 
@@ -150,10 +156,12 @@ impl VirtualMachine {
             0 => vec![],
             1 => {
                 let args0_repr = if str_single {
-                    vm.to_str(&varargs[0])
+                    varargs[0]
+                        .str(vm)
                         .unwrap_or_else(|_| PyStr::from("<element str() failed>").into_ref(vm))
                 } else {
-                    vm.to_repr(&varargs[0])
+                    varargs[0]
+                        .repr(vm)
                         .unwrap_or_else(|_| PyStr::from("<element repr() failed>").into_ref(vm))
                 };
                 vec![args0_repr]
@@ -161,7 +169,8 @@ impl VirtualMachine {
             _ => varargs
                 .iter()
                 .map(|vararg| {
-                    vm.to_repr(vararg)
+                    vararg
+                        .repr(vm)
                         .unwrap_or_else(|_| PyStr::from("<element repr() failed>").into_ref(vm))
                 })
                 .collect(),
@@ -485,7 +494,7 @@ impl PyBaseException {
     #[pymethod]
     fn with_traceback(zelf: PyRef<Self>, tb: Option<PyTracebackRef>) -> PyResult {
         *zelf.traceback.write() = tb;
-        Ok(zelf.as_object().clone())
+        Ok(zelf.as_object().to_owned())
     }
 
     #[pymethod(magic)]
@@ -696,7 +705,10 @@ impl ExceptionZoo {
         extend_exception!(PyZeroDivisionError, ctx, &excs.zero_division_error);
 
         extend_exception!(PyAssertionError, ctx, &excs.assertion_error);
-        extend_exception!(PyAttributeError, ctx, &excs.attribute_error);
+        extend_exception!(PyAttributeError, ctx, &excs.attribute_error, {
+            "name" => ctx.none(),
+            "obj" => ctx.none(),
+        });
         extend_exception!(PyBufferError, ctx, &excs.buffer_error);
         extend_exception!(PyEOFError, ctx, &excs.eof_error);
 
@@ -712,7 +724,9 @@ impl ExceptionZoo {
         });
 
         extend_exception!(PyMemoryError, ctx, &excs.memory_error);
-        extend_exception!(PyNameError, ctx, &excs.name_error);
+        extend_exception!(PyNameError, ctx, &excs.name_error, {
+            "name" => ctx.none(),
+        });
         extend_exception!(PyUnboundLocalError, ctx, &excs.unbound_local_error);
 
         // os errors:
@@ -880,7 +894,7 @@ impl serde::Serialize for SerializeException<'_> {
                 fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
                     let mut s = s.serialize_seq(None)?;
                     for tb in self.0.iter() {
-                        s.serialize_element(&*tb)?;
+                        s.serialize_element(&**tb)?;
                     }
                     s.end()
                 }
@@ -1079,16 +1093,16 @@ pub(super) mod types {
         args: FuncArgs,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let exc_self = zelf.into();
-        vm.set_attr(
-            &exc_self,
+        let zelf: PyObjectRef = zelf.into();
+        zelf.set_attr(
             "name",
             vm.unwrap_or_none(args.kwargs.get("name").cloned()),
+            vm,
         )?;
-        vm.set_attr(
-            &exc_self,
+        zelf.set_attr(
             "path",
             vm.unwrap_or_none(args.kwargs.get("path").cloned()),
+            vm,
         )?;
         Ok(())
     }

@@ -13,9 +13,23 @@ env:
     -p rustpython-compiler
     -p rustpython-parser
     -p rustpython-vm
+    -p rustpython-stdlib
     -p rustpython-jit
     -p rustpython-derive
     -p rustpython
+  PLATFORM_INDEPENDENT_TESTS: >-
+    test_argparse
+    test_array
+    test_asyncgen
+    test_bytes
+    test_calendar
+    test_complex
+    test_dis
+    test_json
+    test_list
+    test_long
+    test_set
+    test_unicode
 
 jobs:
   rust_tests:
@@ -44,7 +58,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --verbose ${{ env.CARGO_ARGS }} ${{ env.NON_WASM_PACKAGES }}
+          args: --workspace --exclude rustpython_wasm --verbose ${{ env.CARGO_ARGS }} ${{ env.NON_WASM_PACKAGES }}
       - name: check compilation without threading
         uses: actions-rs/cargo@v1
         with:
@@ -94,6 +108,7 @@ jobs:
       - name: Prepare repository for redox compilation
         run: bash scripts/redox/uncomment-cargo.sh
       - name: Check compilation for Redox
+        if: false # FIXME: redoxer toolchain is from ~july 2021, edition2021 isn't stabilized
         uses: coolreader18/redoxer-action@v1
         with:
           command: check
@@ -144,22 +159,30 @@ jobs:
       - if: runner.os == 'Linux'
         name: run cpython platform-independent tests
         run:
-          target/release/rustpython -m test -v
-            test_argparse test_json test_bytes test_long test_unicode test_array
-            test_asyncgen test_list test_complex test_json test_set test_dis test_calendar
+          target/release/rustpython -m test -v ${{ env.PLATFORM_INDEPENDENT_TESTS }}
       - if: runner.os != 'Windows'
         name: run cpython platform-dependent tests
-        run: target/release/rustpython -m test -v -x
-            test_argparse test_json test_bytes test_long test_unicode test_array
-            test_asyncgen test_list test_complex test_json test_set test_dis test_calendar
+        run: target/release/rustpython -m test -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }}
       - if: runner.os == 'Windows'
         name: run cpython platform-dependent tests (windows partial - fixme)
         run:
-          target/release/rustpython -m test -v -x
-            test_argparse test_json test_bytes test_long test_unicode test_array
-            test_asyncgen test_list test_complex test_json test_set test_dis test_calendar
-            test_pwd test_bool test_cgi test_exception_hierarchy test_glob test_iter test_os test_pathlib
-            test_py_compile test_set test_shutil test_sys test_unittest test_venv test_zipimport test_importlib test_io
+          target/release/rustpython -m test -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }}
+            test_bool
+            test_cgi
+            test_exception_hierarchy
+            test_glob
+            test_importlib
+            test_io
+            test_iter
+            test_os
+            test_pathlib
+            test_pwd
+            test_py_compile
+            test_shutil
+            test_sys
+            test_unittest
+            test_venv
+            test_zipimport
       - if: runner.os == 'Linux'
         name: check that --install-pip succeeds
         run: |
@@ -227,6 +250,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
       - name: Cache cargo dependencies
         uses: actions/cache@v2
         with:

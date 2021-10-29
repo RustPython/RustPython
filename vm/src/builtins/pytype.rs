@@ -130,7 +130,7 @@ impl PyType {
     }
 
     pub fn iter_mro(&self) -> impl Iterator<Item = &PyType> + DoubleEndedIterator {
-        std::iter::once(self).chain(self.mro.iter().map(|cls| cls.deref()))
+        std::iter::once(self).chain(self.mro.iter().map(|cls| -> &PyType { cls }))
     }
 
     pub(crate) fn mro_find_map<F, R>(&self, f: F) -> Option<R>
@@ -225,14 +225,19 @@ impl PyType {
 
     #[pyproperty(name = "__mro__")]
     fn get_mro(zelf: PyRef<Self>) -> PyTuple {
-        let elements: Vec<PyObjectRef> = zelf.iter_mro().map(|x| x.as_object().clone()).collect();
+        let elements: Vec<PyObjectRef> =
+            zelf.iter_mro().map(|x| x.as_object().to_owned()).collect();
         PyTuple::new_unchecked(elements.into_boxed_slice())
     }
 
     #[pyproperty(magic)]
     fn bases(&self, vm: &VirtualMachine) -> PyTupleRef {
-        vm.ctx
-            .new_tuple(self.bases.iter().map(|x| x.as_object().clone()).collect())
+        vm.ctx.new_tuple(
+            self.bases
+                .iter()
+                .map(|x| x.as_object().to_owned())
+                .collect(),
+        )
     }
 
     #[pyproperty(magic)]
@@ -538,8 +543,7 @@ impl PyType {
 
 const SIGNATURE_END_MARKER: &str = ")\n--\n\n";
 fn get_signature(doc: &str) -> Option<&str> {
-    doc.find(SIGNATURE_END_MARKER)
-        .map(|index| &doc[..index + 1])
+    doc.find(SIGNATURE_END_MARKER).map(|index| &doc[..=index])
 }
 
 fn find_signature<'a>(name: &str, doc: &'a str) -> Option<&'a str> {
@@ -606,7 +610,7 @@ impl GetAttr for PyType {
 
 impl SetAttr for PyType {
     fn setattro(
-        zelf: &PyRef<Self>,
+        zelf: &crate::PyObjectView<Self>,
         attr_name: PyStrRef,
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,
@@ -614,7 +618,7 @@ impl SetAttr for PyType {
         if let Some(attr) = zelf.get_class_attr(attr_name.as_str()) {
             let descr_set = attr.class().mro_find_map(|cls| cls.slots.descr_set.load());
             if let Some(descriptor) = descr_set {
-                return descriptor(attr, zelf.clone().into(), value, vm);
+                return descriptor(attr, zelf.to_owned().into(), value, vm);
             }
         }
         let assign = value.is_some();
@@ -641,9 +645,9 @@ impl SetAttr for PyType {
 
 impl Callable for PyType {
     type Args = FuncArgs;
-    fn call(zelf: &PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn call(zelf: &crate::PyObjectView<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         vm_trace!("type_call: {:?}", zelf);
-        let obj = call_slot_new(zelf.clone(), zelf.clone(), args.clone(), vm)?;
+        let obj = call_slot_new(zelf.to_owned(), zelf.to_owned(), args.clone(), vm)?;
 
         if (zelf.is(&vm.ctx.types.type_type) && args.kwargs.is_empty()) || !obj.isinstance(zelf) {
             return Ok(obj);

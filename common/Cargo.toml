@@ -2,7 +2,7 @@
 name = "rustpython-common"
 version = "0.0.0"
 authors = ["RustPython Team"]
-edition = "2018"
+edition = "2021"
 
 [features]
 threading = ["parking_lot"]
@@ -23,3 +23,4 @@ volatile = "0.3"
 radium = "0.6"
 libc = "0.2.101"
 ascii = "1.0"
+unic-ucd-category = "0.9"

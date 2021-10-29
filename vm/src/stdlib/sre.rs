@@ -4,15 +4,15 @@ pub(crate) use _sre::make_module;
 mod _sre {
     use crate::{
         builtins::{
-            PyCallableIterator, PyDictRef, PyInt, PyList, PyListRef, PyStr, PyStrRef, PyTuple,
-            PyTupleRef,
+            PyCallableIterator, PyDictRef, PyGenericAlias, PyInt, PyList, PyStr, PyStrRef, PyTuple,
+            PyTupleRef, PyTypeRef,
         },
         common::{ascii, hash::PyHash},
         function::{ArgCallable, IntoPyObject, OptionalArg, PosArgs},
         protocol::PyBuffer,
         stdlib::sys,
         types::{Comparable, Hashable},
-        ItemProtocol, PyComparisonValue, PyObjectRef, PyRef, PyResult, PyValue,
+        ItemProtocol, PyComparisonValue, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
         TryFromBorrowedObject, TryFromObject, VirtualMachine,
     };
     use core::str;
@@ -247,7 +247,7 @@ mod _sre {
             zelf: PyRef<Pattern>,
             string_args: StringArgs,
             vm: &VirtualMachine,
-        ) -> PyResult<PyListRef> {
+        ) -> PyResult<Vec<PyObjectRef>> {
             zelf.with_state(
                 string_args.string.clone(),
                 string_args.pos,
@@ -277,7 +277,7 @@ mod _sre {
                         state.start = state.string_position;
                         state.reset();
                     }
-                    Ok(PyList::from(matchlist).into_ref(vm))
+                    Ok(matchlist)
                 },
             )
         }
@@ -332,7 +332,7 @@ mod _sre {
             zelf: PyRef<Pattern>,
             split_args: SplitArgs,
             vm: &VirtualMachine,
-        ) -> PyResult<PyListRef> {
+        ) -> PyResult<Vec<PyObjectRef>> {
             zelf.with_state(split_args.string.clone(), 0, usize::MAX, vm, |mut state| {
                 let mut splitlist: Vec<PyObjectRef> = Vec::new();
 
@@ -367,7 +367,7 @@ mod _sre {
                 // get segment following last match (even if empty)
                 splitlist.push(slice_drive(&state.string, last, state.string.count(), vm));
 
-                Ok(PyList::from(splitlist).into_ref(vm))
+                Ok(splitlist)
             })
         }
 
@@ -400,7 +400,7 @@ mod _sre {
                 .map(|(name, _)| name)
                 .join("|");
 
-            let pattern = vm.to_repr(&self.pattern)?;
+            let pattern = self.pattern.repr(vm)?;
             let truncated: String;
             let s = if pattern.char_len() > 200 {
                 truncated = pattern.as_str().chars().take(200).collect();
@@ -456,7 +456,7 @@ mod _sre {
                 })?;
                 if is_template {
                     let re = vm.import("re", None, 0)?;
-                    let func = vm.get_attribute(re, "_subx")?;
+                    let func = re.get_attr("_subx", vm)?;
                     let filter = vm.invoke(&func, (zelf.clone(), repl))?;
                     (vm.is_callable(&filter), filter)
                 } else {
@@ -500,7 +500,7 @@ mod _sre {
 
                 let list = PyList::from(sublist).into_object(vm);
 
-                let join_type = if zelf.isbytes {
+                let join_type: PyObjectRef = if zelf.isbytes {
                     vm.ctx.new_bytes(vec![]).into()
                 } else {
                     vm.ctx.new_str(ascii!("")).into()
@@ -514,11 +514,16 @@ mod _sre {
                 })
             })
         }
+
+        #[pyclassmethod(magic)]
+        fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+            PyGenericAlias::new(cls, args, vm)
+        }
     }
 
     impl Hashable for Pattern {
-        fn hash(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
-            let hash = vm._hash(&zelf.pattern)?;
+        fn hash(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+            let hash = zelf.pattern.hash(vm)?;
             let (_, code, _) = unsafe { zelf.code.align_to::<u8>() };
             let hash = hash ^ vm.state.hash_secret.hash_bytes(code);
             let hash = hash ^ (zelf.flags.bits() as PyHash);
@@ -529,8 +534,8 @@ mod _sre {
 
     impl Comparable for Pattern {
         fn cmp(
-            zelf: &PyRef<Self>,
-            other: &PyObjectRef,
+            zelf: &crate::PyObjectView<Self>,
+            other: &PyObject,
             op: crate::types::PyComparisonOp,
             vm: &VirtualMachine,
         ) -> PyResult<PyComparisonValue> {
@@ -652,7 +657,7 @@ mod _sre {
         #[pymethod]
         fn expand(zelf: PyRef<Match>, template: PyStrRef, vm: &VirtualMachine) -> PyResult {
             let re = vm.import("re", None, 0)?;
-            let func = vm.get_attribute(re, "_expand")?;
+            let func = re.get_attr("_expand", vm)?;
             vm.invoke(&func, (zelf.pattern.clone(), zelf, template))
         }
 
@@ -752,7 +757,7 @@ mod _sre {
                         "<re.Match object; span=({}, {}), match={}>",
                         self.regs[0].0,
                         self.regs[0].1,
-                        vm.to_repr(&self.get_slice(0, str_drive, vm).unwrap())?
+                        self.get_slice(0, str_drive, vm).unwrap().repr(vm)?
                     ))
                 })
         }
@@ -787,6 +792,11 @@ mod _sre {
                 return None;
             }
             Some(slice_drive(&str_drive, start as usize, end as usize, vm))
+        }
+
+        #[pyclassmethod(magic)]
+        fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+            PyGenericAlias::new(cls, args, vm)
         }
     }
 

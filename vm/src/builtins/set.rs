@@ -1,7 +1,10 @@
 /*
  * Builtin set type with a sequence of unique items.
  */
-use super::{builtins_iter, IterStatus, PositionIterInternal, PyDictRef, PyTupleRef, PyTypeRef};
+use super::{
+    builtins_iter, IterStatus, PositionIterInternal, PyDictRef, PyGenericAlias, PyTupleRef,
+    PyTypeRef,
+};
 use crate::common::{ascii, hash::PyHash, lock::PyMutex, rc::PyRc};
 use crate::{
     dictdatatype::{self, DictSize},
@@ -12,8 +15,8 @@ use crate::{
         Unconstructible, Unhashable,
     },
     vm::{ReprGuard, VirtualMachine},
-    IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
+    IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyRef, PyResult,
+    PyValue, TryFromObject, TypeProtocol,
 };
 use std::{fmt, ops::Deref};
 
@@ -96,7 +99,7 @@ impl PySetInner {
         }
     }
 
-    fn contains(&self, needle: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+    fn contains(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
         self.retry_op_with_frozenset(needle, vm, |needle, vm| self.content.contains(vm, needle))
     }
 
@@ -180,7 +183,7 @@ impl PySetInner {
 
     fn issuperset(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
         for item in other.iter(vm)? {
-            if !self.contains(&item?, vm)? {
+            if !self.contains(&*item?, vm)? {
                 return Ok(false);
             }
         }
@@ -194,7 +197,7 @@ impl PySetInner {
 
     fn isdisjoint(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
         for item in other.iter(vm)? {
-            if self.contains(&item?, vm)? {
+            if self.contains(&*item?, vm)? {
                 return Ok(false);
             }
         }
@@ -209,39 +212,30 @@ impl PySetInner {
     }
 
     fn repr(&self, class_name: Option<&str>, vm: &VirtualMachine) -> PyResult<String> {
-        let mut repr_len = class_name.map_or(0, |name| name.len() + 2);
-        let mut parts = Vec::with_capacity(self.content.len());
-        for key in self.elements() {
-            let part = vm.to_repr(&key)?;
-            repr_len += part.as_str().len() + 2;
-            parts.push(part);
-        }
-        let (parts, repr_len) = (parts, repr_len);
-
-        let mut repr = String::with_capacity(repr_len);
+        let mut repr = String::new();
         if let Some(name) = class_name {
             repr.push_str(name);
             repr.push('(');
         }
         repr.push('{');
         {
-            let mut parts_iter = parts.into_iter();
+            let mut parts_iter = self.elements().into_iter().map(|o| o.repr(vm));
             repr.push_str(
                 parts_iter
                     .next()
+                    .transpose()?
                     .expect("this is not called for empty set")
                     .as_str(),
             );
             for part in parts_iter {
                 repr.push_str(", ");
-                repr.push_str(part.as_str());
+                repr.push_str(part?.as_str());
             }
         }
         repr.push('}');
         if class_name.is_some() {
             repr.push(')');
         }
-        debug_assert_eq!(repr.len(), repr_len);
 
         Ok(repr)
     }
@@ -251,10 +245,12 @@ impl PySetInner {
     }
 
     fn remove(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.retry_op_with_frozenset(&item, vm, |item, vm| self.content.delete(vm, item.clone()))
+        self.retry_op_with_frozenset(&item, vm, |item, vm| {
+            self.content.delete(vm, item.to_owned())
+        })
     }
 
-    fn discard(&self, item: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+    fn discard(&self, item: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
         self.retry_op_with_frozenset(item, vm, |item, vm| self.content.delete_if_exists(vm, item))
     }
 
@@ -337,12 +333,12 @@ impl PySetInner {
     // on failure to convert and restores item in KeyError on failure (remove).
     fn retry_op_with_frozenset<T, F>(
         &self,
-        item: &PyObjectRef,
+        item: &PyObject,
         vm: &VirtualMachine,
         op: F,
     ) -> PyResult<T>
     where
-        F: Fn(&PyObjectRef, &VirtualMachine) -> PyResult<T>,
+        F: Fn(&PyObject, &VirtualMachine) -> PyResult<T>,
     {
         op(item, vm).or_else(|original_err| {
             item.payload_if_subclass::<PySet>(vm)
@@ -359,7 +355,7 @@ impl PySetInner {
                     // If operation raised KeyError, report original set (set.remove)
                     .map_err(|op_err| {
                         if op_err.isinstance(&vm.ctx.exceptions.key_error) {
-                            vm.new_key_error(item.clone())
+                            vm.new_key_error(item.to_owned())
                         } else {
                             op_err
                         }
@@ -369,7 +365,7 @@ impl PySetInner {
     }
 }
 
-fn extract_set(obj: &PyObjectRef) -> Option<&PySetInner> {
+fn extract_set(obj: &PyObject) -> Option<&PySetInner> {
     match_class!(match obj {
         ref set @ PySet => Some(&set.inner),
         ref frozen @ PyFrozenSet => Some(&frozen.inner),
@@ -378,7 +374,7 @@ fn extract_set(obj: &PyObjectRef) -> Option<&PySetInner> {
 }
 
 fn reduce_set(
-    zelf: &PyObjectRef,
+    zelf: &PyObject,
     vm: &VirtualMachine,
 ) -> PyResult<(PyTypeRef, PyTupleRef, Option<PyDictRef>)> {
     Ok((
@@ -565,7 +561,7 @@ impl PySet {
     #[pymethod(magic)]
     fn ior(zelf: PyRef<Self>, iterable: SetIterable, vm: &VirtualMachine) -> PyResult {
         zelf.inner.update(iterable.iterable, vm)?;
-        Ok(zelf.as_object().clone())
+        Ok(zelf.as_object().to_owned())
     }
 
     #[pymethod]
@@ -587,7 +583,7 @@ impl PySet {
     #[pymethod(magic)]
     fn iand(zelf: PyRef<Self>, iterable: SetIterable, vm: &VirtualMachine) -> PyResult {
         zelf.inner.intersection_update(iterable.iterable, vm)?;
-        Ok(zelf.as_object().clone())
+        Ok(zelf.as_object().to_owned())
     }
 
     #[pymethod]
@@ -599,7 +595,7 @@ impl PySet {
     #[pymethod(magic)]
     fn isub(zelf: PyRef<Self>, iterable: SetIterable, vm: &VirtualMachine) -> PyResult {
         zelf.inner.difference_update(iterable.iterable, vm)?;
-        Ok(zelf.as_object().clone())
+        Ok(zelf.as_object().to_owned())
     }
 
     #[pymethod]
@@ -616,7 +612,7 @@ impl PySet {
     fn ixor(zelf: PyRef<Self>, iterable: SetIterable, vm: &VirtualMachine) -> PyResult {
         zelf.inner
             .symmetric_difference_update(iterable.iterable, vm)?;
-        Ok(zelf.as_object().clone())
+        Ok(zelf.as_object().to_owned())
     }
 
     #[pymethod(magic)]
@@ -624,14 +620,19 @@ impl PySet {
         zelf: PyRef<Self>,
         vm: &VirtualMachine,
     ) -> PyResult<(PyTypeRef, PyTupleRef, Option<PyDictRef>)> {
-        reduce_set(&zelf.into(), vm)
+        reduce_set(zelf.as_ref(), vm)
+    }
+
+    #[pyclassmethod(magic)]
+    fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+        PyGenericAlias::new(cls, args, vm)
     }
 }
 
 impl Comparable for PySet {
     fn cmp(
-        zelf: &PyRef<Self>,
-        other: &PyObjectRef,
+        zelf: &crate::PyObjectView<Self>,
+        other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
@@ -815,21 +816,26 @@ impl PyFrozenSet {
         zelf: PyRef<Self>,
         vm: &VirtualMachine,
     ) -> PyResult<(PyTypeRef, PyTupleRef, Option<PyDictRef>)> {
-        reduce_set(&zelf.into(), vm)
+        reduce_set(zelf.as_ref(), vm)
+    }
+
+    #[pyclassmethod(magic)]
+    fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+        PyGenericAlias::new(cls, args, vm)
     }
 }
 
 impl Hashable for PyFrozenSet {
     #[inline]
-    fn hash(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+    fn hash(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
         zelf.inner.hash(vm)
     }
 }
 
 impl Comparable for PyFrozenSet {
     fn cmp(
-        zelf: &PyRef<Self>,
-        other: &PyObjectRef,
+        zelf: &crate::PyObjectView<Self>,
+        other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
@@ -896,7 +902,7 @@ impl PySetIterator {
     fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<(PyObjectRef, (PyObjectRef,))> {
         let internal = zelf.internal.lock();
         Ok((
-            builtins_iter(vm).clone(),
+            builtins_iter(vm).to_owned(),
             (vm.ctx
                 .new_list(match &internal.status {
                     IterStatus::Exhausted => vec![],
@@ -912,9 +918,9 @@ impl Unconstructible for PySetIterator {}
 
 impl IterNextIterable for PySetIterator {}
 impl IterNext for PySetIterator {
-    fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let mut internal = zelf.internal.lock();
-        if let IterStatus::Active(dict) = &internal.status {
+        let next = if let IterStatus::Active(dict) = &internal.status {
             if dict.has_changed_size(&zelf.size) {
                 internal.status = IterStatus::Exhausted;
                 return Err(vm.new_runtime_error("set changed size during iteration".to_owned()));
@@ -922,16 +928,17 @@ impl IterNext for PySetIterator {
             match dict.next_entry(internal.position) {
                 Some((position, key, _)) => {
                     internal.position = position;
-                    Ok(PyIterReturn::Return(key))
+                    PyIterReturn::Return(key)
                 }
                 None => {
                     internal.status = IterStatus::Exhausted;
-                    Ok(PyIterReturn::StopIteration(None))
+                    PyIterReturn::StopIteration(None)
                 }
             }
         } else {
-            Ok(PyIterReturn::StopIteration(None))
-        }
+            PyIterReturn::StopIteration(None)
+        };
+        Ok(next)
     }
 }
 

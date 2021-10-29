@@ -30,7 +30,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 #[pymodule(name = "posix")]
 pub mod module {
     use crate::{
-        builtins::{PyDictRef, PyInt, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
+        builtins::{PyDictRef, PyInt, PyIntRef, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
         function::{IntoPyException, IntoPyObject, OptionalArg},
         stdlib::os::{
             errno_err, DirFd, FollowSymlinks, PathOrFd, PyPathLike, SupportFunc, TargetIsDirectory,
@@ -38,13 +38,11 @@ pub mod module {
         },
         types::Constructor,
         utils::{Either, ToCString},
-        ItemProtocol, PyObjectRef, PyResult, PyValue, TryFromObject, VirtualMachine,
+        ItemProtocol, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
     };
     use bitflags::bitflags;
     use nix::fcntl;
     use nix::unistd::{self, Gid, Pid, Uid};
-    #[allow(unused_imports)] // TODO: use will be unnecessary in edition 2021
-    use std::convert::TryFrom;
     use std::ffi::{CStr, CString};
     use std::os::unix::ffi as ffi_ext;
     use std::os::unix::io::RawFd;
@@ -66,6 +64,9 @@ pub mod module {
     #[cfg(not(target_os = "redox"))]
     #[pyattr]
     use libc::{O_NDELAY, O_NOCTTY};
+
+    #[pyattr]
+    use libc::{RTLD_GLOBAL, RTLD_LAZY, RTLD_LOCAL, RTLD_NOW};
 
     #[pyattr]
     const EX_OK: i8 = exitcode::OK as i8;
@@ -101,28 +102,34 @@ pub mod module {
     const EX_CONFIG: i8 = exitcode::CONFIG as i8;
 
     #[cfg(any(
+        target_os = "macos",
         target_os = "linux",
         target_os = "android",
         target_os = "freebsd",
         target_os = "dragonfly",
-        target_os = "netbsd"
+        target_os = "netbsd",
+        target_os = "macos"
     ))]
     #[pyattr]
     const SCHED_RR: i32 = libc::SCHED_RR;
     #[cfg(any(
+        target_os = "macos",
         target_os = "linux",
         target_os = "android",
         target_os = "freebsd",
         target_os = "dragonfly",
-        target_os = "netbsd"
+        target_os = "netbsd",
+        target_os = "macos"
     ))]
     #[pyattr]
     const SCHED_FIFO: i32 = libc::SCHED_FIFO;
     #[cfg(any(
+        target_os = "macos",
         target_os = "linux",
         target_os = "freebsd",
         target_os = "dragonfly",
-        target_os = "netbsd"
+        target_os = "netbsd",
+        target_os = "macos"
     ))]
     #[pyattr]
     const SCHED_OTHER: i32 = libc::SCHED_OTHER;
@@ -471,7 +478,7 @@ pub mod module {
 
         #[pymethod(magic)]
         fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
-            let sched_priority_repr = vm.to_repr(&self.sched_priority)?;
+            let sched_priority_repr = self.sched_priority.repr(vm)?;
             Ok(format!(
                 "posix.sched_param(sched_priority = {})",
                 sched_priority_repr.as_str()
@@ -889,14 +896,16 @@ pub mod module {
     }
 
     #[pyfunction]
-    fn setgid(gid: u32, vm: &VirtualMachine) -> PyResult<()> {
-        unistd::setgid(Gid::from_raw(gid)).map_err(|err| err.into_pyexception(vm))
+    fn setgid(gid: Option<Gid>, vm: &VirtualMachine) -> PyResult<()> {
+        let gid = gid.ok_or_else(|| vm.new_os_error("Invalid argument".to_string()))?;
+        unistd::setgid(gid).map_err(|err| err.into_pyexception(vm))
     }
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn setegid(egid: u32, vm: &VirtualMachine) -> PyResult<()> {
-        unistd::setegid(Gid::from_raw(egid)).map_err(|err| err.into_pyexception(vm))
+    fn setegid(egid: Option<Gid>, vm: &VirtualMachine) -> PyResult<()> {
+        let egid = egid.ok_or_else(|| vm.new_os_error("Invalid argument".to_string()))?;
+        unistd::setegid(egid).map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
@@ -913,22 +922,63 @@ pub mod module {
             .map_err(|err| err.into_pyexception(vm))
     }
 
+    fn try_from_id(vm: &VirtualMachine, obj: PyObjectRef, typ_name: &str) -> PyResult<Option<u32>> {
+        use std::cmp::Ordering;
+        let i = PyIntRef::try_from_object(vm, obj.clone())
+            .map_err(|_| {
+                vm.new_type_error(format!(
+                    "an integer is required (got type {})",
+                    obj.class().name()
+                ))
+            })?
+            .try_to_primitive::<i64>(vm)?;
+
+        match i.cmp(&-1) {
+            Ordering::Greater => Ok(Some(i.try_into().map_err(|_| {
+                vm.new_overflow_error(format!("{} is larger than maximum", typ_name))
+            })?)),
+            Ordering::Less => {
+                Err(vm.new_overflow_error(format!("{} is less than minimum", typ_name)))
+            }
+            Ordering::Equal => Ok(None), // -1 means does not change the value
+        }
+    }
+
+    impl TryFromObject for Option<Uid> {
+        fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+            Ok(try_from_id(vm, obj, "uid")?.map(Uid::from_raw))
+        }
+    }
+
+    impl TryFromObject for Option<Gid> {
+        fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+            Ok(try_from_id(vm, obj, "gid")?.map(Gid::from_raw))
+        }
+    }
+
     #[pyfunction]
-    fn setuid(uid: u32, vm: &VirtualMachine) -> PyResult<()> {
-        unistd::setuid(Uid::from_raw(uid)).map_err(|err| err.into_pyexception(vm))
+    fn setuid(uid: Option<Uid>, vm: &VirtualMachine) -> PyResult<()> {
+        let uid = uid.ok_or_else(|| vm.new_os_error("Invalid argument".to_string()))?;
+        unistd::setuid(uid).map_err(|err| err.into_pyexception(vm))
     }
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn seteuid(euid: u32, vm: &VirtualMachine) -> PyResult<()> {
-        unistd::seteuid(Uid::from_raw(euid)).map_err(|err| err.into_pyexception(vm))
+    fn seteuid(euid: Option<Uid>, vm: &VirtualMachine) -> PyResult<()> {
+        let euid = euid.ok_or_else(|| vm.new_os_error("Invalid argument".to_string()))?;
+        unistd::seteuid(euid).map_err(|err| err.into_pyexception(vm))
     }
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn setreuid(ruid: u32, euid: u32, vm: &VirtualMachine) -> PyResult<()> {
-        unistd::setuid(Uid::from_raw(ruid)).map_err(|err| err.into_pyexception(vm))?;
-        unistd::seteuid(Uid::from_raw(euid)).map_err(|err| err.into_pyexception(vm))
+    fn setreuid(ruid: Option<Uid>, euid: Option<Uid>, vm: &VirtualMachine) -> PyResult<()> {
+        if let Some(ruid) = ruid {
+            unistd::setuid(ruid).map_err(|err| err.into_pyexception(vm))?;
+        }
+        if let Some(euid) = euid {
+            unistd::seteuid(euid).map_err(|err| err.into_pyexception(vm))?;
+        }
+        Ok(())
     }
 
     // cfg from nix
@@ -939,11 +989,18 @@ pub mod module {
         target_os = "openbsd"
     ))]
     #[pyfunction]
-    fn setresuid(ruid: u32, euid: u32, suid: u32, vm: &VirtualMachine) -> PyResult<()> {
+    fn setresuid(
+        ruid: Option<Uid>,
+        euid: Option<Uid>,
+        suid: Option<Uid>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let unwrap_or_unchanged =
+            |u: Option<Uid>| u.unwrap_or_else(|| Uid::from_raw(libc::uid_t::MAX));
         unistd::setresuid(
-            Uid::from_raw(ruid),
-            Uid::from_raw(euid),
-            Uid::from_raw(suid),
+            unwrap_or_unchanged(ruid),
+            unwrap_or_unchanged(euid),
+            unwrap_or_unchanged(suid),
         )
         .map_err(|err| err.into_pyexception(vm))
     }
@@ -1032,25 +1089,32 @@ pub mod module {
         target_os = "openbsd"
     ))]
     #[pyfunction]
-    fn setresgid(rgid: u32, egid: u32, sgid: u32, vm: &VirtualMachine) -> PyResult<()> {
+    fn setresgid(
+        rgid: Option<Gid>,
+        egid: Option<Gid>,
+        sgid: Option<Gid>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let unwrap_or_unchanged =
+            |u: Option<Gid>| u.unwrap_or_else(|| Gid::from_raw(libc::gid_t::MAX));
         unistd::setresgid(
-            Gid::from_raw(rgid),
-            Gid::from_raw(egid),
-            Gid::from_raw(sgid),
+            unwrap_or_unchanged(rgid),
+            unwrap_or_unchanged(egid),
+            unwrap_or_unchanged(sgid),
         )
         .map_err(|err| err.into_pyexception(vm))
     }
 
-    // cfg from nix
-    #[cfg(any(target_os = "android", target_os = "linux", target_os = "openbsd"))]
+    #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn setregid(rgid: u32, egid: u32, vm: &VirtualMachine) -> PyResult<()> {
-        let ret = unsafe { libc::setregid(rgid, egid) };
-        if ret == 0 {
-            Ok(())
-        } else {
-            Err(errno_err(vm))
+    fn setregid(rgid: Option<Gid>, egid: Option<Gid>, vm: &VirtualMachine) -> PyResult<()> {
+        if let Some(rgid) = rgid {
+            unistd::setgid(rgid).map_err(|err| err.into_pyexception(vm))?;
         }
+        if let Some(egid) = egid {
+            unistd::setegid(egid).map_err(|err| err.into_pyexception(vm))?;
+        }
+        Ok(())
     }
 
     // cfg from nix
@@ -1061,9 +1125,9 @@ pub mod module {
         target_os = "openbsd"
     ))]
     #[pyfunction]
-    fn initgroups(user_name: PyStrRef, gid: u32, vm: &VirtualMachine) -> PyResult<()> {
+    fn initgroups(user_name: PyStrRef, gid: Option<Gid>, vm: &VirtualMachine) -> PyResult<()> {
         let user = CString::new(user_name.as_str()).unwrap();
-        let gid = Gid::from_raw(gid);
+        let gid = gid.ok_or_else(|| vm.new_os_error("Invalid argument".to_string()))?;
         unistd::initgroups(&user, gid).map_err(|err| err.into_pyexception(vm))
     }
 
@@ -1071,16 +1135,13 @@ pub mod module {
     #[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "redox")))]
     #[pyfunction]
     fn setgroups(
-        group_ids: crate::function::ArgIterable<u32>,
+        group_ids: crate::function::ArgIterable<Option<Gid>>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let gids = group_ids
             .iter(vm)?
-            .map(|entry| match entry {
-                Ok(id) => Ok(unistd::Gid::from_raw(id)),
-                Err(err) => Err(err),
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect::<Result<Option<Vec<_>>, _>>()?
+            .ok_or_else(|| vm.new_os_error("Invalid argument".to_string()))?;
         let ret = unistd::setgroups(&gids);
         ret.map_err(|err| err.into_pyexception(vm))
     }

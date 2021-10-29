@@ -20,14 +20,13 @@ pub(crate) mod _struct {
         function::{ArgBytesLike, ArgIntoBool, ArgMemoryBuffer, IntoPyObject, PosArgs},
         protocol::PyIterReturn,
         types::{Constructor, IterNext, IterNextIterable},
-        PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
+        PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use half::f16;
     use itertools::Itertools;
     use num_bigint::BigInt;
     use num_traits::{PrimInt, ToPrimitive};
-    use std::convert::TryFrom;
     use std::iter::Peekable;
     use std::{fmt, mem, os::raw};
 
@@ -239,6 +238,7 @@ pub(crate) mod _struct {
 
     #[derive(Debug, Clone)]
     pub(crate) struct FormatSpec {
+        #[allow(dead_code)]
         endianness: Endianness,
         codes: Vec<FormatCode>,
         size: usize,
@@ -473,7 +473,7 @@ pub(crate) mod _struct {
 
     fn get_int_or_index<T>(vm: &VirtualMachine, arg: PyObjectRef) -> PyResult<T>
     where
-        T: PrimInt + for<'a> std::convert::TryFrom<&'a BigInt>,
+        T: PrimInt + for<'a> TryFrom<&'a BigInt>,
     {
         match vm.to_index_opt(arg) {
             Some(index) => index?
@@ -852,7 +852,7 @@ pub(crate) mod _struct {
     }
     impl IterNextIterable for UnpackIterator {}
     impl IterNext for UnpackIterator {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let size = zelf.format_spec.size;
             let offset = zelf.offset.fetch_add(size);
             zelf.buffer.with_ref(|buf| {

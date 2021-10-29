@@ -3,11 +3,11 @@ use std::ops::Range;
 
 use crate::builtins::int::PyInt;
 // export through slicable module, not slice.
+use crate::builtins::slice::PySlice;
 pub use crate::builtins::slice::{saturate_index, SaturatedSlice};
-use crate::builtins::slice::{PySlice, PySliceRef};
 use crate::utils::Either;
 use crate::VirtualMachine;
-use crate::{PyObjectRef, PyResult, TypeProtocol};
+use crate::{PyObjectRef, PyRef, PyResult, TypeProtocol};
 
 pub trait PySliceableSequenceMut {
     type Item: Clone;
@@ -332,7 +332,7 @@ impl<T: Clone> PySliceableSequence for [T] {
 
 pub enum SequenceIndex {
     Int(isize),
-    Slice(PySliceRef),
+    Slice(PyRef<PySlice>),
 }
 
 impl SequenceIndex {

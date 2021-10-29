@@ -4,7 +4,7 @@ use crate::{
     builtins::{PyBaseExceptionRef, PyBytes, PyBytesRef, PyInt, PySet, PyStr, PyStrRef},
     function::{ArgumentError, FromArgs, FuncArgs, IntoPyException, IntoPyObject},
     protocol::PyBuffer,
-    PyObjectRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject, TypeProtocol,
+    PyObject, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject, TypeProtocol,
     VirtualMachine,
 };
 use std::ffi;
@@ -265,6 +265,8 @@ impl IntoPyException for nix::Error {
         io::Error::from(self).into_pyexception(vm)
     }
 }
+
+// TODO: preserve the input `PyObjectRef` of filename and filename2 (Failing check `self.assertIs(err.filename, name, str(func)`)
 pub struct IOErrorBuilder {
     error: io::Error,
     filename: Option<PathOrFd>,
@@ -294,11 +296,13 @@ impl IntoPyException for IOErrorBuilder {
         let excp = self.error.into_pyexception(vm);
 
         if let Some(filename) = self.filename {
-            vm.set_attr(excp.as_object(), "filename", filename.filename(vm))
+            excp.as_object()
+                .set_attr("filename", filename.filename(vm), vm)
                 .unwrap();
         }
         if let Some(filename2) = self.filename2 {
-            vm.set_attr(excp.as_object(), "filename2", filename2.filename(vm))
+            excp.as_object()
+                .set_attr("filename2", filename2.filename(vm), vm)
                 .unwrap();
         }
         excp
@@ -425,7 +429,9 @@ pub(super) mod _os {
     };
     use crate::common::lock::{OnceCell, PyRwLock};
     use crate::{
-        builtins::{PyBytesRef, PyIntRef, PyStrRef, PyTuple, PyTupleRef, PyTypeRef},
+        builtins::{
+            PyBytesRef, PyGenericAlias, PyIntRef, PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
+        },
         crt_fd::{Fd, Offset},
         function::{ArgBytesLike, FuncArgs, IntoPyException, IntoPyObject, OptionalArg},
         protocol::PyIterReturn,
@@ -665,30 +671,47 @@ pub(super) mod _os {
         Ok(list)
     }
 
+    fn pyref_as_str<'a>(
+        obj: &'a Either<PyStrRef, PyBytesRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<&'a str> {
+        Ok(match obj {
+            Either::A(ref s) => s.as_str(),
+            Either::B(ref b) => super::bytes_as_osstr(b.as_bytes(), vm)?
+                .to_str()
+                .ok_or_else(|| {
+                    vm.new_unicode_decode_error("can't decode bytes for utf-8".to_owned())
+                })?,
+        })
+    }
+
     #[pyfunction]
     fn putenv(
         key: Either<PyStrRef, PyBytesRef>,
         value: Either<PyStrRef, PyBytesRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let key: &ffi::OsStr = match key {
-            Either::A(ref s) => s.as_str().as_ref(),
-            Either::B(ref b) => super::bytes_as_osstr(b.as_bytes(), vm)?,
-        };
-        let value: &ffi::OsStr = match value {
-            Either::A(ref s) => s.as_str().as_ref(),
-            Either::B(ref b) => super::bytes_as_osstr(b.as_bytes(), vm)?,
-        };
+        let key = pyref_as_str(&key, vm)?;
+        let value = pyref_as_str(&value, vm)?;
+        if key.contains('\0') || value.contains('\0') {
+            return Err(vm.new_value_error("embedded null byte".to_string()));
+        }
+        if key.is_empty() || key.contains('=') {
+            return Err(vm.new_value_error("illegal environment variable name".to_string()));
+        }
         env::set_var(key, value);
         Ok(())
     }
 
     #[pyfunction]
     fn unsetenv(key: Either<PyStrRef, PyBytesRef>, vm: &VirtualMachine) -> PyResult<()> {
-        let key: &ffi::OsStr = match key {
-            Either::A(ref s) => s.as_str().as_ref(),
-            Either::B(ref b) => super::bytes_as_osstr(b.as_bytes(), vm)?,
-        };
+        let key = pyref_as_str(&key, vm)?;
+        if key.contains('\0') {
+            return Err(vm.new_value_error("embedded null byte".to_string()));
+        }
+        if key.is_empty() || key.contains('=') {
+            return Err(vm.new_value_error("illegal environment variable name".to_string()));
+        }
         env::remove_var(key);
         Ok(())
     }
@@ -843,7 +866,7 @@ pub(super) mod _os {
 
         #[pymethod(magic)]
         fn repr(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
-            let name = match vm.get_attribute(zelf.clone(), "name") {
+            let name = match zelf.clone().get_attr("name", vm) {
                 Ok(name) => Some(name),
                 Err(e)
                     if e.isinstance(&vm.ctx.exceptions.attribute_error)
@@ -855,7 +878,7 @@ pub(super) mod _os {
             };
             if let Some(name) = name {
                 if let Some(_guard) = ReprGuard::enter(vm, &zelf) {
-                    let repr = vm.to_repr(&name)?;
+                    let repr = name.repr(vm)?;
                     Ok(format!("<{} {}>", zelf.class(), repr))
                 } else {
                     Err(vm.new_runtime_error(format!(
@@ -866,6 +889,11 @@ pub(super) mod _os {
             } else {
                 Ok(format!("<{}>", zelf.class()))
             }
+        }
+
+        #[pyclassmethod(magic)]
+        fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+            PyGenericAlias::new(cls, args, vm)
         }
     }
 
@@ -897,7 +925,7 @@ pub(super) mod _os {
     }
     impl IterNextIterable for ScandirIterator {}
     impl IterNext for ScandirIterator {
-        fn next(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             if zelf.exhausted.load() {
                 return Ok(PyIterReturn::StopIteration(None));
             }
@@ -1347,7 +1375,7 @@ pub(super) mod _os {
                 let (a, m) = parse_tup(&ns).ok_or_else(|| {
                     vm.new_type_error("utime: 'ns' must be a tuple of two ints".to_owned())
                 })?;
-                let ns_in_sec = vm.ctx.new_int(1_000_000_000).into();
+                let ns_in_sec: PyObjectRef = vm.ctx.new_int(1_000_000_000).into();
                 let ns_to_dur = |obj: PyObjectRef| {
                     let divmod = vm._divmod(&obj, &ns_in_sec)?;
                     let (div, rem) =
@@ -1561,7 +1589,6 @@ pub(super) mod _os {
     #[cfg(target_os = "linux")]
     #[pyfunction]
     fn copy_file_range(args: CopyFileRangeArgs, vm: &VirtualMachine) -> PyResult<usize> {
-        use std::convert::{TryFrom, TryInto};
         let p_offset_src = args.offset_src.as_ref().map_or_else(std::ptr::null, |x| x);
         let p_offset_dst = args.offset_dst.as_ref().map_or_else(std::ptr::null, |x| x);
         let count: usize = args
@@ -1723,7 +1750,7 @@ impl<'a> SupportFunc {
     }
 }
 
-pub fn extend_module(vm: &VirtualMachine, module: &PyObjectRef) {
+pub fn extend_module(vm: &VirtualMachine, module: &PyObject) {
     _os::extend_module(vm, module);
 
     let support_funcs = _os::support_funcs();
@@ -1731,7 +1758,7 @@ pub fn extend_module(vm: &VirtualMachine, module: &PyObjectRef) {
     let supports_dir_fd = PySet::default().into_ref(vm);
     let supports_follow_symlinks = PySet::default().into_ref(vm);
     for support in support_funcs {
-        let func_obj = vm.get_attribute(module.clone(), support.name).unwrap();
+        let func_obj = module.to_owned().get_attr(support.name, vm).unwrap();
         if support.fd.unwrap_or(false) {
             supports_fd.clone().add(func_obj.clone(), vm).unwrap();
         }
