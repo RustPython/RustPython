@@ -188,7 +188,10 @@ impl CFormatSpec {
         let fill_string = CFormatSpec::compute_fill_string(fill_char, fill_chars_needed);
 
         if !fill_string.is_empty() {
-            if self.flags.contains(CConversionFlags::LEFT_ADJUST) {
+            // Don't left-adjust if precision-filling: that will always be prepending 0s to %d
+            // arguments, the LEFT_ADJUST flag will be used by a later call to fill_string with
+            // the 0-filled string as the string param.
+            if !fill_with_precision && self.flags.contains(CConversionFlags::LEFT_ADJUST) {
                 format!("{}{}", string, fill_string)
             } else {
                 format!("{}{}", fill_string, string)
