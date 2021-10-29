@@ -317,8 +317,6 @@ class FormatTest(unittest.TestCase):
             else:
                 raise TestFailed('"%*d"%(maxsize, -127) should fail')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bytes_and_bytearray_format(self):
         # %c will insert a single byte, either from an int in range(256), or
         # from a bytes argument of length 1, not from a str.
