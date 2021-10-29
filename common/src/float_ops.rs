@@ -84,7 +84,7 @@ fn trim_slice<T>(v: &[T], mut trim: impl FnMut(&T) -> bool) -> &[T] {
 
 fn parse_inner(literal: &[u8]) -> Option<f64> {
     use lexical_parse_float::{
-        format::PYTHON3_LITERAL, FromLexicalWithOptions, NumberFormatBuilder, Options, 
+        format::PYTHON3_LITERAL, FromLexicalWithOptions, NumberFormatBuilder, Options,
     };
     const PYTHON_STRING: u128 = NumberFormatBuilder::rebuild(PYTHON3_LITERAL)
         .no_special(false)
@@ -493,7 +493,7 @@ fn test_remove_trailing_redundant_chars() {
 }
 
 #[test]
-fn test_parse_str(){
+fn test_parse_str() {
     assert!(parse_str("1e1") == Some(10.0));
     assert!(parse_str("1_e1") == None);
 }
