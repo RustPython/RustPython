@@ -958,6 +958,33 @@ impl<C: widestring::UChar> IntoPyException for widestring::NulError<C> {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn raw_os_error_to_exc_type(errno: i32, vm: &VirtualMachine) -> Option<PyTypeRef> {
+    use crate::stdlib::errno::errors;
+    let excs = &vm.ctx.exceptions;
+    match errno {
+        errors::EWOULDBLOCK => Some(excs.blocking_io_error.clone()),
+        errors::EALREADY => Some(excs.blocking_io_error.clone()),
+        errors::EINPROGRESS => Some(excs.blocking_io_error.clone()),
+        errors::EPIPE => Some(excs.broken_pipe_error.clone()),
+        errors::ESHUTDOWN => Some(excs.broken_pipe_error.clone()),
+        errors::ECHILD => Some(excs.child_process_error.clone()),
+        errors::ECONNABORTED => Some(excs.connection_aborted_error.clone()),
+        errors::ECONNREFUSED => Some(excs.connection_refused_error.clone()),
+        errors::ECONNRESET => Some(excs.connection_reset_error.clone()),
+        errors::EEXIST => Some(excs.file_exists_error.clone()),
+        errors::ENOENT => Some(excs.file_not_found_error.clone()),
+        errors::EISDIR => Some(excs.is_a_directory_error.clone()),
+        errors::ENOTDIR => Some(excs.not_a_directory_error.clone()),
+        errors::EINTR => Some(excs.interrupted_error.clone()),
+        errors::EACCES => Some(excs.permission_error.clone()),
+        errors::EPERM => Some(excs.permission_error.clone()),
+        errors::ESRCH => Some(excs.process_lookup_error.clone()),
+        errors::ETIMEDOUT => Some(excs.timeout_error.clone()),
+        _ => None,
+    }
+}
+
 pub(super) mod types {
     use crate::common::lock::PyRwLock;
     #[cfg_attr(target_os = "wasi", allow(unused_imports))]
@@ -1168,51 +1195,16 @@ pub(super) mod types {
     fn os_error_optional_new(
         args: Vec<PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> Option<PyResult<PyBaseExceptionRef>> {
-        use crate::stdlib::errno::errors;
-
+    ) -> Option<PyBaseExceptionRef> {
         let len = args.len();
         if len >= 2 {
             let args = args.as_slice();
             let errno = &args[0];
-            let error = match errno.payload_if_subclass::<PyInt>(vm) {
-                Some(errno) => match errno.try_to_primitive::<i32>(vm) {
-                    Ok(errno) => {
-                        let excs = &vm.ctx.exceptions;
-                        let error = match errno {
-                            errors::EWOULDBLOCK => Some(excs.blocking_io_error.clone()),
-                            errors::EALREADY => Some(excs.blocking_io_error.clone()),
-                            errors::EINPROGRESS => Some(excs.blocking_io_error.clone()),
-                            errors::EPIPE => Some(excs.broken_pipe_error.clone()),
-                            errors::ESHUTDOWN => Some(excs.broken_pipe_error.clone()),
-                            errors::ECHILD => Some(excs.child_process_error.clone()),
-                            errors::ECONNABORTED => Some(excs.connection_aborted_error.clone()),
-                            errors::ECONNREFUSED => Some(excs.connection_refused_error.clone()),
-                            errors::ECONNRESET => Some(excs.connection_reset_error.clone()),
-                            errors::EEXIST => Some(excs.file_exists_error.clone()),
-                            errors::ENOENT => Some(excs.file_not_found_error.clone()),
-                            errors::EISDIR => Some(excs.is_a_directory_error.clone()),
-                            errors::ENOTDIR => Some(excs.not_a_directory_error.clone()),
-                            errors::EINTR => Some(excs.interrupted_error.clone()),
-                            errors::EACCES => Some(excs.permission_error.clone()),
-                            errors::EPERM => Some(excs.permission_error.clone()),
-                            errors::ESRCH => Some(excs.process_lookup_error.clone()),
-                            errors::ETIMEDOUT => Some(excs.timeout_error.clone()),
-                            _ => None,
-                        };
-
-                        if error.is_some() {
-                            Some(vm.invoke_exception(error?, args.to_vec()))
-                        } else {
-                            None
-                        }
-                    }
-                    Err(_) => None,
-                },
-                None => None,
-            };
-
-            error
+            errno
+                .payload_if_subclass::<PyInt>(vm)
+                .and_then(|errno| errno.try_to_primitive::<i32>(vm).ok())
+                .and_then(|errno| super::raw_os_error_to_exc_type(errno, vm))
+                .and_then(|typ| vm.invoke_exception(typ, args.to_vec()).ok())
         } else {
             None
         }
@@ -1224,7 +1216,7 @@ pub(super) mod types {
         // See: `BaseException_new`
         if cls.name().deref() == vm.ctx.exceptions.os_error.name().deref() {
             match os_error_optional_new(args.args.to_vec(), vm) {
-                Some(error) => error.unwrap().into_pyresult(vm),
+                Some(error) => error.into_pyresult(vm),
                 None => PyBaseException::slot_new(cls, args, vm),
             }
         } else {

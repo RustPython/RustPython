@@ -178,8 +178,6 @@ class FinderTests(abc.FinderTests):
         found = self._find(finder, 'doesnotexist')
         self.assertEqual(found, self.NOT_FOUND)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_ignore_file(self):
         # If a directory got changed to a file from underneath us, then don't
         # worry about looking for submodules.
