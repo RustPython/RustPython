@@ -150,8 +150,41 @@ mod _contextvars {
     #[derive(Debug, PyValue)]
     struct ContextToken {}
 
+    #[derive(FromArgs)]
+    struct ContextTokenOptions {
+        #[pyarg(positional)]
+        #[allow(dead_code)] // TODO: RUSTPYTHON
+        context: PyObjectRef,
+        #[pyarg(positional)]
+        #[allow(dead_code)] // TODO: RUSTPYTHON
+        var: PyObjectRef,
+        #[pyarg(positional)]
+        #[allow(dead_code)] // TODO: RUSTPYTHON
+        old_value: PyObjectRef,
+    }
+
     #[pyimpl]
-    impl ContextToken {}
+    impl ContextToken {
+        #[pymethod(magic)]
+        fn init(&self, _args: ContextTokenOptions, _vm: &VirtualMachine) -> PyResult<()> {
+            unimplemented!("Token.__init__() is currently under construction")
+        }
+
+        #[pyproperty]
+        fn var(&self, _vm: &VirtualMachine) -> PyObjectRef {
+            unimplemented!("Token.var() is currently under construction")
+        }
+
+        #[pyproperty]
+        fn old_value(&self, _vm: &VirtualMachine) -> PyObjectRef {
+            unimplemented!("Token.old_value() is currently under construction")
+        }
+
+        #[pymethod(magic)]
+        fn repr(_zelf: PyRef<Self>, _vm: &VirtualMachine) -> String {
+            unimplemented!("<Token {{}}var={{}} at {{}}>")
+        }
+    }
 
     #[pyfunction]
     fn copy_context() {}
