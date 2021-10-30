@@ -1,3 +1,4 @@
+#![cfg_attr(target_os = "wasi", allow(dead_code))]
 use rustpython_vm::builtins::{PyDictRef, PyStrRef};
 use rustpython_vm::VirtualMachine;
 use rustpython_vm::{function::ArgIterable, PyResult, TryFromObject};

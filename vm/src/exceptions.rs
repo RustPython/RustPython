@@ -960,12 +960,14 @@ impl<C: widestring::UChar> IntoPyException for widestring::NulError<C> {
 
 pub(super) mod types {
     use crate::common::lock::PyRwLock;
+    #[cfg_attr(target_os = "wasi", allow(unused_imports))]
     use crate::{
         builtins::{traceback::PyTracebackRef, PyInt, PyTupleRef, PyTypeRef},
         function::{FuncArgs, IntoPyResult},
         PyObjectRef, PyRef, PyResult, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
+    #[cfg_attr(target_os = "wasi", allow(unused_imports))]
     use std::ops::Deref;
 
     // This module is designed to be used as `use builtins::*;`.
