@@ -745,6 +745,7 @@ impl ExceptionZoo {
             "filename" => ctx.none(),
             // second exception filename
             "filename2" => ctx.none(),
+            "__str__" => ctx.new_method("__str__", excs.os_error.clone(), os_error_str),
         });
         // TODO: this isn't really accurate
         #[cfg(windows)]
@@ -856,6 +857,21 @@ fn key_error_str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyStrRef {
             .unwrap()
     } else {
         exc.str(vm)
+    }
+}
+
+fn os_error_str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    let args = exc.args();
+    if args.as_slice().len() == 2 {
+        // SAFETY: len() == 2 is checked so get_arg 1 or 2 won't panic
+        let s = format!(
+            "[Errno {}] {}",
+            exc.get_arg(0).unwrap().str(vm)?,
+            exc.get_arg(1).unwrap().str(vm)?
+        );
+        Ok(vm.ctx.new_str(s))
+    } else {
+        Ok(exc.str(vm))
     }
 }
 
