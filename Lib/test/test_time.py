@@ -60,16 +60,16 @@ class TimeTestCase(unittest.TestCase):
         time.timezone
         time.tzname
 
-    # TODO: RUSTPYTHON, AttributeError: module 'time' has no attribute 'get_clock_info'
-    @unittest.expectedFailure
+    # TODO: RUSTPYTHON
+    @unittest.skipIf(sys.platform == "win32", "Implement get_clock_info for Windows.")
     def test_time(self):
         time.time()
         info = time.get_clock_info('time')
         self.assertFalse(info.monotonic)
         self.assertTrue(info.adjustable)
 
-    # TODO: RUSTPYTHON, AttributeError: module 'time' has no attribute 'monotonic_ns'
-    @unittest.expectedFailure
+    # TODO: RUSTPYTHON
+    @unittest.skipIf(sys.platform == "win32", "Implement monotonic_ns for Windows.")
     def test_time_ns_type(self):
         def check_ns(sec, ns):
             self.assertIsInstance(ns, int)
@@ -476,8 +476,8 @@ class TimeTestCase(unittest.TestCase):
             pass
         self.assertEqual(time.strftime('%Z', tt), tzname)
 
-    # TODO: RUSTPYTHON, AttributeError: module 'time' has no attribute 'get_clock_info'
-    @unittest.expectedFailure
+    # TODO: RUSTPYTHON
+    @unittest.skipIf(sys.platform == "win32", "Implement get_clock_info for Windows.")
     def test_monotonic(self):
         # monotonic() should not go backward
         times = [time.monotonic() for n in range(100)]
@@ -504,8 +504,8 @@ class TimeTestCase(unittest.TestCase):
     def test_perf_counter(self):
         time.perf_counter()
 
-    # TODO: RUSTPYTHON, AttributeError: module 'time' has no attribute 'get_clock_info'
-    @unittest.expectedFailure
+    # TODO: RUSTPYTHON
+    @unittest.skipIf(sys.platform == "win32", "Implement get_clock_info for Windows.")
     def test_process_time(self):
         # process_time() should not include time spend during a sleep
         start = time.process_time()
@@ -519,8 +519,8 @@ class TimeTestCase(unittest.TestCase):
         self.assertTrue(info.monotonic)
         self.assertFalse(info.adjustable)
 
-    # TODO: RUSTPYTHON, AttributeError: module 'time' has no attribute 'get_clock_info'
-    @unittest.expectedFailure
+    # TODO: RUSTPYTHON
+    @unittest.skipIf(sys.platform == "win32", "Implement get_clock_info for Windows.")
     def test_thread_time(self):
         if not hasattr(time, 'thread_time'):
             if sys.platform.startswith(('linux', 'win')):
@@ -577,8 +577,8 @@ class TimeTestCase(unittest.TestCase):
         self.assertRaises(ValueError, time.localtime, float("nan"))
         self.assertRaises(ValueError, time.ctime, float("nan"))
 
-    # TODO: RUSTPYTHON, AttributeError: module 'time' has no attribute 'get_clock_info'
-    @unittest.expectedFailure
+    # TODO: RUSTPYTHON
+    @unittest.skipIf(sys.platform == "win32", "Implement get_clock_info for Windows.")
     def test_get_clock_info(self):
         clocks = ['monotonic', 'perf_counter', 'process_time', 'time']
 
