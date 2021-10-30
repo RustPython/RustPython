@@ -734,8 +734,6 @@ class TestShutil(unittest.TestCase):
             self.assertFalse(shutil._use_fd_functions)
             self.assertFalse(shutil.rmtree.avoids_symlink_attacks)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_rmtree_dont_delete_file(self):
         # When called on a file instead of a directory, don't delete it.
         handle, path = tempfile.mkstemp()

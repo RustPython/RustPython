@@ -1395,8 +1395,6 @@ class ProcessTestCase(BaseTestCase):
         self.assertFalse(os.path.exists(ofname))
         self.assertFalse(os.path.exists(efname))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_communicate_epipe(self):
         # Issue 10963: communicate() should hide EPIPE
         p = subprocess.Popen(ZERO_RETURN_CMD,
@@ -1409,7 +1407,9 @@ class ProcessTestCase(BaseTestCase):
         p.communicate(b"x" * 2**20)
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    if sys.platform == "win32":
+        test_communicate_epipe = unittest.expectedFailure(test_communicate_epipe)
+
     def test_communicate_epipe_only_stdin(self):
         # Issue 10963: communicate() should hide EPIPE
         p = subprocess.Popen(ZERO_RETURN_CMD,
@@ -1417,6 +1417,10 @@ class ProcessTestCase(BaseTestCase):
         self.addCleanup(p.stdin.close)
         p.wait()
         p.communicate(b"x" * 2**20)
+
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        test_communicate_epipe_only_stdin = unittest.expectedFailure(test_communicate_epipe_only_stdin)
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
@@ -2753,8 +2757,6 @@ class POSIXProcessTestCase(BaseTestCase):
                                  stderr=inout, stdin=inout)
             p.wait()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_wait_when_sigchild_ignored(self):
         # NOTE: sigchild_ignore.py may not be an effective test on all OSes.
         sigchild_ignore = support.findfile("sigchild_ignore.py",

@@ -1,4 +1,3 @@
-use super::errno::errors;
 use crate::crt_fd::Fd;
 use crate::{
     builtins::{PyBaseExceptionRef, PyBytes, PyBytesRef, PyInt, PySet, PyStr, PyStrRef},
@@ -238,20 +237,17 @@ impl IntoPyException for io::Error {
 }
 impl IntoPyException for &'_ io::Error {
     fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        let excs = &vm.ctx.exceptions;
         #[allow(unreachable_patterns)] // some errors are just aliases of each other
         let exc_type = match self.kind() {
-            ErrorKind::NotFound => vm.ctx.exceptions.file_not_found_error.clone(),
-            ErrorKind::PermissionDenied => vm.ctx.exceptions.permission_error.clone(),
-            ErrorKind::AlreadyExists => vm.ctx.exceptions.file_exists_error.clone(),
-            ErrorKind::WouldBlock => vm.ctx.exceptions.blocking_io_error.clone(),
-            _ => match self.raw_os_error() {
-                Some(errors::EAGAIN)
-                | Some(errors::EALREADY)
-                | Some(errors::EWOULDBLOCK)
-                | Some(errors::EINPROGRESS) => vm.ctx.exceptions.blocking_io_error.clone(),
-                Some(errors::ESRCH) => vm.ctx.exceptions.process_lookup_error.clone(),
-                _ => vm.ctx.exceptions.os_error.clone(),
-            },
+            ErrorKind::NotFound => excs.file_not_found_error.clone(),
+            ErrorKind::PermissionDenied => excs.permission_error.clone(),
+            ErrorKind::AlreadyExists => excs.file_exists_error.clone(),
+            ErrorKind::WouldBlock => excs.blocking_io_error.clone(),
+            _ => self
+                .raw_os_error()
+                .and_then(|errno| crate::exceptions::raw_os_error_to_exc_type(errno, vm))
+                .unwrap_or_else(|| excs.os_error.clone()),
         };
         let errno = self.raw_os_error().into_pyobject(vm);
         let msg = vm.ctx.new_str(self.to_string()).into();

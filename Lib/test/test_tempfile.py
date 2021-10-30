@@ -358,10 +358,6 @@ class TestBadTempdir:
                 with self.assertRaises((NotADirectoryError, FileNotFoundError)):
                     self.make_temp()
 
-    # TODO: RUSTPYTHON
-    if sys.platform != "win32":
-        test_non_directory = unittest.expectedFailure(test_non_directory)
-
 
 class TestMkstempInner(TestBadTempdir, BaseTestCase):
     """Test the internal function _mkstemp_inner."""
@@ -1502,10 +1498,6 @@ class TestTemporaryDirectory(BaseTestCase):
                         os.chmod(root, mode)
                     d.cleanup()
                 self.assertFalse(os.path.exists(d.name))
-
-    # TODO: RUSTPYTHON
-    if sys.platform not in {"darwin", "win32"}:
-        test_modes = unittest.expectedFailure(test_modes)
 
     @unittest.skipUnless(hasattr(os, 'chflags'), 'requires os.lchflags')
     def test_flags(self):
