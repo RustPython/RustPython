@@ -343,7 +343,12 @@ impl CFormatSpec {
                     CFormatCase::Uppercase => float_ops::Case::Upper,
                 };
                 let magnitude = num.abs();
-                float_ops::format_general(precision, magnitude, case)
+                float_ops::format_general(
+                    precision,
+                    magnitude,
+                    case,
+                    self.flags.contains(CConversionFlags::ALTERNATE_FORM),
+                )
             }
             _ => unreachable!(),
         };

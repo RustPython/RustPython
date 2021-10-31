@@ -376,6 +376,7 @@ impl FormatSpec {
                     precision,
                     magnitude,
                     float_ops::Case::Upper,
+                    false,
                 ))
             }
             Some(FormatType::GeneralFormatLower) => {
@@ -384,6 +385,7 @@ impl FormatSpec {
                     precision,
                     magnitude,
                     float_ops::Case::Lower,
+                    false,
                 ))
             }
             Some(FormatType::ExponentUpper) => Ok(float_ops::format_exponent(
