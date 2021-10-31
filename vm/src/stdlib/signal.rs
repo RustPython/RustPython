@@ -97,7 +97,12 @@ pub(crate) mod _signal {
     };
 
     #[cfg(unix)]
-    #[cfg(not(any(target_os = "macos", target_os = "openbsd", target_os = "freebsd")))]
+    #[cfg(not(any(
+        target_os = "macos",
+        target_os = "openbsd",
+        target_os = "freebsd",
+        target_os = "netbsd"
+    )))]
     #[pyattr]
     pub use libc::{SIGPWR, SIGSTKFLT};
 

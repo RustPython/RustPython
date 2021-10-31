@@ -176,8 +176,11 @@ const ERROR_CODES: &[(&str, i32)] = &[
     e!(ENXIO),
     e!(ECANCELED),
     e!(EWOULDBLOCK),
-    e!(cfg(not(windows)), EOWNERDEAD),
-    e!(cfg(not(windows)), ENOTRECOVERABLE),
+    e!(cfg(not(any(windows, target_os = "netbsd"))), EOWNERDEAD),
+    e!(
+        cfg(not(any(windows, target_os = "netbsd"))),
+        ENOTRECOVERABLE
+    ),
     e!(cfg(windows), WSAEHOSTDOWN),
     e!(cfg(windows), WSAENETDOWN),
     e!(cfg(windows), WSAENOTSOCK),

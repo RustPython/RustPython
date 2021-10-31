@@ -1004,10 +1004,17 @@ pub(super) mod _os {
         fn from_stat(stat: &StatStruct, vm: &VirtualMachine) -> Self {
             let (atime, mtime, ctime);
             #[cfg(any(unix, windows))]
+            #[cfg(not(target_os = "netbsd"))]
             {
                 atime = (stat.st_atime, stat.st_atime_nsec);
                 mtime = (stat.st_mtime, stat.st_mtime_nsec);
                 ctime = (stat.st_ctime, stat.st_ctime_nsec);
+            }
+            #[cfg(target_os = "netbsd")]
+            {
+                atime = (stat.st_atime, stat.st_atimensec);
+                mtime = (stat.st_mtime, stat.st_mtimensec);
+                ctime = (stat.st_ctime, stat.st_ctimensec);
             }
             #[cfg(target_os = "wasi")]
             {
