@@ -212,7 +212,9 @@ mod _ssl {
             static ERROR: PyTypeRef;
         }
         ERROR
-            .get_or_init(|| PyType::new_simple_ref("ssl.SSLZeroReturnError", &ssl_error(vm)).unwrap())
+            .get_or_init(|| {
+                PyType::new_simple_ref("ssl.SSLZeroReturnError", &ssl_error(vm)).unwrap()
+            })
             .clone()
     }
 
@@ -232,7 +234,9 @@ mod _ssl {
             static ERROR: PyTypeRef;
         }
         ERROR
-            .get_or_init(|| PyType::new_simple_ref("ssl.SSLWantWriteError", &ssl_error(vm)).unwrap())
+            .get_or_init(|| {
+                PyType::new_simple_ref("ssl.SSLWantWriteError", &ssl_error(vm)).unwrap()
+            })
             .clone()
     }
 
