@@ -56,7 +56,7 @@ mod zlib {
 
     #[pyattr]
     fn error(vm: &VirtualMachine) -> PyTypeRef {
-        PyType::new_simple_ref("error", &vm.ctx.exceptions.exception_type).unwrap()
+        PyType::new_simple_ref("zlib.error", &vm.ctx.exceptions.exception_type).unwrap()
     }
 
     /// Compute an Adler-32 checksum of data.

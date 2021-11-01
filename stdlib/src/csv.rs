@@ -32,7 +32,7 @@ mod _csv {
 
     #[pyattr(name = "Error")]
     fn error(vm: &VirtualMachine) -> PyTypeRef {
-        PyType::new_simple_ref("Error", &vm.ctx.exceptions.exception_type).unwrap()
+        PyType::new_simple_ref("_csv.Error", &vm.ctx.exceptions.exception_type).unwrap()
     }
 
     #[pyfunction]
