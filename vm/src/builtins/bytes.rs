@@ -6,11 +6,14 @@ use crate::{
         bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
         ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
     },
-    common::hash::PyHash,
+    common::{
+        hash::PyHash,
+        lock::PyMutex,
+    },
     function::{
         ArgBytesLike, ArgIterable, IntoPyObject, IntoPyResult, OptionalArg, OptionalOption,
     },
-    protocol::{BufferMethods, BufferOptions, PyBuffer, PyIterReturn, PyMappingMethods},
+    protocol::{BufferDescriptor, BufferMethods, PyBuffer, PyIterReturn, PyMappingMethods},
     types::{
         AsBuffer, AsMapping, Callable, Comparable, Constructor, Hashable, IterNext,
         IterNextIterable, Iterable, PyComparisonOp, Unconstructible,
@@ -20,7 +23,6 @@ use crate::{
     PyObjectWrap, PyRef, PyResult, PyValue, TryFromBorrowedObject, TypeProtocol, VirtualMachine,
 };
 use bstr::ByteSlice;
-use rustpython_common::lock::PyMutex;
 use std::mem::size_of;
 use std::ops::Deref;
 
@@ -541,21 +543,15 @@ impl PyBytes {
 static BUFFER_METHODS: BufferMethods = BufferMethods {
     obj_bytes: |buffer| buffer.obj_as::<PyBytes>().as_bytes().into(),
     obj_bytes_mut: |_| panic!(),
-    contiguous: None,
-    contiguous_mut: None,
-    collect_bytes: None,
-    release: None,
-    retain: None,
+    release: |_| {},
+    retain: |_| {},
 };
 
 impl AsBuffer for PyBytes {
     fn as_buffer(zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
         let buf = PyBuffer::new(
             zelf.to_owned().into_object(),
-            BufferOptions {
-                len: zelf.len(),
-                ..Default::default()
-            },
+            BufferDescriptor::simple(zelf.len(), true),
             &BUFFER_METHODS,
         );
         Ok(buf)

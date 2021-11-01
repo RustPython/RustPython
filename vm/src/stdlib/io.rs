@@ -68,21 +68,23 @@ impl TryFromObject for Fildes {
 mod _io {
     use super::*;
 
-    use crate::common::lock::{
-        PyMappedThreadMutexGuard, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard, PyThreadMutex,
-        PyThreadMutexGuard,
-    };
     use crate::{
         builtins::{
             PyBaseExceptionRef, PyByteArray, PyBytes, PyBytesRef, PyIntRef, PyMemoryView, PyStr,
             PyStrRef, PyType, PyTypeRef,
+        },
+        common::{
+            lock::{
+                PyMappedThreadMutexGuard, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
+                PyThreadMutex, PyThreadMutexGuard,
+            },
         },
         function::{
             ArgBytesLike, ArgIterable, ArgMemoryBuffer, FuncArgs, IntoPyObject, OptionalArg,
             OptionalOption,
         },
         protocol::{
-            BufferMethods, BufferOptions, BufferResizeGuard, PyBuffer, PyIterReturn, VecBuffer,
+            BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn, VecBuffer,
         },
         types::{Constructor, Destructor, IterNext, Iterable},
         utils::Either,
@@ -877,7 +879,7 @@ mod _io {
                 let v = std::mem::take(&mut self.buffer);
                 let writebuf = VecBuffer::new(v).into_ref(vm);
                 let memobj = PyMemoryView::from_buffer_range(
-                    writebuf.clone().into_readonly_pybuffer(),
+                    writebuf.clone().into_pybuffer(true),
                     buf_range,
                     vm,
                 )?
@@ -1102,7 +1104,7 @@ mod _io {
                     let v = v.unwrap_or(&mut self.buffer);
                     let readbuf = VecBuffer::new(std::mem::take(v)).into_ref(vm);
                     let memobj = PyMemoryView::from_buffer_range(
-                        readbuf.clone().into_pybuffer(),
+                        readbuf.clone().into_pybuffer(false),
                         buf_range,
                         vm,
                     )?
@@ -3284,12 +3286,12 @@ mod _io {
 
         #[pymethod]
         fn getbuffer(self, vm: &VirtualMachine) -> PyResult<PyMemoryView> {
-            let options = BufferOptions {
-                readonly: false,
-                len: self.buffer.read().cursor.get_ref().len(),
-                ..Default::default()
-            };
-            let buffer = PyBuffer::new(self.into_object(), options, &BYTES_IO_BUFFER_METHODS);
+            let len = self.buffer.read().cursor.get_ref().len();
+            let buffer = PyBuffer::new(
+                self.as_object().to_owned(),
+                BufferDescriptor::simple(len, false),
+                &BYTES_IO_BUFFER_METHODS,
+            );
             let view = PyMemoryView::from_buffer(buffer, vm)?;
             Ok(view)
         }
@@ -3305,15 +3307,14 @@ mod _io {
             PyRwLockWriteGuard::map(zelf.buffer.write(), |x| x.cursor.get_mut().as_mut_slice())
                 .into()
         },
-        contiguous: None,
-        contiguous_mut: None,
-        collect_bytes: None,
-        release: Some(|buffer| {
+
+        release: |buffer| {
             buffer.obj_as::<BytesIO>().exports.fetch_sub(1);
-        }),
-        retain: Some(|buffer| {
+        },
+
+        retain: |buffer| {
             buffer.obj_as::<BytesIO>().exports.fetch_add(1);
-        }),
+        },
     };
 
     impl<'a> BufferResizeGuard<'a> for BytesIO {

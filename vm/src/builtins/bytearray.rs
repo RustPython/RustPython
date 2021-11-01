@@ -3,10 +3,6 @@ use super::{
     PositionIterInternal, PyBytes, PyBytesRef, PyDictRef, PyIntRef, PyStrRef, PyTuple, PyTupleRef,
     PyTypeRef,
 };
-use crate::common::lock::{
-    PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyMutex, PyRwLock, PyRwLockReadGuard,
-    PyRwLockWriteGuard,
-};
 use crate::{
     anystr::{self, AnyStr},
     builtins::PyType,
@@ -15,9 +11,17 @@ use crate::{
         ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerSplitOptions,
         ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
     },
+    common::{
+        atomic::{AtomicUsize, Ordering},
+        lock::{
+            PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyMutex, PyRwLock,
+            PyRwLockReadGuard, PyRwLockWriteGuard,
+        },
+    },
     function::{ArgBytesLike, ArgIterable, FuncArgs, IntoPyObject, OptionalArg, OptionalOption},
     protocol::{
-        BufferMethods, BufferOptions, BufferResizeGuard, PyBuffer, PyIterReturn, PyMappingMethods,
+        BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
+        PyMappingMethods,
     },
     sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
     types::{
@@ -29,7 +33,6 @@ use crate::{
     PyObjectView, PyObjectWrap, PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
 use bstr::ByteSlice;
-use crossbeam_utils::atomic::AtomicCell;
 use std::mem::size_of;
 
 /// "bytearray(iterable_of_ints) -> bytearray\n\
@@ -47,7 +50,7 @@ use std::mem::size_of;
 #[derive(Debug, Default)]
 pub struct PyByteArray {
     inner: PyRwLock<PyBytesInner>,
-    exports: AtomicCell<usize>,
+    exports: AtomicUsize,
 }
 
 pub type PyByteArrayRef = PyRef<PyByteArray>;
@@ -60,7 +63,7 @@ impl PyByteArray {
     fn from_inner(inner: PyBytesInner) -> Self {
         PyByteArray {
             inner: PyRwLock::new(inner),
-            exports: AtomicCell::new(0),
+            exports: AtomicUsize::new(0),
         }
     }
 
@@ -118,7 +121,7 @@ impl PyByteArray {
     #[cfg(debug_assertions)]
     #[pyproperty]
     fn exports(&self) -> usize {
-        self.exports.load()
+        self.exports.load(Ordering::Relaxed)
     }
 
     #[inline]
@@ -719,29 +722,27 @@ static BUFFER_METHODS: BufferMethods = BufferMethods {
         })
         .into()
     },
-    release: Some(|buffer| {
-        buffer.obj_as::<PyByteArray>().exports.fetch_sub(1);
-    }),
-    retain: Some(|buffer| {
-        buffer.obj_as::<PyByteArray>().exports.fetch_add(1);
-    }),
-    contiguous: None,
-    contiguous_mut: None,
-    collect_bytes: None,
+    release: |buffer| {
+        buffer
+            .obj_as::<PyByteArray>()
+            .exports
+            .fetch_sub(1, Ordering::Release);
+    },
+    retain: |buffer| {
+        buffer
+            .obj_as::<PyByteArray>()
+            .exports
+            .fetch_add(1, Ordering::Release);
+    },
 };
 
 impl AsBuffer for PyByteArray {
     fn as_buffer(zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
-        let buffer = PyBuffer::new(
+        Ok(PyBuffer::new(
             zelf.to_owned().into_object(),
-            BufferOptions {
-                readonly: false,
-                len: zelf.len(),
-                ..Default::default()
-            },
+            BufferDescriptor::simple(zelf.len(), false),
             &BUFFER_METHODS,
-        );
-        Ok(buffer)
+        ))
     }
 }
 
@@ -750,7 +751,7 @@ impl<'a> BufferResizeGuard<'a> for PyByteArray {
 
     fn try_resizable(&'a self, vm: &VirtualMachine) -> PyResult<Self::Resizable> {
         let w = self.inner.upgradable_read();
-        if self.exports.load() == 0 {
+        if self.exports.load(Ordering::SeqCst) == 0 {
             Ok(parking_lot::lock_api::RwLockUpgradableReadGuard::upgrade(w))
         } else {
             Err(vm

@@ -5,7 +5,7 @@ use crate::builtins::{
     pytype::{self, PyTypeRef},
     range, set, singletons, slice, staticmethod, traceback, tuple, weakproxy, weakref, zip,
 };
-use crate::{protocol::VecBuffer, PyContext, StaticType};
+use crate::{PyContext, StaticType};
 
 /// Holder of references to builtin types.
 #[derive(Debug, Clone)]
@@ -168,7 +168,7 @@ impl TypeZoo {
             none_type: singletons::PyNone::init_bare_type().clone(),
             not_implemented_type: singletons::PyNotImplemented::init_bare_type().clone(),
             generic_alias_type: genericalias::PyGenericAlias::init_bare_type().clone(),
-            vec_buffer_type: VecBuffer::init_bare_type().clone(),
+            vec_buffer_type: crate::protocol::VecBuffer::init_bare_type().clone(),
         }
     }
 
