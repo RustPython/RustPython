@@ -90,28 +90,28 @@ mod time {
         Ok(Date::now() / 1000.0)
     }
 
-    #[cfg(any(windows, target_os = "wasi"))]
+    #[cfg(target_os = "wasi")]
     #[pyfunction]
     fn monotonic(vm: &VirtualMachine) -> PyResult<f64> {
         // TODO: implement proper monotonic time for other platforms.
         Ok(duration_since_system_now(vm)?.as_secs_f64())
     }
 
-    #[cfg(any(windows, target_os = "wasi"))]
+    #[cfg(target_os = "wasi")]
     #[pyfunction]
     fn monotonic_ns(vm: &VirtualMachine) -> PyResult<u128> {
         // TODO: implement proper monotonic time for other platforms.
         Ok(duration_since_system_now(vm)?.as_nanos())
     }
 
-    #[cfg(any(windows, target_os = "wasi"))]
+    #[cfg(target_os = "wasi")]
     #[pyfunction]
     fn perf_counter(vm: &VirtualMachine) -> PyResult<f64> {
         // TODO: implement proper monotonic time for other platforms.
         Ok(duration_since_system_now(vm)?.as_secs_f64())
     }
 
-    #[cfg(any(windows, target_os = "wasi"))]
+    #[cfg(target_os = "wasi")]
     #[pyfunction]
     fn perf_counter_ns(vm: &VirtualMachine) -> PyResult<u128> {
         // TODO: implement proper monotonic time for other platforms.
@@ -244,15 +244,16 @@ mod time {
         Ok(get_thread_time(vm)?.as_nanos() as u64)
     }
 
+    #[cfg(any(windows, all(target_arch = "wasm32", not(target_os = "unknown"))))]
+    pub(super) fn time_muldiv(ticks: i64, mul: i64, div: i64) -> u64 {
+        let intpart = ticks / div;
+        let ticks = ticks % div;
+        let remaining = (ticks * mul) / div;
+        (intpart * mul + remaining) as u64
+    }
+
     #[cfg(all(target_arch = "wasm32", not(target_os = "unknown")))]
     fn get_process_time(vm: &VirtualMachine) -> PyResult<std::time::Duration> {
-        fn time_muldiv(ticks: i64, mul: i64, div: i64) -> u64 {
-            let intpart = ticks / div;
-            let ticks = ticks % div;
-            let remaining = (ticks * mul) / div;
-            (intpart * mul + remaining) as u64
-        }
-
         let t: libc::tms = unsafe {
             let mut t = std::mem::MaybeUninit::uninit();
             if libc::times(t.as_mut_ptr()) == -1 {
@@ -684,12 +685,19 @@ mod unix {
 #[cfg(windows)]
 #[pymodule(name = "time")]
 mod windows {
-    use crate::{PyResult, VirtualMachine};
+    use super::{time_muldiv, MS_TO_NS, SEC_TO_NS};
+    use crate::{
+        builtins::{PyNamespace, PyStrRef},
+        stdlib::os::errno_err,
+        PyRef, PyResult, VirtualMachine,
+    };
     use std::time::Duration;
     use winapi::shared::{minwindef::FILETIME, ntdef::ULARGE_INTEGER};
     use winapi::um::processthreadsapi::{
         GetCurrentProcess, GetCurrentThread, GetProcessTimes, GetThreadTimes,
     };
+    use winapi::um::profileapi::{QueryPerformanceCounter, QueryPerformanceFrequency};
+    use winapi::um::sysinfoapi::{GetSystemTimeAdjustment, GetTickCount64};
 
     fn u64_from_filetime(time: FILETIME) -> u64 {
         unsafe {
@@ -702,6 +710,131 @@ mod windows {
             let large = large.assume_init();
             *large.QuadPart()
         }
+    }
+
+    fn win_perf_counter_frequency(vm: &VirtualMachine) -> PyResult<i64> {
+        let freq = unsafe {
+            let mut freq = std::mem::MaybeUninit::uninit();
+            if QueryPerformanceFrequency(freq.as_mut_ptr()) == 0 {
+                return Err(errno_err(vm));
+            }
+            freq.assume_init()
+        };
+        let frequency = unsafe { freq.QuadPart() };
+
+        if *frequency < 1 {
+            Err(vm.new_runtime_error("invalid QueryPerformanceFrequency".to_owned()))
+        } else if *frequency > i64::MAX / SEC_TO_NS {
+            Err(vm.new_overflow_error("QueryPerformanceFrequency is too large".to_owned()))
+        } else {
+            Ok(*frequency)
+        }
+    }
+
+    fn global_frequency(vm: &VirtualMachine) -> PyResult<i64> {
+        rustpython_common::static_cell! {
+            static FREQUENCY: PyResult<i64>;
+        };
+        FREQUENCY
+            .get_or_init(|| win_perf_counter_frequency(vm))
+            .clone()
+    }
+
+    fn win_perf_counter(vm: &VirtualMachine) -> PyResult<Duration> {
+        let now = unsafe {
+            let mut performance_count = std::mem::MaybeUninit::uninit();
+            QueryPerformanceCounter(performance_count.as_mut_ptr());
+            performance_count.assume_init()
+        };
+
+        let ticks = unsafe { now.QuadPart() };
+        Ok(Duration::from_nanos(time_muldiv(
+            *ticks,
+            SEC_TO_NS,
+            global_frequency(vm)?,
+        )))
+    }
+
+    fn get_system_time_adjustment(vm: &VirtualMachine) -> PyResult<u32> {
+        let mut _time_adjustment = std::mem::MaybeUninit::uninit();
+        let mut time_increment = std::mem::MaybeUninit::uninit();
+        let mut _is_time_adjustment_disabled = std::mem::MaybeUninit::uninit();
+        let time_increment = unsafe {
+            if GetSystemTimeAdjustment(
+                _time_adjustment.as_mut_ptr(),
+                time_increment.as_mut_ptr(),
+                _is_time_adjustment_disabled.as_mut_ptr(),
+            ) == 0
+            {
+                return Err(errno_err(vm));
+            }
+            time_increment.assume_init()
+        };
+        Ok(time_increment)
+    }
+
+    fn get_monotonic_clock(vm: &VirtualMachine) -> PyResult<Duration> {
+        let ticks = unsafe { GetTickCount64() };
+
+        Ok(Duration::from_nanos(
+            (ticks as i64).checked_mul(MS_TO_NS).ok_or_else(|| {
+                vm.new_overflow_error("timestamp too large to convert to i64".to_owned())
+            })? as u64,
+        ))
+    }
+
+    #[pyfunction]
+    fn get_clock_info(name: PyStrRef, vm: &VirtualMachine) -> PyResult<PyRef<PyNamespace>> {
+        let (adj, imp, mono, res) = match name.as_ref() {
+            "monotonic" => (
+                false,
+                "GetTickCount64()",
+                true,
+                get_system_time_adjustment(vm)? as f64 * 1e-7,
+            ),
+            "perf_counter" => (
+                false,
+                "QueryPerformanceCounter()",
+                true,
+                1.0 / (global_frequency(vm)? as f64),
+            ),
+            "process_time" => (false, "GetProcessTimes()", true, 1e-7),
+            "thread_time" => (false, "GetThreadTimes()", true, 1e-7),
+            "time" => (
+                true,
+                "GetSystemTimeAsFileTime()",
+                false,
+                get_system_time_adjustment(vm)? as f64 * 1e-7,
+            ),
+            _ => return Err(vm.new_value_error("unknown clock".to_owned())),
+        };
+
+        Ok(py_namespace!(vm, {
+            "implementation" => vm.new_pyobj(imp),
+            "monotonic" => vm.ctx.new_bool(mono),
+            "adjustable" => vm.ctx.new_bool(adj),
+            "resolution" => vm.ctx.new_float(res),
+        }))
+    }
+
+    #[pyfunction]
+    fn monotonic(vm: &VirtualMachine) -> PyResult<f64> {
+        Ok(get_monotonic_clock(vm)?.as_secs_f64())
+    }
+
+    #[pyfunction]
+    fn monotonic_ns(vm: &VirtualMachine) -> PyResult<u128> {
+        Ok(get_monotonic_clock(vm)?.as_nanos())
+    }
+
+    #[pyfunction]
+    fn perf_counter(vm: &VirtualMachine) -> PyResult<f64> {
+        Ok(win_perf_counter(vm)?.as_secs_f64())
+    }
+
+    #[pyfunction]
+    fn perf_counter_ns(vm: &VirtualMachine) -> PyResult<u128> {
+        Ok(win_perf_counter(vm)?.as_nanos())
     }
 
     pub(super) fn get_thread_time(vm: &VirtualMachine) -> PyResult<Duration> {
