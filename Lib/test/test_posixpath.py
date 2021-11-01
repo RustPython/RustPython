@@ -625,6 +625,7 @@ class PosixPathTest(unittest.TestCase):
                           ['usr/lib/', b'/usr/lib/python3'])
 
 
+@unittest.skip("TODO: RUSTPYTHON, flaky tests")
 class PosixCommonTest(test_genericpath.CommonTest, unittest.TestCase):
     pathmodule = posixpath
     attributes = ['relpath', 'samefile', 'sameopenfile', 'samestat']
