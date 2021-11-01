@@ -40,7 +40,7 @@ impl PyObject {
 
 impl ArgBytesLike {
     pub fn borrow_buf(&self) -> BorrowedValue<'_, [u8]> {
-        self.0.obj_bytes()
+        unsafe { self.0.contiguous() }
     }
 
     pub fn with_ref<F, R>(&self, f: F) -> R
@@ -82,7 +82,7 @@ pub struct ArgMemoryBuffer(PyBuffer);
 
 impl ArgMemoryBuffer {
     pub fn borrow_buf_mut(&self) -> BorrowedValueMut<'_, [u8]> {
-        self.0.obj_bytes_mut()
+        unsafe { self.0.contiguous_mut() }
     }
 
     pub fn with_ref<F, R>(&self, f: F) -> R

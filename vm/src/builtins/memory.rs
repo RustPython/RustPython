@@ -2,6 +2,11 @@ use super::{
     PyBytes, PyBytesRef, PyList, PyListRef, PySlice, PyStr, PyStrRef, PyTuple, PyTupleRef,
     PyTypeRef,
 };
+use crate::common::{
+    borrow::{BorrowedValue, BorrowedValueMut},
+    hash::PyHash,
+    lock::OnceCell,
+};
 use crate::{
     bytesinner::bytes_to_hex,
     function::{FuncArgs, IntoPyObject, OptionalArg},
@@ -14,16 +19,8 @@ use crate::{
     PyObjectView, PyObjectWrap, PyRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject,
     TypeProtocol, VirtualMachine,
 };
-use crate::{
-    common::{
-        borrow::{BorrowedValue, BorrowedValueMut},
-        hash::PyHash,
-        lock::OnceCell,
-    },
-};
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
-use num_traits::ToPrimitive;
 use std::{cmp::Ordering, fmt::Debug, mem::ManuallyDrop, ops::Range};
 
 #[derive(FromArgs)]
@@ -109,14 +106,16 @@ impl PyMemoryView {
     }
 
     fn new_view(&self) -> Self {
-        PyMemoryView {
+        let zelf = PyMemoryView {
             buffer: self.buffer.clone(),
             released: AtomicCell::new(false),
             start: self.start,
             format_spec: self.format_spec.clone(),
             desc: self.desc.clone(),
             hash: OnceCell::new(),
-        }
+        };
+        zelf.buffer.retain();
+        zelf
     }
 
     #[pymethod]
@@ -238,10 +237,10 @@ impl PyMemoryView {
         let index = wrap_index(i, shape)
             .ok_or_else(|| vm.new_index_error("index out of range".to_owned()))?;
         let index = index as isize * stride + suboffset;
-        let index = index as usize;
-        let bytes = self.obj_bytes();
+        let pos = (index + self.start as isize) as usize;
+        let bytes = self.buffer.obj_bytes();
         self.format_spec
-            .unpack(&bytes[index..index + self.desc.itemsize], vm)
+            .unpack(&bytes[pos..pos + self.desc.itemsize], vm)
             .map(|x| {
                 if x.len() == 1 {
                     x.fast_getitem(0)
@@ -280,8 +279,9 @@ impl PyMemoryView {
             .map(|x| isize::try_from_borrowed_object(vm, x))
             .try_collect()?;
         let pos = self.desc.get_position(&indices, vm)?;
+        let pos = (pos + self.start as isize) as usize;
 
-        let bytes = self.obj_bytes();
+        let bytes = self.buffer.obj_bytes();
         self.format_spec
             .unpack(&bytes[pos..pos + self.desc.itemsize], vm)
             .map(|x| {
@@ -305,7 +305,7 @@ impl PyMemoryView {
                 if tuple.len() == 0 {
                     return Ok(zelf
                         .format_spec
-                        .unpack(&zelf.obj_bytes()[..zelf.desc.itemsize], vm)?
+                        .unpack(&zelf.buffer.obj_bytes()[..zelf.desc.itemsize], vm)?
                         .fast_getitem(0));
                 }
             }
@@ -334,10 +334,10 @@ impl PyMemoryView {
         let index = wrap_index(i, shape)
             .ok_or_else(|| vm.new_index_error("index out of range".to_owned()))?;
         let index = index as isize * stride + suboffset;
-        let index = index as usize;
-        let bytes = &mut *self.obj_bytes_mut();
+        let pos = (index + self.start as isize) as usize;
+        let bytes = &mut *self.buffer.obj_bytes_mut();
         let data = self.format_spec.pack(vec![value], vm)?;
-        bytes[index..index + self.desc.itemsize].copy_from_slice(&data);
+        bytes[pos..pos + self.desc.itemsize].copy_from_slice(&data);
         Ok(())
     }
 
@@ -361,9 +361,11 @@ impl PyMemoryView {
             ));
         }
 
-        let mut bytes_mut = dest.obj_bytes_mut();
+        let mut bytes_mut = dest.buffer.obj_bytes_mut();
         let src_bytes = src.obj_bytes();
         dest.desc.zip_eq(&src.desc, true, |a_pos, b_pos, len| {
+            let a_pos = (a_pos + self.start as isize) as usize;
+            let b_pos = b_pos as usize;
             bytes_mut[a_pos..a_pos + len].copy_from_slice(&src_bytes[b_pos..b_pos + len]);
         });
 
@@ -387,13 +389,13 @@ impl PyMemoryView {
 
         if self.desc.ndim() == 0 {
             if needle.is(&vm.ctx.ellipsis) {
-                let bytes = &mut *self.obj_bytes_mut();
+                let bytes = &mut *self.buffer.obj_bytes_mut();
                 let data = self.format_spec.pack(vec![value], vm)?;
                 // TODO: fix panic if data no march itemsize
                 bytes[..self.desc.itemsize].copy_from_slice(&data);
             } else if let Some(tuple) = needle.payload::<PyTuple>() {
                 if tuple.len() == 0 {
-                    let bytes = &mut *self.obj_bytes_mut();
+                    let bytes = &mut *self.buffer.obj_bytes_mut();
                     let data = self.format_spec.pack(vec![value], vm)?;
                     // TODO: fix panic if data no march itemsize
                     bytes[..self.desc.itemsize].copy_from_slice(&data);
@@ -442,13 +444,7 @@ impl PyMemoryView {
     fn init_slice(&mut self, slice: &PySlice, dim: usize, vm: &VirtualMachine) -> PyResult<()> {
         let (shape, stride, _) = self.desc.dim_desc[dim];
         let slice = slice.to_saturated(vm)?;
-        let (range, step, is_negative_step) = slice.adjust_indices(shape);
-        let abs_step = step.unwrap();
-        let step = if is_negative_step {
-            -(abs_step as isize)
-        } else {
-            abs_step as isize
-        };
+        let (range, step, slicelen) = slice.adjust_indices(shape);
 
         let mut is_adjusted_suboffset = false;
         for (_, _, suboffset) in self.desc.dim_desc.iter_mut().rev() {
@@ -459,14 +455,15 @@ impl PyMemoryView {
             }
         }
         if !is_adjusted_suboffset {
-            self.start += stride as usize * range.start;
+            // TODO: AdjustIndices
+            self.start += stride as usize
+                * if step.is_negative() {
+                    range.end - 1
+                } else {
+                    range.start
+                };
         }
-        // overflow is not possible as dividing a positive integer
-        let newlen = ((range.end - range.start - 1) / abs_step)
-            .to_usize()
-            .unwrap()
-            + 1;
-        self.desc.dim_desc[dim].0 = newlen;
+        self.desc.dim_desc[dim].0 = slicelen;
         self.desc.dim_desc[dim].1 *= step;
 
         Ok(())
@@ -502,7 +499,8 @@ impl PyMemoryView {
         if dim + 1 == self.desc.ndim() {
             let mut v = Vec::with_capacity(shape);
             for _ in 0..shape {
-                let pos = (index + suboffset) as usize;
+                let pos = index + suboffset;
+                let pos = (pos + self.start as isize) as usize;
                 let obj =
                     format_unpack(&self.format_spec, &bytes[pos..pos + self.desc.itemsize], vm)?;
                 v.push(obj);
@@ -529,7 +527,7 @@ impl PyMemoryView {
             // TODO: unpack_single(view->buf, fmt)
             return Ok(vm.ctx.new_list(vec![]));
         }
-        let bytes = self.obj_bytes();
+        let bytes = self.buffer.obj_bytes();
         self._to_list(&bytes, 0, 0, vm)
     }
 
@@ -690,7 +688,7 @@ impl PyMemoryView {
         let b_format_spec = &Self::parse_format(&other.desc.format, vm)?;
 
         if zelf.desc.ndim() == 0 {
-            let a_val = format_unpack(a_format_spec, &zelf.obj_bytes()[..a_itemsize], vm)?;
+            let a_val = format_unpack(a_format_spec, &zelf.buffer.obj_bytes()[..a_itemsize], vm)?;
             let b_val = format_unpack(b_format_spec, &other.obj_bytes()[..b_itemsize], vm)?;
             return Ok(vm.bool_eq(&a_val, &b_val)?);
         }
@@ -727,13 +725,13 @@ impl PyMemoryView {
     fn as_contiguous(&self) -> Option<BorrowedValue<[u8]>> {
         self.desc
             .is_contiguous()
-            .then(|| BorrowedValue::map(self.buffer.obj_bytes(), |x| &x[self.start..self.desc.len]))
+            .then(|| BorrowedValue::map(self.buffer.obj_bytes(), |x| &x[self.start..self.start + self.desc.len]))
     }
 
     fn _as_contiguous_mut(&self) -> Option<BorrowedValueMut<[u8]>> {
         self.desc.is_contiguous().then(|| {
             BorrowedValueMut::map(self.buffer.obj_bytes_mut(), |x| {
-                &mut x[self.start..self.desc.len]
+                &mut x[self.start..self.start + self.desc.len]
             })
         })
     }
@@ -742,9 +740,12 @@ impl PyMemoryView {
         if let Some(bytes) = self.as_contiguous() {
             buf.extend_from_slice(&bytes);
         } else {
-            let bytes = &*self.obj_bytes();
-            self.desc
-                .for_each_segment(true, |range| buf.extend_from_slice(&bytes[range]));
+            let bytes = &*self.buffer.obj_bytes();
+            self.desc.for_each_segment(true, |range| {
+                let start = (range.start + self.start as isize) as usize;
+                let end = (range.end + self.start as isize) as usize;
+                buf.extend_from_slice(&bytes[start..end]);
+            })
         }
     }
 

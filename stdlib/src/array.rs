@@ -1221,7 +1221,7 @@ mod array {
             let buf = PyBuffer::new(
                 zelf.to_owned().into_object(),
                 BufferDescriptor::format(
-                    array.len(),
+                    array.len() * array.itemsize(),
                     false,
                     array.itemsize(),
                     array.typecode_str().into(),

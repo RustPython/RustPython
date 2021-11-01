@@ -28,56 +28,22 @@ pub trait PySliceableSequenceMut {
         slice: SaturatedSlice,
         items: &[Self::Item],
     ) -> PyResult<()> {
-        let (range, step, is_negative_step) = slice.adjust_indices(self.as_slice().len());
-        if !is_negative_step && step == Some(1) {
-            return if range.end - range.start == items.len() {
-                self.do_set_range(range, items);
-                Ok(())
-            } else {
-                Err(vm.new_buffer_error(
-                    "Existing exports of data: object cannot be re-sized".to_owned(),
-                ))
-            };
-        }
-        if let Some(step) = step {
-            let slicelen = if range.end > range.start {
-                (range.end - range.start - 1) / step + 1
-            } else {
-                0
-            };
-
+        let (range, step, slicelen) = slice.adjust_indices(self.as_slice().len());
+        if step == 1 {
             if slicelen == items.len() {
-                let indexes = if is_negative_step {
-                    itertools::Either::Left(range.rev().step_by(step))
-                } else {
-                    itertools::Either::Right(range.step_by(step))
-                };
-                self.do_replace_indexes(indexes, items);
-                Ok(())
-            } else {
-                Err(vm.new_buffer_error(
-                    "Existing exports of data: object cannot be re-sized".to_owned(),
-                ))
+                self.do_set_range(range, items);
+                return Ok(());
             }
-        } else {
-            // edge case, step is too big for usize
-            // same behaviour as CPython
-            let slicelen = if range.start < range.end { 1 } else { 0 };
-            if match items.len() {
-                0 => slicelen == 0,
-                1 => {
-                    self.do_set_range(range, items);
-                    true
-                }
-                _ => false,
-            } {
-                Ok(())
+        } else if slicelen == items.len() {
+            let indexes = if step.is_negative() {
+                itertools::Either::Left(range.rev().step_by(step.unsigned_abs()))
             } else {
-                Err(vm.new_buffer_error(
-                    "Existing exports of data: object cannot be re-sized".to_owned(),
-                ))
-            }
+                itertools::Either::Right(range.step_by(step.unsigned_abs()))
+            };
+            self.do_replace_indexes(indexes, items);
+            return Ok(());
         }
+        Err(vm.new_buffer_error("Existing exports of data: object cannot be re-sized".to_owned()))
     }
 
     fn set_slice_items(
@@ -86,81 +52,47 @@ pub trait PySliceableSequenceMut {
         slice: SaturatedSlice,
         items: &[Self::Item],
     ) -> PyResult<()> {
-        let (range, step, is_negative_step) = slice.adjust_indices(self.as_slice().len());
-        if !is_negative_step && step == Some(1) {
+        let (range, step, slicelen) = slice.adjust_indices(self.as_slice().len());
+        if step == 1 {
             self.do_set_range(range, items);
             return Ok(());
         }
-        if let Some(step) = step {
-            let slicelen = if range.end > range.start {
-                (range.end - range.start - 1) / step + 1
-            } else {
-                0
-            };
 
-            if slicelen == items.len() {
-                let indexes = if is_negative_step {
-                    itertools::Either::Left(range.rev().step_by(step))
-                } else {
-                    itertools::Either::Right(range.step_by(step))
-                };
-                self.do_replace_indexes(indexes, items);
-                Ok(())
+        if slicelen == items.len() {
+            let indexes = if step.is_negative() {
+                itertools::Either::Left(range.rev().step_by(step.unsigned_abs()))
             } else {
-                Err(vm.new_value_error(format!(
-                    "attempt to assign sequence of size {} to extended slice of size {}",
-                    items.len(),
-                    slicelen
-                )))
-            }
+                itertools::Either::Right(range.step_by(step.unsigned_abs()))
+            };
+            self.do_replace_indexes(indexes, items);
+            Ok(())
         } else {
-            // edge case, step is too big for usize
-            // same behaviour as CPython
-            let slicelen = if range.start < range.end { 1 } else { 0 };
-            if match items.len() {
-                0 => slicelen == 0,
-                1 => {
-                    self.do_set_range(range, items);
-                    true
-                }
-                _ => false,
-            } {
-                Ok(())
-            } else {
-                Err(vm.new_value_error(format!(
-                    "attempt to assign sequence of size {} to extended slice of size {}",
-                    items.len(),
-                    slicelen
-                )))
-            }
+            Err(vm.new_value_error(format!(
+                "attempt to assign sequence of size {} to extended slice of size {}",
+                items.len(),
+                slicelen
+            )))
         }
     }
 
     fn delete_slice(&mut self, _vm: &VirtualMachine, slice: SaturatedSlice) -> PyResult<()> {
-        let (range, step, is_negative_step) = slice.adjust_indices(self.as_slice().len());
-        if range.start >= range.end {
+        let (range, step, slicelen) = slice.adjust_indices(self.as_slice().len());
+        if slicelen == 0 {
             return Ok(());
         }
 
-        if !is_negative_step && step == Some(1) {
+        if step == 1 {
             self.do_delete_range(range);
             return Ok(());
         }
 
-        // step is not negative here
-        if let Some(step) = step {
-            let indexes = if is_negative_step {
-                itertools::Either::Left(range.clone().rev().step_by(step).rev())
-            } else {
-                itertools::Either::Right(range.clone().step_by(step))
-            };
-
-            self.do_delete_indexes(range, indexes);
+        let indexes = if step.is_negative() {
+            itertools::Either::Left(range.clone().rev().step_by(step.unsigned_abs()).rev())
         } else {
-            // edge case, step is too big for usize
-            // same behaviour as CPython
-            self.do_delete_range(range);
-        }
+            itertools::Either::Right(range.clone().step_by(step.unsigned_abs()))
+        };
+
+        self.do_delete_indexes(range, indexes);
         Ok(())
     }
 }
@@ -237,28 +169,24 @@ pub trait PySliceableSequence {
         _vm: &VirtualMachine,
         slice: SaturatedSlice,
     ) -> PyResult<Self::Sliced> {
-        let (range, step, is_negative_step) = slice.adjust_indices(self.len());
-        if range.start >= range.end {
+        let (range, step, slicelen) = slice.adjust_indices(self.len());
+        if slicelen == 0 {
             return Ok(Self::empty());
         }
 
-        if step == Some(1) {
-            return Ok(if is_negative_step {
+        if step == 1 {
+            return Ok(if step.is_negative() {
                 self.do_slice_reverse(range)
             } else {
                 self.do_slice(range)
             });
         }
 
-        if let Some(step) = step {
-            Ok(if is_negative_step {
-                self.do_stepped_slice_reverse(range, step)
-            } else {
-                self.do_stepped_slice(range, step)
-            })
+        Ok(if step.is_negative() {
+            self.do_stepped_slice_reverse(range, step.unsigned_abs())
         } else {
-            Ok(self.do_slice(range))
-        }
+            self.do_stepped_slice(range, step.unsigned_abs())
+        })
     }
 
     fn get_item(

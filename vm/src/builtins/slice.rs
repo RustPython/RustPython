@@ -287,11 +287,11 @@ impl SaturatedSlice {
     // Equivalent to PySlice_AdjustIndices
     /// Convert for usage in indexing the underlying rust collections. Called *after*
     /// __index__ has been called on the Slice which might mutate the collection.
-    pub fn adjust_indices(&self, len: usize) -> (Range<usize>, Option<usize>, bool) {
+    pub fn adjust_indices(&self, len: usize) -> (Range<usize>, isize, usize) {
         // len should always be <= isize::MAX
         let ilen = len.to_isize().unwrap_or(isize::MAX);
         let (start, stop, step) = (self.start, self.stop, self.step);
-        let (start, stop, step, is_negative_step) = if step.is_negative() {
+        let (start, stop) = if step.is_negative() {
             (
                 if stop == -1 {
                     ilen.saturating_add(1)
@@ -303,31 +303,19 @@ impl SaturatedSlice {
                 } else {
                     start.saturating_add(1)
                 },
-                step.saturating_abs(),
-                true,
             )
         } else {
-            (start, stop, step, false)
+            (start, stop)
         };
-
-        let step = step.to_usize();
 
         let range = saturate_index(start, len)..saturate_index(stop, len);
-        let range = if range.start >= range.end {
-            range.start..range.start
+        let (range, slicelen) = if range.start >= range.end {
+            (range.start..range.start, 0)
         } else {
-            // step overflow
-            if step.is_none() {
-                if is_negative_step {
-                    (range.end - 1)..range.end
-                } else {
-                    range.start..(range.start + 1)
-                }
-            } else {
-                range
-            }
+            let slicelen = (range.end - range.start - 1) / step.unsigned_abs() + 1;
+            (range, slicelen)
         };
-        (range, step, is_negative_step)
+        (range, step, slicelen)
     }
 }
 

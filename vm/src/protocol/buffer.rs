@@ -55,13 +55,21 @@ impl PyBuffer {
     pub fn as_contiguous(&self) -> Option<BorrowedValue<[u8]>> {
         self.desc
             .is_contiguous()
-            .then(|| BorrowedValue::map(self.obj_bytes(), |x| &x[..self.desc.len]))
+            .then(|| unsafe { self.contiguous() })
     }
 
     pub fn as_contiguous_mut(&self) -> Option<BorrowedValueMut<[u8]>> {
         self.desc
             .is_contiguous()
-            .then(|| BorrowedValueMut::map(self.obj_bytes_mut(), |x| &mut x[..self.desc.len]))
+            .then(|| unsafe { self.contiguous_mut() })
+    }
+
+    pub unsafe fn contiguous(&self) -> BorrowedValue<[u8]> {
+        BorrowedValue::map(self.obj_bytes(), |x| &x[..self.desc.len])
+    }
+
+    pub unsafe fn contiguous_mut(&self) -> BorrowedValueMut<[u8]> {
+        BorrowedValueMut::map(self.obj_bytes_mut(), |x| &mut x[..self.desc.len])
     }
 
     pub fn collect(&self, buf: &mut Vec<u8>) {
@@ -69,8 +77,9 @@ impl PyBuffer {
             buf.extend_from_slice(&self.obj_bytes());
         } else {
             let bytes = &*self.obj_bytes();
-            self.desc
-                .for_each_segment(true, |range| buf.extend_from_slice(&bytes[range]));
+            self.desc.for_each_segment(true, |range| {
+                buf.extend_from_slice(&bytes[range.start as usize..range.end as usize])
+            });
         }
     }
 
@@ -192,7 +201,7 @@ impl BufferDescriptor {
                 assert!(suboffset >= -stride * shape as isize);
             }
         }
-        assert!(shape_product == self.len);
+        assert!(shape_product * self.itemsize == self.len);
         self
     }
 
@@ -221,20 +230,20 @@ impl BufferDescriptor {
 
     /// this function do not check the bound
     /// panic if indices.len() != ndim
-    pub fn get_position_fast(&self, indices: &[usize]) -> usize {
+    pub fn get_position_fast(&self, indices: &[usize]) -> isize {
         let mut pos = 0;
         for (i, (_, stride, suboffset)) in indices
             .iter()
             .cloned()
             .zip_eq(self.dim_desc.iter().cloned())
         {
-            pos += (i as isize * stride + suboffset) as usize;
+            pos += i as isize * stride + suboffset;
         }
         pos
     }
 
     /// panic if indices.len() != ndim
-    pub fn get_position(&self, indices: &[isize], vm: &VirtualMachine) -> PyResult<usize> {
+    pub fn get_position(&self, indices: &[isize], vm: &VirtualMachine) -> PyResult<isize> {
         let mut pos = 0;
         for (i, (shape, stride, suboffset)) in indices
             .iter()
@@ -244,17 +253,17 @@ impl BufferDescriptor {
             let i = wrap_index(i, shape).ok_or_else(|| {
                 vm.new_index_error(format!("index out of bounds on dimension {}", i))
             })?;
-            pos += (i as isize * stride + suboffset) as usize;
+            pos += i as isize * stride + suboffset;
         }
         Ok(pos)
     }
 
     pub fn for_each_segment<F>(&self, try_conti: bool, mut f: F)
     where
-        F: FnMut(Range<usize>),
+        F: FnMut(Range<isize>),
     {
         if self.ndim() == 0 {
-            f(0..self.itemsize);
+            f(0..self.itemsize as isize);
             return;
         }
         if try_conti && self.is_last_dim_contiguous() {
@@ -266,16 +275,16 @@ impl BufferDescriptor {
 
     fn _for_each_segment<F, const CONTI: bool>(&self, mut index: isize, dim: usize, f: &mut F)
     where
-        F: FnMut(Range<usize>),
+        F: FnMut(Range<isize>),
     {
         let (shape, stride, suboffset) = self.dim_desc[dim];
         if dim + 1 == self.ndim() {
             if CONTI {
-                f(index as usize..index as usize + shape * self.itemsize);
+                f(index..index + (shape * self.itemsize) as isize);
             } else {
                 for _ in 0..shape {
-                    let pos = (index + suboffset) as usize;
-                    f(pos..pos + self.itemsize);
+                    let pos = index + suboffset;
+                    f(pos..pos + self.itemsize as isize);
                     index += stride;
                 }
             }
@@ -289,7 +298,7 @@ impl BufferDescriptor {
 
     pub fn zip_eq<F>(&self, other: &Self, try_conti: bool, mut f: F)
     where
-        F: FnMut(usize, usize, usize),
+        F: FnMut(isize, isize, usize),
     {
         debug_assert_eq!(self.itemsize, other.itemsize);
         debug_assert_eq!(self.len, other.len);
@@ -313,23 +322,24 @@ impl BufferDescriptor {
         dim: usize,
         f: &mut F,
     ) where
-        F: FnMut(usize, usize, usize),
+        F: FnMut(isize, isize, usize),
     {
         let (shape, a_stride, a_suboffset) = self.dim_desc[dim];
         let (_b_shape, b_stride, b_suboffset) = other.dim_desc[dim];
         debug_assert_eq!(shape, _b_shape);
         if dim + 1 == self.ndim() {
             if CONTI {
-                f(a_index as usize, b_index as usize, shape * self.itemsize);
+                f(a_index, b_index, shape * self.itemsize);
             } else {
                 for _ in 0..shape {
-                    let a_pos = (a_index + a_suboffset) as usize;
-                    let b_pos = (b_index + b_suboffset) as usize;
+                    let a_pos = a_index + a_suboffset;
+                    let b_pos = b_index + b_suboffset;
                     f(a_pos, b_pos, self.itemsize);
                     a_index += a_stride;
                     b_index += b_stride;
                 }
             }
+            return;
         }
 
         for _ in 0..shape {

@@ -73,11 +73,9 @@ mod _io {
             PyBaseExceptionRef, PyByteArray, PyBytes, PyBytesRef, PyIntRef, PyMemoryView, PyStr,
             PyStrRef, PyType, PyTypeRef,
         },
-        common::{
-            lock::{
-                PyMappedThreadMutexGuard, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
-                PyThreadMutex, PyThreadMutexGuard,
-            },
+        common::lock::{
+            PyMappedThreadMutexGuard, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
+            PyThreadMutex, PyThreadMutexGuard,
         },
         function::{
             ArgBytesLike, ArgIterable, ArgMemoryBuffer, FuncArgs, IntoPyObject, OptionalArg,

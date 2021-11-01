@@ -6,10 +6,7 @@ use crate::{
         bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
         ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
     },
-    common::{
-        hash::PyHash,
-        lock::PyMutex,
-    },
+    common::{hash::PyHash, lock::PyMutex},
     function::{
         ArgBytesLike, ArgIterable, IntoPyObject, IntoPyResult, OptionalArg, OptionalOption,
     },
