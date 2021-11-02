@@ -5,7 +5,7 @@ These are some files to determine performance of rustpython.
 ## Usage
 
 Running `cargo bench` from the root of the repository will start the benchmarks. Once done there will be a graphical 
-report under `target/critierion/report/index.html` that you can use use to view the results.
+report under `target/criterion/report/index.html` that you can use use to view the results.
 
 To view Python tracebacks during benchmarks, run `RUST_BACKTRACE=1 cargo bench`. You can also bench against a 
 specific installed Python version by running:
