@@ -9,6 +9,7 @@ use crate::{
 use num_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, ToPrimitive, Zero};
 use std::ops::Range;
+use std::option::Option;
 
 #[pyclass(module = false, name = "slice")]
 #[derive(Debug)]
@@ -288,40 +289,73 @@ impl SaturatedSlice {
     /// Convert for usage in indexing the underlying rust collections. Called *after*
     /// __index__ has been called on the Slice which might mutate the collection.
     pub fn adjust_indices(&self, len: usize) -> (Range<usize>, isize, usize) {
-        // len should always be <= isize::MAX
-        let ilen = len.to_isize().unwrap_or(isize::MAX);
-        let (start, stop, step) = (self.start, self.stop, self.step);
-        let (start, stop) = if step.is_negative() {
-            (
-                if stop == -1 {
-                    ilen.saturating_add(1)
-                } else {
-                    stop.saturating_add(1)
-                },
-                if start == -1 {
-                    ilen
-                } else {
-                    start.saturating_add(1)
-                },
-            )
+        let range = if self.step.is_negative() {
+            saturate_index(self.stop.saturating_add(1), len)
+                ..saturate_index(self.start.saturating_add(1), len)
         } else {
-            (start, stop)
+            saturate_index(self.start, len)..saturate_index(self.stop, len)
         };
 
-        let range = saturate_index(start, len)..saturate_index(stop, len);
         let (range, slicelen) = if range.start >= range.end {
             (range.start..range.start, 0)
         } else {
-            let slicelen = (range.end - range.start - 1) / step.unsigned_abs() + 1;
+            let slicelen = (range.end - range.start - 1) / self.step.unsigned_abs() + 1;
             (range, slicelen)
         };
-        (range, step, slicelen)
+        (range, self.step, slicelen)
+    }
+
+    pub fn iter(&self, len: usize) -> SaturatedSliceIterator {
+        SaturatedSliceIterator::new(self, len)
+    }
+}
+
+pub struct SaturatedSliceIterator {
+    pub index: isize,
+    pub step: isize,
+    pub len: usize,
+}
+
+impl SaturatedSliceIterator {
+    pub fn new(slice: &SaturatedSlice, seq_len: usize) -> Self {
+        let (range, step, len) = slice.adjust_indices(seq_len);
+        Self::from_adjust_indices(range, step, len)
+    }
+
+    pub fn from_adjust_indices(range: Range<usize>, step: isize, len: usize) -> Self {
+        let index = if step.is_negative() {
+            range.end as isize - 1
+        } else {
+            range.start as isize
+        };
+        Self { index, step, len }
+    }
+
+    pub fn positive_order(mut self) -> Self {
+        if self.step.is_negative() {
+            self.index += self.step * self.len as isize + 1;
+            self.step = self.step.saturating_abs()
+        }
+        self
+    }
+}
+
+impl Iterator for SaturatedSliceIterator {
+    type Item = usize;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.len == 0 {
+            return None;
+        }
+        self.len -= 1;
+        let ret = self.index as usize;
+        self.index += self.step;
+        Some(ret)
     }
 }
 
 // Go from PyObjectRef to isize w/o overflow error, out of range values are substituted by
 // isize::MIN or isize::MAX depending on type and value of step.
-// Equivalent to PyNumber_AsSsize_t with err equal to None.
+// Equivalent to PyEval_SliceIndex.
 fn to_isize_index(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Option<isize>> {
     if vm.is_none(obj) {
         return Ok(None);

@@ -3,8 +3,8 @@ use std::ops::Range;
 
 use crate::builtins::int::PyInt;
 // export through slicable module, not slice.
-use crate::builtins::slice::PySlice;
 pub use crate::builtins::slice::{saturate_index, SaturatedSlice};
+use crate::builtins::slice::{PySlice, SaturatedSliceIterator};
 use crate::utils::Either;
 use crate::VirtualMachine;
 use crate::{PyObjectRef, PyRef, PyResult, TypeProtocol};
@@ -29,21 +29,19 @@ pub trait PySliceableSequenceMut {
         items: &[Self::Item],
     ) -> PyResult<()> {
         let (range, step, slicelen) = slice.adjust_indices(self.as_slice().len());
-        if step == 1 {
-            if slicelen == items.len() {
-                self.do_set_range(range, items);
-                return Ok(());
-            }
-        } else if slicelen == items.len() {
-            let indexes = if step.is_negative() {
-                itertools::Either::Left(range.rev().step_by(step.unsigned_abs()))
-            } else {
-                itertools::Either::Right(range.step_by(step.unsigned_abs()))
-            };
-            self.do_replace_indexes(indexes, items);
-            return Ok(());
+        if slicelen != items.len() {
+            Err(vm
+                .new_buffer_error("Existing exports of data: object cannot be re-sized".to_owned()))
+        } else if step == 1 {
+            self.do_set_range(range, items);
+            Ok(())
+        } else {
+            self.do_replace_indexes(
+                SaturatedSliceIterator::from_adjust_indices(range, step, slicelen),
+                items,
+            );
+            Ok(())
         }
-        Err(vm.new_buffer_error("Existing exports of data: object cannot be re-sized".to_owned()))
     }
 
     fn set_slice_items(
@@ -55,16 +53,12 @@ pub trait PySliceableSequenceMut {
         let (range, step, slicelen) = slice.adjust_indices(self.as_slice().len());
         if step == 1 {
             self.do_set_range(range, items);
-            return Ok(());
-        }
-
-        if slicelen == items.len() {
-            let indexes = if step.is_negative() {
-                itertools::Either::Left(range.rev().step_by(step.unsigned_abs()))
-            } else {
-                itertools::Either::Right(range.step_by(step.unsigned_abs()))
-            };
-            self.do_replace_indexes(indexes, items);
+            Ok(())
+        } else if slicelen == items.len() {
+            self.do_replace_indexes(
+                SaturatedSliceIterator::from_adjust_indices(range, step, slicelen),
+                items,
+            );
             Ok(())
         } else {
             Err(vm.new_value_error(format!(
@@ -78,22 +72,17 @@ pub trait PySliceableSequenceMut {
     fn delete_slice(&mut self, _vm: &VirtualMachine, slice: SaturatedSlice) -> PyResult<()> {
         let (range, step, slicelen) = slice.adjust_indices(self.as_slice().len());
         if slicelen == 0 {
-            return Ok(());
-        }
-
-        if step == 1 {
+            Ok(())
+        } else if step == 1 {
             self.do_delete_range(range);
-            return Ok(());
-        }
-
-        let indexes = if step.is_negative() {
-            itertools::Either::Left(range.clone().rev().step_by(step.unsigned_abs()).rev())
+            Ok(())
         } else {
-            itertools::Either::Right(range.clone().step_by(step.unsigned_abs()))
-        };
-
-        self.do_delete_indexes(range, indexes);
-        Ok(())
+            self.do_delete_indexes(
+                range.clone(),
+                SaturatedSliceIterator::from_adjust_indices(range, step, slicelen).positive_order(),
+            );
+            Ok(())
+        }
     }
 }
 
@@ -170,23 +159,22 @@ pub trait PySliceableSequence {
         slice: SaturatedSlice,
     ) -> PyResult<Self::Sliced> {
         let (range, step, slicelen) = slice.adjust_indices(self.len());
-        if slicelen == 0 {
-            return Ok(Self::empty());
-        }
-
-        if step == 1 {
-            return Ok(if step.is_negative() {
+        let sliced = if slicelen == 0 {
+            Self::empty()
+        } else if step == 1 {
+            if step.is_negative() {
                 self.do_slice_reverse(range)
             } else {
                 self.do_slice(range)
-            });
-        }
-
-        Ok(if step.is_negative() {
-            self.do_stepped_slice_reverse(range, step.unsigned_abs())
+            }
         } else {
-            self.do_stepped_slice(range, step.unsigned_abs())
-        })
+            if step.is_negative() {
+                self.do_stepped_slice_reverse(range, step.unsigned_abs())
+            } else {
+                self.do_stepped_slice(range, step.unsigned_abs())
+            }
+        };
+        Ok(sliced)
     }
 
     fn get_item(

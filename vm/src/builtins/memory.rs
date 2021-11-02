@@ -723,9 +723,11 @@ impl PyMemoryView {
     }
 
     fn as_contiguous(&self) -> Option<BorrowedValue<[u8]>> {
-        self.desc
-            .is_contiguous()
-            .then(|| BorrowedValue::map(self.buffer.obj_bytes(), |x| &x[self.start..self.start + self.desc.len]))
+        self.desc.is_contiguous().then(|| {
+            BorrowedValue::map(self.buffer.obj_bytes(), |x| {
+                &x[self.start..self.start + self.desc.len]
+            })
+        })
     }
 
     fn _as_contiguous_mut(&self) -> Option<BorrowedValueMut<[u8]>> {
