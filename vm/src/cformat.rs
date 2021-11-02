@@ -177,7 +177,7 @@ impl CFormatSpec {
             Some(CFormatQuantity::Amount(width)) => cmp::max(width, num_chars),
             _ => num_chars,
         };
-        let fill_chars_needed = width - num_chars;
+        let fill_chars_needed = width.saturating_sub(num_chars);
         let fill_string = CFormatSpec::compute_fill_string(fill_char, fill_chars_needed);
 
         if !fill_string.is_empty() {
@@ -563,7 +563,7 @@ fn try_update_quantity_from_tuple<'a, I: Iterator<Item = &'a PyObjectRef>>(
         Some(CFormatQuantity::FromValuesTuple) => match elements.next() {
             Some(width_obj) => {
                 if let Some(i) = width_obj.payload::<PyInt>() {
-                    let i = i.try_to_primitive::<isize>(vm)? as usize;
+                    let i = i.try_to_primitive::<isize>(vm)?.abs() as usize;
                     *q = Some(CFormatQuantity::Amount(i));
                     Ok(())
                 } else {
@@ -917,7 +917,7 @@ where
                     break;
                 }
             }
-            return Ok(Some(CFormatQuantity::Amount(num as usize)));
+            return Ok(Some(CFormatQuantity::Amount(num.abs() as usize)));
         }
     }
     Ok(None)
