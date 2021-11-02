@@ -1,34 +1,9 @@
 use crate::{PyObjectRef, VirtualMachine};
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
-    use crate::signal::NSIG;
-    use _signal::{SIG_DFL, SIG_ERR, SIG_IGN};
-
     let module = _signal::make_module(vm);
 
-    let sig_dfl = vm.new_pyobj(SIG_DFL as u8);
-    let sig_ign = vm.new_pyobj(SIG_IGN as u8);
-
-    for signum in 1..NSIG {
-        let handler = unsafe { libc::signal(signum as i32, SIG_IGN) };
-        if handler != SIG_ERR {
-            unsafe { libc::signal(signum as i32, handler) };
-        }
-        let py_handler = if handler == SIG_DFL {
-            Some(sig_dfl.clone())
-        } else if handler == SIG_IGN {
-            Some(sig_ign.clone())
-        } else {
-            None
-        };
-        vm.signal_handlers.as_deref().unwrap().borrow_mut()[signum] = py_handler;
-    }
-
-    let int_handler = module
-        .clone()
-        .get_attr("default_int_handler", vm)
-        .expect("_signal does not have this attr?");
-    _signal::signal(libc::SIGINT, int_handler, vm).expect("Failed to set sigint handler");
+    _signal::init_signal_handlers(&module, vm);
 
     module
 }
@@ -61,20 +36,20 @@ pub(crate) mod _signal {
     use nix::unistd::alarm as sig_alarm;
 
     #[cfg(not(windows))]
-    pub use libc::SIG_ERR;
+    use libc::SIG_ERR;
 
     #[cfg(not(windows))]
     #[pyattr]
-    pub use libc::{SIG_DFL, SIG_IGN};
+    use libc::{SIG_DFL, SIG_IGN};
 
     #[cfg(windows)]
     #[pyattr]
-    pub const SIG_DFL: libc::sighandler_t = 0;
+    const SIG_DFL: libc::sighandler_t = 0;
     #[cfg(windows)]
     #[pyattr]
-    pub const SIG_IGN: libc::sighandler_t = 1;
+    const SIG_IGN: libc::sighandler_t = 1;
     #[cfg(windows)]
-    pub const SIG_ERR: libc::sighandler_t = !0;
+    const SIG_ERR: libc::sighandler_t = !0;
 
     #[cfg(all(unix, not(target_os = "redox")))]
     extern "C" {
@@ -82,14 +57,14 @@ pub(crate) mod _signal {
     }
 
     #[pyattr]
-    pub use crate::signal::NSIG;
+    use crate::signal::NSIG;
 
     #[pyattr]
-    pub use libc::{SIGABRT, SIGFPE, SIGILL, SIGINT, SIGSEGV, SIGTERM};
+    use libc::{SIGABRT, SIGFPE, SIGILL, SIGINT, SIGSEGV, SIGTERM};
 
     #[cfg(unix)]
     #[pyattr]
-    pub use libc::{
+    use libc::{
         SIGALRM, SIGBUS, SIGCHLD, SIGCONT, SIGHUP, SIGIO, SIGKILL, SIGPIPE, SIGPROF, SIGQUIT,
         SIGSTOP, SIGSYS, SIGTRAP, SIGTSTP, SIGTTIN, SIGTTOU, SIGURG, SIGUSR1, SIGUSR2, SIGVTALRM,
         SIGWINCH, SIGXCPU, SIGXFSZ,
@@ -103,10 +78,36 @@ pub(crate) mod _signal {
         target_os = "netbsd"
     )))]
     #[pyattr]
-    pub use libc::{SIGPWR, SIGSTKFLT};
+    use libc::{SIGPWR, SIGSTKFLT};
+
+    pub(super) fn init_signal_handlers(module: &PyObjectRef, vm: &VirtualMachine) {
+        let sig_dfl = vm.new_pyobj(SIG_DFL as u8);
+        let sig_ign = vm.new_pyobj(SIG_IGN as u8);
+
+        for signum in 1..NSIG {
+            let handler = unsafe { libc::signal(signum as i32, SIG_IGN) };
+            if handler != SIG_ERR {
+                unsafe { libc::signal(signum as i32, handler) };
+            }
+            let py_handler = if handler == SIG_DFL {
+                Some(sig_dfl.clone())
+            } else if handler == SIG_IGN {
+                Some(sig_ign.clone())
+            } else {
+                None
+            };
+            vm.signal_handlers.as_deref().unwrap().borrow_mut()[signum] = py_handler;
+        }
+
+        let int_handler = module
+            .clone()
+            .get_attr("default_int_handler", vm)
+            .expect("_signal does not have this attr?");
+        signal(libc::SIGINT, int_handler, vm).expect("Failed to set sigint handler");
+    }
 
     #[pyfunction]
-    pub(super) fn signal(
+    pub fn signal(
         signalnum: i32,
         handler: PyObjectRef,
         vm: &VirtualMachine,
