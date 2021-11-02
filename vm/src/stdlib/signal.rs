@@ -36,9 +36,8 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 #[pymodule]
 pub(crate) mod _signal {
     use crate::{
-        function::IntoPyException,
-        signal::{check_signals, ANY_TRIGGERED, TRIGGERS},
-        PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
+        function::IntoPyException, signal, PyObjectRef, PyResult, TryFromBorrowedObject,
+        VirtualMachine,
     };
     use std::sync::atomic::{self, Ordering};
 
@@ -128,7 +127,7 @@ pub(crate) mod _signal {
                         .to_owned(),
                 )),
             };
-        check_signals(vm)?;
+        signal::check_signals(vm)?;
 
         let old = unsafe { libc::signal(signalnum, sig_handler) };
         if old == SIG_ERR {
@@ -256,8 +255,8 @@ pub(crate) mod _signal {
     }
 
     extern "C" fn run_signal(signum: i32) {
-        TRIGGERS[signum as usize].store(true, Ordering::Relaxed);
-        ANY_TRIGGERED.store(true, Ordering::SeqCst);
+        signal::TRIGGERS[signum as usize].store(true, Ordering::Relaxed);
+        signal::set_triggered();
         let wakeup_fd = WAKEUP.load(Ordering::Relaxed);
         if wakeup_fd != INVALID_WAKEUP {
             let sigbyte = signum as u8;

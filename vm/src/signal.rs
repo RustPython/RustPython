@@ -3,7 +3,7 @@ use crate::{PyObjectRef, PyResult, VirtualMachine};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 pub const NSIG: usize = 64;
-pub(crate) static ANY_TRIGGERED: AtomicBool = AtomicBool::new(false);
+static ANY_TRIGGERED: AtomicBool = AtomicBool::new(false);
 // hack to get around const array repeat expressions, rust issue #79270
 #[allow(clippy::declare_interior_mutable_const)]
 const ATOMIC_FALSE: AtomicBool = AtomicBool::new(false);
@@ -12,24 +12,21 @@ pub(crate) static TRIGGERS: [AtomicBool; NSIG] = [ATOMIC_FALSE; NSIG];
 #[cfg_attr(feature = "flame-it", flame)]
 #[inline(always)]
 pub fn check_signals(vm: &VirtualMachine) -> PyResult<()> {
-    let signal_handlers = match &vm.signal_handlers {
-        Some(h) => h,
-        None => return Ok(()),
-    };
-
-    if !ANY_TRIGGERED.load(Ordering::Relaxed) {
+    if vm.signal_handlers.is_none() {
         return Ok(());
     }
-    ANY_TRIGGERED.store(false, Ordering::Relaxed);
 
-    trigger_signals(&signal_handlers.borrow(), vm)
+    if !ANY_TRIGGERED.swap(false, Ordering::Acquire) {
+        return Ok(());
+    }
+
+    trigger_signals(vm)
 }
 #[inline(never)]
 #[cold]
-fn trigger_signals(
-    signal_handlers: &[Option<PyObjectRef>; NSIG],
-    vm: &VirtualMachine,
-) -> PyResult<()> {
+fn trigger_signals(vm: &VirtualMachine) -> PyResult<()> {
+    // unwrap should never fail since we check above
+    let signal_handlers = vm.signal_handlers.as_ref().unwrap().borrow();
     for (signum, trigger) in TRIGGERS.iter().enumerate().skip(1) {
         let triggered = trigger.swap(false, Ordering::Relaxed);
         if triggered {
@@ -41,4 +38,8 @@ fn trigger_signals(
         }
     }
     Ok(())
+}
+
+pub(crate) fn set_triggered() {
+    ANY_TRIGGERED.store(true, Ordering::Release);
 }
