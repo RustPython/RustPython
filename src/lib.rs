@@ -304,12 +304,7 @@ fn parse_arguments<'a>(app: App<'a, '_>) -> ArgMatches<'a> {
 fn add_stdlib(vm: &mut VirtualMachine) {
     let _ = vm;
     #[cfg(feature = "stdlib")]
-    {
-        let stdlib = rustpython_stdlib::get_module_inits();
-        for (name, init) in stdlib.into_iter() {
-            vm.add_native_module(name, init);
-        }
-    }
+    vm.add_native_modules(rustpython_stdlib::get_module_inits());
 }
 
 /// Create settings by examining command line arguments and environment

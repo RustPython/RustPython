@@ -386,14 +386,24 @@ impl VirtualMachine {
         self.initialized = true;
     }
 
+    fn state_mut(&mut self) -> &mut PyGlobalState {
+        PyRc::get_mut(&mut self.state)
+            .expect("there should not be multiple threads while a user has a mut ref to a vm")
+    }
+
     /// Can only be used in the initialization closure passed to [`Interpreter::new_with_init`]
     pub fn add_native_module<S>(&mut self, name: S, module: stdlib::StdlibInitFunc)
     where
         S: Into<Cow<'static, str>>,
     {
-        let state = PyRc::get_mut(&mut self.state)
-            .expect("can't add_native_module when there are multiple threads");
-        state.module_inits.insert(name.into(), module);
+        self.state_mut().module_inits.insert(name.into(), module);
+    }
+
+    pub fn add_native_modules<I>(&mut self, iter: I)
+    where
+        I: IntoIterator<Item = (Cow<'static, str>, stdlib::StdlibInitFunc)>,
+    {
+        self.state_mut().module_inits.extend(iter);
     }
 
     /// Can only be used in the initialization closure passed to [`Interpreter::new_with_init`]
@@ -402,9 +412,7 @@ impl VirtualMachine {
         I: IntoIterator<Item = (String, bytecode::FrozenModule)>,
     {
         let frozen = frozen::map_frozen(self, frozen).collect::<Vec<_>>();
-        let state = PyRc::get_mut(&mut self.state)
-            .expect("can't add_frozen when there are multiple threads");
-        state.frozen.extend(frozen);
+        self.state_mut().frozen.extend(frozen);
     }
 
     /// Start a new thread with access to the same interpreter.

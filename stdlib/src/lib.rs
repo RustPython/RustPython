@@ -52,13 +52,10 @@ mod termios;
 use rustpython_common as common;
 use rustpython_vm as vm;
 
-use crate::vm::{
-    builtins,
-    stdlib::{StdlibInitFunc, StdlibMap},
-};
+use crate::vm::{builtins, stdlib::StdlibInitFunc};
 use std::borrow::Cow;
 
-pub fn get_module_inits() -> StdlibMap {
+pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInitFunc)> {
     macro_rules! modules {
         {
             $(
@@ -66,12 +63,12 @@ pub fn get_module_inits() -> StdlibMap {
                 { $( $key:expr => $val:expr),* $(,)? }
             )*
         } => {{
-            let modules = [
+            [
                 $(
                     $(#[cfg($cfg)] (Cow::<'static, str>::from($key), Box::new($val) as StdlibInitFunc),)*
                 )*
-            ];
-            modules.into_iter().collect()
+            ]
+            .into_iter()
         }};
     }
     modules! {
