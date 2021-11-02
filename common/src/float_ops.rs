@@ -64,36 +64,36 @@ pub fn gt_int(value: f64, other_int: &BigInt) -> bool {
 }
 
 pub fn parse_str(literal: &str) -> Option<f64> {
-    if literal.starts_with('_') || literal.ends_with('_') {
-        return None;
+    parse_inner(literal.trim().as_bytes())
+}
+
+pub fn parse_bytes(literal: &[u8]) -> Option<f64> {
+    parse_inner(trim_slice(literal, |b| b.is_ascii_whitespace()))
+}
+
+fn trim_slice<T>(v: &[T], mut trim: impl FnMut(&T) -> bool) -> &[T] {
+    let mut it = v.iter();
+    // it.take_while_ref(&mut trim).for_each(drop);
+    // hmm.. `&mut slice::Iter<_>` is not `Clone`
+    // it.by_ref().rev().take_while_ref(&mut trim).for_each(drop);
+    while it.clone().next().map_or(false, &mut trim) {
+        it.next();
     }
-
-    let mut buf = String::with_capacity(literal.len());
-    let mut last_tok: Option<char> = None;
-    for c in literal.chars() {
-        if !(c.is_ascii_alphanumeric() || c == '_' || c == '+' || c == '-' || c == '.') {
-            return None;
-        }
-
-        if !c.is_ascii_alphanumeric() {
-            if let Some(l) = last_tok {
-                if !l.is_ascii_alphanumeric() && !(c == '.' && (l == '-' || l == '+')) {
-                    return None;
-                }
-            }
-        }
-
-        if c != '_' {
-            buf.push(c);
-        }
-        last_tok = Some(c);
+    while it.clone().next_back().map_or(false, &mut trim) {
+        it.next_back();
     }
+    it.as_slice()
+}
 
-    if let Ok(f) = lexical_core::parse(buf.as_bytes()) {
-        Some(f)
-    } else {
-        None
-    }
+fn parse_inner(literal: &[u8]) -> Option<f64> {
+    use lexical_parse_float::{
+        format::PYTHON3_LITERAL, FromLexicalWithOptions, NumberFormatBuilder, Options,
+    };
+    // lexical-core's format::PYTHON_STRING is inaccurate
+    const PYTHON_STRING: u128 = NumberFormatBuilder::rebuild(PYTHON3_LITERAL)
+        .no_special(false)
+        .build();
+    f64::from_lexical_with_options::<PYTHON_STRING>(literal, &Options::new()).ok()
 }
 
 pub fn is_integer(v: f64) -> bool {

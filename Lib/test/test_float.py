@@ -89,8 +89,6 @@ class GeneralFloatCases(unittest.TestCase):
         # Check that we handle bytes values correctly.
         self.assertRaises(ValueError, float, b'0_.\xff9')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_non_numeric_input_types(self):
         # Test possible non-numeric types for the argument x, including
         # subclasses of the explicitly documented accepted types.
@@ -120,8 +118,6 @@ class GeneralFloatCases(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "could not convert"):
                     float(f(b'A' * 0x10))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_float_memoryview(self):
         self.assertEqual(float(memoryview(b'12.3')[1:4]), 2.3)
         self.assertEqual(float(memoryview(b'12.3\x00')[1:4]), 2.3)

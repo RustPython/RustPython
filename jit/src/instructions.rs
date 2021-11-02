@@ -288,12 +288,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                         UnaryOperator::Minus => {
                             // Compile minus as 0 - a.
                             let zero = self.builder.ins().iconst(types::I64, 0);
-                            let (out, carry) = self.builder.ins().isub_ifbout(zero, a.val);
-                            self.builder.ins().trapif(
-                                IntCC::Overflow,
-                                carry,
-                                TrapCode::IntegerOverflow,
-                            );
+                            let out = self.compile_sub(zero, a.val);
                             self.stack.push(JitValue {
                                 val: out,
                                 ty: JitType::Int,
@@ -342,12 +337,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                             Ok(())
                         }
                         BinaryOperator::Subtract => {
-                            let (out, carry) = self.builder.ins().isub_ifbout(a.val, b.val);
-                            self.builder.ins().trapif(
-                                IntCC::Overflow,
-                                carry,
-                                TrapCode::IntegerOverflow,
-                            );
+                            let out = self.compile_sub(a.val, b.val);
                             self.stack.push(JitValue {
                                 val: out,
                                 ty: JitType::Int,
@@ -396,5 +386,20 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             }
             _ => Err(JitCompileError::NotSupported),
         }
+    }
+
+    fn compile_sub(&mut self, a: Value, b: Value) -> Value {
+        // TODO: this should be fine, but cranelift doesn't special-case isub_ifbout
+        // let (out, carry) = self.builder.ins().isub_ifbout(a, b);
+        // self.builder
+        //     .ins()
+        //     .trapif(IntCC::Overflow, carry, TrapCode::IntegerOverflow);
+        // TODO: this shouldn't wrap
+        let neg_b = self.builder.ins().ineg(b);
+        let (out, carry) = self.builder.ins().iadd_ifcout(a, neg_b);
+        self.builder
+            .ins()
+            .trapif(IntCC::Overflow, carry, TrapCode::IntegerOverflow);
+        out
     }
 }

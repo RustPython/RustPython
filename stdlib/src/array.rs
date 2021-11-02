@@ -33,7 +33,7 @@ mod array {
     };
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
-    use lexical_core::Integer;
+    use num_traits::ToPrimitive;
     use std::cmp::Ordering;
     use std::{fmt, os::raw};
 
@@ -1411,7 +1411,8 @@ mod array {
                     ))
                 })?
                 .try_to_primitive::<i32>(vm)?
-                .try_u8_or_max()
+                .to_u8()
+                .unwrap_or(u8::MAX)
                 .try_into()
                 .map_err(|_| {
                     vm.new_value_error("third argument must be a valid machine format code.".into())

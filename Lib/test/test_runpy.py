@@ -676,6 +676,7 @@ class RunPathTestCase(unittest.TestCase, CodeExecutionMixin):
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
+    @unittest.skipIf(sys.platform == 'win32', "TODO: RUSTPYTHON; weird panic in lz4-flex")
     def test_script_compiled(self):
         with temp_dir() as script_dir:
             mod_name = 'script'
