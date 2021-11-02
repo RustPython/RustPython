@@ -39,17 +39,15 @@ impl PyValue for PyGenericAlias {
     }
 }
 
-#[derive(FromArgs)]
-pub struct GenericAliasArgs {
-    origin: PyTypeRef,
-    arguments: PyObjectRef,
-}
-
 impl Constructor for PyGenericAlias {
-    type Args = GenericAliasArgs;
+    type Args = FuncArgs;
 
     fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
-        PyGenericAlias::new(args.origin, args.arguments, vm).into_pyresult_with_type(vm, cls)
+        if !args.kwargs.is_empty() {
+            return Err(vm.new_type_error("GenericAlias() takes no keyword arguments".to_owned()));
+        }
+        let (origin, arguments): (_, PyObjectRef) = args.bind(vm)?;
+        PyGenericAlias::new(origin, arguments, vm).into_pyresult_with_type(vm, cls)
     }
 }
 
