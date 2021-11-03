@@ -1091,4 +1091,11 @@ mod tests {
     fn miri_test_type_initialization() {
         let _ = init_type_hierarchy();
     }
+
+    #[test]
+    fn miri_test_drop() {
+        let ctx = crate::PyContext::new();
+        let obj = ctx.new_bytes(b"dfghjkl".to_vec());
+        drop(obj);
+    }
 }
