@@ -68,7 +68,7 @@ pub(crate) fn impl_pyimpl(attr: AttributeArgs, item: Item) -> Result<TokenStream
             quote! {
                 #imp
                 impl ::rustpython_vm::PyClassImpl for #ty {
-                    const TP_FLAGS: ::rustpython_vm::types::PyTypeFlags = ::rustpython_vm::types::PyTypeFlags::from_bits_truncate(#flags);
+                    const TP_FLAGS: ::rustpython_vm::types::PyTypeFlags = #flags;
 
                     fn impl_extend_class(
                         ctx: &::rustpython_vm::PyContext,
@@ -863,13 +863,17 @@ struct ExtractedImplAttrs {
 fn extract_impl_attrs(attr: AttributeArgs, item: &Ident) -> Result<ExtractedImplAttrs> {
     let mut withs = Vec::new();
     let mut with_slots = Vec::new();
-    let mut flags = vec![quote! { ::rustpython_vm::types::PyTypeFlags::DEFAULT.bits() }];
-    #[cfg(debug_assertions)]
-    {
-        flags.push(quote! {
-            | ::rustpython_vm::types::PyTypeFlags::_CREATED_WITH_FLAGS.bits()
-        });
-    }
+    let mut flags = vec![quote! {
+        {
+            #[cfg(not(debug_assertions))] {
+                ::rustpython_vm::types::PyTypeFlags::DEFAULT
+            }
+            #[cfg(debug_assertions)] {
+                ::rustpython_vm::types::PyTypeFlags::DEFAULT
+                    .union(::rustpython_vm::types::PyTypeFlags::_CREATED_WITH_FLAGS)
+            }
+        }
+    }];
 
     for attr in attr {
         match attr {
@@ -905,7 +909,7 @@ fn extract_impl_attrs(attr: AttributeArgs, item: &Ident) -> Result<ExtractedImpl
                             NestedMeta::Meta(Meta::Path(path)) => {
                                 if let Some(ident) = path.get_ident() {
                                     flags.push(quote_spanned! { ident.span() =>
-                                        | ::rustpython_vm::types::PyTypeFlags::#ident.bits()
+                                         .union(::rustpython_vm::types::PyTypeFlags::#ident)
                                     });
                                 } else {
                                     bail_span!(
