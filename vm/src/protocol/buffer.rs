@@ -73,8 +73,8 @@ impl PyBuffer {
     }
 
     pub fn collect(&self, buf: &mut Vec<u8>) {
-        if self.desc.is_contiguous() {
-            buf.extend_from_slice(&self.obj_bytes());
+        if let Some(bytes) = self.as_contiguous() {
+            buf.extend_from_slice(&bytes);
         } else {
             let bytes = &*self.obj_bytes();
             self.desc.for_each_segment(true, |range| {
@@ -86,8 +86,8 @@ impl PyBuffer {
     pub fn contiguous_or_collect<R, F: FnOnce(&[u8]) -> R>(&self, f: F) -> R {
         let borrowed;
         let mut collected;
-        let v = if self.desc.is_contiguous() {
-            borrowed = self.obj_bytes();
+        let v = if let Some(bytes) = self.as_contiguous() {
+            borrowed = bytes;
             &*borrowed
         } else {
             collected = vec![];
@@ -151,7 +151,7 @@ impl Drop for PyBuffer {
 #[derive(Debug, Clone)]
 pub struct BufferDescriptor {
     /// product(shape) * itemsize
-    /// NOT the bytes length if buffer is discontiguous
+    /// bytes length, but not the length for obj_bytes() even is contiguous
     pub len: usize,
     pub readonly: bool,
     pub itemsize: usize,
@@ -296,15 +296,13 @@ impl BufferDescriptor {
         }
     }
 
+    /// zip two BufferDescriptor with the same shape
     pub fn zip_eq<F>(&self, other: &Self, try_conti: bool, mut f: F)
     where
-        F: FnMut(isize, isize, usize),
+        F: FnMut(Range<isize>, Range<isize>) -> bool,
     {
-        debug_assert_eq!(self.itemsize, other.itemsize);
-        debug_assert_eq!(self.len, other.len);
-
         if self.ndim() == 0 {
-            f(0, 0, self.itemsize);
+            f(0..self.itemsize as isize, 0..other.itemsize as isize);
             return;
         }
         if try_conti && self.is_last_dim_contiguous() {
@@ -322,19 +320,29 @@ impl BufferDescriptor {
         dim: usize,
         f: &mut F,
     ) where
-        F: FnMut(isize, isize, usize),
+        F: FnMut(Range<isize>, Range<isize>) -> bool,
     {
         let (shape, a_stride, a_suboffset) = self.dim_desc[dim];
         let (_b_shape, b_stride, b_suboffset) = other.dim_desc[dim];
         debug_assert_eq!(shape, _b_shape);
         if dim + 1 == self.ndim() {
             if CONTI {
-                f(a_index, b_index, shape * self.itemsize);
+                if f(
+                    a_index..a_index + (shape * self.itemsize) as isize,
+                    b_index..b_index + (shape * other.itemsize) as isize,
+                ) {
+                    return;
+                }
             } else {
                 for _ in 0..shape {
                     let a_pos = a_index + a_suboffset;
                     let b_pos = b_index + b_suboffset;
-                    f(a_pos, b_pos, self.itemsize);
+                    if f(
+                        a_pos..a_pos + self.itemsize as isize,
+                        b_pos..b_pos + other.itemsize as isize,
+                    ) {
+                        return;
+                    }
                     a_index += a_stride;
                     b_index += b_stride;
                 }

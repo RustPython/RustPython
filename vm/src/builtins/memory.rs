@@ -1,6 +1,5 @@
 use super::{
-    PyBytes, PyBytesRef, PyList, PyListRef, PySlice, PyStr, PyStrRef, PyTuple, PyTupleRef,
-    PyTypeRef,
+    PyBytes, PyBytesRef, PyListRef, PySlice, PyStr, PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
 };
 use crate::common::{
     borrow::{BorrowedValue, BorrowedValueMut},
@@ -94,7 +93,7 @@ impl PyMemoryView {
         let mut zelf = PyMemoryView {
             buffer: ManuallyDrop::new(buffer),
             released: AtomicCell::new(false),
-            start: range.start,
+            start: 0,
             format_spec,
             desc,
             hash: OnceCell::new(),
@@ -363,10 +362,12 @@ impl PyMemoryView {
 
         let mut bytes_mut = dest.buffer.obj_bytes_mut();
         let src_bytes = src.obj_bytes();
-        dest.desc.zip_eq(&src.desc, true, |a_pos, b_pos, len| {
-            let a_pos = (a_pos + self.start as isize) as usize;
-            let b_pos = b_pos as usize;
-            bytes_mut[a_pos..a_pos + len].copy_from_slice(&src_bytes[b_pos..b_pos + len]);
+        dest.desc.zip_eq(&src.desc, true, |a_range, b_range| {
+            let a_range = (a_range.start + self.start as isize) as usize
+                ..(a_range.end + self.start as isize) as usize;
+            let b_range = b_range.start as usize..b_range.end as usize;
+            bytes_mut[a_range].copy_from_slice(&src_bytes[b_range]);
+            false
         });
 
         Ok(())
@@ -418,8 +419,8 @@ impl PyMemoryView {
     }
 
     fn init_len(&mut self) {
-        let product = self.desc.dim_desc.iter().map(|x| x.0).product();
-        self.desc.len = product;
+        let product: usize = self.desc.dim_desc.iter().map(|x| x.0).product();
+        self.desc.len = product * self.desc.itemsize;
     }
 
     fn init_range(&mut self, range: Range<usize>, dim: usize) {
@@ -523,11 +524,14 @@ impl PyMemoryView {
     #[pymethod]
     fn tolist(&self, vm: &VirtualMachine) -> PyResult<PyListRef> {
         self.try_not_released(vm)?;
-        if self.desc.ndim() == 0 {
-            // TODO: unpack_single(view->buf, fmt)
-            return Ok(vm.ctx.new_list(vec![]));
-        }
         let bytes = self.buffer.obj_bytes();
+        if self.desc.ndim() == 0 {
+            return Ok(vm.ctx.new_list(vec![format_unpack(
+                &self.format_spec,
+                &bytes[..self.desc.itemsize],
+                vm,
+            )?]));
+        }
         self._to_list(&bytes, 0, 0, vm)
     }
 
@@ -693,15 +697,36 @@ impl PyMemoryView {
             return Ok(vm.bool_eq(&a_val, &b_val)?);
         }
 
-        zelf.contiguous_or_collect(|a| {
-            other.contiguous_or_collect(|b| {
-                // TODO: optimize cmp by format
-                let a_list = unpack_bytes_seq_to_list(a, a_format_spec, vm)?;
-                let b_list = unpack_bytes_seq_to_list(b, b_format_spec, vm)?;
-
-                vm.bool_eq(a_list.as_object(), b_list.as_object())
-            })
-        })
+        // TODO: optimize cmp by format
+        let mut ret = Ok(true);
+        let a_bytes = zelf.buffer.obj_bytes();
+        let b_bytes = other.obj_bytes();
+        zelf.desc.zip_eq(&other.desc, false, |a_range, b_range| {
+            let a_range = (a_range.start + zelf.start as isize) as usize
+                ..(a_range.end + zelf.start as isize) as usize;
+            let b_range = b_range.start as usize..b_range.end as usize;
+            let a_val = match format_unpack(&a_format_spec, &a_bytes[a_range], vm) {
+                Ok(val) => val,
+                Err(e) => {
+                    ret = Err(e);
+                    return true;
+                }
+            };
+            let b_val = match format_unpack(&b_format_spec, &b_bytes[b_range], vm) {
+                Ok(val) => val,
+                Err(e) => {
+                    ret = Err(e);
+                    return true;
+                }
+            };
+            ret = vm.bool_eq(&a_val, &b_val);
+            if let Ok(b) = ret {
+                !b
+            } else {
+                true
+            }
+        });
+        ret
     }
 
     #[pymethod(magic)]
@@ -898,26 +923,6 @@ fn format_unpack(
             x.into()
         }
     })
-}
-
-fn unpack_bytes_seq_to_list(
-    bytes: &[u8],
-    format_spec: &FormatSpec,
-    vm: &VirtualMachine,
-) -> PyResult<PyListRef> {
-    let itemsize = format_spec.size();
-
-    if bytes.len() % itemsize != 0 {
-        return Err(vm.new_value_error("bytes length not a multiple of item size".to_owned()));
-    }
-
-    let len = bytes.len() / itemsize;
-
-    let elements: Vec<PyObjectRef> = (0..len)
-        .map(|i| format_unpack(&format_spec, &bytes[i..i + itemsize], vm))
-        .try_collect()?;
-
-    Ok(PyList::from(elements).into_ref(vm))
 }
 
 fn is_equiv_shape(a: &BufferDescriptor, b: &BufferDescriptor) -> bool {
