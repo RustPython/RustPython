@@ -54,6 +54,18 @@ mod time {
             .map_err(|e| vm.new_value_error(format!("Time error: {:?}", e)))
     }
 
+    // TODO: implement proper monotonic time for wasm/wasi.
+    #[cfg(not(any(unix, windows)))]
+    fn get_monotonic_time(vm: &VirtualMachine) -> PyResult<std::time::Duration> {
+        duration_since_system_now(vm)
+    }
+
+    // TODO: implement proper perf time for wasm/wasi.
+    #[cfg(not(any(unix, windows)))]
+    fn get_perf_time(vm: &VirtualMachine) -> PyResult<std::time::Duration> {
+        duration_since_system_now(vm)
+    }
+
     #[cfg(not(unix))]
     #[pyfunction]
     fn sleep(dur: std::time::Duration) {
@@ -66,7 +78,6 @@ mod time {
         Ok(duration_since_system_now(vm)?.as_nanos() as u64)
     }
 
-    #[pyfunction(name = "perf_counter")] // TODO: fix
     #[pyfunction]
     pub fn time(vm: &VirtualMachine) -> PyResult<f64> {
         _time(vm)
@@ -90,32 +101,24 @@ mod time {
         Ok(Date::now() / 1000.0)
     }
 
-    #[cfg(target_os = "wasi")]
     #[pyfunction]
     fn monotonic(vm: &VirtualMachine) -> PyResult<f64> {
-        // TODO: implement proper monotonic time for other platforms.
-        Ok(duration_since_system_now(vm)?.as_secs_f64())
+        Ok(get_monotonic_time(vm)?.as_secs_f64())
     }
 
-    #[cfg(target_os = "wasi")]
     #[pyfunction]
     fn monotonic_ns(vm: &VirtualMachine) -> PyResult<u128> {
-        // TODO: implement proper monotonic time for other platforms.
-        Ok(duration_since_system_now(vm)?.as_nanos())
+        Ok(get_monotonic_time(vm)?.as_nanos())
     }
 
-    #[cfg(target_os = "wasi")]
     #[pyfunction]
     fn perf_counter(vm: &VirtualMachine) -> PyResult<f64> {
-        // TODO: implement proper monotonic time for other platforms.
-        Ok(duration_since_system_now(vm)?.as_secs_f64())
+        Ok(get_perf_time(vm)?.as_secs_f64())
     }
 
-    #[cfg(target_os = "wasi")]
     #[pyfunction]
     fn perf_counter_ns(vm: &VirtualMachine) -> PyResult<u128> {
-        // TODO: implement proper monotonic time for other platforms.
-        Ok(duration_since_system_now(vm)?.as_nanos())
+        Ok(get_perf_time(vm)?.as_nanos())
     }
 
     fn pyobj_to_naive_date_time(
@@ -574,24 +577,12 @@ mod unix {
         Err(vm.new_not_implemented_error("get_clock_info unsupported on this system".to_owned()))
     }
 
-    #[pyfunction]
-    fn monotonic(vm: &VirtualMachine) -> PyResult<f64> {
-        clock_gettime(vm.ctx.new_int(CLOCK_MONOTONIC), vm)
+    pub(super) fn get_monotonic_time(vm: &VirtualMachine) -> PyResult<Duration> {
+        get_clock_time(vm.ctx.new_int(CLOCK_MONOTONIC), vm)
     }
 
-    #[pyfunction]
-    fn monotonic_ns(vm: &VirtualMachine) -> PyResult<u128> {
-        clock_gettime_ns(vm.ctx.new_int(CLOCK_MONOTONIC), vm)
-    }
-
-    #[pyfunction]
-    fn perf_counter(vm: &VirtualMachine) -> PyResult<f64> {
-        clock_gettime(vm.ctx.new_int(CLOCK_MONOTONIC), vm)
-    }
-
-    #[pyfunction]
-    fn perf_counter_ns(vm: &VirtualMachine) -> PyResult<u128> {
-        clock_gettime_ns(vm.ctx.new_int(CLOCK_MONOTONIC), vm)
+    pub(super) fn get_perf_time(vm: &VirtualMachine) -> PyResult<Duration> {
+        get_clock_time(vm.ctx.new_int(CLOCK_MONOTONIC), vm)
     }
 
     #[pyfunction]
@@ -740,7 +731,7 @@ mod windows {
             .clone()
     }
 
-    fn win_perf_counter(vm: &VirtualMachine) -> PyResult<Duration> {
+    pub(super) fn get_perf_time(vm: &VirtualMachine) -> PyResult<Duration> {
         let now = unsafe {
             let mut performance_count = std::mem::MaybeUninit::uninit();
             QueryPerformanceCounter(performance_count.as_mut_ptr());
@@ -773,7 +764,7 @@ mod windows {
         Ok(time_increment)
     }
 
-    fn get_monotonic_clock(vm: &VirtualMachine) -> PyResult<Duration> {
+    pub(super) fn get_monotonic_time(vm: &VirtualMachine) -> PyResult<Duration> {
         let ticks = unsafe { GetTickCount64() };
 
         Ok(Duration::from_nanos(
@@ -815,26 +806,6 @@ mod windows {
             "adjustable" => vm.ctx.new_bool(adj),
             "resolution" => vm.ctx.new_float(res),
         }))
-    }
-
-    #[pyfunction]
-    fn monotonic(vm: &VirtualMachine) -> PyResult<f64> {
-        Ok(get_monotonic_clock(vm)?.as_secs_f64())
-    }
-
-    #[pyfunction]
-    fn monotonic_ns(vm: &VirtualMachine) -> PyResult<u128> {
-        Ok(get_monotonic_clock(vm)?.as_nanos())
-    }
-
-    #[pyfunction]
-    fn perf_counter(vm: &VirtualMachine) -> PyResult<f64> {
-        Ok(win_perf_counter(vm)?.as_secs_f64())
-    }
-
-    #[pyfunction]
-    fn perf_counter_ns(vm: &VirtualMachine) -> PyResult<u128> {
-        Ok(win_perf_counter(vm)?.as_nanos())
     }
 
     pub(super) fn get_thread_time(vm: &VirtualMachine) -> PyResult<Duration> {
