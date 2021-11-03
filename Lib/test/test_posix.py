@@ -1424,8 +1424,6 @@ class PosixTester(unittest.TestCase):
                 # http://lists.freebsd.org/pipermail/freebsd-amd64/2012-January/014332.html
                 raise unittest.SkipTest("OSError raised!")
 
-    # TODO: RUSTPYTHON: AssertionError: "'doesnotexistfilename' -> 'noodly2'" not found in "(2, 'No such file or directory (os error 2)')"
-    @unittest.expectedFailure
     def test_path_error2(self):
         """
         Test functions that call path_error2(), providing two filenames in their exceptions.

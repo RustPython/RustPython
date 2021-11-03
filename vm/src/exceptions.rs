@@ -862,13 +862,28 @@ fn key_error_str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyStrRef {
 
 fn os_error_str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
     let args = exc.args();
+    let obj = exc.as_object().to_owned();
+
     if args.as_slice().len() == 2 {
         // SAFETY: len() == 2 is checked so get_arg 1 or 2 won't panic
-        let s = format!(
-            "[Errno {}] {}",
-            exc.get_arg(0).unwrap().str(vm)?,
-            exc.get_arg(1).unwrap().str(vm)?
-        );
+        let errno = exc.get_arg(0).unwrap().str(vm)?;
+        let msg = exc.get_arg(1).unwrap().str(vm)?;
+
+        let s = match obj.clone().get_attr("filename", vm) {
+            Ok(filename) => match obj.get_attr("filename2", vm) {
+                Ok(filename2) => format!(
+                    "[Errno {}] {}: '{}' -> '{}'",
+                    errno,
+                    msg,
+                    filename.str(vm)?,
+                    filename2.str(vm)?
+                ),
+                Err(_) => format!("[Errno {}] {}: '{}'", errno, msg, filename.str(vm)?),
+            },
+            Err(_) => {
+                format!("[Errno {}] {}", errno, msg)
+            }
+        };
         Ok(vm.ctx.new_str(s))
     } else {
         Ok(exc.str(vm))
