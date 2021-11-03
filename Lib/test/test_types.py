@@ -86,8 +86,6 @@ class TypesTests(unittest.TestCase):
         if float(1) == 1.0 and float(-1) == -1.0 and float(0) == 0.0: pass
         else: self.fail('float() does not work properly')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_float_to_string(self):
         def test(f, result):
             self.assertEqual(f.__format__('e'), result)
