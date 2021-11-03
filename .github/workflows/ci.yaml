@@ -105,6 +105,16 @@ jobs:
           command: check
           args: --target aarch64-linux-android
 
+      - uses: actions-rs/toolchain@v1
+        with:
+          target: wasm32-wasi
+
+      - name: Check compilation for wasi
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: --target wasm32-wasi --features freeze-stdlib
+
       - name: Prepare repository for redox compilation
         run: bash scripts/redox/uncomment-cargo.sh
       - name: Check compilation for Redox
