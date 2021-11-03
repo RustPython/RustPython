@@ -89,7 +89,8 @@ mod _socket {
         ERROR
             .get_or_init(|| {
                 vm.ctx.new_class(
-                    "socket.timeout",
+                    Some("socket"),
+                    "timeout",
                     &vm.ctx.exceptions.os_error,
                     Default::default(),
                 )
@@ -104,7 +105,8 @@ mod _socket {
         ERROR
             .get_or_init(|| {
                 vm.ctx.new_class(
-                    "socket.herror",
+                    Some("socket"),
+                    "herror",
                     &vm.ctx.exceptions.os_error,
                     Default::default(),
                 )
@@ -119,7 +121,8 @@ mod _socket {
         ERROR
             .get_or_init(|| {
                 vm.ctx.new_class(
-                    "socket.gaierror",
+                    Some("socket"),
+                    "gaierror",
                     &vm.ctx.exceptions.os_error,
                     Default::default(),
                 )

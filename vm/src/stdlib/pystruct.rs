@@ -968,7 +968,8 @@ pub(crate) mod _struct {
         STRUCT_ERROR
             .get_or_init(|| {
                 vm.ctx.new_class(
-                    "struct.error",
+                    Some("struct"),
+                    "error",
                     &vm.ctx.exceptions.exception_type,
                     Default::default(),
                 )

@@ -71,3 +71,6 @@ assert data == b'\1'
 
 data = struct.pack('?', [])
 assert data == b'\0'
+
+assert struct.error.__module__ == "struct"
+assert struct.error.__name__ == "error"

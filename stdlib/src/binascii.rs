@@ -19,7 +19,8 @@ mod decl {
         BINASCII_ERROR
             .get_or_init(|| {
                 vm.ctx.new_class(
-                    "binascii.Error",
+                    Some("binascii"),
+                    "Error",
                     &vm.ctx.exceptions.value_error,
                     Default::default(),
                 )
@@ -35,7 +36,8 @@ mod decl {
         BINASCII_INCOMPLTE
             .get_or_init(|| {
                 vm.ctx.new_class(
-                    "binascii.Incomplete",
+                    Some("binascii"),
+                    "Incomplete",
                     &vm.ctx.exceptions.exception_type,
                     Default::default(),
                 )
