@@ -452,7 +452,11 @@ impl FormatSpec {
             }
             Some(FormatType::Number) => Ok(magnitude.to_str_radix(10)),
             Some(FormatType::String) => Err("Unknown format code 's' for object of type 'int'"),
-            Some(FormatType::Character) => Err("Unknown format code 'c' for object of type 'int'"),
+            Some(FormatType::Character) => magnitude
+                .to_u32()
+                .and_then(std::char::from_u32)
+                .and_then(|c| Some(c.to_string()))
+                .ok_or_else(|| "%c arg not in range(0x110000)"),
             Some(FormatType::GeneralFormatUpper) => {
                 Err("Unknown format code 'G' for object of type 'int'")
             }
