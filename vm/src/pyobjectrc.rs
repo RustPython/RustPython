@@ -57,11 +57,11 @@ type OnceBox<T> = once_cell::unsync::OnceCell<Box<T>>;
 struct Erased;
 
 struct PyObjVTable {
-    drop_dealloc: unsafe fn(&mut PyObject),
+    drop_dealloc: unsafe fn(*mut PyObject),
     debug: unsafe fn(&PyObject, &mut fmt::Formatter) -> fmt::Result,
 }
-unsafe fn drop_dealloc_obj<T: PyObjectPayload>(x: &mut PyObject) {
-    Box::from_raw(x as *mut PyObject as *mut PyInner<T>);
+unsafe fn drop_dealloc_obj<T: PyObjectPayload>(x: *mut PyObject) {
+    Box::from_raw(x as *mut PyInner<T>);
 }
 unsafe fn debug_obj<T: PyObjectPayload>(x: &PyObject, f: &mut fmt::Formatter) -> fmt::Result {
     let x = &*(x as *const PyObject as *const PyInner<T>);
@@ -683,7 +683,7 @@ impl PyObjectRef {
         }
 
         let drop_dealloc = self.0.vtable.drop_dealloc;
-        unsafe { drop_dealloc(self.ptr.as_mut()) }
+        unsafe { drop_dealloc(self.ptr.as_ptr()) }
     }
 }
 
