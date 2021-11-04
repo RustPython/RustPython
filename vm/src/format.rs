@@ -476,11 +476,7 @@ impl FormatSpec {
         if raw_magnitude_string_result.is_err() {
             return raw_magnitude_string_result;
         }
-        let magnitude_string = format!(
-            "{}{}",
-            prefix,
-            self.add_magnitude_separators(raw_magnitude_string_result.unwrap())
-        );
+        let magnitude_string = self.add_magnitude_separators(raw_magnitude_string_result.unwrap());
 
         let format_sign = self.sign.unwrap_or(FormatSign::Minus);
         let sign_str = match num.sign() {
@@ -491,8 +487,9 @@ impl FormatSpec {
                 FormatSign::MinusOrSpace => " ",
             },
         };
+        let prefix = format!("{}{}", sign_str, prefix);
 
-        self.format_sign_and_align(&magnitude_string, sign_str)
+        self.format_sign_and_align(&magnitude_string, &prefix)
     }
 
     pub(crate) fn format_string(&self, s: &str) -> Result<String, &'static str> {
