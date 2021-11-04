@@ -289,9 +289,21 @@ impl SaturatedSlice {
     /// Convert for usage in indexing the underlying rust collections. Called *after*
     /// __index__ has been called on the Slice which might mutate the collection.
     pub fn adjust_indices(&self, len: usize) -> (Range<usize>, isize, usize) {
+        if len == 0 {
+            return (0..0, self.step, 0);
+        }
         let range = if self.step.is_negative() {
-            saturate_index(self.stop.saturating_add(1), len)
-                ..saturate_index(self.start.saturating_add(1), len)
+            let stop = if self.stop == -1 {
+                len
+            } else {
+                saturate_index(self.stop.saturating_add(1), len)
+            };
+            let start = if self.start == -1 {
+                len
+            } else {
+                saturate_index(self.start.saturating_add(1), len)
+            };
+            stop..start
         } else {
             saturate_index(self.start, len)..saturate_index(self.stop, len)
         };
@@ -333,7 +345,7 @@ impl SaturatedSliceIterator {
 
     pub fn positive_order(mut self) -> Self {
         if self.step.is_negative() {
-            self.index += self.step * self.len as isize + 1;
+            self.index += self.step * self.len.saturating_sub(1) as isize;
             self.step = self.step.saturating_abs()
         }
         self
