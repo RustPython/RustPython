@@ -208,8 +208,6 @@ class TypesTests(unittest.TestCase):
         self.assertRaises(TypeError, type, 1, 2)
         self.assertRaises(TypeError, type, 1, 2, 3, 4)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_int__format__(self):
         def test(i, format_spec, result):
             # just make sure we have the unified type for integers
