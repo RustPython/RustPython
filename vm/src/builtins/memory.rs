@@ -307,7 +307,7 @@ impl PyMemoryView {
                 return Ok(zelf.into_object());
             }
             if let Some(tuple) = needle.payload::<PyTuple>() {
-                if tuple.len() == 0 {
+                if tuple.is_empty() {
                     return Ok(zelf
                         .format_spec
                         .unpack(&zelf.buffer.obj_bytes()[..zelf.desc.itemsize], vm)?
@@ -401,7 +401,7 @@ impl PyMemoryView {
                 // TODO: fix panic if data no march itemsize
                 bytes[..self.desc.itemsize].copy_from_slice(&data);
             } else if let Some(tuple) = needle.payload::<PyTuple>() {
-                if tuple.len() == 0 {
+                if tuple.is_empty() {
                     let bytes = &mut *self.buffer.obj_bytes_mut();
                     let data = self.format_spec.pack(vec![value], vm)?;
                     // TODO: fix panic if data no march itemsize
@@ -700,7 +700,7 @@ impl PyMemoryView {
         if zelf.desc.ndim() == 0 {
             let a_val = format_unpack(a_format_spec, &zelf.buffer.obj_bytes()[..a_itemsize], vm)?;
             let b_val = format_unpack(b_format_spec, &other.obj_bytes()[..b_itemsize], vm)?;
-            return Ok(vm.bool_eq(&a_val, &b_val)?);
+            return vm.bool_eq(&a_val, &b_val);
         }
 
         // TODO: optimize cmp by format
@@ -711,14 +711,14 @@ impl PyMemoryView {
             let a_range = (a_range.start + zelf.start as isize) as usize
                 ..(a_range.end + zelf.start as isize) as usize;
             let b_range = b_range.start as usize..b_range.end as usize;
-            let a_val = match format_unpack(&a_format_spec, &a_bytes[a_range], vm) {
+            let a_val = match format_unpack(a_format_spec, &a_bytes[a_range], vm) {
                 Ok(val) => val,
                 Err(e) => {
                     ret = Err(e);
                     return true;
                 }
             };
-            let b_val = match format_unpack(&b_format_spec, &b_bytes[b_range], vm) {
+            let b_val = match format_unpack(b_format_spec, &b_bytes[b_range], vm) {
                 Ok(val) => val,
                 Err(e) => {
                     ret = Err(e);

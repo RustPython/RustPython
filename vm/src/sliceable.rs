@@ -167,12 +167,10 @@ pub trait PySliceableSequence {
             } else {
                 self.do_slice(range)
             }
+        } else if step.is_negative() {
+            self.do_stepped_slice_reverse(range, step.unsigned_abs())
         } else {
-            if step.is_negative() {
-                self.do_stepped_slice_reverse(range, step.unsigned_abs())
-            } else {
-                self.do_stepped_slice(range, step.unsigned_abs())
-            }
+            self.do_stepped_slice(range, step.unsigned_abs())
         };
         Ok(sliced)
     }

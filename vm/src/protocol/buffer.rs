@@ -59,15 +59,17 @@ impl PyBuffer {
     }
 
     pub fn as_contiguous_mut(&self) -> Option<BorrowedValueMut<[u8]>> {
-        self.desc
-            .is_contiguous()
-            .then(|| unsafe { self.contiguous_mut() })
+        (!self.desc.readonly && self.desc.is_contiguous()).then(|| unsafe { self.contiguous_mut() })
     }
 
+    /// # Safety
+    /// assume the buffer is contiguous
     pub unsafe fn contiguous(&self) -> BorrowedValue<[u8]> {
         BorrowedValue::map(self.obj_bytes(), |x| &x[..self.desc.len])
     }
 
+    /// # Safety
+    /// assume the buffer is contiguous and writable
     pub unsafe fn contiguous_mut(&self) -> BorrowedValueMut<[u8]> {
         BorrowedValueMut::map(self.obj_bytes_mut(), |x| &mut x[..self.desc.len])
     }
@@ -374,7 +376,7 @@ impl BufferDescriptor {
                 return true;
             }
         }
-        return false;
+        false
     }
 
     // TODO: support fortain order
