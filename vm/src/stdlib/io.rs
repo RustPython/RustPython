@@ -3286,7 +3286,7 @@ mod _io {
         fn getbuffer(self, vm: &VirtualMachine) -> PyResult<PyMemoryView> {
             let len = self.buffer.read().cursor.get_ref().len();
             let buffer = PyBuffer::new(
-                self.as_object().to_owned(),
+                self.into_object(),
                 BufferDescriptor::simple(len, false),
                 &BYTES_IO_BUFFER_METHODS,
             );

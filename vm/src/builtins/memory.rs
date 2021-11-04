@@ -49,12 +49,7 @@ impl Constructor for PyMemoryView {
     type Args = PyMemoryViewNewArgs;
 
     fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
-        let zelf = if let Some(other) = args.object.payload::<Self>() {
-            other.new_view()
-        } else {
-            let buffer = PyBuffer::try_from_borrowed_object(vm, &args.object)?;
-            PyMemoryView::from_buffer(buffer, vm)?
-        };
+        let zelf = Self::from_object(&args.object, vm)?;
         zelf.into_pyresult_with_type(vm, cls)
     }
 }
@@ -63,6 +58,17 @@ impl Constructor for PyMemoryView {
 impl PyMemoryView {
     fn parse_format(format: &str, vm: &VirtualMachine) -> PyResult<FormatSpec> {
         FormatSpec::parse(format.as_bytes(), vm)
+    }
+
+    /// this should be the main entrence to create the memoryview
+    /// to avoid the chained memoryview
+    pub fn from_object(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Self> {
+        if let Some(other) = obj.payload::<Self>() {
+            Ok(other.new_view())
+        } else {
+            let buffer = PyBuffer::try_from_borrowed_object(vm, obj)?;
+            PyMemoryView::from_buffer(buffer, vm)
+        }
     }
 
     pub fn from_buffer(buffer: PyBuffer, vm: &VirtualMachine) -> PyResult<Self> {
@@ -363,8 +369,8 @@ impl PyMemoryView {
         let mut bytes_mut = dest.buffer.obj_bytes_mut();
         let src_bytes = src.obj_bytes();
         dest.desc.zip_eq(&src.desc, true, |a_range, b_range| {
-            let a_range = (a_range.start + self.start as isize) as usize
-                ..(a_range.end + self.start as isize) as usize;
+            let a_range = (a_range.start + dest.start as isize) as usize
+                ..(a_range.end + dest.start as isize) as usize;
             let b_range = b_range.start as usize..b_range.end as usize;
             bytes_mut[a_range].copy_from_slice(&src_bytes[b_range]);
             false

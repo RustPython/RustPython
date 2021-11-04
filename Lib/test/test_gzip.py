@@ -88,8 +88,6 @@ class TestGzip(BaseTest):
         self.assertEqual(d, data1 * 51)
         self.assertIsInstance(f.name, str)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     # The following test_write_xy methods test that write accepts
     # the corresponding bytes-like object type as input
     # and that the data written equals bytes(xy) in all cases.
