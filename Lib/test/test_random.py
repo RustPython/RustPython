@@ -28,8 +28,6 @@ class TestBasicOps:
         state2 = self.gen.getstate()
         self.assertNotEqual(state1, state2)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_saverestore(self):
         N = 1000
         self.gen.seed()
@@ -262,8 +260,6 @@ class TestBasicOps:
             restoredseq = [newgen.random() for i in range(10)]
             self.assertEqual(origseq, restoredseq)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bug_1727780(self):
         # verify that version-2-pickles can be loaded
         # fine, whether they are created on 32-bit or 64-bit
@@ -412,26 +408,6 @@ class SystemRandom_TestBasicOps(TestBasicOps, unittest.TestCase):
 class MersenneTwister_TestBasicOps(TestBasicOps, unittest.TestCase):
     gen = random.Random()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_autoseed(self):
-        super().test_autoseed()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_seedargs(self):
-        super().test_seedargs()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_pickling(self):
-        super().test_pickling()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_seed_when_randomness_source_not_found(self):
-        super().test_seed_when_randomness_source_not_found()
-
     def test_guaranteed_stable(self):
         # These sequences are guaranteed to stay the same across versions of python
         self.gen.seed(3456147, version=1)
@@ -502,8 +478,6 @@ class MersenneTwister_TestBasicOps(TestBasicOps, unittest.TestCase):
     def test_setstate_first_arg(self):
         self.assertRaises(ValueError, self.gen.setstate, (1, None, None))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_setstate_middle_arg(self):
         start_state = self.gen.getstate()
         # Wrong type, s/b tuple
@@ -628,8 +602,6 @@ class MersenneTwister_TestBasicOps(TestBasicOps, unittest.TestCase):
             self.assertEqual(set(range(start,stop)),
                 set([self.gen.randrange(start,stop) for i in range(100)]))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_genrandbits(self):
         # Verify cross-platform repeatability
         self.gen.seed(1234567)
@@ -685,8 +657,6 @@ class MersenneTwister_TestBasicOps(TestBasicOps, unittest.TestCase):
             self.assertEqual(k, numbits)        # note the stronger assertion
             self.assertTrue(2**k > n > 2**(k-1))   # note the stronger assertion
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_randbelow_without_getrandbits(self):
         # Random._randbelow() can only use random() when the built-in one
         # has been overridden but no new getrandbits() method was supplied.
@@ -785,8 +755,6 @@ def gamma(z, sqrt2pi=(2.0*pi)**0.5):
     ])
 
 class TestDistributions(unittest.TestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_zeroinputs(self):
         # Verify that distributions can handle a series of zero inputs'
         g = random.Random()
@@ -899,8 +867,6 @@ class TestDistributions(unittest.TestCase):
         returned_value = random.gammavariate(1.1, 2.3)
         self.assertAlmostEqual(returned_value, 2.53)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.mock.patch('random.Random.random')
     def test_gammavariate_alpha_equal_one(self, random_mock):
 
@@ -912,8 +878,6 @@ class TestDistributions(unittest.TestCase):
         returned_value = random.gammavariate(1.0, 3.14)
         self.assertAlmostEqual(returned_value, 1.877208182372648)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.mock.patch('random.Random.random')
     def test_gammavariate_alpha_equal_one_equals_expovariate(self, random_mock):
 
@@ -1004,8 +968,6 @@ class TestDistributions(unittest.TestCase):
 
 
 class TestRandomSubclassing(unittest.TestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_random_subclass_with_kwargs(self):
         # SF bug #1486663 -- this used to erroneously raise a TypeError
         class Subclass(random.Random):
@@ -1013,8 +975,6 @@ class TestRandomSubclassing(unittest.TestCase):
                 random.Random.__init__(self)
         Subclass(newarg=1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_subclasses_overriding_methods(self):
         # Subclasses with an overridden random, but only the original
         # getrandbits method should not rely on getrandbits in for randrange,
