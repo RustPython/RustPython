@@ -40,8 +40,6 @@ class TestBasicOps:
         self.gen.setstate(state)    # should regenerate the same sequence
         self.assertEqual(randseq, self.randomlist(N))
 
-    # TODO: RUSTPYTHON 
-    @unittest.expectedFailure
     def test_seedargs(self):
         # Seed value with a negative hash.
         class MySeed(object):
@@ -55,8 +53,6 @@ class TestBasicOps:
         self.assertRaises(TypeError, self.gen.seed, 1, 2, 3, 4)
         self.assertRaises(TypeError, type(self.gen), [])
 
-    # TODO: RUSTPYTHON Success for SystemRandom, failure for MersenneTwister
-    @unittest.skip
     @unittest.mock.patch('random._urandom') # os.urandom
     def test_seed_when_randomness_source_not_found(self, urandom_mock):
         # Random.seed() uses time.time() when an operating system specific
@@ -887,7 +883,7 @@ class TestDistributions(unittest.TestCase):
         returned_value = random.gammavariate(1.1, 2.3)
         self.assertAlmostEqual(returned_value, 2.53)
 
-    # TODO: RUSTPYTHON 
+    # TODO: RUSTPYTHON assertAlmostEqual failure.
     @unittest.expectedFailure
     @unittest.mock.patch('random.Random.random')
     def test_gammavariate_alpha_equal_one(self, random_mock):
@@ -900,7 +896,7 @@ class TestDistributions(unittest.TestCase):
         returned_value = random.gammavariate(1.0, 3.14)
         self.assertAlmostEqual(returned_value, 1.877208182372648)
 
-    # TODO: RUSTPYTHON 
+    # TODO: RUSTPYTHON assertAlmostEqual failure.
     @unittest.expectedFailure
     @unittest.mock.patch('random.Random.random')
     def test_gammavariate_alpha_equal_one_equals_expovariate(self, random_mock):
