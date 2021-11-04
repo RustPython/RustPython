@@ -989,7 +989,7 @@ impl<C: widestring::UChar> IntoPyException for widestring::NulError<C> {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(any(unix, windows, target_os = "wasi"))]
 pub(crate) fn raw_os_error_to_exc_type(errno: i32, vm: &VirtualMachine) -> Option<PyTypeRef> {
     use crate::stdlib::errno::errors;
     let excs = &vm.ctx.exceptions;
@@ -998,6 +998,7 @@ pub(crate) fn raw_os_error_to_exc_type(errno: i32, vm: &VirtualMachine) -> Optio
         errors::EALREADY => Some(excs.blocking_io_error.clone()),
         errors::EINPROGRESS => Some(excs.blocking_io_error.clone()),
         errors::EPIPE => Some(excs.broken_pipe_error.clone()),
+        #[cfg(not(target_os = "wasi"))]
         errors::ESHUTDOWN => Some(excs.broken_pipe_error.clone()),
         errors::ECHILD => Some(excs.child_process_error.clone()),
         errors::ECONNABORTED => Some(excs.connection_aborted_error.clone()),
