@@ -65,13 +65,13 @@ impl PyBuffer {
     /// # Safety
     /// assume the buffer is contiguous
     pub unsafe fn contiguous(&self) -> BorrowedValue<[u8]> {
-        BorrowedValue::map(self.obj_bytes(), |x| &x[..self.desc.len])
+        self.obj_bytes()
     }
 
     /// # Safety
     /// assume the buffer is contiguous and writable
     pub unsafe fn contiguous_mut(&self) -> BorrowedValueMut<[u8]> {
-        BorrowedValueMut::map(self.obj_bytes_mut(), |x| &mut x[..self.desc.len])
+        self.obj_bytes_mut()
     }
 
     pub fn collect(&self, buf: &mut Vec<u8>) {
@@ -391,18 +391,16 @@ pub trait BufferResizeGuard<'a> {
 #[derive(Debug, PyValue)]
 pub struct VecBuffer {
     data: PyMutex<Vec<u8>>,
-    len: usize,
 }
 
 #[pyimpl(flags(BASETYPE), with(Constructor))]
 impl VecBuffer {
     pub fn new(data: Vec<u8>) -> Self {
-        let len = data.len();
         Self {
             data: PyMutex::new(data),
-            len,
         }
     }
+
     pub fn take(&self) -> Vec<u8> {
         std::mem::take(&mut self.data.lock())
     }
@@ -411,12 +409,16 @@ impl Unconstructible for VecBuffer {}
 
 impl PyRef<VecBuffer> {
     pub fn into_pybuffer(self, readonly: bool) -> PyBuffer {
-        let len = self.len;
+        let len = self.data.lock().len();
         PyBuffer::new(
             self.into_object(),
             BufferDescriptor::simple(len, readonly),
             &VEC_BUFFER_METHODS,
         )
+    }
+
+    pub fn into_pybuffer_with_descriptor(self, desc: BufferDescriptor) -> PyBuffer {
+        PyBuffer::new(self.into_object(), desc, &VEC_BUFFER_METHODS)
     }
 }
 

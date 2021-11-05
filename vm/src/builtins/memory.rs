@@ -9,7 +9,7 @@ use crate::common::{
 use crate::{
     bytesinner::bytes_to_hex,
     function::{FuncArgs, IntoPyObject, OptionalArg},
-    protocol::{BufferDescriptor, BufferMethods, PyBuffer, PyMappingMethods},
+    protocol::{BufferDescriptor, BufferMethods, PyBuffer, PyMappingMethods, VecBuffer},
     sliceable::{wrap_index, SequenceIndex},
     stdlib::pystruct::FormatSpec,
     types::{AsBuffer, AsMapping, Comparable, Constructor, Hashable, PyComparisonOp},
@@ -347,18 +347,45 @@ impl PyMemoryView {
     }
 
     fn setitem_by_slice(
-        &self,
+        zelf: PyRef<Self>,
         slice: &PySlice,
-        items: PyObjectRef,
+        src: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        if self.desc.ndim() != 1 {
+        if zelf.desc.ndim() != 1 {
             return Err(vm.new_not_implemented_error("sub-view are not implemented".to_owned()));
         }
-        let src = PyBuffer::try_from_object(vm, items)?;
-        let mut dest = self.new_view();
+
+        let mut dest = zelf.new_view();
         dest.init_slice(slice, 0, vm)?;
         dest.init_len();
+
+        if zelf.is(&src) {
+            return if !is_equiv_structure(&zelf.desc, &dest.desc) {
+                Err(vm.new_type_error(
+                    "memoryview assigment: lvalue and rvalue have different structures".to_owned(),
+                ))
+            } else {
+                // assign self[:] to self
+                Ok(())
+            };
+        };
+
+        let src = if let Some(src) = src.downcast_ref::<PyMemoryView>() {
+            if zelf.buffer.obj.is(&src.buffer.obj) {
+                if !is_equiv_structure(&src.desc, &dest.desc) {
+                    return Err(vm.new_type_error(
+                        "memoryview assigment: lvalue and rvalue have different structures"
+                            .to_owned(),
+                    ));
+                }
+                src.to_contiguous(vm)
+            } else {
+                AsBuffer::as_buffer(src, vm)?
+            }
+        } else {
+            PyBuffer::try_from_object(vm, src)?
+        };
 
         if !is_equiv_structure(&src.desc, &dest.desc) {
             return Err(vm.new_type_error(
@@ -381,31 +408,31 @@ impl PyMemoryView {
 
     #[pymethod(magic)]
     fn setitem(
-        &self,
+        zelf: PyRef<Self>,
         needle: PyObjectRef,
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        self.try_not_released(vm)?;
-        if self.desc.readonly {
+        zelf.try_not_released(vm)?;
+        if zelf.desc.readonly {
             return Err(vm.new_type_error("cannot modify read-only memory".to_owned()));
         }
         if value.is(&vm.ctx.none) {
             return Err(vm.new_type_error("cannot delete memory".to_owned()));
         }
 
-        if self.desc.ndim() == 0 {
+        if zelf.desc.ndim() == 0 {
             if needle.is(&vm.ctx.ellipsis) {
-                let bytes = &mut *self.buffer.obj_bytes_mut();
-                let data = self.format_spec.pack(vec![value], vm)?;
+                let bytes = &mut *zelf.buffer.obj_bytes_mut();
+                let data = zelf.format_spec.pack(vec![value], vm)?;
                 // TODO: fix panic if data no march itemsize
-                bytes[..self.desc.itemsize].copy_from_slice(&data);
+                bytes[..zelf.desc.itemsize].copy_from_slice(&data);
             } else if let Some(tuple) = needle.payload::<PyTuple>() {
                 if tuple.is_empty() {
-                    let bytes = &mut *self.buffer.obj_bytes_mut();
-                    let data = self.format_spec.pack(vec![value], vm)?;
+                    let bytes = &mut *zelf.buffer.obj_bytes_mut();
+                    let data = zelf.format_spec.pack(vec![value], vm)?;
                     // TODO: fix panic if data no march itemsize
-                    bytes[..self.desc.itemsize].copy_from_slice(&data);
+                    bytes[..zelf.desc.itemsize].copy_from_slice(&data);
                 }
             }
             return Err(vm.new_type_error("invalid indexing of 0-dim memory".to_owned()));
@@ -413,8 +440,8 @@ impl PyMemoryView {
         // TODO: SequenceIndex do not need to take the ownership
         if let Ok(seq_index) = SequenceIndex::try_from_object_for(vm, needle.clone(), Self::NAME) {
             match seq_index {
-                SequenceIndex::Int(index) => self.setitem_by_idx(index, value, vm),
-                SequenceIndex::Slice(slice) => self.setitem_by_slice(&slice, value, vm),
+                SequenceIndex::Int(index) => zelf.setitem_by_idx(index, value, vm),
+                SequenceIndex::Slice(slice) => Self::setitem_by_slice(zelf, &slice, value, vm),
             }
         } else if let Some(_tuple) = needle.payload::<PyTuple>() {
             Err(vm.new_type_error("TODO".to_owned()))
@@ -746,11 +773,23 @@ impl PyMemoryView {
     }
 
     fn obj_bytes(&self) -> BorrowedValue<[u8]> {
-        BorrowedValue::map(self.buffer.obj_bytes(), |x| &x[self.start..])
+        if self.desc.is_contiguous() {
+            BorrowedValue::map(self.buffer.obj_bytes(), |x| {
+                &x[self.start..self.start + self.desc.len]
+            })
+        } else {
+            BorrowedValue::map(self.buffer.obj_bytes(), |x| &x[self.start..])
+        }
     }
 
     fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
-        BorrowedValueMut::map(self.buffer.obj_bytes_mut(), |x| &mut x[self.start..])
+        if self.desc.is_contiguous() {
+            BorrowedValueMut::map(self.buffer.obj_bytes_mut(), |x| {
+                &mut x[self.start..self.start + self.desc.len]
+            })
+        } else {
+            BorrowedValueMut::map(self.buffer.obj_bytes_mut(), |x| &mut x[self.start..])
+        }
     }
 
     fn as_contiguous(&self) -> Option<BorrowedValue<[u8]>> {
@@ -773,6 +812,7 @@ impl PyMemoryView {
         if let Some(bytes) = self.as_contiguous() {
             buf.extend_from_slice(&bytes);
         } else {
+            buf.reserve(self.desc.len);
             let bytes = &*self.buffer.obj_bytes();
             self.desc.for_each_segment(true, |range| {
                 let start = (range.start + self.start as isize) as usize;
@@ -794,6 +834,39 @@ impl PyMemoryView {
             &collected
         };
         f(v)
+    }
+
+    /// clone data from memoryview
+    /// keep the shape, convert to contiguous
+    pub fn to_contiguous(&self, vm: &VirtualMachine) -> PyBuffer {
+        let mut data = vec![];
+        self.collect(&mut data);
+
+        if self.desc.ndim() == 0 {
+            return VecBuffer::new(data)
+                .into_ref(vm)
+                .into_pybuffer_with_descriptor(self.desc.clone());
+        }
+
+        let mut dim_descriptor = self.desc.dim_desc.clone();
+        dim_descriptor.last_mut().unwrap().1 = self.desc.itemsize as isize;
+        dim_descriptor.last_mut().unwrap().2 = 0;
+        for i in (0..dim_descriptor.len() - 1).rev() {
+            dim_descriptor[i].1 = dim_descriptor[i + 1].1 * dim_descriptor[i + 1].0 as isize;
+            dim_descriptor[i].2 = 0;
+        }
+
+        let desc = BufferDescriptor {
+            len: self.desc.len,
+            readonly: self.desc.readonly,
+            itemsize: self.desc.itemsize,
+            format: self.desc.format.clone(),
+            dim_desc: dim_descriptor,
+        };
+
+        VecBuffer::new(data)
+            .into_ref(vm)
+            .into_pybuffer_with_descriptor(desc)
     }
 }
 
@@ -863,7 +936,9 @@ impl AsMapping for PyMemoryView {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         match value {
-            Some(value) => Self::downcast(zelf, vm).map(|zelf| zelf.setitem(needle, value, vm))?,
+            Some(value) => {
+                Self::downcast(zelf, vm).map(|zelf| Self::setitem(zelf, needle, value, vm))?
+            }
             None => Err(vm.new_type_error("cannot delete memory".to_owned())),
         }
     }
