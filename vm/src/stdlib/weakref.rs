@@ -37,9 +37,11 @@ mod _weakref {
     }
 
     #[pyfunction]
-    fn getweakrefs(_obj: PyObjectRef) -> Vec<PyObjectRef> {
-        // TODO: implement this, may require a different gc
-        Vec::new()
+    fn getweakrefs(obj: PyObjectRef) -> Vec<PyObjectRef> {
+        match obj.get_weak_references() {
+            Some(v) => v.into_iter().map(|weak| weak.into_object()).collect(),
+            None => vec![],
+        }
     }
 
     #[pyfunction]

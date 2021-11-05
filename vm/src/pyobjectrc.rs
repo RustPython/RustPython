@@ -574,6 +574,18 @@ impl PyObject {
         self.downgrade_with_typ(callback, vm.ctx.types.weakref_type.clone(), vm)
     }
 
+    pub fn get_weak_references(&self) -> Option<Vec<PyObjectWeak>> {
+        self.weakreflist().map(|wrl| {
+            wrl.try_lock()
+                .iter()
+                .flat_map(|inner| inner.list.iter())
+                .map(|wr| PyObjectWeak {
+                    weak: wr.to_owned(),
+                })
+                .collect()
+        })
+    }
+
     pub fn payload_is<T: PyObjectPayload>(&self) -> bool {
         self.0.typeid == TypeId::of::<T>()
     }
