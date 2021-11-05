@@ -94,8 +94,6 @@ def test_exc_common(formatstr, args, exception, excmsg):
 
 class FormatTest(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_common_format(self):
         # test the format identifiers that work the same across
         # str, bytes, and bytearrays (integer, float, oct, hex)
