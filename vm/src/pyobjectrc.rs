@@ -1,4 +1,4 @@
-use crate::common::atomic::{Ordering, PyAtomic, Radium};
+use crate::common::atomic::{OncePtr, PyAtomic, Radium};
 use crate::common::linked_list::{Link, LinkedList, Pointers};
 use crate::common::lock::{PyMutex, PyMutexGuard, PyRwLock};
 use crate::common::refcount::RefCount;
@@ -14,11 +14,6 @@ use std::marker::PhantomData;
 use std::mem::ManuallyDrop;
 use std::ops::Deref;
 use std::ptr::{self, NonNull};
-
-#[cfg(feature = "threading")]
-use once_cell::race::OnceBox;
-#[cfg(not(feature = "threading"))]
-type OnceBox<T> = once_cell::unsync::OnceCell<Box<T>>;
 
 // so, PyObjectRef is basically equivalent to `PyRc<PyGenericObject<dyn PyObjectPayload>>`, except it's
 // only one pointer in width rather than 2. We do that by manually creating a vtable, and putting
@@ -108,7 +103,7 @@ impl<T: fmt::Debug> fmt::Debug for PyInner<T> {
 }
 
 struct WeakRefList {
-    inner: OnceBox<PyMutex<WeakListInner>>,
+    inner: OncePtr<PyMutex<WeakListInner>>,
 }
 
 impl fmt::Debug for WeakRefList {
@@ -117,10 +112,21 @@ impl fmt::Debug for WeakRefList {
     }
 }
 
-#[derive(Default)]
 struct WeakListInner {
     list: LinkedList<WeakLink, PyObjectView<PyWeak>>,
     obj: Option<NonNull<PyObject>>,
+    // one for each live PyWeak with a reference to this, + 1 for the referent object if it's not dead
+    ref_count: usize,
+}
+
+impl Default for WeakListInner {
+    fn default() -> Self {
+        Self {
+            list: LinkedList::default(),
+            obj: None,
+            ref_count: 1,
+        }
+    }
 }
 
 cfg_if::cfg_if! {
@@ -133,19 +139,13 @@ cfg_if::cfg_if! {
 impl WeakRefList {
     pub fn new() -> Self {
         WeakRefList {
-            inner: OnceBox::new(),
+            inner: OncePtr::new(),
         }
     }
 
     /// returns None if there have never been any weakrefs in this list
     fn try_lock(&self) -> Option<PyMutexGuard<'_, WeakListInner>> {
-        self.inner.get().map(|mu| mu.lock())
-    }
-    fn lock(&self) -> PyMutexGuard<'_, WeakListInner> {
-        self.inner
-            .get()
-            .expect("weakref should be initialized")
-            .lock()
+        self.inner.get().map(|mu| unsafe { mu.as_ref().lock() })
     }
 
     fn add(
@@ -155,70 +155,85 @@ impl WeakRefList {
         callback: Option<PyObjectRef>,
         dict: Option<PyDictRef>,
     ) -> PyObjectWeak {
-        let mut inner = self.inner.get_or_init(Default::default).lock();
+        let inner_ptr = self.inner.get_or_init(Default::default);
+        let mut inner = unsafe { inner_ptr.as_ref().lock() };
         if inner.obj.is_none() {
             inner.obj = Some(NonNull::from(obj));
         }
         let obj = PyWeak {
             pointers: Pointers::new(),
-            parent: Radium::new(self as *const WeakRefList as *mut WeakRefList),
+            parent: inner_ptr,
             callback: UnsafeCell::new(callback),
             hash: Radium::new(-1),
         };
         let weak = PyRef::new_ref(obj, cls, dict);
         // SAFETY: we don't actually own the PyObjectWeaks inside `list`, and every time we take
-        // one out of the list we immediately wrap it in ManuallyDrop
+        // one out of the list we immediately wrap it in ManuallyDrop or forget it
         inner.list.push_front(unsafe { ptr::read(&weak) });
+        inner.ref_count += 1;
         PyObjectWeak { weak }
     }
 
     fn clear(&self) {
-        let mut inner = match self.try_lock() {
-            Some(inner) => inner,
-            None => return,
-        };
-        inner.obj = None;
-        // TODO: can be an arrayvec
-        let mut v = Vec::with_capacity(16);
-        loop {
-            let iter = inner
-                .list
-                .drain_filter(|_| true)
-                .filter_map(|wr| {
-                    // we don't have actual ownership of the reference counts in the list.
-                    // but, now we do want ownership (and so incref these *while the lock
-                    // is held*) to avoid weird things if PyWeakObj::drop happens after
-                    // this but before we reach the loop body below
-                    let wr = ManuallyDrop::new(wr);
+        let to_dealloc = {
+            let ptr = match self.inner.get() {
+                Some(ptr) => ptr,
+                None => return,
+            };
+            let mut inner = unsafe { ptr.as_ref().lock() };
+            inner.obj = None;
+            // TODO: can be an arrayvec
+            let mut v = Vec::with_capacity(16);
+            loop {
+                let iter = inner
+                    .list
+                    .drain_filter(|_| true)
+                    .filter_map(|wr| {
+                        // we don't have actual ownership of the reference counts in the list.
+                        // but, now we do want ownership (and so incref these *while the lock
+                        // is held*) to avoid weird things if PyWeakObj::drop happens after
+                        // this but before we reach the loop body below
+                        let wr = ManuallyDrop::new(wr);
 
-                    wr.parent.store(ptr::null_mut(), Ordering::SeqCst);
-
-                    // if strong_count == 0, drop_slow has been called but lock_parent is blocking
-                    // in PyWeak::Drop OR there's some reentrancy going on. either way we don't
-                    // want to call the callback
-                    (wr.as_object().strong_count() > 0).then(|| (*wr).clone())
-                })
-                .take(16);
-            v.extend(iter);
-            if v.is_empty() {
-                break;
-            }
-            PyMutexGuard::unlocked(&mut inner, || {
-                for wr in v.drain(..) {
-                    let cb = unsafe { wr.callback.get().replace(None) };
-                    if let Some(cb) = cb {
-                        crate::vm::thread::with_vm(&cb, |vm| {
-                            // TODO: handle unraisable exception
-                            let _ = vm.invoke(&cb, (wr.clone(),));
-                        });
-                    }
+                        // if strong_count == 0 there's some reentrancy going on. we don't
+                        // want to call the callback
+                        (wr.as_object().strong_count() > 0).then(|| (*wr).clone())
+                    })
+                    .take(16);
+                v.extend(iter);
+                if v.is_empty() {
+                    break;
                 }
-            })
+                PyMutexGuard::unlocked(&mut inner, || {
+                    for wr in v.drain(..) {
+                        let cb = unsafe { wr.callback.get().replace(None) };
+                        if let Some(cb) = cb {
+                            crate::vm::thread::with_vm(&cb, |vm| {
+                                // TODO: handle unraisable exception
+                                let _ = vm.invoke(&cb, (wr.clone(),));
+                            });
+                        }
+                    }
+                })
+            }
+            inner.ref_count -= 1;
+            (inner.ref_count == 0).then(|| ptr)
+        };
+        if let Some(ptr) = to_dealloc {
+            unsafe { WeakRefList::dealloc(ptr) }
         }
     }
 
     fn count(&self) -> usize {
-        self.try_lock().map_or(0, |inner| inner.list.count())
+        self.try_lock()
+            // we assume the object is still alive (and this is only
+            // called from PyObject::weak_count so it should be)
+            .map(|inner| inner.ref_count - 1)
+            .unwrap_or(0)
+    }
+
+    unsafe fn dealloc(ptr: NonNull<PyMutex<WeakListInner>>) {
+        Box::from_raw(ptr.as_ptr());
     }
 }
 
@@ -251,7 +266,8 @@ unsafe impl Link for WeakLink {
 #[derive(Debug)]
 pub struct PyWeak {
     pointers: Pointers<PyObjectView<PyWeak>>,
-    parent: PyAtomic<*mut WeakRefList>,
+    parent: NonNull<PyMutex<WeakListInner>>,
+    // this is treated as part of parent's mutex - you must hold that lock to access it
     callback: UnsafeCell<Option<PyObjectRef>>,
     pub(crate) hash: PyAtomic<crate::common::hash::PyHash>,
 }
@@ -266,7 +282,7 @@ cfg_if::cfg_if! {
 impl PyWeak {
     pub(crate) fn upgrade(&self) -> Option<PyObjectRef> {
         // TODO: figure out orderings for here, in drop, and the store in WeakRefList::clear
-        let guard = unsafe { self.parent.load(Ordering::SeqCst).as_ref()?.lock() };
+        let guard = unsafe { self.parent.as_ref().lock() };
         let obj_ptr = guard.obj?;
         unsafe {
             obj_ptr.as_ref().0.refcount.incref();
@@ -276,24 +292,20 @@ impl PyWeak {
 
     #[inline(always)]
     fn drop_inner(&self) {
-        let parent_ptr = self.parent.load(Ordering::SeqCst);
-        let mut guard = match unsafe { parent_ptr.as_ref() } {
-            Some(parent) => parent.lock(),
-            // the object is dead - we don't have to worry about removing ourselves from the list
-            None => return,
+        let dealloc = {
+            let mut guard = unsafe { self.parent.as_ref().lock() };
+            let offset = memoffset::offset_of!(PyInner<PyWeak>, payload);
+            let pyinner = (self as *const Self as usize - offset) as *const PyInner<Self>;
+            let node_ptr = unsafe { NonNull::new_unchecked(pyinner as *mut PyObjectView<Self>) };
+            // the list doesn't have ownership over its PyRef<PyWeak>! we're being dropped
+            // right now so that should be obvious!!
+            std::mem::forget(unsafe { guard.list.remove(node_ptr) });
+            guard.ref_count -= 1;
+            guard.ref_count == 0
         };
-        if self.parent.load(Ordering::SeqCst).is_null() {
-            // another thread is calling WeakRefList::clear(), and between the previous load and
-            // the lock() it reached our weakref in the .drain_filter() iterator. because of that,
-            // we know we've now been removed from the list, so we don't have to do anything
-            return;
+        if dealloc {
+            unsafe { WeakRefList::dealloc(self.parent) }
         }
-        let offset = memoffset::offset_of!(PyInner<PyWeak>, payload);
-        let pyinner = (self as *const Self as usize - offset) as *const PyInner<Self>;
-        let node_ptr = unsafe { NonNull::new_unchecked(pyinner as *mut PyObjectView<Self>) };
-        // the list doesn't have ownership over its PyRef<PyWeak>! we're being dropped
-        // right now so that should be obvious!!
-        std::mem::forget(unsafe { guard.list.remove(node_ptr) });
     }
 }
 

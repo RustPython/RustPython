@@ -243,11 +243,13 @@ impl<L: Link> LinkedList<L, L::Target> {
     //     unsafe { Some(&*tail.as_ptr()) }
     // }
 
-    pub fn count(&self) -> usize {
+    // === rustpython additions ===
+
+    pub fn iter<'a>(&'a self) -> impl Iterator<Item = &'a L::Target> {
         std::iter::successors(self.head, |node| unsafe {
             L::pointers(*node).as_ref().get_next()
         })
-        .count()
+        .map(|ptr| unsafe { ptr.as_ref() })
     }
 }
 
@@ -322,10 +324,6 @@ impl<T> Pointers<T> {
                 _pin: PhantomPinned,
             }),
         }
-    }
-
-    pub fn is_null(&self) -> bool {
-        self.get_prev().is_none() && self.get_next().is_none()
     }
 
     fn get_prev(&self) -> Option<NonNull<T>> {
