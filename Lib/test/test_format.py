@@ -468,7 +468,8 @@ class FormatTest(unittest.TestCase):
         self.assertIs(text % (), text)
         self.assertIs(text.format(), text)
 
-    @unittest.skip("TODO: RUSTPYTHON, chews up RAM")
+    # TODO: RustPython missing complex.__format__ implementation
+    @unittest.expectedFailure
     def test_precision(self):
         f = 1.2
         self.assertEqual(format(f, ".0f"), "1")
