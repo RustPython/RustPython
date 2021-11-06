@@ -829,8 +829,6 @@ class TestCopy(unittest.TestCase):
     def test_copy_weakkeydict(self):
         self._check_copy_weakdict(weakref.WeakKeyDictionary)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_copy_weakvaluedict(self):
         self._check_copy_weakdict(weakref.WeakValueDictionary)
 
@@ -853,8 +851,6 @@ class TestCopy(unittest.TestCase):
         del c
         self.assertEqual(len(v), 1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_deepcopy_weakvaluedict(self):
         class C(object):
             def __init__(self, i):

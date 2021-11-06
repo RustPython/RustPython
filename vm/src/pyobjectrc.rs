@@ -290,6 +290,11 @@ impl PyWeak {
         }
     }
 
+    pub(crate) fn is_dead(&self) -> bool {
+        let guard = unsafe { self.parent.as_ref().lock() };
+        guard.obj.is_none()
+    }
+
     #[inline(always)]
     fn drop_inner(&self) {
         let dealloc = {

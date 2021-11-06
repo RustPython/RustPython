@@ -1267,8 +1267,6 @@ class MappingTestCase(TestBase):
     def test_weak_valued_len_race(self):
         self.check_len_race(weakref.WeakValueDictionary, lambda k: (1, k))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_weak_values(self):
         #
         #  This exercises d.copy(), d.items(), d[], del d[], len(d).
@@ -1501,8 +1499,6 @@ class MappingTestCase(TestBase):
         dict, objects = self.make_weak_keyed_dict()
         self.check_weak_del_and_len_while_iterating(dict, testcontext)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_weak_values_destroy_while_iterating(self):
         # Issue #7105: iterators shouldn't crash when a key is implicitly removed
         dict, objects = self.make_weak_valued_dict()
