@@ -81,7 +81,6 @@ pub struct TypeZoo {
     pub none_type: PyTypeRef,
     pub not_implemented_type: PyTypeRef,
     pub generic_alias_type: PyTypeRef,
-    pub vec_buffer_type: PyTypeRef,
 }
 
 impl TypeZoo {
@@ -168,7 +167,6 @@ impl TypeZoo {
             none_type: singletons::PyNone::init_bare_type().clone(),
             not_implemented_type: singletons::PyNotImplemented::init_bare_type().clone(),
             generic_alias_type: genericalias::PyGenericAlias::init_bare_type().clone(),
-            vec_buffer_type: crate::protocol::VecBuffer::init_bare_type().clone(),
         }
     }
 

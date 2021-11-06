@@ -1219,7 +1219,7 @@ mod array {
         fn as_buffer(zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
             let array = zelf.read();
             let buf = PyBuffer::new(
-                zelf.to_owned().into_object(),
+                zelf.to_owned().into(),
                 BufferDescriptor::format(
                     array.len() * array.itemsize(),
                     false,
