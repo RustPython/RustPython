@@ -1278,7 +1278,10 @@ pub mod module {
         fn spawn(self, spawnp: bool, vm: &VirtualMachine) -> PyResult<libc::pid_t> {
             use crate::TryFromBorrowedObject;
 
-            let path = CString::new(self.path.clone().into_bytes())
+            let path = self
+                .path
+                .clone()
+                .into_cstring(vm)
                 .map_err(|_| vm.new_value_error("path should not have nul bytes".to_owned()))?;
 
             let mut file_actions = unsafe {
