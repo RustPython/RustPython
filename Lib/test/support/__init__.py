@@ -122,6 +122,48 @@ __all__ = [
     "ALWAYS_EQ", "LARGEST", "SMALLEST"
     ]
 
+# Timeout in seconds for tests using a network server listening on the network
+# local loopback interface like 127.0.0.1.
+#
+# The timeout is long enough to prevent test failure: it takes into account
+# that the client and the server can run in different threads or even different
+# processes.
+#
+# The timeout should be long enough for connect(), recv() and send() methods
+# of socket.socket.
+LOOPBACK_TIMEOUT = 5.0
+if sys.platform == 'win32' and ' 32 bit (ARM)' in sys.version:
+    # bpo-37553: test_socket.SendfileUsingSendTest is taking longer than 2
+    # seconds on Windows ARM32 buildbot
+    LOOPBACK_TIMEOUT = 10
+elif sys.platform == 'vxworks':
+    LOOPBACK_TIMEOUT = 10
+
+# Timeout in seconds for network requests going to the internet. The timeout is
+# short enough to prevent a test to wait for too long if the internet request
+# is blocked for whatever reason.
+#
+# Usually, a timeout using INTERNET_TIMEOUT should not mark a test as failed,
+# but skip the test instead: see transient_internet().
+INTERNET_TIMEOUT = 60.0
+
+# Timeout in seconds to mark a test as failed if the test takes "too long".
+#
+# The timeout value depends on the regrtest --timeout command line option.
+#
+# If a test using SHORT_TIMEOUT starts to fail randomly on slow buildbots, use
+# LONG_TIMEOUT instead.
+SHORT_TIMEOUT = 30.0
+
+# Timeout in seconds to detect when a test hangs.
+#
+# It is long enough to reduce the risk of test failure on the slowest Python
+# buildbots. It should not be used to mark a test as failed if the test takes
+# "too long". The timeout value depends on the regrtest --timeout command line
+# option.
+LONG_TIMEOUT = 5 * 60.0
+
+
 class Error(Exception):
     """Base class for regression test exceptions."""
 
@@ -3378,3 +3420,54 @@ class catch_threading_exception:
         del self.exc_value
         del self.exc_traceback
         del self.thread
+
+
+def wait_process(pid, *, exitcode, timeout=None):
+    """
+    Wait until process pid completes and check that the process exit code is
+    exitcode.
+    Raise an AssertionError if the process exit code is not equal to exitcode.
+    If the process runs longer than timeout seconds (SHORT_TIMEOUT by default),
+    kill the process (if signal.SIGKILL is available) and raise an
+    AssertionError. The timeout feature is not available on Windows.
+    """
+    if os.name != "nt":
+        import signal
+
+        if timeout is None:
+            timeout = SHORT_TIMEOUT
+        t0 = time.monotonic()
+        sleep = 0.001
+        max_sleep = 0.1
+        while True:
+            pid2, status = os.waitpid(pid, os.WNOHANG)
+            if pid2 != 0:
+                break
+            # process is still running
+
+            dt = time.monotonic() - t0
+            if dt > SHORT_TIMEOUT:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                    os.waitpid(pid, 0)
+                except OSError:
+                    # Ignore errors like ChildProcessError or PermissionError
+                    pass
+
+                raise AssertionError(f"process {pid} is still running "
+                                     f"after {dt:.1f} seconds")
+
+            sleep = min(sleep * 2, max_sleep)
+            time.sleep(sleep)
+    else:
+        # Windows implementation
+        pid2, status = os.waitpid(pid, 0)
+
+    exitcode2 = os.waitstatus_to_exitcode(status)
+    if exitcode2 != exitcode:
+        raise AssertionError(f"process {pid} exited with code {exitcode2}, "
+                             f"but exit code {exitcode} is expected")
+
+    # sanity check: it should not fail in practice
+    if pid2 != pid:
+        raise AssertionError(f"pid {pid2} != pid {pid}")
