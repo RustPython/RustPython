@@ -1554,8 +1554,6 @@ class _PosixSpawnMixin:
         with open(pidfile) as f:
             self.assertEqual(f.read(), str(pid))
 
-    # TODO: RUSTPYTHON: AssertionError: None != 'no_such_executable'
-    @unittest.expectedFailure
     def test_no_such_executable(self):
         no_such_executable = 'no_such_executable'
         try:
