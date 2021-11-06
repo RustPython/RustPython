@@ -4,7 +4,7 @@ use std::ops::Range;
 use crate::builtins::int::PyInt;
 // export through slicable module, not slice.
 pub use crate::builtins::slice::{saturate_index, SaturatedSlice};
-use crate::builtins::slice::{PySlice, SaturatedSliceIterator};
+use crate::builtins::slice::{PySlice, SaturatedSliceIter};
 use crate::utils::Either;
 use crate::VirtualMachine;
 use crate::{PyObjectRef, PyRef, PyResult, TypeProtocol};
@@ -37,7 +37,7 @@ pub trait PySliceableSequenceMut {
             Ok(())
         } else {
             self.do_replace_indexes(
-                SaturatedSliceIterator::from_adjust_indices(range, step, slicelen),
+                SaturatedSliceIter::from_adjust_indices(range, step, slicelen),
                 items,
             );
             Ok(())
@@ -56,7 +56,7 @@ pub trait PySliceableSequenceMut {
             Ok(())
         } else if slicelen == items.len() {
             self.do_replace_indexes(
-                SaturatedSliceIterator::from_adjust_indices(range, step, slicelen),
+                SaturatedSliceIter::from_adjust_indices(range, step, slicelen),
                 items,
             );
             Ok(())
@@ -79,7 +79,7 @@ pub trait PySliceableSequenceMut {
         } else {
             self.do_delete_indexes(
                 range.clone(),
-                SaturatedSliceIterator::from_adjust_indices(range, step, slicelen).positive_order(),
+                SaturatedSliceIter::from_adjust_indices(range, step, slicelen).positive_order(),
             );
             Ok(())
         }

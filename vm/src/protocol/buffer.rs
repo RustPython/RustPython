@@ -55,26 +55,27 @@ impl PyBuffer {
     pub fn as_contiguous(&self) -> Option<BorrowedValue<[u8]>> {
         self.desc
             .is_contiguous()
-            .then(|| unsafe { self.contiguous() })
+            .then(|| unsafe { self.contiguous_unchecked() })
     }
 
     pub fn as_contiguous_mut(&self) -> Option<BorrowedValueMut<[u8]>> {
-        (!self.desc.readonly && self.desc.is_contiguous()).then(|| unsafe { self.contiguous_mut() })
+        (!self.desc.readonly && self.desc.is_contiguous())
+            .then(|| unsafe { self.contiguous_mut_unchecked() })
     }
 
     /// # Safety
     /// assume the buffer is contiguous
-    pub unsafe fn contiguous(&self) -> BorrowedValue<[u8]> {
+    pub unsafe fn contiguous_unchecked(&self) -> BorrowedValue<[u8]> {
         self.obj_bytes()
     }
 
     /// # Safety
     /// assume the buffer is contiguous and writable
-    pub unsafe fn contiguous_mut(&self) -> BorrowedValueMut<[u8]> {
+    pub unsafe fn contiguous_mut_unchecked(&self) -> BorrowedValueMut<[u8]> {
         self.obj_bytes_mut()
     }
 
-    pub fn collect(&self, buf: &mut Vec<u8>) {
+    pub fn append_to(&self, buf: &mut Vec<u8>) {
         if let Some(bytes) = self.as_contiguous() {
             buf.extend_from_slice(&bytes);
         } else {
@@ -93,7 +94,7 @@ impl PyBuffer {
             &*borrowed
         } else {
             collected = vec![];
-            self.collect(&mut collected);
+            self.append_to(&mut collected);
             &collected
         };
         f(v)
@@ -232,7 +233,7 @@ impl BufferDescriptor {
 
     /// this function do not check the bound
     /// panic if indices.len() != ndim
-    pub fn get_position_fast(&self, indices: &[usize]) -> isize {
+    pub fn fast_position(&self, indices: &[usize]) -> isize {
         let mut pos = 0;
         for (i, (_, stride, suboffset)) in indices
             .iter()
@@ -245,7 +246,7 @@ impl BufferDescriptor {
     }
 
     /// panic if indices.len() != ndim
-    pub fn get_position(&self, indices: &[isize], vm: &VirtualMachine) -> PyResult<isize> {
+    pub fn position(&self, indices: &[isize], vm: &VirtualMachine) -> PyResult<isize> {
         let mut pos = 0;
         for (i, (shape, stride, suboffset)) in indices
             .iter()

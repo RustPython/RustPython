@@ -283,7 +283,7 @@ impl PyMemoryView {
             .iter()
             .map(|x| isize::try_from_borrowed_object(vm, x))
             .try_collect()?;
-        let pos = self.desc.get_position(&indices, vm)?;
+        let pos = self.desc.position(&indices, vm)?;
         let pos = (pos + self.start as isize) as usize;
 
         let bytes = self.buffer.obj_bytes();

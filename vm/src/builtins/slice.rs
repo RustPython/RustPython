@@ -317,18 +317,18 @@ impl SaturatedSlice {
         (range, self.step, slicelen)
     }
 
-    pub fn iter(&self, len: usize) -> SaturatedSliceIterator {
-        SaturatedSliceIterator::new(self, len)
+    pub fn iter(&self, len: usize) -> SaturatedSliceIter {
+        SaturatedSliceIter::new(self, len)
     }
 }
 
-pub struct SaturatedSliceIterator {
-    pub index: isize,
-    pub step: isize,
-    pub len: usize,
+pub struct SaturatedSliceIter {
+    index: isize,
+    step: isize,
+    len: usize,
 }
 
-impl SaturatedSliceIterator {
+impl SaturatedSliceIter {
     pub fn new(slice: &SaturatedSlice, seq_len: usize) -> Self {
         let (range, step, len) = slice.adjust_indices(seq_len);
         Self::from_adjust_indices(range, step, len)
@@ -352,7 +352,7 @@ impl SaturatedSliceIterator {
     }
 }
 
-impl Iterator for SaturatedSliceIterator {
+impl Iterator for SaturatedSliceIter {
     type Item = usize;
     fn next(&mut self) -> Option<Self::Item> {
         if self.len == 0 {

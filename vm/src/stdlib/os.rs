@@ -193,7 +193,7 @@ impl TryFromObject for PyPathLike {
         let obj = match PyBuffer::try_from_borrowed_object(vm, &obj) {
             Ok(buffer) => {
                 let mut bytes = vec![];
-                buffer.collect(&mut bytes);
+                buffer.append_to(&mut bytes);
                 PyBytes::from(bytes).into_pyobject(vm)
             }
             Err(_) => obj,
