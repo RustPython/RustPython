@@ -1,6 +1,6 @@
 use crate::error::Diagnostic;
 use crate::util::{
-    iter_use_idents, pyclass_ident_and_attrs, text_signature, AttributeExt, ClassItemMeta,
+    iter_use_idents, path_eq, pyclass_ident_and_attrs, text_signature, AttributeExt, ClassItemMeta,
     ContentItem, ContentItemInner, ErrorVec, ItemMeta, ItemNursery, SimpleItemMeta,
     ALL_ALLOWED_NAMES,
 };
@@ -37,6 +37,41 @@ pub fn impl_pymodule(attr: AttributeArgs, module_item: Item) -> Result<TokenStre
     // collect to context
     for item in items.iter_mut() {
         let r = item.try_split_attr_mut(|attrs, item| {
+            // If attribute is #[pyattr] and item is ItemFn, then
+            // wrapping it with static_cell for preventing it from using it as function
+            if attrs.iter().any(|attr| {
+                path_eq(&attr.path, "pyattr")
+                    && if let Ok(syn::Meta::List(l)) = attr.parse_meta() {
+                        l.nested
+                            .into_iter()
+                            .any(|n| n.get_ident().map_or(false, |p| p == "once"))
+                    } else {
+                        false
+                    }
+            }) {
+                if let Item::Fn(syn::ItemFn { sig, block, .. }) = item {
+                    let stmts = &block.stmts;
+                    let return_type = match &sig.output {
+                        syn::ReturnType::Default => {
+                            unreachable!("#[pyattr] attached function must have return type.")
+                        }
+                        syn::ReturnType::Type(_, ty) => ty,
+                    };
+                    let stmt: syn::Stmt = parse_quote! {
+                        {
+                            rustpython_common::static_cell! {
+                                static ERROR: #return_type;
+                            }
+                            ERROR
+                                .get_or_init(|| {
+                                    #(#stmts)*
+                                })
+                                .clone()
+                        }
+                    };
+                    block.stmts = vec![stmt];
+                }
+            }
             let (pyitems, cfgs) = attrs_to_module_items(attrs, new_module_item)?;
             for pyitem in pyitems.iter().rev() {
                 let r = pyitem.gen_module_item(ModuleItemArgs {
