@@ -12,9 +12,9 @@ use crate::{
         builtinfunc::{PyBuiltinFunction, PyBuiltinMethod, PyNativeFuncDef},
         bytes,
         getset::{IntoPyGetterFunc, IntoPySetterFunc, PyGetSet},
-        object, pystr, PyBaseExceptionRef, PyBoundMethod, PyDict, PyDictRef, PyEllipsis, PyFloat,
-        PyFrozenSet, PyGenericAlias, PyInt, PyIntRef, PyList, PyListRef, PyNone, PyNotImplemented,
-        PyStr, PyTuple, PyTupleRef, PyType, PyTypeRef,
+        object, pystr, PyBaseException, PyBaseExceptionRef, PyBoundMethod, PyDict, PyDictRef,
+        PyEllipsis, PyFloat, PyFrozenSet, PyGenericAlias, PyInt, PyIntRef, PyList, PyListRef,
+        PyNone, PyNotImplemented, PyStr, PyTuple, PyTupleRef, PyType, PyTypeRef,
     },
     dictdatatype::Dict,
     exceptions,
@@ -237,6 +237,30 @@ impl PyContext {
             vec![base.clone()],
             attrs,
             slots,
+            self.types.type_type.clone(),
+        )
+        .unwrap()
+    }
+
+    pub fn new_exception_type(
+        &self,
+        module: &str,
+        name: &str,
+        bases: Option<Vec<PyTypeRef>>,
+    ) -> PyTypeRef {
+        let bases = if let Some(bases) = bases {
+            bases
+        } else {
+            vec![self.exceptions.exception_type.clone()]
+        };
+        let mut attrs = PyAttributes::default();
+        attrs.insert("__module__".to_string(), self.new_str(module).into());
+
+        PyType::new_ref(
+            name,
+            bases,
+            attrs,
+            PyBaseException::make_slots(),
             self.types.type_type.clone(),
         )
         .unwrap()
