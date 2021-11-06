@@ -174,11 +174,13 @@ mod _ssl {
         parse_version_info(openssl_api_version)
     }
 
+    /// An error occurred in the SSL implementation.
     #[pyattr(name = "SSLError", once)]
     fn ssl_error(vm: &VirtualMachine) -> PyTypeRef {
         PyType::new_simple_ref("ssl.SSLError", &vm.ctx.exceptions.os_error).unwrap()
     }
 
+    /// A certificate could not be verified.
     #[pyattr(name = "SSLCertVerificationError", once)]
     fn ssl_cert_verification_error(vm: &VirtualMachine) -> PyTypeRef {
         let ssl_error = ssl_error(vm);
@@ -192,26 +194,31 @@ mod _ssl {
         .unwrap()
     }
 
+    /// SSL/TLS session closed cleanly.
     #[pyattr(name = "SSLZeroReturnError", once)]
     fn ssl_zero_return_error(vm: &VirtualMachine) -> PyTypeRef {
         PyType::new_simple_ref("ssl.SSLZeroReturnError", &ssl_error(vm)).unwrap()
     }
 
+    /// Non-blocking SSL socket needs to read more data before the requested operation can be completed.
     #[pyattr(name = "SSLWantReadError", once)]
     fn ssl_want_read_error(vm: &VirtualMachine) -> PyTypeRef {
         PyType::new_simple_ref("ssl.SSLWantReadError", &ssl_error(vm)).unwrap()
     }
 
+    /// Non-blocking SSL socket needs to write more data before the requested operation can be completed.
     #[pyattr(name = "SSLWantWriteError", once)]
     fn ssl_want_write_error(vm: &VirtualMachine) -> PyTypeRef {
         PyType::new_simple_ref("ssl.SSLWantWriteError", &ssl_error(vm)).unwrap()
     }
 
+    /// System error when attempting SSL operation.
     #[pyattr(name = "SSLSyscallError", once)]
     fn ssl_syscall_error(vm: &VirtualMachine) -> PyTypeRef {
         PyType::new_simple_ref("ssl.SSLSyscallError", &ssl_error(vm)).unwrap()
     }
 
+    /// SSL/TLS connection terminated abruptly.
     #[pyattr(name = "SSLEOFError", once)]
     fn ssl_eof_error(vm: &VirtualMachine) -> PyTypeRef {
         PyType::new_simple_ref("ssl.SSLEOFError", &ssl_error(vm)).unwrap()
