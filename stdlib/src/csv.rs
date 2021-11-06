@@ -11,7 +11,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 mod _csv {
     use crate::common::lock::PyMutex;
     use crate::vm::{
-        builtins::{PyStr, PyStrRef, PyType, PyTypeRef},
+        builtins::{PyStr, PyStrRef, PyTypeRef},
         function::{ArgIterable, ArgumentError, FromArgs, FuncArgs},
         match_class,
         protocol::{PyIter, PyIterReturn},
@@ -32,7 +32,11 @@ mod _csv {
 
     #[pyattr(name = "Error", once)]
     fn error(vm: &VirtualMachine) -> PyTypeRef {
-        PyType::new_simple_ref("_csv.Error", &vm.ctx.exceptions.exception_type).unwrap()
+        vm.ctx.new_exception_type(
+            "_csv",
+            "Error",
+            Some(vec![vm.ctx.exceptions.exception_type.clone()]),
+        )
     }
 
     #[pyfunction]

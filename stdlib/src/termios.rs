@@ -102,11 +102,10 @@ mod termios {
 
     #[pyattr(name = "error", once)]
     fn error_type(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.new_class(
-            Some("termios"),
+        vm.ctx.new_exception_type(
+            "termios",
             "error",
-            &vm.ctx.exceptions.os_error,
-            Default::default(),
+            Some(vec![vm.ctx.exceptions.os_error.clone()]),
         )
     }
 }

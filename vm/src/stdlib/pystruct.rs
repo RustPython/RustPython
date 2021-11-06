@@ -962,12 +962,7 @@ pub(crate) mod _struct {
 
     #[pyattr(name = "error", once)]
     fn error_type(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.new_class(
-            Some("struct"),
-            "error",
-            &vm.ctx.exceptions.exception_type,
-            Default::default(),
-        )
+        vm.ctx.new_exception_type("struct", "error", None)
     }
 
     fn new_struct_error(vm: &VirtualMachine, msg: String) -> PyBaseExceptionRef {

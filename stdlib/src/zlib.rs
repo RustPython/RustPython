@@ -4,7 +4,7 @@ pub(crate) use zlib::make_module;
 mod zlib {
     use crate::common::lock::PyMutex;
     use crate::vm::{
-        builtins::{PyBaseExceptionRef, PyBytes, PyBytesRef, PyIntRef, PyType, PyTypeRef},
+        builtins::{PyBaseExceptionRef, PyBytes, PyBytesRef, PyIntRef, PyTypeRef},
         function::{ArgBytesLike, OptionalArg},
         IntoPyRef, PyResult, PyValue, VirtualMachine,
     };
@@ -55,7 +55,11 @@ mod zlib {
 
     #[pyattr(once)]
     fn error(vm: &VirtualMachine) -> PyTypeRef {
-        PyType::new_simple_ref("zlib.error", &vm.ctx.exceptions.exception_type).unwrap()
+        vm.ctx.new_exception_type(
+            "zlib",
+            "error",
+            Some(vec![vm.ctx.exceptions.exception_type.clone()]),
+        )
     }
 
     /// Compute an Adler-32 checksum of data.

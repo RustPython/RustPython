@@ -13,22 +13,16 @@ mod decl {
 
     #[pyattr(name = "Error", once)]
     fn error_type(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.new_class(
-            Some("binascii"),
+        vm.ctx.new_exception_type(
+            "binascii",
             "Error",
-            &vm.ctx.exceptions.value_error,
-            Default::default(),
+            Some(vec![vm.ctx.exceptions.value_error.clone()]),
         )
     }
 
     #[pyattr(name = "Incomplete", once)]
     fn incomplete_type(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.new_class(
-            Some("binascii"),
-            "Incomplete",
-            &vm.ctx.exceptions.exception_type,
-            Default::default(),
-        )
+        vm.ctx.new_exception_type("binascii", "Incomplete", None)
     }
 
     fn hex_nibble(n: u8) -> u8 {

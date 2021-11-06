@@ -30,7 +30,7 @@ mod _ssl {
         },
         socket::{self, PySocket},
         vm::{
-            builtins::{PyBaseException, PyBaseExceptionRef, PyStrRef, PyType, PyTypeRef, PyWeak},
+            builtins::{PyBaseExceptionRef, PyStrRef, PyType, PyTypeRef, PyWeak},
             exceptions,
             function::{
                 ArgBytesLike, ArgCallable, ArgMemoryBuffer, ArgStrOrBytesLike, IntoPyException,
@@ -39,7 +39,7 @@ mod _ssl {
             stdlib::os::PyPathLike,
             types::Constructor,
             utils::{Either, ToCString},
-            ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+            ItemProtocol, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
         },
     };
     use crossbeam_utils::atomic::AtomicCell;
@@ -177,45 +177,49 @@ mod _ssl {
     /// An error occurred in the SSL implementation.
     #[pyattr(name = "SSLError", once)]
     fn ssl_error(vm: &VirtualMachine) -> PyTypeRef {
-        PyType::new_simple_ref("ssl.SSLError", &vm.ctx.exceptions.os_error).unwrap()
+        vm.ctx.new_exception_type(
+            "ssl",
+            "SSLError",
+            Some(vec![vm.ctx.exceptions.os_error.clone()]),
+        )
     }
 
     /// A certificate could not be verified.
     #[pyattr(name = "SSLCertVerificationError", once)]
     fn ssl_cert_verification_error(vm: &VirtualMachine) -> PyTypeRef {
-        let ssl_error = ssl_error(vm);
-        PyType::new_ref(
-            "ssl.SSLCertVerificationError",
-            vec![ssl_error, vm.ctx.exceptions.value_error.clone()],
-            Default::default(),
-            PyBaseException::make_slots(),
-            vm.ctx.types.type_type.clone(),
+        vm.ctx.new_exception_type(
+            "ssl",
+            "SSLCertVerificationError",
+            Some(vec![ssl_error(vm), vm.ctx.exceptions.value_error.clone()]),
         )
-        .unwrap()
     }
 
     /// SSL/TLS session closed cleanly.
     #[pyattr(name = "SSLZeroReturnError", once)]
     fn ssl_zero_return_error(vm: &VirtualMachine) -> PyTypeRef {
-        PyType::new_simple_ref("ssl.SSLZeroReturnError", &ssl_error(vm)).unwrap()
+        vm.ctx
+            .new_exception_type("ssl", "SSLZeroReturnError", Some(vec![ssl_error(vm)]))
     }
 
     /// Non-blocking SSL socket needs to read more data before the requested operation can be completed.
     #[pyattr(name = "SSLWantReadError", once)]
     fn ssl_want_read_error(vm: &VirtualMachine) -> PyTypeRef {
-        PyType::new_simple_ref("ssl.SSLWantReadError", &ssl_error(vm)).unwrap()
+        vm.ctx
+            .new_exception_type("ssl", "SSLWantReadError", Some(vec![ssl_error(vm)]))
     }
 
     /// Non-blocking SSL socket needs to write more data before the requested operation can be completed.
     #[pyattr(name = "SSLWantWriteError", once)]
     fn ssl_want_write_error(vm: &VirtualMachine) -> PyTypeRef {
-        PyType::new_simple_ref("ssl.SSLWantWriteError", &ssl_error(vm)).unwrap()
+        vm.ctx
+            .new_exception_type("ssl", "SSLWantWriteError", Some(vec![ssl_error(vm)]))
     }
 
     /// System error when attempting SSL operation.
     #[pyattr(name = "SSLSyscallError", once)]
     fn ssl_syscall_error(vm: &VirtualMachine) -> PyTypeRef {
-        PyType::new_simple_ref("ssl.SSLSyscallError", &ssl_error(vm)).unwrap()
+        vm.ctx
+            .new_exception_type("ssl", "SSLSyscallError", Some(vec![ssl_error(vm)]))
     }
 
     /// SSL/TLS connection terminated abruptly.

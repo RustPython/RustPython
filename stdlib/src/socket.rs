@@ -82,29 +82,26 @@ mod _socket {
 
     #[pyattr(once)]
     fn timeout(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.new_class(
-            Some("socket"),
+        vm.ctx.new_exception_type(
+            "socket",
             "timeout",
-            &vm.ctx.exceptions.os_error,
-            Default::default(),
+            Some(vec![vm.ctx.exceptions.os_error.clone()]),
         )
     }
     #[pyattr(once)]
     fn herror(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.new_class(
-            Some("socket"),
+        vm.ctx.new_exception_type(
+            "socket",
             "herror",
-            &vm.ctx.exceptions.os_error,
-            Default::default(),
+            Some(vec![vm.ctx.exceptions.os_error.clone()]),
         )
     }
     #[pyattr(once)]
     fn gaierror(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.new_class(
-            Some("socket"),
+        vm.ctx.new_exception_type(
+            "socket",
             "gaierror",
-            &vm.ctx.exceptions.os_error,
-            Default::default(),
+            Some(vec![vm.ctx.exceptions.os_error.clone()]),
         )
     }
 
