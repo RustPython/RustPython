@@ -1,5 +1,5 @@
 use super::{
-    PyBytes, PyBytesRef, PyListRef, PySlice, PyStr, PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
+    PyBytes, PyBytesRef, PyInt, PyListRef, PySlice, PyStr, PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
 };
 use crate::common::{
     borrow::{BorrowedValue, BorrowedValueMut},
@@ -10,13 +10,13 @@ use crate::{
     bytesinner::bytes_to_hex,
     function::{FuncArgs, IntoPyObject, OptionalArg},
     protocol::{BufferDescriptor, BufferMethods, PyBuffer, PyMappingMethods, VecBuffer},
-    sliceable::{wrap_index, SequenceIndex},
+    sliceable::wrap_index,
     stdlib::pystruct::FormatSpec,
     types::{AsBuffer, AsMapping, Comparable, Constructor, Hashable, PyComparisonOp},
     utils::Either,
-    IdProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef,
-    PyObjectView, PyObjectWrap, PyRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject,
-    TypeProtocol, VirtualMachine,
+    IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyObjectView,
+    PyObjectWrap, PyRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject, TypeProtocol,
+    VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
@@ -243,16 +243,7 @@ impl PyMemoryView {
             .ok_or_else(|| vm.new_index_error("index out of range".to_owned()))?;
         let index = index as isize * stride + suboffset;
         let pos = (index + self.start as isize) as usize;
-        let bytes = self.buffer.obj_bytes();
-        self.format_spec
-            .unpack(&bytes[pos..pos + self.desc.itemsize], vm)
-            .map(|x| {
-                if x.len() == 1 {
-                    x.fast_getitem(0)
-                } else {
-                    x.into()
-                }
-            })
+        self.unpack_single(pos, vm)
     }
 
     fn getitem_by_slice(&self, slice: &PySlice, vm: &VirtualMachine) -> PyResult {
@@ -263,39 +254,10 @@ impl PyMemoryView {
         Ok(other.into_ref(vm).into_object())
     }
 
-    fn getitem_by_multi_idx(&self, tuple: &PyTuple, vm: &VirtualMachine) -> PyResult {
-        let tuple = tuple.as_slice();
-        match tuple.len().cmp(&self.desc.ndim()) {
-            Ordering::Less => {
-                return Err(vm.new_not_implemented_error("sub-views are not implemented".to_owned()))
-            }
-            Ordering::Greater => {
-                return Err(vm.new_type_error(format!(
-                    "cannot index {}-dimension view with {}-element tuple",
-                    self.desc.ndim(),
-                    tuple.len()
-                )))
-            }
-            Ordering::Equal => (),
-        }
-
-        let indices: Vec<isize> = tuple
-            .iter()
-            .map(|x| isize::try_from_borrowed_object(vm, x))
-            .try_collect()?;
-        let pos = self.desc.position(&indices, vm)?;
-        let pos = (pos + self.start as isize) as usize;
-
+    fn getitem_by_multi_idx(&self, indexes: &[isize], vm: &VirtualMachine) -> PyResult {
+        let pos = self.pos_from_multi_index(indexes, vm)?;
         let bytes = self.buffer.obj_bytes();
-        self.format_spec
-            .unpack(&bytes[pos..pos + self.desc.itemsize], vm)
-            .map(|x| {
-                if x.len() == 1 {
-                    x.fast_getitem(0)
-                } else {
-                    x.into()
-                }
-            })
+        format_unpack(&self.format_spec, &bytes[pos..pos + self.desc.itemsize], vm)
     }
 
     #[pymethod(magic)]
@@ -308,26 +270,16 @@ impl PyMemoryView {
             }
             if let Some(tuple) = needle.payload::<PyTuple>() {
                 if tuple.is_empty() {
-                    return Ok(zelf
-                        .format_spec
-                        .unpack(&zelf.buffer.obj_bytes()[..zelf.desc.itemsize], vm)?
-                        .fast_getitem(0));
+                    return zelf.unpack_single(0, vm);
                 }
             }
             return Err(vm.new_type_error("invalid indexing of 0-dim memory".to_owned()));
         }
 
-        // TODO: avoid clone
-        if let Ok(seq_index) = SequenceIndex::try_from_object_for(vm, needle.clone(), Self::NAME) {
-            match seq_index {
-                SequenceIndex::Int(index) => zelf.getitem_by_idx(index, vm),
-                SequenceIndex::Slice(slice) => zelf.getitem_by_slice(&slice, vm),
-            }
-        } else if let Some(tuple) = needle.payload::<PyTuple>() {
-            zelf.getitem_by_multi_idx(tuple, vm)
-        } else {
-            // TODO: support multi slice
-            Err(vm.new_type_error("memoryview: invalid slice key".to_owned()))
+        match SubscriptNeedle::try_from_object(vm, needle)? {
+            SubscriptNeedle::Index(i) => zelf.getitem_by_idx(i, vm),
+            SubscriptNeedle::Slice(slice) => zelf.getitem_by_slice(&slice, vm),
+            SubscriptNeedle::MultiIndex(indices) => zelf.getitem_by_multi_idx(&indices, vm),
         }
     }
 
@@ -340,10 +292,7 @@ impl PyMemoryView {
             .ok_or_else(|| vm.new_index_error("index out of range".to_owned()))?;
         let index = index as isize * stride + suboffset;
         let pos = (index + self.start as isize) as usize;
-        let bytes = &mut *self.buffer.obj_bytes_mut();
-        let data = self.format_spec.pack(vec![value], vm)?;
-        bytes[pos..pos + self.desc.itemsize].copy_from_slice(&data);
-        Ok(())
+        self.pack_single(pos, value, vm)
     }
 
     fn setitem_by_slice(
@@ -362,7 +311,7 @@ impl PyMemoryView {
 
         if zelf.is(&src) {
             return if !is_equiv_structure(&zelf.desc, &dest.desc) {
-                Err(vm.new_type_error(
+                Err(vm.new_value_error(
                     "memoryview assigment: lvalue and rvalue have different structures".to_owned(),
                 ))
             } else {
@@ -374,7 +323,7 @@ impl PyMemoryView {
         let src = if let Some(src) = src.downcast_ref::<PyMemoryView>() {
             if zelf.buffer.obj.is(&src.buffer.obj) {
                 if !is_equiv_structure(&src.desc, &dest.desc) {
-                    return Err(vm.new_type_error(
+                    return Err(vm.new_value_error(
                         "memoryview assigment: lvalue and rvalue have different structures"
                             .to_owned(),
                     ));
@@ -388,7 +337,7 @@ impl PyMemoryView {
         };
 
         if !is_equiv_structure(&src.desc, &dest.desc) {
-            return Err(vm.new_type_error(
+            return Err(vm.new_value_error(
                 "memoryview assigment: lvalue and rvalue have different structures".to_owned(),
             ));
         }
@@ -404,6 +353,16 @@ impl PyMemoryView {
         });
 
         Ok(())
+    }
+
+    fn setitem_by_multi_idx(
+        &self,
+        indexes: &[isize],
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let pos = self.pos_from_multi_index(indexes, vm)?;
+        self.pack_single(pos, value, vm)
     }
 
     #[pymethod(magic)]
@@ -437,18 +396,58 @@ impl PyMemoryView {
             }
             return Err(vm.new_type_error("invalid indexing of 0-dim memory".to_owned()));
         }
-        // TODO: SequenceIndex do not need to take the ownership
-        if let Ok(seq_index) = SequenceIndex::try_from_object_for(vm, needle.clone(), Self::NAME) {
-            match seq_index {
-                SequenceIndex::Int(index) => zelf.setitem_by_idx(index, value, vm),
-                SequenceIndex::Slice(slice) => Self::setitem_by_slice(zelf, &slice, value, vm),
-            }
-        } else if let Some(_tuple) = needle.payload::<PyTuple>() {
-            Err(vm.new_type_error("TODO".to_owned()))
-        } else {
-            // TODO: support multi slice
-            Err(vm.new_type_error("memoryview: invalid slice key".to_owned()))
+        match SubscriptNeedle::try_from_object(vm, needle)? {
+            SubscriptNeedle::Index(i) => zelf.setitem_by_idx(i, value, vm),
+            SubscriptNeedle::Slice(slice) => Self::setitem_by_slice(zelf, &slice, value, vm),
+            SubscriptNeedle::MultiIndex(indices) => zelf.setitem_by_multi_idx(&indices, value, vm),
         }
+    }
+
+    fn pack_single(&self, pos: usize, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let mut bytes = self.buffer.obj_bytes_mut();
+        // TODO: Optimize
+        let data = self.format_spec.pack(vec![value], vm).map_err(|_| {
+            vm.new_type_error(format!(
+                "memoryview: invalid type for format '{}'",
+                &self.desc.format
+            ))
+        })?;
+        bytes[pos..pos + self.desc.itemsize].copy_from_slice(&data);
+        Ok(())
+    }
+
+    fn unpack_single(&self, pos: usize, vm: &VirtualMachine) -> PyResult {
+        let bytes = self.buffer.obj_bytes();
+        // TODO: Optimize
+        self.format_spec
+            .unpack(&bytes[pos..pos + self.desc.itemsize], vm)
+            .map(|x| {
+                if x.len() == 1 {
+                    x.fast_getitem(0)
+                } else {
+                    x.into()
+                }
+            })
+    }
+
+    fn pos_from_multi_index(&self, indexes: &[isize], vm: &VirtualMachine) -> PyResult<usize> {
+        match indexes.len().cmp(&self.desc.ndim()) {
+            Ordering::Less => {
+                return Err(vm.new_not_implemented_error("sub-views are not implemented".to_owned()))
+            }
+            Ordering::Greater => {
+                return Err(vm.new_type_error(format!(
+                    "cannot index {}-dimension view with {}-element tuple",
+                    self.desc.ndim(),
+                    indexes.len()
+                )))
+            }
+            Ordering::Equal => (),
+        }
+
+        let pos = self.desc.position(indexes, vm)?;
+        let pos = (pos + self.start as isize) as usize;
+        Ok(pos)
     }
 
     fn init_len(&mut self) {
@@ -876,6 +875,44 @@ struct CastArgs {
     format: PyStrRef,
     #[pyarg(any, optional)]
     shape: OptionalArg<PyListRef>,
+}
+
+enum SubscriptNeedle {
+    Index(isize),
+    Slice(PyRef<PySlice>),
+    MultiIndex(Vec<isize>),
+    // MultiSlice(Vec<PySliceRef>),
+}
+
+impl TryFromObject for SubscriptNeedle {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        if let Some(i) = obj.payload::<PyInt>() {
+            Ok(Self::Index(i.try_to_primitive(vm)?))
+        } else if obj.payload_is::<PySlice>() {
+            Ok(Self::Slice(unsafe { obj.downcast_unchecked::<PySlice>() }))
+        } else if let Ok(i) = vm.to_index(&obj) {
+            Ok(Self::Index(i.try_to_primitive(vm)?))
+        } else {
+            if let Some(tuple) = obj.payload::<PyTuple>() {
+                let tuple = tuple.as_slice();
+                if tuple.iter().all(|x| x.payload_is::<PyInt>()) {
+                    let v = tuple
+                        .iter()
+                        .map(|x| {
+                            unsafe { x.downcast_unchecked_ref::<PyInt>() }
+                                .try_to_primitive::<isize>(vm)
+                        })
+                        .try_collect()?;
+                    return Ok(Self::MultiIndex(v));
+                } else if tuple.iter().all(|x| x.payload_is::<PySlice>()) {
+                    return Err(vm.new_not_implemented_error(
+                        "multi-dimensional slicing is not implemented".to_owned(),
+                    ));
+                }
+            }
+            Err(vm.new_type_error("memoryview: invalid slice key".to_owned()))
+        }
+    }
 }
 
 static BUFFER_METHODS: BufferMethods = BufferMethods {
