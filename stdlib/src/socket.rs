@@ -61,9 +61,8 @@ mod _socket {
     #[pyattr]
     use c::{AF_UNIX, SO_REUSEPORT};
 
-    #[cfg(not(any(target_os = "freebsd", target_os = "netbsd", target_os = "openbsd")))]
     #[pyattr]
-    use c::{AI_ADDRCONFIG, AI_ALL, AI_NUMERICHOST, AI_NUMERICSERV, AI_PASSIVE};
+    use c::{AI_ADDRCONFIG, AI_NUMERICHOST, AI_NUMERICSERV, AI_PASSIVE};
 
     #[cfg(not(target_os = "redox"))]
     #[pyattr]
