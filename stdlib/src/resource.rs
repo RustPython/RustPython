@@ -42,7 +42,11 @@ mod resource {
         target_os = "illumos"
     ))]
     #[pyattr]
-    use libc::{RLIMIT_NPTS, RLIMIT_SBSIZE, RLIMIT_SWAP};
+    use libc::RLIMIT_SBSIZE;
+
+    #[cfg(any(target_os = "freebsd", target_os = "solaris", target_os = "illumos"))]
+    #[pyattr]
+    use libc::{RLIMIT_NPTS, RLIMIT_SWAP};
 
     #[cfg(any(target_os = "solaris", target_os = "illumos"))]
     #[pyattr]
