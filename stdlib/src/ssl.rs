@@ -174,90 +174,47 @@ mod _ssl {
         parse_version_info(openssl_api_version)
     }
 
-    #[pyattr(name = "SSLError")]
+    #[pyattr(name = "SSLError", once)]
     fn ssl_error(vm: &VirtualMachine) -> PyTypeRef {
-        rustpython_common::static_cell! {
-            static ERROR: PyTypeRef;
-        }
-        ERROR
-            .get_or_init(|| {
-                PyType::new_simple_ref("ssl.SSLError", &vm.ctx.exceptions.os_error).unwrap()
-            })
-            .clone()
+        PyType::new_simple_ref("ssl.SSLError", &vm.ctx.exceptions.os_error).unwrap()
     }
 
-    #[pyattr(name = "SSLCertVerificationError")]
+    #[pyattr(name = "SSLCertVerificationError", once)]
     fn ssl_cert_verification_error(vm: &VirtualMachine) -> PyTypeRef {
-        rustpython_common::static_cell! {
-            static ERROR: PyTypeRef;
-        }
-        ERROR
-            .get_or_init(|| {
-                let ssl_error = ssl_error(vm);
-                PyType::new_ref(
-                    "ssl.SSLCertVerificationError",
-                    vec![ssl_error, vm.ctx.exceptions.value_error.clone()],
-                    Default::default(),
-                    PyBaseException::make_slots(),
-                    vm.ctx.types.type_type.clone(),
-                )
-                .unwrap()
-            })
-            .clone()
+        let ssl_error = ssl_error(vm);
+        PyType::new_ref(
+            "ssl.SSLCertVerificationError",
+            vec![ssl_error, vm.ctx.exceptions.value_error.clone()],
+            Default::default(),
+            PyBaseException::make_slots(),
+            vm.ctx.types.type_type.clone(),
+        )
+        .unwrap()
     }
 
-    #[pyattr(name = "SSLZeroReturnError")]
+    #[pyattr(name = "SSLZeroReturnError", once)]
     fn ssl_zero_return_error(vm: &VirtualMachine) -> PyTypeRef {
-        rustpython_common::static_cell! {
-            static ERROR: PyTypeRef;
-        }
-        ERROR
-            .get_or_init(|| {
-                PyType::new_simple_ref("ssl.SSLZeroReturnError", &ssl_error(vm)).unwrap()
-            })
-            .clone()
+        PyType::new_simple_ref("ssl.SSLZeroReturnError", &ssl_error(vm)).unwrap()
     }
 
-    #[pyattr(name = "SSLWantReadError")]
+    #[pyattr(name = "SSLWantReadError", once)]
     fn ssl_want_read_error(vm: &VirtualMachine) -> PyTypeRef {
-        rustpython_common::static_cell! {
-            static ERROR: PyTypeRef;
-        }
-        ERROR
-            .get_or_init(|| PyType::new_simple_ref("ssl.SSLWantReadError", &ssl_error(vm)).unwrap())
-            .clone()
+        PyType::new_simple_ref("ssl.SSLWantReadError", &ssl_error(vm)).unwrap()
     }
 
-    #[pyattr(name = "SSLWantWriteError")]
+    #[pyattr(name = "SSLWantWriteError", once)]
     fn ssl_want_write_error(vm: &VirtualMachine) -> PyTypeRef {
-        rustpython_common::static_cell! {
-            static ERROR: PyTypeRef;
-        }
-        ERROR
-            .get_or_init(|| {
-                PyType::new_simple_ref("ssl.SSLWantWriteError", &ssl_error(vm)).unwrap()
-            })
-            .clone()
+        PyType::new_simple_ref("ssl.SSLWantWriteError", &ssl_error(vm)).unwrap()
     }
 
-    #[pyattr(name = "SSLSyscallError")]
+    #[pyattr(name = "SSLSyscallError", once)]
     fn ssl_syscall_error(vm: &VirtualMachine) -> PyTypeRef {
-        rustpython_common::static_cell! {
-            static ERROR: PyTypeRef;
-        }
-        ERROR
-            .get_or_init(|| PyType::new_simple_ref("ssl.SSLSyscallError", &ssl_error(vm)).unwrap())
-            .clone()
+        PyType::new_simple_ref("ssl.SSLSyscallError", &ssl_error(vm)).unwrap()
     }
 
-    #[pyattr(name = "SSLEOFError")]
+    #[pyattr(name = "SSLEOFError", once)]
     fn ssl_eof_error(vm: &VirtualMachine) -> PyTypeRef {
-        rustpython_common::static_cell! {
-            static ERROR: PyTypeRef;
-        }
-        ERROR
-            .get_or_init(|| PyType::new_simple_ref("ssl.SSLEOFError", &ssl_error(vm)).unwrap())
-            .clone()
+        PyType::new_simple_ref("ssl.SSLEOFError", &ssl_error(vm)).unwrap()
     }
 
     type OpensslVersionInfo = (u8, u8, u8, u8, u8);

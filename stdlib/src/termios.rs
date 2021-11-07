@@ -100,20 +100,13 @@ mod termios {
         )
     }
 
-    #[pyattr(name = "error")]
+    #[pyattr(name = "error", once)]
     fn error_type(vm: &VirtualMachine) -> PyTypeRef {
-        rustpython_common::static_cell! {
-            static TERMIOS_ERROR: PyTypeRef;
-        }
-        TERMIOS_ERROR
-            .get_or_init(|| {
-                vm.ctx.new_class(
-                    Some("termios"),
-                    "error",
-                    &vm.ctx.exceptions.os_error,
-                    Default::default(),
-                )
-            })
-            .clone()
+        vm.ctx.new_class(
+            Some("termios"),
+            "error",
+            &vm.ctx.exceptions.os_error,
+            Default::default(),
+        )
     }
 }

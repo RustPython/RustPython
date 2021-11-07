@@ -960,21 +960,14 @@ pub(crate) mod _struct {
     #[pyfunction]
     fn _clearcache() {}
 
-    #[pyattr(name = "error")]
+    #[pyattr(name = "error", once)]
     fn error_type(vm: &VirtualMachine) -> PyTypeRef {
-        rustpython_common::static_cell! {
-            static STRUCT_ERROR: PyTypeRef;
-        }
-        STRUCT_ERROR
-            .get_or_init(|| {
-                vm.ctx.new_class(
-                    Some("struct"),
-                    "error",
-                    &vm.ctx.exceptions.exception_type,
-                    Default::default(),
-                )
-            })
-            .clone()
+        vm.ctx.new_class(
+            Some("struct"),
+            "error",
+            &vm.ctx.exceptions.exception_type,
+            Default::default(),
+        )
     }
 
     fn new_struct_error(vm: &VirtualMachine, msg: String) -> PyBaseExceptionRef {

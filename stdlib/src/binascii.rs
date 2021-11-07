@@ -11,38 +11,24 @@ mod decl {
     };
     use itertools::Itertools;
 
-    #[pyattr(name = "Error")]
+    #[pyattr(name = "Error", once)]
     fn error_type(vm: &VirtualMachine) -> PyTypeRef {
-        rustpython_common::static_cell! {
-            static BINASCII_ERROR: PyTypeRef;
-        }
-        BINASCII_ERROR
-            .get_or_init(|| {
-                vm.ctx.new_class(
-                    Some("binascii"),
-                    "Error",
-                    &vm.ctx.exceptions.value_error,
-                    Default::default(),
-                )
-            })
-            .clone()
+        vm.ctx.new_class(
+            Some("binascii"),
+            "Error",
+            &vm.ctx.exceptions.value_error,
+            Default::default(),
+        )
     }
 
-    #[pyattr(name = "Incomplete")]
+    #[pyattr(name = "Incomplete", once)]
     fn incomplete_type(vm: &VirtualMachine) -> PyTypeRef {
-        rustpython_common::static_cell! {
-            static BINASCII_INCOMPLTE: PyTypeRef;
-        }
-        BINASCII_INCOMPLTE
-            .get_or_init(|| {
-                vm.ctx.new_class(
-                    Some("binascii"),
-                    "Incomplete",
-                    &vm.ctx.exceptions.exception_type,
-                    Default::default(),
-                )
-            })
-            .clone()
+        vm.ctx.new_class(
+            Some("binascii"),
+            "Incomplete",
+            &vm.ctx.exceptions.exception_type,
+            Default::default(),
+        )
     }
 
     fn hex_nibble(n: u8) -> u8 {

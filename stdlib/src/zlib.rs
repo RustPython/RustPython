@@ -53,7 +53,7 @@ mod zlib {
     #[pyattr]
     const DEF_MEM_LEVEL: u8 = 8;
 
-    #[pyattr]
+    #[pyattr(once)]
     fn error(vm: &VirtualMachine) -> PyTypeRef {
         PyType::new_simple_ref("zlib.error", &vm.ctx.exceptions.exception_type).unwrap()
     }

@@ -30,7 +30,7 @@ mod _csv {
     #[pyattr]
     const QUOTE_NONE: i32 = QuoteStyle::None as i32;
 
-    #[pyattr(name = "Error")]
+    #[pyattr(name = "Error", once)]
     fn error(vm: &VirtualMachine) -> PyTypeRef {
         PyType::new_simple_ref("_csv.Error", &vm.ctx.exceptions.exception_type).unwrap()
     }
