@@ -347,6 +347,7 @@ AssertStatement: ast::Stmt = {
 };
 
 CompoundStatement: ast::Stmt = {
+    MatchStatement,
     IfStatement,
     WhileStatement,
     ForStatement,
@@ -355,6 +356,109 @@ CompoundStatement: ast::Stmt = {
     FuncDef,
     ClassDef,
 };
+
+// TODO: https://github.com/RustPython/RustPython/pull/2399
+// TODO: https://github.com/python/cpython/pulls?page=2&q=is%3Apr+pattern+matching+is%3Aclosed
+// TODO: https://github.com/python/cpython/pull/22917
+// TODO: https://github.com/python/cpython/pull/28043
+// TODO: https://github.com/lalrpop/lalrpop
+MatchStatement: ast::Stmt = {
+    <location:@L> "match" <subject:NamedExpressionTest> ":" "\n" Indent <cases:OneOrMore<MatchCase>> Dedent => {
+        ast::Stmt {
+            custom: (),
+            location,
+            node: ast::StmtKind::Match {
+                subject: Box::new(subject),
+                cases: cases
+            }
+        }
+    }
+}
+
+MatchCase: ast::MatchCase = {
+    "case" <pattern:Pattern> <guard:(Guard)?> ":" <body:Suite> => {
+        ast::MatchCase {
+            pattern: Box::new(pattern),
+            guard: guard.map(Box::new),
+            body
+        }
+    }
+}
+
+Guard: ast::Expr = {
+    "if" <guard:NamedExpressionTest> => {
+        guard
+    }
+}
+
+Pattern: ast::Pattern = {
+
+}
+
+MatchValue: ast::Pattern = {
+    <location:@L> "not" <e:NotTest> => ast::Pattern {
+        location,
+        custom: (),
+        node: ast::PatternKind::MatchValue { }
+    },
+};
+
+MatchSingleton: ast::Pattern = {
+    <location: @L> => ast::Pattern {
+        location,
+        custom: (),
+        node: ast::PatternKind::MatchSingleton { }
+    }
+}
+
+MatchSequence: ast::Pattern = {
+    <location: @L> => ast::Pattern {
+        location,
+        custom: (),
+        node: ast::PatternKind::MatchSequence { }
+    }
+}
+
+MatchMapping: ast::Pattern = {
+    <location: @L> => ast::Pattern {
+        location,
+        custom: (),
+        node: ast::PatternKind::MatchMapping { }
+    }
+}
+
+MatchClass: ast::Pattern = {
+    <location: @L> => ast::Pattern {
+        location,
+        custom: (),
+        node: ast::PatternKind::MatchClass { }
+    }
+}
+
+MatchStar: ast::Pattern = {
+    <location: @L> => ast::Pattern {
+        location,
+        custom: (),
+        node: ast::PatternKind::MatchStar { }
+    }
+}
+
+MatchAs: ast::Pattern = {
+    <location: @L> => ast::Pattern {
+        location,
+        custom: (),
+        node: ast::PatternKind::MatchAs { }
+    }
+}
+
+MatchOr: ast::Pattern = {
+    <location: @L> => ast::Pattern {
+        location,
+        custom: (),
+        node: ast::PatternKind::MatchOr { }
+    }
+}
+
 
 IfStatement: ast::Stmt = {
     <location:@L> "if" <test:NamedExpressionTest> ":" <body:Suite> <s2:(@L "elif" NamedExpressionTest ":" Suite @R)*> <s3:("else" ":" Suite)?> <end_location:@R> => {
@@ -1401,6 +1505,8 @@ extern {
         "return" => lexer::Tok::Return,
         "try" => lexer::Tok::Try,
         "while" => lexer::Tok::While,
+        "match" => lexer::Tok::Match,
+        "case" => lexer::Tok::Case,
         "with" => lexer::Tok::With,
         "yield" => lexer::Tok::Yield,
         "True" => lexer::Tok::True,
