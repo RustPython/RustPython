@@ -734,6 +734,18 @@ impl SymbolTableBuilder {
                 self.scan_statements(body)?;
                 self.scan_statements(orelse)?;
             }
+            Match { subject, cases } => {
+                // TODO: ExpressionContext::Load is correct?
+                self.scan_expression(subject, ExpressionContext::Load)?;
+                for case in cases {
+                    self.scan_pattern(&case.pattern)?;
+                    if let Some(guard) = &case.guard {
+                        // TODO: ExpressionContext::Store is correct?
+                        self.scan_expression(guard, ExpressionContext::Store)?;
+                    }
+                    self.scan_statements(&case.body)?;
+                }
+            }
             Break | Continue | Pass => {
                 // No symbols here.
             }
@@ -842,6 +854,76 @@ impl SymbolTableBuilder {
     ) -> SymbolTableResult {
         for expression in expressions {
             self.scan_expression(expression, context)?;
+        }
+        Ok(())
+    }
+
+    fn scan_pattern(&mut self, pattern: &ast::Pattern) -> SymbolTableResult {
+        use ast::PatternKind::*;
+        // TODO: add recursion depth check
+        let location = pattern.location;
+        match &pattern.node {
+            MatchValue { value } => {
+                // TODO: ExpressionContext::Load is correct?
+                self.scan_expression(value, ExpressionContext::Load)?;
+            }
+            MatchSingleton { .. } => {
+                // Do nothing here.
+            }
+            MatchSequence { patterns } => {
+                for pattern in patterns {
+                    self.scan_pattern(pattern)?;
+                }
+            }
+            MatchMapping {
+                keys,
+                patterns,
+                rest,
+            } => {
+                for key in keys {
+                    // TODO: ExpressionContext::Load is correct?
+                    self.scan_expression(key, ExpressionContext::Load)?;
+                }
+                for pattern in patterns {
+                    self.scan_pattern(pattern)?;
+                }
+                if let Some(rest) = &rest {
+                    self.register_name(rest, SymbolUsage::Assigned, location)?;
+                }
+            }
+            MatchClass {
+                cls,
+                patterns,
+                kwd_patterns,
+                ..
+            } => {
+                // TODO: ExpressionContext::Load is correct?
+                self.scan_expression(cls, ExpressionContext::Load)?;
+                for pattern in patterns {
+                    self.scan_pattern(pattern)?;
+                }
+                for kwd_pattern in kwd_patterns {
+                    self.scan_pattern(kwd_pattern)?;
+                }
+            }
+            MatchStar { name } => {
+                if let Some(name) = &name {
+                    self.register_name(name, SymbolUsage::Assigned, location)?;
+                }
+            }
+            MatchAs { pattern, name } => {
+                if let Some(pattern) = pattern {
+                    self.scan_pattern(pattern)?;
+                }
+                if let Some(name) = &name {
+                    self.register_name(name, SymbolUsage::Assigned, location)?;
+                }
+            }
+            MatchOr { patterns } => {
+                for pattern in patterns {
+                    self.scan_pattern(pattern)?;
+                }
+            }
         }
         Ok(())
     }
