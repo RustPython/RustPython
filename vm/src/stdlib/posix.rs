@@ -68,6 +68,10 @@ pub mod module {
     #[pyattr]
     use libc::{RTLD_GLOBAL, RTLD_LAZY, RTLD_LOCAL, RTLD_NOW};
 
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    use libc::{GRND_NONBLOCK, GRND_RANDOM};
+
     #[pyattr]
     const EX_OK: i8 = exitcode::OK as i8;
     #[pyattr]
@@ -1974,5 +1978,24 @@ pub mod module {
         );
         res.map_err(|err| err.into_pyexception(vm))?;
         Ok(vm.ctx.new_int(written as u64).into())
+    }
+
+    #[cfg(target_os = "linux")]
+    #[pyfunction]
+    fn getrandom(size: isize, flags: OptionalArg<u32>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        let size = usize::try_from(size)
+            .map_err(|_| vm.new_os_error(format!("Invalid argument for size: {}", size)))?;
+        let mut buf = Vec::with_capacity(size);
+        unsafe {
+            let len = libc::getrandom(
+                buf.as_mut_ptr() as *mut libc::c_void,
+                size,
+                flags.unwrap_or(0),
+            )
+            .try_into()
+            .map_err(|_| errno_err(vm))?;
+            buf.set_len(len);
+        }
+        Ok(buf)
     }
 }
