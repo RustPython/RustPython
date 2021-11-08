@@ -486,7 +486,9 @@ impl PySet {
     #[pymethod(name = "__ror__")]
     #[pymethod(magic)]
     fn or(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<Self>> {
-        if other.isinstance(&vm.ctx.types.set_type) || other.isinstance(&vm.ctx.types.frozenset_type) {
+        if other.isinstance(&vm.ctx.types.set_type)
+            || other.isinstance(&vm.ctx.types.frozenset_type)
+        {
             let val = PosArgs::new(vec![ArgIterable::try_from_object(vm, other)?]);
             Ok(PyArithmeticValue::Implemented(self.union(val, vm)?))
         } else {
@@ -776,7 +778,9 @@ impl PyFrozenSet {
     #[pymethod(name = "__ror__")]
     #[pymethod(magic)]
     fn or(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<Self>> {
-        if other.isinstance(&vm.ctx.types.set_type) || other.isinstance(&vm.ctx.types.frozenset_type) {
+        if other.isinstance(&vm.ctx.types.set_type)
+            || other.isinstance(&vm.ctx.types.frozenset_type)
+        {
             let val = PosArgs::new(vec![ArgIterable::try_from_object(vm, other)?]);
             Ok(PyArithmeticValue::Implemented(self.union(val, vm)?))
         } else {
