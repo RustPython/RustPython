@@ -87,6 +87,15 @@ struct CompileContext {
     func: FunctionContext,
 }
 
+#[derive(Debug, Clone)]
+struct PatternContext {
+    stores: Vec<String>,
+    allow_irrefutable: bool,
+    fail_pop: Vec<ir::BlockIdx>,
+    fail_pop_size: u64,
+    on_top: u64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum FunctionContext {
     NoFunction,
@@ -616,6 +625,7 @@ impl Compiler {
                 self.switch_to_block(after_block);
             }
             While { test, body, orelse } => self.compile_while(test, body, orelse)?,
+            Match { subject, cases } => self.compile_match(subject, cases)?,
             With { items, body, .. } => self.compile_with(items, body, false)?,
             AsyncWith { items, body, .. } => self.compile_with(items, body, true)?,
             For {
@@ -1335,6 +1345,66 @@ impl Compiler {
         self.emit(Instruction::PopBlock);
         self.compile_statements(orelse)?;
         self.switch_to_block(after_block);
+        Ok(())
+    }
+
+    fn compile_match(
+        &mut self,
+        subject: &ast::Expr,
+        cases: &[ast::MatchCase],
+    ) -> CompileResult<()> {
+        let ctx = PatternContext {
+            stores: Vec::new(),
+            allow_irrefutable: false,
+            fail_pop: Vec::new(),
+            fail_pop_size: 0,
+            on_top: 0,
+        };
+
+        self.compile_expression(subject)?;
+        let end = self.new_block();
+        let num_cases = cases.len();
+        // TODO : check for wildcard
+        for i in 0..num_cases {
+            let case = &cases[i];
+            if i != num_cases - 1 {
+                self.emit(Instruction::Duplicate);
+            }
+            self.compile_pattern(&case.pattern.node, &ctx)?;
+            for name in &ctx.stores {
+                self.compile_name(name.as_str(), NameUsage::Store)?;
+            }
+            if let Some(guard) = &case.guard {
+                self.compile_jump_if(&guard, false, end)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn compile_pattern(
+        &mut self,
+        kind: &ast::PatternKind,
+        ctx: &PatternContext,
+    ) -> CompileResult<()> {
+        match kind {
+            ast::PatternKind::MatchAs { pattern, name } => {}
+            ast::PatternKind::MatchClass {
+                cls,
+                patterns,
+                kwd_attrs,
+                kwd_patterns,
+            } => {}
+            ast::PatternKind::MatchMapping {
+                keys,
+                patterns,
+                rest,
+            } => {}
+            ast::PatternKind::MatchOr { patterns } => {}
+            ast::PatternKind::MatchSequence { patterns } => {}
+            ast::PatternKind::MatchSingleton { value } => {}
+            ast::PatternKind::MatchStar { name } => {}
+            ast::PatternKind::MatchValue { value } => {}
+        }
         Ok(())
     }
 
