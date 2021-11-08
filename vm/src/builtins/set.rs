@@ -498,24 +498,47 @@ impl PySet {
 
     #[pymethod(name = "__rand__")]
     #[pymethod(magic)]
-    fn and(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
-        self.intersection(other.iterable, vm)
+    fn and(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<Self>> {
+        if other.isinstance(&vm.ctx.types.set_type)
+            || other.isinstance(&vm.ctx.types.frozenset_type)
+        {
+            let val = PosArgs::new(vec![ArgIterable::try_from_object(vm, other)?]);
+            Ok(PyArithmeticValue::Implemented(self.intersection(val, vm)?))
+        } else {
+            Ok(PyArithmeticValue::NotImplemented)
+        }
     }
 
     #[pymethod(magic)]
-    fn sub(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
-        self.difference(other.iterable, vm)
+    fn sub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<Self>> {
+        if other.isinstance(&vm.ctx.types.set_type)
+            || other.isinstance(&vm.ctx.types.frozenset_type)
+        {
+            let val = PosArgs::new(vec![ArgIterable::try_from_object(vm, other)?]);
+            Ok(PyArithmeticValue::Implemented(self.difference(val, vm)?))
+        } else {
+            Ok(PyArithmeticValue::NotImplemented)
+        }
     }
 
     #[pymethod(magic)]
-    fn rsub(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
+    fn rsub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<Self>> {
         self.sub(other, vm)
     }
 
     #[pymethod(name = "__rxor__")]
     #[pymethod(magic)]
-    fn xor(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
-        self.symmetric_difference(other.iterable, vm)
+    fn xor(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<Self>> {
+        if other.isinstance(&vm.ctx.types.set_type)
+            || other.isinstance(&vm.ctx.types.frozenset_type)
+        {
+            let val = PosArgs::new(vec![ArgIterable::try_from_object(vm, other)?]);
+            Ok(PyArithmeticValue::Implemented(
+                self.symmetric_difference(val, vm)?,
+            ))
+        } else {
+            Ok(PyArithmeticValue::NotImplemented)
+        }
     }
 
     #[pymethod(magic)]
@@ -790,24 +813,47 @@ impl PyFrozenSet {
 
     #[pymethod(name = "__rand__")]
     #[pymethod(magic)]
-    fn and(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
-        self.intersection(other.iterable, vm)
+    fn and(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<Self>> {
+        if other.isinstance(&vm.ctx.types.set_type)
+            || other.isinstance(&vm.ctx.types.frozenset_type)
+        {
+            let val = PosArgs::new(vec![ArgIterable::try_from_object(vm, other)?]);
+            Ok(PyArithmeticValue::Implemented(self.intersection(val, vm)?))
+        } else {
+            Ok(PyArithmeticValue::NotImplemented)
+        }
     }
 
     #[pymethod(magic)]
-    fn sub(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
-        self.difference(other.iterable, vm)
+    fn sub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<Self>> {
+        if other.isinstance(&vm.ctx.types.set_type)
+            || other.isinstance(&vm.ctx.types.frozenset_type)
+        {
+            let val = PosArgs::new(vec![ArgIterable::try_from_object(vm, other)?]);
+            Ok(PyArithmeticValue::Implemented(self.difference(val, vm)?))
+        } else {
+            Ok(PyArithmeticValue::NotImplemented)
+        }
     }
 
     #[pymethod(magic)]
-    fn rsub(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
+    fn rsub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<Self>> {
         self.sub(other, vm)
     }
 
     #[pymethod(name = "__rxor__")]
     #[pymethod(magic)]
-    fn xor(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
-        self.symmetric_difference(other.iterable, vm)
+    fn xor(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<Self>> {
+        if other.isinstance(&vm.ctx.types.set_type)
+            || other.isinstance(&vm.ctx.types.frozenset_type)
+        {
+            let val = PosArgs::new(vec![ArgIterable::try_from_object(vm, other)?]);
+            Ok(PyArithmeticValue::Implemented(
+                self.symmetric_difference(val, vm)?,
+            ))
+        } else {
+            Ok(PyArithmeticValue::NotImplemented)
+        }
     }
 
     #[pymethod(magic)]
