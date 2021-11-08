@@ -15,8 +15,8 @@ use crate::{
         Unconstructible, Unhashable,
     },
     vm::{ReprGuard, VirtualMachine},
-    IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyRef, PyResult,
-    PyValue, TryFromObject, TypeProtocol,
+    IdProtocol, PyArithmeticValue, PyClassImpl, PyComparisonValue, PyContext, PyObject,
+    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use std::{fmt, ops::Deref};
 
@@ -485,8 +485,13 @@ impl PySet {
 
     #[pymethod(name = "__ror__")]
     #[pymethod(magic)]
-    fn or(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
-        self.union(other.iterable, vm)
+    fn or(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<Self>> {
+        if other.isinstance(&vm.ctx.types.set_type) || other.isinstance(&vm.ctx.types.frozenset_type) {
+            let val = PosArgs::new(vec![ArgIterable::try_from_object(vm, other)?]);
+            Ok(PyArithmeticValue::Implemented(self.union(val, vm)?))
+        } else {
+            Ok(PyArithmeticValue::NotImplemented)
+        }
     }
 
     #[pymethod(name = "__rand__")]
@@ -770,8 +775,13 @@ impl PyFrozenSet {
 
     #[pymethod(name = "__ror__")]
     #[pymethod(magic)]
-    fn or(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
-        self.union(other.iterable, vm)
+    fn or(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<Self>> {
+        if other.isinstance(&vm.ctx.types.set_type) || other.isinstance(&vm.ctx.types.frozenset_type) {
+            let val = PosArgs::new(vec![ArgIterable::try_from_object(vm, other)?]);
+            Ok(PyArithmeticValue::Implemented(self.union(val, vm)?))
+        } else {
+            Ok(PyArithmeticValue::NotImplemented)
+        }
     }
 
     #[pymethod(name = "__rand__")]
