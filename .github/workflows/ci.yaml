@@ -115,6 +115,16 @@ jobs:
           command: check
           args: --target wasm32-wasi --features freeze-stdlib
 
+      - uses: actions-rs/toolchain@v1
+        with:
+          target: x86_64-unknown-freebsd
+
+      - name: Check compilation for freeBSD
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: --target x86_64-unknown-freebsd
+
       - name: Prepare repository for redox compilation
         run: bash scripts/redox/uncomment-cargo.sh
       - name: Check compilation for Redox
