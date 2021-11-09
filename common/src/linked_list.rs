@@ -245,7 +245,7 @@ impl<L: Link> LinkedList<L, L::Target> {
 
     // === rustpython additions ===
 
-    pub fn iter<'a>(&'a self) -> impl Iterator<Item = &'a L::Target> {
+    pub fn iter(&self) -> impl Iterator<Item = &L::Target> {
         std::iter::successors(self.head, |node| unsafe {
             L::pointers(*node).as_ref().get_next()
         })

@@ -605,7 +605,7 @@ impl<T: Clone> Dict<T> {
         };
         match slot {
             Some(entry) if entry.index == index_index => {
-                if pred(&entry.value)? == false {
+                if !pred(&entry.value)? {
                     return Ok(ControlFlow::Break(None));
                 }
             }

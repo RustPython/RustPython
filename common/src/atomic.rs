@@ -56,6 +56,12 @@ pub struct OncePtr<T> {
     inner: PyAtomic<*mut T>,
 }
 
+impl<T> Default for OncePtr<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T> OncePtr<T> {
     #[inline]
     pub fn new() -> Self {

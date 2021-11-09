@@ -265,7 +265,7 @@ impl WeakRefList {
 }
 
 impl WeakListInner {
-    fn iter<'a>(&'a self) -> impl Iterator<Item = &'a PyObjectView<PyWeak>> {
+    fn iter(&self) -> impl Iterator<Item = &PyObjectView<PyWeak>> {
         self.list.iter().filter(|wr| wr.0.refcount.get() > 0)
     }
 }
