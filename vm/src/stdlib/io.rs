@@ -875,7 +875,7 @@ mod _io {
                 vm.call_method(self.raw.as_ref().unwrap(), "write", (memobj,))?
             } else {
                 let v = std::mem::take(&mut self.buffer);
-                let writebuf = VecBuffer::new(v).into_ref(vm);
+                let writebuf = VecBuffer::from(v).into_ref(vm);
                 let memobj = PyMemoryView::from_buffer_range(
                     writebuf.clone().into_pybuffer(true),
                     buf_range,
@@ -1100,7 +1100,7 @@ mod _io {
             let res = match v {
                 Either::A(v) => {
                     let v = v.unwrap_or(&mut self.buffer);
-                    let readbuf = VecBuffer::new(std::mem::take(v)).into_ref(vm);
+                    let readbuf = VecBuffer::from(std::mem::take(v)).into_ref(vm);
                     let memobj = PyMemoryView::from_buffer_range(
                         readbuf.clone().into_pybuffer(false),
                         buf_range,

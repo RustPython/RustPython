@@ -35,6 +35,9 @@ pub struct PyMemoryView {
     // the released memoryview does not mean the buffer is destoryed
     // because the possible another memeoryview is viewing from it
     released: AtomicCell<bool>,
+    // start does NOT mean the bytes before start will not be visited,
+    // it means the point we starting to get the absolute position via
+    // the needle
     start: usize,
     format_spec: FormatSpec,
     // memoryview's options could be different from buffer's options
@@ -71,6 +74,9 @@ impl PyMemoryView {
         }
     }
 
+    /// don't use this function to create the memeoryview if the buffer is exporting
+    /// via another memoryview, use PyMemoryView::new_view() or PyMemoryView::from_object
+    /// to reduce the chain
     pub fn from_buffer(buffer: PyBuffer, vm: &VirtualMachine) -> PyResult<Self> {
         // when we get a buffer means the buffered object is size locked
         // so we can assume the buffer's options will never change as long
@@ -88,29 +94,23 @@ impl PyMemoryView {
         })
     }
 
+    /// don't use this function to create the memeoryview if the buffer is exporting
+    /// via another memoryview, use PyMemoryView::new_view() or PyMemoryView::from_object
+    /// to reduce the chain
     pub fn from_buffer_range(
         buffer: PyBuffer,
         range: Range<usize>,
         vm: &VirtualMachine,
     ) -> PyResult<Self> {
-        let format_spec = Self::parse_format(&buffer.desc.format, vm)?;
-        let desc = buffer.desc.clone();
-
-        let mut zelf = PyMemoryView {
-            buffer: ManuallyDrop::new(buffer),
-            released: AtomicCell::new(false),
-            start: 0,
-            format_spec,
-            desc,
-            hash: OnceCell::new(),
-        };
+        let mut zelf = Self::from_buffer(buffer, vm)?;
 
         zelf.init_range(range, 0);
         zelf.init_len();
         Ok(zelf)
     }
 
-    fn new_view(&self) -> Self {
+    /// this should be the only way to create a memroyview from another memoryview
+    pub fn new_view(&self) -> Self {
         let zelf = PyMemoryView {
             buffer: self.buffer.clone(),
             released: AtomicCell::new(false),
@@ -322,12 +322,6 @@ impl PyMemoryView {
 
         let src = if let Some(src) = src.downcast_ref::<PyMemoryView>() {
             if zelf.buffer.obj.is(&src.buffer.obj) {
-                if !is_equiv_structure(&src.desc, &dest.desc) {
-                    return Err(vm.new_value_error(
-                        "memoryview assigment: lvalue and rvalue have different structures"
-                            .to_owned(),
-                    ));
-                }
                 src.to_contiguous(vm)
             } else {
                 AsBuffer::as_buffer(src, vm)?
@@ -381,17 +375,12 @@ impl PyMemoryView {
         }
 
         if zelf.desc.ndim() == 0 {
+            // TODO: merge branches when we got conditional if let
             if needle.is(&vm.ctx.ellipsis) {
-                let bytes = &mut *zelf.buffer.obj_bytes_mut();
-                let data = zelf.format_spec.pack(vec![value], vm)?;
-                // TODO: fix panic if data no march itemsize
-                bytes[..zelf.desc.itemsize].copy_from_slice(&data);
+                return zelf.pack_single(0, value, vm);
             } else if let Some(tuple) = needle.payload::<PyTuple>() {
                 if tuple.is_empty() {
-                    let bytes = &mut *zelf.buffer.obj_bytes_mut();
-                    let data = zelf.format_spec.pack(vec![value], vm)?;
-                    // TODO: fix panic if data no march itemsize
-                    bytes[..zelf.desc.itemsize].copy_from_slice(&data);
+                    return zelf.pack_single(0, value, vm);
                 }
             }
             return Err(vm.new_type_error("invalid indexing of 0-dim memory".to_owned()));
@@ -459,15 +448,16 @@ impl PyMemoryView {
         let (shape, stride, _) = self.desc.dim_desc[dim];
         debug_assert!(shape >= range.len());
 
-        let mut is_adjusted_suboffset = false;
+        let mut is_adjusted = false;
         for (_, _, suboffset) in self.desc.dim_desc.iter_mut().rev() {
             if *suboffset != 0 {
                 *suboffset += stride * range.start as isize;
-                is_adjusted_suboffset = true;
+                is_adjusted = true;
                 break;
             }
         }
-        if !is_adjusted_suboffset {
+        if !is_adjusted {
+            // no suboffset setted, stride must be positive
             self.start += stride as usize * range.start;
         }
         let newlen = range.len();
@@ -488,7 +478,7 @@ impl PyMemoryView {
             }
         }
         if !is_adjusted_suboffset {
-            // TODO: AdjustIndices
+            // no suboffset setted, stride must be positive
             self.start += stride as usize
                 * if step.is_negative() {
                     range.end - 1
@@ -502,6 +492,7 @@ impl PyMemoryView {
         Ok(())
     }
 
+    /// return the length of the first dimention
     #[pymethod(magic)]
     fn len(&self, vm: &VirtualMachine) -> PyResult<usize> {
         self.try_not_released(vm)?;
@@ -517,7 +508,7 @@ impl PyMemoryView {
     fn tobytes(&self, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
         self.try_not_released(vm)?;
         let mut v = vec![];
-        self.collect(&mut v);
+        self.append_to(&mut v);
         Ok(PyBytes::from(v).into_ref(vm))
     }
 
@@ -807,7 +798,7 @@ impl PyMemoryView {
         })
     }
 
-    fn collect(&self, buf: &mut Vec<u8>) {
+    fn append_to(&self, buf: &mut Vec<u8>) {
         if let Some(bytes) = self.as_contiguous() {
             buf.extend_from_slice(&bytes);
         } else {
@@ -829,7 +820,7 @@ impl PyMemoryView {
             &*borrowed
         } else {
             collected = vec![];
-            self.collect(&mut collected);
+            self.append_to(&mut collected);
             &collected
         };
         f(v)
@@ -839,20 +830,20 @@ impl PyMemoryView {
     /// keep the shape, convert to contiguous
     pub fn to_contiguous(&self, vm: &VirtualMachine) -> PyBuffer {
         let mut data = vec![];
-        self.collect(&mut data);
+        self.append_to(&mut data);
 
         if self.desc.ndim() == 0 {
-            return VecBuffer::new(data)
+            return VecBuffer::from(data)
                 .into_ref(vm)
                 .into_pybuffer_with_descriptor(self.desc.clone());
         }
 
-        let mut dim_descriptor = self.desc.dim_desc.clone();
-        dim_descriptor.last_mut().unwrap().1 = self.desc.itemsize as isize;
-        dim_descriptor.last_mut().unwrap().2 = 0;
-        for i in (0..dim_descriptor.len() - 1).rev() {
-            dim_descriptor[i].1 = dim_descriptor[i + 1].1 * dim_descriptor[i + 1].0 as isize;
-            dim_descriptor[i].2 = 0;
+        let mut dim_desc = self.desc.dim_desc.clone();
+        dim_desc.last_mut().unwrap().1 = self.desc.itemsize as isize;
+        dim_desc.last_mut().unwrap().2 = 0;
+        for i in (0..dim_desc.len() - 1).rev() {
+            dim_desc[i].1 = dim_desc[i + 1].1 * dim_desc[i + 1].0 as isize;
+            dim_desc[i].2 = 0;
         }
 
         let desc = BufferDescriptor {
@@ -860,10 +851,10 @@ impl PyMemoryView {
             readonly: self.desc.readonly,
             itemsize: self.desc.itemsize,
             format: self.desc.format.clone(),
-            dim_desc: dim_descriptor,
+            dim_desc,
         };
 
-        VecBuffer::new(data)
+        VecBuffer::from(data)
             .into_ref(vm)
             .into_pybuffer_with_descriptor(desc)
     }
@@ -886,6 +877,7 @@ enum SubscriptNeedle {
 
 impl TryFromObject for SubscriptNeedle {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        // TODO: number protocol
         if let Some(i) = obj.payload::<PyInt>() {
             Ok(Self::Index(i.try_to_primitive(vm)?))
         } else if obj.payload_is::<PySlice>() {
@@ -1054,6 +1046,7 @@ fn is_equiv_shape(a: &BufferDescriptor, b: &BufferDescriptor) -> bool {
         if a_shape != b_shape {
             return false;
         }
+        // if both shape is 0, ignore the rest
         if a_shape == 0 {
             break;
         }

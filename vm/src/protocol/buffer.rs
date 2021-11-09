@@ -142,9 +142,6 @@ impl TryFromBorrowedObject for PyBuffer {
     }
 }
 
-// What we actually want to implement is:
-// impl<T> Drop for T where T: BufferInternal
-// but it is not supported by Rust
 impl Drop for PyBuffer {
     fn drop(&mut self) {
         self.release();
@@ -161,6 +158,7 @@ pub struct BufferDescriptor {
     pub format: Cow<'static, str>,
     /// (shape, stride, suboffset) for each dimension
     pub dim_desc: Vec<(usize, isize, isize)>,
+    // TODO: flags
 }
 
 impl BufferDescriptor {
@@ -198,11 +196,6 @@ impl BufferDescriptor {
             shape_product *= shape;
             assert!(suboffset >= 0);
             assert!(stride != 0);
-            if stride.is_negative() {
-                // if stride is negative, we access memory in reversed order
-                // so the suboffset should be n*stride shift the index to the tail
-                assert!(suboffset >= -stride * shape as isize);
-            }
         }
         assert!(shape_product * self.itemsize == self.len);
         self
@@ -396,16 +389,19 @@ pub struct VecBuffer {
 
 #[pyimpl(flags(BASETYPE), with(Constructor))]
 impl VecBuffer {
-    pub fn new(data: Vec<u8>) -> Self {
-        Self {
-            data: PyMutex::new(data),
-        }
-    }
-
     pub fn take(&self) -> Vec<u8> {
         std::mem::take(&mut self.data.lock())
     }
 }
+
+impl From<Vec<u8>> for VecBuffer {
+    fn from(data: Vec<u8>) -> Self {
+        Self {
+            data: PyMutex::new(data),
+        }
+    }
+}
+
 impl Unconstructible for VecBuffer {}
 
 impl PyRef<VecBuffer> {
