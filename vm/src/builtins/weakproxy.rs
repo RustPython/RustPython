@@ -33,12 +33,26 @@ impl Constructor for PyWeakProxy {
         Self::Args { referent, callback }: Self::Args,
         vm: &VirtualMachine,
     ) -> PyResult {
+        // using an internal subclass as the class prevents us from getting the generic weakref,
+        // which would mess up the weakref count
+        let weak_cls = WEAK_SUBCLASS.get_or_init(|| {
+            vm.ctx.new_class(
+                None,
+                "__weakproxy",
+                &vm.ctx.types.weakref_type,
+                super::PyWeak::make_slots(),
+            )
+        });
         // TODO: PyWeakProxy should use the same payload as PyWeak
         PyWeakProxy {
-            weak: referent.downgrade(callback.into_option(), vm)?,
+            weak: referent.downgrade_with_typ(callback.into_option(), weak_cls.clone(), vm)?,
         }
         .into_pyresult_with_type(vm, cls)
     }
+}
+
+crate::common::static_cell! {
+    static WEAK_SUBCLASS: PyTypeRef;
 }
 
 #[pyimpl(with(SetAttr, Constructor))]

@@ -114,19 +114,10 @@ impl fmt::Debug for WeakRefList {
 
 struct WeakListInner {
     list: LinkedList<WeakLink, PyObjectView<PyWeak>>,
+    generic_weakref: Option<NonNull<PyObjectView<PyWeak>>>,
     obj: Option<NonNull<PyObject>>,
     // one for each live PyWeak with a reference to this, + 1 for the referent object if it's not dead
     ref_count: usize,
-}
-
-impl Default for WeakListInner {
-    fn default() -> Self {
-        Self {
-            list: LinkedList::default(),
-            obj: None,
-            ref_count: 1,
-        }
-    }
 }
 
 cfg_if::cfg_if! {
@@ -152,13 +143,29 @@ impl WeakRefList {
         &self,
         obj: &PyObject,
         cls: PyTypeRef,
+        cls_is_weakref: bool,
         callback: Option<PyObjectRef>,
         dict: Option<PyDictRef>,
     ) -> PyObjectWeak {
-        let inner_ptr = self.inner.get_or_init(Default::default);
+        let is_generic = cls_is_weakref && callback.is_none();
+        let inner_ptr = self.inner.get_or_init(|| {
+            Box::new(PyMutex::new(WeakListInner {
+                list: LinkedList::default(),
+                generic_weakref: None,
+                obj: Some(NonNull::from(obj)),
+                ref_count: 1,
+            }))
+        });
         let mut inner = unsafe { inner_ptr.as_ref().lock() };
-        if inner.obj.is_none() {
-            inner.obj = Some(NonNull::from(obj));
+        if is_generic {
+            if let Some(generic_weakref) = inner.generic_weakref {
+                let generic_weakref = unsafe { generic_weakref.as_ref() };
+                if generic_weakref.0.refcount.get() != 0 {
+                    return PyObjectWeak {
+                        weak: generic_weakref.to_owned(),
+                    };
+                }
+            }
         }
         let obj = PyWeak {
             pointers: Pointers::new(),
@@ -171,6 +178,9 @@ impl WeakRefList {
         // one out of the list we immediately wrap it in ManuallyDrop or forget it
         inner.list.push_front(unsafe { ptr::read(&weak) });
         inner.ref_count += 1;
+        if is_generic {
+            inner.generic_weakref = Some(NonNull::from(&*weak));
+        }
         PyObjectWeak { weak }
     }
 
@@ -185,7 +195,8 @@ impl WeakRefList {
             // TODO: can be an arrayvec
             let mut v = Vec::with_capacity(16);
             loop {
-                let iter = inner
+                let inner2 = &mut *inner;
+                let iter = inner2
                     .list
                     .drain_filter(|_| true)
                     .filter_map(|wr| {
@@ -194,6 +205,10 @@ impl WeakRefList {
                         // is held*) to avoid weird things if PyWeakObj::drop happens after
                         // this but before we reach the loop body below
                         let wr = ManuallyDrop::new(wr);
+
+                        if Some(NonNull::from(&**wr)) == inner2.generic_weakref {
+                            inner2.generic_weakref = None
+                        }
 
                         // if strong_count == 0 there's some reentrancy going on. we don't
                         // want to call the callback
@@ -234,6 +249,24 @@ impl WeakRefList {
 
     unsafe fn dealloc(ptr: NonNull<PyMutex<WeakListInner>>) {
         Box::from_raw(ptr.as_ptr());
+    }
+
+    fn get_weak_references(&self) -> Vec<PyObjectWeak> {
+        let inner = match self.try_lock() {
+            Some(inner) => inner,
+            None => return vec![],
+        };
+        let mut v = Vec::with_capacity(inner.ref_count - 1);
+        v.extend(inner.iter().map(|wr| PyObjectWeak {
+            weak: wr.to_owned(),
+        }));
+        v
+    }
+}
+
+impl WeakListInner {
+    fn iter<'a>(&'a self) -> impl Iterator<Item = &'a PyObjectView<PyWeak>> {
+        self.list.iter().filter(|wr| wr.0.refcount.get() > 0)
     }
 }
 
@@ -306,6 +339,9 @@ impl PyWeak {
             // right now so that should be obvious!!
             std::mem::forget(unsafe { guard.list.remove(node_ptr) });
             guard.ref_count -= 1;
+            if Some(node_ptr) == guard.generic_weakref {
+                guard.generic_weakref = None;
+            }
             guard.ref_count == 0
         };
         if dealloc {
@@ -537,13 +573,14 @@ impl PyObject {
         Some(&self.0.weaklist)
     }
 
-    pub(crate) fn downgrade_with_typ_opt(
+    pub(crate) fn downgrade_with_weakref_typ_opt(
         &self,
         callback: Option<PyObjectRef>,
+        // a reference to weakref_type **specifically**
         typ: PyTypeRef,
     ) -> Option<PyObjectWeak> {
         self.weakreflist()
-            .map(|wr| wr.add(self, typ, callback, None))
+            .map(|wr| wr.add(self, typ, true, callback, None))
     }
 
     pub(crate) fn downgrade_with_typ(
@@ -561,8 +598,9 @@ impl PyObject {
         } else {
             None
         };
+        let cls_is_weakref = typ.is(&vm.ctx.types.weakref_type);
         self.weakreflist()
-            .map(|wr| wr.add(self, typ, callback, dict))
+            .map(|wr| wr.add(self, typ, cls_is_weakref, callback, dict))
             .ok_or_else(|| {
                 vm.new_type_error(format!(
                     "cannot create weak reference to '{}' object",
@@ -580,15 +618,7 @@ impl PyObject {
     }
 
     pub fn get_weak_references(&self) -> Option<Vec<PyObjectWeak>> {
-        self.weakreflist().map(|wrl| {
-            wrl.try_lock()
-                .iter()
-                .flat_map(|inner| inner.list.iter())
-                .map(|wr| PyObjectWeak {
-                    weak: wr.to_owned(),
-                })
-                .collect()
-        })
+        self.weakreflist().map(|wrl| wrl.get_weak_references())
     }
 
     pub fn payload_is<T: PyObjectPayload>(&self) -> bool {
@@ -1099,14 +1129,14 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
     object_type.subclasses.write().push(
         type_type
             .as_object()
-            .downgrade_with_typ_opt(None, weakref_type.clone())
+            .downgrade_with_weakref_typ_opt(None, weakref_type.clone())
             .unwrap(),
     );
 
     object_type.subclasses.write().push(
         weakref_type
             .as_object()
-            .downgrade_with_typ_opt(None, weakref_type.clone())
+            .downgrade_with_weakref_typ_opt(None, weakref_type.clone())
             .unwrap(),
     );
 

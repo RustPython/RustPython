@@ -198,8 +198,6 @@ class ReferencesTestCase(TestBase):
         self.assertIsNone(ref(),
                      "ref2 should be dead after deleting object reference")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_ref_reuse(self):
         o = C()
         ref1 = weakref.ref(o)

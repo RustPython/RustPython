@@ -105,7 +105,7 @@ impl Comparable for PyWeak {
             let both = zelf.upgrade().and_then(|s| other.upgrade().map(|o| (s, o)));
             let eq = match both {
                 Some((a, b)) => vm.bool_eq(&a, &b)?,
-                None => false,
+                None => zelf.is(other),
             };
             Ok(eq.into())
         })

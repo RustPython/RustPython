@@ -121,7 +121,7 @@ impl PyType {
             base.subclasses.write().push(
                 new_type
                     .as_object()
-                    .downgrade_with_typ_opt(None, weakref_type.clone())
+                    .downgrade_with_weakref_typ_opt(None, weakref_type.clone())
                     .unwrap(),
             );
         }
