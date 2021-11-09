@@ -4,8 +4,7 @@ use crate::common::{
     static_cell,
 };
 pub use crate::pyobjectrc::{
-    PyGenericObject, PyObject, PyObjectRef, PyObjectView, PyObjectWeak, PyObjectWrap, PyRef,
-    PyWeakRef,
+    PyObject, PyObjectRef, PyObjectView, PyObjectWeak, PyObjectWrap, PyRef, PyWeakRef,
 };
 use crate::{
     builtins::{
@@ -334,7 +333,7 @@ impl PyContext {
             class.slots.flags.contains(PyTypeFlags::HAS_DICT),
             dict.is_some()
         );
-        PyGenericObject::new(object::PyBaseObject, class, dict)
+        PyRef::new_ref(object::PyBaseObject, class, dict).into()
     }
 }
 

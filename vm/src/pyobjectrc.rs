@@ -15,7 +15,7 @@ use std::mem::ManuallyDrop;
 use std::ops::Deref;
 use std::ptr::{self, NonNull};
 
-// so, PyObjectRef is basically equivalent to `PyRc<PyGenericObject<dyn PyObjectPayload>>`, except it's
+// so, PyObjectRef is basically equivalent to `PyRc<PyInner<dyn PyObjectPayload>>`, except it's
 // only one pointer in width rather than 2. We do that by manually creating a vtable, and putting
 // a &'static reference to it inside the `PyRc` rather than adjacent to it, like trait objects do.
 // This can lead to faster code since there's just less data to pass around, as well as because of
@@ -32,18 +32,18 @@ use std::ptr::{self, NonNull};
 // There has to be padding in the space between the 2 fields. But, if that field is a trait object
 // (like `dyn PyObjectPayload`) we don't *know* how much padding there is between the `payload`
 // field and the previous field. So, Rust has to consult the vtable to know the exact offset of
-// `payload` in `PyGenericObject<dyn PyObjectPayload>`, which has a huge performance impact when *every
+// `payload` in `PyInner<dyn PyObjectPayload>`, which has a huge performance impact when *every
 // single payload access* requires a vtable lookup. Thankfully, we're able to avoid that because of
 // the way we use PyObjectRef, in that whenever we want to access the payload we (almost) always
 // access it from a generic function. So, rather than doing
 //
 // - check vtable for payload offset
-// - get offset in PyGenericObject struct
+// - get offset in PyInner struct
 // - call as_any() method of PyObjectPayload
 // - call downcast_ref() method of Any
 // we can just do
 // - check vtable that typeid matches
-// - pointer cast directly to *const PyGenericObject<T>
+// - pointer cast directly to *const PyInner<T>
 //
 // and at that point the compiler can know the offset of `payload` for us because **we've given it a
 // concrete type to work with before we ever access the `payload` field**
@@ -395,18 +395,9 @@ impl InstanceDict {
     }
 }
 
-/// This is an actual python object. It consists of a `typ` which is the
-/// python class, and carries some rust payload optionally. This rust
-/// payload can be a rust float or rust int in case of float and int objects.
-#[repr(transparent)]
-pub struct PyGenericObject<T> {
-    inner: PyInner<T>,
-}
-
-impl<T: PyObjectPayload> PyGenericObject<T> {
-    #[allow(clippy::new_ret_no_self)]
-    pub fn new(payload: T, typ: PyTypeRef, dict: Option<PyDictRef>) -> PyObjectRef {
-        let inner = PyInner {
+impl<T: PyObjectPayload> PyInner<T> {
+    fn new(payload: T, typ: PyTypeRef, dict: Option<PyDictRef>) -> Box<Self> {
+        Box::new(PyInner {
             refcount: RefCount::new(),
             typeid: TypeId::of::<T>(),
             vtable: PyObjVTable::of::<T>(),
@@ -414,8 +405,7 @@ impl<T: PyObjectPayload> PyGenericObject<T> {
             dict: dict.map(InstanceDict::new),
             weaklist: WeakRefList::new(),
             payload,
-        };
-        PyObjectRef::new(PyGenericObject { inner })
+        })
     }
 }
 
@@ -498,13 +488,6 @@ impl PyObjectRef {
     pub unsafe fn from_raw(ptr: *const PyObject) -> Self {
         Self {
             ptr: NonNull::new_unchecked(ptr as *mut PyObject),
-        }
-    }
-
-    fn new<T: PyObjectPayload>(value: PyGenericObject<T>) -> Self {
-        let inner: *const PyInner<T> = Box::into_raw(Box::new(value.inner));
-        Self {
-            ptr: unsafe { NonNull::new_unchecked(inner as *mut PyObject) },
         }
     }
 
@@ -712,12 +695,9 @@ impl PyObject {
     pub fn as_raw(&self) -> *const PyObject {
         self
     }
-}
 
-impl PyObjectRef {
-    #[inline(never)]
-    #[cold]
-    fn drop_slow(&mut self) {
+    #[inline]
+    fn drop_slow_inner(&self) -> Result<(), ()> {
         // CPython-compatible drop implementation
         if let Some(slot_del) = self.class().mro_find_map(|cls| cls.slots.del.load()) {
             let ret = crate::vm::thread::with_vm(self, |vm| {
@@ -731,7 +711,7 @@ impl PyObjectRef {
                 // the decref right above set refcount back to 0
                 Some(true) => {}
                 // we've been resurrected by __del__
-                Some(false) => return,
+                Some(false) => return Err(()),
                 None => {
                     warn!("couldn't run __del__ method for object")
                 }
@@ -741,8 +721,20 @@ impl PyObjectRef {
             wrl.clear();
         }
 
-        let drop_dealloc = self.0.vtable.drop_dealloc;
-        unsafe { drop_dealloc(self.ptr.as_ptr()) }
+        Ok(())
+    }
+
+    /// Can only be called when refcount has dropped to zero. `ptr` must be valid
+    #[inline(never)]
+    #[cold]
+    unsafe fn drop_slow(ptr: NonNull<PyObject>) {
+        if let Err(()) = ptr.as_ref().drop_slow_inner() {
+            // abort drop for whatever reason
+            return;
+        }
+        let drop_dealloc = ptr.as_ref().0.vtable.drop_dealloc;
+        // call drop only when there are no references in scope - stacked borrows stuff
+        drop_dealloc(ptr.as_ptr())
     }
 }
 
@@ -805,7 +797,7 @@ impl PyObjectWeak {
 impl Drop for PyObjectRef {
     fn drop(&mut self) {
         if self.0.refcount.dec() {
-            self.drop_slow()
+            unsafe { PyObject::drop_slow(self.ptr) }
         }
     }
 }
@@ -870,9 +862,9 @@ impl<T: PyObjectPayload> ToOwned for PyObjectView<T> {
 
     #[inline(always)]
     fn to_owned(&self) -> Self::Owned {
+        self.0.refcount.inc();
         PyRef {
-            obj: self.as_object().to_owned(),
-            _marker: PhantomData,
+            ptr: NonNull::from(self),
         }
     }
 }
@@ -911,14 +903,28 @@ impl<T: PyObjectPayload> fmt::Debug for PyObjectView<T> {
 /// where a reference to the same object must be returned.
 #[repr(transparent)]
 pub struct PyRef<T: PyObjectPayload> {
-    // invariant: this obj must always have payload of type T
-    obj: PyObjectRef,
-    _marker: PhantomData<T>,
+    ptr: NonNull<PyObjectView<T>>,
+}
+
+cfg_if::cfg_if! {
+    if #[cfg(feature = "threading")] {
+        unsafe impl<T: PyObjectPayload> Send for PyRef<T> {}
+        unsafe impl<T: PyObjectPayload> Sync for PyRef<T> {}
+    }
 }
 
 impl<T: PyObjectPayload> fmt::Debug for PyRef<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         (**self).fmt(f)
+    }
+}
+
+impl<T: PyObjectPayload> Drop for PyRef<T> {
+    #[inline]
+    fn drop(&mut self) {
+        if self.0.refcount.dec() {
+            unsafe { PyObject::drop_slow(self.ptr.cast::<PyObject>()) }
+        }
     }
 }
 
@@ -932,25 +938,26 @@ impl<T: PyObjectPayload> Clone for PyRef<T> {
 impl<T: PyObjectPayload> PyRef<T> {
     unsafe fn from_raw(raw: *const PyObjectView<T>) -> Self {
         Self {
-            obj: PyObjectRef::from_raw(raw as _),
-            _marker: PhantomData,
+            ptr: NonNull::new_unchecked(raw as *mut _),
         }
     }
 
     /// Safety: payload type of `obj` must be `T`
+    #[inline]
     unsafe fn from_obj_unchecked(obj: PyObjectRef) -> Self {
         debug_assert!(obj.payload_is::<T>());
+        let obj = ManuallyDrop::new(obj);
         Self {
-            obj,
-            _marker: PhantomData,
+            ptr: obj.ptr.cast(),
         }
     }
 
-    // ideally we'd be able to define this in pyobject.rs, but method visibility rules are weird
+    #[inline]
     pub fn new_ref(payload: T, typ: crate::builtins::PyTypeRef, dict: Option<PyDictRef>) -> Self {
-        let obj = PyGenericObject::new(payload, typ, dict);
-        // SAFETY: we just created the object from a payload of type T
-        unsafe { Self::from_obj_unchecked(obj) }
+        let inner = Box::into_raw(PyInner::new(payload, typ, dict));
+        Self {
+            ptr: unsafe { NonNull::new_unchecked(inner.cast::<PyObjectView<T>>()) },
+        }
     }
 }
 
@@ -958,8 +965,10 @@ impl<T> PyObjectWrap for PyRef<T>
 where
     T: PyObjectPayload,
 {
+    #[inline]
     fn into_object(self) -> PyObjectRef {
-        self.obj
+        let me = ManuallyDrop::new(self);
+        PyObjectRef { ptr: me.ptr.cast() }
     }
 }
 
@@ -967,8 +976,9 @@ impl<T> AsRef<PyObject> for PyRef<T>
 where
     T: PyObjectPayload,
 {
+    #[inline(always)]
     fn as_ref(&self) -> &PyObject {
-        &self.obj
+        (**self).as_object()
     }
 }
 
@@ -987,8 +997,9 @@ where
 {
     type Target = PyObjectView<T>;
 
+    #[inline(always)]
     fn deref(&self) -> &PyObjectView<T> {
-        unsafe { &*(&*self.obj as *const PyObject as *const PyObjectView<T>) }
+        unsafe { self.ptr.as_ref() }
     }
 }
 
@@ -1000,10 +1011,10 @@ pub struct PyWeakRef<T: PyObjectPayload> {
 
 impl<T: PyObjectPayload> PyWeakRef<T> {
     pub fn upgrade(&self) -> Option<PyRef<T>> {
-        self.weak.upgrade().map(|obj| PyRef {
-            obj,
-            _marker: PhantomData,
-        })
+        self.weak
+            .upgrade()
+            // SAFETY: PyWeakRef<T> was always created from a PyRef<T>, so the object is T
+            .map(|obj| unsafe { PyRef::from_obj_unchecked(obj) })
     }
 }
 

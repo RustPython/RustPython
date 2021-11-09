@@ -1936,7 +1936,7 @@ impl<'vm> ReprGuard<'vm> {
         let mut guards = vm.repr_guards.borrow_mut();
 
         // Should this be a flag on the obj itself? putting it in a global variable for now until it
-        // decided the form of the PyGenericObject. https://github.com/RustPython/RustPython/issues/371
+        // decided the form of PyObject. https://github.com/RustPython/RustPython/issues/371
         let id = obj.get_id();
         if guards.contains(&id) {
             return None;

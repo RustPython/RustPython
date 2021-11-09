@@ -667,7 +667,7 @@ impl ToTokens for GetSetNursery {
                     #( #cfgs )*
                     class.set_str_attr(
                         #name,
-                        ::rustpython_vm::PyGenericObject::new(
+                        ::rustpython_vm::PyRef::new_ref(
                             ::rustpython_vm::builtins::PyGetSet::new(#name.into(), class.clone())
                                 .with_get(&Self::#getter)
                                 #setter #deleter,

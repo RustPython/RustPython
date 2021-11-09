@@ -2,8 +2,8 @@ use super::{PyDict, PyDictRef, PyList, PyStr, PyStrRef, PyType, PyTypeRef};
 use crate::common::hash::PyHash;
 use crate::{
     function::FuncArgs, types::PyComparisonOp, utils::Either, IdProtocol, ItemProtocol,
-    PyArithmeticValue, PyAttributes, PyClassImpl, PyComparisonValue, PyContext, PyGenericObject,
-    PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
+    PyArithmeticValue, PyAttributes, PyClassImpl, PyComparisonValue, PyContext, PyObject,
+    PyObjectRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
 
 /// object()
@@ -34,7 +34,7 @@ impl PyBaseObject {
         } else {
             Some(vm.ctx.new_dict())
         };
-        Ok(PyGenericObject::new(PyBaseObject, cls, dict))
+        Ok(crate::PyRef::new_ref(PyBaseObject, cls, dict).into())
     }
 
     #[pyslot]
