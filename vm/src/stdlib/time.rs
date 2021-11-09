@@ -472,7 +472,7 @@ mod unix {
         Ok(Duration::new(ts.tv_sec as u64, ts.tv_nsec as u32).as_secs_f64())
     }
 
-    #[cfg(not(any(target_os = "macos", target_os = "redox")))]
+    #[cfg(not(target_os = "redox"))]
     fn set_clock_time(
         clk_id: PyIntRef,
         timespec: libc::timespec,
@@ -485,7 +485,7 @@ mod unix {
         Ok(())
     }
 
-    #[cfg(not(any(target_os = "macos", target_os = "redox")))]
+    #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn clock_settime(
         clk_id: PyIntRef,
@@ -504,7 +504,7 @@ mod unix {
         set_clock_time(clk_id, ts, vm)
     }
 
-    #[cfg(not(any(target_os = "macos", target_os = "redox")))]
+    #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn clock_settime_ns(clk_id: PyIntRef, time: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
         let time: libc::time_t = time.try_to_primitive(vm)?;
