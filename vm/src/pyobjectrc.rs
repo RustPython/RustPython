@@ -318,7 +318,7 @@ impl PyWeak {
         let guard = unsafe { self.parent.as_ref().lock() };
         let obj_ptr = guard.obj?;
         unsafe {
-            obj_ptr.as_ref().0.refcount.incref();
+            obj_ptr.as_ref().0.refcount.inc();
             Some(PyObjectRef::from_raw(obj_ptr.as_ptr()))
         }
     }
@@ -464,7 +464,7 @@ impl ToOwned for PyObject {
 
     #[inline(always)]
     fn to_owned(&self) -> Self::Owned {
-        self.0.refcount.incref();
+        self.0.refcount.inc();
         PyObjectRef {
             ptr: NonNull::from(self),
         }
@@ -569,7 +569,7 @@ impl PyObjectRef {
 
 impl PyObject {
     #[inline]
-    fn weakreflist(&self) -> Option<&WeakRefList> {
+    fn weak_ref_list(&self) -> Option<&WeakRefList> {
         Some(&self.0.weaklist)
     }
 
@@ -579,8 +579,8 @@ impl PyObject {
         // a reference to weakref_type **specifically**
         typ: PyTypeRef,
     ) -> Option<PyObjectWeak> {
-        self.weakreflist()
-            .map(|wr| wr.add(self, typ, true, callback, None))
+        self.weak_ref_list()
+            .map(|wrl| wrl.add(self, typ, true, callback, None))
     }
 
     pub(crate) fn downgrade_with_typ(
@@ -599,8 +599,8 @@ impl PyObject {
             None
         };
         let cls_is_weakref = typ.is(&vm.ctx.types.weakref_type);
-        self.weakreflist()
-            .map(|wr| wr.add(self, typ, cls_is_weakref, callback, dict))
+        self.weak_ref_list()
+            .map(|wrl| wrl.add(self, typ, cls_is_weakref, callback, dict))
             .ok_or_else(|| {
                 vm.new_type_error(format!(
                     "cannot create weak reference to '{}' object",
@@ -618,7 +618,7 @@ impl PyObject {
     }
 
     pub fn get_weak_references(&self) -> Option<Vec<PyObjectWeak>> {
-        self.weakreflist().map(|wrl| wrl.get_weak_references())
+        self.weak_ref_list().map(|wrl| wrl.get_weak_references())
     }
 
     pub fn payload_is<T: PyObjectPayload>(&self) -> bool {
@@ -705,7 +705,7 @@ impl PyObject {
 
     #[inline]
     pub fn weak_count(&self) -> Option<usize> {
-        self.weakreflist().map(|wrl| wrl.count())
+        self.weak_ref_list().map(|wrl| wrl.count())
     }
 
     #[inline]
@@ -721,11 +721,11 @@ impl PyObjectRef {
         // CPython-compatible drop implementation
         if let Some(slot_del) = self.class().mro_find_map(|cls| cls.slots.del.load()) {
             let ret = crate::vm::thread::with_vm(self, |vm| {
-                self.0.refcount.incref();
+                self.0.refcount.inc();
                 if let Err(e) = slot_del(self, vm) {
                     print_del_error(e, self, vm);
                 }
-                self.0.refcount.decref()
+                self.0.refcount.dec()
             });
             match ret {
                 // the decref right above set refcount back to 0
@@ -737,7 +737,7 @@ impl PyObjectRef {
                 }
             }
         }
-        if let Some(wrl) = self.weakreflist() {
+        if let Some(wrl) = self.weak_ref_list() {
             wrl.clear();
         }
 
@@ -804,7 +804,7 @@ impl PyObjectWeak {
 
 impl Drop for PyObjectRef {
     fn drop(&mut self) {
-        if self.0.refcount.decref() {
+        if self.0.refcount.dec() {
             self.drop_slow()
         }
     }
@@ -1093,12 +1093,12 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
             type_type_ptr as *mut MaybeUninit<PyInner<PyType>> as *mut PyInner<PyType>;
 
         unsafe {
-            (*type_type_ptr).refcount.incref();
+            (*type_type_ptr).refcount.inc();
             ptr::write(
                 &mut (*object_type_ptr).typ as *mut PyRwLock<PyTypeRef> as *mut UninitRef<PyType>,
                 PyRwLock::new(NonNull::new_unchecked(type_type_ptr)),
             );
-            (*type_type_ptr).refcount.incref();
+            (*type_type_ptr).refcount.inc();
             ptr::write(
                 &mut (*type_type_ptr).typ as *mut PyRwLock<PyTypeRef> as *mut UninitRef<PyType>,
                 PyRwLock::new(NonNull::new_unchecked(type_type_ptr)),

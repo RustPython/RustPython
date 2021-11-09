@@ -30,7 +30,7 @@ impl RefCount {
     }
 
     #[inline]
-    pub fn incref(&self) {
+    pub fn inc(&self) {
         let old_size = self.strong.fetch_add(1, Relaxed);
 
         if old_size > MAX_REFCOUNT {
@@ -40,7 +40,7 @@ impl RefCount {
 
     /// Decrement the reference count. Returns true when the refcount drops to 0.
     #[inline]
-    pub fn decref(&self) -> bool {
+    pub fn dec(&self) -> bool {
         if self.strong.fetch_sub(1, Release) != 1 {
             return false;
         }
