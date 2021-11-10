@@ -38,6 +38,14 @@ impl RefCount {
         }
     }
 
+    /// Returns true if successful
+    #[inline]
+    pub fn safe_inc(&self) -> bool {
+        self.strong
+            .fetch_update(AcqRel, Acquire, |prev| (prev != 0).then(|| prev + 1))
+            .is_ok()
+    }
+
     /// Decrement the reference count. Returns true when the refcount drops to 0.
     #[inline]
     pub fn dec(&self) -> bool {

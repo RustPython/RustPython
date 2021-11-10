@@ -314,11 +314,12 @@ cfg_if::cfg_if! {
 
 impl PyWeak {
     pub(crate) fn upgrade(&self) -> Option<PyObjectRef> {
-        // TODO: figure out orderings for here, in drop, and the store in WeakRefList::clear
         let guard = unsafe { self.parent.as_ref().lock() };
         let obj_ptr = guard.obj?;
         unsafe {
-            obj_ptr.as_ref().0.refcount.inc();
+            if !obj_ptr.as_ref().0.refcount.safe_inc() {
+                return None;
+            }
             Some(PyObjectRef::from_raw(obj_ptr.as_ptr()))
         }
     }
