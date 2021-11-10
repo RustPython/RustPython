@@ -16,7 +16,7 @@ use crate::{
     IdProtocol, ItemProtocol,
     PyArithmeticValue::*,
     PyAttributes, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef,
-    PyObjectView, PyRef, PyResult, PyValue, TypeProtocol,
+    PyObjectView, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use rustpython_common::lock::PyMutex;
 use std::fmt;
@@ -946,11 +946,20 @@ trait ViewSetOps: DictView {
         Ok(PySet { inner })
     }
 
-    #[pymethod(name = "__rsub__")]
+    #[pymethod(name = "__sub__")]
     #[pymethod(magic)]
     fn sub(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySet> {
         let zelf = Self::to_set(zelf, vm)?;
         let inner = zelf.difference(other, vm)?;
+        Ok(PySet { inner })
+    }
+
+    #[pymethod(name = "__rsub__")]
+    #[pymethod(magic)]
+    fn rsub(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySet> {
+        let left = PySetInner::from_iter(other.iter(vm)?, vm)?;
+        let right = ArgIterable::try_from_object(vm, Self::iter(zelf, vm)?)?;
+        let inner = left.difference(right, vm)?;
         Ok(PySet { inner })
     }
 
