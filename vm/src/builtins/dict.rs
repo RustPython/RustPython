@@ -946,7 +946,6 @@ trait ViewSetOps: DictView {
         Ok(PySet { inner })
     }
 
-    #[pymethod(name = "__sub__")]
     #[pymethod(magic)]
     fn sub(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySet> {
         let zelf = Self::to_set(zelf, vm)?;
@@ -954,7 +953,6 @@ trait ViewSetOps: DictView {
         Ok(PySet { inner })
     }
 
-    #[pymethod(name = "__rsub__")]
     #[pymethod(magic)]
     fn rsub(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySet> {
         let left = PySetInner::from_iter(other.iter(vm)?, vm)?;
