@@ -226,6 +226,19 @@ pub(crate) trait ItemMeta: Sized {
 pub(crate) struct SimpleItemMeta(pub ItemMetaInner);
 
 impl ItemMeta for SimpleItemMeta {
+    const ALLOWED_NAMES: &'static [&'static str] = &["name"];
+
+    fn from_inner(inner: ItemMetaInner) -> Self {
+        Self(inner)
+    }
+    fn inner(&self) -> &ItemMetaInner {
+        &self.0
+    }
+}
+
+pub(crate) struct AttrItemMeta(pub ItemMetaInner);
+
+impl ItemMeta for AttrItemMeta {
     const ALLOWED_NAMES: &'static [&'static str] = &["name", "once"];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
