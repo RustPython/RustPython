@@ -1,5 +1,6 @@
 import unittest
 from test import support
+from test.support import os_helper
 from test.test_urllib2 import sanepathname2url
 
 import os
@@ -112,7 +113,7 @@ class OtherNetworkTests(unittest.TestCase):
         self._test_urls(urls, self._extra_handlers())
 
     def test_file(self):
-        TESTFN = support.TESTFN
+        TESTFN = os_helper.TESTFN
         f = open(TESTFN, 'w')
         try:
             f.write('hi there\n')

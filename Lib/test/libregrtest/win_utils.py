@@ -55,7 +55,7 @@ class WindowsLoadTracker():
 
         # Spawn off the load monitor
         command = ['typeperf', COUNTER_NAME, '-si', str(SAMPLING_INTERVAL)]
-        self.p = subprocess.Popen(command, stdout=command_stdout, cwd=support.SAVEDCWD)
+        self.p = subprocess.Popen(command, stdout=command_stdout, cwd=os_helper.SAVEDCWD)
 
         # Close our copy of the write end of the pipe
         os.close(command_stdout)

@@ -1,4 +1,5 @@
 from test import support
+from test.support import os_helper
 from test.support.script_helper import assert_python_ok, assert_python_failure
 import builtins
 import codecs
@@ -651,7 +652,7 @@ class SysModuleTest(unittest.TestCase):
         out = p.communicate()[0].strip()
         self.assertEqual(out, b'\xbd')
 
-    @unittest.skipUnless(test.support.FS_NONASCII,
+    @unittest.skipUnless(os_helper.FS_NONASCII,
                          'requires OS support of non-ASCII encodings')
     @unittest.skipUnless(sys.getfilesystemencoding() == locale.getpreferredencoding(False),
                          'requires FS encoding to match locale')
@@ -660,10 +661,10 @@ class SysModuleTest(unittest.TestCase):
 
         env["PYTHONIOENCODING"] = ""
         p = subprocess.Popen([sys.executable, "-c",
-                                'print(%a)' % test.support.FS_NONASCII],
+                                'print(%a)' % os_helper.FS_NONASCII],
                                 stdout=subprocess.PIPE, env=env)
         out = p.communicate()[0].strip()
-        self.assertEqual(out, os.fsencode(test.support.FS_NONASCII))
+        self.assertEqual(out, os.fsencode(os_helper.FS_NONASCII))
 
     @unittest.skipIf(sys.base_prefix != sys.prefix,
                      'Test is not venv-compatible')
