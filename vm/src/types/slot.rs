@@ -1,4 +1,5 @@
 use crate::common::{hash::PyHash, lock::PyRwLock};
+use crate::protocol::PyNumberMethods;
 use crate::{
     builtins::{PyInt, PyStrInterned, PyStrRef, PyType, PyTypeRef},
     bytecode::ComparisonOperator,
@@ -138,6 +139,7 @@ impl Default for PyTypeFlags {
 
 pub(crate) type GenericMethod = fn(&PyObject, FuncArgs, &VirtualMachine) -> PyResult;
 pub(crate) type AsMappingFunc = fn(&PyObject, &VirtualMachine) -> &'static PyMappingMethods;
+pub(crate) type AsNumberFunc = fn(&PyObject, &VirtualMachine) -> Cow<'static, PyNumberMethods>;
 pub(crate) type HashFunc = fn(&PyObject, &VirtualMachine) -> PyResult<PyHash>;
 // CallFunc = GenericMethod
 pub(crate) type GetattroFunc = fn(&PyObject, PyStrRef, &VirtualMachine) -> PyResult;

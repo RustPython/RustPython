@@ -807,7 +807,7 @@ fn try_int_radix(obj: &PyObject, base: u32, vm: &VirtualMachine) -> PyResult<Big
     }
 }
 
-fn bytes_to_int(lit: &[u8], mut base: u32) -> Option<BigInt> {
+pub(crate) fn bytes_to_int(lit: &[u8], mut base: u32) -> Option<BigInt> {
     // split sign
     let mut lit = lit.trim();
     let sign = match lit.first()? {
