@@ -2,6 +2,7 @@ import contextlib
 import sys
 import unittest
 from test import support
+from test.support import os_helper
 import time
 
 resource = support.import_module('resource')
@@ -53,7 +54,7 @@ class ResourceTest(unittest.TestCase):
                     limit_set = True
                 except ValueError:
                     limit_set = False
-                f = open(support.TESTFN, "wb")
+                f = open(os_helper.TESTFN, "wb")
                 try:
                     f.write(b"X" * 1024)
                     try:
@@ -79,7 +80,7 @@ class ResourceTest(unittest.TestCase):
             finally:
                 if limit_set:
                     resource.setrlimit(resource.RLIMIT_FSIZE, (cur, max))
-                support.unlink(support.TESTFN)
+                os_helper.unlink(os_helper.TESTFN)
 
     def test_fsize_toobig(self):
         # Be sure that setrlimit is checking for really large values

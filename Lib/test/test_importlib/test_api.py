@@ -7,6 +7,7 @@ machinery = test_util.import_importlib('importlib.machinery')
 import os.path
 import sys
 from test import support
+from test.support import os_helper
 import types
 import unittest
 import warnings
@@ -244,7 +245,7 @@ class ReloadTests:
 
     def test_reload_location_changed(self):
         name = 'spam'
-        with support.temp_cwd(None) as cwd:
+        with os_helper.temp_cwd(None) as cwd:
             with test_util.uncache('spam'):
                 with support.DirsOnSysPath(cwd):
                     # Start as a plain module.
@@ -257,7 +258,7 @@ class ReloadTests:
                                 '__cached__': cached,
                                 '__doc__': None,
                                 }
-                    support.create_empty_file(path)
+                    os_helper.create_empty_file(path)
                     module = self.init.import_module(name)
                     ns = vars(module).copy()
                     loader = ns.pop('__loader__')
@@ -295,7 +296,7 @@ class ReloadTests:
 
     def test_reload_namespace_changed(self):
         name = 'spam'
-        with support.temp_cwd(None) as cwd:
+        with os_helper.temp_cwd(None) as cwd:
             with test_util.uncache('spam'):
                 with support.DirsOnSysPath(cwd):
                     # Start as a namespace package.

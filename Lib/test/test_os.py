@@ -3551,13 +3551,13 @@ def supports_extended_attributes():
         return False
 
     try:
-        with open(support.TESTFN, "xb", 0) as fp:
+        with open(os_helper.TESTFN, "xb", 0) as fp:
             try:
                 os.setxattr(fp.fileno(), b"user.test", b"")
             except OSError:
                 return False
     finally:
-        support.unlink(support.TESTFN)
+        os_helper.unlink(os_helper.TESTFN)
 
     return True
 

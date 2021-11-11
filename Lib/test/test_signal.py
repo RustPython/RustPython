@@ -10,6 +10,7 @@ import threading
 import time
 import unittest
 from test import support
+from test.support import os_helper
 from test.support.script_helper import assert_python_ok, spawn_python
 try:
     import _testcapi
@@ -171,7 +172,7 @@ class WakeupFDTests(unittest.TestCase):
             signal.set_wakeup_fd(signal.SIGINT, False)
 
     def test_invalid_fd(self):
-        fd = support.make_bad_fd()
+        fd = os_helper.make_bad_fd()
         self.assertRaises((ValueError, OSError),
                           signal.set_wakeup_fd, fd)
 
