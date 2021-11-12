@@ -2,66 +2,62 @@ use std::borrow::Cow;
 
 use crate::{
     builtins::{int, PyByteArray, PyBytes, PyComplex, PyFloat, PyInt, PyIntRef, PyStr},
-    common::{lock::OnceCell, static_cell},
+    common::lock::OnceCell,
     function::ArgBytesLike,
-    IdProtocol, PyObject, PyRef, PyResult, PyValue, TryFromBorrowedObject, TypeProtocol,
-    VirtualMachine,
+    AsObject, PyObject, PyPayload, PyRef, PyResult, TryFromBorrowedObject, VirtualMachine,
 };
 
 #[allow(clippy::type_complexity)]
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub struct PyNumberMethods {
     /* Number implementations must check *both*
     arguments for proper type and implement the necessary conversions
     in the slot functions themselves. */
-    pub add: Option<fn(&PyNumber, &PyObject, vm: &VirtualMachine) -> PyResult>,
-    pub subtract: Option<fn(&PyNumber, &PyObject, vm: &VirtualMachine) -> PyResult>,
-    pub multiply: Option<fn(&PyNumber, &PyObject, vm: &VirtualMachine) -> PyResult>,
-    pub remainder: Option<fn(&PyNumber, &PyObject, vm: &VirtualMachine) -> PyResult>,
-    pub divmod: Option<fn(&PyNumber, &PyObject, vm: &VirtualMachine) -> PyResult>,
-    pub power: Option<fn(&PyNumber, &PyObject, vm: &VirtualMachine) -> PyResult>,
-    pub negative: Option<fn(&PyNumber, vm: &VirtualMachine) -> PyResult>,
-    pub positive: Option<fn(&PyNumber, vm: &VirtualMachine) -> PyResult>,
-    pub absolute: Option<fn(&PyNumber, vm: &VirtualMachine) -> PyResult>,
-    pub boolean: Option<fn(&PyNumber, vm: &VirtualMachine) -> PyResult<bool>>,
-    pub invert: Option<fn(&PyNumber, vm: &VirtualMachine) -> PyResult>,
-    pub lshift: Option<fn(&PyNumber, &PyObject, vm: &VirtualMachine) -> PyResult>,
-    pub rshift: Option<fn(&PyNumber, &PyObject, vm: &VirtualMachine) -> PyResult>,
-    pub and: Option<fn(&PyNumber, &PyObject, vm: &VirtualMachine) -> PyResult>,
-    pub xor: Option<fn(&PyNumber, &PyObject, vm: &VirtualMachine) -> PyResult>,
-    pub or: Option<fn(&PyNumber, &PyObject, vm: &VirtualMachine) -> PyResult>,
-    pub int: Option<fn(&PyNumber, vm: &VirtualMachine) -> PyResult<PyIntRef>>,
-    pub float: Option<fn(&PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyFloat>>>,
+    pub add: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
+    pub subtract: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
+    pub multiply: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
+    pub remainder: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
+    pub divmod: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
+    pub power: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
+    pub negative: Option<fn(&PyNumber, &VirtualMachine) -> PyResult>,
+    pub positive: Option<fn(&PyNumber, &VirtualMachine) -> PyResult>,
+    pub absolute: Option<fn(&PyNumber, &VirtualMachine) -> PyResult>,
+    pub boolean: Option<fn(&PyNumber, &VirtualMachine) -> PyResult<bool>>,
+    pub invert: Option<fn(&PyNumber, &VirtualMachine) -> PyResult>,
+    pub lshift: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
+    pub rshift: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
+    pub and: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
+    pub xor: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
+    pub or: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
+    pub int: Option<fn(&PyNumber, &VirtualMachine) -> PyResult<PyIntRef>>,
+    pub float: Option<fn(&PyNumber, &VirtualMachine) -> PyResult<PyRef<PyFloat>>>,
 
-    pub inplace_add: Option<fn(&PyNumber, &PyObject, vm: &VirtualMachine) -> PyResult>,
-    pub inplace_substract: Option<fn(&PyNumber, &PyObject, vm: &VirtualMachine) -> PyResult>,
-    pub inplace_multiply: Option<fn(&PyNumber, &PyObject, vm: &VirtualMachine) -> PyResult>,
-    pub inplace_remainder: Option<fn(&PyNumber, &PyObject, vm: &VirtualMachine) -> PyResult>,
-    pub inplace_divmod: Option<fn(&PyNumber, &PyObject, vm: &VirtualMachine) -> PyResult>,
-    pub inplace_power: Option<fn(&PyNumber, &PyObject, vm: &VirtualMachine) -> PyResult>,
-    pub inplace_lshift: Option<fn(&PyNumber, &PyObject, vm: &VirtualMachine) -> PyResult>,
-    pub inplace_rshift: Option<fn(&PyNumber, &PyObject, vm: &VirtualMachine) -> PyResult>,
-    pub inplace_and: Option<fn(&PyNumber, &PyObject, vm: &VirtualMachine) -> PyResult>,
-    pub inplace_xor: Option<fn(&PyNumber, &PyObject, vm: &VirtualMachine) -> PyResult>,
-    pub inplace_or: Option<fn(&PyNumber, &PyObject, vm: &VirtualMachine) -> PyResult>,
+    pub inplace_add: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
+    pub inplace_substract: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
+    pub inplace_multiply: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
+    pub inplace_remainder: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
+    pub inplace_divmod: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
+    pub inplace_power: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
+    pub inplace_lshift: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
+    pub inplace_rshift: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
+    pub inplace_and: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
+    pub inplace_xor: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
+    pub inplace_or: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
 
-    pub floor_divide: Option<fn(&PyNumber, &PyObject, vm: &VirtualMachine) -> PyResult>,
-    pub true_divide: Option<fn(&PyNumber, &PyObject, vm: &VirtualMachine) -> PyResult>,
-    pub inplace_floor_divide: Option<fn(&PyNumber, &PyObject, vm: &VirtualMachine) -> PyResult>,
-    pub inplace_true_devide: Option<fn(&PyNumber, &PyObject, vm: &VirtualMachine) -> PyResult>,
+    pub floor_divide: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
+    pub true_divide: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
+    pub inplace_floor_divide: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
+    pub inplace_true_devide: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
 
-    pub index: Option<fn(&PyNumber, vm: &VirtualMachine) -> PyResult<PyIntRef>>,
+    pub index: Option<fn(&PyNumber, &VirtualMachine) -> PyResult<PyIntRef>>,
 
-    pub matrix_multiply: Option<fn(&PyNumber, &PyObject, vm: &VirtualMachine) -> PyResult>,
-    pub inplace_matrix_multiply: Option<fn(&PyNumber, &PyObject, vm: &VirtualMachine) -> PyResult>,
+    pub matrix_multiply: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
+    pub inplace_matrix_multiply: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
 }
 
 impl PyNumberMethods {
-    fn not_implemented() -> &'static Self {
-        static_cell! {
-            static NOT_IMPLEMENTED: PyNumberMethods;
-        }
-        NOT_IMPLEMENTED.get_or_init(Self::default)
+    pub const fn not_implemented() -> &'static Self {
+        &NOT_IMPLEMENTED
     }
 }
 
@@ -80,8 +76,12 @@ impl<'a> From<&'a PyObject> for PyNumber<'a> {
     }
 }
 
-impl<'a> PyNumber<'a> {
-    pub fn methods(&'a self, vm: &VirtualMachine) -> &'a Cow<'static, PyNumberMethods> {
+impl PyNumber<'_> {
+    pub fn methods(&self, vm: &VirtualMachine) -> &PyNumberMethods {
+        &*self.methods_cow(vm)
+    }
+
+    pub fn methods_cow(&self, vm: &VirtualMachine) -> &Cow<'static, PyNumberMethods> {
         self.methods.get_or_init(|| {
             self.obj
                 .class()
@@ -90,11 +90,9 @@ impl<'a> PyNumber<'a> {
                 .unwrap_or_else(|| Cow::Borrowed(PyNumberMethods::not_implemented()))
         })
     }
-}
 
-impl PyNumber<'_> {
     // PyNumber_Check
-    pub fn is_numeric(&self, vm: &VirtualMachine) -> bool {
+    pub fn check(&self, vm: &VirtualMachine) -> bool {
         let methods = self.methods(vm);
         methods.int.is_some()
             || methods.index.is_some()
@@ -107,7 +105,7 @@ impl PyNumber<'_> {
         self.methods(vm).index.is_some()
     }
 
-    pub fn to_int(&self, vm: &VirtualMachine) -> PyResult<PyIntRef> {
+    pub fn int(&self, vm: &VirtualMachine) -> PyResult<PyIntRef> {
         fn try_convert(obj: &PyObject, lit: &[u8], vm: &VirtualMachine) -> PyResult<PyIntRef> {
             let base = 10;
             match int::bytes_to_int(lit, base) {
@@ -128,7 +126,9 @@ impl PyNumber<'_> {
             f(self, vm)
         } else if let Ok(Ok(f)) = vm.get_special_method(self.obj.to_owned(), "__trunc__") {
             let r = f.invoke((), vm)?;
-            PyNumber::from(r.as_ref()).to_index(vm)
+            PyNumber::from(r.as_ref()).index(vm).map_err(|_| {
+                vm.new_type_error("__trunc__ returned non-Integral (type NonIntegral)".to_string())
+            })
         } else if let Some(s) = self.obj.payload::<PyStr>() {
             try_convert(self.obj, s.as_str().as_bytes(), vm)
         } else if let Some(bytes) = self.obj.payload::<PyBytes>() {
@@ -146,7 +146,7 @@ impl PyNumber<'_> {
         }
     }
 
-    pub fn to_index(&self, vm: &VirtualMachine) -> PyResult<PyIntRef> {
+    pub fn index(&self, vm: &VirtualMachine) -> PyResult<PyIntRef> {
         if self.obj.class().is(PyInt::class(vm)) {
             Ok(unsafe { self.obj.downcast_unchecked_ref::<PyInt>() }.to_owned())
         } else if let Some(f) = self.methods(vm).index {
@@ -159,3 +159,42 @@ impl PyNumber<'_> {
         }
     }
 }
+
+const NOT_IMPLEMENTED: PyNumberMethods = PyNumberMethods {
+    add: None,
+    subtract: None,
+    multiply: None,
+    remainder: None,
+    divmod: None,
+    power: None,
+    negative: None,
+    positive: None,
+    absolute: None,
+    boolean: None,
+    invert: None,
+    lshift: None,
+    rshift: None,
+    and: None,
+    xor: None,
+    or: None,
+    int: None,
+    float: None,
+    inplace_add: None,
+    inplace_substract: None,
+    inplace_multiply: None,
+    inplace_remainder: None,
+    inplace_divmod: None,
+    inplace_power: None,
+    inplace_lshift: None,
+    inplace_rshift: None,
+    inplace_and: None,
+    inplace_xor: None,
+    inplace_or: None,
+    floor_divide: None,
+    true_divide: None,
+    inplace_floor_divide: None,
+    inplace_true_devide: None,
+    index: None,
+    matrix_multiply: None,
+    inplace_matrix_multiply: None,
+};

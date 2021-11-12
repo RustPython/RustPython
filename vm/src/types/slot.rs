@@ -1,5 +1,4 @@
 use crate::common::{hash::PyHash, lock::PyRwLock};
-use crate::protocol::PyNumberMethods;
 use crate::{
     builtins::{PyInt, PyStrInterned, PyStrRef, PyType, PyTypeRef},
     bytecode::ComparisonOperator,
@@ -8,7 +7,8 @@ use crate::{
     function::{FromArgs, FuncArgs, OptionalArg, PyComparisonValue},
     identifier,
     protocol::{
-        PyBuffer, PyIterReturn, PyMapping, PyMappingMethods, PySequence, PySequenceMethods,
+        PyBuffer, PyIterReturn, PyMapping, PyMappingMethods, PyNumber, PyNumberMethods, PySequence,
+        PySequenceMethods,
     },
     vm::Context,
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
@@ -30,7 +30,7 @@ pub struct PyTypeSlots {
     // Methods to implement standard operations
 
     // Method suites for standard classes
-    // tp_as_number
+    pub as_number: AtomicCell<Option<AsNumberFunc>>,
     pub as_sequence: AtomicCell<Option<AsSequenceFunc>>,
     pub as_mapping: AtomicCell<Option<AsMappingFunc>>,
 
@@ -340,6 +340,39 @@ fn as_sequence_generic(zelf: &PyObject, vm: &VirtualMachine) -> &'static PySeque
     static_as_sequence_generic(has_length, has_ass_item)
 }
 
+fn as_number_wrapper(zelf: &PyObject, _vm: &VirtualMachine) -> Cow<'static, PyNumberMethods> {
+    Cow::Owned(PyNumberMethods {
+        int: then_some_closure!(zelf.class().has_attr("__int__"), |num, vm| {
+            let ret = vm.call_special_method(num.obj.to_owned(), "__int__", ())?;
+            if let Some(i) = ret.downcast_ref::<PyInt>() {
+                Ok(i.to_owned())
+            } else {
+                // TODO
+                Err(vm.new_type_error("".to_string()))
+            }
+        }),
+        float: then_some_closure!(zelf.class().has_attr("__float__"), |num, vm| {
+            let ret = vm.call_special_method(num.obj.to_owned(), "__float__", ())?;
+            if let Some(f) = ret.downcast_ref::<PyFloat>() {
+                Ok(f.to_owned())
+            } else {
+                // TODO
+                Err(vm.new_type_error("".to_string()))
+            }
+        }),
+        index: then_some_closure!(zelf.class().has_attr("__index__"), |num, vm| {
+            let ret = vm.call_special_method(num.obj.to_owned(), "__index__", ())?;
+            if let Some(i) = ret.downcast_ref::<PyInt>() {
+                Ok(i.to_owned())
+            } else {
+                // TODO
+                Err(vm.new_type_error("".to_string()))
+            }
+        }),
+        ..*PyNumberMethods::not_implemented()
+    })
+}
+
 fn hash_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyHash> {
     let hash_obj = vm.call_special_method(zelf.to_owned(), identifier!(vm, __hash__), ())?;
     match hash_obj.payload_if_subclass::<PyInt>(vm) {
@@ -490,6 +523,9 @@ impl PyType {
             }
             "__del__" => {
                 update_slot!(del, del_wrapper);
+            }
+            "__int__" | "__index__" | "__float__" => {
+                update_slot!(as_number, as_number_wrapper);
             }
             _ => {}
         }
@@ -990,6 +1026,40 @@ pub trait AsSequence: PyPayload {
 
     fn sequence_downcast<'a>(seq: &'a PySequence) -> &'a Py<Self> {
         unsafe { seq.obj.downcast_unchecked_ref() }
+    }
+}
+
+#[pyimpl]
+pub trait AsNumber: PyPayload {
+    #[inline]
+    #[pyslot]
+    fn slot_as_number(zelf: &PyObject, vm: &VirtualMachine) -> Cow<'static, PyNumberMethods> {
+        let zelf = unsafe { zelf.downcast_unchecked_ref::<Self>() };
+        Self::as_number(zelf, vm)
+    }
+
+    fn as_number(zelf: &Py<Self>, vm: &VirtualMachine) -> Cow<'static, PyNumberMethods>;
+
+    fn number_downcast<'a>(number: &'a PyNumber) -> &'a Py<Self> {
+        unsafe { number.obj.downcast_unchecked_ref::<Self>() }
+    }
+
+    fn downcast_or_binop_error<'a, 'b>(
+        a: &'a PyNumber,
+        b: &'b PyObject,
+        op: &str,
+        vm: &VirtualMachine,
+    ) -> PyResult<(&'a Self, &'b Self)> {
+        if let (Some(a), Some(b)) = (a.obj.payload::<Self>(), b.payload::<Self>()) {
+            Ok((a, b))
+        } else {
+            Err(vm.new_type_error(format!(
+                "unsupported operand type(s) for {}: '{}' and '{}'",
+                op,
+                a.obj.class(),
+                b.class()
+            )))
+        }
     }
 }
 
