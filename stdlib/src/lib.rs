@@ -1,6 +1,7 @@
 // to allow `mod foo {}` in foo.rs; clippy thinks this is a mistake/misunderstanding of
 // how `mod` works, but we want this sometimes for pymodule declarations
 #![allow(clippy::module_inception)]
+#![feature(c_variadic)]
 
 #[macro_use]
 extern crate rustpython_derive;
@@ -28,7 +29,8 @@ pub mod socket;
 mod syslog;
 mod unicodedata;
 mod zlib;
-
+// new module statistics
+mod _statistics;
 #[cfg(not(target_arch = "wasm32"))]
 mod faulthandler;
 #[cfg(any(unix, target_os = "wasi"))]
