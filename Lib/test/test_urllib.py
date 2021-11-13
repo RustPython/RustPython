@@ -152,7 +152,8 @@ class urlopen_FileTests(unittest.TestCase):
         finally:
             f.close()
         self.pathname = os_helper.TESTFN
-        self.returned_obj = urlopen("file:%s" % self.pathname)
+        self.quoted_pathname = urllib.parse.quote(self.pathname)
+        self.returned_obj = urlopen("file:%s" % self.quoted_pathname)
 
     def tearDown(self):
         """Shut down the open object"""
@@ -195,11 +196,21 @@ class urlopen_FileTests(unittest.TestCase):
         # by the tearDown() method for the test
         self.returned_obj.close()
 
+    def test_headers(self):
+        self.assertIsInstance(self.returned_obj.headers, email.message.Message)
+
+    def test_url(self):
+        self.assertEqual(self.returned_obj.url, self.quoted_pathname)
+
+    @unittest.skip("TODO: RUSTPYTHON (AttributeError: 'BufferedReader' object has no attribute 'status')")
+    def test_status(self):
+        self.assertIsNone(self.returned_obj.status)
+
     def test_info(self):
         self.assertIsInstance(self.returned_obj.info(), email.message.Message)
 
     def test_geturl(self):
-        self.assertEqual(self.returned_obj.geturl(), self.pathname)
+        self.assertEqual(self.returned_obj.geturl(), self.quoted_pathname)
 
     def test_getcode(self):
         self.assertIsNone(self.returned_obj.getcode())
@@ -609,6 +620,9 @@ class urlopen_DataTests(unittest.TestCase):
     """Test urlopen() opening a data URL."""
 
     def setUp(self):
+        # clear _opener global variable
+        self.addCleanup(urllib.request.urlcleanup)
+
         # text containing URL special- and unicode-characters
         self.text = "test data URLs :;,%=& \u00f6 \u00c4 "
         # 2x1 pixel RGB PNG image with one black and one white pixel
@@ -683,6 +697,9 @@ class urlretrieve_FileTests(unittest.TestCase):
     """Test urllib.urlretrieve() on local files"""
 
     def setUp(self):
+        # clear _opener global variable
+        self.addCleanup(urllib.request.urlcleanup)
+
         # Create a list of temporary files. Each item in the list is a file
         # name (absolute path or relative to the current working directory).
         # All files in this list will be deleted in the tearDown method. Note,
@@ -823,6 +840,8 @@ class urlretrieve_HttpTests(unittest.TestCase, FakeHTTPMixin):
     """Test urllib.urlretrieve() using fake http connections"""
 
     def test_short_content_raises_ContentTooShortError(self):
+        self.addCleanup(urllib.request.urlcleanup)
+
         self.fakehttp(b'''HTTP/1.1 200 OK
 Date: Wed, 02 Jan 2008 03:03:54 GMT
 Server: Apache/1.3.33 (Debian GNU/Linux) mod_ssl/2.8.22 OpenSSL/0.9.7e
@@ -844,6 +863,8 @@ FF
                 self.unfakehttp()
 
     def test_short_content_raises_ContentTooShortError_without_reporthook(self):
+        self.addCleanup(urllib.request.urlcleanup)
+
         self.fakehttp(b'''HTTP/1.1 200 OK
 Date: Wed, 02 Jan 2008 03:03:54 GMT
 Server: Apache/1.3.33 (Debian GNU/Linux) mod_ssl/2.8.22 OpenSSL/0.9.7e
@@ -1094,8 +1115,6 @@ class UnquotingTests(unittest.TestCase):
                          "%s" % result)
         self.assertRaises((TypeError, AttributeError), urllib.parse.unquote, None)
         self.assertRaises((TypeError, AttributeError), urllib.parse.unquote, ())
-        with support.check_warnings(('', BytesWarning), quiet=True):
-            self.assertRaises((TypeError, AttributeError), urllib.parse.unquote, b'')
 
     def test_unquoting_badpercent(self):
         # Test unquoting on bad percent-escapes
@@ -1255,11 +1274,29 @@ class UnquotingTests(unittest.TestCase):
         self.assertEqual(expect, result,
                          "using unquote(): %r != %r" % (expect, result))
 
+    @unittest.skip("TODO: RUSTPYTHON (TypeError: Expected str, got bytes)")
     def test_unquoting_with_bytes_input(self):
-        # Bytes not supported yet
-        with self.assertRaisesRegex(TypeError, 'Expected str, got bytes'):
-            given = b'bl\xc3\xa5b\xc3\xa6rsyltet\xc3\xb8y'
-            urllib.parse.unquote(given)
+        # ASCII characters decoded to a string
+        given = b'blueberryjam'
+        expect = 'blueberryjam'
+        result = urllib.parse.unquote(given)
+        self.assertEqual(expect, result,
+                         "using unquote(): %r != %r" % (expect, result))
+
+        # A mix of non-ASCII hex-encoded characters and ASCII characters
+        given = b'bl\xc3\xa5b\xc3\xa6rsyltet\xc3\xb8y'
+        expect = 'bl\u00e5b\u00e6rsyltet\u00f8y'
+        result = urllib.parse.unquote(given)
+        self.assertEqual(expect, result,
+                         "using unquote(): %r != %r" % (expect, result))
+
+        # A mix of non-ASCII percent-encoded characters and ASCII characters
+        given = b'bl%c3%a5b%c3%a6rsyltet%c3%b8j'
+        expect = 'bl\u00e5b\u00e6rsyltet\u00f8j'
+        result = urllib.parse.unquote(given)
+        self.assertEqual(expect, result,
+                         "using unquote(): %r != %r" % (expect, result))
+
 
 class urlencode_Tests(unittest.TestCase):
     """Tests for urlencode()"""
@@ -1500,6 +1537,24 @@ class Pathname_Tests(unittest.TestCase):
                          (expect, result))
 
     @unittest.skipUnless(sys.platform == 'win32',
+                         'test specific to the nturl2path functions.')
+    def test_prefixes(self):
+        # Test special prefixes are correctly handled in pathname2url()
+        given = '\\\\?\\C:\\dir'
+        expect = '///C:/dir'
+        result = urllib.request.pathname2url(given)
+        self.assertEqual(expect, result,
+                         "pathname2url() failed; %s != %s" %
+                         (expect, result))
+        given = '\\\\?\\unc\\server\\share\\dir'
+        expect = '/server/share/dir'
+        result = urllib.request.pathname2url(given)
+        self.assertEqual(expect, result,
+                         "pathname2url() failed; %s != %s" %
+                         (expect, result))
+
+
+    @unittest.skipUnless(sys.platform == 'win32',
                          'test specific to the urllib.url2path function.')
     def test_ntpath(self):
         given = ('/C:/', '///C:/', '/C|//')
@@ -1572,85 +1627,6 @@ class URLopener_Tests(FakeHTTPMixin, unittest.TestCase):
             self.assertRaises(OSError, urllib.request.URLopener().retrieve, url)
             self.assertRaises(OSError, DummyURLopener().open, url)
             self.assertRaises(OSError, DummyURLopener().retrieve, url)
-
-
-# Just commented them out.
-# Can't really tell why keep failing in windows and sparc.
-# Everywhere else they work ok, but on those machines, sometimes
-# fail in one of the tests, sometimes in other. I have a linux, and
-# the tests go ok.
-# If anybody has one of the problematic environments, please help!
-# .   Facundo
-#
-# def server(evt):
-#     import socket, time
-#     serv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-#     serv.settimeout(3)
-#     serv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-#     serv.bind(("", 9093))
-#     serv.listen()
-#     try:
-#         conn, addr = serv.accept()
-#         conn.send("1 Hola mundo\n")
-#         cantdata = 0
-#         while cantdata < 13:
-#             data = conn.recv(13-cantdata)
-#             cantdata += len(data)
-#             time.sleep(.3)
-#         conn.send("2 No more lines\n")
-#         conn.close()
-#     except socket.timeout:
-#         pass
-#     finally:
-#         serv.close()
-#         evt.set()
-#
-# class FTPWrapperTests(unittest.TestCase):
-#
-#     def setUp(self):
-#         import ftplib, time, threading
-#         ftplib.FTP.port = 9093
-#         self.evt = threading.Event()
-#         threading.Thread(target=server, args=(self.evt,)).start()
-#         time.sleep(.1)
-#
-#     def tearDown(self):
-#         self.evt.wait()
-#
-#     def testBasic(self):
-#         # connects
-#         ftp = urllib.ftpwrapper("myuser", "mypass", "localhost", 9093, [])
-#         ftp.close()
-#
-#     def testTimeoutNone(self):
-#         # global default timeout is ignored
-#         import socket
-#         self.assertIsNone(socket.getdefaulttimeout())
-#         socket.setdefaulttimeout(30)
-#         try:
-#             ftp = urllib.ftpwrapper("myuser", "mypass", "localhost", 9093, [])
-#         finally:
-#             socket.setdefaulttimeout(None)
-#         self.assertEqual(ftp.ftp.sock.gettimeout(), 30)
-#         ftp.close()
-#
-#     def testTimeoutDefault(self):
-#         # global default timeout is used
-#         import socket
-#         self.assertIsNone(socket.getdefaulttimeout())
-#         socket.setdefaulttimeout(30)
-#         try:
-#             ftp = urllib.ftpwrapper("myuser", "mypass", "localhost", 9093, [])
-#         finally:
-#             socket.setdefaulttimeout(None)
-#         self.assertEqual(ftp.ftp.sock.gettimeout(), 30)
-#         ftp.close()
-#
-#     def testTimeoutValue(self):
-#         ftp = urllib.ftpwrapper("myuser", "mypass", "localhost", 9093, [],
-#                                 timeout=30)
-#         self.assertEqual(ftp.ftp.sock.gettimeout(), 30)
-#         ftp.close()
 
 
 class RequestTests(unittest.TestCase):
