@@ -191,7 +191,11 @@ impl TryFromObject for PyPathLike {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         // path_converter in CPython
         let obj = match PyBuffer::try_from_borrowed_object(vm, &obj) {
-            Ok(buffer) => PyBytes::from(buffer.internal.obj_bytes().to_vec()).into_pyobject(vm),
+            Ok(buffer) => {
+                let mut bytes = vec![];
+                buffer.append_to(&mut bytes);
+                PyBytes::from(bytes).into_pyobject(vm)
+            }
             Err(_) => obj,
         };
         let fs_path = FsPath::try_from(obj, true, vm)?;

@@ -40,7 +40,7 @@ impl PyObject {
 
 impl ArgBytesLike {
     pub fn borrow_buf(&self) -> BorrowedValue<'_, [u8]> {
-        self.0.as_contiguous().unwrap()
+        unsafe { self.0.contiguous_unchecked() }
     }
 
     pub fn with_ref<F, R>(&self, f: F) -> R
@@ -51,15 +51,11 @@ impl ArgBytesLike {
     }
 
     pub fn len(&self) -> usize {
-        self.borrow_buf().len()
+        self.0.desc.len
     }
 
     pub fn is_empty(&self) -> bool {
-        self.borrow_buf().is_empty()
-    }
-
-    pub fn to_cow(&self) -> std::borrow::Cow<[u8]> {
-        self.borrow_buf().to_vec().into()
+        self.len() == 0
     }
 }
 
@@ -72,7 +68,7 @@ impl From<ArgBytesLike> for PyBuffer {
 impl TryFromBorrowedObject for ArgBytesLike {
     fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
         let buffer = PyBuffer::try_from_borrowed_object(vm, obj)?;
-        if buffer.options.contiguous {
+        if buffer.desc.is_contiguous() {
             Ok(Self(buffer))
         } else {
             Err(vm.new_type_error("non-contiguous buffer is not a bytes-like object".to_owned()))
@@ -86,7 +82,7 @@ pub struct ArgMemoryBuffer(PyBuffer);
 
 impl ArgMemoryBuffer {
     pub fn borrow_buf_mut(&self) -> BorrowedValueMut<'_, [u8]> {
-        self.0.as_contiguous_mut().unwrap()
+        unsafe { self.0.contiguous_mut_unchecked() }
     }
 
     pub fn with_ref<F, R>(&self, f: F) -> R
@@ -97,11 +93,11 @@ impl ArgMemoryBuffer {
     }
 
     pub fn len(&self) -> usize {
-        self.borrow_buf_mut().len()
+        self.0.desc.len
     }
 
     pub fn is_empty(&self) -> bool {
-        self.borrow_buf_mut().is_empty()
+        self.len() == 0
     }
 }
 
@@ -114,9 +110,9 @@ impl From<ArgMemoryBuffer> for PyBuffer {
 impl TryFromBorrowedObject for ArgMemoryBuffer {
     fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
         let buffer = PyBuffer::try_from_borrowed_object(vm, obj)?;
-        if !buffer.options.contiguous {
+        if !buffer.desc.is_contiguous() {
             Err(vm.new_type_error("non-contiguous buffer is not a bytes-like object".to_owned()))
-        } else if buffer.options.readonly {
+        } else if buffer.desc.readonly {
             Err(vm.new_type_error("buffer is not a read-write bytes-like object".to_owned()))
         } else {
             Ok(Self(buffer))

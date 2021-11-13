@@ -1,7 +1,7 @@
 //! Builtin function definitions.
 //!
 //! Implements the list of [builtin Python functions](https://docs.python.org/3/library/builtins.html).
-use crate::{PyObjectRef, VirtualMachine};
+use crate::{PyClassImpl, PyObjectRef, VirtualMachine};
 
 /// Built-in functions, exceptions, and other objects.
 ///
@@ -917,7 +917,9 @@ pub use builtins::{ascii, print};
 pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
     let ctx = &vm.ctx;
 
-    builtins::extend_module(vm, &module);
+    crate::protocol::VecBuffer::make_class(&vm.ctx);
+
+    let _ = builtins::extend_module(vm, &module);
 
     let debug_mode: bool = vm.state.settings.optimize == 0;
     extend_module!(vm, module, {

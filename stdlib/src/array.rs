@@ -3,7 +3,7 @@ pub(crate) use array::make_module;
 #[pymodule(name = "array")]
 mod array {
     use crate::common::{
-        borrow::{BorrowedValue, BorrowedValueMut},
+        atomic::{self, AtomicUsize},
         lock::{
             PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyRwLock, PyRwLockReadGuard,
             PyRwLockWriteGuard,
@@ -20,7 +20,7 @@ mod array {
             ArgBytesLike, ArgIntoFloat, ArgIterable, IntoPyObject, IntoPyResult, OptionalArg,
         },
         protocol::{
-            BufferInternal, BufferOptions, BufferResizeGuard, PyBuffer, PyIterReturn,
+            BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
             PyMappingMethods,
         },
         sliceable::{PySliceableSequence, PySliceableSequenceMut, SaturatedSlice, SequenceIndex},
@@ -28,10 +28,9 @@ mod array {
             AsBuffer, AsMapping, Comparable, Constructor, IterNext, IterNextIterable, Iterable,
             PyComparisonOp,
         },
-        IdProtocol, PyComparisonValue, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult,
-        PyValue, TryFromObject, TypeProtocol, VirtualMachine,
+        IdProtocol, PyComparisonValue, PyObject, PyObjectRef, PyObjectView, PyObjectWrap, PyRef,
+        PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
     };
-    use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
     use num_traits::ToPrimitive;
     use std::cmp::Ordering;
@@ -615,7 +614,7 @@ mod array {
     #[derive(Debug, PyValue)]
     pub struct PyArray {
         array: PyRwLock<ArrayContentType>,
-        exports: AtomicCell<usize>,
+        exports: AtomicUsize,
     }
 
     pub type PyArrayRef = PyRef<PyArray>;
@@ -624,7 +623,7 @@ mod array {
         fn from(array: ArrayContentType) -> Self {
             PyArray {
                 array: PyRwLock::new(array),
-                exports: AtomicCell::new(0),
+                exports: AtomicUsize::new(0),
             }
         }
     }
@@ -1220,40 +1219,35 @@ mod array {
         fn as_buffer(zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
             let array = zelf.read();
             let buf = PyBuffer::new(
-                zelf.as_object().to_owned(),
-                PyArrayBufferInternal(zelf.to_owned()),
-                BufferOptions {
-                    readonly: false,
-                    len: array.len(),
-                    itemsize: array.itemsize(),
-                    format: array.typecode_str().into(),
-                    ..Default::default()
-                },
+                zelf.to_owned().into(),
+                BufferDescriptor::format(
+                    array.len() * array.itemsize(),
+                    false,
+                    array.itemsize(),
+                    array.typecode_str().into(),
+                ),
+                &BUFFER_METHODS,
             );
             Ok(buf)
         }
     }
 
-    #[derive(Debug)]
-    struct PyArrayBufferInternal(PyRef<PyArray>);
-
-    impl BufferInternal for PyArrayBufferInternal {
-        fn obj_bytes(&self) -> BorrowedValue<[u8]> {
-            self.0.get_bytes().into()
-        }
-
-        fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
-            self.0.get_bytes_mut().into()
-        }
-
-        fn release(&self) {
-            self.0.exports.fetch_sub(1);
-        }
-
-        fn retain(&self) {
-            self.0.exports.fetch_add(1);
-        }
-    }
+    static BUFFER_METHODS: BufferMethods = BufferMethods {
+        obj_bytes: |buffer| buffer.obj_as::<PyArray>().get_bytes().into(),
+        obj_bytes_mut: |buffer| buffer.obj_as::<PyArray>().get_bytes_mut().into(),
+        release: |buffer| {
+            buffer
+                .obj_as::<PyArray>()
+                .exports
+                .fetch_sub(1, atomic::Ordering::Release);
+        },
+        retain: |buffer| {
+            buffer
+                .obj_as::<PyArray>()
+                .exports
+                .fetch_add(1, atomic::Ordering::Release);
+        },
+    };
 
     impl AsMapping for PyArray {
         fn as_mapping(_zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
@@ -1290,7 +1284,7 @@ mod array {
     impl Iterable for PyArray {
         fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             Ok(PyArrayIter {
-                position: AtomicCell::new(0),
+                position: AtomicUsize::new(0),
                 array: zelf,
             }
             .into_object(vm))
@@ -1302,7 +1296,7 @@ mod array {
 
         fn try_resizable(&'a self, vm: &VirtualMachine) -> PyResult<Self::Resizable> {
             let w = self.write();
-            if self.exports.load() == 0 {
+            if self.exports.load(atomic::Ordering::SeqCst) == 0 {
                 Ok(w)
             } else {
                 Err(vm.new_buffer_error(
@@ -1316,7 +1310,7 @@ mod array {
     #[pyclass(name = "array_iterator")]
     #[derive(Debug, PyValue)]
     pub struct PyArrayIter {
-        position: AtomicCell<usize>,
+        position: AtomicUsize,
         array: PyArrayRef,
     }
 
@@ -1326,7 +1320,7 @@ mod array {
     impl IterNextIterable for PyArrayIter {}
     impl IterNext for PyArrayIter {
         fn next(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            let pos = zelf.position.fetch_add(1);
+            let pos = zelf.position.fetch_add(1, atomic::Ordering::SeqCst);
             let r = if let Some(item) = zelf.array.read().getitem_by_idx(pos, vm)? {
                 PyIterReturn::Return(item)
             } else {

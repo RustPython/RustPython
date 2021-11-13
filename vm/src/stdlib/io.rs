@@ -68,29 +68,27 @@ impl TryFromObject for Fildes {
 mod _io {
     use super::*;
 
-    use crate::common::{
-        borrow::{BorrowedValue, BorrowedValueMut},
-        lock::{
-            PyMappedThreadMutexGuard, PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
-            PyThreadMutex, PyThreadMutexGuard,
-        },
-        rc::PyRc,
-    };
     use crate::{
         builtins::{
             PyBaseExceptionRef, PyByteArray, PyBytes, PyBytesRef, PyIntRef, PyMemoryView, PyStr,
             PyStrRef, PyType, PyTypeRef,
         },
+        common::lock::{
+            PyMappedThreadMutexGuard, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
+            PyThreadMutex, PyThreadMutexGuard,
+        },
         function::{
             ArgBytesLike, ArgIterable, ArgMemoryBuffer, FuncArgs, IntoPyObject, OptionalArg,
             OptionalOption,
         },
-        protocol::{BufferInternal, BufferOptions, BufferResizeGuard, PyBuffer, PyIterReturn},
+        protocol::{
+            BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn, VecBuffer,
+        },
         types::{Constructor, Destructor, IterNext, Iterable},
         utils::Either,
         vm::{ReprGuard, VirtualMachine},
-        IdProtocol, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
-        TryFromBorrowedObject, TryFromObject, TypeProtocol,
+        IdProtocol, PyContext, PyObject, PyObjectRef, PyObjectWrap, PyRef, PyResult, PyValue,
+        StaticType, TryFromBorrowedObject, TryFromObject, TypeProtocol,
     };
     use bstr::ByteSlice;
     use crossbeam_utils::atomic::AtomicCell;
@@ -876,32 +874,20 @@ mod _io {
                 // TODO: loop if write() raises an interrupt
                 vm.call_method(self.raw.as_ref().unwrap(), "write", (memobj,))?
             } else {
-                let options = BufferOptions {
-                    len,
-                    ..Default::default()
-                };
-                // TODO: see if we can encapsulate this pattern in a function in memory.rs like
-                // fn slice_as_memory<R>(s: &[u8], f: impl FnOnce(PyMemoryViewRef) -> R) -> R
-                let writebuf = PyRc::new(BufferedRawBuffer {
-                    data: std::mem::take(&mut self.buffer).into(),
-                    range: buf_range,
-                });
-                let raw = self.raw.as_ref().unwrap();
-                let memobj = PyMemoryView::from_buffer(
-                    PyBuffer {
-                        obj: raw.clone(),
-                        options,
-                        internal: writebuf.clone(),
-                    },
+                let v = std::mem::take(&mut self.buffer);
+                let writebuf = VecBuffer::from(v).into_ref(vm);
+                let memobj = PyMemoryView::from_buffer_range(
+                    writebuf.clone().into_pybuffer(true),
+                    buf_range,
                     vm,
                 )?
                 .into_ref(vm);
 
                 // TODO: loop if write() raises an interrupt
-                let res = vm.call_method(raw, "write", (memobj.clone(),));
+                let res = vm.call_method(self.raw.as_ref().unwrap(), "write", (memobj.clone(),));
 
                 memobj.release();
-                self.buffer = std::mem::take(&mut writebuf.data.lock());
+                self.buffer = writebuf.take();
 
                 res?
             };
@@ -1114,23 +1100,10 @@ mod _io {
             let res = match v {
                 Either::A(v) => {
                     let v = v.unwrap_or(&mut self.buffer);
-                    let options = BufferOptions {
-                        len,
-                        readonly: false,
-                        ..Default::default()
-                    };
-                    // TODO: see if we can encapsulate this pattern in a function in memory.rs like
-                    // fn slice_as_memory<R>(s: &[u8], f: impl FnOnce(PyMemoryViewRef) -> R) -> R
-                    let readbuf = PyRc::new(BufferedRawBuffer {
-                        data: std::mem::take(v).into(),
-                        range: buf_range,
-                    });
-                    let memobj = PyMemoryView::from_buffer(
-                        PyBuffer {
-                            obj: vm.ctx.none(),
-                            options,
-                            internal: readbuf.clone(),
-                        },
+                    let readbuf = VecBuffer::from(std::mem::take(v)).into_ref(vm);
+                    let memobj = PyMemoryView::from_buffer_range(
+                        readbuf.clone().into_pybuffer(false),
+                        buf_range,
                         vm,
                     )?
                     .into_ref(vm);
@@ -1140,7 +1113,7 @@ mod _io {
                         vm.call_method(self.raw.as_ref().unwrap(), "readinto", (memobj.clone(),));
 
                     memobj.release();
-                    std::mem::swap(v, &mut readbuf.data.lock());
+                    std::mem::swap(v, &mut readbuf.take());
 
                     res?
                 }
@@ -1317,29 +1290,6 @@ mod _io {
 
             Ok(Some(written))
         }
-    }
-
-    // this is a bit fancier than what CPython does, but in CPython if you store
-    // the memoryobj for the buffer until after the BufferedIO is destroyed, you
-    // can get a use-after-free, so this is a bit safe
-    #[derive(Debug)]
-    struct BufferedRawBuffer {
-        data: PyMutex<Vec<u8>>,
-        range: Range<usize>,
-    }
-    impl BufferInternal for BufferedRawBuffer {
-        fn obj_bytes(&self) -> BorrowedValue<[u8]> {
-            BorrowedValue::map(self.data.lock().into(), |data| &data[self.range.clone()])
-        }
-
-        fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
-            BorrowedValueMut::map(self.data.lock().into(), |data| {
-                &mut data[self.range.clone()]
-            })
-        }
-
-        fn release(&self) {}
-        fn retain(&self) {}
     }
 
     pub fn get_offset(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Offset> {
@@ -3334,35 +3284,36 @@ mod _io {
 
         #[pymethod]
         fn getbuffer(self, vm: &VirtualMachine) -> PyResult<PyMemoryView> {
-            let options = BufferOptions {
-                readonly: false,
-                len: self.buffer.read().cursor.get_ref().len(),
-                ..Default::default()
-            };
-            let buffer = PyBuffer::new(self.as_object().to_owned(), self, options);
+            let len = self.buffer.read().cursor.get_ref().len();
+            let buffer = PyBuffer::new(
+                self.into_object(),
+                BufferDescriptor::simple(len, false),
+                &BYTES_IO_BUFFER_METHODS,
+            );
             let view = PyMemoryView::from_buffer(buffer, vm)?;
             Ok(view)
         }
     }
 
-    impl BufferInternal for PyRef<BytesIO> {
-        fn obj_bytes(&self) -> BorrowedValue<[u8]> {
-            PyRwLockReadGuard::map(self.buffer.read(), |x| x.cursor.get_ref().as_slice()).into()
-        }
-
-        fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
-            PyRwLockWriteGuard::map(self.buffer.write(), |x| x.cursor.get_mut().as_mut_slice())
+    static BYTES_IO_BUFFER_METHODS: BufferMethods = BufferMethods {
+        obj_bytes: |buffer| {
+            let zelf = buffer.obj_as::<BytesIO>();
+            PyRwLockReadGuard::map(zelf.buffer.read(), |x| x.cursor.get_ref().as_slice()).into()
+        },
+        obj_bytes_mut: |buffer| {
+            let zelf = buffer.obj_as::<BytesIO>();
+            PyRwLockWriteGuard::map(zelf.buffer.write(), |x| x.cursor.get_mut().as_mut_slice())
                 .into()
-        }
+        },
 
-        fn release(&self) {
-            self.exports.fetch_sub(1);
-        }
+        release: |buffer| {
+            buffer.obj_as::<BytesIO>().exports.fetch_sub(1);
+        },
 
-        fn retain(&self) {
-            self.exports.fetch_add(1);
-        }
-    }
+        retain: |buffer| {
+            buffer.obj_as::<BytesIO>().exports.fetch_add(1);
+        },
+    };
 
     impl<'a> BufferResizeGuard<'a> for BytesIO {
         type Resizable = PyRwLockWriteGuard<'a, BufferedIO>;

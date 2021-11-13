@@ -392,19 +392,7 @@ impl CFormatSpec {
                 }
                 CFormatPreconversor::Str | CFormatPreconversor::Bytes => {
                     if let Ok(buffer) = PyBuffer::try_from_borrowed_object(vm, &obj) {
-                        let guard;
-                        let vec;
-                        let bytes = match buffer.as_contiguous() {
-                            Some(bytes) => {
-                                guard = bytes;
-                                &*guard
-                            }
-                            None => {
-                                vec = buffer.to_contiguous();
-                                vec.as_slice()
-                            }
-                        };
-                        Ok(self.format_bytes(bytes))
+                        Ok(buffer.contiguous_or_collect(|bytes| self.format_bytes(bytes)))
                     } else {
                         let bytes = vm
                             .get_special_method(obj, "__bytes__")?

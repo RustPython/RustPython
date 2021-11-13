@@ -3,13 +3,6 @@ use super::{
     PositionIterInternal, PyBytes, PyBytesRef, PyDictRef, PyIntRef, PyStrRef, PyTuple, PyTupleRef,
     PyTypeRef,
 };
-use crate::common::{
-    borrow::{BorrowedValue, BorrowedValueMut},
-    lock::{
-        PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyMutex, PyRwLock, PyRwLockReadGuard,
-        PyRwLockWriteGuard,
-    },
-};
 use crate::{
     anystr::{self, AnyStr},
     builtins::PyType,
@@ -18,9 +11,17 @@ use crate::{
         ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerSplitOptions,
         ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
     },
+    common::{
+        atomic::{AtomicUsize, Ordering},
+        lock::{
+            PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyMutex, PyRwLock,
+            PyRwLockReadGuard, PyRwLockWriteGuard,
+        },
+    },
     function::{ArgBytesLike, ArgIterable, FuncArgs, IntoPyObject, OptionalArg, OptionalOption},
     protocol::{
-        BufferInternal, BufferOptions, BufferResizeGuard, PyBuffer, PyIterReturn, PyMappingMethods,
+        BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
+        PyMappingMethods,
     },
     sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
     types::{
@@ -29,10 +30,9 @@ use crate::{
     },
     utils::Either,
     IdProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef,
-    PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
+    PyObjectView, PyObjectWrap, PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
 use bstr::ByteSlice;
-use crossbeam_utils::atomic::AtomicCell;
 use std::mem::size_of;
 
 /// "bytearray(iterable_of_ints) -> bytearray\n\
@@ -50,7 +50,7 @@ use std::mem::size_of;
 #[derive(Debug, Default)]
 pub struct PyByteArray {
     inner: PyRwLock<PyBytesInner>,
-    exports: AtomicCell<usize>,
+    exports: AtomicUsize,
 }
 
 pub type PyByteArrayRef = PyRef<PyByteArray>;
@@ -63,7 +63,7 @@ impl PyByteArray {
     fn from_inner(inner: PyBytesInner) -> Self {
         PyByteArray {
             inner: PyRwLock::new(inner),
-            exports: AtomicCell::new(0),
+            exports: AtomicUsize::new(0),
         }
     }
 
@@ -116,6 +116,12 @@ impl PyByteArray {
         let mut inner = options.get_bytearray_inner(vm)?;
         std::mem::swap(&mut *self.inner_mut(), &mut inner);
         Ok(())
+    }
+
+    #[cfg(debug_assertions)]
+    #[pyproperty]
+    fn exports(&self) -> usize {
+        self.exports.load(Ordering::Relaxed)
     }
 
     #[inline]
@@ -708,36 +714,35 @@ impl Comparable for PyByteArray {
     }
 }
 
+static BUFFER_METHODS: BufferMethods = BufferMethods {
+    obj_bytes: |buffer| buffer.obj_as::<PyByteArray>().borrow_buf().into(),
+    obj_bytes_mut: |buffer| {
+        PyMappedRwLockWriteGuard::map(buffer.obj_as::<PyByteArray>().borrow_buf_mut(), |x| {
+            x.as_mut_slice()
+        })
+        .into()
+    },
+    release: |buffer| {
+        buffer
+            .obj_as::<PyByteArray>()
+            .exports
+            .fetch_sub(1, Ordering::Release);
+    },
+    retain: |buffer| {
+        buffer
+            .obj_as::<PyByteArray>()
+            .exports
+            .fetch_add(1, Ordering::Release);
+    },
+};
+
 impl AsBuffer for PyByteArray {
-    fn as_buffer(zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
-        let buffer = PyBuffer::new(
-            zelf.as_object().to_owned(),
-            zelf.to_owned(),
-            BufferOptions {
-                readonly: false,
-                len: zelf.len(),
-                ..Default::default()
-            },
-        );
-        Ok(buffer)
-    }
-}
-
-impl BufferInternal for PyRef<PyByteArray> {
-    fn obj_bytes(&self) -> BorrowedValue<[u8]> {
-        self.borrow_buf().into()
-    }
-
-    fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
-        PyRwLockWriteGuard::map(self.inner_mut(), |inner| &mut *inner.elements).into()
-    }
-
-    fn release(&self) {
-        self.exports.fetch_sub(1);
-    }
-
-    fn retain(&self) {
-        self.exports.fetch_add(1);
+    fn as_buffer(zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
+        Ok(PyBuffer::new(
+            zelf.to_owned().into_object(),
+            BufferDescriptor::simple(zelf.len(), false),
+            &BUFFER_METHODS,
+        ))
     }
 }
 
@@ -746,7 +751,7 @@ impl<'a> BufferResizeGuard<'a> for PyByteArray {
 
     fn try_resizable(&'a self, vm: &VirtualMachine) -> PyResult<Self::Resizable> {
         let w = self.inner.upgradable_read();
-        if self.exports.load() == 0 {
+        if self.exports.load(Ordering::SeqCst) == 0 {
             Ok(parking_lot::lock_api::RwLockUpgradableReadGuard::upgrade(w))
         } else {
             Err(vm
