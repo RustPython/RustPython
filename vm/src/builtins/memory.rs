@@ -993,11 +993,14 @@ impl AsSequence for PyMemoryView {
                 zelf.len(vm)
             }),
             item: Some(|zelf, i, vm| {
-                let zelf = zelf.clone().downcast::<Self>().unwrap();
+                let zelf = zelf.downcast_ref::<Self>().unwrap();
                 zelf.try_not_released(vm)?;
+                zelf.getitem_by_idx(i, vm)
             }),
+            ..Default::default()
         }))
     }
+}
 
 impl Comparable for PyMemoryView {
     fn cmp(

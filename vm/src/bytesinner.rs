@@ -926,7 +926,7 @@ impl PyBytesInner {
         self.elements.imul(vm, n)
     }
 
-    pub fn concat(&self, other: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+    pub fn concat(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         let buffer = PyBuffer::try_from_borrowed_object(vm, other)?;
         let borrowed = buffer.as_contiguous();
         if let Some(other) = borrowed {
@@ -936,7 +936,7 @@ impl PyBytesInner {
             Ok(v)
         } else {
             let mut v = self.elements.clone();
-            v.append(&mut buffer.to_contiguous());
+            buffer.append_to(&mut v);
             Ok(v)
         }
     }

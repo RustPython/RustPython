@@ -7,8 +7,8 @@ use crate::{
     builtins::{PyList, PySlice},
     common::static_cell,
     function::IntoPyObject,
-    IdProtocol, PyArithmeticValue, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
-    VirtualMachine,
+    IdProtocol, PyArithmeticValue, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol, VirtualMachine,
 };
 
 // Sequence Protocol
@@ -17,15 +17,15 @@ use crate::{
 #[allow(clippy::type_complexity)]
 #[derive(Default, Clone)]
 pub struct PySequenceMethods {
-    pub length: Option<fn(&PyObjectRef, &VirtualMachine) -> PyResult<usize>>,
-    pub concat: Option<fn(&PyObjectRef, &PyObjectRef, &VirtualMachine) -> PyResult>,
-    pub repeat: Option<fn(&PyObjectRef, usize, &VirtualMachine) -> PyResult>,
-    pub item: Option<fn(&PyObjectRef, isize, &VirtualMachine) -> PyResult>,
+    pub length: Option<fn(&PyObject, &VirtualMachine) -> PyResult<usize>>,
+    pub concat: Option<fn(&PyObject, &PyObject, &VirtualMachine) -> PyResult>,
+    pub repeat: Option<fn(&PyObject, usize, &VirtualMachine) -> PyResult>,
+    pub item: Option<fn(&PyObject, isize, &VirtualMachine) -> PyResult>,
     pub ass_item:
-        Option<fn(&PyObjectRef, isize, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>>,
-    pub contains: Option<fn(&PyObjectRef, &PyObjectRef, &VirtualMachine) -> PyResult<bool>>,
-    pub inplace_concat: Option<fn(&PyObjectRef, &PyObjectRef, &VirtualMachine) -> PyResult>,
-    pub inplace_repeat: Option<fn(&PyObjectRef, usize, &VirtualMachine) -> PyResult>,
+        Option<fn(&PyObject, isize, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>>,
+    pub contains: Option<fn(&PyObject, &PyObject, &VirtualMachine) -> PyResult<bool>>,
+    pub inplace_concat: Option<fn(&PyObject, &PyObject, &VirtualMachine) -> PyResult>,
+    pub inplace_repeat: Option<fn(&PyObject, usize, &VirtualMachine) -> PyResult>,
 }
 
 impl PySequenceMethods {
@@ -59,7 +59,7 @@ pub struct PySequence {
 }
 
 impl PySequence {
-    pub fn check(obj: &PyObjectRef, vm: &VirtualMachine) -> bool {
+    pub fn check(obj: &PyObject, vm: &VirtualMachine) -> bool {
         let cls = obj.class();
         if cls.is(&vm.ctx.types.dict_type) {
             return false;
@@ -99,7 +99,7 @@ impl PySequence {
         }
     }
 
-    pub fn concat(&self, other: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    pub fn concat(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult {
         if let Some(f) = self.methods().concat {
             return f(&self.obj, other, vm);
         }
@@ -113,7 +113,7 @@ impl PySequence {
         try_mul_for_repeat(&self.obj, n, vm)
     }
 
-    pub fn inplace_concat(&self, other: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    pub fn inplace_concat(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult {
         if let Some(f) = self.methods().inplace_concat {
             return f(&self.obj, other, vm);
         }
@@ -251,13 +251,13 @@ impl PySequence {
         Ok(list.into())
     }
 
-    pub fn contains(&self, target: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+    pub fn contains(&self, target: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
         if let Some(f) = self.methods().contains {
             return f(&self.obj, target, vm);
         }
 
         let iter = self.obj.clone().get_iter(vm)?;
-        let iter = iter.iter(vm)?;
+        let iter = iter.iter::<PyObjectRef>(vm)?;
 
         for elem in iter {
             let elem = elem?;
@@ -268,11 +268,11 @@ impl PySequence {
         Ok(false)
     }
 
-    pub fn count(&self, target: &PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+    pub fn count(&self, target: &PyObject, vm: &VirtualMachine) -> PyResult<usize> {
         let mut n = 0;
 
         let iter = self.obj.clone().get_iter(vm)?;
-        let iter = iter.iter(vm)?;
+        let iter = iter.iter::<PyObjectRef>(vm)?;
 
         for elem in iter {
             let elem = elem?;
@@ -287,11 +287,11 @@ impl PySequence {
         Ok(n)
     }
 
-    pub fn index(&self, target: &PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+    pub fn index(&self, target: &PyObject, vm: &VirtualMachine) -> PyResult<usize> {
         let mut index: isize = -1;
 
         let iter = self.obj.clone().get_iter(vm)?;
-        let iter = iter.iter(vm)?;
+        let iter = iter.iter::<PyObjectRef>(vm)?;
 
         for elem in iter {
             if index == isize::MAX {
@@ -316,7 +316,7 @@ impl TryFromObject for PySequence {
     }
 }
 
-pub fn try_add_for_concat(a: &PyObjectRef, b: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
+pub fn try_add_for_concat(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
     if PySequence::check(b, vm) {
         let ret = vm._add(a, b)?;
         if let PyArithmeticValue::Implemented(ret) = PyArithmeticValue::from_object(vm, ret) {
@@ -329,7 +329,7 @@ pub fn try_add_for_concat(a: &PyObjectRef, b: &PyObjectRef, vm: &VirtualMachine)
     )))
 }
 
-pub fn try_mul_for_repeat(a: &PyObjectRef, n: usize, vm: &VirtualMachine) -> PyResult {
+pub fn try_mul_for_repeat(a: &PyObject, n: usize, vm: &VirtualMachine) -> PyResult {
     let ret = vm._mul(a, &n.into_pyobject(vm))?;
     if let PyArithmeticValue::Implemented(ret) = PyArithmeticValue::from_object(vm, ret) {
         return Ok(ret);
@@ -337,11 +337,7 @@ pub fn try_mul_for_repeat(a: &PyObjectRef, n: usize, vm: &VirtualMachine) -> PyR
     Err(vm.new_type_error(format!("'{}' object can't be repeated", a.class().name())))
 }
 
-pub fn try_iadd_for_inplace_concat(
-    a: &PyObjectRef,
-    b: &PyObjectRef,
-    vm: &VirtualMachine,
-) -> PyResult {
+pub fn try_iadd_for_inplace_concat(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
     if PySequence::check(b, vm) {
         let ret = vm._iadd(a, b)?;
         if let PyArithmeticValue::Implemented(ret) = PyArithmeticValue::from_object(vm, ret) {
@@ -354,7 +350,7 @@ pub fn try_iadd_for_inplace_concat(
     )))
 }
 
-pub fn try_imul_for_inplace_repeat(a: &PyObjectRef, n: usize, vm: &VirtualMachine) -> PyResult {
+pub fn try_imul_for_inplace_repeat(a: &PyObject, n: usize, vm: &VirtualMachine) -> PyResult {
     let ret = vm._imul(a, &n.into_pyobject(vm))?;
     if let PyArithmeticValue::Implemented(ret) = PyArithmeticValue::from_object(vm, ret) {
         return Ok(ret);

@@ -215,16 +215,20 @@ fn as_sequence_wrapper(zelf: &PyObject, _vm: &VirtualMachine) -> Cow<'static, Py
             vm.obj_len_opt(zelf).unwrap()
         }),
         item: Some(|zelf, i, vm| {
-            vm.call_special_method(zelf.clone(), "__getitem__", (i.into_pyobject(vm),))
+            vm.call_special_method(zelf.to_owned(), "__getitem__", (i.into_pyobject(vm),))
         }),
         ass_item: then_some_closure!(
             zelf.has_class_attr("__setitem__") | zelf.has_class_attr("__delitem__"),
             |zelf, i, value, vm| match value {
                 Some(value) => vm
-                    .call_special_method(zelf.clone(), "__setitem__", (i.into_pyobject(vm), value),)
+                    .call_special_method(
+                        zelf.to_owned(),
+                        "__setitem__",
+                        (i.into_pyobject(vm), value),
+                    )
                     .map(|_| Ok(()))?,
                 None => vm
-                    .call_special_method(zelf.clone(), "__delitem__", (i.into_pyobject(vm),))
+                    .call_special_method(zelf.to_owned(), "__delitem__", (i.into_pyobject(vm),))
                     .map(|_| Ok(()))?,
             }
         ),

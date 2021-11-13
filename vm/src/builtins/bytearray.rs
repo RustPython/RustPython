@@ -17,11 +17,12 @@ use crate::{
             PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyMutex, PyRwLock,
             PyRwLockReadGuard, PyRwLockWriteGuard,
         },
+        static_cell,
     },
     function::{ArgBytesLike, ArgIterable, FuncArgs, IntoPyObject, OptionalArg, OptionalOption},
     protocol::{
         BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
-        PyMappingMethods,
+        PyMappingMethods, PySequenceMethods,
     },
     sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
     types::{
@@ -30,10 +31,11 @@ use crate::{
     },
     utils::Either,
     IdProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef,
-    PyObjectView, PyObjectWrap, PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
+    PyObjectView, PyObjectWrap, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    VirtualMachine,
 };
 use bstr::ByteSlice;
-use std::mem::size_of;
+use std::{borrow::Cow, mem::size_of};
 
 #[pyclass(module = false, name = "bytearray")]
 #[derive(Debug, Default)]
@@ -765,7 +767,10 @@ impl AsMapping for PyByteArray {
 }
 
 impl AsSequence for PyByteArray {
-    fn as_sequence(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> Cow<'static, PySequenceMethods> {
+    fn as_sequence(
+        _zelf: &PyObjectView<Self>,
+        _vm: &VirtualMachine,
+    ) -> Cow<'static, PySequenceMethods> {
         static_cell! {
             static METHODS: PySequenceMethods;
         }
@@ -794,16 +799,17 @@ impl AsSequence for PyByteArray {
                 }
             }),
             contains: Some(|zelf, other, vm| {
-                let other = <Either<PyBytesInner, PyIntRef>>::try_from_object(vm, other.clone())?;
+                let other =
+                    <Either<PyBytesInner, PyIntRef>>::try_from_object(vm, other.to_owned())?;
                 zelf.payload::<Self>().unwrap().contains(other, vm)
             }),
             inplace_concat: Some(|zelf, other, vm| {
-                let other = ArgBytesLike::try_from_object(vm, other.clone())?;
-                let zelf = zelf.clone().downcast::<Self>().unwrap();
+                let other = ArgBytesLike::try_from_object(vm, other.to_owned())?;
+                let zelf = zelf.downcast_ref::<Self>().unwrap().to_owned();
                 Self::iadd(zelf, other, vm).map(|x| x.into())
             }),
             inplace_repeat: Some(|zelf, n, vm| {
-                let zelf = zelf.clone().downcast::<Self>().unwrap();
+                let zelf = zelf.downcast_ref::<Self>().unwrap().to_owned();
                 Self::imul(zelf, n as isize, vm).map(|x| x.into())
             }),
         }))

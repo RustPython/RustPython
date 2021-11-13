@@ -6,21 +6,24 @@ use crate::{
         bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
         ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
     },
-    common::{hash::PyHash, lock::PyMutex},
+    common::{hash::PyHash, lock::PyMutex, static_cell},
     function::{
         ArgBytesLike, ArgIterable, IntoPyObject, IntoPyResult, OptionalArg, OptionalOption,
     },
-    protocol::{BufferDescriptor, BufferMethods, PyBuffer, PyIterReturn, PyMappingMethods},
+    protocol::{
+        BufferDescriptor, BufferMethods, PyBuffer, PyIterReturn, PyMappingMethods,
+        PySequenceMethods,
+    },
     types::{
         AsBuffer, AsMapping, AsSequence, Callable, Comparable, Constructor, Hashable, IterNext,
         IterNextIterable, Iterable, PyComparisonOp, Unconstructible,
     },
     utils::Either,
     IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyObjectView,
-    PyObjectWrap, PyRef, PyResult, PyValue, TryFromBorrowedObject, TypeProtocol, VirtualMachine,
+    PyObjectWrap, PyRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject, TypeProtocol,
+    VirtualMachine,
 };
 use bstr::ByteSlice;
-use std::mem::size_of;
 use std::ops::Deref;
 use std::{borrow::Cow, mem::size_of};
 
@@ -567,7 +570,10 @@ impl AsMapping for PyBytes {
 }
 
 impl AsSequence for PyBytes {
-    fn as_sequence(_zelf: &PyRef<Self>, _vm: &VirtualMachine) -> Cow<'static, PySequenceMethods> {
+    fn as_sequence(
+        _zelf: &PyObjectView<Self>,
+        _vm: &VirtualMachine,
+    ) -> Cow<'static, PySequenceMethods> {
         static_cell! {
             static METHODS: PySequenceMethods;
         }
@@ -588,7 +594,8 @@ impl AsSequence for PyBytes {
             }),
             item: Some(|zelf, i, vm| zelf.payload::<Self>().unwrap().inner.item(i, vm)),
             contains: Some(|zelf, other, vm| {
-                let other = <Either<PyBytesInner, PyIntRef>>::try_from_object(vm, other.clone())?;
+                let other =
+                    <Either<PyBytesInner, PyIntRef>>::try_from_object(vm, other.to_owned())?;
                 zelf.payload::<Self>().unwrap().contains(other, vm)
             }),
             ..Default::default()
