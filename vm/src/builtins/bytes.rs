@@ -6,7 +6,7 @@ use crate::{
         bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
         ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
     },
-    common::{hash::PyHash, lock::PyMutex, static_cell},
+    common::{hash::PyHash, lock::PyMutex},
     function::{
         ArgBytesLike, ArgIterable, IntoPyObject, IntoPyResult, OptionalArg, OptionalOption,
     },
@@ -574,27 +574,27 @@ impl AsSequence for PyBytes {
         _zelf: &PyObjectView<Self>,
         _vm: &VirtualMachine,
     ) -> Cow<'static, PySequenceMethods> {
-        static_cell! {
-            static METHODS: PySequenceMethods;
-        }
-        Cow::Borrowed(METHODS.get_or_init(|| PySequenceMethods {
-            length: Some(|seq, _vm| Ok(seq.obj_as::<Self>().len())),
-            concat: Some(|seq, other, vm| {
-                seq.obj_as::<Self>()
-                    .inner
-                    .concat(other, vm)
-                    .map(|x| vm.ctx.new_bytes(x).into())
-            }),
-            repeat: Some(|seq, n, vm| Ok(vm.ctx.new_bytes(seq.obj_as::<Self>().repeat(n)).into())),
-            item: Some(|seq, i, vm| seq.obj_as::<Self>().inner.item(i, vm)),
-            contains: Some(|seq, other, vm| {
-                let other =
-                    <Either<PyBytesInner, PyIntRef>>::try_from_object(vm, other.to_owned())?;
-                seq.obj_as::<Self>().contains(other, vm)
-            }),
-            ..Default::default()
-        }))
+        Cow::Borrowed(&Self::SEQUENCE_METHODS)
     }
+}
+
+impl PyBytes {
+    const SEQUENCE_METHODS: PySequenceMethods = PySequenceMethods {
+        length: Some(|seq, _vm| Ok(seq.obj_as::<Self>().len())),
+        concat: Some(|seq, other, vm| {
+            seq.obj_as::<Self>()
+                .inner
+                .concat(other, vm)
+                .map(|x| vm.ctx.new_bytes(x).into())
+        }),
+        repeat: Some(|seq, n, vm| Ok(vm.ctx.new_bytes(seq.obj_as::<Self>().repeat(n)).into())),
+        item: Some(|seq, i, vm| seq.obj_as::<Self>().inner.item(i, vm)),
+        contains: Some(|seq, other, vm| {
+            let other = <Either<PyBytesInner, PyIntRef>>::try_from_object(vm, other.to_owned())?;
+            seq.obj_as::<Self>().contains(other, vm)
+        }),
+        ..*PySequenceMethods::not_implemented()
+    };
 }
 
 impl Hashable for PyBytes {

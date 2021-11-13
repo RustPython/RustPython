@@ -7,7 +7,6 @@ use crate::{
         borrow::{BorrowedValue, BorrowedValueMut},
         hash::PyHash,
         lock::OnceCell,
-        static_cell,
     },
     function::{FuncArgs, IntoPyObject, OptionalArg},
     protocol::{BufferDescriptor, BufferMethods, PyBuffer, PyMappingMethods, VecBuffer},
@@ -983,23 +982,24 @@ impl AsSequence for PyMemoryView {
         _zelf: &PyObjectView<Self>,
         _vm: &VirtualMachine,
     ) -> Cow<'static, PySequenceMethods> {
-        static_cell! {
-            static METHODS: PySequenceMethods;
-        }
-        Cow::Borrowed(METHODS.get_or_init(|| PySequenceMethods {
-            length: Some(|seq, vm| {
-                let zelf = seq.obj_as::<Self>();
-                zelf.try_not_released(vm)?;
-                zelf.len(vm)
-            }),
-            item: Some(|seq, i, vm| {
-                let zelf = seq.obj_as::<Self>();
-                zelf.try_not_released(vm)?;
-                zelf.getitem_by_idx(i, vm)
-            }),
-            ..Default::default()
-        }))
+        Cow::Borrowed(&Self::SEQUENCE_METHODS)
     }
+}
+
+impl PyMemoryView {
+    const SEQUENCE_METHODS: PySequenceMethods = PySequenceMethods {
+        length: Some(|seq, vm| {
+            let zelf = seq.obj_as::<Self>();
+            zelf.try_not_released(vm)?;
+            zelf.len(vm)
+        }),
+        item: Some(|seq, i, vm| {
+            let zelf = seq.obj_as::<Self>();
+            zelf.try_not_released(vm)?;
+            zelf.getitem_by_idx(i, vm)
+        }),
+        ..*PySequenceMethods::not_implemented()
+    };
 }
 
 impl Comparable for PyMemoryView {

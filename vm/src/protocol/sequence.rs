@@ -5,7 +5,6 @@ use itertools::Itertools;
 
 use crate::{
     builtins::{PyList, PySlice},
-    common::static_cell,
     function::IntoPyObject,
     IdProtocol, PyArithmeticValue, PyObject, PyObjectPayload, PyObjectRef, PyObjectView, PyResult,
     PyValue, TryFromObject, TypeProtocol, VirtualMachine,
@@ -29,11 +28,8 @@ pub struct PySequenceMethods {
 }
 
 impl PySequenceMethods {
-    pub fn not_implemented() -> &'static Self {
-        static_cell! {
-            static NOT_IMPLEMENTED: PySequenceMethods;
-        }
-        NOT_IMPLEMENTED.get_or_init(Self::default)
+    pub const fn not_implemented() -> &'static Self {
+        &NOT_IMPLEMENTED
     }
 }
 
@@ -361,3 +357,14 @@ pub fn try_imul_for_inplace_repeat(a: &PyObject, n: usize, vm: &VirtualMachine) 
     }
     Err(vm.new_type_error(format!("'{}' object can't be repeated", a.class().name())))
 }
+
+const NOT_IMPLEMENTED: PySequenceMethods = PySequenceMethods {
+    length: None,
+    concat: None,
+    repeat: None,
+    item: None,
+    ass_item: None,
+    contains: None,
+    inplace_concat: None,
+    inplace_repeat: None,
+};

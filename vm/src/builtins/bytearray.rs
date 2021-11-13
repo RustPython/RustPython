@@ -17,7 +17,6 @@ use crate::{
             PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyMutex, PyRwLock,
             PyRwLockReadGuard, PyRwLockWriteGuard,
         },
-        static_cell,
     },
     function::{ArgBytesLike, ArgIterable, FuncArgs, IntoPyObject, OptionalArg, OptionalOption},
     protocol::{
@@ -771,47 +770,47 @@ impl AsSequence for PyByteArray {
         _zelf: &PyObjectView<Self>,
         _vm: &VirtualMachine,
     ) -> Cow<'static, PySequenceMethods> {
-        static_cell! {
-            static METHODS: PySequenceMethods;
-        }
-        Cow::Borrowed(METHODS.get_or_init(|| PySequenceMethods {
-            length: Some(|seq, _vm| Ok(seq.obj_as::<Self>().len())),
-            concat: Some(|seq, other, vm| {
-                seq.obj_as::<Self>()
-                    .inner()
-                    .concat(other, vm)
-                    .map(|x| PyByteArray::from(x).into_object(vm))
-            }),
-            repeat: Some(|seq, n, vm| {
-                seq.obj_as::<Self>()
-                    .mul(n as isize, vm)
-                    .map(|x| x.into_object(vm))
-            }),
-            item: Some(|seq, i, vm| seq.obj_as::<Self>().inner().item(i, vm)),
-            ass_item: Some(|seq, i, value, vm| {
-                let zelf = seq.obj_as::<Self>();
-                if let Some(value) = value {
-                    zelf.setitem_by_idx(i, value, vm)
-                } else {
-                    zelf.delitem_by_idx(i, vm)
-                }
-            }),
-            contains: Some(|seq, other, vm| {
-                let other =
-                    <Either<PyBytesInner, PyIntRef>>::try_from_object(vm, other.to_owned())?;
-                seq.obj_as::<Self>().contains(other, vm)
-            }),
-            inplace_concat: Some(|seq, other, vm| {
-                let other = ArgBytesLike::try_from_object(vm, other.to_owned())?;
-                let zelf = seq.obj_as::<Self>().to_owned();
-                Self::iadd(zelf, other, vm).map(|x| x.into())
-            }),
-            inplace_repeat: Some(|seq, n, vm| {
-                let zelf = seq.obj_as::<Self>().to_owned();
-                Self::imul(zelf, n as isize, vm).map(|x| x.into())
-            }),
-        }))
+        Cow::Borrowed(&Self::SEQUENCE_METHODS)
     }
+}
+
+impl PyByteArray {
+    const SEQUENCE_METHODS: PySequenceMethods = PySequenceMethods {
+        length: Some(|seq, _vm| Ok(seq.obj_as::<Self>().len())),
+        concat: Some(|seq, other, vm| {
+            seq.obj_as::<Self>()
+                .inner()
+                .concat(other, vm)
+                .map(|x| PyByteArray::from(x).into_object(vm))
+        }),
+        repeat: Some(|seq, n, vm| {
+            seq.obj_as::<Self>()
+                .mul(n as isize, vm)
+                .map(|x| x.into_object(vm))
+        }),
+        item: Some(|seq, i, vm| seq.obj_as::<Self>().inner().item(i, vm)),
+        ass_item: Some(|seq, i, value, vm| {
+            let zelf = seq.obj_as::<Self>();
+            if let Some(value) = value {
+                zelf.setitem_by_idx(i, value, vm)
+            } else {
+                zelf.delitem_by_idx(i, vm)
+            }
+        }),
+        contains: Some(|seq, other, vm| {
+            let other = <Either<PyBytesInner, PyIntRef>>::try_from_object(vm, other.to_owned())?;
+            seq.obj_as::<Self>().contains(other, vm)
+        }),
+        inplace_concat: Some(|seq, other, vm| {
+            let other = ArgBytesLike::try_from_object(vm, other.to_owned())?;
+            let zelf = seq.obj_as::<Self>().to_owned();
+            Self::iadd(zelf, other, vm).map(|x| x.into())
+        }),
+        inplace_repeat: Some(|seq, n, vm| {
+            let zelf = seq.obj_as::<Self>().to_owned();
+            Self::imul(zelf, n as isize, vm).map(|x| x.into())
+        }),
+    };
 }
 
 impl Unhashable for PyByteArray {}
