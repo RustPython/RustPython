@@ -642,14 +642,8 @@ class TestSupport(unittest.TestCase):
 
     def check_print_warning(self, msg, expected):
         stderr = io.StringIO()
-
-        old_stderr = sys.__stderr__
-        try:
-            sys.__stderr__ = stderr
+        with support.swap_attr(support.print_warning, 'orig_stderr', stderr):
             support.print_warning(msg)
-        finally:
-            sys.__stderr__ = old_stderr
-
         self.assertEqual(stderr.getvalue(), expected)
 
     def test_print_warning(self):
