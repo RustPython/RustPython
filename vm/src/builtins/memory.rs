@@ -987,13 +987,13 @@ impl AsSequence for PyMemoryView {
             static METHODS: PySequenceMethods;
         }
         Cow::Borrowed(METHODS.get_or_init(|| PySequenceMethods {
-            length: Some(|zelf, vm| {
-                let zelf = zelf.payload::<Self>().unwrap();
+            length: Some(|seq, vm| {
+                let zelf = seq.obj_as::<Self>();
                 zelf.try_not_released(vm)?;
                 zelf.len(vm)
             }),
-            item: Some(|zelf, i, vm| {
-                let zelf = zelf.downcast_ref::<Self>().unwrap();
+            item: Some(|seq, i, vm| {
+                let zelf = seq.obj_as::<Self>();
                 zelf.try_not_released(vm)?;
                 zelf.getitem_by_idx(i, vm)
             }),

@@ -775,41 +775,39 @@ impl AsSequence for PyByteArray {
             static METHODS: PySequenceMethods;
         }
         Cow::Borrowed(METHODS.get_or_init(|| PySequenceMethods {
-            length: Some(|zelf, _vm| Ok(zelf.payload::<Self>().unwrap().len())),
-            concat: Some(|zelf, other, vm| {
-                zelf.payload::<Self>()
-                    .unwrap()
+            length: Some(|seq, _vm| Ok(seq.obj_as::<Self>().len())),
+            concat: Some(|seq, other, vm| {
+                seq.obj_as::<Self>()
                     .inner()
                     .concat(other, vm)
                     .map(|x| PyByteArray::from(x).into_object(vm))
             }),
-            repeat: Some(|zelf, n, vm| {
-                zelf.payload::<Self>()
-                    .unwrap()
+            repeat: Some(|seq, n, vm| {
+                seq.obj_as::<Self>()
                     .mul(n as isize, vm)
                     .map(|x| x.into_object(vm))
             }),
-            item: Some(|zelf, i, vm| zelf.payload::<Self>().unwrap().inner().item(i, vm)),
-            ass_item: Some(|zelf, i, value, vm| {
-                let zelf = zelf.payload::<Self>().unwrap();
+            item: Some(|seq, i, vm| seq.obj_as::<Self>().inner().item(i, vm)),
+            ass_item: Some(|seq, i, value, vm| {
+                let zelf = seq.obj_as::<Self>();
                 if let Some(value) = value {
                     zelf.setitem_by_idx(i, value, vm)
                 } else {
                     zelf.delitem_by_idx(i, vm)
                 }
             }),
-            contains: Some(|zelf, other, vm| {
+            contains: Some(|seq, other, vm| {
                 let other =
                     <Either<PyBytesInner, PyIntRef>>::try_from_object(vm, other.to_owned())?;
-                zelf.payload::<Self>().unwrap().contains(other, vm)
+                seq.obj_as::<Self>().contains(other, vm)
             }),
-            inplace_concat: Some(|zelf, other, vm| {
+            inplace_concat: Some(|seq, other, vm| {
                 let other = ArgBytesLike::try_from_object(vm, other.to_owned())?;
-                let zelf = zelf.downcast_ref::<Self>().unwrap().to_owned();
+                let zelf = seq.obj_as::<Self>().to_owned();
                 Self::iadd(zelf, other, vm).map(|x| x.into())
             }),
-            inplace_repeat: Some(|zelf, n, vm| {
-                let zelf = zelf.downcast_ref::<Self>().unwrap().to_owned();
+            inplace_repeat: Some(|seq, n, vm| {
+                let zelf = seq.obj_as::<Self>().to_owned();
                 Self::imul(zelf, n as isize, vm).map(|x| x.into())
             }),
         }))

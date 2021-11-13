@@ -7,8 +7,8 @@ use crate::{
     builtins::{PyList, PySlice},
     common::static_cell,
     function::IntoPyObject,
-    IdProtocol, PyArithmeticValue, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol, VirtualMachine,
+    IdProtocol, PyArithmeticValue, PyObject, PyObjectPayload, PyObjectRef, PyObjectView, PyResult,
+    PyValue, TryFromObject, TypeProtocol, VirtualMachine,
 };
 
 // Sequence Protocol
@@ -17,15 +17,15 @@ use crate::{
 #[allow(clippy::type_complexity)]
 #[derive(Default, Clone)]
 pub struct PySequenceMethods {
-    pub length: Option<fn(&PyObject, &VirtualMachine) -> PyResult<usize>>,
-    pub concat: Option<fn(&PyObject, &PyObject, &VirtualMachine) -> PyResult>,
-    pub repeat: Option<fn(&PyObject, usize, &VirtualMachine) -> PyResult>,
-    pub item: Option<fn(&PyObject, isize, &VirtualMachine) -> PyResult>,
+    pub length: Option<fn(&PySequence, &VirtualMachine) -> PyResult<usize>>,
+    pub concat: Option<fn(&PySequence, &PyObject, &VirtualMachine) -> PyResult>,
+    pub repeat: Option<fn(&PySequence, usize, &VirtualMachine) -> PyResult>,
+    pub item: Option<fn(&PySequence, isize, &VirtualMachine) -> PyResult>,
     pub ass_item:
-        Option<fn(&PyObject, isize, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>>,
-    pub contains: Option<fn(&PyObject, &PyObject, &VirtualMachine) -> PyResult<bool>>,
-    pub inplace_concat: Option<fn(&PyObject, &PyObject, &VirtualMachine) -> PyResult>,
-    pub inplace_repeat: Option<fn(&PyObject, usize, &VirtualMachine) -> PyResult>,
+        Option<fn(&PySequence, isize, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>>,
+    pub contains: Option<fn(&PySequence, &PyObject, &VirtualMachine) -> PyResult<bool>>,
+    pub inplace_concat: Option<fn(&PySequence, &PyObject, &VirtualMachine) -> PyResult>,
+    pub inplace_repeat: Option<fn(&PySequence, usize, &VirtualMachine) -> PyResult>,
 }
 
 impl PySequenceMethods {
@@ -59,6 +59,10 @@ pub struct PySequence {
 }
 
 impl PySequence {
+    pub fn obj_as<T: PyObjectPayload>(&self) -> &PyObjectView<T> {
+        unsafe { self.obj.downcast_unchecked_ref::<T>() }
+    }
+
     pub fn check(obj: &PyObject, vm: &VirtualMachine) -> bool {
         let cls = obj.class();
         if cls.is(&vm.ctx.types.dict_type) {
@@ -90,7 +94,7 @@ impl PySequence {
 
     pub fn length(&self, vm: &VirtualMachine) -> PyResult<usize> {
         if let Some(f) = self.methods().length {
-            f(&self.obj, vm)
+            f(self, vm)
         } else {
             Err(vm.new_type_error(format!(
                 "'{}' is not a sequence or has no len()",
@@ -101,41 +105,41 @@ impl PySequence {
 
     pub fn concat(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult {
         if let Some(f) = self.methods().concat {
-            return f(&self.obj, other, vm);
+            return f(self, other, vm);
         }
         try_add_for_concat(&self.obj, other, vm)
     }
 
     pub fn repeat(&self, n: usize, vm: &VirtualMachine) -> PyResult {
         if let Some(f) = self.methods().repeat {
-            return f(&self.obj, n, vm);
+            return f(self, n, vm);
         }
         try_mul_for_repeat(&self.obj, n, vm)
     }
 
     pub fn inplace_concat(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult {
         if let Some(f) = self.methods().inplace_concat {
-            return f(&self.obj, other, vm);
+            return f(self, other, vm);
         }
         if let Some(f) = self.methods().concat {
-            return f(&self.obj, other, vm);
+            return f(self, other, vm);
         }
         try_iadd_for_inplace_concat(&self.obj, other, vm)
     }
 
     pub fn inplace_repeat(&self, n: usize, vm: &VirtualMachine) -> PyResult {
         if let Some(f) = self.methods().inplace_repeat {
-            return f(&self.obj, n, vm);
+            return f(self, n, vm);
         }
         if let Some(f) = self.methods().repeat {
-            return f(&self.obj, n, vm);
+            return f(self, n, vm);
         }
         try_imul_for_inplace_repeat(&self.obj, n, vm)
     }
 
     pub fn get_item(&self, i: isize, vm: &VirtualMachine) -> PyResult {
         if let Some(f) = self.methods().item {
-            return f(&self.obj, i, vm);
+            return f(self, i, vm);
         }
         Err(vm.new_type_error(format!(
             "'{}' is not a sequence or does not support indexing",
@@ -145,7 +149,7 @@ impl PySequence {
 
     fn _ass_item(&self, i: isize, value: Option<PyObjectRef>, vm: &VirtualMachine) -> PyResult<()> {
         if let Some(f) = self.methods().ass_item {
-            return f(&self.obj, i, value, vm);
+            return f(self, i, value, vm);
         }
         Err(vm.new_type_error(format!(
             "'{}' is not a sequence or doesn't support item {}",
@@ -253,7 +257,7 @@ impl PySequence {
 
     pub fn contains(&self, target: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
         if let Some(f) = self.methods().contains {
-            return f(&self.obj, target, vm);
+            return f(self, target, vm);
         }
 
         let iter = self.obj.clone().get_iter(vm)?;

@@ -578,25 +578,19 @@ impl AsSequence for PyBytes {
             static METHODS: PySequenceMethods;
         }
         Cow::Borrowed(METHODS.get_or_init(|| PySequenceMethods {
-            length: Some(|zelf, _vm| Ok(zelf.payload::<Self>().unwrap().len())),
-            concat: Some(|zelf, other, vm| {
-                zelf.payload::<Self>()
-                    .unwrap()
+            length: Some(|seq, _vm| Ok(seq.obj_as::<Self>().len())),
+            concat: Some(|seq, other, vm| {
+                seq.obj_as::<Self>()
                     .inner
                     .concat(other, vm)
                     .map(|x| vm.ctx.new_bytes(x).into())
             }),
-            repeat: Some(|zelf, n, vm| {
-                Ok(vm
-                    .ctx
-                    .new_bytes(zelf.payload::<Self>().unwrap().repeat(n))
-                    .into())
-            }),
-            item: Some(|zelf, i, vm| zelf.payload::<Self>().unwrap().inner.item(i, vm)),
-            contains: Some(|zelf, other, vm| {
+            repeat: Some(|seq, n, vm| Ok(vm.ctx.new_bytes(seq.obj_as::<Self>().repeat(n)).into())),
+            item: Some(|seq, i, vm| seq.obj_as::<Self>().inner.item(i, vm)),
+            contains: Some(|seq, other, vm| {
                 let other =
                     <Either<PyBytesInner, PyIntRef>>::try_from_object(vm, other.to_owned())?;
-                zelf.payload::<Self>().unwrap().contains(other, vm)
+                seq.obj_as::<Self>().contains(other, vm)
             }),
             ..Default::default()
         }))
