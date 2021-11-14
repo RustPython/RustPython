@@ -1,5 +1,5 @@
 # REDOX START
-cargo-features = ["edition2021"]
+# cargo-features = ["edition2021"]
 # REDOX END
 [package]
 name = "rustpython"
