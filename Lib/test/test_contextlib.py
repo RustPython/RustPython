@@ -20,8 +20,6 @@ class TestAbstractContextManager(unittest.TestCase):
         manager = DefaultEnter()
         self.assertIs(manager.__enter__(), manager)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_exit_is_abstract(self):
         class MissingExit(AbstractContextManager):
             pass
