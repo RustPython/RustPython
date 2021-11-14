@@ -5,6 +5,7 @@ use crate::{
     PyArithmeticValue, PyAttributes, PyClassImpl, PyComparisonValue, PyContext, PyGenericObject,
     PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
+use num_bigint::BigInt;
 
 /// object()
 /// --
@@ -34,6 +35,18 @@ impl PyBaseObject {
         } else {
             Some(vm.ctx.new_dict())
         };
+
+        // Ensure that all abstract methods are implemented before instantiating instance.
+        if let Some(abs_methods) = cls.get_attr("__abstractmethods__"){
+            if let Some(iter) = vm.get_method(abs_methods, "__len__") {
+                let values = vm.invoke(&iter?, ())?;
+                let unimplemented_abstract_method_count = super::int::get_value(&values);
+                if unimplemented_abstract_method_count > &BigInt::from(0) {
+                    return Err(vm.new_type_error("You must implement the abstract methods".to_owned()));
+                }
+            }
+        }
+
         Ok(PyGenericObject::new(PyBaseObject, cls, dict))
     }
 
