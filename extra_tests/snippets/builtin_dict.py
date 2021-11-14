@@ -48,3 +48,17 @@ assert 10 not in d.keys()
 assert (1, 10) not in d.keys()
 assert "abc" not in d.keys()
 assert ((3,4),5) not in d.keys()
+
+d1 = {"a": 1, "b": 2}
+d2 = {"c": 3, "d": 4}
+assert d1.items().isdisjoint(d2.items())
+assert d1.keys().isdisjoint(d2.keys())
+d2 = {"b": 3, "d": 4}
+assert d1.items().isdisjoint(d2.items())
+assert not d1.keys().isdisjoint(d2.keys())
+d2 = {"c": 2, "d": 4}
+assert d1.items().isdisjoint(d2.items())
+assert d1.keys().isdisjoint(d2.keys())
+d2 = {"b": 2, "d": 4}
+assert not d1.items().isdisjoint(d2.items())
+assert not d1.keys().isdisjoint(d2.keys())
