@@ -167,22 +167,31 @@ impl CFormatSpec {
         string: String,
         fill_char: char,
         num_prefix_chars: Option<usize>,
+        fill_with_precision: bool,
     ) -> String {
+        let target_width = if fill_with_precision {
+            &self.precision
+        } else {
+            &self.min_field_width
+        };
         let mut num_chars = string.chars().count();
         if let Some(num_prefix_chars) = num_prefix_chars {
             num_chars += num_prefix_chars;
         }
         let num_chars = num_chars;
 
-        let width = match self.min_field_width {
-            Some(CFormatQuantity::Amount(width)) => cmp::max(width, num_chars),
-            _ => num_chars,
+        let width = match target_width {
+            Some(CFormatQuantity::Amount(width)) => cmp::max(width, &num_chars),
+            _ => &num_chars,
         };
         let fill_chars_needed = width.saturating_sub(num_chars);
         let fill_string = CFormatSpec::compute_fill_string(fill_char, fill_chars_needed);
 
         if !fill_string.is_empty() {
-            if self.flags.contains(CConversionFlags::LEFT_ADJUST) {
+            // Don't left-adjust if precision-filling: that will always be prepending 0s to %d
+            // arguments, the LEFT_ADJUST flag will be used by a later call to fill_string with
+            // the 0-filled string as the string param.
+            if !fill_with_precision && self.flags.contains(CConversionFlags::LEFT_ADJUST) {
                 format!("{}{}", string, fill_string)
             } else {
                 format!("{}{}", fill_string, string)
@@ -204,7 +213,7 @@ impl CFormatSpec {
             }
             _ => string,
         };
-        self.fill_string(string, ' ', None)
+        self.fill_string(string, ' ', None, false)
     }
 
     pub(crate) fn format_string(&self, string: String) -> String {
@@ -269,6 +278,8 @@ impl CFormatSpec {
             _ => self.flags.sign_string(),
         };
 
+        let padded_magnitude_string = self.fill_string(magnitude_string, '0', None, true);
+
         if self.flags.contains(CConversionFlags::ZERO_PAD) {
             let fill_char = if !self.flags.contains(CConversionFlags::LEFT_ADJUST) {
                 '0'
@@ -280,16 +291,18 @@ impl CFormatSpec {
                 "{}{}",
                 signed_prefix,
                 self.fill_string(
-                    magnitude_string,
+                    padded_magnitude_string,
                     fill_char,
-                    Some(signed_prefix.chars().count())
-                )
+                    Some(signed_prefix.chars().count()),
+                    false
+                ),
             )
         } else {
             self.fill_string(
-                format!("{}{}{}", sign_string, prefix, magnitude_string),
+                format!("{}{}{}", sign_string, prefix, padded_magnitude_string),
                 ' ',
                 None,
+                false,
             )
         }
     }
@@ -330,7 +343,12 @@ impl CFormatSpec {
                     CFormatCase::Uppercase => float_ops::Case::Upper,
                 };
                 let magnitude = num.abs();
-                float_ops::format_general(precision, magnitude, case)
+                float_ops::format_general(
+                    precision,
+                    magnitude,
+                    case,
+                    self.flags.contains(CConversionFlags::ALTERNATE_FORM),
+                )
             }
             _ => unreachable!(),
         };
@@ -347,11 +365,17 @@ impl CFormatSpec {
                 self.fill_string(
                     magnitude_string,
                     fill_char,
-                    Some(sign_string.chars().count())
+                    Some(sign_string.chars().count()),
+                    false
                 )
             )
         } else {
-            self.fill_string(format!("{}{}", sign_string, magnitude_string), ' ', None)
+            self.fill_string(
+                format!("{}{}", sign_string, magnitude_string),
+                ' ',
+                None,
+                false,
+            )
         };
 
         formatted
@@ -368,19 +392,7 @@ impl CFormatSpec {
                 }
                 CFormatPreconversor::Str | CFormatPreconversor::Bytes => {
                     if let Ok(buffer) = PyBuffer::try_from_borrowed_object(vm, &obj) {
-                        let guard;
-                        let vec;
-                        let bytes = match buffer.as_contiguous() {
-                            Some(bytes) => {
-                                guard = bytes;
-                                &*guard
-                            }
-                            None => {
-                                vec = buffer.to_contiguous();
-                                vec.as_slice()
-                            }
-                        };
-                        Ok(self.format_bytes(bytes))
+                        Ok(buffer.contiguous_or_collect(|bytes| self.format_bytes(bytes)))
                     } else {
                         let bytes = vm
                             .get_special_method(obj, "__bytes__")?
@@ -588,7 +600,7 @@ fn try_update_quantity_from_tuple<'a, I: Iterator<Item = &'a PyObjectRef>>(
         Some(CFormatQuantity::FromValuesTuple) => match elements.next() {
             Some(width_obj) => {
                 if let Some(i) = width_obj.payload::<PyInt>() {
-                    let i = i.try_to_primitive::<isize>(vm)?.abs() as usize;
+                    let i = i.try_to_primitive::<i32>(vm)?.abs() as usize;
                     *q = Some(CFormatQuantity::Amount(i));
                     Ok(())
                 } else {
@@ -929,13 +941,13 @@ where
             return Ok(Some(CFormatQuantity::FromValuesTuple));
         }
         if let Some(i) = c.to_digit(10) {
-            let mut num = i as isize;
+            let mut num = i as i32;
             iter.next().unwrap();
             while let Some(&(index, c)) = iter.peek() {
                 if let Some(i) = c.into().to_digit(10) {
                     num = num
                         .checked_mul(10)
-                        .and_then(|num| num.checked_add(i as isize))
+                        .and_then(|num| num.checked_add(i as i32))
                         .ok_or((CFormatErrorType::IntTooBig, index))?;
                     iter.next().unwrap();
                 } else {

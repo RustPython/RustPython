@@ -6,24 +6,20 @@ use crate::{
         bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
         ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
     },
-    common::hash::PyHash,
+    common::{hash::PyHash, lock::PyMutex},
     function::{
         ArgBytesLike, ArgIterable, IntoPyObject, IntoPyResult, OptionalArg, OptionalOption,
     },
-    protocol::{BufferInternal, BufferOptions, PyBuffer, PyIterReturn, PyMappingMethods},
+    protocol::{BufferDescriptor, BufferMethods, PyBuffer, PyIterReturn, PyMappingMethods},
     types::{
         AsBuffer, AsMapping, Callable, Comparable, Constructor, Hashable, IterNext,
         IterNextIterable, Iterable, PyComparisonOp, Unconstructible,
     },
     utils::Either,
-    IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyRef, PyResult,
-    PyValue, TryFromBorrowedObject, TypeProtocol, VirtualMachine,
+    IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyObjectView,
+    PyObjectWrap, PyRef, PyResult, PyValue, TryFromBorrowedObject, TypeProtocol, VirtualMachine,
 };
 use bstr::ByteSlice;
-use rustpython_common::{
-    borrow::{BorrowedValue, BorrowedValueMut},
-    lock::PyMutex,
-};
 use std::mem::size_of;
 use std::ops::Deref;
 
@@ -541,35 +537,26 @@ impl PyBytes {
     }
 }
 
+static BUFFER_METHODS: BufferMethods = BufferMethods {
+    obj_bytes: |buffer| buffer.obj_as::<PyBytes>().as_bytes().into(),
+    obj_bytes_mut: |_| panic!(),
+    release: |_| {},
+    retain: |_| {},
+};
+
 impl AsBuffer for PyBytes {
-    fn as_buffer(zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
+    fn as_buffer(zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
         let buf = PyBuffer::new(
-            zelf.as_object().to_owned(),
-            zelf.to_owned(),
-            BufferOptions {
-                len: zelf.len(),
-                ..Default::default()
-            },
+            zelf.to_owned().into_object(),
+            BufferDescriptor::simple(zelf.len(), true),
+            &BUFFER_METHODS,
         );
         Ok(buf)
     }
 }
 
-impl BufferInternal for PyRef<PyBytes> {
-    fn obj_bytes(&self) -> BorrowedValue<[u8]> {
-        self.as_bytes().into()
-    }
-
-    fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
-        unreachable!("bytes is not mutable")
-    }
-
-    fn release(&self) {}
-    fn retain(&self) {}
-}
-
 impl AsMapping for PyBytes {
-    fn as_mapping(_zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
+    fn as_mapping(_zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
         PyMappingMethods {
             length: Some(Self::length),
             subscript: Some(Self::subscript),

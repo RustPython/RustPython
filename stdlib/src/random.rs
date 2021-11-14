@@ -6,7 +6,7 @@ pub(crate) use _random::make_module;
 mod _random {
     use crate::common::lock::PyMutex;
     use crate::vm::{
-        builtins::{PyIntRef, PyTypeRef},
+        builtins::{PyInt, PyTypeRef},
         function::OptionalOption,
         types::Constructor,
         PyObjectRef, PyResult, PyValue, VirtualMachine,
@@ -85,13 +85,17 @@ mod _random {
             mt19937::gen_res53(&mut *rng)
         }
 
-        // TODO: n can be a float, str, bytes, or bytearray
         #[pymethod]
-        fn seed(&self, n: OptionalOption<PyIntRef>) {
+        fn seed(&self, n: OptionalOption<PyObjectRef>, vm: &VirtualMachine) -> PyResult<()> {
             let new_rng = match n.flatten() {
                 None => PyRng::default(),
                 Some(n) => {
-                    let (_, mut key) = n.as_bigint().abs().to_u32_digits();
+                    // Fallback to using hash if object isn't Int-like.
+                    let (_, mut key) = match n.downcast::<PyInt>() {
+                        Ok(n) => n.as_bigint().abs(),
+                        Err(obj) => BigInt::from(obj.hash(vm)?).abs(),
+                    }
+                    .to_u32_digits();
                     if cfg!(target_endian = "big") {
                         key.reverse();
                     }
@@ -101,6 +105,7 @@ mod _random {
             };
 
             *self.rng.lock() = new_rng;
+            Ok(())
         }
 
         #[pymethod]

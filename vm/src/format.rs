@@ -204,8 +204,11 @@ fn parse_precision(text: &str) -> Result<(Option<usize>, &str), &'static str> {
     Ok(match chars.next() {
         Some('.') => {
             let (size, remaining) = parse_number(chars.as_str())?;
-            if size.is_some() {
-                (size, remaining)
+            if let Some(size) = size {
+                if size > i32::MAX as usize {
+                    return Err("Precision too big");
+                }
+                (Some(size), remaining)
             } else {
                 (None, text)
             }
@@ -376,6 +379,7 @@ impl FormatSpec {
                     precision,
                     magnitude,
                     float_ops::Case::Upper,
+                    false,
                 ))
             }
             Some(FormatType::GeneralFormatLower) => {
@@ -384,6 +388,7 @@ impl FormatSpec {
                     precision,
                     magnitude,
                     float_ops::Case::Lower,
+                    false,
                 ))
             }
             Some(FormatType::ExponentUpper) => Ok(float_ops::format_exponent(

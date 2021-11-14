@@ -24,8 +24,7 @@ use crate::{
     import,
     protocol::{PyIterIter, PyIterReturn, PyMapping},
     scope::Scope,
-    signal::NSIG,
-    stdlib,
+    signal, stdlib,
     types::PyComparisonOp,
     IdProtocol, ItemProtocol, PyArithmeticValue, PyContext, PyGenericObject, PyLease, PyMethod,
     PyObject, PyObjectRef, PyObjectWrap, PyRef, PyRefExact, PyResult, PyValue, TryFromObject,
@@ -58,7 +57,8 @@ pub struct VirtualMachine {
     pub trace_func: RefCell<PyObjectRef>,
     pub use_tracing: Cell<bool>,
     pub recursion_limit: Cell<usize>,
-    pub signal_handlers: Option<Box<RefCell<[Option<PyObjectRef>; NSIG]>>>,
+    pub(crate) signal_handlers: Option<Box<RefCell<[Option<PyObjectRef>; signal::NSIG]>>>,
+    pub(crate) signal_rx: Option<signal::UserSignalReceiver>,
     pub repr_guards: RefCell<HashSet<usize>>,
     pub state: PyRc<PyGlobalState>,
     pub initialized: bool,
@@ -262,7 +262,11 @@ impl VirtualMachine {
         let trace_func = RefCell::new(ctx.none());
         // hack to get around const array repeat expressions, rust issue #79270
         const NONE: Option<PyObjectRef> = None;
-        let signal_handlers = RefCell::new([NONE; NSIG]);
+        // putting it in a const optimizes better, prevents linear initialization of the array
+        #[allow(clippy::declare_interior_mutable_const)]
+        const SIGNAL_HANDLERS: RefCell<[Option<PyObjectRef>; signal::NSIG]> =
+            RefCell::new([NONE; signal::NSIG]);
+        let signal_handlers = Some(Box::new(SIGNAL_HANDLERS));
 
         let module_inits = stdlib::get_module_inits();
 
@@ -285,7 +289,8 @@ impl VirtualMachine {
             trace_func,
             use_tracing: Cell::new(false),
             recursion_limit: Cell::new(if cfg!(debug_assertions) { 256 } else { 1000 }),
-            signal_handlers: Some(Box::new(signal_handlers)),
+            signal_handlers,
+            signal_rx: None,
             repr_guards: RefCell::default(),
             state: PyRc::new(PyGlobalState {
                 settings,
@@ -415,6 +420,11 @@ impl VirtualMachine {
         self.state_mut().frozen.extend(frozen);
     }
 
+    /// Set the custom signal channel for the interpreter
+    pub fn set_user_signal_channel(&mut self, signal_rx: signal::UserSignalReceiver) {
+        self.signal_rx = Some(signal_rx);
+    }
+
     /// Start a new thread with access to the same interpreter.
     ///
     /// # Note
@@ -471,6 +481,7 @@ impl VirtualMachine {
             use_tracing: Cell::new(false),
             recursion_limit: self.recursion_limit.clone(),
             signal_handlers: None,
+            signal_rx: None,
             repr_guards: RefCell::default(),
             state: self.state.clone(),
             initialized: self.initialized,

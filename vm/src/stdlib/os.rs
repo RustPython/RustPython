@@ -191,7 +191,11 @@ impl TryFromObject for PyPathLike {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         // path_converter in CPython
         let obj = match PyBuffer::try_from_borrowed_object(vm, &obj) {
-            Ok(buffer) => PyBytes::from(buffer.internal.obj_bytes().to_vec()).into_pyobject(vm),
+            Ok(buffer) => {
+                let mut bytes = vec![];
+                buffer.append_to(&mut bytes);
+                PyBytes::from(bytes).into_pyobject(vm)
+            }
             Err(_) => obj,
         };
         let fs_path = FsPath::try_from(obj, true, vm)?;
@@ -1666,6 +1670,31 @@ pub(super) mod _os {
         }
 
         Ok((loadavg[0], loadavg[1], loadavg[2]))
+    }
+
+    #[cfg(any(unix, windows))]
+    #[pyfunction]
+    fn waitstatus_to_exitcode(status: i32, vm: &VirtualMachine) -> PyResult<i32> {
+        let status = u32::try_from(status)
+            .map_err(|_| vm.new_value_error(format!("invalid WEXITSTATUS: {}", status)))?;
+
+        cfg_if::cfg_if! {
+            if #[cfg(not(windows))] {
+                let status = status as libc::c_int;
+                if libc::WIFEXITED(status) {
+                    return Ok(libc::WEXITSTATUS(status));
+                }
+
+                if libc::WIFSIGNALED(status) {
+                    return Ok(-libc::WTERMSIG(status));
+                }
+
+                Err(vm.new_value_error(format!("Invalid wait status: {}", status)))
+            } else {
+                i32::try_from(status.rotate_right(8))
+                    .map_err(|_| vm.new_value_error(format!("invalid wait status: {}", status)))
+            }
+        }
     }
 
     #[pyattr]

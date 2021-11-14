@@ -45,6 +45,8 @@ def test_slice():
     assert m[::2][1:-1].tobytes() == b'357'
     assert m[::2][::2].tobytes() == b'159'
     assert m[::2][1::2].tobytes() == b'37'
+    assert m[::-1].tobytes() == b'987654321'
+    assert m[::-2].tobytes() == b'97531'
 
 test_slice()
 
@@ -56,9 +58,9 @@ def test_resizable():
     m.release()
     b.append(6)
     m2 = memoryview(b)
-    m4 = memoryview(b)
+    m4 = memoryview(m2)
     assert_raises(BufferError, lambda: b.append(5))
-    m3 = memoryview(b)
+    m3 = memoryview(m2)
     assert_raises(BufferError, lambda: b.append(5))
     m2.release()
     assert_raises(BufferError, lambda: b.append(5))

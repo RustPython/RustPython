@@ -342,8 +342,6 @@ class CommonReadTest(ReadTest):
         finally:
             tar.close()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_non_existent_tarfile(self):
         # Test for issue11513: prevent non-existent gzipped tarfiles raising
         # multiple exceptions.

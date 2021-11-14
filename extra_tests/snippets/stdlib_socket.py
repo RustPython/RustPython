@@ -156,3 +156,11 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
 	with assert_raises(OSError): # TODO: check that it raises a socket.timeout
 		# testing that it doesn't work with the timeout; that it stops blocking eventually
 		connection.recv(len(MESSAGE_A))
+
+for exc, expected_name in [
+    (socket.gaierror, "gaierror"),
+    (socket.herror, "herror"),
+    (socket.timeout, "timeout"),
+]:
+    assert exc.__module__ == "socket"
+    assert exc.__name__ == expected_name

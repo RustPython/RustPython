@@ -71,8 +71,6 @@ class AbstractMemoryTests:
         m = None
         self.assertEqual(sys.getrefcount(b), oldrefcount)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_setitem_writable(self):
         if not self.rw_type:
             self.skipTest("no writable type to test")

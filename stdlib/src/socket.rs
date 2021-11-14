@@ -61,9 +61,8 @@ mod _socket {
     #[pyattr]
     use c::{AF_UNIX, SO_REUSEPORT};
 
-    #[cfg(not(any(target_os = "freebsd", target_os = "netbsd", target_os = "openbsd")))]
     #[pyattr]
-    use c::{AI_ADDRCONFIG, AI_ALL, AI_NUMERICHOST, AI_NUMERICSERV, AI_PASSIVE};
+    use c::{AI_ADDRCONFIG, AI_NUMERICHOST, AI_NUMERICSERV, AI_PASSIVE};
 
     #[cfg(not(target_os = "redox"))]
     #[pyattr]
@@ -89,7 +88,8 @@ mod _socket {
         ERROR
             .get_or_init(|| {
                 vm.ctx.new_class(
-                    "socket.timeout",
+                    Some("socket"),
+                    "timeout",
                     &vm.ctx.exceptions.os_error,
                     Default::default(),
                 )
@@ -104,7 +104,8 @@ mod _socket {
         ERROR
             .get_or_init(|| {
                 vm.ctx.new_class(
-                    "socket.herror",
+                    Some("socket"),
+                    "herror",
                     &vm.ctx.exceptions.os_error,
                     Default::default(),
                 )
@@ -119,7 +120,8 @@ mod _socket {
         ERROR
             .get_or_init(|| {
                 vm.ctx.new_class(
-                    "socket.gaierror",
+                    Some("socket"),
+                    "gaierror",
                     &vm.ctx.exceptions.os_error,
                     Default::default(),
                 )

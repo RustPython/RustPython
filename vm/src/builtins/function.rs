@@ -99,8 +99,8 @@ impl PyFunction {
             // Check the number of positional arguments
             if nargs > nexpected_args {
                 return Err(vm.new_type_error(format!(
-                    "Expected {} arguments (got: {})",
-                    nexpected_args, nargs
+                    "{}() takes {} positional arguments but {} were given",
+                    &self.code.obj_name, nexpected_args, nargs
                 )));
             }
         }

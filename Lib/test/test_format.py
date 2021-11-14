@@ -94,8 +94,6 @@ def test_exc_common(formatstr, args, exception, excmsg):
 
 class FormatTest(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_common_format(self):
         # test the format identifiers that work the same across
         # str, bytes, and bytearrays (integer, float, oct, hex)
@@ -468,7 +466,8 @@ class FormatTest(unittest.TestCase):
         self.assertIs(text % (), text)
         self.assertIs(text.format(), text)
 
-    @unittest.skip("TODO: RUSTPYTHON, chews up RAM")
+    # TODO: RustPython missing complex.__format__ implementation
+    @unittest.expectedFailure
     def test_precision(self):
         f = 1.2
         self.assertEqual(format(f, ".0f"), "1")

@@ -50,3 +50,9 @@ assert_equal(
     "☢🐣  ᖇ𝓤𝕊тⓟ𝕐𝕥卄σ𝔫  ♬👣".encode(),
 )
 
+for exc, expected_name in [
+    (binascii.Error, "Error"),
+    (binascii.Incomplete, "Incomplete"),
+]:
+    assert exc.__module__ == "binascii"
+    assert exc.__name__ == expected_name

@@ -108,7 +108,8 @@ mod termios {
         TERMIOS_ERROR
             .get_or_init(|| {
                 vm.ctx.new_class(
-                    "termios.error",
+                    Some("termios"),
+                    "error",
                     &vm.ctx.exceptions.os_error,
                     Default::default(),
                 )

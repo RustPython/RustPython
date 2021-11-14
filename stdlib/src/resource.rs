@@ -35,13 +35,22 @@ mod resource {
     #[pyattr]
     use libc::RLIMIT_RTTIME;
 
-    #[cfg(any(target_os = "freebsd", target_os = "netbsd"))]
+    #[cfg(any(
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "solaris",
+        target_os = "illumos"
+    ))]
     #[pyattr]
-    use libc::{RLIMIT_NPTS, RLIMIT_SBSIZE, RLIMIT_SWAP};
+    use libc::RLIMIT_SBSIZE;
 
     #[cfg(any(target_os = "freebsd", target_os = "solaris", target_os = "illumos"))]
     #[pyattr]
-    use libc::{RLIMIT_NPTS, RLIMIT_SBSIZE, RLIMIT_SWAP, RLIMIT_VMEM};
+    use libc::{RLIMIT_NPTS, RLIMIT_SWAP};
+
+    #[cfg(any(target_os = "solaris", target_os = "illumos"))]
+    #[pyattr]
+    use libc::RLIMIT_VMEM;
 
     #[cfg(any(target_os = "linux", target_os = "emscripten", target_os = "freebds"))]
     #[pyattr]

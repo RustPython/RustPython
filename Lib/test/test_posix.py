@@ -1424,8 +1424,6 @@ class PosixTester(unittest.TestCase):
                 # http://lists.freebsd.org/pipermail/freebsd-amd64/2012-January/014332.html
                 raise unittest.SkipTest("OSError raised!")
 
-    # TODO: RUSTPYTHON: AssertionError: "'doesnotexistfilename' -> 'noodly2'" not found in "(2, 'No such file or directory (os error 2)')"
-    @unittest.expectedFailure
     def test_path_error2(self):
         """
         Test functions that call path_error2(), providing two filenames in their exceptions.
@@ -1540,8 +1538,6 @@ class _PosixSpawnMixin:
         # test_close_file() to fail.
         return (sys.executable, '-I', '-S', *args)
 
-    # TODO: RUSTPYTHON: AttributeError: module 'test.support' has no attribute 'wait_process'
-    @unittest.expectedFailure
     def test_returns_pid(self):
         pidfile = support.TESTFN
         self.addCleanup(support.unlink, pidfile)
@@ -1556,8 +1552,6 @@ class _PosixSpawnMixin:
         with open(pidfile) as f:
             self.assertEqual(f.read(), str(pid))
 
-    # TODO: RUSTPYTHON: AssertionError: None != 'no_such_executable'
-    @unittest.expectedFailure
     def test_no_such_executable(self):
         no_such_executable = 'no_such_executable'
         try:
@@ -1590,8 +1584,6 @@ class _PosixSpawnMixin:
         with open(envfile) as f:
             self.assertEqual(f.read(), 'bar')
 
-    # TODO: RUSTPYTHON: AttributeError: module 'test.support' has no attribute 'wait_process'
-    @unittest.expectedFailure
     def test_none_file_actions(self):
         pid = self.spawn_func(
             self.NOOP_PROGRAM[0],
@@ -1601,8 +1593,6 @@ class _PosixSpawnMixin:
         )
         support.wait_process(pid, exitcode=0)
 
-    # TODO: RUSTPYTHON: AttributeError: module 'test.support' has no attribute 'wait_process'
-    @unittest.expectedFailure
     def test_empty_file_actions(self):
         pid = self.spawn_func(
             self.NOOP_PROGRAM[0],
@@ -1799,8 +1789,6 @@ class _PosixSpawnMixin:
         )
         support.wait_process(pid, exitcode=0)
 
-    # TODO: RUSTPYTHON: AttributeError: module 'test.support' has no attribute 'wait_process'
-    @unittest.expectedFailure
     def test_multiple_file_actions(self):
         file_actions = [
             (os.POSIX_SPAWN_OPEN, 3, os.path.realpath(__file__), os.O_RDONLY, 0),
@@ -1842,8 +1830,6 @@ class _PosixSpawnMixin:
                                            3, __file__ + '\0',
                                            os.O_RDONLY, 0)])
 
-    # TODO: RUSTPYTHON: AttributeError: module 'test.support' has no attribute 'wait_process'
-    @unittest.expectedFailure
     def test_open_file(self):
         outfile = support.TESTFN
         self.addCleanup(support.unlink, outfile)
@@ -1864,7 +1850,7 @@ class _PosixSpawnMixin:
         with open(outfile) as f:
             self.assertEqual(f.read(), 'hello')
 
-    # TODO: RUSTPYTHON: AttributeError: module 'test.support' has no attribute 'wait_process'
+    # TODO: RUSTPYTHON: FileNotFoundError: [Errno 2] No such file or directory (os error 2): '@test_55144_tmp' -> 'None'
     @unittest.expectedFailure
     def test_close_file(self):
         closefile = support.TESTFN
@@ -1885,8 +1871,6 @@ class _PosixSpawnMixin:
         with open(closefile) as f:
             self.assertEqual(f.read(), 'is closed %d' % errno.EBADF)
 
-    # TODO: RUSTPYTHON: AttributeError: module 'test.support' has no attribute 'wait_process'
-    @unittest.expectedFailure
     def test_dup2(self):
         dupfile = support.TESTFN
         self.addCleanup(support.unlink, dupfile)
@@ -1915,8 +1899,6 @@ class TestPosixSpawn(unittest.TestCase, _PosixSpawnMixin):
 class TestPosixSpawnP(unittest.TestCase, _PosixSpawnMixin):
     spawn_func = getattr(posix, 'posix_spawnp', None)
 
-    # TODO: RUSTPYTHON: AttributeError: module 'test.support' has no attribute 'wait_process'
-    @unittest.expectedFailure
     @support.skip_unless_symlink
     def test_posix_spawnp(self):
         # Use a symlink to create a program in its own temporary directory

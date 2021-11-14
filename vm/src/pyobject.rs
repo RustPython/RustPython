@@ -221,11 +221,21 @@ impl PyContext {
         PyDict::new_ref(self)
     }
 
-    pub fn new_class(&self, name: &str, base: &PyTypeRef, slots: PyTypeSlots) -> PyTypeRef {
+    pub fn new_class(
+        &self,
+        module: Option<&str>,
+        name: &str,
+        base: &PyTypeRef,
+        slots: PyTypeSlots,
+    ) -> PyTypeRef {
+        let mut attrs = PyAttributes::default();
+        if let Some(module) = module {
+            attrs.insert("__module__".to_string(), self.new_str(module).into());
+        };
         PyType::new_ref(
             name,
             vec![base.clone()],
-            Default::default(),
+            attrs,
             slots,
             self.types.type_type.clone(),
         )

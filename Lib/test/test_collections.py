@@ -1623,8 +1623,6 @@ class TestCollectionABCs(ABCTestCase):
         # coerce both to a real set then check equality
         self.assertSetEqual(set(s1), set(s2))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_Set_from_iterable(self):
         """Verify _from_iterable overriden to an instance method works."""
         class SetUsingInstanceFromIterable(MutableSet):
@@ -1681,8 +1679,6 @@ class TestCollectionABCs(ABCTestCase):
         self.assertEqual('test', impl.created_by)
         self.assertEqual({1, 2, 4}, impl)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_Set_interoperability_with_real_sets(self):
         # Issue: 8743
         class ListSet(Set):
