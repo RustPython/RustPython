@@ -41,11 +41,13 @@ impl Constructor for PyNone {
 
 #[pyimpl(with(Constructor))]
 impl PyNone {
+    // return the representation string if it's none
     #[pymethod(magic)]
     fn repr(&self) -> String {
         "None".to_owned()
     }
 
+    // Return the boolean equivalent of the singleton if it's none
     #[pymethod(magic)]
     fn bool(&self) -> bool {
         false
