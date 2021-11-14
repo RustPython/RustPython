@@ -1,7 +1,6 @@
 use crate::{
     builtins::iter::PySequenceIterator,
     function::{IntoPyObject, IntoPyResult},
-    protocol::PySequence,
     PyObject, PyObjectRef, PyObjectWrap, PyResult, PyValue, TryFromObject, TypeProtocol,
     VirtualMachine,
 };
@@ -121,10 +120,8 @@ impl TryFromObject for PyIter<PyObjectRef> {
                     iter.class().name()
                 )))
             }
-        } else if PySequence::check(&iter_target, vm) {
-            Ok(Self(
-                PySequenceIterator::new(iter_target, vm)?.into_object(vm),
-            ))
+        } else if let Ok(seq_iter) = PySequenceIterator::new(iter_target.clone(), vm) {
+            Ok(Self(seq_iter.into_object(vm)))
         } else {
             Err(vm.new_type_error(format!(
                 "'{}' object is not iterable",

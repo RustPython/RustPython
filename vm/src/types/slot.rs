@@ -211,28 +211,24 @@ fn as_sequence_wrapper(zelf: &PyObject, _vm: &VirtualMachine) -> Cow<'static, Py
     }
 
     Cow::Owned(PySequenceMethods {
-        length: then_some_closure!(zelf.has_class_attr("__len__"), |sequence, vm| {
-            vm.obj_len_opt(&sequence.obj).unwrap()
+        length: then_some_closure!(zelf.has_class_attr("__len__"), |seq, vm| {
+            vm.obj_len_opt(seq.obj).unwrap()
         }),
-        item: Some(|sequence, i, vm| {
-            vm.call_special_method(sequence.obj.clone(), "__getitem__", (i.into_pyobject(vm),))
+        item: Some(|seq, i, vm| {
+            vm.call_special_method(seq.obj.to_owned(), "__getitem__", (i.into_pyobject(vm),))
         }),
         ass_item: then_some_closure!(
             zelf.has_class_attr("__setitem__") | zelf.has_class_attr("__delitem__"),
-            |sequence, i, value, vm| match value {
+            |seq, i, value, vm| match value {
                 Some(value) => vm
                     .call_special_method(
-                        sequence.obj.clone(),
+                        seq.obj.to_owned(),
                         "__setitem__",
                         (i.into_pyobject(vm), value),
                     )
                     .map(|_| Ok(()))?,
                 None => vm
-                    .call_special_method(
-                        sequence.obj.clone(),
-                        "__delitem__",
-                        (i.into_pyobject(vm),)
-                    )
+                    .call_special_method(seq.obj.to_owned(), "__delitem__", (i.into_pyobject(vm),))
                     .map(|_| Ok(()))?,
             }
         ),

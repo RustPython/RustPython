@@ -5,9 +5,10 @@ use itertools::Itertools;
 
 use crate::{
     builtins::{PyList, PySlice},
+    common::lock::OnceCell,
     function::IntoPyObject,
     IdProtocol, PyArithmeticValue, PyObject, PyObjectPayload, PyObjectRef, PyObjectView, PyResult,
-    PyValue, TryFromObject, TypeProtocol, VirtualMachine,
+    PyValue, TypeProtocol, VirtualMachine,
 };
 
 // Sequence Protocol
@@ -48,48 +49,66 @@ impl Debug for PySequenceMethods {
     }
 }
 
-#[derive(Debug)]
-pub struct PySequence {
-    pub obj: PyObjectRef,
-    methods: Cow<'static, PySequenceMethods>,
+pub struct PySequence<'a> {
+    pub obj: &'a PyObject,
+    // some function don't need it, so lazy initialize
+    methods: OnceCell<Cow<'static, PySequenceMethods>>,
 }
 
-impl PySequence {
+impl<'a> From<&'a PyObject> for PySequence<'a> {
+    fn from(obj: &'a PyObject) -> Self {
+        Self {
+            obj,
+            methods: OnceCell::new(),
+        }
+    }
+}
+
+impl<'a> PySequence<'a> {
+    pub fn with_methods(obj: &'a PyObject, methods: Cow<'static, PySequenceMethods>) -> Self {
+        Self {
+            obj,
+            methods: OnceCell::from(methods),
+        }
+    }
+}
+
+impl PySequence<'_> {
     pub fn obj_as<T: PyObjectPayload>(&self) -> &PyObjectView<T> {
         unsafe { self.obj.downcast_unchecked_ref::<T>() }
     }
 
-    pub fn check(obj: &PyObject, vm: &VirtualMachine) -> bool {
-        let cls = obj.class();
-        if cls.is(&vm.ctx.types.dict_type) {
-            return false;
-        }
-        cls.mro_find_map(|x| x.slots.as_sequence.load())
-            .map(|f| f(obj, vm).item.is_some())
-            .unwrap_or(false)
+    // PySequence_Check
+    pub fn has_protocol(&self, vm: &VirtualMachine) -> bool {
+        self.methods(vm).item.is_some()
     }
 
-    pub fn from_object(vm: &VirtualMachine, obj: PyObjectRef) -> Option<Self> {
-        let cls = obj.class();
-        if cls.is(&vm.ctx.types.dict_type) {
-            return None;
-        }
-        let f = cls.mro_find_map(|x| x.slots.as_sequence.load())?;
-        drop(cls);
-        let methods = f(&obj, vm);
-        if methods.item.is_some() {
-            Some(Self { obj, methods })
+    pub fn try_protocol(&self, vm: &VirtualMachine) -> PyResult<()> {
+        if self.has_protocol(vm) {
+            Ok(())
         } else {
-            None
+            Err(vm.new_type_error(format!("'{}' is not a sequence", self.obj.class().name())))
         }
     }
 
-    pub fn methods(&self) -> &PySequenceMethods {
-        self.methods.borrow()
+    pub fn methods(&self, vm: &VirtualMachine) -> &PySequenceMethods {
+        self.methods_cow(vm).borrow()
+    }
+
+    pub fn methods_cow(&self, vm: &VirtualMachine) -> &Cow<'static, PySequenceMethods> {
+        self.methods.get_or_init(|| {
+            let cls = self.obj.class();
+            if !cls.is(&vm.ctx.types.dict_type) {
+                if let Some(f) = cls.mro_find_map(|x| x.slots.as_sequence.load()) {
+                    return f(self.obj, vm);
+                }
+            }
+            Cow::Borrowed(PySequenceMethods::not_implemented())
+        })
     }
 
     pub fn length(&self, vm: &VirtualMachine) -> PyResult<usize> {
-        if let Some(f) = self.methods().length {
+        if let Some(f) = self.methods(vm).length {
             f(self, vm)
         } else {
             Err(vm.new_type_error(format!(
@@ -100,41 +119,84 @@ impl PySequence {
     }
 
     pub fn concat(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult {
-        if let Some(f) = self.methods().concat {
+        if let Some(f) = self.methods(vm).concat {
             return f(self, other, vm);
         }
-        try_add_for_concat(&self.obj, other, vm)
+
+        // if both arguments apear to be sequences, try fallback to __add__
+        if self.has_protocol(vm) && PySequence::from(other).has_protocol(vm) {
+            let ret = vm._add(self.obj, other)?;
+            if let PyArithmeticValue::Implemented(ret) = PyArithmeticValue::from_object(vm, ret) {
+                return Ok(ret);
+            }
+        }
+        Err(vm.new_type_error(format!(
+            "'{}' object can't be concatenated",
+            self.obj.class().name()
+        )))
     }
 
     pub fn repeat(&self, n: usize, vm: &VirtualMachine) -> PyResult {
-        if let Some(f) = self.methods().repeat {
+        if let Some(f) = self.methods(vm).repeat {
             return f(self, n, vm);
         }
-        try_mul_for_repeat(&self.obj, n, vm)
+
+        // try fallback to __mul__
+        if self.has_protocol(vm) {
+            let ret = vm._mul(self.obj, &n.into_pyobject(vm))?;
+            if let PyArithmeticValue::Implemented(ret) = PyArithmeticValue::from_object(vm, ret) {
+                return Ok(ret);
+            }
+        }
+        Err(vm.new_type_error(format!(
+            "'{}' object can't be repeated",
+            self.obj.class().name()
+        )))
     }
 
     pub fn inplace_concat(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult {
-        if let Some(f) = self.methods().inplace_concat {
+        if let Some(f) = self.methods(vm).inplace_concat {
             return f(self, other, vm);
         }
-        if let Some(f) = self.methods().concat {
+        if let Some(f) = self.methods(vm).concat {
             return f(self, other, vm);
         }
-        try_iadd_for_inplace_concat(&self.obj, other, vm)
+
+        // if both arguments apear to be sequences, try fallback to __iadd__
+        if self.has_protocol(vm) && PySequence::from(other).has_protocol(vm) {
+            let ret = vm._iadd(self.obj, other)?;
+            if let PyArithmeticValue::Implemented(ret) = PyArithmeticValue::from_object(vm, ret) {
+                return Ok(ret);
+            }
+        }
+        Err(vm.new_type_error(format!(
+            "'{}' object can't be concatenated",
+            self.obj.class().name()
+        )))
     }
 
     pub fn inplace_repeat(&self, n: usize, vm: &VirtualMachine) -> PyResult {
-        if let Some(f) = self.methods().inplace_repeat {
+        if let Some(f) = self.methods(vm).inplace_repeat {
             return f(self, n, vm);
         }
-        if let Some(f) = self.methods().repeat {
+        if let Some(f) = self.methods(vm).repeat {
             return f(self, n, vm);
         }
-        try_imul_for_inplace_repeat(&self.obj, n, vm)
+
+        if self.has_protocol(vm) {
+            let ret = vm._imul(self.obj, &n.into_pyobject(vm))?;
+            if let PyArithmeticValue::Implemented(ret) = PyArithmeticValue::from_object(vm, ret) {
+                return Ok(ret);
+            }
+        }
+        Err(vm.new_type_error(format!(
+            "'{}' object can't be repeated",
+            self.obj.class().name()
+        )))
     }
 
     pub fn get_item(&self, i: isize, vm: &VirtualMachine) -> PyResult {
-        if let Some(f) = self.methods().item {
+        if let Some(f) = self.methods(vm).item {
             return f(self, i, vm);
         }
         Err(vm.new_type_error(format!(
@@ -144,7 +206,7 @@ impl PySequence {
     }
 
     fn _ass_item(&self, i: isize, value: Option<PyObjectRef>, vm: &VirtualMachine) -> PyResult<()> {
-        if let Some(f) = self.methods().ass_item {
+        if let Some(f) = self.methods(vm).ass_item {
             return f(self, i, value, vm);
         }
         Err(vm.new_type_error(format!(
@@ -168,7 +230,7 @@ impl PySequence {
 
     pub fn get_slice(&self, start: isize, stop: isize, vm: &VirtualMachine) -> PyResult {
         if let Some(f) = self.obj.class().mro_find_map(|x| x.slots.as_mapping.load()) {
-            let mp = f(&self.obj, vm);
+            let mp = f(self.obj, vm);
             if let Some(subscript) = mp.subscript {
                 let slice = PySlice {
                     start: Some(start.into_pyobject(vm)),
@@ -176,7 +238,7 @@ impl PySequence {
                     step: None,
                 };
 
-                return subscript(self.obj.clone(), slice.into_object(vm), vm);
+                return subscript(self.obj.to_owned(), slice.into_object(vm), vm);
             }
         }
         Err(vm.new_type_error(format!(
@@ -195,7 +257,7 @@ impl PySequence {
         let cls = self.obj.class();
         if let Some(f) = cls.mro_find_map(|x| x.slots.as_mapping.load()) {
             drop(cls);
-            let mp = f(&self.obj, vm);
+            let mp = f(self.obj, vm);
             if let Some(ass_subscript) = mp.ass_subscript {
                 let slice = PySlice {
                     start: Some(start.into_pyobject(vm)),
@@ -203,7 +265,7 @@ impl PySequence {
                     step: None,
                 };
 
-                return ass_subscript(self.obj.clone(), slice.into_object(vm), value, vm);
+                return ass_subscript(self.obj.to_owned(), slice.into_object(vm), value, vm);
             }
         }
         Err(vm.new_type_error(format!(
@@ -233,30 +295,30 @@ impl PySequence {
 
     pub fn tuple(&self, vm: &VirtualMachine) -> PyResult {
         if self.obj.class().is(&vm.ctx.types.tuple_type) {
-            return Ok(self.obj.clone());
+            return Ok(self.obj.to_owned());
         }
         if self.obj.class().is(&vm.ctx.types.list_type) {
             let list = self.obj.payload::<PyList>().unwrap();
             return Ok(vm.ctx.new_tuple(list.borrow_vec().to_vec()).into());
         }
 
-        let iter = self.obj.clone().get_iter(vm)?;
+        let iter = self.obj.to_owned().get_iter(vm)?;
         let iter = iter.iter(vm)?;
         Ok(vm.ctx.new_tuple(iter.try_collect()?).into())
     }
 
     pub fn list(&self, vm: &VirtualMachine) -> PyResult {
         let list = vm.ctx.new_list(vec![]);
-        list.extend(self.obj.clone(), vm)?;
+        list.extend(self.obj.to_owned(), vm)?;
         Ok(list.into())
     }
 
     pub fn contains(&self, target: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-        if let Some(f) = self.methods().contains {
+        if let Some(f) = self.methods(vm).contains {
             return f(self, target, vm);
         }
 
-        let iter = self.obj.clone().get_iter(vm)?;
+        let iter = self.obj.to_owned().get_iter(vm)?;
         let iter = iter.iter::<PyObjectRef>(vm)?;
 
         for elem in iter {
@@ -271,7 +333,7 @@ impl PySequence {
     pub fn count(&self, target: &PyObject, vm: &VirtualMachine) -> PyResult<usize> {
         let mut n = 0;
 
-        let iter = self.obj.clone().get_iter(vm)?;
+        let iter = self.obj.to_owned().get_iter(vm)?;
         let iter = iter.iter::<PyObjectRef>(vm)?;
 
         for elem in iter {
@@ -290,7 +352,7 @@ impl PySequence {
     pub fn index(&self, target: &PyObject, vm: &VirtualMachine) -> PyResult<usize> {
         let mut index: isize = -1;
 
-        let iter = self.obj.clone().get_iter(vm)?;
+        let iter = self.obj.to_owned().get_iter(vm)?;
         let iter = iter.iter::<PyObjectRef>(vm)?;
 
         for elem in iter {
@@ -307,55 +369,6 @@ impl PySequence {
 
         Err(vm.new_value_error("sequence.index(x): x not in sequence".to_string()))
     }
-}
-
-impl TryFromObject for PySequence {
-    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        PySequence::from_object(vm, obj)
-            .ok_or_else(|| vm.new_type_error("'{}' is not a sequence".to_string()))
-    }
-}
-
-pub fn try_add_for_concat(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
-    if PySequence::check(b, vm) {
-        let ret = vm._add(a, b)?;
-        if let PyArithmeticValue::Implemented(ret) = PyArithmeticValue::from_object(vm, ret) {
-            return Ok(ret);
-        }
-    }
-    Err(vm.new_type_error(format!(
-        "'{}' object can't be concatenated",
-        a.class().name()
-    )))
-}
-
-pub fn try_mul_for_repeat(a: &PyObject, n: usize, vm: &VirtualMachine) -> PyResult {
-    let ret = vm._mul(a, &n.into_pyobject(vm))?;
-    if let PyArithmeticValue::Implemented(ret) = PyArithmeticValue::from_object(vm, ret) {
-        return Ok(ret);
-    }
-    Err(vm.new_type_error(format!("'{}' object can't be repeated", a.class().name())))
-}
-
-pub fn try_iadd_for_inplace_concat(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
-    if PySequence::check(b, vm) {
-        let ret = vm._iadd(a, b)?;
-        if let PyArithmeticValue::Implemented(ret) = PyArithmeticValue::from_object(vm, ret) {
-            return Ok(ret);
-        }
-    }
-    Err(vm.new_type_error(format!(
-        "'{}' object can't be concatenated",
-        a.class().name()
-    )))
-}
-
-pub fn try_imul_for_inplace_repeat(a: &PyObject, n: usize, vm: &VirtualMachine) -> PyResult {
-    let ret = vm._imul(a, &n.into_pyobject(vm))?;
-    if let PyArithmeticValue::Implemented(ret) = PyArithmeticValue::from_object(vm, ret) {
-        return Ok(ret);
-    }
-    Err(vm.new_type_error(format!("'{}' object can't be repeated", a.class().name())))
 }
 
 const NOT_IMPLEMENTED: PySequenceMethods = PySequenceMethods {

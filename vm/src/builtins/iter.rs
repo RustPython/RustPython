@@ -2,10 +2,12 @@
  * iterator types
  */
 
+use std::borrow::Cow;
+
 use super::{PyInt, PyTupleRef, PyTypeRef};
 use crate::{
     function::ArgCallable,
-    protocol::{PyIterReturn, PySequence},
+    protocol::{PyIterReturn, PySequence, PySequenceMethods},
     types::{IterNext, IterNextIterable},
     PyClassImpl, PyContext, PyObject, PyObjectRef, PyResult, PyValue, VirtualMachine,
 };
@@ -160,7 +162,9 @@ pub fn builtins_reversed(vm: &VirtualMachine) -> &PyObject {
 #[pyclass(module = false, name = "iterator")]
 #[derive(Debug)]
 pub struct PySequenceIterator {
-    internal: PyMutex<PositionIterInternal<PySequence>>,
+    // cached sequence methods
+    seq_methods: Cow<'static, PySequenceMethods>,
+    internal: PyMutex<PositionIterInternal<PyObjectRef>>,
 }
 
 impl PyValue for PySequenceIterator {
@@ -172,11 +176,12 @@ impl PyValue for PySequenceIterator {
 #[pyimpl(with(IterNext))]
 impl PySequenceIterator {
     pub fn new(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
+        let seq = PySequence::from(obj.as_ref());
+        seq.try_protocol(vm)?;
+        let seq_methods = seq.methods_cow(vm).clone();
         Ok(Self {
-            internal: PyMutex::new(PositionIterInternal::new(
-                PySequence::try_from_object(vm, obj)?,
-                0,
-            )),
+            seq_methods,
+            internal: PyMutex::new(PositionIterInternal::new(obj, 0)),
         })
     }
 
@@ -184,7 +189,8 @@ impl PySequenceIterator {
     fn length_hint(&self, vm: &VirtualMachine) -> PyObjectRef {
         let internal = self.internal.lock();
         if let IterStatus::Active(obj) = &internal.status {
-            obj.length(vm)
+            let seq = PySequence::with_methods(obj, self.seq_methods.clone());
+            seq.length(vm)
                 .map(|x| PyInt::from(x).into_object(vm))
                 .unwrap_or_else(|_| vm.ctx.not_implemented())
         } else {
@@ -194,9 +200,7 @@ impl PySequenceIterator {
 
     #[pymethod(magic)]
     fn reduce(&self, vm: &VirtualMachine) -> PyTupleRef {
-        self.internal
-            .lock()
-            .builtins_iter_reduce(|x| x.obj.clone(), vm)
+        self.internal.lock().builtins_iter_reduce(|x| x.clone(), vm)
     }
 
     #[pymethod(magic)]
@@ -208,9 +212,10 @@ impl PySequenceIterator {
 impl IterNextIterable for PySequenceIterator {}
 impl IterNext for PySequenceIterator {
     fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        zelf.internal
-            .lock()
-            .next(|obj, pos| PyIterReturn::from_getitem_result(obj.get_item(pos as isize, vm), vm))
+        zelf.internal.lock().next(|obj, pos| {
+            let seq = PySequence::with_methods(obj, zelf.seq_methods.clone());
+            PyIterReturn::from_getitem_result(seq.get_item(pos as isize, vm), vm)
+        })
     }
 }
 
