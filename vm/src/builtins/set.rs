@@ -404,13 +404,14 @@ impl PySet {
     }
 }
 
+/// Python's set object implementation
 #[pyimpl(with(Hashable, Comparable, Iterable), flags(BASETYPE))]
 impl PySet {
     #[pyslot]
     fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         PySet::default().into_pyresult_with_type(vm, cls)
     }
-
+    /// Initialize a python set object
     #[pymethod(magic)]
     fn init(&self, iterable: OptionalArg<ArgIterable>, vm: &VirtualMachine) -> PyResult<()> {
         if self.len() > 0 {
@@ -422,43 +423,46 @@ impl PySet {
         Ok(())
     }
 
+    /// Return the length of the set object
     #[pymethod(magic)]
     fn len(&self) -> usize {
         self.inner.len()
     }
 
+    /// Return the size of the set object in bytes
     #[pymethod(magic)]
     fn sizeof(&self) -> usize {
         std::mem::size_of::<Self>() + self.inner.sizeof()
     }
 
+    /// Copy the set object
     #[pymethod]
     fn copy(&self) -> Self {
         Self {
             inner: self.inner.copy(),
         }
     }
-
+    /// Check for set membership and return a bool
     #[pymethod(magic)]
     fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         self.inner.contains(&needle, vm)
     }
-
+    /// Perform union of two sets
     #[pymethod]
     fn union(&self, others: PosArgs<ArgIterable>, vm: &VirtualMachine) -> PyResult<Self> {
         multi_args_set!(vm, others, self, union)
     }
-
+    /// Find the intersection of two sets
     #[pymethod]
     fn intersection(&self, others: PosArgs<ArgIterable>, vm: &VirtualMachine) -> PyResult<Self> {
         multi_args_set!(vm, others, self, intersection)
     }
-
+    /// Find the difference between two sets
     #[pymethod]
     fn difference(&self, others: PosArgs<ArgIterable>, vm: &VirtualMachine) -> PyResult<Self> {
         multi_args_set!(vm, others, self, difference)
     }
-
+    /// Find the symmetric difference(aka disjunctive union) of two sets.
     #[pymethod]
     fn symmetric_difference(
         &self,
@@ -468,21 +472,25 @@ impl PySet {
         multi_args_set!(vm, others, self, symmetric_difference)
     }
 
+    /// Check if the set is a subset return boolean
     #[pymethod]
     fn issubset(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
         self.inner.issubset(other, vm)
     }
 
+    /// Check if the set is a superset return boolean
     #[pymethod]
     fn issuperset(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
         self.inner.issuperset(other, vm)
     }
 
+    /// Check if the two sets are disjoint
     #[pymethod]
     fn isdisjoint(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
         self.inner.isdisjoint(other, vm)
     }
 
+    /// Do a logical OR of the two sets
     #[pymethod(name = "__ror__")]
     #[pymethod(magic)]
     fn or(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<Self>> {
@@ -495,6 +503,7 @@ impl PySet {
         }
     }
 
+    /// Do a logical AND of the two sets
     #[pymethod(name = "__rand__")]
     #[pymethod(magic)]
     fn and(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<Self>> {
@@ -523,6 +532,7 @@ impl PySet {
         self.sub(other, vm)
     }
 
+    /// Do a logical XOR of the two sets
     #[pymethod(name = "__rxor__")]
     #[pymethod(magic)]
     fn xor(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<Self>> {
@@ -535,6 +545,7 @@ impl PySet {
         }
     }
 
+    /// Return a string representation of the set
     #[pymethod(magic)]
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         let class = zelf.class();
@@ -555,12 +566,14 @@ impl PySet {
         Ok(vm.ctx.new_str(s).into())
     }
 
+    /// Add an element to the set
     #[pymethod]
     pub fn add(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.inner.add(item, vm)?;
         Ok(())
     }
 
+    /// Remove an element from the set
     #[pymethod]
     fn remove(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.inner.remove(item, vm)
@@ -572,11 +585,13 @@ impl PySet {
         Ok(())
     }
 
+    /// Clear the set
     #[pymethod]
     fn clear(&self) {
         self.inner.clear()
     }
 
+    /// Pop/remove the last element in the set
     #[pymethod]
     fn pop(&self, vm: &VirtualMachine) -> PyResult {
         self.inner.pop(vm)
