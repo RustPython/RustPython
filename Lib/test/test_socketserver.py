@@ -14,7 +14,7 @@ import unittest
 import socketserver
 
 import test.support
-from test.support import reap_children, reap_threads, verbose
+from test.support import reap_children, reap_threads, verbose, os_helper
 
 
 test.support.requires("network")
@@ -306,7 +306,7 @@ class ErrorHandlerTest(unittest.TestCase):
     KeyboardInterrupt are not passed."""
 
     def tearDown(self):
-        test.support.unlink(test.support.TESTFN)
+        test.os_helper.unlink(test.os_helper.TESTFN)
 
     def test_sync_handled(self):
         BaseErrorTestServer(ValueError)
@@ -336,7 +336,7 @@ class ErrorHandlerTest(unittest.TestCase):
         self.check_result(handled=False)
 
     def check_result(self, handled):
-        with open(test.support.TESTFN) as log:
+        with open(test.os_helper.TESTFN) as log:
             expected = 'Handler called\n' + 'Error handled\n' * handled
             self.assertEqual(log.read(), expected)
 
@@ -354,7 +354,7 @@ class BaseErrorTestServer(socketserver.TCPServer):
         self.wait_done()
 
     def handle_error(self, request, client_address):
-        with open(test.support.TESTFN, 'a') as log:
+        with open(test.os_helper.TESTFN, 'a') as log:
             log.write('Error handled\n')
 
     def wait_done(self):
@@ -363,7 +363,7 @@ class BaseErrorTestServer(socketserver.TCPServer):
 
 class BadHandler(socketserver.BaseRequestHandler):
     def handle(self):
-        with open(test.support.TESTFN, 'a') as log:
+        with open(test.os_helper.TESTFN, 'a') as log:
             log.write('Handler called\n')
         raise self.server.exception('Test error')
 

@@ -1,5 +1,6 @@
 import unittest
 from test import support
+from test.support import os_helper
 from test import test_urllib
 
 import os
@@ -772,7 +773,7 @@ class HandlerTests(unittest.TestCase):
         h = urllib.request.FileHandler()
         o = h.parent = MockOpener()
 
-        TESTFN = support.TESTFN
+        TESTFN = os_helper.TESTFN
         urlpath = sanepathname2url(os.path.abspath(TESTFN))
         towrite = b"hello, world\n"
         urls = [
