@@ -173,10 +173,6 @@ class PosixPathTest(unittest.TestCase):
         self.assertIs(posixpath.islink(os_helper.TESTFN + "\x00"), False)
         self.assertIs(posixpath.islink(os.fsencode(os_helper.TESTFN) + b"\x00"), False)
 
-    # TODO: RUSTPYTHON
-    if os.name == "nt":
-        test_islink = unittest.expectedFailure(test_islink)
-
     def test_ismount(self):
         self.assertIs(posixpath.ismount("/"), True)
         self.assertIs(posixpath.ismount(b"/"), True)
