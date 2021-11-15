@@ -505,26 +505,3 @@ if "win" not in sys.platform:
 
     for arg in [None, 1, 1.0, TabError]:
         assert_raises(TypeError, os.system, arg)
-
-if sys.platform.startswith("win"):
-	winver = sys.getwindowsversion()
-
-	# the biggest value of wSuiteMask (https://docs.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-osversioninfoexa#members).
-	all_masks = 0x00000004 | 0x00000400 | 0x00004000 | 0x00000080 | 0x00000002 | 0x00000040 | 0x00000200 | \
-		0x00000100 | 0x00000001 | 0x00000020 | 0x00002000 | 0x00000010 | 0x00008000 | 0x00020000
-
-	# We really can't test if the results are correct, so it just checks for meaningful value
-	assert winver.major > 0
-	assert winver.minor >= 0
-	assert winver.build > 0
-	assert winver.platform == 2
-	assert isinstance(winver.service_pack, str)
-	assert 0 <= winver.suite_mask <= all_masks
-	assert 1 <= winver.product_type <= 3
-
-	# XXX if platform_version is implemented correctly, this'll break on compatiblity mode or a build without manifest
-	assert winver.major == winver.platform_version[0]
-	assert winver.minor == winver.platform_version[1]
-	assert winver.build == winver.platform_version[2]
-
-
