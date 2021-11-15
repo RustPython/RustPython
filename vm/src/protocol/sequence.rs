@@ -4,7 +4,7 @@ use std::fmt::Debug;
 use itertools::Itertools;
 
 use crate::{
-    builtins::{PyList, PySlice},
+    builtins::{PyList, PySlice, PyTuple, PyTupleRef},
     common::lock::OnceCell,
     function::IntoPyObject,
     IdProtocol, PyArithmeticValue, PyObject, PyObjectPayload, PyObjectRef, PyObjectView, PyResult,
@@ -293,18 +293,16 @@ impl PySequence<'_> {
         self._ass_slice(start, stop, None, vm)
     }
 
-    pub fn tuple(&self, vm: &VirtualMachine) -> PyResult {
-        if self.obj.class().is(&vm.ctx.types.tuple_type) {
-            return Ok(self.obj.to_owned());
+    pub fn tuple(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        if let Some(tuple) = self.obj.downcast_ref_if_exact::<PyTuple>(vm) {
+            Ok(tuple.to_owned())
+        } else if let Some(list) = self.obj.downcast_ref_if_exact::<PyList>(vm) {
+            Ok(vm.ctx.new_tuple(list.borrow_vec().to_vec()).into())
+        } else {
+            let iter = self.obj.to_owned().get_iter(vm)?;
+            let iter = iter.iter(vm)?;
+            Ok(vm.ctx.new_tuple(iter.try_collect()?))
         }
-        if self.obj.class().is(&vm.ctx.types.list_type) {
-            let list = self.obj.payload::<PyList>().unwrap();
-            return Ok(vm.ctx.new_tuple(list.borrow_vec().to_vec()).into());
-        }
-
-        let iter = self.obj.to_owned().get_iter(vm)?;
-        let iter = iter.iter(vm)?;
-        Ok(vm.ctx.new_tuple(iter.try_collect()?).into())
     }
 
     pub fn list(&self, vm: &VirtualMachine) -> PyResult {
