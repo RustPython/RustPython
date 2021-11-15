@@ -84,14 +84,14 @@ impl PyObjVTable {
 /// payload can be a rust float or rust int in case of float and int objects.
 #[repr(C)]
 struct PyInner<T> {
-    refcount: RefCount,
+    ref_count: RefCount,
     // TODO: move typeid into vtable once TypeId::of is const
     typeid: TypeId,
     vtable: &'static PyObjVTable,
 
     typ: PyRwLock<PyTypeRef>, // __class__ member
     dict: Option<InstanceDict>,
-    weaklist: WeakRefList,
+    weak_list: WeakRefList,
 
     payload: T,
 }
@@ -160,7 +160,7 @@ impl WeakRefList {
         if is_generic {
             if let Some(generic_weakref) = inner.generic_weakref {
                 let generic_weakref = unsafe { generic_weakref.as_ref() };
-                if generic_weakref.0.refcount.get() != 0 {
+                if generic_weakref.0.ref_count.get() != 0 {
                     return PyObjectWeak {
                         weak: generic_weakref.to_owned(),
                     };
@@ -171,7 +171,7 @@ impl WeakRefList {
             pointers: Pointers::new(),
             parent: inner_ptr,
             callback: UnsafeCell::new(callback),
-            hash: Radium::new(-1),
+            hash: Radium::new(crate::common::hash::SENTINEL),
         };
         let weak = PyRef::new_ref(obj, cls, dict);
         // SAFETY: we don't actually own the PyObjectWeaks inside `list`, and every time we take
@@ -266,7 +266,7 @@ impl WeakRefList {
 
 impl WeakListInner {
     fn iter(&self) -> impl Iterator<Item = &PyObjectView<PyWeak>> {
-        self.list.iter().filter(|wr| wr.0.refcount.get() > 0)
+        self.list.iter().filter(|wr| wr.0.ref_count.get() > 0)
     }
 }
 
@@ -317,7 +317,7 @@ impl PyWeak {
         let guard = unsafe { self.parent.as_ref().lock() };
         let obj_ptr = guard.obj?;
         unsafe {
-            if !obj_ptr.as_ref().0.refcount.safe_inc() {
+            if !obj_ptr.as_ref().0.ref_count.safe_inc() {
                 return None;
             }
             Some(PyObjectRef::from_raw(obj_ptr.as_ptr()))
@@ -399,12 +399,12 @@ impl InstanceDict {
 impl<T: PyObjectPayload> PyInner<T> {
     fn new(payload: T, typ: PyTypeRef, dict: Option<PyDictRef>) -> Box<Self> {
         Box::new(PyInner {
-            refcount: RefCount::new(),
+            ref_count: RefCount::new(),
             typeid: TypeId::of::<T>(),
             vtable: PyObjVTable::of::<T>(),
             typ: PyRwLock::new(typ),
             dict: dict.map(InstanceDict::new),
-            weaklist: WeakRefList::new(),
+            weak_list: WeakRefList::new(),
             payload,
         })
     }
@@ -455,7 +455,7 @@ impl ToOwned for PyObject {
 
     #[inline(always)]
     fn to_owned(&self) -> Self::Owned {
-        self.0.refcount.inc();
+        self.0.ref_count.inc();
         PyObjectRef {
             ptr: NonNull::from(self),
         }
@@ -554,7 +554,7 @@ impl PyObjectRef {
 impl PyObject {
     #[inline]
     fn weak_ref_list(&self) -> Option<&WeakRefList> {
-        Some(&self.0.weaklist)
+        Some(&self.0.weak_list)
     }
 
     pub(crate) fn downgrade_with_weakref_typ_opt(
@@ -684,7 +684,7 @@ impl PyObject {
 
     #[inline]
     pub fn strong_count(&self) -> usize {
-        self.0.refcount.get()
+        self.0.ref_count.get()
     }
 
     #[inline]
@@ -702,14 +702,14 @@ impl PyObject {
         // CPython-compatible drop implementation
         if let Some(slot_del) = self.class().mro_find_map(|cls| cls.slots.del.load()) {
             let ret = crate::vm::thread::with_vm(self, |vm| {
-                self.0.refcount.inc();
+                self.0.ref_count.inc();
                 if let Err(e) = slot_del(self, vm) {
                     print_del_error(e, self, vm);
                 }
-                self.0.refcount.dec()
+                self.0.ref_count.dec()
             });
             match ret {
-                // the decref right above set refcount back to 0
+                // the decref right above set ref_count back to 0
                 Some(true) => {}
                 // we've been resurrected by __del__
                 Some(false) => return Err(()),
@@ -725,7 +725,7 @@ impl PyObject {
         Ok(())
     }
 
-    /// Can only be called when refcount has dropped to zero. `ptr` must be valid
+    /// Can only be called when ref_count has dropped to zero. `ptr` must be valid
     #[inline(never)]
     #[cold]
     unsafe fn drop_slow(ptr: NonNull<PyObject>) {
@@ -797,7 +797,7 @@ impl PyObjectWeak {
 
 impl Drop for PyObjectRef {
     fn drop(&mut self) {
-        if self.0.refcount.dec() {
+        if self.0.ref_count.dec() {
             unsafe { PyObject::drop_slow(self.ptr) }
         }
     }
@@ -863,7 +863,7 @@ impl<T: PyObjectPayload> ToOwned for PyObjectView<T> {
 
     #[inline(always)]
     fn to_owned(&self) -> Self::Owned {
-        self.0.refcount.inc();
+        self.0.ref_count.inc();
         PyRef {
             ptr: NonNull::from(self),
         }
@@ -923,7 +923,7 @@ impl<T: PyObjectPayload> fmt::Debug for PyRef<T> {
 impl<T: PyObjectPayload> Drop for PyRef<T> {
     #[inline]
     fn drop(&mut self) {
-        if self.0.refcount.dec() {
+        if self.0.ref_count.dec() {
             unsafe { PyObject::drop_slow(self.ptr.cast::<PyObject>()) }
         }
     }
@@ -1078,22 +1078,22 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
         };
         let type_type_ptr = Box::into_raw(Box::new(partially_init!(
             PyInner::<PyType> {
-                refcount: RefCount::new(),
+                ref_count: RefCount::new(),
                 typeid: TypeId::of::<PyType>(),
                 vtable: PyObjVTable::of::<PyType>(),
                 dict: None,
-                weaklist: WeakRefList::new(),
+                weak_list: WeakRefList::new(),
                 payload: type_payload,
             },
             Uninit { typ }
         )));
         let object_type_ptr = Box::into_raw(Box::new(partially_init!(
             PyInner::<PyType> {
-                refcount: RefCount::new(),
+                ref_count: RefCount::new(),
                 typeid: TypeId::of::<PyType>(),
                 vtable: PyObjVTable::of::<PyType>(),
                 dict: None,
-                weaklist: WeakRefList::new(),
+                weak_list: WeakRefList::new(),
                 payload: object_payload,
             },
             Uninit { typ },
@@ -1105,12 +1105,12 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
             type_type_ptr as *mut MaybeUninit<PyInner<PyType>> as *mut PyInner<PyType>;
 
         unsafe {
-            (*type_type_ptr).refcount.inc();
+            (*type_type_ptr).ref_count.inc();
             ptr::write(
                 &mut (*object_type_ptr).typ as *mut PyRwLock<PyTypeRef> as *mut UninitRef<PyType>,
                 PyRwLock::new(NonNull::new_unchecked(type_type_ptr)),
             );
-            (*type_type_ptr).refcount.inc();
+            (*type_type_ptr).ref_count.inc();
             ptr::write(
                 &mut (*type_type_ptr).typ as *mut PyRwLock<PyTypeRef> as *mut UninitRef<PyType>,
                 PyRwLock::new(NonNull::new_unchecked(type_type_ptr)),
