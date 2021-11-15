@@ -4,7 +4,7 @@ use std::fmt::Debug;
 use itertools::Itertools;
 
 use crate::{
-    builtins::{PyList, PySlice, PyTuple, PyTupleRef},
+    builtins::{PyList, PyListRef, PySlice, PyTuple, PyTupleRef},
     common::lock::OnceCell,
     function::IntoPyObject,
     IdProtocol, PyArithmeticValue, PyObject, PyObjectPayload, PyObjectRef, PyObjectView, PyResult,
@@ -305,10 +305,9 @@ impl PySequence<'_> {
         }
     }
 
-    pub fn list(&self, vm: &VirtualMachine) -> PyResult {
-        let list = vm.ctx.new_list(vec![]);
-        list.extend(self.obj.to_owned(), vm)?;
-        Ok(list.into())
+    pub fn list(&self, vm: &VirtualMachine) -> PyResult<PyListRef> {
+        let list = vm.ctx.new_list(vm.extract_elements(self.obj)?);
+        Ok(list)
     }
 
     pub fn contains(&self, target: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
