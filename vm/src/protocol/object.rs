@@ -408,12 +408,12 @@ impl PyObject {
     // int PyObject_TypeCheck(PyObject *o, PyTypeObject *type)
 
     pub fn length(&self, vm: &VirtualMachine) -> PyResult<usize> {
-        vm.obj_len_opt(self).unwrap_or_else(|| {
-            Err(vm.new_type_error(format!(
-                "object of type '{}' has no len()",
-                self.class().name()
-            )))
-        })
+        let seq = PySequence::from(self);
+        if let Ok(len) = seq.length(vm) {
+            Ok(len)
+        } else {
+            PyMapping::try_from_object(vm, self.to_owned())?.length(vm)
+        }
     }
 
     pub fn get_item<K: DictKey + IntoPyObject + Clone>(

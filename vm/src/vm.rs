@@ -30,7 +30,7 @@ use crate::{
     PyObjectWrap, PyRef, PyRefExact, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crossbeam_utils::atomic::AtomicCell;
-use num_traits::{Signed, ToPrimitive};
+use num_traits::ToPrimitive;
 use std::borrow::Cow;
 use std::cell::{Cell, Ref, RefCell};
 use std::collections::{HashMap, HashSet};
@@ -1672,41 +1672,12 @@ impl VirtualMachine {
             .invoke((), self)
     }
 
-    pub fn obj_len_opt(&self, obj: &PyObject) -> Option<PyResult<usize>> {
-        self.get_special_method(obj.to_owned(), "__len__")
-            .map(Result::ok)
-            .transpose()
-            .map(|meth| {
-                let len = meth?.invoke((), self)?;
-                let len = len
-                    .payload_if_subclass::<PyInt>(self)
-                    .ok_or_else(|| {
-                        self.new_type_error(format!(
-                            "'{}' object cannot be interpreted as an integer",
-                            len.class().name()
-                        ))
-                    })?
-                    .as_bigint();
-                if len.is_negative() {
-                    return Err(self.new_value_error("__len__() should return >= 0".to_owned()));
-                }
-                let len = len.to_isize().ok_or_else(|| {
-                    self.new_overflow_error(
-                        "cannot fit 'int' into an index-sized integer".to_owned(),
-                    )
-                })?;
-                Ok(len as usize)
-            })
-    }
-
     pub fn length_hint_opt(&self, iter: PyObjectRef) -> PyResult<Option<usize>> {
-        if let Some(len) = self.obj_len_opt(&iter) {
-            match len {
-                Ok(len) => return Ok(Some(len)),
-                Err(e) => {
-                    if !e.isinstance(&self.ctx.exceptions.type_error) {
-                        return Err(e);
-                    }
+        match iter.length(self) {
+            Ok(len) => return Ok(Some(len)),
+            Err(e) => {
+                if !e.isinstance(&self.ctx.exceptions.type_error) {
+                    return Err(e);
                 }
             }
         }

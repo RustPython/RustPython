@@ -297,7 +297,7 @@ impl PySequence<'_> {
         if let Some(tuple) = self.obj.downcast_ref_if_exact::<PyTuple>(vm) {
             Ok(tuple.to_owned())
         } else if let Some(list) = self.obj.downcast_ref_if_exact::<PyList>(vm) {
-            Ok(vm.ctx.new_tuple(list.borrow_vec().to_vec()).into())
+            Ok(vm.ctx.new_tuple(list.borrow_vec().to_vec()))
         } else {
             let iter = self.obj.to_owned().get_iter(vm)?;
             let iter = iter.iter(vm)?;

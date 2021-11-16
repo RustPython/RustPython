@@ -166,7 +166,7 @@ macro_rules! then_some_closure {
 
 pub use crate::builtins::object::{generic_getattr, generic_setattr};
 fn slot_length(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-    let ret = vm.call_special_method(obj.to_owned(), "__len__", ())?;
+    let ret = vm.call_special_method(obj, "__len__", ())?;
     let len = ret.payload::<PyInt>().ok_or_else(|| {
         vm.new_type_error(format!(
             "'{}' object cannot be interpreted as an integer",
