@@ -366,6 +366,48 @@ impl PySequence<'_> {
 
         Err(vm.new_value_error("sequence.index(x): x not in sequence".to_string()))
     }
+
+    pub fn extract<F, R>(&self, mut f: F, vm: &VirtualMachine) -> PyResult<Vec<R>>
+    where
+        F: FnMut(&PyObject) -> PyResult<R>,
+    {
+        if let Some(tuple) = self.obj.payload_if_exact::<PyTuple>(vm) {
+            tuple.as_slice().iter().map(|x| f(x.as_ref())).collect()
+        } else if let Some(list) = self.obj.payload_if_exact::<PyList>(vm) {
+            list.borrow_vec().iter().map(|x| f(x.as_ref())).collect()
+        } else {
+            let iter = self.obj.to_owned().get_iter(vm)?;
+            let iter = iter.iter::<PyObjectRef>(vm)?;
+            let len = self.length(vm).unwrap_or(0);
+            let mut v = Vec::with_capacity(len);
+            for x in iter {
+                v.push(f(x?.as_ref())?);
+            }
+            v.shrink_to_fit();
+            Ok(v)
+        }
+    }
+
+    pub fn extract_cloned<F, R>(&self, mut f: F, vm: &VirtualMachine) -> PyResult<Vec<R>>
+    where
+        F: FnMut(PyObjectRef) -> PyResult<R>,
+    {
+        if let Some(tuple) = self.obj.payload_if_exact::<PyTuple>(vm) {
+            tuple.as_slice().iter().map(|x| f(x.clone())).collect()
+        } else if let Some(list) = self.obj.payload_if_exact::<PyList>(vm) {
+            list.borrow_vec().iter().map(|x| f(x.clone())).collect()
+        } else {
+            let iter = self.obj.to_owned().get_iter(vm)?;
+            let iter = iter.iter::<PyObjectRef>(vm)?;
+            let len = self.length(vm).unwrap_or(0);
+            let mut v = Vec::with_capacity(len);
+            for x in iter {
+                v.push(f(x?)?);
+            }
+            v.shrink_to_fit();
+            Ok(v)
+        }
+    }
 }
 
 const NOT_IMPLEMENTED: PySequenceMethods = PySequenceMethods {
