@@ -8,7 +8,7 @@ use crate::{
     TypeProtocol, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
-use num_traits::ToPrimitive;
+use num_traits::{Signed, ToPrimitive};
 use std::borrow::Cow;
 use std::cmp::Ordering;
 
@@ -165,23 +165,28 @@ macro_rules! then_some_closure {
 }
 
 pub use crate::builtins::object::{generic_getattr, generic_setattr};
+fn slot_length(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+    let ret = vm.call_special_method(obj.to_owned(), "__len__", ())?;
+    let len = ret.payload::<PyInt>().ok_or_else(|| {
+        vm.new_type_error(format!(
+            "'{}' object cannot be interpreted as an integer",
+            ret.class().name()
+        ))
+    })?;
+    let len = len.as_bigint();
+    if len.is_negative() {
+        return Err(vm.new_value_error("__len__() should return >= 0".to_owned()));
+    }
+    let len = len.to_isize().ok_or_else(|| {
+        vm.new_overflow_error("cannot fit 'int' into an index-sized integer".to_owned())
+    })?;
+    Ok(len as usize)
+}
 
 fn as_mapping_wrapper(zelf: &PyObject, _vm: &VirtualMachine) -> PyMappingMethods {
     PyMappingMethods {
-        length: then_some_closure!(zelf.has_class_attr("__len__"), |mapping, vm| {
-            vm.call_special_method(mapping.obj.to_owned(), "__len__", ())
-                .map(|obj| {
-                    obj.payload_if_subclass::<PyInt>(vm)
-                        .map(|length_obj| {
-                            length_obj.as_bigint().to_usize().ok_or_else(|| {
-                                vm.new_value_error("__len__() should return >= 0".to_owned())
-                            })
-                        })
-                        .unwrap()
-                })?
-        }),
-        subscript: then_some_closure!(zelf.has_class_attr("__getitem__"), |mapping, needle, vm| {
-            vm.call_special_method(mapping.obj.to_owned(), "__getitem__", (needle.to_owned(),))
+        length: then_some_closure!(zelf.has_class_attr("__len__"), |zelf, vm| {
+            slot_length(zelf, vm)
         }),
         ass_subscript: then_some_closure!(
             zelf.has_class_attr("__setitem__") | zelf.has_class_attr("__delitem__"),
@@ -212,7 +217,7 @@ fn as_sequence_wrapper(zelf: &PyObject, _vm: &VirtualMachine) -> Cow<'static, Py
 
     Cow::Owned(PySequenceMethods {
         length: then_some_closure!(zelf.has_class_attr("__len__"), |seq, vm| {
-            vm.obj_len_opt(seq.obj).unwrap()
+            slot_length(seq.obj.to_owned(), vm)
         }),
         item: Some(|seq, i, vm| {
             vm.call_special_method(seq.obj.to_owned(), "__getitem__", (i.into_pyobject(vm),))
