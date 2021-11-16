@@ -234,6 +234,8 @@ def skip_unless_xattr(test):
 
 
 def unlink(filename):
+    import os
+    print('cwd:', os.getcwd(), os.stat(filename))
     try:
         _unlink(filename)
     except (FileNotFoundError, NotADirectoryError):
