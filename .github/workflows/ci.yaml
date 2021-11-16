@@ -104,7 +104,7 @@ jobs:
     runs-on:  ${{ matrix.os }}
     strategy:
       matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
+        os: [windows-latest]
       fail-fast: false
     steps:
       - uses: actions/checkout@v2
@@ -141,64 +141,6 @@ jobs:
         run: cargo check --target aarch64-apple-ios
         if: runner.os == 'macOS'
 
-  exotic_targets:
-    name: Ensure compilation on various targets
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          target: i686-unknown-linux-gnu
-
-      - name: Install gcc-multilib and musl-tools
-        run: sudo apt-get update && sudo apt-get install gcc-multilib musl-tools
-      - name: Check compilation for x86 32bit
-        run: cargo check --target i686-unknown-linux-gnu
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          target: aarch64-linux-android
-
-      - name: Check compilation for android
-        run: cargo check --target aarch64-linux-android
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          target: i686-unknown-linux-musl
-
-      - name: Check compilation for musl
-        run: cargo check --target i686-unknown-linux-musl
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          target: x86_64-unknown-freebsd
-
-      - name: Check compilation for freebsd
-        run: cargo check --target x86_64-unknown-freebsd
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          target: wasm32-unknown-unknown
-
-      - name: Check compilation for wasm32
-        run: cargo check --target wasm32-unknown-unknown --no-default-features
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          target: x86_64-unknown-freebsd
-
-      - name: Check compilation for freeBSD
-        run: cargo check --target x86_64-unknown-freebsd
-
-      - name: Prepare repository for redox compilation
-        run: bash scripts/redox/uncomment-cargo.sh
-      - name: Check compilation for Redox
-        if: false # FIXME: redoxer toolchain is from ~july 2021, edition2021 isn't stabilized
-        uses: coolreader18/redoxer-action@v1
-        with:
-          command: check
-
   snippets_cpython:
     env:
       RUST_BACKTRACE: full
@@ -206,7 +148,7 @@ jobs:
     runs-on:  ${{ matrix.os }}
     strategy:
       matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
+        os: [ windows-latest]
       fail-fast: false
     steps:
       - uses: actions/checkout@v2
@@ -257,123 +199,3 @@ jobs:
         run: |
           mkdir site-packages
           target/release/rustpython --install-pip -t site-packages
-
-  lint:
-    name: Check Rust code with rustfmt and clippy
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-            components: rustfmt, clippy
-      - name: run rustfmt
-        run: cargo fmt --all -- --check
-      - name: run clippy
-        run: cargo clippy ${{ env.CARGO_ARGS }} ${{ env.NON_WASM_PACKAGES }} -- -Dwarnings
-      - name: run clippy on wasm
-        run: cargo clippy --manifest-path=wasm/lib/Cargo.toml -- -Dwarnings
-      - uses: actions/setup-python@v2
-        with:
-          python-version: "3.10"
-      - name: install flake8
-        run: python -m pip install flake8
-      - name: run lint
-        run: flake8 . --count --exclude=./.*,./Lib,./vm/Lib,./benches/  --select=E9,F63,F7,F82 --show-source --statistics
-      - name: install prettier
-        run: yarn global add prettier && echo "$(yarn global bin)" >>$GITHUB_PATH
-      - name: check wasm code with prettier
-        # prettier doesn't handle ignore files very well: https://github.com/prettier/prettier/issues/8506
-        run: cd wasm && git ls-files -z | xargs -0 prettier --check -u
-  miri:
-    name: Run tests under miri
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - uses: dtolnay/rust-toolchain@master
-        with:
-            toolchain: nightly
-            components: miri
-      - uses: Swatinem/rust-cache@v1
-      - name: Run tests under miri
-        # miri-ignore-leaks because the type-object circular reference means that there will always be
-        # a memory leak, at least until we have proper cyclic gc
-        run: MIRIFLAGS='-Zmiri-ignore-leaks' cargo +nightly miri test -p rustpython-vm -- miri_test
-
-  wasm:
-    name: Check the WASM package and demo
-    needs: rust_tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Cache cargo dependencies
-        uses: actions/cache@v2
-        with:
-          path: |
-              ~/.cargo/registry
-              ~/.cargo/git
-              target
-          key: ${{ runner.os }}-wasm_opt3-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-               ${{ runner.os }}-debug_opt3-${{ hashFiles('**/Cargo.lock') }}
-      - name: install wasm-pack
-        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-      - name: install geckodriver
-        run: |
-          wget https://github.com/mozilla/geckodriver/releases/download/v0.30.0/geckodriver-v0.30.0-linux64.tar.gz
-          mkdir geckodriver
-          tar -xzf geckodriver-v0.30.0-linux64.tar.gz -C geckodriver
-      - uses: actions/setup-python@v2
-        with:
-          python-version: "3.10"
-      - run: python -m pip install -r requirements.txt
-        working-directory: ./wasm/tests
-      - uses: actions/setup-node@v1
-      - name: run test
-        run: |
-          export PATH=$PATH:`pwd`/../../geckodriver
-          npm install
-          npm run test
-        working-directory: ./wasm/demo
-      - name: build notebook demo
-        if: github.ref == 'refs/heads/release'
-        run: |
-          npm install
-          npm run dist
-          mv dist ../demo/dist/notebook
-        working-directory: ./wasm/notebook
-      - name: Deploy demo to Github Pages
-        if: success() && github.ref == 'refs/heads/release'
-        uses: peaceiris/actions-gh-pages@v2
-        env:
-          ACTIONS_DEPLOY_KEY: ${{ secrets.ACTIONS_DEMO_DEPLOY_KEY }}
-          PUBLISH_DIR: ./wasm/demo/dist
-          EXTERNAL_REPOSITORY: RustPython/demo
-          PUBLISH_BRANCH: master
-
-  wasm-wasi:
-    name: Run snippets and cpython tests on wasm-wasi
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          target: wasm32-wasi
-      - name: Setup Wasmer
-        uses: wasmerio/setup-wasmer@v1
-      - name: Install clang
-        run: sudo apt-get update && sudo apt-get install clang -y
-      - name: Cache cargo dependencies
-        uses: actions/cache@v2
-        with:
-          path: |
-              ~/.cargo/registry
-              ~/.cargo/git
-              target
-          key: ${{ runner.os }}-wasm_opt3-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-               ${{ runner.os }}-debug_opt3-${{ hashFiles('**/Cargo.lock') }}
-      - name: build rustpython
-        run: cargo build --release --target wasm32-wasi --features freeze-stdlib,stdlib --verbose
-      - name: run snippets
-        run: wasmer run --dir . target/wasm32-wasi/release/rustpython.wasm -- extra_tests/snippets/stdlib_random.py
