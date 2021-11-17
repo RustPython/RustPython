@@ -20,7 +20,6 @@ from test.libregrtest.runtest import (
 from test.libregrtest.setup import setup_tests
 from test.libregrtest.utils import removepy, count, format_duration, printlist
 from test import support
-from test.support import os_helper
 
 
 # When tests are run from the Python build directory, it is best practice
@@ -200,7 +199,7 @@ class Regrtest:
             # regex to match 'test_builtin' in line:
             # '0:00:00 [  4/400] test_builtin -- test_dict took 1 sec'
             regex = re.compile(r'\btest_[a-zA-Z0-9_]+\b')
-            with open(os.path.join(os_helper.SAVEDCWD, self.ns.fromfile)) as fp:
+            with open(os.path.join(support.SAVEDCWD, self.ns.fromfile)) as fp:
                 for line in fp:
                     line = line.split('#', 1)[0]
                     line = line.strip()
@@ -543,7 +542,7 @@ class Regrtest:
         for k, v in totals.items():
             root.set(k, str(v))
 
-        xmlpath = os.path.join(os_helper.SAVEDCWD, self.ns.xmlpath)
+        xmlpath = os.path.join(support.SAVEDCWD, self.ns.xmlpath)
         with open(xmlpath, 'wb') as f:
             for s in ET.tostringlist(root):
                 f.write(s)
@@ -569,8 +568,8 @@ class Regrtest:
         # Run the tests in a context manager that temporarily changes the CWD to a
         # temporary and writable directory.  If it's not possible to create or
         # change the CWD, the original CWD will be used.  The original CWD is
-        # available from os_helper.SAVEDCWD.
-        with os_helper.temp_cwd(test_cwd, quiet=True):
+        # available from support.SAVEDCWD.
+        with support.temp_cwd(test_cwd, quiet=True):
             self._main(tests, kwargs)
 
     def getloadavg(self):

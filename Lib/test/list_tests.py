@@ -8,7 +8,6 @@ import unittest
 from functools import cmp_to_key
 
 from test import support, seq_tests
-from test.support import os_helper
 
 
 class CommonTest(seq_tests.CommonTest):
@@ -74,12 +73,12 @@ class CommonTest(seq_tests.CommonTest):
         d.append(d)
         d.append(400)
         try:
-            with open(os_helper.TESTFN, "w") as fo:
+            with open(support.TESTFN, "w") as fo:
                 fo.write(str(d))
-            with open(os_helper.TESTFN, "r") as fo:
+            with open(support.TESTFN, "r") as fo:
                 self.assertEqual(fo.read(), repr(d))
         finally:
-            os.remove(os_helper.TESTFN)
+            os.remove(support.TESTFN)
 
     def test_set_subscript(self):
         a = self.type2test(range(20))

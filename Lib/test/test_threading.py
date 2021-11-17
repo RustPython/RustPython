@@ -1376,9 +1376,9 @@ class MiscTestCase(unittest.TestCase):
     @unittest.expectedFailure
     def test__all__(self):
         extra = {"ThreadError"}
-        not_exported = {'currentThread', 'activeCount'}
+        blacklist = {'currentThread', 'activeCount'}
         support.check__all__(self, threading, ('threading', '_thread'),
-                             extra=extra, not_exported=not_exported)
+                             extra=extra, blacklist=blacklist)
 
 
 class InterruptMainTests(unittest.TestCase):

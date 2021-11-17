@@ -4,7 +4,6 @@ import textwrap
 import unittest
 from subprocess import Popen, PIPE
 from test import support
-from test.support import os_helper
 from test.support.script_helper import assert_python_ok
 
 
@@ -91,7 +90,7 @@ class TestTool(unittest.TestCase):
         self.assertEqual(err, b'')
 
     def _create_infile(self, data=None):
-        infile = os_helper.TESTFN
+        infile = support.TESTFN
         with open(infile, "w", encoding="utf-8") as fp:
             self.addCleanup(os.remove, infile)
             fp.write(data or self.data)
@@ -121,7 +120,7 @@ class TestTool(unittest.TestCase):
 
     def test_infile_outfile(self):
         infile = self._create_infile()
-        outfile = os_helper.TESTFN + '.out'
+        outfile = support.TESTFN + '.out'
         rc, out, err = assert_python_ok('-m', 'json.tool', infile, outfile)
         self.addCleanup(os.remove, outfile)
         with open(outfile, "r") as fp:

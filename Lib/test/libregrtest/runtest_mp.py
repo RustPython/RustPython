@@ -46,7 +46,7 @@ def run_test_in_subprocess(testname, ns):
                             stderr=subprocess.PIPE,
                             universal_newlines=True,
                             close_fds=(os.name != 'nt'),
-                            cwd=os_helper.SAVEDCWD)
+                            cwd=support.SAVEDCWD)
 
 
 def run_tests_worker(worker_args):

@@ -16,7 +16,6 @@
 import contextlib
 import unittest
 from test import support
-from test.support import os_helper
 from itertools import permutations, product
 from random import randrange, sample, choice
 import warnings
@@ -40,7 +39,7 @@ except ImportError:
     ctypes = None
 
 try:
-    with os_helper.EnvironmentVarGuard() as os.environ, \
+    with support.EnvironmentVarGuard() as os.environ, \
          warnings.catch_warnings():
         from numpy import ndarray as numpy_array
 except ImportError:

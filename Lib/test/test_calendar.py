@@ -912,12 +912,12 @@ class CommandLineTestCase(unittest.TestCase):
 
 class MiscTestCase(unittest.TestCase):
     def test__all__(self):
-        not_exported = {'mdays', 'January', 'February', 'EPOCH',
+        blacklist = {'mdays', 'January', 'February', 'EPOCH',
                      'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY',
                      'SATURDAY', 'SUNDAY', 'different_locale', 'c',
                      'prweek', 'week', 'format', 'formatstring', 'main',
                      'monthlen', 'prevmonth', 'nextmonth'}
-        support.check__all__(self, calendar, not_exported=not_exported)
+        support.check__all__(self, calendar, blacklist=blacklist)
 
 
 class TestSubClassingCase(unittest.TestCase):

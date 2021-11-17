@@ -18,8 +18,7 @@ import shutil
 import threading
 import gc
 import textwrap
-from test.support import os_helper
-from test.support.os_helper import FakePath
+from test.support import FakePath
 
 try:
     import _testcapi
@@ -383,7 +382,7 @@ class ProcessTestCase(BaseTestCase):
         # Normalize an expected cwd (for Tru64 support).
         # We can't use os.path.realpath since it doesn't expand Tru64 {memb}
         # strings.  See bug #1063571.
-        with os_helper.change_cwd(cwd):
+        with support.change_cwd(cwd):
             return os.getcwd()
 
     # For use in the test_cwd* tests below.
@@ -434,7 +433,7 @@ class ProcessTestCase(BaseTestCase):
         # is relative.
         python_dir, python_base = self._split_python_path()
         rel_python = os.path.join(os.curdir, python_base)
-        with os_helper.temp_cwd() as wrong_dir:
+        with support.temp_cwd() as wrong_dir:
             # Before calling with the correct cwd, confirm that the call fails
             # without cwd and with the wrong cwd.
             self.assertRaises(FileNotFoundError, subprocess.Popen,
@@ -451,7 +450,7 @@ class ProcessTestCase(BaseTestCase):
         python_dir, python_base = self._split_python_path()
         rel_python = os.path.join(os.curdir, python_base)
         doesntexist = "somethingyoudonthave"
-        with os_helper.temp_cwd() as wrong_dir:
+        with support.temp_cwd() as wrong_dir:
             # Before calling with the correct cwd, confirm that the call fails
             # without cwd and with the wrong cwd.
             self.assertRaises(FileNotFoundError, subprocess.Popen,
@@ -469,7 +468,7 @@ class ProcessTestCase(BaseTestCase):
         python_dir, python_base = self._split_python_path()
         abs_python = os.path.join(python_dir, python_base)
         rel_python = os.path.join(os.curdir, python_base)
-        with os_helper.temp_dir() as wrong_dir:
+        with support.temp_dir() as wrong_dir:
             # Before calling with an absolute path, confirm that using a
             # relative path fails.
             self.assertRaises(FileNotFoundError, subprocess.Popen,
@@ -1103,7 +1102,7 @@ class ProcessTestCase(BaseTestCase):
         try:
             for i in range(max_handles):
                 try:
-                    tmpfile = os.path.join(tmpdir, os_helper.TESTFN)
+                    tmpfile = os.path.join(tmpdir, support.TESTFN)
                     handles.append(os.open(tmpfile, os.O_WRONLY|os.O_CREAT))
                 except OSError as e:
                     if e.errno != errno.EMFILE:

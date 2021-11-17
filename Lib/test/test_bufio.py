@@ -1,6 +1,5 @@
 import unittest
 from test import support
-from test.support import os_helper
 
 import io # C implementation.
 import _pyio as pyio # Python implementation.
@@ -18,18 +17,18 @@ class BufferSizeTest:
         # .readline()s deliver what we wrote.
 
         # Ensure we can open TESTFN for writing.
-        os_helper.unlink(os_helper.TESTFN)
+        support.unlink(support.TESTFN)
 
         # Since C doesn't guarantee we can write/read arbitrary bytes in text
         # files, use binary mode.
-        f = self.open(os_helper.TESTFN, "wb")
+        f = self.open(support.TESTFN, "wb")
         try:
             # write once with \n and once without
             f.write(s)
             f.write(b"\n")
             f.write(s)
             f.close()
-            f = open(os_helper.TESTFN, "rb")
+            f = open(support.TESTFN, "rb")
             line = f.readline()
             self.assertEqual(line, s + b"\n")
             line = f.readline()
@@ -38,7 +37,7 @@ class BufferSizeTest:
             self.assertFalse(line) # Must be at EOF
             f.close()
         finally:
-            os_helper.unlink(os_helper.TESTFN)
+            support.unlink(support.TESTFN)
 
     def drive_one(self, pattern):
         for length in lengths:

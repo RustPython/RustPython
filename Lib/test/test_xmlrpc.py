@@ -15,7 +15,6 @@ import re
 import io
 import contextlib
 from test import support
-from test.support import os_helper
 
 try:
     import gzip
@@ -1460,7 +1459,7 @@ class CGIHandlerTestCase(unittest.TestCase):
         self.cgi = None
 
     def test_cgi_get(self):
-        with os_helper.EnvironmentVarGuard() as env:
+        with support.EnvironmentVarGuard() as env:
             env['REQUEST_METHOD'] = 'GET'
             # if the method is GET and no request_text is given, it runs handle_get
             # get sysout output
@@ -1494,7 +1493,7 @@ class CGIHandlerTestCase(unittest.TestCase):
         </methodCall>
         """
 
-        with os_helper.EnvironmentVarGuard() as env, \
+        with support.EnvironmentVarGuard() as env, \
              captured_stdout(encoding=self.cgi.encoding) as data_out, \
              support.captured_stdin() as data_in:
             data_in.write(data)

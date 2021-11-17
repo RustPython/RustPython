@@ -9,7 +9,6 @@ import sysconfig
 import threading
 import warnings
 from test import support
-from test.support import os_helper
 from test.libregrtest.utils import print_warning
 try:
     import _multiprocessing, multiprocessing.process
@@ -229,12 +228,12 @@ class saved_test_environment:
         return sorted(fn + ('/' if os.path.isdir(fn) else '')
                       for fn in os.listdir())
     def restore_files(self, saved_value):
-        fn = os_helper.TESTFN
+        fn = support.TESTFN
         if fn not in saved_value and (fn + '/') not in saved_value:
             if os.path.isfile(fn):
-                os_helper.unlink(fn)
+                support.unlink(fn)
             elif os.path.isdir(fn):
-                os_helper.rmtree(fn)
+                support.rmtree(fn)
 
     _lc = [getattr(locale, lc) for lc in dir(locale)
            if lc.startswith('LC_')]

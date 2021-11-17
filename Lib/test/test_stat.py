@@ -2,9 +2,8 @@ import unittest
 import os
 import socket
 import sys
-from test.support import (import_fresh_module,
+from test.support import (TESTFN, import_fresh_module,
                           skip_unless_bind_unix_socket)
-from test.support.os_helper import TESTFN
 
 c_stat = import_fresh_module('stat', fresh=['_stat'])
 py_stat = import_fresh_module('stat', blocked=['_stat'])

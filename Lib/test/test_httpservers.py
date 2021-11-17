@@ -29,7 +29,6 @@ from io import BytesIO
 
 import unittest
 from test import support
-from test.support import os_helper
 
 
 class NoLogRequestHandler:
@@ -65,7 +64,7 @@ class TestServerThread(threading.Thread):
 class BaseTestCase(unittest.TestCase):
     def setUp(self):
         self._threads = support.threading_setup()
-        os.environ = os_helper.EnvironmentVarGuard()
+        os.environ = support.EnvironmentVarGuard()
         self.server_started = threading.Event()
         self.thread = TestServerThread(self, self.request_handler)
         self.thread.start()
@@ -392,13 +391,13 @@ class SimpleHTTPServerTestCase(BaseTestCase):
                      'undecodable name cannot always be decoded on macOS')
     @unittest.skipIf(sys.platform == 'win32',
                      'undecodable name cannot be decoded on win32')
-    @unittest.skipUnless(os_helper.TESTFN_UNDECODABLE,
-                         'need os_helper.TESTFN_UNDECODABLE')
+    @unittest.skipUnless(support.TESTFN_UNDECODABLE,
+                         'need support.TESTFN_UNDECODABLE')
     def test_undecodable_filename(self):
         enc = sys.getfilesystemencoding()
-        filename = os.fsdecode(os_helper.TESTFN_UNDECODABLE) + '.txt'
+        filename = os.fsdecode(support.TESTFN_UNDECODABLE) + '.txt'
         with open(os.path.join(self.tempdir, filename), 'wb') as f:
-            f.write(os_helper.TESTFN_UNDECODABLE)
+            f.write(support.TESTFN_UNDECODABLE)
         response = self.request(self.base_url + '/')
         if sys.platform == 'darwin':
             # On Mac OS the HFS+ filesystem replaces bytes that aren't valid
@@ -415,7 +414,7 @@ class SimpleHTTPServerTestCase(BaseTestCase):
                       .encode(enc, 'surrogateescape'), body)
         response = self.request(self.base_url + '/' + quotedname)
         self.check_status_and_reason(response, HTTPStatus.OK,
-                                     data=os_helper.TESTFN_UNDECODABLE)
+                                     data=support.TESTFN_UNDECODABLE)
 
     def test_get(self):
         #constructs the path relative to the root directory of the HTTPServer
@@ -617,7 +616,7 @@ class CGIHTTPServerTestCase(BaseTestCase):
         # The shebang line should be pure ASCII: use symlink if possible.
         # See issue #7668.
         self._pythonexe_symlink = None
-        if os_helper.can_symlink():
+        if support.can_symlink():
             self.pythonexe = os.path.join(self.parent_dir, 'python')
             self._pythonexe_symlink = support.PythonSymlink(self.pythonexe).__enter__()
         else:

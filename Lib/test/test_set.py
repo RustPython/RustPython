@@ -1,6 +1,5 @@
 import unittest
 from test import support
-from test.support import os_helper
 # import gc
 import weakref
 import operator
@@ -322,15 +321,15 @@ class TestJointOps:
         w = ReprWrapper()
         s = self.thetype([w])
         w.value = s
-        fo = open(os_helper.TESTFN, "w")
+        fo = open(support.TESTFN, "w")
         try:
             fo.write(str(s))
             fo.close()
-            fo = open(os_helper.TESTFN, "r")
+            fo = open(support.TESTFN, "r")
             self.assertEqual(fo.read(), repr(s))
         finally:
             fo.close()
-            os_helper.unlink(os_helper.TESTFN)
+            support.unlink(support.TESTFN)
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
@@ -829,14 +828,14 @@ class TestBasicOps:
 
     def test_print(self):
         try:
-            fo = open(os_helper.TESTFN, "w")
+            fo = open(support.TESTFN, "w")
             fo.write(str(self.set))
             fo.close()
-            fo = open(os_helper.TESTFN, "r")
+            fo = open(support.TESTFN, "r")
             self.assertEqual(fo.read(), repr(self.set))
         finally:
             fo.close()
-            os_helper.unlink(os_helper.TESTFN)
+            support.unlink(support.TESTFN)
 
     def test_length(self):
         self.assertEqual(len(self.set), self.length)
