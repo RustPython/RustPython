@@ -1,4 +1,6 @@
-use super::{PyDict, PyGenericAlias, PyList, PyStrRef, PyTuple, PyTypeRef};
+use std::borrow::Cow;
+
+use super::{PyDict, PyGenericAlias, PyList, PyStr, PyStrRef, PyTuple, PyTypeRef};
 use crate::{
     function::{IntoPyObject, OptionalArg},
     protocol::{PyMapping, PyMappingMethods},
@@ -54,7 +56,7 @@ impl Constructor for PyMappingProxy {
     }
 }
 
-#[pyimpl(with(AsMapping, Iterable, Constructor))]
+#[pyimpl(with(AsMapping, Iterable, Constructor, AsSequence))]
 impl PyMappingProxy {
     fn get_inner(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
         let opt = match &self.mapping {
@@ -85,18 +87,22 @@ impl PyMappingProxy {
             .ok_or_else(|| vm.new_key_error(key))
     }
 
-    #[pymethod(magic)]
-    pub fn contains(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn _contains(&self, key: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
         match &self.mapping {
             MappingProxyInner::Class(class) => {
-                let key = PyStrRef::try_from_object(vm, key)?;
-                Ok(vm
-                    .ctx
-                    .new_bool(class.attributes.read().contains_key(key.as_str()))
-                    .into())
+                // let key = PyStrRef::try_from_object(vm, key)?;
+                let key = key
+                    .payload::<PyStr>()
+                    .ok_or_else(|| pyref_type_error(vm, PyStr::class(vm), key))?;
+                Ok(class.attributes.read().contains_key(key.as_str()))
             }
-            MappingProxyInner::Dict(obj) => vm._membership(obj.clone(), key),
+            MappingProxyInner::Dict(obj) => PySequence::from(obj.as_ref()).contains(key, vm),
         }
+    }
+
+    #[pymethod(magic)]
+    pub fn contains(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        self._contains(&key, vm)
     }
 
     #[pymethod]
@@ -169,6 +175,22 @@ impl AsMapping for PyMappingProxy {
     fn as_mapping(_zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
         Self::MAPPING_METHODS
     }
+}
+
+impl AsSequence for PyMappingProxy {
+    fn as_sequence(
+        _zelf: &crate::PyObjectView<Self>,
+        _vm: &VirtualMachine,
+    ) -> Cow<'static, PySequenceMethods> {
+        Cow::Borrowed(&Self::SEQUENCE_METHODS)
+    }
+}
+
+impl PyMappingProxy {
+    const SEQUENCE_METHODS: PySequenceMethods = PySequenceMethods {
+        contains: Some(|seq, target, vm| seq.obj_as::<Self>()._contains(target, vm)),
+        ..*PySequenceMethods::not_implemented()
+    };
 }
 
 impl Iterable for PyMappingProxy {
