@@ -90,8 +90,6 @@ class DictSetTest(unittest.TestCase):
         self.assertTrue(r == "dict_values(['ABC', 10])" or
                         r == "dict_values([10, 'ABC'])")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_keys_set_operations(self):
         d1 = {'a': 1, 'b': 2}
         d2 = {'b': 3, 'c': 2}
@@ -148,8 +146,6 @@ class DictSetTest(unittest.TestCase):
         self.assertTrue(de.keys().isdisjoint(de.keys()))
         self.assertTrue(de.keys().isdisjoint([1]))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_items_set_operations(self):
         d1 = {'a': 1, 'b': 2}
         d2 = {'a': 2, 'b': 2}
