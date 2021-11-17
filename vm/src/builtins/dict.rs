@@ -7,10 +7,10 @@ use crate::{
     common::ascii,
     dictdatatype::{self, DictKey},
     function::{ArgIterable, FuncArgs, IntoPyObject, KwArgs, OptionalArg},
-    protocol::{PyIterIter, PyIterReturn, PyMappingMethods},
+    protocol::{PyIterIter, PyIterReturn, PyMappingMethods, PySequenceMethods},
     types::{
-        AsMapping, Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable,
-        PyComparisonOp, Unconstructible, Unhashable,
+        AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable,
+        Iterable, PyComparisonOp, Unconstructible, Unhashable,
     },
     vm::{ReprGuard, VirtualMachine},
     IdProtocol,
@@ -19,8 +19,8 @@ use crate::{
     PyObjectView, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use rustpython_common::lock::PyMutex;
-use std::fmt;
 use std::mem::size_of;
+use std::{borrow::Cow, fmt};
 
 pub type DictContentType = dictdatatype::Dict;
 
@@ -61,7 +61,10 @@ impl PyDict {
 
 // Python dict methods:
 #[allow(clippy::len_without_is_empty)]
-#[pyimpl(with(AsMapping, Hashable, Comparable, Iterable), flags(BASETYPE))]
+#[pyimpl(
+    with(AsMapping, Hashable, Comparable, Iterable, AsSequence),
+    flags(BASETYPE)
+)]
 impl PyDict {
     /// escape hatch to access the underlying data structure directly. prefer adding a method on
     /// PyDict instead of using this
@@ -449,6 +452,22 @@ impl AsMapping for PyDict {
     fn as_mapping(_zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
         Self::MAPPING_METHODS
     }
+}
+
+impl AsSequence for PyDict {
+    fn as_sequence(
+        _zelf: &PyObjectView<Self>,
+        _vm: &VirtualMachine,
+    ) -> Cow<'static, PySequenceMethods> {
+        Cow::Borrowed(&Self::SEQUENCE_METHODS)
+    }
+}
+
+impl PyDict {
+    const SEQUENCE_METHODS: PySequenceMethods = PySequenceMethods {
+        contains: Some(|seq, target, vm| seq.obj_as::<Self>().entries.contains(vm, target)),
+        ..*PySequenceMethods::not_implemented()
+    };
 }
 
 impl Comparable for PyDict {
