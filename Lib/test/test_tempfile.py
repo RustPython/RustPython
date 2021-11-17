@@ -15,7 +15,7 @@ from unittest import mock
 
 import unittest
 from test import support
-from test.support import script_helper, os_helper
+from test.support import script_helper
 
 
 has_textmode = (tempfile._text_openflags != tempfile._bin_openflags)
@@ -232,7 +232,7 @@ class TestCandidateTempdirList(BaseTestCase):
         # _candidate_tempdir_list contains the expected directories
 
         # Make sure the interesting environment variables are all set.
-        with os_helper.EnvironmentVarGuard() as env:
+        with support.EnvironmentVarGuard() as env:
             for envname in 'TMPDIR', 'TEMP', 'TMP':
                 dirname = os.getenv(envname)
                 if not dirname:
@@ -318,7 +318,7 @@ def _inside_empty_temp_dir():
         with support.swap_attr(tempfile, 'tempdir', dir):
             yield
     finally:
-        os_helper.rmtree(dir)
+        support.rmtree(dir)
 
 
 def _mock_candidate_names(*names):
@@ -602,7 +602,7 @@ class TestGetTempDir(BaseTestCase):
         case_sensitive_tempdir = tempfile.mkdtemp("-Temp")
         _tempdir, tempfile.tempdir = tempfile.tempdir, None
         try:
-            with os_helper.EnvironmentVarGuard() as env:
+            with support.EnvironmentVarGuard() as env:
                 # Fake the first env var which is checked as a candidate
                 env["TMPDIR"] = case_sensitive_tempdir
                 self.assertEqual(tempfile.gettempdir(), case_sensitive_tempdir)
@@ -958,7 +958,7 @@ class TestNamedTemporaryFile(BaseTestCase):
 
     def test_bad_mode(self):
         dir = tempfile.mkdtemp()
-        self.addCleanup(os_helper.rmtree, dir)
+        self.addCleanup(support.rmtree, dir)
         with self.assertRaises(ValueError):
             tempfile.NamedTemporaryFile(mode='wr', dir=dir)
         with self.assertRaises(TypeError):
@@ -1364,7 +1364,7 @@ class TestTemporaryDirectory(BaseTestCase):
         finally:
             os.rmdir(dir)
 
-    @os_helper.skip_unless_symlink
+    @support.skip_unless_symlink
     def test_cleanup_with_symlink_to_a_directory(self):
         # cleanup() should not follow symlinks to directories (issue #12464)
         d1 = self.do_create()

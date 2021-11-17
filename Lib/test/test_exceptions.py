@@ -8,14 +8,11 @@ import pickle
 import weakref
 import errno
 
-from test.support import (captured_stderr, check_impl_detail,
-                          cpython_only, gc_collect,
-                          no_tracing, script_helper,
-                          SuppressCrashReport,
-                          import_module, check_warnings,)
-from test.support.os_helper import TESTFN, unlink
+from test.support import (TESTFN, captured_stderr, check_impl_detail,
+                          check_warnings, cpython_only, gc_collect, run_unittest,
+                          no_tracing, unlink, import_module, script_helper,
+                          SuppressCrashReport)
 from test import support
-
 class NaiveException(Exception):
     def __init__(self, x):
         self.x = x

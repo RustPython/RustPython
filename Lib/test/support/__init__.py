@@ -4,6 +4,7 @@ if __name__ != 'test.support':
     raise ImportError('support must be imported from the test package')
 
 import asyncio.events
+import collections.abc
 import contextlib
 import errno
 import faulthandler
@@ -162,30 +163,12 @@ SHORT_TIMEOUT = 30.0
 # option.
 LONG_TIMEOUT = 5 * 60.0
 
-# TEST_HOME_DIR refers to the top level directory of the "test" package
-# that contains Python's regression test suite
-TEST_SUPPORT_DIR = os.path.dirname(os.path.abspath(__file__))
-TEST_HOME_DIR = os.path.dirname(TEST_SUPPORT_DIR)
-STDLIB_DIR = os.path.dirname(TEST_HOME_DIR)
-REPO_ROOT = os.path.dirname(STDLIB_DIR)
-
 
 class Error(Exception):
     """Base class for regression test exceptions."""
 
 class TestFailed(Error):
     """Test failed."""
-
-class TestFailedWithDetails(TestFailed):
-    """Test failed."""
-    def __init__(self, msg, errors, failures):
-        self.msg = msg
-        self.errors = errors
-        self.failures = failures
-        super().__init__(msg, errors, failures)
-
-    def __str__(self):
-        return self.msg
 
 class TestDidNotRun(Error):
     """Test did not run any subtests."""
@@ -296,7 +279,9 @@ def load_package_tests(pkg_dir, loader, standard_tests, pattern):
     """
     if pattern is None:
         pattern = "test*"
-    top_dir = STDLIB_DIR
+    top_dir = os.path.dirname(              # Lib
+                  os.path.dirname(              # test
+                      os.path.dirname(__file__)))   # support
     package_tests = loader.discover(start_dir=pkg_dir,
                                     top_level_dir=top_dir,
                                     pattern=pattern)
@@ -457,7 +442,7 @@ if sys.platform.startswith("win"):
                 try:
                     mode = os.lstat(fullname).st_mode
                 except OSError as exc:
-                    print("os_helper.rmtree(): os.lstat(%r) failed with %s" % (fullname, exc),
+                    print("support.rmtree(): os.lstat(%r) failed with %s" % (fullname, exc),
                           file=sys.__stderr__)
                     mode = 0
                 if stat.S_ISDIR(mode):
@@ -560,11 +545,8 @@ def forget(modname):
 def _is_gui_available():
     if hasattr(_is_gui_available, 'result'):
         return _is_gui_available.result
-    import platform
     reason = None
-    if sys.platform.startswith('win') and platform.win32_is_iot():
-        reason = "gui is not available on Windows IoT Core"
-    elif sys.platform.startswith('win'):
+    if sys.platform.startswith('win'):
         # if Python is running as a service (such as the buildbot service),
         # gui interaction may be disallowed
         import ctypes
@@ -658,25 +640,25 @@ def _requires_unix_version(sysname, min_version):
     For example, @_requires_unix_version('FreeBSD', (7, 2)) raises SkipTest if
     the FreeBSD version is less than 7.2.
     """
-    import platform
-    min_version_txt = '.'.join(map(str, min_version))
-    version_txt = platform.release().split('-', 1)[0]
-    if platform.system() == sysname:
-        try:
-            version = tuple(map(int, version_txt.split('.')))
-        except ValueError:
-            skip = False
-        else:
-            skip = version < min_version
-    else:
-        skip = False
-
-    return unittest.skipIf(
-        skip,
-        f"{sysname} version {min_version_txt} or higher required, not "
-        f"{version_txt}"
-    )
-
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kw):
+            if platform.system() == sysname:
+                version_txt = platform.release().split('-', 1)[0]
+                try:
+                    version = tuple(map(int, version_txt.split('.')))
+                except ValueError:
+                    pass
+                else:
+                    if version < min_version:
+                        min_version_txt = '.'.join(map(str, min_version))
+                        raise unittest.SkipTest(
+                            "%s version %s or higher required, not %s"
+                            % (sysname, min_version_txt, version_txt))
+            return func(*args, **kw)
+        wrapper.min_version = min_version
+        return wrapper
+    return decorator
 
 def requires_freebsd_version(*min_version):
     """Decorator raising SkipTest if the OS is FreeBSD and the FreeBSD version is
@@ -707,7 +689,6 @@ def requires_mac_ver(*min_version):
         @functools.wraps(func)
         def wrapper(*args, **kw):
             if sys.platform == 'darwin':
-                import platform
                 version_txt = platform.mac_ver()[0]
                 try:
                     version = tuple(map(int, version_txt.split('.')))
@@ -724,16 +705,6 @@ def requires_mac_ver(*min_version):
         return wrapper
     return decorator
 
-
-def skip_if_buildbot(reason=None):
-    """Decorator raising SkipTest if running on a buildbot."""
-    if not reason:
-        reason = 'not suitable for buildbots'
-    if sys.platform == 'win32':
-        isbuildbot = os.environ.get('USERNAME') == 'Buildbot'
-    else:
-        isbuildbot = os.environ.get('USER') == 'buildbot'
-    return unittest.skipIf(isbuildbot, reason)
 
 def requires_hashdigest(digestname, openssl=None):
     """Decorator raising SkipTest if a hashing algorithm is not available
@@ -917,8 +888,8 @@ PIPE_MAX_SIZE = 4 * 1024 * 1024 + 1
 # A constant likely larger than the underlying OS socket buffer size, to make
 # writes blocking.
 # The socket buffer sizes can usually be tuned system-wide (e.g. through sysctl
-# on Linux), or on a per-socket basis (SO_SNDBUF/SO_RCVBUF).  See issue #18643
-# for a discussion of this number.
+# on Linux), or on a per-socket basis (SO_SNDBUF/SO_RCVBUF). See issue #18643
+# for a discussion of this number).
 SOCK_MAX_SIZE = 16 * 1024 * 1024 + 1
 
 # # decorator for skipping tests on non-IEEE 754 platforms
@@ -939,14 +910,155 @@ is_jython = sys.platform.startswith('java')
 
 is_android = hasattr(sys, 'getandroidapilevel')
 
-if sys.platform not in ('win32', 'vxworks'):
+if sys.platform != 'win32':
     unix_shell = '/system/bin/sh' if is_android else '/bin/sh'
 else:
     unix_shell = None
 
+# Filename used for testing
+if os.name == 'java':
+    # Jython disallows @ in module names
+    TESTFN = '$test'
+else:
+    TESTFN = '@test'
+
+# Disambiguate TESTFN for parallel testing, while letting it remain a valid
+# module name.
+TESTFN = "{}_{}_tmp".format(TESTFN, os.getpid())
+
 # Define the URL of a dedicated HTTP server for the network tests.
 # The URL must use clear-text HTTP: no redirection to encrypted HTTPS.
 TEST_HTTP_URL = "http://www.pythontest.net"
+
+# FS_NONASCII: non-ASCII character encodable by os.fsencode(),
+# or None if there is no such character.
+FS_NONASCII = None
+for character in (
+    # First try printable and common characters to have a readable filename.
+    # For each character, the encoding list are just example of encodings able
+    # to encode the character (the list is not exhaustive).
+
+    # U+00E6 (Latin Small Letter Ae): cp1252, iso-8859-1
+    '\u00E6',
+    # U+0130 (Latin Capital Letter I With Dot Above): cp1254, iso8859_3
+    '\u0130',
+    # U+0141 (Latin Capital Letter L With Stroke): cp1250, cp1257
+    '\u0141',
+    # U+03C6 (Greek Small Letter Phi): cp1253
+    '\u03C6',
+    # U+041A (Cyrillic Capital Letter Ka): cp1251
+    '\u041A',
+    # U+05D0 (Hebrew Letter Alef): Encodable to cp424
+    '\u05D0',
+    # U+060C (Arabic Comma): cp864, cp1006, iso8859_6, mac_arabic
+    '\u060C',
+    # U+062A (Arabic Letter Teh): cp720
+    '\u062A',
+    # U+0E01 (Thai Character Ko Kai): cp874
+    '\u0E01',
+
+    # Then try more "special" characters. "special" because they may be
+    # interpreted or displayed differently depending on the exact locale
+    # encoding and the font.
+
+    # U+00A0 (No-Break Space)
+    '\u00A0',
+    # U+20AC (Euro Sign)
+    '\u20AC',
+):
+    try:
+        # If Python is set up to use the legacy 'mbcs' in Windows,
+        # 'replace' error mode is used, and encode() returns b'?'
+        # for characters missing in the ANSI codepage
+        if os.fsdecode(os.fsencode(character)) != character:
+            raise UnicodeError
+    except UnicodeError:
+        pass
+    else:
+        FS_NONASCII = character
+        break
+
+# TESTFN_UNICODE is a non-ascii filename
+TESTFN_UNICODE = TESTFN + "-\xe0\xf2\u0258\u0141\u011f"
+if sys.platform == 'darwin':
+    # In Mac OS X's VFS API file names are, by definition, canonically
+    # decomposed Unicode, encoded using UTF-8. See QA1173:
+    # http://developer.apple.com/mac/library/qa/qa2001/qa1173.html
+    import unicodedata
+    TESTFN_UNICODE = unicodedata.normalize('NFD', TESTFN_UNICODE)
+TESTFN_ENCODING = sys.getfilesystemencoding()
+
+# TESTFN_UNENCODABLE is a filename (str type) that should *not* be able to be
+# encoded by the filesystem encoding (in strict mode). It can be None if we
+# cannot generate such filename.
+TESTFN_UNENCODABLE = None
+if os.name == 'nt':
+    # skip win32s (0) or Windows 9x/ME (1)
+    if sys.getwindowsversion().platform >= 2:
+        # Different kinds of characters from various languages to minimize the
+        # probability that the whole name is encodable to MBCS (issue #9819)
+        TESTFN_UNENCODABLE = TESTFN + "-\u5171\u0141\u2661\u0363\uDC80"
+        try:
+            TESTFN_UNENCODABLE.encode(TESTFN_ENCODING)
+        except UnicodeEncodeError:
+            pass
+        else:
+            print('WARNING: The filename %r CAN be encoded by the filesystem encoding (%s). '
+                  'Unicode filename tests may not be effective'
+                  % (TESTFN_UNENCODABLE, TESTFN_ENCODING),
+                  file=sys.__stderr__)
+            TESTFN_UNENCODABLE = None
+# # Mac OS X denies unencodable filenames (invalid utf-8)
+# elif sys.platform != 'darwin':
+#     try:
+#         # ascii and utf-8 cannot encode the byte 0xff
+#         b'\xff'.decode(TESTFN_ENCODING)
+#     except UnicodeDecodeError:
+#         # 0xff will be encoded using the surrogate character u+DCFF
+#         TESTFN_UNENCODABLE = TESTFN \
+#             + b'-\xff'.decode(TESTFN_ENCODING, 'surrogateescape')
+#     else:
+#         # File system encoding (eg. ISO-8859-* encodings) can encode
+#         # the byte 0xff. Skip some unicode filename tests.
+#         pass
+
+# TESTFN_UNDECODABLE is a filename (bytes type) that should *not* be able to be
+# decoded from the filesystem encoding (in strict mode). It can be None if we
+# cannot generate such filename (ex: the latin1 encoding can decode any byte
+# sequence). On UNIX, TESTFN_UNDECODABLE can be decoded by os.fsdecode() thanks
+# to the surrogateescape error handler (PEP 383), but not from the filesystem
+# encoding in strict mode.
+TESTFN_UNDECODABLE = None
+for name in (
+    # b'\xff' is not decodable by os.fsdecode() with code page 932. Windows
+    # accepts it to create a file or a directory, or don't accept to enter to
+    # such directory (when the bytes name is used). So test b'\xe7' first: it is
+    # not decodable from cp932.
+    b'\xe7w\xf0',
+    # undecodable from ASCII, UTF-8
+    b'\xff',
+    # undecodable from iso8859-3, iso8859-6, iso8859-7, cp424, iso8859-8, cp856
+    # and cp857
+    b'\xae\xd5'
+    # undecodable from UTF-8 (UNIX and Mac OS X)
+    b'\xed\xb2\x80', b'\xed\xb4\x80',
+    # undecodable from shift_jis, cp869, cp874, cp932, cp1250, cp1251, cp1252,
+    # cp1253, cp1254, cp1255, cp1257, cp1258
+    b'\x81\x98',
+):
+    try:
+        name.decode(TESTFN_ENCODING)
+    except UnicodeDecodeError:
+        TESTFN_UNDECODABLE = os.fsencode(TESTFN) + name
+        break
+
+if FS_NONASCII:
+    TESTFN_NONASCII = TESTFN + '-' + FS_NONASCII
+else:
+    TESTFN_NONASCII = None
+
+# Save the initial cwd
+SAVEDCWD = os.getcwd()
 
 # Set by libregrtest/main.py so we can skip tests that are not
 # useful for PGO
@@ -956,27 +1068,120 @@ PGO = False
 # PGO task.  If this is True, PGO is also True.
 PGO_EXTENDED = False
 
+@contextlib.contextmanager
+def temp_dir(path=None, quiet=False):
+    """Return a context manager that creates a temporary directory.
+
+    Arguments:
+
+      path: the directory to create temporarily.  If omitted or None,
+        defaults to creating a temporary directory using tempfile.mkdtemp.
+
+      quiet: if False (the default), the context manager raises an exception
+        on error.  Otherwise, if the path is specified and cannot be
+        created, only a warning is issued.
+
+    """
+    dir_created = False
+    if path is None:
+        path = tempfile.mkdtemp()
+        dir_created = True
+        path = os.path.realpath(path)
+    else:
+        try:
+            os.mkdir(path)
+            dir_created = True
+        except OSError as exc:
+            if not quiet:
+                raise
+            warnings.warn(f'tests may fail, unable to create '
+                          f'temporary directory {path!r}: {exc}',
+                          RuntimeWarning, stacklevel=3)
+    if dir_created:
+        pid = os.getpid()
+    try:
+        yield path
+    finally:
+        # In case the process forks, let only the parent remove the
+        # directory. The child has a different process id. (bpo-30028)
+        if dir_created and pid == os.getpid():
+            try:
+                rmtree(path)
+            except OSError as exc:
+                # XXX RUSTPYTHON: something something async file removal?
+                #                 also part of the thing with rmtree()
+                #                 throwing PermissionError, I think
+                if os.path.exists(path):
+                    if not quiet:
+                        raise
+                    warnings.warn(f'unable to remove temporary'
+                                  f'directory {path!r}: {exc}',
+                                  RuntimeWarning, stacklevel=3)
+
+@contextlib.contextmanager
+def change_cwd(path, quiet=False):
+    """Return a context manager that changes the current working directory.
+
+    Arguments:
+
+      path: the directory to use as the temporary current working directory.
+
+      quiet: if False (the default), the context manager raises an exception
+        on error.  Otherwise, it issues only a warning and keeps the current
+        working directory the same.
+
+    """
+    saved_dir = os.getcwd()
+    try:
+        os.chdir(os.path.realpath(path))
+    except OSError as exc:
+        if not quiet:
+            raise
+        warnings.warn(f'tests may fail, unable to change the current working '
+                      f'directory to {path!r}: {exc}',
+                      RuntimeWarning, stacklevel=3)
+    try:
+        yield os.getcwd()
+    finally:
+        os.chdir(saved_dir)
+
+
+@contextlib.contextmanager
+def temp_cwd(name='tempcwd', quiet=False):
+    """
+    Context manager that temporarily creates and changes the CWD.
+
+    The function temporarily changes the current working directory
+    after creating a temporary directory in the current directory with
+    name *name*.  If *name* is None, the temporary directory is
+    created using tempfile.mkdtemp.
+
+    If *quiet* is False (default) and it is not possible to
+    create or change the CWD, an error is raised.  If *quiet* is True,
+    only a warning is raised and the original CWD is used.
+
+    """
+    with temp_dir(path=name, quiet=quiet) as temp_path:
+        with change_cwd(temp_path, quiet=quiet) as cwd_dir:
+            yield cwd_dir
+
+if hasattr(os, "umask"):
+    @contextlib.contextmanager
+    def temp_umask(umask):
+        """Context manager that temporarily sets the process umask."""
+        oldmask = os.umask(umask)
+        try:
+            yield
+        finally:
+            os.umask(oldmask)
+
+# TEST_HOME_DIR refers to the top level directory of the "test" package
+# that contains Python's regression test suite
+TEST_SUPPORT_DIR = os.path.dirname(os.path.abspath(__file__))
+TEST_HOME_DIR = os.path.dirname(TEST_SUPPORT_DIR)
+
 # TEST_DATA_DIR is used as a target download location for remote resources
 TEST_DATA_DIR = os.path.join(TEST_HOME_DIR, "data")
-
-
-def darwin_malloc_err_warning(test_name):
-    """Assure user that loud errors generated by macOS libc's malloc are
-    expected."""
-    if sys.platform != 'darwin':
-        return
-
-    import shutil
-    msg = ' NOTICE '
-    detail = (f'{test_name} may generate "malloc can\'t allocate region"\n'
-              'warnings on macOS systems. This behavior is known. Do not\n'
-              'report a bug unless tests are also failing. See bpo-40928.')
-
-    padding, _ = shutil.get_terminal_size()
-    print(msg.center(padding, '-'))
-    print(detail)
-    print('-' * padding)
-
 
 def findfile(filename, subdir=None):
     """Try to find a file on sys.path or in the test directory.  If it is not
@@ -996,6 +1201,10 @@ def findfile(filename, subdir=None):
         if os.path.exists(fn): return fn
     return filename
 
+def create_empty_file(filename):
+    """Create an empty file. If the file already exists, truncate it."""
+    fd = os.open(filename, os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
+    os.close(fd)
 
 def sortdict(dict):
     "Like repr(dict), but in sorted order."
@@ -1003,6 +1212,19 @@ def sortdict(dict):
     reprpairs = ["%r: %r" % pair for pair in items]
     withcommas = ", ".join(reprpairs)
     return "{%s}" % withcommas
+
+def make_bad_fd():
+    """
+    Create an invalid file descriptor by opening and closing a file and return
+    its fd.
+    """
+    file = open(TESTFN, "wb")
+    try:
+        return file.fileno()
+    finally:
+        file.close()
+        unlink(TESTFN)
+
 
 def check_syntax_error(testcase, statement, errtext='', *, lineno=None, offset=None):
     with testcase.assertRaisesRegex(SyntaxError, errtext) as cm:
@@ -1044,11 +1266,6 @@ def check_syntax_warning(testcase, statement, errtext='', *, lineno=1, offset=No
 
 def open_urlresource(url, *args, **kw):
     import urllib.request, urllib.parse
-    from .os_helper import unlink
-    try:
-        import gzip
-    except ImportError:
-        gzip = None
 
     check = kw.pop('check', None)
 
@@ -1079,7 +1296,7 @@ def open_urlresource(url, *args, **kw):
     opener = urllib.request.build_opener()
     if gzip:
         opener.addheaders.append(('Accept-Encoding', 'gzip'))
-    f = opener.open(url, timeout=INTERNET_TIMEOUT)
+    f = opener.open(url, timeout=15)
     if gzip and f.headers.get('Content-Encoding') == 'gzip':
         f = gzip.GzipFile(fileobj=f)
     try:
@@ -1255,6 +1472,59 @@ class CleanImport(object):
 
     def __exit__(self, *ignore_exc):
         sys.modules.update(self.original_modules)
+
+
+class EnvironmentVarGuard(collections.abc.MutableMapping):
+
+    """Class to help protect the environment variable properly.  Can be used as
+    a context manager."""
+
+    def __init__(self):
+        self._environ = os.environ
+        self._changed = {}
+
+    def __getitem__(self, envvar):
+        return self._environ[envvar]
+
+    def __setitem__(self, envvar, value):
+        # Remember the initial value on the first access
+        if envvar not in self._changed:
+            self._changed[envvar] = self._environ.get(envvar)
+        self._environ[envvar] = value
+
+    def __delitem__(self, envvar):
+        # Remember the initial value on the first access
+        if envvar not in self._changed:
+            self._changed[envvar] = self._environ.get(envvar)
+        if envvar in self._environ:
+            del self._environ[envvar]
+
+    def keys(self):
+        return self._environ.keys()
+
+    def __iter__(self):
+        return iter(self._environ)
+
+    def __len__(self):
+        return len(self._environ)
+
+    def set(self, envvar, value):
+        self[envvar] = value
+
+    def unset(self, envvar):
+        del self[envvar]
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *ignore_exc):
+        for (k, v) in self._changed.items():
+            if v is None:
+                if k in self._environ:
+                    del self._environ[k]
+            else:
+                self._environ[k] = v
+        os.environ = self._environ
 
 
 class DirsOnSysPath(object):
@@ -1467,7 +1737,6 @@ def gc_collect():
     longer than expected.  This function tries its best to force all garbage
     objects to disappear.
     """
-    # TODO: RUSTPYTHON (comment out before)
     # gc.collect()
     # if is_jython:
     #     time.sleep(0.1)
@@ -1477,7 +1746,6 @@ def gc_collect():
 
 @contextlib.contextmanager
 def disable_gc():
-    # TODO: RUSTPYTHON (comment out before)
     # have_gc = gc.isenabled()
     # gc.disable()
     # try:
@@ -1516,15 +1784,12 @@ _TPFLAGS_HAVE_GC = 1<<14
 _TPFLAGS_HEAPTYPE = 1<<9
 
 def check_sizeof(test, o, size):
-    try:
-        import _testinternalcapi
-    except ImportError:
-        raise unittest.SkipTest("_testinternalcapi required")
+    import _testcapi
     result = sys.getsizeof(o)
     # add GC header size
     if ((type(o) == type) and (o.__flags__ & _TPFLAGS_HEAPTYPE) or\
         ((type(o) != type) and (type(o).__flags__ & _TPFLAGS_HAVE_GC))):
-        size += _testinternalcapi.SIZEOF_PYGC_HEAD
+        size += _testcapi.SIZEOF_PYGC_HEAD
     msg = 'wrong size for %s: got %d, expected %d' \
             % (type(o), result, size)
     test.assertEqual(result, size, msg)
@@ -1533,8 +1798,9 @@ def check_sizeof(test, o, size):
 # Decorator for running a function in a different locale, correctly resetting
 # it afterwards.
 
-@contextlib.contextmanager
 def run_with_locale(catstr, *locales):
+    def decorator(func):
+        def inner(*args, **kwds):
             try:
                 import locale
                 category = getattr(locale, catstr)
@@ -1553,11 +1819,16 @@ def run_with_locale(catstr, *locales):
                     except:
                         pass
 
+            # now run the function, resetting the locale on exceptions
             try:
-                yield
+                return func(*args, **kwds)
             finally:
                 if locale and orig_locale:
                     locale.setlocale(category, orig_locale)
+        inner.__name__ = func.__name__
+        inner.__doc__ = func.__doc__
+        return inner
+    return decorator
 
 #=======================================================================
 # Decorator for running a function in a specific timezone, correctly
@@ -1636,7 +1907,6 @@ class _MemoryWatchdog:
         self.started = False
 
     def start(self):
-        import warnings
         try:
             f = open(self.procfile, 'r')
         except OSError as e:
@@ -1645,7 +1915,6 @@ class _MemoryWatchdog:
             sys.stderr.flush()
             return
 
-        import subprocess
         with f:
             watchdog_script = findfile("memory_watchdog.py")
             self.mem_watchdog = subprocess.Popen([sys.executable, watchdog_script],
@@ -1779,7 +2048,7 @@ def check_impl_detail(**guards):
           if check_impl_detail(cpython=False):  # everywhere except on CPython
     """
     guards, default = _parse_guards(guards)
-    return guards.get(sys.implementation.name, default)
+    return guards.get(platform.python_implementation().lower(), default)
 
 
 def no_tracing(func):
@@ -1842,9 +2111,7 @@ def _run_suite(suite):
         else:
             err = "multiple errors occurred"
             if not verbose: err += "; run in verbose mode for details"
-        errors = [(str(tc), exc_str) for tc, exc_str in result.errors]
-        failures = [(str(tc), exc_str) for tc, exc_str in result.failures]
-        raise TestFailedWithDetails(err, errors, failures)
+        raise TestFailed(err)
 
 
 # By default, don't filter tests
@@ -1915,7 +2182,6 @@ def _compile_match_function(patterns):
         # The test.bisect_cmd utility only uses such full test identifiers.
         func = set(patterns).__contains__
     else:
-        import fnmatch
         regex = '|'.join(map(fnmatch.translate, patterns))
         # The search *is* case sensitive on purpose:
         # don't use flags=re.IGNORECASE
@@ -1940,18 +2206,17 @@ def _compile_match_function(patterns):
 def run_unittest(*classes):
     """Run tests from unittest.TestCase-derived classes."""
     valid_types = (unittest.TestSuite, unittest.TestCase)
-    loader = unittest.TestLoader()
     suite = unittest.TestSuite()
     for cls in classes:
         if isinstance(cls, str):
             if cls in sys.modules:
-                suite.addTest(loader.loadTestsFromModule(sys.modules[cls]))
+                suite.addTest(unittest.findTestCases(sys.modules[cls]))
             else:
                 raise ValueError("str arguments must be keys in sys.modules")
         elif isinstance(cls, valid_types):
             suite.addTest(cls)
         else:
-            suite.addTest(loader.loadTestsFromTestCase(cls))
+            suite.addTest(unittest.makeSuite(cls))
     _filter_suite(suite, match_test)
     _run_suite(suite)
 
@@ -2005,24 +2270,11 @@ def run_doctest(module, verbosity=None, optionflags=0):
 #=======================================================================
 # Support for saving and restoring the imported modules.
 
-def flush_std_streams():
-    if sys.stdout is not None:
-        sys.stdout.flush()
-    if sys.stderr is not None:
-        sys.stderr.flush()
-
-
 def print_warning(msg):
-    # bpo-45410: Explicitly flush stdout to keep logs in order
-    flush_std_streams()
-    stream = print_warning.orig_stderr
+    # bpo-39983: Print into sys.__stderr__ to display the warning even
+    # when sys.stderr is captured temporarily by a test
     for line in msg.splitlines():
-        print(f"Warning -- {line}", file=stream)
-    stream.flush()
-
-# bpo-39983: Store the original sys.stderr at Python startup to be able to
-# log warnings even if sys.stderr is captured temporarily by a test.
-print_warning.orig_stderr = sys.stderr
+        print(f"Warning -- {line}", file=sys.__stderr__, flush=True)
 
 def modules_setup():
     return sys.modules.copy(),
@@ -2050,7 +2302,7 @@ def modules_cleanup(oldmodules):
 # to check if a test modified the environment. The flag should be set to False
 # before running a new test.
 #
-# For example, threading_helper.threading_cleanup() sets the flag is the function fails
+# For example, threading_cleanup() sets the flag is the function fails
 # to cleanup threads.
 environment_altered = False
 
@@ -2296,13 +2548,11 @@ requires_type_collecting = unittest.skipIf(hasattr(sys, 'getcounts'),
 def args_from_interpreter_flags():
     """Return a list of command-line arguments reproducing the current
     settings in sys.flags and sys.warnoptions."""
-    import subprocess
     return subprocess._args_from_interpreter_flags()
 
 def optim_args_from_interpreter_flags():
     """Return a list of command-line arguments reproducing the current
     optimization settings in sys.flags."""
-    import subprocess
     return subprocess._optim_args_from_interpreter_flags()
 
 #============================================================
@@ -2371,6 +2621,28 @@ class Matcher(object):
         return result
 
 
+_can_symlink = None
+def can_symlink():
+    global _can_symlink
+    if _can_symlink is not None:
+        return _can_symlink
+    symlink_path = TESTFN + "can_symlink"
+    try:
+        os.symlink(TESTFN, symlink_path)
+        can = True
+    except (OSError, NotImplementedError, AttributeError):
+        can = False
+    else:
+        os.remove(symlink_path)
+    _can_symlink = can
+    return can
+
+def skip_unless_symlink(test):
+    """Skip decorator for tests that require functional symlink"""
+    ok = can_symlink()
+    msg = "Requires functional symlink implementation"
+    return test if ok else unittest.skip(msg)(test)
+
 _buggy_ucrt = None
 def skip_if_buggy_ucrt_strfptime(test):
     """
@@ -2382,7 +2654,6 @@ def skip_if_buggy_ucrt_strfptime(test):
     See bpo-37552 [Windows] strptime/strftime return invalid
     results with UCRT version 17763.615
     """
-    import locale
     global _buggy_ucrt
     if _buggy_ucrt is None:
         if(sys.platform == 'win32' and
@@ -2396,8 +2667,6 @@ def skip_if_buggy_ucrt_strfptime(test):
 class PythonSymlink:
     """Creates a symlink for the current Python executable"""
     def __init__(self, link=None):
-        from .os_helper import TESTFN
-
         self.link = link or os.path.abspath(TESTFN)
         self._linked = []
         self.real = os.path.realpath(sys.executable)
@@ -2412,7 +2681,6 @@ class PythonSymlink:
 
     if sys.platform == "win32":
         def _platform_specific(self):
-            import glob
             import _winapi
 
             if os.path.lexists(self.real) and not os.path.exists(self.real):
@@ -2427,7 +2695,7 @@ class PythonSymlink:
                 dll,
                 os.path.join(dest_dir, os.path.basename(dll))
             ))
-            for runtime in glob.glob(os.path.join(glob.escape(src_dir), "vcruntime*.dll")):
+            for runtime in glob.glob(os.path.join(src_dir, "vcruntime*.dll")):
                 self._also_link.append((
                     runtime,
                     os.path.join(dest_dir, os.path.basename(runtime))
@@ -2436,7 +2704,7 @@ class PythonSymlink:
             self._env = {k.upper(): os.getenv(k) for k in os.environ}
             self._env["PYTHONHOME"] = os.path.dirname(self.real)
             if sysconfig.is_python_build(True):
-                self._env["PYTHONPATH"] = STDLIB_DIR
+                self._env["PYTHONPATH"] = os.path.dirname(os.__file__)
 
     def __enter__(self):
         os.symlink(self.real, self.link)
@@ -2455,7 +2723,6 @@ class PythonSymlink:
                     print("failed to clean up {}: {}".format(link, ex))
 
     def _call(self, python, args, env, returncode):
-        import subprocess
         cmd = [python, *args]
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE,
                              stderr=subprocess.PIPE, env=env)
@@ -2475,6 +2742,43 @@ class PythonSymlink:
         return self._call(self.link, args, self._env, returncode)
 
 
+_can_xattr = None
+def can_xattr():
+    global _can_xattr
+    if _can_xattr is not None:
+        return _can_xattr
+    if not hasattr(os, "setxattr"):
+        can = False
+    else:
+        tmp_dir = tempfile.mkdtemp()
+        tmp_fp, tmp_name = tempfile.mkstemp(dir=tmp_dir)
+        try:
+            with open(TESTFN, "wb") as fp:
+                try:
+                    # TESTFN & tempfile may use different file systems with
+                    # different capabilities
+                    os.setxattr(tmp_fp, b"user.test", b"")
+                    os.setxattr(tmp_name, b"trusted.foo", b"42")
+                    os.setxattr(fp.fileno(), b"user.test", b"")
+                    # Kernels < 2.6.39 don't respect setxattr flags.
+                    kernel_version = platform.release()
+                    m = re.match(r"2.6.(\d{1,2})", kernel_version)
+                    can = m is None or int(m.group(1)) >= 39
+                except OSError:
+                    can = False
+        finally:
+            unlink(TESTFN)
+            unlink(tmp_name)
+            rmdir(tmp_dir)
+    _can_xattr = can
+    return can
+
+def skip_unless_xattr(test):
+    """Skip decorator for tests that require functional extended attributes"""
+    ok = can_xattr()
+    msg = "no non-broken extended attribute support"
+    return test if ok else unittest.skip(msg)(test)
+
 def skip_if_pgo_task(test):
     """Skip decorator for tests not run in (non-extended) PGO task"""
     ok = not PGO or PGO_EXTENDED
@@ -2484,7 +2788,6 @@ def skip_if_pgo_task(test):
 _bind_nix_socket_error = None
 def skip_unless_bind_unix_socket(test):
     """Decorator for tests requiring a functional bind() for unix sockets."""
-    from .os_helper import TESTFN
     if not hasattr(socket, 'AF_UNIX'):
         return unittest.skip('No UNIX Sockets')(test)
     global _bind_nix_socket_error
@@ -2505,6 +2808,18 @@ def skip_unless_bind_unix_socket(test):
         return test
 
 
+def fs_is_case_insensitive(directory):
+    """Detects if the file system for the specified directory is case-insensitive."""
+    with tempfile.NamedTemporaryFile(dir=directory) as base:
+        base_path = base.name
+        case_path = base_path.upper()
+        if case_path == base_path:
+            case_path = base_path.lower()
+        try:
+            return os.path.samefile(base_path, case_path)
+        except FileNotFoundError:
+            return False
+
 
 def detect_api_mismatch(ref_api, other_api, *, ignore=()):
     """Returns the set of items in ref_api not in other_api, except for a
@@ -2522,7 +2837,7 @@ def detect_api_mismatch(ref_api, other_api, *, ignore=()):
 
 
 def check__all__(test_case, module, name_of_module=None, extra=(),
-                 not_exported=()):
+                 blacklist=()):
     """Assert that the __all__ variable of 'module' contains all public names.
 
     The module's public names (its API) are detected automatically based on
@@ -2539,7 +2854,7 @@ def check__all__(test_case, module, name_of_module=None, extra=(),
     '__module__' attribute. If provided, it will be added to the
     automatically detected ones.
 
-    The 'not_exported' argument can be a set of names that must not be treated
+    The 'blacklist' argument can be a set of names that must not be treated
     as part of the public API even though their names indicate otherwise.
 
     Usage:
@@ -2555,10 +2870,10 @@ def check__all__(test_case, module, name_of_module=None, extra=(),
         class OtherTestCase(unittest.TestCase):
             def test__all__(self):
                 extra = {'BAR_CONST', 'FOO_CONST'}
-                not_exported = {'baz'}  # Undocumented name.
+                blacklist = {'baz'}  # Undocumented name.
                 # bar imports part of its API from _bar.
                 support.check__all__(self, bar, ('bar', '_bar'),
-                                     extra=extra, not_exported=not_exported)
+                                     extra=extra, blacklist=blacklist)
 
     """
 
@@ -2570,7 +2885,7 @@ def check__all__(test_case, module, name_of_module=None, extra=(),
     expected = set(extra)
 
     for name in dir(module):
-        if name.startswith('_') or name in not_exported:
+        if name.startswith('_') or name in blacklist:
             continue
         obj = getattr(module, name)
         if (getattr(obj, '__module__', None) in name_of_module or
@@ -2578,27 +2893,6 @@ def check__all__(test_case, module, name_of_module=None, extra=(),
                  not isinstance(obj, types.ModuleType))):
             expected.add(name)
     test_case.assertCountEqual(module.__all__, expected)
-
-
-def suppress_msvcrt_asserts(verbose=False):
-    try:
-        import msvcrt
-    except ImportError:
-        return
-
-    msvcrt.SetErrorMode(msvcrt.SEM_FAILCRITICALERRORS
-                        | msvcrt.SEM_NOALIGNMENTFAULTEXCEPT
-                        | msvcrt.SEM_NOGPFAULTERRORBOX
-                        | msvcrt.SEM_NOOPENFILEERRORBOX)
-
-    # CrtSetReportMode() is only available in debug build
-    if hasattr(msvcrt, 'CrtSetReportMode'):
-        for m in [msvcrt.CRT_WARN, msvcrt.CRT_ERROR, msvcrt.CRT_ASSERT]:
-            if verbose:
-                msvcrt.CrtSetReportMode(m, msvcrt.CRTDBG_MODE_FILE)
-                msvcrt.CrtSetReportFile(m, msvcrt.CRTDBG_FILE_STDERR)
-            else:
-                msvcrt.CrtSetReportMode(m, 0)
 
 
 class SuppressCrashReport:
@@ -2612,25 +2906,30 @@ class SuppressCrashReport:
 
     def __enter__(self):
         """On Windows, disable Windows Error Reporting dialogs using
-        SetErrorMode() and CrtSetReportMode().
+        SetErrorMode.
 
         On UNIX, try to save the previous core file size limit, then set
         soft limit to 0.
         """
         if sys.platform.startswith('win'):
             # see http://msdn.microsoft.com/en-us/library/windows/desktop/ms680621.aspx
+            # GetErrorMode is not available on Windows XP and Windows Server 2003,
+            # but SetErrorMode returns the previous value, so we can use that
+            import ctypes
+            self._k32 = ctypes.windll.kernel32
+            SEM_NOGPFAULTERRORBOX = 0x02
+            self.old_value = self._k32.SetErrorMode(SEM_NOGPFAULTERRORBOX)
+            self._k32.SetErrorMode(self.old_value | SEM_NOGPFAULTERRORBOX)
+
+            # Suppress assert dialogs in debug builds
+            # (see http://bugs.python.org/issue23314)
             try:
                 import msvcrt
-            except ImportError:
-                return
-
-            self.old_value = msvcrt.GetErrorMode()
-
-            msvcrt.SetErrorMode(self.old_value | msvcrt.SEM_NOGPFAULTERRORBOX)
-
-            # bpo-23314: Suppress assert dialogs in debug builds.
-            # CrtSetReportMode() is only available in debug build.
-            if hasattr(msvcrt, 'CrtSetReportMode'):
+                msvcrt.CrtSetReportMode
+            except (AttributeError, ImportError):
+                # no msvcrt or a release build
+                pass
+            else:
                 self.old_modes = {}
                 for report_type in [msvcrt.CRT_WARN,
                                     msvcrt.CRT_ERROR,
@@ -2642,21 +2941,15 @@ class SuppressCrashReport:
                     self.old_modes[report_type] = old_mode, old_file
 
         else:
-            try:
-                import resource
-                self.resource = resource
-            except ImportError:
-                self.resource = None
-            if self.resource is not None:
+            if resource is not None:
                 try:
-                    self.old_value = self.resource.getrlimit(self.resource.RLIMIT_CORE)
-                    self.resource.setrlimit(self.resource.RLIMIT_CORE,
+                    self.old_value = resource.getrlimit(resource.RLIMIT_CORE)
+                    resource.setrlimit(resource.RLIMIT_CORE,
                                        (0, self.old_value[1]))
                 except (ValueError, OSError):
                     pass
 
             if sys.platform == 'darwin':
-                import subprocess
                 # Check if the 'Crash Reporter' on OSX was configured
                 # in 'Developer' mode and warn that it will get triggered
                 # when it is.
@@ -2682,17 +2975,17 @@ class SuppressCrashReport:
             return
 
         if sys.platform.startswith('win'):
-            import msvcrt
-            msvcrt.SetErrorMode(self.old_value)
+            self._k32.SetErrorMode(self.old_value)
 
             if self.old_modes:
+                import msvcrt
                 for report_type, (old_mode, old_file) in self.old_modes.items():
                     msvcrt.CrtSetReportMode(report_type, old_mode)
                     msvcrt.CrtSetReportFile(report_type, old_file)
         else:
-            if self.resource is not None:
+            if resource is not None:
                 try:
-                    self.resource.setrlimit(self.resource.RLIMIT_CORE, self.old_value)
+                    resource.setrlimit(resource.RLIMIT_CORE, self.old_value)
                 except (ValueError, OSError):
                     pass
 
@@ -2751,7 +3044,6 @@ def run_in_subinterp(code):
     return _testcapi.run_in_subinterp(code)
 
 
-# TODO: RUSTPYTHON (comment out before)
 # def check_free_after_iterating(test, iter, cls, args=()):
 #     class A(cls):
 #         def __del__(self):
@@ -2780,16 +3072,9 @@ def missing_compiler_executable(cmd_names=[]):
     missing.
 
     """
-    # TODO (PEP 632): alternate check without using distutils
-    from distutils import ccompiler, sysconfig, spawn, errors
+    from distutils import ccompiler, sysconfig, spawn
     compiler = ccompiler.new_compiler()
     sysconfig.customize_compiler(compiler)
-    if compiler.compiler_type == "msvc":
-        # MSVC has no executables, so check whether initialization succeeds
-        try:
-            compiler.initialize()
-        except errors.DistutilsPlatformError:
-            return "msvc"
     for name in compiler.executables:
         if cmd_names and name not in cmd_names:
             continue
@@ -2811,7 +3096,6 @@ def setswitchinterval(interval):
     if is_android and interval < minimum_interval:
         global _is_android_emulator
         if _is_android_emulator is None:
-            import subprocess
             _is_android_emulator = (subprocess.check_output(
                                ['getprop', 'ro.kernel.qemu']).strip() == b'1')
         if _is_android_emulator:
@@ -2821,8 +3105,6 @@ def setswitchinterval(interval):
 
 @contextlib.contextmanager
 def disable_faulthandler():
-    import faulthandler
-
     # use sys.__stderr__ instead of sys.stderr, since regrtest replaces
     # sys.stderr with a StringIO which has no file descriptor when a test
     # is run with -W/--verbose3.
@@ -2835,6 +3117,65 @@ def disable_faulthandler():
     finally:
         if is_enabled:
             faulthandler.enable(file=fd, all_threads=True)
+
+
+def fd_count():
+    """Count the number of open file descriptors.
+    """
+    if sys.platform.startswith(('linux', 'freebsd')):
+        try:
+            names = os.listdir("/proc/self/fd")
+            # Subtract one because listdir() internally opens a file
+            # descriptor to list the content of the /proc/self/fd/ directory.
+            return len(names) - 1
+        except FileNotFoundError:
+            pass
+
+    MAXFD = 256
+    if hasattr(os, 'sysconf'):
+        try:
+            MAXFD = os.sysconf("SC_OPEN_MAX")
+        except OSError:
+            pass
+
+    old_modes = None
+    if sys.platform == 'win32':
+        # bpo-25306, bpo-31009: Call CrtSetReportMode() to not kill the process
+        # on invalid file descriptor if Python is compiled in debug mode
+        try:
+            import msvcrt
+            msvcrt.CrtSetReportMode
+        except (AttributeError, ImportError):
+            # no msvcrt or a release build
+            pass
+        else:
+            old_modes = {}
+            for report_type in (msvcrt.CRT_WARN,
+                                msvcrt.CRT_ERROR,
+                                msvcrt.CRT_ASSERT):
+                old_modes[report_type] = msvcrt.CrtSetReportMode(report_type, 0)
+
+    try:
+        count = 0
+        for fd in range(MAXFD):
+            try:
+                # Prefer dup() over fstat(). fstat() can require input/output
+                # whereas dup() doesn't.
+                fd2 = os.dup(fd)
+            except OSError as e:
+                if e.errno != errno.EBADF:
+                    raise
+            else:
+                os.close(fd2)
+                count += 1
+    finally:
+        if old_modes is not None:
+            for report_type in (msvcrt.CRT_WARN,
+                                msvcrt.CRT_ERROR,
+                                msvcrt.CRT_ASSERT):
+                msvcrt.CrtSetReportMode(report_type, old_modes[report_type])
+
+    return count
 
 
 class SaveSignals:
@@ -2881,6 +3222,24 @@ def with_pymalloc():
     return _testcapi.WITH_PYMALLOC
 
 
+class FakePath:
+    """Simple implementing of the path protocol.
+    """
+    def __init__(self, path):
+        self.path = path
+
+    def __repr__(self):
+        return f'<FakePath {self.path!r}>'
+
+    def __fspath__(self):
+        if (isinstance(self.path, BaseException) or
+            isinstance(self.path, type) and
+                issubclass(self.path, BaseException)):
+            raise self.path
+        else:
+            return self.path
+
+
 class _ALWAYS_EQ:
     """
     Object that is equal to anything.
@@ -2891,19 +3250,6 @@ class _ALWAYS_EQ:
         return False
 
 ALWAYS_EQ = _ALWAYS_EQ()
-
-class _NEVER_EQ:
-    """
-    Object that is not equal to anything.
-    """
-    def __eq__(self, other):
-        return False
-    def __ne__(self, other):
-        return True
-    def __hash__(self):
-        return 1
-
-NEVER_EQ = _NEVER_EQ()
 
 @functools.total_ordering
 class _LARGEST:
@@ -2931,7 +3277,6 @@ SMALLEST = _SMALLEST()
 
 def maybe_get_event_loop_policy():
     """Return the global event loop policy if one is set, else return None."""
-    import asyncio.events
     return asyncio.events._event_loop_policy
 
 # Helpers for testing hashing.
@@ -3081,9 +3426,7 @@ def wait_process(pid, *, exitcode, timeout=None):
     """
     Wait until process pid completes and check that the process exit code is
     exitcode.
-
     Raise an AssertionError if the process exit code is not equal to exitcode.
-
     If the process runs longer than timeout seconds (SHORT_TIMEOUT by default),
     kill the process (if signal.SIGKILL is available) and raise an
     AssertionError. The timeout feature is not available on Windows.
@@ -3128,87 +3471,3 @@ def wait_process(pid, *, exitcode, timeout=None):
     # sanity check: it should not fail in practice
     if pid2 != pid:
         raise AssertionError(f"pid {pid2} != pid {pid}")
-
-def skip_if_broken_multiprocessing_synchronize():
-    """
-    Skip tests if the multiprocessing.synchronize module is missing, if there
-    is no available semaphore implementation, or if creating a lock raises an
-    OSError (on Linux only).
-    """
-    from .import_helper import import_module
-
-    # Skip tests if the _multiprocessing extension is missing.
-    import_module('_multiprocessing')
-
-    # Skip tests if there is no available semaphore implementation:
-    # multiprocessing.synchronize requires _multiprocessing.SemLock.
-    synchronize = import_module('multiprocessing.synchronize')
-
-    if sys.platform == "linux":
-        try:
-            # bpo-38377: On Linux, creating a semaphore fails with OSError
-            # if the current user does not have the permission to create
-            # a file in /dev/shm/ directory.
-            synchronize.Lock(ctx=None)
-        except OSError as exc:
-            raise unittest.SkipTest(f"broken multiprocessing SemLock: {exc!r}")
-
-
-def check_disallow_instantiation(testcase, tp, *args, **kwds):
-    """
-    Check that given type cannot be instantiated using *args and **kwds.
-
-    See bpo-43916: Add Py_TPFLAGS_DISALLOW_INSTANTIATION type flag.
-    """
-    mod = tp.__module__
-    name = tp.__name__
-    if mod != 'builtins':
-        qualname = f"{mod}.{name}"
-    else:
-        qualname = f"{name}"
-    msg = f"cannot create '{re.escape(qualname)}' instances"
-    testcase.assertRaisesRegex(TypeError, msg, tp, *args, **kwds)
-
-@contextlib.contextmanager
-def infinite_recursion(max_depth=75):
-    """Set a lower limit for tests that interact with infinite recursions
-    (e.g test_ast.ASTHelpers_Test.test_recursion_direct) since on some
-    debug windows builds, due to not enough functions being inlined the
-    stack size might not handle the default recursion limit (1000). See
-    bpo-11105 for details."""
-
-    original_depth = sys.getrecursionlimit()
-    try:
-        sys.setrecursionlimit(max_depth)
-        yield
-    finally:
-        sys.setrecursionlimit(original_depth)
-
-def ignore_deprecations_from(module: str, *, like: str) -> object:
-    token = object()
-    warnings.filterwarnings(
-        "ignore",
-        category=DeprecationWarning,
-        module=module,
-        message=like + fr"(?#support{id(token)})",
-    )
-    return token
-
-def clear_ignored_deprecations(*tokens: object) -> None:
-    if not tokens:
-        raise ValueError("Provide token or tokens returned by ignore_deprecations_from")
-
-    new_filters = []
-    endswith = tuple(rf"(?#support{id(token)})" for token in tokens)
-    for action, message, category, module, lineno in warnings.filters:
-        if action == "ignore" and category is DeprecationWarning:
-            if isinstance(message, re.Pattern):
-                msg = message.pattern
-            else:
-                msg = message or ""
-            if msg.endswith(endswith):
-                continue
-        new_filters.append((action, message, category, module, lineno))
-    if warnings.filters != new_filters:
-        warnings.filters[:] = new_filters
-        warnings._filters_mutated()

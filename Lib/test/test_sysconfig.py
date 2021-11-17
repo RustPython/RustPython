@@ -5,10 +5,9 @@ import subprocess
 import shutil
 from copy import copy
 
-from test.support import (import_module, check_warnings,
-                          captured_stdout, PythonSymlink)
-from test.support.os_helper import (TESTFN, unlink, skip_unless_symlink,
-                                    change_cwd)
+from test.support import (import_module, TESTFN, unlink, check_warnings,
+                          captured_stdout, skip_unless_symlink, change_cwd,
+                          PythonSymlink)
 
 import sysconfig
 from sysconfig import (get_paths, get_platform, get_config_vars,

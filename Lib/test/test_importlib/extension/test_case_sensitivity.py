@@ -1,6 +1,5 @@
 from importlib import _bootstrap_external
 from test import support
-from test.support import os_helper
 import unittest
 
 from .. import util
@@ -23,14 +22,14 @@ class ExtensionModuleCaseSensitivityTest(util.CASEOKTestBase):
         return finder.find_module(bad_name)
 
     def test_case_sensitive(self):
-        with os_helper.EnvironmentVarGuard() as env:
+        with support.EnvironmentVarGuard() as env:
             env.unset('PYTHONCASEOK')
             self.caseok_env_changed(should_exist=False)
             loader = self.find_module()
             self.assertIsNone(loader)
 
     def test_case_insensitivity(self):
-        with os_helper.EnvironmentVarGuard() as env:
+        with support.EnvironmentVarGuard() as env:
             env.set('PYTHONCASEOK', '1')
             self.caseok_env_changed(should_exist=True)
             loader = self.find_module()

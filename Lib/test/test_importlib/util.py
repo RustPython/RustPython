@@ -11,7 +11,6 @@ import os
 import os.path
 from pathlib import Path, PurePath
 from test import support
-from test.support import os_helper
 import unittest
 import sys
 import tempfile
@@ -148,7 +147,7 @@ def uncache(*names):
 @contextlib.contextmanager
 def temp_module(name, content='', *, pkg=False):
     conflicts = [n for n in sys.modules if n.partition('.')[0] == name]
-    with os_helper.temp_cwd(None) as cwd:
+    with support.temp_cwd(None) as cwd:
         with uncache(name, *conflicts):
             with support.DirsOnSysPath(cwd):
                 invalidate_caches()
@@ -386,7 +385,7 @@ def create_modules(*names):
             state_manager.__exit__(None, None, None)
         if uncache_manager is not None:
             uncache_manager.__exit__(None, None, None)
-        os_helper.rmtree(temp_dir)
+        support.rmtree(temp_dir)
 
 
 def mock_path_hook(*entries, importer):

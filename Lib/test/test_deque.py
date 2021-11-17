@@ -1,7 +1,6 @@
 from collections import deque
 import unittest
 from test import support, seq_tests
-from test.support import os_helper
 import gc
 import weakref
 import copy
@@ -67,28 +66,28 @@ class TestBasic(unittest.TestCase):
         self.assertEqual(list(d), [7, 8, 9])
         d = deque(range(200), maxlen=10)
         d.append(d)
-        os_helper.unlink(os_helper.TESTFN)
-        fo = open(os_helper.TESTFN, "w")
+        support.unlink(support.TESTFN)
+        fo = open(support.TESTFN, "w")
         try:
             fo.write(str(d))
             fo.close()
-            fo = open(os_helper.TESTFN, "r")
+            fo = open(support.TESTFN, "r")
             self.assertEqual(fo.read(), repr(d))
         finally:
             fo.close()
-            os_helper.unlink(os_helper.TESTFN)
+            support.unlink(support.TESTFN)
 
         d = deque(range(10), maxlen=None)
         self.assertEqual(repr(d), 'deque([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])')
-        fo = open(os_helper.TESTFN, "w")
+        fo = open(support.TESTFN, "w")
         try:
             fo.write(str(d))
             fo.close()
-            fo = open(os_helper.TESTFN, "r")
+            fo = open(support.TESTFN, "r")
             self.assertEqual(fo.read(), repr(d))
         finally:
             fo.close()
-            os_helper.unlink(os_helper.TESTFN)
+            support.unlink(support.TESTFN)
 
     def test_maxlen_zero(self):
         it = iter(range(100))
@@ -540,15 +539,15 @@ class TestBasic(unittest.TestCase):
         d = deque(range(200))
         d.append(d)
         try:
-            os_helper.unlink(os_helper.TESTFN)
-            fo = open(os_helper.TESTFN, "w")
+            support.unlink(support.TESTFN)
+            fo = open(support.TESTFN, "w")
             print(d, file=fo, end='')
             fo.close()
-            fo = open(os_helper.TESTFN, "r")
+            fo = open(support.TESTFN, "r")
             self.assertEqual(fo.read(), repr(d))
         finally:
             fo.close()
-            os_helper.unlink(os_helper.TESTFN)
+            support.unlink(support.TESTFN)
 
     def test_init(self):
         self.assertRaises(TypeError, deque, 'abc', 2, 3);

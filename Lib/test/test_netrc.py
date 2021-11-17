@@ -1,6 +1,5 @@
 import netrc, os, unittest, sys, tempfile, textwrap
 from test import support
-from test.support import os_helper
 
 
 class NetrcTestCase(unittest.TestCase):
@@ -109,16 +108,16 @@ class NetrcTestCase(unittest.TestCase):
     def test_security(self):
         # This test is incomplete since we are normally not run as root and
         # therefore can't test the file ownership being wrong.
-        d = os_helper.TESTFN
+        d = support.TESTFN
         os.mkdir(d)
-        self.addCleanup(os_helper.rmtree, d)
+        self.addCleanup(support.rmtree, d)
         fn = os.path.join(d, '.netrc')
         with open(fn, 'wt') as f:
             f.write("""\
                 machine foo.domain.com login bar password pass
                 default login foo password pass
                 """)
-        with os_helper.EnvironmentVarGuard() as environ:
+        with support.EnvironmentVarGuard() as environ:
             environ.set('HOME', d)
             os.chmod(fn, 0o600)
             nrc = netrc.netrc()
@@ -128,10 +127,10 @@ class NetrcTestCase(unittest.TestCase):
             self.assertRaises(netrc.NetrcParseError, netrc.netrc)
 
     def test_file_not_found_in_home(self):
-        d = os_helper.TESTFN
+        d = support.TESTFN
         os.mkdir(d)
-        self.addCleanup(os_helper.rmtree, d)
-        with os_helper.EnvironmentVarGuard() as environ:
+        self.addCleanup(support.rmtree, d)
+        with support.EnvironmentVarGuard() as environ:
             environ.set('HOME', d)
             self.assertRaises(FileNotFoundError, netrc.netrc)
 
@@ -141,9 +140,9 @@ class NetrcTestCase(unittest.TestCase):
 
     @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON, permission error from remnant directory")
     def test_home_not_set(self):
-        fake_home = os_helper.TESTFN
+        fake_home = support.TESTFN
         os.mkdir(fake_home)
-        self.addCleanup(os_helper.rmtree, fake_home)
+        self.addCleanup(support.rmtree, fake_home)
         fake_netrc_path = os.path.join(fake_home, '.netrc')
         with open(fake_netrc_path, 'w') as f:
             f.write('machine foo.domain.com login bar password pass')
@@ -154,7 +153,7 @@ class NetrcTestCase(unittest.TestCase):
 
         def fake_expanduser(s):
             called.append(s)
-            with os_helper.EnvironmentVarGuard() as environ:
+            with support.EnvironmentVarGuard() as environ:
                 environ.set('HOME', fake_home)
                 environ.set('USERPROFILE', fake_home)
                 result = orig_expanduser(s)
