@@ -8,7 +8,6 @@ use crate::{
     protocol::{PyIterReturn, PyMappingMethods},
     sequence::{ObjectSequenceOp, SequenceMutOp, SequenceOp},
     sliceable::{saturate_index, PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
-    stdlib::sys,
     types::{
         AsMapping, Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable,
         PyComparisonOp, Unconstructible, Unhashable,
@@ -250,40 +249,8 @@ impl PyList {
     #[pymethod(magic)]
     fn imul(zelf: PyRef<Self>, n: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         zelf.borrow_vec_mut().imul(vm, n)?;
-        // let mut new_elements: Vec<PyObjectRef> =
-        //     sequence::seq_mul(vm, &*elements, value)?.cloned().collect();
-        // std::mem::swap(elements.deref_mut(), &mut new_elements);
         Ok(zelf)
     }
-
-    // fn _iter_equal<F: FnMut(), const SHORT: bool>(
-    //     &self,
-    //     needle: &PyObject,
-    //     range: Range<usize>,
-    //     mut f: F,
-    //     vm: &VirtualMachine,
-    // ) -> PyResult<usize> {
-    //     se
-    // }
-
-    // fn foreach_equal<F: FnMut()>(
-    //     &self,
-    //     needle: &PyObject,
-    //     f: F,
-    //     vm: &VirtualMachine,
-    // ) -> PyResult<()> {
-    //     self._iter_equal::<_, false>(vm, needle, 0..usize::MAX, f )
-    //         .map(|_| ())
-    // }
-
-    // fn find_equal(
-    //     &self,
-    //     needle: &PyObject,
-    //     range: Range<usize>,
-    //     vm: &VirtualMachine,
-    // ) -> PyResult<usize> {
-    //     self._iter_equal::<_, true>(vm, needle, range, || {} )
-    // }
 
     #[pymethod]
     fn count(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
@@ -307,7 +274,7 @@ impl PyList {
         let start = start.map(|i| saturate_index(i, len)).unwrap_or(0);
         let stop = stop
             .map(|i| saturate_index(i, len))
-            .unwrap_or(sys::MAXSIZE as usize);
+            .unwrap_or(isize::MAX as usize);
         let index = self.mut_index_range(vm, &needle, start..stop)?;
         if index == usize::MAX {
             Err(vm.new_value_error(format!("'{}' is not in list", needle.str(vm)?)))

@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use std::ops::Range;
+use std::{collections::VecDeque, ops::Range};
 
 use crate::{
     types::{richcompare_wrapper, PyComparisonOp, RichCompareFunc},
@@ -8,71 +8,64 @@ use crate::{
     IdProtocol, PyComparisonValue, PyObject, PyObjectRef, PyResult, TypeProtocol,
 };
 
-pub fn eq<'a, I1, I2>(vm: &VirtualMachine, lhs: I1, rhs: I2) -> PyResult<bool>
-where
-    I1: ExactSizeIterator<Item = &'a PyObjectRef>,
-    I2: ExactSizeIterator<Item = &'a PyObjectRef>,
-{
-    if lhs.len() == rhs.len() {
-        for (a, b) in lhs.zip_eq(rhs) {
-            if !vm.identical_or_equal(a, b)? {
-                return Ok(false);
-            }
-        }
-        Ok(true)
-    } else {
-        Ok(false)
-    }
-}
-
-pub fn cmp<'a, I1, I2>(vm: &VirtualMachine, lhs: I1, rhs: I2, op: PyComparisonOp) -> PyResult<bool>
-where
-    I1: ExactSizeIterator<Item = &'a PyObjectRef>,
-    I2: ExactSizeIterator<Item = &'a PyObjectRef>,
-{
-    let (lhs_len, rhs_len) = (lhs.len(), rhs.len());
-
-    let less = match op {
-        PyComparisonOp::Eq => return eq(vm, lhs, rhs),
-        PyComparisonOp::Ne => return eq(vm, lhs, rhs).map(|eq| !eq),
-        PyComparisonOp::Lt | PyComparisonOp::Le => true,
-        PyComparisonOp::Gt | PyComparisonOp::Ge => false,
-    };
-    for (a, b) in lhs.zip_eq(rhs) {
-        let ret = if less {
-            vm.bool_seq_lt(a, b)?
-        } else {
-            vm.bool_seq_gt(a, b)?
-        };
-        if let Some(v) = ret {
-            return Ok(v);
-        }
-    }
-    Ok(op.eval_ord(lhs_len.cmp(&rhs_len)))
-}
-
 pub trait ObjectSequenceOp<'a> {
     type Iter: ExactSizeIterator<Item = &'a PyObjectRef>;
     fn iter(&'a self) -> Self::Iter;
     fn eq(&'a self, vm: &VirtualMachine, other: &'a Self) -> PyResult<bool> {
         let lhs = self.iter();
         let rhs = other.iter();
-        eq(vm, lhs, rhs)
+        if lhs.len() == rhs.len() {
+            for (a, b) in lhs.zip_eq(rhs) {
+                if !vm.identical_or_equal(a, b)? {
+                    return Ok(false);
+                }
+            }
+            Ok(true)
+        } else {
+            Ok(false)
+        }
     }
 
     fn cmp(&'a self, vm: &VirtualMachine, other: &'a Self, op: PyComparisonOp) -> PyResult<bool> {
+        let less = match op {
+            PyComparisonOp::Eq => return self.eq(vm, other),
+            PyComparisonOp::Ne => return self.eq(vm, other).map(|eq| !eq),
+            PyComparisonOp::Lt | PyComparisonOp::Le => true,
+            PyComparisonOp::Gt | PyComparisonOp::Ge => false,
+        };
+
         let lhs = self.iter();
         let rhs = other.iter();
-        cmp(vm, lhs, rhs, op)
+        let lhs_len = lhs.len();
+        let rhs_len = rhs.len();
+        for (a, b) in lhs.zip_eq(rhs) {
+            let ret = if less {
+                vm.bool_seq_lt(a, b)?
+            } else {
+                vm.bool_seq_gt(a, b)?
+            };
+            if let Some(v) = ret {
+                return Ok(v);
+            }
+        }
+        Ok(op.eval_ord(lhs_len.cmp(&rhs_len)))
     }
 }
 
 impl<'a> ObjectSequenceOp<'a> for [PyObjectRef] {
+    type Iter = core::slice::Iter<'a, PyObjectRef>;
+
     fn iter(&'a self) -> Self::Iter {
         self.iter()
     }
+}
 
-    type Iter = core::slice::Iter<'a, PyObjectRef>;
+impl<'a> ObjectSequenceOp<'a> for VecDeque<PyObjectRef> {
+    type Iter = std::collections::vec_deque::Iter<'a, PyObjectRef>;
+
+    fn iter(&'a self) -> Self::Iter {
+        self.iter()
+    }
 }
 
 pub trait MutObjectSequenceOp<'a> {
@@ -97,11 +90,7 @@ pub trait MutObjectSequenceOp<'a> {
         self._mut_iter_equal_skeleton::<_, true>(vm, needle, range, || {})
     }
 
-    fn mut_index(
-        &'a self,
-        vm: &VirtualMachine,
-        needle: &PyObject,
-    ) -> PyResult<usize> {
+    fn mut_index(&'a self, vm: &VirtualMachine, needle: &PyObject) -> PyResult<usize> {
         self.mut_index_range(vm, needle, 0..isize::MAX as usize)
     }
 
