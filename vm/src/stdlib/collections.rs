@@ -11,7 +11,8 @@ mod _collections {
         },
         function::{FuncArgs, KwArgs, OptionalArg},
         protocol::PyIterReturn,
-        sequence, sliceable,
+        sequence::{self, ObjectSequenceOp},
+        sliceable,
         types::{
             Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable,
             PyComparisonOp, Unhashable,
@@ -51,24 +52,6 @@ mod _collections {
 
         fn borrow_deque_mut(&self) -> PyRwLockWriteGuard<'_, VecDeque<PyObjectRef>> {
             self.deque.write()
-        }
-    }
-
-    struct SimpleSeqDeque<'a>(PyRwLockReadGuard<'a, VecDeque<PyObjectRef>>);
-
-    impl sequence::SimpleSeq for SimpleSeqDeque<'_> {
-        fn len(&self) -> usize {
-            self.0.len()
-        }
-
-        fn boxed_iter(&self) -> sequence::DynPyIter {
-            Box::new(self.0.iter())
-        }
-    }
-
-    impl<'a> From<PyRwLockReadGuard<'a, VecDeque<PyObjectRef>>> for SimpleSeqDeque<'a> {
-        fn from(from: PyRwLockReadGuard<'a, VecDeque<PyObjectRef>>) -> Self {
-            Self(from)
         }
     }
 
@@ -446,17 +429,24 @@ mod _collections {
             Ok(false)
         }
 
-        #[pymethod(magic)]
-        #[pymethod(name = "__rmul__")]
-        fn mul(&self, value: isize, vm: &VirtualMachine) -> PyResult<Self> {
-            let deque: SimpleSeqDeque = self.borrow_deque().into();
-            let mul = sequence::seq_mul(vm, &deque, value)?;
+        fn _mul(&self, n: isize, vm: &VirtualMachine) -> PyResult<VecDeque<PyObjectRef>> {
+            let deque = self.borrow_deque();
+            let n = vm.check_repeat_or_memory_error(deque.len(), n)?;
+            let mul_len = n * deque.len();
+            let iter = deque.iter().cycle().take(mul_len);
             let skipped = self
                 .maxlen
-                .and_then(|maxlen| mul.len().checked_sub(maxlen))
+                .and_then(|maxlen| mul_len.checked_sub(maxlen))
                 .unwrap_or(0);
 
-            let deque = mul.skip(skipped).cloned().collect();
+            let deque = iter.skip(skipped).cloned().collect();
+            Ok(deque)
+        }
+
+        #[pymethod(magic)]
+        #[pymethod(name = "__rmul__")]
+        fn mul(&self, n: isize, vm: &VirtualMachine) -> PyResult<Self> {
+            let deque = self._mul(n, vm)?;
             Ok(PyDeque {
                 deque: PyRwLock::new(deque),
                 maxlen: self.maxlen,
@@ -465,12 +455,9 @@ mod _collections {
         }
 
         #[pymethod(magic)]
-        fn imul(zelf: PyRef<Self>, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-            let mul_deque = zelf.mul(value, vm)?;
-            std::mem::swap(
-                &mut *zelf.borrow_deque_mut(),
-                &mut *mul_deque.borrow_deque_mut(),
-            );
+        fn imul(zelf: PyRef<Self>, n: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+            let mul_deque = zelf._mul(n, vm)?;
+            *zelf.borrow_deque_mut() = mul_deque;
             Ok(zelf)
         }
 
@@ -547,9 +534,9 @@ mod _collections {
                 return Ok(res.into());
             }
             let other = class_or_notimplemented!(Self, other);
-            let (lhs, rhs) = (zelf.borrow_deque(), other.borrow_deque());
-            sequence::cmp(vm, Box::new(lhs.iter()), Box::new(rhs.iter()), op)
-                .map(PyComparisonValue::Implemented)
+            let lhs = zelf.borrow_deque();
+            let rhs = other.borrow_deque();
+            sequence::cmp(vm, lhs.iter(), rhs.iter(), op).map(PyComparisonValue::Implemented)
         }
     }
 
