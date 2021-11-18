@@ -178,7 +178,7 @@ impl PyByteArray {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        match SequenceIndex::try_from_object_for(vm, needle, Self::NAME)? {
+        match SequenceIndex::try_borrow_from_object(vm, needle, Self::NAME)? {
             SequenceIndex::Int(i) => zelf.setitem_by_idx(i, value, vm),
             SequenceIndex::Slice(slice) => {
                 let slice = slice.to_saturated(vm)?;
@@ -188,10 +188,10 @@ impl PyByteArray {
                     bytes_from_object(vm, &value)?
                 };
                 if let Ok(mut w) = zelf.try_resizable(vm) {
-                    w.elements.set_slice_items(vm, slice, items.as_slice())
+                    w.elements.set_item_by_slice(vm, slice, items.as_slice())
                 } else {
                     zelf.borrow_buf_mut()
-                        .set_slice_items_no_resize(vm, slice, items.as_slice())
+                        .set_item_by_slice_no_resize(vm, slice, items.as_slice())
                 }
             }
         }
@@ -222,12 +222,12 @@ impl PyByteArray {
 
     #[pymethod(magic)]
     pub fn delitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        match SequenceIndex::try_from_object_for(vm, needle, Self::NAME)? {
+        match SequenceIndex::try_borrow_from_object(vm, needle)? {
             SequenceIndex::Int(i) => self.delitem_by_idx(i, vm),
             SequenceIndex::Slice(slice) => {
                 let slice = slice.to_saturated(vm)?;
                 let elements = &mut self.try_resizable(vm)?.elements;
-                elements.delete_slice(vm, slice)
+                elements.del_item_by_slice(vm, slice)
             }
         }
     }

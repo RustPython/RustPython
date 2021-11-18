@@ -970,7 +970,7 @@ mod array {
             obj: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            match SequenceIndex::try_from_object_for(vm, needle, "array")? {
+            match SequenceIndex::try_borrow_from_object(vm, needle, "array")? {
                 SequenceIndex::Int(i) => zelf.write().setitem_by_idx(i, obj, vm),
                 SequenceIndex::Slice(slice) => {
                     let slice = slice.to_saturated(vm)?;
@@ -1004,7 +1004,7 @@ mod array {
 
         #[pymethod(magic)]
         fn delitem(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            match SequenceIndex::try_from_object_for(vm, needle, "array")? {
+            match SequenceIndex::try_borrow_from_object(vm, needle, "array")? {
                 SequenceIndex::Int(i) => zelf.try_resizable(vm)?.delitem_by_idx(i, vm),
                 SequenceIndex::Slice(slice) => {
                     let slice = slice.to_saturated(vm)?;

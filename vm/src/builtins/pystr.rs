@@ -1459,10 +1459,6 @@ impl PySliceableSequence for PyStr {
     fn len(&self) -> usize {
         self.char_len()
     }
-
-    fn is_empty(&self) -> bool {
-        self.is_empty()
-    }
 }
 
 #[cfg(test)]
