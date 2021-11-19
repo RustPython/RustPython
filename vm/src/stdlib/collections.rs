@@ -230,14 +230,14 @@ mod _collections {
             let index = self.mut_index_range(vm, &obj, start..stop)?;
             if start_state != self.state.load() {
                 Err(vm.new_runtime_error("deque mutated during iteration".to_owned()))
-            } else if index == usize::MAX {
+            } else if let Some(index) = index.into() {
+                Ok(index)
+            } else {
                 Err(vm.new_value_error(
                     obj.repr(vm)
                         .map(|repr| format!("{} is not in deque", repr))
                         .unwrap_or_else(|_| String::new()),
                 ))
-            } else {
-                Ok(index)
             }
         }
 
@@ -290,12 +290,12 @@ mod _collections {
 
             if start_state != self.state.load() {
                 Err(vm.new_index_error("deque mutated during remove().".to_owned()))
-            } else if index == usize::MAX {
-                Err(vm.new_value_error("deque.remove(x): x not in deque".to_owned()))
-            } else {
+            } else if let Some(index) = index.into() {
                 let mut deque = self.borrow_deque_mut();
                 self.state.fetch_add(1);
                 Ok(deque.remove(index).unwrap())
+            } else {
+                Err(vm.new_value_error("deque.remove(x): x not in deque".to_owned()))
             }
         }
 

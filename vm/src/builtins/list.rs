@@ -276,10 +276,10 @@ impl PyList {
             .map(|i| saturate_index(i, len))
             .unwrap_or(isize::MAX as usize);
         let index = self.mut_index_range(vm, &needle, start..stop)?;
-        if index == usize::MAX {
-            Err(vm.new_value_error(format!("'{}' is not in list", needle.str(vm)?)))
-        } else {
+        if let Some(index) = index.into() {
             Ok(index)
+        } else {
+            Err(vm.new_value_error(format!("'{}' is not in list", needle.str(vm)?)))
         }
     }
 
@@ -303,7 +303,7 @@ impl PyList {
     fn remove(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let index = self.mut_index(vm, &needle)?;
 
-        if index != usize::MAX {
+        if let Some(index) = index.into() {
             // defer delete out of borrow
             Ok(self.borrow_vec_mut().remove(index))
         } else {

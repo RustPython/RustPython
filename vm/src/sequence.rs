@@ -1,4 +1,5 @@
 use itertools::Itertools;
+use optional::Optioned;
 use std::{collections::VecDeque, ops::Range};
 
 use crate::{
@@ -38,7 +39,7 @@ pub trait ObjectSequenceOp<'a> {
         let rhs = other.iter();
         let lhs_len = lhs.len();
         let rhs_len = rhs.len();
-        for (a, b) in lhs.zip_eq(rhs) {
+        for (a, b) in lhs.zip(rhs) {
             let ret = if less {
                 vm.bool_seq_lt(a, b)?
             } else {
@@ -86,25 +87,26 @@ pub trait MutObjectSequenceOp<'a> {
         vm: &VirtualMachine,
         needle: &PyObject,
         range: Range<usize>,
-    ) -> PyResult<usize> {
+    ) -> PyResult<Optioned<usize>> {
         self._mut_iter_equal_skeleton::<_, true>(vm, needle, range, || {})
     }
 
-    fn mut_index(&'a self, vm: &VirtualMachine, needle: &PyObject) -> PyResult<usize> {
+    fn mut_index(&'a self, vm: &VirtualMachine, needle: &PyObject) -> PyResult<Optioned<usize>> {
         self.mut_index_range(vm, needle, 0..isize::MAX as usize)
     }
 
     fn mut_contains(&'a self, vm: &VirtualMachine, needle: &PyObject) -> PyResult<bool> {
-        self.mut_index(vm, needle).map(|index| index != usize::MAX)
+        self.mut_index(vm, needle).map(|x| x.is_some())
     }
 
+    #[inline]
     fn _mut_iter_equal_skeleton<F, const SHORT: bool>(
         &'a self,
         vm: &VirtualMachine,
         needle: &PyObject,
         range: Range<usize>,
         mut f: F,
-    ) -> PyResult<usize>
+    ) -> PyResult<Optioned<usize>>
     where
         F: FnMut(),
     {
@@ -118,7 +120,7 @@ pub trait MutObjectSequenceOp<'a> {
 
         let index = loop {
             if i >= range.end {
-                break usize::MAX;
+                break Optioned::<usize>::none();
             }
             let guard = if let Some(x) = borrower.take() {
                 x
@@ -129,13 +131,13 @@ pub trait MutObjectSequenceOp<'a> {
             let elem = if let Some(x) = Self::do_get(i, &guard) {
                 x
             } else {
-                break usize::MAX;
+                break Optioned::<usize>::none();
             };
 
             if elem.is(needle) {
                 f();
                 if SHORT {
-                    break i;
+                    break Optioned::<usize>::some(i);
                 }
                 borrower = Some(guard);
             } else {
@@ -228,14 +230,13 @@ pub trait MutObjectSequenceOp<'a> {
                 if eq {
                     f();
                     if SHORT {
-                        break i;
+                        break Optioned::<usize>::some(i);
                     }
                 }
             }
             i += 1;
         };
 
-        // TODO: Optioned<usize>
         Ok(index)
     }
 }
