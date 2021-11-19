@@ -23,6 +23,7 @@ mod array {
             BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
             PyMappingMethods,
         },
+        sequence::{SequenceMutOp, SequenceOp},
         sliceable::{PySliceableSequence, PySliceableSequenceMut, SaturatedSlice, SequenceIndex},
         types::{
             AsBuffer, AsMapping, Comparable, Constructor, IterNext, IterNextIterable, Iterable,
@@ -387,34 +388,20 @@ mod array {
                     }
                 }
 
-                fn mul(&self, counter: usize) -> Self {
+                fn mul(&self, value: isize, vm: &VirtualMachine) -> PyResult<Self> {
                     match self {
                         $(ArrayContentType::$n(v) => {
-                            let elements = v.repeat(counter);
-                            ArrayContentType::$n(elements)
+                            let elements = v.mul(vm, value)?;
+                            Ok(ArrayContentType::$n(elements))
                         })*
                     }
                 }
 
-                fn clear(&mut self) {
+                fn imul(&mut self, value: isize, vm: &VirtualMachine) -> PyResult<()> {
                     match self {
-                        $(ArrayContentType::$n(v) => v.clear(),)*
-                    }
-                }
-
-                fn imul(&mut self, counter: usize) {
-                    if counter == 0 {
-                        self.clear();
-                    } else if counter != 1 {
-                        match self {
-                            $(ArrayContentType::$n(v) => {
-                                let old = v.clone();
-                                v.reserve((counter - 1) * old.len());
-                                for _ in 1..counter {
-                                    v.extend(&old);
-                                }
-                            })*
-                        }
+                        $(ArrayContentType::$n(v) => {
+                            v.imul(vm, value)
+                        })*
                     }
                 }
 
@@ -742,8 +729,7 @@ mod array {
         fn extend(zelf: PyRef<Self>, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             let mut w = zelf.try_resizable(vm)?;
             if zelf.is(&obj) {
-                w.imul(2);
-                Ok(())
+                w.imul(2, vm)
             } else if let Some(array) = obj.payload::<PyArray>() {
                 w.iadd(&*array.read(), vm)
             } else {
@@ -1044,7 +1030,7 @@ mod array {
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
             if zelf.is(&other) {
-                zelf.try_resizable(vm)?.imul(2);
+                zelf.try_resizable(vm)?.imul(2, vm)?;
             } else if let Some(other) = other.payload::<PyArray>() {
                 zelf.try_resizable(vm)?.iadd(&*other.read(), vm)?;
             } else {
@@ -1059,14 +1045,14 @@ mod array {
         #[pymethod(name = "__rmul__")]
         #[pymethod(magic)]
         fn mul(&self, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-            let value = vm.check_repeat_or_memory_error(self.len(), value)?;
-            Ok(Self::from(self.read().mul(value)).into_ref(vm))
+            self.read()
+                .mul(value, vm)
+                .map(|x| Self::from(x).into_ref(vm))
         }
 
         #[pymethod(magic)]
         fn imul(zelf: PyRef<Self>, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-            let value = vm.check_repeat_or_memory_error(zelf.len(), value)?;
-            zelf.try_resizable(vm)?.imul(value);
+            zelf.try_resizable(vm)?.imul(value, vm)?;
             Ok(zelf)
         }
 
