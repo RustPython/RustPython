@@ -136,10 +136,10 @@ impl PyFunction {
                     );
                 }
                 *slot = Some(value);
-            } else if argpos(0..code.posonlyarg_count, &name).is_some() {
-                posonly_passed_as_kwarg.push(name);
             } else if let Some(kwargs) = kwargs.as_ref() {
                 kwargs.set_item(name, value, vm)?;
+            } else if argpos(0..code.posonlyarg_count, &name).is_some() {
+                posonly_passed_as_kwarg.push(name);
             } else {
                 return Err(
                     vm.new_type_error(format!("got an unexpected keyword argument '{}'", name))
