@@ -34,7 +34,7 @@ impl Location {
                     self.desc,
                     self.line,
                     pad = self.loc.column,
-                    arrow = "↑",
+                    arrow = "^",
                 )
             }
         }
