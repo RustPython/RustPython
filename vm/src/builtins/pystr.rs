@@ -709,7 +709,8 @@ impl PyStr {
 
     #[pymethod]
     fn isdecimal(&self) -> bool {
-        !self.bytes.is_empty() && self.char_all(|c| c.is_ascii_digit())
+        !self.bytes.is_empty()
+            && self.char_all(|c| GeneralCategory::of(c) == GeneralCategory::DecimalNumber)
     }
 
     #[pymethod(name = "__mod__")]
