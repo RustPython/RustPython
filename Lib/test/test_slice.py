@@ -234,8 +234,6 @@ class SliceTest(unittest.TestCase):
         x[1:2] = 42
         self.assertEqual(tmp, [(slice(1, 2), 42)])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pickle(self):
         s = slice(10, 20, 3)
         for protocol in (0,1,2):

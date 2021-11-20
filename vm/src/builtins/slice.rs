@@ -194,6 +194,20 @@ impl PySlice {
         let (start, stop, step) = self.inner_indices(length, vm)?;
         Ok(vm.new_tuple((start, stop, step)))
     }
+
+    #[allow(clippy::type_complexity)]
+    #[pymethod(magic)]
+    fn reduce(
+        zelf: PyRef<Self>,
+    ) -> PyResult<(
+        PyTypeRef,
+        (Option<PyObjectRef>, PyObjectRef, Option<PyObjectRef>),
+    )> {
+        Ok((
+            zelf.clone_class(),
+            (zelf.start.clone(), zelf.stop.clone(), zelf.step.clone()),
+        ))
+    }
 }
 
 impl Comparable for PySlice {
