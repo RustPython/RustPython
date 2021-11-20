@@ -987,6 +987,14 @@ trait ViewSetOps: DictView {
             }
         })
     }
+
+    #[pymethod]
+    fn isdisjoint(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
+        // TODO: to_set is an expensive operation. After merging #3316 rewrite implementation using PySequence_Contains.
+        let zelf = Self::to_set(zelf, vm)?;
+        let result = zelf.isdisjoint(other, vm)?;
+        Ok(result)
+    }
 }
 
 impl ViewSetOps for PyDictKeys {}
