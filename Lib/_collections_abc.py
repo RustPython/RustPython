@@ -73,7 +73,7 @@ async_generator = type(_ag)
 del _ag
 
 
-# ## ONE-TRICK PONIES ###
+### ONE-TRICK PONIES ###
 
 def _check_methods(C, *methods):
     mro = C.__mro__
@@ -286,9 +286,10 @@ class Iterator(Iterable):
             return _check_methods(C, '__iter__', '__next__')
         return NotImplemented
 
+
 Iterator.register(bytes_iterator)
 Iterator.register(bytearray_iterator)
-# Iterator.register(callable_iterator)
+#Iterator.register(callable_iterator)
 Iterator.register(dict_keyiterator)
 Iterator.register(dict_valueiterator)
 Iterator.register(dict_itemiterator)
@@ -365,7 +366,9 @@ class Generator(Iterator):
                                   'send', 'throw', 'close')
         return NotImplemented
 
+
 Generator.register(generator)
+
 
 class Sized(metaclass=ABCMeta):
 
@@ -398,6 +401,7 @@ class Container(metaclass=ABCMeta):
 
     __class_getitem__ = classmethod(GenericAlias)
 
+
 class Collection(Sized, Iterable, Container):
 
     __slots__ = ()
@@ -412,7 +416,7 @@ class Collection(Sized, Iterable, Container):
 class _CallableGenericAlias(GenericAlias):
     """ Represent `Callable[argtypes, resulttype]`.
 
-    This sets ``__args__`` to a tuple containing the flattened ``argtypes``
+    This sets ``__args__`` to a tuple containing the flattened``argtypes``
     followed by ``resulttype``.
 
     Example: ``Callable[[int, str], float]`` sets ``__args__`` to
@@ -422,31 +426,32 @@ class _CallableGenericAlias(GenericAlias):
     __slots__ = ()
 
     def __new__(cls, origin, args):
-        if not (isinstance(args, tuple) and len(args) == 2):
+        try:
+            return cls.__create_ga(origin, args)
+        except TypeError as exc:
+            import warnings
+            warnings.warn(f'{str(exc)} '
+                          f'(This will raise a TypeError in Python 3.10.)',
+                          DeprecationWarning)
+            return GenericAlias(origin, args)
+
+    @classmethod
+    def __create_ga(cls, origin, args):
+        if not isinstance(args, tuple) or len(args) != 2:
             raise TypeError(
                 "Callable must be used as Callable[[arg, ...], result].")
         t_args, t_result = args
-        if isinstance(t_args, list):
-            args = (*t_args, t_result)
-        elif not _is_param_expr(t_args):
-            raise TypeError(f"Expected a list of types, an ellipsis, "
-                            f"ParamSpec, or Concatenate. Got {t_args}")
-        return super().__new__(cls, origin, args)
-
-    @property
-    def __parameters__(self):
-        params = []
-        for arg in self.__args__:
-            # Looks like a genericalias
-            if hasattr(arg, "__parameters__") and isinstance(arg.__parameters__, tuple):
-                params.extend(arg.__parameters__)
-            else:
-                if _is_typevarlike(arg):
-                    params.append(arg)
-        return tuple(dict.fromkeys(params))
+        if isinstance(t_args, (list, tuple)):
+            ga_args = tuple(t_args) + (t_result,)
+        # This relaxes what t_args can be on purpose to allow things like
+        # PEP 612 ParamSpec.  Responsibility for whether a user is using
+        # Callable[...] properly is deferred to static type checkers.
+        else:
+            ga_args = args
+        return super().__new__(cls, origin, ga_args)
 
     def __repr__(self):
-        if len(self.__args__) == 2 and _is_param_expr(self.__args__[0]):
+        if len(self.__args__) == 2 and self.__args__[0] is Ellipsis:
             return super().__repr__()
         return (f'collections.abc.Callable'
                 f'[[{", ".join([_type_repr(a) for a in self.__args__[:-1]])}], '
@@ -454,75 +459,20 @@ class _CallableGenericAlias(GenericAlias):
 
     def __reduce__(self):
         args = self.__args__
-        if not (len(args) == 2 and _is_param_expr(args[0])):
+        if not (len(args) == 2 and args[0] is Ellipsis):
             args = list(args[:-1]), args[-1]
         return _CallableGenericAlias, (Callable, args)
 
     def __getitem__(self, item):
         # Called during TypeVar substitution, returns the custom subclass
-        # rather than the default types.GenericAlias object.  Most of the
-        # code is copied from typing's _GenericAlias and the builtin
-        # types.GenericAlias.
+        # rather than the default types.GenericAlias object.
+        ga = super().__getitem__(item)
+        args = ga.__args__
+        t_result = args[-1]
+        t_args = args[:-1]
+        args = (t_args, t_result)
+        return _CallableGenericAlias(Callable, args)
 
-        # A special case in PEP 612 where if X = Callable[P, int],
-        # then X[int, str] == X[[int, str]].
-        param_len = len(self.__parameters__)
-        if param_len == 0:
-            raise TypeError(f'{self} is not a generic class')
-        if not isinstance(item, tuple):
-            item = (item,)
-        if (param_len == 1 and _is_param_expr(self.__parameters__[0])
-                and item and not _is_param_expr(item[0])):
-            item = (list(item),)
-        item_len = len(item)
-        if item_len != param_len:
-            raise TypeError(f'Too {"many" if item_len > param_len else "few"}'
-                            f' arguments for {self};'
-                            f' actual {item_len}, expected {param_len}')
-        subst = dict(zip(self.__parameters__, item))
-        new_args = []
-        for arg in self.__args__:
-            if _is_typevarlike(arg):
-                if _is_param_expr(arg):
-                    arg = subst[arg]
-                    if not _is_param_expr(arg):
-                        raise TypeError(f"Expected a list of types, an ellipsis, "
-                                        f"ParamSpec, or Concatenate. Got {arg}")
-                else:
-                    arg = subst[arg]
-            # Looks like a GenericAlias
-            elif hasattr(arg, '__parameters__') and isinstance(arg.__parameters__, tuple):
-                subparams = arg.__parameters__
-                if subparams:
-                    subargs = tuple(subst[x] for x in subparams)
-                    arg = arg[subargs]
-            new_args.append(arg)
-
-        # args[0] occurs due to things like Z[[int, str, bool]] from PEP 612
-        if not isinstance(new_args[0], list):
-            t_result = new_args[-1]
-            t_args = new_args[:-1]
-            new_args = (t_args, t_result)
-        return _CallableGenericAlias(Callable, tuple(new_args))
-
-
-def _is_typevarlike(arg):
-    obj = type(arg)
-    # looks like a TypeVar/ParamSpec
-    return (obj.__module__ == 'typing'
-            and obj.__name__ in {'ParamSpec', 'TypeVar'})
-
-def _is_param_expr(obj):
-    """Checks if obj matches either a list of types, ``...``, ``ParamSpec`` or
-    ``_ConcatenateGenericAlias`` from typing.py
-    """
-    if obj is Ellipsis:
-        return True
-    if isinstance(obj, list):
-        return True
-    obj = type(obj)
-    names = ('ParamSpec', '_ConcatenateGenericAlias')
-    return obj.__module__ == 'typing' and any(obj.__name__ == name for name in names)
 
 def _type_repr(obj):
     """Return the repr() of an object, special-casing types (internal helper).
@@ -692,6 +642,7 @@ class Set(Collection):
             hx = hash(x)
             h ^= (hx ^ (hx << 16) ^ 89869747)  * 3644798167
             h &= MASK
+        h ^= (h >> 11) ^ (h >> 25)
         h = h * 69069 + 907133923
         h &= MASK
         if h > MAX:
@@ -699,6 +650,7 @@ class Set(Collection):
         if h == -1:
             h = 590923713
         return h
+
 
 Set.register(frozenset)
 
@@ -782,6 +734,7 @@ class MutableSet(Set):
                 self.discard(value)
         return self
 
+
 MutableSet.register(set)
 
 
@@ -838,6 +791,7 @@ class Mapping(Collection):
 
     __reversed__ = None
 
+
 Mapping.register(mappingproxy)
 
 
@@ -871,6 +825,7 @@ class KeysView(MappingView, Set):
     def __iter__(self):
         yield from self._mapping
 
+
 KeysView.register(dict_keys)
 
 
@@ -895,6 +850,7 @@ class ItemsView(MappingView, Set):
         for key in self._mapping:
             yield (key, self._mapping[key])
 
+
 ItemsView.register(dict_items)
 
 
@@ -912,6 +868,7 @@ class ValuesView(MappingView, Collection):
     def __iter__(self):
         for key in self._mapping:
             yield self._mapping[key]
+
 
 ValuesView.register(dict_values)
 
@@ -973,34 +930,21 @@ class MutableMapping(Mapping):
         except KeyError:
             pass
 
-    def update(*args, **kwds):
+    def update(self, other=(), /, **kwds):
         ''' D.update([E, ]**F) -> None.  Update D from mapping/iterable E and F.
             If E present and has a .keys() method, does:     for k in E: D[k] = E[k]
             If E present and lacks .keys() method, does:     for (k, v) in E: D[k] = v
             In either case, this is followed by: for k, v in F.items(): D[k] = v
         '''
-        if not args:
-            raise TypeError("descriptor 'update' of 'MutableMapping' object "
-                            "needs an argument")
-        self, *args = args
-        if len(args) > 1:
-            raise TypeError('update expected at most 1 arguments, got %d' %
-                            len(args))
-        if args:
-            other = args[0]
-            try:
-                mapping_inst = isinstance(other, Mapping)
-            except TypeError:
-                mapping_inst = False
-            if mapping_inst:
-                for key in other:
-                    self[key] = other[key]
-            elif hasattr(other, "keys"):
-                for key in other.keys():
-                    self[key] = other[key]
-            else:
-                for key, value in other:
-                    self[key] = value
+        if isinstance(other, Mapping):
+            for key in other:
+                self[key] = other[key]
+        elif hasattr(other, "keys"):
+            for key in other.keys():
+                self[key] = other[key]
+        else:
+            for key, value in other:
+                self[key] = value
         for key, value in kwds.items():
             self[key] = value
 
@@ -1011,6 +955,7 @@ class MutableMapping(Mapping):
         except KeyError:
             self[key] = default
         return default
+
 
 MutableMapping.register(dict)
 
@@ -1078,6 +1023,7 @@ class Sequence(Reversible, Collection):
     def count(self, value):
         'S.count(value) -> integer -- return number of occurrences of value'
         return sum(1 for v in self if v is value or v == value)
+
 
 Sequence.register(tuple)
 Sequence.register(str)
@@ -1164,6 +1110,7 @@ class MutableSequence(Sequence):
     def __iadd__(self, values):
         self.extend(values)
         return self
+
 
 MutableSequence.register(list)
 MutableSequence.register(bytearray)  # Multiply inheriting, see ByteString
