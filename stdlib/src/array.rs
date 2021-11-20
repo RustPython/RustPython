@@ -391,7 +391,9 @@ mod array {
                 fn mul(&self, value: isize, vm: &VirtualMachine) -> PyResult<Self> {
                     match self {
                         $(ArrayContentType::$n(v) => {
-                            let elements = v.mul(vm, value)?;
+                            // MemoryError instead Overflow Error, hard to says it is right
+                            // but it is how cpython doing right now
+                            let elements = v.mul(vm, value).map_err(|_| vm.new_memory_error("".to_owned()))?;
                             Ok(ArrayContentType::$n(elements))
                         })*
                     }
@@ -400,7 +402,9 @@ mod array {
                 fn imul(&mut self, value: isize, vm: &VirtualMachine) -> PyResult<()> {
                     match self {
                         $(ArrayContentType::$n(v) => {
-                            v.imul(vm, value)
+                            // MemoryError instead Overflow Error, hard to says it is right
+                            // but it is how cpython doing right now
+                            v.imul(vm, value).map_err(|_| vm.new_memory_error("".to_owned()))
                         })*
                     }
                 }
@@ -842,7 +846,7 @@ mod array {
             if n < 0 {
                 return Err(vm.new_value_error("negative count".to_owned()));
             }
-            let n = vm.check_repeat_or_memory_error(itemsize, n)?;
+            let n = vm.check_repeat_or_overflow_error(itemsize, n)?;
             let nbytes = n * itemsize;
 
             let b = vm.call_method(&f, "read", (nbytes,))?;

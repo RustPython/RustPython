@@ -245,7 +245,7 @@ pub trait SequenceOp<T: Clone> {
     fn as_slice(&self) -> &[T];
 
     fn mul(&self, vm: &VirtualMachine, n: isize) -> PyResult<Vec<T>> {
-        let n = vm.check_repeat_or_memory_error(self.as_slice().len(), n)?;
+        let n = vm.check_repeat_or_overflow_error(self.as_slice().len(), n)?;
         let mut v = Vec::with_capacity(n * self.as_slice().len());
         for _ in 0..n {
             v.extend_from_slice(self.as_slice());
@@ -260,12 +260,18 @@ impl<T: Clone> SequenceOp<T> for [T] {
     }
 }
 
+impl SequenceOp<u8> for &str {
+    fn as_slice(&self) -> &[u8] {
+        self.as_bytes()
+    }
+}
+
 pub trait SequenceMutOp<T: Clone> {
     fn as_slice(&self) -> &[T];
     fn as_vec_mut(&mut self) -> &mut Vec<T>;
 
     fn imul(&mut self, vm: &VirtualMachine, n: isize) -> PyResult<()> {
-        let n = vm.check_repeat_or_memory_error(self.as_slice().len(), n)?;
+        let n = vm.check_repeat_or_overflow_error(self.as_slice().len(), n)?;
         if n == 0 {
             self.as_vec_mut().clear();
         } else if n != 1 {

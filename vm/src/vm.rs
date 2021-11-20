@@ -1745,13 +1745,16 @@ impl VirtualMachine {
 
     /// Checks that the multiplication is able to be performed. On Ok returns the
     /// index as a usize for sequences to be able to use immediately.
-    pub fn check_repeat_or_memory_error(&self, length: usize, n: isize) -> PyResult<usize> {
-        let n = n.to_usize().unwrap_or(0);
-        if n > 0 && length > stdlib::sys::MAXSIZE as usize / n {
-            // Empty message is currently used in CPython.
-            Err(self.new_memory_error("".to_owned()))
+    pub fn check_repeat_or_overflow_error(&self, length: usize, n: isize) -> PyResult<usize> {
+        if n <= 0 {
+            Ok(0)
         } else {
-            Ok(n)
+            let n = n as usize;
+            if length > stdlib::sys::MAXSIZE as usize / n {
+                Err(self.new_overflow_error("repeated value are too long".to_owned()))
+            } else {
+                Ok(n)
+            }
         }
     }
 

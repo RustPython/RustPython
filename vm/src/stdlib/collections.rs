@@ -394,7 +394,7 @@ mod _collections {
 
         fn _mul(&self, n: isize, vm: &VirtualMachine) -> PyResult<VecDeque<PyObjectRef>> {
             let deque = self.borrow_deque();
-            let n = vm.check_repeat_or_memory_error(deque.len(), n)?;
+            let n = vm.check_repeat_or_overflow_error(deque.len(), n)?;
             let mul_len = n * deque.len();
             let iter = deque.iter().cycle().take(mul_len);
             let skipped = self
