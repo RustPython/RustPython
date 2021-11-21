@@ -826,18 +826,12 @@ class TestCopy(unittest.TestCase):
         v[x] = y
         self.assertNotIn(x, u)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_copy_weakkeydict(self):
         self._check_copy_weakdict(weakref.WeakKeyDictionary)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_copy_weakvaluedict(self):
         self._check_copy_weakdict(weakref.WeakValueDictionary)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_deepcopy_weakkeydict(self):
         class C(object):
             def __init__(self, i):
@@ -857,8 +851,6 @@ class TestCopy(unittest.TestCase):
         del c
         self.assertEqual(len(v), 1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_deepcopy_weakvaluedict(self):
         class C(object):
             def __init__(self, i):

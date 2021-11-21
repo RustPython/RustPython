@@ -33,7 +33,7 @@ impl Scope {
     ) -> Scope {
         if !globals.contains_key("__builtins__", vm) {
             globals
-                .set_item("__builtins__", vm.builtins.clone(), vm)
+                .set_item("__builtins__", vm.builtins.clone().into(), vm)
                 .unwrap();
         }
         Scope::new(locals, globals)

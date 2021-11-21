@@ -150,6 +150,8 @@ pub(crate) type DescrSetFunc =
 pub(crate) type NewFunc = fn(PyTypeRef, FuncArgs, &VirtualMachine) -> PyResult;
 pub(crate) type DelFunc = fn(&PyObject, &VirtualMachine) -> PyResult<()>;
 
+pub use crate::builtins::object::{generic_getattr, generic_setattr};
+
 fn as_mapping_wrapper(zelf: &PyObject, _vm: &VirtualMachine) -> PyMappingMethods {
     macro_rules! then_some_closure {
         ($cond:expr, $closure:expr) => {

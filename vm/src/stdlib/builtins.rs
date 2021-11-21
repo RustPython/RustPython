@@ -214,7 +214,7 @@ mod builtins {
             let (globals, locals) = match self.globals {
                 Some(globals) => {
                     if !globals.contains_key("__builtins__", vm) {
-                        let builtins_dict = vm.builtins.dict().unwrap().into();
+                        let builtins_dict = vm.builtins.dict().into();
                         globals.set_item("__builtins__", builtins_dict, vm)?;
                     }
                     (

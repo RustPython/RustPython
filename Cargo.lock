@@ -1524,9 +1524,9 @@ dependencies = [
 
 [[package]]
 name = "radium"
-version = "0.6.2"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "643f8f41a8ebc4c5dc4515c82bb8abd397b527fc20fd681b7c011c2aee5d44fb"
+checksum = "dc33ff2d4973d518d823d61aa239014831e521c75da58e3df4840d3f47749d09"
 
 [[package]]
 name = "radix_trie"
@@ -1954,6 +1954,7 @@ dependencies = [
  "libc",
  "log",
  "memchr",
+ "memoffset",
  "nix 0.23.0",
  "num-bigint",
  "num-complex",

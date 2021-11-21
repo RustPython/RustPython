@@ -8,7 +8,7 @@ use wasm_bindgen::prelude::*;
 use rustpython_vm::compile::{self, Mode};
 use rustpython_vm::scope::Scope;
 use rustpython_vm::{InitParameter, Interpreter, PySettings, VirtualMachine};
-use rustpython_vm::{ItemProtocol, PyObjectRef, PyObjectWeak, PyValue};
+use rustpython_vm::{ItemProtocol, PyObjectRef, PyObjectWeak, PyResult, PyValue};
 
 use crate::browser_module::setup_browser_module;
 use crate::convert::{self, PyResultExt};
@@ -195,11 +195,11 @@ impl WASMVirtualMachine {
         STORED_VMS.with(|cell| cell.borrow().contains_key(&self.id))
     }
 
-    pub(crate) fn push_held_rc(&self, obj: PyObjectRef) -> Result<PyObjectWeak, JsValue> {
-        self.with(|stored_vm| {
-            let weak = obj.downgrade();
+    pub(crate) fn push_held_rc(&self, obj: PyObjectRef) -> Result<PyResult<PyObjectWeak>, JsValue> {
+        self.with_vm(|vm, stored_vm| {
+            let weak = obj.downgrade(None, vm)?;
             stored_vm.held_objects.borrow_mut().push(obj);
-            weak
+            Ok(weak)
         })
     }
 

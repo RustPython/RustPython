@@ -1,6 +1,6 @@
 use super::{
     mappingproxy::PyMappingProxy, object, PyClassMethod, PyDictRef, PyList, PyStaticMethod, PyStr,
-    PyStrRef, PyTuple, PyTupleRef, PyWeak,
+    PyStrRef, PyTuple, PyTupleRef,
 };
 use crate::common::{
     ascii,
@@ -10,8 +10,8 @@ use crate::common::{
 use crate::{
     function::{FuncArgs, KwArgs, OptionalArg},
     types::{Callable, GetAttr, PyTypeFlags, PyTypeSlots, SetAttr},
-    IdProtocol, PyAttributes, PyClassImpl, PyContext, PyLease, PyObjectRef, PyRef, PyResult,
-    PyValue, StaticType, TypeProtocol, VirtualMachine,
+    IdProtocol, PyAttributes, PyClassImpl, PyContext, PyLease, PyObjectRef, PyObjectWeak, PyRef,
+    PyResult, PyValue, StaticType, TypeProtocol, VirtualMachine,
 };
 use itertools::Itertools;
 use std::collections::HashSet;
@@ -26,7 +26,7 @@ pub struct PyType {
     pub base: Option<PyTypeRef>,
     pub bases: Vec<PyTypeRef>,
     pub mro: Vec<PyTypeRef>,
-    pub subclasses: PyRwLock<Vec<PyWeak>>,
+    pub subclasses: PyRwLock<Vec<PyObjectWeak>>,
     pub attributes: PyRwLock<PyAttributes>,
     pub slots: PyTypeSlots,
 }
@@ -96,7 +96,7 @@ impl PyType {
             slots.flags |= PyTypeFlags::HAS_DICT
         }
 
-        *slots.name.write() = Some(String::from(name));
+        *slots.name.get_mut() = Some(String::from(name));
 
         let new_type = PyRef::new_ref(
             PyType {
@@ -116,10 +116,14 @@ impl PyType {
                 new_type.update_slot(attr_name, true);
             }
         }
+        let weakref_type = super::PyWeak::static_type();
         for base in &new_type.bases {
-            base.subclasses
-                .write()
-                .push(PyWeak::downgrade(new_type.as_object()));
+            base.subclasses.write().push(
+                new_type
+                    .as_object()
+                    .downgrade_with_weakref_typ_opt(None, weakref_type.clone())
+                    .unwrap(),
+            );
         }
 
         Ok(new_type)

@@ -638,7 +638,7 @@ mod decl {
             }
             .into_ref(vm);
 
-            state.grouper = Some(grouper.downgrade());
+            state.grouper = Some(grouper.downgrade(None, vm).unwrap());
             Ok(PyIterReturn::Return(
                 (state.current_key.as_ref().unwrap().clone(), grouper).into_pyobject(vm),
             ))

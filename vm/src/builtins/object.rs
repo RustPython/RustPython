@@ -2,8 +2,8 @@ use super::{PyDict, PyDictRef, PyList, PyStr, PyStrRef, PyType, PyTypeRef};
 use crate::common::hash::PyHash;
 use crate::{
     function::FuncArgs, types::PyComparisonOp, utils::Either, IdProtocol, ItemProtocol,
-    PyArithmeticValue, PyAttributes, PyClassImpl, PyComparisonValue, PyContext, PyGenericObject,
-    PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
+    PyArithmeticValue, PyAttributes, PyClassImpl, PyComparisonValue, PyContext, PyObject,
+    PyObjectRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
 
 /// object()
@@ -34,7 +34,7 @@ impl PyBaseObject {
         } else {
             Some(vm.ctx.new_dict())
         };
-        Ok(PyGenericObject::new(PyBaseObject, cls, dict))
+        Ok(crate::PyRef::new_ref(PyBaseObject, cls, dict).into())
     }
 
     #[pyslot]
@@ -148,13 +148,13 @@ impl PyBaseObject {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        setattr(&obj, name, Some(value), vm)
+        generic_setattr(&obj, name, Some(value), vm)
     }
 
     /// Implement delattr(self, name).
     #[pymethod]
     fn __delattr__(obj: PyObjectRef, name: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-        setattr(&obj, name, None, vm)
+        generic_setattr(&obj, name, None, vm)
     }
 
     #[pyslot]
@@ -164,7 +164,7 @@ impl PyBaseObject {
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        setattr(&*obj, attr_name, value, vm)
+        generic_setattr(&*obj, attr_name, value, vm)
     }
 
     /// Return str(self).
@@ -316,8 +316,12 @@ pub fn object_set_dict(obj: PyObjectRef, dict: PyDictRef, vm: &VirtualMachine) -
         .map_err(|_| vm.new_attribute_error("This object has no __dict__".to_owned()))
 }
 
+pub fn generic_getattr(obj: PyObjectRef, attr_name: PyStrRef, vm: &VirtualMachine) -> PyResult {
+    vm.generic_getattribute(obj, attr_name)
+}
+
 #[cfg_attr(feature = "flame-it", flame)]
-pub(crate) fn setattr(
+pub fn generic_setattr(
     obj: &PyObject,
     attr_name: PyStrRef,
     value: Option<PyObjectRef>,

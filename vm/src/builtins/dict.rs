@@ -63,6 +63,12 @@ impl PyDict {
 #[allow(clippy::len_without_is_empty)]
 #[pyimpl(with(AsMapping, Hashable, Comparable, Iterable), flags(BASETYPE))]
 impl PyDict {
+    /// escape hatch to access the underlying data structure directly. prefer adding a method on
+    /// PyDict instead of using this
+    pub(crate) fn _as_dict_inner(&self) -> &DictContentType {
+        &self.entries
+    }
+
     #[pyslot]
     fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         PyDict::default().into_pyresult_with_type(vm, cls)

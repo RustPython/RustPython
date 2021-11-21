@@ -123,12 +123,12 @@ mod _js {
         }
 
         #[pymethod]
-        fn new_closure(&self, obj: PyObjectRef, vm: &VirtualMachine) -> JsClosure {
+        fn new_closure(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<JsClosure> {
             JsClosure::new(obj, false, vm)
         }
 
         #[pymethod]
-        fn new_closure_once(&self, obj: PyObjectRef, vm: &VirtualMachine) -> JsClosure {
+        fn new_closure_once(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<JsClosure> {
             JsClosure::new(obj, true, vm)
         }
 
@@ -306,11 +306,11 @@ mod _js {
 
     #[pyimpl]
     impl JsClosure {
-        fn new(obj: PyObjectRef, once: bool, vm: &VirtualMachine) -> Self {
+        fn new(obj: PyObjectRef, once: bool, vm: &VirtualMachine) -> PyResult<Self> {
             let wasm_vm = WASMVirtualMachine {
                 id: vm.wasm_id.clone().unwrap(),
             };
-            let weak_py_obj = wasm_vm.push_held_rc(obj).unwrap();
+            let weak_py_obj = wasm_vm.push_held_rc(obj).unwrap()?;
             let f = move |this: JsValue, args: Box<[JsValue]>| {
                 let py_obj = match wasm_vm.assert_valid() {
                     Ok(_) => weak_py_obj
@@ -337,11 +337,11 @@ mod _js {
                 Closure::once(Box::new(f))
             };
             let wrapped = PyJsValue::new(wrap_closure(closure.as_ref())).into_ref(vm);
-            JsClosure {
+            Ok(JsClosure {
                 closure: Some((closure, wrapped)).into(),
                 destroyed: false.into(),
                 detached: false.into(),
-            }
+            })
         }
 
         #[pyproperty]

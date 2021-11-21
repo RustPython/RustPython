@@ -10,7 +10,7 @@ mod _browser {
         builtins::{PyDictRef, PyStrRef},
         function::{ArgCallable, IntoPyObject, OptionalArg},
         import::import_file,
-        PyClassImpl, PyGenericObject, PyObjectRef, PyResult, PyValue, VirtualMachine,
+        PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
     };
     use wasm_bindgen::{prelude::*, JsCast};
     use wasm_bindgen_futures::JsFuture;
@@ -179,8 +179,8 @@ mod _browser {
     }
 
     #[pyattr]
-    fn document(vm: &VirtualMachine) -> PyObjectRef {
-        PyGenericObject::new(
+    fn document(vm: &VirtualMachine) -> PyRef<Document> {
+        PyRef::new_ref(
             Document {
                 doc: window().document().expect("Document missing from window"),
             },
