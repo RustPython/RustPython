@@ -293,11 +293,7 @@ impl PyBytesInner {
         })
     }
 
-    pub fn getitem(
-        &self,
-        needle: &PyObject,
-        vm: &VirtualMachine,
-    ) -> PyResult {
+    pub fn getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
         let obj = match self.elements.get_item(vm, needle)? {
             Either::A(byte) => vm.new_pyobj(byte),
             Either::B(bytes) => vm.ctx.new_bytes(bytes).into(),

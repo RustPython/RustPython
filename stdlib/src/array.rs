@@ -23,7 +23,7 @@ mod array {
             BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
             PyMappingMethods,
         },
-        sliceable::{SliceableSequenceOp, SliceableSequenceMutOp, SaturatedSlice, SequenceIndex},
+        sliceable::{SaturatedSlice, SequenceIndex, SliceableSequenceMutOp, SliceableSequenceOp},
         types::{
             AsBuffer, AsMapping, Comparable, Constructor, IterNext, IterNextIterable, Iterable,
             PyComparisonOp,
@@ -1273,15 +1273,9 @@ mod array {
     impl<'a> BufferResizeGuard<'a> for PyArray {
         type Resizable = PyRwLockWriteGuard<'a, ArrayContentType>;
 
-        fn try_resizable(&'a self, vm: &VirtualMachine) -> PyResult<Self::Resizable> {
+        fn try_resizable_opt(&'a self) -> Option<Self::Resizable> {
             let w = self.write();
-            if self.exports.load(atomic::Ordering::SeqCst) == 0 {
-                Ok(w)
-            } else {
-                Err(vm.new_buffer_error(
-                    "Existing exports of data: object cannot be re-sized".to_owned(),
-                ))
-            }
+            (self.exports.load(atomic::Ordering::SeqCst) == 0).then(|| w)
         }
     }
 

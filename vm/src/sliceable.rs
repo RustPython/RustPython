@@ -3,14 +3,10 @@ use std::ops::Range;
 
 // export through slicable module, not slice.
 pub use crate::builtins::slice::{saturate_index, SaturatedSlice};
-use crate::{
-    builtins::{
+use crate::{PyObject, PyResult, TypeProtocol, VirtualMachine, builtins::{
         int::PyInt,
         slice::{PySlice, SaturatedSliceIter},
-    },
-    utils::Either,
-    PyObject, PyResult, TypeProtocol, VirtualMachine,
-};
+    }, protocol::BufferResizeGuard, utils::Either};
 
 pub trait SliceableSequenceMutOp {
     type Item: Clone;
@@ -168,6 +164,7 @@ impl<T: Clone> SliceableSequenceMutOp for Vec<T> {
         self.drain((range.end - deleted)..range.end);
     }
 }
+
 
 pub trait SliceableSequenceOp {
     type Item;

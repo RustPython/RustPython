@@ -387,7 +387,12 @@ impl BufferDescriptor {
 
 pub trait BufferResizeGuard<'a> {
     type Resizable: 'a;
-    fn try_resizable(&'a self, vm: &VirtualMachine) -> PyResult<Self::Resizable>;
+    fn try_resizable_opt(&'a self) -> Option<Self::Resizable>;
+    fn try_resizable(&'a self, vm: &VirtualMachine) -> PyResult<Self::Resizable> {
+        self.try_resizable_opt().ok_or_else(|| {
+            vm.new_buffer_error("Existing exports of data: object cannot be re-sized".to_owned())
+        })
+    }
 }
 
 #[pyclass(module = false, name = "vec_buffer")]

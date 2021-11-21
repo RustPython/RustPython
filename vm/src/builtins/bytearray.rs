@@ -23,7 +23,7 @@ use crate::{
         BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
         PyMappingMethods, PySequenceMethods,
     },
-    sliceable::{SliceableSequenceOp, SliceableSequenceMutOp, SequenceIndex},
+    sliceable::{SequenceIndex, SliceableSequenceMutOp, SliceableSequenceOp},
     types::{
         AsBuffer, AsMapping, AsSequence, Callable, Comparable, Constructor, Hashable, IterNext,
         IterNextIterable, Iterable, PyComparisonOp, Unconstructible, Unhashable,
@@ -181,7 +181,8 @@ impl PyByteArray {
         match SequenceIndex::try_borrow_from_object(vm, &needle)? {
             SequenceIndex::Int(i) => {
                 let value = value_from_object(vm, &value)?;
-                zelf.borrow_buf_mut().set_item_by_index(vm, i, value)},
+                zelf.borrow_buf_mut().set_item_by_index(vm, i, value)
+            }
             SequenceIndex::Slice(slice) => {
                 let items = if zelf.is(&value) {
                     zelf.borrow_buf().to_vec()
@@ -742,14 +743,9 @@ impl AsBuffer for PyByteArray {
 impl<'a> BufferResizeGuard<'a> for PyByteArray {
     type Resizable = PyRwLockWriteGuard<'a, PyBytesInner>;
 
-    fn try_resizable(&'a self, vm: &VirtualMachine) -> PyResult<Self::Resizable> {
-        let w = self.inner.upgradable_read();
-        if self.exports.load(Ordering::SeqCst) == 0 {
-            Ok(parking_lot::lock_api::RwLockUpgradableReadGuard::upgrade(w))
-        } else {
-            Err(vm
-                .new_buffer_error("Existing exports of data: object cannot be re-sized".to_owned()))
-        }
+    fn try_resizable_opt(&'a self) -> Option<Self::Resizable> {
+        let w = self.inner.write();
+        (self.exports.load(Ordering::SeqCst) == 0).then(|| w)
     }
 }
 

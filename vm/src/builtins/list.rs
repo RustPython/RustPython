@@ -5,9 +5,10 @@ use crate::common::lock::{
 use crate::sequence::MutObjectSequenceOp;
 use crate::{
     function::{ArgIterable, FuncArgs, IntoPyObject, OptionalArg},
-    protocol::{PyIterReturn, PyMappingMethods},
-    sequence::{ObjectSequenceOp, SequenceMutOp, SequenceOp},
-    sliceable::{saturate_index, PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
+    protocol::{PyIterReturn, PyMappingMethods, PySequence, PySequenceMethods},
+    sequence::{self, SimpleSeq},
+    sliceable::{saturate_index, SequenceIndex, SliceableSequenceMutOp, SliceableSequenceOp},
+    stdlib::sys,
     types::{
         AsMapping, Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable,
         PyComparisonOp, Unconstructible, Unhashable,

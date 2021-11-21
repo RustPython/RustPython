@@ -74,8 +74,8 @@ mod _io {
             PyStrRef, PyType, PyTypeRef,
         },
         common::lock::{
-            PyMappedThreadMutexGuard, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
-            PyThreadMutex, PyThreadMutexGuard,
+            PyMappedThreadMutexGuard, PyRwLock, PyRwLockReadGuard,
+            PyRwLockWriteGuard, PyThreadMutex, PyThreadMutexGuard,
         },
         function::{
             ArgBytesLike, ArgIterable, ArgMemoryBuffer, FuncArgs, IntoPyObject, OptionalArg,
@@ -3315,14 +3315,9 @@ mod _io {
     impl<'a> BufferResizeGuard<'a> for BytesIO {
         type Resizable = PyRwLockWriteGuard<'a, BufferedIO>;
 
-        fn try_resizable(&'a self, vm: &VirtualMachine) -> PyResult<Self::Resizable> {
-            if self.exports.load() == 0 {
-                Ok(self.buffer.write())
-            } else {
-                Err(vm.new_buffer_error(
-                    "Existing exports of data: object cannot be re-sized".to_owned(),
-                ))
-            }
+        fn try_resizable_opt(&'a self) -> Option<Self::Resizable> {
+            let w = self.buffer.write();
+            (self.exports.load() == 0).then(|| w)
         }
     }
 
