@@ -272,6 +272,7 @@ pub trait SequenceMutOp<T: Clone> {
         } else if n != 1 {
             let mut sample = self.as_slice().to_vec();
             if n != 2 {
+                self.as_vec_mut().reserve(sample.len() * (n - 1));
                 for _ in 0..n - 2 {
                     self.as_vec_mut().extend_from_slice(&sample);
                 }
