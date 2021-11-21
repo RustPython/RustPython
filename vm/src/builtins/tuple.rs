@@ -12,7 +12,7 @@ use crate::{
     },
     utils::Either,
     vm::{ReprGuard, VirtualMachine},
-    IdProtocol, PyArithmeticValue, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObject,
+    IdProtocol, PyArithmeticValue, PyClassImpl, PyComparisonValue, PyContext, PyObject,
     PyObjectRef, PyRef, PyResult, PyValue, TransmuteFromObject, TryFromObject, TypeProtocol,
 };
 use rustpython_common::lock::PyMutex;

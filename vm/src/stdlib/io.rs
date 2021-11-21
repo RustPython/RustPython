@@ -74,8 +74,8 @@ mod _io {
             PyStrRef, PyType, PyTypeRef,
         },
         common::lock::{
-            PyMappedThreadMutexGuard, PyRwLock, PyRwLockReadGuard,
-            PyRwLockWriteGuard, PyThreadMutex, PyThreadMutexGuard,
+            PyMappedThreadMutexGuard, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
+            PyThreadMutex, PyThreadMutexGuard,
         },
         function::{
             ArgBytesLike, ArgIterable, ArgMemoryBuffer, FuncArgs, IntoPyObject, OptionalArg,

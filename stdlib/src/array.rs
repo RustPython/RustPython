@@ -2,34 +2,37 @@ pub(crate) use array::make_module;
 
 #[pymodule(name = "array")]
 mod array {
-    use crate::common::{
-        atomic::{self, AtomicUsize},
-        lock::{
-            PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyRwLock, PyRwLockReadGuard,
-            PyRwLockWriteGuard,
+    use crate::{
+        common::{
+            atomic::{self, AtomicUsize},
+            lock::{
+                PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyRwLock, PyRwLockReadGuard,
+                PyRwLockWriteGuard,
+            },
+            str::wchar_t,
         },
-        str::wchar_t,
-    };
-    use crate::vm::{
-        builtins::{
-            PyByteArray, PyBytes, PyBytesRef, PyDictRef, PyFloat, PyInt, PyIntRef, PyList,
-            PyListRef, PyStr, PyStrRef, PyTupleRef, PyTypeRef,
+        vm::{
+            builtins::{
+                PyByteArray, PyBytes, PyBytesRef, PyDictRef, PyFloat, PyInt, PyIntRef, PyList,
+                PyListRef, PySlice, PyStr, PyStrRef, PyTupleRef, PyTypeRef,
+            },
+            class_or_notimplemented,
+            function::{
+                ArgBytesLike, ArgIntoFloat, ArgIterable, IntoPyObject, IntoPyResult, OptionalArg,
+            },
+            protocol::{
+                BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
+                PyMappingMethods,
+            },
+            sliceable::{SequenceIndex, SliceableSequenceMutOp, SliceableSequenceOp},
+            types::{
+                AsBuffer, AsMapping, Comparable, Constructor, IterNext, IterNextIterable, Iterable,
+                PyComparisonOp,
+            },
+            utils::Either,
+            IdProtocol, PyComparisonValue, PyObject, PyObjectRef, PyObjectView, PyObjectWrap,
+            PyRef, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
         },
-        class_or_notimplemented,
-        function::{
-            ArgBytesLike, ArgIntoFloat, ArgIterable, IntoPyObject, IntoPyResult, OptionalArg,
-        },
-        protocol::{
-            BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
-            PyMappingMethods,
-        },
-        sliceable::{SaturatedSlice, SequenceIndex, SliceableSequenceMutOp, SliceableSequenceOp},
-        types::{
-            AsBuffer, AsMapping, Comparable, Constructor, IterNext, IterNextIterable, Iterable,
-            PyComparisonOp,
-        },
-        IdProtocol, PyComparisonValue, PyObject, PyObjectRef, PyObjectView, PyObjectWrap, PyRef,
-        PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
     };
     use itertools::Itertools;
     use num_traits::ToPrimitive;
@@ -266,20 +269,11 @@ mod array {
                 ) -> PyResult {
                     match self {
                         $(ArrayContentType::$n(v) => {
-                            match SequenceIndex::try_from_object_for(vm, needle, "array")? {
-                                SequenceIndex::Int(i) => {
-                                    let pos_index = v.wrap_index(i).ok_or_else(|| {
-                                        vm.new_index_error("array index out of range".to_owned())
-                                    })?;
-                                    v.get(pos_index).unwrap().into_pyresult(vm)
-                                }
-                                SequenceIndex::Slice(slice) => {
-                                    // TODO: Use interface similar to set/del item. This can
-                                    // still hang.
-                                    let slice = slice.to_saturated(vm)?;
-                                    let elements = v.get_slice_items(vm, slice)?;
-                                    let array: PyArray = ArrayContentType::$n(elements).into();
-                                    Ok(array.into_object(vm))
+                            match v.get_item(vm, &needle)? {
+                                Either::A(item) => item.into_pyresult(vm),
+                                Either::B(items) => {
+                                    let array: PyArray = ArrayContentType::$n(items).into();
+                                    array.into_pyresult(vm)
                                 }
                             }
                         })*
@@ -288,13 +282,13 @@ mod array {
 
                 fn setitem_by_slice(
                     &mut self,
-                    slice: SaturatedSlice,
+                    slice: &PySlice,
                     items: &ArrayContentType,
                     vm: &VirtualMachine
                 ) -> PyResult<()> {
                     match self {
                         $(Self::$n(elements) => if let ArrayContentType::$n(items) = items {
-                            elements.set_slice_items(vm, slice, items)
+                            elements.set_item_by_slice(vm, slice, items)
                         } else {
                             Err(vm.new_type_error(
                                 "bad argument type for built-in operation".to_owned()
@@ -305,13 +299,13 @@ mod array {
 
                 fn setitem_by_slice_no_resize(
                     &mut self,
-                    slice: SaturatedSlice,
+                    slice: &PySlice,
                     items: &ArrayContentType,
                     vm: &VirtualMachine
                 ) -> PyResult<()> {
                     match self {
                         $(Self::$n(elements) => if let ArrayContentType::$n(items) = items {
-                            elements.set_slice_items_no_resize(vm, slice, items)
+                            elements.set_item_by_slice_no_resize(vm, slice, items)
                         } else {
                             Err(vm.new_type_error(
                                 "bad argument type for built-in operation".to_owned()
@@ -328,35 +322,16 @@ mod array {
                 ) -> PyResult<()> {
                     match self {
                         $(ArrayContentType::$n(v) => {
-                            let i = v.wrap_index(i).ok_or_else(|| {
-                                vm.new_index_error("array assignment index out of range".to_owned())
-                            })?;
-                            v[i] = <$t>::try_into_from_object(vm, value)?
+                            let value = <$t>::try_into_from_object(vm, value)?;
+                            v.set_item_by_index(vm, i, value)
                         })*
                     }
-                    Ok(())
                 }
 
-                fn delitem_by_idx(&mut self, i: isize, vm: &VirtualMachine) -> PyResult<()> {
+                fn delitem(&mut self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
                     match self {
                         $(ArrayContentType::$n(v) => {
-                            let i = v.wrap_index(i).ok_or_else(|| {
-                                vm.new_index_error("array assignment index out of range".to_owned())
-                            })?;
-                            v.remove(i);
-                        })*
-                    }
-                    Ok(())
-                }
-
-                fn delitem_by_slice(
-                    &mut self,
-                    slice: SaturatedSlice,
-                    vm: &VirtualMachine
-                ) -> PyResult<()> {
-                    match self {
-                        $(ArrayContentType::$n(elements) => {
-                            elements.delete_slice(vm, slice)
+                            v.del_item(vm, needle)
                         })*
                     }
                 }
@@ -1002,13 +977,7 @@ mod array {
 
         #[pymethod(magic)]
         fn delitem(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            match SequenceIndex::try_borrow_from_object(vm, needle)? {
-                SequenceIndex::Int(i) => zelf.try_resizable(vm)?.delitem_by_idx(i, vm),
-                SequenceIndex::Slice(slice) => {
-                    let slice = slice.to_saturated(vm)?;
-                    zelf.try_resizable(vm)?.delitem_by_slice(slice, vm)
-                }
-            }
+            zelf.try_resizable(vm)?.delitem(&needle, vm)
         }
 
         #[pymethod(magic)]

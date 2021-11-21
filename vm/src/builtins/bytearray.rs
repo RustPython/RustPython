@@ -29,9 +29,8 @@ use crate::{
         IterNextIterable, Iterable, PyComparisonOp, Unconstructible, Unhashable,
     },
     utils::Either,
-    IdProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef,
-    PyObjectView, PyObjectWrap, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
-    VirtualMachine,
+    IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyObjectView,
+    PyObjectWrap, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
 };
 use bstr::ByteSlice;
 use std::{borrow::Cow, mem::size_of};

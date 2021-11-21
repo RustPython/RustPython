@@ -1,10 +1,10 @@
-use super::{PositionIterInternal, PyGenericAlias, PySlice, PyTupleRef, PyTypeRef};
+use super::{PositionIterInternal, PyGenericAlias, PyTupleRef, PyTypeRef};
 use crate::common::lock::{
     PyMappedRwLockReadGuard, PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
 };
 use crate::sequence::MutObjectSequenceOp;
 use crate::{
-    function::{ArgIterable, FuncArgs, IntoPyObject, OptionalArg},
+    function::{FuncArgs, IntoPyObject, OptionalArg},
     protocol::{PyIterReturn, PyMappingMethods, PySequence, PySequenceMethods},
     sequence::{self, SimpleSeq},
     sliceable::{saturate_index, SequenceIndex, SliceableSequenceMutOp, SliceableSequenceOp},
@@ -15,9 +15,10 @@ use crate::{
     },
     utils::Either,
     vm::{ReprGuard, VirtualMachine},
-    PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyRef, PyResult,
-    PyValue, TryFromObject, TypeProtocol,
+    IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyObjectWrap,
+    PyRef, PyResult, PyValue, TypeProtocol,
 };
+use std::borrow::Cow;
 use std::fmt;
 use std::mem::size_of;
 use std::ops::DerefMut;
@@ -397,15 +398,15 @@ impl AsMapping for PyList {
 
 impl AsSequence for PyList {
     fn as_sequence(
-        zelf: &crate::PyObjectView<Self>,
-        vm: &VirtualMachine,
-    ) -> std::borrow::Cow<'static, PySequenceMethods> {
-        todo!()
+        _zelf: &crate::PyObjectView<Self>,
+        _vm: &VirtualMachine,
+    ) -> Cow<'static, PySequenceMethods> {
+        Cow::Borrowed(&Self::SEQUENCE_METHDOS)
     }
 }
 impl PyList {
     const SEQUENCE_METHDOS: PySequenceMethods = PySequenceMethods {
-        length: Some(|seq, vm| Ok(seq.obj_as::<Self>().len())),
+        length: Some(|seq, _vm| Ok(seq.obj_as::<Self>().len())),
         concat: Some(|seq, other, vm| {
             seq.obj_as::<Self>()
                 .concat(other, vm)
