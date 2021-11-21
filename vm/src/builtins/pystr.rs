@@ -495,6 +495,7 @@ impl PyStr {
             return Ok(zelf);
         }
         zelf.as_str()
+            .as_bytes()
             .mul(vm, value)
             .map(|x| Self::from(unsafe { String::from_utf8_unchecked(x) }).into_ref(vm))
     }

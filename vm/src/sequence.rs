@@ -11,20 +11,21 @@ use crate::{
 
 pub trait ObjectSequenceOp<'a> {
     type Iter: ExactSizeIterator<Item = &'a PyObjectRef>;
+
     fn iter(&'a self) -> Self::Iter;
+
     fn eq(&'a self, vm: &VirtualMachine, other: &'a Self) -> PyResult<bool> {
         let lhs = self.iter();
         let rhs = other.iter();
-        if lhs.len() == rhs.len() {
-            for (a, b) in lhs.zip_eq(rhs) {
-                if !vm.identical_or_equal(a, b)? {
-                    return Ok(false);
-                }
-            }
-            Ok(true)
-        } else {
-            Ok(false)
+        if lhs.len() != rhs.len() {
+            return Ok(false);
         }
+        for (a, b) in lhs.zip_eq(rhs) {
+            if !vm.identical_or_equal(a, b)? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 
     fn cmp(&'a self, vm: &VirtualMachine, other: &'a Self, op: PyComparisonOp) -> PyResult<bool> {
@@ -71,6 +72,7 @@ impl<'a> ObjectSequenceOp<'a> for VecDeque<PyObjectRef> {
 
 pub trait MutObjectSequenceOp<'a> {
     type Guard;
+
     fn do_get(index: usize, guard: &Self::Guard) -> Option<&PyObjectRef>;
     fn do_lock(&'a self) -> Self::Guard;
 
@@ -99,7 +101,6 @@ pub trait MutObjectSequenceOp<'a> {
         self.mut_index(vm, needle).map(|x| x.is_some())
     }
 
-    #[inline]
     fn _mut_iter_equal_skeleton<F, const SHORT: bool>(
         &'a self,
         vm: &VirtualMachine,
@@ -257,12 +258,6 @@ pub trait SequenceOp<T: Clone> {
 impl<T: Clone> SequenceOp<T> for [T] {
     fn as_slice(&self) -> &[T] {
         self
-    }
-}
-
-impl SequenceOp<u8> for &str {
-    fn as_slice(&self) -> &[u8] {
-        self.as_bytes()
     }
 }
 

@@ -444,7 +444,6 @@ impl Comparable for PyList {
         let other = class_or_notimplemented!(Self, other);
         let a = &*zelf.borrow_vec();
         let b = &*other.borrow_vec();
-        // sequence::cmp(vm, a.boxed_iter(), b.boxed_iter(), op).map(PyComparisonValue::Implemented)
         a.cmp(vm, b, op).map(PyComparisonValue::Implemented)
     }
 }
