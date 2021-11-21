@@ -23,15 +23,6 @@ use bstr::ByteSlice;
 use std::mem::size_of;
 use std::ops::Deref;
 
-/// "bytes(iterable_of_ints) -> bytes\n\
-/// bytes(string, encoding[, errors]) -> bytes\n\
-/// bytes(bytes_or_buffer) -> immutable copy of bytes_or_buffer\n\
-/// bytes(int) -> bytes object of size given by the parameter initialized with null bytes\n\
-/// bytes() -> empty bytes object\n\nConstruct an immutable array of bytes from:\n  \
-/// - an iterable yielding integers in range(256)\n  \
-/// - a text string encoded using the specified encoding\n  \
-/// - any object implementing the buffer API.\n  \
-/// - an integer";
 #[pyclass(module = false, name = "bytes")]
 #[derive(Clone, Debug)]
 pub struct PyBytes {
