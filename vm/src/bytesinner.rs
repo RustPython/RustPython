@@ -4,9 +4,10 @@ use crate::{
         pystr, PyByteArray, PyBytes, PyBytesRef, PyInt, PyIntRef, PyStr, PyStrRef, PyTypeRef,
     },
     cformat::CFormatBytes,
-    function::{ArgIterable, OptionalArg, OptionalOption},
-    sequence::{SequenceMutOp, SequenceOp},
-    sliceable::PySliceableSequence,
+    function::ArgIterable,
+    function::{OptionalArg, OptionalOption},
+    protocol::PyBuffer,
+    sliceable::SliceableSequenceOp,
     types::PyComparisonOp,
     utils::Either,
     IdProtocol, PyComparisonValue, PyObject, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject,
@@ -294,11 +295,10 @@ impl PyBytesInner {
 
     pub fn getitem(
         &self,
-        owner_type: &'static str,
-        needle: PyObjectRef,
+        needle: &PyObject,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let obj = match self.elements.get_item(vm, needle, owner_type)? {
+        let obj = match self.elements.get_item(vm, needle)? {
             Either::A(byte) => vm.new_pyobj(byte),
             Either::B(bytes) => vm.ctx.new_bytes(bytes).into(),
         };

@@ -12,7 +12,7 @@ use crate::{
     PyObject, PyResult, TypeProtocol, VirtualMachine,
 };
 
-pub trait PySliceableSequenceMut {
+pub trait SliceableSequenceMutOp {
     type Item: Clone;
     fn as_slice(&self) -> &[Self::Item];
     fn do_set(&mut self, index: usize, value: Self::Item);
@@ -116,7 +116,7 @@ pub trait PySliceableSequenceMut {
     }
 }
 
-impl<T: Clone> PySliceableSequenceMut for Vec<T> {
+impl<T: Clone> SliceableSequenceMutOp for Vec<T> {
     type Item = T;
 
     fn as_slice(&self) -> &[Self::Item] {
@@ -169,7 +169,7 @@ impl<T: Clone> PySliceableSequenceMut for Vec<T> {
     }
 }
 
-pub trait PySliceableSequence {
+pub trait SliceableSequenceOp {
     type Item;
     type Sliced;
 
@@ -229,7 +229,7 @@ pub trait PySliceableSequence {
     }
 }
 
-impl<T: Clone> PySliceableSequence for [T] {
+impl<T: Clone> SliceableSequenceOp for [T] {
     type Item = T;
     type Sliced = Vec<T>;
 

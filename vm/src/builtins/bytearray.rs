@@ -23,7 +23,7 @@ use crate::{
         BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
         PyMappingMethods, PySequenceMethods,
     },
-    sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
+    sliceable::{SliceableSequenceOp, SliceableSequenceMutOp, SequenceIndex},
     types::{
         AsBuffer, AsMapping, AsSequence, Callable, Comparable, Constructor, Hashable, IterNext,
         IterNextIterable, Iterable, PyComparisonOp, Unconstructible, Unhashable,
@@ -178,10 +178,11 @@ impl PyByteArray {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        match SequenceIndex::try_borrow_from_object(vm, needle, Self::NAME)? {
-            SequenceIndex::Int(i) => zelf.setitem_by_idx(i, value, vm),
+        match SequenceIndex::try_borrow_from_object(vm, &needle)? {
+            SequenceIndex::Int(i) => {
+                let value = value_from_object(vm, &value)?;
+                zelf.borrow_buf_mut().set_item_by_index(vm, i, value)},
             SequenceIndex::Slice(slice) => {
-                let slice = slice.to_saturated(vm)?;
                 let items = if zelf.is(&value) {
                     zelf.borrow_buf().to_vec()
                 } else {
@@ -207,25 +208,18 @@ impl PyByteArray {
 
     #[pymethod(magic)]
     fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.inner().getitem(Self::NAME, needle, vm)
+        self.inner().getitem(&needle, vm)
     }
 
     fn delitem_by_idx(&self, i: isize, vm: &VirtualMachine) -> PyResult<()> {
-        let elements = &mut self.try_resizable(vm)?.elements;
-        if let Some(idx) = elements.wrap_index(i) {
-            elements.remove(idx);
-            Ok(())
-        } else {
-            Err(vm.new_index_error("index out of range".to_owned()))
-        }
+        self.try_resizable(vm)?.elements.del_item_by_index(vm, i)
     }
 
     #[pymethod(magic)]
     pub fn delitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        match SequenceIndex::try_borrow_from_object(vm, needle)? {
+        match SequenceIndex::try_borrow_from_object(vm, &needle)? {
             SequenceIndex::Int(i) => self.delitem_by_idx(i, vm),
             SequenceIndex::Slice(slice) => {
-                let slice = slice.to_saturated(vm)?;
                 let elements = &mut self.try_resizable(vm)?.elements;
                 elements.del_item_by_slice(vm, slice)
             }

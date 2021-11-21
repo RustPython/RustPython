@@ -168,7 +168,7 @@ impl PyBytes {
 
     #[pymethod(magic)]
     fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.inner.getitem("byte", needle, vm) // byte != Self::NAME
+        self.inner.getitem(&needle, vm)
     }
 
     #[pymethod]

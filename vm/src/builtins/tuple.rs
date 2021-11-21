@@ -3,8 +3,8 @@ use crate::common::hash::PyHash;
 use crate::{
     function::{IntoPyObject, OptionalArg},
     protocol::{PyIterReturn, PyMappingMethods},
-    sequence::{ObjectSequenceOp, SequenceOp},
-    sliceable::PySliceableSequence,
+    sequence::{self, SimpleSeq},
+    sliceable::SliceableSequenceOp,
     stdlib::sys,
     types::{
         AsMapping, Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable,
@@ -236,7 +236,7 @@ impl PyTuple {
 
     #[pymethod(magic)]
     fn getitem(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let result = match zelf.elements.as_ref().get_item(vm, needle, Self::NAME)? {
+        let result = match zelf.elements.as_ref().get_item(vm, &needle)? {
             Either::A(obj) => obj,
             Either::B(vec) => vm.ctx.new_tuple(vec).into(),
         };

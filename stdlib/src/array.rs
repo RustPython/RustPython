@@ -23,8 +23,7 @@ mod array {
             BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
             PyMappingMethods,
         },
-        sequence::{SequenceMutOp, SequenceOp},
-        sliceable::{PySliceableSequence, PySliceableSequenceMut, SaturatedSlice, SequenceIndex},
+        sliceable::{SliceableSequenceOp, SliceableSequenceMutOp, SaturatedSlice, SequenceIndex},
         types::{
             AsBuffer, AsMapping, Comparable, Constructor, IterNext, IterNextIterable, Iterable,
             PyComparisonOp,
@@ -970,10 +969,9 @@ mod array {
             obj: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            match SequenceIndex::try_borrow_from_object(vm, needle, "array")? {
+            match SequenceIndex::try_borrow_from_object(vm, &needle)? {
                 SequenceIndex::Int(i) => zelf.write().setitem_by_idx(i, obj, vm),
                 SequenceIndex::Slice(slice) => {
-                    let slice = slice.to_saturated(vm)?;
                     let cloned;
                     let guard;
                     let items = if zelf.is(&obj) {
@@ -1004,7 +1002,7 @@ mod array {
 
         #[pymethod(magic)]
         fn delitem(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            match SequenceIndex::try_borrow_from_object(vm, needle, "array")? {
+            match SequenceIndex::try_borrow_from_object(vm, needle)? {
                 SequenceIndex::Int(i) => zelf.try_resizable(vm)?.delitem_by_idx(i, vm),
                 SequenceIndex::Slice(slice) => {
                     let slice = slice.to_saturated(vm)?;

@@ -8,8 +8,7 @@ use crate::{
     format::{FormatSpec, FormatString, FromTemplate},
     function::{ArgIterable, FuncArgs, IntoPyException, IntoPyObject, OptionalArg, OptionalOption},
     protocol::{PyIterReturn, PyMappingMethods},
-    sequence::SequenceOp,
-    sliceable::PySliceableSequence,
+    sliceable::SliceableSequenceOp,
     types::{
         AsMapping, Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable,
         PyComparisonOp, Unconstructible,
@@ -411,7 +410,7 @@ impl PyStr {
 
     #[pymethod(magic)]
     fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
-        let s = match self.get_item(vm, needle, Self::NAME)? {
+        let s = match self.get_item(vm, &needle)? {
             Either::A(ch) => ch.to_string(),
             Either::B(s) => s,
         };
@@ -1363,7 +1362,7 @@ pub fn init(ctx: &PyContext) {
     PyStrIterator::extend_class(ctx, &ctx.types.str_iterator_type);
 }
 
-impl PySliceableSequence for PyStr {
+impl SliceableSequenceOp for PyStr {
     type Item = char;
     type Sliced = String;
 
