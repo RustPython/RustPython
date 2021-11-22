@@ -729,7 +729,10 @@ impl Constructor for PyFrozenSet {
     }
 }
 
-#[pyimpl(flags(BASETYPE), with(Hashable, Comparable, Iterable, Constructor))]
+#[pyimpl(
+    flags(BASETYPE),
+    with(AsSequence, Hashable, Comparable, Iterable, Constructor)
+)]
 impl PyFrozenSet {
     // Also used by ssl.rs windows.
     pub fn from_iter(
@@ -889,6 +892,23 @@ impl PyFrozenSet {
     fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
         PyGenericAlias::new(cls, args, vm)
     }
+}
+
+impl AsSequence for PyFrozenSet {
+    fn as_sequence(
+        _zelf: &crate::PyObjectView<Self>,
+        _vm: &VirtualMachine,
+    ) -> Cow<'static, PySequenceMethods> {
+        Cow::Borrowed(&Self::SEQUENCE_METHODS)
+    }
+}
+
+impl PyFrozenSet {
+    const SEQUENCE_METHODS: PySequenceMethods = PySequenceMethods {
+        length: Some(|seq, _vm| Ok(seq.obj_as::<Self>().len())),
+        contains: Some(|seq, needle, vm| seq.obj_as::<Self>().inner.contains(needle, vm)),
+        ..*PySequenceMethods::not_implemented()
+    };
 }
 
 impl Hashable for PyFrozenSet {
