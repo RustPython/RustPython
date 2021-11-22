@@ -432,6 +432,11 @@ impl PyList {
             let zelf = seq.obj_as::<Self>();
             Ok(Self::inplace_concat(zelf, other, vm))
         }),
+        inplace_repeat: Some(|seq, n, vm| {
+            let zelf = seq.obj_as::<Self>();
+            zelf.borrow_vec_mut().imul(vm, n as isize)?;
+            Ok(zelf.to_owned().into_object())
+        }),
         ..*PySequenceMethods::not_implemented()
     };
 }
