@@ -24,6 +24,7 @@ mod array {
                 BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
                 PyMappingMethods,
             },
+            sequence::{SequenceMutOp, SequenceOp},
             sliceable::{SequenceIndex, SliceableSequenceMutOp, SliceableSequenceOp},
             types::{
                 AsBuffer, AsMapping, Comparable, Constructor, IterNext, IterNextIterable, Iterable,

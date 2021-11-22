@@ -7,6 +7,7 @@ use crate::{
     function::ArgIterable,
     function::{OptionalArg, OptionalOption},
     protocol::PyBuffer,
+    sequence::{SequenceMutOp, SequenceOp},
     sliceable::SliceableSequenceOp,
     types::PyComparisonOp,
     utils::Either,

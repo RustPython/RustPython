@@ -8,6 +8,7 @@ use crate::{
     format::{FormatSpec, FormatString, FromTemplate},
     function::{ArgIterable, FuncArgs, IntoPyException, IntoPyObject, OptionalArg, OptionalOption},
     protocol::{PyIterReturn, PyMappingMethods},
+    sequence::SequenceOp,
     sliceable::SliceableSequenceOp,
     types::{
         AsMapping, Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable,

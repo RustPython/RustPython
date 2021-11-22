@@ -2,20 +2,18 @@ use super::{PositionIterInternal, PyGenericAlias, PyTupleRef, PyTypeRef};
 use crate::common::lock::{
     PyMappedRwLockReadGuard, PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
 };
-use crate::sequence::MutObjectSequenceOp;
 use crate::{
     function::{FuncArgs, IntoPyObject, OptionalArg},
     protocol::{PyIterReturn, PyMappingMethods, PySequence, PySequenceMethods},
-    sequence::{self, SimpleSeq},
+    sequence::{MutObjectSequenceOp, ObjectSequenceOp, SequenceMutOp, SequenceOp},
     sliceable::{saturate_index, SequenceIndex, SliceableSequenceMutOp, SliceableSequenceOp},
-    stdlib::sys,
     types::{
-        AsMapping, Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable,
-        PyComparisonOp, Unconstructible, Unhashable,
+        AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable,
+        Iterable, PyComparisonOp, Unconstructible, Unhashable,
     },
     utils::Either,
     vm::{ReprGuard, VirtualMachine},
-    IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyObjectWrap,
+    PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyObjectView, PyObjectWrap,
     PyRef, PyResult, PyValue, TypeProtocol,
 };
 use std::borrow::Cow;
@@ -428,7 +426,7 @@ impl PyList {
         }),
         contains: Some(|seq, target, vm| {
             let zelf = seq.obj_as::<Self>();
-            Ok(zelf.find_equal(target, 0..usize::MAX, vm)? != usize::MAX)
+            zelf.mut_contains(vm, target)
         }),
         inplace_concat: Some(|seq, other, vm| {
             let zelf = seq.obj_as::<Self>();

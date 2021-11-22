@@ -1,9 +1,9 @@
 use super::{PositionIterInternal, PyGenericAlias, PyTypeRef};
-use crate::common::hash::PyHash;
+use crate::common::{hash::PyHash, lock::PyMutex};
 use crate::{
     function::{IntoPyObject, OptionalArg},
     protocol::{PyIterReturn, PyMappingMethods},
-    sequence::{self, SimpleSeq},
+    sequence::{ObjectSequenceOp, SequenceOp},
     sliceable::SliceableSequenceOp,
     stdlib::sys,
     types::{
@@ -15,7 +15,6 @@ use crate::{
     IdProtocol, PyArithmeticValue, PyClassImpl, PyComparisonValue, PyContext, PyObject,
     PyObjectRef, PyRef, PyResult, PyValue, TransmuteFromObject, TryFromObject, TypeProtocol,
 };
-use rustpython_common::lock::PyMutex;
 use std::fmt;
 use std::marker::PhantomData;
 

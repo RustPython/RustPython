@@ -30,7 +30,6 @@ use crate::{
     PyObjectWrap, PyRef, PyRefExact, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crossbeam_utils::atomic::AtomicCell;
-use num_traits::ToPrimitive;
 use std::borrow::Cow;
 use std::cell::{Cell, Ref, RefCell};
 use std::collections::{HashMap, HashSet};

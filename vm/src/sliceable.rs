@@ -38,7 +38,8 @@ pub trait SliceableSequenceMutOp {
             .as_slice()
             .wrap_index(index)
             .ok_or_else(|| vm.new_index_error("assigment index out of range".to_owned()))?;
-        Ok(self.do_set(pos, value))
+        self.do_set(pos, value);
+        Ok(())
     }
 
     fn set_item_by_slice_no_resize(
@@ -95,7 +96,8 @@ pub trait SliceableSequenceMutOp {
             .as_slice()
             .wrap_index(index)
             .ok_or_else(|| vm.new_index_error("assigment index out of range".to_owned()))?;
-        Ok(self.do_delele(pos))
+        self.do_delele(pos);
+        Ok(())
     }
 
     fn del_item_by_slice(&mut self, vm: &VirtualMachine, slice: &PySlice) -> PyResult<()> {
@@ -177,6 +179,7 @@ impl<T: Clone> SliceableSequenceMutOp for Vec<T> {
     }
 }
 
+#[allow(clippy::len_without_is_empty)]
 pub trait SliceableSequenceOp {
     type Item;
     type Sliced;
@@ -232,7 +235,7 @@ pub trait SliceableSequenceOp {
         let needle = SequenceIndex::try_borrow_from_object(vm, needle)?;
         match needle {
             SequenceIndex::Int(index) => self.get_item_by_index(vm, index).map(Either::A),
-            SequenceIndex::Slice(slice) => self.get_item_by_slice(vm, &slice).map(Either::B),
+            SequenceIndex::Slice(slice) => self.get_item_by_slice(vm, slice).map(Either::B),
         }
     }
 }
