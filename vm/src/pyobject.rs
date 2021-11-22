@@ -4,17 +4,16 @@ use crate::common::{
     static_cell,
 };
 pub use crate::pyobjectrc::{
-    PyGenericObject, PyObject, PyObjectRef, PyObjectView, PyObjectWeak, PyObjectWrap, PyRef,
-    PyWeakRef,
+    PyObject, PyObjectRef, PyObjectView, PyObjectWeak, PyObjectWrap, PyRef, PyWeakRef,
 };
 use crate::{
     builtins::{
         builtinfunc::{PyBuiltinFunction, PyBuiltinMethod, PyNativeFuncDef},
         bytes,
         getset::{IntoPyGetterFunc, IntoPySetterFunc, PyGetSet},
-        object, pystr, PyBaseExceptionRef, PyBoundMethod, PyDict, PyDictRef, PyEllipsis, PyFloat,
-        PyFrozenSet, PyGenericAlias, PyInt, PyIntRef, PyList, PyListRef, PyNone, PyNotImplemented,
-        PyStr, PyTuple, PyTupleRef, PyType, PyTypeRef,
+        object, pystr, PyBaseException, PyBaseExceptionRef, PyBoundMethod, PyDict, PyDictRef,
+        PyEllipsis, PyFloat, PyFrozenSet, PyGenericAlias, PyInt, PyIntRef, PyList, PyListRef,
+        PyNone, PyNotImplemented, PyStr, PyTuple, PyTupleRef, PyType, PyTypeRef,
     },
     dictdatatype::Dict,
     exceptions,
@@ -94,6 +93,7 @@ impl PyContext {
         let types = TypeZoo::init();
         let exceptions = exceptions::ExceptionZoo::init();
 
+        #[inline]
         fn create_object<T: PyObjectPayload + PyValue>(payload: T, cls: &PyTypeRef) -> PyRef<T> {
             PyRef::new_ref(payload, cls.clone(), None)
         }
@@ -242,6 +242,30 @@ impl PyContext {
         .unwrap()
     }
 
+    pub fn new_exception_type(
+        &self,
+        module: &str,
+        name: &str,
+        bases: Option<Vec<PyTypeRef>>,
+    ) -> PyTypeRef {
+        let bases = if let Some(bases) = bases {
+            bases
+        } else {
+            vec![self.exceptions.exception_type.clone()]
+        };
+        let mut attrs = PyAttributes::default();
+        attrs.insert("__module__".to_string(), self.new_str(module).into());
+
+        PyType::new_ref(
+            name,
+            bases,
+            attrs,
+            PyBaseException::make_slots(),
+            self.types.type_type.clone(),
+        )
+        .unwrap()
+    }
+
     #[inline]
     pub fn make_funcdef<F, FKind>(&self, name: impl Into<PyStr>, f: F) -> PyNativeFuncDef
     where
@@ -309,7 +333,7 @@ impl PyContext {
             class.slots.flags.contains(PyTypeFlags::HAS_DICT),
             dict.is_some()
         );
-        PyGenericObject::new(object::PyBaseObject, class, dict)
+        PyRef::new_ref(object::PyBaseObject, class, dict).into()
     }
 }
 

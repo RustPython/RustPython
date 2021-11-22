@@ -35,17 +35,6 @@ use crate::{
 use bstr::ByteSlice;
 use std::mem::size_of;
 
-/// "bytearray(iterable_of_ints) -> bytearray\n\
-///  bytearray(string, encoding[, errors]) -> bytearray\n\
-///  bytearray(bytes_or_buffer) -> mutable copy of bytes_or_buffer\n\
-///  bytearray(int) -> bytes array of size given by the parameter initialized with null bytes\n\
-///  bytearray() -> empty bytes array\n\n\
-///  Construct a mutable bytearray object from:\n  \
-///  - an iterable yielding integers in range(256)\n  \
-///  - a text string encoded using the specified encoding\n  \
-///  - a bytes or a buffer object\n  \
-///  - any object implementing the buffer API.\n  \
-///  - an integer";
 #[pyclass(module = false, name = "bytearray")]
 #[derive(Debug, Default)]
 pub struct PyByteArray {
@@ -296,7 +285,7 @@ impl PyByteArray {
         }
     }
 
-    fn irepeat(zelf: &crate::PyObjectView<Self>, n: usize, vm: &VirtualMachine) -> PyResult<()> {
+    fn irepeat(zelf: &crate::PyObjectView<Self>, n: isize, vm: &VirtualMachine) -> PyResult<()> {
         if n == 1 {
             return Ok(());
         }
@@ -311,19 +300,8 @@ impl PyByteArray {
                 };
             }
         };
-        let elements = &mut w.elements;
 
-        if n == 0 {
-            elements.clear();
-        } else if n != 1 {
-            let old = elements.clone();
-
-            elements.reserve((n - 1) * old.len());
-            for _ in 1..n {
-                elements.extend(&old);
-            }
-        }
-        Ok(())
+        w.imul(n, vm)
     }
 
     #[pymethod]
@@ -646,14 +624,13 @@ impl PyByteArray {
     #[pymethod(name = "__rmul__")]
     #[pymethod(magic)]
     fn mul(&self, value: isize, vm: &VirtualMachine) -> PyResult<Self> {
-        vm.check_repeat_or_memory_error(self.len(), value)
-            .map(|value| self.inner().repeat(value).into())
+        self.inner().mul(value, vm).map(|x| x.into())
     }
 
     #[pymethod(magic)]
     fn imul(zelf: PyRef<Self>, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        vm.check_repeat_or_memory_error(zelf.len(), value)
-            .and_then(|value| Self::irepeat(&zelf, value, vm).map(|_| zelf))
+        Self::irepeat(&zelf, value, vm)?;
+        Ok(zelf)
     }
 
     #[pymethod(name = "__mod__")]

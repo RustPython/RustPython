@@ -2,16 +2,17 @@ pub(crate) use _collections::make_module;
 
 #[pymodule]
 mod _collections {
-    use crate::builtins::{PositionIterInternal, PyGenericAlias};
-    use crate::common::lock::{PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
     use crate::{
         builtins::{
             IterStatus::{Active, Exhausted},
-            PyInt, PyTypeRef,
+            PositionIterInternal, PyGenericAlias, PyInt, PyTypeRef,
         },
+        common::lock::{PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
         function::{FuncArgs, KwArgs, OptionalArg},
         protocol::PyIterReturn,
-        sequence, sliceable,
+        sequence::{MutObjectSequenceOp, ObjectSequenceOp},
+        sliceable,
+        sliceable::saturate_index,
         types::{
             Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable,
             PyComparisonOp, Unhashable,
@@ -22,7 +23,7 @@ mod _collections {
     };
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
-    use std::cmp::{max, min};
+    use std::cmp::max;
     use std::collections::VecDeque;
 
     #[pyattr]
@@ -51,24 +52,6 @@ mod _collections {
 
         fn borrow_deque_mut(&self) -> PyRwLockWriteGuard<'_, VecDeque<PyObjectRef>> {
             self.deque.write()
-        }
-    }
-
-    struct SimpleSeqDeque<'a>(PyRwLockReadGuard<'a, VecDeque<PyObjectRef>>);
-
-    impl sequence::SimpleSeq for SimpleSeqDeque<'_> {
-        fn len(&self) -> usize {
-            self.0.len()
-        }
-
-        fn boxed_iter(&self) -> sequence::DynPyIter {
-            Box::new(self.0.iter())
-        }
-    }
-
-    impl<'a> From<PyRwLockReadGuard<'a, VecDeque<PyObjectRef>>> for SimpleSeqDeque<'a> {
-        fn from(from: PyRwLockReadGuard<'a, VecDeque<PyObjectRef>>) -> Self {
-            Self(from)
         }
     }
 
@@ -178,17 +161,11 @@ mod _collections {
 
         #[pymethod]
         fn count(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-            let mut count = 0;
             let start_state = self.state.load();
-            let deque = self.borrow_deque().clone();
-            for elem in deque.iter() {
-                if vm.identical_or_equal(elem, &obj)? {
-                    count += 1;
-                }
+            let count = self.mut_count(vm, &obj)?;
 
-                if start_state != self.state.load() {
-                    return Err(vm.new_runtime_error("deque mutated during iteration".to_owned()));
-                }
+            if start_state != self.state.load() {
+                return Err(vm.new_runtime_error("deque mutated during iteration".to_owned()));
             }
             Ok(count)
         }
@@ -235,14 +212,6 @@ mod _collections {
             Ok(())
         }
 
-        fn adjust_negative_index(&self, index: isize) -> usize {
-            if index.is_negative() {
-                max(index + self.borrow_deque().len() as isize, 0) as usize
-            } else {
-                index as usize
-            }
-        }
-
         #[pymethod]
         fn index(
             &self,
@@ -251,35 +220,25 @@ mod _collections {
             stop: OptionalArg<isize>,
             vm: &VirtualMachine,
         ) -> PyResult<usize> {
-            let deque = self.borrow_deque().clone();
             let start_state = self.state.load();
 
-            let start = self.adjust_negative_index(start.unwrap_or(0));
-            let stop = min(
-                self.adjust_negative_index(stop.unwrap_or_else(|| deque.len() as isize)),
-                deque.len(),
-            );
-
-            for (i, elem) in deque
-                .iter()
-                .skip(start)
-                .take(stop.saturating_sub(start))
-                .enumerate()
-            {
-                let is_element = vm.identical_or_equal(elem, &obj)?;
-
-                if start_state != self.state.load() {
-                    return Err(vm.new_runtime_error("deque mutated during iteration".to_owned()));
-                }
-                if is_element {
-                    return Ok(i + start);
-                }
+            let len = self.len();
+            let start = start.map(|i| saturate_index(i, len)).unwrap_or(0);
+            let stop = stop
+                .map(|i| saturate_index(i, len))
+                .unwrap_or(isize::MAX as usize);
+            let index = self.mut_index_range(vm, &obj, start..stop)?;
+            if start_state != self.state.load() {
+                Err(vm.new_runtime_error("deque mutated during iteration".to_owned()))
+            } else if let Some(index) = index.into() {
+                Ok(index)
+            } else {
+                Err(vm.new_value_error(
+                    obj.repr(vm)
+                        .map(|repr| format!("{} is not in deque", repr))
+                        .unwrap_or_else(|_| String::new()),
+                ))
             }
-            Err(vm.new_value_error(
-                obj.repr(vm)
-                    .map(|repr| format!("{} is not in deque", repr))
-                    .unwrap_or_else(|_| String::new()),
-            ))
         }
 
         #[pymethod]
@@ -326,23 +285,17 @@ mod _collections {
 
         #[pymethod]
         fn remove(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            let deque = self.borrow_deque().clone();
             let start_state = self.state.load();
+            let index = self.mut_index(vm, &obj)?;
 
-            let mut idx = None;
-            for (i, elem) in deque.iter().enumerate() {
-                if vm.identical_or_equal(elem, &obj)? {
-                    idx = Some(i);
-                    break;
-                }
-            }
-            let mut deque = self.borrow_deque_mut();
             if start_state != self.state.load() {
                 Err(vm.new_index_error("deque mutated during remove().".to_owned()))
-            } else {
+            } else if let Some(index) = index.into() {
+                let mut deque = self.borrow_deque_mut();
                 self.state.fetch_add(1);
-                idx.map(|idx| deque.remove(idx).unwrap())
-                    .ok_or_else(|| vm.new_value_error("deque.remove(x): x not in deque".to_owned()))
+                Ok(deque.remove(index).unwrap())
+            } else {
+                Err(vm.new_value_error("deque.remove(x): x not in deque".to_owned()))
             }
         }
 
@@ -431,32 +384,32 @@ mod _collections {
         #[pymethod(magic)]
         fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
             let start_state = self.state.load();
-            let deque = self.borrow_deque().clone();
-            for element in deque.iter() {
-                let is_element = vm.identical_or_equal(element, &needle)?;
-
-                if start_state != self.state.load() {
-                    return Err(vm.new_runtime_error("deque mutated during iteration".to_owned()));
-                }
-                if is_element {
-                    return Ok(true);
-                }
+            let ret = self.mut_contains(vm, &needle)?;
+            if start_state != self.state.load() {
+                Err(vm.new_runtime_error("deque mutated during iteration".to_owned()))
+            } else {
+                Ok(ret)
             }
+        }
 
-            Ok(false)
+        fn _mul(&self, n: isize, vm: &VirtualMachine) -> PyResult<VecDeque<PyObjectRef>> {
+            let deque = self.borrow_deque();
+            let n = vm.check_repeat_or_overflow_error(deque.len(), n)?;
+            let mul_len = n * deque.len();
+            let iter = deque.iter().cycle().take(mul_len);
+            let skipped = self
+                .maxlen
+                .and_then(|maxlen| mul_len.checked_sub(maxlen))
+                .unwrap_or(0);
+
+            let deque = iter.skip(skipped).cloned().collect();
+            Ok(deque)
         }
 
         #[pymethod(magic)]
         #[pymethod(name = "__rmul__")]
-        fn mul(&self, value: isize, vm: &VirtualMachine) -> PyResult<Self> {
-            let deque: SimpleSeqDeque = self.borrow_deque().into();
-            let mul = sequence::seq_mul(vm, &deque, value)?;
-            let skipped = self
-                .maxlen
-                .and_then(|maxlen| mul.len().checked_sub(maxlen))
-                .unwrap_or(0);
-
-            let deque = mul.skip(skipped).cloned().collect();
+        fn mul(&self, n: isize, vm: &VirtualMachine) -> PyResult<Self> {
+            let deque = self._mul(n, vm)?;
             Ok(PyDeque {
                 deque: PyRwLock::new(deque),
                 maxlen: self.maxlen,
@@ -465,12 +418,9 @@ mod _collections {
         }
 
         #[pymethod(magic)]
-        fn imul(zelf: PyRef<Self>, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-            let mul_deque = zelf.mul(value, vm)?;
-            std::mem::swap(
-                &mut *zelf.borrow_deque_mut(),
-                &mut *mul_deque.borrow_deque_mut(),
-            );
+        fn imul(zelf: PyRef<Self>, n: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+            let mul_deque = zelf._mul(n, vm)?;
+            *zelf.borrow_deque_mut() = mul_deque;
             Ok(zelf)
         }
 
@@ -536,6 +486,18 @@ mod _collections {
         }
     }
 
+    impl<'a> MutObjectSequenceOp<'a> for PyDeque {
+        type Guard = PyRwLockReadGuard<'a, VecDeque<PyObjectRef>>;
+
+        fn do_get(index: usize, guard: &Self::Guard) -> Option<&PyObjectRef> {
+            guard.get(index)
+        }
+
+        fn do_lock(&'a self) -> Self::Guard {
+            self.borrow_deque()
+        }
+    }
+
     impl Comparable for PyDeque {
         fn cmp(
             zelf: &crate::PyObjectView<Self>,
@@ -547,9 +509,9 @@ mod _collections {
                 return Ok(res.into());
             }
             let other = class_or_notimplemented!(Self, other);
-            let (lhs, rhs) = (zelf.borrow_deque(), other.borrow_deque());
-            sequence::cmp(vm, Box::new(lhs.iter()), Box::new(rhs.iter()), op)
-                .map(PyComparisonValue::Implemented)
+            let lhs = zelf.borrow_deque();
+            let rhs = other.borrow_deque();
+            lhs.cmp(vm, &rhs, op).map(PyComparisonValue::Implemented)
         }
     }
 

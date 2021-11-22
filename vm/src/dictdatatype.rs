@@ -13,6 +13,7 @@ use crate::{
 };
 use std::fmt;
 use std::mem::size_of;
+use std::ops::ControlFlow;
 
 // HashIndex is intended to be same size with hash::PyHash
 // but it doesn't mean the values are compatible with actual pyhash value
@@ -223,6 +224,8 @@ impl<T> DictInner<T> {
     }
 }
 
+type PopInnerResult<T> = ControlFlow<Option<DictEntry<T>>>;
+
 impl<T: Clone> Dict<T> {
     fn read(&self) -> PyRwLockReadGuard<'_, DictInner<T>> {
         self.inner.read()
@@ -349,17 +352,22 @@ impl<T: Clone> Dict<T> {
     where
         K: DictKey,
     {
+        self.delete_if(vm, key, |_| Ok(true))
+    }
+
+    /// pred should be VERY CAREFUL about what it does as it is called while
+    /// the dict's internal mutex is held
+    pub(crate) fn delete_if<K, F>(&self, vm: &VirtualMachine, key: &K, pred: F) -> PyResult<bool>
+    where
+        K: DictKey,
+        F: Fn(&T) -> PyResult<bool>,
+    {
         let hash = key.key_hash(vm)?;
         let deleted = loop {
             let lookup = self.lookup(vm, key, hash, None)?;
-            if let IndexEntry::Index(_) = lookup.0 {
-                if let Ok(Some(entry)) = self.pop_inner(lookup) {
-                    break Some(entry);
-                } else {
-                    // The dict was changed since we did lookup. Let's try again.
-                }
-            } else {
-                break None;
+            match self.pop_inner_if(lookup, &pred)? {
+                ControlFlow::Break(entry) => break entry,
+                ControlFlow::Continue(()) => continue,
             }
         };
         Ok(deleted.is_some())
@@ -371,10 +379,9 @@ impl<T: Clone> Dict<T> {
             let lookup = self.lookup(vm, key, hash, None)?;
             let (entry, index_index) = lookup;
             if let IndexEntry::Index(_) = entry {
-                if let Ok(Some(entry)) = self.pop_inner(lookup) {
-                    break Some(entry);
-                } else {
-                    // The dict was changed since we did lookup. Let's try again.
+                match self.pop_inner(lookup) {
+                    ControlFlow::Break(Some(entry)) => break Some(entry),
+                    _ => continue,
                 }
             } else {
                 let mut inner = self.write();
@@ -573,25 +580,42 @@ impl<T: Clone> Dict<T> {
     }
 
     // returns Err(()) if changed since lookup
-    fn pop_inner(&self, lookup: LookupResult) -> Result<Option<DictEntry<T>>, ()> {
+    fn pop_inner(&self, lookup: LookupResult) -> PopInnerResult<T> {
+        self.pop_inner_if(lookup, |_| Ok::<_, std::convert::Infallible>(true))
+            .unwrap_or_else(|x| match x {})
+    }
+
+    fn pop_inner_if<E>(
+        &self,
+        lookup: LookupResult,
+        pred: impl Fn(&T) -> Result<bool, E>,
+    ) -> Result<PopInnerResult<T>, E> {
         let (entry_index, index_index) = lookup;
         let entry_index = if let IndexEntry::Index(entry_index) = entry_index {
             entry_index
         } else {
-            return Ok(None);
+            return Ok(ControlFlow::Break(None));
         };
-        let mut inner = self.write();
-        if matches!(inner.entries.get(entry_index), Some(Some(entry)) if entry.index == index_index)
-        {
-            // all good
+        let inner = &mut *self.write();
+        let slot = if let Some(slot) = inner.entries.get_mut(entry_index) {
+            slot
         } else {
             // The dict was changed since we did lookup. Let's try again.
-            return Err(());
+            return Ok(ControlFlow::Continue(()));
         };
+        match slot {
+            Some(entry) if entry.index == index_index => {
+                if !pred(&entry.value)? {
+                    return Ok(ControlFlow::Break(None));
+                }
+            }
+            // The dict was changed since we did lookup. Let's try again.
+            _ => return Ok(ControlFlow::Continue(())),
+        }
         inner.indices[index_index] = IndexEntry::DUMMY;
         inner.used -= 1;
-        let removed = std::mem::take(&mut inner.entries[entry_index]);
-        Ok(removed)
+        let removed = slot.take();
+        Ok(ControlFlow::Break(removed))
     }
 
     /// Retrieve and delete a key
@@ -599,10 +623,9 @@ impl<T: Clone> Dict<T> {
         let hash_value = key.key_hash(vm)?;
         let removed = loop {
             let lookup = self.lookup(vm, key, hash_value, None)?;
-            if let Ok(ret) = self.pop_inner(lookup) {
-                break ret.map(|e| e.value);
-            } else {
-                // changed since lookup, loop again
+            match self.pop_inner(lookup) {
+                ControlFlow::Break(entry) => break entry.map(|e| e.value),
+                ControlFlow::Continue(()) => continue,
             }
         };
         Ok(removed)

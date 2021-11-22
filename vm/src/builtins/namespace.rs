@@ -13,7 +13,7 @@ use crate::{
 /// SimpleNamespace(**kwargs)
 #[pyclass(module = false, name = "SimpleNamespace")]
 #[derive(Debug)]
-pub struct PyNamespace;
+pub struct PyNamespace {}
 
 impl PyValue for PyNamespace {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
@@ -31,7 +31,11 @@ impl Constructor for PyNamespace {
 
 impl PyNamespace {
     pub fn new_ref(ctx: &PyContext) -> PyRef<Self> {
-        PyRef::new_ref(Self, ctx.types.namespace_type.clone(), Some(ctx.new_dict()))
+        PyRef::new_ref(
+            Self {},
+            ctx.types.namespace_type.clone(),
+            Some(ctx.new_dict()),
+        )
     }
 }
 
@@ -58,18 +62,14 @@ impl PyNamespace {
         };
 
         let repr = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-            let parts = if let Some(dict) = zelf.as_object().dict() {
-                let mut parts = Vec::with_capacity(dict.len());
-                for (key, value) in dict {
-                    let k = &key.repr(vm)?;
-                    let key_str = k.as_str();
-                    let value_repr = value.repr(vm)?;
-                    parts.push(format!("{}={}", &key_str[1..key_str.len() - 1], value_repr));
-                }
-                parts
-            } else {
-                vec![]
-            };
+            let dict = zelf.as_object().dict().unwrap();
+            let mut parts = Vec::with_capacity(dict.len());
+            for (key, value) in dict {
+                let k = &key.repr(vm)?;
+                let key_str = k.as_str();
+                let value_repr = value.repr(vm)?;
+                parts.push(format!("{}={}", &key_str[1..key_str.len() - 1], value_repr));
+            }
             format!("{}({})", name, parts.join(", "))
         } else {
             format!("{}(...)", name)
@@ -86,10 +86,11 @@ impl Comparable for PyNamespace {
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
         let other = class_or_notimplemented!(Self, other);
-        match (zelf.as_object().dict(), other.as_object().dict()) {
-            (Some(d1), Some(d2)) => PyDict::cmp(&d1, d2.as_object(), op, vm),
-            _ => Ok(PyComparisonValue::NotImplemented),
-        }
+        let (d1, d2) = (
+            zelf.as_object().dict().unwrap(),
+            other.as_object().dict().unwrap(),
+        );
+        PyDict::cmp(&d1, d2.as_object(), op, vm)
     }
 }
 

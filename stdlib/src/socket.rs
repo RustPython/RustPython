@@ -80,53 +80,29 @@ mod _socket {
         vm.ctx.exceptions.os_error.clone()
     }
 
-    #[pyattr]
+    #[pyattr(once)]
     fn timeout(vm: &VirtualMachine) -> PyTypeRef {
-        rustpython_common::static_cell! {
-            static ERROR: PyTypeRef;
-        }
-        ERROR
-            .get_or_init(|| {
-                vm.ctx.new_class(
-                    Some("socket"),
-                    "timeout",
-                    &vm.ctx.exceptions.os_error,
-                    Default::default(),
-                )
-            })
-            .clone()
+        vm.ctx.new_exception_type(
+            "socket",
+            "timeout",
+            Some(vec![vm.ctx.exceptions.os_error.clone()]),
+        )
     }
-    #[pyattr]
+    #[pyattr(once)]
     fn herror(vm: &VirtualMachine) -> PyTypeRef {
-        rustpython_common::static_cell! {
-            static ERROR: PyTypeRef;
-        }
-        ERROR
-            .get_or_init(|| {
-                vm.ctx.new_class(
-                    Some("socket"),
-                    "herror",
-                    &vm.ctx.exceptions.os_error,
-                    Default::default(),
-                )
-            })
-            .clone()
+        vm.ctx.new_exception_type(
+            "socket",
+            "herror",
+            Some(vec![vm.ctx.exceptions.os_error.clone()]),
+        )
     }
-    #[pyattr]
+    #[pyattr(once)]
     fn gaierror(vm: &VirtualMachine) -> PyTypeRef {
-        rustpython_common::static_cell! {
-            static ERROR: PyTypeRef;
-        }
-        ERROR
-            .get_or_init(|| {
-                vm.ctx.new_class(
-                    Some("socket"),
-                    "gaierror",
-                    &vm.ctx.exceptions.os_error,
-                    Default::default(),
-                )
-            })
-            .clone()
+        vm.ctx.new_exception_type(
+            "socket",
+            "gaierror",
+            Some(vec![vm.ctx.exceptions.os_error.clone()]),
+        )
     }
 
     #[pyfunction]

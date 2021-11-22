@@ -63,6 +63,12 @@ impl PyDict {
 #[allow(clippy::len_without_is_empty)]
 #[pyimpl(with(AsMapping, Hashable, Comparable, Iterable), flags(BASETYPE))]
 impl PyDict {
+    /// escape hatch to access the underlying data structure directly. prefer adding a method on
+    /// PyDict instead of using this
+    pub(crate) fn _as_dict_inner(&self) -> &DictContentType {
+        &self.entries
+    }
+
     #[pyslot]
     fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         PyDict::default().into_pyresult_with_type(vm, cls)
@@ -986,6 +992,14 @@ trait ViewSetOps: DictView {
                 Ok(NotImplemented)
             }
         })
+    }
+
+    #[pymethod]
+    fn isdisjoint(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
+        // TODO: to_set is an expensive operation. After merging #3316 rewrite implementation using PySequence_Contains.
+        let zelf = Self::to_set(zelf, vm)?;
+        let result = zelf.isdisjoint(other, vm)?;
+        Ok(result)
     }
 }
 

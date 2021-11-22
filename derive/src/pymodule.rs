@@ -1,7 +1,7 @@
 use crate::error::Diagnostic;
 use crate::util::{
-    iter_use_idents, pyclass_ident_and_attrs, text_signature, AttributeExt, ClassItemMeta,
-    ContentItem, ContentItemInner, ErrorVec, ItemMeta, ItemNursery, SimpleItemMeta,
+    iter_use_idents, pyclass_ident_and_attrs, text_signature, AttrItemMeta, AttributeExt,
+    ClassItemMeta, ContentItem, ContentItemInner, ErrorVec, ItemMeta, ItemNursery, SimpleItemMeta,
     ALL_ALLOWED_NAMES,
 };
 use proc_macro2::TokenStream;
@@ -241,7 +241,7 @@ impl ContentItem for AttributeItem {
 }
 
 struct ModuleItemArgs<'a> {
-    item: &'a Item,
+    item: &'a mut Item,
     attrs: &'a mut Vec<Attribute>,
     context: &'a mut ModuleContext,
     cfgs: &'a [Attribute],
@@ -370,15 +370,36 @@ impl ModuleItem for AttributeItem {
     fn gen_module_item(&self, args: ModuleItemArgs<'_>) -> Result<()> {
         let cfgs = args.cfgs.to_vec();
         let attr = args.attrs.remove(self.index());
-        let get_py_name = |attr: &Attribute, ident: &Ident| -> Result<_> {
-            let item_meta = SimpleItemMeta::from_attr(ident.clone(), attr)?;
-            let py_name = item_meta.simple_name()?;
-            Ok(py_name)
-        };
         let (py_name, tokens) = match args.item {
-            Item::Fn(syn::ItemFn { sig, .. }) => {
+            Item::Fn(syn::ItemFn { sig, block, .. }) => {
                 let ident = &sig.ident;
-                let py_name = get_py_name(&attr, ident)?;
+                // If `once` keyword is in #[pyattr],
+                // wrapping it with static_cell for preventing it from using it as function
+                let attr_meta = AttrItemMeta::from_attr(ident.clone(), &attr)?;
+                if attr_meta.inner()._bool("once")? {
+                    let stmts = &block.stmts;
+                    let return_type = match &sig.output {
+                        syn::ReturnType::Default => {
+                            unreachable!("#[pyattr] attached function must have return type.")
+                        }
+                        syn::ReturnType::Type(_, ty) => ty,
+                    };
+                    let stmt: syn::Stmt = parse_quote! {
+                        {
+                            rustpython_common::static_cell! {
+                                static ERROR: #return_type;
+                            }
+                            ERROR
+                                .get_or_init(|| {
+                                    #(#stmts)*
+                                })
+                                .clone()
+                        }
+                    };
+                    block.stmts = vec![stmt];
+                }
+
+                let py_name = attr_meta.simple_name()?;
                 (
                     py_name.clone(),
                     quote_spanned! { ident.span() =>
@@ -387,7 +408,8 @@ impl ModuleItem for AttributeItem {
                 )
             }
             Item::Const(syn::ItemConst { ident, .. }) => {
-                let py_name = get_py_name(&attr, ident)?;
+                let item_meta = SimpleItemMeta::from_attr(ident.clone(), &attr)?;
+                let py_name = item_meta.simple_name()?;
                 (
                     py_name.clone(),
                     quote_spanned! { ident.span() =>

@@ -1,4 +1,3 @@
-
 # Python test set -- math module
 # XXXX Should not do tests around zero only
 
@@ -19,7 +18,6 @@ eps = 1E-05
 NAN = float('nan')
 INF = float('inf')
 NINF = float('-inf')
-
 FLOAT_MAX = sys.float_info.max
 FLOAT_MIN = sys.float_info.min
 
@@ -43,8 +41,10 @@ def to_ulps(x):
     adjacent floats are converted to adjacent integers.  Then
     abs(ulps(x) - ulps(y)) gives the difference in ulps between two
     floats.
+
     The results from this function will only make sense on platforms
     where native doubles are represented in IEEE 754 binary64 format.
+
     Note: 0.0 and -0.0 are converted to 0 and -1, respectively.
     """
     n = struct.unpack('<q', struct.pack('<d', x))[0]
@@ -81,6 +81,7 @@ def count_set_bits(n):
 def partial_product(start, stop):
     """Product of integers in range(start, stop, 2), computed recursively.
     start and stop should both be odd, with start <= stop.
+
     """
     numfactors = (stop - start) >> 1
     if not numfactors:
@@ -94,6 +95,7 @@ def partial_product(start, stop):
 def py_factorial(n):
     """Factorial of nonnegative integer n, via "Binary Split Factorial Formula"
     described at http://www.luschny.de/math/factorial/binarysplitfact.html
+
     """
     inner = outer = 1
     for i in reversed(range(n.bit_length())):
@@ -105,6 +107,7 @@ def ulp_abs_check(expected, got, ulp_tol, abs_tol):
     """Given finite floats `expected` and `got`, check that they're
     approximately equal to within the given number of ulps or the
     given absolute tolerance, whichever is bigger.
+
     Returns None on success and an error message on failure.
     """
     ulp_error = abs(to_ulps(expected) - to_ulps(got))
@@ -120,12 +123,14 @@ def ulp_abs_check(expected, got, ulp_tol, abs_tol):
 
 def parse_mtestfile(fname):
     """Parse a file with test values
+
     -- starts a comment
     blank lines, or lines containing only a comment, are ignored
     other lines are expected to have the form
       id fn arg -> expected [flag]*
+
     """
-    with open(fname) as fp:
+    with open(fname, encoding="utf-8") as fp:
         for line in fp:
             # strip comments, and skip blank lines
             if '--' in line:
@@ -144,10 +149,11 @@ def parse_mtestfile(fname):
 
 def parse_testfile(fname):
     """Parse a file with test values
+
     Empty lines or lines starting with -- are ignored
     yields id, fn, arg_real, arg_imag, exp_real, exp_imag
     """
-    with open(fname) as fp:
+    with open(fname, encoding="utf-8") as fp:
         for line in fp:
             # skip comment lines and blank lines
             if line.startswith('--') or not line.strip():
@@ -170,9 +176,11 @@ def result_check(expected, got, ulp_tol=5, abs_tol=0.0):
     """Compare arguments expected and got, as floats, if either
     is a float, using a tolerance expressed in multiples of
     ulp(expected) or absolutely (if given and greater).
+
     As a convenience, when neither argument is a float, and for
     non-finite floats, exact equality is demanded. Also, nan==nan
     as far as this function is concerned.
+
     Returns None on success and an error message on failure.
     """
 
@@ -232,6 +240,7 @@ class MathTests(unittest.TestCase):
         """Compare arguments expected and got, as floats, if either
         is a float, using a tolerance expressed in multiples of
         ulp(expected) or absolutely, whichever is greater.
+
         As a convenience, when neither argument is a float, and for
         non-finite floats, exact equality is demanded. Also, nan==nan
         in this function.
@@ -492,17 +501,11 @@ class MathTests(unittest.TestCase):
         self.assertRaises(ValueError, math.factorial, -1)
         self.assertRaises(ValueError, math.factorial, -10**100)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testFactorialNonIntegers(self):
-        with self.assertWarns(DeprecationWarning):
-            self.assertEqual(math.factorial(5.0), 120)
-        with self.assertWarns(DeprecationWarning):
-            self.assertRaises(ValueError, math.factorial, 5.2)
-        with self.assertWarns(DeprecationWarning):
-            self.assertRaises(ValueError, math.factorial, -1.0)
-        with self.assertWarns(DeprecationWarning):
-            self.assertRaises(ValueError, math.factorial, -1e100)
+        self.assertRaises(TypeError, math.factorial, 5.0)
+        self.assertRaises(TypeError, math.factorial, 5.2)
+        self.assertRaises(TypeError, math.factorial, -1.0)
+        self.assertRaises(TypeError, math.factorial, -1e100)
         self.assertRaises(TypeError, math.factorial, decimal.Decimal('5'))
         self.assertRaises(TypeError, math.factorial, decimal.Decimal('5.2'))
         self.assertRaises(TypeError, math.factorial, "5")
@@ -513,8 +516,7 @@ class MathTests(unittest.TestCase):
         # Currently raises OverflowError for inputs that are too large
         # to fit into a C long.
         self.assertRaises(OverflowError, math.factorial, 10**100)
-        with self.assertWarns(DeprecationWarning):
-            self.assertRaises(OverflowError, math.factorial, 1e100)
+        self.assertRaises(TypeError, math.factorial, 1e100)
 
     def testFloor(self):
         self.assertRaises(TypeError, math.floor)
@@ -587,7 +589,6 @@ class MathTests(unittest.TestCase):
         self.assertEqual(math.frexp(NINF)[0], NINF)
         self.assertTrue(math.isnan(math.frexp(NAN)[0]))
 
-
     @requires_IEEE_754
     @unittest.skipIf(HAVE_DOUBLE_ROUNDING,
                          "fsum is not exact on machines with double rounding")
@@ -611,6 +612,7 @@ class MathTests(unittest.TestCase):
             """Full precision summation.  Compute sum(iterable) without any
             intermediate accumulation of error.  Based on the 'lsum' function
             at http://code.activestate.com/recipes/393090/
+
             """
             tmant, texp = 0, 0
             for x in iterable:
@@ -684,8 +686,6 @@ class MathTests(unittest.TestCase):
             s = msum(vals)
             self.assertEqual(msum(vals), math.fsum(vals))
 
-
-    # Python 3.9
     def testGcd(self):
         gcd = math.gcd
         self.assertEqual(gcd(0, 0), 0)
@@ -726,7 +726,7 @@ class MathTests(unittest.TestCase):
         self.assertRaises(TypeError, gcd, 120.0, 84)
         self.assertRaises(TypeError, gcd, 120, 84.0)
         self.assertRaises(TypeError, gcd, 120, 1, 84.0)
-        #self.assertEqual(gcd(MyIndexable(120), MyIndexable(84)), 12) # TODO: RUSTPYTHON
+        self.assertEqual(gcd(MyIndexable(120), MyIndexable(84)), 12)
 
     def testHypot(self):
         from decimal import Decimal
@@ -795,12 +795,78 @@ class MathTests(unittest.TestCase):
         # Verify scaling for extremely large values
         fourthmax = FLOAT_MAX / 4.0
         for n in range(32):
-            self.assertEqual(hypot(*([fourthmax]*n)), fourthmax * math.sqrt(n))
+            self.assertTrue(math.isclose(hypot(*([fourthmax]*n)),
+                                         fourthmax * math.sqrt(n)))
 
         # Verify scaling for extremely small values
         for exp in range(32):
             scale = FLOAT_MIN / 2.0 ** exp
             self.assertEqual(math.hypot(4*scale, 3*scale), 5*scale)
+
+    @requires_IEEE_754
+    @unittest.skipIf(HAVE_DOUBLE_ROUNDING,
+                     "hypot() loses accuracy on machines with double rounding")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def testHypotAccuracy(self):
+        # Verify improved accuracy in cases that were known to be inaccurate.
+        #
+        # The new algorithm's accuracy depends on IEEE 754 arithmetic
+        # guarantees, on having the usual ROUND HALF EVEN rounding mode, on
+        # the system not having double rounding due to extended precision,
+        # and on the compiler maintaining the specified order of operations.
+        #
+        # This test is known to succeed on most of our builds.  If it fails
+        # some build, we either need to add another skipIf if the cause is
+        # identifiable; otherwise, we can remove this test entirely.
+
+        hypot = math.hypot
+        Decimal = decimal.Decimal
+        high_precision = decimal.Context(prec=500)
+
+        for hx, hy in [
+            # Cases with a 1 ulp error in Python 3.7 compiled with Clang
+            ('0x1.10e89518dca48p+29', '0x1.1970f7565b7efp+30'),
+            ('0x1.10106eb4b44a2p+29', '0x1.ef0596cdc97f8p+29'),
+            ('0x1.459c058e20bb7p+30', '0x1.993ca009b9178p+29'),
+            ('0x1.378371ae67c0cp+30', '0x1.fbe6619854b4cp+29'),
+            ('0x1.f4cd0574fb97ap+29', '0x1.50fe31669340ep+30'),
+            ('0x1.494b2cdd3d446p+29', '0x1.212a5367b4c7cp+29'),
+            ('0x1.f84e649f1e46dp+29', '0x1.1fa56bef8eec4p+30'),
+            ('0x1.2e817edd3d6fap+30', '0x1.eb0814f1e9602p+29'),
+            ('0x1.0d3a6e3d04245p+29', '0x1.32a62fea52352p+30'),
+            ('0x1.888e19611bfc5p+29', '0x1.52b8e70b24353p+29'),
+
+            # Cases with 2 ulp error in Python 3.8
+            ('0x1.538816d48a13fp+29', '0x1.7967c5ca43e16p+29'),
+            ('0x1.57b47b7234530p+29', '0x1.74e2c7040e772p+29'),
+            ('0x1.821b685e9b168p+30', '0x1.677dc1c1e3dc6p+29'),
+            ('0x1.9e8247f67097bp+29', '0x1.24bd2dc4f4baep+29'),
+            ('0x1.b73b59e0cb5f9p+29', '0x1.da899ab784a97p+28'),
+            ('0x1.94a8d2842a7cfp+30', '0x1.326a51d4d8d8ap+30'),
+            ('0x1.e930b9cd99035p+29', '0x1.5a1030e18dff9p+30'),
+            ('0x1.1592bbb0e4690p+29', '0x1.a9c337b33fb9ap+29'),
+            ('0x1.1243a50751fd4p+29', '0x1.a5a10175622d9p+29'),
+            ('0x1.57a8596e74722p+30', '0x1.42d1af9d04da9p+30'),
+
+            # Cases with 1 ulp error in version fff3c28052e6b0
+            ('0x1.ee7dbd9565899p+29', '0x1.7ab4d6fc6e4b4p+29'),
+            ('0x1.5c6bfbec5c4dcp+30', '0x1.02511184b4970p+30'),
+            ('0x1.59dcebba995cap+30', '0x1.50ca7e7c38854p+29'),
+            ('0x1.768cdd94cf5aap+29', '0x1.9cfdc5571d38ep+29'),
+            ('0x1.dcf137d60262ep+29', '0x1.1101621990b3ep+30'),
+            ('0x1.3a2d006e288b0p+30', '0x1.e9a240914326cp+29'),
+            ('0x1.62a32f7f53c61p+29', '0x1.47eb6cd72684fp+29'),
+            ('0x1.d3bcb60748ef2p+29', '0x1.3f13c4056312cp+30'),
+            ('0x1.282bdb82f17f3p+30', '0x1.640ba4c4eed3ap+30'),
+            ('0x1.89d8c423ea0c6p+29', '0x1.d35dcfe902bc3p+29'),
+        ]:
+            x = float.fromhex(hx)
+            y = float.fromhex(hy)
+            with self.subTest(hx=hx, hy=hy, x=x, y=y):
+                with decimal.localcontext(high_precision):
+                    z = float((Decimal(x)**2 + Decimal(y)**2).sqrt())
+                self.assertEqual(hypot(x, y), z)
 
     def testDist(self):
         from decimal import Decimal as D
@@ -904,8 +970,8 @@ class MathTests(unittest.TestCase):
         for n in range(32):
             p = (fourthmax,) * n
             q = (0.0,) * n
-            self.assertEqual(dist(p, q), fourthmax * math.sqrt(n))
-            self.assertEqual(dist(q, p), fourthmax * math.sqrt(n))
+            self.assertTrue(math.isclose(dist(p, q), fourthmax * math.sqrt(n)))
+            self.assertTrue(math.isclose(dist(q, p), fourthmax * math.sqrt(n)))
 
         # Verify scaling for extremely small values
         for exp in range(32):
@@ -968,8 +1034,7 @@ class MathTests(unittest.TestCase):
                 with self.assertRaises(TypeError):
                     math.isqrt(value)
 
-    # Python 3.9
-    def testlcm(self):
+    def test_lcm(self):
         lcm = math.lcm
         self.assertEqual(lcm(0, 0), 0)
         self.assertEqual(lcm(1, 0), 0)
@@ -1011,7 +1076,7 @@ class MathTests(unittest.TestCase):
         self.assertRaises(TypeError, lcm, 120.0, 84)
         self.assertRaises(TypeError, lcm, 120, 84.0)
         self.assertRaises(TypeError, lcm, 120, 0, 84.0)
-        # self.assertEqual(lcm(MyIndexable(120), MyIndexable(84)), 840) # TODO: RUSTPYTHON
+        self.assertEqual(lcm(MyIndexable(120), MyIndexable(84)), 840)
 
     def testLdexp(self):
         self.assertRaises(TypeError, math.ldexp)
@@ -1987,7 +2052,7 @@ class MathTests(unittest.TestCase):
 
         # min and max
         self.assertEqual(math.ulp(0.0),
-                        sys.float_info.min * sys.float_info.epsilon)
+                         sys.float_info.min * sys.float_info.epsilon)
         self.assertEqual(math.ulp(FLOAT_MAX),
                          FLOAT_MAX - math.nextafter(FLOAT_MAX, -INF))
 
@@ -2024,6 +2089,7 @@ class MathTests(unittest.TestCase):
 
     def assertEqualSign(self, x, y):
         """Similar to assertEqual(), but compare also the sign with copysign().
+
         Function useful to compare signed zeros.
         """
         self.assertEqual(x, y)

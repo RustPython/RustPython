@@ -68,6 +68,8 @@ memchr = "2"
 adler32 = "1.0.3"
 flate2 = "1.0.20"
 once_cell = "1"
+memoffset = "0.6"
+optional = "0.5"
 
 # RustPython crates implementing functionality based on CPython
 sre-engine = "0.1.2"

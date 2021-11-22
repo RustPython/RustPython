@@ -9,8 +9,10 @@ pub mod cmp;
 pub mod encodings;
 pub mod float_ops;
 pub mod hash;
+pub mod linked_list;
 pub mod lock;
 pub mod rc;
+pub mod refcount;
 pub mod static_cell;
 pub mod str;
 

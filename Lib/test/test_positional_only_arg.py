@@ -318,8 +318,6 @@ class PositionalOnlyTestCase(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, r"g\(\) takes 2 positional arguments but 3 were given"):
             f(1,2)(3,4,5)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_same_keyword_as_positional_with_kwargs(self):
         def f(something,/,**kwargs):
             return (something, kwargs)

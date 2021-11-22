@@ -343,8 +343,6 @@ class AbstractMemoryTests:
         m = self._view(b)
         self.assertRaises(ValueError, hash, m)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_weakref(self):
         # Check memoryviews are weakrefable
         for tp in self._types:

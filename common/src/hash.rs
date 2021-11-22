@@ -169,7 +169,7 @@ pub fn hash_bigint(value: &BigInt) -> PyHash {
 }
 
 #[inline(always)]
-fn fix_sentinel(x: PyHash) -> PyHash {
+pub fn fix_sentinel(x: PyHash) -> PyHash {
     if x == SENTINEL {
         -2
     } else {

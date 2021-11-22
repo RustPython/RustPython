@@ -85,11 +85,12 @@ pub struct TypeZoo {
 
 impl TypeZoo {
     pub(crate) fn init() -> Self {
-        let (type_type, object_type) = crate::pyobjectrc::init_type_hierarchy();
+        let (type_type, object_type, weakref_type) = crate::pyobjectrc::init_type_hierarchy();
         Self {
-            // the order matters for type, object and int
+            // the order matters for type, object, weakref, and int
             type_type: pytype::PyType::init_manually(type_type).clone(),
             object_type: object::PyBaseObject::init_manually(object_type).clone(),
+            weakref_type: weakref::PyWeak::init_manually(weakref_type).clone(),
             int_type: int::PyInt::init_bare_type().clone(),
 
             // types exposed as builtins
@@ -162,7 +163,6 @@ impl TypeZoo {
             traceback_type: traceback::PyTraceback::init_bare_type().clone(),
             tuple_iterator_type: tuple::PyTupleIterator::init_bare_type().clone(),
             weakproxy_type: weakproxy::PyWeakProxy::init_bare_type().clone(),
-            weakref_type: weakref::PyWeak::init_bare_type().clone(),
             method_descriptor_type: builtinfunc::PyBuiltinMethod::init_bare_type().clone(),
             none_type: singletons::PyNone::init_bare_type().clone(),
             not_implemented_type: singletons::PyNotImplemented::init_bare_type().clone(),

@@ -3731,8 +3731,6 @@ class TypedDictTests(BaseTestCase):
         self.assertEqual(Emp.__annotations__, {'name': str, 'id': int})
         self.assertEqual(Emp.__total__, True)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_typeddict_special_keyword_names(self):
         TD = TypedDict("TD", cls=type, self=object, typename=str, _typename=int, fields=list, _fields=dict)
         self.assertEqual(TD.__name__, 'TD')

@@ -661,8 +661,6 @@ class UnicodeTest(string_tests.CommonTest,
         self.assertFalse("\u20ac".isascii())
         self.assertFalse("\U0010ffff".isascii())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_isdecimal(self):
         self.checkequalnofix(False, '', 'isdecimal')
         self.checkequalnofix(False, 'a', 'isdecimal')

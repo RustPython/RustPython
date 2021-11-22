@@ -23,15 +23,6 @@ use bstr::ByteSlice;
 use std::mem::size_of;
 use std::ops::Deref;
 
-/// "bytes(iterable_of_ints) -> bytes\n\
-/// bytes(string, encoding[, errors]) -> bytes\n\
-/// bytes(bytes_or_buffer) -> immutable copy of bytes_or_buffer\n\
-/// bytes(int) -> bytes object of size given by the parameter initialized with null bytes\n\
-/// bytes() -> empty bytes object\n\nConstruct an immutable array of bytes from:\n  \
-/// - an iterable yielding integers in range(256)\n  \
-/// - a text string encoded using the specified encoding\n  \
-/// - any object implementing the buffer API.\n  \
-/// - an integer";
 #[pyclass(module = false, name = "bytes")]
 #[derive(Clone, Debug)]
 pub struct PyBytes {
@@ -470,14 +461,9 @@ impl PyBytes {
             // This only works for `bytes` itself, not its subclasses.
             return Ok(zelf);
         }
-        // todo: map err to overflow.
-        vm.check_repeat_or_memory_error(zelf.inner.len(), value)
-            .map(|value| {
-                let bytes: PyBytes = zelf.inner.repeat(value).into();
-                bytes.into_ref(vm)
-            })
-            // see issue 45044 on b.p.o.
-            .map_err(|_| vm.new_overflow_error("repeated bytes are too long".to_owned()))
+        zelf.inner
+            .mul(value, vm)
+            .map(|x| Self::from(x).into_ref(vm))
     }
 
     #[pymethod(name = "__mod__")]

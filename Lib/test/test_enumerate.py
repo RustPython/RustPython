@@ -94,8 +94,6 @@ class EnumerateTestCase(unittest.TestCase, PickleTest):
         self.assertEqual(list(self.enum(self.seq)), self.res)
         self.enum.__doc__
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pickle(self):
         self.check_pickle(self.enum(self.seq), self.res)
 

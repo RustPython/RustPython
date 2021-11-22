@@ -195,7 +195,7 @@ impl PySetInner {
         self.compare(&other_set, PyComparisonOp::Le, vm)
     }
 
-    fn isdisjoint(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
+    pub(super) fn isdisjoint(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
         for item in other.iter(vm)? {
             if self.contains(&*item?, vm)? {
                 return Ok(false);

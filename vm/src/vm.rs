@@ -9,7 +9,7 @@ use crate::compile::{self, CompileError, CompileErrorType, CompileOpts};
 use crate::{
     builtins::{
         code::{self, PyCode},
-        module, object,
+        object,
         pystr::IntoPyStrRef,
         tuple::{IntoPyTuple, PyTuple, PyTupleRef, PyTupleTyped},
         PyBaseException, PyBaseExceptionRef, PyDictRef, PyInt, PyIntRef, PyList, PyModule, PyStr,
@@ -26,9 +26,8 @@ use crate::{
     scope::Scope,
     signal, stdlib,
     types::PyComparisonOp,
-    IdProtocol, ItemProtocol, PyArithmeticValue, PyContext, PyGenericObject, PyLease, PyMethod,
-    PyObject, PyObjectRef, PyObjectWrap, PyRef, PyRefExact, PyResult, PyValue, TryFromObject,
-    TypeProtocol,
+    IdProtocol, ItemProtocol, PyArithmeticValue, PyContext, PyLease, PyMethod, PyObject,
+    PyObjectRef, PyObjectWrap, PyRef, PyRefExact, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::{Signed, ToPrimitive};
@@ -46,8 +45,8 @@ use std::fmt;
 ///
 /// To construct this, please refer to the [`Interpreter`](Interpreter)
 pub struct VirtualMachine {
-    pub builtins: PyObjectRef,
-    pub sys_module: PyObjectRef,
+    pub builtins: PyRef<PyModule>,
+    pub sys_module: PyRef<PyModule>,
     pub ctx: PyRc<PyContext>,
     pub frames: RefCell<Vec<FrameRef>>,
     pub wasm_id: Option<String>,
@@ -248,14 +247,17 @@ impl VirtualMachine {
 
         // make a new module without access to the vm; doesn't
         // set __spec__, __loader__, etc. attributes
-        let new_module =
-            |dict| PyGenericObject::new(PyModule {}, ctx.types.module_type.clone(), Some(dict));
+        let new_module = || {
+            PyRef::new_ref(
+                PyModule {},
+                ctx.types.module_type.clone(),
+                Some(ctx.new_dict()),
+            )
+        };
 
         // Hard-core modules:
-        let builtins_dict = ctx.new_dict();
-        let builtins = new_module(builtins_dict.clone());
-        let sysmod_dict = ctx.new_dict();
-        let sysmod = new_module(sysmod_dict.clone());
+        let builtins = new_module();
+        let sys_module = new_module();
 
         let import_func = ctx.none();
         let profile_func = RefCell::new(ctx.none());
@@ -279,7 +281,7 @@ impl VirtualMachine {
 
         let mut vm = VirtualMachine {
             builtins,
-            sys_module: sysmod,
+            sys_module,
             ctx: PyRc::new(ctx),
             frames: RefCell::new(vec![]),
             wasm_id: None,
@@ -309,18 +311,14 @@ impl VirtualMachine {
         let frozen = frozen::map_frozen(&vm, frozen::get_module_inits()).collect();
         PyRc::get_mut(&mut vm.state).unwrap().frozen = frozen;
 
-        module::init_module_dict(
-            &vm,
-            &builtins_dict,
+        vm.builtins.init_module_dict(
             vm.ctx.new_str(ascii!("builtins")).into(),
             vm.ctx.none(),
-        );
-        module::init_module_dict(
             &vm,
-            &sysmod_dict,
-            vm.ctx.new_str(ascii!("sys")).into(),
-            vm.ctx.none(),
         );
+        vm.sys_module
+            .init_module_dict(vm.ctx.new_str(ascii!("sys")).into(), vm.ctx.none(), &vm);
+
         vm
     }
 
@@ -331,8 +329,8 @@ impl VirtualMachine {
             panic!("Double Initialize Error");
         }
 
-        stdlib::builtins::make_module(self, self.builtins.clone());
-        stdlib::sys::init_module(self, &self.sys_module, &self.builtins);
+        stdlib::builtins::make_module(self, self.builtins.clone().into());
+        stdlib::sys::init_module(self, self.sys_module.as_ref(), self.builtins.as_ref());
 
         let mut inner_init = || -> PyResult<()> {
             #[cfg(not(target_arch = "wasm32"))]
@@ -511,8 +509,7 @@ impl VirtualMachine {
     }
 
     pub fn run_code_obj(&self, code: PyRef<PyCode>, scope: Scope) -> PyResult {
-        let frame =
-            Frame::new(code, scope, self.builtins.dict().unwrap(), &[], self).into_ref(self);
+        let frame = Frame::new(code, scope, self.builtins.dict(), &[], self).into_ref(self);
         self.run_frame_full(frame)
     }
 
@@ -624,14 +621,14 @@ impl VirtualMachine {
     }
 
     pub fn new_module(&self, name: &str, dict: PyDictRef, doc: Option<&str>) -> PyObjectRef {
-        module::init_module_dict(
-            self,
-            &dict,
+        let module = PyRef::new_ref(PyModule {}, self.ctx.types.module_type.clone(), Some(dict));
+        module.init_module_dict(
             self.new_pyobj(name.to_owned()),
             doc.map(|doc| self.new_pyobj(doc.to_owned()))
                 .unwrap_or_else(|| self.ctx.none()),
+            self,
         );
-        PyGenericObject::new(PyModule {}, self.ctx.types.module_type.clone(), Some(dict))
+        module.into_object()
     }
 
     /// Instantiate an exception with arguments.
@@ -1748,13 +1745,16 @@ impl VirtualMachine {
 
     /// Checks that the multiplication is able to be performed. On Ok returns the
     /// index as a usize for sequences to be able to use immediately.
-    pub fn check_repeat_or_memory_error(&self, length: usize, n: isize) -> PyResult<usize> {
-        let n = n.to_usize().unwrap_or(0);
-        if n > 0 && length > stdlib::sys::MAXSIZE as usize / n {
-            // Empty message is currently used in CPython.
-            Err(self.new_memory_error("".to_owned()))
+    pub fn check_repeat_or_overflow_error(&self, length: usize, n: isize) -> PyResult<usize> {
+        if n <= 0 {
+            Ok(0)
         } else {
-            Ok(n)
+            let n = n as usize;
+            if length > stdlib::sys::MAXSIZE as usize / n {
+                Err(self.new_overflow_error("repeated value are too long".to_owned()))
+            } else {
+                Ok(n)
+            }
         }
     }
 
@@ -1898,7 +1898,7 @@ impl VirtualMachine {
         attr_value: impl Into<PyObjectRef>,
     ) -> PyResult<()> {
         let val = attr_value.into();
-        object::setattr(module, attr_name.into_pystr_ref(self), Some(val), self)
+        object::generic_setattr(module, attr_name.into_pystr_ref(self), Some(val), self)
     }
 }
 
@@ -1939,7 +1939,7 @@ impl<'vm> ReprGuard<'vm> {
         let mut guards = vm.repr_guards.borrow_mut();
 
         // Should this be a flag on the obj itself? putting it in a global variable for now until it
-        // decided the form of the PyGenericObject. https://github.com/RustPython/RustPython/issues/371
+        // decided the form of PyObject. https://github.com/RustPython/RustPython/issues/371
         let id = obj.get_id();
         if guards.contains(&id) {
             return None;

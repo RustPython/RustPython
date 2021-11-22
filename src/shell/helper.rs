@@ -90,7 +90,8 @@ impl<'vm> ShellHelper<'vm> {
             // we need to get a variable based off of globals/builtins
 
             let globals = str_iter_method(self.globals.as_object().to_owned(), "keys").ok()?;
-            let builtins = str_iter_method(self.vm.builtins.clone(), "__dir__").ok()?;
+            let builtins =
+                str_iter_method(self.vm.builtins.as_object().to_owned(), "__dir__").ok()?;
             (first, globals, Some(builtins))
         };
         Some((word_start, iter1.chain(iter2.into_iter().flatten())))
