@@ -2,19 +2,20 @@ use super::{PositionIterInternal, PyGenericAlias, PyTypeRef};
 use crate::common::{hash::PyHash, lock::PyMutex};
 use crate::{
     function::{IntoPyObject, OptionalArg},
-    protocol::{PyIterReturn, PyMappingMethods},
+    protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     sequence::{ObjectSequenceOp, SequenceOp},
     sliceable::SliceableSequenceOp,
     stdlib::sys,
     types::{
-        AsMapping, Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable,
-        PyComparisonOp, Unconstructible,
+        AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable,
+        Iterable, PyComparisonOp, Unconstructible,
     },
     utils::Either,
     vm::{ReprGuard, VirtualMachine},
     IdProtocol, PyArithmeticValue, PyClassImpl, PyComparisonValue, PyContext, PyObject,
     PyObjectRef, PyRef, PyResult, PyValue, TransmuteFromObject, TryFromObject, TypeProtocol,
 };
+use std::borrow::Cow;
 use std::fmt;
 use std::marker::PhantomData;
 
@@ -141,7 +142,7 @@ impl PyTuple {
 
 #[pyimpl(
     flags(BASETYPE),
-    with(AsMapping, Hashable, Comparable, Iterable, Constructor)
+    with(AsMapping, AsSequence, Hashable, Comparable, Iterable, Constructor)
 )]
 impl PyTuple {
     #[pymethod(magic)]
@@ -235,7 +236,7 @@ impl PyTuple {
 
     #[pymethod(magic)]
     fn getitem(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let result = match zelf.elements.as_ref().get_item(vm, &needle)? {
+        let result = match zelf.elements.get_item(vm, &needle)? {
             Either::A(obj) => obj,
             Either::B(vec) => vm.ctx.new_tuple(vec).into(),
         };
@@ -278,14 +279,18 @@ impl PyTuple {
         Err(vm.new_value_error("tuple.index(x): x not in tuple".to_owned()))
     }
 
-    #[pymethod(magic)]
-    fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+    fn _contains(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
         for element in self.elements.iter() {
-            if vm.identical_or_equal(element, &needle)? {
+            if vm.identical_or_equal(element, needle)? {
                 return Ok(true);
             }
         }
         Ok(false)
+    }
+
+    #[pymethod(magic)]
+    fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        self._contains(&needle, vm)
     }
 
     #[pymethod(magic)]
@@ -322,6 +327,44 @@ impl AsMapping for PyTuple {
     fn as_mapping(_zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
         Self::MAPPING_METHODS
     }
+}
+
+impl AsSequence for PyTuple {
+    fn as_sequence(
+        _zelf: &crate::PyObjectView<Self>,
+        _vm: &VirtualMachine,
+    ) -> Cow<'static, PySequenceMethods> {
+        Cow::Borrowed(&Self::SEQUENCE_METHDOS)
+    }
+}
+
+impl PyTuple {
+    const SEQUENCE_METHDOS: PySequenceMethods = PySequenceMethods {
+        length: Some(|seq, _vm| Ok(seq.obj_as::<Self>().len())),
+        concat: Some(|seq, other, vm| {
+            let zelf = seq.obj_as::<Self>();
+            match Self::add(zelf.to_owned(), other.to_owned(), vm) {
+                PyArithmeticValue::Implemented(tuple) => Ok(tuple.into()),
+                PyArithmeticValue::NotImplemented => Err(vm.new_type_error(format!(
+                    "can only concatenate tuple (not '{}') to tuple",
+                    other.class().name()
+                ))),
+            }
+        }),
+        repeat: Some(|seq, n, vm| {
+            let zelf = seq.obj_as::<Self>();
+            Self::mul(zelf.to_owned(), n as isize, vm).map(|x| x.into())
+        }),
+        item: Some(|seq, i, vm| {
+            let zelf = seq.obj_as::<Self>();
+            zelf.elements.get_item_by_index(vm, i)
+        }),
+        contains: Some(|seq, needle, vm| {
+            let zelf = seq.obj_as::<Self>();
+            zelf._contains(needle, vm)
+        }),
+        ..*PySequenceMethods::not_implemented()
+    };
 }
 
 impl Hashable for PyTuple {
