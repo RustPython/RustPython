@@ -3,7 +3,7 @@ use crate::common::hash::PyHash;
 use crate::{
     function::{IntoPyObject, OptionalArg},
     protocol::{PyIterReturn, PyMappingMethods},
-    sequence::{self, SimpleSeq},
+    sequence::{ObjectSequenceOp, SequenceOp},
     sliceable::PySliceableSequence,
     stdlib::sys,
     types::{
@@ -228,10 +228,8 @@ impl PyTuple {
             // This only works for `tuple` itself, not its subclasses.
             zelf
         } else {
-            let elements = sequence::seq_mul(vm, &zelf.elements, value)?
-                .cloned()
-                .collect::<Vec<_>>()
-                .into_boxed_slice();
+            let v = zelf.elements.mul(vm, value)?;
+            let elements = v.into_boxed_slice();
             Self { elements }.into_ref(vm)
         })
     }
@@ -360,7 +358,7 @@ impl Comparable for PyTuple {
         let other = class_or_notimplemented!(Self, other);
         let a = zelf.as_slice();
         let b = other.as_slice();
-        sequence::cmp(vm, a.boxed_iter(), b.boxed_iter(), op).map(PyComparisonValue::Implemented)
+        a.cmp(vm, b, op).map(PyComparisonValue::Implemented)
     }
 }
 

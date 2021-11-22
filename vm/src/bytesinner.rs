@@ -4,8 +4,8 @@ use crate::{
         pystr, PyByteArray, PyBytes, PyBytesRef, PyInt, PyIntRef, PyStr, PyStrRef, PyTypeRef,
     },
     cformat::CFormatBytes,
-    function::ArgIterable,
-    function::{OptionalArg, OptionalOption},
+    function::{ArgIterable, OptionalArg, OptionalOption},
+    sequence::{SequenceMutOp, SequenceOp},
     sliceable::PySliceableSequence,
     types::PyComparisonOp,
     utils::Either,
@@ -909,8 +909,12 @@ impl PyBytesInner {
             .format(vm, values)
     }
 
-    pub fn repeat(&self, n: usize) -> Vec<u8> {
-        self.elements.repeat(n)
+    pub fn mul(&self, n: isize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        self.elements.mul(vm, n)
+    }
+
+    pub fn imul(&mut self, n: isize, vm: &VirtualMachine) -> PyResult<()> {
+        self.elements.imul(vm, n)
     }
 }
 

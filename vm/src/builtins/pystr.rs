@@ -8,6 +8,7 @@ use crate::{
     format::{FormatSpec, FormatString, FromTemplate},
     function::{ArgIterable, FuncArgs, IntoPyException, IntoPyObject, OptionalArg, OptionalOption},
     protocol::{PyIterReturn, PyMappingMethods},
+    sequence::SequenceOp,
     sliceable::PySliceableSequence,
     types::{
         AsMapping, Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable,
@@ -493,11 +494,10 @@ impl PyStr {
             // This only works for `str` itself, not its subclasses.
             return Ok(zelf);
         }
-        // todo: map err to overflow.
-        vm.check_repeat_or_memory_error(zelf.len(), value)
-            .map(|value| Self::from(zelf.as_str().repeat(value)).into_ref(vm))
-            // see issue 45044 on b.p.o.
-            .map_err(|_| vm.new_overflow_error("repeated bytes are too long".to_owned()))
+        zelf.as_str()
+            .as_bytes()
+            .mul(vm, value)
+            .map(|x| Self::from(unsafe { String::from_utf8_unchecked(x) }).into_ref(vm))
     }
 
     #[pymethod(magic)]

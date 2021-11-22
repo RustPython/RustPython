@@ -461,14 +461,9 @@ impl PyBytes {
             // This only works for `bytes` itself, not its subclasses.
             return Ok(zelf);
         }
-        // todo: map err to overflow.
-        vm.check_repeat_or_memory_error(zelf.inner.len(), value)
-            .map(|value| {
-                let bytes: PyBytes = zelf.inner.repeat(value).into();
-                bytes.into_ref(vm)
-            })
-            // see issue 45044 on b.p.o.
-            .map_err(|_| vm.new_overflow_error("repeated bytes are too long".to_owned()))
+        zelf.inner
+            .mul(value, vm)
+            .map(|x| Self::from(x).into_ref(vm))
     }
 
     #[pymethod(name = "__mod__")]
