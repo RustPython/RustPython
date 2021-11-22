@@ -7,12 +7,12 @@ use crate::{
     anystr::{self, adjust_indices, AnyStr, AnyStrContainer, AnyStrWrapper},
     format::{FormatSpec, FormatString, FromTemplate},
     function::{ArgIterable, FuncArgs, IntoPyException, IntoPyObject, OptionalArg, OptionalOption},
-    protocol::{PyIterReturn, PyMappingMethods},
+    protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     sequence::SequenceOp,
     sliceable::SliceableSequenceOp,
     types::{
-        AsMapping, Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable,
-        PyComparisonOp, Unconstructible,
+        AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable,
+        Iterable, PyComparisonOp, Unconstructible,
     },
     utils::Either,
     IdProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef,
@@ -375,7 +375,7 @@ impl PyStr {
 
 #[pyimpl(
     flags(BASETYPE),
-    with(AsMapping, Hashable, Comparable, Iterable, Constructor)
+    with(AsMapping, AsSequence, Hashable, Comparable, Iterable, Constructor)
 )]
 impl PyStr {
     #[pymethod(magic)]
@@ -404,9 +404,20 @@ impl PyStr {
         !self.bytes.is_empty()
     }
 
+    fn _contains(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+        if let Some(needle) = needle.payload::<Self>() {
+            Ok(self.as_str().contains(needle.as_str()))
+        } else {
+            Err(vm.new_type_error(format!(
+                "'in <string>' requires string as left operand, not {}",
+                needle.class().name()
+            )))
+        }
+    }
+
     #[pymethod(magic)]
-    fn contains(&self, needle: PyStrRef) -> bool {
-        self.as_str().contains(needle.as_str())
+    fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        self._contains(&needle, vm)
     }
 
     #[pymethod(magic)]
@@ -1273,6 +1284,36 @@ impl PyStr {
                 .map(|x| x.into_ref(vm).into())
         }),
         ass_subscript: None,
+    };
+}
+
+impl AsSequence for PyStr {
+    fn as_sequence(
+       _zelf: &PyObjectView<Self>,
+       _vm: &VirtualMachine,
+    ) -> std::borrow::Cow<'static, PySequenceMethods> {
+        std::borrow::Cow::Borrowed(&Self::SEQUENCE_METHDOS)
+    }
+}
+
+impl PyStr {
+    const SEQUENCE_METHDOS: PySequenceMethods = PySequenceMethods {
+        length: Some(|seq, _vm| Ok(seq.obj_as::<Self>().len())),
+        concat: Some(|seq, other, vm| {
+            let zelf = seq.obj_as::<Self>();
+            Self::add(zelf.to_owned(), other.to_owned(), vm)
+        }),
+        repeat: Some(|seq, n, vm| {
+            let zelf = seq.obj_as::<Self>();
+            Self::mul(zelf.to_owned(), n as isize, vm).map(|x| x.into())
+        }),
+        item: Some(|seq, i, vm| {
+            let zelf = seq.obj_as::<Self>();
+            zelf.get_item_by_index(vm, i)
+                .map(|x| zelf.new_substr(x.to_string()).into_ref(vm).into())
+        }),
+        contains: Some(|seq, needle, vm| seq.obj_as::<Self>()._contains(needle, vm)),
+        ..*PySequenceMethods::not_implemented()
     };
 }
 
