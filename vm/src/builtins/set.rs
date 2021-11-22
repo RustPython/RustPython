@@ -9,15 +9,16 @@ use crate::common::{ascii, hash::PyHash, lock::PyMutex, rc::PyRc};
 use crate::{
     dictdatatype::{self, DictSize},
     function::{ArgIterable, FuncArgs, OptionalArg, PosArgs},
-    protocol::PyIterReturn,
+    protocol::{PyIterReturn, PySequenceMethods},
     types::{
-        Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable, PyComparisonOp,
-        Unconstructible, Unhashable,
+        AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable,
+        PyComparisonOp, Unconstructible, Unhashable,
     },
     vm::{ReprGuard, VirtualMachine},
     IdProtocol, PyArithmeticValue, PyClassImpl, PyComparisonValue, PyContext, PyObject,
     PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
+use std::borrow::Cow;
 use std::{fmt, ops::Deref};
 
 pub type SetContentType = dictdatatype::Dict<()>;
@@ -404,7 +405,7 @@ impl PySet {
     }
 }
 
-#[pyimpl(with(Hashable, Comparable, Iterable), flags(BASETYPE))]
+#[pyimpl(with(AsSequence, Hashable, Comparable, Iterable), flags(BASETYPE))]
 impl PySet {
     #[pyslot]
     fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -651,6 +652,23 @@ impl PySet {
     fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
         PyGenericAlias::new(cls, args, vm)
     }
+}
+
+impl AsSequence for PySet {
+    fn as_sequence(
+        _zelf: &crate::PyObjectView<Self>,
+        _vm: &VirtualMachine,
+    ) -> Cow<'static, PySequenceMethods> {
+        Cow::Borrowed(&Self::SEQUENCE_METHODS)
+    }
+}
+
+impl PySet {
+    const SEQUENCE_METHODS: PySequenceMethods = PySequenceMethods {
+        length: Some(|seq, _vm| Ok(seq.obj_as::<Self>().len())),
+        contains: Some(|seq, needle, vm| seq.obj_as::<Self>().inner.contains(needle, vm)),
+        ..*PySequenceMethods::not_implemented()
+    };
 }
 
 impl Comparable for PySet {
