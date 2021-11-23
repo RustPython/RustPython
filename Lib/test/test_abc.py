@@ -15,8 +15,6 @@ from inspect import isabstract
 def test_factory(abc_ABCMeta, abc_get_cache_token):
     class TestLegacyAPI(unittest.TestCase):
 
-        # TODO: RUSTPYTHON
-        @unittest.expectedFailure
         def test_abstractproperty_basics(self):
             @abc.abstractproperty
             def foo(self): pass
@@ -34,8 +32,6 @@ def test_factory(abc_ABCMeta, abc_get_cache_token):
             self.assertEqual(D().foo, 3)
             self.assertFalse(getattr(D.foo, "__isabstractmethod__", False))
 
-        # TODO: RUSTPYTHON
-        @unittest.expectedFailure
         def test_abstractclassmethod_basics(self):
             @abc.abstractclassmethod
             def foo(cls): pass
@@ -54,8 +50,6 @@ def test_factory(abc_ABCMeta, abc_get_cache_token):
             self.assertEqual(D.foo(), 'D')
             self.assertEqual(D().foo(), 'D')
 
-        # TODO: RUSTPYTHON
-        @unittest.expectedFailure
         def test_abstractstaticmethod_basics(self):
             @abc.abstractstaticmethod
             def foo(): pass
@@ -225,9 +219,6 @@ def test_factory(abc_ABCMeta, abc_get_cache_token):
                     bar.__isabstractmethod__ = NotBool()
                     foo = property(bar)
 
-
-        # TODO: RUSTPYTHON
-        @unittest.expectedFailure
         def test_customdescriptors_with_abstractmethod(self):
             class Descriptor:
                 def __init__(self, fget, fset=None):

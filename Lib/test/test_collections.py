@@ -905,8 +905,6 @@ class TestOneTrickPonyABCs(ABCTestCase):
         self.validate_abstract_methods(Hashable, '__hash__')
         self.validate_isinstance(Hashable, '__hash__')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_AsyncIterable(self):
         class AI:
             def __aiter__(self):
@@ -943,8 +941,6 @@ class TestOneTrickPonyABCs(ABCTestCase):
         self.assertNotIsInstance(AnextOnly(), AsyncIterator)
         self.validate_abstract_methods(AsyncIterator, '__anext__', '__aiter__')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_Iterable(self):
         # Check some non-iterables
         non_samples = [None, 42, 3.14, 1j]
@@ -979,8 +975,6 @@ class TestOneTrickPonyABCs(ABCTestCase):
         self.assertFalse(issubclass(ItBlocked, Iterable))
         self.assertFalse(isinstance(ItBlocked(), Iterable))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_Reversible(self):
         # Check some non-reversibles
         non_samples = [None, 42, 3.14, 1j, set(), frozenset()]
@@ -1038,8 +1032,6 @@ class TestOneTrickPonyABCs(ABCTestCase):
         self.assertFalse(issubclass(RevRevBlocked, Reversible))
         self.assertFalse(isinstance(RevRevBlocked(), Reversible))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_Collection(self):
         # Check some non-collections
         non_collections = [None, 42, 3.14, 1j, lambda x: 2*x]
@@ -1127,7 +1119,6 @@ class TestOneTrickPonyABCs(ABCTestCase):
         self.assertFalse(issubclass(NonCol, Collection))
         self.assertFalse(isinstance(NonCol(), Collection))
 
-
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_Iterator(self):
@@ -1155,8 +1146,6 @@ class TestOneTrickPonyABCs(ABCTestCase):
                 return
         self.assertNotIsInstance(NextOnly(), Iterator)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_Generator(self):
         class NonGen1:
             def __iter__(self): return self
@@ -1228,8 +1217,6 @@ class TestOneTrickPonyABCs(ABCTestCase):
 
         self.assertRaises(RuntimeError, IgnoreGeneratorExit().close)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_AsyncGenerator(self):
         class NonAGen1:
             def __aiter__(self): return self
@@ -1311,8 +1298,6 @@ class TestOneTrickPonyABCs(ABCTestCase):
         with self.assertRaises(RuntimeError):
             run_async(IgnoreGeneratorExit().aclose())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_Sized(self):
         non_samples = [None, 42, 3.14, 1j,
                        _test_gen(),
@@ -1331,8 +1316,6 @@ class TestOneTrickPonyABCs(ABCTestCase):
         self.validate_abstract_methods(Sized, '__len__')
         self.validate_isinstance(Sized, '__len__')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_Container(self):
         non_samples = [None, 42, 3.14, 1j,
                        _test_gen(),
@@ -1351,8 +1334,6 @@ class TestOneTrickPonyABCs(ABCTestCase):
         self.validate_abstract_methods(Container, '__contains__')
         self.validate_isinstance(Container, '__contains__')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_Callable(self):
         non_samples = [None, 42, 3.14, 1j,
                        "", b"", (), [], {}, set(),
@@ -1414,8 +1395,6 @@ class TestCollectionABCs(ABCTestCase):
     # We should also test the proper behavior of the collection ABCs
     # as real base classes or mix-in classes.
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_Set(self):
         for sample in [set, frozenset]:
             self.assertIsInstance(sample(), Set)
@@ -1498,8 +1477,6 @@ class TestCollectionABCs(ABCTestCase):
         s3 = s1 & s2
         self.assertEqual(s3, MySet((3,)))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_MutableSet(self):
         self.assertIsInstance(set(), MutableSet)
         self.assertTrue(issubclass(set, MutableSet))
