@@ -1289,8 +1289,8 @@ impl PyStr {
 
 impl AsSequence for PyStr {
     fn as_sequence(
-       _zelf: &PyObjectView<Self>,
-       _vm: &VirtualMachine,
+        _zelf: &PyObjectView<Self>,
+        _vm: &VirtualMachine,
     ) -> std::borrow::Cow<'static, PySequenceMethods> {
         std::borrow::Cow::Borrowed(&Self::SEQUENCE_METHDOS)
     }

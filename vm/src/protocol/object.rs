@@ -409,10 +409,16 @@ impl PyObject {
 
     pub fn length(&self, vm: &VirtualMachine) -> PyResult<usize> {
         let seq = PySequence::from(self);
-        if let Ok(len) = seq.length(vm) {
-            Ok(len)
+        if let Some(len) = seq.length_opt(vm) {
+            len
         } else {
-            PyMapping::try_from_object(vm, self.to_owned())?.length(vm)
+            // TODO: refactor PyMapping
+            if let Ok(mapping) = PyMapping::try_from_object(vm, self.to_owned()) {
+                if let Some(len) = mapping.length_opt(vm) {
+                    return len;
+                }
+            }
+            return Err(vm.new_type_error(format!("object of type '{}' has no len()", &self)));
         }
     }
 

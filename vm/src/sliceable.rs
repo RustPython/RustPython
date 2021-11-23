@@ -290,6 +290,7 @@ pub enum SequenceIndex<'a> {
 impl<'a> SequenceIndex<'a> {
     pub fn try_borrow_from_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
         if let Some(index) = obj.payload::<PyInt>() {
+            // TODO: replace by number protocol
             index
                 .as_bigint()
                 .to_isize()
@@ -300,7 +301,7 @@ impl<'a> SequenceIndex<'a> {
         } else if let Some(slice) = obj.payload::<PySlice>() {
             Ok(Self::Slice(slice))
         } else if let Some(index) = vm.to_index_opt(obj.to_owned()) {
-            // TODO: replace by number protocol
+            // TODO: __index__ for indice is no more supported
             index?
                 .as_bigint()
                 .to_isize()

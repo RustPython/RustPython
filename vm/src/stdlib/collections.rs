@@ -9,12 +9,12 @@ mod _collections {
         },
         common::lock::{PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
         function::{FuncArgs, KwArgs, OptionalArg},
-        protocol::PyIterReturn,
+        protocol::{PyIterReturn, PySequenceMethods},
         sequence::{MutObjectSequenceOp, ObjectSequenceOp},
         sliceable,
         sliceable::saturate_index,
         types::{
-            Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable,
+            AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable,
             PyComparisonOp, Unhashable,
         },
         vm::ReprGuard,
@@ -55,7 +55,7 @@ mod _collections {
         }
     }
 
-    #[pyimpl(flags(BASETYPE), with(Comparable, Hashable, Iterable))]
+    #[pyimpl(flags(BASETYPE), with(AsSequence, Comparable, Hashable, Iterable))]
     impl PyDeque {
         #[pyslot]
         fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -172,9 +172,13 @@ mod _collections {
 
         #[pymethod]
         fn extend(&self, iter: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            self._extend(&iter, vm)
+        }
+
+        fn _extend(&self, iter: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
             self.state.fetch_add(1);
             let max_len = self.maxlen;
-            let mut elements: Vec<PyObjectRef> = vm.extract_elements(&iter)?;
+            let mut elements: Vec<PyObjectRef> = vm.extract_elements(iter)?;
             if let Some(max_len) = max_len {
                 if max_len > elements.len() {
                     let mut deque = self.borrow_deque_mut();
@@ -383,8 +387,12 @@ mod _collections {
 
         #[pymethod(magic)]
         fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+            self._contains(&needle, vm)
+        }
+
+        fn _contains(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
             let start_state = self.state.load();
-            let ret = self.mut_contains(vm, &needle)?;
+            let ret = self.mut_contains(vm, needle)?;
             if start_state != self.state.load() {
                 Err(vm.new_runtime_error("deque mutated during iteration".to_owned()))
             } else {
@@ -436,6 +444,10 @@ mod _collections {
 
         #[pymethod(magic)]
         fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
+            self.concat(&other, vm)
+        }
+
+        fn concat(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult<Self> {
             if let Some(o) = other.payload_if_subclass::<PyDeque>(vm) {
                 let mut deque = self.borrow_deque().clone();
                 let elements = o.borrow_deque().clone();
@@ -496,6 +508,51 @@ mod _collections {
         fn do_lock(&'a self) -> Self::Guard {
             self.borrow_deque()
         }
+    }
+
+    impl AsSequence for PyDeque {
+        fn as_sequence(
+            _zelf: &crate::PyObjectView<Self>,
+            _vm: &VirtualMachine,
+        ) -> std::borrow::Cow<'static, PySequenceMethods> {
+            std::borrow::Cow::Borrowed(&Self::SEQUENCE_METHDOS)
+        }
+    }
+
+    impl PyDeque {
+        const SEQUENCE_METHDOS: PySequenceMethods = PySequenceMethods {
+            length: Some(|seq, _vm| Ok(seq.obj_as::<Self>().len())),
+            concat: Some(|seq, other, vm| {
+                seq.obj_as::<Self>()
+                    .concat(other, vm)
+                    .map(|x| x.into_ref(vm).into())
+            }),
+            repeat: Some(|seq, n, vm| {
+                seq.obj_as::<Self>()
+                    .mul(n as isize, vm)
+                    .map(|x| x.into_ref(vm).into())
+            }),
+            item: Some(|seq, i, vm| seq.obj_as::<Self>().getitem(i, vm)),
+            ass_item: Some(|seq, i, value, vm| {
+                let zelf = seq.obj_as::<Self>();
+                if let Some(value) = value {
+                    zelf.setitem(i, value, vm)
+                } else {
+                    zelf.delitem(i, vm)
+                }
+            }),
+            contains: Some(|seq, needle, vm| seq.obj_as::<Self>()._contains(needle, vm)),
+            inplace_concat: Some(|seq, other, vm| {
+                let zelf = seq.obj_as::<Self>();
+                zelf._extend(other, vm)?;
+                Ok(zelf.to_owned().into())
+            }),
+            inplace_repeat: Some(|seq, n, vm| {
+                let zelf = seq.obj_as::<Self>();
+                Self::imul(zelf.to_owned(), n as isize, vm).map(|x| x.into())
+            }),
+            ..*PySequenceMethods::not_implemented()
+        };
     }
 
     impl Comparable for PyDeque {

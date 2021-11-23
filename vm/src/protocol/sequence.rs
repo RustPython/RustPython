@@ -107,15 +107,17 @@ impl PySequence<'_> {
         })
     }
 
+    pub fn length_opt(&self, vm: &VirtualMachine) -> Option<PyResult<usize>> {
+        self.methods(vm).length.map(|f| f(self, vm))
+    }
+
     pub fn length(&self, vm: &VirtualMachine) -> PyResult<usize> {
-        if let Some(f) = self.methods(vm).length {
-            f(self, vm)
-        } else {
-            Err(vm.new_type_error(format!(
+        self.length_opt(vm).ok_or_else(|| {
+            vm.new_type_error(format!(
                 "'{}' is not a sequence or has no len()",
                 self.obj.class().name()
-            )))
-        }
+            ))
+        })?
     }
 
     pub fn concat(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult {
