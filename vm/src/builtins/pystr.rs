@@ -1260,34 +1260,21 @@ impl Iterable for PyStr {
 
 impl AsMapping for PyStr {
     fn as_mapping(_zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
-        PyMappingMethods {
-            length: Some(Self::length),
-            subscript: Some(Self::subscript),
-            ass_subscript: None,
-        }
+        Self::MAPPING_METHODS.clone()
     }
+}
 
-    #[inline]
-    fn length(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-        Self::downcast_ref(&zelf, vm).map(|zelf| Ok(zelf.len()))?
-    }
-
-    #[inline]
-    fn subscript(zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Self::downcast_ref(&zelf, vm)
-            .map(|zelf| zelf.getitem(needle, vm))?
-            .map(|item| item.into_object(vm))
-    }
-
-    #[cold]
-    fn ass_subscript(
-        zelf: PyObjectRef,
-        _needle: PyObjectRef,
-        _value: Option<PyObjectRef>,
-        _vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        unreachable!("ass_subscript not implemented for {}", zelf.class())
-    }
+impl PyStr {
+    const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
+        length: Self::SEQUENCE_METHDOS.length,
+        subscript: Some(|mapping, needle, vm| {
+            mapping
+                .obj_as::<Self>()
+                ._getitem(needle, vm)
+                .map(|x| x.into_ref(vm).into())
+        }),
+        ass_subscript: None,
+    };
 }
 
 #[derive(FromArgs)]

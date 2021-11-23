@@ -377,33 +377,23 @@ impl PyRange {
     }
 }
 
+impl PyRange {
+    const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
+        length: Some(|mapping, vm| {
+            mapping.obj_as::<Self>().len().to_usize().ok_or_else(|| {
+                vm.new_overflow_error("RustPython int too large to convert to C ssize_t".to_owned())
+            })
+        }),
+        subscript: Some(|mapping, needle, vm| {
+            mapping.obj_as::<Self>().getitem(needle.to_owned(), vm)
+        }),
+        ass_subscript: None,
+    };
+}
+
 impl AsMapping for PyRange {
     fn as_mapping(_zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
-        PyMappingMethods {
-            length: Some(Self::length),
-            subscript: Some(Self::subscript),
-            ass_subscript: None,
-        }
-    }
-
-    #[inline]
-    fn length(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-        Self::downcast_ref(&zelf, vm).map(|zelf| Ok(zelf.len().to_usize().unwrap()))?
-    }
-
-    #[inline]
-    fn subscript(zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Self::downcast_ref(&zelf, vm).map(|zelf| zelf.getitem(needle, vm))?
-    }
-
-    #[inline]
-    fn ass_subscript(
-        zelf: PyObjectRef,
-        _needle: PyObjectRef,
-        _value: Option<PyObjectRef>,
-        _vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        unreachable!("ass_subscript not implemented for {}", zelf.class())
+        Self::MAPPING_METHODS
     }
 }
 

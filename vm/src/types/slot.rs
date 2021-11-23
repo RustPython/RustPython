@@ -776,43 +776,7 @@ pub trait AsMapping: PyValue {
         Self::as_mapping(zelf, vm)
     }
 
-    #[inline]
-    fn downcast(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        zelf.downcast::<Self>().map_err(|obj| {
-            vm.new_type_error(format!(
-                "{} type is required, not {}",
-                Self::class(vm),
-                obj.class()
-            ))
-        })
-    }
-
-    #[inline]
-    fn downcast_ref<'a>(
-        zelf: &'a PyObject,
-        vm: &VirtualMachine,
-    ) -> PyResult<&'a PyObjectView<Self>> {
-        zelf.downcast_ref::<Self>().ok_or_else(|| {
-            vm.new_type_error(format!(
-                "{} type is required, not {}",
-                Self::class(vm),
-                zelf.class()
-            ))
-        })
-    }
-
     fn as_mapping(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyMappingMethods;
-
-    fn length(zelf: PyObjectRef, _vm: &VirtualMachine) -> PyResult<usize>;
-
-    fn subscript(zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult;
-
-    fn ass_subscript(
-        zelf: PyObjectRef,
-        needle: PyObjectRef,
-        value: Option<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<()>;
 }
 
 #[pyimpl]

@@ -155,33 +155,19 @@ impl PyMappingProxy {
     }
 }
 
+impl PyMappingProxy {
+    const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
+        length: None,
+        subscript: Some(|mapping, needle, vm| {
+            mapping.obj_as::<Self>().getitem(needle.to_owned(), vm)
+        }),
+        ass_subscript: None,
+    };
+}
+
 impl AsMapping for PyMappingProxy {
     fn as_mapping(_zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
-        PyMappingMethods {
-            length: None,
-            subscript: Some(Self::subscript),
-            ass_subscript: None,
-        }
-    }
-
-    #[inline]
-    fn length(zelf: PyObjectRef, _vm: &VirtualMachine) -> PyResult<usize> {
-        unreachable!("length not implemented for {}", zelf.class())
-    }
-
-    #[inline]
-    fn subscript(zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Self::downcast_ref(&zelf, vm).map(|zelf| zelf.getitem(needle, vm))?
-    }
-
-    #[cold]
-    fn ass_subscript(
-        zelf: PyObjectRef,
-        _needle: PyObjectRef,
-        _value: Option<PyObjectRef>,
-        _vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        unreachable!("ass_subscript not implemented for {}", zelf.class())
+        Self::MAPPING_METHODS
     }
 }
 

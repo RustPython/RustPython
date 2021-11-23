@@ -308,33 +308,20 @@ impl PyTuple {
     }
 }
 
+impl PyTuple {
+    const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
+        length: Some(|mapping, vm| Ok(mapping.obj_as::<Self>().len())),
+        subscript: Some(|mapping, needle, vm| {
+            let zelf = mapping.obj_as::<Self>();
+            Self::getitem(zelf.to_owned(), needle.to_owned(), vm)
+        }),
+        ass_subscript: None,
+    };
+}
+
 impl AsMapping for PyTuple {
     fn as_mapping(_zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
-        PyMappingMethods {
-            length: Some(Self::length),
-            subscript: Some(Self::subscript),
-            ass_subscript: None,
-        }
-    }
-
-    #[inline]
-    fn length(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-        Self::downcast_ref(&zelf, vm).map(|zelf| Ok(zelf.len()))?
-    }
-
-    #[inline]
-    fn subscript(zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Self::downcast(zelf, vm).map(|zelf| Self::getitem(zelf, needle, vm))?
-    }
-
-    #[inline]
-    fn ass_subscript(
-        zelf: PyObjectRef,
-        _needle: PyObjectRef,
-        _value: Option<PyObjectRef>,
-        _vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        unreachable!("ass_subscript not implemented for {}", zelf.class())
+        Self::MAPPING_METHODS
     }
 }
 

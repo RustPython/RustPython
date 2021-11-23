@@ -523,6 +523,16 @@ impl PyBytes {
     }
 }
 
+impl PyBytes {
+    const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
+        length: Some(|mapping, vm| Ok(mapping.obj_as::<Self>().len())),
+        subscript: Some(|mapping, needle, vm| {
+            mapping.obj_as::<Self>().getitem(needle.to_owned(), vm)
+        }),
+        ass_subscript: None,
+    };
+}
+
 static BUFFER_METHODS: BufferMethods = BufferMethods {
     obj_bytes: |buffer| buffer.obj_as::<PyBytes>().as_bytes().into(),
     obj_bytes_mut: |_| panic!(),
@@ -543,31 +553,7 @@ impl AsBuffer for PyBytes {
 
 impl AsMapping for PyBytes {
     fn as_mapping(_zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
-        PyMappingMethods {
-            length: Some(Self::length),
-            subscript: Some(Self::subscript),
-            ass_subscript: None,
-        }
-    }
-
-    #[inline]
-    fn length(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-        Self::downcast_ref(&zelf, vm).map(|zelf| Ok(zelf.len()))?
-    }
-
-    #[inline]
-    fn subscript(zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Self::downcast_ref(&zelf, vm).map(|zelf| zelf.getitem(needle, vm))?
-    }
-
-    #[cold]
-    fn ass_subscript(
-        zelf: PyObjectRef,
-        _needle: PyObjectRef,
-        _value: Option<PyObjectRef>,
-        _vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        unreachable!("ass_subscript not implemented for {}", zelf.class())
+        Self::MAPPING_METHODS
     }
 }
 

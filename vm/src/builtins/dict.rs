@@ -420,36 +420,27 @@ impl PyDict {
     }
 }
 
+impl PyDict {
+    const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
+        length: Some(|mapping, vm| Ok(mapping.obj_as::<Self>().len())),
+        subscript: Some(|mapping, needle, vm| {
+            let zelf = mapping.obj_as::<Self>();
+            Self::getitem(zelf.to_owned(), needle.to_owned(), vm)
+        }),
+        ass_subscript: Some(|mapping, needle, value, vm| {
+            let zelf = mapping.obj_as::<Self>();
+            if let Some(value) = value {
+                zelf.setitem(needle.to_owned(), value, vm)
+            } else {
+                zelf.delitem(needle.to_owned(), vm)
+            }
+        }),
+    };
+}
+
 impl AsMapping for PyDict {
     fn as_mapping(_zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
-        PyMappingMethods {
-            length: Some(Self::length),
-            subscript: Some(Self::subscript),
-            ass_subscript: Some(Self::ass_subscript),
-        }
-    }
-
-    #[inline]
-    fn length(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-        Self::downcast_ref(&zelf, vm).map(|zelf| Ok(zelf.len()))?
-    }
-
-    #[inline]
-    fn subscript(zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Self::downcast(zelf, vm).map(|zelf| Self::getitem(zelf, needle, vm))?
-    }
-
-    #[inline]
-    fn ass_subscript(
-        zelf: PyObjectRef,
-        needle: PyObjectRef,
-        value: Option<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        Self::downcast_ref(&zelf, vm).map(|zelf| match value {
-            Some(value) => zelf.setitem(needle, value, vm),
-            None => zelf.delitem(needle, vm),
-        })?
+        Self::MAPPING_METHODS
     }
 }
 
