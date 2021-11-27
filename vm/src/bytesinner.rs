@@ -525,7 +525,16 @@ impl PyBytesInner {
         Ok(self.elements.py_find(&needle, range, find))
     }
 
-    pub fn maketrans(from: PyBytesInner, to: PyBytesInner) -> PyResult<Vec<u8>> {
+    pub fn maketrans(
+        from: PyBytesInner,
+        to: PyBytesInner,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<u8>> {
+        if from.len() != to.len() {
+            return Err(
+                vm.new_value_error("the two maketrans arguments must have equal length".to_owned())
+            );
+        }
         let mut res = vec![];
 
         for i in 0..=255 {

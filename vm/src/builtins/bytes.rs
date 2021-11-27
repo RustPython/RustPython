@@ -150,8 +150,8 @@ impl PyBytes {
     }
 
     #[pymethod]
-    fn maketrans(from: PyBytesInner, to: PyBytesInner) -> PyResult<Vec<u8>> {
-        PyBytesInner::maketrans(from, to)
+    fn maketrans(from: PyBytesInner, to: PyBytesInner, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        PyBytesInner::maketrans(from, to, vm)
     }
 
     #[pymethod(magic)]
