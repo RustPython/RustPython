@@ -56,7 +56,7 @@ class CmdLineTest(unittest.TestCase):
         # but the rest should be ASCII-only
         b''.join(lines[1:]).decode('ascii')
 
-    # TODO: RUSTPYTHON
+    # NOTE: RUSTPYTHON version never starts with Python
     @unittest.expectedFailure
     def test_version(self):
         version = ('Python %d.%d' % sys.version_info[:2]).encode("ascii")

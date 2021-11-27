@@ -319,7 +319,6 @@ class CommonTest(unittest.TestCase):
             self.assertEqual(self.type2test(s)*(-4), self.type2test([]))
             self.assertEqual(id(s), id(s*1))
 
-    @unittest.skip("TODO: RUSTPYTHON, only works on 32-bit systems?")
     def test_bigrepeat(self):
         if sys.maxsize <= 2147483647:
             x = self.type2test([0])
