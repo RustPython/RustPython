@@ -309,8 +309,6 @@ class TestCase(unittest.TestCase):
         self.check_for_loop(iter("abcde"), ["a", "b", "c", "d", "e"])
 
     # Test a directory
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_iter_dict(self):
         dict = {}
         for i in range(10):
