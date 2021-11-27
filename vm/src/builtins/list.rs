@@ -345,14 +345,17 @@ impl PyList {
             .map(Into::into)
     }
 
+    #[pyslot]
     #[pymethod(magic)]
-    fn init(&self, iterable: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<()> {
+    fn init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let zelf: PyRef<Self> = zelf.try_into_value(vm)?;
+        let iterable: OptionalArg<PyObjectRef> = args.bind(vm)?;
         let mut elements = if let OptionalArg::Present(iterable) = iterable {
             iterable.try_to_value(vm)?
         } else {
             vec![]
         };
-        std::mem::swap(self.borrow_vec_mut().deref_mut(), &mut elements);
+        std::mem::swap(zelf.borrow_vec_mut().deref_mut(), &mut elements);
         Ok(())
     }
 

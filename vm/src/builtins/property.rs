@@ -99,12 +99,18 @@ impl PyProperty {
         .map(Into::into)
     }
 
+    #[pyslot]
     #[pymethod(magic)]
-    fn init(&self, args: PropertyArgs) {
-        *self.getter.write() = args.fget;
-        *self.setter.write() = args.fset;
-        *self.deleter.write() = args.fdel;
-        *self.doc.write() = args.doc;
+    fn init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let zelf: PyRef<Self> = zelf.try_into_value(vm)?;
+        let args: PropertyArgs = args.bind(vm)?;
+
+        *zelf.getter.write() = args.fget;
+        *zelf.setter.write() = args.fset;
+        *zelf.deleter.write() = args.fdel;
+        *zelf.doc.write() = args.doc;
+
+        Ok(())
     }
 
     // Descriptor methods

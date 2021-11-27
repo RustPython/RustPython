@@ -105,11 +105,14 @@ impl PyByteArray {
             .map(Into::into)
     }
 
+    #[pyslot]
     #[pymethod(magic)]
-    fn init(&self, options: ByteInnerNewOptions, vm: &VirtualMachine) -> PyResult<()> {
+    fn init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let zelf: PyRef<Self> = zelf.try_into_value(vm)?;
+        let options: ByteInnerNewOptions = args.bind(vm)?;
         // First unpack bytearray and *then* get a lock to set it.
         let mut inner = options.get_bytearray_inner(vm)?;
-        std::mem::swap(&mut *self.inner_mut(), &mut inner);
+        std::mem::swap(&mut *zelf.inner_mut(), &mut inner);
         Ok(())
     }
 

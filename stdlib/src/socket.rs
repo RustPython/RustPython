@@ -16,7 +16,7 @@ mod _socket {
         convert::{ToPyException, ToPyObject, TryFromBorrowedObject, TryFromObject},
         function::{ArgBytesLike, ArgMemoryBuffer, Either, FuncArgs, OptionalArg, OptionalOption},
         utils::ToCString,
-        AsObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+        AsObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use num_traits::ToPrimitive;
@@ -548,15 +548,16 @@ mod _socket {
             Self::default().into_ref_with_type(vm, cls).map(Into::into)
         }
 
+        #[pyslot]
         #[pymethod(magic)]
-        fn init(
-            &self,
-            family: OptionalArg<i32>,
-            socket_kind: OptionalArg<i32>,
-            proto: OptionalArg<i32>,
-            fileno: OptionalOption<PyObjectRef>,
-            vm: &VirtualMachine,
-        ) -> PyResult<()> {
+        fn init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+            let zelf: PyRef<Self> = zelf.try_into_value(vm)?;
+            let (family, socket_kind, proto, fileno): (
+                OptionalArg<i32>,
+                OptionalArg<i32>,
+                OptionalArg<i32>,
+                OptionalOption<PyObjectRef>,
+            ) = args.bind(vm)?;
             let mut family = family.unwrap_or(-1);
             let mut socket_kind = socket_kind.unwrap_or(-1);
             let mut proto = proto.unwrap_or(-1);
@@ -628,7 +629,7 @@ mod _socket {
                 )
                 .map_err(|err| err.to_pyexception(vm))?;
             };
-            self.init_inner(family, socket_kind, proto, sock, vm)
+            zelf.init_inner(family, socket_kind, proto, sock, vm)
         }
 
         #[pymethod]

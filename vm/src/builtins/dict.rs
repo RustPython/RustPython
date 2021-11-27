@@ -88,14 +88,12 @@ impl PyDict {
             .map(Into::into)
     }
 
+    #[pyslot]
     #[pymethod(magic)]
-    fn init(
-        &self,
-        dict_obj: OptionalArg<PyObjectRef>,
-        kwargs: KwArgs,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        self.update(dict_obj, kwargs, vm)
+    fn init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let zelf: PyRef<Self> = zelf.try_into_value(vm)?;
+        let (dict_obj, kwargs): (OptionalArg<PyObjectRef>, KwArgs) = args.bind(vm)?;
+        zelf.update(dict_obj, kwargs, vm)
     }
 
     // Used in update and ior.

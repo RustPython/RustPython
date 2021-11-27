@@ -381,9 +381,10 @@ pub(crate) fn impl_define_exception(exc_def: PyExceptionDef) -> Result<TokenStre
                 #slot_new_impl
             }
 
+            #[pyslot]
             #[pymethod(magic)]
             pub(crate) fn init(
-                zelf: ::rustpython_vm::PyRef<::rustpython_vm::builtins::PyBaseException>,
+                zelf: PyObjectRef,
                 args: ::rustpython_vm::function::FuncArgs,
                 vm: &::rustpython_vm::VirtualMachine,
             ) -> ::rustpython_vm::PyResult<()> {

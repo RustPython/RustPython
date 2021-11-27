@@ -5,7 +5,7 @@ use crate::{
     function::{FuncArgs, PyComparisonValue},
     recursion::ReprGuard,
     types::{Comparable, Constructor, PyComparisonOp},
-    AsObject, Context, PyObject, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 /// A simple attribute-based namespace.
@@ -41,8 +41,10 @@ impl PyNamespace {
 
 #[pyimpl(flags(BASETYPE, HAS_DICT), with(Constructor, Comparable))]
 impl PyNamespace {
+    #[pyslot]
     #[pymethod(magic)]
-    fn init(zelf: PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+    fn init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let zelf: PyRef<Self> = zelf.try_into_value(vm)?;
         if !args.args.is_empty() {
             return Err(vm.new_type_error("no positional arguments expected".to_owned()));
         }

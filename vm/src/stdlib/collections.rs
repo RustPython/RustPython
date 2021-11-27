@@ -63,12 +63,12 @@ mod _collections {
                 .map(Into::into)
         }
 
+        #[pyslot]
         #[pymethod(magic)]
-        fn init(
-            zelf: PyRef<Self>,
-            PyDequeOptions { iterable, maxlen }: PyDequeOptions,
-            vm: &VirtualMachine,
-        ) -> PyResult<()> {
+        fn init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+            let zelf: PyRef<Self> = zelf.try_into_value(vm)?;
+            let PyDequeOptions { iterable, maxlen } = args.bind(vm)?;
+
             // TODO: This is _basically_ pyobject_to_opt_usize in itertools.rs
             // need to move that function elsewhere and refactor usages.
             let maxlen = if let Some(obj) = maxlen.into_option() {

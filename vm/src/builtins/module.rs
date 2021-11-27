@@ -38,14 +38,18 @@ impl PyModule {
         PyModule {}.into_ref_with_type(vm, cls).map(Into::into)
     }
 
+    #[pyslot]
     #[pymethod(magic)]
-    fn init(zelf: PyRef<Self>, args: ModuleInitArgs, vm: &VirtualMachine) {
+    fn init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let zelf: PyRef<Self> = zelf.try_into_value(vm)?;
+        let args: ModuleInitArgs = args.bind(vm)?;
         debug_assert!(zelf
             .class()
             .slots
             .flags
             .has_feature(crate::types::PyTypeFlags::HAS_DICT));
         zelf.init_module_dict(args.name.into(), args.doc.to_pyobject(vm), vm);
+        Ok(())
     }
 
     fn getattr_inner(zelf: &Py<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {

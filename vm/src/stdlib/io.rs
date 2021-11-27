@@ -1371,6 +1371,13 @@ mod _io {
                 .ok_or_else(|| vm.new_runtime_error("reentrant call inside buffered io".to_owned()))
         }
 
+        #[pyslot]
+        fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+            let zelf: PyRef<Self> = zelf.try_into_value(vm)?;
+            let (raw, BufferSize { buffer_size }): (PyObjectRef, _) = args.bind(vm)?;
+            zelf.init(raw, BufferSize { buffer_size }, vm)
+        }
+
         #[pymethod(magic)]
         fn init(
             &self,
@@ -1783,16 +1790,14 @@ mod _io {
         fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             Self::default().into_ref_with_type(vm, cls).map(Into::into)
         }
+        #[pyslot]
         #[pymethod(magic)]
-        fn init(
-            &self,
-            reader: PyObjectRef,
-            writer: PyObjectRef,
-            buffer_size: BufferSize,
-            vm: &VirtualMachine,
-        ) -> PyResult<()> {
-            self.read.init(reader, buffer_size.clone(), vm)?;
-            self.write.init(writer, buffer_size, vm)?;
+        fn init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+            let zelf: PyRef<Self> = zelf.try_into_value(vm)?;
+            let (reader, writer, buffer_size): (PyObjectRef, PyObjectRef, BufferSize) =
+                args.bind(vm)?;
+            zelf.read.init(reader, buffer_size.clone(), vm)?;
+            zelf.write.init(writer, buffer_size, vm)?;
             Ok(())
         }
 
@@ -2193,9 +2198,12 @@ mod _io {
                 .map_err(|_| vm.new_value_error("I/O operation on uninitialized object".to_owned()))
         }
 
+        #[pyslot]
         #[pymethod(magic)]
-        fn init(&self, args: TextIOWrapperArgs, vm: &VirtualMachine) -> PyResult<()> {
-            let mut data = self.lock_opt(vm)?;
+        fn init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+            let zelf: PyRef<Self> = zelf.try_into_value(vm)?;
+            let args: TextIOWrapperArgs = args.bind(vm)?;
+            let mut data = zelf.lock_opt(vm)?;
             *data = None;
 
             let encoding = match args.encoding {
@@ -3829,8 +3837,11 @@ mod fileio {
             .map(Into::into)
         }
 
+        #[pyslot]
         #[pymethod(magic)]
-        fn init(zelf: PyRef<Self>, args: FileIOArgs, vm: &VirtualMachine) -> PyResult<()> {
+        fn init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+            let zelf: PyRef<Self> = zelf.try_into_value(vm)?;
+            let args: FileIOArgs = args.bind(vm)?;
             let mode_obj = args.mode.unwrap_or_else(|| PyStr::from("rb").into_ref(vm));
             let mode_str = mode_obj.as_str();
             let name = args.name;

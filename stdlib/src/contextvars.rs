@@ -15,8 +15,10 @@ mod _contextvars {
 
     #[pyimpl]
     impl PyContext {
+        #[pyslot]
         #[pymethod(magic)]
-        fn init(&self, _vm: &VirtualMachine) -> PyResult<()> {
+        fn init(zelf: PyObjectRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+            let _zelf: PyRef<Self> = zelf.try_into_value(vm)?;
             unimplemented!("Context.__init__ is currently under construction")
         }
 
@@ -97,8 +99,10 @@ mod _contextvars {
 
     #[pyimpl]
     impl ContextVar {
+        #[pyslot]
         #[pymethod(magic)]
-        fn init(&self, _args: ContextVarOptions, _vm: &VirtualMachine) -> PyResult<()> {
+        fn init(_zelf: PyObjectRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+            let _: ContextVarOptions = _args.bind(vm)?;
             unimplemented!("ContextVar.__init__() is currently under construction")
         }
 
@@ -167,8 +171,10 @@ mod _contextvars {
 
     #[pyimpl]
     impl ContextToken {
+        #[pyslot]
         #[pymethod(magic)]
-        fn init(&self, _args: ContextTokenOptions, _vm: &VirtualMachine) -> PyResult<()> {
+        fn init(_zelf: PyObjectRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+            let _: ContextTokenOptions = _args.bind(vm)?;
             unimplemented!("Token.__init__() is currently under construction")
         }
 

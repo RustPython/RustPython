@@ -61,7 +61,7 @@ pub struct PyTypeSlots {
     pub descr_get: AtomicCell<Option<DescrGetFunc>>,
     pub descr_set: AtomicCell<Option<DescrSetFunc>>,
     // tp_dictoffset
-    // tp_init
+    pub init: AtomicCell<Option<InitFunc>>,
     // tp_alloc
     pub new: AtomicCell<Option<NewFunc>>,
     // tp_free
@@ -155,6 +155,7 @@ pub(crate) type DescrGetFunc =
 pub(crate) type DescrSetFunc =
     fn(PyObjectRef, PyObjectRef, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>;
 pub(crate) type NewFunc = fn(PyTypeRef, FuncArgs, &VirtualMachine) -> PyResult;
+pub(crate) type InitFunc = fn(PyObjectRef, FuncArgs, &VirtualMachine) -> PyResult<()>;
 pub(crate) type DelFunc = fn(&PyObject, &VirtualMachine) -> PyResult<()>;
 pub(crate) type AsSequenceFunc = fn(&PyObject, &VirtualMachine) -> Cow<'static, PySequenceMethods>;
 
@@ -324,6 +325,14 @@ fn descr_set_wrapper(
     .map(drop)
 }
 
+fn init_wrapper(obj: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+    let res = vm.call_special_method(obj, "__init__", args)?;
+    if !vm.is_none(&res) {
+        return Err(vm.new_type_error("__init__ must return None".to_owned()));
+    }
+    Ok(())
+}
+
 fn new_wrapper(cls: PyTypeRef, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
     let new = vm
         .get_attribute_opt(cls.as_object().to_owned(), "__new__")?
@@ -378,6 +387,9 @@ impl PyType {
             }
             "__set__" | "__delete__" => {
                 update_slot!(descr_set, descr_set_wrapper);
+            }
+            "__init__" => {
+                update_slot!(init, init_wrapper);
             }
             "__new__" => {
                 update_slot!(new, new_wrapper);

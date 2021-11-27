@@ -401,13 +401,16 @@ impl PySet {
         PySet::default().into_ref_with_type(vm, cls).map(Into::into)
     }
 
+    #[pyslot]
     #[pymethod(magic)]
-    fn init(&self, iterable: OptionalArg<ArgIterable>, vm: &VirtualMachine) -> PyResult<()> {
-        if self.len() > 0 {
-            self.clear();
+    fn init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let zelf: PyRef<Self> = zelf.try_into_value(vm)?;
+        let iterable: OptionalArg<ArgIterable> = args.bind(vm)?;
+        if zelf.len() > 0 {
+            zelf.clear();
         }
         if let OptionalArg::Present(it) = iterable {
-            self.update(PosArgs::new(vec![it]), vm)?;
+            zelf.update(PosArgs::new(vec![it]), vm)?;
         }
         Ok(())
     }
