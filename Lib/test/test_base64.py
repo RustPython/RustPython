@@ -26,8 +26,6 @@ class LegacyBase64TestCase(unittest.TestCase):
         with self.assertWarns(DeprecationWarning):
             base64.decodestring(b"d3d3LnB5dGhvbi5vcmc=\n")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_encodebytes(self):
         eq = self.assertEqual
         eq(base64.encodebytes(b"www.python.org"), b"d3d3LnB5dGhvbi5vcmc=\n")
@@ -47,8 +45,6 @@ class LegacyBase64TestCase(unittest.TestCase):
         eq(base64.encodebytes(array('B', b'abc')), b'YWJj\n')
         self.check_type_errors(base64.encodebytes)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_decodebytes(self):
         eq = self.assertEqual
         eq(base64.decodebytes(b"d3d3LnB5dGhvbi5vcmc=\n"), b"www.python.org")
@@ -133,9 +129,6 @@ class BaseXYTestCase(unittest.TestCase):
         int_data = memoryview(bytes_data).cast('I')
         self.assertEqual(f(int_data), f(bytes_data))
 
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_b64encode(self):
         eq = self.assertEqual
         # Test default alphabet
@@ -186,8 +179,6 @@ class BaseXYTestCase(unittest.TestCase):
                                b'\xd3V\xbeo\xf7\x1d', b'01a-b_cd')
         self.check_encode_type_errors(base64.urlsafe_b64encode)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_b64decode(self):
         eq = self.assertEqual
 
@@ -284,8 +275,6 @@ class BaseXYTestCase(unittest.TestCase):
         self.assertEqual(base64.b64decode(b'++[[//]]', b'[]'), res)
         self.assertEqual(base64.urlsafe_b64decode(b'++--//__'), res)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_b32encode(self):
         eq = self.assertEqual
         eq(base64.b32encode(b''), b'')
@@ -299,8 +288,6 @@ class BaseXYTestCase(unittest.TestCase):
         self.check_other_types(base64.b32encode, b'abcd', b'MFRGGZA=')
         self.check_encode_type_errors(base64.b32encode)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_b32decode(self):
         eq = self.assertEqual
         tests = {b'': b'',
@@ -375,8 +362,6 @@ class BaseXYTestCase(unittest.TestCase):
                 with self.assertRaises(binascii.Error):
                     base64.b32decode(data.decode('ascii'))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_b16encode(self):
         eq = self.assertEqual
         eq(base64.b16encode(b'\x01\x02\xab\xcd\xef'), b'0102ABCDEF')
@@ -415,8 +400,6 @@ class BaseXYTestCase(unittest.TestCase):
         # Incorrect "padding"
         self.assertRaises(binascii.Error, base64.b16decode, '010')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_a85encode(self):
         eq = self.assertEqual
 
@@ -467,8 +450,6 @@ class BaseXYTestCase(unittest.TestCase):
         eq(base64.a85encode(b' '*6, foldspaces=True, adobe=False), b'y+<U')
         eq(base64.a85encode(b' '*5, foldspaces=True, adobe=False), b'y+9')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_b85encode(self):
         eq = self.assertEqual
 
@@ -503,8 +484,6 @@ class BaseXYTestCase(unittest.TestCase):
         self.check_other_types(base64.b85encode, b"www.python.org",
                                b'cXxL#aCvlSZ*DGca%T')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_a85decode(self):
         eq = self.assertEqual
 
@@ -550,8 +529,6 @@ class BaseXYTestCase(unittest.TestCase):
         self.check_other_types(base64.a85decode, b'GB\\6`E-ZP=Df.1GEb>',
                                b"www.python.org")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_b85decode(self):
         eq = self.assertEqual
 

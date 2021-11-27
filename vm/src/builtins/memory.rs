@@ -1,5 +1,6 @@
 use super::{
-    PyBytes, PyBytesRef, PyInt, PyListRef, PySlice, PyStr, PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
+    PyBytes, PyBytesRef, PyInt, PyList, PyListRef, PySlice, PyStr, PyStrRef, PyTuple, PyTupleRef,
+    PyTypeRef,
 };
 use crate::common::{
     borrow::{BorrowedValue, BorrowedValueMut},
@@ -629,6 +630,16 @@ impl PyMemoryView {
                 ));
             }
 
+            let tup = shape.payload_if_subclass::<PyTuple>(vm);
+            let list = shape.payload_if_subclass::<PyList>(vm);
+
+            let l = tup.map(|t| PyList::from(t.as_slice().iter().cloned().collect_vec()));
+            let list_from_tuple = l.as_ref();
+
+            let shape = list.xor(list_from_tuple).ok_or_else(|| {
+                vm.new_type_error("memoryview: must be a list or a tuple".to_owned())
+            })?;
+
             let shape_vec = shape.borrow_vec();
             let shape_ndim = shape_vec.len();
             // TODO: MAX_NDIM
@@ -865,7 +876,7 @@ struct CastArgs {
     #[pyarg(any)]
     format: PyStrRef,
     #[pyarg(any, optional)]
-    shape: OptionalArg<PyListRef>,
+    shape: OptionalArg<PyObjectRef>,
 }
 
 enum SubscriptNeedle {
