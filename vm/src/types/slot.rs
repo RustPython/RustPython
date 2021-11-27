@@ -163,31 +163,37 @@ fn as_mapping_wrapper(zelf: &PyObject, _vm: &VirtualMachine) -> PyMappingMethods
         };
     }
     PyMappingMethods {
-        length: then_some_closure!(zelf.has_class_attr("__len__"), |zelf, vm| {
-            vm.call_special_method(zelf, "__len__", ()).map(|obj| {
-                obj.payload_if_subclass::<PyInt>(vm)
-                    .map(|length_obj| {
-                        length_obj.as_bigint().to_usize().ok_or_else(|| {
-                            vm.new_value_error("__len__() should return >= 0".to_owned())
+        length: then_some_closure!(zelf.has_class_attr("__len__"), |mapping, vm| {
+            vm.call_special_method(mapping.obj.to_owned(), "__len__", ())
+                .map(|obj| {
+                    obj.payload_if_subclass::<PyInt>(vm)
+                        .map(|length_obj| {
+                            length_obj.as_bigint().to_usize().ok_or_else(|| {
+                                vm.new_value_error("__len__() should return >= 0".to_owned())
+                            })
                         })
-                    })
-                    .unwrap()
-            })?
+                        .unwrap()
+                })?
         }),
-        subscript: then_some_closure!(
-            zelf.has_class_attr("__getitem__"),
-            |zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine| {
-                vm.call_special_method(zelf, "__getitem__", (needle,))
-            }
-        ),
+        subscript: then_some_closure!(zelf.has_class_attr("__getitem__"), |mapping, needle, vm| {
+            vm.call_special_method(mapping.obj.to_owned(), "__getitem__", (needle.to_owned(),))
+        }),
         ass_subscript: then_some_closure!(
             zelf.has_class_attr("__setitem__") | zelf.has_class_attr("__delitem__"),
-            |zelf, needle, value, vm| match value {
+            |mapping, needle, value, vm| match value {
                 Some(value) => vm
-                    .call_special_method(zelf, "__setitem__", (needle, value),)
+                    .call_special_method(
+                        mapping.obj.to_owned(),
+                        "__setitem__",
+                        (needle.to_owned(), value),
+                    )
                     .map(|_| Ok(()))?,
                 None => vm
-                    .call_special_method(zelf, "__delitem__", (needle,))
+                    .call_special_method(
+                        mapping.obj.to_owned(),
+                        "__delitem__",
+                        (needle.to_owned(),)
+                    )
                     .map(|_| Ok(()))?,
             }
         ),

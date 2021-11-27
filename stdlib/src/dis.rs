@@ -5,7 +5,7 @@ mod decl {
     use crate::vm::{
         builtins::{PyCode, PyDictRef, PyStrRef},
         bytecode::CodeFlags,
-        compile, ItemProtocol, PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,
+        compile, PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,
     };
 
     #[pyfunction]

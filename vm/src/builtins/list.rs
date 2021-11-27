@@ -391,7 +391,7 @@ impl<'a> MutObjectSequenceOp<'a> for PyList {
 
 impl PyList {
     const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
-        length: Some(|mapping, vm| Ok(mapping.obj_as::<Self>().len())),
+        length: Some(|mapping, _vm| Ok(mapping.obj_as::<Self>().len())),
         subscript: Some(|mapping, needle, vm| {
             let zelf = mapping.obj_as::<Self>();
             Self::getitem(zelf.to_owned(), needle.to_owned(), vm)

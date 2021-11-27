@@ -74,10 +74,7 @@ impl<'vm> ShellHelper<'vm> {
             // last: the last word, could be empty if it ends with a dot
             // parents: the words before the dot
 
-            let mut current = self
-                .globals
-                .get_item_option(first.as_str(), self.vm)
-                .ok()??;
+            let mut current = self.globals.get_item_opt(first.as_str(), self.vm).ok()??;
 
             for attr in parents {
                 current = current.clone().get_attr(attr.as_str(), self.vm).ok()?;

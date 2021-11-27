@@ -4,8 +4,8 @@ use crate::{
     function::{FuncArgs, IntoPyObject},
     protocol::PyMappingMethods,
     types::{AsMapping, Callable, Comparable, Constructor, GetAttr, Hashable, PyComparisonOp},
-    IdProtocol, ItemProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef,
-    PyObjectView, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
+    IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyObjectView,
+    PyRef, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
 };
 use std::fmt;
 
@@ -238,7 +238,7 @@ fn subs_tvars(
 }
 
 impl PyGenericAlias {
-    fn getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
+    fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let num_params = self.parameters.len();
         if num_params == 0 {
             return Err(vm.new_type_error(format!(
@@ -291,7 +291,9 @@ impl PyGenericAlias {
 
     const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
         length: None,
-        subscript: Some(|mapping, needle, vm| mapping.obj_as::<Self>().getitem(needle, vm)),
+        subscript: Some(|mapping, needle, vm| {
+            mapping.obj_as::<Self>().getitem(needle.to_owned(), vm)
+        }),
         ass_subscript: None,
     };
 }

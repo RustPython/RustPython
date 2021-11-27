@@ -1,15 +1,20 @@
-use crate::common::{
-    hash,
-    lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
-};
+use num_traits::ToPrimitive;
+
 /// Ordered dictionary implementation.
 /// Inspired by: https://morepypy.blogspot.com/2015/01/faster-more-memory-efficient-and-more.html
 /// And: https://www.youtube.com/watch?v=p33CVV29OG8
 /// And: http://code.activestate.com/recipes/578375/
 use crate::{
-    builtins::{PyStr, PyStrRef},
+    builtins::{PyInt, PyStr, PyStrRef},
     function::IntoPyObject,
     IdProtocol, PyObject, PyObjectRef, PyRefExact, PyResult, TypeProtocol, VirtualMachine,
+};
+use crate::{
+    common::{
+        hash,
+        lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
+    },
+    PyObjectWrap,
 };
 use std::fmt;
 use std::mem::size_of;
@@ -780,6 +785,29 @@ impl DictKey for String {
 
     fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObject) -> PyResult<bool> {
         self.as_str().key_eq(vm, other_key)
+    }
+}
+
+impl DictKey for usize {
+    fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
+        Ok(vm.state.hash_secret.hash_value(self))
+    }
+
+    fn key_is(&self, _other: &PyObject) -> bool {
+        false
+    }
+
+    fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObject) -> PyResult<bool> {
+        if let Some(int) = other_key.payload_if_exact::<PyInt>(vm) {
+            if let Some(i) = int.as_bigint().to_usize() {
+                Ok(i == *self)
+            } else {
+                Ok(false)
+            }
+        } else {
+            let int = vm.ctx.new_int(*self);
+            vm.bool_eq(&int.into_object(), other_key)
+        }
     }
 }
 

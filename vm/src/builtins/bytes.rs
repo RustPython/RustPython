@@ -525,7 +525,7 @@ impl PyBytes {
 
 impl PyBytes {
     const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
-        length: Some(|mapping, vm| Ok(mapping.obj_as::<Self>().len())),
+        length: Some(|mapping, _vm| Ok(mapping.obj_as::<Self>().len())),
         subscript: Some(|mapping, needle, vm| {
             mapping.obj_as::<Self>().getitem(needle.to_owned(), vm)
         }),

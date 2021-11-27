@@ -10,13 +10,13 @@ use crate::{
     bytecode,
     coroutine::Coro,
     exceptions::ExceptionCtor,
-    function::{FuncArgs, IntoPyResult},
-    protocol::{PyIter, PyIterReturn, PyMapping},
+    function::{ArgMapping, FuncArgs, IntoPyResult},
+    protocol::{PyIter, PyIterReturn},
     scope::Scope,
     stdlib::builtins,
     types::PyComparisonOp,
-    IdProtocol, ItemProtocol, PyMethod, PyObject, PyObjectRef, PyObjectWrap, PyRef, PyResult,
-    PyValue, TryFromObject, TypeProtocol, VirtualMachine,
+    IdProtocol, PyMethod, PyObject, PyObjectRef, PyObjectWrap, PyRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol, VirtualMachine,
 };
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -99,7 +99,7 @@ pub struct Frame {
 
     pub fastlocals: PyMutex<Box<[Option<PyObjectRef>]>>,
     pub(crate) cells_frees: Box<[PyCellRef]>,
-    pub locals: PyMapping,
+    pub locals: ArgMapping,
     pub globals: PyDictRef,
     pub builtins: PyDictRef,
 
@@ -179,7 +179,7 @@ impl FrameRef {
         f(exec)
     }
 
-    pub fn locals(&self, vm: &VirtualMachine) -> PyResult<PyMapping> {
+    pub fn locals(&self, vm: &VirtualMachine) -> PyResult<ArgMapping> {
         let locals = &self.locals;
         let code = &**self.code;
         let map = &code.varnames;
@@ -187,38 +187,20 @@ impl FrameRef {
         if !code.varnames.is_empty() {
             let fastlocals = self.fastlocals.lock();
             for (k, v) in itertools::zip(&map[..j], &**fastlocals) {
-                if let Some(v) = v {
-                    match locals.as_object().to_owned().downcast_exact::<PyDict>(vm) {
-                        Ok(d) => d.set_item(k.clone(), v.clone(), vm)?,
-                        Err(o) => o.set_item(k.clone(), v.clone(), vm)?,
-                    };
-                } else {
-                    let res = match locals.as_object().to_owned().downcast_exact::<PyDict>(vm) {
-                        Ok(d) => d.del_item(k.clone(), vm),
-                        Err(o) => o.del_item(k.clone(), vm),
-                    };
-                    match res {
-                        Ok(()) => {}
-                        Err(e) if e.isinstance(&vm.ctx.exceptions.key_error) => {}
-                        Err(e) => return Err(e),
-                    }
+                match locals.mapping().ass_subscript(k.as_object(), v.clone(), vm) {
+                    Ok(()) => {}
+                    Err(e) if e.isinstance(&vm.ctx.exceptions.key_error) => {}
+                    Err(e) => return Err(e),
                 }
             }
         }
         if !code.cellvars.is_empty() || !code.freevars.is_empty() {
             let map_to_dict = |keys: &[PyStrRef], values: &[PyCellRef]| {
                 for (k, v) in itertools::zip(keys, values) {
-                    if let Some(v) = v.get() {
-                        match locals.as_object().to_owned().downcast_exact::<PyDict>(vm) {
-                            Ok(d) => d.set_item(k.clone(), v, vm)?,
-                            Err(o) => o.set_item(k.clone(), v, vm)?,
-                        };
+                    if let Some(value) = v.get() {
+                        locals.as_object().set_item(k.clone(), value, vm)?;
                     } else {
-                        let res = match locals.as_object().to_owned().downcast_exact::<PyDict>(vm) {
-                            Ok(d) => d.del_item(k.clone(), vm),
-                            Err(o) => o.del_item(k.clone(), vm),
-                        };
-                        match res {
+                        match locals.as_object().del_item(k.clone(), vm) {
                             Ok(()) => {}
                             Err(e) if e.isinstance(&vm.ctx.exceptions.key_error) => {}
                             Err(e) => return Err(e),
@@ -289,7 +271,7 @@ struct ExecutingFrame<'a> {
     code: &'a PyRef<PyCode>,
     fastlocals: &'a PyMutex<Box<[Option<PyObjectRef>]>>,
     cells_frees: &'a [PyCellRef],
-    locals: &'a PyMapping,
+    locals: &'a ArgMapping,
     globals: &'a PyDictRef,
     builtins: &'a PyDictRef,
     object: &'a FrameRef,
@@ -514,17 +496,8 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::LoadNameAny(idx) => {
                 let name = &self.code.names[*idx as usize];
-                // Try using locals as dict first, if not, fallback to generic method.
-                let x = match self
-                    .locals
-                    .clone()
-                    .into_object()
-                    .downcast_exact::<PyDict>(vm)
-                {
-                    Ok(d) => d.get_item_option(name.clone(), vm)?,
-                    Err(o) => o.get_item(name.clone(), vm).ok(),
-                };
-                self.push_value(match x {
+                let value = self.locals.mapping().subscript(name.as_object(), vm).ok();
+                self.push_value(match value {
                     Some(x) => x,
                     None => self.load_global_or_builtin(name, vm)?,
                 });
@@ -547,16 +520,7 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::LoadClassDeref(i) => {
                 let i = *i as usize;
                 let name = self.code.freevars[i - self.code.cellvars.len()].clone();
-                // Try using locals as dict first, if not, fallback to generic method.
-                let value = match self
-                    .locals
-                    .clone()
-                    .into_object()
-                    .downcast_exact::<PyDict>(vm)
-                {
-                    Ok(d) => d.get_item_option(name, vm)?,
-                    Err(o) => o.get_item(name, vm).ok(),
-                };
+                let value = self.locals.mapping().subscript(name.as_object(), vm).ok();
                 self.push_value(match value {
                     Some(v) => v,
                     None => self.cells_frees[i]
@@ -571,16 +535,11 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::StoreLocal(idx) => {
+                let name = &self.code.names[*idx as usize];
                 let value = self.pop_value();
-                match self
-                    .locals
-                    .clone()
-                    .into_object()
-                    .downcast_exact::<PyDict>(vm)
-                {
-                    Ok(d) => d.set_item(self.code.names[*idx as usize].clone(), value, vm)?,
-                    Err(o) => o.set_item(self.code.names[*idx as usize].clone(), value, vm)?,
-                };
+                self.locals
+                    .mapping()
+                    .ass_subscript(name.as_object(), Some(value), vm)?;
                 Ok(None)
             }
             bytecode::Instruction::StoreGlobal(idx) => {
@@ -600,15 +559,10 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::DeleteLocal(idx) => {
                 let name = &self.code.names[*idx as usize];
-                let res = match self
+                let res = self
                     .locals
-                    .clone()
-                    .into_object()
-                    .downcast_exact::<PyDict>(vm)
-                {
-                    Ok(d) => d.del_item(name.clone(), vm),
-                    Err(o) => o.del_item(name.clone(), vm),
-                };
+                    .mapping()
+                    .ass_subscript(name.as_object(), None, vm);
 
                 match res {
                     Ok(()) => {}
@@ -1204,18 +1158,12 @@ impl ExecutingFrame<'_> {
                 } else {
                     Box::new(|name| !name.starts_with('_'))
                 };
-            for (k, v) in &dict {
+            for (k, v) in dict {
                 let k = PyStrRef::try_from_object(vm, k)?;
                 if filter_pred(k.as_str()) {
-                    match self
-                        .locals
-                        .clone()
-                        .into_object()
-                        .downcast_exact::<PyDict>(vm)
-                    {
-                        Ok(d) => d.set_item(k, v, vm)?,
-                        Err(o) => o.set_item(k, v, vm)?,
-                    };
+                    self.locals
+                        .mapping()
+                        .ass_subscript(k.as_object(), Some(v), vm)?;
                 }
             }
         }
@@ -1664,7 +1612,7 @@ impl ExecutingFrame<'_> {
         let name = qualified_name.as_str().split('.').next_back().unwrap();
         func_obj.set_attr("__name__", vm.new_pyobj(name), vm)?;
         func_obj.set_attr("__qualname__", qualified_name, vm)?;
-        let module = vm.unwrap_or_none(self.globals.get_item_option("__name__", vm)?);
+        let module = vm.unwrap_or_none(self.globals.get_item_opt("__name__", vm)?);
         func_obj.set_attr("__module__", module, vm)?;
         func_obj.set_attr("__annotations__", annotations, vm)?;
 
@@ -1910,7 +1858,9 @@ impl fmt::Debug for Frame {
         write!(
             f,
             "Frame Object {{ \n Stack:{}\n Blocks:{}\n Locals:{:?}\n}}",
-            stack_str, block_str, locals
+            stack_str,
+            block_str,
+            locals.into_object()
         )
     }
 }

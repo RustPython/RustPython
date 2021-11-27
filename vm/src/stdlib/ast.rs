@@ -5,8 +5,8 @@
 
 use crate::{
     builtins::{self, PyStrRef, PyTypeRef},
-    IdProtocol, ItemProtocol, PyClassImpl, PyContext, PyObject, PyObjectRef, PyResult, PyValue,
-    StaticType, TryFromObject, TypeProtocol, VirtualMachine,
+    IdProtocol, PyClassImpl, PyContext, PyObject, PyObjectRef, PyResult, PyValue, StaticType,
+    TryFromObject, TypeProtocol, VirtualMachine,
 };
 use num_complex::Complex64;
 use num_traits::{ToPrimitive, Zero};

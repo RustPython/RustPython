@@ -20,8 +20,8 @@ mod _operator {
         },
         utils::Either,
         vm::ReprGuard,
-        IdProtocol, ItemProtocol, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue,
-        TypeProtocol, VirtualMachine,
+        IdProtocol, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue, TypeProtocol,
+        VirtualMachine,
     };
 
     /// Same as a < b.

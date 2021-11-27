@@ -15,8 +15,8 @@ use crate::{
         PyComparisonOp, Unconstructible,
     },
     utils::Either,
-    IdProtocol, ItemProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObject,
-    PyObjectRef, PyObjectView, PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
+    IdProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef,
+    PyObjectView, PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
 use ascii::{AsciiStr, AsciiString};
 use bstr::ByteSlice;
@@ -1260,17 +1260,17 @@ impl Iterable for PyStr {
 
 impl AsMapping for PyStr {
     fn as_mapping(_zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
-        Self::MAPPING_METHODS.clone()
+        Self::MAPPING_METHODS
     }
 }
 
 impl PyStr {
     const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
-        length: Self::SEQUENCE_METHDOS.length,
+        length: Some(|mapping, _vm| Ok(mapping.obj_as::<Self>().len())),
         subscript: Some(|mapping, needle, vm| {
             mapping
                 .obj_as::<Self>()
-                ._getitem(needle, vm)
+                .getitem(needle.to_owned(), vm)
                 .map(|x| x.into_ref(vm).into())
         }),
         ass_subscript: None,

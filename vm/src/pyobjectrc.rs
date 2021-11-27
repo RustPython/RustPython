@@ -675,6 +675,15 @@ impl PyObject {
         }
     }
 
+    pub fn downcast_ref_if_exact<T: PyObjectPayload + crate::PyValue>(
+        &self,
+        vm: &VirtualMachine,
+    ) -> Option<&PyObjectView<T>> {
+        self.class()
+            .is(T::class(vm))
+            .then(|| unsafe { self.downcast_unchecked_ref::<T>() })
+    }
+
     /// # Safety
     /// T must be the exact payload type
     pub unsafe fn downcast_unchecked_ref<T: PyObjectPayload>(&self) -> &crate::PyObjectView<T> {

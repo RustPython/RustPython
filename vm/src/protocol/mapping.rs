@@ -4,6 +4,7 @@ use crate::{
         PyDict,
     },
     common::lock::OnceCell,
+    function::IntoPyResult,
     IdProtocol, PyObject, PyObjectPayload, PyObjectRef, PyObjectView, PyResult, TypeProtocol,
     VirtualMachine,
 };
@@ -19,14 +20,14 @@ pub struct PyMappingMethods {
         Option<fn(&PyMapping, &PyObject, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct PyMapping<'a> {
     pub obj: &'a PyObject,
     methods: OnceCell<PyMappingMethods>,
 }
 
-impl From<&PyObject> for PyMapping<'_> {
-    fn from(obj: &PyObject) -> Self {
+impl<'a> From<&'a PyObject> for PyMapping<'a> {
+    fn from(obj: &'a PyObject) -> Self {
         Self {
             obj,
             methods: OnceCell::new(),
@@ -40,12 +41,36 @@ impl AsRef<PyObject> for PyMapping<'_> {
     }
 }
 
+impl<'a> PyMapping<'a> {
+    pub fn with_methods(obj: &'a PyObject, methods: PyMappingMethods) -> Self {
+        Self {
+            obj,
+            methods: OnceCell::from(methods),
+        }
+    }
+
+    pub fn try_protocol(obj: &'a PyObject, vm: &VirtualMachine) -> PyResult<Self> {
+        let zelf = Self::from(obj);
+        if zelf.has_protocol(vm) {
+            Ok(zelf)
+        } else {
+            Err(vm.new_type_error(format!("{} is not a mapping object", zelf.obj.class())))
+        }
+    }
+}
+
 impl PyMapping<'_> {
+    // PyMapping::Check
+    pub fn has_protocol(&self, vm: &VirtualMachine) -> bool {
+        self.methods(vm).subscript.is_some()
+    }
+
     pub fn obj_as<T: PyObjectPayload>(&self) -> &PyObjectView<T> {
         unsafe { self.obj.downcast_unchecked_ref::<T>() }
     }
 
     pub fn methods(&self, vm: &VirtualMachine) -> &PyMappingMethods {
+        // let cls = self.obj.class();
         self.methods.get_or_init(|| {
             if let Some(f) = self
                 .obj
@@ -57,19 +82,20 @@ impl PyMapping<'_> {
                 PyMappingMethods::default()
             }
         })
-    }
 
-    // PyMapping::Check
-    pub fn has_protocol(&self, vm: &VirtualMachine) -> bool {
-        self.methods(vm).subscript.is_some()
-    }
+        // let get_methods = || {
+        //     if let Some(f) = cls.mro_find_map(|cls| cls.slots.as_mapping.load()) {
+        //         f(self.obj, vm)
+        //     } else {
+        //         PyMappingMethods::default()
+        //     }
+        // };
 
-    pub fn try_protocol(&self, vm: &VirtualMachine) -> PyResult<()> {
-        if self.has_protocol(vm) {
-            Ok(())
-        } else {
-            Err(vm.new_type_error(format!("{} is not a mapping object", self.obj.class())))
-        }
+        // if cls.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
+        //     &get_methods()
+        // } else {
+        //     self.methods.get_or_init(get_methods)
+        // }
     }
 
     pub fn length_opt(&self, vm: &VirtualMachine) -> Option<PyResult<usize>> {
@@ -80,9 +106,32 @@ impl PyMapping<'_> {
         self.length_opt(vm).ok_or_else(|| {
             vm.new_type_error(format!(
                 "object of type '{}' has no len() or not a mapping",
-                self.0.class().name()
+                self.obj.class()
             ))
         })?
+    }
+
+    pub fn subscript(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
+        let f = self
+            .methods(vm)
+            .subscript
+            .ok_or_else(|| vm.new_type_error(format!("{} is not a mapping", self.obj.class())))?;
+        f(self, needle, vm)
+    }
+
+    pub fn ass_subscript(
+        &self,
+        needle: &PyObject,
+        value: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let f = self.methods(vm).ass_subscript.ok_or_else(|| {
+            vm.new_type_error(format!(
+                "'{}' object does not support item assignment",
+                self.obj.class()
+            ))
+        })?;
+        f(self, needle, value, vm)
     }
 
     pub fn keys(&self, vm: &VirtualMachine) -> PyResult {

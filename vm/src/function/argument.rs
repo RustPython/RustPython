@@ -1,7 +1,10 @@
-use super::IntoFuncArgs;
+use super::{IntoFuncArgs, IntoPyObject};
 use crate::{
-    builtins::iter::PySequenceIterator, protocol::PyIter, protocol::PyIterIter, PyObject,
-    PyObjectRef, PyObjectWrap, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
+    builtins::{iter::PySequenceIterator, PyDict, PyDictRef},
+    protocol::PyIter,
+    protocol::{PyIterIter, PyMapping, PyMappingMethods},
+    PyObject, PyObjectRef, PyObjectWrap, PyResult, PyValue, TryFromObject, TypeProtocol,
+    VirtualMachine,
 };
 use std::marker::PhantomData;
 
@@ -83,6 +86,54 @@ where
             iterable: obj,
             iterfn,
             _item: PhantomData,
+        })
+    }
+}
+
+#[derive(Clone)]
+pub struct ArgMapping {
+    obj: PyObjectRef,
+    mapping_methods: PyMappingMethods,
+}
+
+impl ArgMapping {
+    pub fn from_dict_exact(dict: PyDictRef) -> Self {
+        Self {
+            obj: dict.into(),
+            mapping_methods: PyDict::MAPPING_METHODS,
+        }
+    }
+
+    pub fn mapping(&self) -> PyMapping {
+        PyMapping::with_methods(&self.obj, self.mapping_methods)
+    }
+}
+
+impl AsRef<PyObject> for ArgMapping {
+    fn as_ref(&self) -> &PyObject {
+        &self.obj
+    }
+}
+
+impl PyObjectWrap for ArgMapping {
+    fn into_object(self) -> PyObjectRef {
+        self.obj
+    }
+}
+
+impl IntoPyObject for ArgMapping {
+    fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
+        self.obj
+    }
+}
+
+impl TryFromObject for ArgMapping {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        let mapping = PyMapping::try_protocol(&obj, vm)?;
+        let mapping_methods = *mapping.methods(vm);
+        Ok(Self {
+            obj,
+            mapping_methods,
         })
     }
 }

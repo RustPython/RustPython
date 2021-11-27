@@ -22,18 +22,18 @@ mod builtins {
         },
         common::{hash::PyHash, str::to_ascii},
         function::{
-            ArgBytesLike, ArgCallable, ArgIntoBool, ArgIterable, FuncArgs, KwArgs, OptionalArg,
-            OptionalOption, PosArgs,
+            ArgBytesLike, ArgCallable, ArgIntoBool, ArgIterable, ArgMapping, FuncArgs, KwArgs,
+            OptionalArg, OptionalOption, PosArgs,
         },
-        protocol::{PyIter, PyIterReturn, PyMapping},
+        protocol::{PyIter, PyIterReturn},
         py_io,
         readline::{Readline, ReadlineResult},
         scope::Scope,
         stdlib::sys,
         types::PyComparisonOp,
         utils::Either,
-        IdProtocol, ItemProtocol, PyArithmeticValue, PyClassImpl, PyObject, PyObjectRef,
-        PyObjectWrap, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
+        IdProtocol, PyArithmeticValue, PyClassImpl, PyObject, PyObjectRef, PyObjectWrap, PyRef,
+        PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
     };
     use num_traits::{Signed, ToPrimitive, Zero};
 
@@ -205,7 +205,7 @@ mod builtins {
         #[pyarg(any, default)]
         globals: Option<PyDictRef>,
         #[pyarg(any, default)]
-        locals: Option<PyMapping>,
+        locals: Option<ArgMapping>,
     }
 
     #[cfg(feature = "rustpython-compiler")]
@@ -219,8 +219,9 @@ mod builtins {
                     }
                     (
                         globals.clone(),
-                        self.locals
-                            .unwrap_or_else(|| PyMapping::new(globals.into())),
+                        self.locals.unwrap_or_else(|| {
+                            ArgMapping::try_from_object(vm, globals.into()).unwrap()
+                        }),
                     )
                 }
                 None => (
@@ -428,8 +429,8 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn locals(vm: &VirtualMachine) -> PyResult<PyMapping> {
-        vm.current_locals()
+    fn locals(vm: &VirtualMachine) -> PyResult {
+        vm.current_locals().map(|x| x.into_object())
     }
 
     fn min_or_max(
@@ -882,11 +883,11 @@ mod builtins {
             })?;
 
         // Accept any PyMapping as namespace.
-        let namespace = PyMapping::try_from_object(vm, namespace.clone()).map_err(|_| {
+        let namespace = ArgMapping::try_from_object(vm, namespace.clone()).map_err(|_| {
             vm.new_type_error(format!(
                 "{}.__prepare__() must return a mapping, not {}",
                 meta_name,
-                namespace.class().name()
+                namespace.class()
             ))
         })?;
 

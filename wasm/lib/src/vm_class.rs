@@ -8,7 +8,7 @@ use wasm_bindgen::prelude::*;
 use rustpython_vm::compile::{self, Mode};
 use rustpython_vm::scope::Scope;
 use rustpython_vm::{InitParameter, Interpreter, PySettings, VirtualMachine};
-use rustpython_vm::{ItemProtocol, PyObjectRef, PyObjectWeak, PyResult, PyValue};
+use rustpython_vm::{PyObjectRef, PyObjectWeak, PyResult, PyValue};
 
 use crate::browser_module::setup_browser_module;
 use crate::convert::{self, PyResultExt};
@@ -285,7 +285,7 @@ impl WASMVirtualMachine {
                 }
             }
 
-            vm.run_code_obj(code, Scope::new(None, attrs.clone()))
+            vm.run_code_obj(code, Scope::new(None, attrs.clone(), vm))
                 .into_js(vm)?;
 
             let module = vm.new_module(&name, attrs, None);

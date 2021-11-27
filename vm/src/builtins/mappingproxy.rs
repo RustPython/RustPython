@@ -3,8 +3,8 @@ use crate::{
     function::{IntoPyObject, OptionalArg},
     protocol::{PyMapping, PyMappingMethods},
     types::{AsMapping, Constructor, Iterable},
-    ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol, VirtualMachine,
+    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    VirtualMachine,
 };
 
 #[pyclass(module = false, name = "mappingproxy")]
@@ -37,7 +37,7 @@ impl Constructor for PyMappingProxy {
     type Args = PyObjectRef;
 
     fn py_new(cls: PyTypeRef, mapping: Self::Args, vm: &VirtualMachine) -> PyResult {
-        if !PyMapping::check(&mapping, vm)
+        if !PyMapping::from(mapping.as_ref()).has_protocol(vm)
             || mapping.payload_if_subclass::<PyList>(vm).is_some()
             || mapping.payload_if_subclass::<PyTuple>(vm).is_some()
         {

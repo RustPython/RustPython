@@ -38,7 +38,7 @@ pub mod module {
         },
         types::Constructor,
         utils::{Either, ToCString},
-        ItemProtocol, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
+        PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
     };
     use bitflags::bitflags;
     use nix::fcntl;
@@ -1210,11 +1210,11 @@ pub mod module {
 
     #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
     fn envp_from_dict(
-        env: crate::protocol::PyMapping,
+        env: crate::function::ArgMapping,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<CString>> {
-        let keys = env.keys(vm)?;
-        let values = env.values(vm)?;
+        let keys = env.mapping().keys(vm)?;
+        let values = env.mapping().values(vm)?;
 
         let keys = PyListRef::try_from_object(vm, keys)
             .map_err(|_| vm.new_type_error("env.keys() is not a list".to_owned()))?
@@ -1261,7 +1261,7 @@ pub mod module {
         #[pyarg(positional)]
         args: crate::function::ArgIterable<PyPathLike>,
         #[pyarg(positional)]
-        env: crate::protocol::PyMapping,
+        env: crate::function::ArgMapping,
         #[pyarg(named, default)]
         file_actions: Option<crate::function::ArgIterable<PyTupleRef>>,
         #[pyarg(named, default)]

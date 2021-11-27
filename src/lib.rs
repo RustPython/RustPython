@@ -46,8 +46,8 @@ extern crate log;
 use clap::{App, AppSettings, Arg, ArgMatches};
 use rustpython_vm::{
     builtins::PyDictRef, builtins::PyInt, compile, match_class, scope::Scope, stdlib::sys,
-    InitParameter, Interpreter, ItemProtocol, PyObjectRef, PyResult, PySettings, TryFromObject,
-    TypeProtocol, VirtualMachine,
+    InitParameter, Interpreter, PyObjectRef, PyResult, PySettings, TryFromObject, TypeProtocol,
+    VirtualMachine,
 };
 
 use std::env;
@@ -645,7 +645,7 @@ fn run_module(vm: &VirtualMachine, module: &str) -> PyResult<()> {
 fn get_importer(path: &str, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
     let path_importer_cache = vm.sys_module.clone().get_attr("path_importer_cache", vm)?;
     let path_importer_cache = PyDictRef::try_from_object(vm, path_importer_cache)?;
-    if let Some(importer) = path_importer_cache.get_item_option(path, vm)? {
+    if let Some(importer) = path_importer_cache.get_item_opt(path, vm)? {
         return Ok(Some(importer));
     }
     let path = vm.ctx.new_str(path);
