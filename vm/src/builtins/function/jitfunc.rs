@@ -2,8 +2,7 @@ use crate::{
     builtins::{float, int, pybool, PyBaseExceptionRef, PyDictRef, PyFunction, PyStrRef},
     bytecode::CodeFlags,
     function::{FuncArgs, IntoPyObject},
-    IdProtocol, ItemProtocol, PyObject, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
-    VirtualMachine,
+    IdProtocol, PyObject, PyObjectRef, PyResult, TryFromObject, TypeProtocol, VirtualMachine,
 };
 use num_traits::ToPrimitive;
 use rustpython_jit::{AbiValue, Args, CompiledCode, JitArgumentError, JitType};

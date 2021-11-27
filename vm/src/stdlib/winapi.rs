@@ -8,7 +8,7 @@ mod _winapi {
         function::{IntoPyException, OptionalArg},
         protocol::PyMapping,
         stdlib::os::errno_err,
-        ItemProtocol, PyObjectRef, PyResult, PySequence, TryFromObject, VirtualMachine,
+        PyObjectRef, PyResult, PySequence, TryFromObject, VirtualMachine,
     };
     use std::ptr::{null, null_mut};
     use winapi::shared::winerror;

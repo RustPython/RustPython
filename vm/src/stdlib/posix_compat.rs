@@ -45,7 +45,6 @@ pub(crate) mod module {
     #[cfg(target_os = "wasi")]
     #[pyattr]
     fn environ(vm: &VirtualMachine) -> crate::builtins::PyDictRef {
-        use crate::ItemProtocol;
         use ffi_ext::OsStringExt;
 
         let environ = vm.ctx.new_dict();

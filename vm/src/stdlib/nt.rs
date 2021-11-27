@@ -25,9 +25,9 @@ pub(crate) mod module {
     use std::io;
     use std::{env, fs};
 
+    use crate::builtins::PyDictRef;
     #[cfg(target_env = "msvc")]
     use crate::builtins::PyListRef;
-    use crate::{builtins::PyDictRef, ItemProtocol};
     use winapi::{um, vc::vcruntime::intptr_t};
 
     #[pyattr]
