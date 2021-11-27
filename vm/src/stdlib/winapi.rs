@@ -5,8 +5,7 @@ pub(crate) use _winapi::make_module;
 mod _winapi {
     use crate::{
         builtins::{PyListRef, PyStrRef},
-        function::{IntoPyException, OptionalArg},
-        protocol::PyMapping,
+        function::{ArgMapping, IntoPyException, OptionalArg},
         stdlib::os::errno_err,
         PyObjectRef, PyResult, PySequence, TryFromObject, VirtualMachine,
     };
@@ -145,7 +144,7 @@ mod _winapi {
         #[pyarg(positional)]
         creation_flags: u32,
         #[pyarg(positional)]
-        env_mapping: Option<PyMapping>,
+        env_mapping: Option<ArgMapping>,
         #[pyarg(positional)]
         current_dir: Option<PyStrRef>,
         #[pyarg(positional)]
@@ -245,9 +244,9 @@ mod _winapi {
         ))
     }
 
-    fn getenvironment(env: PyMapping, vm: &VirtualMachine) -> PyResult<Vec<u16>> {
-        let keys = env.keys(vm)?;
-        let values = env.values(vm)?;
+    fn getenvironment(env: ArgMapping, vm: &VirtualMachine) -> PyResult<Vec<u16>> {
+        let keys = env.mapping().keys(vm)?;
+        let values = env.mapping().values(vm)?;
 
         let keys = PyListRef::try_from_object(vm, keys)?.borrow_vec().to_vec();
         let values = PyListRef::try_from_object(vm, values)?
@@ -294,7 +293,7 @@ mod _winapi {
     }
 
     fn getattributelist(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<AttrList>> {
-        <Option<PyMapping>>::try_from_object(vm, obj)?
+        <Option<ArgMapping>>::try_from_object(vm, obj)?
             .map(|mapping| {
                 let handlelist = mapping
                     .as_ref()
