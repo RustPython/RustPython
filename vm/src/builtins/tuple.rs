@@ -1,9 +1,9 @@
 use once_cell::sync::Lazy;
 
 use super::{PositionIterInternal, PyGenericAlias, PyType, PyTypeRef};
-use crate::atomic_func;
 use crate::common::{hash::PyHash, lock::PyMutex};
 use crate::{
+    atomic_func,
     class::PyClassImpl,
     convert::{ToPyObject, TransmuteFromObject},
     function::{OptionalArg, PyArithmeticValue, PyComparisonValue},
@@ -372,7 +372,7 @@ impl AsSequence for PyTuple {
 impl Hashable for PyTuple {
     #[inline]
     fn hash(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
-        crate::utils::hash_iter(zelf.elements.iter(), vm)
+        tuple_hash(zelf.as_slice(), vm)
     }
 }
 
@@ -522,4 +522,10 @@ impl<T: TransmuteFromObject> ToPyObject for PyTupleTyped<T> {
     fn to_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
         self.tuple.into()
     }
+}
+
+pub(super) fn tuple_hash(elements: &[PyObjectRef], vm: &VirtualMachine) -> PyResult<PyHash> {
+    // TODO: See #3460 for the correct implementation.
+    // https://github.com/RustPython/RustPython/pull/3460
+    crate::utils::hash_iter(elements.iter(), vm)
 }
