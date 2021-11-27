@@ -41,7 +41,7 @@ pub fn new_jit_error(msg: String, vm: &VirtualMachine) -> PyBaseExceptionRef {
 }
 
 fn get_jit_arg_type(dict: &PyDictRef, name: &str, vm: &VirtualMachine) -> PyResult<JitType> {
-    if let Some(value) = dict.get_item_option(name, vm)? {
+    if let Some(value) = dict.get_item_opt(name, vm)? {
         if value.is(&vm.ctx.types.int_type) {
             Ok(JitType::Int)
         } else if value.is(&vm.ctx.types.float_type) {
