@@ -876,7 +876,7 @@ struct CastArgs {
     #[pyarg(any)]
     format: PyStrRef,
     #[pyarg(any, optional)]
-    shape: OptionalArg<PyObjectRef>,
+    shape: OptionalArg<Either<PyTupleRef, PyListRef>>,
 }
 
 enum SubscriptNeedle {
