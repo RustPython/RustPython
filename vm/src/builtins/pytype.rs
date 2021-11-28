@@ -381,6 +381,15 @@ impl PyType {
     fn mro(zelf: PyRef<Self>) -> Vec<PyObjectRef> {
         zelf.iter_mro().map(|cls| cls.clone().into()).collect()
     }
+
+    #[pymethod(name = "__ror__")]
+    #[pymethod(magic)]
+    pub fn or(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let union = vm.import("typing", None, 0)?.get_attr("Union", vm)?;
+        let getitem = vm.get_method(union, "__getitem__").unwrap();
+        vm.invoke(&getitem?, ((zelf, other),))
+    }
+
     #[pyslot]
     fn slot_new(metatype: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         vm_trace!("type.__new__ {:?}", args);
