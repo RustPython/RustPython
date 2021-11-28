@@ -60,7 +60,21 @@ impl PyStaticMethod {
 }
 
 #[pyimpl(with(GetDescriptor, Constructor), flags(BASETYPE, HAS_DICT))]
-impl PyStaticMethod {}
+impl PyStaticMethod {
+    #[pyproperty(magic)]
+    fn isabstractmethod(&self, vm: &VirtualMachine) -> PyObjectRef {
+        match vm.get_attribute_opt(self.callable.clone(), "__isabstractmethod__") {
+            Ok(Some(is_abstract)) => is_abstract,
+            _ => vm.ctx.new_bool(false).into(),
+        }
+    }
+
+    #[pyproperty(magic, setter)]
+    fn set_isabstractmethod(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.callable.set_attr("__isabstractmethod__", value, vm)?;
+        Ok(())
+    }
+}
 
 pub fn init(context: &PyContext) {
     PyStaticMethod::extend_class(context, &context.types.staticmethod_type);
