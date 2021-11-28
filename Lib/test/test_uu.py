@@ -4,7 +4,7 @@ Nick Mathewson
 """
 
 import unittest
-from test import support
+from test.support import os_helper
 
 import os
 import stat
@@ -186,10 +186,11 @@ class UUStdIOTest(unittest.TestCase):
 class UUFileTest(unittest.TestCase):
 
     def setUp(self):
-        self.tmpin  = support.TESTFN + "i"
-        self.tmpout = support.TESTFN + "o"
-        self.addCleanup(support.unlink, self.tmpin)
-        self.addCleanup(support.unlink, self.tmpout)
+        # uu.encode() supports only ASCII file names
+        self.tmpin  = os_helper.TESTFN_ASCII + "i"
+        self.tmpout = os_helper.TESTFN_ASCII + "o"
+        self.addCleanup(os_helper.unlink, self.tmpin)
+        self.addCleanup(os_helper.unlink, self.tmpout)
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure

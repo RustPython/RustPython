@@ -8,6 +8,7 @@ import unittest
 from unittest import mock
 
 from test import support
+from test.support import os_helper
 
 class PlatformTest(unittest.TestCase):
     def clear_caches(self):
@@ -18,7 +19,7 @@ class PlatformTest(unittest.TestCase):
     def test_architecture(self):
         res = platform.architecture()
 
-    @support.skip_unless_symlink
+    @os_helper.skip_unless_symlink
     def test_architecture_via_symlink(self): # issue3762
         # On Windows, the EXE needs to know where pythonXY.dll and *.pyd is at
         # so we add the directory to the path, PYTHONHOME and PYTHONPATH.
@@ -45,7 +46,7 @@ class PlatformTest(unittest.TestCase):
             return r
 
         real = os.path.realpath(sys.executable)
-        link = os.path.abspath(support.TESTFN)
+        link = os.path.abspath(os_helper.TESTFN)
         os.symlink(real, link)
         try:
             self.assertEqual(get(real), get(link, env=env))
@@ -198,7 +199,7 @@ class PlatformTest(unittest.TestCase):
         # using it, per
         # http://blogs.msdn.com/david.wang/archive/2006/03/26/HOWTO-Detect-Process-Bitness.aspx
         try:
-            with support.EnvironmentVarGuard() as environ:
+            with os_helper.EnvironmentVarGuard() as environ:
                 if 'PROCESSOR_ARCHITEW6432' in environ:
                     del environ['PROCESSOR_ARCHITEW6432']
                 environ['PROCESSOR_ARCHITECTURE'] = 'foo'
@@ -285,8 +286,8 @@ class PlatformTest(unittest.TestCase):
             executable = sys.executable
         platform.libc_ver(executable)
 
-        filename = support.TESTFN
-        self.addCleanup(support.unlink, filename)
+        filename = os_helper.TESTFN
+        self.addCleanup(os_helper.unlink, filename)
 
         with mock.patch('os.confstr', create=True, return_value='mock 1.0'):
             # test os.confstr() code path

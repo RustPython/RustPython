@@ -61,7 +61,7 @@ def dash_R(ns, test_name, test_func):
         return int_pool.setdefault(value, value)
 
     nwarmup, ntracked, fname = ns.huntrleaks
-    fname = os.path.join(support.SAVEDCWD, fname)
+    fname = os.path.join(os_helper.SAVEDCWD, fname)
     repcount = nwarmup + ntracked
 
     # Pre-allocate to ensure that the loop doesn't allocate anything new

@@ -13,6 +13,7 @@ import unittest
 TestCase = unittest.TestCase
 
 from test import support
+from test.support import os_helper
 
 here = os.path.dirname(__file__)
 # Self-signed cert file for 'localhost'
@@ -1916,10 +1917,10 @@ class RequestBodyTest(TestCase):
         self.assertEqual(b'body\xc1', f.read())
 
     def test_text_file_body(self):
-        self.addCleanup(support.unlink, support.TESTFN)
-        with open(support.TESTFN, "w") as f:
+        self.addCleanup(os_helper.unlink, os_helper.TESTFN)
+        with open(os_helper.TESTFN, "w") as f:
             f.write("body")
-        with open(support.TESTFN) as f:
+        with open(os_helper.TESTFN) as f:
             self.conn.request("PUT", "/url", f)
             message, f = self.get_headers_and_fp()
             self.assertEqual("text/plain", message.get_content_type())
@@ -1931,10 +1932,10 @@ class RequestBodyTest(TestCase):
             self.assertEqual(b'4\r\nbody\r\n0\r\n\r\n', f.read())
 
     def test_binary_file_body(self):
-        self.addCleanup(support.unlink, support.TESTFN)
-        with open(support.TESTFN, "wb") as f:
+        self.addCleanup(os_helper.unlink, os_helper.TESTFN)
+        with open(os_helper.TESTFN, "wb") as f:
             f.write(b"body\xc1")
-        with open(support.TESTFN, "rb") as f:
+        with open(os_helper.TESTFN, "rb") as f:
             self.conn.request("PUT", "/url", f)
             message, f = self.get_headers_and_fp()
             self.assertEqual("text/plain", message.get_content_type())

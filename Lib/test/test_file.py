@@ -7,8 +7,9 @@ from weakref import proxy
 import io
 import _pyio as pyio
 
-from test.support import TESTFN
 from test import support
+from test.support import os_helper
+from test.support.os_helper import TESTFN
 from collections import UserList
 
 class AutoFileTests:
@@ -20,7 +21,7 @@ class AutoFileTests:
     def tearDown(self):
         if self.f:
             self.f.close()
-        support.unlink(TESTFN)
+        os_helper.unlink(TESTFN)
 
     def testWeakRefs(self):
         # verify weak references
@@ -140,7 +141,7 @@ class PyAutoFileTests(AutoFileTests, unittest.TestCase):
 class OtherFileTests:
 
     def tearDown(self):
-        support.unlink(TESTFN)
+        os_helper.unlink(TESTFN)
 
     def testModeStrings(self):
         # check invalid mode strings
