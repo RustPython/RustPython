@@ -223,17 +223,17 @@ impl PyProperty {
         let getter_abstract = match self.getter.read().to_owned() {
             Some(getter) => getter
                 .get_attr("__isabstractmethod__", vm)
-                .unwrap_or(vm.ctx.new_bool(false).into()),
+                .unwrap_or_else(|_| vm.ctx.new_bool(false).into()),
             _ => vm.ctx.new_bool(false).into(),
         };
         let setter_abstract = match self.setter.read().to_owned() {
             Some(setter) => setter
                 .get_attr("__isabstractmethod__", vm)
-                .unwrap_or(vm.ctx.new_bool(false).into()),
+                .unwrap_or_else(|_| vm.ctx.new_bool(false).into()),
             _ => vm.ctx.new_bool(false).into(),
         };
         vm._or(&setter_abstract, &getter_abstract)
-            .unwrap_or(vm.ctx.new_bool(false).into())
+            .unwrap_or_else(|_| vm.ctx.new_bool(false).into())
     }
 
     #[pyproperty(magic, setter)]
