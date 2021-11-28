@@ -285,7 +285,7 @@ impl WASMVirtualMachine {
                 }
             }
 
-            vm.run_code_obj(code, Scope::new(None, attrs.clone(), vm))
+            vm.run_code_obj(code, Scope::new(None, attrs.clone()))
                 .into_js(vm)?;
 
             let module = vm.new_module(&name, attrs, None);

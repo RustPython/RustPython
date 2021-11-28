@@ -248,10 +248,8 @@ mod _winapi {
         let keys = env.mapping().keys(vm)?;
         let values = env.mapping().values(vm)?;
 
-        let keys = PyListRef::try_from_object(vm, keys)?.borrow_vec().to_vec();
-        let values = PyListRef::try_from_object(vm, values)?
-            .borrow_vec()
-            .to_vec();
+        let keys = PySequence::try_from_object(vm, keys)?.into_vec();
+        let values = PySequence::try_from_object(vm, values)?.into_vec();
 
         if keys.len() != values.len() {
             return Err(
