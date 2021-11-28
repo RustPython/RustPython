@@ -276,12 +276,24 @@ if sys.platform.startswith("win"):
                       RuntimeWarning, stacklevel=4)
 
     def _unlink(filename):
+        # XXX RUSTPYTHON: on ci, unlink() raises PermissionError when target doesn't exist.
+        # Might also happen locally, but not sure
+        if not os.path.exists(filename):
+            return
         _waitfor(os.unlink, filename)
 
     def _rmdir(dirname):
+        # XXX RUSTPYTHON: on ci, rmdir() raises PermissionError when target doesn't exist.
+        # Might also happen locally, but not sure
+        if not os.path.exists(dirname):
+            return
         _waitfor(os.rmdir, dirname)
 
     def _rmtree(path):
+        # XXX RUSTPYTHON: on ci, rmdir() raises PermissionError when target doesn't exist.
+        # Might also happen locally, but not sure
+        if not os.path.exists(path):
+            return
         from test.support import _force_run
 
         def _rmtree_inner(path):
@@ -399,7 +411,18 @@ def temp_dir(path=None, quiet=False):
         # In case the process forks, let only the parent remove the
         # directory. The child has a different process id. (bpo-30028)
         if dir_created and pid == os.getpid():
-            rmtree(path)
+            try:
+                rmtree(path)
+            except OSError as exc:
+                # XXX RUSTPYTHON: something something async file removal?
+                #                 also part of the thing with rmtree()
+                #                 throwing PermissionError, I think
+                if os.path.exists(path):
+                    if not quiet:
+                        raise
+                    warnings.warn(f'unable to remove temporary'
+                                  f'directory {path!r}: {exc}',
+                                  RuntimeWarning, stacklevel=3)
 
 
 @contextlib.contextmanager
