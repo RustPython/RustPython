@@ -319,6 +319,8 @@ class BaseTestUUID:
         node2 = self.uuid.getnode()
         self.assertEqual(node1, node2, '%012x != %012x' % (node1, node2))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_pickle_roundtrip(self):
         def check(actual, expected):
             self.assertEqual(actual, expected)
@@ -334,6 +336,8 @@ class BaseTestUUID:
                     with self.subTest(protocol=proto):
                         check(pickle.loads(pickle.dumps(u, proto)), u)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_unpickle_previous_python_versions(self):
         def check(actual, expected):
             self.assertEqual(actual, expected)
@@ -453,6 +457,8 @@ class BaseTestUUID:
             for pickled in pickled_uuids_unsafe:
                 check(pickle.loads(pickled), u_unsafe)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     # bpo-32502: UUID1 requires a 48-bit identifier, but hardware identifiers
     # need not necessarily be 48 bits (e.g., EUI-64).
     def test_uuid1_eui64(self):
@@ -478,6 +484,8 @@ class BaseTestUUID:
         except ValueError:
             self.fail('uuid1 was given an invalid node ID')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_uuid1(self):
         equal = self.assertEqual
 
@@ -516,6 +524,8 @@ class BaseTestUUID:
         equal(((u.clock_seq_hi_variant & 0x3f) << 8) |
                          u.clock_seq_low, 0x3fff)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     # bpo-29925: On Mac OS X Tiger, self.uuid.uuid1().is_safe returns
     # self.uuid.SafeUUID.unknown
     @support.requires_mac_ver(10, 5)
@@ -545,6 +555,8 @@ class BaseTestUUID:
                                lambda: (f()[0], safe_value)):
             yield
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(os.name == 'posix', 'POSIX-only test')
     def test_uuid1_unknown(self):
         # Even if the platform has uuid_generate_time_safe(), let's mock it to
@@ -553,24 +565,32 @@ class BaseTestUUID:
             u = self.uuid.uuid1()
             self.assertEqual(u.is_safe, self.uuid.SafeUUID.unknown)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(os.name == 'posix', 'POSIX-only test')
     def test_uuid1_is_safe(self):
         with self.mock_generate_time_safe(0):
             u = self.uuid.uuid1()
             self.assertEqual(u.is_safe, self.uuid.SafeUUID.safe)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(os.name == 'posix', 'POSIX-only test')
     def test_uuid1_is_unsafe(self):
         with self.mock_generate_time_safe(-1):
             u = self.uuid.uuid1()
             self.assertEqual(u.is_safe, self.uuid.SafeUUID.unsafe)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(os.name == 'posix', 'POSIX-only test')
     def test_uuid1_bogus_return_value(self):
         with self.mock_generate_time_safe(3):
             u = self.uuid.uuid1()
             self.assertEqual(u.is_safe, self.uuid.SafeUUID.unknown)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_uuid1_time(self):
         with mock.patch.object(self.uuid, '_has_uuid_generate_time_safe', False), \
              mock.patch.object(self.uuid, '_generate_time_safe', None), \
@@ -638,6 +658,8 @@ class BaseTestUUID:
             equal(u, self.uuid.UUID(v))
             equal(str(u), v)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(os.name == 'posix', 'requires Posix')
     def testIssue8621(self):
         # On at least some versions of OSX self.uuid.uuid4 generates
@@ -723,12 +745,18 @@ class BaseTestInternals:
                 with self.subTest(mac=mac):
                     self.assertIsNone(self.uuid._parse_mac(mac))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_parse_mac(self):
         self.check_parse_mac(False)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_parse_mac_aix(self):
         self.check_parse_mac(True)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_find_under_heading(self):
         data = '''\
 Name  Mtu   Network     Address           Ipkts Ierrs    Opkts Oerrs  Coll
@@ -754,6 +782,8 @@ en0   1500  192.168.90  x071             1714807956     0 711348489     0     0
 
         self.assertEqual(mac, 0xfead0c012304)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_find_under_heading_ipv6(self):
         # bpo-39991: IPv6 address "fe80::5054:ff:fe9" looks like a MAC address
         # (same string length) but must be skipped
@@ -791,6 +821,8 @@ lo0       - 127.0.0.0/8   127.0.0.1           259955     -     -   259955     - 
 
         self.assertEqual(mac, 0x5254009d0e67)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_find_mac_near_keyword(self):
         # key and value are on the same line
         data = '''
@@ -822,35 +854,45 @@ eth0      Link encap:Ethernet  HWaddr 12:34:56:78:90:ab
         self.assertTrue(0 < node < (1 << 48),
                         "%s is not an RFC 4122 node ID" % hex)
 
-    @unittest.skipUnless(_uuid._ifconfig_getnode in _uuid._GETTERS,
-        "ifconfig is not used for introspection on this platform")
-    def test_ifconfig_getnode(self):
-        node = self.uuid._ifconfig_getnode()
-        self.check_node(node, 'ifconfig')
+    # TODO: RUSTPYTHON
+    #
+    # @unittest.skipUnless(_uuid._ifconfig_getnode in _uuid._GETTERS,
+    #     "ifconfig is not used for introspection on this platform")
+    # def test_ifconfig_getnode(self):
+    #     node = self.uuid._ifconfig_getnode()
+    #     self.check_node(node, 'ifconfig')
 
-    @unittest.skipUnless(_uuid._ip_getnode in _uuid._GETTERS,
-        "ip is not used for introspection on this platform")
-    def test_ip_getnode(self):
-        node = self.uuid._ip_getnode()
-        self.check_node(node, 'ip')
+    # TODO: RUSTPYTHON
+    #
+    # @unittest.skipUnless(_uuid._ip_getnode in _uuid._GETTERS,
+    #     "ip is not used for introspection on this platform")
+    # def test_ip_getnode(self):
+    #     node = self.uuid._ip_getnode()
+    #     self.check_node(node, 'ip')
 
-    @unittest.skipUnless(_uuid._arp_getnode in _uuid._GETTERS,
-        "arp is not used for introspection on this platform")
-    def test_arp_getnode(self):
-        node = self.uuid._arp_getnode()
-        self.check_node(node, 'arp')
+    # TODO: RUSTPYTHON
+    #
+    # @unittest.skipUnless(_uuid._arp_getnode in _uuid._GETTERS,
+    #     "arp is not used for introspection on this platform")
+    # def test_arp_getnode(self):
+    #     node = self.uuid._arp_getnode()
+    #     self.check_node(node, 'arp')
 
-    @unittest.skipUnless(_uuid._lanscan_getnode in _uuid._GETTERS,
-        "lanscan is not used for introspection on this platform")
-    def test_lanscan_getnode(self):
-        node = self.uuid._lanscan_getnode()
-        self.check_node(node, 'lanscan')
+    # TODO: RUSTPYTHON
+    #
+    # @unittest.skipUnless(_uuid._lanscan_getnode in _uuid._GETTERS,
+    #     "lanscan is not used for introspection on this platform")
+    # def test_lanscan_getnode(self):
+    #     node = self.uuid._lanscan_getnode()
+    #     self.check_node(node, 'lanscan')
 
-    @unittest.skipUnless(_uuid._netstat_getnode in _uuid._GETTERS,
-        "netstat is not used for introspection on this platform")
-    def test_netstat_getnode(self):
-        node = self.uuid._netstat_getnode()
-        self.check_node(node, 'netstat')
+    # TODO: RUSTPYTHON
+    #
+    # @unittest.skipUnless(_uuid._netstat_getnode in _uuid._GETTERS,
+    #     "netstat is not used for introspection on this platform")
+    # def test_netstat_getnode(self):
+    #     node = self.uuid._netstat_getnode()
+    #     self.check_node(node, 'netstat')
 
     def test_random_getnode(self):
         node = self.uuid._random_getnode()
