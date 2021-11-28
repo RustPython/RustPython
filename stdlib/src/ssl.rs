@@ -1,11 +1,14 @@
 use crate::vm::{PyObjectRef, VirtualMachine};
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+    #[cfg(target_os = "android")]
+    std::env::set_var("SSL_CERT_DIR", "/system/etc/security/cacerts");
     // if openssl is vendored, it doesn't know the locations of system certificates
     #[cfg(feature = "ssl-vendor")]
     if let None | Some("0") = option_env!("OPENSSL_NO_VENDOR") {
         openssl_probe::init_ssl_cert_env_vars();
     }
+
     openssl::init();
 
     let module = _ssl::make_module(vm);
@@ -448,9 +451,6 @@ mod _ssl {
             };
             let mut builder =
                 SslContextBuilder::new(method).map_err(|e| convert_openssl_error(vm, e))?;
-
-            #[cfg(target_os = "android")]
-            android::load_client_ca_list(vm, &mut builder)?;
 
             let check_hostname = proto == SslVersion::TlsClient;
             builder.set_verify(if check_hostname {
@@ -1305,71 +1305,6 @@ mod _ssl {
         fn flush(&mut self) -> std::io::Result<()> {
             let mut socket: &PySocket = &self.0;
             socket.flush()
-        }
-    }
-
-    #[cfg(target_os = "android")]
-    mod android {
-        use crate::{
-            exceptions::PyBaseExceptionRef, stdlib::ssl::convert_openssl_error, VirtualMachine,
-        };
-        use openssl::{
-            ssl::SslContextBuilder,
-            x509::{store::X509StoreBuilder, X509},
-        };
-        use std::{
-            fs::{read_dir, File},
-            io::Read,
-            path::Path,
-        };
-
-        static CERT_DIR: &'static str = "/system/etc/security/cacerts";
-
-        pub(super) fn load_client_ca_list(
-            vm: &VirtualMachine,
-            b: &mut SslContextBuilder,
-        ) -> Result<(), PyBaseExceptionRef> {
-            let root = Path::new(CERT_DIR);
-            if !root.is_dir() {
-                return Err(vm.new_exception_msg(
-                    vm.ctx.exceptions.file_not_found_error.clone(),
-                    CERT_DIR.to_string(),
-                ));
-            }
-
-            let mut combined_pem = String::new();
-            let entries = read_dir(root)
-                .map_err(|err| vm.new_os_error(format!("read cert root: {}", err)))?;
-            for entry in entries {
-                let entry =
-                    entry.map_err(|err| vm.new_os_error(format!("iter cert root: {}", err)))?;
-
-                let path = entry.path();
-                if !path.is_file() {
-                    continue;
-                }
-
-                File::open(&path)
-                    .and_then(|mut file| file.read_to_string(&mut combined_pem))
-                    .map_err(|err| {
-                        vm.new_os_error(format!("open cert file {}: {}", path.display(), err))
-                    })?;
-
-                combined_pem.push('\n');
-            }
-
-            let mut store_b =
-                X509StoreBuilder::new().map_err(|err| convert_openssl_error(vm, err))?;
-            let x509_vec = X509::stack_from_pem(combined_pem.as_bytes())
-                .map_err(|err| convert_openssl_error(vm, err))?;
-            for x509 in x509_vec {
-                store_b
-                    .add_cert(x509)
-                    .map_err(|err| convert_openssl_error(vm, err))?;
-            }
-            b.set_cert_store(store_b.build());
-
-            Ok(())
         }
     }
 }
