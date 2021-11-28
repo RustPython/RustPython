@@ -945,6 +945,7 @@ class ArgsTestCase(BaseTestCase):
         """)
         self.check_leak(code, 'file descriptors')
 
+    @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON Windows')
     def test_list_tests(self):
         # test --list-tests
         tests = [self.create_test() for i in range(5)]
@@ -952,6 +953,7 @@ class ArgsTestCase(BaseTestCase):
         self.assertEqual(output.rstrip().splitlines(),
                          tests)
 
+    @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON Windows')
     def test_list_cases(self):
         # test --list-cases
         code = textwrap.dedent("""
