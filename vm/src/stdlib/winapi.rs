@@ -4,7 +4,7 @@ pub(crate) use _winapi::make_module;
 #[pymodule]
 mod _winapi {
     use crate::{
-        builtins::{PyListRef, PyStrRef},
+        builtins::PyStrRef,
         function::{ArgMapping, IntoPyException, OptionalArg},
         stdlib::os::errno_err,
         PyObjectRef, PyResult, PySequence, TryFromObject, VirtualMachine,

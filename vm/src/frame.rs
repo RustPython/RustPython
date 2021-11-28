@@ -198,9 +198,11 @@ impl FrameRef {
             let map_to_dict = |keys: &[PyStrRef], values: &[PyCellRef]| {
                 for (k, v) in itertools::zip(keys, values) {
                     if let Some(value) = v.get() {
-                        locals.as_object().set_item(k.clone(), value, vm)?;
+                        locals
+                            .mapping()
+                            .ass_subscript(k.as_object(), Some(value), vm)?;
                     } else {
-                        match locals.as_object().del_item(k.clone(), vm) {
+                        match locals.mapping().ass_subscript(k.as_object(), None, vm) {
                             Ok(()) => {}
                             Err(e) if e.isinstance(&vm.ctx.exceptions.key_error) => {}
                             Err(e) => return Err(e),

@@ -477,9 +477,10 @@ impl PyObjectView<PyDict> {
         &self,
         key: K,
         vm: &VirtualMachine,
-    ) -> Option<PyResult> {
+    ) -> PyResult<Option<PyObjectRef>> {
         vm.get_method(self.to_owned().into(), "__missing__")
             .map(|methods| vm.invoke(&methods?, (key,)))
+            .transpose()
     }
 
     #[inline]
@@ -490,14 +491,11 @@ impl PyObjectView<PyDict> {
     ) -> PyResult<PyObjectRef> {
         if let Some(value) = self.entries.get(vm, &key)? {
             Ok(value)
-        } else if let Some(value) = self.missing_opt(key.clone(), vm) {
-            value
+        } else if let Some(value) = self.missing_opt(key.clone(), vm)? {
+            Ok(value)
         } else {
             Err(vm.new_key_error(key.into_pyobject(vm)))
         }
-        // self.entries
-        //     .get(vm, &key)?
-        //     .ok_or_else(|| vm.new_key_error(key.into_pyobject(vm)))
     }
 
     /// Take a python dictionary and convert it to attributes.
@@ -517,12 +515,11 @@ impl PyObjectView<PyDict> {
     ) -> PyResult<Option<PyObjectRef>> {
         if self.exact_dict(vm) {
             self.entries.get(vm, &key)
+            // FIXME: check __missing__?
         } else {
             match self.as_object().get_item(key.clone(), vm) {
                 Ok(value) => Ok(Some(value)),
-                Err(e) if e.isinstance(&vm.ctx.exceptions.key_error) => {
-                    self.missing_opt(key, vm).transpose()
-                }
+                Err(e) if e.isinstance(&vm.ctx.exceptions.key_error) => self.missing_opt(key, vm),
                 Err(e) => Err(e),
             }
         }
@@ -537,13 +534,6 @@ impl PyObjectView<PyDict> {
             self.inner_getitem(key, vm)
         } else {
             self.as_object().get_item(key, vm)
-            // match self.as_object().get_item(key.clone(), vm) {
-            //     Ok(value) => Ok(value),
-            //     Err(e) if e.isinstance(&vm.ctx.exceptions.key_error) => {
-            //         self.missing_opt(key, vm).ok_or(e)?
-            //     }
-            //     Err(e) => Err(e),
-            // }
         }
     }
 

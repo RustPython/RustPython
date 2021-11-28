@@ -70,7 +70,6 @@ impl PyMapping<'_> {
     }
 
     pub fn methods(&self, vm: &VirtualMachine) -> &PyMappingMethods {
-        // let cls = self.obj.class();
         self.methods.get_or_init(|| {
             if let Some(f) = self
                 .obj
@@ -82,20 +81,6 @@ impl PyMapping<'_> {
                 PyMappingMethods::default()
             }
         })
-
-        // let get_methods = || {
-        //     if let Some(f) = cls.mro_find_map(|cls| cls.slots.as_mapping.load()) {
-        //         f(self.obj, vm)
-        //     } else {
-        //         PyMappingMethods::default()
-        //     }
-        // };
-
-        // if cls.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
-        //     &get_methods()
-        // } else {
-        //     self.methods.get_or_init(get_methods)
-        // }
     }
 
     pub fn length_opt(&self, vm: &VirtualMachine) -> Option<PyResult<usize>> {
