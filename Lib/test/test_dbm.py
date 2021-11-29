@@ -3,10 +3,10 @@
 import unittest
 import glob
 import test.support
-from test.support import os_helper
+from test.support import os_helper, import_helper
 
 # Skip tests if dbm module doesn't exist.
-dbm = test.support.import_module('dbm')
+dbm = import_helper.import_module('dbm')
 
 try:
     from dbm import ndbm
@@ -181,7 +181,7 @@ class WhichDBTestCase(unittest.TestCase):
         self.filename = os_helper.TESTFN
         self.d = dbm.open(self.filename, 'c')
         self.d.close()
-        self.dbm = test.support.import_fresh_module('dbm')
+        self.dbm = import_helper.import_fresh_module('dbm')
 
     def test_keys(self):
         self.d = dbm.open(self.filename, 'c')

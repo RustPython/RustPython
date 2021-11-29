@@ -12,7 +12,7 @@ import unittest
 from unittest import mock
 
 from test import support
-from test.support import os_helper
+from test.support import os_helper, import_helper
 from test.support.os_helper import TESTFN, FakePath
 
 try:
@@ -2184,7 +2184,7 @@ class PosixPathTest(_BasePathTest, unittest.TestCase):
                          'pwd module does not expose getpwall()')
     def test_expanduser(self):
         P = self.cls
-        support.import_module('pwd')
+        import_helper.import_module('pwd')
         import pwd
         pwdent = pwd.getpwuid(os.getuid())
         username = pwdent.pw_name

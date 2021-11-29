@@ -18,7 +18,7 @@ import shutil
 import threading
 import gc
 import textwrap
-from test.support import os_helper
+from test.support import os_helper, import_helper
 from test.support.os_helper import FakePath
 
 try:
@@ -2772,7 +2772,7 @@ class POSIXProcessTestCase(BaseTestCase):
     def test_select_unbuffered(self):
         # Issue #11459: bufsize=0 should really set the pipes as
         # unbuffered (and therefore let select() work properly).
-        select = support.import_module("select")
+        select = import_helper.import_module("select")
         p = subprocess.Popen([sys.executable, "-c",
                               'import sys;'
                               'sys.stdout.write("apple")'],

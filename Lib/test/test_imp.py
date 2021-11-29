@@ -5,7 +5,7 @@ import os.path
 import py_compile
 import sys
 from test import support
-from test.support import script_helper, os_helper
+from test.support import script_helper, os_helper, import_helper
 import unittest
 import warnings
 with warnings.catch_warnings():
@@ -211,7 +211,7 @@ class ImportTests(unittest.TestCase):
 
     def test_load_from_source(self):
         # Verify that the imp module can correctly load and find .py files
-        # XXX (ncoghlan): It would be nice to use support.CleanImport
+        # XXX (ncoghlan): It would be nice to use import_helper.CleanImport
         # here, but that breaks because the os module registers some
         # handlers in copy_reg on import. Since CleanImport doesn't
         # revert that registration, the module is left in a broken
@@ -408,12 +408,12 @@ class ReloadTests(unittest.TestCase):
             imp.reload(os)
 
     def test_extension(self):
-        with support.CleanImport('time'):
+        with import_helper.CleanImport('time'):
             import time
             imp.reload(time)
 
     def test_builtin(self):
-        with support.CleanImport('marshal'):
+        with import_helper.CleanImport('marshal'):
             import marshal
             imp.reload(marshal)
 

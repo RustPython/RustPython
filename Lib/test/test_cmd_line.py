@@ -718,7 +718,7 @@ class CmdLineTest(unittest.TestCase):
 
     def check_warnings_filters(self, cmdline_option, envvar, use_pywarning=False):
         if use_pywarning:
-            code = ("import sys; from test.support import import_fresh_module; "
+            code = ("import sys; from test.support.import_helper import import_fresh_module; "
                     "warnings = import_fresh_module('warnings', blocked=['_warnings']); ")
         else:
             code = "import sys, warnings; "

@@ -8,6 +8,7 @@ import pickle
 from random import choice
 import sys
 from test import support
+from test.support import import_helper
 import threading
 import time
 import typing
@@ -18,10 +19,10 @@ import contextlib
 
 import functools
 
-py_functools = support.import_fresh_module('functools', blocked=['_functools'])
-c_functools = support.import_fresh_module('functools', fresh=['_functools'])
+py_functools = import_helper.import_fresh_module('functools', blocked=['_functools'])
+c_functools = import_helper.import_fresh_module('functools', fresh=['_functools'])
 
-decimal = support.import_fresh_module('decimal', fresh=['_decimal'])
+decimal = import_helper.import_fresh_module('decimal', fresh=['_decimal'])
 
 @contextlib.contextmanager
 def replaced_module(name, replacement):

@@ -9,7 +9,7 @@ import unittest
 import unittest.mock
 
 from test import support
-from test.support import os_helper
+from test.support import os_helper, import_helper
 
 from zipfile import ZipFile, ZipInfo, ZIP_STORED, ZIP_DEFLATED
 
@@ -69,14 +69,14 @@ class ImportHooksBaseTestCase(unittest.TestCase):
         self.meta_path = sys.meta_path[:]
         self.path_hooks = sys.path_hooks[:]
         sys.path_importer_cache.clear()
-        self.modules_before = support.modules_setup()
+        self.modules_before = import_helper.modules_setup()
 
     def tearDown(self):
         sys.path[:] = self.path
         sys.meta_path[:] = self.meta_path
         sys.path_hooks[:] = self.path_hooks
         sys.path_importer_cache.clear()
-        support.modules_cleanup(*self.modules_before)
+        import_helper.modules_cleanup(*self.modules_before)
 
 
 class UncompressedZipImportTestCase(ImportHooksBaseTestCase):

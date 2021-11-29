@@ -2,10 +2,10 @@ import contextlib
 import sys
 import unittest
 from test import support
-from test.support import os_helper
+from test.support import os_helper, import_helper
 import time
 
-resource = support.import_module('resource')
+resource = import_helper.import_module('resource')
 
 # This test is checking a few specific problem spots with the resource module.
 

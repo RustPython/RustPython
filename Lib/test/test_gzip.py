@@ -11,10 +11,10 @@ import sys
 import unittest
 from subprocess import PIPE, Popen
 from test import support
-from test.support import _4G, bigmemtest, os_helper
+from test.support import _4G, bigmemtest, os_helper, import_helper
 from test.support.script_helper import assert_python_ok, assert_python_failure
 
-gzip = support.import_module('gzip')
+gzip = import_helper.import_module('gzip')
 
 data1 = b"""  int length=DEFAULTALLOC, err = Z_OK;
   PyObject *RetVal;

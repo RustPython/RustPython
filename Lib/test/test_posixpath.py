@@ -3,7 +3,7 @@ import posixpath
 import unittest
 from posixpath import realpath, abspath, dirname, basename
 from test import support, test_genericpath
-from test.support import os_helper
+from test.support import os_helper, import_helper
 from test.support.os_helper import FakePath
 from unittest import mock
 
@@ -270,7 +270,7 @@ class PosixPathTest(unittest.TestCase):
                     self.assertEqual(posixpath.expanduser("~/foo"), "/foo")
 
     def test_expanduser_pwd(self):
-        pwd = support.import_module('pwd')
+        pwd = import_helper.import_module('pwd')
 
         self.assertIsInstance(posixpath.expanduser("~/"), str)
         self.assertIsInstance(posixpath.expanduser(b"~/"), bytes)

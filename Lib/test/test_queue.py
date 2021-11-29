@@ -7,9 +7,10 @@ import time
 import unittest
 import weakref
 from test import support
+from test.support import import_helper
 
-py_queue = support.import_fresh_module('queue', blocked=['_queue'])
-c_queue = support.import_fresh_module('queue', fresh=['_queue'])
+py_queue = import_helper.import_fresh_module('queue', blocked=['_queue'])
+c_queue = import_helper.import_fresh_module('queue', fresh=['_queue'])
 need_c_queue = unittest.skipUnless(c_queue, "No _queue module found")
 
 QUEUE_SIZE = 5

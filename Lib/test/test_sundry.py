@@ -3,6 +3,7 @@ import importlib
 import platform
 import sys
 from test import support
+from test.support import import_helper
 import unittest
 
 class TestUntestedModules(unittest.TestCase):
@@ -11,7 +12,7 @@ class TestUntestedModules(unittest.TestCase):
         with support.check_warnings(quiet=True):
             for name in untested:
                 try:
-                    support.import_module('test.test_{}'.format(name))
+                    import_helper.import_module('test.test_{}'.format(name))
                 except unittest.SkipTest:
                     importlib.import_module(name)
                 else:

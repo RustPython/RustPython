@@ -13,7 +13,7 @@ import textwrap
 import time
 import unittest
 from test import support
-from test.support import script_helper, os_helper
+from test.support import script_helper, os_helper, import_helper
 
 TESTFN = os_helper.TESTFN
 
@@ -21,11 +21,11 @@ TESTFN = os_helper.TESTFN
 class TestSupport(unittest.TestCase):
 
     def test_import_module(self):
-        support.import_module("ftplib")
-        self.assertRaises(unittest.SkipTest, support.import_module, "foo")
+        import_helper.import_module("ftplib")
+        self.assertRaises(unittest.SkipTest, import_helper.import_module, "foo")
 
     def test_import_fresh_module(self):
-        support.import_fresh_module("ftplib")
+        import_helper.import_fresh_module("ftplib")
 
     def test_get_attribute(self):
         self.assertEqual(support.get_attribute(self, "test_get_attribute"),
@@ -39,7 +39,7 @@ class TestSupport(unittest.TestCase):
     def test_unload(self):
         import sched
         self.assertIn("sched", sys.modules)
-        support.unload("sched")
+        import_helper.unload("sched")
         self.assertNotIn("sched", sys.modules)
 
     def test_unlink(self):
@@ -83,7 +83,7 @@ class TestSupport(unittest.TestCase):
             mod = __import__(TESTFN)
             self.assertIn(TESTFN, sys.modules)
 
-            support.forget(TESTFN)
+            import_helper.forget(TESTFN)
             self.assertNotIn(TESTFN, sys.modules)
         finally:
             del sys.path[0]
@@ -291,11 +291,11 @@ class TestSupport(unittest.TestCase):
 
     def test_CleanImport(self):
         import importlib
-        with support.CleanImport("asyncore"):
+        with import_helper.CleanImport("asyncore"):
             importlib.import_module("asyncore")
 
     def test_DirsOnSysPath(self):
-        with support.DirsOnSysPath('foo', 'bar'):
+        with import_helper.DirsOnSysPath('foo', 'bar'):
             self.assertIn("foo", sys.path)
             self.assertIn("bar", sys.path)
         self.assertNotIn("foo", sys.path)

@@ -8,6 +8,7 @@ import os.path
 import sys
 from test import support
 from test.support import os_helper
+from test.support import import_helper
 import types
 import unittest
 import warnings
@@ -201,7 +202,7 @@ class ReloadTests:
     def test_reload_modules(self):
         for mod in ('tokenize', 'time', 'marshal'):
             with self.subTest(module=mod):
-                with support.CleanImport(mod):
+                with import_helper.CleanImport(mod):
                     module = self.init.import_module(mod)
                     self.init.reload(module)
 
@@ -222,7 +223,7 @@ class ReloadTests:
                 self.assertEqual(reloaded.spam, 3)
 
     def test_reload_missing_loader(self):
-        with support.CleanImport('types'):
+        with import_helper.CleanImport('types'):
             import types
             loader = types.__loader__
             del types.__loader__
@@ -233,7 +234,7 @@ class ReloadTests:
             self.assertEqual(reloaded.__loader__.path, loader.path)
 
     def test_reload_loader_replaced(self):
-        with support.CleanImport('types'):
+        with import_helper.CleanImport('types'):
             import types
             types.__loader__ = None
             self.init.invalidate_caches()
@@ -247,7 +248,7 @@ class ReloadTests:
         name = 'spam'
         with os_helper.temp_cwd(None) as cwd:
             with test_util.uncache('spam'):
-                with support.DirsOnSysPath(cwd):
+                with import_helper.DirsOnSysPath(cwd):
                     # Start as a plain module.
                     self.init.invalidate_caches()
                     path = os.path.join(cwd, name + '.py')
@@ -298,7 +299,7 @@ class ReloadTests:
         name = 'spam'
         with os_helper.temp_cwd(None) as cwd:
             with test_util.uncache('spam'):
-                with support.DirsOnSysPath(cwd):
+                with import_helper.DirsOnSysPath(cwd):
                     # Start as a namespace package.
                     self.init.invalidate_caches()
                     bad_path = os.path.join(cwd, name, '__init.py')

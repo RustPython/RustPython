@@ -1,4 +1,5 @@
-from test.support import run_unittest, unload, check_warnings, CleanImport
+from test.support import run_unittest, check_warnings
+from test.support.import_helper import unload, CleanImport
 import unittest
 import sys
 import importlib
