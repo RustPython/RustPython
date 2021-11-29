@@ -127,3 +127,41 @@ impl ToCString for PyStr {
         std::ffi::CString::new(self.as_ref()).map_err(|err| err.into_pyexception(vm))
     }
 }
+
+pub(crate) fn collection_repr<'a, I>(
+    class_name: Option<&str>,
+    prefix: &str,
+    suffix: &str,
+    iter: I,
+    vm: &VirtualMachine,
+) -> PyResult<String>
+where
+    I: std::iter::Iterator<Item = &'a PyObjectRef>,
+{
+    let mut repr = String::new();
+    if let Some(name) = class_name {
+        repr.push_str(name);
+        repr.push('(');
+    }
+    repr.push_str(prefix);
+    {
+        let mut parts_iter = iter.map(|o| o.repr(vm));
+        repr.push_str(
+            parts_iter
+                .next()
+                .transpose()?
+                .expect("this is not called for empty collection")
+                .as_str(),
+        );
+        for part in parts_iter {
+            repr.push_str(", ");
+            repr.push_str(part?.as_str());
+        }
+    }
+    repr.push_str(suffix);
+    if class_name.is_some() {
+        repr.push(')');
+    }
+
+    Ok(repr)
+}

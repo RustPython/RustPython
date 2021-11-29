@@ -17,12 +17,12 @@ mod _collections {
             AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable,
             PyComparisonOp, Unhashable,
         },
+        utils::collection_repr,
         vm::ReprGuard,
         PyComparisonValue, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
         VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
-    use itertools::Itertools;
     use std::cmp::max;
     use std::collections::VecDeque;
 
@@ -363,26 +363,28 @@ mod _collections {
 
         #[pymethod(magic)]
         fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            let repr = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-                let deque = zelf.borrow_deque().clone();
-                let elements = deque
-                    .iter()
-                    .map(|obj| obj.repr(vm))
-                    .collect::<Result<Vec<_>, _>>()?;
-                let maxlen = zelf
-                    .maxlen
-                    .map(|maxlen| format!(", maxlen={}", maxlen))
-                    .unwrap_or_default();
+            let class = zelf.class();
+            let class_name = class.name();
+
+            let s = if zelf.len() == 0 {
                 format!(
-                    "{}([{}]{})",
-                    zelf.class().name(),
-                    elements.into_iter().format(", "),
-                    maxlen
+                    "{}([], maxlen={})",
+                    class_name,
+                    zelf.maxlen.unwrap_or_default()
                 )
+            } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
+                collection_repr(
+                    Some(&class_name),
+                    "[",
+                    format!("], maxlen={}", zelf.maxlen.unwrap_or_default()).as_str(),
+                    zelf.borrow_deque().iter(),
+                    vm,
+                )?
             } else {
                 "[...]".to_owned()
             };
-            Ok(repr)
+
+            Ok(s)
         }
 
         #[pymethod(magic)]

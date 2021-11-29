@@ -12,6 +12,7 @@ use crate::{
         AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable,
         Iterable, PyComparisonOp, Unconstructible, Unhashable,
     },
+    utils::collection_repr,
     vm::{ReprGuard, VirtualMachine},
     PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyObjectView, PyObjectWrap,
     PyRef, PyResult, PyValue, TypeProtocol,
@@ -229,14 +230,10 @@ impl PyList {
 
     #[pymethod(magic)]
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        let s = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-            let elements = zelf.borrow_vec().to_vec();
-            let mut str_parts = Vec::with_capacity(elements.len());
-            for elem in elements.iter() {
-                let s = elem.repr(vm)?;
-                str_parts.push(s.as_str().to_owned());
-            }
-            format!("[{}]", str_parts.join(", "))
+        let s = if zelf.len() == 0 {
+            "[]".to_owned()
+        } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
+            collection_repr(None, "[", "]", zelf.borrow_vec().iter(), vm)?
         } else {
             "[...]".to_owned()
         };
