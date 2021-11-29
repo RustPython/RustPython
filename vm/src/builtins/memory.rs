@@ -10,6 +10,7 @@ use crate::{
     bytesinner::bytes_to_hex,
     function::{FuncArgs, IntoPyObject, OptionalArg},
     protocol::{BufferDescriptor, BufferMethods, PyBuffer, PyMappingMethods, VecBuffer},
+    sequence::SequenceOp,
     sliceable::wrap_index,
     stdlib::pystruct::FormatSpec,
     types::{AsBuffer, AsMapping, Comparable, Constructor, Hashable, PyComparisonOp},
@@ -629,8 +630,22 @@ impl PyMemoryView {
                 ));
             }
 
-            let shape_vec = shape.borrow_vec();
-            let shape_ndim = shape_vec.len();
+            let tup;
+            let list;
+            let list_borrow;
+            let shape = match shape {
+                Either::A(shape) => {
+                    tup = shape;
+                    tup.as_slice()
+                }
+                Either::B(shape) => {
+                    list = shape;
+                    list_borrow = list.borrow_vec();
+                    list_borrow.as_slice()
+                }
+            };
+
+            let shape_ndim = shape.len();
             // TODO: MAX_NDIM
             if self.desc.ndim() != 1 && shape_ndim != 1 {
                 return Err(
@@ -651,7 +666,7 @@ impl PyMemoryView {
             let mut product_shape = itemsize;
             let mut dim_descriptor = Vec::with_capacity(shape_ndim);
 
-            for x in shape_vec.iter() {
+            for x in shape.iter() {
                 let x = usize::try_from_borrowed_object(vm, x)?;
 
                 if x > isize::MAX as usize / product_shape {
@@ -865,7 +880,7 @@ struct CastArgs {
     #[pyarg(any)]
     format: PyStrRef,
     #[pyarg(any, optional)]
-    shape: OptionalArg<PyListRef>,
+    shape: OptionalArg<Either<PyTupleRef, PyListRef>>,
 }
 
 enum SubscriptNeedle {
