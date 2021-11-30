@@ -952,6 +952,9 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "zip" => ctx.types.zip_type.clone(),
 
         // Constants
+        "None" => ctx.none(),
+        "True" => ctx.new_bool(true),
+        "False" => ctx.new_bool(false),
         "NotImplemented" => ctx.not_implemented(),
         "Ellipsis" => vm.ctx.ellipsis.clone(),
 
