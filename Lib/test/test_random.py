@@ -802,7 +802,6 @@ class MersenneTwister_TestBasicOps(TestBasicOps, unittest.TestCase):
             self.assertEqual(set(range(start,stop)),
                 set([self.gen.randrange(start,stop) for i in range(100)]))
 
-    @unittest.skip("TODO: RUSTPYTHON, ValueError: number of bits must be greater than zero")
     def test_getrandbits(self):
         super().test_getrandbits()
 
