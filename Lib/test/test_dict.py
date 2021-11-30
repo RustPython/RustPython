@@ -1049,8 +1049,6 @@ class DictTest(unittest.TestCase):
         a.a = 3
         self.assertFalse(_testcapi.dict_hassplittable(a.__dict__))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_iterator_pickling(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             data = {1:"a", 2:"b", 3:"c"}
@@ -1069,8 +1067,6 @@ class DictTest(unittest.TestCase):
             del data[drop]
             self.assertEqual(list(it), list(data))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_itemiterator_pickling(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             data = {1:"a", 2:"b", 3:"c"}
@@ -1093,8 +1089,6 @@ class DictTest(unittest.TestCase):
             del data[drop[0]]
             self.assertEqual(dict(it), data)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_valuesiterator_pickling(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             data = {1:"a", 2:"b", 3:"c"}
