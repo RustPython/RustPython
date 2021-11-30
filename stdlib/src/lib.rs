@@ -14,8 +14,6 @@ mod dis;
 mod gc;
 mod hashlib;
 mod json;
-#[cfg(feature = "rustpython-parser")]
-mod keyword;
 mod math;
 mod platform;
 mod pyexpat;
@@ -95,10 +93,6 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
         #[cfg(feature = "rustpython-ast")]
         {
             "_ast" => ast::make_module,
-        }
-        #[cfg(feature = "rustpython-parser")]
-        {
-            "keyword" => keyword::make_module,
         }
         #[cfg(any(unix, target_os = "wasi"))]
         {
