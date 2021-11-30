@@ -13,7 +13,7 @@ use crate::{
     sequence::SequenceOp,
     sliceable::wrap_index,
     stdlib::pystruct::FormatSpec,
-    types::{AsBuffer, AsMapping, Comparable, Constructor, Hashable, PyComparisonOp},
+    types::{AsBuffer, AsMapping, Comparable, Constructor, GetAttr, Hashable, PyComparisonOp},
     utils::Either,
     IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyObjectView,
     PyObjectWrap, PyRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject, TypeProtocol,
@@ -58,7 +58,7 @@ impl Constructor for PyMemoryView {
     }
 }
 
-#[pyimpl(with(Hashable, Comparable, AsBuffer, AsMapping, Constructor))]
+#[pyimpl(with(Hashable, Comparable, AsBuffer, AsMapping, Constructor, GetAttr))]
 impl PyMemoryView {
     fn parse_format(format: &str, vm: &VirtualMachine) -> PyResult<FormatSpec> {
         FormatSpec::parse(format.as_bytes(), vm)
@@ -1031,6 +1031,8 @@ impl PyValue for PyMemoryView {
         &vm.ctx.types.memoryview_type
     }
 }
+
+impl GetAttr for PyMemoryView {}
 
 pub(crate) fn init(ctx: &PyContext) {
     PyMemoryView::extend_class(ctx, &ctx.types.memoryview_type)

@@ -4,8 +4,10 @@
 use super::PyTypeRef;
 use crate::common::lock::PyRwLock;
 use crate::{
-    function::FuncArgs, types::GetDescriptor, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
-    PyValue, TryFromObject, TypeProtocol, VirtualMachine,
+    function::FuncArgs,
+    types::{GetAttr, GetDescriptor},
+    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    VirtualMachine,
 };
 
 /// Property attribute.
@@ -85,7 +87,7 @@ impl GetDescriptor for PyProperty {
     }
 }
 
-#[pyimpl(with(GetDescriptor), flags(BASETYPE))]
+#[pyimpl(with(GetAttr, GetDescriptor), flags(BASETYPE))]
 impl PyProperty {
     #[pyslot]
     fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -218,6 +220,8 @@ impl PyProperty {
         .into_ref_with_type(vm, TypeProtocol::clone_class(&zelf))
     }
 }
+
+impl GetAttr for PyProperty {}
 
 pub(crate) fn init(context: &PyContext) {
     PyProperty::extend_class(context, &context.types.property_type);

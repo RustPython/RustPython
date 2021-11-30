@@ -1,7 +1,7 @@
 use super::{float, PyStr, PyTypeRef};
 use crate::{
     function::{IntoPyObject, OptionalArg, OptionalOption},
-    types::{Comparable, Constructor, Hashable, PyComparisonOp},
+    types::{Comparable, Constructor, GetAttr, Hashable, PyComparisonOp},
     IdProtocol,
     PyArithmeticValue::{self, *},
     PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
@@ -196,7 +196,7 @@ impl PyComplex {
     }
 }
 
-#[pyimpl(flags(BASETYPE), with(Comparable, Hashable, Constructor))]
+#[pyimpl(flags(BASETYPE), with(Comparable, Hashable, Constructor, GetAttr))]
 impl PyComplex {
     #[pymethod(magic)]
     fn complex(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRef<PyComplex> {
@@ -436,6 +436,7 @@ impl Hashable for PyComplex {
     }
 }
 
+impl GetAttr for PyComplex {}
 #[derive(FromArgs)]
 pub struct ComplexArgs {
     #[pyarg(any, optional)]

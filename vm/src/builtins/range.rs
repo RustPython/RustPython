@@ -5,8 +5,8 @@ use crate::{
     function::{FuncArgs, OptionalArg},
     protocol::{PyIterReturn, PyMappingMethods},
     types::{
-        AsMapping, Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable,
-        PyComparisonOp, Unconstructible,
+        AsMapping, Comparable, Constructor, GetAttr, Hashable, IterNext, IterNextIterable,
+        Iterable, PyComparisonOp, Unconstructible,
     },
     IdProtocol, IntoPyRef, PyClassImpl, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol, VirtualMachine,
@@ -178,7 +178,7 @@ pub fn init(context: &PyContext) {
     PyRangeIterator::extend_class(context, &context.types.range_iterator_type);
 }
 
-#[pyimpl(with(AsMapping, Hashable, Comparable, Iterable))]
+#[pyimpl(with(AsMapping, Hashable, Comparable, GetAttr, Iterable))]
 impl PyRange {
     fn new(cls: PyTypeRef, stop: PyIntRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         PyRange {
@@ -490,6 +490,8 @@ impl Iterable for PyRange {
     }
 }
 
+impl GetAttr for PyRange {}
+
 // Semantically, this is the same as the previous representation.
 //
 // Unfortunately, since AtomicCell requires a Copy type, no BigInt implementations can
@@ -513,7 +515,7 @@ impl PyValue for PyLongRangeIterator {
     }
 }
 
-#[pyimpl(with(Constructor, IterNext))]
+#[pyimpl(with(Constructor, IterNext, GetAttr))]
 impl PyLongRangeIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> BigInt {
@@ -561,6 +563,8 @@ impl IterNext for PyLongRangeIterator {
     }
 }
 
+impl GetAttr for PyLongRangeIterator {}
+
 // When start, stop, step are isizes, we can use a faster more compact representation
 // that only operates using isizes to track values.
 #[pyclass(module = false, name = "range_iterator")]
@@ -578,7 +582,7 @@ impl PyValue for PyRangeIterator {
     }
 }
 
-#[pyimpl(with(Constructor, IterNext))]
+#[pyimpl(with(Constructor, IterNext, GetAttr))]
 impl PyRangeIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
@@ -626,6 +630,8 @@ impl IterNext for PyRangeIterator {
         Ok(r)
     }
 }
+
+impl GetAttr for PyRangeIterator {}
 
 fn range_iter_reduce(
     start: BigInt,

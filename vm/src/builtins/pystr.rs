@@ -11,8 +11,8 @@ use crate::{
     sequence::SequenceOp,
     sliceable::PySliceableSequence,
     types::{
-        AsMapping, Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable,
-        PyComparisonOp, Unconstructible,
+        AsMapping, Comparable, Constructor, GetAttr, Hashable, IterNext, IterNextIterable,
+        Iterable, PyComparisonOp, Unconstructible,
     },
     utils::Either,
     IdProtocol, ItemProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObject,
@@ -229,7 +229,7 @@ impl PyValue for PyStrIterator {
     }
 }
 
-#[pyimpl(with(Constructor, IterNext))]
+#[pyimpl(with(Constructor, IterNext, GetAttr))]
 impl PyStrIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
@@ -281,6 +281,8 @@ impl IterNext for PyStrIterator {
         Ok(PyIterReturn::StopIteration(None))
     }
 }
+
+impl GetAttr for PyStrIterator {}
 
 #[derive(FromArgs)]
 pub struct StrArgs {
@@ -375,7 +377,7 @@ impl PyStr {
 
 #[pyimpl(
     flags(BASETYPE),
-    with(AsMapping, Hashable, Comparable, Iterable, Constructor)
+    with(AsMapping, Hashable, Comparable, Iterable, Constructor, GetAttr)
 )]
 impl PyStr {
     #[pymethod(magic)]
@@ -1289,6 +1291,8 @@ impl AsMapping for PyStr {
         unreachable!("ass_subscript not implemented for {}", zelf.class())
     }
 }
+
+impl GetAttr for PyStr {}
 
 #[derive(FromArgs)]
 struct EncodeArgs {

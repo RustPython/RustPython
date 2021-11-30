@@ -3,7 +3,7 @@ use crate::common::lock::{PyMutex, PyRwLock};
 use crate::{
     function::{IntoPyObject, OptionalArg},
     protocol::{PyIter, PyIterReturn},
-    types::{Constructor, IterNext, IterNextIterable},
+    types::{Constructor, GetAttr, IterNext, IterNextIterable},
     ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
     VirtualMachine,
 };
@@ -47,7 +47,7 @@ impl Constructor for PyEnumerate {
     }
 }
 
-#[pyimpl(with(IterNext, Constructor), flags(BASETYPE))]
+#[pyimpl(with(IterNext, Constructor, GetAttr), flags(BASETYPE))]
 impl PyEnumerate {
     #[pyclassmethod(magic)]
     fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
@@ -75,6 +75,8 @@ impl IterNext for PyEnumerate {
         Ok(PyIterReturn::Return((position, next_obj).into_pyobject(vm)))
     }
 }
+
+impl GetAttr for PyEnumerate {}
 
 #[pyclass(module = false, name = "reversed")]
 #[derive(Debug)]

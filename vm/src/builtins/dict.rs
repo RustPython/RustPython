@@ -9,8 +9,8 @@ use crate::{
     function::{ArgIterable, FuncArgs, IntoPyObject, KwArgs, OptionalArg},
     protocol::{PyIterIter, PyIterReturn, PyMappingMethods},
     types::{
-        AsMapping, Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable,
-        PyComparisonOp, Unconstructible, Unhashable,
+        AsMapping, Comparable, Constructor, GetAttr, Hashable, IterNext, IterNextIterable,
+        Iterable, PyComparisonOp, Unconstructible, Unhashable,
     },
     vm::{ReprGuard, VirtualMachine},
     IdProtocol, ItemProtocol,
@@ -61,7 +61,10 @@ impl PyDict {
 
 // Python dict methods:
 #[allow(clippy::len_without_is_empty)]
-#[pyimpl(with(AsMapping, Hashable, Comparable, Iterable), flags(BASETYPE))]
+#[pyimpl(
+    with(AsMapping, Hashable, Comparable, Iterable, GetAttr),
+    flags(BASETYPE)
+)]
 impl PyDict {
     /// escape hatch to access the underlying data structure directly. prefer adding a method on
     /// PyDict instead of using this
@@ -475,6 +478,8 @@ impl Iterable for PyDict {
     }
 }
 
+impl GetAttr for PyDict {}
+
 impl PyObjectView<PyDict> {
     #[inline]
     fn exact_dict(&self, vm: &VirtualMachine) -> bool {
@@ -765,7 +770,7 @@ macro_rules! dict_view {
             }
         }
 
-        #[pyimpl(with(Constructor, IterNext))]
+        #[pyimpl(with(GetAttr, Constructor, IterNext))]
         impl $iter_name {
             fn new(dict: PyDictRef) -> Self {
                 $iter_name {
@@ -810,6 +815,8 @@ macro_rules! dict_view {
             }
         }
 
+        impl GetAttr for $iter_name {}
+
         #[pyclass(module = false, name = $reverse_iter_class_name)]
         #[derive(Debug)]
         pub(crate) struct $reverse_iter_name {
@@ -823,7 +830,7 @@ macro_rules! dict_view {
             }
         }
 
-        #[pyimpl(with(Constructor, IterNext))]
+        #[pyimpl(with(GetAttr, Constructor, IterNext))]
         impl $reverse_iter_name {
             fn new(dict: PyDictRef) -> Self {
                 let size = dict.size();
@@ -875,6 +882,8 @@ macro_rules! dict_view {
                 Ok(next)
             }
         }
+
+        impl GetAttr for $reverse_iter_name {}
     };
 }
 
@@ -1004,7 +1013,7 @@ trait ViewSetOps: DictView {
 }
 
 impl ViewSetOps for PyDictKeys {}
-#[pyimpl(with(DictView, Constructor, Comparable, Iterable, ViewSetOps))]
+#[pyimpl(with(DictView, Constructor, Comparable, Iterable, ViewSetOps, GetAttr))]
 impl PyDictKeys {
     #[pymethod(magic)]
     fn contains(zelf: PyRef<Self>, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
@@ -1024,8 +1033,10 @@ impl Comparable for PyDictKeys {
     }
 }
 
+impl GetAttr for PyDictKeys {}
+
 impl ViewSetOps for PyDictItems {}
-#[pyimpl(with(DictView, Constructor, Comparable, Iterable, ViewSetOps))]
+#[pyimpl(with(DictView, Constructor, Comparable, Iterable, ViewSetOps, GetAttr))]
 impl PyDictItems {
     #[pymethod(magic)]
     fn contains(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
@@ -1060,9 +1071,12 @@ impl Comparable for PyDictItems {
     }
 }
 
-#[pyimpl(with(DictView, Constructor, Iterable))]
+impl GetAttr for PyDictItems {}
+
+#[pyimpl(with(DictView, Constructor, Iterable, GetAttr))]
 impl PyDictValues {}
 impl Unconstructible for PyDictValues {}
+impl GetAttr for PyDictValues {}
 
 pub(crate) fn init(context: &PyContext) {
     PyDict::extend_class(context, &context.types.dict_type);

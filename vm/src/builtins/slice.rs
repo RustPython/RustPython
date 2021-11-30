@@ -2,7 +2,7 @@
 use super::{PyInt, PyIntRef, PyTupleRef, PyTypeRef};
 use crate::{
     function::{FuncArgs, IntoPyObject, OptionalArg},
-    types::{Comparable, Constructor, Hashable, PyComparisonOp, Unhashable},
+    types::{Comparable, Constructor, GetAttr, Hashable, PyComparisonOp, Unhashable},
     PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
     TypeProtocol, VirtualMachine,
 };
@@ -25,7 +25,7 @@ impl PyValue for PySlice {
     }
 }
 
-#[pyimpl(with(Hashable, Comparable))]
+#[pyimpl(with(Hashable, Comparable, GetAttr))]
 impl PySlice {
     #[pyproperty]
     fn start(&self, vm: &VirtualMachine) -> PyObjectRef {
@@ -259,6 +259,8 @@ impl Comparable for PySlice {
 }
 
 impl Unhashable for PySlice {}
+
+impl GetAttr for PySlice {}
 
 /// A saturated slice with values ranging in [isize::MIN, isize::MAX]. Used for
 /// slicable sequences that require indices in the aforementioned range.

@@ -5,7 +5,7 @@ use crate::{
     format::FormatSpec,
     function::{ArgIntoBool, IntoPyObject, IntoPyResult, OptionalArg, OptionalOption},
     try_value_from_borrowed_object,
-    types::{Comparable, Constructor, Hashable, PyComparisonOp},
+    types::{Comparable, Constructor, GetAttr, Hashable, PyComparisonOp},
     IdProtocol, PyArithmeticValue, PyClassImpl, PyComparisonValue, PyContext, PyObject,
     PyObjectRef, PyRef, PyResult, PyValue, TryFromBorrowedObject, TypeProtocol, VirtualMachine,
 };
@@ -316,7 +316,7 @@ impl PyInt {
     }
 }
 
-#[pyimpl(flags(BASETYPE), with(Comparable, Hashable, Constructor))]
+#[pyimpl(flags(BASETYPE), with(Comparable, GetAttr, Hashable, Constructor))]
 impl PyInt {
     #[pymethod(name = "__radd__")]
     #[pymethod(magic)]
@@ -733,6 +733,8 @@ impl Hashable for PyInt {
         Ok(hash::hash_bigint(zelf.as_bigint()))
     }
 }
+
+impl GetAttr for PyInt {}
 
 #[derive(FromArgs)]
 pub struct IntOptions {

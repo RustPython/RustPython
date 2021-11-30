@@ -11,8 +11,8 @@ use crate::{
     function::{ArgIterable, FuncArgs, OptionalArg, PosArgs},
     protocol::PyIterReturn,
     types::{
-        Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable, PyComparisonOp,
-        Unconstructible, Unhashable,
+        Comparable, Constructor, GetAttr, Hashable, IterNext, IterNextIterable, Iterable,
+        PyComparisonOp, Unconstructible, Unhashable,
     },
     vm::{ReprGuard, VirtualMachine},
     IdProtocol, PyArithmeticValue, PyClassImpl, PyComparisonValue, PyContext, PyObject,
@@ -404,7 +404,7 @@ impl PySet {
     }
 }
 
-#[pyimpl(with(Hashable, Comparable, Iterable), flags(BASETYPE))]
+#[pyimpl(with(Hashable, Comparable, Iterable, GetAttr), flags(BASETYPE))]
 impl PySet {
     #[pyslot]
     fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -674,6 +674,8 @@ impl Iterable for PySet {
     }
 }
 
+impl GetAttr for PySet {}
+
 macro_rules! multi_args_frozenset {
     ($vm:expr, $others:expr, $zelf:expr, $op:tt) => {{
         let mut res = $zelf.inner.copy();
@@ -711,7 +713,10 @@ impl Constructor for PyFrozenSet {
     }
 }
 
-#[pyimpl(flags(BASETYPE), with(Hashable, Comparable, Iterable, Constructor))]
+#[pyimpl(
+    flags(BASETYPE),
+    with(Hashable, Comparable, Iterable, Constructor, GetAttr)
+)]
 impl PyFrozenSet {
     // Also used by ssl.rs windows.
     pub fn from_iter(
@@ -899,6 +904,8 @@ impl Iterable for PyFrozenSet {
     }
 }
 
+impl GetAttr for PyFrozenSet {}
+
 struct SetIterable {
     iterable: PosArgs<ArgIterable>,
 }
@@ -939,7 +946,7 @@ impl PyValue for PySetIterator {
     }
 }
 
-#[pyimpl(with(Constructor, IterNext))]
+#[pyimpl(with(Constructor, IterNext, GetAttr))]
 impl PySetIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
@@ -989,6 +996,8 @@ impl IterNext for PySetIterator {
         Ok(next)
     }
 }
+
+impl GetAttr for PySetIterator {}
 
 pub fn init(context: &PyContext) {
     PySet::extend_class(context, &context.types.set_type);

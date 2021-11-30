@@ -3,7 +3,7 @@ use crate::common::{float_ops, hash};
 use crate::{
     format::FormatSpec,
     function::{ArgBytesLike, IntoPyObject, OptionalArg, OptionalOption},
-    types::{Comparable, Constructor, Hashable, PyComparisonOp},
+    types::{Comparable, Constructor, GetAttr, Hashable, PyComparisonOp},
     IdProtocol,
     PyArithmeticValue::{self, *},
     PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
@@ -211,7 +211,7 @@ fn float_from_string(val: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
     })
 }
 
-#[pyimpl(flags(BASETYPE), with(Comparable, Hashable, Constructor))]
+#[pyimpl(flags(BASETYPE), with(Comparable, GetAttr, Hashable, Constructor))]
 impl PyFloat {
     #[pymethod(magic)]
     fn format(&self, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
@@ -504,6 +504,8 @@ impl PyFloat {
         (self.value,).into_pyobject(vm)
     }
 }
+
+impl GetAttr for PyFloat {}
 
 impl Comparable for PyFloat {
     fn cmp(

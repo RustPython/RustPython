@@ -25,7 +25,7 @@ use crate::{
     },
     sliceable::{PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
     types::{
-        AsBuffer, AsMapping, Callable, Comparable, Constructor, Hashable, IterNext,
+        AsBuffer, AsMapping, Callable, Comparable, Constructor, GetAttr, Hashable, IterNext,
         IterNextIterable, Iterable, PyComparisonOp, Unconstructible, Unhashable,
     },
     utils::Either,
@@ -91,7 +91,7 @@ pub(crate) fn init(context: &PyContext) {
 
 #[pyimpl(
     flags(BASETYPE),
-    with(Hashable, Comparable, AsBuffer, AsMapping, Iterable)
+    with(Hashable, Comparable, AsBuffer, AsMapping, Iterable, GetAttr)
 )]
 impl PyByteArray {
     #[pyslot]
@@ -783,6 +783,8 @@ impl Iterable for PyByteArray {
     }
 }
 
+impl GetAttr for PyByteArray {}
+
 // fn set_value(obj: &PyObject, value: Vec<u8>) {
 //     obj.borrow_mut().kind = PyObjectPayload::Bytes { value };
 // }
@@ -799,7 +801,7 @@ impl PyValue for PyByteArrayIterator {
     }
 }
 
-#[pyimpl(with(Constructor, IterNext))]
+#[pyimpl(with(Constructor, IterNext, GetAttr))]
 impl PyByteArrayIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
@@ -832,3 +834,5 @@ impl IterNext for PyByteArrayIterator {
         })
     }
 }
+
+impl GetAttr for PyByteArrayIterator {}

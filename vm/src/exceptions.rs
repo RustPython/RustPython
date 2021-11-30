@@ -8,6 +8,7 @@ use crate::{
     py_io::{self, Write},
     stdlib::sys,
     suggestion::offer_suggestions,
+    types::GetAttr,
     IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
     TryFromObject, TypeProtocol, VirtualMachine,
 };
@@ -410,7 +411,7 @@ macro_rules! extend_exception {
     };
 }
 
-#[pyimpl(flags(BASETYPE, HAS_DICT))]
+#[pyimpl(with(GetAttr), flags(BASETYPE, HAS_DICT))]
 impl PyBaseException {
     pub(crate) fn new(args: Vec<PyObjectRef>, vm: &VirtualMachine) -> PyBaseException {
         PyBaseException {
@@ -514,6 +515,8 @@ impl PyBaseException {
         format!("{}({})", cls.name(), repr_args.iter().format(", "))
     }
 }
+
+impl GetAttr for PyBaseException {}
 
 impl ExceptionZoo {
     pub(crate) fn init() -> Self {
