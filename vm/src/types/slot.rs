@@ -701,7 +701,10 @@ pub trait GetAttr: PyValue {
     }
 
     // TODO: make zelf: &PyObjectView<Self>
-    fn getattro(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult;
+    #[inline]
+    fn getattro(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
+        vm.generic_getattribute(zelf.as_object().to_owned(), name)
+    }
 
     #[inline]
     #[pymethod(magic)]
