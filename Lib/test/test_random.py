@@ -430,7 +430,6 @@ class TestBasicOps:
         k = sum(randrange(6755399441055744) % 3 == 2 for i in range(n))
         self.assertTrue(0.30 < k/n < .37, (k/n))
 
-    @unittest.skip("TODO: RUSTPYTHON, OverflowError: Python int too large to convert to Rust usize")
     def test_randbytes(self):
         # Verify ranges
         for n in range(1, 10):
@@ -920,6 +919,7 @@ class MersenneTwister_TestBasicOps(TestBasicOps, unittest.TestCase):
         c = self.gen.choices(population, cum_weights=cum_weights, k=10000)
         self.assertEqual(a, c)
 
+    @unittest.skip("TODO: RUSTPYTHON, OverflowError: int too big to convert")
     def test_randbytes(self):
         super().test_randbytes()
 
