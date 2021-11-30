@@ -15,9 +15,9 @@ import struct
 import subprocess
 import sys
 import tempfile
-from test.support import (captured_stdout, captured_stderr, requires_zlib,
-                          import_module)
+from test.support import captured_stdout, captured_stderr, requires_zlib
 from test.support.os_helper import (can_symlink, EnvironmentVarGuard, rmtree)
+from test.support.import_helper import import_module
 import threading
 import unittest
 import venv

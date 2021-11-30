@@ -2,7 +2,7 @@ import io
 import marshal
 import os
 import sys
-from test import support
+from test.support import import_helper
 import types
 import unittest
 from unittest import mock
@@ -29,7 +29,7 @@ class InheritanceTests:
         self.superclasses = [getattr(self.abc, class_name)
                              for class_name in self.superclass_names]
         if hasattr(self, 'subclass_names'):
-            # Because test.support.import_fresh_module() creates a new
+            # Because import_helper.import_fresh_module() creates a new
             # importlib._bootstrap per module, inheritance checks fail when
             # checking across module boundaries (i.e. the _bootstrap in abc is
             # not the same as the one in machinery). That means stealing one of
@@ -566,8 +566,8 @@ class InspectLoaderLoadModuleTests:
     module_name = 'blah'
 
     def setUp(self):
-        support.unload(self.module_name)
-        self.addCleanup(support.unload, self.module_name)
+        import_helper.unload(self.module_name)
+        self.addCleanup(import_helper.unload, self.module_name)
 
     def load(self, loader):
         spec = self.util.spec_from_loader(self.module_name, loader)

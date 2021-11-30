@@ -37,7 +37,7 @@ import weakref
 from collections import deque, UserList
 from itertools import cycle, count
 from test import support
-from test.support import os_helper
+from test.support import os_helper, import_helper
 from test.support.script_helper import assert_python_ok, run_python_until_end
 from test.support.os_helper import FakePath
 
@@ -4568,7 +4568,7 @@ class SignalsTest(unittest.TestCase):
         """Check that a buffered write, when it gets interrupted (either
         returning a partial result or EINTR), properly invokes the signal
         handler and retries if the latter returned successfully."""
-        select = support.import_module("select")
+        select = import_helper.import_module("select")
 
         # A quantity that exceeds the buffer size of an anonymous pipe's
         # write end.

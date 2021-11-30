@@ -17,7 +17,7 @@ from test import support
 from test.support.script_helper import (
     make_pkg, make_script, make_zip_pkg, make_zip_script,
     assert_python_ok, assert_python_failure, spawn_python, kill_python)
-from test.support import os_helper
+from test.support import os_helper, import_helper
 
 verbose = support.verbose
 
@@ -238,7 +238,7 @@ class CmdLineTest(unittest.TestCase):
             script_name = _make_test_script(script_dir, 'script')
             py_compile.compile(script_name, doraise=True)
             os.remove(script_name)
-            pyc_file = support.make_legacy_pyc(script_name)
+            pyc_file = import_helper.make_legacy_pyc(script_name)
             self._check_script(pyc_file, pyc_file,
                                pyc_file, script_dir, None,
                                importlib.machinery.SourcelessFileLoader)
@@ -255,7 +255,7 @@ class CmdLineTest(unittest.TestCase):
             script_name = _make_test_script(script_dir, '__main__')
             py_compile.compile(script_name, doraise=True)
             os.remove(script_name)
-            pyc_file = support.make_legacy_pyc(script_name)
+            pyc_file = import_helper.make_legacy_pyc(script_name)
             self._check_script(script_dir, pyc_file, script_dir,
                                script_dir, '',
                                importlib.machinery.SourcelessFileLoader)
@@ -355,7 +355,7 @@ class CmdLineTest(unittest.TestCase):
             script_name = _make_test_script(pkg_dir, '__main__')
             compiled_name = py_compile.compile(script_name, doraise=True)
             os.remove(script_name)
-            pyc_file = support.make_legacy_pyc(script_name)
+            pyc_file = import_helper.make_legacy_pyc(script_name)
             self._check_script(["-m", "test_pkg"], pyc_file,
                                pyc_file, script_dir, 'test_pkg',
                                importlib.machinery.SourcelessFileLoader,

@@ -20,7 +20,7 @@ from test.libregrtest.runtest import (
 from test.libregrtest.setup import setup_tests
 from test.libregrtest.utils import removepy, count, format_duration, printlist
 from test import support
-from test.support import os_helper
+from test.support import os_helper, import_helper
 
 
 # When tests are run from the Python build directory, it is best practice
@@ -412,7 +412,7 @@ class Regrtest:
             # Unload the newly imported modules (best effort finalization)
             for module in sys.modules.keys():
                 if module not in save_modules and module.startswith("test."):
-                    support.unload(module)
+                    import_helper.unload(module)
 
         if previous_test:
             print(previous_test)

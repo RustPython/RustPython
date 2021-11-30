@@ -9,6 +9,7 @@ import sys
 import unittest
 import io
 from test import support
+from test.support import import_helper
 
 class samplecmdclass(cmd.Cmd):
     """
@@ -225,7 +226,7 @@ def test_main(verbose=None):
     support.run_unittest(TestAlternateInput)
 
 def test_coverage(coverdir):
-    trace = support.import_module('trace')
+    trace = import_helper.import_module('trace')
     tracer=trace.Trace(ignoredirs=[sys.base_prefix, sys.base_exec_prefix,],
                         trace=0, count=1)
     tracer.run('import importlib; importlib.reload(cmd); test_main()')

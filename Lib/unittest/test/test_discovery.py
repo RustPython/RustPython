@@ -5,6 +5,7 @@ import sys
 import types
 import pickle
 from test import support
+from test.support import import_helper
 import test.test_importlib.util
 
 import unittest
@@ -844,7 +845,7 @@ class TestDiscovery(unittest.TestCase):
 
         with unittest.mock.patch('builtins.__import__', _import):
             # Since loader.discover() can modify sys.path, restore it when done.
-            with support.DirsOnSysPath():
+            with import_helper.DirsOnSysPath():
                 # Make sure to remove 'package' from sys.modules when done.
                 with test.test_importlib.util.uncache('package'):
                     suite = loader.discover('package')
@@ -861,7 +862,7 @@ class TestDiscovery(unittest.TestCase):
 
         with unittest.mock.patch('builtins.__import__', _import):
             # Since loader.discover() can modify sys.path, restore it when done.
-            with support.DirsOnSysPath():
+            with import_helper.DirsOnSysPath():
                 # Make sure to remove 'package' from sys.modules when done.
                 with test.test_importlib.util.uncache('package'):
                     with self.assertRaises(TypeError) as cm:

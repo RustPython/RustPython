@@ -3,9 +3,10 @@ Tests for the threading module.
 """
 
 import test.support
-from test.support import (verbose, import_module, cpython_only,
+from test.support import (verbose, cpython_only,
                           requires_type_collecting)
 from test.support.script_helper import assert_python_ok, assert_python_failure
+from test.support.import_helper import import_module
 
 import random
 import sys

@@ -1,11 +1,11 @@
 "Test posix functions"
 
 from test import support
-from test.support import os_helper
+from test.support import os_helper, import_helper
 from test.support.script_helper import assert_python_ok
 
 # Skip these tests if there is no posix module.
-posix = support.import_module('posix')
+posix = import_helper.import_module('posix')
 
 import errno
 import sys
