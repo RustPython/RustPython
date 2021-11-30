@@ -636,8 +636,15 @@ impl PyInt {
         };
 
         let value = self.as_bigint();
-        if value.sign() == Sign::Minus && !signed {
-            return Err(vm.new_overflow_error("can't convert negative int to unsigned".to_owned()));
+
+        match value.sign() {
+            Sign::Minus if !signed => {
+                return Err(
+                    vm.new_overflow_error("can't convert negative int to unsigned".to_owned())
+                )
+            }
+            Sign::NoSign => return Ok(vec![].into()),
+            _ => {}
         }
 
         let byte_len = match args.length.value.sign() {

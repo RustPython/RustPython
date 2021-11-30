@@ -919,7 +919,6 @@ class MersenneTwister_TestBasicOps(TestBasicOps, unittest.TestCase):
         c = self.gen.choices(population, cum_weights=cum_weights, k=10000)
         self.assertEqual(a, c)
 
-    @unittest.skip("TODO: RUSTPYTHON, OverflowError: int too big to convert")
     def test_randbytes(self):
         super().test_randbytes()
 
@@ -960,7 +959,6 @@ class MersenneTwister_TestBasicOps(TestBasicOps, unittest.TestCase):
         self.assertEqual(b''.join(self.gen.randbytes(3) for _ in range(4)),
                          expected3)
 
-    @unittest.skip("TODO: RUSTPYTHON, ValueError: number of bits must be greater than zero")
     def test_randbytes_getrandbits(self):
         # There is a simple relation between randbytes() and getrandbits()
         seed = 2849427419
