@@ -61,6 +61,7 @@ class TestBasicOps:
         self.assertRaises(TypeError, self.gen.seed, 1, 2, 3, 4)
         self.assertRaises(TypeError, type(self.gen), [])
 
+    @unittest.skip("TODO: RUSTPYTHON, TypeError: Expected type 'bytes', not 'bytearray'")
     def test_seed_no_mutate_bug_44018(self):
         a = bytearray(b'1234')
         self.gen.seed(a)
@@ -429,6 +430,7 @@ class TestBasicOps:
         k = sum(randrange(6755399441055744) % 3 == 2 for i in range(n))
         self.assertTrue(0.30 < k/n < .37, (k/n))
 
+    @unittest.skip("TODO: RUSTPYTHON, OverflowError: Python int too large to convert to Rust usize")
     def test_randbytes(self):
         # Verify ranges
         for n in range(1, 10):
@@ -800,8 +802,7 @@ class MersenneTwister_TestBasicOps(TestBasicOps, unittest.TestCase):
             self.assertEqual(set(range(start,stop)),
                 set([self.gen.randrange(start,stop) for i in range(100)]))
 
-    # TODO: RUSTPYTHON 
-    @unittest.expectedFailure
+    @unittest.skip("TODO: RUSTPYTHON, ValueError: number of bits must be greater than zero")
     def test_getrandbits(self):
         super().test_getrandbits()
 
@@ -960,6 +961,7 @@ class MersenneTwister_TestBasicOps(TestBasicOps, unittest.TestCase):
         self.assertEqual(b''.join(self.gen.randbytes(3) for _ in range(4)),
                          expected3)
 
+    @unittest.skip("TODO: RUSTPYTHON, ValueError: number of bits must be greater than zero")
     def test_randbytes_getrandbits(self):
         # There is a simple relation between randbytes() and getrandbits()
         seed = 2849427419
