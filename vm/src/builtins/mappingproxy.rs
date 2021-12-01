@@ -159,7 +159,7 @@ impl PyMappingProxy {
     const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
         length: None,
         subscript: Some(|mapping, needle, vm| {
-            mapping.obj_as::<Self>().getitem(needle.to_owned(), vm)
+            Self::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
         }),
         ass_subscript: None,
     };

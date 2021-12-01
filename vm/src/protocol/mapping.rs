@@ -5,8 +5,7 @@ use crate::{
     },
     common::lock::OnceCell,
     function::IntoPyResult,
-    IdProtocol, PyObject, PyObjectPayload, PyObjectRef, PyObjectView, PyResult, TypeProtocol,
-    VirtualMachine,
+    IdProtocol, PyObject, PyObjectRef, PyResult, TypeProtocol, VirtualMachine,
 };
 
 // Mapping protocol
@@ -63,10 +62,6 @@ impl PyMapping<'_> {
     // PyMapping::Check
     pub fn has_protocol(&self, vm: &VirtualMachine) -> bool {
         self.methods(vm).subscript.is_some()
-    }
-
-    pub fn obj_as<T: PyObjectPayload>(&self) -> &PyObjectView<T> {
-        unsafe { self.obj.downcast_unchecked_ref::<T>() }
     }
 
     pub fn methods(&self, vm: &VirtualMachine) -> &PyMappingMethods {

@@ -679,12 +679,12 @@ impl PyByteArray {
 
 impl PyByteArray {
     const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
-        length: Some(|mapping, _vm| Ok(mapping.obj_as::<Self>().len())),
+        length: Some(|mapping, _vm| Ok(Self::mapping_downcast(mapping).len())),
         subscript: Some(|mapping, needle, vm| {
-            mapping.obj_as::<Self>().getitem(needle.to_owned(), vm)
+            Self::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
         }),
         ass_subscript: Some(|mapping, needle, value, vm| {
-            let zelf = mapping.obj_as::<Self>();
+            let zelf = Self::mapping_downcast(mapping);
             if let Some(value) = value {
                 Self::setitem(zelf.to_owned(), needle.to_owned(), value, vm)
             } else {

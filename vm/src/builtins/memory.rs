@@ -940,13 +940,13 @@ impl Drop for PyMemoryView {
 
 impl PyMemoryView {
     const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
-        length: Some(|mapping, vm| mapping.obj_as::<Self>().len(vm)),
+        length: Some(|mapping, vm| Self::mapping_downcast(mapping).len(vm)),
         subscript: Some(|mapping, needle, vm| {
-            let zelf = mapping.obj_as::<Self>();
+            let zelf = Self::mapping_downcast(mapping);
             Self::getitem(zelf.to_owned(), needle.to_owned(), vm)
         }),
         ass_subscript: Some(|mapping, needle, value, vm| {
-            let zelf = mapping.obj_as::<Self>();
+            let zelf = Self::mapping_downcast(mapping);
             if let Some(value) = value {
                 Self::setitem(zelf.to_owned(), needle.to_owned(), value, vm)
             } else {

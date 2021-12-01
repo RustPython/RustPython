@@ -310,9 +310,9 @@ impl PyTuple {
 
 impl PyTuple {
     const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
-        length: Some(|mapping, _vm| Ok(mapping.obj_as::<Self>().len())),
+        length: Some(|mapping, _vm| Ok(Self::mapping_downcast(mapping).len())),
         subscript: Some(|mapping, needle, vm| {
-            let zelf = mapping.obj_as::<Self>();
+            let zelf = Self::mapping_downcast(mapping);
             Self::getitem(zelf.to_owned(), needle.to_owned(), vm)
         }),
         ass_subscript: None,

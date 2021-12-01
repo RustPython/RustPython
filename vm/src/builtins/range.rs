@@ -380,12 +380,17 @@ impl PyRange {
 impl PyRange {
     const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
         length: Some(|mapping, vm| {
-            mapping.obj_as::<Self>().len().to_usize().ok_or_else(|| {
-                vm.new_overflow_error("RustPython int too large to convert to C ssize_t".to_owned())
-            })
+            Self::mapping_downcast(mapping)
+                .len()
+                .to_usize()
+                .ok_or_else(|| {
+                    vm.new_overflow_error(
+                        "RustPython int too large to convert to C ssize_t".to_owned(),
+                    )
+                })
         }),
         subscript: Some(|mapping, needle, vm| {
-            mapping.obj_as::<Self>().getitem(needle.to_owned(), vm)
+            Self::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
         }),
         ass_subscript: None,
     };

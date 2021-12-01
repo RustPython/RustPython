@@ -1266,10 +1266,9 @@ impl AsMapping for PyStr {
 
 impl PyStr {
     const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
-        length: Some(|mapping, _vm| Ok(mapping.obj_as::<Self>().len())),
+        length: Some(|mapping, _vm| Ok(Self::mapping_downcast(mapping).len())),
         subscript: Some(|mapping, needle, vm| {
-            mapping
-                .obj_as::<Self>()
+            Self::mapping_downcast(mapping)
                 .getitem(needle.to_owned(), vm)
                 .map(|x| x.into_ref(vm).into())
         }),

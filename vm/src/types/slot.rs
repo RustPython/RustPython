@@ -2,7 +2,7 @@ use crate::common::{hash::PyHash, lock::PyRwLock};
 use crate::{
     builtins::{PyInt, PyStrRef, PyType, PyTypeRef},
     function::{FromArgs, FuncArgs, IntoPyResult, OptionalArg},
-    protocol::{PyBuffer, PyIterReturn, PyMappingMethods},
+    protocol::{PyBuffer, PyIterReturn, PyMapping, PyMappingMethods},
     utils::Either,
     IdProtocol, PyComparisonValue, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue,
     TypeProtocol, VirtualMachine,
@@ -783,6 +783,10 @@ pub trait AsMapping: PyValue {
     }
 
     fn as_mapping(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyMappingMethods;
+
+    fn mapping_downcast<'a>(mapping: &'a PyMapping) -> &'a PyObjectView<Self> {
+        unsafe { mapping.obj.downcast_unchecked_ref() }
+    }
 }
 
 #[pyimpl]
