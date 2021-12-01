@@ -50,7 +50,7 @@ impl<'a> PyMapping<'a> {
 
     pub fn try_protocol(obj: &'a PyObject, vm: &VirtualMachine) -> PyResult<Self> {
         let zelf = Self::from(obj);
-        if zelf.has_protocol(vm) {
+        if zelf.check(vm) {
             Ok(zelf)
         } else {
             Err(vm.new_type_error(format!("{} is not a mapping object", zelf.obj.class())))
@@ -60,7 +60,7 @@ impl<'a> PyMapping<'a> {
 
 impl PyMapping<'_> {
     // PyMapping::Check
-    pub fn has_protocol(&self, vm: &VirtualMachine) -> bool {
+    pub fn check(&self, vm: &VirtualMachine) -> bool {
         self.methods(vm).subscript.is_some()
     }
 

@@ -464,8 +464,9 @@ impl PyObject {
 
         let needle = needle.into_pyobject(vm);
 
-        if let Ok(mapping) = PyMapping::try_protocol(self, vm) {
-            mapping.ass_subscript(&needle, Some(value), vm)
+        let mapping = PyMapping::from(self);
+        if let Some(f) = mapping.methods(vm).ass_subscript {
+            f(&mapping, &needle, Some(value), vm)
         } else {
             // TODO: sequence protocol
             vm.get_special_method(self.to_owned(), "__setitem__")?
@@ -491,8 +492,9 @@ impl PyObject {
 
         let needle = needle.into_pyobject(vm);
 
-        if let Ok(mapping) = PyMapping::try_protocol(self, vm) {
-            mapping.ass_subscript(&needle, None, vm)
+        let mapping = PyMapping::from(self);
+        if let Some(f) = mapping.methods(vm).ass_subscript {
+            f(&mapping, &needle, None, vm)
         } else {
             //TODO: sequence protocol
             vm.get_special_method(self.to_owned(), "__delitem__")?
