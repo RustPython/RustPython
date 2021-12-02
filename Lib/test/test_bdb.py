@@ -623,6 +623,8 @@ class StateTestCase(BaseTestCase):
         with TracerRun(self) as tracer:
             tracer.runcall(tfunc_main)
 
+    # TODO: RUSTPYTHON, FileExistsError: [Errno 17] File exists (os error 17): 'None' -> 'None'
+    @unittest.expectedFailure
     def test_next_over_import(self):
         code = """
             def main():
@@ -724,6 +726,8 @@ class StateTestCase(BaseTestCase):
         with TracerRun(self) as tracer:
             tracer.runcall(tfunc_main)
 
+    # TODO: RUSTPYTHON, FileExistsError: [Errno 17] File exists (os error 17): 'None' -> 'None'
+    @unittest.expectedFailure
     def test_skip(self):
         # Check that tracing is skipped over the import statement in
         # 'tfunc_import()'.
@@ -779,6 +783,8 @@ class BreakpointTestCase(BaseTestCase):
         with TracerRun(self) as tracer:
             self.assertRaises(BdbError, tracer.runcall, tfunc_import)
 
+    # TODO: RUSTPYTHON, FileExistsError: [Errno 17] File exists (os error 17): 'None' -> 'None'
+    @unittest.expectedFailure
     def test_bp_after_last_statement(self):
         code = """
             def main():
@@ -792,6 +798,8 @@ class BreakpointTestCase(BaseTestCase):
             with TracerRun(self) as tracer:
                 self.assertRaises(BdbError, tracer.runcall, tfunc_import)
 
+    # TODO: RUSTPYTHON, FileExistsError: [Errno 17] File exists (os error 17): 'None' -> 'None'
+    @unittest.expectedFailure
     def test_temporary_bp(self):
         code = """
             def func():
@@ -815,6 +823,8 @@ class BreakpointTestCase(BaseTestCase):
             with TracerRun(self) as tracer:
                 tracer.runcall(tfunc_import)
 
+    # TODO: RUSTPYTHON, FileExistsError: [Errno 17] File exists (os error 17): 'None' -> 'None'
+    @unittest.expectedFailure
     def test_disabled_temporary_bp(self):
         code = """
             def func():
@@ -843,6 +853,8 @@ class BreakpointTestCase(BaseTestCase):
             with TracerRun(self) as tracer:
                 tracer.runcall(tfunc_import)
 
+    # TODO: RUSTPYTHON, FileExistsError: [Errno 17] File exists (os error 17): 'None' -> 'None'
+    @unittest.expectedFailure
     def test_bp_condition(self):
         code = """
             def func(a):
@@ -863,6 +875,8 @@ class BreakpointTestCase(BaseTestCase):
             with TracerRun(self) as tracer:
                 tracer.runcall(tfunc_import)
 
+    # TODO: RUSTPYTHON, FileExistsError: [Errno 17] File exists (os error 17): 'None' -> 'None'
+    @unittest.expectedFailure
     def test_bp_exception_on_condition_evaluation(self):
         code = """
             def func(a):
@@ -882,6 +896,8 @@ class BreakpointTestCase(BaseTestCase):
             with TracerRun(self) as tracer:
                 tracer.runcall(tfunc_import)
 
+    # TODO: RUSTPYTHON, FileExistsError: [Errno 17] File exists (os error 17): 'None' -> 'None'
+    @unittest.expectedFailure
     def test_bp_ignore_count(self):
         code = """
             def func():
@@ -903,6 +919,8 @@ class BreakpointTestCase(BaseTestCase):
             with TracerRun(self) as tracer:
                 tracer.runcall(tfunc_import)
 
+    # TODO: RUSTPYTHON, FileExistsError: [Errno 17] File exists (os error 17): 'None' -> 'None'
+    @unittest.expectedFailure
     def test_ignore_count_on_disabled_bp(self):
         code = """
             def func():
@@ -930,6 +948,8 @@ class BreakpointTestCase(BaseTestCase):
             with TracerRun(self) as tracer:
                 tracer.runcall(tfunc_import)
 
+    # TODO: RUSTPYTHON, FileExistsError: [Errno 17] File exists (os error 17): 'None' -> 'None'
+    @unittest.expectedFailure
     def test_clear_two_bp_on_same_line(self):
         code = """
             def func():
@@ -979,6 +999,8 @@ class RunTestCase(BaseTestCase):
         with TracerRun(self) as tracer:
             tracer.run(compile(textwrap.dedent(code), '<string>', 'exec'))
 
+    # TODO: RUSTPYTHON, FileExistsError: [Errno 17] File exists (os error 17): 'None' -> 'None'
+    @unittest.expectedFailure
     def test_runeval_step(self):
         # Test bdb 'runeval'.
         code = """
@@ -1001,6 +1023,8 @@ class RunTestCase(BaseTestCase):
 class IssuesTestCase(BaseTestCase):
     """Test fixed bdb issues."""
 
+    # TODO: RUSTPYTHON, FileExistsError: [Errno 17] File exists (os error 17): 'None' -> 'None'
+    @unittest.expectedFailure
     def test_step_at_return_with_no_trace_in_caller(self):
         # Issue #13183.
         # Check that the tracer does step into the caller frame when the
@@ -1031,6 +1055,8 @@ class IssuesTestCase(BaseTestCase):
             with TracerRun(self) as tracer:
                 tracer.runcall(tfunc_import)
 
+    # TODO: RUSTPYTHON, FileExistsError: [Errno 17] File exists (os error 17): 'None' -> 'None'
+    @unittest.expectedFailure
     def test_next_until_return_in_generator(self):
         # Issue #16596.
         # Check that set_next(), set_until() and set_return() do not treat the
@@ -1072,6 +1098,8 @@ class IssuesTestCase(BaseTestCase):
                     with TracerRun(self) as tracer:
                         tracer.runcall(tfunc_import)
 
+    # TODO: RUSTPYTHON, FileExistsError: [Errno 17] File exists (os error 17): 'None' -> 'None'
+    @unittest.expectedFailure
     def test_next_command_in_generator_for_loop(self):
         # Issue #16596.
         code = """
@@ -1103,6 +1131,8 @@ class IssuesTestCase(BaseTestCase):
             with TracerRun(self) as tracer:
                 tracer.runcall(tfunc_import)
 
+    # TODO: RUSTPYTHON, FileExistsError: [Errno 17] File exists (os error 17): 'None' -> 'None'
+    @unittest.expectedFailure
     def test_next_command_in_generator_with_subiterator(self):
         # Issue #16596.
         code = """
@@ -1134,6 +1164,8 @@ class IssuesTestCase(BaseTestCase):
             with TracerRun(self) as tracer:
                 tracer.runcall(tfunc_import)
 
+    # TODO: RUSTPYTHON, FileExistsError: [Errno 17] File exists (os error 17): 'None' -> 'None'
+    @unittest.expectedFailure
     def test_return_command_in_generator_with_subiterator(self):
         # Issue #16596.
         code = """
