@@ -2,7 +2,7 @@ use super::PyTypeRef;
 use crate::{
     function::PosArgs,
     protocol::{PyIter, PyIterReturn},
-    types::{Constructor, IterNext, IterNextIterable},
+    types::{Constructor, GetAttr, IterNext, IterNextIterable},
     PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue, VirtualMachine,
 };
 
@@ -32,7 +32,7 @@ impl Constructor for PyMap {
     }
 }
 
-#[pyimpl(with(IterNext, Constructor), flags(BASETYPE))]
+#[pyimpl(with(IterNext, Constructor, GetAttr), flags(BASETYPE))]
 impl PyMap {
     #[pymethod(magic)]
     fn length_hint(&self, vm: &VirtualMachine) -> PyResult<usize> {
@@ -60,6 +60,8 @@ impl IterNext for PyMap {
         PyIterReturn::from_pyresult(vm.invoke(&zelf.mapper, next_objs), vm)
     }
 }
+
+impl GetAttr for PyMap {}
 
 pub fn init(context: &PyContext) {
     PyMap::extend_class(context, &context.types.map_type);

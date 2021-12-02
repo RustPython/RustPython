@@ -1,7 +1,7 @@
 use super::PyTypeRef;
 use crate::{
     protocol::{PyIter, PyIterReturn},
-    types::{Constructor, IterNext, IterNextIterable},
+    types::{Constructor, GetAttr, IterNext, IterNextIterable},
     PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue, VirtualMachine,
 };
 
@@ -34,7 +34,7 @@ impl Constructor for PyFilter {
     }
 }
 
-#[pyimpl(with(IterNext, Constructor), flags(BASETYPE))]
+#[pyimpl(with(IterNext, Constructor, GetAttr), flags(BASETYPE))]
 impl PyFilter {}
 
 impl IterNextIterable for PyFilter {}
@@ -62,6 +62,8 @@ impl IterNext for PyFilter {
         }
     }
 }
+
+impl GetAttr for PyFilter {}
 
 pub fn init(context: &PyContext) {
     PyFilter::extend_class(context, &context.types.filter_type);

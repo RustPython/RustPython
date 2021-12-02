@@ -12,7 +12,7 @@ use crate::{
     },
     protocol::{BufferDescriptor, BufferMethods, PyBuffer, PyIterReturn, PyMappingMethods},
     types::{
-        AsBuffer, AsMapping, Callable, Comparable, Constructor, Hashable, IterNext,
+        AsBuffer, AsMapping, Callable, Comparable, Constructor, GetAttr, Hashable, IterNext,
         IterNextIterable, Iterable, PyComparisonOp, Unconstructible,
     },
     utils::Either,
@@ -97,7 +97,15 @@ impl PyBytes {
 
 #[pyimpl(
     flags(BASETYPE),
-    with(AsMapping, Hashable, Comparable, AsBuffer, Iterable, Constructor)
+    with(
+        AsMapping,
+        Hashable,
+        Comparable,
+        AsBuffer,
+        Iterable,
+        Constructor,
+        GetAttr
+    )
 )]
 impl PyBytes {
     #[pymethod(magic)]
@@ -612,6 +620,8 @@ impl Iterable for PyBytes {
     }
 }
 
+impl GetAttr for PyBytes {}
+
 #[pyclass(module = false, name = "bytes_iterator")]
 #[derive(Debug)]
 pub struct PyBytesIterator {
@@ -624,7 +634,7 @@ impl PyValue for PyBytesIterator {
     }
 }
 
-#[pyimpl(with(Constructor, IterNext))]
+#[pyimpl(with(Constructor, GetAttr, IterNext))]
 impl PyBytesIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
@@ -661,6 +671,8 @@ impl IterNext for PyBytesIterator {
         })
     }
 }
+
+impl GetAttr for PyBytesIterator {}
 
 impl TryFromBorrowedObject for PyBytes {
     fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {

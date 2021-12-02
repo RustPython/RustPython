@@ -3,7 +3,7 @@ use crate::{
     builtins::PyTupleRef,
     function::{ArgIntoBool, IntoPyObject, OptionalArg, PosArgs},
     protocol::{PyIter, PyIterReturn},
-    types::{Constructor, IterNext, IterNextIterable},
+    types::{Constructor, GetAttr, IterNext, IterNextIterable},
     PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
     VirtualMachine,
 };
@@ -38,7 +38,7 @@ impl Constructor for PyZip {
     }
 }
 
-#[pyimpl(with(IterNext, Constructor), flags(BASETYPE))]
+#[pyimpl(with(IterNext, Constructor, GetAttr), flags(BASETYPE))]
 impl PyZip {
     #[pymethod(magic)]
     fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
@@ -106,6 +106,8 @@ impl IterNext for PyZip {
         Ok(PyIterReturn::Return(vm.ctx.new_tuple(next_objs).into()))
     }
 }
+
+impl GetAttr for PyZip {}
 
 pub fn init(context: &PyContext) {
     PyZip::extend_class(context, &context.types.zip_type);

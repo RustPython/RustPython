@@ -9,8 +9,8 @@ use crate::{
     sequence::{ObjectSequenceOp, SequenceMutOp, SequenceOp},
     sliceable::{saturate_index, PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
     types::{
-        AsMapping, Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable,
-        PyComparisonOp, Unconstructible, Unhashable,
+        AsMapping, Comparable, Constructor, GetAttr, Hashable, IterNext, IterNextIterable,
+        Iterable, PyComparisonOp, Unconstructible, Unhashable,
     },
     utils::Either,
     vm::{ReprGuard, VirtualMachine},
@@ -88,7 +88,10 @@ pub(crate) struct SortOptions {
 
 pub type PyListRef = PyRef<PyList>;
 
-#[pyimpl(with(AsMapping, Iterable, Hashable, Comparable), flags(BASETYPE))]
+#[pyimpl(
+    with(AsMapping, Iterable, Hashable, Comparable, GetAttr),
+    flags(BASETYPE)
+)]
 impl PyList {
     #[pymethod]
     pub(crate) fn append(&self, x: PyObjectRef) {
@@ -450,6 +453,8 @@ impl Comparable for PyList {
 
 impl Unhashable for PyList {}
 
+impl GetAttr for PyList {}
+
 fn do_sort(
     vm: &VirtualMachine,
     values: &mut Vec<PyObjectRef>,
@@ -489,7 +494,7 @@ impl PyValue for PyListIterator {
     }
 }
 
-#[pyimpl(with(Constructor, IterNext))]
+#[pyimpl(with(Constructor, IterNext, GetAttr))]
 impl PyListIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
@@ -522,6 +527,8 @@ impl IterNext for PyListIterator {
     }
 }
 
+impl GetAttr for PyListIterator {}
+
 #[pyclass(module = false, name = "list_reverseiterator")]
 #[derive(Debug)]
 pub struct PyListReverseIterator {
@@ -534,7 +541,7 @@ impl PyValue for PyListReverseIterator {
     }
 }
 
-#[pyimpl(with(Constructor, IterNext))]
+#[pyimpl(with(Constructor, IterNext, GetAttr))]
 impl PyListReverseIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
@@ -566,6 +573,8 @@ impl IterNext for PyListReverseIterator {
         })
     }
 }
+
+impl GetAttr for PyListReverseIterator {}
 
 pub fn init(context: &PyContext) {
     let list_type = &context.types.list_type;

@@ -7,8 +7,8 @@ use crate::{
     sliceable::PySliceableSequence,
     stdlib::sys,
     types::{
-        AsMapping, Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable,
-        PyComparisonOp, Unconstructible,
+        AsMapping, Comparable, Constructor, GetAttr, Hashable, IterNext, IterNextIterable,
+        Iterable, PyComparisonOp, Unconstructible,
     },
     utils::Either,
     vm::{ReprGuard, VirtualMachine},
@@ -142,7 +142,7 @@ impl PyTuple {
 
 #[pyimpl(
     flags(BASETYPE),
-    with(AsMapping, Hashable, Comparable, Iterable, Constructor)
+    with(AsMapping, Hashable, Comparable, Iterable, Constructor, GetAttr)
 )]
 impl PyTuple {
     #[pymethod(magic)]
@@ -371,6 +371,8 @@ impl Iterable for PyTuple {
     }
 }
 
+impl GetAttr for PyTuple {}
+
 #[pyclass(module = false, name = "tuple_iterator")]
 #[derive(Debug)]
 pub(crate) struct PyTupleIterator {
@@ -383,7 +385,7 @@ impl PyValue for PyTupleIterator {
     }
 }
 
-#[pyimpl(with(Constructor, IterNext))]
+#[pyimpl(with(Constructor, IterNext, GetAttr))]
 impl PyTupleIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
@@ -416,6 +418,8 @@ impl IterNext for PyTupleIterator {
         })
     }
 }
+
+impl GetAttr for PyTupleIterator {}
 
 pub(crate) fn init(context: &PyContext) {
     PyTuple::extend_class(context, &context.types.tuple_type);
