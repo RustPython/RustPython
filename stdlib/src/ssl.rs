@@ -34,7 +34,7 @@ mod _ssl {
             exceptions,
             function::{
                 ArgBytesLike, ArgCallable, ArgMemoryBuffer, ArgStrOrBytesLike, IntoPyException,
-                IntoPyObject, OptionalArg,
+                IntoPyObject, OptionalArg, PyErrResultExt,
             },
             stdlib::os::PyPathLike,
             types::Constructor,
@@ -1285,7 +1285,7 @@ mod _ssl {
 
     #[pyfunction]
     fn _test_decode_cert(path: PyPathLike, vm: &VirtualMachine) -> PyResult {
-        let pem = std::fs::read(&path).map_err(|e| e.into_pyexception(vm))?;
+        let pem = std::fs::read(&path).map_pyerr(vm)?;
         let x509 = X509::from_pem(&pem).map_err(|e| convert_openssl_error(vm, e))?;
         cert_to_py(vm, &x509, false)
     }
@@ -1400,7 +1400,7 @@ mod windows {
         common::ascii,
         vm::{
             builtins::{PyFrozenSet, PyStrRef},
-            function::IntoPyException,
+            function::{IntoPyException, PyErrResultExt},
             PyObjectRef, PyResult, PyValue, VirtualMachine,
         },
     };

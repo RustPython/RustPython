@@ -5,7 +5,7 @@ pub(crate) use _winapi::make_module;
 mod _winapi {
     use crate::{
         builtins::{PyListRef, PyStrRef},
-        function::{IntoPyException, OptionalArg},
+        function::{IntoPyException, OptionalArg, PyErrResultExt},
         protocol::PyMapping,
         stdlib::os::errno_err,
         ItemProtocol, PyObjectRef, PyResult, PySequence, TryFromObject, VirtualMachine,
@@ -197,8 +197,7 @@ mod _winapi {
             .map_or_else(null_mut, |l| l.attrlist.as_mut_ptr() as _);
 
         let wstr = |s: PyStrRef| {
-            let ws = widestring::WideCString::from_str(s.as_str())
-                .map_err(|err| err.into_pyexception(vm))?;
+            let ws = widestring::WideCString::from_str(s.as_str()).map_pyerr(vm)?;
             Ok(ws.into_vec_with_nul())
         };
 

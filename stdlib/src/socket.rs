@@ -15,7 +15,7 @@ mod _socket {
         builtins::{PyBaseExceptionRef, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
         function::{
             ArgBytesLike, ArgMemoryBuffer, FuncArgs, IntoPyException, IntoPyObject, OptionalArg,
-            OptionalOption,
+            OptionalOption, PyErrResultExt,
         },
         utils::{Either, ToCString},
         PyObjectRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject, TypeProtocol,
@@ -281,7 +281,7 @@ mod _socket {
         }
 
         pub fn sock(&self, vm: &VirtualMachine) -> PyResult<PyMappedRwLockReadGuard<'_, Socket>> {
-            self.sock_io().map_err(|e| e.into_pyexception(vm))
+            self.sock_io().map_pyerr(vm)
         }
 
         fn init_inner(
@@ -300,8 +300,7 @@ mod _socket {
             let timeout = DEFAULT_TIMEOUT.load();
             self.timeout.store(timeout);
             if timeout >= 0.0 {
-                sock.set_nonblocking(true)
-                    .map_err(|e| e.into_pyexception(vm))?;
+                sock.set_nonblocking(true).map_pyerr(vm)?;
             }
             Ok(())
         }
@@ -311,8 +310,7 @@ mod _socket {
         where
             F: FnMut() -> io::Result<R>,
         {
-            self.sock_op_err(vm, select, f)
-                .map_err(|e| e.into_pyexception(vm))
+            self.sock_op_err(vm, select, f).map_pyerr(vm)
         }
 
         /// returns Err(blocking)
@@ -583,7 +581,7 @@ mod _socket {
                 }
                 if socket_kind == -1 {
                     // TODO: when socket2 cuts a new release, type will be available on all os
-                    // socket_kind = sock.r#type().map_err(|e| e.into_pyexception(vm))?.into();
+                    // socket_kind = sock.r#type().map_pyerr(vm)?.into();
                     let res = unsafe {
                         c::getsockopt(
                             sock_fileno(&sock) as _,
@@ -605,7 +603,7 @@ mod _socket {
                         target_os = "linux",
                     ))] {
                         if proto == -1 {
-                            proto = sock.protocol().map_err(|e| e.into_pyexception(vm))?.map_or(0, Into::into);
+                            proto = sock.protocol().map_pyerr(vm)?.map_or(0, Into::into);
                         }
                     } else {
                         proto = 0;
@@ -626,15 +624,14 @@ mod _socket {
                     SocketType::from(socket_kind),
                     Some(Protocol::from(proto)),
                 )
-                .map_err(|err| err.into_pyexception(vm))?;
+                .map_pyerr(vm)?;
             };
             self.init_inner(family, socket_kind, proto, sock, vm)
         }
 
         #[pymethod]
         fn connect(&self, address: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            self.connect_inner(address, "connect", vm)
-                .map_err(|e| e.into_pyexception(vm))
+            self.connect_inner(address, "connect", vm).map_pyerr(vm)
         }
 
         #[pymethod]
@@ -648,18 +645,14 @@ mod _socket {
         #[pymethod]
         fn bind(&self, address: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             let sock_addr = self.extract_address(address, "bind", vm)?;
-            self.sock(vm)?
-                .bind(&sock_addr)
-                .map_err(|err| err.into_pyexception(vm))
+            self.sock(vm)?.bind(&sock_addr).map_pyerr(vm)
         }
 
         #[pymethod]
         fn listen(&self, backlog: OptionalArg<i32>, vm: &VirtualMachine) -> PyResult<()> {
             let backlog = backlog.unwrap_or(128);
             let backlog = if backlog < 0 { 0 } else { backlog };
-            self.sock(vm)?
-                .listen(backlog)
-                .map_err(|err| err.into_pyexception(vm))
+            self.sock(vm)?.listen(backlog).map_pyerr(vm)
         }
 
         #[pymethod]
@@ -788,14 +781,14 @@ mod _socket {
             while buf_offset < buf.len() {
                 let interval = deadline
                     .as_ref()
-                    .map(|d| d.time_until().map_err(|e| e.into_pyexception(vm)))
+                    .map(|d| d.time_until().map_pyerr(vm))
                     .transpose()?;
                 self.sock_op_timeout_err(vm, SelectKind::Write, interval, || {
                     let subbuf = &buf[buf_offset..];
                     buf_offset += self.sock_io()?.send_with_flags(subbuf, flags)?;
                     Ok(())
                 })
-                .map_err(|e| e.into_pyexception(vm))?;
+                .map_pyerr(vm)?;
                 vm.check_signals()?;
             }
             Ok(())
@@ -851,19 +844,13 @@ mod _socket {
 
         #[pymethod]
         fn getsockname(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-            let addr = self
-                .sock(vm)?
-                .local_addr()
-                .map_err(|err| err.into_pyexception(vm))?;
+            let addr = self.sock(vm)?.local_addr().map_pyerr(vm)?;
 
             Ok(get_addr_tuple(&addr, vm))
         }
         #[pymethod]
         fn getpeername(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-            let addr = self
-                .sock(vm)?
-                .peer_addr()
-                .map_err(|err| err.into_pyexception(vm))?;
+            let addr = self.sock(vm)?.peer_addr().map_pyerr(vm)?;
 
             Ok(get_addr_tuple(&addr, vm))
         }
@@ -881,9 +868,7 @@ mod _socket {
         #[pymethod]
         fn setblocking(&self, block: bool, vm: &VirtualMachine) -> PyResult<()> {
             self.timeout.store(if block { -1.0 } else { 0.0 });
-            self.sock(vm)?
-                .set_nonblocking(!block)
-                .map_err(|err| err.into_pyexception(vm))
+            self.sock(vm)?.set_nonblocking(!block).map_pyerr(vm)
         }
 
         #[pymethod]
@@ -899,7 +884,7 @@ mod _socket {
             // it
             self.sock(vm)?
                 .set_nonblocking(timeout.is_some())
-                .map_err(|err| err.into_pyexception(vm))
+                .map_pyerr(vm)
         }
 
         #[pymethod]
@@ -996,9 +981,7 @@ mod _socket {
                     ))
                 }
             };
-            self.sock(vm)?
-                .shutdown(how)
-                .map_err(|err| err.into_pyexception(vm))
+            self.sock(vm)?.shutdown(how).map_pyerr(vm)
         }
 
         #[pyproperty(name = "type")]
@@ -1135,7 +1118,7 @@ mod _socket {
     #[cfg(all(unix, not(target_os = "redox")))]
     #[pyfunction]
     fn sethostname(hostname: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-        nix::unistd::sethostname(hostname.as_str()).map_err(|err| err.into_pyexception(vm))
+        nix::unistd::sethostname(hostname.as_str()).map_pyerr(vm)
     }
 
     #[pyfunction]
@@ -1376,7 +1359,7 @@ mod _socket {
                 })
             })
             .collect::<io::Result<Vec<_>>>()
-            .map_err(|e| e.into_pyexception(vm))?;
+            .map_pyerr(vm)?;
         Ok(list)
     }
 
@@ -1526,8 +1509,8 @@ mod _socket {
         let family = family.unwrap_or(libc::AF_UNIX);
         let socket_kind = socket_kind.unwrap_or(libc::SOCK_STREAM);
         let proto = proto.unwrap_or(0);
-        let (a, b) = Socket::pair(family.into(), socket_kind.into(), Some(proto.into()))
-            .map_err(|e| e.into_pyexception(vm))?;
+        let (a, b) =
+            Socket::pair(family.into(), socket_kind.into(), Some(proto.into())).map_pyerr(vm)?;
         let py_a = PySocket::default();
         py_a.init_inner(family, socket_kind, proto, a, vm)?;
         let py_b = PySocket::default();
@@ -1544,7 +1527,7 @@ mod _socket {
     #[pyfunction]
     fn if_nametoindex(name: PyObjectRef, vm: &VirtualMachine) -> PyResult<IfIndex> {
         let name = crate::vm::stdlib::os::FsPath::try_from(name, true, vm)?;
-        let name = ffi::CString::new(name.as_bytes()).map_err(|err| err.into_pyexception(vm))?;
+        let name = ffi::CString::new(name.as_bytes()).map_pyerr(vm)?;
 
         let ret = unsafe { c::if_nametoindex(name.as_ptr()) };
 
@@ -1584,7 +1567,7 @@ mod _socket {
         #[cfg(not(windows))]
         {
             let list = if_nameindex()
-                .map_err(|err| err.into_pyexception(vm))?
+                .map_pyerr(vm)?
                 .to_slice()
                 .iter()
                 .map(|iface| {
@@ -1648,10 +1631,9 @@ mod _socket {
         {
             use std::ptr;
 
-            let table = MibTable::get_raw().map_err(|err| err.into_pyexception(vm))?;
+            let table = MibTable::get_raw().map_pyerr(vm)?;
             let list = table.as_slice().iter().map(|entry| {
-                let name =
-                    get_name(&entry.InterfaceLuid).map_err(|err| err.into_pyexception(vm))?;
+                let name = get_name(&entry.InterfaceLuid).map_pyerr(vm)?;
                 let tup = (entry.InterfaceIndex, name.to_string_lossy());
                 Ok(tup.into_pyobject(vm))
             });
@@ -1714,7 +1696,7 @@ mod _socket {
             };
             let mut res = dns_lookup::getaddrinfo(None, Some("0"), Some(hints))
                 .map_err(|e| convert_socket_error(vm, e, SocketError::GaiError))?;
-            let ainfo = res.next().unwrap().map_err(|e| e.into_pyexception(vm))?;
+            let ainfo = res.next().unwrap().map_pyerr(vm)?;
             if res.next().is_some() {
                 return Err(vm.new_os_error("wildcard resolved to multiple address".to_owned()));
             }
@@ -1755,7 +1737,7 @@ mod _socket {
         res.next()
             .unwrap()
             .map(|ainfo| ainfo.sockaddr)
-            .map_err(|e| e.into_pyexception(vm))
+            .map_pyerr(vm)
     }
 
     fn sock_from_raw(fileno: RawSocket, vm: &VirtualMachine) -> PyResult<Socket> {
@@ -1914,11 +1896,10 @@ mod _socket {
     fn dup(x: PyObjectRef, vm: &VirtualMachine) -> PyResult<RawSocket> {
         let sock = get_raw_sock(x, vm)?;
         let sock = std::mem::ManuallyDrop::new(sock_from_raw(sock, vm)?);
-        let newsock = sock.try_clone().map_err(|e| e.into_pyexception(vm))?;
+        let newsock = sock.try_clone().map_pyerr(vm)?;
         let fd = into_sock_fileno(newsock);
         #[cfg(windows)]
-        crate::vm::stdlib::nt::raw_set_handle_inheritable(fd as _, false)
-            .map_err(|e| e.into_pyexception(vm))?;
+        crate::vm::stdlib::nt::raw_set_handle_inheritable(fd as _, false).map_pyerr(vm)?;
         Ok(fd)
     }
 

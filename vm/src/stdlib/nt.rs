@@ -13,7 +13,7 @@ pub(crate) mod module {
     use crate::{
         builtins::{PyStrRef, PyTupleRef},
         crt_fd::Fd,
-        function::{IntoPyException, OptionalArg},
+        function::{IntoPyException, OptionalArg, PyErrResultExt},
         stdlib::os::{
             errno_err, DirFd, FollowSymlinks, PyPathLike, SupportFunc, TargetIsDirectory, _os,
             errno,
@@ -68,12 +68,12 @@ pub(crate) mod module {
         } else {
             win_fs::symlink_file(args.src.path, args.dst.path)
         };
-        res.map_err(|err| err.into_pyexception(vm))
+        res.map_pyerr(vm)
     }
 
     #[pyfunction]
     fn set_inheritable(fd: i32, inheritable: bool, vm: &VirtualMachine) -> PyResult<()> {
-        let handle = Fd(fd).to_raw_handle().map_err(|e| e.into_pyexception(vm))?;
+        let handle = Fd(fd).to_raw_handle().map_pyerr(vm)?;
         set_handle_inheritable(handle as _, inheritable, vm)
     }
 
@@ -104,10 +104,10 @@ pub(crate) mod module {
         } else {
             fs::symlink_metadata(&path)
         };
-        let meta = metadata.map_err(|err| err.into_pyexception(vm))?;
+        let meta = metadata.map_pyerr(vm)?;
         let mut permissions = meta.permissions();
         permissions.set_readonly(mode & S_IWRITE == 0);
-        fs::set_permissions(&path, permissions).map_err(|err| err.into_pyexception(vm))
+        fs::set_permissions(&path, permissions).map_pyerr(vm)
     }
 
     // cwait is available on MSVC only (according to CPython)
@@ -233,9 +233,7 @@ pub(crate) mod module {
     ) -> PyResult<()> {
         use std::iter::once;
 
-        let make_widestring = |s: &str| {
-            widestring::WideCString::from_os_str(s).map_err(|err| err.into_pyexception(vm))
-        };
+        let make_widestring = |s: &str| widestring::WideCString::from_os_str(s).map_pyerr(vm);
 
         let path = make_widestring(path.as_str())?;
 
@@ -269,10 +267,7 @@ pub(crate) mod module {
 
     #[pyfunction]
     fn _getfinalpathname(path: PyPathLike, vm: &VirtualMachine) -> PyResult {
-        let real = path
-            .as_ref()
-            .canonicalize()
-            .map_err(|e| e.into_pyexception(vm))?;
+        let real = path.as_ref().canonicalize().map_pyerr(vm)?;
         path.mode.process_path(real, vm)
     }
 
@@ -385,7 +380,7 @@ pub(crate) mod module {
         inheritable: bool,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        raw_set_handle_inheritable(handle, inheritable).map_err(|e| e.into_pyexception(vm))
+        raw_set_handle_inheritable(handle, inheritable).map_pyerr(vm)
     }
 
     #[pyfunction]

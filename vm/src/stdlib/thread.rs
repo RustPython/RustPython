@@ -6,7 +6,7 @@ pub(crate) use _thread::{make_module, RawRMutex};
 pub(crate) mod _thread {
     use crate::{
         builtins::{PyDictRef, PyStrRef, PyTupleRef, PyTypeRef},
-        function::{ArgCallable, FuncArgs, IntoPyException, KwArgs, OptionalArg},
+        function::{ArgCallable, FuncArgs, KwArgs, OptionalArg, PyErrResultExt},
         py_io,
         types::{Constructor, GetAttr, SetAttr},
         utils::Either,
@@ -249,7 +249,7 @@ pub(crate) mod _thread {
                 vm.state.thread_count.fetch_add(1);
                 thread_to_id(handle.thread())
             })
-            .map_err(|err| err.into_pyexception(vm))
+            .map_pyerr(vm)
     }
 
     fn run_thread(func: ArgCallable, args: FuncArgs, vm: &VirtualMachine) {

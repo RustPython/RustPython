@@ -1,7 +1,7 @@
 use crate::crt_fd::Fd;
 use crate::{
     builtins::{PyBaseExceptionRef, PyBytes, PyBytesRef, PyInt, PySet, PyStr, PyStrRef},
-    function::{ArgumentError, FromArgs, FuncArgs, IntoPyException, IntoPyObject},
+    function::{ArgumentError, FromArgs, FuncArgs, IntoPyException, IntoPyObject, PyErrResultExt},
     protocol::PyBuffer,
     PyObject, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject, TypeProtocol,
     VirtualMachine,
@@ -73,12 +73,12 @@ impl PyPathLike {
 
     #[cfg(any(unix, target_os = "wasi"))]
     pub fn into_cstring(self, vm: &VirtualMachine) -> PyResult<ffi::CString> {
-        ffi::CString::new(self.into_bytes()).map_err(|err| err.into_pyexception(vm))
+        ffi::CString::new(self.into_bytes()).map_pyerr(vm)
     }
 
     #[cfg(windows)]
     pub fn to_widecstring(&self, vm: &VirtualMachine) -> PyResult<widestring::WideCString> {
-        widestring::WideCString::from_os_str(&self.path).map_err(|err| err.into_pyexception(vm))
+        widestring::WideCString::from_os_str(&self.path).map_pyerr(vm)
     }
 
     pub fn filename(&self, vm: &VirtualMachine) -> PyResult {
@@ -433,7 +433,9 @@ pub(super) mod _os {
             PyBytesRef, PyGenericAlias, PyIntRef, PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
         },
         crt_fd::{Fd, Offset},
-        function::{ArgBytesLike, FuncArgs, IntoPyException, IntoPyObject, OptionalArg},
+        function::{
+            ArgBytesLike, FuncArgs, IntoPyException, IntoPyObject, OptionalArg, PyErrResultExt,
+        },
         protocol::PyIterReturn,
         suppress_iph,
         types::{IterNext, IterNextIterable},
@@ -474,7 +476,7 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn close(fileno: i32, vm: &VirtualMachine) -> PyResult<()> {
-        Fd(fileno).close().map_err(|e| e.into_pyexception(vm))
+        Fd(fileno).close().map_pyerr(vm)
     }
 
     #[pyfunction]
@@ -539,16 +541,14 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn fsync(fd: i32, vm: &VirtualMachine) -> PyResult<()> {
-        Fd(fd).fsync().map_err(|err| err.into_pyexception(vm))
+        Fd(fd).fsync().map_pyerr(vm)
     }
 
     #[pyfunction]
     fn read(fd: i32, n: usize, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
         let mut buffer = vec![0u8; n];
         let mut file = Fd(fd);
-        let n = file
-            .read(&mut buffer)
-            .map_err(|err| err.into_pyexception(vm))?;
+        let n = file.read(&mut buffer).map_pyerr(vm)?;
         buffer.truncate(n);
 
         Ok(vm.ctx.new_bytes(buffer))
@@ -557,9 +557,7 @@ pub(super) mod _os {
     #[pyfunction]
     fn write(fd: i32, data: ArgBytesLike, vm: &VirtualMachine) -> PyResult {
         let mut file = Fd(fd);
-        let written = data
-            .with_ref(|b| file.write(b))
-            .map_err(|err| err.into_pyexception(vm))?;
+        let written = data.with_ref(|b| file.write(b)).map_pyerr(vm)?;
 
         Ok(vm.ctx.new_int(written).into())
     }
@@ -607,7 +605,7 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn mkdirs(path: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-        fs::create_dir_all(path.as_str()).map_err(|err| err.into_pyexception(vm))
+        fs::create_dir_all(path.as_str()).map_pyerr(vm)
     }
 
     #[pyfunction]
@@ -624,7 +622,7 @@ pub(super) mod _os {
         let path = path.unwrap_or_else(|| PathOrFd::Path(PyPathLike::new_str(".")));
         let list = match path {
             PathOrFd::Path(path) => {
-                let dir_iter = fs::read_dir(&path).map_err(|err| err.into_pyexception(vm))?;
+                let dir_iter = fs::read_dir(&path).map_pyerr(vm)?;
                 dir_iter
                     .map(|entry| match entry {
                         Ok(entry_path) => path.mode.process_path(entry_path.file_name(), vm),
@@ -645,13 +643,12 @@ pub(super) mod _os {
                 #[cfg(all(unix, not(target_os = "redox")))]
                 {
                     use super::ffi_ext::OsStrExt;
-                    let new_fd = nix::unistd::dup(fno).map_err(|e| e.into_pyexception(vm))?;
-                    let mut dir =
-                        nix::dir::Dir::from_fd(new_fd).map_err(|e| e.into_pyexception(vm))?;
+                    let new_fd = nix::unistd::dup(fno).map_pyerr(vm)?;
+                    let mut dir = nix::dir::Dir::from_fd(new_fd).map_pyerr(vm)?;
                     dir.iter()
                         .filter_map(|entry| {
                             entry
-                                .map_err(|e| e.into_pyexception(vm))
+                                .map_pyerr(vm)
                                 .and_then(|entry| {
                                     let fname = entry.file_name().to_bytes();
                                     Ok(match fname {
@@ -788,11 +785,7 @@ pub(super) mod _os {
 
         #[pymethod]
         fn is_symlink(&self, vm: &VirtualMachine) -> PyResult<bool> {
-            Ok(self
-                .entry
-                .file_type()
-                .map_err(|err| err.into_pyexception(vm))?
-                .is_symlink())
+            Ok(self.entry.file_type().map_pyerr(vm)?.is_symlink())
         }
 
         #[pymethod]
@@ -843,7 +836,7 @@ pub(super) mod _os {
                         DirFd::default(),
                         FollowSymlinks(false),
                     )
-                    .map_err(|e| e.into_pyexception(vm))?
+                    .map_pyerr(vm)?
                     .ok_or_else(|| crate::exceptions::cstring_error(vm))?;
                     // Err(T) means other thread set `ino` at the mean time which is safe to ignore
                     let _ = self.ino.compare_exchange(None, Some(stat.st_ino));
@@ -961,7 +954,7 @@ pub(super) mod _os {
             OptionalArg::Missing => PyPathLike::new_str("."),
         };
 
-        let entries = fs::read_dir(path.path).map_err(|err| err.into_pyexception(vm))?;
+        let entries = fs::read_dir(path.path).map_pyerr(vm)?;
         Ok(ScandirIterator {
             entries: PyRwLock::new(entries),
             exhausted: AtomicCell::new(false),
@@ -1231,7 +1224,7 @@ pub(super) mod _os {
             env::current_dir()
         };
 
-        res.map_err(|err| err.into_pyexception(vm))
+        res.map_pyerr(vm)
     }
 
     #[pyfunction]
@@ -1313,7 +1306,7 @@ pub(super) mod _os {
         #[cfg(windows)]
         let res = unsafe {
             use winapi::um::{fileapi, winnt};
-            let handle = Fd(fd).to_raw_handle().map_err(|e| e.into_pyexception(vm))?;
+            let handle = Fd(fd).to_raw_handle().map_pyerr(vm)?;
             let mut li = winnt::LARGE_INTEGER::default();
             *li.QuadPart_mut() = position;
             let ret = fileapi::SetFilePointer(
@@ -1464,7 +1457,7 @@ pub(super) mod _os {
                     tv_usec: d.as_micros() as _,
                 };
                 nix::sys::stat::utimes(path.as_ref(), &tv(acc).into(), &tv(modif).into())
-                    .map_err(|err| err.into_pyexception(vm))
+                    .map_pyerr(vm)
             }
         }
         #[cfg(windows)]
@@ -1492,7 +1485,7 @@ pub(super) mod _os {
                 .write(true)
                 .custom_flags(winapi::um::winbase::FILE_FLAG_BACKUP_SEMANTICS)
                 .open(path)
-                .map_err(|err| err.into_pyexception(vm))?;
+                .map_pyerr(vm)?;
 
             let ret =
                 unsafe { SetFileTime(f.as_raw_handle() as _, std::ptr::null(), &acc, &modif) };
@@ -1636,7 +1629,7 @@ pub(super) mod _os {
 
     #[pyfunction]
     pub fn ftruncate(fd: i32, length: Offset, vm: &VirtualMachine) -> PyResult<()> {
-        Fd(fd).ftruncate(length).map_err(|e| e.into_pyexception(vm))
+        Fd(fd).ftruncate(length).map_pyerr(vm)
     }
 
     #[pyfunction]
@@ -1646,12 +1639,8 @@ pub(super) mod _os {
         }
         let path = PyPathLike::try_from_object(vm, path)?;
         // TODO: just call libc::truncate() on POSIX
-        let f = OpenOptions::new()
-            .write(true)
-            .open(&path)
-            .map_err(|e| e.into_pyexception(vm))?;
-        f.set_len(length as u64)
-            .map_err(|e| e.into_pyexception(vm))?;
+        let f = OpenOptions::new().write(true).open(&path).map_pyerr(vm)?;
+        f.set_len(length as u64).map_pyerr(vm)?;
         drop(f);
         Ok(())
     }

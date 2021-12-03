@@ -56,8 +56,7 @@ pub trait IntoPyResult {
 impl<T: TryIntoPyObject, E: IntoPyException> IntoPyResult for Result<T, E> {
     #[inline]
     fn into_pyresult(self, vm: &VirtualMachine) -> PyResult {
-        self.map_err(|e| e.into_pyexception(vm))
-            .and_then(|x| x.try_into_pyobject(vm))
+        self.map_pyerr(vm).and_then(|x| x.try_into_pyobject(vm))
     }
 }
 

@@ -9,8 +9,7 @@ mod _string {
     use crate::{
         builtins::{PyList, PyStrRef},
         format::{FieldName, FieldNamePart, FieldType, FormatPart, FormatString, FromTemplate},
-        function::IntoPyException,
-        function::IntoPyObject,
+        function::{IntoPyObject, PyErrResultExt},
         PyObjectRef, PyResult, VirtualMachine,
     };
     use std::mem;
@@ -33,8 +32,7 @@ mod _string {
 
     #[pyfunction]
     fn formatter_parser(text: PyStrRef, vm: &VirtualMachine) -> PyResult<PyList> {
-        let format_string =
-            FormatString::from_str(text.as_str()).map_err(|e| e.into_pyexception(vm))?;
+        let format_string = FormatString::from_str(text.as_str()).map_pyerr(vm)?;
 
         let mut result = Vec::new();
         let mut literal = String::new();
@@ -73,7 +71,7 @@ mod _string {
         text: PyStrRef,
         vm: &VirtualMachine,
     ) -> PyResult<(PyObjectRef, PyList)> {
-        let field_name = FieldName::parse(text.as_str()).map_err(|e| e.into_pyexception(vm))?;
+        let field_name = FieldName::parse(text.as_str()).map_pyerr(vm)?;
 
         let first = match field_name.field_type {
             FieldType::Auto => vm.ctx.new_str(ascii!("")).into(),

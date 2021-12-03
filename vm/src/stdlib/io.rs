@@ -3651,7 +3651,7 @@ mod fileio {
         builtins::{PyStr, PyStrRef, PyTypeRef},
         crt_fd::Fd,
         function::{
-            ArgBytesLike, ArgMemoryBuffer, FuncArgs, IntoPyException, OptionalArg, OptionalOption,
+            ArgBytesLike, ArgMemoryBuffer, FuncArgs, OptionalArg, OptionalOption, PyErrResultExt,
         },
         stdlib::os,
         PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
@@ -3924,16 +3924,12 @@ mod fileio {
             let mut handle = self.get_fd(vm)?;
             let bytes = if let Some(read_byte) = read_byte.to_usize() {
                 let mut bytes = vec![0; read_byte as usize];
-                let n = handle
-                    .read(&mut bytes)
-                    .map_err(|err| err.into_pyexception(vm))?;
+                let n = handle.read(&mut bytes).map_pyerr(vm)?;
                 bytes.truncate(n);
                 bytes
             } else {
                 let mut bytes = vec![];
-                handle
-                    .read_to_end(&mut bytes)
-                    .map_err(|err| err.into_pyexception(vm))?;
+                handle.read_to_end(&mut bytes).map_pyerr(vm)?;
                 bytes
             };
 
@@ -3953,7 +3949,7 @@ mod fileio {
 
             let mut buf = obj.borrow_buf_mut();
             let mut f = handle.take(buf.len() as _);
-            let ret = f.read(&mut buf).map_err(|e| e.into_pyexception(vm))?;
+            let ret = f.read(&mut buf).map_pyerr(vm)?;
 
             Ok(ret)
         }
@@ -3969,9 +3965,7 @@ mod fileio {
 
             let mut handle = self.get_fd(vm)?;
 
-            let len = obj
-                .with_ref(|b| handle.write(b))
-                .map_err(|err| err.into_pyexception(vm))?;
+            let len = obj.with_ref(|b| handle.write(b)).map_pyerr(vm)?;
 
             //return number of bytes written
             Ok(len)
@@ -3986,7 +3980,7 @@ mod fileio {
             }
             let fd = zelf.fd.swap(-1);
             if fd >= 0 {
-                Fd(fd).close().map_err(|e| e.into_pyexception(vm))?;
+                Fd(fd).close().map_pyerr(vm)?;
             }
             res
         }

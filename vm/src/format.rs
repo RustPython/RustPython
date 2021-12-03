@@ -1,7 +1,7 @@
 use crate::{
     builtins::{PyBaseExceptionRef, PyStrRef},
     common::float_ops,
-    function::{FuncArgs, IntoPyException},
+    function::{FuncArgs, IntoPyException, PyErrResultExt},
     stdlib::builtins,
     ItemProtocol, PyObject, PyObjectRef, PyResult, TypeProtocol, VirtualMachine,
 };
@@ -809,8 +809,8 @@ impl FormatString {
                     preconversion_spec,
                     format_spec,
                 } => {
-                    let FieldName { field_type, parts } = FieldName::parse(field_name.as_str())
-                        .map_err(|e| e.into_pyexception(vm))?;
+                    let FieldName { field_type, parts } =
+                        FieldName::parse(field_name.as_str()).map_pyerr(vm)?;
 
                     let mut argument = field_func(field_type)?;
 
@@ -828,8 +828,7 @@ impl FormatString {
                         }
                     }
 
-                    let nested_format =
-                        FormatString::from_str(format_spec).map_err(|e| e.into_pyexception(vm))?;
+                    let nested_format = FormatString::from_str(format_spec).map_pyerr(vm)?;
                     let format_spec = nested_format.format_internal(vm, field_func)?;
 
                     pystr = call_object_format(vm, argument, *preconversion_spec, &format_spec)?;

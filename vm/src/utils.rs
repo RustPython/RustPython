@@ -1,6 +1,6 @@
 use crate::{
     builtins::{PyFloat, PyStr},
-    function::{IntoPyException, IntoPyObject},
+    function::{IntoPyObject, PyErrResultExt},
     PyObject, PyObjectRef, PyObjectWrap, PyResult, TryFromObject, TypeProtocol, VirtualMachine,
 };
 use num_traits::ToPrimitive;
@@ -118,12 +118,12 @@ pub trait ToCString {
 
 impl ToCString for &str {
     fn to_cstring(&self, vm: &VirtualMachine) -> PyResult<std::ffi::CString> {
-        std::ffi::CString::new(*self).map_err(|err| err.into_pyexception(vm))
+        std::ffi::CString::new(*self).map_pyerr(vm)
     }
 }
 
 impl ToCString for PyStr {
     fn to_cstring(&self, vm: &VirtualMachine) -> PyResult<std::ffi::CString> {
-        std::ffi::CString::new(self.as_ref()).map_err(|err| err.into_pyexception(vm))
+        std::ffi::CString::new(self.as_ref()).map_pyerr(vm)
     }
 }

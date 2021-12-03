@@ -6,7 +6,10 @@ use super::{
 use crate::{
     anystr::{self, adjust_indices, AnyStr, AnyStrContainer, AnyStrWrapper},
     format::{FormatSpec, FormatString, FromTemplate},
-    function::{ArgIterable, FuncArgs, IntoPyException, IntoPyObject, OptionalArg, OptionalOption},
+    function::{
+        ArgIterable, FuncArgs, IntoPyException, IntoPyObject, OptionalArg, OptionalOption,
+        PyErrResultExt,
+    },
     protocol::{PyIterReturn, PyMappingMethods},
     sequence::SequenceOp,
     sliceable::PySliceableSequence,
@@ -735,8 +738,7 @@ impl PyStr {
 
     #[pymethod]
     fn format(&self, args: FuncArgs, vm: &VirtualMachine) -> PyResult<String> {
-        let format_string =
-            FormatString::from_str(self.as_str()).map_err(|e| e.into_pyexception(vm))?;
+        let format_string = FormatString::from_str(self.as_str()).map_pyerr(vm)?;
         format_string.format(&args, vm)
     }
 
