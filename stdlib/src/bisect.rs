@@ -3,8 +3,7 @@ pub(crate) use _bisect::make_module;
 #[pymodule]
 mod _bisect {
     use crate::vm::{
-        function::OptionalArg, types::PyComparisonOp::Lt, ItemProtocol, PyObjectRef, PyResult,
-        VirtualMachine,
+        function::OptionalArg, types::PyComparisonOp::Lt, PyObjectRef, PyResult, VirtualMachine,
     };
 
     #[derive(FromArgs)]

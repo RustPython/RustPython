@@ -1,6 +1,4 @@
-use crate::{
-    function::IntoPyObject, ItemProtocol, PyClassImpl, PyObject, PyResult, VirtualMachine,
-};
+use crate::{function::IntoPyObject, PyClassImpl, PyObject, PyResult, VirtualMachine};
 
 pub(crate) use sys::{MAXSIZE, MULTIARCH};
 
@@ -17,7 +15,7 @@ mod sys {
         stdlib::builtins,
         version,
         vm::{PySettings, VirtualMachine},
-        ItemProtocol, PyObjectRef, PyRef, PyRefExact, PyResult, PyStructSequence,
+        PyObjectRef, PyRef, PyRefExact, PyResult, PyStructSequence,
     };
     use num_traits::ToPrimitive;
     use std::{env, mem, path};

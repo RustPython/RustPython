@@ -12,8 +12,8 @@ mod _sre {
         protocol::PyBuffer,
         stdlib::sys,
         types::{Comparable, Hashable},
-        ItemProtocol, PyComparisonValue, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
-        TryFromBorrowedObject, TryFromObject, VirtualMachine,
+        PyComparisonValue, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromBorrowedObject,
+        TryFromObject, VirtualMachine,
     };
     use core::str;
     use crossbeam_utils::atomic::AtomicCell;
@@ -752,7 +752,7 @@ mod _sre {
             } else {
                 self.pattern
                     .groupindex
-                    .get_item_option(group, vm)
+                    .get_item_opt(group, vm)
                     .ok()??
                     .downcast::<PyInt>()
                     .ok()?

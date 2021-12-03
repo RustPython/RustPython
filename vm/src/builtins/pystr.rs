@@ -15,8 +15,8 @@ use crate::{
         PyComparisonOp, Unconstructible,
     },
     utils::Either,
-    IdProtocol, ItemProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObject,
-    PyObjectRef, PyObjectView, PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
+    IdProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef,
+    PyObjectView, PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
 use ascii::{AsciiStr, AsciiString};
 use bstr::ByteSlice;
@@ -1260,34 +1260,20 @@ impl Iterable for PyStr {
 
 impl AsMapping for PyStr {
     fn as_mapping(_zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
-        PyMappingMethods {
-            length: Some(Self::length),
-            subscript: Some(Self::subscript),
-            ass_subscript: None,
-        }
+        Self::MAPPING_METHODS
     }
+}
 
-    #[inline]
-    fn length(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-        Self::downcast_ref(&zelf, vm).map(|zelf| Ok(zelf.len()))?
-    }
-
-    #[inline]
-    fn subscript(zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Self::downcast_ref(&zelf, vm)
-            .map(|zelf| zelf.getitem(needle, vm))?
-            .map(|item| item.into_object(vm))
-    }
-
-    #[cold]
-    fn ass_subscript(
-        zelf: PyObjectRef,
-        _needle: PyObjectRef,
-        _value: Option<PyObjectRef>,
-        _vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        unreachable!("ass_subscript not implemented for {}", zelf.class())
-    }
+impl PyStr {
+    const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
+        length: Some(|mapping, _vm| Ok(Self::mapping_downcast(mapping).len())),
+        subscript: Some(|mapping, needle, vm| {
+            Self::mapping_downcast(mapping)
+                .getitem(needle.to_owned(), vm)
+                .map(|x| x.into_ref(vm).into())
+        }),
+        ass_subscript: None,
+    };
 }
 
 #[derive(FromArgs)]

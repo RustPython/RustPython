@@ -677,6 +677,23 @@ impl PyByteArray {
     }
 }
 
+impl PyByteArray {
+    const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
+        length: Some(|mapping, _vm| Ok(Self::mapping_downcast(mapping).len())),
+        subscript: Some(|mapping, needle, vm| {
+            Self::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
+        }),
+        ass_subscript: Some(|mapping, needle, value, vm| {
+            let zelf = Self::mapping_downcast(mapping);
+            if let Some(value) = value {
+                Self::setitem(zelf.to_owned(), needle.to_owned(), value, vm)
+            } else {
+                zelf.delitem(needle.to_owned(), vm)
+            }
+        }),
+    };
+}
+
 impl Comparable for PyByteArray {
     fn cmp(
         zelf: &crate::PyObjectView<Self>,
@@ -739,36 +756,7 @@ impl<'a> BufferResizeGuard<'a> for PyByteArray {
 
 impl AsMapping for PyByteArray {
     fn as_mapping(_zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
-        PyMappingMethods {
-            length: Some(Self::length),
-            subscript: Some(Self::subscript),
-            ass_subscript: Some(Self::ass_subscript),
-        }
-    }
-
-    #[inline]
-    fn length(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-        Self::downcast_ref(&zelf, vm).map(|zelf| Ok(zelf.len()))?
-    }
-
-    #[inline]
-    fn subscript(zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Self::downcast_ref(&zelf, vm).map(|zelf| zelf.getitem(needle, vm))?
-    }
-
-    #[inline]
-    fn ass_subscript(
-        zelf: PyObjectRef,
-        needle: PyObjectRef,
-        value: Option<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        match value {
-            Some(value) => {
-                Self::downcast(zelf, vm).map(|zelf| Self::setitem(zelf, needle, value, vm))
-            }
-            None => Self::downcast_ref(&zelf, vm).map(|zelf| zelf.delitem(needle, vm)),
-        }?
+        Self::MAPPING_METHODS
     }
 }
 

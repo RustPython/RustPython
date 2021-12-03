@@ -953,38 +953,27 @@ impl Drop for PyMemoryView {
     }
 }
 
+impl PyMemoryView {
+    const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
+        length: Some(|mapping, vm| Self::mapping_downcast(mapping).len(vm)),
+        subscript: Some(|mapping, needle, vm| {
+            let zelf = Self::mapping_downcast(mapping);
+            Self::getitem(zelf.to_owned(), needle.to_owned(), vm)
+        }),
+        ass_subscript: Some(|mapping, needle, value, vm| {
+            let zelf = Self::mapping_downcast(mapping);
+            if let Some(value) = value {
+                Self::setitem(zelf.to_owned(), needle.to_owned(), value, vm)
+            } else {
+                Err(vm.new_type_error("cannot delete memory".to_owned()))
+            }
+        }),
+    };
+}
+
 impl AsMapping for PyMemoryView {
     fn as_mapping(_zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
-        PyMappingMethods {
-            length: Some(Self::length),
-            subscript: Some(Self::subscript),
-            ass_subscript: Some(Self::ass_subscript),
-        }
-    }
-
-    #[inline]
-    fn length(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-        Self::downcast_ref(&zelf, vm).map(|zelf| zelf.len(vm))?
-    }
-
-    #[inline]
-    fn subscript(zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Self::downcast(zelf, vm).map(|zelf| Self::getitem(zelf, needle, vm))?
-    }
-
-    #[inline]
-    fn ass_subscript(
-        zelf: PyObjectRef,
-        needle: PyObjectRef,
-        value: Option<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        match value {
-            Some(value) => {
-                Self::downcast(zelf, vm).map(|zelf| Self::setitem(zelf, needle, value, vm))?
-            }
-            None => Err(vm.new_type_error("cannot delete memory".to_owned())),
-        }
+        Self::MAPPING_METHODS
     }
 }
 

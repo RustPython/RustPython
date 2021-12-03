@@ -12,13 +12,12 @@ use crate::{
         bytes,
         getset::{IntoPyGetterFunc, IntoPySetterFunc, PyGetSet},
         object, pystr, PyBaseException, PyBaseExceptionRef, PyBoundMethod, PyDict, PyDictRef,
-        PyEllipsis, PyFloat, PyFrozenSet, PyGenericAlias, PyInt, PyIntRef, PyList, PyListRef,
-        PyNone, PyNotImplemented, PyStr, PyTuple, PyTupleRef, PyType, PyTypeRef,
+        PyEllipsis, PyFloat, PyFrozenSet, PyInt, PyIntRef, PyList, PyListRef, PyNone,
+        PyNotImplemented, PyStr, PyTuple, PyTupleRef, PyType, PyTypeRef,
     },
     dictdatatype::Dict,
     exceptions,
     function::{IntoFuncArgs, IntoPyNativeFunc, IntoPyObject, IntoPyResult},
-    protocol::PyMapping,
     types::TypeZoo,
     types::{PyTypeFlags, PyTypeSlots},
     VirtualMachine,
@@ -593,86 +592,6 @@ impl<T: TypeProtocol> TypeProtocol for &'_ T {
     }
 }
 
-/// The python item protocol. Mostly applies to dictionaries.
-/// Allows getting, setting and deletion of keys-value pairs.
-pub trait ItemProtocol<T>
-where
-    T: IntoPyObject + ?Sized,
-{
-    fn get_item(&self, key: T, vm: &VirtualMachine) -> PyResult;
-    fn set_item(&self, key: T, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()>;
-    fn del_item(&self, key: T, vm: &VirtualMachine) -> PyResult<()>;
-}
-
-impl<T> ItemProtocol<T> for PyObject
-where
-    T: IntoPyObject,
-{
-    fn get_item(&self, key: T, vm: &VirtualMachine) -> PyResult {
-        if let Ok(mapping) = PyMapping::try_from_object(vm, self.to_owned()) {
-            if let Some(getitem) = mapping.methods(vm).subscript {
-                return getitem(self.to_owned(), key.into_pyobject(vm), vm);
-            }
-        }
-
-        match vm.get_special_method(self.to_owned(), "__getitem__")? {
-            Ok(special_method) => return special_method.invoke((key,), vm),
-            Err(obj) => {
-                if obj.class().issubclass(&vm.ctx.types.type_type) {
-                    if obj.is(&vm.ctx.types.type_type) {
-                        return PyGenericAlias::new(obj.clone_class(), key.into_pyobject(vm), vm)
-                            .into_pyresult(vm);
-                    }
-
-                    if let Some(class_getitem) = vm.get_attribute_opt(obj, "__class_getitem__")? {
-                        return vm.invoke(&class_getitem, (key,));
-                    }
-                }
-            }
-        }
-        Err(vm.new_type_error(format!(
-            "'{}' object is not subscriptable",
-            self.class().name()
-        )))
-    }
-
-    fn set_item(&self, key: T, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        if let Ok(mapping) = PyMapping::try_from_object(vm, self.to_owned()) {
-            if let Some(setitem) = mapping.methods(vm).ass_subscript {
-                return setitem(self.to_owned(), key.into_pyobject(vm), Some(value), vm);
-            }
-        }
-
-        vm.get_special_method(self.to_owned(), "__setitem__")?
-            .map_err(|obj| {
-                vm.new_type_error(format!(
-                    "'{}' does not support item assignment",
-                    obj.class().name()
-                ))
-            })?
-            .invoke((key, value), vm)?;
-        Ok(())
-    }
-
-    fn del_item(&self, key: T, vm: &VirtualMachine) -> PyResult<()> {
-        if let Ok(mapping) = PyMapping::try_from_object(vm, self.to_owned()) {
-            if let Some(setitem) = mapping.methods(vm).ass_subscript {
-                return setitem(self.to_owned(), key.into_pyobject(vm), None, vm);
-            }
-        }
-
-        vm.get_special_method(self.to_owned(), "__delitem__")?
-            .map_err(|obj| {
-                vm.new_type_error(format!(
-                    "'{}' does not support item deletion",
-                    obj.class().name()
-                ))
-            })?
-            .invoke((key,), vm)?;
-        Ok(())
-    }
-}
-
 impl TryFromObject for PyObjectRef {
     #[inline]
     fn try_from_object(_vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
@@ -1165,7 +1084,7 @@ impl PyMethod {
         };
 
         if let Some(dict) = obj.dict() {
-            if let Some(attr) = dict.get_item_option(name.clone(), vm)? {
+            if let Some(attr) = dict.get_item_opt(name.clone(), vm)? {
                 return Ok(Self::Attribute(attr));
             }
         }

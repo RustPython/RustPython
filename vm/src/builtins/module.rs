@@ -3,8 +3,7 @@ use super::{PyDictRef, PyStr, PyStrRef, PyTypeRef};
 use crate::{
     function::{FuncArgs, IntoPyObject},
     types::GetAttr,
-    ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue,
-    VirtualMachine,
+    PyClassImpl, PyContext, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "module")]

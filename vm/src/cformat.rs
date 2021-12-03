@@ -7,8 +7,7 @@ use crate::{
     function::ArgIntoFloat,
     protocol::PyBuffer,
     stdlib::builtins,
-    ItemProtocol, PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject, TypeProtocol,
-    VirtualMachine,
+    PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject, TypeProtocol, VirtualMachine,
 };
 use itertools::Itertools;
 use num_bigint::{BigInt, Sign};
@@ -725,7 +724,7 @@ impl CFormatBytes {
                         CFormatPart::Literal(literal) => result.append(literal),
                         CFormatPart::Spec(spec) => {
                             let value = match &spec.mapping_key {
-                                Some(key) => values_obj.get_item(key, vm)?,
+                                Some(key) => values_obj.get_item(key.as_str(), vm)?,
                                 None => unreachable!(),
                             };
                             let mut part_result = spec.bytes_format(vm, value)?;
@@ -876,7 +875,7 @@ impl CFormatString {
                         CFormatPart::Literal(literal) => result.push_str(literal),
                         CFormatPart::Spec(spec) => {
                             let value = match &spec.mapping_key {
-                                Some(key) => values_obj.get_item(key, vm)?,
+                                Some(key) => values_obj.get_item(key.as_str(), vm)?,
                                 None => unreachable!(),
                             };
                             let part_result = spec.string_format(vm, value, idx)?;

@@ -3,7 +3,7 @@ use crate::{
     common::float_ops,
     function::{FuncArgs, IntoPyException},
     stdlib::builtins,
-    ItemProtocol, PyObject, PyObjectRef, PyResult, TypeProtocol, VirtualMachine,
+    PyObject, PyObjectRef, PyResult, TypeProtocol, VirtualMachine,
 };
 use itertools::{Itertools, PeekingNext};
 use num_bigint::{BigInt, Sign};
@@ -823,7 +823,7 @@ impl FormatString {
                                 argument = argument.get_item(index, vm)?;
                             }
                             FieldNamePart::StringIndex(index) => {
-                                argument = argument.get_item(&index, vm)?;
+                                argument = argument.get_item(index, vm)?;
                             }
                         }
                     }

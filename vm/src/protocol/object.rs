@@ -2,11 +2,15 @@
 //! https://docs.python.org/3/c-api/object.html
 
 use crate::{
-    builtins::{pystr::IntoPyStrRef, PyBytes, PyInt, PyStrRef, PyTupleRef, PyTypeRef},
+    builtins::{
+        pystr::IntoPyStrRef, PyBytes, PyDict, PyGenericAlias, PyInt, PyStrRef, PyTupleRef,
+        PyTypeRef,
+    },
     bytesinner::ByteInnerNewOptions,
     common::{hash::PyHash, str::to_ascii},
-    function::{IntoPyObject, OptionalArg},
-    protocol::PyIter,
+    dictdatatype::DictKey,
+    function::{IntoPyObject, IntoPyResult, OptionalArg},
+    protocol::{PyIter, PyMapping},
     pyref_type_error,
     types::{Constructor, PyComparisonOp},
     utils::Either,
@@ -410,5 +414,95 @@ impl PyObject {
                 self.class().name()
             )))
         })
+    }
+
+    pub fn get_item<K: DictKey + IntoPyObject + Clone>(
+        &self,
+        needle: K,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        if let Some(dict) = self.downcast_ref_if_exact::<PyDict>(vm) {
+            return dict.get_item(needle, vm);
+        }
+
+        let needle = needle.into_pyobject(vm);
+
+        if let Ok(mapping) = PyMapping::try_protocol(self, vm) {
+            mapping.subscript(&needle, vm)
+        } else {
+            // TODO: sequence protocol
+            match vm.get_special_method(self.to_owned(), "__getitem__")? {
+                Ok(special_method) => return special_method.invoke((needle,), vm),
+                Err(obj) => {
+                    if obj.class().issubclass(&vm.ctx.types.type_type) {
+                        if obj.is(&vm.ctx.types.type_type) {
+                            return PyGenericAlias::new(obj.clone_class(), needle, vm)
+                                .into_pyresult(vm);
+                        }
+
+                        if let Some(class_getitem) =
+                            vm.get_attribute_opt(obj, "__class_getitem__")?
+                        {
+                            return vm.invoke(&class_getitem, (needle,));
+                        }
+                    }
+                }
+            }
+            Err(vm.new_type_error(format!("'{}' object is not subscriptable", self.class())))
+        }
+    }
+
+    pub fn set_item<K: DictKey + IntoPyObject>(
+        &self,
+        needle: K,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        if let Some(dict) = self.downcast_ref_if_exact::<PyDict>(vm) {
+            return dict.set_item(needle, value, vm);
+        }
+
+        let needle = needle.into_pyobject(vm);
+
+        let mapping = PyMapping::from(self);
+        if let Some(f) = mapping.methods(vm).ass_subscript {
+            f(&mapping, &needle, Some(value), vm)
+        } else {
+            // TODO: sequence protocol
+            vm.get_special_method(self.to_owned(), "__setitem__")?
+                .map_err(|obj| {
+                    vm.new_type_error(format!(
+                        "'{}' does not support item assignment",
+                        obj.class()
+                    ))
+                })?
+                .invoke((needle, value), vm)?;
+            Ok(())
+        }
+    }
+
+    pub fn del_item<K: DictKey + IntoPyObject>(
+        &self,
+        needle: K,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        if let Some(dict) = self.downcast_ref_if_exact::<PyDict>(vm) {
+            return dict.del_item(needle, vm);
+        }
+
+        let needle = needle.into_pyobject(vm);
+
+        let mapping = PyMapping::from(self);
+        if let Some(f) = mapping.methods(vm).ass_subscript {
+            f(&mapping, &needle, None, vm)
+        } else {
+            //TODO: sequence protocol
+            vm.get_special_method(self.to_owned(), "__delitem__")?
+                .map_err(|obj| {
+                    vm.new_type_error(format!("'{}' does not support item deletion", obj.class()))
+                })?
+                .invoke((needle,), vm)?;
+            Ok(())
+        }
     }
 }

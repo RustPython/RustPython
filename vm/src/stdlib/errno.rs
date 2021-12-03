@@ -1,5 +1,5 @@
+use crate::PyObjectRef;
 use crate::VirtualMachine;
-use crate::{ItemProtocol, PyObjectRef};
 
 #[pymodule]
 mod errno {}

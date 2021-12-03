@@ -13,7 +13,7 @@ use crate::{
         PyComparisonOp, Unconstructible, Unhashable,
     },
     vm::{ReprGuard, VirtualMachine},
-    IdProtocol, ItemProtocol,
+    IdProtocol,
     PyArithmeticValue::*,
     PyAttributes, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef,
     PyObjectView, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
@@ -178,7 +178,7 @@ impl PyDict {
             (zelf, other)
         };
         for (k, v1) in subset {
-            match superset.get_item_option(k, vm)? {
+            match superset.get_item_opt(k, vm)? {
                 Some(v2) => {
                     if v1.is(&v2) {
                         continue;
@@ -232,7 +232,7 @@ impl PyDict {
 
     #[pymethod(magic)]
     fn delitem(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.entries.delete(vm, key)
+        self.inner_delitem(key, vm)
     }
 
     #[pymethod]
@@ -257,12 +257,12 @@ impl PyDict {
 
     #[pymethod(magic)]
     fn setitem(&self, key: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.inner_setitem_fast(key, value, vm)
+        self.inner_setitem(key, value, vm)
     }
 
     /// Set item variant which can be called with multiple
     /// key types, such as str to name a notable one.
-    fn inner_setitem_fast<K: DictKey + IntoPyObject>(
+    pub(crate) fn inner_setitem<K: DictKey + IntoPyObject>(
         &self,
         key: K,
         value: PyObjectRef,
@@ -271,14 +271,18 @@ impl PyDict {
         self.entries.insert(vm, key, value)
     }
 
+    pub(crate) fn inner_delitem<K: DictKey + IntoPyObject>(
+        &self,
+        key: K,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        self.entries.delete(vm, key)
+    }
+
     #[pymethod(magic)]
     #[cfg_attr(feature = "flame-it", flame("PyDictRef"))]
     fn getitem(zelf: PyRef<Self>, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(value) = zelf.inner_getitem_option(key.clone(), zelf.exact_dict(vm), vm)? {
-            Ok(value)
-        } else {
-            Err(vm.new_key_error(key))
-        }
+        zelf.inner_getitem(key, vm)
     }
 
     #[pymethod]
@@ -420,36 +424,26 @@ impl PyDict {
     }
 }
 
+impl PyDict {
+    pub(crate) const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
+        length: Some(|mapping, _vm| Ok(Self::mapping_downcast(mapping).len())),
+        subscript: Some(|mapping, needle, vm| {
+            Self::mapping_downcast(mapping).inner_getitem(needle, vm)
+        }),
+        ass_subscript: Some(|mapping, needle, value, vm| {
+            let zelf = Self::mapping_downcast(mapping);
+            if let Some(value) = value {
+                zelf.inner_setitem(needle, value, vm)
+            } else {
+                zelf.inner_delitem(needle, vm)
+            }
+        }),
+    };
+}
+
 impl AsMapping for PyDict {
     fn as_mapping(_zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
-        PyMappingMethods {
-            length: Some(Self::length),
-            subscript: Some(Self::subscript),
-            ass_subscript: Some(Self::ass_subscript),
-        }
-    }
-
-    #[inline]
-    fn length(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-        Self::downcast_ref(&zelf, vm).map(|zelf| Ok(zelf.len()))?
-    }
-
-    #[inline]
-    fn subscript(zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Self::downcast(zelf, vm).map(|zelf| Self::getitem(zelf, needle, vm))?
-    }
-
-    #[inline]
-    fn ass_subscript(
-        zelf: PyObjectRef,
-        needle: PyObjectRef,
-        value: Option<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        Self::downcast_ref(&zelf, vm).map(|zelf| match value {
-            Some(value) => zelf.setitem(needle, value, vm),
-            None => zelf.delitem(needle, vm),
-        })?
+        Self::MAPPING_METHODS
     }
 }
 
@@ -481,25 +475,29 @@ impl PyObjectView<PyDict> {
         self.class().is(&vm.ctx.types.dict_type)
     }
 
-    /// Return an optional inner item, or an error (can be key error as well)
-    #[inline]
-    fn inner_getitem_option<K: DictKey + IntoPyObject>(
+    fn missing_opt<K: DictKey + IntoPyObject>(
         &self,
         key: K,
-        exact: bool,
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
-        if let Some(value) = self.entries.get(vm, &key)? {
-            return Ok(Some(value));
-        }
+        vm.get_method(self.to_owned().into(), "__missing__")
+            .map(|methods| vm.invoke(&methods?, (key,)))
+            .transpose()
+    }
 
-        if !exact {
-            if let Some(method_or_err) = vm.get_method(self.to_owned().into(), "__missing__") {
-                let method = method_or_err?;
-                return vm.invoke(&method, (key,)).map(Some);
-            }
+    #[inline]
+    fn inner_getitem<K: DictKey + IntoPyObject + Clone>(
+        &self,
+        key: K,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef> {
+        if let Some(value) = self.entries.get(vm, &key)? {
+            Ok(value)
+        } else if let Some(value) = self.missing_opt(key.clone(), vm)? {
+            Ok(value)
+        } else {
+            Err(vm.new_key_error(key.into_pyobject(vm)))
         }
-        Ok(None)
     }
 
     /// Take a python dictionary and convert it to attributes.
@@ -512,50 +510,53 @@ impl PyObjectView<PyDict> {
         attrs
     }
 
-    /// This function can be used to get an item without raising the
-    /// KeyError, so we can simply check upon the result being Some
-    /// python value, or None.
-    /// Note that we can pass any type which implements the DictKey
-    /// trait. Notable examples are String and PyObjectRef.
-    pub fn get_item_option<K: IntoPyObject + DictKey>(
+    pub fn get_item_opt<K: DictKey + IntoPyObject + Clone>(
         &self,
         key: K,
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
-        // Test if this object is a true dict, or maybe a subclass?
-        // If it is a dict, we can directly invoke inner_get_item_option,
-        // and prevent the creation of the KeyError exception.
-        // Also note, that we prevent the creation of a full PyStr object
-        // if we lookup local names (which happens all of the time).
-        self._get_item_option_inner(key, self.exact_dict(vm), vm)
-    }
-
-    #[inline]
-    fn _get_item_option_inner<K: IntoPyObject + DictKey>(
-        &self,
-        key: K,
-        exact: bool,
-        vm: &VirtualMachine,
-    ) -> PyResult<Option<PyObjectRef>> {
-        if exact {
-            // We can take the short path here!
+        if self.exact_dict(vm) {
             self.entries.get(vm, &key)
+            // FIXME: check __missing__?
         } else {
-            // Fall back to full get_item with KeyError checking
-            self._subcls_getitem_option(key.into_pyobject(vm), vm)
+            match self.as_object().get_item(key.clone(), vm) {
+                Ok(value) => Ok(Some(value)),
+                Err(e) if e.isinstance(&vm.ctx.exceptions.key_error) => self.missing_opt(key, vm),
+                Err(e) => Err(e),
+            }
         }
     }
 
-    #[cold]
-    fn _subcls_getitem_option(
+    pub fn get_item<K: DictKey + IntoPyObject + Clone>(
         &self,
-        key: PyObjectRef,
+        key: K,
         vm: &VirtualMachine,
-    ) -> PyResult<Option<PyObjectRef>> {
-        match self.get_item(key, vm) {
-            Ok(value) => Ok(Some(value)),
-            Err(exc) if exc.isinstance(&vm.ctx.exceptions.key_error) => Ok(None),
-            Err(exc) => Err(exc),
+    ) -> PyResult {
+        if self.exact_dict(vm) {
+            self.inner_getitem(key, vm)
+        } else {
+            self.as_object().get_item(key, vm)
+        }
+    }
+
+    pub fn set_item<K: DictKey + IntoPyObject>(
+        &self,
+        key: K,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        if self.exact_dict(vm) {
+            self.inner_setitem(key, value, vm)
+        } else {
+            self.as_object().set_item(key, value, vm)
+        }
+    }
+
+    pub fn del_item<K: DictKey + IntoPyObject>(&self, key: K, vm: &VirtualMachine) -> PyResult<()> {
+        if self.exact_dict(vm) {
+            self.inner_delitem(key, vm)
+        } else {
+            self.as_object().del_item(key, vm)
         }
     }
 
@@ -565,59 +566,15 @@ impl PyObjectView<PyDict> {
         key: K,
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
-        let self_exact = self.class().is(&vm.ctx.types.dict_type);
-        let other_exact = self.class().is(&vm.ctx.types.dict_type);
+        let self_exact = self.exact_dict(vm);
+        let other_exact = other.exact_dict(vm);
         if self_exact && other_exact {
             self.entries.get_chain(&other.entries, vm, &key)
-        } else if let Some(value) = self._get_item_option_inner(key.clone(), self_exact, vm)? {
+        } else if let Some(value) = self.get_item_opt(key.clone(), vm)? {
             Ok(Some(value))
         } else {
-            other._get_item_option_inner(key, other_exact, vm)
+            other.get_item_opt(key, vm)
         }
-    }
-}
-
-impl<K> ItemProtocol<K> for PyObjectView<PyDict>
-where
-    K: DictKey + IntoPyObject,
-{
-    fn get_item(&self, key: K, vm: &VirtualMachine) -> PyResult {
-        self.as_object().get_item(key, vm)
-    }
-
-    fn set_item(&self, key: K, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        if self.class().is(&vm.ctx.types.dict_type) {
-            self.inner_setitem_fast(key, value, vm)
-        } else {
-            // Fall back to slow path if we are in a dict subclass:
-            self.as_object().set_item(key, value, vm)
-        }
-    }
-
-    fn del_item(&self, key: K, vm: &VirtualMachine) -> PyResult<()> {
-        if self.class().is(&vm.ctx.types.dict_type) {
-            self.entries.delete(vm, key)
-        } else {
-            // Fall back to slow path if we are in a dict subclass:
-            self.as_object().del_item(key, vm)
-        }
-    }
-}
-
-impl<K> ItemProtocol<K> for PyDictRef
-where
-    K: DictKey + IntoPyObject,
-{
-    fn get_item(&self, key: K, vm: &VirtualMachine) -> PyResult {
-        (**self).get_item(key, vm)
-    }
-
-    fn set_item(&self, key: K, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        (**self).set_item(key, value, vm)
-    }
-
-    fn del_item(&self, key: K, vm: &VirtualMachine) -> PyResult<()> {
-        (**self).del_item(key, vm)
     }
 }
 

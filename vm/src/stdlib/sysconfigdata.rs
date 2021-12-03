@@ -3,8 +3,7 @@ pub(crate) use _sysconfigdata::make_module;
 #[pymodule]
 pub(crate) mod _sysconfigdata {
     use crate::{
-        builtins::PyDictRef, function::IntoPyObject, stdlib::sys::MULTIARCH, ItemProtocol,
-        VirtualMachine,
+        builtins::PyDictRef, function::IntoPyObject, stdlib::sys::MULTIARCH, VirtualMachine,
     };
 
     #[pyattr]

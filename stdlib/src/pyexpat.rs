@@ -35,8 +35,7 @@ mod _pyexpat {
         builtins::{PyStr, PyStrRef, PyTypeRef},
         function::ArgBytesLike,
         function::{IntoFuncArgs, OptionalArg},
-        ItemProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-        VirtualMachine,
+        PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
     };
     use rustpython_common::lock::PyRwLock;
     use std::io::Cursor;

@@ -4,7 +4,7 @@ use criterion::{
 };
 use rustpython_compiler::Mode;
 use rustpython_vm::{
-    common::ascii, InitParameter, Interpreter, ItemProtocol, PyObjectWrap, PyResult, PySettings,
+    common::ascii, InitParameter, Interpreter, PyObjectWrap, PyResult, PySettings,
 };
 use std::path::{Path, PathBuf};
 use std::{ffi, fs, io};

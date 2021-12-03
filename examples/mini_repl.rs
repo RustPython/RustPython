@@ -6,8 +6,6 @@
 use rustpython_vm as vm;
 // these are needed for special memory shenanigans to let us share a variable with Python and Rust
 use std::sync::atomic::{AtomicBool, Ordering};
-// this needs to be in scope in order to insert things into scope.globals
-use vm::ItemProtocol;
 
 // This has to be a macro because it uses the py_compile macro,
 // which compiles python source to optimized bytecode at compile time, so that

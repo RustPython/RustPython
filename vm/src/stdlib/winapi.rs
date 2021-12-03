@@ -4,11 +4,10 @@ pub(crate) use _winapi::make_module;
 #[pymodule]
 mod _winapi {
     use crate::{
-        builtins::{PyListRef, PyStrRef},
-        function::{IntoPyException, OptionalArg},
-        protocol::PyMapping,
+        builtins::PyStrRef,
+        function::{ArgMapping, IntoPyException, OptionalArg},
         stdlib::os::errno_err,
-        ItemProtocol, PyObjectRef, PyResult, PySequence, TryFromObject, VirtualMachine,
+        PyObjectRef, PyResult, PySequence, TryFromObject, VirtualMachine,
     };
     use std::ptr::{null, null_mut};
     use winapi::shared::winerror;
@@ -145,7 +144,7 @@ mod _winapi {
         #[pyarg(positional)]
         creation_flags: u32,
         #[pyarg(positional)]
-        env_mapping: Option<PyMapping>,
+        env_mapping: Option<ArgMapping>,
         #[pyarg(positional)]
         current_dir: Option<PyStrRef>,
         #[pyarg(positional)]
@@ -245,14 +244,12 @@ mod _winapi {
         ))
     }
 
-    fn getenvironment(env: PyMapping, vm: &VirtualMachine) -> PyResult<Vec<u16>> {
-        let keys = env.keys(vm)?;
-        let values = env.values(vm)?;
+    fn getenvironment(env: ArgMapping, vm: &VirtualMachine) -> PyResult<Vec<u16>> {
+        let keys = env.mapping().keys(vm)?;
+        let values = env.mapping().values(vm)?;
 
-        let keys = PyListRef::try_from_object(vm, keys)?.borrow_vec().to_vec();
-        let values = PyListRef::try_from_object(vm, values)?
-            .borrow_vec()
-            .to_vec();
+        let keys = PySequence::try_from_object(vm, keys)?.into_vec();
+        let values = PySequence::try_from_object(vm, values)?.into_vec();
 
         if keys.len() != values.len() {
             return Err(
@@ -294,7 +291,7 @@ mod _winapi {
     }
 
     fn getattributelist(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<AttrList>> {
-        <Option<PyMapping>>::try_from_object(vm, obj)?
+        <Option<ArgMapping>>::try_from_object(vm, obj)?
             .map(|mapping| {
                 let handlelist = mapping
                     .as_ref()

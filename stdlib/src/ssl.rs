@@ -39,7 +39,7 @@ mod _ssl {
             stdlib::os::PyPathLike,
             types::Constructor,
             utils::{Either, ToCString},
-            ItemProtocol, PyObjectRef, PyObjectWeak, PyRef, PyResult, PyValue, VirtualMachine,
+            PyObjectRef, PyObjectWeak, PyRef, PyResult, PyValue, VirtualMachine,
         },
     };
     use crossbeam_utils::atomic::AtomicCell;

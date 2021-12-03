@@ -2,8 +2,7 @@ use crate::{
     builtins::{float, int, pybool, PyBaseExceptionRef, PyDictRef, PyFunction, PyStrRef},
     bytecode::CodeFlags,
     function::{FuncArgs, IntoPyObject},
-    IdProtocol, ItemProtocol, PyObject, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
-    VirtualMachine,
+    IdProtocol, PyObject, PyObjectRef, PyResult, TryFromObject, TypeProtocol, VirtualMachine,
 };
 use num_traits::ToPrimitive;
 use rustpython_jit::{AbiValue, Args, CompiledCode, JitArgumentError, JitType};
@@ -42,7 +41,7 @@ pub fn new_jit_error(msg: String, vm: &VirtualMachine) -> PyBaseExceptionRef {
 }
 
 fn get_jit_arg_type(dict: &PyDictRef, name: &str, vm: &VirtualMachine) -> PyResult<JitType> {
-    if let Some(value) = dict.get_item_option(name, vm)? {
+    if let Some(value) = dict.get_item_opt(name, vm)? {
         if value.is(&vm.ctx.types.int_type) {
             Ok(JitType::Int)
         } else if value.is(&vm.ctx.types.float_type) {

@@ -6,15 +6,15 @@ use super::{
     PyTupleRef, PyTypeRef,
 };
 use crate::common::lock::PyMutex;
+use crate::function::ArgMapping;
 use crate::{
     bytecode,
     frame::Frame,
     function::{FuncArgs, OptionalArg},
-    protocol::PyMapping,
     scope::Scope,
     types::{Callable, Comparable, Constructor, GetAttr, GetDescriptor, PyComparisonOp},
-    IdProtocol, ItemProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef,
-    PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
+    IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyRef, PyResult,
+    PyValue, TypeProtocol, VirtualMachine,
 };
 #[cfg(feature = "jit")]
 use crate::{common::lock::OnceCell, function::IntoPyObject};
@@ -242,7 +242,7 @@ impl PyFunction {
                 .filter(|(slot, _)| slot.is_none())
             {
                 if let Some(defaults) = &get_defaults!().1 {
-                    if let Some(default) = defaults.get_item_option(kwarg.clone(), vm)? {
+                    if let Some(default) = defaults.get_item_opt(kwarg.clone(), vm)? {
                         *slot = Some(default);
                         continue;
                     }
@@ -268,7 +268,7 @@ impl PyFunction {
     pub fn invoke_with_locals(
         &self,
         func_args: FuncArgs,
-        locals: Option<PyMapping>,
+        locals: Option<ArgMapping>,
         vm: &VirtualMachine,
     ) -> PyResult {
         #[cfg(feature = "jit")]
@@ -288,11 +288,11 @@ impl PyFunction {
         let code = &self.code;
 
         let locals = if self.code.flags.contains(bytecode::CodeFlags::NEW_LOCALS) {
-            PyMapping::new(vm.ctx.new_dict().into())
+            ArgMapping::from_dict_exact(vm.ctx.new_dict())
         } else if let Some(locals) = locals {
             locals
         } else {
-            PyMapping::new(self.globals.clone().into())
+            ArgMapping::from_dict_exact(self.globals.clone())
         };
 
         // Construct frame:

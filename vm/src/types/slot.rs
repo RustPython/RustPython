@@ -2,7 +2,7 @@ use crate::common::{hash::PyHash, lock::PyRwLock};
 use crate::{
     builtins::{PyInt, PyStrRef, PyType, PyTypeRef},
     function::{FromArgs, FuncArgs, IntoPyResult, OptionalArg},
-    protocol::{PyBuffer, PyIterReturn, PyMappingMethods},
+    protocol::{PyBuffer, PyIterReturn, PyMapping, PyMappingMethods},
     utils::Either,
     IdProtocol, PyComparisonValue, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue,
     TypeProtocol, VirtualMachine,
@@ -163,31 +163,37 @@ fn as_mapping_wrapper(zelf: &PyObject, _vm: &VirtualMachine) -> PyMappingMethods
         };
     }
     PyMappingMethods {
-        length: then_some_closure!(zelf.has_class_attr("__len__"), |zelf, vm| {
-            vm.call_special_method(zelf, "__len__", ()).map(|obj| {
-                obj.payload_if_subclass::<PyInt>(vm)
-                    .map(|length_obj| {
-                        length_obj.as_bigint().to_usize().ok_or_else(|| {
-                            vm.new_value_error("__len__() should return >= 0".to_owned())
+        length: then_some_closure!(zelf.has_class_attr("__len__"), |mapping, vm| {
+            vm.call_special_method(mapping.obj.to_owned(), "__len__", ())
+                .map(|obj| {
+                    obj.payload_if_subclass::<PyInt>(vm)
+                        .map(|length_obj| {
+                            length_obj.as_bigint().to_usize().ok_or_else(|| {
+                                vm.new_value_error("__len__() should return >= 0".to_owned())
+                            })
                         })
-                    })
-                    .unwrap()
-            })?
+                        .unwrap()
+                })?
         }),
-        subscript: then_some_closure!(
-            zelf.has_class_attr("__getitem__"),
-            |zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine| {
-                vm.call_special_method(zelf, "__getitem__", (needle,))
-            }
-        ),
+        subscript: then_some_closure!(zelf.has_class_attr("__getitem__"), |mapping, needle, vm| {
+            vm.call_special_method(mapping.obj.to_owned(), "__getitem__", (needle.to_owned(),))
+        }),
         ass_subscript: then_some_closure!(
             zelf.has_class_attr("__setitem__") | zelf.has_class_attr("__delitem__"),
-            |zelf, needle, value, vm| match value {
+            |mapping, needle, value, vm| match value {
                 Some(value) => vm
-                    .call_special_method(zelf, "__setitem__", (needle, value),)
+                    .call_special_method(
+                        mapping.obj.to_owned(),
+                        "__setitem__",
+                        (needle.to_owned(), value),
+                    )
                     .map(|_| Ok(()))?,
                 None => vm
-                    .call_special_method(zelf, "__delitem__", (needle,))
+                    .call_special_method(
+                        mapping.obj.to_owned(),
+                        "__delitem__",
+                        (needle.to_owned(),)
+                    )
                     .map(|_| Ok(()))?,
             }
         ),
@@ -776,43 +782,11 @@ pub trait AsMapping: PyValue {
         Self::as_mapping(zelf, vm)
     }
 
-    #[inline]
-    fn downcast(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        zelf.downcast::<Self>().map_err(|obj| {
-            vm.new_type_error(format!(
-                "{} type is required, not {}",
-                Self::class(vm),
-                obj.class()
-            ))
-        })
-    }
-
-    #[inline]
-    fn downcast_ref<'a>(
-        zelf: &'a PyObject,
-        vm: &VirtualMachine,
-    ) -> PyResult<&'a PyObjectView<Self>> {
-        zelf.downcast_ref::<Self>().ok_or_else(|| {
-            vm.new_type_error(format!(
-                "{} type is required, not {}",
-                Self::class(vm),
-                zelf.class()
-            ))
-        })
-    }
-
     fn as_mapping(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyMappingMethods;
 
-    fn length(zelf: PyObjectRef, _vm: &VirtualMachine) -> PyResult<usize>;
-
-    fn subscript(zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult;
-
-    fn ass_subscript(
-        zelf: PyObjectRef,
-        needle: PyObjectRef,
-        value: Option<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<()>;
+    fn mapping_downcast<'a>(mapping: &'a PyMapping) -> &'a PyObjectView<Self> {
+        unsafe { mapping.obj.downcast_unchecked_ref() }
+    }
 }
 
 #[pyimpl]

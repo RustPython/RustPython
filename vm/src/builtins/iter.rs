@@ -7,7 +7,7 @@ use crate::{
     function::ArgCallable,
     protocol::PyIterReturn,
     types::{IterNext, IterNextIterable},
-    ItemProtocol, PyClassImpl, PyContext, PyObject, PyObjectRef, PyResult, PyValue, VirtualMachine,
+    PyClassImpl, PyContext, PyObject, PyObjectRef, PyResult, PyValue, VirtualMachine,
 };
 use rustpython_common::{
     lock::{PyMutex, PyRwLock, PyRwLockUpgradableReadGuard},

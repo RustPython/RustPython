@@ -20,14 +20,14 @@ use crate::{
     common::{ascii, hash::HashSecret, lock::PyMutex, rc::PyRc},
     frame::{ExecutionResult, Frame, FrameRef},
     frozen,
-    function::{FuncArgs, IntoFuncArgs, IntoPyObject},
+    function::{ArgMapping, FuncArgs, IntoFuncArgs, IntoPyObject},
     import,
-    protocol::{PyIterIter, PyIterReturn, PyMapping},
+    protocol::{PyIterIter, PyIterReturn},
     scope::Scope,
     signal, stdlib,
     types::PyComparisonOp,
-    IdProtocol, ItemProtocol, PyArithmeticValue, PyContext, PyLease, PyMethod, PyObject,
-    PyObjectRef, PyObjectWrap, PyRef, PyRefExact, PyResult, PyValue, TryFromObject, TypeProtocol,
+    IdProtocol, PyArithmeticValue, PyContext, PyLease, PyMethod, PyObject, PyObjectRef,
+    PyObjectWrap, PyRef, PyRefExact, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::{Signed, ToPrimitive};
@@ -574,7 +574,7 @@ impl VirtualMachine {
         }
     }
 
-    pub fn current_locals(&self) -> PyResult<PyMapping> {
+    pub fn current_locals(&self) -> PyResult<ArgMapping> {
         self.current_frame()
             .expect("called current_locals but no frames on the stack")
             .locals(self)
@@ -757,6 +757,7 @@ impl VirtualMachine {
         self.new_exception_msg(buffer_error, msg)
     }
 
+    // TODO: don't take ownership should make the success path faster
     pub fn new_key_error(&self, obj: PyObjectRef) -> PyBaseExceptionRef {
         let key_error = self.ctx.exceptions.key_error.clone();
         self.new_exception(key_error, vec![obj])
@@ -1384,7 +1385,7 @@ impl VirtualMachine {
         let dict = dict.or_else(|| obj.dict());
 
         let attr = if let Some(dict) = dict {
-            dict.get_item_option(name, self)?
+            dict.get_item_opt(name, self)?
         } else {
             None
         };

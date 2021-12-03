@@ -52,7 +52,7 @@ mod lock {
 mod _imp {
     use crate::{
         builtins::{PyBytesRef, PyCode, PyModule, PyStr, PyStrRef},
-        import, ItemProtocol, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
+        import, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
     };
 
     #[pyfunction]
