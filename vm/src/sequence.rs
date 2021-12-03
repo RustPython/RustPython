@@ -2,6 +2,8 @@ use itertools::Itertools;
 use optional::Optioned;
 use std::{collections::VecDeque, ops::Range};
 
+use crate::common::safe_alloc::*;
+use crate::function::PyErrResultExt;
 use crate::{
     types::{richcompare_wrapper, PyComparisonOp, RichCompareFunc},
     utils::Either,
@@ -247,11 +249,18 @@ pub trait SequenceOp<T: Clone> {
 
     fn mul(&self, vm: &VirtualMachine, n: isize) -> PyResult<Vec<T>> {
         let n = vm.check_repeat_or_overflow_error(self.as_slice().len(), n)?;
-        let mut v = Vec::with_capacity(n * self.as_slice().len());
+        let mut v = Vec::try_with_capacity(n * self.as_slice().len()).map_pyerr(vm)?;
         for _ in 0..n {
             v.extend_from_slice(self.as_slice());
         }
         Ok(v)
+    }
+    fn mul_copy(&self, vm: &VirtualMachine, n: isize) -> PyResult<Vec<T>>
+    where
+        T: Copy,
+    {
+        let n = vm.check_repeat_or_overflow_error(self.as_slice().len(), n)?;
+        self.as_slice().try_repeat(n).map_pyerr(vm)
     }
 }
 
@@ -266,18 +275,17 @@ pub trait SequenceMutOp<T: Clone> {
     fn as_vec_mut(&mut self) -> &mut Vec<T>;
 
     fn imul(&mut self, vm: &VirtualMachine, n: isize) -> PyResult<()> {
-        let n = vm.check_repeat_or_overflow_error(self.as_slice().len(), n)?;
-        if n == 0 {
-            self.as_vec_mut().clear();
-        } else if n != 1 {
-            let mut sample = self.as_slice().to_vec();
-            if n != 2 {
-                self.as_vec_mut().reserve(sample.len() * (n - 1));
-                for _ in 0..n - 2 {
-                    self.as_vec_mut().extend_from_slice(&sample);
+        let len = self.as_slice().len();
+        let n = vm.check_repeat_or_overflow_error(len, n)?;
+        match n.checked_sub(1) {
+            None => self.as_vec_mut().clear(),
+            Some(0) => {}
+            Some(reps) => {
+                self.as_vec_mut().try_reserve(len * reps).map_pyerr(vm)?;
+                for _ in 0..reps {
+                    self.as_vec_mut().extend_from_within(0..len);
                 }
             }
-            self.as_vec_mut().append(&mut sample);
         }
         Ok(())
     }

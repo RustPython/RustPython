@@ -919,7 +919,7 @@ impl PyBytesInner {
     }
 
     pub fn mul(&self, n: isize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        self.elements.mul(vm, n)
+        self.elements.mul_copy(vm, n)
     }
 
     pub fn imul(&mut self, n: isize, vm: &VirtualMachine) -> PyResult<()> {

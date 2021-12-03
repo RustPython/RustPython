@@ -3,6 +3,7 @@ use super::{
     iter::IterStatus::{self, Exhausted},
     PositionIterInternal, PyBytesRef, PyDict, PyTupleRef, PyTypeRef,
 };
+use crate::common::safe_alloc::*;
 use crate::{
     anystr::{self, adjust_indices, AnyStr, AnyStrContainer, AnyStrWrapper},
     format::{FormatSpec, FormatString, FromTemplate},
@@ -11,7 +12,6 @@ use crate::{
         PyErrResultExt,
     },
     protocol::{PyIterReturn, PyMappingMethods},
-    sequence::SequenceOp,
     sliceable::PySliceableSequence,
     types::{
         AsMapping, Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable,
@@ -497,10 +497,11 @@ impl PyStr {
             // This only works for `str` itself, not its subclasses.
             return Ok(zelf);
         }
-        zelf.as_str()
-            .as_bytes()
-            .mul(vm, value)
-            .map(|x| Self::from(unsafe { String::from_utf8_unchecked(x) }).into_ref(vm))
+        let s = zelf.as_str();
+        let n = vm.check_repeat_or_overflow_error(s.len(), value)?;
+        s.try_repeat(n)
+            .map_pyerr(vm)
+            .map(|s| Self::from(s).into_ref(vm))
     }
 
     #[pymethod(magic)]
