@@ -2,9 +2,10 @@ use super::{PositionIterInternal, PyGenericAlias, PySlice, PyTupleRef, PyTypeRef
 use crate::common::lock::{
     PyMappedRwLockReadGuard, PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
 };
+use crate::common::safe_alloc::*;
 use crate::sequence::MutObjectSequenceOp;
 use crate::{
-    function::{ArgIterable, FuncArgs, IntoPyObject, OptionalArg},
+    function::{ArgIterable, FuncArgs, IntoPyObject, OptionalArg, PyErrResultExt},
     protocol::{PyIterReturn, PyMappingMethods},
     sequence::{ObjectSequenceOp, SequenceMutOp, SequenceOp},
     sliceable::{saturate_index, PySliceableSequence, PySliceableSequenceMut, SequenceIndex},
@@ -91,14 +92,16 @@ pub type PyListRef = PyRef<PyList>;
 #[pyimpl(with(AsMapping, Iterable, Hashable, Comparable), flags(BASETYPE))]
 impl PyList {
     #[pymethod]
-    pub(crate) fn append(&self, x: PyObjectRef) {
-        self.borrow_vec_mut().push(x);
+    pub(crate) fn append(&self, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.borrow_vec_mut().try_push(x).map_pyerr(vm)
     }
 
     #[pymethod]
     fn extend(&self, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let mut new_elements = vm.extract_elements(&x)?;
-        self.borrow_vec_mut().append(&mut new_elements);
+        self.borrow_vec_mut()
+            .try_append(&mut new_elements)
+            .map_pyerr(vm)?;
         Ok(())
     }
 
@@ -119,18 +122,21 @@ impl PyList {
             ))
         })?;
         let mut elements = self.borrow_vec().to_vec();
-        elements.extend(other.borrow_vec().iter().cloned());
+        elements
+            .try_extend_from_slice_clone(&other.borrow_vec())
+            .map_pyerr(vm)?;
         Ok(Self::new_ref(elements, &vm.ctx))
     }
 
     #[pymethod(magic)]
-    fn iadd(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        if let Ok(new_elements) = vm.extract_elements(&other) {
-            let mut e = new_elements;
-            zelf.borrow_vec_mut().append(&mut e);
-            zelf.into()
+    fn iadd(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if let Ok(mut new_elements) = vm.extract_elements(&other) {
+            zelf.borrow_vec_mut()
+                .try_append(&mut new_elements)
+                .map_pyerr(vm)?;
+            Ok(zelf.into())
         } else {
-            vm.ctx.not_implemented()
+            Ok(vm.ctx.not_implemented())
         }
     }
 

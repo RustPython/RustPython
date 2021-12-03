@@ -712,7 +712,7 @@ impl ExecutingFrame<'_> {
                     obj.downcast_unchecked()
                 };
                 let item = self.pop_value();
-                list.append(item);
+                list.append(item, vm)?;
                 Ok(None)
             }
             bytecode::Instruction::SetAdd { i } => {

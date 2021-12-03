@@ -1,7 +1,7 @@
 use crate::{
     builtins::{PyList, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef},
     common::hash,
-    function::{FuncArgs, IntoPyObject},
+    function::FuncArgs,
     protocol::PyMappingMethods,
     types::{AsMapping, Callable, Comparable, Constructor, GetAttr, Hashable, PyComparisonOp},
     IdProtocol, ItemProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef,
@@ -130,8 +130,9 @@ impl PyGenericAlias {
     fn dir(&self, vm: &VirtualMachine) -> PyResult<PyList> {
         let dir = vm.dir(Some(self.origin()))?;
         for exc in ATTR_EXCEPTIONS.iter() {
-            if !dir.contains((*exc).into_pyobject(vm), vm)? {
-                dir.append((*exc).into_pyobject(vm));
+            let exc_str: PyObjectRef = vm.ctx.new_str(*exc).into();
+            if !dir.contains(exc_str.clone(), vm)? {
+                dir.append(exc_str, vm)?;
             }
         }
         Ok(dir)
