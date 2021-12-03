@@ -989,6 +989,12 @@ impl<C: widestring::UChar> IntoPyException for widestring::NulError<C> {
     }
 }
 
+impl IntoPyException for std::collections::TryReserveError {
+    fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        vm.new_exception_empty(vm.ctx.exceptions.memory_error.clone())
+    }
+}
+
 #[cfg(any(unix, windows, target_os = "wasi"))]
 pub(crate) fn raw_os_error_to_exc_type(errno: i32, vm: &VirtualMachine) -> Option<PyTypeRef> {
     use crate::stdlib::errno::errors;

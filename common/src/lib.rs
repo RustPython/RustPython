@@ -13,6 +13,7 @@ pub mod linked_list;
 pub mod lock;
 pub mod rc;
 pub mod refcount;
+pub mod safe_alloc;
 pub mod static_cell;
 pub mod str;
 
