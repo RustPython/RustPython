@@ -798,24 +798,6 @@ where
     }
 }
 
-impl<T> IntoPyResult for T
-where
-    T: IntoPyObject,
-{
-    fn into_pyresult(self, vm: &VirtualMachine) -> PyResult {
-        Ok(self.into_pyobject(vm))
-    }
-}
-
-impl<T> IntoPyResult for PyResult<T>
-where
-    T: IntoPyObject,
-{
-    fn into_pyresult(self, vm: &VirtualMachine) -> PyResult {
-        self.map(|res| T::into_pyobject(res, vm))
-    }
-}
-
 cfg_if::cfg_if! {
     if #[cfg(feature = "threading")] {
         pub trait PyThreadingConstraint: Send + Sync {}

@@ -184,7 +184,7 @@ impl IntoPyResult for PyIterReturn {
 
 impl IntoPyResult for PyResult<PyIterReturn> {
     fn into_pyresult(self, vm: &VirtualMachine) -> PyResult {
-        self.and_then(|obj| obj.into_pyresult(vm))
+        self.and_then(|x| x.into_pyresult(vm))
     }
 }
 

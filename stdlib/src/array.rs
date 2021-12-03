@@ -17,7 +17,7 @@ mod array {
         },
         class_or_notimplemented,
         function::{
-            ArgBytesLike, ArgIntoFloat, ArgIterable, IntoPyObject, IntoPyResult, OptionalArg,
+            ArgBytesLike, ArgIntoFloat, ArgIterable, IntoPyObject, OptionalArg, TryIntoPyObject,
         },
         protocol::{
             BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
@@ -114,7 +114,7 @@ mod array {
                         let i = v.wrap_index(i).ok_or_else(|| {
                             vm.new_index_error("pop index out of range".to_owned())
                         })?;
-                            v.remove(i).into_pyresult(vm)
+                            v.remove(i).try_into_pyobject(vm)
                         })*
                     }
                 }
@@ -255,7 +255,7 @@ mod array {
                 ) -> PyResult<Option<PyObjectRef>> {
                     match self {
                         $(ArrayContentType::$n(v) => {
-                            v.get(i).map(|x| x.into_pyresult(vm)).transpose()
+                            v.get(i).map(|x| x.try_into_pyobject(vm)).transpose()
                         })*
                     }
                 }
@@ -272,7 +272,7 @@ mod array {
                                     let pos_index = v.wrap_index(i).ok_or_else(|| {
                                         vm.new_index_error("array index out of range".to_owned())
                                     })?;
-                                    v.get(pos_index).unwrap().into_pyresult(vm)
+                                    v.get(pos_index).unwrap().try_into_pyobject(vm)
                                 }
                                 SequenceIndex::Slice(slice) => {
                                     // TODO: Use interface similar to set/del item. This can
@@ -585,8 +585,8 @@ mod array {
         }
     }
 
-    impl IntoPyResult for WideChar {
-        fn into_pyresult(self, vm: &VirtualMachine) -> PyResult {
+    impl TryIntoPyObject for WideChar {
+        fn try_into_pyobject(self, vm: &VirtualMachine) -> PyResult {
             Ok(
                 String::from(char::try_from(self).map_err(|e| vm.new_unicode_encode_error(e))?)
                     .into_pyobject(vm),

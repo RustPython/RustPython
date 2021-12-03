@@ -1022,7 +1022,7 @@ pub(super) mod types {
     #[cfg_attr(target_os = "wasi", allow(unused_imports))]
     use crate::{
         builtins::{traceback::PyTracebackRef, PyInt, PyTupleRef, PyTypeRef},
-        function::{FuncArgs, IntoPyResult},
+        function::{FuncArgs, IntoPyObject},
         PyObjectRef, PyRef, PyResult, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
@@ -1248,7 +1248,7 @@ pub(super) mod types {
         // See: `BaseException_new`
         if cls.name().deref() == vm.ctx.exceptions.os_error.name().deref() {
             match os_error_optional_new(args.args.to_vec(), vm) {
-                Some(error) => error.into_pyresult(vm),
+                Some(error) => Ok(error.into_pyobject(vm)),
                 None => PyBaseException::slot_new(cls, args, vm),
             }
         } else {

@@ -25,12 +25,60 @@ pub trait IntoPyObject {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef;
 }
 
-pub trait IntoPyResult {
-    fn into_pyresult(self, vm: &VirtualMachine) -> PyResult;
+pub trait TryIntoPyObject {
+    fn try_into_pyobject(self, vm: &VirtualMachine) -> PyResult;
+}
+
+impl<T> TryIntoPyObject for T
+where
+    T: IntoPyObject,
+{
+    fn try_into_pyobject(self, vm: &VirtualMachine) -> PyResult {
+        Ok(self.into_pyobject(vm))
+    }
 }
 
 pub trait IntoPyException {
     fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef;
+}
+
+impl IntoPyException for PyBaseExceptionRef {
+    #[inline]
+    fn into_pyexception(self, _vm: &VirtualMachine) -> PyBaseExceptionRef {
+        self
+    }
+}
+
+pub trait IntoPyResult {
+    fn into_pyresult(self, vm: &VirtualMachine) -> PyResult;
+}
+
+impl<T: TryIntoPyObject, E: IntoPyException> IntoPyResult for Result<T, E> {
+    #[inline]
+    fn into_pyresult(self, vm: &VirtualMachine) -> PyResult {
+        self.map_err(|e| e.into_pyexception(vm))
+            .and_then(|x| x.try_into_pyobject(vm))
+    }
+}
+
+impl<T: IntoPyObject> IntoPyResult for T {
+    #[inline]
+    fn into_pyresult(self, vm: &VirtualMachine) -> PyResult {
+        Ok(self.into_pyobject(vm))
+    }
+}
+
+pub trait PyErrResultExt {
+    type Ok;
+    fn map_pyerr(self, vm: &VirtualMachine) -> PyResult<Self::Ok>;
+}
+
+impl<T, E: IntoPyException> PyErrResultExt for Result<T, E> {
+    type Ok = T;
+    #[inline]
+    fn map_pyerr(self, vm: &VirtualMachine) -> PyResult<T> {
+        self.map_err(|e| e.into_pyexception(vm))
+    }
 }
 
 pub trait IntoFuncArgs: Sized {
