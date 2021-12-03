@@ -94,7 +94,7 @@ impl<T: Clone> PySliceableSequenceMut for Vec<T> {
     }
 
     fn do_set_range(&mut self, range: Range<usize>, items: &[Self::Item]) {
-        self.splice(range, items.to_vec());
+        self.splice(range, items.iter().cloned());
     }
 
     fn do_replace_indexes<I>(&mut self, indexes: I, items: &[Self::Item])
