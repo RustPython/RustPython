@@ -152,10 +152,7 @@ impl PySequence<'_> {
                 return Ok(ret);
             }
         }
-        Err(vm.new_type_error(format!(
-            "'{}' object can't be repeated",
-            self.obj.class()
-        )))
+        Err(vm.new_type_error(format!("'{}' object can't be repeated", self.obj.class())))
     }
 
     pub fn inplace_concat(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult {
@@ -193,10 +190,7 @@ impl PySequence<'_> {
                 return Ok(ret);
             }
         }
-        Err(vm.new_type_error(format!(
-            "'{}' object can't be repeated",
-            self.obj.class()
-        )))
+        Err(vm.new_type_error(format!("'{}' object can't be repeated", self.obj.class())))
     }
 
     pub fn get_item(&self, i: isize, vm: &VirtualMachine) -> PyResult {
@@ -241,10 +235,7 @@ impl PySequence<'_> {
             };
             mapping.subscript(&slice.into_object(vm), vm)
         } else {
-            Err(vm.new_type_error(format!(
-                "'{}' object is unsliceable",
-                self.obj.class()
-            )))
+            Err(vm.new_type_error(format!("'{}' object is unsliceable", self.obj.class())))
         }
     }
 
