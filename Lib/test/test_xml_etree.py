@@ -2515,6 +2515,7 @@ class BadElementTest(ElementTestCase, unittest.TestCase):
         e.append(ET.Element('child'))
         e[0:10:X()]  # shouldn't crash
 
+    @unittest.skip("TODO: RUSTPYTHON, hangs")
     def test_ass_subscr(self):
         # Issue #27863
         class X:

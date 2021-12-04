@@ -176,8 +176,7 @@ impl PyValue for PySequenceIterator {
 #[pyimpl(with(IterNext))]
 impl PySequenceIterator {
     pub fn new(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
-        let seq = PySequence::from(obj.as_ref());
-        seq.try_protocol(vm)?;
+        let seq = PySequence::try_protocol(obj.as_ref(), vm)?;
         let seq_methods = seq.methods_cow(vm).clone();
         Ok(Self {
             seq_methods,

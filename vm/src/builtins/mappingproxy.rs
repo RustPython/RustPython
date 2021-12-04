@@ -4,9 +4,10 @@ use super::{PyDict, PyGenericAlias, PyList, PyStr, PyStrRef, PyTuple, PyTypeRef}
 use crate::{
     function::{IntoPyObject, OptionalArg},
     protocol::{PyMapping, PyMappingMethods, PySequence, PySequenceMethods},
+    pyref_type_error,
     types::{AsMapping, AsSequence, Constructor, Iterable},
     PyClassImpl, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol, VirtualMachine, pyref_type_error,
+    TypeProtocol, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "mappingproxy")]

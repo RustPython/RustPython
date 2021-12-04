@@ -72,6 +72,15 @@ impl<'a> PySequence<'a> {
             methods: OnceCell::from(methods),
         }
     }
+
+    pub fn try_protocol(obj: &'a PyObject, vm: &VirtualMachine) -> PyResult<Self> {
+        let zelf = Self::from(obj);
+        if zelf.check(vm) {
+            Ok(zelf)
+        } else {
+            Err(vm.new_type_error(format!("'{}' is not a sequence", obj.class())))
+        }
+    }
 }
 
 impl PySequence<'_> {
@@ -80,16 +89,8 @@ impl PySequence<'_> {
     }
 
     // PySequence_Check
-    pub fn has_protocol(&self, vm: &VirtualMachine) -> bool {
+    pub fn check(&self, vm: &VirtualMachine) -> bool {
         self.methods(vm).item.is_some()
-    }
-
-    pub fn try_protocol(&self, vm: &VirtualMachine) -> PyResult<()> {
-        if self.has_protocol(vm) {
-            Ok(())
-        } else {
-            Err(vm.new_type_error(format!("'{}' is not a sequence", self.obj.class().name())))
-        }
     }
 
     pub fn methods(&self, vm: &VirtualMachine) -> &PySequenceMethods {
@@ -116,7 +117,7 @@ impl PySequence<'_> {
         self.length_opt(vm).ok_or_else(|| {
             vm.new_type_error(format!(
                 "'{}' is not a sequence or has no len()",
-                self.obj.class().name()
+                self.obj.class()
             ))
         })?
     }
@@ -127,7 +128,7 @@ impl PySequence<'_> {
         }
 
         // if both arguments apear to be sequences, try fallback to __add__
-        if self.has_protocol(vm) && PySequence::from(other).has_protocol(vm) {
+        if self.check(vm) && PySequence::from(other).check(vm) {
             let ret = vm._add(self.obj, other)?;
             if let PyArithmeticValue::Implemented(ret) = PyArithmeticValue::from_object(vm, ret) {
                 return Ok(ret);
@@ -135,7 +136,7 @@ impl PySequence<'_> {
         }
         Err(vm.new_type_error(format!(
             "'{}' object can't be concatenated",
-            self.obj.class().name()
+            self.obj.class()
         )))
     }
 
@@ -145,7 +146,7 @@ impl PySequence<'_> {
         }
 
         // try fallback to __mul__
-        if self.has_protocol(vm) {
+        if self.check(vm) {
             let ret = vm._mul(self.obj, &n.into_pyobject(vm))?;
             if let PyArithmeticValue::Implemented(ret) = PyArithmeticValue::from_object(vm, ret) {
                 return Ok(ret);
@@ -153,7 +154,7 @@ impl PySequence<'_> {
         }
         Err(vm.new_type_error(format!(
             "'{}' object can't be repeated",
-            self.obj.class().name()
+            self.obj.class()
         )))
     }
 
@@ -166,7 +167,7 @@ impl PySequence<'_> {
         }
 
         // if both arguments apear to be sequences, try fallback to __iadd__
-        if self.has_protocol(vm) && PySequence::from(other).has_protocol(vm) {
+        if self.check(vm) && PySequence::from(other).check(vm) {
             let ret = vm._iadd(self.obj, other)?;
             if let PyArithmeticValue::Implemented(ret) = PyArithmeticValue::from_object(vm, ret) {
                 return Ok(ret);
@@ -174,7 +175,7 @@ impl PySequence<'_> {
         }
         Err(vm.new_type_error(format!(
             "'{}' object can't be concatenated",
-            self.obj.class().name()
+            self.obj.class()
         )))
     }
 
@@ -186,7 +187,7 @@ impl PySequence<'_> {
             return f(self, n, vm);
         }
 
-        if self.has_protocol(vm) {
+        if self.check(vm) {
             let ret = vm._imul(self.obj, &n.into_pyobject(vm))?;
             if let PyArithmeticValue::Implemented(ret) = PyArithmeticValue::from_object(vm, ret) {
                 return Ok(ret);
@@ -194,7 +195,7 @@ impl PySequence<'_> {
         }
         Err(vm.new_type_error(format!(
             "'{}' object can't be repeated",
-            self.obj.class().name()
+            self.obj.class()
         )))
     }
 
@@ -204,7 +205,7 @@ impl PySequence<'_> {
         }
         Err(vm.new_type_error(format!(
             "'{}' is not a sequence or does not support indexing",
-            self.obj.class().name()
+            self.obj.class()
         )))
     }
 
@@ -214,7 +215,7 @@ impl PySequence<'_> {
         }
         Err(vm.new_type_error(format!(
             "'{}' is not a sequence or doesn't support item {}",
-            self.obj.class().name(),
+            self.obj.class(),
             if value.is_some() {
                 "assignment"
             } else {
@@ -242,7 +243,7 @@ impl PySequence<'_> {
         } else {
             Err(vm.new_type_error(format!(
                 "'{}' object is unsliceable",
-                self.obj.class().name()
+                self.obj.class()
             )))
         }
     }
@@ -265,7 +266,7 @@ impl PySequence<'_> {
         } else {
             Err(vm.new_type_error(format!(
                 "'{}' object doesn't support slice {}",
-                self.obj.class().name(),
+                self.obj.class(),
                 if value.is_some() {
                     "assignment"
                 } else {
