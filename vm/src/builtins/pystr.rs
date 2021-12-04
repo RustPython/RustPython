@@ -15,7 +15,7 @@ use crate::{
         Iterable, PyComparisonOp, Unconstructible,
     },
     utils::Either,
-    IdProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef,
+    IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef,
     PyObjectView, PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
 use ascii::{AsciiStr, AsciiString};

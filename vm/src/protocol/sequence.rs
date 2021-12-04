@@ -7,6 +7,7 @@ use crate::{
     builtins::{PyList, PyListRef, PySlice, PyTuple, PyTupleRef},
     common::lock::OnceCell,
     function::IntoPyObject,
+    protocol::PyMapping,
     IdProtocol, PyArithmeticValue, PyObject, PyObjectPayload, PyObjectRef, PyObjectView, PyResult,
     PyValue, TypeProtocol, VirtualMachine,
 };
@@ -231,22 +232,19 @@ impl PySequence<'_> {
     }
 
     pub fn get_slice(&self, start: isize, stop: isize, vm: &VirtualMachine) -> PyResult {
-        if let Some(f) = self.obj.class().mro_find_map(|x| x.slots.as_mapping.load()) {
-            let mp = f(self.obj, vm);
-            if let Some(subscript) = mp.subscript {
-                let slice = PySlice {
-                    start: Some(start.into_pyobject(vm)),
-                    stop: stop.into_pyobject(vm),
-                    step: None,
-                };
-
-                return subscript(self.obj.to_owned(), slice.into_object(vm), vm);
-            }
+        if let Ok(mapping) = PyMapping::try_protocol(self.obj, vm) {
+            let slice = PySlice {
+                start: Some(start.into_pyobject(vm)),
+                stop: stop.into_pyobject(vm),
+                step: None,
+            };
+            mapping.subscript(&slice.into_object(vm), vm)
+        } else {
+            Err(vm.new_type_error(format!(
+                "'{}' object is unsliceable",
+                self.obj.class().name()
+            )))
         }
-        Err(vm.new_type_error(format!(
-            "'{}' object is unsliceable",
-            self.obj.class().name()
-        )))
     }
 
     fn _ass_slice(
@@ -256,29 +254,25 @@ impl PySequence<'_> {
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let cls = self.obj.class();
-        if let Some(f) = cls.mro_find_map(|x| x.slots.as_mapping.load()) {
-            drop(cls);
-            let mp = f(self.obj, vm);
-            if let Some(ass_subscript) = mp.ass_subscript {
-                let slice = PySlice {
-                    start: Some(start.into_pyobject(vm)),
-                    stop: stop.into_pyobject(vm),
-                    step: None,
-                };
-
-                return ass_subscript(self.obj.to_owned(), slice.into_object(vm), value, vm);
-            }
+        let mapping = PyMapping::from(self.obj);
+        if let Some(f) = mapping.methods(vm).ass_subscript {
+            let slice = PySlice {
+                start: Some(start.into_pyobject(vm)),
+                stop: stop.into_pyobject(vm),
+                step: None,
+            };
+            f(&mapping, &slice.into_object(vm), value, vm)
+        } else {
+            Err(vm.new_type_error(format!(
+                "'{}' object doesn't support slice {}",
+                self.obj.class().name(),
+                if value.is_some() {
+                    "assignment"
+                } else {
+                    "deletion"
+                }
+            )))
         }
-        Err(vm.new_type_error(format!(
-            "'{}' object doesn't support slice {}",
-            self.obj.class().name(),
-            if value.is_some() {
-                "assignment"
-            } else {
-                "deletion"
-            }
-        )))
     }
 
     pub fn set_slice(

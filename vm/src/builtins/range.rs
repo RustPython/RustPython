@@ -414,7 +414,17 @@ impl AsSequence for PyRange {
 
 impl PyRange {
     const SEQUENCE_METHDOS: PySequenceMethods = PySequenceMethods {
-        length: Some(|seq, _vm| Ok(seq.obj_as::<Self>().len().to_usize().unwrap_or(usize::MAX))),
+        length: Some(|seq, vm| {
+            seq.obj_as::<Self>()
+                .len()
+                .to_isize()
+                .ok_or_else(|| {
+                    vm.new_overflow_error(
+                        "RustPython int too large to convert to C ssize_t".to_owned(),
+                    )
+                })
+                .map(|x| x as usize)
+        }),
         item: Some(|seq, i, vm| {
             seq.obj_as::<Self>()
                 .get(&i.into())

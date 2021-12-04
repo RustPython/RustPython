@@ -1,4 +1,7 @@
+pub use crate::builtins::object::{generic_getattr, generic_setattr};
 use crate::common::{hash::PyHash, lock::PyRwLock};
+use crate::function::IntoPyObject;
+use crate::protocol::PySequenceMethods;
 use crate::{
     builtins::{PyInt, PyStrRef, PyType, PyTypeRef},
     function::{FromArgs, FuncArgs, IntoPyResult, OptionalArg},
@@ -164,8 +167,7 @@ macro_rules! then_some_closure {
     };
 }
 
-pub use crate::builtins::object::{generic_getattr, generic_setattr};
-fn slot_length(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+fn length_wrapper(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
     let ret = vm.call_special_method(obj, "__len__", ())?;
     let len = ret.payload::<PyInt>().ok_or_else(|| {
         vm.new_type_error(format!(
@@ -185,8 +187,11 @@ fn slot_length(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
 
 fn as_mapping_wrapper(zelf: &PyObject, _vm: &VirtualMachine) -> PyMappingMethods {
     PyMappingMethods {
-        length: then_some_closure!(zelf.has_class_attr("__len__"), |zelf, vm| {
-            slot_length(zelf, vm)
+        length: then_some_closure!(zelf.has_class_attr("__len__"), |mapping, vm| {
+            length_wrapper(mapping.obj.to_owned(), vm)
+        }),
+        subscript: then_some_closure!(zelf.has_class_attr("__getitem__"), |mapping, needle, vm| {
+            vm.call_special_method(mapping.obj.to_owned(), "__getitem__", (needle.to_owned(),))
         }),
         ass_subscript: then_some_closure!(
             zelf.has_class_attr("__setitem__") | zelf.has_class_attr("__delitem__"),
@@ -217,7 +222,7 @@ fn as_sequence_wrapper(zelf: &PyObject, _vm: &VirtualMachine) -> Cow<'static, Py
 
     Cow::Owned(PySequenceMethods {
         length: then_some_closure!(zelf.has_class_attr("__len__"), |seq, vm| {
-            slot_length(seq.obj.to_owned(), vm)
+            length_wrapper(seq.obj.to_owned(), vm)
         }),
         item: Some(|seq, i, vm| {
             vm.call_special_method(seq.obj.to_owned(), "__getitem__", (i.into_pyobject(vm),))

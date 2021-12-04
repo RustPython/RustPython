@@ -3,10 +3,10 @@ use std::borrow::Cow;
 use super::{PyDict, PyGenericAlias, PyList, PyStr, PyStrRef, PyTuple, PyTypeRef};
 use crate::{
     function::{IntoPyObject, OptionalArg},
-    protocol::{PyMapping, PyMappingMethods},
-    types::{AsMapping, Constructor, Iterable},
-    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
-    VirtualMachine,
+    protocol::{PyMapping, PyMappingMethods, PySequence, PySequenceMethods},
+    types::{AsMapping, AsSequence, Constructor, Iterable},
+    PyClassImpl, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol, VirtualMachine, pyref_type_error,
 };
 
 #[pyclass(module = false, name = "mappingproxy")]

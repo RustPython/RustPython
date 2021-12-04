@@ -681,19 +681,6 @@ impl PyObject {
         &self,
         vm: &VirtualMachine,
     ) -> Option<&PyObjectView<T>> {
-        if self.class().is(T::class(vm)) {
-            // SAFETY: just checked that the payload is T, and PyRef is repr(transparent) over
-            // PyObjectRef
-            Some(unsafe { self.downcast_unchecked_ref::<T>() })
-        } else {
-            None
-        }
-    }
-
-    pub fn downcast_ref_if_exact<T: PyObjectPayload + crate::PyValue>(
-        &self,
-        vm: &VirtualMachine,
-    ) -> Option<&PyObjectView<T>> {
         self.class()
             .is(T::class(vm))
             .then(|| unsafe { self.downcast_unchecked_ref::<T>() })

@@ -9,7 +9,7 @@ use crate::{
         lock::OnceCell,
     },
     function::{FuncArgs, IntoPyObject, OptionalArg},
-    protocol::{BufferDescriptor, BufferMethods, PyBuffer, PyMappingMethods, VecBuffer},
+    protocol::{BufferDescriptor, BufferMethods, PyBuffer, PyMappingMethods, VecBuffer, PySequenceMethods},
     sequence::SequenceOp,
     sliceable::wrap_index,
     stdlib::pystruct::FormatSpec,

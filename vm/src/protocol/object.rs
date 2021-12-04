@@ -10,7 +10,7 @@ use crate::{
     common::{hash::PyHash, str::to_ascii},
     dictdatatype::DictKey,
     function::{IntoPyObject, IntoPyResult, OptionalArg},
-    protocol::{PyIter, PyMapping},
+    protocol::{PyIter, PyMapping, PySequence},
     pyref_type_error,
     types::{Constructor, PyComparisonOp},
     utils::Either,
@@ -407,19 +407,15 @@ impl PyObject {
 
     // int PyObject_TypeCheck(PyObject *o, PyTypeObject *type)
 
+    pub fn length_opt(&self, vm: &VirtualMachine) -> Option<PyResult<usize>> {
+        PySequence::from(self)
+            .length_opt(vm)
+            .or_else(|| PyMapping::from(self).length_opt(vm))
+    }
+
     pub fn length(&self, vm: &VirtualMachine) -> PyResult<usize> {
-        let seq = PySequence::from(self);
-        if let Some(len) = seq.length_opt(vm) {
-            len
-        } else {
-            // TODO: refactor PyMapping
-            if let Ok(mapping) = PyMapping::try_from_object(vm, self.to_owned()) {
-                if let Some(len) = mapping.length_opt(vm) {
-                    return len;
-                }
-            }
-            return Err(vm.new_type_error(format!("object of type '{}' has no len()", &self)));
-        }
+        self.length_opt(vm)
+            .ok_or_else(|| vm.new_type_error(format!("object of type '{}' has no len()", &self)))?
     }
 
     pub fn get_item<K: DictKey + IntoPyObject + Clone>(
