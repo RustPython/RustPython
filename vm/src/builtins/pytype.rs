@@ -1,6 +1,6 @@
 use super::{
-    mappingproxy::PyMappingProxy, object, PyClassMethod, PyDictRef, PyList, PyStaticMethod, PyStr,
-    PyStrRef, PyTuple, PyTupleRef,
+    mappingproxy::PyMappingProxy, object, unionobject, PyClassMethod, PyDictRef, PyList,
+    PyStaticMethod, PyStr, PyStrRef, PyTuple, PyTupleRef,
 };
 use crate::common::{
     ascii,
@@ -384,10 +384,8 @@ impl PyType {
 
     #[pymethod(name = "__ror__")]
     #[pymethod(magic)]
-    pub fn or(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let union = vm.import("typing", None, 0)?.get_attr("Union", vm)?;
-        let getitem = vm.get_method(union, "__getitem__").unwrap();
-        vm.invoke(&getitem?, ((zelf, other),))
+    pub fn or(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        unionobject::union_type_or(zelf, other, vm)
     }
 
     #[pyslot]

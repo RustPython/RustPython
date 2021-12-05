@@ -3,7 +3,8 @@ use crate::builtins::{
     enumerate, filter, float, frame, function, generator, genericalias, getset, int, iter, list,
     map, mappingproxy, memory, module, namespace, object, property, pybool, pystr, pysuper,
     pytype::{self, PyTypeRef},
-    range, set, singletons, slice, staticmethod, traceback, tuple, weakproxy, weakref, zip,
+    range, set, singletons, slice, staticmethod, traceback, tuple, unionobject, weakproxy, weakref,
+    zip,
 };
 use crate::{PyContext, StaticType};
 
@@ -81,6 +82,7 @@ pub struct TypeZoo {
     pub none_type: PyTypeRef,
     pub not_implemented_type: PyTypeRef,
     pub generic_alias_type: PyTypeRef,
+    pub union_type: PyTypeRef,
 }
 
 impl TypeZoo {
@@ -167,6 +169,7 @@ impl TypeZoo {
             none_type: singletons::PyNone::init_bare_type().clone(),
             not_implemented_type: singletons::PyNotImplemented::init_bare_type().clone(),
             generic_alias_type: genericalias::PyGenericAlias::init_bare_type().clone(),
+            union_type: unionobject::PyUnionObject::init_bare_type().clone(),
         }
     }
 
@@ -213,5 +216,6 @@ impl TypeZoo {
         mappingproxy::init(context);
         traceback::init(context);
         genericalias::init(context);
+        unionobject::init(context);
     }
 }
