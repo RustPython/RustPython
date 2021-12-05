@@ -703,6 +703,8 @@ class UnionTests(unittest.TestCase):
         y.__args__ = [str, int]
         self.assertEqual(x, y)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_hash(self):
         self.assertEqual(hash(int | str), hash(str | int))
         self.assertEqual(hash(int | str), hash(typing.Union[int, str]))
@@ -798,6 +800,8 @@ class UnionTests(unittest.TestCase):
         self.assertEqual((list[T] | list[S])[int, T], list[int] | list[T])
         self.assertEqual((list[T] | list[S])[int, int], list[int])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_union_parameter_substitution(self):
         def eq(actual, expected, typed=True):
             self.assertEqual(actual, expected)
@@ -829,6 +833,8 @@ class UnionTests(unittest.TestCase):
         eq(x[NT], int | NT | bytes)
         eq(x[S], int | S | bytes)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_union_pickle(self):
         orig = list[T] | int
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
@@ -838,6 +844,8 @@ class UnionTests(unittest.TestCase):
             self.assertEqual(loaded.__args__, orig.__args__)
             self.assertEqual(loaded.__parameters__, orig.__parameters__)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_union_copy(self):
         orig = list[T] | int
         for copied in (copy.copy(orig), copy.deepcopy(orig)):
@@ -851,8 +859,6 @@ class UnionTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             x[42]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_or_type_operator_with_forward(self):
         T = typing.TypeVar('T')
         ForwardAfter = T | 'Forward'
@@ -862,6 +868,8 @@ class UnionTests(unittest.TestCase):
         assert typing.get_args(typing.get_type_hints(forward_after)['x']) == (int, Forward)
         assert typing.get_args(typing.get_type_hints(forward_before)['x']) == (int, Forward)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_or_type_operator_with_Protocol(self):
         class Proto(typing.Protocol):
             def meth(self) -> int:
@@ -876,6 +884,8 @@ class UnionTests(unittest.TestCase):
         NT=namedtuple('A', ['B', 'C', 'D'])
         assert NT | str == typing.Union[NT,str]
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_or_type_operator_with_TypedDict(self):
         class Point2D(typing.TypedDict):
             x: int
