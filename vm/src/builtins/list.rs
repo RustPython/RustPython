@@ -404,20 +404,24 @@ impl AsSequence for PyList {
 }
 impl PyList {
     const SEQUENCE_METHDOS: PySequenceMethods = PySequenceMethods {
-        length: Some(|seq, _vm| Ok(seq.obj_as::<Self>().len())),
+        length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
         concat: Some(|seq, other, vm| {
-            seq.obj_as::<Self>()
+            Self::sequence_downcast(seq)
                 .concat(other, vm)
                 .map(|x| x.into_object())
         }),
         repeat: Some(|seq, n, vm| {
-            seq.obj_as::<Self>()
+            Self::sequence_downcast(seq)
                 .mul(n as isize, vm)
                 .map(|x| x.into_object())
         }),
-        item: Some(|seq, i, vm| seq.obj_as::<Self>().borrow_vec().get_item_by_index(vm, i)),
+        item: Some(|seq, i, vm| {
+            Self::sequence_downcast(seq)
+                .borrow_vec()
+                .get_item_by_index(vm, i)
+        }),
         ass_item: Some(|seq, i, value, vm| {
-            let zelf = seq.obj_as::<Self>();
+            let zelf = Self::sequence_downcast(seq);
             if let Some(value) = value {
                 zelf.borrow_vec_mut().set_item_by_index(vm, i, value)
             } else {
@@ -425,19 +429,18 @@ impl PyList {
             }
         }),
         contains: Some(|seq, target, vm| {
-            let zelf = seq.obj_as::<Self>();
+            let zelf = Self::sequence_downcast(seq);
             zelf.mut_contains(vm, target)
         }),
         inplace_concat: Some(|seq, other, vm| {
-            let zelf = seq.obj_as::<Self>();
+            let zelf = Self::sequence_downcast(seq);
             Ok(Self::inplace_concat(zelf, other, vm))
         }),
         inplace_repeat: Some(|seq, n, vm| {
-            let zelf = seq.obj_as::<Self>();
+            let zelf = Self::sequence_downcast(seq);
             zelf.borrow_vec_mut().imul(vm, n as isize)?;
             Ok(zelf.to_owned().into_object())
         }),
-        ..*PySequenceMethods::not_implemented()
     };
 }
 

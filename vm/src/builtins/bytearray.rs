@@ -765,21 +765,21 @@ impl AsSequence for PyByteArray {
 
 impl PyByteArray {
     const SEQUENCE_METHODS: PySequenceMethods = PySequenceMethods {
-        length: Some(|seq, _vm| Ok(seq.obj_as::<Self>().len())),
+        length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
         concat: Some(|seq, other, vm| {
-            seq.obj_as::<Self>()
+            Self::sequence_downcast(seq)
                 .inner()
                 .concat(other, vm)
                 .map(|x| PyByteArray::from(x).into_object(vm))
         }),
         repeat: Some(|seq, n, vm| {
-            seq.obj_as::<Self>()
+            Self::sequence_downcast(seq)
                 .mul(n as isize, vm)
                 .map(|x| x.into_object(vm))
         }),
-        item: Some(|seq, i, vm| seq.obj_as::<Self>().inner().item(i, vm)),
+        item: Some(|seq, i, vm| Self::sequence_downcast(seq).inner().item(i, vm)),
         ass_item: Some(|seq, i, value, vm| {
-            let zelf = seq.obj_as::<Self>();
+            let zelf = Self::sequence_downcast(seq);
             if let Some(value) = value {
                 zelf.setitem_by_idx(i, value, vm)
             } else {
@@ -788,15 +788,15 @@ impl PyByteArray {
         }),
         contains: Some(|seq, other, vm| {
             let other = <Either<PyBytesInner, PyIntRef>>::try_from_object(vm, other.to_owned())?;
-            seq.obj_as::<Self>().contains(other, vm)
+            Self::sequence_downcast(seq).contains(other, vm)
         }),
         inplace_concat: Some(|seq, other, vm| {
             let other = ArgBytesLike::try_from_object(vm, other.to_owned())?;
-            let zelf = seq.obj_as::<Self>().to_owned();
+            let zelf = Self::sequence_downcast(seq).to_owned();
             Self::iadd(zelf, other, vm).map(|x| x.into())
         }),
         inplace_repeat: Some(|seq, n, vm| {
-            let zelf = seq.obj_as::<Self>().to_owned();
+            let zelf = Self::sequence_downcast(seq).to_owned();
             Self::imul(zelf, n as isize, vm).map(|x| x.into())
         }),
     };

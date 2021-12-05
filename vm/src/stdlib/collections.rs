@@ -521,37 +521,36 @@ mod _collections {
 
     impl PyDeque {
         const SEQUENCE_METHDOS: PySequenceMethods = PySequenceMethods {
-            length: Some(|seq, _vm| Ok(seq.obj_as::<Self>().len())),
+            length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
             concat: Some(|seq, other, vm| {
-                seq.obj_as::<Self>()
+                Self::sequence_downcast(seq)
                     .concat(other, vm)
                     .map(|x| x.into_ref(vm).into())
             }),
             repeat: Some(|seq, n, vm| {
-                seq.obj_as::<Self>()
+                Self::sequence_downcast(seq)
                     .mul(n as isize, vm)
                     .map(|x| x.into_ref(vm).into())
             }),
-            item: Some(|seq, i, vm| seq.obj_as::<Self>().getitem(i, vm)),
+            item: Some(|seq, i, vm| Self::sequence_downcast(seq).getitem(i, vm)),
             ass_item: Some(|seq, i, value, vm| {
-                let zelf = seq.obj_as::<Self>();
+                let zelf = Self::sequence_downcast(seq);
                 if let Some(value) = value {
                     zelf.setitem(i, value, vm)
                 } else {
                     zelf.delitem(i, vm)
                 }
             }),
-            contains: Some(|seq, needle, vm| seq.obj_as::<Self>()._contains(needle, vm)),
+            contains: Some(|seq, needle, vm| Self::sequence_downcast(seq)._contains(needle, vm)),
             inplace_concat: Some(|seq, other, vm| {
-                let zelf = seq.obj_as::<Self>();
+                let zelf = Self::sequence_downcast(seq);
                 zelf._extend(other, vm)?;
                 Ok(zelf.to_owned().into())
             }),
             inplace_repeat: Some(|seq, n, vm| {
-                let zelf = seq.obj_as::<Self>();
+                let zelf = Self::sequence_downcast(seq);
                 Self::imul(zelf.to_owned(), n as isize, vm).map(|x| x.into())
             }),
-            ..*PySequenceMethods::not_implemented()
         };
     }
 

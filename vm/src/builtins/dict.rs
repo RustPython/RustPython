@@ -465,7 +465,7 @@ impl AsSequence for PyDict {
 
 impl PyDict {
     const SEQUENCE_METHODS: PySequenceMethods = PySequenceMethods {
-        contains: Some(|seq, target, vm| seq.obj_as::<Self>().entries.contains(vm, target)),
+        contains: Some(|seq, target, vm| Self::sequence_downcast(seq).entries.contains(vm, target)),
         ..*PySequenceMethods::not_implemented()
     };
 }
@@ -1029,8 +1029,13 @@ impl AsSequence for PyDictKeys {
 }
 impl PyDictKeys {
     const SEQUENCE_METHODS: PySequenceMethods = PySequenceMethods {
-        length: Some(|seq, _vm| Ok(seq.obj_as::<Self>().len())),
-        contains: Some(|seq, target, vm| seq.obj_as::<Self>().dict.entries.contains(vm, target)),
+        length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
+        contains: Some(|seq, target, vm| {
+            Self::sequence_downcast(seq)
+                .dict
+                .entries
+                .contains(vm, target)
+        }),
         ..*PySequenceMethods::not_implemented()
     };
 }
@@ -1081,8 +1086,13 @@ impl AsSequence for PyDictItems {
 }
 impl PyDictItems {
     const SEQUENCE_METHODS: PySequenceMethods = PySequenceMethods {
-        length: Some(|seq, _vm| Ok(seq.obj_as::<Self>().len())),
-        contains: Some(|seq, target, vm| seq.obj_as::<Self>().dict.entries.contains(vm, target)),
+        length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
+        contains: Some(|seq, target, vm| {
+            Self::sequence_downcast(seq)
+                .dict
+                .entries
+                .contains(vm, target)
+        }),
         ..*PySequenceMethods::not_implemented()
     };
 }
@@ -1101,7 +1111,7 @@ impl AsSequence for PyDictValues {
 }
 impl PyDictValues {
     const SEQUENCE_METHODS: PySequenceMethods = PySequenceMethods {
-        length: Some(|seq, _vm| Ok(seq.obj_as::<Self>().len())),
+        length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
         ..*PySequenceMethods::not_implemented()
     };
 }

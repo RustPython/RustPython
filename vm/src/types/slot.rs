@@ -1,7 +1,7 @@
 pub use crate::builtins::object::{generic_getattr, generic_setattr};
 use crate::common::{hash::PyHash, lock::PyRwLock};
 use crate::function::IntoPyObject;
-use crate::protocol::PySequenceMethods;
+use crate::protocol::{PySequence, PySequenceMethods};
 use crate::{
     builtins::{PyInt, PyStrRef, PyType, PyTypeRef},
     function::{FromArgs, FuncArgs, IntoPyResult, OptionalArg},
@@ -843,10 +843,15 @@ pub trait AsSequence: PyValue {
         let zelf = unsafe { zelf.downcast_unchecked_ref::<Self>() };
         Self::as_sequence(zelf, vm)
     }
+
     fn as_sequence(
         zelf: &PyObjectView<Self>,
         vm: &VirtualMachine,
     ) -> Cow<'static, PySequenceMethods>;
+
+    fn sequence_downcast<'a>(seq: &'a PySequence) -> &'a PyObjectView<Self> {
+        unsafe { seq.obj.downcast_unchecked_ref() }
+    }
 }
 
 #[pyimpl]

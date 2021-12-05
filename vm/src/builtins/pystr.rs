@@ -1298,21 +1298,21 @@ impl AsSequence for PyStr {
 
 impl PyStr {
     const SEQUENCE_METHDOS: PySequenceMethods = PySequenceMethods {
-        length: Some(|seq, _vm| Ok(seq.obj_as::<Self>().len())),
+        length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
         concat: Some(|seq, other, vm| {
-            let zelf = seq.obj_as::<Self>();
+            let zelf = Self::sequence_downcast(seq);
             Self::add(zelf.to_owned(), other.to_owned(), vm)
         }),
         repeat: Some(|seq, n, vm| {
-            let zelf = seq.obj_as::<Self>();
+            let zelf = Self::sequence_downcast(seq);
             Self::mul(zelf.to_owned(), n as isize, vm).map(|x| x.into())
         }),
         item: Some(|seq, i, vm| {
-            let zelf = seq.obj_as::<Self>();
+            let zelf = Self::sequence_downcast(seq);
             zelf.get_item_by_index(vm, i)
                 .map(|x| zelf.new_substr(x.to_string()).into_ref(vm).into())
         }),
-        contains: Some(|seq, needle, vm| seq.obj_as::<Self>()._contains(needle, vm)),
+        contains: Some(|seq, needle, vm| Self::sequence_downcast(seq)._contains(needle, vm)),
         ..*PySequenceMethods::not_implemented()
     };
 }

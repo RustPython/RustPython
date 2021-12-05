@@ -8,8 +8,8 @@ use crate::{
     common::lock::OnceCell,
     function::IntoPyObject,
     protocol::PyMapping,
-    IdProtocol, PyArithmeticValue, PyObject, PyObjectPayload, PyObjectRef, PyObjectView, PyResult,
-    PyValue, TypeProtocol, VirtualMachine,
+    IdProtocol, PyArithmeticValue, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
+    VirtualMachine,
 };
 
 // Sequence Protocol
@@ -84,10 +84,6 @@ impl<'a> PySequence<'a> {
 }
 
 impl PySequence<'_> {
-    pub fn obj_as<T: PyObjectPayload>(&self) -> &PyObjectView<T> {
-        unsafe { self.obj.downcast_unchecked_ref::<T>() }
-    }
-
     // PySequence_Check
     pub fn check(&self, vm: &VirtualMachine) -> bool {
         self.methods(vm).item.is_some()

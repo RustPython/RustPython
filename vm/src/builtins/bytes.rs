@@ -580,18 +580,23 @@ impl AsSequence for PyBytes {
 
 impl PyBytes {
     const SEQUENCE_METHODS: PySequenceMethods = PySequenceMethods {
-        length: Some(|seq, _vm| Ok(seq.obj_as::<Self>().len())),
+        length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
         concat: Some(|seq, other, vm| {
-            seq.obj_as::<Self>()
+            Self::sequence_downcast(seq)
                 .inner
                 .concat(other, vm)
                 .map(|x| vm.ctx.new_bytes(x).into())
         }),
-        repeat: Some(|seq, n, vm| Ok(vm.ctx.new_bytes(seq.obj_as::<Self>().repeat(n)).into())),
-        item: Some(|seq, i, vm| seq.obj_as::<Self>().inner.item(i, vm)),
+        repeat: Some(|seq, n, vm| {
+            Ok(vm
+                .ctx
+                .new_bytes(Self::sequence_downcast(seq).repeat(n))
+                .into())
+        }),
+        item: Some(|seq, i, vm| Self::sequence_downcast(seq).inner.item(i, vm)),
         contains: Some(|seq, other, vm| {
             let other = <Either<PyBytesInner, PyIntRef>>::try_from_object(vm, other.to_owned())?;
-            seq.obj_as::<Self>().contains(other, vm)
+            Self::sequence_downcast(seq).contains(other, vm)
         }),
         ..*PySequenceMethods::not_implemented()
     };

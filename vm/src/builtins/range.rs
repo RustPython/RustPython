@@ -379,21 +379,35 @@ impl PyRange {
 }
 
 impl PyRange {
+    fn protocol_length(&self, vm: &VirtualMachine) -> PyResult<usize> {
+        self.len()
+            .to_isize()
+            .ok_or_else(|| {
+                vm.new_overflow_error("RustPython int too large to convert to C ssize_t".to_owned())
+            })
+            .map(|x| x as usize)
+    }
+
     const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
-        length: Some(|mapping, vm| {
-            Self::mapping_downcast(mapping)
-                .len()
-                .to_usize()
-                .ok_or_else(|| {
-                    vm.new_overflow_error(
-                        "RustPython int too large to convert to C ssize_t".to_owned(),
-                    )
-                })
-        }),
+        length: Some(|mapping, vm| Self::mapping_downcast(mapping).protocol_length(vm)),
         subscript: Some(|mapping, needle, vm| {
             Self::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
         }),
         ass_subscript: None,
+    };
+
+    const SEQUENCE_METHDOS: PySequenceMethods = PySequenceMethods {
+        length: Some(|seq, vm| Self::sequence_downcast(seq).protocol_length(vm)),
+        item: Some(|seq, i, vm| {
+            Self::sequence_downcast(seq)
+                .get(&i.into())
+                .map(|x| PyInt::from(x).into_ref(vm).into())
+                .ok_or_else(|| vm.new_index_error("index out of range".to_owned()))
+        }),
+        contains: Some(|seq, needle, vm| {
+            Ok(Self::sequence_downcast(seq).contains(needle.to_owned(), vm))
+        }),
+        ..*PySequenceMethods::not_implemented()
     };
 }
 
@@ -410,30 +424,6 @@ impl AsSequence for PyRange {
     ) -> Cow<'static, PySequenceMethods> {
         Cow::Borrowed(&Self::SEQUENCE_METHDOS)
     }
-}
-
-impl PyRange {
-    const SEQUENCE_METHDOS: PySequenceMethods = PySequenceMethods {
-        length: Some(|seq, vm| {
-            seq.obj_as::<Self>()
-                .len()
-                .to_isize()
-                .ok_or_else(|| {
-                    vm.new_overflow_error(
-                        "RustPython int too large to convert to C ssize_t".to_owned(),
-                    )
-                })
-                .map(|x| x as usize)
-        }),
-        item: Some(|seq, i, vm| {
-            seq.obj_as::<Self>()
-                .get(&i.into())
-                .map(|x| PyInt::from(x).into_ref(vm).into())
-                .ok_or_else(|| vm.new_index_error("index out of range".to_owned()))
-        }),
-        contains: Some(|seq, needle, vm| Ok(seq.obj_as::<Self>().contains(needle.to_owned(), vm))),
-        ..*PySequenceMethods::not_implemented()
-    };
 }
 
 impl Hashable for PyRange {

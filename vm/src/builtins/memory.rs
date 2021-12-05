@@ -991,12 +991,12 @@ impl AsSequence for PyMemoryView {
 impl PyMemoryView {
     const SEQUENCE_METHODS: PySequenceMethods = PySequenceMethods {
         length: Some(|seq, vm| {
-            let zelf = seq.obj_as::<Self>();
+            let zelf = Self::sequence_downcast(seq);
             zelf.try_not_released(vm)?;
             zelf.len(vm)
         }),
         item: Some(|seq, i, vm| {
-            let zelf = seq.obj_as::<Self>();
+            let zelf = Self::sequence_downcast(seq);
             zelf.try_not_released(vm)?;
             zelf.getitem_by_idx(i, vm)
         }),

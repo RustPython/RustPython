@@ -340,9 +340,9 @@ impl AsSequence for PyTuple {
 
 impl PyTuple {
     const SEQUENCE_METHDOS: PySequenceMethods = PySequenceMethods {
-        length: Some(|seq, _vm| Ok(seq.obj_as::<Self>().len())),
+        length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
         concat: Some(|seq, other, vm| {
-            let zelf = seq.obj_as::<Self>();
+            let zelf = Self::sequence_downcast(seq);
             match Self::add(zelf.to_owned(), other.to_owned(), vm) {
                 PyArithmeticValue::Implemented(tuple) => Ok(tuple.into()),
                 PyArithmeticValue::NotImplemented => Err(vm.new_type_error(format!(
@@ -352,15 +352,15 @@ impl PyTuple {
             }
         }),
         repeat: Some(|seq, n, vm| {
-            let zelf = seq.obj_as::<Self>();
+            let zelf = Self::sequence_downcast(seq);
             Self::mul(zelf.to_owned(), n as isize, vm).map(|x| x.into())
         }),
         item: Some(|seq, i, vm| {
-            let zelf = seq.obj_as::<Self>();
+            let zelf = Self::sequence_downcast(seq);
             zelf.elements.get_item_by_index(vm, i)
         }),
         contains: Some(|seq, needle, vm| {
-            let zelf = seq.obj_as::<Self>();
+            let zelf = Self::sequence_downcast(seq);
             zelf._contains(needle, vm)
         }),
         ..*PySequenceMethods::not_implemented()
