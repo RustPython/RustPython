@@ -301,7 +301,7 @@ def coroutine(func):
     return wrapped
 
 GenericAlias = type(list[int])
-# UnionType = type(int | str)
+UnionType = type(int | str)
 
 EllipsisType = type(Ellipsis)
 NoneType = type(None)
