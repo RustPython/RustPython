@@ -81,11 +81,6 @@ impl PyObjectRef {
         Ok(vm.length_hint_opt(self)?.unwrap_or(defaultvalue))
     }
 
-    // item protocol
-    // PyObject *PyObject_GetItem(PyObject *o, PyObject *key)
-    // int PyObject_SetItem(PyObject *o, PyObject *key, PyObject *v)
-    // int PyObject_DelItem(PyObject *o, PyObject *key)
-
     // PyObject *PyObject_Dir(PyObject *o)
 
     /// Takes an object and returns an iterator for it.
@@ -431,23 +426,19 @@ impl PyObject {
 
         if let Ok(mapping) = PyMapping::try_protocol(self, vm) {
             mapping.subscript(&needle, vm)
+        } else if let Ok(seq) = PySequence::try_protocol(self, vm) {
+            let i = needle.key_as_isize(vm)?;
+            seq.get_item(i, vm)
         } else {
-            // TODO: sequence protocol
-            match vm.get_special_method(self.to_owned(), "__getitem__")? {
-                Ok(special_method) => return special_method.invoke((needle,), vm),
-                Err(obj) => {
-                    if obj.class().issubclass(&vm.ctx.types.type_type) {
-                        if obj.is(&vm.ctx.types.type_type) {
-                            return PyGenericAlias::new(obj.clone_class(), needle, vm)
-                                .into_pyresult(vm);
-                        }
+            if self.class().issubclass(&vm.ctx.types.type_type) {
+                if self.is(&vm.ctx.types.type_type) {
+                    return PyGenericAlias::new(self.clone_class(), needle, vm).into_pyresult(vm);
+                }
 
-                        if let Some(class_getitem) =
-                            vm.get_attribute_opt(obj, "__class_getitem__")?
-                        {
-                            return vm.invoke(&class_getitem, (needle,));
-                        }
-                    }
+                if let Some(class_getitem) =
+                    vm.get_attribute_opt(self.to_owned(), "__class_getitem__")?
+                {
+                    return vm.invoke(&class_getitem, (needle,));
                 }
             }
             Err(vm.new_type_error(format!("'{}' object is not subscriptable", self.class())))
@@ -464,22 +455,20 @@ impl PyObject {
             return dict.set_item(needle, value, vm);
         }
 
-        let needle = needle.into_pyobject(vm);
-
         let mapping = PyMapping::from(self);
+        let seq = PySequence::from(self);
+
         if let Some(f) = mapping.methods(vm).ass_subscript {
+            let needle = needle.into_pyobject(vm);
             f(&mapping, &needle, Some(value), vm)
+        } else if let Some(f) = seq.methods(vm).ass_item {
+            let i = needle.key_as_isize(vm)?;
+            f(&seq, i, Some(value), vm)
         } else {
-            // TODO: sequence protocol
-            vm.get_special_method(self.to_owned(), "__setitem__")?
-                .map_err(|obj| {
-                    vm.new_type_error(format!(
-                        "'{}' does not support item assignment",
-                        obj.class()
-                    ))
-                })?
-                .invoke((needle, value), vm)?;
-            Ok(())
+            Err(vm.new_type_error(format!(
+                "'{}' does not support item assignment",
+                self.class()
+            )))
         }
     }
 
@@ -492,19 +481,17 @@ impl PyObject {
             return dict.del_item(needle, vm);
         }
 
-        let needle = needle.into_pyobject(vm);
-
         let mapping = PyMapping::from(self);
+        let seq = PySequence::from(self);
+
         if let Some(f) = mapping.methods(vm).ass_subscript {
+            let needle = needle.into_pyobject(vm);
             f(&mapping, &needle, None, vm)
+        } else if let Some(f) = seq.methods(vm).ass_item {
+            let i = needle.key_as_isize(vm)?;
+            f(&seq, i, None, vm)
         } else {
-            //TODO: sequence protocol
-            vm.get_special_method(self.to_owned(), "__delitem__")?
-                .map_err(|obj| {
-                    vm.new_type_error(format!("'{}' does not support item deletion", obj.class()))
-                })?
-                .invoke((needle,), vm)?;
-            Ok(())
+            Err(vm.new_type_error(format!("'{}' does not support item deletion", self.class())))
         }
     }
 }

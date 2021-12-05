@@ -380,12 +380,7 @@ impl PyRange {
 
 impl PyRange {
     fn protocol_length(&self, vm: &VirtualMachine) -> PyResult<usize> {
-        self.len()
-            .to_isize()
-            .ok_or_else(|| {
-                vm.new_overflow_error("RustPython int too large to convert to C ssize_t".to_owned())
-            })
-            .map(|x| x as usize)
+        PyInt::from(self.len()).try_to_primitive(vm)
     }
 
     const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
