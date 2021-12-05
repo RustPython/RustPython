@@ -8,7 +8,6 @@ use crate::{
     function::{OptionalArg, OptionalOption},
     protocol::PyBuffer,
     sequence::{SequenceMutOp, SequenceOp},
-    sliceable::SliceableSequenceOp,
     types::PyComparisonOp,
     utils::Either,
     IdProtocol, PyComparisonValue, PyObject, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject,
@@ -292,14 +291,6 @@ impl PyBytesInner {
             Either::A(byte) => self.elements.contains_str(byte.elements.as_slice()),
             Either::B(int) => self.elements.contains(&int.as_bigint().byte_or(vm)?),
         })
-    }
-
-    pub fn getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
-        let obj = match self.elements.get_item(vm, needle)? {
-            Either::A(byte) => vm.new_pyobj(byte),
-            Either::B(bytes) => vm.ctx.new_bytes(bytes).into(),
-        };
-        Ok(obj)
     }
 
     pub fn isalnum(&self) -> bool {
@@ -936,14 +927,6 @@ impl PyBytesInner {
             buffer.append_to(&mut v);
             Ok(v)
         }
-    }
-
-    pub fn item(&self, i: isize, vm: &VirtualMachine) -> PyResult {
-        let idx = self
-            .elements
-            .wrap_index(i)
-            .ok_or_else(|| vm.new_index_error("index out of range".to_string()))?;
-        Ok(vm.ctx.new_int(self.elements[idx]).into())
     }
 }
 

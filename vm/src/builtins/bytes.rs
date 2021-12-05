@@ -14,6 +14,7 @@ use crate::{
         BufferDescriptor, BufferMethods, PyBuffer, PyIterReturn, PyMappingMethods,
         PySequenceMethods,
     },
+    sliceable::{SequenceIndex, SliceableSequenceOp},
     types::{
         AsBuffer, AsMapping, AsSequence, Callable, Comparable, Constructor, Hashable, IterNext,
         IterNextIterable, Iterable, PyComparisonOp, Unconstructible,
@@ -166,9 +167,21 @@ impl PyBytes {
         PyBytesInner::maketrans(from, to, vm)
     }
 
+    fn _getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
+        match SequenceIndex::try_from_borrowed_object(vm, needle)? {
+            SequenceIndex::Int(i) => self
+                .inner
+                .elements
+                .get_item_by_index(vm, i)
+                .map(|x| vec![x]),
+            SequenceIndex::Slice(slice) => self.inner.elements.get_item_by_slice(vm, slice),
+        }
+        .map(|x| vm.ctx.new_bytes(x).into())
+    }
+
     #[pymethod(magic)]
     fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.inner.getitem(&needle, vm)
+        self._getitem(&needle, vm)
     }
 
     #[pymethod]
@@ -538,9 +551,7 @@ impl PyBytes {
 impl PyBytes {
     const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
         length: Some(|mapping, _vm| Ok(Self::mapping_downcast(mapping).len())),
-        subscript: Some(|mapping, needle, vm| {
-            Self::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
-        }),
+        subscript: Some(|mapping, needle, vm| Self::mapping_downcast(mapping)._getitem(needle, vm)),
         ass_subscript: None,
     };
 }
@@ -593,7 +604,13 @@ impl PyBytes {
                 .new_bytes(Self::sequence_downcast(seq).repeat(n))
                 .into())
         }),
-        item: Some(|seq, i, vm| Self::sequence_downcast(seq).inner.item(i, vm)),
+        item: Some(|seq, i, vm| {
+            Self::sequence_downcast(seq)
+                .inner
+                .elements
+                .get_item_by_index(vm, i)
+                .map(|x| vm.ctx.new_bytes(vec![x]).into())
+        }),
         contains: Some(|seq, other, vm| {
             let other = <Either<PyBytesInner, PyIntRef>>::try_from_object(vm, other.to_owned())?;
             Self::sequence_downcast(seq).contains(other, vm)

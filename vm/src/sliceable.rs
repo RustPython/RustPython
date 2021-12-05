@@ -1,4 +1,3 @@
-use num_traits::ToPrimitive;
 use std::ops::Range;
 
 // export through slicable module, not slice.
@@ -8,8 +7,7 @@ use crate::{
         int::PyInt,
         slice::{PySlice, SaturatedSliceIter},
     },
-    utils::Either,
-    PyObject, PyResult, TypeProtocol, VirtualMachine,
+    PyObject, PyResult, TryFromBorrowedObject, TypeProtocol, VirtualMachine,
 };
 
 pub trait SliceableSequenceMutOp {
@@ -45,10 +43,9 @@ pub trait SliceableSequenceMutOp {
     fn set_item_by_slice_no_resize(
         &mut self,
         vm: &VirtualMachine,
-        slice: &PySlice,
+        slice: SaturatedSlice,
         items: &[Self::Item],
     ) -> PyResult<()> {
-        let slice = slice.to_saturated(vm)?;
         let (range, step, slicelen) = slice.adjust_indices(self.as_slice().len());
         if slicelen != items.len() {
             Err(vm
@@ -68,10 +65,9 @@ pub trait SliceableSequenceMutOp {
     fn set_item_by_slice(
         &mut self,
         vm: &VirtualMachine,
-        slice: &PySlice,
+        slice: SaturatedSlice,
         items: &[Self::Item],
     ) -> PyResult<()> {
-        let slice = slice.to_saturated(vm)?;
         let (range, step, slicelen) = slice.adjust_indices(self.as_slice().len());
         if step == 1 {
             self.do_set_range(range, items);
@@ -100,8 +96,7 @@ pub trait SliceableSequenceMutOp {
         Ok(())
     }
 
-    fn del_item_by_slice(&mut self, vm: &VirtualMachine, slice: &PySlice) -> PyResult<()> {
-        let slice = slice.to_saturated(vm)?;
+    fn del_item_by_slice(&mut self, _vm: &VirtualMachine, slice: SaturatedSlice) -> PyResult<()> {
         let (range, step, slicelen) = slice.adjust_indices(self.as_slice().len());
         if slicelen == 0 {
             Ok(())
@@ -114,14 +109,6 @@ pub trait SliceableSequenceMutOp {
                 SaturatedSliceIter::from_adjust_indices(range, step, slicelen).positive_order(),
             );
             Ok(())
-        }
-    }
-
-    fn del_item(&mut self, vm: &VirtualMachine, needle: &PyObject) -> PyResult<()> {
-        let needle = SequenceIndex::try_borrow_from_object(vm, needle)?;
-        match needle {
-            SequenceIndex::Int(index) => self.del_item_by_index(vm, index),
-            SequenceIndex::Slice(slice) => self.del_item_by_slice(vm, slice),
         }
     }
 }
@@ -201,8 +188,11 @@ pub trait SliceableSequenceOp {
         saturate_index(p, self.len())
     }
 
-    fn get_item_by_slice(&self, vm: &VirtualMachine, slice: &PySlice) -> PyResult<Self::Sliced> {
-        let slice = slice.to_saturated(vm)?;
+    fn get_item_by_slice(
+        &self,
+        _vm: &VirtualMachine,
+        slice: SaturatedSlice,
+    ) -> PyResult<Self::Sliced> {
         let (range, step, slicelen) = slice.adjust_indices(self.len());
         let sliced = if slicelen == 0 {
             Self::empty()
@@ -225,18 +215,6 @@ pub trait SliceableSequenceOp {
             .wrap_index(index)
             .ok_or_else(|| vm.new_index_error("index out of range".to_owned()))?;
         Ok(self.do_get(pos))
-    }
-
-    fn get_item(
-        &self,
-        vm: &VirtualMachine,
-        needle: &PyObject,
-    ) -> PyResult<Either<Self::Item, Self::Sliced>> {
-        let needle = SequenceIndex::try_borrow_from_object(vm, needle)?;
-        match needle {
-            SequenceIndex::Int(index) => self.get_item_by_index(vm, index).map(Either::A),
-            SequenceIndex::Slice(slice) => self.get_item_by_slice(vm, slice).map(Either::B),
-        }
     }
 }
 
@@ -282,37 +260,25 @@ impl<T: Clone> SliceableSequenceOp for [T] {
     }
 }
 
-pub enum SequenceIndex<'a> {
+pub enum SequenceIndex {
     Int(isize),
-    Slice(&'a PySlice),
+    Slice(SaturatedSlice),
 }
 
-impl<'a> SequenceIndex<'a> {
-    pub fn try_borrow_from_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
-        if let Some(index) = obj.payload::<PyInt>() {
-            // TODO: replace by number protocol
-            index
-                .as_bigint()
-                .to_isize()
-                .ok_or_else(|| {
-                    vm.new_index_error("cannot fit 'int' into an index-sized integer".to_owned())
-                })
-                .map(Self::Int)
+impl TryFromBorrowedObject for SequenceIndex {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
+        if let Some(i) = obj.payload::<PyInt>() {
+            // TODO: number protocol
+            i.try_to_primitive(vm).map(Self::Int)
         } else if let Some(slice) = obj.payload::<PySlice>() {
-            Ok(Self::Slice(slice))
+            slice.to_saturated(vm).map(Self::Slice)
         } else if let Some(index) = vm.to_index_opt(obj.to_owned()) {
-            // TODO: __index__ for indice is no more supported
-            index?
-                .as_bigint()
-                .to_isize()
-                .ok_or_else(|| {
-                    vm.new_index_error("cannot fit 'int' into an index-sized integer".to_owned())
-                })
-                .map(Self::Int)
+            // TODO: __index__ for indice is no more supported?
+            index?.try_to_primitive(vm).map(Self::Int)
         } else {
             Err(vm.new_type_error(format!(
                 "indices must be integers or slices or classes that override __index__ operator, not '{}'",
-                obj.class().name()
+                obj.class()
             )))
         }
     }

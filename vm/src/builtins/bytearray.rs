@@ -30,7 +30,8 @@ use crate::{
     },
     utils::Either,
     IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyObjectView,
-    PyObjectWrap, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
+    PyObjectWrap, PyRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject, TypeProtocol,
+    VirtualMachine,
 };
 use bstr::ByteSlice;
 use std::{borrow::Cow, mem::size_of};
@@ -159,29 +160,19 @@ impl PyByteArray {
         self.inner().contains(needle, vm)
     }
 
-    fn setitem_by_idx(&self, i: isize, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn _setitem_by_index(&self, i: isize, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let value = value_from_object(vm, &value)?;
-        let mut elements = self.borrow_buf_mut();
-        if let Some(i) = elements.wrap_index(i) {
-            elements[i] = value;
-            Ok(())
-        } else {
-            Err(vm.new_index_error("index out of range".to_owned()))
-        }
+        self.borrow_buf_mut().set_item_by_index(vm, i, value)
     }
 
-    #[pymethod(magic)]
-    fn setitem(
+    fn _setitem(
         zelf: PyRef<Self>,
-        needle: PyObjectRef,
+        needle: &PyObject,
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        match SequenceIndex::try_borrow_from_object(vm, &needle)? {
-            SequenceIndex::Int(i) => {
-                let value = value_from_object(vm, &value)?;
-                zelf.borrow_buf_mut().set_item_by_index(vm, i, value)
-            }
+        match SequenceIndex::try_from_borrowed_object(vm, needle)? {
+            SequenceIndex::Int(i) => zelf._setitem_by_index(i, value, vm),
             SequenceIndex::Slice(slice) => {
                 let items = if zelf.is(&value) {
                     zelf.borrow_buf().to_vec()
@@ -199,6 +190,16 @@ impl PyByteArray {
     }
 
     #[pymethod(magic)]
+    fn setitem(
+        zelf: PyRef<Self>,
+        needle: PyObjectRef,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        Self::_setitem(zelf, &needle, value, vm)
+    }
+
+    #[pymethod(magic)]
     fn iadd(zelf: PyRef<Self>, other: ArgBytesLike, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         zelf.try_resizable(vm)?
             .elements
@@ -206,24 +207,33 @@ impl PyByteArray {
         Ok(zelf)
     }
 
+    fn _getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
+        match SequenceIndex::try_from_borrowed_object(vm, needle)? {
+            SequenceIndex::Int(i) => self.borrow_buf().get_item_by_index(vm, i).map(|x| vec![x]),
+            SequenceIndex::Slice(slice) => self.borrow_buf().get_item_by_slice(vm, slice),
+        }
+        .map(|x| vm.ctx.new_bytes(x).into())
+    }
+
     #[pymethod(magic)]
     fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.inner().getitem(&needle, vm)
+        self._getitem(&needle, vm)
     }
 
-    fn delitem_by_idx(&self, i: isize, vm: &VirtualMachine) -> PyResult<()> {
-        self.try_resizable(vm)?.elements.del_item_by_index(vm, i)
-    }
-
-    #[pymethod(magic)]
-    pub fn delitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        match SequenceIndex::try_borrow_from_object(vm, &needle)? {
-            SequenceIndex::Int(i) => self.delitem_by_idx(i, vm),
+    pub fn _delitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+        match SequenceIndex::try_from_borrowed_object(vm, needle)? {
+            SequenceIndex::Int(i) => self.borrow_buf_mut().del_item_by_index(vm, i),
             SequenceIndex::Slice(slice) => {
+                // TODO: delete 0 elements don't need resizable
                 let elements = &mut self.try_resizable(vm)?.elements;
                 elements.del_item_by_slice(vm, slice)
             }
         }
+    }
+
+    #[pymethod(magic)]
+    pub fn delitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self._delitem(&needle, vm)
     }
 
     #[pystaticmethod]
@@ -777,13 +787,18 @@ impl PyByteArray {
                 .mul(n as isize, vm)
                 .map(|x| x.into_object(vm))
         }),
-        item: Some(|seq, i, vm| Self::sequence_downcast(seq).inner().item(i, vm)),
+        item: Some(|seq, i, vm| {
+            Self::sequence_downcast(seq)
+                .borrow_buf()
+                .get_item_by_index(vm, i)
+                .map(|x| vm.ctx.new_bytes(vec![x]).into())
+        }),
         ass_item: Some(|seq, i, value, vm| {
             let zelf = Self::sequence_downcast(seq);
             if let Some(value) = value {
-                zelf.setitem_by_idx(i, value, vm)
+                zelf._setitem_by_index(i, value, vm)
             } else {
-                zelf.delitem_by_idx(i, vm)
+                zelf.borrow_buf_mut().del_item_by_index(vm, i)
             }
         }),
         contains: Some(|seq, other, vm| {

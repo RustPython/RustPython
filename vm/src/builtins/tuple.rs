@@ -1,5 +1,7 @@
 use super::{PositionIterInternal, PyGenericAlias, PyTypeRef};
 use crate::common::{hash::PyHash, lock::PyMutex};
+use crate::sliceable::SequenceIndex;
+use crate::TryFromBorrowedObject;
 use crate::{
     function::{IntoPyObject, OptionalArg},
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
@@ -10,7 +12,6 @@ use crate::{
         AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable,
         Iterable, PyComparisonOp, Unconstructible,
     },
-    utils::Either,
     vm::{ReprGuard, VirtualMachine},
     IdProtocol, PyArithmeticValue, PyClassImpl, PyComparisonValue, PyContext, PyObject,
     PyObjectRef, PyRef, PyResult, PyValue, TransmuteFromObject, TryFromObject, TypeProtocol,
@@ -234,13 +235,19 @@ impl PyTuple {
         })
     }
 
+    fn _getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
+        match SequenceIndex::try_from_borrowed_object(vm, needle)? {
+            SequenceIndex::Int(i) => self.elements.get_item_by_index(vm, i),
+            SequenceIndex::Slice(slice) => self
+                .elements
+                .get_item_by_slice(vm, slice)
+                .map(|x| vm.ctx.new_tuple(x).into()),
+        }
+    }
+
     #[pymethod(magic)]
-    fn getitem(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let result = match zelf.elements.get_item(vm, &needle)? {
-            Either::A(obj) => obj,
-            Either::B(vec) => vm.ctx.new_tuple(vec).into(),
-        };
-        Ok(result)
+    fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self._getitem(&needle, vm)
     }
 
     #[pymethod]
@@ -315,10 +322,7 @@ impl PyTuple {
 impl PyTuple {
     const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
         length: Some(|mapping, _vm| Ok(Self::mapping_downcast(mapping).len())),
-        subscript: Some(|mapping, needle, vm| {
-            let zelf = Self::mapping_downcast(mapping);
-            Self::getitem(zelf.to_owned(), needle.to_owned(), vm)
-        }),
+        subscript: Some(|mapping, needle, vm| Self::mapping_downcast(mapping)._getitem(needle, vm)),
         ass_subscript: None,
     };
 }

@@ -2,6 +2,7 @@ use super::{PositionIterInternal, PyGenericAlias, PyTupleRef, PyTypeRef};
 use crate::common::lock::{
     PyMappedRwLockReadGuard, PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
 };
+use crate::TryFromBorrowedObject;
 use crate::{
     function::{FuncArgs, IntoPyObject, OptionalArg},
     protocol::{PyIterReturn, PyMappingMethods, PySequence, PySequenceMethods},
@@ -11,7 +12,6 @@ use crate::{
         AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable,
         Iterable, PyComparisonOp, Unconstructible, Unhashable,
     },
-    utils::Either,
     vm::{ReprGuard, VirtualMachine},
     PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyObjectView, PyObjectWrap,
     PyRef, PyResult, PyValue, TypeProtocol,
@@ -191,13 +191,30 @@ impl PyList {
         }
     }
 
+    fn _getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
+        match SequenceIndex::try_from_borrowed_object(vm, needle)? {
+            SequenceIndex::Int(i) => self.borrow_vec().get_item_by_index(vm, i),
+            SequenceIndex::Slice(slice) => self
+                .borrow_vec()
+                .get_item_by_slice(vm, slice)
+                .map(|x| vm.ctx.new_list(x).into()),
+        }
+    }
+
     #[pymethod(magic)]
-    fn getitem(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let result = match zelf.borrow_vec().get_item(vm, &needle)? {
-            Either::A(obj) => obj,
-            Either::B(vec) => vm.ctx.new_list(vec).into(),
-        };
-        Ok(result)
+    fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self._getitem(&needle, vm)
+    }
+
+    fn _setitem(&self, needle: &PyObject, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        match SequenceIndex::try_from_borrowed_object(vm, needle)? {
+            SequenceIndex::Int(index) => self.borrow_vec_mut().set_item_by_index(vm, index, value),
+            SequenceIndex::Slice(slice) => {
+                let sec = PySequence::from(value.as_ref()).extract_cloned(Ok, vm)?;
+                self.borrow_vec_mut()
+                    .set_item_by_slice(vm, slice, sec.as_slice())
+            }
+        }
     }
 
     #[pymethod(magic)]
@@ -207,18 +224,7 @@ impl PyList {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        match SequenceIndex::try_borrow_from_object(vm, &needle)? {
-            SequenceIndex::Int(index) => self.borrow_vec_mut().set_item_by_index(vm, index, value),
-            SequenceIndex::Slice(slice) => {
-                let sec = PySequence::from(value.as_ref()).extract_cloned(Ok, vm)?;
-                self.borrow_vec_mut()
-                    .set_item_by_slice(vm, slice, sec.as_slice())
-                // if let Ok(sec) = ArgIterable::try_from_object(vm, value) {
-                //     return self.setslice(slice, sec, vm);
-                // }
-                // Err(vm.new_type_error("can only assign an iterable to a slice".to_owned()))
-            }
-        }
+        self._setitem(&needle, value, vm)
     }
 
     #[pymethod(magic)]
@@ -311,12 +317,16 @@ impl PyList {
         .map(drop)
     }
 
-    #[pymethod(magic)]
-    fn delitem(&self, subscript: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        match SequenceIndex::try_borrow_from_object(vm, &subscript)? {
-            SequenceIndex::Int(index) => self.borrow_vec_mut().del_item_by_index(vm, index),
+    fn _delitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+        match SequenceIndex::try_from_borrowed_object(vm, needle)? {
+            SequenceIndex::Int(i) => self.borrow_vec_mut().del_item_by_index(vm, i),
             SequenceIndex::Slice(slice) => self.borrow_vec_mut().del_item_by_slice(vm, slice),
         }
+    }
+
+    #[pymethod(magic)]
+    fn delitem(&self, subscript: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self._delitem(&subscript, vm)
     }
 
     #[pymethod]
@@ -373,16 +383,13 @@ impl<'a> MutObjectSequenceOp<'a> for PyList {
 impl PyList {
     const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
         length: Some(|mapping, _vm| Ok(Self::mapping_downcast(mapping).len())),
-        subscript: Some(|mapping, needle, vm| {
-            let zelf = Self::mapping_downcast(mapping);
-            Self::getitem(zelf.to_owned(), needle.to_owned(), vm)
-        }),
+        subscript: Some(|mapping, needle, vm| Self::mapping_downcast(mapping)._getitem(needle, vm)),
         ass_subscript: Some(|mapping, needle, value, vm| {
             let zelf = Self::mapping_downcast(mapping);
             if let Some(value) = value {
-                zelf.setitem(needle.to_owned(), value, vm)
+                zelf._setitem(needle, value, vm)
             } else {
-                zelf.delitem(needle.to_owned(), vm)
+                zelf._delitem(needle, vm)
             }
         }),
     };

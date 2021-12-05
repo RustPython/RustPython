@@ -9,14 +9,13 @@ use crate::{
     function::{ArgIterable, FuncArgs, IntoPyException, IntoPyObject, OptionalArg, OptionalOption},
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     sequence::SequenceOp,
-    sliceable::SliceableSequenceOp,
+    sliceable::{SequenceIndex, SliceableSequenceOp},
     types::{
         AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable,
         Iterable, PyComparisonOp, Unconstructible,
     },
-    utils::Either,
     IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyObjectView,
-    PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
+    PyRef, PyResult, PyValue, TryFromBorrowedObject, TypeProtocol, VirtualMachine,
 };
 use ascii::{AsciiStr, AsciiString};
 use bstr::ByteSlice;
@@ -420,13 +419,17 @@ impl PyStr {
         self._contains(&needle, vm)
     }
 
+    fn _getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
+        match SequenceIndex::try_from_borrowed_object(vm, needle)? {
+            SequenceIndex::Int(i) => self.get_item_by_index(vm, i).map(|x| x.to_string()),
+            SequenceIndex::Slice(slice) => self.get_item_by_slice(vm, slice),
+        }
+        .map(|x| self.new_substr(x).into_ref(vm).into())
+    }
+
     #[pymethod(magic)]
-    fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
-        let s = match self.get_item(vm, &needle)? {
-            Either::A(ch) => ch.to_string(),
-            Either::B(s) => s,
-        };
-        Ok(self.new_substr(s))
+    fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self._getitem(&needle, vm)
     }
 
     #[inline]
@@ -1278,11 +1281,7 @@ impl AsMapping for PyStr {
 impl PyStr {
     const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
         length: Some(|mapping, _vm| Ok(Self::mapping_downcast(mapping).len())),
-        subscript: Some(|mapping, needle, vm| {
-            Self::mapping_downcast(mapping)
-                .getitem(needle.to_owned(), vm)
-                .map(|x| x.into_ref(vm).into())
-        }),
+        subscript: Some(|mapping, needle, vm| Self::mapping_downcast(mapping)._getitem(needle, vm)),
         ass_subscript: None,
     };
 }
