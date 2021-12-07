@@ -269,12 +269,20 @@ impl TryFromBorrowedObject for SequenceIndex {
     fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
         if let Some(i) = obj.payload::<PyInt>() {
             // TODO: number protocol
-            i.try_to_primitive(vm).map(Self::Int)
+            i.try_to_primitive(vm)
+                .map_err(|_| {
+                    vm.new_index_error("cannot fit 'int' into an index-sized integer".to_owned())
+                })
+                .map(Self::Int)
         } else if let Some(slice) = obj.payload::<PySlice>() {
             slice.to_saturated(vm).map(Self::Slice)
-        } else if let Some(index) = vm.to_index_opt(obj.to_owned()) {
+        } else if let Some(i) = vm.to_index_opt(obj.to_owned()) {
             // TODO: __index__ for indice is no more supported?
-            index?.try_to_primitive(vm).map(Self::Int)
+            i?.try_to_primitive(vm)
+                .map_err(|_| {
+                    vm.new_index_error("cannot fit 'int' into an index-sized integer".to_owned())
+                })
+                .map(Self::Int)
         } else {
             Err(vm.new_type_error(format!(
                 "indices must be integers or slices or classes that override __index__ operator, not '{}'",
