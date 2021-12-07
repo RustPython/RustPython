@@ -179,7 +179,7 @@ impl PyByteArray {
                 } else {
                     bytes_from_object(vm, &value)?
                 };
-                if let Ok(mut w) = zelf.try_resizable(vm) {
+                if let Some(mut w) = zelf.try_resizable_opt() {
                     w.elements.set_item_by_slice(vm, slice, items.as_slice())
                 } else {
                     zelf.borrow_buf_mut()
@@ -227,11 +227,12 @@ impl PyByteArray {
 
     pub fn _delitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
         match SequenceIndex::try_from_borrowed_object(vm, needle)? {
-            SequenceIndex::Int(i) => self.borrow_buf_mut().del_item_by_index(vm, i),
+            SequenceIndex::Int(i) => self.try_resizable(vm)?.elements.del_item_by_index(vm, i),
             SequenceIndex::Slice(slice) => {
                 // TODO: delete 0 elements don't need resizable
-                let elements = &mut self.try_resizable(vm)?.elements;
-                elements.del_item_by_slice(vm, slice)
+                self.try_resizable(vm)?
+                    .elements
+                    .del_item_by_slice(vm, slice)
             }
         }
     }
