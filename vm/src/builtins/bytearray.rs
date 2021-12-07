@@ -209,10 +209,15 @@ impl PyByteArray {
 
     fn _getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
         match SequenceIndex::try_from_borrowed_object(vm, needle)? {
-            SequenceIndex::Int(i) => self.borrow_buf().get_item_by_index(vm, i).map(|x| vec![x]),
-            SequenceIndex::Slice(slice) => self.borrow_buf().get_item_by_slice(vm, slice),
+            SequenceIndex::Int(i) => self
+                .borrow_buf()
+                .get_item_by_index(vm, i)
+                .map(|x| vm.ctx.new_int(x).into()),
+            SequenceIndex::Slice(slice) => self
+                .borrow_buf()
+                .get_item_by_slice(vm, slice)
+                .map(|x| Self::new_ref(x, &vm.ctx).into()),
         }
-        .map(|x| vm.ctx.new_bytes(x).into())
     }
 
     #[pymethod(magic)]

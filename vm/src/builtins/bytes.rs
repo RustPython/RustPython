@@ -173,10 +173,13 @@ impl PyBytes {
                 .inner
                 .elements
                 .get_item_by_index(vm, i)
-                .map(|x| vec![x]),
-            SequenceIndex::Slice(slice) => self.inner.elements.get_item_by_slice(vm, slice),
+                .map(|x| vm.ctx.new_int(x).into()),
+            SequenceIndex::Slice(slice) => self
+                .inner
+                .elements
+                .get_item_by_slice(vm, slice)
+                .map(|x| vm.ctx.new_bytes(x).into()),
         }
-        .map(|x| vm.ctx.new_bytes(x).into())
     }
 
     #[pymethod(magic)]
