@@ -380,7 +380,9 @@ impl PyRange {
 
 impl PyRange {
     fn protocol_length(&self, vm: &VirtualMachine) -> PyResult<usize> {
-        PyInt::from(self.len()).try_to_primitive(vm)
+        PyInt::from(self.len())
+            .try_to_primitive::<isize>(vm)
+            .map(|x| x as usize)
     }
 
     const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
