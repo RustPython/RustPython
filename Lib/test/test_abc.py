@@ -157,6 +157,8 @@ def test_factory(abc_ABCMeta, abc_get_cache_token):
             self.assertEqual(D.foo(), 4)
             self.assertEqual(D().foo(), 4)
 
+        # TODO: RUSTPYTHON
+        @unittest.expectedFailure
         def test_object_new_with_one_abstractmethod(self):
             class C(metaclass=abc_ABCMeta):
                 @abc.abstractmethod
@@ -165,6 +167,8 @@ def test_factory(abc_ABCMeta, abc_get_cache_token):
             msg = r"class C with abstract method method_one"
             self.assertRaisesRegex(TypeError, msg, C)
 
+        # TODO: RUSTPYTHON
+        @unittest.expectedFailure
         def test_object_new_with_many_abstractmethods(self):
             class C(metaclass=abc_ABCMeta):
                 @abc.abstractmethod
@@ -176,6 +180,8 @@ def test_factory(abc_ABCMeta, abc_get_cache_token):
             msg = r"class C with abstract methods method_one, method_two"
             self.assertRaisesRegex(TypeError, msg, C)
 
+        # TODO: RUSTPYTHON
+        @unittest.expectedFailure
         def test_abstractmethod_integration(self):
             for abstractthing in [abc.abstractmethod, abc.abstractproperty,
                                   abc.abstractclassmethod,
@@ -531,7 +537,8 @@ def test_factory(abc_ABCMeta, abc_get_cache_token):
             self.assertEqual(A.__abstractmethods__, set())
             A()
 
-
+        # TODO: RUSTPYTHON
+        @unittest.expectedFailure
         def test_update_new_abstractmethods(self):
             class A(metaclass=abc_ABCMeta):
                 @abc.abstractmethod
@@ -548,6 +555,8 @@ def test_factory(abc_ABCMeta, abc_get_cache_token):
             msg = "class A with abstract methods bar, foo"
             self.assertRaisesRegex(TypeError, msg, A)
 
+        # TODO: RUSTPYTHON
+        @unittest.expectedFailure
         def test_update_implementation(self):
             class A(metaclass=abc_ABCMeta):
                 @abc.abstractmethod
@@ -599,6 +608,8 @@ def test_factory(abc_ABCMeta, abc_get_cache_token):
             A()
             self.assertFalse(hasattr(A, '__abstractmethods__'))
 
+        # TODO: RUSTPYTHON
+        @unittest.expectedFailure
         def test_update_del_implementation(self):
             class A(metaclass=abc_ABCMeta):
                 @abc.abstractmethod
@@ -618,6 +629,8 @@ def test_factory(abc_ABCMeta, abc_get_cache_token):
             msg = "class B with abstract method foo"
             self.assertRaisesRegex(TypeError, msg, B)
 
+        # TODO: RUSTPYTHON
+        @unittest.expectedFailure
         def test_update_layered_implementation(self):
             class A(metaclass=abc_ABCMeta):
                 @abc.abstractmethod
