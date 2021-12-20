@@ -10,7 +10,7 @@ use crate::{
     },
     sliceable::wrap_index,
     types::{Constructor, Unconstructible},
-    PyObject, PyObjectPayload, PyObjectRef, PyObjectView, PyObjectWrap, PyRef, PyResult,
+    PyObject, PyObjectPayload, PyObjectRef, PyObjectView, PyObjectWrap, PyRef, PyResult, PyValue,
     TryFromBorrowedObject, TypeProtocol, VirtualMachine,
 };
 use std::{borrow::Cow, fmt::Debug, ops::Range};
@@ -61,6 +61,15 @@ impl PyBuffer {
     pub fn as_contiguous_mut(&self) -> Option<BorrowedValueMut<[u8]>> {
         (!self.desc.readonly && self.desc.is_contiguous())
             .then(|| unsafe { self.contiguous_mut_unchecked() })
+    }
+
+    pub fn from_byte_vector(bytes: Vec<u8>, vm: &VirtualMachine) -> Self {
+        let bytes_len = bytes.len();
+        PyBuffer::new(
+            PyValue::into_object(VecBuffer::from(bytes), vm),
+            BufferDescriptor::simple(bytes_len, true),
+            &VEC_BUFFER_METHODS,
+        )
     }
 
     /// # Safety
