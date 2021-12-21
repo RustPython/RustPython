@@ -9,6 +9,7 @@ use crate::{PyContext, StaticType};
 
 /// Holder of references to builtin types.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct TypeZoo {
     pub async_generator: PyTypeRef,
     pub async_generator_asend: PyTypeRef,

@@ -14,6 +14,7 @@ use std::cmp::Ordering;
 // The corresponding field in CPython is `tp_` prefixed.
 // e.g. name -> tp_name
 #[derive(Default)]
+#[non_exhaustive]
 pub struct PyTypeSlots {
     pub name: PyRwLock<Option<String>>, // tp_name, not class name
     // tp_basicsize, tp_itemsize
@@ -84,6 +85,7 @@ impl std::fmt::Debug for PyTypeSlots {
 }
 
 bitflags! {
+    #[non_exhaustive]
     pub struct PyTypeFlags: u64 {
         const HEAPTYPE = 1 << 9;
         const BASETYPE = 1 << 10;

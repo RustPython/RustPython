@@ -31,6 +31,7 @@ impl IntoPyObject for AbiValue {
             AbiValue::Int(i) => i.into_pyobject(vm),
             AbiValue::Float(f) => f.into_pyobject(vm),
             AbiValue::Bool(b) => b.into_pyobject(vm),
+            _ => unimplemented!(),
         }
     }
 }

@@ -133,6 +133,7 @@ pub enum InitParameter {
 }
 
 /// Struct containing all kind of settings for the python vm.
+#[non_exhaustive]
 pub struct PySettings {
     /// -d command line switch
     pub debug: bool,
