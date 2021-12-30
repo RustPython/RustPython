@@ -69,19 +69,19 @@ macro_rules! py_namespace {
 ///
 /// use rustpython_vm::match_class;
 /// use rustpython_vm::builtins::{PyFloat, PyInt};
-/// use rustpython_vm::{PyValue};
+/// use rustpython_vm::PyValue;
 ///
-/// # rustpython_vm::Interpreter::default().enter(|vm| {
-/// let obj = PyInt::from(0).into_object(vm);
-/// assert_eq!(
-///     "int",
-///     match_class!(match obj {
-///         PyInt => "int",
-///         PyFloat => "float",
-///         _ => "neither",
-///     })
-/// );
-/// # });
+/// rustpython_vm::Interpreter::default().enter(|vm| {
+///     let obj = PyInt::from(0).into_object(vm);
+///     assert_eq!(
+///         "int",
+///         match_class!(match obj {
+///             PyInt => "int",
+///             PyFloat => "float",
+///             _ => "neither",
+///         })
+///     );
+/// });
 ///
 /// ```
 ///
@@ -93,19 +93,19 @@ macro_rules! py_namespace {
 ///
 /// use rustpython_vm::match_class;
 /// use rustpython_vm::builtins::{PyFloat, PyInt};
-/// use rustpython_vm::{ PyValue};
+/// use rustpython_vm::PyValue;
 ///
-/// # rustpython_vm::Interpreter::default().enter(|vm| {
-/// let obj = PyInt::from(0).into_object(vm);
+/// rustpython_vm::Interpreter::default().enter(|vm| {
+///     let obj = PyInt::from(0).into_object(vm);
 ///
-/// let int_value = match_class!(match obj {
-///     i @ PyInt => i.as_bigint().clone(),
-///     f @ PyFloat => f.to_f64().to_bigint().unwrap(),
-///     obj => panic!("non-numeric object {}", obj),
+///     let int_value = match_class!(match obj {
+///         i @ PyInt => i.as_bigint().clone(),
+///         f @ PyFloat => f.to_f64().to_bigint().unwrap(),
+///         obj => panic!("non-numeric object {}", obj),
+///     });
+///
+///     assert!(int_value.is_zero());
 /// });
-///
-/// assert!(int_value.is_zero());
-/// # });
 /// ```
 #[macro_export]
 macro_rules! match_class {
