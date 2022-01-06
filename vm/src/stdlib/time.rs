@@ -248,7 +248,7 @@ mod time {
         Ok(get_thread_time(vm)?.as_nanos() as u64)
     }
 
-    #[cfg(any(windows, all(target_arch = "wasm32", not(target_os = "unknown"))))]
+    #[cfg(any(windows, all(target_arch = "wasm32", target_arch = "emscripten")))]
     pub(super) fn time_muldiv(ticks: i64, mul: i64, div: i64) -> u64 {
         let intpart = ticks / div;
         let ticks = ticks % div;
@@ -256,7 +256,7 @@ mod time {
         (intpart * mul + remaining) as u64
     }
 
-    #[cfg(all(target_arch = "wasm32", not(target_os = "unknown")))]
+    #[cfg(all(target_arch = "wasm32", target_os = "emscripten"))]
     fn get_process_time(vm: &VirtualMachine) -> PyResult<Duration> {
         let t: libc::tms = unsafe {
             let mut t = std::mem::MaybeUninit::uninit();
@@ -265,15 +265,24 @@ mod time {
             }
             t.assume_init()
         };
-
-        #[cfg(target_os = "wasi")]
-        let freq = 60;
-        #[cfg(not(target_os = "wasi"))]
         let freq = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
 
         Ok(Duration::from_nanos(
             time_muldiv(t.tms_utime, SEC_TO_NS, freq) + time_muldiv(t.tms_stime, SEC_TO_NS, freq),
         ))
+    }
+
+    // same as the get_process_time impl for most unixes
+    #[cfg(all(target_arch = "wasm32", target_os = "wasi"))]
+    pub(super) fn get_process_time(vm: &VirtualMachine) -> PyResult<Duration> {
+        let time: libc::timespec = unsafe {
+            let mut time = std::mem::MaybeUninit::uninit();
+            if libc::clock_gettime(libc::CLOCK_PROCESS_CPUTIME_ID, time.as_mut_ptr()) == -1 {
+                return Err(vm.new_os_error("Failed to get clock time".to_owned()));
+            }
+            time.assume_init()
+        };
+        Ok(Duration::new(time.tv_sec as u64, time.tv_nsec as u32))
     }
 
     #[cfg(not(any(
