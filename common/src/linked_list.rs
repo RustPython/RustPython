@@ -128,6 +128,9 @@ struct PointersInner<T> {
     _pin: PhantomPinned,
 }
 
+unsafe impl<T: Send> Send for PointersInner<T> {}
+unsafe impl<T: Sync> Sync for PointersInner<T> {}
+
 unsafe impl<T: Send> Send for Pointers<T> {}
 unsafe impl<T: Sync> Sync for Pointers<T> {}
 
