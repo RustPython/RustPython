@@ -367,20 +367,29 @@ fn create_settings(matches: &ArgMatches) -> Settings {
         settings.warnopts.extend(warnings.map(ToOwned::to_owned));
     }
 
-    let argv = if let Some(script) = matches.values_of("script") {
-        script.map(ToOwned::to_owned).collect()
+    // script having values even though -c/-m was passed would means that it was something like -mmodule foo bar
+    let weird_script_args = || {
+        matches
+            .values_of("script")
+            .into_iter()
+            .flat_map(|script_args| script_args.map(ToOwned::to_owned))
+    };
+    let argv = if let Some(cmd) = matches.values_of("c") {
+        std::iter::once("-c".to_owned())
+            .chain(cmd.skip(1).map(ToOwned::to_owned))
+            .chain(weird_script_args())
+            .collect()
     } else if let Some(module) = matches.values_of("m") {
         std::iter::once("PLACEHOLDER".to_owned())
             .chain(module.skip(1).map(ToOwned::to_owned))
+            .chain(weird_script_args())
             .collect()
     } else if let Some(get_pip_args) = matches.values_of("install_pip") {
         std::iter::once("get-pip.py".to_owned())
             .chain(get_pip_args.map(ToOwned::to_owned))
             .collect()
-    } else if let Some(cmd) = matches.values_of("c") {
-        std::iter::once("-c".to_owned())
-            .chain(cmd.skip(1).map(ToOwned::to_owned))
-            .collect()
+    } else if let Some(script) = matches.values_of("script") {
+        script.map(ToOwned::to_owned).collect()
     } else {
         vec!["".to_owned()]
     };
