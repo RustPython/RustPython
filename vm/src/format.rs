@@ -413,6 +413,7 @@ impl FormatSpec {
             },
         };
 
+        #[allow(clippy::question_mark)]
         if raw_magnitude_string_result.is_err() {
             return raw_magnitude_string_result;
         }
@@ -474,6 +475,7 @@ impl FormatSpec {
             },
             None => Ok(magnitude.to_str_radix(10)),
         };
+        #[allow(clippy::question_mark)]
         if raw_magnitude_string_result.is_err() {
             return raw_magnitude_string_result;
         }
