@@ -455,7 +455,7 @@ fn namereplace_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(String
             use std::fmt::Write;
             let c_u32 = c as u32;
             if let Some(c_name) = unicode_names2::name(c) {
-                write!(out, "\\N{{{}}}", c_name.to_string()).unwrap();
+                write!(out, "\\N{{{}}}", c_name).unwrap();
             } else if c_u32 >= 0x10000 {
                 write!(out, "\\U{:08x}", c_u32).unwrap();
             } else if c_u32 >= 0x100 {
