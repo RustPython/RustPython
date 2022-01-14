@@ -286,7 +286,8 @@ impl UnTypedAbiValue {
     }
 }
 
-unsafe impl Send for CompiledCode {}
+#[allow(clippy::non_send_fields_in_send_ty)]
+unsafe impl Send for CompiledCode {} // TODO: THIS IMPLEMENTATION IS UNSOUND!!
 unsafe impl Sync for CompiledCode {}
 
 impl Drop for CompiledCode {
