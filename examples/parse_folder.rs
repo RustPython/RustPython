@@ -1,11 +1,10 @@
-/// This an example usage of the rustpython_parser crate.
-/// This program crawls over a directory of python files and
-/// tries to parse them into an abstract syntax tree (AST)
-///
-/// example usage:
-/// $ RUST_LOG=info cargo run --release parse_folder /usr/lib/python3.7
+//! This an example usage of the rustpython_parser crate.
+//! This program crawls over a directory of python files and
+//! tries to parse them into an abstract syntax tree (AST)
+//!
+//! example usage:
+//! $ RUST_LOG=info cargo run --release parse_folder /usr/lib/python3.7
 
-#[macro_use]
 extern crate clap;
 extern crate env_logger;
 #[macro_use]
@@ -20,14 +19,10 @@ use std::time::{Duration, Instant};
 fn main() {
     env_logger::init();
     let app = App::new("parse_folders")
-        .version(crate_version!())
-        .author(crate_authors!())
+        .version(env!("CARGO_PKG_VERSION"))
+        .author(env!("CARGO_PKG_AUTHORS"))
         .about("Walks over all .py files in a folder, and parses them.")
-        .arg(
-            Arg::with_name("folder")
-                .help("Folder to scan")
-                .required(true),
-        );
+        .arg(Arg::new("folder").help("Folder to scan").required(true));
     let matches = app.get_matches();
 
     let folder = Path::new(matches.value_of("folder").unwrap());

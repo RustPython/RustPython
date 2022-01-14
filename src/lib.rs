@@ -37,7 +37,6 @@
 //! it will have your modules loaded into the vm.
 #![allow(clippy::needless_doctest_main)]
 
-#[macro_use]
 extern crate clap;
 extern crate env_logger;
 #[macro_use]
@@ -60,8 +59,7 @@ where
     #[cfg(feature = "flame-it")]
     let main_guard = flame::start_guard("RustPython main");
     env_logger::init();
-    let app = App::new("RustPython");
-    let matches = parse_arguments(app);
+    let matches = parse_arguments();
     let matches = &matches;
     let settings = create_settings(matches);
 
@@ -96,47 +94,56 @@ where
     process::exit(exitcode)
 }
 
-fn parse_arguments<'a>(app: App<'a, '_>) -> ArgMatches<'a> {
-    let app = app
+fn flush_std(vm: &VirtualMachine) {
+    use rustpython_vm::stdlib::sys;
+    if let Ok(stdout) = sys::get_stdout(vm) {
+        let _ = vm.call_method(&stdout, "flush", ());
+    }
+    if let Ok(stderr) = sys::get_stderr(vm) {
+        let _ = vm.call_method(&stderr, "flush", ());
+    }
+}
+
+fn parse_arguments() -> ArgMatches {
+    let app = App::new("RustPython")
         .setting(AppSettings::TrailingVarArg)
-        .version(crate_version!())
-        .author(crate_authors!())
+        .version(env!("CARGO_PKG_VERSION"))
+        .author(env!("CARGO_PKG_AUTHORS"))
         .about("Rust implementation of the Python language")
-        .usage("rustpython [OPTIONS] [-c CMD | -m MODULE | FILE] [PYARGS]...")
+        .override_usage("rustpython [OPTIONS] [-c CMD | -m MODULE | FILE] [PYARGS]...")
         .arg(
-            Arg::with_name("script")
+            Arg::new("script")
                 .required(false)
-                .allow_hyphen_values(true)
-                .multiple(true)
+                .multiple_values(true)
                 .value_name("script, args")
-                .min_values(1),
+                .min_values(0),
         )
         .arg(
-            Arg::with_name("c")
-                .short("c")
+            Arg::new("c")
+                .short('c')
                 .takes_value(true)
                 .allow_hyphen_values(true)
-                .multiple(true)
+                .multiple_values(true)
                 .value_name("cmd, args")
                 .min_values(1)
                 .help("run the given string as a program"),
         )
         .arg(
-            Arg::with_name("m")
-                .short("m")
+            Arg::new("m")
+                .short('m')
                 .takes_value(true)
                 .allow_hyphen_values(true)
-                .multiple(true)
+                .multiple_values(true)
                 .value_name("module, args")
                 .min_values(1)
                 .help("run library module as script"),
         )
         .arg(
-            Arg::with_name("install_pip")
+            Arg::new("install_pip")
                 .long("install-pip")
                 .takes_value(true)
                 .allow_hyphen_values(true)
-                .multiple(true)
+                .multiple_values(true)
                 .value_name("get-pip args")
                 .min_values(0)
                 .help("install the pip package manager for rustpython; \
@@ -144,77 +151,77 @@ fn parse_arguments<'a>(app: App<'a, '_>) -> ArgMatches<'a> {
                 ),
         )
         .arg(
-            Arg::with_name("optimize")
-                .short("O")
-                .multiple(true)
+            Arg::new("optimize")
+                .short('O')
+                .multiple_occurrences(true)
                 .help("Optimize. Set __debug__ to false. Remove debug statements."),
         )
         .arg(
-            Arg::with_name("verbose")
-                .short("v")
-                .multiple(true)
+            Arg::new("verbose")
+                .short('v')
+                .multiple_occurrences(true)
                 .help("Give the verbosity (can be applied multiple times)"),
         )
-        .arg(Arg::with_name("debug").short("d").help("Debug the parser."))
+        .arg(Arg::new("debug").short('d').help("Debug the parser."))
         .arg(
-            Arg::with_name("quiet")
-                .short("q")
+            Arg::new("quiet")
+                .short('q')
                 .help("Be quiet at startup."),
         )
         .arg(
-            Arg::with_name("inspect")
-                .short("i")
+            Arg::new("inspect")
+                .short('i')
                 .help("Inspect interactively after running the script."),
         )
         .arg(
-            Arg::with_name("no-user-site")
-                .short("s")
+            Arg::new("no-user-site")
+                .short('s')
                 .help("don't add user site directory to sys.path."),
         )
         .arg(
-            Arg::with_name("no-site")
-                .short("S")
+            Arg::new("no-site")
+                .short('S')
                 .help("don't imply 'import site' on initialization"),
         )
         .arg(
-            Arg::with_name("dont-write-bytecode")
-                .short("B")
+            Arg::new("dont-write-bytecode")
+                .short('B')
                 .help("don't write .pyc files on import"),
         )
         .arg(
-            Arg::with_name("ignore-environment")
-                .short("E")
+            Arg::new("ignore-environment")
+                .short('E')
                 .help("Ignore environment variables PYTHON* such as PYTHONPATH"),
         )
         .arg(
-            Arg::with_name("isolate")
-                .short("I")
+            Arg::new("isolate")
+                .short('I')
                 .help("isolate Python from the user's environment (implies -E and -s)"),
         )
         .arg(
-            Arg::with_name("implementation-option")
-                .short("X")
+            Arg::new("implementation-option")
+                .short('X')
                 .takes_value(true)
-                .multiple(true)
+                .multiple_occurrences(true)
                 .number_of_values(1)
                 .help("set implementation-specific option"),
         )
         .arg(
-            Arg::with_name("warning-control")
-                .short("W")
+            Arg::new("warning-control")
+                .short('W')
                 .takes_value(true)
-                .multiple(true)
+                .multiple_occurrences(true)
                 .number_of_values(1)
                 .help("warning control; arg is action:message:category:module:lineno"),
         )
         .arg(
-            Arg::with_name("bytes-warning")
-                .short("b")
-                .multiple(true)
+            Arg::new("bytes-warning")
+                .short('b')
+                .multiple_occurrences(true)
                 .help("issue warnings about using bytes where strings are usually expected (-bb: issue errors)"),
         ).arg(
-            Arg::with_name("unbuffered")
-                .short("u")
+            Arg::new("unbuffered")
+                .short('u')
                 .help(
                     "force the stdout and stderr streams to be unbuffered; \
                         this option has no effect on stdin; also PYTHONUNBUFFERED=x",
@@ -223,13 +230,13 @@ fn parse_arguments<'a>(app: App<'a, '_>) -> ArgMatches<'a> {
     #[cfg(feature = "flame-it")]
     let app = app
         .arg(
-            Arg::with_name("profile_output")
+            Arg::new("profile_output")
                 .long("profile-output")
                 .takes_value(true)
                 .help("the file to output the profiling information to"),
         )
         .arg(
-            Arg::with_name("profile_format")
+            Arg::new("profile_format")
                 .long("profile-format")
                 .takes_value(true)
                 .help("the profile format to output the profiling information in"),
@@ -552,7 +559,7 @@ fn run_rustpython(vm: &VirtualMachine, matches: &ArgMatches) -> PyResult<()> {
     } else {
         println!(
             "Welcome to the magnificent Rust Python {} interpreter \u{1f631} \u{1f596}",
-            crate_version!()
+            env!("CARGO_PKG_VERSION")
         );
         shell::run_shell(vm, scope)?;
     }
