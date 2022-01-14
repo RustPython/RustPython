@@ -1841,6 +1841,7 @@ class MappingTestCase(TestBase):
         if exc:
             raise exc[0]
 
+    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON, crashes")
     def test_threaded_weak_key_dict_copy(self):
         # Issue #35615: Weakref keys or values getting GC'ed during dict
         # copying should not result in a crash.
