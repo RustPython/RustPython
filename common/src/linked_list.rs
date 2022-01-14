@@ -128,7 +128,8 @@ struct PointersInner<T> {
     _pin: PhantomPinned,
 }
 
-unsafe impl<T: Send> Send for Pointers<T> {}
+#[allow(clippy::non_send_fields_in_send_ty)]
+unsafe impl<T: Send> Send for Pointers<T> {} // TODO: THIS IMPLEMENTATION IS UNSOUND!!
 unsafe impl<T: Sync> Sync for Pointers<T> {}
 
 // ===== impl LinkedList =====

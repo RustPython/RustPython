@@ -465,7 +465,8 @@ pub struct Drain<'a, T> {
 }
 
 unsafe impl<'a, T: Sync> Sync for Drain<'a, T> {}
-unsafe impl<'a, T: Send> Send for Drain<'a, T> {}
+#[allow(clippy::non_send_fields_in_send_ty)]
+unsafe impl<'a, T: Send> Send for Drain<'a, T> {} // TODO: THIS IMPLEMENTATION IS UNSOUND!!
 
 impl<T> Iterator for Drain<'_, T> {
     type Item = T;

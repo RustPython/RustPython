@@ -307,7 +307,8 @@ pub struct PyWeak {
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "threading")] {
-        unsafe impl Send for PyWeak {}
+        #[allow(clippy::non_send_fields_in_send_ty)]
+        unsafe impl Send for PyWeak {} // TODO: THIS IMPLEMENTATION IS UNSOUND!!
         unsafe impl Sync for PyWeak {}
     }
 }
