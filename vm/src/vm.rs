@@ -1956,10 +1956,6 @@ impl<'vm> Drop for ReprGuard<'vm> {
     }
 }
 
-pub struct Interpreter {
-    vm: VirtualMachine,
-}
-
 /// The general interface for the VM
 ///
 /// # Examples
@@ -1976,6 +1972,10 @@ pub struct Interpreter {
 ///     vm.run_code_obj(code_obj, scope).unwrap();
 /// });
 /// ```
+pub struct Interpreter {
+    vm: VirtualMachine,
+}
+
 impl Interpreter {
     pub fn new(settings: PySettings, init: InitParameter) -> Self {
         Self::new_with_init(settings, |_| init)
