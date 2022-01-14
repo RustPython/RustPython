@@ -37,7 +37,6 @@
 //! it will have your modules loaded into the vm.
 #![allow(clippy::needless_doctest_main)]
 
-#[macro_use]
 extern crate clap;
 extern crate env_logger;
 #[macro_use]
@@ -202,7 +201,7 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode, quiet: bool) -> PyResu
             } else if !quiet {
                 println!(
                     "Welcome to the magnificent Rust Python {} interpreter \u{1f631} \u{1f596}",
-                    crate_version!()
+                    env!("CARGO_PKG_VERSION")
                 );
             }
             if interactive {

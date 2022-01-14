@@ -1,4 +1,8 @@
-use clap::{App, AppSettings, Arg, ArgMatches};
+use clap::{
+    Arg,
+    ArgAction::{Append, Count, SetTrue},
+    ArgMatches, Command,
+};
 use rustpython_vm::Settings;
 use std::{env, str::FromStr};
 
@@ -10,158 +14,166 @@ pub enum RunMode {
 }
 
 pub fn opts_with_clap() -> (Settings, RunMode) {
-    let app = App::new("RustPython");
+    let app = Command::new("RustPython");
     let matches = parse_arguments(app);
     settings_from(&matches)
 }
 
-fn parse_arguments<'a>(app: App<'a, '_>) -> ArgMatches<'a> {
+fn parse_arguments(app: Command<'_>) -> ArgMatches {
     let app = app
-        .setting(AppSettings::TrailingVarArg)
-        .version(crate_version!())
-        .author(crate_authors!())
+        .trailing_var_arg(true)
+        .version(env!("CARGO_PKG_VERSION"))
+        .author(env!("CARGO_PKG_AUTHORS"))
         .about("Rust implementation of the Python language")
-        .usage("rustpython [OPTIONS] [-c CMD | -m MODULE | FILE] [PYARGS]...")
+        .override_usage("rustpython [OPTIONS] [-c CMD | -m MODULE | FILE] [PYARGS]...")
         .arg(
-            Arg::with_name("script")
+            Arg::new("script")
                 .required(false)
-                .allow_hyphen_values(true)
-                .multiple(true)
+                .multiple_values(true)
                 .value_name("script, args")
-                .min_values(1),
+                .min_values(0),
         )
         .arg(
-            Arg::with_name("c")
-                .short("c")
+            Arg::new("c")
+                .short('c')
                 .takes_value(true)
                 .allow_hyphen_values(true)
-                .multiple(true)
+                .multiple_values(true)
                 .value_name("cmd, args")
                 .min_values(1)
                 .help("run the given string as a program"),
         )
         .arg(
-            Arg::with_name("m")
-                .short("m")
+            Arg::new("m")
+                .short('m')
                 .takes_value(true)
                 .allow_hyphen_values(true)
-                .multiple(true)
+                .multiple_values(true)
                 .value_name("module, args")
                 .min_values(1)
                 .help("run library module as script"),
         )
         .arg(
-            Arg::with_name("install_pip")
+            Arg::new("install_pip")
                 .long("install-pip")
                 .takes_value(true)
                 .allow_hyphen_values(true)
-                .multiple(true)
+                .multiple_values(true)
                 .value_name("get-pip args")
                 .min_values(0)
-                .help("install the pip package manager for rustpython; \
-                        requires rustpython be build with the ssl feature enabled."
+                .help(
+                    "install the pip package manager for rustpython; \
+                        requires rustpython be build with the ssl feature enabled.",
                 ),
         )
         .arg(
-            Arg::with_name("optimize")
-                .short("O")
-                .multiple(true)
+            Arg::new("optimize")
+                .short('O')
+                .action(Count)
                 .help("Optimize. Set __debug__ to false. Remove debug statements."),
         )
         .arg(
-            Arg::with_name("verbose")
-                .short("v")
-                .multiple(true)
+            Arg::new("verbose")
+                .short('v')
+                .action(Count)
                 .help("Give the verbosity (can be applied multiple times)"),
         )
-        .arg(Arg::with_name("debug").short("d").help("Debug the parser."))
         .arg(
-            Arg::with_name("quiet")
-                .short("q")
+            Arg::new("debug")
+                .short('d')
+                .action(SetTrue)
+                .help("Debug the parser."),
+        )
+        .arg(
+            Arg::new("quiet")
+                .short('q')
+                .action(SetTrue)
                 .help("Be quiet at startup."),
         )
         .arg(
-            Arg::with_name("inspect")
-                .short("i")
+            Arg::new("inspect")
+                .short('i')
+                .action(SetTrue)
                 .help("Inspect interactively after running the script."),
         )
         .arg(
-            Arg::with_name("no-user-site")
-                .short("s")
+            Arg::new("no-user-site")
+                .short('s')
+                .action(SetTrue)
                 .help("don't add user site directory to sys.path."),
         )
         .arg(
-            Arg::with_name("no-site")
-                .short("S")
+            Arg::new("no-site")
+                .short('S')
+                .action(SetTrue)
                 .help("don't imply 'import site' on initialization"),
         )
         .arg(
-            Arg::with_name("dont-write-bytecode")
-                .short("B")
+            Arg::new("dont-write-bytecode")
+                .short('B')
+                .action(SetTrue)
                 .help("don't write .pyc files on import"),
         )
         .arg(
-            Arg::with_name("safe-path")
-                .short("P")
+            Arg::new("safe-path")
+                .short('P')
+                .action(SetTrue)
                 .help("don’t prepend a potentially unsafe path to sys.path"),
         )
         .arg(
-            Arg::with_name("ignore-environment")
-                .short("E")
+            Arg::new("ignore-environment")
+                .short('E')
+                .action(SetTrue)
                 .help("Ignore environment variables PYTHON* such as PYTHONPATH"),
         )
         .arg(
-            Arg::with_name("isolate")
-                .short("I")
+            Arg::new("isolate")
+                .short('I')
+                .action(SetTrue)
                 .help("isolate Python from the user's environment (implies -E and -s)"),
         )
         .arg(
-            Arg::with_name("implementation-option")
-                .short("X")
+            Arg::new("implementation-option")
+                .short('X')
                 .takes_value(true)
-                .multiple(true)
+                .action(Append)
                 .number_of_values(1)
                 .help("set implementation-specific option"),
         )
         .arg(
-            Arg::with_name("warning-control")
-                .short("W")
+            Arg::new("warning-control")
+                .short('W')
                 .takes_value(true)
-                .multiple(true)
+                .action(Append)
                 .number_of_values(1)
                 .help("warning control; arg is action:message:category:module:lineno"),
         )
         .arg(
-            Arg::with_name("check-hash-based-pycs")
+            Arg::new("check-hash-based-pycs")
                 .long("check-hash-based-pycs")
                 .takes_value(true)
                 .number_of_values(1)
                 .default_value("default")
                 .help("always|default|never\ncontrol how Python invalidates hash-based .pyc files"),
         )
-        .arg(
-            Arg::with_name("bytes-warning")
-                .short("b")
-                .multiple(true)
-                .help("issue warnings about using bytes where strings are usually expected (-bb: issue errors)"),
-        ).arg(
-            Arg::with_name("unbuffered")
-                .short("u")
-                .help(
-                    "force the stdout and stderr streams to be unbuffered; \
+        .arg(Arg::new("bytes-warning").short('b').action(Count).help(
+            "issue warnings about using bytes where strings \
+                are usually expected (-bb: issue errors)",
+        ))
+        .arg(Arg::new("unbuffered").short('u').action(SetTrue).help(
+            "force the stdout and stderr streams to be unbuffered; \
                         this option has no effect on stdin; also PYTHONUNBUFFERED=x",
-                ),
-        );
+        ));
     #[cfg(feature = "flame-it")]
     let app = app
         .arg(
-            Arg::with_name("profile_output")
+            Arg::new("profile_output")
                 .long("profile-output")
                 .takes_value(true)
                 .help("the file to output the profiling information to"),
         )
         .arg(
-            Arg::with_name("profile_format")
+            Arg::new("profile_format")
                 .long("profile-format")
                 .takes_value(true)
                 .help("the profile format to output the profiling information in"),
@@ -173,13 +185,13 @@ fn parse_arguments<'a>(app: App<'a, '_>) -> ArgMatches<'a> {
 /// variables.
 fn settings_from(matches: &ArgMatches) -> (Settings, RunMode) {
     let mut settings = Settings::default();
-    settings.isolated = matches.is_present("isolate");
-    settings.ignore_environment = matches.is_present("ignore-environment");
-    settings.interactive = !matches.is_present("c")
-        && !matches.is_present("m")
-        && (!matches.is_present("script") || matches.is_present("inspect"));
-    settings.bytes_warning = matches.occurrences_of("bytes-warning");
-    settings.import_site = !matches.is_present("no-site");
+    settings.isolated = matches.get_flag("isolate");
+    settings.ignore_environment = matches.get_flag("ignore-environment");
+    settings.interactive = !matches.contains_id("c")
+        && !matches.contains_id("m")
+        && (!matches.contains_id("script") || matches.get_flag("inspect"));
+    settings.bytes_warning = matches.get_count("bytes-warning").into();
+    settings.import_site = !matches.get_flag("no-site");
 
     let ignore_environment = settings.ignore_environment || settings.isolated;
 
@@ -189,45 +201,44 @@ fn settings_from(matches: &ArgMatches) -> (Settings, RunMode) {
     }
 
     // Now process command line flags:
-    if matches.is_present("debug") || (!ignore_environment && env::var_os("PYTHONDEBUG").is_some())
-    {
+    if matches.get_flag("debug") || (!ignore_environment && env::var_os("PYTHONDEBUG").is_some()) {
         settings.debug = true;
     }
 
-    if matches.is_present("inspect")
+    if matches.get_flag("inspect")
         || (!ignore_environment && env::var_os("PYTHONINSPECT").is_some())
     {
         settings.inspect = true;
     }
 
-    if matches.is_present("optimize") {
-        settings.optimize = matches.occurrences_of("optimize").try_into().unwrap();
+    if matches.contains_id("optimize") {
+        settings.optimize = matches.get_count("optimize").try_into().unwrap();
     } else if !ignore_environment {
         if let Ok(value) = get_env_var_value("PYTHONOPTIMIZE") {
             settings.optimize = value;
         }
     }
 
-    if matches.is_present("verbose") {
-        settings.verbose = matches.occurrences_of("verbose").try_into().unwrap();
+    if matches.contains_id("verbose") {
+        settings.verbose = matches.get_count("verbose").try_into().unwrap();
     } else if !ignore_environment {
         if let Ok(value) = get_env_var_value("PYTHONVERBOSE") {
             settings.verbose = value;
         }
     }
 
-    if matches.is_present("no-user-site")
-        || matches.is_present("isolate")
+    if matches.get_flag("no-user-site")
+        || matches.get_flag("isolate")
         || (!ignore_environment && env::var_os("PYTHONNOUSERSITE").is_some())
     {
         settings.user_site_directory = false;
     }
 
-    if matches.is_present("quiet") {
+    if matches.get_flag("quiet") {
         settings.quiet = true;
     }
 
-    if matches.is_present("dont-write-bytecode")
+    if matches.get_flag("dont-write-bytecode")
         || (!ignore_environment && env::var_os("PYTHONDONTWRITEBYTECODE").is_some())
     {
         settings.write_bytecode = false;
@@ -242,20 +253,20 @@ fn settings_from(matches: &ArgMatches) -> (Settings, RunMode) {
         };
     }
 
-    if matches.is_present("safe-path")
+    if matches.get_flag("safe-path")
         || (!ignore_environment && env::var_os("PYTHONSAFEPATH").is_some())
     {
         settings.safe_path = true;
     }
 
     matches
-        .value_of("check-hash-based-pycs")
-        .unwrap_or("default")
+        .get_one::<String>("check-hash-based-pycs")
+        .unwrap()
         .clone_into(&mut settings.check_hash_pycs_mode);
 
     let mut dev_mode = false;
     let mut warn_default_encoding = false;
-    if let Some(xopts) = matches.values_of("implementation-option") {
+    if let Some(xopts) = matches.get_many::<String>("implementation-option") {
         settings.xoptions.extend(xopts.map(|s| {
             let mut parts = s.splitn(2, '=');
             let name = parts.next().unwrap().to_owned();
@@ -300,25 +311,33 @@ fn settings_from(matches: &ArgMatches) -> (Settings, RunMode) {
         };
         settings.warnoptions.push(warn.to_owned());
     }
-    if let Some(warnings) = matches.values_of("warning-control") {
-        settings.warnoptions.extend(warnings.map(ToOwned::to_owned));
+    if let Some(warnings) = matches.get_many::<String>("warning-control") {
+        settings.warnoptions.extend(warnings.cloned());
     }
 
-    let (mode, argv) = if let Some(mut cmd) = matches.values_of("c") {
+    // script having values even though -c/-m was passed would means that it was something like -mmodule foo bar
+    let weird_script_args = matches
+        .get_many::<String>("script")
+        .unwrap_or_default()
+        .cloned();
+
+    let (mode, argv) = if let Some(mut cmd) = matches.get_many::<String>("c") {
         let command = cmd.next().expect("clap ensure this exists");
         let argv = std::iter::once("-c".to_owned())
-            .chain(cmd.map(ToOwned::to_owned))
+            .chain(cmd.cloned())
+            .chain(weird_script_args)
             .collect();
         (RunMode::Command(command.to_owned()), argv)
-    } else if let Some(mut cmd) = matches.values_of("m") {
+    } else if let Some(mut cmd) = matches.get_many::<String>("m") {
         let module = cmd.next().expect("clap ensure this exists");
         let argv = std::iter::once("PLACEHOLDER".to_owned())
-            .chain(cmd.map(ToOwned::to_owned))
+            .chain(cmd.cloned())
+            .chain(weird_script_args)
             .collect();
         (RunMode::Module(module.to_owned()), argv)
-    } else if let Some(get_pip_args) = matches.values_of("install_pip") {
+    } else if let Some(get_pip_args) = matches.get_many::<String>("install_pip") {
         settings.isolated = true;
-        let mut args: Vec<_> = get_pip_args.map(ToOwned::to_owned).collect();
+        let mut args: Vec<_> = get_pip_args.cloned().collect();
         if args.is_empty() {
             args.push("ensurepip".to_owned());
             args.push("--upgrade".to_owned());
@@ -330,11 +349,11 @@ fn settings_from(matches: &ArgMatches) -> (Settings, RunMode) {
             _ => panic!("--install-pip takes ensurepip or get-pip as first argument"),
         };
         (mode, args)
-    } else if let Some(argv) = matches.values_of("script") {
-        let argv: Vec<_> = argv.map(ToOwned::to_owned).collect();
+    } else if let Some(argv) = matches.get_many::<String>("script") {
+        let argv: Vec<_> = argv.cloned().collect();
         let script = argv[0].clone();
         (
-            RunMode::ScriptInteractive(Some(script), matches.is_present("inspect")),
+            RunMode::ScriptInteractive(Some(script), matches.get_flag("inspect")),
             argv,
         )
     } else {
