@@ -820,7 +820,7 @@ fn print_del_error(e: PyBaseExceptionRef, zelf: &PyObject, vm: &VirtualMachine) 
     let del_method = zelf.get_class_attr("__del__").unwrap();
     let repr = &del_method.repr(vm);
     match repr {
-        Ok(v) => println!("{v}"),
+        Ok(v) => println!("{v}",v=v),
         Err(_) => println!("{}", del_method.class().name()),
     }
     let tb_module = vm.import("traceback", None, 0).unwrap();

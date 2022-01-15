@@ -103,7 +103,7 @@ impl ItemMetaInner {
                         ident,
                         format!(
                             "#[{meta_ident}({name})] is not one of allowed attributes [{}]",
-                            allowed_names.join(", ")
+                            allowed_names.join(", "), name=name, meta_ident=meta_ident
                         ),
                     ))
                 }
@@ -114,7 +114,7 @@ impl ItemMetaInner {
         if !lits.is_empty() {
             return Err(syn::Error::new_spanned(
                 &meta_ident,
-                format!("#[{meta_ident}(..)] cannot contain literal"),
+                format!("#[{meta_ident}(..)] cannot contain literal", meta_ident=meta_ident),
             ));
         }
 

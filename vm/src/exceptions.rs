@@ -144,7 +144,7 @@ impl VirtualMachine {
         }?;
 
         match offer_suggestions(exc, vm) {
-            Some(suggestions) => writeln!(output, ". Did you mean: '{suggestions}'?"),
+            Some(suggestions) => writeln!(output, ". Did you mean: '{suggestions}'?", suggestions=suggestions),
             None => writeln!(output),
         }
     }
