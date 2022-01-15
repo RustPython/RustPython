@@ -785,6 +785,7 @@ class BreakpointTestCase(BaseTestCase):
 
     # TODO: RUSTPYTHON, FileExistsError: [Errno 17] File exists (os error 17): 'None' -> 'None'
     @unittest.expectedFailure
+    @unittest.skip("TODO: RUSTPYTHON, Error in atexit._run_exitfuncs")
     def test_bp_after_last_statement(self):
         code = """
             def main():
