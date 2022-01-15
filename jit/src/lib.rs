@@ -286,6 +286,9 @@ impl UnTypedAbiValue {
     }
 }
 
+// we don't actually ever touch CompiledCode til we drop it, it should be safe.
+// TODO: confirm with wasmtime ppl that it's not unsound?
+#[allow(clippy::non_send_fields_in_send_ty)]
 unsafe impl Send for CompiledCode {}
 unsafe impl Sync for CompiledCode {}
 

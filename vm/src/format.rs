@@ -413,11 +413,7 @@ impl FormatSpec {
             },
         };
 
-        if raw_magnitude_string_result.is_err() {
-            return raw_magnitude_string_result;
-        }
-
-        let magnitude_string = self.add_magnitude_separators(raw_magnitude_string_result.unwrap());
+        let magnitude_string = self.add_magnitude_separators(raw_magnitude_string_result?);
         let format_sign = self.sign.unwrap_or(FormatSign::Minus);
         let sign_str = if num.is_sign_negative() && !num.is_nan() {
             "-"
@@ -474,13 +470,10 @@ impl FormatSpec {
             },
             None => Ok(magnitude.to_str_radix(10)),
         };
-        if raw_magnitude_string_result.is_err() {
-            return raw_magnitude_string_result;
-        }
         let magnitude_string = format!(
             "{}{}",
             prefix,
-            self.add_magnitude_separators(raw_magnitude_string_result.unwrap())
+            self.add_magnitude_separators(raw_magnitude_string_result?)
         );
 
         let format_sign = self.sign.unwrap_or(FormatSign::Minus);

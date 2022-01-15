@@ -71,7 +71,8 @@ opt-level = 3
 
 [profile.test]
 opt-level = 3
-lto = "thin"
+# https://github.com/rust-lang/rust/issues/92869
+# lto = "thin"
 
 [profile.bench]
 lto = true
