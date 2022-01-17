@@ -365,8 +365,6 @@ class ShlexTest(unittest.TestCase):
             self.assertEqual(shlex.quote("test%s'name'" % u),
                              "'test%s'\"'\"'name'\"'\"''" % u)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testJoin(self):
         for split_command, command in [
             (['a ', 'b'], "'a ' b"),
