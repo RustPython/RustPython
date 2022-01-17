@@ -718,8 +718,6 @@ class MersenneTwister_TestBasicOps(TestBasicOps, unittest.TestCase):
             self.assertEqual(set(range(start,stop)),
                 set([self.gen.randrange(start,stop) for i in range(100)]))
 
-    # TODO: RUSTPYTHON 
-    @unittest.expectedFailure
     def test_getrandbits(self):
         super().test_getrandbits()
 
@@ -759,8 +757,6 @@ class MersenneTwister_TestBasicOps(TestBasicOps, unittest.TestCase):
             self.assertEqual(k, numbits)        # note the stronger assertion
             self.assertTrue(2**k > n > 2**(k-1))   # note the stronger assertion
 
-    # TODO: RUSTPYTHON AttributeError: 'Random' object has no attribute '_randbelow_without_getrandbits'
-    @unittest.expectedFailure
     def test_randbelow_without_getrandbits(self):
         # Random._randbelow() can only use random() when the built-in one
         # has been overridden but no new getrandbits() method was supplied.
@@ -1051,8 +1047,6 @@ class TestDistributions(unittest.TestCase):
         returned_value = random.gammavariate(1.1, 2.3)
         self.assertAlmostEqual(returned_value, 2.53)
 
-    # TODO: RUSTPYTHON assertAlmostEqual failure.
-    @unittest.expectedFailure
     @unittest.mock.patch('random.Random.random')
     def test_gammavariate_alpha_equal_one(self, random_mock):
 
@@ -1064,8 +1058,6 @@ class TestDistributions(unittest.TestCase):
         returned_value = random.gammavariate(1.0, 3.14)
         self.assertAlmostEqual(returned_value, 1.877208182372648)
 
-    # TODO: RUSTPYTHON assertAlmostEqual failure.
-    @unittest.expectedFailure
     @unittest.mock.patch('random.Random.random')
     def test_gammavariate_alpha_equal_one_equals_expovariate(self, random_mock):
 
@@ -1165,8 +1157,6 @@ class TestRandomSubclassing(unittest.TestCase):
                 random.Random.__init__(self)
         Subclass(newarg=1)
 
-    # TODO: RUSTPYTHON AssertionError: items in the second set but not the first.
-    @unittest.expectedFailure
     def test_subclasses_overriding_methods(self):
         # Subclasses with an overridden random, but only the original
         # getrandbits method should not rely on getrandbits in for randrange,
