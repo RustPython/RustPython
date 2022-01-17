@@ -640,6 +640,9 @@ impl PyInt {
             return Err(vm.new_overflow_error("can't convert negative int to unsigned".to_owned()));
         }
 
+        if args.length.value.sign() == Sign::Minus {
+            return Err(vm.new_value_error("length argument must be non-negative".to_owned()));
+        }
         let byte_len = args.length.try_to_primitive(vm)?;
 
         let mut origin_bytes = match (args.byteorder.as_str(), signed) {
