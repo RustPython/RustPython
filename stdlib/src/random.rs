@@ -109,11 +109,13 @@ mod _random {
         }
 
         #[pymethod]
-        fn getrandbits(&self, k: usize, vm: &VirtualMachine) -> PyResult<BigInt> {
+        fn getrandbits(&self, k: isize, vm: &VirtualMachine) -> PyResult<BigInt> {
+            if k < 0 {
+                return Err(vm.new_value_error("number of bits must be non-negative".to_owned()));
+            }
+
             if k == 0 {
-                return Err(
-                    vm.new_value_error("number of bits must be greater than zero".to_owned())
-                );
+                return Ok(BigInt::from(0));
             }
 
             let mut rng = self.rng.lock();
