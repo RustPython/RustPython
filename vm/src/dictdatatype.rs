@@ -124,14 +124,8 @@ impl<T: Clone> Dict<T> {
     pub(crate) fn as_kvpairs(&self) -> Vec<(PyObjectRef, T)> {
         let entries = &self.inner.read().entries;
         entries
-            .into_iter()
-            .filter_map(|entry| {
-                if let Some(dict_entry) = entry {
-                    Some(dict_entry.as_tuple())
-                } else {
-                    None
-                }
-            })
+            .iter()
+            .filter_map(|entry| entry.as_ref().map(|dict_entry| dict_entry.as_tuple()))
             .collect()
     }
 }
