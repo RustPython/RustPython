@@ -363,23 +363,18 @@ mod _collections {
 
         #[pymethod(magic)]
         fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            let deque = zelf.borrow_deque().clone();
             let class = zelf.class();
             let class_name = class.name();
+            let closing_part = zelf
+                .maxlen
+                .map(|maxlen| format!("], maxlen={}", maxlen))
+                .unwrap_or_else(|| "]".to_owned());
 
             let s = if zelf.len() == 0 {
-                format!(
-                    "{}([], maxlen={})",
-                    class_name,
-                    zelf.maxlen.unwrap_or_default()
-                )
+                format!("{}([{})", class_name, closing_part)
             } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-                collection_repr(
-                    Some(&class_name),
-                    "[",
-                    format!("], maxlen={}", zelf.maxlen.unwrap_or_default()).as_str(),
-                    zelf.borrow_deque().iter(),
-                    vm,
-                )?
+                collection_repr(Some(&class_name), "[", &closing_part, deque.iter(), vm)?
             } else {
                 "[...]".to_owned()
             };
