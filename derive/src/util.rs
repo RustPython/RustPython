@@ -102,9 +102,7 @@ impl ItemMetaInner {
                     Err(syn::Error::new_spanned(
                         ident,
                         format!(
-                            "#[{}({})] is not one of allowed attributes [{}]",
-                            meta_ident.to_string(),
-                            name,
+                            "#[{meta_ident}({name})] is not one of allowed attributes [{}]",
                             allowed_names.join(", ")
                         ),
                     ))
@@ -116,7 +114,7 @@ impl ItemMetaInner {
         if !lits.is_empty() {
             return Err(syn::Error::new_spanned(
                 &meta_ident,
-                format!("#[{}(..)] cannot contain literal", meta_ident.to_string()),
+                format!("#[{meta_ident}(..)] cannot contain literal"),
             ));
         }
 
@@ -381,7 +379,7 @@ impl AttributeExt for Attribute {
                     other.span(),
                     format!(
                         "#[{name}(...)] doesn't contain '{item}' to remove",
-                        name = other.get_ident().unwrap().to_string(),
+                        name = other.get_ident().unwrap(),
                         item = item_name
                     ),
                 )),

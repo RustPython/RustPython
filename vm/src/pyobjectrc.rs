@@ -307,6 +307,7 @@ pub struct PyWeak {
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "threading")] {
+        #[allow(clippy::non_send_fields_in_send_ty)] // false positive?
         unsafe impl Send for PyWeak {}
         unsafe impl Sync for PyWeak {}
     }
@@ -819,7 +820,7 @@ fn print_del_error(e: PyBaseExceptionRef, zelf: &PyObject, vm: &VirtualMachine) 
     let del_method = zelf.get_class_attr("__del__").unwrap();
     let repr = &del_method.repr(vm);
     match repr {
-        Ok(v) => println!("{}", v.to_string()),
+        Ok(v) => println!("{v}"),
         Err(_) => println!("{}", del_method.class().name()),
     }
     let tb_module = vm.import("traceback", None, 0).unwrap();

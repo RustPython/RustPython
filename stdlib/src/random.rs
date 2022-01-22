@@ -109,11 +109,13 @@ mod _random {
         }
 
         #[pymethod]
-        fn getrandbits(&self, k: usize, vm: &VirtualMachine) -> PyResult<BigInt> {
+        fn getrandbits(&self, k: isize, vm: &VirtualMachine) -> PyResult<BigInt> {
+            if k < 0 {
+                return Err(vm.new_value_error("number of bits must be non-negative".to_owned()));
+            }
+
             if k == 0 {
-                return Err(
-                    vm.new_value_error("number of bits must be greater than zero".to_owned())
-                );
+                return Ok(BigInt::from(0));
             }
 
             let mut rng = self.rng.lock();
@@ -148,14 +150,6 @@ mod _random {
                 Sign::Plus
             };
             Ok(BigInt::from_biguint(sign, uint))
-        }
-
-        #[pymethod]
-        fn randbytes(&self, n: usize) -> PyResult<Vec<u8>> {
-            let mut buf = vec![0u8; n];
-            let mut rng = self.rng.lock();
-            rng.fill_bytes(&mut buf);
-            Ok(buf)
         }
     }
 }

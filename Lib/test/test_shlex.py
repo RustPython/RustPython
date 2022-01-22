@@ -3,7 +3,7 @@ import itertools
 import shlex
 import string
 import unittest
-
+from unittest import mock
 
 
 # The original test data set was from shellwords, by Hartmut Goebel.
@@ -161,6 +161,11 @@ class ShlexTest(unittest.TestCase):
             ret.append(tok)
             tok = lex.get_token()
         return ret
+
+    @mock.patch('sys.stdin', io.StringIO())
+    def testSplitNoneDeprecation(self):
+        with self.assertWarns(DeprecationWarning):
+            shlex.split(None)
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
@@ -360,8 +365,6 @@ class ShlexTest(unittest.TestCase):
             self.assertEqual(shlex.quote("test%s'name'" % u),
                              "'test%s'\"'\"'name'\"'\"''" % u)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testJoin(self):
         for split_command, command in [
             (['a ', 'b'], "'a ' b"),
