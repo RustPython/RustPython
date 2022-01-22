@@ -437,8 +437,9 @@ where
             let build_func = match self.method_type.as_str() {
                 "method" => quote!(.build_method(ctx, class.clone())),
                 "classmethod" => quote!(.build_classmethod(ctx, class.clone())),
+                "staticmethod" => quote!(.build_staticmethod(ctx, class.clone())),
                 other => unreachable!(
-                    "Only 'method' and 'classmethod' are supported, got {}",
+                    "Only 'method', 'classmethod' and 'staticmethod' are supported, got {}",
                     other
                 ),
             };
@@ -954,13 +955,15 @@ where
 {
     assert!(ALL_ALLOWED_NAMES.contains(&attr_name.as_str()));
     Ok(match attr_name.as_str() {
-        attr_name @ "pymethod" | attr_name @ "pyclassmethod" => Box::new(MethodItem {
-            inner: ContentItemInner {
-                index,
-                attr_name: attr_name.to_owned(),
-            },
-            method_type: attr_name.strip_prefix("py").unwrap().to_owned(),
-        }),
+        attr_name @ "pymethod" | attr_name @ "pyclassmethod" | attr_name @ "pystaticmethod" => {
+            Box::new(MethodItem {
+                inner: ContentItemInner {
+                    index,
+                    attr_name: attr_name.to_owned(),
+                },
+                method_type: attr_name.strip_prefix("py").unwrap().to_owned(),
+            })
+        }
         "pyproperty" => Box::new(PropertyItem {
             inner: ContentItemInner { index, attr_name },
         }),

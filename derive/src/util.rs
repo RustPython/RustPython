@@ -14,6 +14,7 @@ use syn_ext::{
 pub(crate) const ALL_ALLOWED_NAMES: &[&str] = &[
     "pymethod",
     "pyclassmethod",
+    "pystaticmethod",
     "pyproperty",
     "pyfunction",
     "pyclass",
