@@ -227,7 +227,7 @@ impl PyByteArray {
         }
     }
 
-    #[pymethod]
+    #[pystaticmethod]
     fn maketrans(from: PyBytesInner, to: PyBytesInner, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         PyBytesInner::maketrans(from, to, vm)
     }
