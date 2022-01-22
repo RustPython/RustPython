@@ -1,4 +1,4 @@
-use super::{pytype, PyClassMethod, PyStr, PyStrRef, PyTypeRef};
+use super::{pytype, PyClassMethod, PyStaticMethod, PyStr, PyStrRef, PyTypeRef};
 use crate::{
     builtins::PyBoundMethod,
     function::{FuncArgs, IntoPyNativeFunc, PyNativeFunc},
@@ -44,6 +44,14 @@ impl PyNativeFuncDef {
         // TODO: classmethod_descriptor
         let callable = self.build_method(ctx, class).into();
         PyClassMethod::new_ref(callable, ctx)
+    }
+    pub fn build_staticmethod(self, ctx: &PyContext, class: PyTypeRef) -> PyRef<PyStaticMethod> {
+        let callable = self.build_method(ctx, class).into();
+        PyRef::new_ref(
+            PyStaticMethod { callable },
+            ctx.types.staticmethod_type.clone(),
+            None,
+        )
     }
 }
 

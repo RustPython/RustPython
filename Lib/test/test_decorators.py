@@ -76,6 +76,7 @@ class TestDecorators(unittest.TestCase):
         self.assertEqual(C.foo(), 42)
         self.assertEqual(C().foo(), 42)
 
+    @unittest.skip("TODO: 3.10.x changed staticmethod to be callable")
     def test_staticmethod_function(self):
         @staticmethod
         def notamethod(x):

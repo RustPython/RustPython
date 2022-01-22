@@ -1,8 +1,8 @@
 use super::{PyStr, PyTypeRef};
 use crate::{
     builtins::builtinfunc::PyBuiltinMethod,
-    function::IntoPyNativeFunc,
-    types::{Constructor, GetDescriptor},
+    function::{FuncArgs, IntoPyNativeFunc},
+    types::{Callable, Constructor, GetDescriptor},
     PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 
@@ -59,7 +59,7 @@ impl PyStaticMethod {
     }
 }
 
-#[pyimpl(with(GetDescriptor, Constructor), flags(BASETYPE, HAS_DICT))]
+#[pyimpl(with(Callable, GetDescriptor, Constructor), flags(BASETYPE, HAS_DICT))]
 impl PyStaticMethod {
     #[pyproperty(magic)]
     fn isabstractmethod(&self, vm: &VirtualMachine) -> PyObjectRef {
@@ -73,6 +73,14 @@ impl PyStaticMethod {
     fn set_isabstractmethod(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.callable.set_attr("__isabstractmethod__", value, vm)?;
         Ok(())
+    }
+}
+
+impl Callable for PyStaticMethod {
+    type Args = FuncArgs;
+    #[inline]
+    fn call(zelf: &crate::PyObjectView<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        vm.invoke(&zelf.callable, args)
     }
 }
 
