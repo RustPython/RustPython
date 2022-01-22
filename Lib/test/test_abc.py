@@ -71,8 +71,6 @@ def test_factory(abc_ABCMeta, abc_get_cache_token):
 
     class TestABC(unittest.TestCase):
 
-        # TODO: RUSTPYTHON
-        @unittest.expectedFailure
         def test_ABC_helper(self):
             # create an ABC using the helper class and perform basic checks
             class C(abc.ABC):
@@ -93,8 +91,6 @@ def test_factory(abc_ABCMeta, abc_get_cache_token):
             def bar(self): pass
             self.assertFalse(hasattr(bar, "__isabstractmethod__"))
 
-        # TODO: RUSTPYTHON
-        @unittest.expectedFailure
         def test_abstractproperty_basics(self):
             @property
             @abc.abstractmethod
@@ -113,8 +109,6 @@ def test_factory(abc_ABCMeta, abc_get_cache_token):
                 def foo(self): return super().foo
             self.assertEqual(D().foo, 3)
 
-        # TODO: RUSTPYTHON
-        @unittest.expectedFailure
         def test_abstractclassmethod_basics(self):
             @classmethod
             @abc.abstractmethod
@@ -135,8 +129,6 @@ def test_factory(abc_ABCMeta, abc_get_cache_token):
             self.assertEqual(D.foo(), 'D')
             self.assertEqual(D().foo(), 'D')
 
-        # TODO: RUSTPYTHON
-        @unittest.expectedFailure
         def test_abstractstaticmethod_basics(self):
             @staticmethod
             @abc.abstractmethod
@@ -157,8 +149,6 @@ def test_factory(abc_ABCMeta, abc_get_cache_token):
             self.assertEqual(D.foo(), 4)
             self.assertEqual(D().foo(), 4)
 
-        # TODO: RUSTPYTHON
-        @unittest.expectedFailure
         def test_abstractmethod_integration(self):
             for abstractthing in [abc.abstractmethod, abc.abstractproperty,
                                   abc.abstractclassmethod,
@@ -187,8 +177,6 @@ def test_factory(abc_ABCMeta, abc_get_cache_token):
                 self.assertRaises(TypeError, F)  # because bar is abstract now
                 self.assertTrue(isabstract(F))
 
-        # TODO: RUSTPYTHON
-        @unittest.expectedFailure
         def test_descriptors_with_abstractmethod(self):
             class C(metaclass=abc_ABCMeta):
                 @property
