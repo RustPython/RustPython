@@ -13,6 +13,7 @@ use instructions::FunctionCompiler;
 use std::mem::ManuallyDrop;
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum JitCompileError {
     #[error("function can't be jitted")]
     NotSupported,
@@ -23,6 +24,7 @@ pub enum JitCompileError {
 }
 
 #[derive(Debug, thiserror::Error, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum JitArgumentError {
     #[error("argument is of wrong type")]
     ArgumentTypeMismatch,
@@ -167,6 +169,7 @@ impl JitSig {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum JitType {
     Int,
     Float,
@@ -192,6 +195,7 @@ impl JitType {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum AbiValue {
     Float(f64),
     Int(i64),
