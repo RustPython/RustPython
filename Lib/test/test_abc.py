@@ -172,8 +172,6 @@ def test_factory(abc_ABCMeta, abc_get_cache_token):
             msg = r"class C with abstract methods method_one, method_two"
             self.assertRaisesRegex(TypeError, msg, C)
 
-        # TODO: RUSTPYTHON
-        @unittest.expectedFailure
         def test_abstractmethod_integration(self):
             for abstractthing in [abc.abstractmethod, abc.abstractproperty,
                                   abc.abstractclassmethod,

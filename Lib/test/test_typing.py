@@ -467,8 +467,6 @@ class BaseCallableTests:
         with self.assertRaises(TypeError):
             type(c)()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_callable_wrong_forms(self):
         Callable = self.Callable
         with self.assertRaises(TypeError):
@@ -546,8 +544,6 @@ class BaseCallableTests:
             self.assertEqual(alias.__args__, loaded.__args__)
             self.assertEqual(alias.__parameters__, loaded.__parameters__)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_var_substitution(self):
         Callable = self.Callable
         fullname = f"{Callable.__module__}.Callable"
@@ -579,8 +575,6 @@ class BaseCallableTests:
         self.assertIs(a().__class__, C1)
         self.assertEqual(a().__orig_class__, C1[[int], T])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_paramspec(self):
         Callable = self.Callable
         fullname = f"{Callable.__module__}.Callable"
@@ -615,8 +609,6 @@ class BaseCallableTests:
         self.assertEqual(repr(C2), f"{fullname}[~P, int]")
         self.assertEqual(repr(C2[int, str]), f"{fullname}[[int, str], int]")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_concatenate(self):
         Callable = self.Callable
         fullname = f"{Callable.__module__}.Callable"
@@ -625,8 +617,6 @@ class BaseCallableTests:
         self.assertEqual(repr(C1),
                             f"{fullname}[typing.Concatenate[int, ~P], int]")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_errors(self):
         Callable = self.Callable
         alias = Callable[[int, str], float]
@@ -2129,8 +2119,6 @@ class GenericTests(BaseTestCase):
                     self.assertNotEqual(repr(base), '')
                     self.assertEqual(base, base)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pickle(self):
         global C  # pickle wants to reference the class by name
         T = TypeVar('T')
