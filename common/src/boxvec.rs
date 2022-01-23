@@ -465,7 +465,7 @@ pub struct Drain<'a, T> {
 }
 
 unsafe impl<'a, T: Sync> Sync for Drain<'a, T> {}
-unsafe impl<'a, T: Send> Send for Drain<'a, T> {}
+unsafe impl<'a, T: Sync> Send for Drain<'a, T> {}
 
 impl<T> Iterator for Drain<'_, T> {
     type Item = T;

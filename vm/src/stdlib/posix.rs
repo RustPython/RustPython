@@ -160,7 +160,7 @@ pub mod module {
 
     // Flags for os_access
     bitflags! {
-        pub struct AccessFlags: u8{
+        pub struct AccessFlags: u8 {
             const F_OK = _os::F_OK;
             const R_OK = _os::R_OK;
             const W_OK = _os::W_OK;

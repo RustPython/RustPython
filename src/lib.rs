@@ -310,16 +310,15 @@ fn add_stdlib(vm: &mut VirtualMachine) {
 /// Create settings by examining command line arguments and environment
 /// variables.
 fn create_settings(matches: &ArgMatches) -> PySettings {
-    let mut settings = PySettings {
-        isolated: matches.is_present("isolate"),
-        ignore_environment: matches.is_present("ignore-environment"),
-        interactive: !matches.is_present("c")
-            && !matches.is_present("m")
-            && (!matches.is_present("script") || matches.is_present("inspect")),
-        bytes_warning: matches.occurrences_of("bytes-warning"),
-        no_site: matches.is_present("no-site"),
-        ..Default::default()
-    };
+    let mut settings = PySettings::default();
+    settings.isolated = matches.is_present("isolate");
+    settings.ignore_environment = matches.is_present("ignore-environment");
+    settings.interactive = !matches.is_present("c")
+        && !matches.is_present("m")
+        && (!matches.is_present("script") || matches.is_present("inspect"));
+    settings.bytes_warning = matches.occurrences_of("bytes-warning");
+    settings.no_site = matches.is_present("no-site");
+
     let ignore_environment = settings.ignore_environment || settings.isolated;
 
     // when rustpython-vm/pylib is enabled, PySettings::default().path_list has pylib::LIB_PATH

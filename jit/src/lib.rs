@@ -13,6 +13,7 @@ use instructions::FunctionCompiler;
 use std::mem::ManuallyDrop;
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum JitCompileError {
     #[error("function can't be jitted")]
     NotSupported,
@@ -23,6 +24,7 @@ pub enum JitCompileError {
 }
 
 #[derive(Debug, thiserror::Error, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum JitArgumentError {
     #[error("argument is of wrong type")]
     ArgumentTypeMismatch,
@@ -167,6 +169,7 @@ impl JitSig {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum JitType {
     Int,
     Float,
@@ -192,6 +195,7 @@ impl JitType {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum AbiValue {
     Float(f64),
     Int(i64),
@@ -286,6 +290,9 @@ impl UnTypedAbiValue {
     }
 }
 
+// we don't actually ever touch CompiledCode til we drop it, it should be safe.
+// TODO: confirm with wasmtime ppl that it's not unsound?
+#[allow(clippy::non_send_fields_in_send_ty)]
 unsafe impl Send for CompiledCode {}
 unsafe impl Sync for CompiledCode {}
 

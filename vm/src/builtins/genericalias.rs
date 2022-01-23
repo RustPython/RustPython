@@ -127,6 +127,24 @@ impl PyGenericAlias {
     }
 
     #[pymethod(magic)]
+    fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let new_args = subs_parameters(
+            |vm| self.repr(vm),
+            self.args.clone(),
+            self.parameters.clone(),
+            needle,
+            vm,
+        )?;
+
+        Ok(PyGenericAlias::new(
+            self.origin.clone(),
+            new_args.as_object().into_pyobject(vm),
+            vm,
+        )
+        .into_object(vm))
+    }
+
+    #[pymethod(magic)]
     fn dir(&self, vm: &VirtualMachine) -> PyResult<PyList> {
         let dir = vm.dir(Some(self.origin()))?;
         for exc in ATTR_EXCEPTIONS.iter() {
@@ -282,23 +300,6 @@ pub fn subs_parameters<F: Fn(&VirtualMachine) -> PyResult<String>>(
 }
 
 impl PyGenericAlias {
-    fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let new_args = subs_parameters(
-            |vm| self.repr(vm),
-            self.args.clone(),
-            self.parameters.clone(),
-            needle,
-            vm,
-        )?;
-
-        Ok(PyGenericAlias::new(
-            self.origin.clone(),
-            new_args.as_object().into_pyobject(vm),
-            vm,
-        )
-        .into_object(vm))
-    }
-
     const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
         length: None,
         subscript: Some(|mapping, needle, vm| {

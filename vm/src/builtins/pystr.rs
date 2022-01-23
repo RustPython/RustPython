@@ -1141,7 +1141,7 @@ impl PyStr {
         Ok(translated)
     }
 
-    #[pymethod]
+    #[pystaticmethod]
     fn maketrans(
         dict_or_str: PyObjectRef,
         to_str: OptionalArg<PyStrRef>,

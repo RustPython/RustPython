@@ -3,7 +3,7 @@ import itertools
 import shlex
 import string
 import unittest
-
+from unittest import mock
 
 
 # The original test data set was from shellwords, by Hartmut Goebel.
@@ -162,6 +162,11 @@ class ShlexTest(unittest.TestCase):
             tok = lex.get_token()
         return ret
 
+    @mock.patch('sys.stdin', io.StringIO())
+    def testSplitNoneDeprecation(self):
+        with self.assertWarns(DeprecationWarning):
+            shlex.split(None)
+
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def testSplitPosix(self):
@@ -178,8 +183,6 @@ class ShlexTest(unittest.TestCase):
                              "%s: %s != %s" %
                              (self.data[i][0], l, self.data[i][1:]))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testSyntaxSplitAmpersandAndPipe(self):
         """Test handling of syntax splitting of &, |"""
         # Could take these forms: &&, &, |&, ;&, ;;&
@@ -197,8 +200,6 @@ class ShlexTest(unittest.TestCase):
                 self.assertEqual(ref, result,
                                  "While splitting '%s' [ws=%s]" % (ss, ws))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testSyntaxSplitSemicolon(self):
         """Test handling of syntax splitting of ;"""
         # Could take these forms: ;, ;;, ;&, ;;&
@@ -215,8 +216,6 @@ class ShlexTest(unittest.TestCase):
                 self.assertEqual(ref, result,
                                  "While splitting '%s' [ws=%s]" % (ss, ws))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testSyntaxSplitRedirect(self):
         """Test handling of syntax splitting of >"""
         # of course, the same applies to <, |
@@ -232,8 +231,6 @@ class ShlexTest(unittest.TestCase):
                 self.assertEqual(ref, result,
                                  "While splitting '%s' [ws=%s]" % (ss, ws))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testSyntaxSplitParen(self):
         """Test handling of syntax splitting of ()"""
         # these should all parse to the same output
@@ -247,8 +244,6 @@ class ShlexTest(unittest.TestCase):
             self.assertEqual(ref, result,
                              "While splitting '%s' [ws=%s]" % (ss, ws))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testSyntaxSplitCustom(self):
         """Test handling of syntax splitting with custom chars"""
         ss = "~/a&&b-c --color=auto||d *.py?"
@@ -262,8 +257,6 @@ class ShlexTest(unittest.TestCase):
         result = list(s)
         self.assertEqual(ref, result, "While splitting '%s' [ws=True]" % ss)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testTokenTypes(self):
         """Test that tokens are split with types as expected."""
         for source, expected in (
@@ -284,16 +277,12 @@ class ShlexTest(unittest.TestCase):
                 observed.append((t, tt))
             self.assertEqual(observed, expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testPunctuationInWordChars(self):
         """Test that any punctuation chars are removed from wordchars"""
         s = shlex.shlex('a_b__c', punctuation_chars='_')
         self.assertNotIn('_', s.wordchars)
         self.assertEqual(list(s), ['a', '_', 'b', '__', 'c'])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testPunctuationWithWhitespaceSplit(self):
         """Test that with whitespace_split, behaviour is as expected"""
         s = shlex.shlex('a  && b  ||  c', punctuation_chars='&')
@@ -306,8 +295,6 @@ class ShlexTest(unittest.TestCase):
         # white space
         self.assertEqual(list(s), ['a', '&&', 'b', '||', 'c'])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testPunctuationWithPosix(self):
         """Test that punctuation_chars and posix behave correctly together."""
         # see Issue #29132
@@ -316,8 +303,6 @@ class ShlexTest(unittest.TestCase):
         s = shlex.shlex('f >\\"abc\\"', posix=True, punctuation_chars=True)
         self.assertEqual(list(s), ['f', '>', '"abc"'])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testEmptyStringHandling(self):
         """Test that parsing of empty strings is correctly handled."""
         # see Issue #21999
@@ -360,8 +345,6 @@ class ShlexTest(unittest.TestCase):
             self.assertEqual(shlex.quote("test%s'name'" % u),
                              "'test%s'\"'\"'name'\"'\"''" % u)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testJoin(self):
         for split_command, command in [
             (['a ', 'b'], "'a ' b"),
@@ -383,8 +366,6 @@ class ShlexTest(unittest.TestCase):
                 resplit = shlex.split(joined)
                 self.assertEqual(split_command, resplit)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testPunctuationCharsReadOnly(self):
         punctuation_chars = "/|$%^"
         shlex_instance = shlex.shlex(punctuation_chars=punctuation_chars)

@@ -1310,9 +1310,8 @@ mod _ssl {
 
     #[cfg(target_os = "android")]
     mod android {
-        use crate::{
-            exceptions::PyBaseExceptionRef, stdlib::ssl::convert_openssl_error, VirtualMachine,
-        };
+        use super::convert_openssl_error;
+        use crate::vm::{builtins::PyBaseExceptionRef, VirtualMachine};
         use openssl::{
             ssl::SslContextBuilder,
             x509::{store::X509StoreBuilder, X509},
