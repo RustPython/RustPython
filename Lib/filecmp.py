@@ -10,7 +10,10 @@ Functions:
 
 """
 
-import os
+try:
+    import os
+except ImportError:
+    import _dummy_os as os
 import stat
 from itertools import filterfalse
 from types import GenericAlias
