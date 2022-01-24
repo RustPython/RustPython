@@ -457,11 +457,6 @@ else:
 class SystemRandom_TestBasicOps(TestBasicOps, unittest.TestCase):
     gen = random.SystemRandom()
 
-    # TODO: RUSTPYTHON, OverflowError: Python int too large to convert to Rust usize
-    @unittest.expectedFailure
-    def test_randbytes(self):  # TODO: RUSTPYTHON, remove when this passes
-        super().test_randbytes()  # TODO: RUSTPYTHON, remove when this passes
-
     def test_autoseed(self):
         # Doesn't need to do anything except not fail
         self.gen.seed()
