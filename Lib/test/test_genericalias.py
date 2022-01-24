@@ -19,7 +19,7 @@ try:
 except ImportError:
     ctypes = None
 from difflib import SequenceMatcher
-# XXX RUSTPYTHON TODO: from filecmp import dircmp
+from filecmp import dircmp
 # XXX RUSTPYTHON TODO: from fileinput import FileInput
 from itertools import chain
 from http.cookies import Morsel
@@ -51,7 +51,7 @@ class BaseTest(unittest.TestCase):
     generic_types = [type, tuple, list, dict, set, frozenset, enumerate,
                      defaultdict, deque,
                      SequenceMatcher,
-                     # XXX RUSTPYTHON TODO: dircmp,
+                     dircmp,
                      # XXX RUSTPYTHON TODO: FileInput,
                      OrderedDict, Counter, UserDict, UserList,
                      Pattern, Match,
