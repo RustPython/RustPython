@@ -1,5 +1,5 @@
 use super::{
-    mappingproxy::PyMappingProxy, object, unionobject, PyClassMethod, PyDictRef, PyList,
+    mappingproxy::PyMappingProxy, object, pyunion, PyClassMethod, PyDictRef, PyList,
     PyStaticMethod, PyStr, PyStrRef, PyTuple, PyTupleRef,
 };
 use crate::common::{
@@ -385,7 +385,7 @@ impl PyType {
     #[pymethod(name = "__ror__")]
     #[pymethod(magic)]
     pub fn or(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        unionobject::union_type_or(zelf, other, vm)
+        pyunion::union_type_or(zelf, other, vm)
     }
 
     #[pyslot]

@@ -14,25 +14,25 @@ use super::genericalias;
 static CLS_ATTRS: [&str; 1] = ["__module__"];
 
 #[pyclass(module = "types", name = "UnionType")]
-pub struct PyUnionObject {
+pub struct PyUnion {
     args: PyTupleRef,
     parameters: PyTupleRef,
 }
 
-impl fmt::Debug for PyUnionObject {
+impl fmt::Debug for PyUnion {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str("UnionObject")
     }
 }
 
-impl PyValue for PyUnionObject {
+impl PyValue for PyUnion {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.union_type
     }
 }
 
 #[pyimpl(with(Hashable, Comparable, AsMapping), flags(BASETYPE))]
-impl PyUnionObject {
+impl PyUnion {
     pub fn new(args: PyTupleRef, vm: &VirtualMachine) -> Self {
         let parameters = make_parameters(&args, vm);
         Self { args, parameters }
@@ -150,7 +150,7 @@ fn make_parameters(args: &PyTupleRef, vm: &VirtualMachine) -> PyTupleRef {
 fn flatten_args(args: PyTupleRef, vm: &VirtualMachine) -> PyTupleRef {
     let mut total_args = 0;
     for arg in args.as_slice() {
-        if let Some(pyref) = arg.downcast_ref::<PyUnionObject>() {
+        if let Some(pyref) = arg.downcast_ref::<PyUnion>() {
             total_args += pyref.args.len();
         } else {
             total_args += 1;
@@ -159,7 +159,7 @@ fn flatten_args(args: PyTupleRef, vm: &VirtualMachine) -> PyTupleRef {
 
     let mut flattened_args = Vec::with_capacity(total_args);
     for arg in args.as_slice() {
-        if let Some(pyref) = arg.downcast_ref::<PyUnionObject>() {
+        if let Some(pyref) = arg.downcast_ref::<PyUnion>() {
             for arg in pyref.args.as_slice() {
                 flattened_args.push(arg.clone());
             }
@@ -206,11 +206,11 @@ fn make_union(args: PyTupleRef, vm: &VirtualMachine) -> PyObjectRef {
     let args = dedup_and_flatten_args(args, vm);
     match args.len() {
         1 => args.fast_getitem(0),
-        _ => PyUnionObject::new(args, vm).into_pyobject(vm),
+        _ => PyUnion::new(args, vm).into_pyobject(vm),
     }
 }
 
-impl PyUnionObject {
+impl PyUnion {
     fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let new_args = genericalias::subs_parameters(
             |vm| self.repr(vm),
@@ -241,13 +241,13 @@ impl PyUnionObject {
     };
 }
 
-impl AsMapping for PyUnionObject {
+impl AsMapping for PyUnion {
     fn as_mapping(_zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
         Self::MAPPING_METHODS
     }
 }
 
-impl Comparable for PyUnionObject {
+impl Comparable for PyUnion {
     fn cmp(
         zelf: &crate::PyObjectView<Self>,
         other: &PyObject,
@@ -264,7 +264,7 @@ impl Comparable for PyUnionObject {
     }
 }
 
-impl Hashable for PyUnionObject {
+impl Hashable for PyUnion {
     #[inline]
     fn hash(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<hash::PyHash> {
         let it = PyTuple::iter(zelf.args.clone(), vm);
@@ -273,7 +273,7 @@ impl Hashable for PyUnionObject {
     }
 }
 
-impl GetAttr for PyUnionObject {
+impl GetAttr for PyUnion {
     fn getattro(zelf: PyRef<Self>, attr: PyStrRef, vm: &VirtualMachine) -> PyResult {
         for exc in CLS_ATTRS.iter() {
             if *(*exc) == attr.to_string() {
@@ -286,5 +286,5 @@ impl GetAttr for PyUnionObject {
 
 pub fn init(context: &PyContext) {
     let union_type = &context.types.union_type;
-    PyUnionObject::extend_class(context, union_type);
+    PyUnion::extend_class(context, union_type);
 }
