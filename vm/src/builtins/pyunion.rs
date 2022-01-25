@@ -11,7 +11,7 @@ use std::fmt;
 
 use super::genericalias;
 
-static CLS_ATTRS: [&str; 1] = ["__module__"];
+const CLS_ATTRS: &[&str] = &["__module__"];
 
 #[pyclass(module = "types", name = "UnionType")]
 pub struct PyUnion {
