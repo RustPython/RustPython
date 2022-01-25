@@ -1,3 +1,4 @@
+use super::genericalias;
 use crate::{
     builtins::{PyFrozenSet, PyStr, PyStrRef, PyTuple, PyTupleRef, PyTypeRef},
     common::hash,
@@ -8,7 +9,6 @@ use crate::{
     PyRef, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
 };
 use std::fmt;
-use super::genericalias;
 
 const CLS_ATTRS: &[&str] = &["__module__"];
 
