@@ -1080,7 +1080,8 @@ class EnvironTests(mapping_tests.BasicTestMappingProtocol):
 
     @unittest.skipUnless(os.supports_bytes_environ,
                          "os.environb required for this test.")
-    # TODO: RUSTPYTHON (KeyError: 'surrogateescape')
+    # TODO: RUSTPYTHON (UnicodeDecodeError: can't decode bytes for utf-8)
+    # Need to fix 'surrogateescape'
     @unittest.expectedFailure
     def test_environb(self):
         # os.environ -> os.environb
@@ -1185,8 +1186,6 @@ class EnvironTests(mapping_tests.BasicTestMappingProtocol):
 
         self.assertEqual(expected, value)
 
-    # TODO: RUSTPYTHON (KeyError: 'surrogateescape')
-    @unittest.expectedFailure
     def test_or_operator(self):
         overridden_key = '_TEST_VAR_'
         original_value = 'original_value'
@@ -1206,8 +1205,6 @@ class EnvironTests(mapping_tests.BasicTestMappingProtocol):
         self._test_underlying_process_env('_A_', '')
         self._test_underlying_process_env(overridden_key, original_value)
 
-    # TODO: RUSTPYTHON (KeyError: 'surrogateescape')
-    @unittest.expectedFailure
     def test_ior_operator(self):
         overridden_key = '_TEST_VAR_'
         os.environ[overridden_key] = 'original_value'
@@ -1236,8 +1233,6 @@ class EnvironTests(mapping_tests.BasicTestMappingProtocol):
         # Check nothing was added.
         self.assertEqual(os_environ_copy, os.environ)
 
-    # TODO: RUSTPYTHON (KeyError: 'surrogateescape')
-    @unittest.expectedFailure
     def test_ior_operator_key_value_iterable(self):
         overridden_key = '_TEST_VAR_'
         os.environ[overridden_key] = 'original_value'
@@ -1253,8 +1248,6 @@ class EnvironTests(mapping_tests.BasicTestMappingProtocol):
         self._test_underlying_process_env('_A_', '1')
         self._test_underlying_process_env(overridden_key, '3')
 
-    # TODO: RUSTPYTHON (KeyError: 'surrogateescape')
-    @unittest.expectedFailure
     def test_ror_operator(self):
         overridden_key = '_TEST_VAR_'
         original_value = 'original_value'
@@ -4544,8 +4537,6 @@ class TestPEP519(unittest.TestCase):
         self.assertFalse(issubclass(FakePath, A))
         self.assertTrue(issubclass(FakePath, os.PathLike))
 
-    # TODO: RUSTPYTHON (TypeError: 'ABCMeta' object is not subscriptable)
-    @unittest.expectedFailure
     def test_pathlike_class_getitem(self):
         self.assertIsInstance(os.PathLike[bytes], types.GenericAlias)
 

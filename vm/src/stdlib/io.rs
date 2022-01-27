@@ -3602,6 +3602,18 @@ mod _io {
         .unwrap()
     }
 
+    #[pyfunction]
+    fn text_encoding(
+        encoding: PyObjectRef,
+        _stacklevel: OptionalArg<i32>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyStrRef> {
+        if vm.is_none(&encoding) {
+            return Ok(vm.ctx.new_str("locale"));
+        }
+        encoding.try_into_value(vm)
+    }
+
     #[cfg(test)]
     mod tests {
         use super::*;
