@@ -1998,10 +1998,8 @@ class io:
     BinaryIO = BinaryIO
 
 
-# XXX RustPython TODO: editable type.__name__
-# io.__name__ = __name__ + '.io'
-# sys.modules[io.__name__] = io
-sys.modules[__name__ + '.io'] = io
+io.__name__ = __name__ + '.io'
+sys.modules[io.__name__] = io
 
 Pattern = _alias(stdlib_re.Pattern, AnyStr)
 Match = _alias(stdlib_re.Match, AnyStr)
