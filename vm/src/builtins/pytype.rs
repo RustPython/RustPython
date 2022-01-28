@@ -286,7 +286,12 @@ impl PyType {
 
     pub fn name(&self) -> BorrowedValue<str> {
         PyRwLockReadGuard::map(self.slots.name.read(), |slot_name| {
-            slot_name.as_ref().unwrap().rsplit('.').next().unwrap()
+            let name = slot_name.as_ref().unwrap();
+            if self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
+                name.as_str()
+            } else {
+                name.rsplit('.').next().unwrap()
+            }
         })
         .into()
     }
