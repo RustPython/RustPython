@@ -21,6 +21,14 @@ mod fcntl {
     #[pyattr]
     use libc::{F_GETOWN, F_RDLCK, F_SETOWN, F_UNLCK, F_WRLCK};
 
+    #[cfg(target_vendor = "apple")]
+    #[pyattr]
+    use libc::F_NOCACHE;
+
+    #[cfg(target_os = "freebsd")]
+    #[pyattr]
+    use libc::{F_DUP2FD, F_DUP2FD_CLOEXEC};
+
     #[pyfunction]
     fn fcntl(
         io::Fildes(fd): io::Fildes,
