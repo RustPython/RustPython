@@ -545,6 +545,29 @@ impl PyType {
         ))
     }
 
+    #[pyproperty(magic, setter)]
+    fn set_name(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        if !self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
+            Err(vm.new_type_error(format!(
+                "cannot set '{}' attribute of immutable type '{}'",
+                "__name__",
+                self.name()
+            )))
+        } else {
+            match value.downcast_ref::<PyStr>().map(|m| m.as_str()) {
+                Some(name) => {
+                    *self.slots.name.write() = Some(name.to_string());
+                    Ok(())
+                }
+                None => Err(vm.new_type_error(format!(
+                    "can only assign string to {}.__name__, not '{}'",
+                    self.name(),
+                    value.class().name()
+                ))),
+            }
+        }
+    }
+
     #[pyproperty(magic)]
     fn text_signature(&self) -> Option<String> {
         self.slots
