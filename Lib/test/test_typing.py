@@ -4663,8 +4663,6 @@ class ParamSpecTests(BaseTestCase):
         self.assertEqual(P, P)
         self.assertIsInstance(P, ParamSpec)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_valid_uses(self):
         P = ParamSpec('P')
         T = TypeVar('T')
