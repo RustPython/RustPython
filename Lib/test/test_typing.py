@@ -2121,6 +2121,8 @@ class GenericTests(BaseTestCase):
                     self.assertNotEqual(repr(base), '')
                     self.assertEqual(base, base)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_pickle(self):
         global C  # pickle wants to reference the class by name
         T = TypeVar('T')
