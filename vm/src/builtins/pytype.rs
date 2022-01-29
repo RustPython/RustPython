@@ -286,7 +286,12 @@ impl PyType {
 
     pub fn name(&self) -> BorrowedValue<str> {
         PyRwLockReadGuard::map(self.slots.name.read(), |slot_name| {
-            slot_name.as_ref().unwrap().rsplit('.').next().unwrap()
+            let name = slot_name.as_ref().unwrap();
+            if self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
+                name.as_str()
+            } else {
+                name.rsplit('.').next().unwrap()
+            }
         })
         .into()
     }
@@ -543,6 +548,26 @@ impl PyType {
         Err(vm.new_not_implemented_error(
             "Setting __dict__ attribute on a type isn't yet implemented".to_owned(),
         ))
+    }
+
+    #[pyproperty(magic, setter)]
+    fn set_name(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        if !self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
+            return Err(vm.new_type_error(format!(
+                "cannot set '{}' attribute of immutable type '{}'",
+                "__name__",
+                self.name()
+            )));
+        }
+        let name = value.downcast_ref::<PyStr>().ok_or_else(|| {
+            vm.new_type_error(format!(
+                "can only assign string to {}.__name__, not '{}'",
+                self.name(),
+                value.class().name()
+            ))
+        })?;
+        *self.slots.name.write() = Some(name.as_str().to_string());
+        Ok(())
     }
 
     #[pyproperty(magic)]
