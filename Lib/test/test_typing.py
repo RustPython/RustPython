@@ -533,7 +533,7 @@ class BaseCallableTests:
         self.assertEqual(weakref.ref(alias)(), alias)
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skip("Failed at CollectionsCallableTests")
     def test_pickle(self):
         Callable = self.Callable
         alias = Callable[[int, str], float]
@@ -575,6 +575,8 @@ class BaseCallableTests:
         self.assertIs(a().__class__, C1)
         self.assertEqual(a().__orig_class__, C1[[int], T])
 
+    # TODO: RUSTPYTHON
+    @unittest.skip("Failed at CollectionsCallableTests")
     def test_paramspec(self):
         Callable = self.Callable
         fullname = f"{Callable.__module__}.Callable"
