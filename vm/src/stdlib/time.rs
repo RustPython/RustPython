@@ -28,6 +28,7 @@ mod time {
         naive::{NaiveDate, NaiveDateTime, NaiveTime},
         Datelike, Timelike,
     };
+    use std::time::Duration;
 
     #[allow(dead_code)]
     pub(super) const SEC_TO_MS: i64 = 1000;
@@ -46,7 +47,7 @@ mod time {
     #[allow(dead_code)]
     pub(super) const NS_TO_US: i64 = 1000;
 
-    fn duration_since_system_now(vm: &VirtualMachine) -> PyResult<std::time::Duration> {
+    fn duration_since_system_now(vm: &VirtualMachine) -> PyResult<Duration> {
         use std::time::{SystemTime, UNIX_EPOCH};
 
         SystemTime::now()
@@ -56,19 +57,19 @@ mod time {
 
     // TODO: implement proper monotonic time for wasm/wasi.
     #[cfg(not(any(unix, windows)))]
-    fn get_monotonic_time(vm: &VirtualMachine) -> PyResult<std::time::Duration> {
+    fn get_monotonic_time(vm: &VirtualMachine) -> PyResult<Duration> {
         duration_since_system_now(vm)
     }
 
     // TODO: implement proper perf time for wasm/wasi.
     #[cfg(not(any(unix, windows)))]
-    fn get_perf_time(vm: &VirtualMachine) -> PyResult<std::time::Duration> {
+    fn get_perf_time(vm: &VirtualMachine) -> PyResult<Duration> {
         duration_since_system_now(vm)
     }
 
     #[cfg(not(unix))]
     #[pyfunction]
-    fn sleep(dur: std::time::Duration) {
+    fn sleep(dur: Duration) {
         std::thread::sleep(dur);
     }
 
@@ -233,7 +234,7 @@ mod time {
         target_os = "fuchsia",
         target_os = "emscripten",
     )))]
-    fn get_thread_time(vm: &VirtualMachine) -> PyResult<std::time::Duration> {
+    fn get_thread_time(vm: &VirtualMachine) -> PyResult<Duration> {
         Err(vm.new_not_implemented_error("thread time unsupported in this system".to_owned()))
     }
 
@@ -247,7 +248,7 @@ mod time {
         Ok(get_thread_time(vm)?.as_nanos() as u64)
     }
 
-    #[cfg(any(windows, all(target_arch = "wasm32", not(target_os = "unknown"))))]
+    #[cfg(any(windows, all(target_arch = "wasm32", target_arch = "emscripten")))]
     pub(super) fn time_muldiv(ticks: i64, mul: i64, div: i64) -> u64 {
         let intpart = ticks / div;
         let ticks = ticks % div;
@@ -255,8 +256,8 @@ mod time {
         (intpart * mul + remaining) as u64
     }
 
-    #[cfg(all(target_arch = "wasm32", not(target_os = "unknown")))]
-    fn get_process_time(vm: &VirtualMachine) -> PyResult<std::time::Duration> {
+    #[cfg(all(target_arch = "wasm32", target_os = "emscripten"))]
+    fn get_process_time(vm: &VirtualMachine) -> PyResult<Duration> {
         let t: libc::tms = unsafe {
             let mut t = std::mem::MaybeUninit::uninit();
             if libc::times(t.as_mut_ptr()) == -1 {
@@ -264,15 +265,24 @@ mod time {
             }
             t.assume_init()
         };
-
-        #[cfg(target_os = "wasi")]
-        let freq = 60;
-        #[cfg(not(target_os = "wasi"))]
         let freq = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
 
-        Ok(std::time::Duration::from_nanos(
+        Ok(Duration::from_nanos(
             time_muldiv(t.tms_utime, SEC_TO_NS, freq) + time_muldiv(t.tms_stime, SEC_TO_NS, freq),
         ))
+    }
+
+    // same as the get_process_time impl for most unixes
+    #[cfg(all(target_arch = "wasm32", target_os = "wasi"))]
+    pub(super) fn get_process_time(vm: &VirtualMachine) -> PyResult<Duration> {
+        let time: libc::timespec = unsafe {
+            let mut time = std::mem::MaybeUninit::uninit();
+            if libc::clock_gettime(libc::CLOCK_PROCESS_CPUTIME_ID, time.as_mut_ptr()) == -1 {
+                return Err(vm.new_os_error("Failed to get clock time".to_owned()));
+            }
+            time.assume_init()
+        };
+        Ok(Duration::new(time.tv_sec as u64, time.tv_nsec as u32))
     }
 
     #[cfg(not(any(
@@ -289,7 +299,7 @@ mod time {
         target_os = "redox",
         all(target_arch = "wasm32", not(target_os = "unknown"))
     )))]
-    fn get_process_time(vm: &VirtualMachine) -> PyResult<std::time::Duration> {
+    fn get_process_time(vm: &VirtualMachine) -> PyResult<Duration> {
         Err(vm.new_not_implemented_error("process time unsupported in this system".to_owned()))
     }
 

@@ -2628,10 +2628,8 @@ class io:
     TextIO = TextIO
     BinaryIO = BinaryIO
 
-
-# TODO: RUSTPYTHON
-# io.__name__ = __name__ + '.io'
-# sys.modules[io.__name__] = io
+io.__name__ = __name__ + '.io'
+sys.modules[io.__name__] = io
 
 Pattern = _alias(stdlib_re.Pattern, 1)
 Match = _alias(stdlib_re.Match, 1)

@@ -4360,8 +4360,6 @@ class IOTests(BaseTestCase):
         a = stuff.__annotations__['a']
         self.assertEqual(a.__parameters__, ())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_io_submodule(self):
         from typing.io import IO, TextIO, BinaryIO, __all__, __name__
         self.assertIs(IO, typing.IO)

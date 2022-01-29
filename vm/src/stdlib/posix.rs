@@ -1981,13 +1981,18 @@ pub mod module {
     }
 
     #[cfg(target_os = "linux")]
+    unsafe fn sys_getrandom(buf: *mut libc::c_void, buflen: usize, flags: u32) -> isize {
+        libc::syscall(libc::SYS_getrandom, buf, buflen, flags as usize) as _
+    }
+
+    #[cfg(target_os = "linux")]
     #[pyfunction]
     fn getrandom(size: isize, flags: OptionalArg<u32>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         let size = usize::try_from(size)
             .map_err(|_| vm.new_os_error(format!("Invalid argument for size: {}", size)))?;
         let mut buf = Vec::with_capacity(size);
         unsafe {
-            let len = libc::getrandom(
+            let len = sys_getrandom(
                 buf.as_mut_ptr() as *mut libc::c_void,
                 size,
                 flags.unwrap_or(0),
