@@ -182,7 +182,8 @@ class MiscTestCase(unittest.TestCase):
 
 
 def load_tests(loader, tests, pattern):
-    tests.addTest(doctest.DocTestSuite(pickletools))
+    # TODO: RUSTPYTHON
+    # tests.addTest(doctest.DocTestSuite(pickletools))
     return tests
 
 
