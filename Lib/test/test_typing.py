@@ -532,8 +532,6 @@ class BaseCallableTests:
         alias = Callable[[int, str], float]
         self.assertEqual(weakref.ref(alias)(), alias)
 
-    # TODO: RUSTPYTHON
-    @unittest.skip("Failed at CollectionsCallableTests")
     def test_pickle(self):
         Callable = self.Callable
         alias = Callable[[int, str], float]
@@ -575,8 +573,6 @@ class BaseCallableTests:
         self.assertIs(a().__class__, C1)
         self.assertEqual(a().__orig_class__, C1[[int], T])
 
-    # TODO: RUSTPYTHON
-    @unittest.skip("Failed at CollectionsCallableTests")
     def test_paramspec(self):
         Callable = self.Callable
         fullname = f"{Callable.__module__}.Callable"
@@ -645,6 +641,16 @@ class TypingCallableTests(BaseCallableTests, BaseTestCase):
 
 class CollectionsCallableTests(BaseCallableTests, BaseTestCase):
     Callable = collections.abc.Callable
+
+    # TODO: RUSTPYTHON, pickle.PicklingError: Can't pickle <class 'collections.abc._CallableGenericAlias'>: it's not found as collections.abc._CallableGenericAlias
+    @unittest.expectedFailure
+    def test_pickle(self): # TODO: RUSTPYTHON, remove when this passes
+        super().test_pickle() # TODO: RUSTPYTHON, remove when this passes
+
+    # TODO: RUSTPYTHON, AssertionError: 'collections.abc.Callable[__main__.ParamSpec, typing.TypeVar]' != 'collections.abc.Callable[~P, ~T]'
+    @unittest.expectedFailure
+    def test_paramspec(self): # TODO: RUSTPYTHON, remove when this passes
+        super().test_paramspec() # TODO: RUSTPYTHON, remove when this passes
 
 
 class LiteralTests(BaseTestCase):
