@@ -97,20 +97,11 @@ impl PyUnion {
     }
 }
 
-fn is_unionable(obj: PyObjectRef, vm: &VirtualMachine) -> bool {
+pub fn is_unionable(obj: PyObjectRef, vm: &VirtualMachine) -> bool {
     obj.class().is(&vm.ctx.types.none_type)
         || obj.class().is(&vm.ctx.types.type_type)
         || obj.class().is(&vm.ctx.types.generic_alias_type)
         || obj.class().is(&vm.ctx.types.union_type)
-}
-
-pub fn union_type_or(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-    if !is_unionable(zelf.clone(), vm) || !is_unionable(other.clone(), vm) {
-        return vm.ctx.not_implemented();
-    }
-
-    let tuple = PyTuple::new_ref(vec![zelf, other], &vm.ctx);
-    make_union(tuple, vm)
 }
 
 fn is_typevar(obj: &PyObjectRef) -> bool {
@@ -199,7 +190,7 @@ fn dedup_and_flatten_args(args: PyTupleRef, vm: &VirtualMachine) -> PyTupleRef {
     PyTuple::new_ref(new_args, &vm.ctx)
 }
 
-fn make_union(args: PyTupleRef, vm: &VirtualMachine) -> PyObjectRef {
+pub fn make_union(args: PyTupleRef, vm: &VirtualMachine) -> PyObjectRef {
     let args = dedup_and_flatten_args(args, vm);
     match args.len() {
         1 => args.fast_getitem(0),

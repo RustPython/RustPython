@@ -390,7 +390,12 @@ impl PyType {
     #[pymethod(name = "__ror__")]
     #[pymethod(magic)]
     pub fn or(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        pyunion::union_type_or(zelf, other, vm)
+        if !pyunion::is_unionable(zelf.clone(), vm) || !pyunion::is_unionable(other.clone(), vm) {
+            return vm.ctx.not_implemented();
+        }
+
+        let tuple = PyTuple::new_ref(vec![zelf, other], &vm.ctx);
+        pyunion::make_union(tuple, vm)
     }
 
     #[pyslot]
