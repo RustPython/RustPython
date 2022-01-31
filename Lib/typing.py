@@ -2012,7 +2012,5 @@ class re:
     Match = Match
 
 
-# XXX RustPython TODO: editable type.__name__
-# re.__name__ = __name__ + '.re'
-# sys.modules[re.__name__] = re
-sys.modules[__name__ + '.re'] = re
+re.__name__ = __name__ + '.re'
+sys.modules[re.__name__] = re
