@@ -136,12 +136,10 @@ impl PyGenericAlias {
             vm,
         )?;
 
-        Ok(PyGenericAlias::new(
-            self.origin.clone(),
-            new_args.into_pyobject(vm),
-            vm,
+        Ok(
+            PyGenericAlias::new(self.origin.clone(), new_args.into_pyobject(vm), vm)
+                .into_object(vm),
         )
-        .into_object(vm))
     }
 
     #[pymethod(magic)]
