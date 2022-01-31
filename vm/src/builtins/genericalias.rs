@@ -138,7 +138,7 @@ impl PyGenericAlias {
 
         Ok(PyGenericAlias::new(
             self.origin.clone(),
-            new_args.as_object().into_pyobject(vm),
+            new_args.into_pyobject(vm),
             vm,
         )
         .into_object(vm))
