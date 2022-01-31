@@ -159,9 +159,7 @@ fn flatten_args(args: PyTupleRef, vm: &VirtualMachine) -> PyTupleRef {
     let mut flattened_args = Vec::with_capacity(total_args);
     for arg in args.as_slice() {
         if let Some(pyref) = arg.downcast_ref::<PyUnion>() {
-            for arg in pyref.args.as_slice() {
-                flattened_args.push(arg.clone());
-            }
+            flattened_args.extend(pyref.args.as_slice().iter().map(|arg| arg.clone()));
         } else {
             flattened_args.push(arg.clone());
         };
