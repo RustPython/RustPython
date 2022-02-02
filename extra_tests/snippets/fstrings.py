@@ -47,6 +47,15 @@ assert f'{num=:>10}' == 'num=        42'
 spec = "0>+#10x"
 assert f"{16:{spec}}{foo}" == '00000+0x10bar'
 
+part_spec = ">+#10x"
+assert f"{16:0{part_spec}}{foo}" == '00000+0x10bar'
+
+# TODO: RUSTPYTHON, delete the next block once `test_fstring.py` can successfully parse
+assert f'{10:#{1}0x}' == '       0xa'
+assert f'{10:{"#"}1{0}{"x"}}' == '       0xa'
+assert f'{-10:-{"#"}1{0}x}' == '      -0xa'
+assert f'{-10:{"-"}#{1}0{"x"}}' == '      -0xa'
+
 # TODO:
 # spec = "bla"
 # assert_raises(ValueError, lambda: f"{16:{spec}}")
