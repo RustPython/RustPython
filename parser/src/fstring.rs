@@ -91,52 +91,56 @@ impl<'a> FStringParser<'a> {
                 }
 
                 ':' if delims.is_empty() => {
-                    let mut nested = false;
                     let mut in_nested = false;
-                    let mut spec_expression = String::new();
+                    let mut spec_constructor = Vec::new();
+                    let mut constant_piece = String::new();
+                    let mut formatted_value_piece = String::new();
                     while let Some(&next) = self.chars.peek() {
                         match next {
+                            '{' if in_nested => return Err(ExpressionNestedTooDeeply),
+                            '}' if in_nested => {
+                                in_nested = false;
+                                spec_constructor.push(self.expr(ExprKind::FormattedValue {
+                                    value:
+                                        Box::new(
+                                            parse_fstring_expr(&formatted_value_piece).map_err(
+                                                |e| InvalidExpression(Box::new(e.error)),
+                                            )?,
+                                        ),
+                                    conversion: None,
+                                    format_spec: None,
+                                }));
+                                formatted_value_piece.clear();
+                            }
+                            _ if in_nested => {
+                                formatted_value_piece.push(next);
+                            }
                             '{' => {
-                                if in_nested {
-                                    return Err(ExpressionNestedTooDeeply);
-                                }
                                 in_nested = true;
-                                nested = true;
-                                self.chars.next();
-                                continue;
+                                spec_constructor.push(self.expr(ExprKind::Constant {
+                                    value: constant_piece.to_owned().into(),
+                                    kind: None,
+                                }));
+                                constant_piece.clear();
                             }
-                            '}' => {
-                                if in_nested {
-                                    in_nested = false;
-                                    self.chars.next();
-                                }
-                                break;
+                            '}' => break,
+                            _ => {
+                                constant_piece.push(next);
                             }
-                            _ => (),
                         }
-                        spec_expression.push(next);
                         self.chars.next();
                     }
+                    spec_constructor.push(self.expr(ExprKind::Constant {
+                        value: constant_piece.to_owned().into(),
+                        kind: None,
+                    }));
+                    constant_piece.clear();
                     if in_nested {
                         return Err(UnclosedLbrace);
                     }
-                    spec = Some(if nested {
-                        Box::new(
-                            self.expr(ExprKind::FormattedValue {
-                                value: Box::new(
-                                    parse_fstring_expr(&spec_expression)
-                                        .map_err(|e| InvalidExpression(Box::new(e.error)))?,
-                                ),
-                                conversion: None,
-                                format_spec: None,
-                            }),
-                        )
-                    } else {
-                        Box::new(self.expr(ExprKind::Constant {
-                            value: spec_expression.to_owned().into(),
-                            kind: None,
-                        }))
-                    })
+                    spec = Some(Box::new(self.expr(ExprKind::JoinedStr {
+                        values: spec_constructor,
+                    })))
                 }
                 '(' | '{' | '[' => {
                     expression.push(ch);

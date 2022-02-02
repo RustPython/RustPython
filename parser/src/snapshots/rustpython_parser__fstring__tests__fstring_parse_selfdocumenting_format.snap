@@ -1,6 +1,7 @@
 ---
 source: parser/src/fstring.rs
 expression: parse_ast
+
 ---
 Located {
     location: Location {
@@ -62,11 +63,22 @@ Located {
                                 column: 0,
                             },
                             custom: (),
-                            node: Constant {
-                                value: Str(
-                                    ">10",
-                                ),
-                                kind: None,
+                            node: JoinedStr {
+                                values: [
+                                    Located {
+                                        location: Location {
+                                            row: 0,
+                                            column: 0,
+                                        },
+                                        custom: (),
+                                        node: Constant {
+                                            value: Str(
+                                                ">10",
+                                            ),
+                                            kind: None,
+                                        },
+                                    },
+                                ],
                             },
                         },
                     ),
