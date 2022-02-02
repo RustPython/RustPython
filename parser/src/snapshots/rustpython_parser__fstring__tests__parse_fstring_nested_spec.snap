@@ -61,13 +61,35 @@ Located {
                                         node: FormattedValue {
                                             value: Located {
                                                 location: Location {
-                                                    row: 1,
-                                                    column: 2,
+                                                    row: 0,
+                                                    column: 0,
                                                 },
                                                 custom: (),
-                                                node: Name {
-                                                    id: "spec",
-                                                    ctx: Load,
+                                                node: JoinedStr {
+                                                    values: [
+                                                        Located {
+                                                            location: Location {
+                                                                row: 0,
+                                                                column: 0,
+                                                            },
+                                                            custom: (),
+                                                            node: FormattedValue {
+                                                                value: Located {
+                                                                    location: Location {
+                                                                        row: 1,
+                                                                        column: 2,
+                                                                    },
+                                                                    custom: (),
+                                                                    node: Name {
+                                                                        id: "spec",
+                                                                        ctx: Load,
+                                                                    },
+                                                                },
+                                                                conversion: None,
+                                                                format_spec: None,
+                                                            },
+                                                        },
+                                                    ],
                                                 },
                                             },
                                             conversion: None,

@@ -100,16 +100,19 @@ impl<'a> FStringParser<'a> {
                             '{' if in_nested => return Err(ExpressionNestedTooDeeply),
                             '}' if in_nested => {
                                 in_nested = false;
-                                spec_constructor.push(self.expr(ExprKind::FormattedValue {
-                                    value:
-                                        Box::new(
-                                            parse_fstring_expr(&formatted_value_piece).map_err(
-                                                |e| InvalidExpression(Box::new(e.error)),
-                                            )?,
+                                spec_constructor.push(
+                                    self.expr(ExprKind::FormattedValue {
+                                        value: Box::new(
+                                            FStringParser::new(
+                                                &format!("{{{}}}", formatted_value_piece),
+                                                Location::default(),
+                                            )
+                                            .parse()?,
                                         ),
-                                    conversion: None,
-                                    format_spec: None,
-                                }));
+                                        conversion: None,
+                                        format_spec: None,
+                                    }),
+                                );
                                 formatted_value_piece.clear();
                             }
                             _ if in_nested => {
