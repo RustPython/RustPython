@@ -203,11 +203,12 @@ jobs:
             test_unittest
             test_venv
             test_zipimport
-      # - if: runner.os == 'Linux'
-      #  name: check that --install-pip succeeds
-      #  run: |
-      #    mkdir site-packages
-      #    target/release/rustpython --install-pip -t site-packages
+      - if: runner.os == 'Linux'
+        if: false  # FIXME: pip is vendoring dependencies that we are incompatible with
+        name: check that --install-pip succeeds
+        run: |
+          mkdir site-packages
+          target/release/rustpython --install-pip -t site-packages
 
   lint:
     name: Check Rust code with rustfmt and clippy
