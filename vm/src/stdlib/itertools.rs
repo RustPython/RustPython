@@ -1163,9 +1163,9 @@ mod decl {
 
     #[derive(FromArgs)]
     struct CombinationsNewArgs {
-        #[pyarg(positional)]
+        #[pyarg(any)]
         iterable: PyObjectRef,
-        #[pyarg(positional)]
+        #[pyarg(any)]
         r: PyIntRef,
     }
 
