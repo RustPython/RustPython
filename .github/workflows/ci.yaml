@@ -203,7 +203,8 @@ jobs:
             test_unittest
             test_venv
             test_zipimport
-      - if: runner.os == 'Linux'
+      - # if: runner.os == 'Linux'
+        if: false  # FIXME: pip is vendoring dependencies that we are incompatible with
         name: check that --install-pip succeeds
         run: |
           mkdir site-packages
