@@ -635,18 +635,18 @@ impl PyInt {
             false
         };
 
-        let value = self.as_bigint();
-        if value.sign() == Sign::Minus && !signed {
-            return Err(vm.new_overflow_error("can't convert negative int to unsigned".to_owned()));
-        }
+        let byte_len = args.length.try_to_primitive(vm)?;
 
-        let byte_len = match args.length.value.sign() {
-            Sign::Minus => {
-                return Err(vm.new_value_error("length argument must be non-negative".to_owned()))
+        let value = self.as_bigint();
+        match value.sign() {
+            Sign::Minus if !signed => {
+                return Err(
+                    vm.new_overflow_error("can't convert negative int to unsigned".to_owned())
+                )
             }
-            Sign::NoSign => return Ok(vec![].into()), // should be zero
-            Sign::Plus => args.length.try_to_primitive(vm)?,
-        };
+            Sign::NoSign => return Ok(vec![0u8; byte_len].into()),
+            _ => {}
+        }
 
         let mut origin_bytes = match (args.byteorder.as_str(), signed) {
             ("big", true) => value.to_signed_bytes_be(),

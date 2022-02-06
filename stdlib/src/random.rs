@@ -110,46 +110,42 @@ mod _random {
 
         #[pymethod]
         fn getrandbits(&self, k: isize, vm: &VirtualMachine) -> PyResult<BigInt> {
-            if k < 0 {
-                return Err(vm.new_value_error("number of bits must be non-negative".to_owned()));
-            }
-
-            if k == 0 {
-                return Ok(BigInt::from(0));
-            }
-
-            let mut rng = self.rng.lock();
-            let mut k = k;
-            let mut gen_u32 = |k| {
-                let r = rng.next_u32();
-                if k < 32 {
-                    r >> (32 - k)
-                } else {
-                    r
+            match k {
+                k if k < 0 => {
+                    Err(vm.new_value_error("number of bits must be non-negative".to_owned()))
                 }
-            };
+                0 => Ok(BigInt::zero()),
+                _ => {
+                    let mut rng = self.rng.lock();
+                    let mut k = k;
+                    let mut gen_u32 = |k| {
+                        let r = rng.next_u32();
+                        if k < 32 {
+                            r >> (32 - k)
+                        } else {
+                            r
+                        }
+                    };
 
-            if k <= 32 {
-                return Ok(gen_u32(k).into());
+                    let words = (k - 1) / 32 + 1;
+                    let wordarray = (0..words)
+                        .map(|_| {
+                            let word = gen_u32(k);
+                            k = k.wrapping_sub(32);
+                            word
+                        })
+                        .collect::<Vec<_>>();
+
+                    let uint = num_bigint::BigUint::new(wordarray);
+                    // very unlikely but might as well check
+                    let sign = if uint.is_zero() {
+                        Sign::NoSign
+                    } else {
+                        Sign::Plus
+                    };
+                    Ok(BigInt::from_biguint(sign, uint))
+                }
             }
-
-            let words = (k - 1) / 32 + 1;
-            let wordarray = (0..words)
-                .map(|_| {
-                    let word = gen_u32(k);
-                    k = k.wrapping_sub(32);
-                    word
-                })
-                .collect::<Vec<_>>();
-
-            let uint = num_bigint::BigUint::new(wordarray);
-            // very unlikely but might as well check
-            let sign = if uint.is_zero() {
-                Sign::NoSign
-            } else {
-                Sign::Plus
-            };
-            Ok(BigInt::from_biguint(sign, uint))
         }
     }
 }

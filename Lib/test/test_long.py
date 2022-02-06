@@ -1113,7 +1113,6 @@ class LongTest(unittest.TestCase):
         for e in bad_exponents:
             self.assertRaises(TypeError, round, 3, e)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_to_bytes(self):
         def check(tests, byteorder, signed=False):
             for test, expected in tests.items():
