@@ -76,12 +76,12 @@ impl PyUnion {
 
     #[pyproperty(magic)]
     fn parameters(&self) -> PyObjectRef {
-        self.parameters.as_object().to_owned()
+        self.parameters.clone().into()
     }
 
     #[pyproperty(magic)]
     fn args(&self) -> PyObjectRef {
-        self.args.as_object().to_owned()
+        self.args.clone().into()
     }
 
     #[pymethod(magic)]
