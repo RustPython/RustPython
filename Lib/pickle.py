@@ -13,7 +13,7 @@ Functions:
     dump(object, file)
     dumps(object) -> string
     load(file) -> object
-    loads(string) -> object
+    loads(bytes) -> object
 
 Misc variables:
 
@@ -818,6 +818,7 @@ class _Pickler:
             self._write_large_bytes(BYTEARRAY8 + pack("<Q", n), obj)
         else:
             self.write(BYTEARRAY8 + pack("<Q", n) + obj)
+        self.memoize(obj)
     dispatch[bytearray] = save_bytearray
 
     if _HAVE_PICKLE_BUFFER:
@@ -1172,7 +1173,7 @@ class _Unpickler:
         used in Python 3.  The *encoding* and *errors* tell pickle how
         to decode 8-bit string instances pickled by Python 2; these
         default to 'ASCII' and 'strict', respectively. *encoding* can be
-        'bytes' to read theses 8-bit string instances as bytes objects.
+        'bytes' to read these 8-bit string instances as bytes objects.
         """
         self._buffers = iter(buffers) if buffers is not None else None
         self._file_readline = file.readline
@@ -1606,17 +1607,29 @@ class _Unpickler:
 
     def load_get(self):
         i = int(self.readline()[:-1])
-        self.append(self.memo[i])
+        try:
+            self.append(self.memo[i])
+        except KeyError:
+            msg = f'Memo value not found at index {i}'
+            raise UnpicklingError(msg) from None
     dispatch[GET[0]] = load_get
 
     def load_binget(self):
         i = self.read(1)[0]
-        self.append(self.memo[i])
+        try:
+            self.append(self.memo[i])
+        except KeyError as exc:
+            msg = f'Memo value not found at index {i}'
+            raise UnpicklingError(msg) from None
     dispatch[BINGET[0]] = load_binget
 
     def load_long_binget(self):
         i, = unpack('<I', self.read(4))
-        self.append(self.memo[i])
+        try:
+            self.append(self.memo[i])
+        except KeyError as exc:
+            msg = f'Memo value not found at index {i}'
+            raise UnpicklingError(msg) from None
     dispatch[LONG_BINGET[0]] = load_long_binget
 
     def load_put(self):
@@ -1751,7 +1764,7 @@ def _load(file, *, fix_imports=True, encoding="ASCII", errors="strict",
     return _Unpickler(file, fix_imports=fix_imports, buffers=buffers,
                      encoding=encoding, errors=errors).load()
 
-def _loads(s, *, fix_imports=True, encoding="ASCII", errors="strict",
+def _loads(s, /, *, fix_imports=True, encoding="ASCII", errors="strict",
            buffers=None):
     if isinstance(s, str):
         raise TypeError("Can't load pickle from unicode string")
