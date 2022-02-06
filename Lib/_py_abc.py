@@ -32,7 +32,7 @@ class ABCMeta(type):
     #       external code.
     _abc_invalidation_counter = 0
 
-    def __new__(mcls, name, bases, namespace, **kwargs):
+    def __new__(mcls, name, bases, namespace, /, **kwargs):
         cls = super().__new__(mcls, name, bases, namespace, **kwargs)
         # Compute set of abstract method names
         abstracts = {name
@@ -43,7 +43,7 @@ class ABCMeta(type):
                 value = getattr(cls, name, None)
                 if getattr(value, "__isabstractmethod__", False):
                     abstracts.add(name)
-        cls.__abstractmethods__ = set(abstracts)
+        cls.__abstractmethods__ = frozenset(abstracts)
         # Set up inheritance registry
         cls._abc_registry = WeakSet()
         cls._abc_cache = WeakSet()

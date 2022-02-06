@@ -82,6 +82,8 @@ pub(crate) mod weakref;
 pub use weakref::PyWeak;
 pub(crate) mod zip;
 pub use zip::PyZip;
+pub(crate) mod pyunion;
+pub use pyunion::PyUnion;
 
 pub use float::try_to_bigint as try_f64_to_bigint;
 pub use int::try_to_float as try_bigint_to_f64;

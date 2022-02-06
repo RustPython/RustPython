@@ -128,54 +128,18 @@ impl PyGenericAlias {
 
     #[pymethod(magic)]
     fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let num_params = self.parameters.len();
-        if num_params == 0 {
-            return Err(vm.new_type_error(format!(
-                "There are no type variables left in {}",
-                self.repr(vm)?
-            )));
-        }
-
-        let items = PyTupleRef::try_from_object(vm, needle.clone());
-        let arg_items = match items {
-            Ok(ref tuple) => tuple.as_slice(),
-            Err(_) => std::slice::from_ref(&needle),
-        };
-
-        let num_items = arg_items.len();
-        if num_params != num_items {
-            let plural = if num_items > num_params {
-                "many"
-            } else {
-                "few"
-            };
-            return Err(vm.new_type_error(format!(
-                "Too {} arguments for {}",
-                plural,
-                self.repr(vm)?
-            )));
-        }
-
-        let new_args = self
-            .args
-            .as_slice()
-            .iter()
-            .map(|arg| {
-                if is_typevar(arg) {
-                    let idx = tuple_index(&self.parameters, arg).unwrap();
-                    Ok(arg_items[idx].clone())
-                } else {
-                    subs_tvars(arg.clone(), &self.parameters, arg_items, vm)
-                }
-            })
-            .collect::<PyResult<Vec<_>>>()?;
-
-        Ok(PyGenericAlias::new(
-            self.origin.clone(),
-            PyTuple::new_ref(new_args, &vm.ctx).into(),
+        let new_args = subs_parameters(
+            |vm| self.repr(vm),
+            self.args.clone(),
+            self.parameters.clone(),
+            needle,
             vm,
+        )?;
+
+        Ok(
+            PyGenericAlias::new(self.origin.clone(), new_args.into_pyobject(vm), vm)
+                .into_object(vm),
         )
-        .into_object(vm))
     }
 
     #[pymethod(magic)]
@@ -287,6 +251,50 @@ fn subs_tvars(
         })
         .flatten()
         .unwrap_or(Ok(obj))
+}
+
+pub fn subs_parameters<F: Fn(&VirtualMachine) -> PyResult<String>>(
+    repr: F,
+    args: PyTupleRef,
+    parameters: PyTupleRef,
+    needle: PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult<PyTupleRef> {
+    let num_params = parameters.len();
+    if num_params == 0 {
+        return Err(vm.new_type_error(format!("There are no type variables left in {}", repr(vm)?)));
+    }
+
+    let items = PyTupleRef::try_from_object(vm, needle.clone());
+    let arg_items = match items {
+        Ok(ref tuple) => tuple.as_slice(),
+        Err(_) => std::slice::from_ref(&needle),
+    };
+
+    let num_items = arg_items.len();
+    if num_params != num_items {
+        let plural = if num_items > num_params {
+            "many"
+        } else {
+            "few"
+        };
+        return Err(vm.new_type_error(format!("Too {} arguments for {}", plural, repr(vm)?)));
+    }
+
+    let new_args = args
+        .as_slice()
+        .iter()
+        .map(|arg| {
+            if is_typevar(arg) {
+                let idx = tuple_index(&parameters, arg).unwrap();
+                Ok(arg_items[idx].clone())
+            } else {
+                subs_tvars(arg.clone(), &parameters, arg_items, vm)
+            }
+        })
+        .collect::<PyResult<Vec<_>>>()?;
+
+    Ok(PyTuple::new_ref(new_args, &vm.ctx))
 }
 
 impl PyGenericAlias {
