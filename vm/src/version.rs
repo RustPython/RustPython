@@ -6,9 +6,9 @@ use chrono::prelude::DateTime;
 use chrono::Local;
 use std::time::{Duration, UNIX_EPOCH};
 
-// = 3.9.0alpha
+// = 3.10.0alpha
 const MAJOR: usize = 3;
-const MINOR: usize = 9;
+const MINOR: usize = 10;
 const MICRO: usize = 0;
 const RELEASELEVEL: &str = "alpha";
 const RELEASELEVEL_N: usize = 0xA;

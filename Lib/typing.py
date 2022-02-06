@@ -2642,6 +2642,5 @@ class re:
     Match = Match
 
 
-# TODO: RUSTPYTHON
-# re.__name__ = __name__ + '.re'
-# sys.modules[re.__name__] = re
+re.__name__ = __name__ + '.re'
+sys.modules[re.__name__] = re

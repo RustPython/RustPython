@@ -4422,8 +4422,6 @@ class RETests(BaseTestCase):
         self.assertEqual(repr(Match[str]), 'typing.Match[str]')
         self.assertEqual(repr(Match[bytes]), 'typing.Match[bytes]')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_re_submodule(self):
         from typing.re import Match, Pattern, __all__, __name__
         self.assertIs(Match, typing.Match)
