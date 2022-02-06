@@ -16,6 +16,7 @@ from test.libregrtest.runtest import (
     format_test_result, TestResult)
 from test.libregrtest.setup import setup_tests
 from test.libregrtest.utils import format_duration
+from test.support import os_helper
 
 
 # Display the running tests if nothing happened last N seconds
