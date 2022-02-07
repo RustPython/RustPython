@@ -387,6 +387,7 @@ pub struct ExceptionZoo {
     pub unicode_warning: PyTypeRef,
     pub bytes_warning: PyTypeRef,
     pub resource_warning: PyTypeRef,
+    pub encoding_warning: PyTypeRef,
 }
 
 macro_rules! extend_exception {
@@ -603,6 +604,7 @@ impl ExceptionZoo {
         let unicode_warning = PyUnicodeWarning::init_bare_type().clone();
         let bytes_warning = PyBytesWarning::init_bare_type().clone();
         let resource_warning = PyResourceWarning::init_bare_type().clone();
+        let encoding_warning = PyEncodingWarning::init_bare_type().clone();
 
         Self {
             base_exception_type,
@@ -673,6 +675,7 @@ impl ExceptionZoo {
             unicode_warning,
             bytes_warning,
             resource_warning,
+            encoding_warning,
         }
     }
 
@@ -837,6 +840,7 @@ impl ExceptionZoo {
         extend_exception!(PyUnicodeWarning, ctx, &excs.unicode_warning);
         extend_exception!(PyBytesWarning, ctx, &excs.bytes_warning);
         extend_exception!(PyResourceWarning, ctx, &excs.resource_warning);
+        extend_exception!(PyEncodingWarning, ctx, &excs.encoding_warning);
     }
 }
 
@@ -1523,5 +1527,11 @@ pub(super) mod types {
         PyWarning,
         resource_warning,
         "Base class for warnings about resource usage."
+    }
+    define_exception! {
+        PyEncodingWarning,
+        PyWarning,
+        encoding_warning,
+        "Base class for warnings about encodings."
     }
 }
