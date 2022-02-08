@@ -1030,6 +1030,7 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "UnicodeWarning" => ctx.exceptions.unicode_warning.clone(),
         "BytesWarning" => ctx.exceptions.bytes_warning.clone(),
         "ResourceWarning" => ctx.exceptions.resource_warning.clone(),
+        "EncodingWarning" => ctx.exceptions.encoding_warning.clone(),
     });
 
     #[cfg(feature = "jit")]

@@ -681,7 +681,7 @@ class CompatPickleTests(unittest.TestCase):
                 module, name = mapping(module, name)
                 self.assertEqual((module, name), (module3, name3))
 
-    # TODO: RUSTPYTHON, NameError: name 'EncodingWarning' is not defined
+    # TODO: RUSTPYTHON, AssertionError
     @unittest.expectedFailure
     def test_exceptions(self):
         self.assertEqual(mapping('exceptions', 'StandardError'),
