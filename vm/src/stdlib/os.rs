@@ -1700,6 +1700,40 @@ pub(super) mod _os {
         }
     }
 
+    // TODO: libc currently doesn't support nl_langinfo in wasi
+    #[cfg(not(target_os = "wasi"))]
+    #[pyfunction]
+    fn device_encoding(fd: i32, _vm: &VirtualMachine) -> PyResult<Option<String>> {
+        if !isatty(fd) {
+            return Ok(None);
+        }
+
+        cfg_if::cfg_if! {
+            if #[cfg(target_os = "android")] {
+                Ok(Some("UTF-8".to_owned()))
+            } else if #[cfg(windows)] {
+                let cp = match fd {
+                    0 => unsafe { winapi::um::consoleapi::GetConsoleCP() },
+                    1 | 2 => unsafe { winapi::um::consoleapi::GetConsoleOutputCP() },
+                    _ => 0,
+                };
+
+                Ok(Some(format!("cp{}", cp)))
+            } else {
+                let encoding = unsafe {
+                    let encoding = libc::nl_langinfo(libc::CODESET);
+                    if encoding.is_null() || encoding.read() == '\0' as libc::c_char {
+                        "UTF-8".to_owned()
+                    } else {
+                        ffi::CStr::from_ptr(encoding).to_string_lossy().into_owned()
+                    }
+                };
+
+                Ok(Some(encoding))
+            }
+        }
+    }
+
     #[pyattr]
     #[pyclass(module = "os", name = "terminal_size")]
     #[derive(PyStructSequence)]

@@ -2941,8 +2941,6 @@ class FSEncodingTests(unittest.TestCase):
 
 class DeviceEncodingTests(unittest.TestCase):
 
-    # TODO: RUSTPYTHON (AttributeError: module 'os' has no attribute 'device_encoding')
-    @unittest.expectedFailure
     def test_bad_fd(self):
         # Return None when an fd doesn't actually exist.
         self.assertIsNone(os.device_encoding(123456))
