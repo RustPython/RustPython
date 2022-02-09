@@ -88,7 +88,7 @@ __all__ = [
     "create_empty_file", "can_symlink", "fs_is_case_insensitive",
     # unittest
     "is_resource_enabled", "requires", "requires_freebsd_version",
-    "requires_linux_version", "requires_mac_ver", "requires_hashdigest",
+    "requires_linux_version", "requires_mac_ver",
     "check_syntax_error", "check_syntax_warning",
     "TransientResource", "time_out", "socket_peer_reset", "ioerror_peer_reset",
     "transient_internet", "BasicTestRunner", "run_unittest", "run_doctest",
@@ -587,35 +587,6 @@ def skip_if_buildbot(reason=None):
     else:
         isbuildbot = os.environ.get('USER') == 'buildbot'
     return unittest.skipIf(isbuildbot, reason)
-
-def requires_hashdigest(digestname, openssl=None):
-    """Decorator raising SkipTest if a hashing algorithm is not available
-
-    The hashing algorithm could be missing or blocked by a strict crypto
-    policy.
-
-    If 'openssl' is True, then the decorator checks that OpenSSL provides
-    the algorithm. Otherwise the check falls back to built-in
-    implementations.
-
-    ValueError: [digital envelope routines: EVP_DigestInit_ex] disabled for FIPS
-    ValueError: unsupported hash type md4
-    """
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            try:
-                if openssl and _hashlib is not None:
-                    _hashlib.new(digestname)
-                else:
-                    hashlib.new(digestname)
-            except ValueError:
-                raise unittest.SkipTest(
-                    f"hash digest '{digestname}' is not available."
-                )
-            return func(*args, **kwargs)
-        return wrapper
-    return decorator
 
 
 HOST = "localhost"
