@@ -37,20 +37,79 @@ Located {
                                 column: 0,
                             },
                             custom: (),
-                            node: FormattedValue {
-                                value: Located {
-                                    location: Location {
-                                        row: 1,
-                                        column: 2,
+                            node: JoinedStr {
+                                values: [
+                                    Located {
+                                        location: Location {
+                                            row: 0,
+                                            column: 0,
+                                        },
+                                        custom: (),
+                                        node: Constant {
+                                            value: Str(
+                                                "",
+                                            ),
+                                            kind: None,
+                                        },
                                     },
-                                    custom: (),
-                                    node: Name {
-                                        id: "spec",
-                                        ctx: Load,
+                                    Located {
+                                        location: Location {
+                                            row: 0,
+                                            column: 0,
+                                        },
+                                        custom: (),
+                                        node: FormattedValue {
+                                            value: Located {
+                                                location: Location {
+                                                    row: 0,
+                                                    column: 0,
+                                                },
+                                                custom: (),
+                                                node: JoinedStr {
+                                                    values: [
+                                                        Located {
+                                                            location: Location {
+                                                                row: 0,
+                                                                column: 0,
+                                                            },
+                                                            custom: (),
+                                                            node: FormattedValue {
+                                                                value: Located {
+                                                                    location: Location {
+                                                                        row: 1,
+                                                                        column: 2,
+                                                                    },
+                                                                    custom: (),
+                                                                    node: Name {
+                                                                        id: "spec",
+                                                                        ctx: Load,
+                                                                    },
+                                                                },
+                                                                conversion: None,
+                                                                format_spec: None,
+                                                            },
+                                                        },
+                                                    ],
+                                                },
+                                            },
+                                            conversion: None,
+                                            format_spec: None,
+                                        },
                                     },
-                                },
-                                conversion: None,
-                                format_spec: None,
+                                    Located {
+                                        location: Location {
+                                            row: 0,
+                                            column: 0,
+                                        },
+                                        custom: (),
+                                        node: Constant {
+                                            value: Str(
+                                                "",
+                                            ),
+                                            kind: None,
+                                        },
+                                    },
+                                ],
                             },
                         },
                     ),

@@ -11,13 +11,15 @@ use self::FStringErrorType::*;
 struct FStringParser<'a> {
     chars: iter::Peekable<str::Chars<'a>>,
     str_location: Location,
+    recurse_lvl: u8,
 }
 
 impl<'a> FStringParser<'a> {
-    fn new(source: &'a str, str_location: Location) -> Self {
+    fn new(source: &'a str, str_location: Location, recurse_lvl: u8) -> Self {
         Self {
             chars: source.chars().peekable(),
             str_location,
+            recurse_lvl,
         }
     }
 
@@ -91,52 +93,69 @@ impl<'a> FStringParser<'a> {
                 }
 
                 ':' if delims.is_empty() => {
-                    let mut nested = false;
                     let mut in_nested = false;
-                    let mut spec_expression = String::new();
+                    let mut spec_constructor = Vec::new();
+                    let mut constant_piece = String::new();
+                    let mut formatted_value_piece = String::new();
+                    let mut spec_delims = Vec::new();
                     while let Some(&next) = self.chars.peek() {
                         match next {
-                            '{' => {
-                                if in_nested {
-                                    return Err(ExpressionNestedTooDeeply);
-                                }
-                                in_nested = true;
-                                nested = true;
-                                self.chars.next();
-                                continue;
+                            '{' if in_nested => {
+                                spec_delims.push(next);
+                                formatted_value_piece.push(next);
                             }
-                            '}' => {
-                                if in_nested {
+                            '}' if in_nested => {
+                                if spec_delims.is_empty() {
                                     in_nested = false;
-                                    self.chars.next();
+                                    spec_constructor.push(
+                                        self.expr(ExprKind::FormattedValue {
+                                            value: Box::new(
+                                                FStringParser::new(
+                                                    &format!("{{{}}}", formatted_value_piece),
+                                                    Location::default(),
+                                                    &self.recurse_lvl + 1,
+                                                )
+                                                .parse()?,
+                                            ),
+                                            conversion: None,
+                                            format_spec: None,
+                                        }),
+                                    );
+                                    formatted_value_piece.clear();
+                                } else {
+                                    spec_delims.pop();
+                                    formatted_value_piece.push(next);
                                 }
-                                break;
                             }
-                            _ => (),
+                            _ if in_nested => {
+                                formatted_value_piece.push(next);
+                            }
+                            '{' => {
+                                in_nested = true;
+                                spec_constructor.push(self.expr(ExprKind::Constant {
+                                    value: constant_piece.to_owned().into(),
+                                    kind: None,
+                                }));
+                                constant_piece.clear();
+                            }
+                            '}' => break,
+                            _ => {
+                                constant_piece.push(next);
+                            }
                         }
-                        spec_expression.push(next);
                         self.chars.next();
                     }
+                    spec_constructor.push(self.expr(ExprKind::Constant {
+                        value: constant_piece.to_owned().into(),
+                        kind: None,
+                    }));
+                    constant_piece.clear();
                     if in_nested {
                         return Err(UnclosedLbrace);
                     }
-                    spec = Some(if nested {
-                        Box::new(
-                            self.expr(ExprKind::FormattedValue {
-                                value: Box::new(
-                                    parse_fstring_expr(&spec_expression)
-                                        .map_err(|e| InvalidExpression(Box::new(e.error)))?,
-                                ),
-                                conversion: None,
-                                format_spec: None,
-                            }),
-                        )
-                    } else {
-                        Box::new(self.expr(ExprKind::Constant {
-                            value: spec_expression.to_owned().into(),
-                            kind: None,
-                        }))
-                    })
+                    spec = Some(Box::new(self.expr(ExprKind::JoinedStr {
+                        values: spec_constructor,
+                    })))
                 }
                 '(' | '{' | '[' => {
                     expression.push(ch);
@@ -216,6 +235,10 @@ impl<'a> FStringParser<'a> {
     }
 
     fn parse(mut self) -> Result<Expr, FStringErrorType> {
+        if self.recurse_lvl >= 2 {
+            return Err(ExpressionNestedTooDeeply);
+        }
+
         let mut content = String::new();
         let mut values = vec![];
 
@@ -269,7 +292,7 @@ fn parse_fstring_expr(source: &str) -> Result<Expr, ParseError> {
 /// Parse an fstring from a string, located at a certain position in the sourcecode.
 /// In case of errors, we will get the location and the error returned.
 pub fn parse_located_fstring(source: &str, location: Location) -> Result<Expr, FStringError> {
-    FStringParser::new(source, location)
+    FStringParser::new(source, location, 0)
         .parse()
         .map_err(|error| FStringError { error, location })
 }
@@ -279,7 +302,7 @@ mod tests {
     use super::*;
 
     fn parse_fstring(source: &str) -> Result<Expr, FStringErrorType> {
-        FStringParser::new(source, Location::default()).parse()
+        FStringParser::new(source, Location::default(), 0).parse()
     }
 
     #[test]
@@ -347,7 +370,7 @@ mod tests {
         assert_eq!(parse_fstring("{5!}"), Err(InvalidConversionFlag));
         assert_eq!(parse_fstring("{5!x}"), Err(InvalidConversionFlag));
 
-        assert_eq!(parse_fstring("{a:{a:{b}}"), Err(ExpressionNestedTooDeeply));
+        assert_eq!(parse_fstring("{a:{a:{b}}}"), Err(ExpressionNestedTooDeeply));
 
         assert_eq!(parse_fstring("{a:b}}"), Err(UnopenedRbrace));
         assert_eq!(parse_fstring("}"), Err(UnopenedRbrace));

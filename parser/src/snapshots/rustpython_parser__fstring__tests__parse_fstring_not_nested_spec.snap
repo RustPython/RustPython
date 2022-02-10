@@ -37,11 +37,22 @@ Located {
                                 column: 0,
                             },
                             custom: (),
-                            node: Constant {
-                                value: Str(
-                                    "spec",
-                                ),
-                                kind: None,
+                            node: JoinedStr {
+                                values: [
+                                    Located {
+                                        location: Location {
+                                            row: 0,
+                                            column: 0,
+                                        },
+                                        custom: (),
+                                        node: Constant {
+                                            value: Str(
+                                                "spec",
+                                            ),
+                                            kind: None,
+                                        },
+                                    },
+                                ],
                             },
                         },
                     ),
