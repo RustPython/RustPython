@@ -302,7 +302,7 @@ if sys.platform.startswith("win"):
                 try:
                     mode = os.lstat(fullname).st_mode
                 except OSError as exc:
-                    print("os_helper.rmtree(): os.lstat(%r) failed with %s"
+                    print("support.rmtree(): os.lstat(%r) failed with %s"
                           % (fullname, exc),
                           file=sys.__stderr__)
                     mode = 0
@@ -477,6 +477,17 @@ def create_empty_file(filename):
     """Create an empty file. If the file already exists, truncate it."""
     fd = os.open(filename, os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
     os.close(fd)
+
+
+@contextlib.contextmanager
+def open_dir_fd(path):
+    """Open a file descriptor to a directory."""
+    assert os.path.isdir(path)
+    dir_fd = os.open(path, os.O_RDONLY)
+    try:
+        yield dir_fd
+    finally:
+        os.close(dir_fd)
 
 
 def fs_is_case_insensitive(directory):
