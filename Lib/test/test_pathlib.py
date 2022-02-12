@@ -11,8 +11,8 @@ import tempfile
 import unittest
 from unittest import mock
 
-from test import support
-from test.support import os_helper, import_helper
+from test.support import import_helper
+from test.support import os_helper
 from test.support.os_helper import TESTFN, FakePath
 
 try:
@@ -1525,7 +1525,8 @@ class _BasePathTest(object):
             # resolves to 'dirB/..' first before resolving to parent of dirB.
             self._check_resolve_relative(p, P(BASE, 'foo', 'in', 'spam'), False)
         # Now create absolute symlinks.
-        d = support._longpath(tempfile.mkdtemp(suffix='-dirD', dir=os.getcwd()))
+        d = os_helper._longpath(tempfile.mkdtemp(suffix='-dirD',
+                                                 dir=os.getcwd()))
         self.addCleanup(os_helper.rmtree, d)
         os.symlink(os.path.join(d), join('dirA', 'linkX'))
         os.symlink(join('dirB'), os.path.join(d, 'linkY'))

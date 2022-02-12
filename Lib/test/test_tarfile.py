@@ -1183,7 +1183,7 @@ class WriteTest(WriteTestBase, unittest.TestCase):
             finally:
                 tar.close()
         finally:
-            support.rmdir(path)
+            os_helper.rmdir(path)
 
     # mock the following:
     #  os.listdir: so we know that files are in the wrong order
@@ -1207,7 +1207,7 @@ class WriteTest(WriteTestBase, unittest.TestCase):
         finally:
             os_helper.unlink(os.path.join(path, "1"))
             os_helper.unlink(os.path.join(path, "2"))
-            support.rmdir(path)
+            os_helper.rmdir(path)
 
     def test_gettarinfo_pathlike_name(self):
         with tarfile.open(tmpname, self.mode) as tar:
@@ -1348,7 +1348,7 @@ class WriteTest(WriteTestBase, unittest.TestCase):
         if not dir:
             os_helper.unlink(foo)
         else:
-            support.rmdir(foo)
+            os_helper.rmdir(foo)
 
         self.assertEqual(t.name, cmp_path or path.replace(os.sep, "/"))
 

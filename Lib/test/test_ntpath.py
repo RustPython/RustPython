@@ -3,10 +3,10 @@ import os
 import sys
 import unittest
 import warnings
-from test.support import TestFailed
 from test.support import os_helper
+from test.support import TestFailed
 from test.support.os_helper import FakePath
-from test import support, test_genericpath
+from test import test_genericpath
 from tempfile import TemporaryFile
 
 

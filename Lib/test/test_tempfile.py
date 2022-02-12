@@ -15,7 +15,8 @@ from unittest import mock
 
 import unittest
 from test import support
-from test.support import script_helper, os_helper
+from test.support import os_helper
+from test.support import script_helper
 
 
 has_textmode = (tempfile._text_openflags != tempfile._bin_openflags)
@@ -608,7 +609,7 @@ class TestGetTempDir(BaseTestCase):
                 self.assertEqual(tempfile.gettempdir(), case_sensitive_tempdir)
         finally:
             tempfile.tempdir = _tempdir
-            support.rmdir(case_sensitive_tempdir)
+            os_helper.rmdir(case_sensitive_tempdir)
 
 
 class TestMkstemp(BaseTestCase):
