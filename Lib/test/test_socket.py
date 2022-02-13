@@ -1,6 +1,7 @@
 import unittest
 from test import support
 from test.support import os_helper
+from test.support import socket_helper
 
 import errno
 import io
@@ -35,7 +36,7 @@ try:
 except ImportError:
     fcntl = None
 
-HOST = support.HOST
+HOST = socket_helper.HOST
 # test unicode string and carriage return
 MSG = 'Michael Gilfix was here\u1234\r\n'.encode('utf-8')
 MAIN_TIMEOUT = 60.0
@@ -146,7 +147,7 @@ class SocketTCPTest(unittest.TestCase):
 
     def setUp(self):
         self.serv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.port = support.bind_port(self.serv)
+        self.port = socket_helper.bind_port(self.serv)
         self.serv.listen()
 
     def tearDown(self):
@@ -157,7 +158,7 @@ class SocketUDPTest(unittest.TestCase):
 
     def setUp(self):
         self.serv = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.port = support.bind_port(self.serv)
+        self.port = socket_helper.bind_port(self.serv)
 
     def tearDown(self):
         self.serv.close()
@@ -244,7 +245,7 @@ class SocketRDSTest(unittest.TestCase):
         self.serv = socket.socket(socket.PF_RDS, socket.SOCK_SEQPACKET, 0)
         self.addCleanup(self.serv.close)
         try:
-            self.port = support.bind_port(self.serv)
+            self.port = socket_helper.bind_port(self.serv)
         except OSError:
             self.skipTest('unable to bind RDS socket')
 
@@ -645,7 +646,7 @@ class UnixSocketTestBase(SocketTestBase):
 
     def bindSock(self, sock):
         path = tempfile.mktemp(dir=self.dir_path)
-        support.bind_unix_socket(sock, path)
+        socket_helper.bind_unix_socket(sock, path)
         self.addCleanup(os_helper.unlink, path)
 
 class UnixStreamBase(UnixSocketTestBase):
@@ -665,7 +666,7 @@ class InetTestBase(SocketTestBase):
         self.port = self.serv_addr[1]
 
     def bindSock(self, sock):
-        support.bind_port(sock, host=self.host)
+        socket_helper.bind_port(sock, host=self.host)
 
 class TCPTestBase(InetTestBase):
     """Base class for TCP-over-IPv4 tests."""
@@ -690,7 +691,7 @@ class SCTPStreamBase(InetTestBase):
 class Inet6TestBase(InetTestBase):
     """Base class for IPv6 socket tests."""
 
-    host = support.HOSTv6
+    host = socket_helper.HOSTv6
 
 class UDP6TestBase(Inet6TestBase):
     """Base class for UDP-over-IPv6 tests."""
@@ -919,12 +920,12 @@ class GeneralModuleTests(unittest.TestCase):
             self.fail("Error testing host resolution mechanisms. (fqdn: %s, all: %s)" % (fqhn, repr(all_host_names)))
 
     def test_host_resolution(self):
-        for addr in [support.HOSTv4, '10.0.0.1', '255.255.255.255']:
+        for addr in [socket_helper.HOSTv4, '10.0.0.1', '255.255.255.255']:
             self.assertEqual(socket.gethostbyname(addr), addr)
 
-        # we don't test support.HOSTv6 because there's a chance it doesn't have
+        # we don't test socket_helper.HOSTv6 because there's a chance it doesn't have
         # a matching name entry (e.g. 'ip6-localhost')
-        for host in [support.HOSTv4]:
+        for host in [socket_helper.HOSTv4]:
             self.assertIn(host, socket.gethostbyaddr(host)[2])
 
     def test_host_resolution_bad_address(self):
@@ -1287,7 +1288,7 @@ class GeneralModuleTests(unittest.TestCase):
 
     def testSockName(self):
         # Testing getsockname()
-        port = support.find_unused_port()
+        port = socket_helper.find_unused_port()
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.addCleanup(sock.close)
         sock.bind(("0.0.0.0", port))
@@ -1353,7 +1354,7 @@ class GeneralModuleTests(unittest.TestCase):
     def test_getsockaddrarg(self):
         sock = socket.socket()
         self.addCleanup(sock.close)
-        port = support.find_unused_port()
+        port = socket_helper.find_unused_port()
         big_port = port + 65536
         neg_port = port - 65536
         self.assertRaises(OverflowError, sock.bind, (HOST, big_port))
@@ -1361,7 +1362,7 @@ class GeneralModuleTests(unittest.TestCase):
         # Since find_unused_port() is inherently subject to race conditions, we
         # call it a couple times if necessary.
         for i in itertools.count():
-            port = support.find_unused_port()
+            port = socket_helper.find_unused_port()
             try:
                 sock.bind((HOST, port))
             except OSError as e:
@@ -1416,7 +1417,7 @@ class GeneralModuleTests(unittest.TestCase):
         socket.getaddrinfo('localhost', 80)
         socket.getaddrinfo('127.0.0.1', 80)
         socket.getaddrinfo(None, 80)
-        if support.IPV6_ENABLED:
+        if socket_helper.IPV6_ENABLED:
             socket.getaddrinfo('::1', 80)
         # port can be a string service name such as "http", a numeric
         # port number or None
@@ -1490,7 +1491,7 @@ class GeneralModuleTests(unittest.TestCase):
     def test_idna(self):
         # Check for internet access before running test
         # (issue #12804, issue #25138).
-        with support.transient_internet('python.org'):
+        with socket_helper.transient_internet('python.org'):
             socket.gethostbyname('python.org')
 
         # these should all be successful
@@ -1636,14 +1637,14 @@ class GeneralModuleTests(unittest.TestCase):
             srv.bind((HOST, 0))
             self.assertRaises(OverflowError, srv.listen, _testcapi.INT_MAX + 1)
 
-    @unittest.skipUnless(support.IPV6_ENABLED, 'IPv6 required for this test.')
+    @unittest.skipUnless(socket_helper.IPV6_ENABLED, 'IPv6 required for this test.')
     def test_flowinfo(self):
         self.assertRaises(OverflowError, socket.getnameinfo,
-                          (support.HOSTv6, 0, 0xffffffff), 0)
+                          (socket_helper.HOSTv6, 0, 0xffffffff), 0)
         with socket.socket(socket.AF_INET6, socket.SOCK_STREAM) as s:
-            self.assertRaises(OverflowError, s.bind, (support.HOSTv6, 0, -10))
+            self.assertRaises(OverflowError, s.bind, (socket_helper.HOSTv6, 0, -10))
 
-    @unittest.skipUnless(support.IPV6_ENABLED, 'IPv6 required for this test.')
+    @unittest.skipUnless(socket_helper.IPV6_ENABLED, 'IPv6 required for this test.')
     def test_getaddrinfo_ipv6_basic(self):
         ((*_, sockaddr),) = socket.getaddrinfo(
             'ff02::1de:c0:face:8D',  # Note capital letter `D`.
@@ -1653,7 +1654,7 @@ class GeneralModuleTests(unittest.TestCase):
         )
         self.assertEqual(sockaddr, ('ff02::1de:c0:face:8d', 1234, 0, 0))
 
-    @unittest.skipUnless(support.IPV6_ENABLED, 'IPv6 required for this test.')
+    @unittest.skipUnless(socket_helper.IPV6_ENABLED, 'IPv6 required for this test.')
     @unittest.skipIf(sys.platform == 'win32', 'does not work on Windows')
     @unittest.skipIf(AIX, 'Symbolic scope id does not work')
     def test_getaddrinfo_ipv6_scopeid_symbolic(self):
@@ -1668,7 +1669,7 @@ class GeneralModuleTests(unittest.TestCase):
         # Note missing interface name part in IPv6 address
         self.assertEqual(sockaddr, ('ff02::1de:c0:face:8d', 1234, 0, ifindex))
 
-    @unittest.skipUnless(support.IPV6_ENABLED, 'IPv6 required for this test.')
+    @unittest.skipUnless(socket_helper.IPV6_ENABLED, 'IPv6 required for this test.')
     @unittest.skipUnless(
         sys.platform == 'win32',
         'Numeric scope id does not work or undocumented')
@@ -1685,7 +1686,7 @@ class GeneralModuleTests(unittest.TestCase):
         # Note missing interface name part in IPv6 address
         self.assertEqual(sockaddr, ('ff02::1de:c0:face:8d', 1234, 0, ifindex))
 
-    @unittest.skipUnless(support.IPV6_ENABLED, 'IPv6 required for this test.')
+    @unittest.skipUnless(socket_helper.IPV6_ENABLED, 'IPv6 required for this test.')
     @unittest.skipIf(sys.platform == 'win32', 'does not work on Windows')
     @unittest.skipIf(AIX, 'Symbolic scope id does not work')
     def test_getnameinfo_ipv6_scopeid_symbolic(self):
@@ -1695,7 +1696,7 @@ class GeneralModuleTests(unittest.TestCase):
         nameinfo = socket.getnameinfo(sockaddr, socket.NI_NUMERICHOST | socket.NI_NUMERICSERV)
         self.assertEqual(nameinfo, ('ff02::1de:c0:face:8d%' + test_interface, '1234'))
 
-    @unittest.skipUnless(support.IPV6_ENABLED, 'IPv6 required for this test.')
+    @unittest.skipUnless(socket_helper.IPV6_ENABLED, 'IPv6 required for this test.')
     @unittest.skipUnless( sys.platform == 'win32',
         'Numeric scope id does not work or undocumented')
     def test_getnameinfo_ipv6_scopeid_numeric(self):
@@ -1788,19 +1789,19 @@ class GeneralModuleTests(unittest.TestCase):
     def test_socket_fileno(self):
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.addCleanup(s.close)
-        s.bind((support.HOST, 0))
+        s.bind((socket_helper.HOST, 0))
         self._test_socket_fileno(s, socket.AF_INET, socket.SOCK_STREAM)
 
         if hasattr(socket, "SOCK_DGRAM"):
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self.addCleanup(s.close)
-            s.bind((support.HOST, 0))
+            s.bind((socket_helper.HOST, 0))
             self._test_socket_fileno(s, socket.AF_INET, socket.SOCK_DGRAM)
 
-        if support.IPV6_ENABLED:
+        if socket_helper.IPV6_ENABLED:
             s = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
             self.addCleanup(s.close)
-            s.bind((support.HOSTv6, 0, 0, 0))
+            s.bind((socket_helper.HOSTv6, 0, 0, 0))
             self._test_socket_fileno(s, socket.AF_INET6, socket.SOCK_STREAM)
 
         if hasattr(socket, "AF_UNIX"):
@@ -2175,12 +2176,12 @@ class BasicQIPCRTRTest(unittest.TestCase):
 
     def testBindSock(self):
         with socket.socket(socket.AF_QIPCRTR, socket.SOCK_DGRAM) as s:
-            support.bind_port(s, host=s.getsockname()[0])
+            socket_helper.bind_port(s, host=s.getsockname()[0])
             self.assertNotEqual(s.getsockname()[1], 0)
 
     def testInvalidBindSock(self):
         with socket.socket(socket.AF_QIPCRTR, socket.SOCK_DGRAM) as s:
-            self.assertRaises(OSError, support.bind_port, s, host=-2)
+            self.assertRaises(OSError, socket_helper.bind_port, s, host=-2)
 
     def testAutoBindSock(self):
         with socket.socket(socket.AF_QIPCRTR, socket.SOCK_DGRAM) as s:
@@ -2419,7 +2420,7 @@ class SendrecvmsgBase(ThreadSafeCleanupTestCase):
 
     # Time in seconds to wait before considering a test failed, or
     # None for no timeout.  Not all tests actually set a timeout.
-    fail_timeout = 3.0
+    fail_timeout = support.LOOPBACK_TIMEOUT
 
     def setUp(self):
         self.misc_event = threading.Event()
@@ -3985,25 +3986,25 @@ class SendrecvmsgUDP6TestBase(SendrecvmsgDgramFlagsBase,
         self.assertEqual(addr1[:-1], addr2[:-1])
 
 @requireAttrs(socket.socket, "sendmsg")
-@unittest.skipUnless(support.IPV6_ENABLED, 'IPv6 required for this test.')
+@unittest.skipUnless(socket_helper.IPV6_ENABLED, 'IPv6 required for this test.')
 @requireSocket("AF_INET6", "SOCK_DGRAM")
 class SendmsgUDP6Test(SendmsgConnectionlessTests, SendrecvmsgUDP6TestBase):
     pass
 
 @requireAttrs(socket.socket, "recvmsg")
-@unittest.skipUnless(support.IPV6_ENABLED, 'IPv6 required for this test.')
+@unittest.skipUnless(socket_helper.IPV6_ENABLED, 'IPv6 required for this test.')
 @requireSocket("AF_INET6", "SOCK_DGRAM")
 class RecvmsgUDP6Test(RecvmsgTests, SendrecvmsgUDP6TestBase):
     pass
 
 @requireAttrs(socket.socket, "recvmsg_into")
-@unittest.skipUnless(support.IPV6_ENABLED, 'IPv6 required for this test.')
+@unittest.skipUnless(socket_helper.IPV6_ENABLED, 'IPv6 required for this test.')
 @requireSocket("AF_INET6", "SOCK_DGRAM")
 class RecvmsgIntoUDP6Test(RecvmsgIntoTests, SendrecvmsgUDP6TestBase):
     pass
 
 @requireAttrs(socket.socket, "recvmsg")
-@unittest.skipUnless(support.IPV6_ENABLED, 'IPv6 required for this test.')
+@unittest.skipUnless(socket_helper.IPV6_ENABLED, 'IPv6 required for this test.')
 @requireAttrs(socket, "IPPROTO_IPV6")
 @requireSocket("AF_INET6", "SOCK_DGRAM")
 class RecvmsgRFC3542AncillaryUDP6Test(RFC3542AncillaryTest,
@@ -4011,7 +4012,7 @@ class RecvmsgRFC3542AncillaryUDP6Test(RFC3542AncillaryTest,
     pass
 
 @requireAttrs(socket.socket, "recvmsg_into")
-@unittest.skipUnless(support.IPV6_ENABLED, 'IPv6 required for this test.')
+@unittest.skipUnless(socket_helper.IPV6_ENABLED, 'IPv6 required for this test.')
 @requireAttrs(socket, "IPPROTO_IPV6")
 @requireSocket("AF_INET6", "SOCK_DGRAM")
 class RecvmsgIntoRFC3542AncillaryUDP6Test(RecvmsgIntoMixin,
@@ -4810,7 +4811,7 @@ class NetworkConnectionNoServer(unittest.TestCase):
             socket.socket = old_socket
 
     def test_connect(self):
-        port = support.find_unused_port()
+        port = socket_helper.find_unused_port()
         cli = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.addCleanup(cli.close)
         with self.assertRaises(OSError) as cm:
@@ -4820,7 +4821,7 @@ class NetworkConnectionNoServer(unittest.TestCase):
     def test_create_connection(self):
         # Issue #9792: errors raised by create_connection() should have
         # a proper errno attribute.
-        port = support.find_unused_port()
+        port = socket_helper.find_unused_port()
         with self.assertRaises(OSError) as cm:
             socket.create_connection((HOST, port))
 
@@ -4838,7 +4839,7 @@ class NetworkConnectionNoServer(unittest.TestCase):
         # On Solaris, ENETUNREACH is returned in this circumstance instead
         # of ECONNREFUSED.  So, if that errno exists, add it to our list of
         # expected errnos.
-        expected_errnos = support.get_socket_conn_refused_errs()
+        expected_errnos = socket_helper.get_socket_conn_refused_errs()
         self.assertIn(cm.exception.errno, expected_errnos)
 
     def test_create_connection_timeout(self):
@@ -4850,7 +4851,7 @@ class NetworkConnectionNoServer(unittest.TestCase):
             except socket.timeout:
                 pass
             except OSError as exc:
-                if support.IPV6_ENABLED or exc.errno != errno.EAFNOSUPPORT:
+                if socket_helper.IPV6_ENABLED or exc.errno != errno.EAFNOSUPPORT:
                     raise
             else:
                 self.fail('socket.timeout not raised')
@@ -4863,7 +4864,7 @@ class NetworkConnectionAttributesTest(SocketTCPTest, ThreadableTest):
         ThreadableTest.__init__(self)
 
     def clientSetUp(self):
-        self.source_port = support.find_unused_port()
+        self.source_port = socket_helper.find_unused_port()
 
     def clientTearDown(self):
         self.cli.close()
@@ -5122,7 +5123,7 @@ class TestUnixDomain(unittest.TestCase):
     def bind(self, sock, path):
         # Bind the socket
         try:
-            support.bind_unix_socket(sock, path)
+            socket_helper.bind_unix_socket(sock, path)
         except OSError as e:
             if str(e) == "AF_UNIX path too long":
                 self.skipTest(
@@ -6111,11 +6112,11 @@ class TestMSWindowsTCPFlags(unittest.TestCase):
 class CreateServerTest(unittest.TestCase):
 
     def test_address(self):
-        port = support.find_unused_port()
+        port = socket_helper.find_unused_port()
         with socket.create_server(("127.0.0.1", port)) as sock:
             self.assertEqual(sock.getsockname()[0], "127.0.0.1")
             self.assertEqual(sock.getsockname()[1], port)
-        if support.IPV6_ENABLED:
+        if socket_helper.IPV6_ENABLED:
             with socket.create_server(("::1", port),
                                       family=socket.AF_INET6) as sock:
                 self.assertEqual(sock.getsockname()[0], "::1")
@@ -6125,7 +6126,7 @@ class CreateServerTest(unittest.TestCase):
         with socket.create_server(("127.0.0.1", 0)) as sock:
             self.assertEqual(sock.family, socket.AF_INET)
             self.assertEqual(sock.type, socket.SOCK_STREAM)
-        if support.IPV6_ENABLED:
+        if socket_helper.IPV6_ENABLED:
             with socket.create_server(("::1", 0), family=socket.AF_INET6) as s:
                 self.assertEqual(s.family, socket.AF_INET6)
                 self.assertEqual(sock.type, socket.SOCK_STREAM)
@@ -6145,14 +6146,14 @@ class CreateServerTest(unittest.TestCase):
     @unittest.skipIf(not hasattr(_socket, 'IPPROTO_IPV6') or
                      not hasattr(_socket, 'IPV6_V6ONLY'),
                      "IPV6_V6ONLY option not supported")
-    @unittest.skipUnless(support.IPV6_ENABLED, 'IPv6 required for this test')
+    @unittest.skipUnless(socket_helper.IPV6_ENABLED, 'IPv6 required for this test')
     def test_ipv6_only_default(self):
         with socket.create_server(("::1", 0), family=socket.AF_INET6) as sock:
             assert sock.getsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY)
 
     @unittest.skipIf(not socket.has_dualstack_ipv6(),
                      "dualstack_ipv6 not supported")
-    @unittest.skipUnless(support.IPV6_ENABLED, 'IPv6 required for this test')
+    @unittest.skipUnless(socket_helper.IPV6_ENABLED, 'IPv6 required for this test')
     def test_dualstack_ipv6_family(self):
         with socket.create_server(("::1", 0), family=socket.AF_INET6,
                                   dualstack_ipv6=True) as sock:
@@ -6194,14 +6195,14 @@ class CreateServerFunctionalTest(unittest.TestCase):
             self.assertEqual(sock.recv(1024), b'foo')
 
     def test_tcp4(self):
-        port = support.find_unused_port()
+        port = socket_helper.find_unused_port()
         with socket.create_server(("", port)) as sock:
             self.echo_server(sock)
             self.echo_client(("127.0.0.1", port), socket.AF_INET)
 
-    @unittest.skipUnless(support.IPV6_ENABLED, 'IPv6 required for this test')
+    @unittest.skipUnless(socket_helper.IPV6_ENABLED, 'IPv6 required for this test')
     def test_tcp6(self):
-        port = support.find_unused_port()
+        port = socket_helper.find_unused_port()
         with socket.create_server(("", port),
                                   family=socket.AF_INET6) as sock:
             self.echo_server(sock)
@@ -6211,9 +6212,9 @@ class CreateServerFunctionalTest(unittest.TestCase):
 
     @unittest.skipIf(not socket.has_dualstack_ipv6(),
                      "dualstack_ipv6 not supported")
-    @unittest.skipUnless(support.IPV6_ENABLED, 'IPv6 required for this test')
+    @unittest.skipUnless(socket_helper.IPV6_ENABLED, 'IPv6 required for this test')
     def test_dual_stack_client_v4(self):
-        port = support.find_unused_port()
+        port = socket_helper.find_unused_port()
         with socket.create_server(("", port), family=socket.AF_INET6,
                                   dualstack_ipv6=True) as sock:
             self.echo_server(sock)
@@ -6221,9 +6222,9 @@ class CreateServerFunctionalTest(unittest.TestCase):
 
     @unittest.skipIf(not socket.has_dualstack_ipv6(),
                      "dualstack_ipv6 not supported")
-    @unittest.skipUnless(support.IPV6_ENABLED, 'IPv6 required for this test')
+    @unittest.skipUnless(socket_helper.IPV6_ENABLED, 'IPv6 required for this test')
     def test_dual_stack_client_v6(self):
-        port = support.find_unused_port()
+        port = socket_helper.find_unused_port()
         with socket.create_server(("", port), family=socket.AF_INET6,
                                   dualstack_ipv6=True) as sock:
             self.echo_server(sock)
