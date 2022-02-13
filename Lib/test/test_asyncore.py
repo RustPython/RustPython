@@ -12,6 +12,7 @@ import threading
 from test import support
 from test.support import os_helper
 from test.support import socket_helper
+from test.support import threading_helper
 from io import BytesIO
 
 if support.PGO:
@@ -325,7 +326,7 @@ class DispatcherWithSendTests(unittest.TestCase):
     def tearDown(self):
         asyncore.close_all()
 
-    @support.reap_threads
+    @threading_helper.reap_threads
     def test_send(self):
         evt = threading.Event()
         sock = socket.socket()
@@ -362,7 +363,7 @@ class DispatcherWithSendTests(unittest.TestCase):
 
             self.assertEqual(cap.getvalue(), data*2)
         finally:
-            support.join_thread(t, timeout=TIMEOUT)
+            threading_helper.join_thread(t)
 
 
 @unittest.skipUnless(hasattr(asyncore, 'file_wrapper'),
@@ -768,7 +769,7 @@ class BaseTestAPI:
                 self.assertTrue(s.socket.getsockopt(socket.SOL_SOCKET,
                                                      socket.SO_REUSEADDR))
 
-    @support.reap_threads
+    @threading_helper.reap_threads
     def test_quick_connect(self):
         # see: http://bugs.python.org/issue10340
         if self.family not in (socket.AF_INET, getattr(socket, "AF_INET6", object())):
@@ -790,7 +791,7 @@ class BaseTestAPI:
                 except OSError:
                     pass
         finally:
-            support.join_thread(t, timeout=TIMEOUT)
+            threading_helper.join_thread(t)
 
 class TestAPI_UseIPv4Sockets(BaseTestAPI):
     family = socket.AF_INET

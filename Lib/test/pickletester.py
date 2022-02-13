@@ -25,10 +25,11 @@ from test import support
 from test.support import os_helper
 from test.support import (
     TestFailed, run_with_locale, no_tracing,
-    _2G, _4G, bigmemtest, reap_threads
+    _2G, _4G, bigmemtest
     )
 from test.support.import_helper import forget
 from test.support.os_helper import TESTFN
+from test.support import threading_helper
 from test.support.warnings_helper import save_restore_warnings_filters
 
 from pickle import bytes_types
@@ -1378,7 +1379,7 @@ class AbstractUnpickleTests:
         for p in badpickles:
             self.check_unpickling_error(self.truncated_errors, p)
 
-    @reap_threads
+    @threading_helper.reap_threads
     def test_unpickle_module_race(self):
         # https://bugs.python.org/issue34572
         locker_module = dedent("""

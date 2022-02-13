@@ -2,6 +2,7 @@
 
 from test import support
 from test.support import socket_helper
+from test.support import threading_helper
 
 
 import asynchat
@@ -105,10 +106,10 @@ class TestAsynchat(unittest.TestCase):
     usepoll = False
 
     def setUp(self):
-        self._threads = support.threading_setup()
+        self._threads = threading_helper.threading_setup()
 
     def tearDown(self):
-        support.threading_cleanup(*self._threads)
+        threading_helper.threading_cleanup(*self._threads)
 
     def line_terminator_check(self, term, server_chunk):
         event = threading.Event()
@@ -124,7 +125,7 @@ class TestAsynchat(unittest.TestCase):
         c.push(b"I'm not dead yet!" + term)
         c.push(SERVER_QUIT)
         asyncore.loop(use_poll=self.usepoll, count=300, timeout=.01)
-        support.join_thread(s, timeout=TIMEOUT)
+        threading_helper.join_thread(s)
 
         self.assertEqual(c.contents, [b"hello world", b"I'm not dead yet!"])
 
@@ -155,7 +156,7 @@ class TestAsynchat(unittest.TestCase):
         c.push(data)
         c.push(SERVER_QUIT)
         asyncore.loop(use_poll=self.usepoll, count=300, timeout=.01)
-        support.join_thread(s, timeout=TIMEOUT)
+        threading_helper.join_thread(s)
 
         self.assertEqual(c.contents, [data[:termlen]])
 
@@ -175,7 +176,7 @@ class TestAsynchat(unittest.TestCase):
         c.push(data)
         c.push(SERVER_QUIT)
         asyncore.loop(use_poll=self.usepoll, count=300, timeout=.01)
-        support.join_thread(s, timeout=TIMEOUT)
+        threading_helper.join_thread(s)
 
         self.assertEqual(c.contents, [])
         self.assertEqual(c.buffer, data)
@@ -187,7 +188,7 @@ class TestAsynchat(unittest.TestCase):
         p = asynchat.simple_producer(data+SERVER_QUIT, buffer_size=8)
         c.push_with_producer(p)
         asyncore.loop(use_poll=self.usepoll, count=300, timeout=.01)
-        support.join_thread(s, timeout=TIMEOUT)
+        threading_helper.join_thread(s)
 
         self.assertEqual(c.contents, [b"hello world", b"I'm not dead yet!"])
 
@@ -197,7 +198,7 @@ class TestAsynchat(unittest.TestCase):
         data = b"hello world\nI'm not dead yet!\n"
         c.push_with_producer(data+SERVER_QUIT)
         asyncore.loop(use_poll=self.usepoll, count=300, timeout=.01)
-        support.join_thread(s, timeout=TIMEOUT)
+        threading_helper.join_thread(s)
 
         self.assertEqual(c.contents, [b"hello world", b"I'm not dead yet!"])
 
@@ -208,7 +209,7 @@ class TestAsynchat(unittest.TestCase):
         c.push(b"hello world\n\nI'm not dead yet!\n")
         c.push(SERVER_QUIT)
         asyncore.loop(use_poll=self.usepoll, count=300, timeout=.01)
-        support.join_thread(s, timeout=TIMEOUT)
+        threading_helper.join_thread(s)
 
         self.assertEqual(c.contents,
                          [b"hello world", b"", b"I'm not dead yet!"])
@@ -227,7 +228,7 @@ class TestAsynchat(unittest.TestCase):
         # where the server echoes all of its data before we can check that it
         # got any down below.
         s.start_resend_event.set()
-        support.join_thread(s, timeout=TIMEOUT)
+        threading_helper.join_thread(s)
 
         self.assertEqual(c.contents, [])
         # the server might have been able to send a byte or two back, but this
@@ -248,7 +249,7 @@ class TestAsynchat(unittest.TestCase):
         self.assertRaises(TypeError, c.push, 'unicode')
         c.push(SERVER_QUIT)
         asyncore.loop(use_poll=self.usepoll, count=300, timeout=.01)
-        support.join_thread(s, timeout=TIMEOUT)
+        threading_helper.join_thread(s)
         self.assertEqual(c.contents, [b'bytes', b'bytes', b'bytes'])
 
 
