@@ -14,11 +14,11 @@ import pickle
 import random
 import sys
 import unittest
+from test import support
+from test.support import import_helper
 
 from decimal import Decimal
 from fractions import Fraction
-from test import support
-from test.support import import_helper
 
 
 # Module to be tested.
@@ -179,8 +179,10 @@ class _DoNothing:
 # We prefer this for testing numeric values that may not be exactly equal,
 # and avoid using TestCase.assertAlmostEqual, because it sucks :-)
 
-py_statistics = import_helper.import_fresh_module('statistics', blocked=['_statistics'])
-c_statistics = import_helper.import_fresh_module('statistics', fresh=['_statistics'])
+py_statistics = import_helper.import_fresh_module('statistics',
+                                                  blocked=['_statistics'])
+c_statistics = import_helper.import_fresh_module('statistics',
+                                                 fresh=['_statistics'])
 
 
 class TestModules(unittest.TestCase):
@@ -1006,6 +1008,10 @@ class ConvertTest(unittest.TestCase):
             x = statistics._convert(nan, type(nan))
             self.assertTrue(_nan_equal(x, nan))
 
+    def test_invalid_input_type(self):
+        with self.assertRaises(TypeError):
+            statistics._convert(None, float)
+
 
 class FailNegTest(unittest.TestCase):
     """Test _fail_neg private function."""
@@ -1033,6 +1039,50 @@ class FailNegTest(unittest.TestCase):
         else:
             self.fail("expected exception, but it didn't happen")
         self.assertEqual(errmsg, msg)
+
+
+class FindLteqTest(unittest.TestCase):
+    # Test _find_lteq private function.
+
+    def test_invalid_input_values(self):
+        for a, x in [
+            ([], 1),
+            ([1, 2], 3),
+            ([1, 3], 2)
+        ]:
+            with self.subTest(a=a, x=x):
+                with self.assertRaises(ValueError):
+                    statistics._find_lteq(a, x)
+
+    def test_locate_successfully(self):
+        for a, x, expected_i in [
+            ([1, 1, 1, 2, 3], 1, 0),
+            ([0, 1, 1, 1, 2, 3], 1, 1),
+            ([1, 2, 3, 3, 3], 3, 2)
+        ]:
+            with self.subTest(a=a, x=x):
+                self.assertEqual(expected_i, statistics._find_lteq(a, x))
+
+
+class FindRteqTest(unittest.TestCase):
+    # Test _find_rteq private function.
+
+    def test_invalid_input_values(self):
+        for a, l, x in [
+            ([1], 2, 1),
+            ([1, 3], 0, 2)
+        ]:
+            with self.assertRaises(ValueError):
+                statistics._find_rteq(a, l, x)
+
+    def test_locate_successfully(self):
+        for a, l, x, expected_i in [
+            ([1, 1, 1, 2, 3], 0, 1, 2),
+            ([0, 1, 1, 1, 2, 3], 0, 1, 3),
+            ([1, 2, 3, 3, 3], 0, 3, 4)
+        ]:
+            with self.subTest(a=a, l=l, x=x):
+                self.assertEqual(expected_i, statistics._find_rteq(a, l, x))
 
 
 # === Tests for public functions ===
@@ -1199,20 +1249,14 @@ class TestSum(NumericTestCase):
         # Override test for empty data.
         for data in ([], (), iter([])):
             self.assertEqual(self.func(data), (int, Fraction(0), 0))
-            self.assertEqual(self.func(data, 23), (int, Fraction(23), 0))
-            self.assertEqual(self.func(data, 2.3), (float, Fraction(2.3), 0))
 
     def test_ints(self):
         self.assertEqual(self.func([1, 5, 3, -4, -8, 20, 42, 1]),
                          (int, Fraction(60), 8))
-        self.assertEqual(self.func([4, 2, 3, -8, 7], 1000),
-                         (int, Fraction(1008), 5))
 
     def test_floats(self):
         self.assertEqual(self.func([0.25]*20),
                          (float, Fraction(5.0), 20))
-        self.assertEqual(self.func([0.125, 0.25, 0.5, 0.75], 1.5),
-                         (float, Fraction(3.125), 4))
 
     def test_fractions(self):
         self.assertEqual(self.func([Fraction(1, 1000)]*500),
@@ -1232,14 +1276,6 @@ class TestSum(NumericTestCase):
         # we differ by a very slight amount :-(
         data = [random.uniform(-100, 1000) for _ in range(1000)]
         self.assertApproxEqual(float(self.func(data)[1]), math.fsum(data), rel=2e-16)
-
-    def test_start_argument(self):
-        # Test that the optional start argument works correctly.
-        data = [random.uniform(1, 1000) for _ in range(100)]
-        t = self.func(data)[1]
-        self.assertEqual(t+42, self.func(data, 42)[1])
-        self.assertEqual(t-23, self.func(data, -23)[1])
-        self.assertEqual(t+Fraction(1e20), self.func(data, 1e20)[1])
 
     def test_strings_fail(self):
         # Sum of strings should fail.
@@ -1480,6 +1516,18 @@ class TestHarmonicMean(NumericTestCase, AverageMixin, UnivariateTypeMixin):
             with self.subTest(values=values):
                 self.assertRaises(exc, self.func, values)
 
+    def test_invalid_type_error(self):
+        # Test error is raised when input contains invalid type(s)
+        for data in [
+            ['3.14'],               # single string
+            ['1', '2', '3'],        # multiple strings
+            [1, '2', 3, '4', 5],    # mixed strings and valid integers
+            [2.3, 3.4, 4.5, '5.6']  # only one string and valid floats
+        ]:
+            with self.subTest(data=data):
+                with self.assertRaises(TypeError):
+                    self.func(data)
+
     def test_ints(self):
         # Test harmonic mean with ints.
         data = [2, 4, 4, 8, 16, 16]
@@ -1540,6 +1588,27 @@ class TestHarmonicMean(NumericTestCase, AverageMixin, UnivariateTypeMixin):
         expected = self.func(data)
         actual = self.func(data*2)
         self.assertApproxEqual(actual, expected)
+
+    def test_with_weights(self):
+        self.assertEqual(self.func([40, 60], [5, 30]), 56.0)  # common case
+        self.assertEqual(self.func([40, 60],
+                                   weights=[5, 30]), 56.0)    # keyword argument
+        self.assertEqual(self.func(iter([40, 60]),
+                                   iter([5, 30])), 56.0)      # iterator inputs
+        self.assertEqual(
+            self.func([Fraction(10, 3), Fraction(23, 5), Fraction(7, 2)], [5, 2, 10]),
+            self.func([Fraction(10, 3)] * 5 +
+                      [Fraction(23, 5)] * 2 +
+                      [Fraction(7, 2)] * 10))
+        self.assertEqual(self.func([10], [7]), 10)            # n=1 fast path
+        with self.assertRaises(TypeError):
+            self.func([1, 2, 3], [1, (), 3])                  # non-numeric weight
+        with self.assertRaises(statistics.StatisticsError):
+            self.func([1, 2, 3], [1, 2])                      # wrong number of weights
+        with self.assertRaises(statistics.StatisticsError):
+            self.func([10], [0])                              # no non-zero weights
+        with self.assertRaises(statistics.StatisticsError):
+            self.func([10, 20], [0, 0])                       # no non-zero weights
 
 
 class TestMedian(NumericTestCase, AverageMixin):
@@ -1832,10 +1901,13 @@ class TestMode(NumericTestCase, AverageMixin, UnivariateTypeMixin):
 
     def test_counter_data(self):
         # Test that a Counter is treated like any other iterable.
-        data = collections.Counter([1, 1, 1, 2])
-        # Since the keys of the counter are treated as data points, not the
-        # counts, this should return the first mode encountered, 1
-        self.assertEqual(self.func(data), 1)
+        # We're making sure mode() first calls iter() on its input.
+        # The concern is that a Counter of a Counter returns the original
+        # unchanged rather than counting its keys.
+        c = collections.Counter(a=1, b=2)
+        # If iter() is called, mode(c) loops over the keys, ['a', 'b'],
+        # all the counts will be 1, and the first encountered mode is 'a'.
+        self.assertEqual(self.func(c), 'a')
 
 
 class TestMultiMode(unittest.TestCase):
@@ -2000,6 +2072,13 @@ class TestPVariance(VarianceStdevMixin, NumericTestCase, UnivariateTypeMixin):
         self.assertEqual(result, exact)
         self.assertIsInstance(result, Decimal)
 
+    def test_accuracy_bug_20499(self):
+        data = [0, 0, 1]
+        exact = 2 / 9
+        result = self.func(data)
+        self.assertEqual(result, exact)
+        self.assertIsInstance(result, float)
+
 
 class TestVariance(VarianceStdevMixin, NumericTestCase, UnivariateTypeMixin):
     # Tests for sample variance.
@@ -2040,6 +2119,13 @@ class TestVariance(VarianceStdevMixin, NumericTestCase, UnivariateTypeMixin):
         self.assertEqual(self.func(data), 0.5)
         self.assertEqual(self.func(data, xbar=2.0), 1.0)
 
+    def test_accuracy_bug_20499(self):
+        data = [0, 0, 2]
+        exact = 4 / 3
+        result = self.func(data)
+        self.assertEqual(result, exact)
+        self.assertIsInstance(result, float)
+
 class TestPStdev(VarianceStdevMixin, NumericTestCase):
     # Tests for population standard deviation.
     def setUp(self):
@@ -2078,6 +2164,7 @@ class TestStdev(VarianceStdevMixin, NumericTestCase):
         self.assertEqual(self.func(data, xbar=2.0), 1.0)
 
 class TestGeometricMean(unittest.TestCase):
+
     def test_basics(self):
         geometric_mean = statistics.geometric_mean
         self.assertAlmostEqual(geometric_mean([54, 24, 36]), 36.0)
@@ -2327,6 +2414,84 @@ class TestQuantiles(unittest.TestCase):
             quantiles([10], n=4)                # not enough data points
         with self.assertRaises(TypeError):
             quantiles([10, None, 30], n=4)      # data is non-numeric
+
+
+class TestBivariateStatistics(unittest.TestCase):
+
+    def test_unequal_size_error(self):
+        for x, y in [
+            ([1, 2, 3], [1, 2]),
+            ([1, 2], [1, 2, 3]),
+        ]:
+            with self.assertRaises(statistics.StatisticsError):
+                statistics.covariance(x, y)
+            with self.assertRaises(statistics.StatisticsError):
+                statistics.correlation(x, y)
+            with self.assertRaises(statistics.StatisticsError):
+                statistics.linear_regression(x, y)
+
+    def test_small_sample_error(self):
+        for x, y in [
+            ([], []),
+            ([], [1, 2,]),
+            ([1, 2,], []),
+            ([1,], [1,]),
+            ([1,], [1, 2,]),
+            ([1, 2,], [1,]),
+        ]:
+            with self.assertRaises(statistics.StatisticsError):
+                statistics.covariance(x, y)
+            with self.assertRaises(statistics.StatisticsError):
+                statistics.correlation(x, y)
+            with self.assertRaises(statistics.StatisticsError):
+                statistics.linear_regression(x, y)
+
+
+class TestCorrelationAndCovariance(unittest.TestCase):
+
+    def test_results(self):
+        for x, y, result in [
+            ([1, 2, 3], [1, 2, 3], 1),
+            ([1, 2, 3], [-1, -2, -3], -1),
+            ([1, 2, 3], [3, 2, 1], -1),
+            ([1, 2, 3], [1, 2, 1], 0),
+            ([1, 2, 3], [1, 3, 2], 0.5),
+        ]:
+            self.assertAlmostEqual(statistics.correlation(x, y), result)
+            self.assertAlmostEqual(statistics.covariance(x, y), result)
+
+    def test_different_scales(self):
+        x = [1, 2, 3]
+        y = [10, 30, 20]
+        self.assertAlmostEqual(statistics.correlation(x, y), 0.5)
+        self.assertAlmostEqual(statistics.covariance(x, y), 5)
+
+        y = [.1, .2, .3]
+        self.assertAlmostEqual(statistics.correlation(x, y), 1)
+        self.assertAlmostEqual(statistics.covariance(x, y), 0.1)
+
+
+class TestLinearRegression(unittest.TestCase):
+
+    def test_constant_input_error(self):
+        x = [1, 1, 1,]
+        y = [1, 2, 3,]
+        with self.assertRaises(statistics.StatisticsError):
+            statistics.linear_regression(x, y)
+
+    def test_results(self):
+        for x, y, true_intercept, true_slope in [
+            ([1, 2, 3], [0, 0, 0], 0, 0),
+            ([1, 2, 3], [1, 2, 3], 0, 1),
+            ([1, 2, 3], [100, 100, 100], 100, 0),
+            ([1, 2, 3], [12, 14, 16], 10, 2),
+            ([1, 2, 3], [-1, -2, -3], 0, -1),
+            ([1, 2, 3], [21, 22, 23], 20, 1),
+            ([1, 2, 3], [5.1, 5.2, 5.3], 5, 0.1),
+        ]:
+            slope, intercept = statistics.linear_regression(x, y)
+            self.assertAlmostEqual(intercept, true_intercept)
+            self.assertAlmostEqual(slope, true_slope)
 
 
 class TestNormalDist:
@@ -2622,6 +2787,21 @@ class TestNormalDist:
             X.overlap(NormalDist(1, 0))             # right operand sigma is zero
         with self.assertRaises(self.module.StatisticsError):
             NormalDist(1, 0).overlap(X)             # left operand sigma is zero
+
+    def test_zscore(self):
+        NormalDist = self.module.NormalDist
+        X = NormalDist(100, 15)
+        self.assertEqual(X.zscore(142), 2.8)
+        self.assertEqual(X.zscore(58), -2.8)
+        self.assertEqual(X.zscore(100), 0.0)
+        with self.assertRaises(TypeError):
+            X.zscore()                              # too few arguments
+        with self.assertRaises(TypeError):
+            X.zscore(1, 1)                          # too may arguments
+        with self.assertRaises(TypeError):
+            X.zscore(None)                          # non-numeric type
+        with self.assertRaises(self.module.StatisticsError):
+            NormalDist(1, 0).zscore(100)            # sigma is zero
 
     def test_properties(self):
         X = self.module.NormalDist(100, 15)
