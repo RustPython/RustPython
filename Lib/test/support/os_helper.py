@@ -302,7 +302,7 @@ if sys.platform.startswith("win"):
                 try:
                     mode = os.lstat(fullname).st_mode
                 except OSError as exc:
-                    print("os_helper.rmtree(): os.lstat(%r) failed with %s"
+                    print("support.rmtree(): os.lstat(%r) failed with %s"
                           % (fullname, exc),
                           file=sys.__stderr__)
                     mode = 0
@@ -479,6 +479,17 @@ def create_empty_file(filename):
     os.close(fd)
 
 
+@contextlib.contextmanager
+def open_dir_fd(path):
+    """Open a file descriptor to a directory."""
+    assert os.path.isdir(path)
+    dir_fd = os.open(path, os.O_RDONLY)
+    try:
+        yield dir_fd
+    finally:
+        os.close(dir_fd)
+
+
 def fs_is_case_insensitive(directory):
     """Detects if the file system for the specified directory
     is case-insensitive."""
@@ -622,10 +633,6 @@ class EnvironmentVarGuard(collections.abc.MutableMapping):
 
     def unset(self, envvar):
         del self[envvar]
-
-    def copy(self):
-        # We do what os.environ.copy() does.
-        return dict(self)
 
     def __enter__(self):
         return self
