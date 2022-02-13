@@ -2645,8 +2645,6 @@ class TestNormalDist:
         self.assertEqual(X.cdf(float('Inf')), 1.0)
         self.assertTrue(math.isnan(X.cdf(float('NaN'))))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @support.skip_if_pgo_task
     def test_inv_cdf(self):
         NormalDist = self.module.NormalDist
@@ -2919,6 +2917,11 @@ class TestNormalDistPython(unittest.TestCase, TestNormalDist):
 
     def tearDown(self):
         sys.modules['statistics'] = statistics
+
+    # TODO: RUSTPYTHON, ValueError: math domain error
+    @unittest.expectedFailure
+    def test_inv_cdf(self): # TODO: RUSTPYTHON, remove when this passes
+        super().test_inv_cdf() # TODO: RUSTPYTHON, remove when this passes
 
 
 @unittest.skipUnless(c_statistics, 'requires _statistics')
