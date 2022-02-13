@@ -1,6 +1,8 @@
 # test asynchat
 
 from test import support
+from test.support import socket_helper
+
 
 import asynchat
 import asyncore
@@ -12,7 +14,7 @@ import time
 import unittest
 import unittest.mock
 
-HOST = support.HOST
+HOST = socket_helper.HOST
 SERVER_QUIT = b'QUIT\n'
 TIMEOUT = 3.0
 
@@ -26,7 +28,7 @@ class echo_server(threading.Thread):
         threading.Thread.__init__(self)
         self.event = event
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.port = support.bind_port(self.sock)
+        self.port = socket_helper.bind_port(self.sock)
         # This will be set if the client wants us to wait before echoing
         # data back.
         self.start_resend_event = None

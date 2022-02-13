@@ -33,8 +33,8 @@ import warnings
 from test import support
 from test.support import import_helper
 from test.support import os_helper
+from test.support import socket_helper
 # TODO: RUSTPYTHON
-# from test.support import socket_helper
 # from test.support import threading_helper
 # from test.support import warnings_helper
 from platform import win32_is_iot
@@ -3352,7 +3352,7 @@ class TestSendfile(unittest.TestCase):
         os_helper.unlink(os_helper.TESTFN)
 
     def setUp(self):
-        self.server = SendfileTestServer((support.HOST, 0))
+        self.server = SendfileTestServer((socket_helper.HOST, 0))
         self.server.start()
         self.client = socket.socket()
         self.client.connect((self.server.host, self.server.port))
