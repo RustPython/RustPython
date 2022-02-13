@@ -22,6 +22,7 @@ mod random;
 // mod re;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod socket;
+mod statistics;
 #[cfg(unix)]
 mod syslog;
 mod unicodedata;
@@ -85,6 +86,7 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
             "pyexpat" => pyexpat::make_module,
             "_platform" => platform::make_module,
             "_random" => random::make_module,
+            "_statistics" => statistics::make_module,
             "unicodedata" => unicodedata::make_module,
             "zlib" => zlib::make_module,
             // crate::vm::sysmodule::sysconfigdata_name() => sysconfigdata::make_module,
