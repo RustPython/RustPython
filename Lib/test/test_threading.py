@@ -3,10 +3,10 @@ Tests for the threading module.
 """
 
 import test.support
-from test.support import (verbose, cpython_only,
-                          requires_type_collecting)
-from test.support.script_helper import assert_python_ok, assert_python_failure
+from test.support import threading_helper
+from test.support import verbose, cpython_only, os_helper
 from test.support.import_helper import import_module
+from test.support.script_helper import assert_python_ok, assert_python_failure
 
 import random
 import sys
@@ -76,10 +76,10 @@ class TestThread(threading.Thread):
 
 class BaseTestCase(unittest.TestCase):
     def setUp(self):
-        self._threads = test.support.threading_setup()
+        self._threads = threading_helper.threading_setup()
 
     def tearDown(self):
-        test.support.threading_cleanup(*self._threads)
+        threading_helper.threading_cleanup(*self._threads)
         test.support.reap_children()
 
 
@@ -131,7 +131,7 @@ class ThreadTests(BaseTestCase):
             done.set()
         done = threading.Event()
         ident = []
-        with support.wait_threads_exit():
+        with threading_helper.wait_threads_exit():
             tid = _thread.start_new_thread(f, ())
             done.wait()
             self.assertEqual(ident[0], tid)
@@ -172,7 +172,7 @@ class ThreadTests(BaseTestCase):
 
         mutex = threading.Lock()
         mutex.acquire()
-        with support.wait_threads_exit():
+        with threading_helper.wait_threads_exit():
             tid = _thread.start_new_thread(f, (mutex,))
             # Wait for the thread to finish.
             mutex.acquire()
@@ -560,7 +560,6 @@ class ThreadTests(BaseTestCase):
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
-    @requires_type_collecting
     def test_main_thread_during_shutdown(self):
         # bpo-31516: current_thread() should still point to the main thread
         # at shutdown
@@ -1127,7 +1126,6 @@ class ThreadingExceptionTests(BaseTestCase):
         self.assertIn("ZeroDivisionError", err)
         self.assertNotIn("Unhandled exception", err)
 
-    @requires_type_collecting
     def test_print_exception_stderr_is_none_1(self):
         script = r"""if True:
             import sys

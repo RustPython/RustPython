@@ -8,7 +8,6 @@ import pickle
 from random import choice
 import sys
 from test import support
-from test.support import import_helper
 import threading
 import time
 import typing
@@ -16,6 +15,9 @@ import unittest
 import unittest.mock
 from weakref import proxy
 import contextlib
+
+from test.support import import_helper
+from test.support import threading_helper
 
 import functools
 
@@ -1570,7 +1572,7 @@ class TestLRU:
             # create n threads in order to fill cache
             threads = [threading.Thread(target=full, args=[k])
                        for k in range(n)]
-            with support.start_threads(threads):
+            with threading_helper.start_threads(threads):
                 start.set()
 
             hits, misses, maxsize, currsize = f.cache_info()
@@ -1588,7 +1590,7 @@ class TestLRU:
             threads += [threading.Thread(target=full, args=[k])
                         for k in range(n)]
             start.clear()
-            with support.start_threads(threads):
+            with threading_helper.start_threads(threads):
                 start.set()
         finally:
             sys.setswitchinterval(orig_si)
@@ -1610,7 +1612,7 @@ class TestLRU:
                 self.assertEqual(f(i), 3 * i)
                 stop.wait(10)
         threads = [threading.Thread(target=test) for k in range(n)]
-        with support.start_threads(threads):
+        with threading_helper.start_threads(threads):
             for i in range(m):
                 start.wait(10)
                 stop.reset()
@@ -1630,7 +1632,7 @@ class TestLRU:
                 self.assertEqual(f(x), 3 * x, i)
         threads = [threading.Thread(target=test, args=(i, v))
                    for i, v in enumerate([1, 2, 2, 3, 2])]
-        with support.start_threads(threads):
+        with threading_helper.start_threads(threads):
             pass
 
     def test_need_for_rlock(self):
@@ -2526,7 +2528,7 @@ class TestCachedProperty(unittest.TestCase):
                 threading.Thread(target=lambda: item.cost)
                 for k in range(num_threads)
             ]
-            with support.start_threads(threads):
+            with threading_helper.start_threads(threads):
                 go.set()
         finally:
             sys.setswitchinterval(orig_si)

@@ -8,7 +8,7 @@ from collections import OrderedDict
 from enum import Enum, IntEnum, EnumMeta, Flag, IntFlag, unique, auto
 from io import StringIO
 from pickle import dumps, loads, PicklingError, HIGHEST_PROTOCOL
-from test import support
+from test.support import ALWAYS_EQ, check__all__, threading_helper
 from datetime import timedelta
 
 
@@ -2489,7 +2489,7 @@ class TestFlag(unittest.TestCase):
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
     @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON, inconsistent test result on Windows due to threading")
-    @support.reap_threads
+    @threading_helper.reap_threads
     def test_unique_composite(self):
         # override __eq__ to be identity only
         class TestFlag(Flag):
@@ -2519,7 +2519,7 @@ class TestFlag(unittest.TestCase):
                 threading.Thread(target=cycle_enum)
                 for _ in range(8)
                 ]
-        with support.start_threads(threads):
+        with threading_helper.start_threads(threads):
             pass
         # check that only 248 members were created
         self.assertFalse(
@@ -2922,7 +2922,7 @@ class TestIntFlag(unittest.TestCase):
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
     @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON, inconsistent test result on Windows due to threading")
-    @support.reap_threads
+    @threading_helper.reap_threads
     def test_unique_composite(self):
         # override __eq__ to be identity only
         class TestFlag(IntFlag):
@@ -2952,7 +2952,7 @@ class TestIntFlag(unittest.TestCase):
                 threading.Thread(target=cycle_enum)
                 for _ in range(8)
                 ]
-        with support.start_threads(threads):
+        with threading_helper.start_threads(threads):
             pass
         # check that only 248 members were created
         self.assertFalse(
@@ -3183,7 +3183,7 @@ class TestStdLib(unittest.TestCase):
 
 class MiscTestCase(unittest.TestCase):
     def test__all__(self):
-        support.check__all__(self, enum)
+        check__all__(self, enum)
 
 
 # These are unordered here on purpose to ensure that declaration order
