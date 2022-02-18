@@ -10,7 +10,6 @@ use crate::{
 use num_complex::Complex64;
 use num_traits::Zero;
 use rustpython_common::{float_ops, hash};
-use std::convert::Infallible as Never;
 
 /// Create a complex number from a real part and an optional imaginary part.
 ///
@@ -272,16 +271,6 @@ impl PyComplex {
         self.value.conj()
     }
 
-    #[pymethod(magic)]
-    fn float(&self, vm: &VirtualMachine) -> PyResult<Never> {
-        Err(vm.new_type_error(String::from("Can't convert complex to float")))
-    }
-
-    #[pymethod(magic)]
-    fn int(&self, vm: &VirtualMachine) -> PyResult<Never> {
-        Err(vm.new_type_error(String::from("Can't convert complex to int")))
-    }
-
     #[pymethod(name = "__rmul__")]
     #[pymethod(magic)]
     fn mul(
@@ -308,24 +297,6 @@ impl PyComplex {
         vm: &VirtualMachine,
     ) -> PyResult<PyArithmeticValue<Complex64>> {
         self.op(other, |a, b| inner_div(b, a, vm), vm)
-    }
-
-    #[pymethod(name = "__mod__")]
-    #[pymethod(name = "__rmod__")]
-    fn mod_(&self, _other: PyObjectRef, vm: &VirtualMachine) -> PyResult<Never> {
-        Err(vm.new_type_error("can't mod complex numbers.".to_owned()))
-    }
-
-    #[pymethod(name = "__rfloordiv__")]
-    #[pymethod(magic)]
-    fn floordiv(&self, _other: PyObjectRef, vm: &VirtualMachine) -> PyResult<Never> {
-        Err(vm.new_type_error("can't take floor of complex number.".to_owned()))
-    }
-
-    #[pymethod(name = "__rdivmod__")]
-    #[pymethod(magic)]
-    fn divmod(&self, _other: PyObjectRef, vm: &VirtualMachine) -> PyResult<Never> {
-        Err(vm.new_type_error("can't take floor or mod of complex number.".to_owned()))
     }
 
     #[pymethod(magic)]
