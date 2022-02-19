@@ -1827,6 +1827,10 @@ class CodecsModuleTest(unittest.TestCase):
         self.assertRaises(LookupError, codecs.lookup, name)
         search_function.assert_not_called()
 
+    # TODO: RUSTPYTHON, AttributeError: module '_winapi' has no attribute 'GetACP'
+    if sys.platform == "win32":
+        test_unregister = unittest.expectedFailure(test_unregister)
+
     def test_lookup(self):
         self.assertRaises(TypeError, codecs.lookup)
         self.assertRaises(LookupError, codecs.lookup, "__spam__")
