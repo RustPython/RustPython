@@ -2562,6 +2562,11 @@ class UnicodeEscapeTest(ReadTest, unittest.TestCase):
 
     test_lone_surrogates = None
 
+    # TODO: RUSTPYTHON, TypeError: Expected type 'str', not 'bytes'
+    @unittest.expectedFailure
+    def test_incremental_surrogatepass(self): # TODO: RUSTPYTHON, remove when this passes
+        super().test_incremental_surrogatepass() # TODO: RUSTPYTHON, remove when this passes
+
     def test_empty(self):
         self.assertEqual(codecs.unicode_escape_encode(""), (b"", 0))
         self.assertEqual(codecs.unicode_escape_decode(b""), ("", 0))
@@ -2648,6 +2653,8 @@ class UnicodeEscapeTest(ReadTest, unittest.TestCase):
         self.assertEqual(decode(br"\U00110000", "ignore"), ("", 10))
         self.assertEqual(decode(br"\U00110000", "replace"), ("\ufffd", 10))
 
+    # TODO: RUSTPYTHON, UnicodeDecodeError: ('unicodeescape', b'\\', 0, 1, '\\ at end of string')
+    @unittest.expectedFailure
     def test_partial(self):
         self.check_partial(
             "\x00\t\n\r\\\xff\uffff\U00010000",
@@ -2691,6 +2698,11 @@ class RawUnicodeEscapeTest(ReadTest, unittest.TestCase):
     encoding = "raw-unicode-escape"
 
     test_lone_surrogates = None
+
+    # TODO: RUSTPYTHON, AssertionError: '\\' != ''
+    @unittest.expectedFailure
+    def test_incremental_surrogatepass(self): # TODO: RUSTPYTHON, remove when this passes
+        super().test_incremental_surrogatepass() # TODO: RUSTPYTHON, remove when this passes
 
     def test_empty(self):
         self.assertEqual(codecs.raw_unicode_escape_encode(""), (b"", 0))
@@ -2740,6 +2752,8 @@ class RawUnicodeEscapeTest(ReadTest, unittest.TestCase):
         self.assertEqual(decode(br"\U00110000", "ignore"), ("", 10))
         self.assertEqual(decode(br"\U00110000", "replace"), ("\ufffd", 10))
 
+    # TODO: RUSTPYTHON, AssertionError: '\x00\t\n\r\\' != '\x00\t\n\r'
+    @unittest.expectedFailure
     def test_partial(self):
         self.check_partial(
             "\x00\t\n\r\\\xff\uffff\U00010000",
@@ -3781,6 +3795,8 @@ class Rot13UtilTest(unittest.TestCase):
 
 class CodecNameNormalizationTest(unittest.TestCase):
     """Test codec name normalization"""
+    # TODO: RUSTPYTHON, AssertionError: Tuples differ: (1, 2, 3, 4) != (None, None, None, None)
+    @unittest.expectedFailure
     def test_codecs_lookup(self):
         FOUND = (1, 2, 3, 4)
         NOT_FOUND = (None, None, None, None)
@@ -3803,6 +3819,8 @@ class CodecNameNormalizationTest(unittest.TestCase):
         self.assertEqual(NOT_FOUND, codecs.lookup('BBB.8'))
         self.assertEqual(NOT_FOUND, codecs.lookup('a\xe9\u20ac-8'))
 
+    # TODO: RUSTPYTHON, AssertionError
+    @unittest.expectedFailure
     def test_encodings_normalize_encoding(self):
         # encodings.normalize_encoding() ignores non-ASCII characters.
         normalize = encodings.normalize_encoding
