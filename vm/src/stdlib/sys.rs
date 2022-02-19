@@ -603,6 +603,8 @@ mod sys {
         dev_mode: bool,
         /// -X utf8
         utf8_mode: u8,
+        /// -X warn_default_encoding, PYTHONWARNDEFAULTENCODING
+        warn_default_encoding: u8,
     }
 
     #[pyimpl(with(PyStructSequence))]
@@ -624,6 +626,7 @@ mod sys {
                 isolated: settings.isolated as u8,
                 dev_mode: settings.dev_mode,
                 utf8_mode: 1,
+                warn_default_encoding: settings.warn_default_encoding as u8,
             }
         }
 

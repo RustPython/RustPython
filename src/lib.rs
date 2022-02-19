@@ -386,6 +386,7 @@ fn create_settings(matches: &ArgMatches) -> Settings {
     }
 
     let mut dev_mode = false;
+    let mut warn_default_encoding = false;
     if let Some(xopts) = matches.values_of("implementation-option") {
         settings.xopts.extend(xopts.map(|s| {
             let mut parts = s.splitn(2, '=');
@@ -393,11 +394,19 @@ fn create_settings(matches: &ArgMatches) -> Settings {
             if name == "dev" {
                 dev_mode = true
             }
+            if name == "warn_default_encoding" {
+                warn_default_encoding = true
+            }
             let value = parts.next().map(ToOwned::to_owned);
             (name, value)
         }));
     }
     settings.dev_mode = dev_mode;
+    if warn_default_encoding
+        || (!ignore_environment && env::var_os("PYTHONWARNDEFAULTENCODING").is_some())
+    {
+        settings.warn_default_encoding = true;
+    }
 
     if dev_mode {
         settings.warnopts.push("default".to_owned())
