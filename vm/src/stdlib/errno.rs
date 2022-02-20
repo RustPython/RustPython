@@ -489,10 +489,10 @@ const ERROR_CODES: &[(&str, i32)] = &[
     ),
     e!(
         cfg(any(
-            target_os = "android",
             target_os = "fuchsia",
             target_os = "linux",
-            target_os = "redox"
+            target_os = "redox",
+            windows
         )),
         EDEADLOCK
     ),
