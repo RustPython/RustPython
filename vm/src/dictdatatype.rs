@@ -114,6 +114,22 @@ struct DictEntry<T> {
     value: T,
 }
 
+impl<T: Clone> DictEntry<T> {
+    pub(crate) fn as_tuple(&self) -> (PyObjectRef, T) {
+        (self.key.clone(), self.value.clone())
+    }
+}
+
+impl<T: Clone> Dict<T> {
+    pub(crate) fn as_kvpairs(&self) -> Vec<(PyObjectRef, T)> {
+        let entries = &self.inner.read().entries;
+        entries
+            .iter()
+            .filter_map(|entry| entry.as_ref().map(|dict_entry| dict_entry.as_tuple()))
+            .collect()
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub struct DictSize {
     indices_size: usize,

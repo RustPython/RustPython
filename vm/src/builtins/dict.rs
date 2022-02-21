@@ -69,6 +69,10 @@ impl PyDict {
         &self.entries
     }
 
+    pub(crate) fn from_entries(entries: DictContentType) -> Self {
+        Self { entries }
+    }
+
     #[pyslot]
     fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         PyDict::default().into_pyresult_with_type(vm, cls)
