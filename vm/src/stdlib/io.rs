@@ -1567,7 +1567,7 @@ mod _io {
             let mut data = self.reader().lock(vm)?;
             let raw = data.check_init(vm)?;
             ensure_unclosed(raw, "read of closed file", vm)?;
-            let n = size.to_usize().unwrap_or_else(|| data.buffer.len());
+            let n = size.to_usize().unwrap_or(data.buffer.len());
             if n == 0 {
                 return Ok(Vec::new());
             }
@@ -3214,10 +3214,7 @@ mod _io {
         #[pymethod]
         #[pymethod(name = "read1")]
         fn read(self, size: OptionalSize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-            let buf = self
-                .buffer(vm)?
-                .read(size.to_usize())
-                .unwrap_or_else(Vec::new);
+            let buf = self.buffer(vm)?.read(size.to_usize()).unwrap_or_default();
             Ok(buf)
         }
 
