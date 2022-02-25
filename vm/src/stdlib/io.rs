@@ -3277,7 +3277,7 @@ mod _io {
 
         #[pymethod]
         fn close(self, vm: &VirtualMachine) -> PyResult<()> {
-            let _ = self.try_resizable(vm)?;
+            drop(self.try_resizable(vm)?);
             self.closed.store(true);
             Ok(())
         }
