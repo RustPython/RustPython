@@ -15,15 +15,11 @@ pub fn timing_safe_cmp(a: &[u8], b: &[u8]) -> bool {
      * chance to optimize and fold the code in any way that may change
      * the timing.
      */
-    let length: Volatile<usize>;
-    let mut left: Volatile<*const u8>;
-    let mut right: Volatile<*const u8>;
     let mut result: u8 = 0;
-
     /* loop count depends on length of b */
-    length = Volatile::new(len_b);
-    left = Volatile::new(std::ptr::null());
-    right = Volatile::new(b);
+    let length: Volatile<usize> = Volatile::new(len_b);
+    let mut left: Volatile<*const u8> = Volatile::new(std::ptr::null());
+    let mut right: Volatile<*const u8> = Volatile::new(b);
 
     /* don't use else here to keep the amount of CPU instructions constant,
      * volatile forces re-evaluation
