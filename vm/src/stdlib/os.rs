@@ -1700,8 +1700,6 @@ pub(super) mod _os {
         }
     }
 
-    // TODO: libc currently doesn't support nl_langinfo in wasi
-    #[cfg(not(target_os = "wasi"))]
     #[pyfunction]
     fn device_encoding(fd: i32, _vm: &VirtualMachine) -> PyResult<Option<String>> {
         if !isatty(fd) {
