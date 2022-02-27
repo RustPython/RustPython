@@ -119,7 +119,7 @@ fn new_module_item(
         }),
         "pyclass" => Box::new(ClassItem {
             inner: ContentItemInner { index, attr_name },
-            pyattrs: pyattrs.unwrap_or_else(Vec::new),
+            pyattrs: pyattrs.unwrap_or_default(),
         }),
         other => unreachable!("#[pymodule] doesn't accept #[{}]", other),
     }
