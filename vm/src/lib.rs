@@ -63,6 +63,7 @@ pub mod function;
 pub mod import;
 pub mod protocol;
 pub mod py_io;
+#[cfg(feature = "serde")]
 pub mod py_serde;
 pub mod pyclass;
 pub mod readline;

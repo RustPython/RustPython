@@ -17,7 +17,6 @@ use itertools::Itertools;
 use std::{
     collections::HashSet,
     io::{self, BufRead, BufReader},
-    ops::Deref,
 };
 
 impl std::fmt::Debug for PyBaseException {
@@ -908,23 +907,26 @@ fn system_exit_code(exc: PyBaseExceptionRef) -> Option<PyObjectRef> {
     })
 }
 
+#[cfg(feature = "serde")]
 pub struct SerializeException<'s> {
     vm: &'s VirtualMachine,
     exc: &'s PyBaseExceptionRef,
 }
 
+#[cfg(feature = "serde")]
 impl<'s> SerializeException<'s> {
     pub fn new(vm: &'s VirtualMachine, exc: &'s PyBaseExceptionRef) -> Self {
         SerializeException { vm, exc }
     }
 }
 
+#[cfg(feature = "serde")]
 impl serde::Serialize for SerializeException<'_> {
     fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         use serde::ser::*;
 
         let mut struc = s.serialize_struct("PyBaseException", 7)?;
-        struc.serialize_field("exc_type", self.exc.class().name().deref())?;
+        struc.serialize_field("exc_type", &*self.exc.class().name())?;
         let tbs = {
             struct Tracebacks(PyTracebackRef);
             impl serde::Serialize for Tracebacks {

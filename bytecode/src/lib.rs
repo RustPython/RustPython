@@ -4,16 +4,17 @@
 #![doc(html_logo_url = "https://raw.githubusercontent.com/RustPython/RustPython/main/logo.png")]
 #![doc(html_root_url = "https://docs.rs/rustpython-bytecode/")]
 
+use bincode::{Decode, Encode};
 use bitflags::bitflags;
 use bstr::ByteSlice;
 use itertools::Itertools;
 use num_bigint::BigInt;
 use num_complex::Complex64;
-use serde::{Deserialize, Serialize};
-use std::{collections::BTreeSet, fmt, hash};
+use std::collections::BTreeSet;
+use std::{fmt, hash};
 
 /// Sourcecode location.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Encode, Decode)]
 pub struct Location {
     row: usize,
     column: usize,
@@ -120,7 +121,7 @@ impl ConstantBag for BasicBag {
 
 /// Primary container of a single code object. Each python function has
 /// a codeobject. Also a module has a codeobject.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone)] //, Encode, Decode)]
 pub struct CodeObject<C: Constant = ConstantData> {
     pub instructions: Box<[Instruction]>,
     pub locations: Box<[Location]>,
@@ -136,18 +137,76 @@ pub struct CodeObject<C: Constant = ConstantData> {
     // Name of the object that created this code object
     pub cell2arg: Option<Box<[isize]>>,
     pub constants: Box<[C]>,
-    #[serde(bound(
-        deserialize = "C::Name: serde::Deserialize<'de>",
-        serialize = "C::Name: serde::Serialize"
-    ))]
+    // #[bincode(bound(
+    //     decode = "C::Name: Decode",
+    //     encode = "C::Name: Encode"
+    // ))]
     pub names: Box<[C::Name]>,
     pub varnames: Box<[C::Name]>,
     pub cellvars: Box<[C::Name]>,
     pub freevars: Box<[C::Name]>,
 }
 
+// TODO: this should be derived, https://github.com/bincode-org/bincode/issues/511
+impl<C: Constant> ::bincode::Decode for CodeObject<C>
+where
+    C: ::bincode::Decode,
+    C::Name: ::bincode::Decode,
+{
+    fn decode<D: ::bincode::de::Decoder>(
+        decoder: &mut D,
+    ) -> core::result::Result<Self, ::bincode::error::DecodeError> {
+        Ok(Self {
+            instructions: ::bincode::Decode::decode(decoder)?,
+            locations: ::bincode::Decode::decode(decoder)?,
+            flags: ::bincode::Decode::decode(decoder)?,
+            posonlyarg_count: ::bincode::Decode::decode(decoder)?,
+            arg_count: ::bincode::Decode::decode(decoder)?,
+            kwonlyarg_count: ::bincode::Decode::decode(decoder)?,
+            source_path: ::bincode::Decode::decode(decoder)?,
+            first_line_number: ::bincode::Decode::decode(decoder)?,
+            max_stacksize: ::bincode::Decode::decode(decoder)?,
+            obj_name: ::bincode::Decode::decode(decoder)?,
+            cell2arg: ::bincode::Decode::decode(decoder)?,
+            constants: ::bincode::Decode::decode(decoder)?,
+            names: ::bincode::Decode::decode(decoder)?,
+            varnames: ::bincode::Decode::decode(decoder)?,
+            cellvars: ::bincode::Decode::decode(decoder)?,
+            freevars: ::bincode::Decode::decode(decoder)?,
+        })
+    }
+}
+impl<C: Constant> ::bincode::Encode for CodeObject<C>
+where
+    C: ::bincode::Encode,
+    C::Name: ::bincode::Encode,
+{
+    fn encode<E: ::bincode::enc::Encoder>(
+        &self,
+        encoder: &mut E,
+    ) -> core::result::Result<(), ::bincode::error::EncodeError> {
+        ::bincode::Encode::encode(&self.instructions, encoder)?;
+        ::bincode::Encode::encode(&self.locations, encoder)?;
+        ::bincode::Encode::encode(&self.flags, encoder)?;
+        ::bincode::Encode::encode(&self.posonlyarg_count, encoder)?;
+        ::bincode::Encode::encode(&self.arg_count, encoder)?;
+        ::bincode::Encode::encode(&self.kwonlyarg_count, encoder)?;
+        ::bincode::Encode::encode(&self.source_path, encoder)?;
+        ::bincode::Encode::encode(&self.first_line_number, encoder)?;
+        ::bincode::Encode::encode(&self.max_stacksize, encoder)?;
+        ::bincode::Encode::encode(&self.obj_name, encoder)?;
+        ::bincode::Encode::encode(&self.cell2arg, encoder)?;
+        ::bincode::Encode::encode(&self.constants, encoder)?;
+        ::bincode::Encode::encode(&self.names, encoder)?;
+        ::bincode::Encode::encode(&self.varnames, encoder)?;
+        ::bincode::Encode::encode(&self.cellvars, encoder)?;
+        ::bincode::Encode::encode(&self.freevars, encoder)?;
+        Ok(())
+    }
+}
+
 bitflags! {
-    #[derive(Serialize, Deserialize)]
+    // #[derive(Encode, Decode)]
     pub struct CodeFlags: u16 {
         const NEW_LOCALS = 0x01;
         const IS_GENERATOR = 0x02;
@@ -155,6 +214,21 @@ bitflags! {
         const HAS_VARARGS = 0x08;
         const HAS_VARKEYWORDS = 0x10;
         const IS_OPTIMIZED = 0x20;
+    }
+}
+impl Encode for CodeFlags {
+    fn encode<E: ::bincode::enc::Encoder>(
+        &self,
+        encoder: &mut E,
+    ) -> core::result::Result<(), ::bincode::error::EncodeError> {
+        self.bits.encode(encoder)
+    }
+}
+impl Decode for CodeFlags {
+    fn decode<D: ::bincode::de::Decoder>(
+        decoder: &mut D,
+    ) -> core::result::Result<Self, ::bincode::error::DecodeError> {
+        Decode::decode(decoder).map(Self::from_bits_truncate)
     }
 }
 
@@ -171,7 +245,7 @@ impl CodeFlags {
     ];
 }
 
-#[derive(Serialize, Debug, Deserialize, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
+#[derive(Encode, Debug, Decode, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 #[repr(transparent)]
 // XXX: if you add a new instruction that stores a Label, make sure to add it in
 // Instruction::label_arg{,_mut}
@@ -184,7 +258,7 @@ impl fmt::Display for Label {
 }
 
 /// Transforms a value prior to formatting it.
-#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Encode, Decode)]
 pub enum ConversionFlag {
     /// No conversion
     None,
@@ -197,7 +271,7 @@ pub enum ConversionFlag {
 }
 
 /// The kind of Raise that occurred.
-#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Encode, Decode)]
 pub enum RaiseKind {
     Reraise,
     Raise,
@@ -207,7 +281,7 @@ pub enum RaiseKind {
 pub type NameIdx = u32;
 
 /// A Single bytecode instruction.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub enum Instruction {
     /// Importing by name
     ImportName {
@@ -428,12 +502,27 @@ pub enum Instruction {
 use self::Instruction::*;
 
 bitflags! {
-    #[derive(Serialize, Deserialize)]
+    // #[derive(Encode, Decode)]
     pub struct MakeFunctionFlags: u8 {
         const CLOSURE = 0x01;
         const ANNOTATIONS = 0x02;
         const KW_ONLY_DEFAULTS = 0x04;
         const DEFAULTS = 0x08;
+    }
+}
+impl Encode for MakeFunctionFlags {
+    fn encode<E: ::bincode::enc::Encoder>(
+        &self,
+        encoder: &mut E,
+    ) -> core::result::Result<(), ::bincode::error::EncodeError> {
+        self.bits.encode(encoder)
+    }
+}
+impl Decode for MakeFunctionFlags {
+    fn decode<D: ::bincode::de::Decoder>(
+        decoder: &mut D,
+    ) -> core::result::Result<Self, ::bincode::error::DecodeError> {
+        Decode::decode(decoder).map(Self::from_bits_truncate)
     }
 }
 
@@ -446,7 +535,7 @@ bitflags! {
 /// let b = ConstantData::Boolean {value: false};
 /// assert_ne!(a, b);
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)] //, Encode, Decode)]
 pub enum ConstantData {
     Tuple { elements: Vec<ConstantData> },
     Integer { value: BigInt },
@@ -458,6 +547,128 @@ pub enum ConstantData {
     Code { code: Box<CodeObject> },
     None,
     Ellipsis,
+}
+
+impl ::bincode::Decode for ConstantData {
+    fn decode<D: ::bincode::de::Decoder>(
+        decoder: &mut D,
+    ) -> core::result::Result<Self, ::bincode::error::DecodeError> {
+        let variant_index = <u32 as ::bincode::Decode>::decode(decoder)?;
+        match variant_index {
+            0u32 => Ok(Self::Tuple {
+                elements: ::bincode::Decode::decode(decoder)?,
+            }),
+            1u32 => {
+                use num_bigint::Sign;
+                let (sign, digits) = Decode::decode(decoder)?;
+                let sign = match sign {
+                    -1i8 => Sign::Minus,
+                    0 => Sign::NoSign,
+                    1 => Sign::Plus,
+                    _ => {
+                        return Err(bincode::error::DecodeError::OtherString(
+                            "invalid sign".into(),
+                        ))
+                    }
+                };
+                Ok(Self::Integer {
+                    value: BigInt::new(sign, digits),
+                })
+            }
+            2u32 => Ok(Self::Float {
+                value: ::bincode::Decode::decode(decoder)?,
+            }),
+            3u32 => {
+                let (re, im) = ::bincode::Decode::decode(decoder)?;
+                Ok(Self::Complex {
+                    value: Complex64 { re, im },
+                })
+            }
+            4u32 => Ok(Self::Boolean {
+                value: ::bincode::Decode::decode(decoder)?,
+            }),
+            5u32 => Ok(Self::Str {
+                value: ::bincode::Decode::decode(decoder)?,
+            }),
+            6u32 => Ok(Self::Bytes {
+                value: ::bincode::Decode::decode(decoder)?,
+            }),
+            7u32 => Ok(Self::Code {
+                code: ::bincode::Decode::decode(decoder)?,
+            }),
+            8u32 => Ok(Self::None {}),
+            9u32 => Ok(Self::Ellipsis {}),
+            variant => Err(::bincode::error::DecodeError::UnexpectedVariant {
+                found: variant,
+                type_name: "ConstantData",
+                allowed: ::bincode::error::AllowedEnumVariants::Range { min: 0, max: 9 },
+            }),
+        }
+    }
+}
+impl ::bincode::Encode for ConstantData {
+    fn encode<E: ::bincode::enc::Encoder>(
+        &self,
+        encoder: &mut E,
+    ) -> core::result::Result<(), ::bincode::error::EncodeError> {
+        match self {
+            Self::Tuple { elements } => {
+                <u32 as ::bincode::Encode>::encode(&(0u32), encoder)?;
+                ::bincode::Encode::encode(elements, encoder)?;
+                Ok(())
+            }
+            Self::Integer { value } => {
+                <u32 as ::bincode::Encode>::encode(&(1u32), encoder)?;
+                let (sign, digits) = value.to_u32_digits();
+                use num_bigint::Sign;
+                let sign = match sign {
+                    Sign::Minus => -1i8,
+                    Sign::NoSign => 0,
+                    Sign::Plus => 1,
+                };
+                (sign, digits).encode(encoder)?;
+                Ok(())
+            }
+            Self::Float { value } => {
+                <u32 as ::bincode::Encode>::encode(&(2u32), encoder)?;
+                ::bincode::Encode::encode(value, encoder)?;
+                Ok(())
+            }
+            Self::Complex { value } => {
+                <u32 as ::bincode::Encode>::encode(&(3u32), encoder)?;
+                (value.re, value.im).encode(encoder)?;
+                Ok(())
+            }
+            Self::Boolean { value } => {
+                <u32 as ::bincode::Encode>::encode(&(4u32), encoder)?;
+                ::bincode::Encode::encode(value, encoder)?;
+                Ok(())
+            }
+            Self::Str { value } => {
+                <u32 as ::bincode::Encode>::encode(&(5u32), encoder)?;
+                ::bincode::Encode::encode(value, encoder)?;
+                Ok(())
+            }
+            Self::Bytes { value } => {
+                <u32 as ::bincode::Encode>::encode(&(6u32), encoder)?;
+                ::bincode::Encode::encode(value, encoder)?;
+                Ok(())
+            }
+            Self::Code { code } => {
+                <u32 as ::bincode::Encode>::encode(&(7u32), encoder)?;
+                ::bincode::Encode::encode(code, encoder)?;
+                Ok(())
+            }
+            Self::None => {
+                <u32 as ::bincode::Encode>::encode(&(8u32), encoder)?;
+                Ok(())
+            }
+            Self::Ellipsis => {
+                <u32 as ::bincode::Encode>::encode(&(9u32), encoder)?;
+                Ok(())
+            }
+        }
+    }
 }
 
 impl PartialEq for ConstantData {
@@ -581,7 +792,7 @@ impl<C: Constant> BorrowedConstant<'_, C> {
 }
 
 /// The possible comparison operators
-#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Encode, Decode)]
 pub enum ComparisonOperator {
     Greater,
     GreaterOrEqual,
@@ -605,7 +816,7 @@ pub enum ComparisonOperator {
 /// use rustpython_bytecode::BinaryOperator::Add;
 /// let op = BinaryOperation {op: Add};
 /// ```
-#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Encode, Decode)]
 pub enum BinaryOperator {
     Power,
     Multiply,
@@ -623,7 +834,7 @@ pub enum BinaryOperator {
 }
 
 /// The possible unary operators
-#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Encode, Decode)]
 pub enum UnaryOperator {
     Not,
     Invert,
@@ -852,20 +1063,25 @@ impl CodeObject<ConstantData> {
             }
             _ => CodeDeserializeError::Other,
         })?;
-        let data = bincode::deserialize(&raw_bincode).map_err(|e| match *e {
-            bincode::ErrorKind::Io(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
-                CodeDeserializeError::Eof
-            }
-            _ => CodeDeserializeError::Other,
-        })?;
+        let (data, _) =
+            bincode::decode_from_slice(&raw_bincode, bincode_config()).map_err(|e| match e {
+                bincode::error::DecodeError::UnexpectedEnd => CodeDeserializeError::Eof,
+                _ => CodeDeserializeError::Other,
+            })?;
         Ok(data)
     }
 
-    /// Serialize this bytecode to bytes.
+    /// Encode this bytecode to bytes.
     pub fn to_bytes(&self) -> Vec<u8> {
-        let data = bincode::serialize(&self).expect("CodeObject is not serializable");
+        let data =
+            bincode::encode_to_vec(self, bincode_config()).expect("CodeObject is not serializable");
         lz4_flex::compress_prepend_size(&data)
     }
+}
+// to keep it consistent between enc/dec
+#[inline(always)]
+fn bincode_config() -> impl bincode::config::Config {
+    bincode::config::legacy()
 }
 
 impl<C: Constant> fmt::Display for CodeObject<C> {
@@ -1240,45 +1456,68 @@ impl<C: Constant> fmt::Debug for CodeObject<C> {
 }
 
 /// A frozen module. Holds a code object and whether it is part of a package
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Debug)] // Encode, Decode, Debug)]
 pub struct FrozenModule<C: Constant = ConstantData> {
-    #[serde(bound(
-        deserialize = "C: serde::Deserialize<'de>, C::Name: serde::Deserialize<'de>",
-        serialize = "C: serde::Serialize, C::Name: serde::Serialize"
-    ))]
+    // #[bincode(bound(
+    //     decode = "C: Decode, C::Name: Decode",
+    //     encode = "C: Encode, C::Name: Encode"
+    // ))]
     pub code: CodeObject<C>,
     pub package: bool,
+}
+impl<C: Constant> ::bincode::Decode for FrozenModule<C>
+where
+    C: ::bincode::Decode,
+    C::Name: ::bincode::Decode,
+{
+    fn decode<D: ::bincode::de::Decoder>(
+        decoder: &mut D,
+    ) -> core::result::Result<Self, ::bincode::error::DecodeError> {
+        Ok(Self {
+            code: ::bincode::Decode::decode(decoder)?,
+            package: ::bincode::Decode::decode(decoder)?,
+        })
+    }
+}
+impl<C: Constant> ::bincode::Encode for FrozenModule<C>
+where
+    C: ::bincode::Encode,
+    C::Name: ::bincode::Encode,
+{
+    fn encode<E: ::bincode::enc::Encoder>(
+        &self,
+        encoder: &mut E,
+    ) -> core::result::Result<(), ::bincode::error::EncodeError> {
+        ::bincode::Encode::encode(&self.code, encoder)?;
+        ::bincode::Encode::encode(&self.package, encoder)?;
+        Ok(())
+    }
 }
 
 pub mod frozen_lib {
     use super::*;
-    use bincode::{options, Options};
-    use std::io;
+    use bincode::error::{DecodeError, EncodeError};
 
     /// Decode a library to a iterable of frozen modules
-    pub fn decode_lib(bytes: &[u8]) -> FrozenModulesIter {
+    pub fn decode_lib(bytes: &[u8]) -> impl ExactSizeIterator<Item = (String, FrozenModule)> {
         let data = lz4_flex::decompress_size_prepended(bytes).unwrap();
         let r = VecReader { data, pos: 0 };
-        let mut de = bincode::Deserializer::with_bincode_read(r, options());
-        let len = u64::deserialize(&mut de).unwrap().try_into().unwrap();
+        let mut de = bincode::de::DecoderImpl::new(r, bincode_config());
+        let len = usize::decode(&mut de).unwrap();
         FrozenModulesIter { len, de }
     }
 
-    pub struct FrozenModulesIter {
+    pub struct FrozenModulesIter<D> {
         len: usize,
-        // ideally this could be a SeqAccess, but I think that would require existential types
-        de: bincode::Deserializer<VecReader, bincode::DefaultOptions>,
+        de: D,
     }
 
-    impl Iterator for FrozenModulesIter {
+    impl<D: bincode::de::Decoder> Iterator for FrozenModulesIter<D> {
         type Item = (String, FrozenModule);
 
         fn next(&mut self) -> Option<Self::Item> {
-            // manually mimic bincode's seq encoding, which is <len:u64> <element*len>
-            // This probably won't change (bincode doesn't require padding or anything), but
-            // it's not guaranteed by semver as far as I can tell
             if self.len > 0 {
-                let entry = Deserialize::deserialize(&mut self.de).unwrap();
+                let entry = Decode::decode(&mut self.de).unwrap();
                 self.len -= 1;
                 Some(entry)
             } else {
@@ -1291,7 +1530,7 @@ pub mod frozen_lib {
         }
     }
 
-    impl ExactSizeIterator for FrozenModulesIter {}
+    impl<D: bincode::de::Decoder> ExactSizeIterator for FrozenModulesIter<D> {}
 
     /// Encode the given iterator of frozen modules into a compressed vector of bytes
     pub fn encode_lib<'a, I>(lib: I) -> Vec<u8>
@@ -1300,23 +1539,25 @@ pub mod frozen_lib {
         I::IntoIter: ExactSizeIterator + Clone,
     {
         let iter = lib.into_iter();
-        let data = options().serialize(&SerializeLib { iter }).unwrap();
+        let data = bincode::encode_to_vec(EncodeLib { iter }, bincode_config()).unwrap();
         lz4_flex::compress_prepend_size(&data)
     }
 
-    struct SerializeLib<I> {
+    struct EncodeLib<I> {
         iter: I,
     }
 
-    impl<'a, I> Serialize for SerializeLib<I>
+    impl<'a, I> Encode for EncodeLib<I>
     where
         I: ExactSizeIterator<Item = (&'a str, &'a FrozenModule)> + Clone,
     {
-        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: serde::Serializer,
-        {
-            serializer.collect_seq(self.iter.clone())
+        fn encode<E: ::bincode::enc::Encoder>(&self, encoder: &mut E) -> Result<(), EncodeError> {
+            let it = self.iter.clone();
+            it.len().encode(encoder)?;
+            for module in it {
+                module.encode(encoder)?;
+            }
+            Ok(())
         }
     }
 
@@ -1326,56 +1567,23 @@ pub mod frozen_lib {
         pos: usize,
     }
 
-    impl io::Read for VecReader {
-        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-            let mut subslice = &self.data[self.pos..];
-            let n = io::Read::read(&mut subslice, buf)?;
-            self.pos += n;
-            Ok(n)
-        }
-        fn read_exact(&mut self, buf: &mut [u8]) -> io::Result<()> {
-            self.get_byte_slice(buf.len())
-                .map(|data| buf.copy_from_slice(data))
-        }
-    }
-
-    impl VecReader {
-        #[inline(always)]
-        fn get_byte_slice(&mut self, length: usize) -> io::Result<&[u8]> {
+    impl bincode::de::read::Reader for VecReader {
+        fn read(&mut self, buf: &mut [u8]) -> Result<(), DecodeError> {
             let subslice = &self.data[self.pos..];
-            match subslice.get(..length) {
-                Some(ret) => {
-                    self.pos += length;
-                    Ok(ret)
+            match subslice.get(..buf.len()) {
+                Some(slice) => {
+                    buf.copy_from_slice(slice);
+                    self.pos += buf.len();
+                    Ok(())
                 }
-                None => Err(io::ErrorKind::UnexpectedEof.into()),
+                None => Err(DecodeError::UnexpectedEnd),
             }
         }
-    }
-
-    impl<'storage> bincode::BincodeRead<'storage> for VecReader {
-        fn forward_read_str<V>(&mut self, length: usize, visitor: V) -> bincode::Result<V::Value>
-        where
-            V: serde::de::Visitor<'storage>,
-        {
-            let bytes = self.get_byte_slice(length)?;
-            match ::std::str::from_utf8(bytes) {
-                Ok(s) => visitor.visit_str(s),
-                Err(e) => Err(bincode::ErrorKind::InvalidUtf8Encoding(e).into()),
-            }
+        fn peek_read(&self, n: usize) -> Option<&[u8]> {
+            self.data[self.pos..].get(..n)
         }
-
-        fn get_byte_buffer(&mut self, length: usize) -> bincode::Result<Vec<u8>> {
-            self.get_byte_slice(length)
-                .map(|x| x.to_vec())
-                .map_err(Into::into)
-        }
-
-        fn forward_read_bytes<V>(&mut self, length: usize, visitor: V) -> bincode::Result<V::Value>
-        where
-            V: serde::de::Visitor<'storage>,
-        {
-            visitor.visit_bytes(self.get_byte_slice(length)?)
+        fn consume(&mut self, n: usize) {
+            self.pos = std::cmp::min(self.pos + n, self.data.len());
         }
     }
 }

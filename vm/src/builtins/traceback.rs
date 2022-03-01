@@ -60,6 +60,7 @@ pub fn init(context: &PyContext) {
     PyTraceback::extend_class(context, &context.types.traceback_type);
 }
 
+#[cfg(feature = "serde")]
 impl serde::Serialize for PyTraceback {
     fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeStruct;
