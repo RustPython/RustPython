@@ -63,6 +63,8 @@ ahash = "0.7.6"
 libz-sys = { version = "1.1.5", optional = true }
 num_enum = "0.5.7"
 ascii = "1.0.0"
+memmap2 = "0.5.0"
+page_size = "0.4.2"
 
 [target.'cfg(all(unix, not(target_os = "redox")))'.dependencies]
 termios = "0.3.3"
