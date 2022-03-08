@@ -20,6 +20,8 @@ mod pyexpat;
 mod random;
 // TODO: maybe make this an extension module, if we ever get those
 // mod re;
+#[cfg(unix)]
+mod mmap;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod socket;
 mod statistics;
@@ -120,6 +122,7 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
         {
             "_posixsubprocess" => posixsubprocess::make_module,
             "syslog" => syslog::make_module,
+            "mmap" => mmap::make_module,
         }
         #[cfg(target_os = "macos")]
         {
