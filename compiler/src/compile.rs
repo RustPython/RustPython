@@ -1122,7 +1122,7 @@ impl Compiler {
 
         self.emit(Instruction::Duplicate);
         self.load_docstring(doc_str);
-        self.emit(Instruction::Rotate { amount: 2 });
+        self.emit(Instruction::Rotate2);
         let doc = self.name("__doc__");
         self.emit(Instruction::StoreAttr { idx: doc });
 
@@ -1498,7 +1498,7 @@ impl Compiler {
             self.compile_expression(val)?;
             // store rhs for the next comparison in chain
             self.emit(Instruction::Duplicate);
-            self.emit(Instruction::Rotate { amount: 3 });
+            self.emit(Instruction::Rotate3);
 
             self.emit(Instruction::CompareOperation {
                 op: compile_cmpop(op),
@@ -1525,7 +1525,7 @@ impl Compiler {
 
             // early exit left us with stack: `rhs, comparison_result`. We need to clean up rhs.
             self.switch_to_block(break_block);
-            self.emit(Instruction::Rotate { amount: 2 });
+            self.emit(Instruction::Rotate2);
             self.emit(Instruction::Pop);
 
             self.switch_to_block(after_block);
@@ -1692,12 +1692,12 @@ impl Compiler {
             }
             AugAssignKind::Subscript => {
                 // stack: CONTAINER SLICE RESULT
-                self.emit(Instruction::Rotate { amount: 3 });
+                self.emit(Instruction::Rotate3);
                 self.emit(Instruction::StoreSubscript);
             }
             AugAssignKind::Attr { idx } => {
                 // stack: CONTAINER RESULT
-                self.emit(Instruction::Rotate { amount: 2 });
+                self.emit(Instruction::Rotate2);
                 self.emit(Instruction::StoreAttr { idx });
             }
         }
