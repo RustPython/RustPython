@@ -763,14 +763,7 @@ impl Compiler {
                     self.compile_store(target)?;
                 }
             }
-            AugAssign { target, op, value } => {
-                self.compile_expression(target)?;
-                self.compile_expression(value)?;
-
-                // Perform operation:
-                self.compile_op(op, true);
-                self.compile_store(target)?;
-            }
+            AugAssign { target, op, value } => self.compile_augassign(target, op, value)?,
             AnnAssign {
                 target,
                 annotation,
@@ -1646,6 +1639,66 @@ impl Compiler {
                     ),
                     _ => CompileErrorType::Assign(target.node.name()),
                 }));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn compile_augassign(
+        &mut self,
+        target: &ast::Expr,
+        op: &ast::Operator,
+        value: &ast::Expr,
+    ) -> CompileResult<()> {
+        enum AugAssignKind<'a> {
+            Name { id: &'a str },
+            Subscript,
+            Attr { idx: bytecode::NameIdx },
+        }
+
+        let kind = match &target.node {
+            ast::ExprKind::Name { id, .. } => {
+                self.compile_name(id, NameUsage::Load)?;
+                AugAssignKind::Name { id }
+            }
+            ast::ExprKind::Subscript { value, slice, .. } => {
+                self.compile_expression(value)?;
+                self.compile_expression(slice)?;
+                self.emit(Instruction::Duplicate2);
+                self.emit(Instruction::Subscript);
+                AugAssignKind::Subscript
+            }
+            ast::ExprKind::Attribute { value, attr, .. } => {
+                self.check_forbidden_name(attr, NameUsage::Store)?;
+                self.compile_expression(value)?;
+                self.emit(Instruction::Duplicate);
+                let idx = self.name(attr);
+                self.emit(Instruction::LoadAttr { idx });
+                AugAssignKind::Attr { idx }
+            }
+            _ => {
+                return Err(self.error(CompileErrorType::Assign(target.node.name())));
+            }
+        };
+
+        self.compile_expression(value)?;
+        self.compile_op(op, true);
+
+        match kind {
+            AugAssignKind::Name { id } => {
+                // stack: RESULT
+                self.compile_name(id, NameUsage::Store)?;
+            }
+            AugAssignKind::Subscript => {
+                // stack: CONTAINER SLICE RESULT
+                self.emit(Instruction::Rotate { amount: 3 });
+                self.emit(Instruction::StoreSubscript);
+            }
+            AugAssignKind::Attr { idx } => {
+                // stack: CONTAINER RESULT
+                self.emit(Instruction::Rotate { amount: 2 });
+                self.emit(Instruction::StoreAttr { idx });
             }
         }
 

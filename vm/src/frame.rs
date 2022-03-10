@@ -609,9 +609,18 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::Duplicate => {
                 // Duplicate top of stack
-                let value = self.pop_value();
-                self.push_value(value.clone());
+                let value = self.last_value();
                 self.push_value(value);
+                Ok(None)
+            }
+            bytecode::Instruction::Duplicate2 => {
+                // Duplicate top 2 of stack
+                let top = self.pop_value();
+                let second_to_top = self.pop_value();
+                self.push_value(second_to_top.clone());
+                self.push_value(top.clone());
+                self.push_value(second_to_top);
+                self.push_value(top);
                 Ok(None)
             }
             bytecode::Instruction::Rotate { amount } => self.execute_rotate(*amount),
