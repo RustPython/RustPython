@@ -88,7 +88,7 @@ jobs:
           target: i686-unknown-linux-gnu
 
       - name: Install gcc-multilib
-        run: sudo apt-get install gcc-multilib
+        run: sudo apt-get update && sudo apt-get install gcc-multilib
       - name: Check compilation for x86 32bit
         uses: actions-rs/cargo@v1
         with:
