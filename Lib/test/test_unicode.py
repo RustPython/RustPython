@@ -1501,8 +1501,6 @@ class UnicodeTest(string_tests.CommonTest,
         with self.assertRaises(ValueError):
             result = format_string % 2.34
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_issue28598_strsubclass_rhs(self):
         # A subclass of str with an __rmod__ method should be able to hook
         # into the % operator
