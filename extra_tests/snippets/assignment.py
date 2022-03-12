@@ -60,3 +60,14 @@ assert a == 1337
 assert b == False
 
 assert __annotations__['a'] == bool
+
+n = 0
+
+def a():
+    global n
+    n += 1
+    return [0]
+
+a()[0] += 1
+
+assert n == 1

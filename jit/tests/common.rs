@@ -132,17 +132,13 @@ impl StackMachine {
                 let value = self.stack.last().unwrap().clone();
                 self.stack.push(value);
             }
-            Instruction::Rotate { amount } => {
-                let mut values = Vec::new();
-
-                // Pop all values from stack:
-                values.extend(self.stack.drain(self.stack.len() - amount as usize..));
-
-                // Push top of stack back first:
-                self.stack.push(values.pop().unwrap());
-
-                // Push other value back in order:
-                self.stack.extend(values);
+            Instruction::Rotate2 => {
+                let i = self.stack.len() - 2;
+                self.stack[i..].rotate_right(1);
+            }
+            Instruction::Rotate3 => {
+                let i = self.stack.len() - 3;
+                self.stack[i..].rotate_right(1);
             }
             Instruction::ReturnValue => return true,
             _ => unimplemented!(

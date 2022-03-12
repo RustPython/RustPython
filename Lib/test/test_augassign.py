@@ -18,8 +18,6 @@ class AugAssignTest(unittest.TestCase):
         x /= 2
         self.assertEqual(x, 3.0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_with_unpacking(self):
         self.assertRaises(SyntaxError, compile, "x, b += 3", "<test>", "exec")
 
