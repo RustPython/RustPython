@@ -517,8 +517,6 @@ class BaseTestUUID:
         equal(((u.clock_seq_hi_variant & 0x3f) << 8) |
                          u.clock_seq_low, 0x3fff)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     # bpo-29925: On Mac OS X Tiger, self.uuid.uuid1().is_safe returns
     # self.uuid.SafeUUID.unknown
     @support.requires_mac_ver(10, 5)
@@ -548,8 +546,6 @@ class BaseTestUUID:
                                lambda: (f()[0], safe_value)):
             yield
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipUnless(os.name == 'posix', 'POSIX-only test')
     def test_uuid1_unknown(self):
         # Even if the platform has uuid_generate_time_safe(), let's mock it to
@@ -558,24 +554,18 @@ class BaseTestUUID:
             u = self.uuid.uuid1()
             self.assertEqual(u.is_safe, self.uuid.SafeUUID.unknown)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipUnless(os.name == 'posix', 'POSIX-only test')
     def test_uuid1_is_safe(self):
         with self.mock_generate_time_safe(0):
             u = self.uuid.uuid1()
             self.assertEqual(u.is_safe, self.uuid.SafeUUID.safe)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipUnless(os.name == 'posix', 'POSIX-only test')
     def test_uuid1_is_unsafe(self):
         with self.mock_generate_time_safe(-1):
             u = self.uuid.uuid1()
             self.assertEqual(u.is_safe, self.uuid.SafeUUID.unsafe)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipUnless(os.name == 'posix', 'POSIX-only test')
     def test_uuid1_bogus_return_value(self):
         with self.mock_generate_time_safe(3):
