@@ -636,7 +636,7 @@ impl GetSetNursery {
         for ((name, _cfgs), (getter, setter, deleter)) in self.map.iter() {
             if getter.is_none() {
                 errors.push(syn::Error::new_spanned(
-                    setter.as_ref().or(deleter.as_ref()).unwrap(),
+                    setter.as_ref().or_else(|| deleter.as_ref()).unwrap(),
                     format!("Property '{}' is missing a getter", name),
                 ));
             };
