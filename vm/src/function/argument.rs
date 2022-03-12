@@ -63,7 +63,7 @@ impl<T> ArgIterable<T> {
     pub fn iter<'a>(&self, vm: &'a VirtualMachine) -> PyResult<PyIterIter<'a, T>> {
         let iter = PyIter::new(match self.iterfn {
             Some(f) => f(self.iterable.clone(), vm)?,
-            None => PySequenceIterator::new(self.iterable.clone()).into_object(vm),
+            None => PySequenceIterator::new(self.iterable.clone(), vm)?.into_object(vm),
         });
         iter.into_iter(vm)
     }

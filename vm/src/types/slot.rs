@@ -1,4 +1,7 @@
+pub use crate::builtins::object::{generic_getattr, generic_setattr};
 use crate::common::{hash::PyHash, lock::PyRwLock};
+use crate::function::IntoPyObject;
+use crate::protocol::{PySequence, PySequenceMethods};
 use crate::{
     builtins::{PyInt, PyStrRef, PyType, PyTypeRef},
     function::{FromArgs, FuncArgs, IntoPyResult, OptionalArg},
@@ -8,7 +11,8 @@ use crate::{
     TypeProtocol, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
-use num_traits::ToPrimitive;
+use num_traits::{Signed, ToPrimitive};
+use std::borrow::Cow;
 use std::cmp::Ordering;
 
 // The corresponding field in CPython is `tp_` prefixed.
@@ -23,7 +27,7 @@ pub struct PyTypeSlots {
 
     // Method suites for standard classes
     // tp_as_number
-    // tp_as_sequence
+    pub as_sequence: AtomicCell<Option<AsSequenceFunc>>,
     pub as_mapping: AtomicCell<Option<AsMappingFunc>>,
 
     // More standard operations (here for binary compatibility)
@@ -151,31 +155,40 @@ pub(crate) type DescrSetFunc =
     fn(PyObjectRef, PyObjectRef, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>;
 pub(crate) type NewFunc = fn(PyTypeRef, FuncArgs, &VirtualMachine) -> PyResult;
 pub(crate) type DelFunc = fn(&PyObject, &VirtualMachine) -> PyResult<()>;
+pub(crate) type AsSequenceFunc = fn(&PyObject, &VirtualMachine) -> Cow<'static, PySequenceMethods>;
 
-pub use crate::builtins::object::{generic_getattr, generic_setattr};
+macro_rules! then_some_closure {
+    ($cond:expr, $closure:expr) => {
+        if $cond {
+            Some($closure)
+        } else {
+            None
+        }
+    };
+}
+
+fn length_wrapper(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+    let ret = vm.call_special_method(obj, "__len__", ())?;
+    let len = ret.payload::<PyInt>().ok_or_else(|| {
+        vm.new_type_error(format!(
+            "'{}' object cannot be interpreted as an integer",
+            ret.class().name()
+        ))
+    })?;
+    let len = len.as_bigint();
+    if len.is_negative() {
+        return Err(vm.new_value_error("__len__() should return >= 0".to_owned()));
+    }
+    let len = len.to_isize().ok_or_else(|| {
+        vm.new_overflow_error("cannot fit 'int' into an index-sized integer".to_owned())
+    })?;
+    Ok(len as usize)
+}
 
 fn as_mapping_wrapper(zelf: &PyObject, _vm: &VirtualMachine) -> PyMappingMethods {
-    macro_rules! then_some_closure {
-        ($cond:expr, $closure:expr) => {
-            if $cond {
-                Some($closure)
-            } else {
-                None
-            }
-        };
-    }
     PyMappingMethods {
         length: then_some_closure!(zelf.has_class_attr("__len__"), |mapping, vm| {
-            vm.call_special_method(mapping.obj.to_owned(), "__len__", ())
-                .map(|obj| {
-                    obj.payload_if_subclass::<PyInt>(vm)
-                        .map(|length_obj| {
-                            length_obj.as_bigint().to_usize().ok_or_else(|| {
-                                vm.new_value_error("__len__() should return >= 0".to_owned())
-                            })
-                        })
-                        .unwrap()
-                })?
+            length_wrapper(mapping.obj.to_owned(), vm)
         }),
         subscript: then_some_closure!(zelf.has_class_attr("__getitem__"), |mapping, needle, vm| {
             vm.call_special_method(mapping.obj.to_owned(), "__getitem__", (needle.to_owned(),))
@@ -200,6 +213,37 @@ fn as_mapping_wrapper(zelf: &PyObject, _vm: &VirtualMachine) -> PyMappingMethods
             }
         ),
     }
+}
+
+fn as_sequence_wrapper(zelf: &PyObject, _vm: &VirtualMachine) -> Cow<'static, PySequenceMethods> {
+    if !zelf.has_class_attr("__getitem__") {
+        return Cow::Borrowed(PySequenceMethods::not_implemented());
+    }
+
+    Cow::Owned(PySequenceMethods {
+        length: then_some_closure!(zelf.has_class_attr("__len__"), |seq, vm| {
+            length_wrapper(seq.obj.to_owned(), vm)
+        }),
+        item: Some(|seq, i, vm| {
+            vm.call_special_method(seq.obj.to_owned(), "__getitem__", (i.into_pyobject(vm),))
+        }),
+        ass_item: then_some_closure!(
+            zelf.has_class_attr("__setitem__") | zelf.has_class_attr("__delitem__"),
+            |seq, i, value, vm| match value {
+                Some(value) => vm
+                    .call_special_method(
+                        seq.obj.to_owned(),
+                        "__setitem__",
+                        (i.into_pyobject(vm), value),
+                    )
+                    .map(|_| Ok(()))?,
+                None => vm
+                    .call_special_method(seq.obj.to_owned(), "__delitem__", (i.into_pyobject(vm),))
+                    .map(|_| Ok(()))?,
+            }
+        ),
+        ..Default::default()
+    })
 }
 
 fn hash_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyHash> {
@@ -302,7 +346,7 @@ impl PyType {
         match name {
             "__len__" | "__getitem__" | "__setitem__" | "__delitem__" => {
                 update_slot!(as_mapping, as_mapping_wrapper);
-                // TODO: need to update sequence protocol too
+                update_slot!(as_sequence, as_sequence_wrapper);
             }
             "__hash__" => {
                 update_slot!(hash, hash_wrapper);
@@ -788,6 +832,25 @@ pub trait AsMapping: PyValue {
 
     fn mapping_downcast<'a>(mapping: &'a PyMapping) -> &'a PyObjectView<Self> {
         unsafe { mapping.obj.downcast_unchecked_ref() }
+    }
+}
+
+#[pyimpl]
+pub trait AsSequence: PyValue {
+    #[inline]
+    #[pyslot]
+    fn slot_as_sequence(zelf: &PyObject, vm: &VirtualMachine) -> Cow<'static, PySequenceMethods> {
+        let zelf = unsafe { zelf.downcast_unchecked_ref::<Self>() };
+        Self::as_sequence(zelf, vm)
+    }
+
+    fn as_sequence(
+        zelf: &PyObjectView<Self>,
+        vm: &VirtualMachine,
+    ) -> Cow<'static, PySequenceMethods>;
+
+    fn sequence_downcast<'a>(seq: &'a PySequence) -> &'a PyObjectView<Self> {
+        unsafe { seq.obj.downcast_unchecked_ref() }
     }
 }
 

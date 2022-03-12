@@ -37,7 +37,7 @@ impl PyBaseObject {
 
         // Ensure that all abstract methods are implemented before instantiating instance.
         if let Some(abs_methods) = cls.get_attr("__abstractmethods__") {
-            if let Some(unimplemented_abstract_method_count) = vm.obj_len_opt(&abs_methods) {
+            if let Some(unimplemented_abstract_method_count) = abs_methods.length_opt(vm) {
                 if unimplemented_abstract_method_count? > 0 {
                     return Err(
                         vm.new_type_error("You must implement the abstract methods".to_owned())

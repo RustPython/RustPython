@@ -120,12 +120,13 @@ impl TryFromObject for PyIter<PyObjectRef> {
                     iter.class().name()
                 )))
             }
+        } else if let Ok(seq_iter) = PySequenceIterator::new(iter_target.clone(), vm) {
+            Ok(Self(seq_iter.into_object(vm)))
         } else {
-            // TODO: __getitem__ method lookup must be replaced by sequence protocol checking
-            vm.get_method_or_type_error(iter_target.clone(), "__getitem__", || {
-                format!("'{}' object is not iterable", iter_target.class().name())
-            })?;
-            Ok(Self(PySequenceIterator::new(iter_target).into_object(vm)))
+            Err(vm.new_type_error(format!(
+                "'{}' object is not iterable",
+                iter_target.class().name()
+            )))
         }
     }
 }

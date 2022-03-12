@@ -1,19 +1,21 @@
 use super::{
     PyBytes, PyBytesRef, PyInt, PyListRef, PySlice, PyStr, PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
 };
-use crate::common::{
-    borrow::{BorrowedValue, BorrowedValueMut},
-    hash::PyHash,
-    lock::OnceCell,
-};
 use crate::{
     bytesinner::bytes_to_hex,
+    common::{
+        borrow::{BorrowedValue, BorrowedValueMut},
+        hash::PyHash,
+        lock::OnceCell,
+    },
     function::{FuncArgs, IntoPyObject, OptionalArg},
-    protocol::{BufferDescriptor, BufferMethods, PyBuffer, PyMappingMethods, VecBuffer},
+    protocol::{
+        BufferDescriptor, BufferMethods, PyBuffer, PyMappingMethods, PySequenceMethods, VecBuffer,
+    },
     sequence::SequenceOp,
     sliceable::wrap_index,
     stdlib::pystruct::FormatSpec,
-    types::{AsBuffer, AsMapping, Comparable, Constructor, Hashable, PyComparisonOp},
+    types::{AsBuffer, AsMapping, AsSequence, Comparable, Constructor, Hashable, PyComparisonOp},
     utils::Either,
     IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyObjectView,
     PyObjectWrap, PyRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject, TypeProtocol,
@@ -21,7 +23,7 @@ use crate::{
 };
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
-use std::{cmp::Ordering, fmt::Debug, mem::ManuallyDrop, ops::Range};
+use std::{borrow::Cow, cmp::Ordering, fmt::Debug, mem::ManuallyDrop, ops::Range};
 
 #[derive(FromArgs)]
 pub struct PyMemoryViewNewArgs {
@@ -58,7 +60,7 @@ impl Constructor for PyMemoryView {
     }
 }
 
-#[pyimpl(with(Hashable, Comparable, AsBuffer, AsMapping, Constructor))]
+#[pyimpl(with(Hashable, Comparable, AsBuffer, AsMapping, AsSequence, Constructor))]
 impl PyMemoryView {
     fn parse_format(format: &str, vm: &VirtualMachine) -> PyResult<FormatSpec> {
         FormatSpec::parse(format.as_bytes(), vm)
@@ -975,6 +977,31 @@ impl AsMapping for PyMemoryView {
     fn as_mapping(_zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
         Self::MAPPING_METHODS
     }
+}
+
+impl AsSequence for PyMemoryView {
+    fn as_sequence(
+        _zelf: &PyObjectView<Self>,
+        _vm: &VirtualMachine,
+    ) -> Cow<'static, PySequenceMethods> {
+        Cow::Borrowed(&Self::SEQUENCE_METHODS)
+    }
+}
+
+impl PyMemoryView {
+    const SEQUENCE_METHODS: PySequenceMethods = PySequenceMethods {
+        length: Some(|seq, vm| {
+            let zelf = Self::sequence_downcast(seq);
+            zelf.try_not_released(vm)?;
+            zelf.len(vm)
+        }),
+        item: Some(|seq, i, vm| {
+            let zelf = Self::sequence_downcast(seq);
+            zelf.try_not_released(vm)?;
+            zelf.getitem_by_idx(i, vm)
+        }),
+        ..*PySequenceMethods::not_implemented()
+    };
 }
 
 impl Comparable for PyMemoryView {

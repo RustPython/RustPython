@@ -9,9 +9,9 @@ mod _sre {
         },
         common::{ascii, hash::PyHash},
         function::{ArgCallable, IntoPyObject, OptionalArg, PosArgs},
-        protocol::PyBuffer,
+        protocol::{PyBuffer, PyMappingMethods},
         stdlib::sys,
-        types::{Comparable, Hashable},
+        types::{AsMapping, Comparable, Hashable},
         PyComparisonValue, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromBorrowedObject,
         TryFromObject, VirtualMachine,
     };
@@ -553,7 +553,7 @@ mod _sre {
         regs: Vec<(isize, isize)>,
     }
 
-    #[pyimpl]
+    #[pyimpl(with(AsMapping))]
     impl Match {
         pub(crate) fn new(state: &State, pattern: PyRef<Pattern>, string: PyObjectRef) -> Self {
             let mut regs = vec![(state.start as isize, state.string_position as isize)];
@@ -781,6 +781,22 @@ mod _sre {
         #[pyclassmethod(magic)]
         fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
             PyGenericAlias::new(cls, args, vm)
+        }
+
+        const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
+            length: None,
+            subscript: Some(|mapping, needle, vm| {
+                Self::mapping_downcast(mapping)
+                    .getitem(needle.to_owned(), vm)
+                    .map(|x| x.into_pyobject(vm))
+            }),
+            ass_subscript: None,
+        };
+    }
+
+    impl AsMapping for Match {
+        fn as_mapping(_zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
+            Self::MAPPING_METHODS
         }
     }
 

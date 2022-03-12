@@ -10,18 +10,23 @@ use crate::{
     function::{
         ArgBytesLike, ArgIterable, IntoPyObject, IntoPyResult, OptionalArg, OptionalOption,
     },
-    protocol::{BufferDescriptor, BufferMethods, PyBuffer, PyIterReturn, PyMappingMethods},
+    protocol::{
+        BufferDescriptor, BufferMethods, PyBuffer, PyIterReturn, PyMappingMethods,
+        PySequenceMethods,
+    },
+    sliceable::{SequenceIndex, SliceableSequenceOp},
     types::{
-        AsBuffer, AsMapping, Callable, Comparable, Constructor, Hashable, IterNext,
+        AsBuffer, AsMapping, AsSequence, Callable, Comparable, Constructor, Hashable, IterNext,
         IterNextIterable, Iterable, PyComparisonOp, Unconstructible,
     },
     utils::Either,
     IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyObjectView,
-    PyObjectWrap, PyRef, PyResult, PyValue, TryFromBorrowedObject, TypeProtocol, VirtualMachine,
+    PyObjectWrap, PyRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject, TypeProtocol,
+    VirtualMachine,
 };
 use bstr::ByteSlice;
-use std::mem::size_of;
 use std::ops::Deref;
+use std::{borrow::Cow, mem::size_of};
 
 #[pyclass(module = false, name = "bytes")]
 #[derive(Clone, Debug)]
@@ -97,7 +102,15 @@ impl PyBytes {
 
 #[pyimpl(
     flags(BASETYPE),
-    with(AsMapping, Hashable, Comparable, AsBuffer, Iterable, Constructor)
+    with(
+        AsMapping,
+        AsSequence,
+        Hashable,
+        Comparable,
+        AsBuffer,
+        Iterable,
+        Constructor
+    )
 )]
 impl PyBytes {
     #[pymethod(magic)]
@@ -154,9 +167,24 @@ impl PyBytes {
         PyBytesInner::maketrans(from, to, vm)
     }
 
+    fn _getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
+        match SequenceIndex::try_from_borrowed_object(vm, needle)? {
+            SequenceIndex::Int(i) => self
+                .inner
+                .elements
+                .get_item_by_index(vm, i)
+                .map(|x| vm.ctx.new_int(x).into()),
+            SequenceIndex::Slice(slice) => self
+                .inner
+                .elements
+                .get_item_by_slice(vm, slice)
+                .map(|x| vm.ctx.new_bytes(x).into()),
+        }
+    }
+
     #[pymethod(magic)]
     fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.inner.getitem("byte", needle, vm) // byte != Self::NAME
+        self._getitem(&needle, vm)
     }
 
     #[pymethod]
@@ -526,9 +554,7 @@ impl PyBytes {
 impl PyBytes {
     const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
         length: Some(|mapping, _vm| Ok(Self::mapping_downcast(mapping).len())),
-        subscript: Some(|mapping, needle, vm| {
-            Self::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
-        }),
+        subscript: Some(|mapping, needle, vm| Self::mapping_downcast(mapping)._getitem(needle, vm)),
         ass_subscript: None,
     };
 }
@@ -555,6 +581,45 @@ impl AsMapping for PyBytes {
     fn as_mapping(_zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
         Self::MAPPING_METHODS
     }
+}
+
+impl AsSequence for PyBytes {
+    fn as_sequence(
+        _zelf: &PyObjectView<Self>,
+        _vm: &VirtualMachine,
+    ) -> Cow<'static, PySequenceMethods> {
+        Cow::Borrowed(&Self::SEQUENCE_METHODS)
+    }
+}
+
+impl PyBytes {
+    const SEQUENCE_METHODS: PySequenceMethods = PySequenceMethods {
+        length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
+        concat: Some(|seq, other, vm| {
+            Self::sequence_downcast(seq)
+                .inner
+                .concat(other, vm)
+                .map(|x| vm.ctx.new_bytes(x).into())
+        }),
+        repeat: Some(|seq, n, vm| {
+            Ok(vm
+                .ctx
+                .new_bytes(Self::sequence_downcast(seq).repeat(n))
+                .into())
+        }),
+        item: Some(|seq, i, vm| {
+            Self::sequence_downcast(seq)
+                .inner
+                .elements
+                .get_item_by_index(vm, i)
+                .map(|x| vm.ctx.new_bytes(vec![x]).into())
+        }),
+        contains: Some(|seq, other, vm| {
+            let other = <Either<PyBytesInner, PyIntRef>>::try_from_object(vm, other.to_owned())?;
+            Self::sequence_downcast(seq).contains(other, vm)
+        }),
+        ..*PySequenceMethods::not_implemented()
+    };
 }
 
 impl Hashable for PyBytes {

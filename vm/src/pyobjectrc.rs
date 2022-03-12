@@ -606,6 +606,7 @@ impl PyObject {
         self.weak_ref_list().map(|wrl| wrl.get_weak_references())
     }
 
+    #[inline]
     pub fn payload_is<T: PyObjectPayload>(&self) -> bool {
         self.0.typeid == TypeId::of::<T>()
     }
@@ -670,7 +671,7 @@ impl PyObject {
         if self.payload_is::<T>() {
             // SAFETY: just checked that the payload is T, and PyRef is repr(transparent) over
             // PyObjectRef
-            Some(unsafe { &*(self as *const PyObject as *const PyObjectView<T>) })
+            Some(unsafe { self.downcast_unchecked_ref::<T>() })
         } else {
             None
         }
@@ -687,7 +688,8 @@ impl PyObject {
 
     /// # Safety
     /// T must be the exact payload type
-    pub unsafe fn downcast_unchecked_ref<T: PyObjectPayload>(&self) -> &crate::PyObjectView<T> {
+    #[inline]
+    pub unsafe fn downcast_unchecked_ref<T: PyObjectPayload>(&self) -> &PyObjectView<T> {
         debug_assert!(self.payload_is::<T>());
         &*(self as *const PyObject as *const PyObjectView<T>)
     }

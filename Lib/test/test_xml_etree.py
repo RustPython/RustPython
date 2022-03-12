@@ -2500,7 +2500,6 @@ class BadElementTest(ElementTestCase, unittest.TestCase):
         elem = b.close()
         self.assertEqual(elem[0].tail, 'ABCDEFGHIJKL')
 
-    @unittest.skip("TODO: RUSTPYTHON, hangs")
     def test_subscr(self):
         # Issue #27863
         class X:
