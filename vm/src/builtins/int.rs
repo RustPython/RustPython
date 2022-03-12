@@ -961,7 +961,7 @@ pub(crate) fn try_int(obj: &PyObject, vm: &VirtualMachine) -> PyResult<BigInt> {
             .to_index_opt(result.clone())
             .unwrap_or_else(|| {
                 Err(vm.new_type_error(format!(
-                    "__trunc__ returned non-Integral (type '{}')",
+                    "__trunc__ returned non-Integral (type {})",
                     result.class().name()
                 )))
             })
