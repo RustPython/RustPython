@@ -1,4 +1,6 @@
+from test import support
 import unittest
+from types import MethodType
 
 def funcattrs(**kwds):
     def decorate(func):
@@ -76,12 +78,36 @@ class TestDecorators(unittest.TestCase):
         self.assertEqual(C.foo(), 42)
         self.assertEqual(C().foo(), 42)
 
-    @unittest.skip("TODO: 3.10.x changed staticmethod to be callable")
-    def test_staticmethod_function(self):
-        @staticmethod
-        def notamethod(x):
+    def check_wrapper_attrs(self, method_wrapper, format_str):
+        def func(x):
             return x
-        self.assertRaises(TypeError, notamethod, 1)
+        wrapper = method_wrapper(func)
+
+        self.assertIs(wrapper.__func__, func)
+        self.assertIs(wrapper.__wrapped__, func)
+
+        for attr in ('__module__', '__qualname__', '__name__',
+                     '__doc__', '__annotations__'):
+            self.assertIs(getattr(wrapper, attr),
+                          getattr(func, attr))
+
+        self.assertEqual(repr(wrapper), format_str.format(func))
+        return wrapper
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_staticmethod(self):
+        wrapper = self.check_wrapper_attrs(staticmethod, '<staticmethod({!r})>')
+
+        # bpo-43682: Static methods are callable since Python 3.10
+        self.assertEqual(wrapper(1), 1)
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_classmethod(self):
+        wrapper = self.check_wrapper_attrs(classmethod, '<classmethod({!r})>')
+
+        self.assertRaises(TypeError, wrapper, 1)
 
     def test_dotted(self):
         decorators = MiscDecorators()
@@ -177,17 +203,13 @@ class TestDecorators(unittest.TestCase):
             code = compile(codestr, "test", "exec")
             self.assertRaises(exc, eval, code, context)
 
-    def test_expressions(self):
-        for expr in (
-            ## original tests
-            # "(x,)", "(x, y)", "x := y", "(x := y)", "x @y", "(x @ y)", "x[0]",
-            # "w[x].y.z", "w + x - (y + z)", "x(y)()(z)", "[w, x, y][z]", "x.y",
-
-            ##same without := 
-            "(x,)", "(x, y)", "x @y", "(x @ y)", "x[0]",
-            "w[x].y.z", "w + x - (y + z)", "x(y)()(z)", "[w, x, y][z]", "x.y",
-        ):
-            compile(f"@{expr}\ndef f(): pass", "test", "exec")
+    # TODO: RUSTPYTHON; := operator is invalid syntax
+    # def test_expressions(self):
+    #     for expr in (
+    #         "(x,)", "(x, y)", "x := y", "(x := y)", "x @y", "(x @ y)", "x[0]",
+    #         "w[x].y.z", "w + x - (y + z)", "x(y)()(z)", "[w, x, y][z]", "x.y",
+    #     ):
+    #         compile(f"@{expr}\ndef f(): pass", "test", "exec")
 
     def test_double(self):
         class C(object):
@@ -275,6 +297,8 @@ class TestDecorators(unittest.TestCase):
         self.assertEqual(bar(), 42)
         self.assertEqual(actions, expected_actions)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_wrapped_descriptor_inside_classmethod(self):
         class BoundWrapper:
             def __init__(self, wrapped):
@@ -309,10 +333,97 @@ class TestDecorators(unittest.TestCase):
                 return 'eggs'
 
         self.assertEqual(Class.inner(), 'spam')
-        #self.assertEqual(Class.outer(), 'eggs') # TODO: RUSTPYTHON
+        self.assertEqual(Class.outer(), 'eggs')
         self.assertEqual(Class().inner(), 'spam')
-        #self.assertEqual(Class().outer(), 'eggs') # TODO: RUSTPYTHON
+        self.assertEqual(Class().outer(), 'eggs')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_wrapped_classmethod_inside_classmethod(self):
+        class MyClassMethod1:
+            def __init__(self, func):
+                self.func = func
+
+            def __call__(self, cls):
+                if hasattr(self.func, '__get__'):
+                    return self.func.__get__(cls, cls)()
+                return self.func(cls)
+
+            def __get__(self, instance, owner=None):
+                if owner is None:
+                    owner = type(instance)
+                return MethodType(self, owner)
+
+        class MyClassMethod2:
+            def __init__(self, func):
+                if isinstance(func, classmethod):
+                    func = func.__func__
+                self.func = func
+
+            def __call__(self, cls):
+                return self.func(cls)
+
+            def __get__(self, instance, owner=None):
+                if owner is None:
+                    owner = type(instance)
+                return MethodType(self, owner)
+
+        for myclassmethod in [MyClassMethod1, MyClassMethod2]:
+            class A:
+                @myclassmethod
+                def f1(cls):
+                    return cls
+
+                @classmethod
+                @myclassmethod
+                def f2(cls):
+                    return cls
+
+                @myclassmethod
+                @classmethod
+                def f3(cls):
+                    return cls
+
+                @classmethod
+                @classmethod
+                def f4(cls):
+                    return cls
+
+                @myclassmethod
+                @MyClassMethod1
+                def f5(cls):
+                    return cls
+
+                @myclassmethod
+                @MyClassMethod2
+                def f6(cls):
+                    return cls
+
+            self.assertIs(A.f1(), A)
+            self.assertIs(A.f2(), A)
+            self.assertIs(A.f3(), A)
+            self.assertIs(A.f4(), A)
+            self.assertIs(A.f5(), A)
+            self.assertIs(A.f6(), A)
+            a = A()
+            self.assertIs(a.f1(), A)
+            self.assertIs(a.f2(), A)
+            self.assertIs(a.f3(), A)
+            self.assertIs(a.f4(), A)
+            self.assertIs(a.f5(), A)
+            self.assertIs(a.f6(), A)
+
+            def f(cls):
+                return cls
+
+            self.assertIs(myclassmethod(f).__get__(a)(), A)
+            self.assertIs(myclassmethod(f).__get__(a, A)(), A)
+            self.assertIs(myclassmethod(f).__get__(A, A)(), A)
+            self.assertIs(myclassmethod(f).__get__(A)(), type(A))
+            self.assertIs(classmethod(f).__get__(a)(), A)
+            self.assertIs(classmethod(f).__get__(a, A)(), A)
+            self.assertIs(classmethod(f).__get__(A, A)(), A)
+            self.assertIs(classmethod(f).__get__(A)(), type(A))
 
 class TestClassDecorators(unittest.TestCase):
 
