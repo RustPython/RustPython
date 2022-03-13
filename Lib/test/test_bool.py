@@ -273,8 +273,6 @@ class BoolTest(unittest.TestCase):
         self.assertIs(operator.is_not(True, True), False)
         self.assertIs(operator.is_not(True, False), True)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_marshal(self):
         import marshal
         self.assertIs(marshal.loads(marshal.dumps(True)), True)
