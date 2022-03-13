@@ -11,23 +11,27 @@
 //! PyRef<PyWeak> may looking like to be called as PyObjectWeak by the rule,
 //! but not to do to remember it is a PyRef object.
 
-use crate::common::atomic::{OncePtr, PyAtomic, Radium};
-use crate::common::linked_list::{Link, LinkedList, Pointers};
-use crate::common::lock::{PyMutex, PyMutexGuard, PyRwLock};
-use crate::common::refcount::RefCount;
+use crate::common::{
+    atomic::{OncePtr, PyAtomic, Radium},
+    linked_list::{Link, LinkedList, Pointers},
+    lock::{PyMutex, PyMutexGuard, PyRwLock},
+    refcount::RefCount,
+};
 use crate::{
     _pyobject::{AsObject, PyObjectPayload, PyResult},
-    builtins::{PyBaseExceptionRef, PyDictRef, PyTypeRef},
+    builtins::{PyDictRef, PyTypeRef},
     vm::VirtualMachine,
 };
-use std::any::TypeId;
-use std::borrow::Borrow;
-use std::cell::UnsafeCell;
-use std::fmt;
-use std::marker::PhantomData;
-use std::mem::ManuallyDrop;
-use std::ops::Deref;
-use std::ptr::{self, NonNull};
+use std::{
+    any::TypeId,
+    borrow::Borrow,
+    cell::UnsafeCell,
+    fmt,
+    marker::PhantomData,
+    mem::ManuallyDrop,
+    ops::Deref,
+    ptr::{self, NonNull},
+};
 
 // so, PyObjectRef is basically equivalent to `PyRc<PyInner<dyn PyObjectPayload>>`, except it's
 // only one pointer in width rather than 2. We do that by manually creating a vtable, and putting
@@ -732,7 +736,8 @@ impl PyObject {
             let ret = crate::vm::thread::with_vm(self, |vm| {
                 self.0.ref_count.inc();
                 if let Err(e) = slot_del(self, vm) {
-                    print_del_error(e, self, vm);
+                    let del_method = self.get_class_attr("__del__").unwrap();
+                    vm.run_unraisable(e, None, del_method);
                 }
                 self.0.ref_count.dec()
             });
@@ -801,26 +806,6 @@ impl Drop for PyObjectRef {
         if self.0.ref_count.dec() {
             unsafe { PyObject::drop_slow(self.ptr) }
         }
-    }
-}
-
-#[cold]
-fn print_del_error(e: PyBaseExceptionRef, zelf: &PyObject, vm: &VirtualMachine) {
-    // exception in del will be ignored but printed
-    print!("Exception ignored in: ",);
-    let del_method = zelf.get_class_attr("__del__").unwrap();
-    let repr = &del_method.repr(vm);
-    match repr {
-        Ok(v) => println!("{v}"),
-        Err(_) => println!("{}", del_method.class().name()),
-    }
-    let tb_module = vm.import("traceback", None, 0).unwrap();
-    // TODO: set exc traceback
-    let print_stack = tb_module.get_attr("print_stack", vm).unwrap();
-    vm.invoke(&print_stack, ()).unwrap();
-
-    if let Ok(repr) = e.as_object().repr(vm) {
-        println!("{}", repr.as_str());
     }
 }
 

@@ -8,7 +8,6 @@ pub(crate) mod _thread {
         builtins::{PyDictRef, PyStrRef, PyTupleRef, PyTypeRef},
         convert::ToPyException,
         function::{ArgCallable, FuncArgs, KwArgs, OptionalArg},
-        py_io,
         types::{Constructor, GetAttr, SetAttr},
         utils::Either,
         AsObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
@@ -17,7 +16,7 @@ pub(crate) mod _thread {
         lock_api::{RawMutex as RawMutexT, RawMutexTimed, RawReentrantMutex},
         RawMutex, RawThreadId,
     };
-    use std::{cell::RefCell, fmt, io::Write, thread, time::Duration};
+    use std::{cell::RefCell, fmt, thread, time::Duration};
     use thread_local::ThreadLocal;
 
     // TIMEOUT_MAX_IN_MICROSECONDS is a value in microseconds
@@ -255,16 +254,11 @@ pub(crate) mod _thread {
             Ok(_obj) => {}
             Err(e) if e.fast_isinstance(&vm.ctx.exceptions.system_exit) => {}
             Err(exc) => {
-                // TODO: sys.unraisablehook
-                let stderr = std::io::stderr();
-                let mut stderr = py_io::IoWriter(stderr.lock());
-                let repr = func.as_ref().repr(vm).ok();
-                let repr = repr
-                    .as_ref()
-                    .map_or("<object repr() failed>", |s| s.as_str());
-                writeln!(*stderr, "Exception ignored in thread started by: {}", repr)
-                    .and_then(|()| vm.write_exception(&mut stderr, &exc))
-                    .ok();
+                vm.run_unraisable(
+                    exc,
+                    Some("Exception ignored in thread started by".to_owned()),
+                    func.into(),
+                );
             }
         }
         SENTINELS.with(|sents| {

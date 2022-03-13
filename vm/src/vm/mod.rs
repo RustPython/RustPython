@@ -282,6 +282,28 @@ impl VirtualMachine {
         self.run_frame_full(frame)
     }
 
+    #[cold]
+    pub fn run_unraisable(&self, e: PyBaseExceptionRef, msg: Option<String>, object: PyObjectRef) {
+        use crate::stdlib::sys::UnraisableHookArgs;
+
+        let sys_module = self.import("sys", None, 0).unwrap();
+        let unraisablehook = sys_module.get_attr("unraisablehook", self).unwrap();
+
+        let exc_type = e.class().clone();
+        let exc_traceback = e.traceback().to_pyobject(self); // TODO: actual traceback
+        let exc_value = e.into();
+        let args = UnraisableHookArgs {
+            exc_type,
+            exc_value,
+            exc_traceback,
+            err_msg: self.new_pyobj(msg),
+            object,
+        };
+        if let Err(e) = self.invoke(&unraisablehook, (args,)) {
+            println!("{}", e.as_object().repr(self).unwrap().as_str());
+        }
+    }
+
     #[inline(always)]
     pub fn run_frame_full(&self, frame: FrameRef) -> PyResult {
         match self.run_frame(frame)? {
