@@ -335,7 +335,7 @@ impl PyComplex {
         );
         result.push('(');
         result.push_str(&re_part);
-        if im.is_sign_positive() {
+        if im.is_sign_positive() || im.is_nan() {
             result.push('+');
         }
         result.push_str(&im_part);
