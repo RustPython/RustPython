@@ -9,34 +9,57 @@ class MarshalTests(unittest.TestCase):
     def dump_then_load(self, data):
         return marshal.loads(marshal.dumps(data))
 
-    def test_dump_and_load_int(self):
-        self.assertEqual(self.dump_then_load(0), 0)
-        self.assertEqual(self.dump_then_load(-1), -1)
-        self.assertEqual(self.dump_then_load(1), 1)
-        self.assertEqual(self.dump_then_load(100000000), 100000000)   
+    def _test_marshal(self, data):
+        self.assertEqual(self.dump_then_load(data), data)
 
-    def test_dump_and_load_int(self):
-        self.assertEqual(self.dump_then_load(0.0), 0.0)
-        self.assertEqual(self.dump_then_load(-10.0), -10.0)
-        self.assertEqual(self.dump_then_load(10), 10)
+    def test_marshal_int(self):
+        self._test_marshal(0)
+        self._test_marshal(-1)
+        self._test_marshal(1)
+        self._test_marshal(100000000)
 
-    def test_dump_and_load_str(self):
-        self.assertEqual(self.dump_then_load(""), "")
-        self.assertEqual(self.dump_then_load("Hello, World"), "Hello, World")
+    def test_marshal_float(self):
+        self._test_marshal(0.0)
+        self._test_marshal(-10.0)
+        self._test_marshal(10.0)
 
-    def test_dump_and_load_list(self):
-        self.assertEqual(self.dump_then_load([]), [])
-        self.assertEqual(self.dump_then_load([1, "hello", 1.0]), [1, "hello", 1.0])
-        self.assertEqual(self.dump_then_load([[0], ['a','b']]),[[0], ['a','b']])
+    def test_marshal_str(self):
+        self._test_marshal("")
+        self._test_marshal("Hello, World")
 
-    def test_dump_and_load_tuple(self):
-        self.assertEqual(self.dump_then_load(()), ())
-        self.assertEqual(self.dump_then_load((1, "hello", 1.0)), (1, "hello", 1.0))
+    def test_marshal_list(self):
+        self._test_marshal([])
+        self._test_marshal([1, "hello", 1.0])
+        self._test_marshal([[0], ['a','b']])
 
-    def test_dump_and_load_dict(self):
-        self.assertEqual(self.dump_then_load({}), {})
-        self.assertEqual(self.dump_then_load({'a':1, 1:'a'}), {'a':1, 1:'a'})
-        self.assertEqual(self.dump_then_load({'a':{'b':2}, 'c':[0.0, 4.0, 6, 9]}), {'a':{'b':2}, 'c':[0.0, 4.0, 6, 9]})
+    def test_marshal_tuple(self):
+        self._test_marshal(())
+        self._test_marshal((1, "hello", 1.0))
+
+    def test_marshal_dict(self):
+        self._test_marshal({})
+        self._test_marshal({'a':1, 1:'a'})
+        self._test_marshal({'a':{'b':2}, 'c':[0.0, 4.0, 6, 9]})
+    
+    def test_marshal_set(self):
+        self._test_marshal(set())
+        self._test_marshal({1, 2, 3})
+        self._test_marshal({1, 'a', 'b'})
+
+    def test_marshal_frozen_set(self):
+        self._test_marshal(frozenset())
+        self._test_marshal(frozenset({1, 2, 3}))
+        self._test_marshal(frozenset({1, 'a', 'b'}))
+
+    def test_marshal_bytearray(self):
+        self.assertEqual(
+            self.dump_then_load(bytearray([])),
+            bytearray(b''),
+        )
+        self.assertEqual(
+            self.dump_then_load(bytearray([1, 2])),
+            bytearray(b'\x01\x02'),
+        )
 
 if __name__ == "__main__":
     unittest.main()

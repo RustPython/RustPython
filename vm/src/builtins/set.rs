@@ -32,6 +32,12 @@ pub struct PySet {
     pub(super) inner: PySetInner,
 }
 
+impl PySet {
+    pub fn elements(zelf: PyRef<Self>) -> Vec<PyObjectRef> {
+        zelf.inner.elements()
+    }
+}
+
 /// frozenset() -> empty frozenset object
 /// frozenset(iterable) -> frozenset object
 ///
@@ -40,6 +46,12 @@ pub struct PySet {
 #[derive(Default)]
 pub struct PyFrozenSet {
     inner: PySetInner,
+}
+
+impl PyFrozenSet {
+    pub fn elements(&self) -> Vec<PyObjectRef> {
+        self.inner.elements()
+    }
 }
 
 impl fmt::Debug for PySet {
