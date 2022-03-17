@@ -167,8 +167,6 @@ class CompressTestCase(BaseCompressTestCase, unittest.TestCase):
         x = zlib.compress(HAMLET_SCENE)
         self.assertEqual(zlib.decompress(x), HAMLET_SCENE)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_keywords(self):
         x = zlib.compress(HAMLET_SCENE, level=3)
         self.assertEqual(zlib.decompress(x), HAMLET_SCENE)

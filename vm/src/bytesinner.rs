@@ -4,9 +4,10 @@ use crate::{
         pystr, PyByteArray, PyBytes, PyBytesRef, PyInt, PyIntRef, PyStr, PyStrRef, PyTypeRef,
     },
     cformat::CFormatBytes,
-    function::{ArgIterable, OptionalArg, OptionalOption},
+    function::ArgIterable,
+    function::{OptionalArg, OptionalOption},
+    protocol::PyBuffer,
     sequence::{SequenceMutOp, SequenceOp},
-    sliceable::PySliceableSequence,
     types::PyComparisonOp,
     utils::Either,
     IdProtocol, PyComparisonValue, PyObject, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject,
@@ -290,19 +291,6 @@ impl PyBytesInner {
             Either::A(byte) => self.elements.contains_str(byte.elements.as_slice()),
             Either::B(int) => self.elements.contains(&int.as_bigint().byte_or(vm)?),
         })
-    }
-
-    pub fn getitem(
-        &self,
-        owner_type: &'static str,
-        needle: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult {
-        let obj = match self.elements.get_item(vm, needle, owner_type)? {
-            Either::A(byte) => vm.new_pyobj(byte),
-            Either::B(bytes) => vm.ctx.new_bytes(bytes).into(),
-        };
-        Ok(obj)
     }
 
     pub fn isalnum(&self) -> bool {
@@ -924,6 +912,21 @@ impl PyBytesInner {
 
     pub fn imul(&mut self, n: isize, vm: &VirtualMachine) -> PyResult<()> {
         self.elements.imul(vm, n)
+    }
+
+    pub fn concat(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        let buffer = PyBuffer::try_from_borrowed_object(vm, other)?;
+        let borrowed = buffer.as_contiguous();
+        if let Some(other) = borrowed {
+            let mut v = Vec::with_capacity(self.elements.len() + other.len());
+            v.extend_from_slice(&self.elements);
+            v.extend_from_slice(&other);
+            Ok(v)
+        } else {
+            let mut v = self.elements.clone();
+            buffer.append_to(&mut v);
+            Ok(v)
+        }
     }
 }
 

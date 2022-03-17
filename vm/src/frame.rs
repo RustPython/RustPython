@@ -609,12 +609,25 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::Duplicate => {
                 // Duplicate top of stack
-                let value = self.pop_value();
-                self.push_value(value.clone());
+                let value = self.last_value();
                 self.push_value(value);
                 Ok(None)
             }
-            bytecode::Instruction::Rotate { amount } => self.execute_rotate(*amount),
+            bytecode::Instruction::Duplicate2 => {
+                // Duplicate top 2 of stack
+                let top = self.pop_value();
+                let second_to_top = self.pop_value();
+                self.push_value(second_to_top.clone());
+                self.push_value(top.clone());
+                self.push_value(second_to_top);
+                self.push_value(top);
+                Ok(None)
+            }
+            // splitting the instructions like this offloads the cost of "dynamic" dispatch (on the
+            // amount to rotate) to the opcode dispatcher, and generates optimized code for the
+            // concrete cases we actually have
+            bytecode::Instruction::Rotate2 => self.execute_rotate(2),
+            bytecode::Instruction::Rotate3 => self.execute_rotate(3),
             bytecode::Instruction::BuildString { size } => {
                 let s = self
                     .pop_multiple(*size as usize)
@@ -1239,26 +1252,10 @@ impl ExecutingFrame<'_> {
         }
     }
 
-    fn execute_rotate(&mut self, amount: u32) -> FrameResult {
-        // Shuffles top of stack amount down
-        if amount < 2 {
-            self.fatal("Can only rotate two or more values");
-        }
-
-        let mut values = Vec::new();
-
-        // Pop all values from stack:
-        for _ in 0..amount {
-            values.push(self.pop_value());
-        }
-
-        // Push top of stack back first:
-        self.push_value(values.remove(0));
-
-        // Push other value back in order:
-        for value in values.into_iter().rev() {
-            self.push_value(value);
-        }
+    #[inline(always)]
+    fn execute_rotate(&mut self, amount: usize) -> FrameResult {
+        let i = self.state.stack.len() - amount;
+        self.state.stack[i..].rotate_right(1);
         Ok(None)
     }
 

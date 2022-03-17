@@ -684,6 +684,7 @@ pub trait DictKey {
     fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue>;
     fn key_is(&self, other: &PyObject) -> bool;
     fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObject) -> PyResult<bool>;
+    fn key_as_isize(&self, vm: &VirtualMachine) -> PyResult<isize>;
 }
 
 /// Implement trait for PyObjectRef such that we can use python objects
@@ -701,6 +702,10 @@ impl DictKey for PyObjectRef {
     fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObject) -> PyResult<bool> {
         (**self).key_eq(vm, other_key)
     }
+    #[inline]
+    fn key_as_isize(&self, vm: &VirtualMachine) -> PyResult<isize> {
+        (**self).key_as_isize(vm)
+    }
 }
 
 impl DictKey for &PyObject {
@@ -716,7 +721,12 @@ impl DictKey for &PyObject {
     fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObject) -> PyResult<bool> {
         (**self).key_eq(vm, other_key)
     }
+    #[inline]
+    fn key_as_isize(&self, vm: &VirtualMachine) -> PyResult<isize> {
+        (**self).key_as_isize(vm)
+    }
 }
+
 impl DictKey for PyObject {
     fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
         self.hash(vm)
@@ -728,6 +738,10 @@ impl DictKey for PyObject {
 
     fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObject) -> PyResult<bool> {
         vm.identical_or_equal(self, other_key)
+    }
+
+    fn key_as_isize(&self, vm: &VirtualMachine) -> PyResult<isize> {
+        vm.to_index(self)?.try_to_primitive(vm)
     }
 }
 
@@ -749,6 +763,10 @@ impl DictKey for PyStrRef {
             vm.bool_eq(self.as_object(), other_key)
         }
     }
+
+    fn key_as_isize(&self, vm: &VirtualMachine) -> PyResult<isize> {
+        self.as_object().key_as_isize(vm)
+    }
 }
 
 impl DictKey for PyRefExact<PyStr> {
@@ -760,6 +778,9 @@ impl DictKey for PyRefExact<PyStr> {
     }
     fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObject) -> PyResult<bool> {
         (**self).key_eq(vm, other_key)
+    }
+    fn key_as_isize(&self, vm: &VirtualMachine) -> PyResult<isize> {
+        (**self).key_as_isize(vm)
     }
 }
 
@@ -788,6 +809,10 @@ impl DictKey for &str {
             s.key_eq(vm, other_key)
         }
     }
+
+    fn key_as_isize(&self, vm: &VirtualMachine) -> PyResult<isize> {
+        Err(vm.new_type_error("'str' object cannot be interpreted as an integer".to_owned()))
+    }
 }
 
 impl DictKey for String {
@@ -801,6 +826,10 @@ impl DictKey for String {
 
     fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObject) -> PyResult<bool> {
         self.as_str().key_eq(vm, other_key)
+    }
+
+    fn key_as_isize(&self, vm: &VirtualMachine) -> PyResult<isize> {
+        self.as_str().key_as_isize(vm)
     }
 }
 
@@ -824,6 +853,10 @@ impl DictKey for usize {
             let int = vm.ctx.new_int(*self);
             vm.bool_eq(&int.into_object(), other_key)
         }
+    }
+
+    fn key_as_isize(&self, _vm: &VirtualMachine) -> PyResult<isize> {
+        Ok(*self as isize)
     }
 }
 

@@ -10,12 +10,11 @@ mod decl {
         bytecode,
         function::{ArgBytesLike, IntoPyObject},
         protocol::PyBuffer,
+        pyobject::{IdProtocol, TypeProtocol},
         PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     };
     /// TODO
-    /// PyBool: Difficult because match_class assigns as an int
-    /// try_to_bool converts (0,1) to (false, true).
-    /// PyBytes: match_class! gets recursion limit reached error.
+    /// PyBytes: Currently getting recursion error with match_class!
     use ascii::AsciiStr;
     use num_bigint::{BigInt, Sign};
     use std::ops::Deref;
@@ -24,6 +23,7 @@ mod decl {
     const STR_BYTE: u8 = b's';
     const INT_BYTE: u8 = b'i';
     const FLOAT_BYTE: u8 = b'f';
+    const BOOL_BYTE: u8 = b'b';
     const LIST_BYTE: u8 = b'[';
     const TUPLE_BYTE: u8 = b'(';
     const DICT_BYTE: u8 = b',';
@@ -59,17 +59,22 @@ mod decl {
     fn _dumps(value: PyObjectRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         let r = match_class!(match value {
             pyint @ PyInt => {
-                // Could not convert to boolean. Assume integer
-                let (sign, mut int_bytes) = pyint.as_bigint().to_bytes_le();
-                let sign_byte = match sign {
-                    Sign::Minus => b'-',
-                    Sign::NoSign => b'0',
-                    Sign::Plus => b'+',
-                };
-                // Return as [TYPE, SIGN, uint bytes]
-                int_bytes.insert(0, sign_byte);
-                int_bytes.push(INT_BYTE);
-                int_bytes
+                if pyint.class().is(&vm.ctx.types.bool_type) {
+                    let (_, mut bool_bytes) = pyint.as_bigint().to_bytes_le();
+                    bool_bytes.push(BOOL_BYTE);
+                    bool_bytes
+                } else {
+                    let (sign, mut int_bytes) = pyint.as_bigint().to_bytes_le();
+                    let sign_byte = match sign {
+                        Sign::Minus => b'-',
+                        Sign::NoSign => b'0',
+                        Sign::Plus => b'+',
+                    };
+                    // Return as [TYPE, SIGN, uint bytes]
+                    int_bytes.insert(0, sign_byte);
+                    int_bytes.push(INT_BYTE);
+                    int_bytes
+                }
             }
             pyfloat @ PyFloat => {
                 let mut float_bytes = pyfloat.to_f64().to_le_bytes().to_vec();
@@ -88,16 +93,16 @@ mod decl {
                 list_bytes
             }
             pyset @ PySet => {
-                let items = PySet::elements(pyset);
-                let mut list_bytes = dump_list(items.iter(), vm)?;
-                list_bytes.push(SET_BYTE);
-                list_bytes
+                let elements = pyset.elements();
+                let mut set_bytes = dump_list(elements.iter(), vm)?;
+                set_bytes.push(SET_BYTE);
+                set_bytes
             }
             pyfrozen @ PyFrozenSet => {
-                let items = pyfrozen.elements();
-                let mut list_bytes = dump_list(items.iter(), vm)?;
-                list_bytes.push(FROZEN_SET_BYTE);
-                list_bytes
+                let elements = pyfrozen.elements();
+                let mut fset_bytes = dump_list(elements.iter(), vm)?;
+                fset_bytes.push(FROZEN_SET_BYTE);
+                fset_bytes
             }
             pytuple @ PyTuple => {
                 let mut tuple_bytes = dump_list(pytuple.as_slice().iter(), vm)?;
@@ -120,7 +125,7 @@ mod decl {
             pybyte_array @ PyByteArray => {
                 let mut pybytes = pybyte_array.borrow_buf_mut();
                 pybytes.push(BYTE_ARRAY);
-                pybytes.deref().clone()
+                pybytes.deref().to_owned()
             }
             co @ PyCode => {
                 // Code is default, doesn't have prefix.
@@ -216,6 +221,7 @@ mod decl {
             )
         })?;
         match *type_indicator {
+            BOOL_BYTE => Ok((buf[0] != 0).into_pyobject(vm)),
             INT_BYTE => {
                 let (sign_byte, uint_bytes) = buf
                     .split_first()

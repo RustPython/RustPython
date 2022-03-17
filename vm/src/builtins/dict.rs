@@ -7,10 +7,10 @@ use crate::{
     common::ascii,
     dictdatatype::{self, DictKey},
     function::{ArgIterable, FuncArgs, IntoPyObject, KwArgs, OptionalArg},
-    protocol::{PyIterIter, PyIterReturn, PyMappingMethods},
+    protocol::{PyIterIter, PyIterReturn, PyMappingMethods, PySequenceMethods},
     types::{
-        AsMapping, Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable,
-        PyComparisonOp, Unconstructible, Unhashable,
+        AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable,
+        Iterable, PyComparisonOp, Unconstructible, Unhashable,
     },
     vm::{ReprGuard, VirtualMachine},
     IdProtocol,
@@ -19,8 +19,8 @@ use crate::{
     PyObjectView, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use rustpython_common::lock::PyMutex;
-use std::fmt;
 use std::mem::size_of;
+use std::{borrow::Cow, fmt};
 
 pub type DictContentType = dictdatatype::Dict;
 
@@ -61,7 +61,10 @@ impl PyDict {
 
 // Python dict methods:
 #[allow(clippy::len_without_is_empty)]
-#[pyimpl(with(AsMapping, Hashable, Comparable, Iterable), flags(BASETYPE))]
+#[pyimpl(
+    with(AsMapping, Hashable, Comparable, Iterable, AsSequence),
+    flags(BASETYPE)
+)]
 impl PyDict {
     /// escape hatch to access the underlying data structure directly. prefer adding a method on
     /// PyDict instead of using this
@@ -449,6 +452,22 @@ impl AsMapping for PyDict {
     fn as_mapping(_zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
         Self::MAPPING_METHODS
     }
+}
+
+impl AsSequence for PyDict {
+    fn as_sequence(
+        _zelf: &PyObjectView<Self>,
+        _vm: &VirtualMachine,
+    ) -> Cow<'static, PySequenceMethods> {
+        Cow::Borrowed(&Self::SEQUENCE_METHODS)
+    }
+}
+
+impl PyDict {
+    const SEQUENCE_METHODS: PySequenceMethods = PySequenceMethods {
+        contains: Some(|seq, target, vm| Self::sequence_downcast(seq).entries.contains(vm, target)),
+        ..*PySequenceMethods::not_implemented()
+    };
 }
 
 impl Comparable for PyDict {
@@ -980,7 +999,7 @@ trait ViewSetOps: DictView {
 }
 
 impl ViewSetOps for PyDictKeys {}
-#[pyimpl(with(DictView, Constructor, Comparable, Iterable, ViewSetOps))]
+#[pyimpl(with(DictView, Constructor, Comparable, Iterable, ViewSetOps, AsSequence))]
 impl PyDictKeys {
     #[pymethod(magic)]
     fn contains(zelf: PyRef<Self>, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
@@ -1000,8 +1019,29 @@ impl Comparable for PyDictKeys {
     }
 }
 
+impl AsSequence for PyDictKeys {
+    fn as_sequence(
+        _zelf: &PyObjectView<Self>,
+        _vm: &VirtualMachine,
+    ) -> Cow<'static, PySequenceMethods> {
+        Cow::Borrowed(&Self::SEQUENCE_METHODS)
+    }
+}
+impl PyDictKeys {
+    const SEQUENCE_METHODS: PySequenceMethods = PySequenceMethods {
+        length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
+        contains: Some(|seq, target, vm| {
+            Self::sequence_downcast(seq)
+                .dict
+                .entries
+                .contains(vm, target)
+        }),
+        ..*PySequenceMethods::not_implemented()
+    };
+}
+
 impl ViewSetOps for PyDictItems {}
-#[pyimpl(with(DictView, Constructor, Comparable, Iterable, ViewSetOps))]
+#[pyimpl(with(DictView, Constructor, Comparable, Iterable, ViewSetOps, AsSequence))]
 impl PyDictItems {
     #[pymethod(magic)]
     fn contains(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
@@ -1036,9 +1076,45 @@ impl Comparable for PyDictItems {
     }
 }
 
-#[pyimpl(with(DictView, Constructor, Iterable))]
+impl AsSequence for PyDictItems {
+    fn as_sequence(
+        _zelf: &PyObjectView<Self>,
+        _vm: &VirtualMachine,
+    ) -> Cow<'static, PySequenceMethods> {
+        Cow::Borrowed(&Self::SEQUENCE_METHODS)
+    }
+}
+impl PyDictItems {
+    const SEQUENCE_METHODS: PySequenceMethods = PySequenceMethods {
+        length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
+        contains: Some(|seq, target, vm| {
+            Self::sequence_downcast(seq)
+                .dict
+                .entries
+                .contains(vm, target)
+        }),
+        ..*PySequenceMethods::not_implemented()
+    };
+}
+
+#[pyimpl(with(DictView, Constructor, Iterable, AsSequence))]
 impl PyDictValues {}
 impl Unconstructible for PyDictValues {}
+
+impl AsSequence for PyDictValues {
+    fn as_sequence(
+        _zelf: &PyObjectView<Self>,
+        _vm: &VirtualMachine,
+    ) -> Cow<'static, PySequenceMethods> {
+        Cow::Borrowed(&Self::SEQUENCE_METHODS)
+    }
+}
+impl PyDictValues {
+    const SEQUENCE_METHODS: PySequenceMethods = PySequenceMethods {
+        length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
+        ..*PySequenceMethods::not_implemented()
+    };
+}
 
 pub(crate) fn init(context: &PyContext) {
     PyDict::extend_class(context, &context.types.dict_type);

@@ -395,12 +395,10 @@ fn to_isize_index(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Option<isize>
     })?;
     let value = result.as_bigint();
     let is_negative = value.is_negative();
-    Ok(Some(value.to_isize().unwrap_or_else(|| {
-        if is_negative {
-            isize::MIN
-        } else {
-            isize::MAX
-        }
+    Ok(Some(value.to_isize().unwrap_or(if is_negative {
+        isize::MIN
+    } else {
+        isize::MAX
     })))
 }
 

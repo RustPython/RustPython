@@ -322,9 +322,13 @@ impl PyComplex {
         };
         im_part.push('j');
 
-        // empty => return im_part, integer => drop ., fractional => float_ops
+        // positive empty => return im_part, integer => drop ., fractional => float_ops
         let re_part = if re == 0.0 {
-            return im_part;
+            if re.is_sign_positive() {
+                return im_part;
+            } else {
+                re.to_string()
+            }
         } else if re.fract() == 0.0 {
             re.to_string()
         } else {
@@ -335,7 +339,7 @@ impl PyComplex {
         );
         result.push('(');
         result.push_str(&re_part);
-        if im.is_sign_positive() {
+        if im.is_sign_positive() || im.is_nan() {
             result.push('+');
         }
         result.push_str(&im_part);

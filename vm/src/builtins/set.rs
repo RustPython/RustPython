@@ -9,15 +9,16 @@ use crate::common::{ascii, hash::PyHash, lock::PyMutex, rc::PyRc};
 use crate::{
     dictdatatype::{self, DictSize},
     function::{ArgIterable, FuncArgs, OptionalArg, PosArgs},
-    protocol::PyIterReturn,
+    protocol::{PyIterReturn, PySequenceMethods},
     types::{
-        Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable, PyComparisonOp,
-        Unconstructible, Unhashable,
+        AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable,
+        PyComparisonOp, Unconstructible, Unhashable,
     },
     vm::{ReprGuard, VirtualMachine},
     IdProtocol, PyArithmeticValue, PyClassImpl, PyComparisonValue, PyContext, PyObject,
     PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
+use std::borrow::Cow;
 use std::{fmt, ops::Deref};
 
 pub type SetContentType = dictdatatype::Dict<()>;
@@ -33,8 +34,8 @@ pub struct PySet {
 }
 
 impl PySet {
-    pub fn elements(zelf: PyRef<Self>) -> Vec<PyObjectRef> {
-        zelf.inner.elements()
+    pub fn elements(&self) -> Vec<PyObjectRef> {
+        self.inner.elements()
     }
 }
 
@@ -416,7 +417,7 @@ impl PySet {
     }
 }
 
-#[pyimpl(with(Hashable, Comparable, Iterable), flags(BASETYPE))]
+#[pyimpl(with(AsSequence, Hashable, Comparable, Iterable), flags(BASETYPE))]
 impl PySet {
     #[pyslot]
     fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -665,6 +666,23 @@ impl PySet {
     }
 }
 
+impl AsSequence for PySet {
+    fn as_sequence(
+        _zelf: &crate::PyObjectView<Self>,
+        _vm: &VirtualMachine,
+    ) -> Cow<'static, PySequenceMethods> {
+        Cow::Borrowed(&Self::SEQUENCE_METHODS)
+    }
+}
+
+impl PySet {
+    const SEQUENCE_METHODS: PySequenceMethods = PySequenceMethods {
+        length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
+        contains: Some(|seq, needle, vm| Self::sequence_downcast(seq).inner.contains(needle, vm)),
+        ..*PySequenceMethods::not_implemented()
+    };
+}
+
 impl Comparable for PySet {
     fn cmp(
         zelf: &crate::PyObjectView<Self>,
@@ -723,7 +741,10 @@ impl Constructor for PyFrozenSet {
     }
 }
 
-#[pyimpl(flags(BASETYPE), with(Hashable, Comparable, Iterable, Constructor))]
+#[pyimpl(
+    flags(BASETYPE),
+    with(AsSequence, Hashable, Comparable, Iterable, Constructor)
+)]
 impl PyFrozenSet {
     // Also used by ssl.rs windows.
     pub fn from_iter(
@@ -883,6 +904,23 @@ impl PyFrozenSet {
     fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
         PyGenericAlias::new(cls, args, vm)
     }
+}
+
+impl AsSequence for PyFrozenSet {
+    fn as_sequence(
+        _zelf: &crate::PyObjectView<Self>,
+        _vm: &VirtualMachine,
+    ) -> Cow<'static, PySequenceMethods> {
+        Cow::Borrowed(&Self::SEQUENCE_METHODS)
+    }
+}
+
+impl PyFrozenSet {
+    const SEQUENCE_METHODS: PySequenceMethods = PySequenceMethods {
+        length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
+        contains: Some(|seq, needle, vm| Self::sequence_downcast(seq).inner.contains(needle, vm)),
+        ..*PySequenceMethods::not_implemented()
+    };
 }
 
 impl Hashable for PyFrozenSet {

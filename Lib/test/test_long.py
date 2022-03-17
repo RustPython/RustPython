@@ -7,9 +7,8 @@ import random
 import math
 import array
 
-
 # SHIFT should match the value in longintrepr.h for best testing.
-SHIFT = 32 #sys.int_info.bits_per_digit # TODO: RUSTPYTHON int_info not supported
+SHIFT = sys.int_info.bits_per_digit
 BASE = 2 ** SHIFT
 MASK = BASE - 1
 KARATSUBA_CUTOFF = 70   # from longobject.c
@@ -29,10 +28,10 @@ del p2
 # add complements & negations
 special += [~x for x in special] + [-x for x in special]
 
-DBL_MAX = 1.7976931348623157E+308 # sys.float_info.max # TODO: RUSTPYTHON
-DBL_MAX_EXP = 1024 # sys.float_info.max_exp
-DBL_MIN_EXP = -1021 # sys.float_info.min_exp
-DBL_MANT_DIG = 53 # sys.float_info.mant_dig
+DBL_MAX = sys.float_info.max
+DBL_MAX_EXP = sys.float_info.max_exp
+DBL_MIN_EXP = sys.float_info.min_exp
+DBL_MANT_DIG = sys.float_info.mant_dig
 DBL_MIN_OVERFLOW = 2**DBL_MAX_EXP - 2**(DBL_MAX_EXP - DBL_MANT_DIG - 1)
 
 
@@ -40,6 +39,7 @@ DBL_MIN_OVERFLOW = 2**DBL_MAX_EXP - 2**(DBL_MAX_EXP - DBL_MANT_DIG - 1)
 def int_to_float(n):
     """
     Correctly-rounded integer-to-float conversion.
+
     """
     # Constants, depending only on the floating-point format in use.
     # We use an extra 2 bits of precision for rounding purposes.
@@ -206,7 +206,6 @@ class LongTest(unittest.TestCase):
 
 
 
-    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'Cannot subtract b from a because b is larger than a.'")
     def test_karatsuba(self):
         digits = list(range(1, 5)) + list(range(KARATSUBA_CUTOFF,
                                                 KARATSUBA_CUTOFF + 10))
@@ -363,7 +362,7 @@ class LongTest(unittest.TestCase):
         self.assertEqual(int('-0', 0), 0)
         self.assertEqual(int('00', 0), 0)
         self.assertRaises(ValueError, int, '08', 0)
-        #self.assertRaises(ValueError, int, '-012395', 0) # move to individual test case
+        self.assertRaises(ValueError, int, '-012395', 0)
 
         # invalid bases
         invalid_bases = [-909,
@@ -377,9 +376,6 @@ class LongTest(unittest.TestCase):
         # Invalid unicode string
         # See bpo-34087
         self.assertRaises(ValueError, int, '\u3053\u3093\u306b\u3061\u306f')
-
-    def test_long_a(self):
-        self.assertRaises(ValueError, int, '-012395', 0)
 
 
     def test_conversion(self):
@@ -417,7 +413,7 @@ class LongTest(unittest.TestCase):
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
-    #@support.requires_IEEE_754
+    @support.requires_IEEE_754
     def test_float_conversion(self):
 
         exact_values = [0, 1, 2,
@@ -518,7 +514,8 @@ class LongTest(unittest.TestCase):
         self.assertNotEqual(float(shuge), int(shuge),
             "float(shuge) should not equal int(shuge)")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_logs(self):
         LOG10E = math.log10(math.e)
 
@@ -629,6 +626,7 @@ class LongTest(unittest.TestCase):
                     eq(x > y, Rcmp > 0)
                     eq(x >= y, Rcmp >= 0)
 
+    # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test__format__(self):
         self.assertEqual(format(123456789, 'd'), '123456789')
@@ -831,7 +829,7 @@ class LongTest(unittest.TestCase):
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
-    #@support.requires_IEEE_754
+    @support.requires_IEEE_754
     def test_correctly_rounded_true_division(self):
         # more stringent tests than those above, checking that the
         # result of true division of ints is always correctly rounded.
@@ -955,7 +953,8 @@ class LongTest(unittest.TestCase):
     def test_huge_lshift(self, size):
         self.assertEqual(1 << (sys.maxsize + 1000), 1 << 1000 << sys.maxsize)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_huge_rshift(self):
         self.assertEqual(42 >> (1 << 1000), 0)
         self.assertEqual((-42) >> (1 << 1000), -1)
@@ -1038,6 +1037,7 @@ class LongTest(unittest.TestCase):
             self.assertEqual((a ^ 63).bit_count(), 7)
             self.assertEqual(((a - 1) ^ 510).bit_count(), exp - 8)
 
+    # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_round(self):
         # check round-half-even algorithm. For round to nearest ten;
@@ -1212,6 +1212,7 @@ class LongTest(unittest.TestCase):
                          b'\xff\xff\xff\xff\xff')
         self.assertRaises(OverflowError, (1).to_bytes, 0, 'big')
 
+    # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_from_bytes(self):
         def check(tests, byteorder, signed=False):

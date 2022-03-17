@@ -7,16 +7,15 @@ use crate::{
     anystr::{self, adjust_indices, AnyStr, AnyStrContainer, AnyStrWrapper},
     format::{FormatSpec, FormatString, FromTemplate},
     function::{ArgIterable, FuncArgs, IntoPyException, IntoPyObject, OptionalArg, OptionalOption},
-    protocol::{PyIterReturn, PyMappingMethods},
+    protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     sequence::SequenceOp,
-    sliceable::PySliceableSequence,
+    sliceable::{SequenceIndex, SliceableSequenceOp},
     types::{
-        AsMapping, Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable,
-        PyComparisonOp, Unconstructible,
+        AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable,
+        Iterable, PyComparisonOp, Unconstructible,
     },
-    utils::Either,
-    IdProtocol, PyClassDef, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef,
-    PyObjectView, PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
+    IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyObjectView,
+    PyRef, PyResult, PyValue, TryFromBorrowedObject, TypeProtocol, VirtualMachine,
 };
 use ascii::{AsciiStr, AsciiString};
 use bstr::ByteSlice;
@@ -375,7 +374,7 @@ impl PyStr {
 
 #[pyimpl(
     flags(BASETYPE),
-    with(AsMapping, Hashable, Comparable, Iterable, Constructor)
+    with(AsMapping, AsSequence, Hashable, Comparable, Iterable, Constructor)
 )]
 impl PyStr {
     #[pymethod(magic)]
@@ -404,18 +403,33 @@ impl PyStr {
         !self.bytes.is_empty()
     }
 
-    #[pymethod(magic)]
-    fn contains(&self, needle: PyStrRef) -> bool {
-        self.as_str().contains(needle.as_str())
+    fn _contains(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+        if let Some(needle) = needle.payload::<Self>() {
+            Ok(self.as_str().contains(needle.as_str()))
+        } else {
+            Err(vm.new_type_error(format!(
+                "'in <string>' requires string as left operand, not {}",
+                needle.class().name()
+            )))
+        }
     }
 
     #[pymethod(magic)]
-    fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
-        let s = match self.get_item(vm, needle, Self::NAME)? {
-            Either::A(ch) => ch.to_string(),
-            Either::B(s) => s,
-        };
-        Ok(self.new_substr(s))
+    fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        self._contains(&needle, vm)
+    }
+
+    fn _getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
+        match SequenceIndex::try_from_borrowed_object(vm, needle)? {
+            SequenceIndex::Int(i) => self.get_item_by_index(vm, i).map(|x| x.to_string()),
+            SequenceIndex::Slice(slice) => self.get_item_by_slice(vm, slice),
+        }
+        .map(|x| self.new_substr(x).into_ref(vm).into())
+    }
+
+    #[pymethod(magic)]
+    fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self._getitem(&needle, vm)
     }
 
     #[inline]
@@ -1267,12 +1281,38 @@ impl AsMapping for PyStr {
 impl PyStr {
     const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
         length: Some(|mapping, _vm| Ok(Self::mapping_downcast(mapping).len())),
-        subscript: Some(|mapping, needle, vm| {
-            Self::mapping_downcast(mapping)
-                .getitem(needle.to_owned(), vm)
-                .map(|x| x.into_ref(vm).into())
-        }),
+        subscript: Some(|mapping, needle, vm| Self::mapping_downcast(mapping)._getitem(needle, vm)),
         ass_subscript: None,
+    };
+}
+
+impl AsSequence for PyStr {
+    fn as_sequence(
+        _zelf: &PyObjectView<Self>,
+        _vm: &VirtualMachine,
+    ) -> std::borrow::Cow<'static, PySequenceMethods> {
+        std::borrow::Cow::Borrowed(&Self::SEQUENCE_METHDOS)
+    }
+}
+
+impl PyStr {
+    const SEQUENCE_METHDOS: PySequenceMethods = PySequenceMethods {
+        length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
+        concat: Some(|seq, other, vm| {
+            let zelf = Self::sequence_downcast(seq);
+            Self::add(zelf.to_owned(), other.to_owned(), vm)
+        }),
+        repeat: Some(|seq, n, vm| {
+            let zelf = Self::sequence_downcast(seq);
+            Self::mul(zelf.to_owned(), n as isize, vm).map(|x| x.into())
+        }),
+        item: Some(|seq, i, vm| {
+            let zelf = Self::sequence_downcast(seq);
+            zelf.get_item_by_index(vm, i)
+                .map(|x| zelf.new_substr(x.to_string()).into_ref(vm).into())
+        }),
+        contains: Some(|seq, needle, vm| Self::sequence_downcast(seq)._contains(needle, vm)),
+        ..*PySequenceMethods::not_implemented()
     };
 }
 
@@ -1363,7 +1403,7 @@ pub fn init(ctx: &PyContext) {
     PyStrIterator::extend_class(ctx, &ctx.types.str_iterator_type);
 }
 
-impl PySliceableSequence for PyStr {
+impl SliceableSequenceOp for PyStr {
     type Item = char;
     type Sliced = String;
 
@@ -1458,10 +1498,6 @@ impl PySliceableSequence for PyStr {
 
     fn len(&self) -> usize {
         self.char_len()
-    }
-
-    fn is_empty(&self) -> bool {
-        self.is_empty()
     }
 }
 

@@ -18,6 +18,10 @@ class MarshalTests(unittest.TestCase):
         self._test_marshal(1)
         self._test_marshal(100000000)
 
+    def test_marshal_bool(self):
+        self._test_marshal(True)
+        self._test_marshal(False)
+
     def test_marshal_float(self):
         self._test_marshal(0.0)
         self._test_marshal(-10.0)

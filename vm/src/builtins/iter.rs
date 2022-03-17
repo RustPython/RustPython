@@ -2,10 +2,12 @@
  * iterator types
  */
 
+use std::borrow::Cow;
+
 use super::{PyInt, PyTupleRef, PyTypeRef};
 use crate::{
     function::ArgCallable,
-    protocol::PyIterReturn,
+    protocol::{PyIterReturn, PySequence, PySequenceMethods},
     types::{IterNext, IterNextIterable},
     PyClassImpl, PyContext, PyObject, PyObjectRef, PyResult, PyValue, VirtualMachine,
 };
@@ -160,6 +162,8 @@ pub fn builtins_reversed(vm: &VirtualMachine) -> &PyObject {
 #[pyclass(module = false, name = "iterator")]
 #[derive(Debug)]
 pub struct PySequenceIterator {
+    // cached sequence methods
+    seq_methods: Cow<'static, PySequenceMethods>,
     internal: PyMutex<PositionIterInternal<PyObjectRef>>,
 }
 
@@ -171,17 +175,21 @@ impl PyValue for PySequenceIterator {
 
 #[pyimpl(with(IterNext))]
 impl PySequenceIterator {
-    pub fn new(obj: PyObjectRef) -> Self {
-        Self {
+    pub fn new(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
+        let seq = PySequence::try_protocol(obj.as_ref(), vm)?;
+        let seq_methods = seq.methods_cow(vm).clone();
+        Ok(Self {
+            seq_methods,
             internal: PyMutex::new(PositionIterInternal::new(obj, 0)),
-        }
+        })
     }
 
     #[pymethod(magic)]
     fn length_hint(&self, vm: &VirtualMachine) -> PyObjectRef {
         let internal = self.internal.lock();
         if let IterStatus::Active(obj) = &internal.status {
-            obj.length(vm)
+            let seq = PySequence::with_methods(obj, self.seq_methods.clone());
+            seq.length(vm)
                 .map(|x| PyInt::from(x).into_object(vm))
                 .unwrap_or_else(|_| vm.ctx.not_implemented())
         } else {
@@ -203,9 +211,10 @@ impl PySequenceIterator {
 impl IterNextIterable for PySequenceIterator {}
 impl IterNext for PySequenceIterator {
     fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        zelf.internal
-            .lock()
-            .next(|obj, pos| PyIterReturn::from_getitem_result(obj.get_item(pos, vm), vm))
+        zelf.internal.lock().next(|obj, pos| {
+            let seq = PySequence::with_methods(obj, zelf.seq_methods.clone());
+            PyIterReturn::from_getitem_result(seq.get_item(pos as isize, vm), vm)
+        })
     }
 }
 

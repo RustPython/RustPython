@@ -1567,7 +1567,7 @@ mod _io {
             let mut data = self.reader().lock(vm)?;
             let raw = data.check_init(vm)?;
             ensure_unclosed(raw, "read of closed file", vm)?;
-            let n = size.to_usize().unwrap_or_else(|| data.buffer.len());
+            let n = size.to_usize().unwrap_or(data.buffer.len());
             if n == 0 {
                 return Ok(Vec::new());
             }
@@ -3214,10 +3214,7 @@ mod _io {
         #[pymethod]
         #[pymethod(name = "read1")]
         fn read(self, size: OptionalSize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-            let buf = self
-                .buffer(vm)?
-                .read(size.to_usize())
-                .unwrap_or_else(Vec::new);
+            let buf = self.buffer(vm)?.read(size.to_usize()).unwrap_or_default();
             Ok(buf)
         }
 
@@ -3277,7 +3274,7 @@ mod _io {
 
         #[pymethod]
         fn close(self, vm: &VirtualMachine) -> PyResult<()> {
-            let _ = self.try_resizable(vm)?;
+            drop(self.try_resizable(vm)?);
             self.closed.store(true);
             Ok(())
         }
@@ -3318,14 +3315,9 @@ mod _io {
     impl<'a> BufferResizeGuard<'a> for BytesIO {
         type Resizable = PyRwLockWriteGuard<'a, BufferedIO>;
 
-        fn try_resizable(&'a self, vm: &VirtualMachine) -> PyResult<Self::Resizable> {
-            if self.exports.load() == 0 {
-                Ok(self.buffer.write())
-            } else {
-                Err(vm.new_buffer_error(
-                    "Existing exports of data: object cannot be re-sized".to_owned(),
-                ))
-            }
+        fn try_resizable_opt(&'a self) -> Option<Self::Resizable> {
+            let w = self.buffer.write();
+            (self.exports.load() == 0).then(|| w)
         }
     }
 

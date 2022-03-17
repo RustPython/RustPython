@@ -3,10 +3,10 @@ use crate::builtins::builtins_iter;
 use crate::common::hash::PyHash;
 use crate::{
     function::{FuncArgs, OptionalArg},
-    protocol::{PyIterReturn, PyMappingMethods},
+    protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     types::{
-        AsMapping, Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable,
-        PyComparisonOp, Unconstructible,
+        AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable,
+        Iterable, PyComparisonOp, Unconstructible,
     },
     IdProtocol, IntoPyRef, PyClassImpl, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol, VirtualMachine,
@@ -15,6 +15,7 @@ use crossbeam_utils::atomic::AtomicCell;
 use num_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_traits::{One, Signed, ToPrimitive, Zero};
+use std::borrow::Cow;
 use std::cmp::max;
 
 // Search flag passed to iter_search
@@ -178,7 +179,7 @@ pub fn init(context: &PyContext) {
     PyRangeIterator::extend_class(context, &context.types.range_iterator_type);
 }
 
-#[pyimpl(with(AsMapping, Hashable, Comparable, Iterable))]
+#[pyimpl(with(AsMapping, AsSequence, Hashable, Comparable, Iterable))]
 impl PyRange {
     fn new(cls: PyTypeRef, stop: PyIntRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         PyRange {
@@ -378,27 +379,47 @@ impl PyRange {
 }
 
 impl PyRange {
+    fn protocol_length(&self, vm: &VirtualMachine) -> PyResult<usize> {
+        PyInt::from(self.len())
+            .try_to_primitive::<isize>(vm)
+            .map(|x| x as usize)
+    }
+
     const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
-        length: Some(|mapping, vm| {
-            Self::mapping_downcast(mapping)
-                .len()
-                .to_usize()
-                .ok_or_else(|| {
-                    vm.new_overflow_error(
-                        "RustPython int too large to convert to C ssize_t".to_owned(),
-                    )
-                })
-        }),
+        length: Some(|mapping, vm| Self::mapping_downcast(mapping).protocol_length(vm)),
         subscript: Some(|mapping, needle, vm| {
             Self::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
         }),
         ass_subscript: None,
+    };
+
+    const SEQUENCE_METHDOS: PySequenceMethods = PySequenceMethods {
+        length: Some(|seq, vm| Self::sequence_downcast(seq).protocol_length(vm)),
+        item: Some(|seq, i, vm| {
+            Self::sequence_downcast(seq)
+                .get(&i.into())
+                .map(|x| PyInt::from(x).into_ref(vm).into())
+                .ok_or_else(|| vm.new_index_error("index out of range".to_owned()))
+        }),
+        contains: Some(|seq, needle, vm| {
+            Ok(Self::sequence_downcast(seq).contains(needle.to_owned(), vm))
+        }),
+        ..*PySequenceMethods::not_implemented()
     };
 }
 
 impl AsMapping for PyRange {
     fn as_mapping(_zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
         Self::MAPPING_METHODS
+    }
+}
+
+impl AsSequence for PyRange {
+    fn as_sequence(
+        _zelf: &crate::PyObjectView<Self>,
+        _vm: &VirtualMachine,
+    ) -> Cow<'static, PySequenceMethods> {
+        Cow::Borrowed(&Self::SEQUENCE_METHDOS)
     }
 }
 

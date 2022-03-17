@@ -140,7 +140,7 @@ impl CFormatSpec {
         let precision = parse_precision(iter)?;
         consume_length(iter);
         let (format_type, format_char) = parse_format_type(iter)?;
-        let precision = precision.or_else(|| match format_type {
+        let precision = precision.or(match format_type {
             CFormatType::Float(_) => Some(CFormatQuantity::Amount(6)),
             _ => None,
         });

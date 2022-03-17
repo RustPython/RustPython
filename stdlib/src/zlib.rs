@@ -5,7 +5,7 @@ mod zlib {
     use crate::common::lock::PyMutex;
     use crate::vm::{
         builtins::{PyBaseExceptionRef, PyBytes, PyBytesRef, PyIntRef, PyTypeRef},
-        function::{ArgBytesLike, OptionalArg},
+        function::{ArgBytesLike, OptionalArg, OptionalOption},
         IntoPyRef, PyResult, PyValue, VirtualMachine,
     };
     use adler32::RollingAdler32 as Adler32;
@@ -90,14 +90,21 @@ mod zlib {
         }
     }
 
+    #[derive(FromArgs)]
+    struct PyFuncCompressArgs {
+        #[pyarg(positional)]
+        data: ArgBytesLike,
+        #[pyarg(any, optional)]
+        level: OptionalOption<i32>,
+    }
+
     /// Returns a bytes object containing compressed data.
     #[pyfunction]
-    fn compress(
-        data: ArgBytesLike,
-        level: OptionalArg<i32>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyBytesRef> {
-        let compression = compression_from_int(level.into_option())
+    fn compress(args: PyFuncCompressArgs, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
+        let data = args.data;
+        let level = args.level;
+
+        let compression = compression_from_int(level.flatten())
             .ok_or_else(|| new_zlib_error("Bad compression level", vm))?;
 
         let mut encoder = ZlibEncoder::new(Vec::new(), compression);
@@ -223,14 +230,22 @@ mod zlib {
         }
     }
 
+    #[derive(FromArgs)]
+    struct PyFuncDecompressArgs {
+        #[pyarg(positional)]
+        data: ArgBytesLike,
+        #[pyarg(any, optional)]
+        wbits: OptionalArg<i8>,
+        #[pyarg(any, optional)]
+        bufsize: OptionalArg<usize>,
+    }
+
     /// Returns a bytes object containing the uncompressed data.
     #[pyfunction]
-    fn decompress(
-        data: ArgBytesLike,
-        wbits: OptionalArg<i8>,
-        bufsize: OptionalArg<usize>,
-        vm: &VirtualMachine,
-    ) -> PyResult<Vec<u8>> {
+    fn decompress(arg: PyFuncDecompressArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        let data = arg.data;
+        let wbits = arg.wbits;
+        let bufsize = arg.bufsize;
         data.with_ref(|data| {
             let bufsize = bufsize.unwrap_or(DEF_BUF_SIZE);
 

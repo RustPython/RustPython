@@ -1114,7 +1114,7 @@ mod _socket {
                     let abstractpath = &path_u8[..abstractaddrlen];
                     vm.ctx.new_bytes(abstractpath.to_vec()).into()
                 } else {
-                    let len = memchr::memchr(b'\0', path_u8).unwrap_or_else(|| path_u8.len());
+                    let len = memchr::memchr(b'\0', path_u8).unwrap_or(path_u8.len());
                     let path = &path_u8[..len];
                     vm.ctx.new_str(String::from_utf8_lossy(path)).into()
                 }

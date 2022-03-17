@@ -989,6 +989,8 @@ class BaseBytesTest:
 class BytesTest(BaseBytesTest, unittest.TestCase):
     type2test = bytes
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_getitem_error(self):
         b = b'python'
         msg = "byte indices must be integers or slices"
@@ -1181,12 +1183,16 @@ class BytesTest(BaseBytesTest, unittest.TestCase):
 class ByteArrayTest(BaseBytesTest, unittest.TestCase):
     type2test = bytearray
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_getitem_error(self):
         b = bytearray(b'python')
         msg = "bytearray indices must be integers or slices"
         with self.assertRaisesRegex(TypeError, msg):
             b['a']
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_setitem_error(self):
         b = bytearray(b'python')
         msg = "bytearray indices must be integers or slices"

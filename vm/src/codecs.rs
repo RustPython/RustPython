@@ -2,7 +2,7 @@ use crate::{
     builtins::{PyBaseExceptionRef, PyBytesRef, PyStr, PyStrRef, PyTuple, PyTupleRef},
     common::{ascii, lock::PyRwLock},
     function::IntoPyObject,
-    PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    IdProtocol, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
     VirtualMachine,
 };
 use std::borrow::Cow;
@@ -192,6 +192,24 @@ impl CodecsRegistry {
             return Err(vm.new_type_error("argument must be callable".to_owned()));
         }
         self.inner.write().search_path.push(search_function);
+        Ok(())
+    }
+
+    pub fn unregister(&self, search_function: PyObjectRef) -> PyResult<()> {
+        let mut inner = self.inner.write();
+        // Do nothing if search_path is not created yet or was cleared.
+        if inner.search_path.is_empty() {
+            return Ok(());
+        }
+        for (i, item) in inner.search_path.iter().enumerate() {
+            if item.get_id() == search_function.get_id() {
+                if !inner.search_cache.is_empty() {
+                    inner.search_cache.clear();
+                }
+                inner.search_path.remove(i);
+                return Ok(());
+            }
+        }
         Ok(())
     }
 

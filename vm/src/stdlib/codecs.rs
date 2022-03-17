@@ -17,6 +17,11 @@ mod _codecs {
     }
 
     #[pyfunction]
+    fn unregister(search_function: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        vm.state.codec_registry.unregister(search_function)
+    }
+
+    #[pyfunction]
     fn lookup(encoding: PyStrRef, vm: &VirtualMachine) -> PyResult {
         vm.state
             .codec_registry
