@@ -166,9 +166,7 @@ where
     } else if int1.is_zero() {
         Ok(vm.ctx.new_int(0).into())
     } else {
-        let int2 = int2.to_usize().ok_or_else(|| {
-            vm.new_overflow_error("the number is too large to convert to int".to_owned())
-        })?;
+        let int2 = int2.min(&BigInt::from(usize::MAX)).to_usize().unwrap();
         Ok(vm.ctx.new_int(shift_op(int1, int2)).into())
     }
 }
