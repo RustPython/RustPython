@@ -212,8 +212,6 @@ class DictTest(unittest.TestCase):
 
         self.assertRaises(ValueError, {}.update, [(1, 2, 3)])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_fromkeys(self):
         self.assertEqual(dict.fromkeys('abc'), {'a':None, 'b':None, 'c':None})
         d = {}

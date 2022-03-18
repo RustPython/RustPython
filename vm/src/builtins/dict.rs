@@ -1,6 +1,6 @@
 use super::{
     set::PySetInner, IterStatus, PositionIterInternal, PyBaseExceptionRef, PyGenericAlias, PySet,
-    PyStrRef, PyTupleRef, PyTypeRef,
+    PyStrRef, PyTupleRef, PyType, PyTypeRef,
 };
 use crate::{
     builtins::{iter::builtins_iter, PyTuple},
@@ -9,8 +9,8 @@ use crate::{
     function::{ArgIterable, FuncArgs, IntoPyObject, KwArgs, OptionalArg},
     protocol::{PyIterIter, PyIterReturn, PyMappingMethods, PySequenceMethods},
     types::{
-        AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable,
-        Iterable, PyComparisonOp, Unconstructible, Unhashable,
+        AsMapping, AsSequence, Callable, Comparable, Constructor, Hashable, IterNext,
+        IterNextIterable, Iterable, PyComparisonOp, Unconstructible, Unhashable,
     },
     vm::{ReprGuard, VirtualMachine},
     IdProtocol,
@@ -150,14 +150,23 @@ impl PyDict {
         iterable: ArgIterable,
         value: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<PyRef<Self>> {
-        let dict = DictContentType::default();
+    ) -> PyResult {
         let value = value.unwrap_or_none(vm);
-        for elem in iterable.iter(vm)? {
-            let elem = elem?;
-            dict.insert(vm, elem, value.clone())?;
+        let d = PyType::call(&class, ().into(), vm)?;
+        match d.downcast_exact::<PyDict>(vm) {
+            Ok(pydict) => {
+                for key in iterable.iter(vm)? {
+                    pydict.setitem(key?, value.clone(), vm)?;
+                }
+                Ok(pydict.into_pyobject(vm))
+            }
+            Err(pyobj) => {
+                for key in iterable.iter(vm)? {
+                    pyobj.set_item(key?, value.clone(), vm)?;
+                }
+                Ok(pyobj)
+            }
         }
-        PyDict { entries: dict }.into_ref_with_type(vm, class)
     }
 
     #[pymethod(magic)]
