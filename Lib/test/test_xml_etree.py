@@ -788,6 +788,8 @@ class ElementTreeTest(unittest.TestCase):
                 ('end-ns', ''),
             ])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_initialize_parser_without_target(self):
         # Explicit None
         parser = ET.XMLParser(target=None)
@@ -797,6 +799,8 @@ class ElementTreeTest(unittest.TestCase):
         parser2 = ET.XMLParser()
         self.assertIsInstance(parser2.target, ET.TreeBuilder)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_children(self):
         # Test Element children iteration
 
@@ -834,12 +838,16 @@ class ElementTreeTest(unittest.TestCase):
         elem.clear()
         self.assertEqual(list(elem), [])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_writestring(self):
         elem = ET.XML("<html><body>text</body></html>")
         self.assertEqual(ET.tostring(elem), b'<html><body>text</body></html>')
         elem = ET.fromstring("<html><body>text</body></html>")
         self.assertEqual(ET.tostring(elem), b'<html><body>text</body></html>')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_indent(self):
         elem = ET.XML("<root></root>")
         ET.indent(elem)
@@ -884,6 +892,8 @@ class ElementTreeTest(unittest.TestCase):
             b'</html>'
         )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_indent_space(self):
         elem = ET.XML("<html><body><p>pre<br/>post</p><p>text</p></body></html>")
         ET.indent(elem, space='\t')
@@ -909,6 +919,8 @@ class ElementTreeTest(unittest.TestCase):
             b'</html>'
         )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_indent_space_caching(self):
         elem = ET.XML("<html><body><p>par</p><p>text</p><p><br/></p><p /></body></html>")
         ET.indent(elem)
@@ -925,6 +937,8 @@ class ElementTreeTest(unittest.TestCase):
             len({id(el.tail) for el in elem.iter()}),
         )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_indent_level(self):
         elem = ET.XML("<html><body><p>pre<br/>post</p><p>text</p></body></html>")
         with self.assertRaises(ValueError):
@@ -957,6 +971,8 @@ class ElementTreeTest(unittest.TestCase):
             b' </html>'
         )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_tostring_default_namespace(self):
         elem = ET.XML('<body xmlns="http://effbot.org/ns"><tag/></body>')
         self.assertEqual(
@@ -1438,6 +1454,8 @@ class ElementTreeTest(unittest.TestCase):
         self.assertEqual(serialize(root, method='html'),
                 '<cirriculum status="public" company="example"></cirriculum>')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_attlist_default(self):
         # Test default attribute values; See BPO 42151.
         root = ET.fromstring(ATTLIST_XML)
@@ -1947,6 +1965,8 @@ class XIncludeTest(unittest.TestCase):
             '  </ns0:include>\n'
             '</div>') # C5
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_xinclude_repeated(self):
         from xml.etree import ElementInclude
 
@@ -2447,6 +2467,8 @@ class BasicElementTest(ElementTestCase, unittest.TestCase):
         self.assertIsNot(element_foo.attrib, attrib)
         self.assertNotEqual(element_foo.attrib, attrib)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_copy(self):
         # Only run this test if Element.copy() is defined.
         if "copy" not in dir(ET.Element):

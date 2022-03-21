@@ -24,12 +24,14 @@ env:
     test_bytes
     test_calendar
     test_complex
+    test_decimal
     test_dis
     test_json
     test_list
     test_long
     test_set
     test_unicode
+    test_weakref
 
 jobs:
   rust_tests:
