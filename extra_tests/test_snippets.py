@@ -1,5 +1,5 @@
 # This is a python unittest class automatically populating with all tests
-# in the tests folder.
+# in the snippets folder.
 
 
 import sys
@@ -11,7 +11,6 @@ import subprocess
 import contextlib
 import enum
 from pathlib import Path
-import shutil
 
 
 class _TestType(enum.Enum):
