@@ -286,9 +286,9 @@ jobs:
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
       - name: install geckodriver
         run: |
-          wget https://github.com/mozilla/geckodriver/releases/download/v0.24.0/geckodriver-v0.24.0-linux32.tar.gz
+          wget https://github.com/mozilla/geckodriver/releases/download/v0.30.0/geckodriver-v0.30.0-linux64.tar.gz
           mkdir geckodriver
-          tar -xzf geckodriver-v0.24.0-linux32.tar.gz -C geckodriver
+          tar -xzf geckodriver-v0.30.0-linux64.tar.gz -C geckodriver
       - uses: actions/setup-python@v2
         with:
           python-version: "3.10"

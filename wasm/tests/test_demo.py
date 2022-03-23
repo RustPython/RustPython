@@ -1,6 +1,3 @@
-import time
-import sys
-
 import pytest
 
 RUN_CODE_TEMPLATE = """
