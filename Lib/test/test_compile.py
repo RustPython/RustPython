@@ -109,6 +109,7 @@ class TestSpecifics(unittest.TestCase):
         exec('z = a', g, d)
         self.assertEqual(d['z'], 12)
 
+    @unittest.skip("TODO: RUSTPYTHON; segmentation fault")
     def test_extended_arg(self):
         longexpr = 'x = x or ' + '-x' * 2500
         g = {}

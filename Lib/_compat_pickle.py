@@ -148,6 +148,14 @@ except NameError:
 else:
     PYTHON2_EXCEPTIONS += ("WindowsError",)
 
+# NOTE: RUSTPYTHON exceptions
+try:
+    JitError
+except NameError:
+    pass
+else:
+    PYTHON2_EXCEPTIONS += ("JitError",)
+
 for excname in PYTHON2_EXCEPTIONS:
     NAME_MAPPING[("exceptions", excname)] = ("builtins", excname)
 
