@@ -14,6 +14,7 @@ use crate::{
         AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable,
         PyComparisonOp, Unconstructible, Unhashable,
     },
+    utils::collection_repr,
     vm::{ReprGuard, VirtualMachine},
     IdProtocol, PyArithmeticValue, PyClassImpl, PyComparisonValue, PyContext, PyObject,
     PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
@@ -225,32 +226,7 @@ impl PySetInner {
     }
 
     fn repr(&self, class_name: Option<&str>, vm: &VirtualMachine) -> PyResult<String> {
-        let mut repr = String::new();
-        if let Some(name) = class_name {
-            repr.push_str(name);
-            repr.push('(');
-        }
-        repr.push('{');
-        {
-            let mut parts_iter = self.elements().into_iter().map(|o| o.repr(vm));
-            repr.push_str(
-                parts_iter
-                    .next()
-                    .transpose()?
-                    .expect("this is not called for empty set")
-                    .as_str(),
-            );
-            for part in parts_iter {
-                repr.push_str(", ");
-                repr.push_str(part?.as_str());
-            }
-        }
-        repr.push('}');
-        if class_name.is_some() {
-            repr.push(')');
-        }
-
-        Ok(repr)
+        collection_repr(class_name, "{", "}", self.elements().iter(), vm)
     }
 
     fn add(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
@@ -549,7 +525,7 @@ impl PySet {
     }
 
     #[pymethod(magic)]
-    fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+    fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
         let class = zelf.class();
         let borrowed_name = class.name();
         let class_name = borrowed_name.deref();
@@ -565,7 +541,7 @@ impl PySet {
         } else {
             format!("{}(...)", class_name)
         };
-        Ok(vm.ctx.new_str(s).into())
+        Ok(s)
     }
 
     #[pymethod]
@@ -878,7 +854,7 @@ impl PyFrozenSet {
     }
 
     #[pymethod(magic)]
-    fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+    fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
         let inner = &zelf.inner;
         let class = zelf.class();
         let class_name = class.name();
@@ -889,7 +865,7 @@ impl PyFrozenSet {
         } else {
             format!("{}(...)", class_name)
         };
-        Ok(vm.ctx.new_str(s).into())
+        Ok(s)
     }
 
     #[pymethod(magic)]

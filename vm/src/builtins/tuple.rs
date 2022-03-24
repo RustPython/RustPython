@@ -12,6 +12,7 @@ use crate::{
         AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable,
         Iterable, PyComparisonOp, Unconstructible,
     },
+    utils::collection_repr,
     vm::{ReprGuard, VirtualMachine},
     IdProtocol, PyArithmeticValue, PyClassImpl, PyComparisonValue, PyContext, PyObject,
     PyObjectRef, PyRef, PyResult, PyValue, TransmuteFromObject, TryFromObject, TypeProtocol,
@@ -199,17 +200,13 @@ impl PyTuple {
 
     #[pymethod(magic)]
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        let s = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-            let mut str_parts = Vec::with_capacity(zelf.elements.len());
-            for elem in zelf.elements.iter() {
-                let s = elem.repr(vm)?;
-                str_parts.push(s.as_str().to_owned());
-            }
-
-            if str_parts.len() == 1 {
-                format!("({},)", str_parts[0])
+        let s = if zelf.len() == 0 {
+            "()".to_owned()
+        } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
+            if zelf.len() == 1 {
+                format!("({},)", zelf.elements[0].repr(vm)?)
             } else {
-                format!("({})", str_parts.join(", "))
+                collection_repr(None, "(", ")", zelf.elements.iter(), vm)?
             }
         } else {
             "(...)".to_owned()
