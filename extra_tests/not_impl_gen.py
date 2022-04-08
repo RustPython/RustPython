@@ -86,6 +86,14 @@ def extra_info(obj):
     return None
 
 
+def name_sort_key(name):
+    if name == "builtins":
+        return ""
+    if name[0] == "_":
+        return name[1:] + "1"
+    return name + "2"
+
+
 def gen_methods():
     types = [
         bool,
@@ -143,7 +151,8 @@ def gen_methods():
         methods[typ.__name__] = (typ_code, extra_info(typ), attrs)
 
     output = "expected_methods = {\n"
-    for name, (typ_code, extra, attrs) in methods.items():
+    for name in sorted(methods.keys(), key=name_sort_key):
+        typ_code, extra, attrs = methods[name]
         output += f" '{name}': ({typ_code}, {extra!r}, [\n"
         for attr, attr_extra in attrs:
             output += f"    ({attr!r}, {attr_extra!r}),\n"
@@ -214,7 +223,7 @@ def gen_modules():
     # check name because modules listed have side effects on import,
     # e.g. printing something or opening a webpage
     modules = {}
-    for mod_name in scan_modules():
+    for mod_name in sorted(scan_modules(), key=name_sort_key):
         if mod_name in IGNORED_MODULES:
             continue
         # when generating CPython list, ignore items defined by other modules
@@ -339,21 +348,30 @@ def compare():
             if mod_mismatched_items:
                 mismatched_items[modname] = mod_mismatched_items
 
-    # missing from builtins
-    for module, missing_methods in not_implementeds.items():
-        for method, reason in missing_methods.items():
-            print(f"{module}.{method}" + (f" {reason}" if reason else ""))
-
-    # missing from modules
+    # missing entire module
+    print("# modules")
     for modname in not_implemented:
         print(modname, "(entire module)")
     for modname, exception in failed_to_import.items():
         print(f"{modname} (exists but not importable: {exception})")
+
+    # missing from builtins
+    print("\n# builtin items")
+    for module, missing_methods in not_implementeds.items():
+        for method, reason in missing_methods.items():
+            print(f"{module}.{method}" + (f" ({reason})" if reason else ""))
+
+    # missing from modules
+    print("\n# stdlib items")
     for modname, missing in missing_items.items():
         for item in missing:
             print(item)
+
+    print("\n# mismatching signatures (warnings)")
     for modname, mismatched in mismatched_items.items():
         for (item, rustpy_value, cpython_value) in mismatched:
+            if cpython_value == "ValueError('no signature found')":
+                continue  # these items will never match
             print(f"{item} {rustpy_value} != {cpython_value}")
 
     result = {
@@ -364,9 +382,9 @@ def compare():
     }
 
     print()
-    print("out of", len(cpymods), "modules:")
+    print("# out of", len(cpymods), "modules:")
     for error_type, modules in result.items():
-        print(" ", error_type, len(modules))
+        print("# ", error_type, len(modules))
 
 
 def remove_one_indent(s):
