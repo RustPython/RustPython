@@ -624,6 +624,7 @@ impl<T: PyValue + 'static> PyObjectPayload for T {}
 
 #[pyimpl]
 pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
+    const FIELD_LEN: usize;
     const FIELD_NAMES: &'static [&'static str];
 
     fn into_tuple(self, vm: &VirtualMachine) -> PyTuple;
@@ -632,6 +633,26 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
         self.into_tuple(vm)
             .into_ref_with_type(vm, Self::static_type().clone())
             .unwrap()
+    }
+
+    fn try_elements_from(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+        let typ = Self::static_type();
+        if !obj.fast_isinstance(typ) {
+            return Err(vm.new_type_error(format!(
+                "{} is not a subclass of {}",
+                obj.class().name(),
+                typ.name(),
+            )));
+        }
+        let seq: Vec<PyObjectRef> = obj.try_into_value(vm)?;
+        if seq.len() != Self::FIELD_LEN {
+            return Err(vm.new_type_error(format!(
+                "{} takes a sequence of length {}",
+                typ.name(),
+                Self::FIELD_LEN
+            )));
+        }
+        Ok(seq)
     }
 
     #[pymethod(magic)]

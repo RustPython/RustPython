@@ -77,6 +77,12 @@ impl PyStrKindData {
     }
 }
 
+impl TryFromBorrowedObject for String {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
+        obj.try_value_with(|pystr: &PyStr| Ok(pystr.as_str().to_owned()), vm)
+    }
+}
+
 /// str(object='') -> str
 /// str(bytes_or_buffer[, encoding[, errors]]) -> str
 ///
