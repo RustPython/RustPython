@@ -814,7 +814,7 @@ pub(crate) fn call_slot_new(
     unreachable!("Should be able to find a new slot somewhere in the mro")
 }
 
-fn take_next_base(bases: &mut Vec<Vec<PyTypeRef>>) -> Option<PyTypeRef> {
+fn take_next_base(bases: &mut [Vec<PyTypeRef>]) -> Option<PyTypeRef> {
     for base in bases.iter() {
         let head = base[0].clone();
         if !bases.iter().any(|x| x[1..].iter().any(|x| x.is(&head))) {
