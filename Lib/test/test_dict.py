@@ -1103,8 +1103,6 @@ class DictTest(unittest.TestCase):
             values = list(it) + [drop]
             self.assertEqual(sorted(values), sorted(list(data.values())))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_reverseiterator_pickling(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             data = {1:"a", 2:"b", 3:"c"}
@@ -1123,8 +1121,6 @@ class DictTest(unittest.TestCase):
             del data[drop]
             self.assertEqual(list(it), list(reversed(data)))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_reverseitemiterator_pickling(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             data = {1:"a", 2:"b", 3:"c"}
@@ -1147,8 +1143,6 @@ class DictTest(unittest.TestCase):
             del data[drop[0]]
             self.assertEqual(dict(it), data)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_reversevaluesiterator_pickling(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             data = {1:"a", 2:"b", 3:"c"}
