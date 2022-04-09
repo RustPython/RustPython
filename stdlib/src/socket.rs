@@ -661,14 +661,11 @@ mod _socket {
         vm.ctx.exceptions.os_error.to_owned()
     }
 
-    #[pyattr(once)]
+    #[pyattr]
     fn timeout(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.new_exception_type(
-            "socket",
-            "timeout",
-            Some(vec![vm.ctx.exceptions.os_error.to_owned()]),
-        )
+        vm.ctx.exceptions.timeout_error.to_owned()
     }
+
     #[pyattr(once)]
     fn herror(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.new_exception_type(
