@@ -98,26 +98,21 @@ impl PyGenericAlias {
                 }),
             }
         }
-        
-        if self.args.len() == 0 {
-            Ok(format!(
-                "{}[{}]",
-                repr_item(self.origin.as_object().to_owned(), vm)?,
-                "()"
-            ))
-        }
-        else {
-            Ok(format!(
-                "{}[{}]",
-                repr_item(self.origin.as_object().to_owned(), vm)?,
+
+        Ok(format!(
+            "{}[{}]",
+            repr_item(self.origin.as_object().to_owned(), vm)?,
+            if self.args.len() == 0 {
+                "()".to_string()
+            } else {
                 self.args
                     .as_slice()
                     .iter()
                     .map(|o| repr_item(o.clone(), vm))
                     .collect::<PyResult<Vec<_>>>()?
                     .join(", ")
-            ))
-        }
+            }
+        ))
     }
 
     #[pyproperty(magic)]
