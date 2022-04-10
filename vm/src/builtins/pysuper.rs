@@ -107,6 +107,11 @@ impl PySuper {
         Ok(Self { typ, obj })
     }
 
+    #[pyproperty(magic)]
+    fn thisclass(&self) -> PyObjectRef {
+        self.typ.as_object().to_owned()
+    }
+
     #[pymethod(magic)]
     fn repr(&self) -> String {
         let typname = &self.typ.name();
