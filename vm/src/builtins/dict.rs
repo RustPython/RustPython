@@ -3,7 +3,7 @@ use super::{
     PyStrRef, PyTupleRef, PyType, PyTypeRef,
 };
 use crate::{
-    builtins::{iter::builtins_iter, PyTuple},
+    builtins::{iter::builtins_iter, iter::builtins_reversed, PyTuple},
     common::ascii,
     dictdatatype::{self, DictKey},
     function::{ArgIterable, FuncArgs, IntoPyObject, KwArgs, OptionalArg},
@@ -836,6 +836,22 @@ macro_rules! dict_view {
                     size,
                     internal: PyMutex::new(PositionIterInternal::new(dict, position)),
                 }
+            }
+
+            #[allow(clippy::redundant_closure_call)]
+            #[pymethod(magic)]
+            fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyTupleRef {
+                let iter = builtins_reversed(vm).to_owned();
+                let internal = zelf.internal.lock();
+                // TODO: entries must be reversed too
+                let entries = match &internal.status {
+                    IterStatus::Active(dict) => dict
+                        .into_iter()
+                        .map(|(key, value)| ($result_fn)(vm, key, value))
+                        .collect::<Vec<_>>(),
+                    IterStatus::Exhausted => vec![],
+                };
+                vm.new_tuple((iter, (vm.ctx.new_list(entries),)))
             }
 
             #[pymethod(magic)]
