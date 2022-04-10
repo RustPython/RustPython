@@ -837,6 +837,8 @@ macro_rules! dict_view {
                     internal: PyMutex::new(PositionIterInternal::new(dict, position)),
                 }
             }
+
+            #[allow(clippy::redundant_closure_call)]
             #[pymethod(magic)]
             fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyTupleRef {
                 let iter = builtins_reversed(vm).to_owned();
