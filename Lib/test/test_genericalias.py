@@ -154,8 +154,6 @@ class BaseTest(unittest.TestCase):
         self.assertEqual(t.__args__, (int,))
         self.assertEqual(t.__parameters__, ())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_repr(self):
         class MyList(list):
             pass
