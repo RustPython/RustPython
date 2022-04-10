@@ -108,8 +108,8 @@ impl PySuper {
     }
 
     #[pyproperty(magic)]
-    fn thisclass(&self) -> PyObjectRef {
-        self.typ.as_object().to_owned()
+    fn thisclass(&self) -> PyTypeRef {
+        self.typ.clone()
     }
 
     #[pymethod(magic)]
