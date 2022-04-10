@@ -107,6 +107,11 @@ impl PySuper {
         Ok(Self { typ, obj })
     }
 
+    #[pyproperty(magic)]
+    fn thisclass(&self) -> PyTypeRef {
+        self.typ.clone()
+    }
+
     #[pymethod(magic)]
     fn repr(&self) -> String {
         let typname = &self.typ.name();
