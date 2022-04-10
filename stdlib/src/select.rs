@@ -152,11 +152,16 @@ fn sec_to_timeval(sec: f64) -> timeval {
 mod decl {
     use super::*;
     use crate::vm::{
+        builtins::PyTypeRef,
         function::{IntoPyException, OptionalOption},
         stdlib::time,
         utils::Either,
         PyObjectRef, PyResult, VirtualMachine,
     };
+    #[pyattr]
+    fn error(vm: &VirtualMachine) -> PyTypeRef {
+        vm.ctx.exceptions.os_error.clone()
+    }
 
     #[pyfunction]
     fn select(
