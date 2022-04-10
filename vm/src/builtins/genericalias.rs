@@ -103,7 +103,7 @@ impl PyGenericAlias {
             "{}[{}]",
             repr_item(self.origin.as_object().to_owned(), vm)?,
             if self.args.len() == 0 {
-                "()".to_string()
+                "()".to_owned()
             } else {
                 self.args
                     .as_slice()
