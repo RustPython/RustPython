@@ -102,12 +102,16 @@ impl PyGenericAlias {
         Ok(format!(
             "{}[{}]",
             repr_item(self.origin.as_object().to_owned(), vm)?,
-            self.args
-                .as_slice()
-                .iter()
-                .map(|o| repr_item(o.clone(), vm))
-                .collect::<PyResult<Vec<_>>>()?
-                .join(", ")
+            if self.args.len() == 0 {
+                "()".to_owned()
+            } else {
+                self.args
+                    .as_slice()
+                    .iter()
+                    .map(|o| repr_item(o.clone(), vm))
+                    .collect::<PyResult<Vec<_>>>()?
+                    .join(", ")
+            }
         ))
     }
 
