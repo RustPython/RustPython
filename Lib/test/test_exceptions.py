@@ -12,9 +12,10 @@ from test.support import (captured_stderr, check_impl_detail,
                           cpython_only, gc_collect,
                           no_tracing, script_helper,
                           SuppressCrashReport,
-                          check_warnings,)
+                          )
 from test.support.os_helper import TESTFN, unlink
 from test.support.import_helper import import_module
+from test.support.warnings_helper import check_warnings
 from test import support
 
 class NaiveException(Exception):

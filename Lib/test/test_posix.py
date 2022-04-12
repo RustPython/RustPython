@@ -1,7 +1,7 @@
 "Test posix functions"
 
 from test import support
-from test.support import os_helper, import_helper
+from test.support import os_helper, import_helper, warnings_helper
 from test.support.script_helper import assert_python_ok
 
 # Skip these tests if there is no posix module.
@@ -46,7 +46,7 @@ class PosixTester(unittest.TestCase):
         fp = open(os_helper.TESTFN, 'w+')
         fp.close()
         self.teardown_files = [ os_helper.TESTFN ]
-        self._warnings_manager = support.check_warnings()
+        self._warnings_manager = warnings_helper.check_warnings()
         self._warnings_manager.__enter__()
         warnings.filterwarnings('ignore', '.* potential security risk .*',
                                 RuntimeWarning)

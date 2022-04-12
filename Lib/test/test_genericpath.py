@@ -525,7 +525,7 @@ class CommonTest(GenericTest):
 
     def test_join_errors(self):
         # Check join() raises friendly TypeErrors.
-        from .support import check_warnings
+        from .support.warnings_helper import check_warnings
         with check_warnings(('', BytesWarning), quiet=True):
             errmsg = "Can't mix strings and bytes in path components"
             with self.assertRaisesRegex(TypeError, errmsg):
@@ -546,7 +546,7 @@ class CommonTest(GenericTest):
 
     def test_relpath_errors(self):
         # Check relpath() raises friendly TypeErrors.
-        from .support import check_warnings
+        from .support.warnings_helper import check_warnings
         with check_warnings(('', (BytesWarning, DeprecationWarning)),
                                     quiet=True):
             errmsg = "Can't mix strings and bytes in path components"

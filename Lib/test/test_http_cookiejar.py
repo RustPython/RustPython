@@ -610,7 +610,7 @@ class CookieTests(unittest.TestCase):
         c = CookieJar()
         future = time2netscape(time.time()+3600)
 
-        with test.support.check_no_warnings(self):
+        with test.warnings_helper.check_no_warnings(self):
             headers = [f"Set-Cookie: FOO=BAR; path=/; expires={future}"]
             req = urllib.request.Request("http://www.coyote.com/")
             res = FakeResponse(headers, "http://www.coyote.com/")

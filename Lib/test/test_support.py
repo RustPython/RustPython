@@ -17,6 +17,7 @@ from test.support import import_helper
 from test.support import os_helper
 from test.support import script_helper
 from test.support import socket_helper
+from test.support import warnings_helper
 
 TESTFN = os_helper.TESTFN
 
@@ -153,7 +154,7 @@ class TestSupport(unittest.TestCase):
         path = os.path.realpath(path)
 
         try:
-            with support.check_warnings() as recorder:
+            with warnings_helper.check_warnings() as recorder:
                 with os_helper.temp_dir(path, quiet=True) as temp_path:
                     self.assertEqual(path, temp_path)
                 warnings = [str(w.message) for w in recorder.warnings]
@@ -228,7 +229,7 @@ class TestSupport(unittest.TestCase):
 
         with os_helper.temp_dir() as parent_dir:
             bad_dir = os.path.join(parent_dir, 'does_not_exist')
-            with support.check_warnings() as recorder:
+            with warnings_helper.check_warnings() as recorder:
                 with os_helper.change_cwd(bad_dir, quiet=True) as new_cwd:
                     self.assertEqual(new_cwd, original_cwd)
                     self.assertEqual(os.getcwd(), new_cwd)
@@ -246,7 +247,7 @@ class TestSupport(unittest.TestCase):
     def test_change_cwd__chdir_warning(self):
         """Check the warning message when os.chdir() fails."""
         path = TESTFN + '_does_not_exist'
-        with support.check_warnings() as recorder:
+        with warnings_helper.check_warnings() as recorder:
             with os_helper.change_cwd(path=path, quiet=True):
                 pass
             messages = [str(w.message) for w in recorder.warnings]
@@ -645,8 +646,14 @@ class TestSupport(unittest.TestCase):
 
     def check_print_warning(self, msg, expected):
         stderr = io.StringIO()
-        with support.swap_attr(support.print_warning, 'orig_stderr', stderr):
+
+        old_stderr = sys.__stderr__ 
+        try:
+            sys.__stderr__ = stderr
             support.print_warning(msg)
+        finally:
+            sys.__stderr__ = old_stderr
+
         self.assertEqual(stderr.getvalue(), expected)
 
     def test_print_warning(self):

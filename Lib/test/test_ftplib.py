@@ -22,6 +22,7 @@ from unittest import TestCase, skipUnless
 from test import support
 from test.support import threading_helper
 from test.support import socket_helper
+from test.support import warnings_helper
 from test.support.socket_helper import HOST, HOSTv6
 
 import sys
@@ -622,8 +623,8 @@ class TestFTPClass(TestCase):
         self.assertTrue(flag)
 
         f = io.StringIO(RETR_DATA.replace('\r\n', '\n'))
-        # storlines() expects a binary file, not a text file
-        with support.check_warnings(('', BytesWarning), quiet=True):
+        # stowarnings_helper.check_warningsary file, not a text file
+        with warnings_helper.check_warnings(('', BytesWarning), quiet=True):
             self.assertRaises(TypeError, self.client.storlines, 'stor foo', f)
 
     def test_nlst(self):

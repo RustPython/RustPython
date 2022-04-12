@@ -35,8 +35,7 @@ from test.support import import_helper
 from test.support import os_helper
 from test.support import socket_helper
 from test.support import threading_helper
-# TODO: RUSTPYTHON
-# from test.support import warnings_helper
+from test.support import warnings_helper
 from platform import win32_is_iot
 
 with warnings.catch_warnings():
@@ -4127,7 +4126,7 @@ class TestDirEntry(unittest.TestCase):
 
 
 class TestScandir(unittest.TestCase):
-    check_no_resource_warning = support.check_no_resource_warning
+    check_no_resource_warning = warnings_helper.check_no_resource_warning
 
     def setUp(self):
         self.path = os.path.realpath(os_helper.TESTFN)
