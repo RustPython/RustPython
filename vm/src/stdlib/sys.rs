@@ -1,4 +1,4 @@
-use crate::{function::IntoPyObject, PyClassImpl, PyObject, PyResult, VirtualMachine};
+use crate::{function::IntoPyObject, pyclass::PyClassImpl, PyObject, PyResult, VirtualMachine};
 
 pub(crate) use sys::{MAXSIZE, MULTIARCH};
 

@@ -6,10 +6,11 @@ use crate::{
     },
     function::{ArgIterable, FuncArgs, IntoPyException, IntoPyObject},
     py_io::{self, Write},
+    pyclass::{PyClassImpl, StaticType},
     stdlib::sys,
     suggestion::offer_suggestions,
-    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, StaticType,
-    TryFromObject, TypeProtocol, VirtualMachine,
+    IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;

@@ -1,8 +1,9 @@
 use super::PyTypeRef;
 use crate::{
     protocol::{PyIter, PyIterReturn},
+    pyclass::PyClassImpl,
     types::{Constructor, IterNext, IterNextIterable},
-    PyClassImpl, PyContext, PyObjectRef, PyResult, PyValue, VirtualMachine,
+    PyContext, PyObjectRef, PyResult, PyValue, VirtualMachine,
 };
 
 /// filter(function or None, iterable) --> filter object

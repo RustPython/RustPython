@@ -9,9 +9,10 @@ use crate::common::{
 };
 use crate::{
     function::{FuncArgs, KwArgs, OptionalArg},
+    pyclass::{PyClassImpl, StaticType},
     types::{Callable, GetAttr, PyTypeFlags, PyTypeSlots, SetAttr},
-    IdProtocol, PyAttributes, PyClassImpl, PyContext, PyLease, PyObjectRef, PyObjectWeak, PyRef,
-    PyResult, PyValue, StaticType, TypeProtocol, VirtualMachine,
+    IdProtocol, PyAttributes, PyContext, PyLease, PyObjectRef, PyObjectWeak, PyRef, PyResult,
+    PyValue, TypeProtocol, VirtualMachine,
 };
 use itertools::Itertools;
 use std::collections::HashSet;

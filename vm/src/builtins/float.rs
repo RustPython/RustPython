@@ -3,10 +3,11 @@ use crate::common::{float_ops, hash};
 use crate::{
     format::FormatSpec,
     function::{ArgBytesLike, IntoPyObject, OptionalArg, OptionalOption},
+    pyclass::PyClassImpl,
     types::{Comparable, Constructor, Hashable, PyComparisonOp},
     IdProtocol,
     PyArithmeticValue::{self, *},
-    PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
+    PyComparisonValue, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
     TryFromBorrowedObject, TryFromObject, TypeProtocol, VirtualMachine,
 };
 use num_bigint::{BigInt, ToBigInt};

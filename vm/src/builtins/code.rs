@@ -6,8 +6,9 @@ use super::{PyStrRef, PyTupleRef, PyTypeRef};
 use crate::{
     bytecode::{self, BorrowedConstant, Constant, ConstantBag},
     function::FuncArgs,
-    IdProtocol, PyClassImpl, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
-    StaticType, TypeProtocol, VirtualMachine,
+    pyclass::{PyClassImpl, StaticType},
+    IdProtocol, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    VirtualMachine,
 };
 use num_traits::Zero;
 use std::{fmt, ops::Deref};

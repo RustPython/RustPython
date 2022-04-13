@@ -2,8 +2,9 @@ use super::{PyStr, PyTypeRef};
 use crate::{
     builtins::builtinfunc::PyBuiltinMethod,
     function::{FuncArgs, IntoPyNativeFunc},
+    pyclass::PyClassImpl,
     types::{Callable, Constructor, GetDescriptor},
-    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "staticmethod")]

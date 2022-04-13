@@ -851,6 +851,36 @@ impl VirtualMachine {
         self.new_exception(self.ctx.exceptions.stop_iteration.clone(), args)
     }
 
+    fn new_downcast_error(
+        &self,
+        msg: &'static str,
+        error_type: &PyTypeRef,
+        class: &PyTypeRef,
+        obj: impl std::borrow::Borrow<PyObject>, // the impl Borrow allows to pass PyObjectRef or &PyObject
+    ) -> PyBaseExceptionRef {
+        let actual_class = obj.borrow().class();
+        let actual_type = &*actual_class.name();
+        let expected_type = &*class.name();
+        let msg = format!("Expected {msg} '{expected_type}' but '{actual_type}' found");
+        self.new_exception_msg(error_type.clone(), msg)
+    }
+
+    pub(crate) fn new_downcast_runtime_error(
+        &self,
+        class: &PyTypeRef,
+        obj: impl std::borrow::Borrow<PyObject>,
+    ) -> PyBaseExceptionRef {
+        self.new_downcast_error("payload", &self.ctx.exceptions.runtime_error, class, obj)
+    }
+
+    pub(crate) fn new_downcast_type_error(
+        &self,
+        class: &PyTypeRef,
+        obj: impl std::borrow::Borrow<PyObject>,
+    ) -> PyBaseExceptionRef {
+        self.new_downcast_error("type", &self.ctx.exceptions.type_error, class, obj)
+    }
+
     #[track_caller]
     #[cold]
     fn _py_panic_failed(&self, exc: PyBaseExceptionRef, msg: &str) -> ! {

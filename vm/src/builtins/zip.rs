@@ -3,9 +3,9 @@ use crate::{
     builtins::PyTupleRef,
     function::{ArgIntoBool, IntoPyObject, OptionalArg, PosArgs},
     protocol::{PyIter, PyIterReturn},
+    pyclass::PyClassImpl,
     types::{Constructor, IterNext, IterNextIterable},
-    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
-    VirtualMachine,
+    PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
 };
 use rustpython_common::atomic::{self, PyAtomic, Radium};
 

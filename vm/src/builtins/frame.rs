@@ -5,8 +5,9 @@
 use super::{PyCode, PyDictRef, PyStrRef};
 use crate::{
     frame::{Frame, FrameRef},
+    pyclass::PyClassImpl,
     types::{Constructor, Unconstructible},
-    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyObjectWrap, PyRef, PyResult, VirtualMachine,
+    IdProtocol, PyContext, PyObjectRef, PyObjectWrap, PyRef, PyResult, VirtualMachine,
 };
 
 pub fn init(context: &PyContext) {

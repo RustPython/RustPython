@@ -3,8 +3,9 @@ use crate::common::lock::{PyMutex, PyRwLock};
 use crate::{
     function::{IntoPyObject, OptionalArg},
     protocol::{PyIter, PyIterReturn},
+    pyclass::PyClassImpl,
     types::{Constructor, IterNext, IterNextIterable},
-    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
+    PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
 use num_bigint::BigInt;
 use num_traits::Zero;

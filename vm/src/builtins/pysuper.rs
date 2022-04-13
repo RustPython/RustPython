@@ -6,9 +6,9 @@ See also [CPython source code.](https://github.com/python/cpython/blob/50b48572d
 use super::{PyStrRef, PyType, PyTypeRef};
 use crate::{
     function::OptionalArg,
+    pyclass::PyClassImpl,
     types::{Constructor, GetAttr, GetDescriptor},
-    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
-    VirtualMachine,
+    IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "super")]

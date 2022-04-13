@@ -1,7 +1,7 @@
 //! Builtin function definitions.
 //!
 //! Implements the list of [builtin Python functions](https://docs.python.org/3/library/builtins.html).
-use crate::{PyClassImpl, PyObjectRef, VirtualMachine};
+use crate::{pyclass::PyClassImpl, PyObjectRef, VirtualMachine};
 
 /// Built-in functions, exceptions, and other objects.
 ///
@@ -27,13 +27,14 @@ mod builtins {
         },
         protocol::{PyIter, PyIterReturn},
         py_io,
+        pyclass::PyClassImpl,
         readline::{Readline, ReadlineResult},
         scope::Scope,
         stdlib::sys,
         types::PyComparisonOp,
         utils::Either,
-        IdProtocol, PyArithmeticValue, PyClassImpl, PyObject, PyObjectRef, PyObjectWrap, PyRef,
-        PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
+        IdProtocol, PyArithmeticValue, PyObject, PyObjectRef, PyObjectWrap, PyRef, PyResult,
+        PyValue, TryFromObject, TypeProtocol, VirtualMachine,
     };
     use num_traits::{Signed, ToPrimitive, Zero};
 

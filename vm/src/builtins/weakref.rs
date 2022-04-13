@@ -5,12 +5,13 @@ use crate::common::{
 };
 use crate::{
     function::OptionalArg,
+    pyclass::PyClassImpl,
     types::{Callable, Comparable, Constructor, Hashable, PyComparisonOp},
-    IdProtocol, PyClassImpl, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
-    TypeProtocol, VirtualMachine,
+    IdProtocol, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    VirtualMachine,
 };
 
-pub use crate::pyobjectrc::PyWeak;
+pub use crate::pyobject::PyWeak;
 
 #[derive(FromArgs)]
 pub struct WeakNewArgs {

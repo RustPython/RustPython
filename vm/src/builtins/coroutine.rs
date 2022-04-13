@@ -4,8 +4,9 @@ use crate::{
     frame::FrameRef,
     function::OptionalArg,
     protocol::PyIterReturn,
+    pyclass::PyClassImpl,
     types::{Constructor, IterNext, IterNextIterable, Unconstructible},
-    IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "coroutine")]

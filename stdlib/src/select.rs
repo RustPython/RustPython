@@ -7,7 +7,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
     #[cfg(unix)]
     {
-        use crate::vm::PyClassImpl;
+        use crate::vm::pyclass::PyClassImpl;
         decl::poll::PyPoll::make_class(&vm.ctx);
     }
 

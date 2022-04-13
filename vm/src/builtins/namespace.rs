@@ -2,10 +2,11 @@ use super::PyTypeRef;
 use crate::{
     builtins::PyDict,
     function::FuncArgs,
+    pyclass::PyClassImpl,
     types::{Comparable, Constructor, PyComparisonOp},
     vm::ReprGuard,
-    IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyRef, PyResult, PyValue,
-    TypeProtocol, VirtualMachine,
+    IdProtocol, PyComparisonValue, PyContext, PyObject, PyRef, PyResult, PyValue, TypeProtocol,
+    VirtualMachine,
 };
 
 /// A simple attribute-based namespace.

@@ -1,5 +1,5 @@
 use super::PyTypeRef;
-use crate::{frame::FrameRef, PyClassImpl, PyContext, PyRef, PyValue, VirtualMachine};
+use crate::{frame::FrameRef, pyclass::PyClassImpl, PyContext, PyRef, PyValue, VirtualMachine};
 
 #[pyclass(module = false, name = "traceback")]
 #[derive(Debug)]

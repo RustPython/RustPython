@@ -8,14 +8,15 @@ use crate::{
     format::{FormatSpec, FormatString, FromTemplate},
     function::{ArgIterable, FuncArgs, IntoPyException, IntoPyObject, OptionalArg, OptionalOption},
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
+    pyclass::PyClassImpl,
     sequence::SequenceOp,
     sliceable::{SequenceIndex, SliceableSequenceOp},
     types::{
         AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable,
         Iterable, PyComparisonOp, Unconstructible,
     },
-    IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyObjectView,
-    PyRef, PyResult, PyValue, TryFromBorrowedObject, TypeProtocol, VirtualMachine,
+    IdProtocol, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult,
+    PyValue, TryFromBorrowedObject, TypeProtocol, VirtualMachine,
 };
 use ascii::{AsciiStr, AsciiString};
 use bstr::ByteSlice;

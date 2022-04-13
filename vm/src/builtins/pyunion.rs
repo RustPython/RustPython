@@ -4,9 +4,10 @@ use crate::{
     common::hash,
     function::IntoPyObject,
     protocol::PyMappingMethods,
+    pyclass::PyClassImpl,
     types::{AsMapping, Comparable, GetAttr, Hashable, Iterable, PyComparisonOp},
-    IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyObjectView,
-    PyRef, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
+    IdProtocol, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult,
+    PyValue, TryFromObject, TypeProtocol, VirtualMachine,
 };
 use std::fmt;
 

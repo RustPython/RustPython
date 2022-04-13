@@ -1,11 +1,12 @@
 use super::{float, PyStr, PyTypeRef};
 use crate::{
     function::{IntoPyObject, OptionalArg, OptionalOption},
+    pyclass::PyClassImpl,
     types::{Comparable, Constructor, Hashable, PyComparisonOp},
     IdProtocol,
     PyArithmeticValue::{self, *},
-    PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
-    TypeProtocol, VirtualMachine,
+    PyComparisonValue, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    VirtualMachine,
 };
 use num_complex::Complex64;
 use num_traits::Zero;

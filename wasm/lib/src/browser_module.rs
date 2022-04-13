@@ -10,7 +10,8 @@ mod _browser {
         builtins::{PyDictRef, PyStrRef},
         function::{ArgCallable, IntoPyObject, OptionalArg},
         import::import_file,
-        PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+        pyclass::PyClassImpl,
+        PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
     };
     use wasm_bindgen::{prelude::*, JsCast};
     use wasm_bindgen_futures::JsFuture;

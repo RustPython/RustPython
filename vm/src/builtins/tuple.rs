@@ -1,8 +1,10 @@
 use super::{PositionIterInternal, PyGenericAlias, PyTypeRef};
 use crate::common::{hash::PyHash, lock::PyMutex};
 use crate::{
+    convert::{TransmuteFromObject, TryFromBorrowedObject},
     function::{IntoPyObject, OptionalArg},
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
+    pyclass::PyClassImpl,
     sequence::{ObjectSequenceOp, SequenceOp},
     sliceable::{SequenceIndex, SliceableSequenceOp},
     stdlib::sys,
@@ -12,9 +14,8 @@ use crate::{
     },
     utils::collection_repr,
     vm::{ReprGuard, VirtualMachine},
-    IdProtocol, PyArithmeticValue, PyClassImpl, PyComparisonValue, PyContext, PyObject,
-    PyObjectRef, PyRef, PyResult, PyValue, TransmuteFromObject, TryFromBorrowedObject,
-    TryFromObject, TypeProtocol,
+    IdProtocol, PyArithmeticValue, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyRef,
+    PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use std::{borrow::Cow, fmt, marker::PhantomData};
 

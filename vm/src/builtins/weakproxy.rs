@@ -1,8 +1,9 @@
 use super::{PyStrRef, PyTypeRef};
 use crate::{
     function::OptionalArg,
+    pyclass::PyClassImpl,
     types::{Constructor, SetAttr},
-    PyClassImpl, PyContext, PyObjectRef, PyObjectWeak, PyResult, PyValue, VirtualMachine,
+    PyContext, PyObjectRef, PyObjectWeak, PyResult, PyValue, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "weakproxy")]
