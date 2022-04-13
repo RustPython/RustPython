@@ -24,10 +24,8 @@ use crate::{
 };
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
-use std::any::Any;
-use std::collections::HashMap;
-use std::fmt;
-use std::ops::Deref;
+use std::{any::Any, collections::HashMap, fmt, ops::Deref};
+
 /* Python objects and references.
 
 Okay, so each python object itself is an class itself (PyObject). Each
@@ -142,12 +140,6 @@ impl PyContext {
         TypeZoo::extend(&context);
         exceptions::ExceptionZoo::extend(&context);
         context
-    }
-    pub fn new() -> Self {
-        rustpython_common::static_cell! {
-            static CONTEXT: PyContext;
-        }
-        CONTEXT.get_or_init(Self::init).clone()
     }
 
     pub fn none(&self) -> PyObjectRef {
@@ -338,7 +330,10 @@ impl PyContext {
 
 impl Default for PyContext {
     fn default() -> Self {
-        PyContext::new()
+        rustpython_common::static_cell! {
+            static CONTEXT: PyContext;
+        }
+        CONTEXT.get_or_init(Self::init).clone()
     }
 }
 

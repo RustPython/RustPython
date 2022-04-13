@@ -1177,7 +1177,7 @@ mod tests {
 
     #[test]
     fn miri_test_drop() {
-        let ctx = crate::PyContext::new();
+        let ctx = crate::PyContext::default();
         let obj = ctx.new_bytes(b"dfghjkl".to_vec());
         drop(obj);
     }

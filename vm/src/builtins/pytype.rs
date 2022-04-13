@@ -953,7 +953,7 @@ mod tests {
 
     #[test]
     fn test_linearise() {
-        let context = PyContext::new();
+        let context = PyContext::default();
         let object = &context.types.object_type;
         let type_type = &context.types.type_type;
 
