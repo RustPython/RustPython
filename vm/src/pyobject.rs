@@ -1021,9 +1021,9 @@ where
 pub type PyComparisonValue = PyArithmeticValue<bool>;
 
 #[derive(Clone)]
-pub struct PySequence<T = PyObjectRef>(Vec<T>);
+pub struct ArgSequence<T = PyObjectRef>(Vec<T>);
 
-impl<T> PySequence<T> {
+impl<T> ArgSequence<T> {
     pub fn into_vec(self) -> Vec<T> {
         self.0
     }
@@ -1031,7 +1031,7 @@ impl<T> PySequence<T> {
         &self.0
     }
 }
-impl<T: TryFromObject> TryFromObject for PySequence<T> {
+impl<T: TryFromObject> TryFromObject for ArgSequence<T> {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         vm.extract_elements(&obj).map(Self)
     }
