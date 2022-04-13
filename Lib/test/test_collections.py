@@ -248,8 +248,6 @@ class TestChainMap(unittest.TestCase):
         for k, v in dict(a=1, B=20, C=30, z=100).items():             # check get
             self.assertEqual(d.get(k, 100), v)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_union_operators(self):
         cm1 = ChainMap(dict(a=1, b=2), dict(c=3, d=4))
         cm2 = ChainMap(dict(a=10, e=5), dict(b=20, d=4))
