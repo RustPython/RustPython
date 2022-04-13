@@ -4,8 +4,8 @@ mod number;
 
 use crate::{
     builtins::{PyBaseExceptionRef, PyTupleRef, PyTypeRef},
-    PyObject, PyObjectRef, PyRef, PyResult, PyThreadingConstraint, PyValue, TryFromObject,
-    TypeProtocol, VirtualMachine,
+    PyObject, PyObjectPayload, PyObjectRef, PyRef, PyResult, PyThreadingConstraint, PyValue,
+    TryFromObject, TypeProtocol, VirtualMachine,
 };
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -26,6 +26,10 @@ pub trait IntoPyObject {
 
 pub trait IntoPyResult {
     fn into_pyresult(self, vm: &VirtualMachine) -> PyResult;
+}
+
+pub trait IntoPyRef<T: PyObjectPayload> {
+    fn into_pyref(self, vm: &VirtualMachine) -> PyRef<T>;
 }
 
 pub trait IntoPyException {

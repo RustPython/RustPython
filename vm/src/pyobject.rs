@@ -14,7 +14,7 @@ use crate::{
     convert::TryFromObject,
     dictdatatype::Dict,
     exceptions,
-    function::{IntoFuncArgs, IntoPyNativeFunc, IntoPyObject, IntoPyResult},
+    function::{IntoFuncArgs, IntoPyNativeFunc, IntoPyObject, IntoPyRef, IntoPyResult},
     pyclass::{PyClassImpl, StaticType},
     types::{PyTypeFlags, PyTypeSlots, TypeZoo},
     VirtualMachine,
@@ -518,10 +518,6 @@ impl<T: TypeProtocol> TypeProtocol for &'_ T {
     fn class(&self) -> PyLease<'_, PyType> {
         (&**self).class()
     }
-}
-
-pub trait IntoPyRef<T: PyObjectPayload> {
-    fn into_pyref(self, vm: &VirtualMachine) -> PyRef<T>;
 }
 
 impl<T, P> IntoPyRef<P> for T

@@ -5,8 +5,8 @@ mod zlib {
     use crate::common::lock::PyMutex;
     use crate::vm::{
         builtins::{PyBaseExceptionRef, PyBytes, PyBytesRef, PyIntRef, PyTypeRef},
-        function::{ArgBytesLike, OptionalArg, OptionalOption},
-        IntoPyRef, PyResult, PyValue, VirtualMachine,
+        function::{ArgBytesLike, IntoPyRef, OptionalArg, OptionalOption},
+        PyResult, PyValue, VirtualMachine,
     };
     use adler32::RollingAdler32 as Adler32;
     use crossbeam_utils::atomic::AtomicCell;

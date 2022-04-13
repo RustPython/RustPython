@@ -88,8 +88,8 @@ pub use self::ops::{PyArithmeticValue, PyComparisonValue};
 
 // pyobject
 pub use self::pyobject::{
-    IdProtocol, IntoPyRef, PyAttributes, PyContext, PyLease, PyMethod, PyObjectPayload, PyRefExact,
-    PyResult, PyStructSequence, PyThreadingConstraint, PyValue, TypeProtocol,
+    IdProtocol, PyAttributes, PyContext, PyLease, PyMethod, PyObjectPayload, PyRefExact, PyResult,
+    PyStructSequence, PyThreadingConstraint, PyValue, TypeProtocol,
 };
 // pyobjectrc
 pub use self::pyobject::{

@@ -2,15 +2,15 @@ use super::{PyInt, PyIntRef, PySlice, PyTupleRef, PyTypeRef};
 use crate::common::hash::PyHash;
 use crate::{
     builtins::builtins_iter,
-    function::{FuncArgs, OptionalArg},
+    function::{FuncArgs, IntoPyRef, OptionalArg},
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     pyclass::PyClassImpl,
     types::{
         AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable,
         Iterable, PyComparisonOp, Unconstructible,
     },
-    IdProtocol, IntoPyRef, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol, VirtualMachine,
+    IdProtocol, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use num_bigint::{BigInt, Sign};
