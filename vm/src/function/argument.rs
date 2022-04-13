@@ -137,3 +137,21 @@ impl TryFromObject for ArgMapping {
         })
     }
 }
+
+// this is not strictly related to PySequence protocol.
+#[derive(Clone)]
+pub struct ArgSequence<T = PyObjectRef>(Vec<T>);
+
+impl<T> ArgSequence<T> {
+    pub fn into_vec(self) -> Vec<T> {
+        self.0
+    }
+    pub fn as_slice(&self) -> &[T] {
+        &self.0
+    }
+}
+impl<T: TryFromObject> TryFromObject for ArgSequence<T> {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        vm.extract_elements(&obj).map(Self)
+    }
+}

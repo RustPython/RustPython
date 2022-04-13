@@ -4,9 +4,9 @@ pub(crate) use math::make_module;
 mod math {
     use crate::vm::{
         builtins::{try_bigint_to_f64, try_f64_to_bigint, PyFloat, PyInt, PyIntRef},
-        function::{ArgIntoFloat, ArgIterable, OptionalArg, PosArgs},
+        function::{ArgIntoFloat, ArgIterable, ArgSequence, OptionalArg, PosArgs},
         utils::Either,
-        PyObject, PyObjectRef, PyRef, PyResult, PySequence, TypeProtocol, VirtualMachine,
+        PyObject, PyObjectRef, PyRef, PyResult, TypeProtocol, VirtualMachine,
     };
     use num_bigint::BigInt;
     use num_traits::{One, Signed, Zero};
@@ -290,8 +290,8 @@ mod math {
 
     #[pyfunction]
     fn dist(
-        p: PySequence<ArgIntoFloat>,
-        q: PySequence<ArgIntoFloat>,
+        p: ArgSequence<ArgIntoFloat>,
+        q: ArgSequence<ArgIntoFloat>,
         vm: &VirtualMachine,
     ) -> PyResult<f64> {
         let mut max = 0.0;

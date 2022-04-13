@@ -12,7 +12,7 @@ use itertools::Itertools;
 use std::marker::PhantomData;
 use std::ops::RangeInclusive;
 
-pub use argument::{ArgCallable, ArgIterable, ArgMapping};
+pub use argument::{ArgCallable, ArgIterable, ArgMapping, ArgSequence};
 pub use buffer::{ArgAsciiBuffer, ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike};
 pub use number::{ArgIntoBool, ArgIntoComplex, ArgIntoFloat};
 
