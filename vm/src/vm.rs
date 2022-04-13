@@ -243,7 +243,7 @@ impl VirtualMachine {
     /// Create a new `VirtualMachine` structure.
     fn new(settings: PySettings) -> VirtualMachine {
         flame_guard!("new VirtualMachine");
-        let ctx = PyContext::new();
+        let ctx = PyContext::default();
 
         // make a new module without access to the vm; doesn't
         // set __spec__, __loader__, etc. attributes
