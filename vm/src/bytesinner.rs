@@ -4,14 +4,12 @@ use crate::{
         pystr, PyByteArray, PyBytes, PyBytesRef, PyInt, PyIntRef, PyStr, PyStrRef, PyTypeRef,
     },
     cformat::CFormatBytes,
-    function::ArgIterable,
-    function::{OptionalArg, OptionalOption},
+    function::{ArgIterable, OptionalArg, OptionalOption, PyComparisonValue},
     protocol::PyBuffer,
     sequence::{SequenceMutOp, SequenceOp},
     types::PyComparisonOp,
     utils::Either,
-    IdProtocol, PyComparisonValue, PyObject, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject,
-    VirtualMachine,
+    IdProtocol, PyObject, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject, VirtualMachine,
 };
 use bstr::ByteSlice;
 use itertools::Itertools;

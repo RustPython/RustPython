@@ -8,12 +8,12 @@ mod _sre {
             PyTupleRef, PyTypeRef,
         },
         common::{ascii, hash::PyHash},
-        function::{ArgCallable, IntoPyObject, OptionalArg, PosArgs},
+        function::{ArgCallable, IntoPyObject, OptionalArg, PosArgs, PyComparisonValue},
         protocol::{PyBuffer, PyMappingMethods},
         stdlib::sys,
         types::{AsMapping, Comparable, Hashable},
-        PyComparisonValue, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromBorrowedObject,
-        TryFromObject, VirtualMachine,
+        PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject,
+        VirtualMachine,
     };
     use core::str;
     use crossbeam_utils::atomic::AtomicCell;

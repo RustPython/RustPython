@@ -60,7 +60,6 @@ pub mod frame;
 mod frozen;
 pub mod function;
 pub mod import;
-pub mod ops;
 pub mod protocol;
 pub mod py_io;
 pub mod py_serde;
@@ -84,7 +83,6 @@ mod pyobject {
 
 // pub use self::Executor;
 pub use self::convert::{TryFromBorrowedObject, TryFromObject};
-pub use self::ops::{PyArithmeticValue, PyComparisonValue};
 
 // pyobject
 pub use self::pyobject::{

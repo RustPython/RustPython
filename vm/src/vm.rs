@@ -20,14 +20,14 @@ use crate::{
     common::{ascii, hash::HashSecret, lock::PyMutex, rc::PyRc},
     frame::{ExecutionResult, Frame, FrameRef},
     frozen,
-    function::{ArgMapping, FuncArgs, IntoFuncArgs, IntoPyObject},
+    function::{ArgMapping, FuncArgs, IntoFuncArgs, IntoPyObject, PyArithmeticValue},
     import,
     protocol::{PyIterIter, PyIterReturn},
     scope::Scope,
     signal, stdlib,
     types::PyComparisonOp,
-    IdProtocol, PyArithmeticValue, PyContext, PyLease, PyMethod, PyObject, PyObjectRef,
-    PyObjectWrap, PyRef, PyRefExact, PyResult, PyValue, TryFromObject, TypeProtocol,
+    IdProtocol, PyContext, PyLease, PyMethod, PyObject, PyObjectRef, PyObjectWrap, PyRef,
+    PyRefExact, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use std::{

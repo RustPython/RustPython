@@ -6,7 +6,10 @@ use crate::{
     builtins::{iter::builtins_iter, iter::builtins_reversed, PyTuple},
     common::ascii,
     dictdatatype::{self, DictKey},
-    function::{ArgIterable, FuncArgs, IntoPyObject, KwArgs, OptionalArg},
+    function::{
+        ArgIterable, FuncArgs, IntoPyObject, KwArgs, OptionalArg, PyArithmeticValue::*,
+        PyComparisonValue,
+    },
     protocol::{PyIterIter, PyIterReturn, PyMappingMethods, PySequenceMethods},
     pyclass::{PyClassDef, PyClassImpl},
     types::{
@@ -14,10 +17,8 @@ use crate::{
         IterNextIterable, Iterable, PyComparisonOp, Unconstructible, Unhashable,
     },
     vm::{ReprGuard, VirtualMachine},
-    IdProtocol,
-    PyArithmeticValue::*,
-    PyAttributes, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyObjectView, PyRef,
-    PyResult, PyValue, TryFromObject, TypeProtocol,
+    IdProtocol, PyAttributes, PyContext, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult,
+    PyValue, TryFromObject, TypeProtocol,
 };
 use rustpython_common::lock::PyMutex;
 use std::{borrow::Cow, fmt};

@@ -4,7 +4,7 @@ use crate::common::lock::{
 };
 use crate::TryFromBorrowedObject;
 use crate::{
-    function::{FuncArgs, IntoPyObject, OptionalArg},
+    function::{FuncArgs, IntoPyObject, OptionalArg, PyComparisonValue},
     protocol::{PyIterReturn, PyMappingMethods, PySequence, PySequenceMethods},
     pyclass::PyClassImpl,
     sequence::{MutObjectSequenceOp, ObjectSequenceOp, SequenceMutOp, SequenceOp},
@@ -15,8 +15,8 @@ use crate::{
     },
     utils::collection_repr,
     vm::{ReprGuard, VirtualMachine},
-    PyComparisonValue, PyContext, PyObject, PyObjectRef, PyObjectView, PyObjectWrap, PyRef,
-    PyResult, PyValue, TypeProtocol,
+    PyContext, PyObject, PyObjectRef, PyObjectView, PyObjectWrap, PyRef, PyResult, PyValue,
+    TypeProtocol,
 };
 use std::{borrow::Cow, fmt, ops::DerefMut};
 

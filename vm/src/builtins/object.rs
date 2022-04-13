@@ -1,9 +1,12 @@
 use super::{PyDict, PyDictRef, PyList, PyStr, PyStrRef, PyType, PyTypeRef};
 use crate::common::hash::PyHash;
 use crate::{
-    function::FuncArgs, pyclass::PyClassImpl, types::PyComparisonOp, utils::Either, IdProtocol,
-    PyArithmeticValue, PyAttributes, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyResult,
-    PyValue, TypeProtocol, VirtualMachine,
+    function::{FuncArgs, PyArithmeticValue, PyComparisonValue},
+    pyclass::PyClassImpl,
+    types::PyComparisonOp,
+    utils::Either,
+    IdProtocol, PyAttributes, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
+    VirtualMachine,
 };
 
 /// object()

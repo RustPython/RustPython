@@ -2,15 +2,15 @@ use super::{PyInt, PyIntRef, PySlice, PyTupleRef, PyTypeRef};
 use crate::common::hash::PyHash;
 use crate::{
     builtins::builtins_iter,
-    function::{FuncArgs, IntoPyRef, OptionalArg},
+    function::{FuncArgs, IntoPyRef, OptionalArg, PyComparisonValue},
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     pyclass::PyClassImpl,
     types::{
         AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable,
         Iterable, PyComparisonOp, Unconstructible,
     },
-    IdProtocol, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol, VirtualMachine,
+    IdProtocol, PyContext, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use num_bigint::{BigInt, Sign};
@@ -447,11 +447,11 @@ impl Hashable for PyRange {
 
 impl Comparable for PyRange {
     fn cmp(
-        zelf: &crate::PyObjectView<Self>,
+        zelf: &PyObjectView<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         _vm: &VirtualMachine,
-    ) -> PyResult<crate::PyComparisonValue> {
+    ) -> PyResult<PyComparisonValue> {
         op.eq_only(|| {
             if zelf.is(other) {
                 return Ok(true.into());

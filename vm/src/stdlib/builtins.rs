@@ -23,7 +23,7 @@ mod builtins {
         common::{hash::PyHash, str::to_ascii},
         function::{
             ArgBytesLike, ArgCallable, ArgIntoBool, ArgIterable, ArgMapping, FuncArgs, KwArgs,
-            OptionalArg, OptionalOption, PosArgs,
+            OptionalArg, OptionalOption, PosArgs, PyArithmeticValue,
         },
         protocol::{PyIter, PyIterReturn},
         py_io,
@@ -33,8 +33,8 @@ mod builtins {
         stdlib::sys,
         types::PyComparisonOp,
         utils::Either,
-        IdProtocol, PyArithmeticValue, PyObject, PyObjectRef, PyObjectWrap, PyRef, PyResult,
-        PyValue, TryFromObject, TypeProtocol, VirtualMachine,
+        IdProtocol, PyObject, PyObjectRef, PyObjectWrap, PyRef, PyResult, PyValue, TryFromObject,
+        TypeProtocol, VirtualMachine,
     };
     use num_traits::{Signed, ToPrimitive, Zero};
 

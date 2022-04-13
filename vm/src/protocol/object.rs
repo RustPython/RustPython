@@ -9,12 +9,11 @@ use crate::{
     bytesinner::ByteInnerNewOptions,
     common::{hash::PyHash, str::to_ascii},
     dictdatatype::DictKey,
-    function::{IntoPyObject, IntoPyResult, OptionalArg},
+    function::{IntoPyObject, IntoPyResult, OptionalArg, PyArithmeticValue},
     protocol::{PyIter, PyMapping, PySequence},
     types::{Constructor, PyComparisonOp},
     utils::Either,
-    IdProtocol, PyArithmeticValue, PyObject, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
-    VirtualMachine,
+    IdProtocol, PyObject, PyObjectRef, PyResult, TryFromObject, TypeProtocol, VirtualMachine,
 };
 
 // RustPython doesn't need these items

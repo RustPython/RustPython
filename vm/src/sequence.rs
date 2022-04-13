@@ -1,13 +1,13 @@
-use itertools::Itertools;
-use optional::Optioned;
-use std::{collections::VecDeque, ops::Range};
-
 use crate::{
+    function::PyComparisonValue,
     types::{richcompare_wrapper, PyComparisonOp, RichCompareFunc},
     utils::Either,
     vm::VirtualMachine,
-    IdProtocol, PyComparisonValue, PyObject, PyObjectRef, PyResult, TypeProtocol,
+    IdProtocol, PyObject, PyObjectRef, PyResult, TypeProtocol,
 };
+use itertools::Itertools;
+use optional::Optioned;
+use std::{collections::VecDeque, ops::Range};
 
 pub trait ObjectSequenceOp<'a> {
     type Iter: ExactSizeIterator<Item = &'a PyObjectRef>;

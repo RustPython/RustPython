@@ -102,7 +102,7 @@ impl Comparable for PyWeak {
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
-    ) -> PyResult<crate::PyComparisonValue> {
+    ) -> PyResult<crate::function::PyComparisonValue> {
         op.eq_only(|| {
             let other = class_or_notimplemented!(Self, other);
             let both = zelf.upgrade().and_then(|s| other.upgrade().map(|o| (s, o)));

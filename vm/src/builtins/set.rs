@@ -8,7 +8,7 @@ use super::{
 use crate::common::{ascii, hash::PyHash, lock::PyMutex, rc::PyRc};
 use crate::{
     dictdatatype::{self, DictSize},
-    function::{ArgIterable, FuncArgs, OptionalArg, PosArgs},
+    function::{ArgIterable, FuncArgs, OptionalArg, PosArgs, PyArithmeticValue, PyComparisonValue},
     protocol::{PyIterReturn, PySequenceMethods},
     pyclass::PyClassImpl,
     types::{
@@ -17,8 +17,8 @@ use crate::{
     },
     utils::collection_repr,
     vm::{ReprGuard, VirtualMachine},
-    IdProtocol, PyArithmeticValue, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyRef,
-    PyResult, PyValue, TryFromObject, TypeProtocol,
+    IdProtocol, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol,
 };
 use std::borrow::Cow;
 use std::{fmt, ops::Deref};

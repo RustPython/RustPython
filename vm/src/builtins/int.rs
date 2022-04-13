@@ -4,11 +4,14 @@ use crate::{
     common::hash,
     convert::try_value_from_borrowed_object,
     format::FormatSpec,
-    function::{ArgIntoBool, IntoPyObject, IntoPyResult, OptionalArg, OptionalOption},
+    function::{
+        ArgIntoBool, IntoPyObject, IntoPyResult, OptionalArg, OptionalOption, PyArithmeticValue,
+        PyComparisonValue,
+    },
     pyclass::PyClassImpl,
     types::{Comparable, Constructor, Hashable, PyComparisonOp},
-    IdProtocol, PyArithmeticValue, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyRef,
-    PyResult, PyValue, TryFromBorrowedObject, TypeProtocol, VirtualMachine,
+    IdProtocol, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromBorrowedObject,
+    TypeProtocol, VirtualMachine,
 };
 use bstr::ByteSlice;
 use num_bigint::{BigInt, BigUint, Sign};

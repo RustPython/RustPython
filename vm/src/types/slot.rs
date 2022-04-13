@@ -2,12 +2,12 @@ pub use crate::builtins::object::{generic_getattr, generic_setattr};
 use crate::common::{hash::PyHash, lock::PyRwLock};
 use crate::{
     builtins::{PyInt, PyStrRef, PyType, PyTypeRef},
-    function::{FromArgs, FuncArgs, IntoPyObject, IntoPyResult, OptionalArg},
+    function::{FromArgs, FuncArgs, IntoPyObject, IntoPyResult, OptionalArg, PyComparisonValue},
     protocol::{PyBuffer, PyIterReturn, PyMapping, PyMappingMethods},
     protocol::{PySequence, PySequenceMethods},
     utils::Either,
-    IdProtocol, PyComparisonValue, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue,
-    TypeProtocol, VirtualMachine,
+    IdProtocol, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue, TypeProtocol,
+    VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::{Signed, ToPrimitive};
