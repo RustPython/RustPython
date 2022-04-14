@@ -10,9 +10,10 @@ use crate::common::{
 use crate::{
     function::{FuncArgs, KwArgs, OptionalArg},
     pyclass::{PyClassImpl, StaticType},
+    pyobject::PyLease,
     types::{Callable, GetAttr, PyTypeFlags, PyTypeSlots, SetAttr},
-    IdProtocol, PyContext, PyLease, PyObjectRef, PyObjectWeak, PyRef, PyResult, PyValue,
-    TypeProtocol, VirtualMachine,
+    IdProtocol, PyContext, PyObjectRef, PyObjectWeak, PyRef, PyResult, PyValue, TypeProtocol,
+    VirtualMachine,
 };
 use itertools::Itertools;
 use std::{

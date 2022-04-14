@@ -23,11 +23,12 @@ use crate::{
     function::{ArgMapping, FuncArgs, IntoFuncArgs, IntoPyObject, PyArithmeticValue},
     import,
     protocol::{PyIterIter, PyIterReturn},
+    pyobject::PyLease,
     scope::Scope,
     signal, stdlib,
     types::PyComparisonOp,
-    IdProtocol, PyContext, PyLease, PyMethod, PyObject, PyObjectRef, PyObjectWrap, PyRef,
-    PyRefExact, PyResult, PyValue, TryFromObject, TypeProtocol,
+    IdProtocol, PyContext, PyMethod, PyObject, PyObjectRef, PyObjectWrap, PyRef, PyRefExact,
+    PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use std::{

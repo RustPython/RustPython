@@ -85,8 +85,8 @@ mod pyobject {
 pub use self::convert::{TryFromBorrowedObject, TryFromObject};
 // pyobject items
 pub use self::pyobject::{
-    IdProtocol, PyContext, PyLease, PyMethod, PyObjectPayload, PyRefExact, PyResult,
-    PyStructSequence, PyThreadingConstraint, PyValue, TypeProtocol,
+    IdProtocol, PyContext, PyMethod, PyObjectPayload, PyRefExact, PyResult, PyStructSequence,
+    PyValue, TypeProtocol,
 };
 // pyobjectrc items
 pub use self::pyobject::{
