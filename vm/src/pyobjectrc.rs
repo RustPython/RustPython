@@ -1060,7 +1060,6 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
     use crate::{
         builtins::{object, PyType},
         pyclass::PyClassImpl,
-        PyAttributes,
     };
     use std::mem::MaybeUninit;
 
@@ -1081,7 +1080,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
             bases: vec![],
             mro: vec![],
             subclasses: PyRwLock::default(),
-            attributes: PyRwLock::new(PyAttributes::default()),
+            attributes: PyRwLock::new(Default::default()),
             slots: PyType::make_slots(),
         };
         let object_payload = PyType {
@@ -1089,7 +1088,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
             bases: vec![],
             mro: vec![],
             subclasses: PyRwLock::default(),
-            attributes: PyRwLock::new(PyAttributes::default()),
+            attributes: PyRwLock::new(Default::default()),
             slots: object::PyBaseObject::make_slots(),
         };
         let type_type_ptr = Box::into_raw(Box::new(partially_init!(

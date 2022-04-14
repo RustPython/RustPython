@@ -5,8 +5,7 @@ use crate::{
     pyclass::PyClassImpl,
     types::PyComparisonOp,
     utils::Either,
-    IdProtocol, PyAttributes, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
-    VirtualMachine,
+    IdProtocol, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
 
 /// object()
@@ -225,7 +224,7 @@ impl PyBaseObject {
 
     #[pymethod(magic)]
     pub fn dir(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyList> {
-        let attributes: PyAttributes = obj.class().get_attributes();
+        let attributes = obj.class().get_attributes();
 
         let dict = PyDict::from_attributes(attributes, vm)?.into_ref(vm);
 

@@ -11,13 +11,15 @@ use crate::{
     function::{FuncArgs, KwArgs, OptionalArg},
     pyclass::{PyClassImpl, StaticType},
     types::{Callable, GetAttr, PyTypeFlags, PyTypeSlots, SetAttr},
-    IdProtocol, PyAttributes, PyContext, PyLease, PyObjectRef, PyObjectWeak, PyRef, PyResult,
-    PyValue, TypeProtocol, VirtualMachine,
+    IdProtocol, PyContext, PyLease, PyObjectRef, PyObjectWeak, PyRef, PyResult, PyValue,
+    TypeProtocol, VirtualMachine,
 };
 use itertools::Itertools;
-use std::collections::HashSet;
-use std::fmt;
-use std::ops::Deref;
+use std::{
+    collections::{HashMap, HashSet},
+    fmt,
+    ops::Deref,
+};
 
 /// type(object_or_name, bases, dict)
 /// type(object) -> the object's type
@@ -32,6 +34,13 @@ pub struct PyType {
     pub slots: PyTypeSlots,
 }
 
+pub type PyTypeRef = PyRef<PyType>;
+
+/// For attributes we do not use a dict, but a hashmap. This is probably
+/// faster, unordered, and only supports strings as keys.
+/// TODO: class attributes should maintain insertion order (use IndexMap here)
+pub type PyAttributes = HashMap<String, PyObjectRef, ahash::RandomState>;
+
 impl fmt::Display for PyType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(&self.name(), f)
@@ -43,8 +52,6 @@ impl fmt::Debug for PyType {
         write!(f, "[PyType {}]", &self.name())
     }
 }
-
-pub type PyTypeRef = PyRef<PyType>;
 
 impl PyValue for PyType {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {

@@ -7,9 +7,11 @@ use crate::{
         builtinfunc::{PyBuiltinFunction, PyBuiltinMethod, PyNativeFuncDef},
         bytes,
         getset::{IntoPyGetterFunc, IntoPySetterFunc, PyGetSet},
-        object, pystr, PyBaseException, PyBaseExceptionRef, PyDict, PyDictRef, PyEllipsis, PyFloat,
-        PyFrozenSet, PyInt, PyIntRef, PyList, PyListRef, PyNone, PyNotImplemented, PyStr, PyTuple,
-        PyTupleRef, PyType, PyTypeRef,
+        object, pystr,
+        pytype::PyAttributes,
+        PyBaseException, PyBaseExceptionRef, PyDict, PyDictRef, PyEllipsis, PyFloat, PyFrozenSet,
+        PyInt, PyIntRef, PyList, PyListRef, PyNone, PyNotImplemented, PyStr, PyTuple, PyTupleRef,
+        PyType, PyTypeRef,
     },
     convert::TryFromObject,
     dictdatatype::Dict,
@@ -21,7 +23,7 @@ use crate::{
 };
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
-use std::{any::Any, collections::HashMap, fmt, ops::Deref};
+use std::{any::Any, fmt, ops::Deref};
 
 /* Python objects and references.
 
@@ -41,11 +43,6 @@ Basically reference counting, but then done by rust.
 /// Both the python object and the python exception are `PyObjectRef` types
 /// since exceptions are also python objects.
 pub type PyResult<T = PyObjectRef> = Result<T, PyBaseExceptionRef>; // A valid value, or an exception
-
-/// For attributes we do not use a dict, but a hashmap. This is probably
-/// faster, unordered, and only supports strings as keys.
-/// TODO: class attributes should maintain insertion order (use IndexMap here)
-pub type PyAttributes = HashMap<String, PyObjectRef, ahash::RandomState>;
 
 // TODO: remove these 2 impls
 impl fmt::Display for PyObjectRef {
@@ -242,7 +239,7 @@ impl PyContext {
             vec![self.exceptions.exception_type.clone()]
         };
         let mut attrs = PyAttributes::default();
-        attrs.insert("__module__".to_string(), self.new_str(module).into());
+        attrs.insert("__module__".to_owned(), self.new_str(module).into());
 
         PyType::new_ref(
             name,

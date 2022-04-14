@@ -3,7 +3,11 @@ use super::{
     PyStrRef, PyTupleRef, PyType, PyTypeRef,
 };
 use crate::{
-    builtins::{iter::builtins_iter, iter::builtins_reversed, PyTuple},
+    builtins::{
+        iter::{builtins_iter, builtins_reversed},
+        pytype::PyAttributes,
+        PyTuple,
+    },
     common::ascii,
     dictdatatype::{self, DictKey},
     function::{
@@ -17,8 +21,8 @@ use crate::{
         IterNextIterable, Iterable, PyComparisonOp, Unconstructible, Unhashable,
     },
     vm::{ReprGuard, VirtualMachine},
-    IdProtocol, PyAttributes, PyContext, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult,
-    PyValue, TryFromObject, TypeProtocol,
+    IdProtocol, PyContext, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol,
 };
 use rustpython_common::lock::PyMutex;
 use std::{borrow::Cow, fmt};
