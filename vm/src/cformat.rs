@@ -599,8 +599,8 @@ fn try_update_quantity_from_tuple<'a, I: Iterator<Item = &'a PyObjectRef>>(
         Some(CFormatQuantity::FromValuesTuple) => match elements.next() {
             Some(width_obj) => {
                 if let Some(i) = width_obj.payload::<PyInt>() {
-                    let i = i.try_to_primitive::<i32>(vm)?.abs() as usize;
-                    *q = Some(CFormatQuantity::Amount(i));
+                    let i = i.try_to_primitive::<i32>(vm)?.unsigned_abs();
+                    *q = Some(CFormatQuantity::Amount(i as usize));
                     Ok(())
                 } else {
                     Err(vm.new_type_error("* wants int".to_owned()))
@@ -953,7 +953,7 @@ where
                     break;
                 }
             }
-            return Ok(Some(CFormatQuantity::Amount(num.abs() as usize)));
+            return Ok(Some(CFormatQuantity::Amount(num.unsigned_abs() as usize)));
         }
     }
     Ok(None)
