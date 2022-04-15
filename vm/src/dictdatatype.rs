@@ -81,7 +81,7 @@ struct DictInner<T> {
 
 impl<T: Clone> Clone for Dict<T> {
     fn clone(&self) -> Self {
-        Dict {
+        Self {
             inner: PyRwLock::new(self.inner.read().clone()),
         }
     }
@@ -89,7 +89,7 @@ impl<T: Clone> Clone for Dict<T> {
 
 impl<T> Default for Dict<T> {
     fn default() -> Self {
-        Dict {
+        Self {
             inner: PyRwLock::new(DictInner {
                 used: 0,
                 filled: 0,
@@ -440,6 +440,7 @@ impl<T: Clone> Dict<T> {
         Ok(res)
     }
 
+    #[allow(dead_code)]
     pub fn setdefault_entry<K, F>(
         &self,
         vm: &VirtualMachine,

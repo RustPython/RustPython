@@ -12,9 +12,9 @@ use crate::{
     },
     convert::TryFromObject,
     convert::{ToPyObject, ToPyResult},
-    dictdatatype::Dict,
     exceptions,
     function::{IntoFuncArgs, IntoPyNativeFunc},
+    intern::{Internable, StringPool},
     pyclass::{PyClassImpl, StaticType},
     types::{PyTypeFlags, PyTypeSlots, TypeZoo},
     VirtualMachine,
@@ -65,11 +65,14 @@ pub struct PyContext {
     pub ellipsis: PyRef<PyEllipsis>,
     pub not_implemented: PyRef<PyNotImplemented>,
 
+    pub(crate) true_str: PyRef<PyStr>,
+    pub(crate) false_str: PyRef<PyStr>,
+
     pub types: TypeZoo,
     pub exceptions: exceptions::ExceptionZoo,
     pub int_cache_pool: Vec<PyIntRef>,
     // there should only be exact objects of str in here, no non-strs and no subclasses
-    pub(crate) string_cache: Dict<()>,
+    pub(crate) string_pool: StringPool,
     pub(super) slot_new_wrapper: PyObjectRef,
 }
 
@@ -106,14 +109,17 @@ impl PyContext {
         let empty_frozenset =
             PyRef::new_ref(PyFrozenSet::default(), types.frozenset_type.clone(), None);
 
-        let string_cache = Dict::default();
+        let string_pool = StringPool::default();
 
-        let new_str = PyRef::new_ref(pystr::PyStr::from("__new__"), types.str_type.clone(), None);
+        let new_str = unsafe { string_pool.intern("__new__", types.str_type.clone()) };
         let slot_new_wrapper = create_object(
-            PyNativeFuncDef::new(PyType::__new__.into_func(), new_str).into_function(),
+            PyNativeFuncDef::new(PyType::__new__.into_func(), new_str.into_pyref()).into_function(),
             &types.builtin_function_or_method_type,
         )
         .into();
+
+        let true_str = unsafe { string_pool.intern("True", types.str_type.clone()) }.into_pyref();
+        let false_str = unsafe { string_pool.intern("False", types.str_type.clone()) }.into_pyref();
 
         let context = PyContext {
             true_value,
@@ -124,15 +130,22 @@ impl PyContext {
             ellipsis,
             not_implemented,
 
+            true_str,
+            false_str,
+
             types,
             exceptions,
             int_cache_pool,
-            string_cache,
+            string_pool,
             slot_new_wrapper,
         };
         TypeZoo::extend(&context);
         exceptions::ExceptionZoo::extend(&context);
         context
+    }
+
+    pub fn intern_string<S: Internable>(&self, s: S) -> PyRefExact<PyStr> {
+        unsafe { self.string_pool.intern(s, self.types.str_type.clone()) }
     }
 
     #[inline(always)]
@@ -405,6 +418,7 @@ impl<T: PyPayload> TryFromObject for PyRefExact<T> {
         }
     }
 }
+
 impl<T: PyPayload> Deref for PyRefExact<T> {
     type Target = PyRef<T>;
     #[inline(always)]
@@ -412,6 +426,7 @@ impl<T: PyPayload> Deref for PyRefExact<T> {
         &self.inner
     }
 }
+
 impl<T: PyPayload> ToPyObject for PyRefExact<T> {
     #[inline(always)]
     fn to_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {

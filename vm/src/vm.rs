@@ -12,7 +12,7 @@ use crate::{
         object,
         pystr::IntoPyStrRef,
         tuple::{PyTuple, PyTupleTyped},
-        PyBaseExceptionRef, PyDictRef, PyList, PyModule, PyStr, PyStrRef, PyTypeRef,
+        PyBaseExceptionRef, PyDictRef, PyList, PyModule, PyStrRef, PyTypeRef,
     },
     bytecode,
     codecs::CodecsRegistry,
@@ -24,8 +24,7 @@ use crate::{
     import,
     protocol::PyIterIter,
     scope::Scope,
-    signal, stdlib, AsObject, PyContext, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact,
-    PyResult,
+    signal, stdlib, AsObject, PyContext, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use std::{
@@ -899,16 +898,6 @@ impl VirtualMachine {
         code.map_bag(&code::PyObjBag(self))
     }
 
-    pub fn intern_string<S: Internable>(&self, s: S) -> PyStrRef {
-        let (s, ()) = self
-            .ctx
-            .string_cache
-            .setdefault_entry(self, s, || ())
-            .expect("string_cache lookup should never error");
-        s.downcast()
-            .expect("only strings should be in string_cache")
-    }
-
     #[doc(hidden)]
     pub fn __module_set_attr(
         &self,
@@ -951,27 +940,6 @@ impl VirtualMachine {
             .map(|code| PyCode::new(self.map_codeobj(code)).into_ref(self))
     }
 }
-
-mod sealed {
-    use super::*;
-
-    pub trait SealedInternable {}
-
-    impl SealedInternable for String {}
-
-    impl SealedInternable for &str {}
-
-    impl SealedInternable for PyRefExact<PyStr> {}
-}
-
-/// A sealed marker trait for `DictKey` types that always become an exact instance of `str`
-pub trait Internable: sealed::SealedInternable + crate::dictdatatype::DictKey + ToPyObject {}
-
-impl Internable for String {}
-
-impl Internable for &str {}
-
-impl Internable for PyRefExact<PyStr> {}
 
 pub struct ReprGuard<'vm> {
     vm: &'vm VirtualMachine,
@@ -1105,7 +1073,7 @@ impl PyThread {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::builtins::int;
+    use crate::builtins::{int, PyStr};
     use num_bigint::ToBigInt;
 
     #[test]

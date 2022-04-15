@@ -83,7 +83,7 @@ impl ConstantBag for PyObjBag<'_> {
             bytecode::ConstantData::Float { value } => ctx.new_float(value).into(),
             bytecode::ConstantData::Complex { value } => vm.new_pyobj(value),
             bytecode::ConstantData::Str { value } if value.len() <= 20 => {
-                vm.intern_string(value).into()
+                vm.ctx.intern_string(value).into_pyref().into()
             }
             bytecode::ConstantData::Str { value } => vm.ctx.new_str(value).into(),
             bytecode::ConstantData::Bytes { value } => ctx.new_bytes(value.to_vec()).into(),
@@ -109,7 +109,7 @@ impl ConstantBag for PyObjBag<'_> {
             bytecode::BorrowedConstant::Float { value } => ctx.new_float(value).into(),
             bytecode::BorrowedConstant::Complex { value } => vm.new_pyobj(value),
             bytecode::BorrowedConstant::Str { value } if value.len() <= 20 => {
-                vm.intern_string(value).into()
+                vm.ctx.intern_string(value).into_pyref().into()
             }
             bytecode::BorrowedConstant::Str { value } => vm.ctx.new_str(value).into(),
             bytecode::BorrowedConstant::Bytes { value } => ctx.new_bytes(value.to_vec()).into(),
@@ -130,10 +130,10 @@ impl ConstantBag for PyObjBag<'_> {
         PyConstant(obj)
     }
     fn make_name(&self, name: String) -> PyStrRef {
-        self.0.intern_string(name)
+        self.0.ctx.intern_string(name).into_pyref()
     }
     fn make_name_ref(&self, name: &str) -> PyStrRef {
-        self.0.intern_string(name)
+        self.0.ctx.intern_string(name).into_pyref()
     }
 }
 

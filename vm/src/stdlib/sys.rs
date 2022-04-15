@@ -125,15 +125,17 @@ mod sys {
     }
 
     #[pyattr]
-    fn byteorder(_vm: &VirtualMachine) -> String {
+    fn byteorder(vm: &VirtualMachine) -> PyStrRef {
         // https://doc.rust-lang.org/reference/conditional-compilation.html#target_endian
-        if cfg!(target_endian = "little") {
-            "little".to_owned()
-        } else if cfg!(target_endian = "big") {
-            "big".to_owned()
-        } else {
-            "unknown".to_owned()
-        }
+        vm.ctx
+            .intern_string(if cfg!(target_endian = "little") {
+                "little"
+            } else if cfg!(target_endian = "big") {
+                "big"
+            } else {
+                "unknown"
+            })
+            .into_pyref()
     }
 
     #[pyattr]
@@ -452,8 +454,8 @@ mod sys {
     }
 
     #[pyfunction]
-    fn intern(s: PyRefExact<PyStr>, vm: &VirtualMachine) -> PyStrRef {
-        vm.intern_string(s)
+    fn intern(s: PyRefExact<PyStr>, vm: &VirtualMachine) -> PyRefExact<PyStr> {
+        vm.ctx.intern_string(s)
     }
 
     #[pyattr]
