@@ -272,8 +272,6 @@ class TestTemplate(unittest.TestCase):
         eq(s.safe_substitute(dict(who='tim', what='ham', meal='dinner')),
            'tim likes ham for dinner')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_invalid_placeholders(self):
         raises = self.assertRaises
         s = Template('$who likes $')
@@ -300,8 +298,6 @@ class TestTemplate(unittest.TestCase):
         s = PathPattern('$bag.foo.who likes to eat a bag of $bag.what')
         self.assertEqual(s.substitute(m), 'tim likes to eat a bag of ham')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_flags_override(self):
         class MyPattern(Template):
             flags = 0
@@ -321,8 +317,6 @@ class TestTemplate(unittest.TestCase):
         s = MyPattern('$foo ${BAR}')
         self.assertEqual(s.substitute(m), 'foo BAR')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_idpattern_override_inside_outside_invalid_unbraced(self):
         # bpo-1198569: Allow the regexp inside and outside braces to be
         # different when deriving from Template.
@@ -461,8 +455,6 @@ class TestTemplate(unittest.TestCase):
         s = Template('the self is $self')
         eq(s.safe_substitute(self='bozo'), 'the self is bozo')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_delimiter_override(self):
         eq = self.assertEqual
         raises = self.assertRaises
