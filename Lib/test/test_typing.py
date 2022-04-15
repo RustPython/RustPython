@@ -1115,8 +1115,6 @@ class ProtocolTests(BaseTestCase):
         with self.assertRaises(TypeError):
             isinstance(C(), BadPG)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_protocols_isinstance_py36(self):
         class APoint:
             def __init__(self, x, y, label):
@@ -4257,8 +4255,6 @@ class TypedDictTests(BaseTestCase):
         other = LabelPoint2D(x=0, y=1, label='hi')
         self.assertEqual(other['label'], 'hi')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pickle(self):
         global EmpD  # pickle wants to reference the class by name
         EmpD = TypedDict('EmpD', name=str, id=int)
