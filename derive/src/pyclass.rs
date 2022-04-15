@@ -3,7 +3,7 @@ use crate::util::{
     path_eq, pyclass_ident_and_attrs, text_signature, ClassItemMeta, ContentItem, ContentItemInner,
     ErrorVec, ItemMeta, ItemMetaInner, ItemNursery, SimpleItemMeta, ALL_ALLOWED_NAMES,
 };
-use proc_macro2::TokenStream;
+use proc_macro2::{Span, TokenStream};
 use quote::{quote, quote_spanned, ToTokens};
 use std::collections::HashMap;
 use syn::{
@@ -887,22 +887,25 @@ fn extract_impl_attrs(attr: AttributeArgs, item: &Ident) -> Result<ExtractedImpl
                                 bail_span!(meta, "#[pyimpl(with(...))] arguments should be paths")
                             }
                         };
-                        if path_eq(&path, "PyRef") {
+                        let (extend_class, extend_slots) = if path_eq(&path, "PyRef") {
                             // special handling for PyRef
-                            withs.push(quote_spanned! { path.span() =>
-                                PyRef::<Self>::impl_extend_class(ctx, class);
-                            });
-                            with_slots.push(quote_spanned! { item.span() =>
-                                PyRef::<Self>::extend_slots(slots);
-                            });
+                            (
+                                quote!(PyRef::<Self>::impl_extend_class),
+                                quote!(PyRef::<Self>::extend_slots),
+                            )
                         } else {
-                            withs.push(quote_spanned! { path.span() =>
-                                <Self as #path>::__extend_py_class(ctx, class);
-                            });
-                            with_slots.push(quote_spanned! { item.span() =>
-                                <Self as #path>::__extend_slots(slots);
-                            });
-                        }
+                            (
+                                quote!(<Self as #path>::__extend_py_class),
+                                quote!(<Self as #path>::__extend_slots),
+                            )
+                        };
+                        let item_span = item.span().resolved_at(Span::call_site());
+                        withs.push(quote_spanned! { path.span() =>
+                            #extend_class(ctx, class);
+                        });
+                        with_slots.push(quote_spanned! { item_span =>
+                            #extend_slots(slots);
+                        });
                     }
                 } else if path_eq(&path, "flags") {
                     for meta in nested {
