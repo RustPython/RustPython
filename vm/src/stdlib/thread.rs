@@ -110,7 +110,6 @@ pub(crate) mod _thread {
         #[pymethod]
         #[pymethod(name = "acquire_lock")]
         #[pymethod(name = "__enter__")]
-        #[allow(clippy::float_cmp, clippy::match_bool)]
         fn acquire(&self, args: AcquireArgs, vm: &VirtualMachine) -> PyResult<bool> {
             acquire_lock_impl!(&self.mu, args, vm)
         }
@@ -174,7 +173,6 @@ pub(crate) mod _thread {
         #[pymethod]
         #[pymethod(name = "acquire_lock")]
         #[pymethod(name = "__enter__")]
-        #[allow(clippy::float_cmp, clippy::match_bool)]
         fn acquire(&self, args: AcquireArgs, vm: &VirtualMachine) -> PyResult<bool> {
             acquire_lock_impl!(&self.mu, args, vm)
         }

@@ -25,8 +25,7 @@ use crate::{
     VirtualMachine,
 };
 use bstr::ByteSlice;
-use std::ops::Deref;
-use std::{borrow::Cow, mem::size_of};
+use std::{borrow::Cow, mem::size_of, ops::Deref};
 
 #[pyclass(module = false, name = "bytes")]
 #[derive(Clone, Debug)]

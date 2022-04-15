@@ -1,7 +1,9 @@
 use ascii::AsciiString;
 use once_cell::unsync::OnceCell;
-use std::fmt;
-use std::ops::{Bound, RangeBounds};
+use std::{
+    fmt,
+    ops::{Bound, RangeBounds},
+};
 
 #[cfg(not(target_arch = "wasm32"))]
 #[allow(non_camel_case_types)]
@@ -99,8 +101,7 @@ pub const fn bytes_is_ascii(x: &str) -> bool {
 }
 
 pub mod levenshtein {
-    use std::cell::RefCell;
-    use std::thread_local;
+    use std::{cell::RefCell, thread_local};
 
     pub const MOVE_COST: usize = 2;
     const CASE_COST: usize = 1;

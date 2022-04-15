@@ -1,6 +1,8 @@
 use super::{PyGenericAlias, PyTypeRef};
-use crate::common::atomic::{Ordering, Radium};
-use crate::common::hash::{self, PyHash};
+use crate::common::{
+    atomic::{Ordering, Radium},
+    hash::{self, PyHash},
+};
 use crate::{
     function::OptionalArg,
     types::{Callable, Comparable, Constructor, Hashable, PyComparisonOp},

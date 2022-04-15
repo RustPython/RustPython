@@ -2,8 +2,7 @@ use lock_api::{
     GetThreadId, RawMutex, RawRwLock, RawRwLockDowngrade, RawRwLockRecursive, RawRwLockUpgrade,
     RawRwLockUpgradeDowngrade,
 };
-use std::cell::Cell;
-use std::num::NonZeroUsize;
+use std::{cell::Cell, num::NonZeroUsize};
 
 pub struct RawCellMutex {
     locked: Cell<bool>,

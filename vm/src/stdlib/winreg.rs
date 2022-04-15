@@ -33,8 +33,7 @@ mod winreg {
         TryFromObject, VirtualMachine,
     };
     use ::winreg::{enums::RegType, RegKey, RegValue};
-    use std::ffi::OsStr;
-    use std::io;
+    use std::{ffi::OsStr, io};
     use winapi::shared::winerror;
 
     // access rights

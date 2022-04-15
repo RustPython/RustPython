@@ -1,24 +1,20 @@
-use num_traits::ToPrimitive;
+//! Ordered dictionary implementation.
+//! Inspired by: https://morepypy.blogspot.com/2015/01/faster-more-memory-efficient-and-more.html
+//! And: https://www.youtube.com/watch?v=p33CVV29OG8
+//! And: http://code.activestate.com/recipes/578375/
 
-/// Ordered dictionary implementation.
-/// Inspired by: https://morepypy.blogspot.com/2015/01/faster-more-memory-efficient-and-more.html
-/// And: https://www.youtube.com/watch?v=p33CVV29OG8
-/// And: http://code.activestate.com/recipes/578375/
+use crate::common::{
+    hash,
+    lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
+};
 use crate::{
     builtins::{PyInt, PyStr, PyStrRef},
     function::IntoPyObject,
-    IdProtocol, PyObject, PyObjectRef, PyRefExact, PyResult, TypeProtocol, VirtualMachine,
+    IdProtocol, PyObject, PyObjectRef, PyObjectWrap, PyRefExact, PyResult, TypeProtocol,
+    VirtualMachine,
 };
-use crate::{
-    common::{
-        hash,
-        lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
-    },
-    PyObjectWrap,
-};
-use std::fmt;
-use std::mem::size_of;
-use std::ops::ControlFlow;
+use num_traits::ToPrimitive;
+use std::{fmt, mem::size_of, ops::ControlFlow};
 
 // HashIndex is intended to be same size with hash::PyHash
 // but it doesn't mean the values are compatible with actual pyhash value

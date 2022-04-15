@@ -1,5 +1,4 @@
-use std::io;
-use std::path::Path;
+use std::{io, path::Path};
 
 type OtherError = Box<dyn std::error::Error>;
 type OtherResult<T> = Result<T, OtherError>;

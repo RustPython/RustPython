@@ -49,7 +49,6 @@ mod array {
                 $($n(Vec<$t>),)*
             }
 
-            #[allow(clippy::naive_bytecount, clippy::float_cmp)]
             impl ArrayContentType {
                 fn from_char(c: char) -> Result<Self, String> {
                     match c {

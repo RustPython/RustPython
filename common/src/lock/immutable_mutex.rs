@@ -1,8 +1,5 @@
-use std::fmt;
-use std::marker::PhantomData;
-use std::ops::Deref;
-
 use lock_api::{MutexGuard, RawMutex};
+use std::{fmt, marker::PhantomData, ops::Deref};
 
 /// A mutex guard that has an exclusive lock, but only an immutable reference; useful if you
 /// need to map a mutex guard with a function that returns an `&T`. Construct using the

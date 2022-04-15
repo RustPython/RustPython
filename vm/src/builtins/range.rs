@@ -1,7 +1,7 @@
 use super::{PyInt, PyIntRef, PySlice, PyTupleRef, PyTypeRef};
-use crate::builtins::builtins_iter;
 use crate::common::hash::PyHash;
 use crate::{
+    builtins::builtins_iter,
     function::{FuncArgs, OptionalArg},
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     types::{
@@ -15,8 +15,7 @@ use crossbeam_utils::atomic::AtomicCell;
 use num_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_traits::{One, Signed, ToPrimitive, Zero};
-use std::borrow::Cow;
-use std::cmp::max;
+use std::{borrow::Cow, cmp::max};
 
 // Search flag passed to iter_search
 enum SearchType {

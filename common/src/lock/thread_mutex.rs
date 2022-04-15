@@ -1,11 +1,12 @@
-use std::cell::UnsafeCell;
-use std::fmt;
-use std::marker::PhantomData;
-use std::ops::{Deref, DerefMut};
-use std::ptr::NonNull;
-use std::sync::atomic::{AtomicUsize, Ordering};
-
 use lock_api::{GetThreadId, GuardNoSend, RawMutex};
+use std::{
+    cell::UnsafeCell,
+    fmt,
+    marker::PhantomData,
+    ops::{Deref, DerefMut},
+    ptr::NonNull,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 // based off ReentrantMutex from lock_api
 

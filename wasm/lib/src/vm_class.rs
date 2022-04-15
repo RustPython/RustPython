@@ -1,19 +1,21 @@
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::rc::{Rc, Weak};
-
+use crate::{
+    browser_module::setup_browser_module,
+    convert::{self, PyResultExt},
+    js_module, wasm_builtins,
+};
 use js_sys::{Object, TypeError};
+use rustpython_vm::{
+    compile::{self, Mode},
+    scope::Scope,
+    InitParameter, Interpreter, PyObjectRef, PyObjectWeak, PyResult, PySettings, PyValue,
+    VirtualMachine,
+};
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    rc::{Rc, Weak},
+};
 use wasm_bindgen::prelude::*;
-
-use rustpython_vm::compile::{self, Mode};
-use rustpython_vm::scope::Scope;
-use rustpython_vm::{InitParameter, Interpreter, PySettings, VirtualMachine};
-use rustpython_vm::{PyObjectRef, PyObjectWeak, PyResult, PyValue};
-
-use crate::browser_module::setup_browser_module;
-use crate::convert::{self, PyResultExt};
-use crate::js_module;
-use crate::wasm_builtins;
 
 pub(crate) struct StoredVirtualMachine {
     pub interp: Interpreter,

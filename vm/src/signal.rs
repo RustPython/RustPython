@@ -1,8 +1,12 @@
 #![cfg_attr(target_os = "wasi", allow(dead_code))]
 use crate::{PyResult, VirtualMachine};
-use std::fmt;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc;
+use std::{
+    fmt,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    },
+};
 
 pub(crate) const NSIG: usize = 64;
 static ANY_TRIGGERED: AtomicBool = AtomicBool::new(false);

@@ -1,15 +1,16 @@
-use crate::crt_fd::Fd;
 use crate::{
     builtins::{PyBaseExceptionRef, PyBytes, PyBytesRef, PyInt, PySet, PyStr, PyStrRef},
+    crt_fd::Fd,
     function::{ArgumentError, FromArgs, FuncArgs, IntoPyException, IntoPyObject},
     protocol::PyBuffer,
     PyObject, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject, TypeProtocol,
     VirtualMachine,
 };
-use std::ffi;
-use std::fs;
-use std::io::{self, ErrorKind};
-use std::path::{Path, PathBuf};
+use std::{
+    ffi, fs,
+    io::{self, ErrorKind},
+    path::{Path, PathBuf},
+};
 
 #[cfg(unix)]
 use std::os::unix::ffi as ffi_ext;
@@ -444,12 +445,13 @@ pub(super) mod _os {
     };
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
-    use std::ffi;
-    use std::fs::OpenOptions;
-    use std::io::{self, Read, Write};
-    use std::path::PathBuf;
-    use std::time::{Duration, SystemTime};
-    use std::{env, fs};
+    use std::{
+        env, ffi, fs,
+        fs::OpenOptions,
+        io::{self, Read, Write},
+        path::PathBuf,
+        time::{Duration, SystemTime},
+    };
 
     const OPEN_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
     pub(crate) const MKDIR_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
@@ -1472,10 +1474,11 @@ pub(super) mod _os {
         }
         #[cfg(windows)]
         {
-            use std::fs::OpenOptions;
-            use std::os::windows::prelude::*;
-            use winapi::shared::minwindef::{DWORD, FILETIME};
-            use winapi::um::fileapi::SetFileTime;
+            use std::{fs::OpenOptions, os::windows::prelude::*};
+            use winapi::{
+                shared::minwindef::{DWORD, FILETIME},
+                um::fileapi::SetFileTime,
+            };
 
             let [] = dir_fd.0;
 

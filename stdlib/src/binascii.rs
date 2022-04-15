@@ -111,7 +111,7 @@ mod decl {
 
     #[pyfunction]
     fn b2a_base64(data: ArgBytesLike, NewlineArg { newline }: NewlineArg) -> Vec<u8> {
-        #[allow(clippy::redundant_closure)] // https://stackoverflow.com/questions/63916821
+        // https://stackoverflow.com/questions/63916821
         let mut encoded = data.with_ref(|b| base64::encode(b)).into_bytes();
         if newline {
             encoded.push(b'\n');

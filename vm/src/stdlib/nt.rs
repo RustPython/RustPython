@@ -22,8 +22,7 @@ pub(crate) mod module {
         utils::Either,
         PyResult, TryFromObject, VirtualMachine,
     };
-    use std::io;
-    use std::{env, fs};
+    use std::{env, fs, io};
 
     use crate::builtins::PyDictRef;
     #[cfg(target_env = "msvc")]

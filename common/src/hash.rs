@@ -2,8 +2,10 @@ use num_bigint::BigInt;
 use num_complex::Complex64;
 use num_traits::ToPrimitive;
 use siphasher::sip::SipHasher24;
-use std::hash::{BuildHasher, Hash, Hasher};
-use std::num::Wrapping;
+use std::{
+    hash::{BuildHasher, Hash, Hasher},
+    num::Wrapping,
+};
 
 pub type PyHash = i64;
 pub type PyUHash = u64;

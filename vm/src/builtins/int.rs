@@ -14,7 +14,6 @@ use num_bigint::{BigInt, BigUint, Sign};
 use num_integer::Integer;
 use num_traits::{One, Pow, PrimInt, Signed, ToPrimitive, Zero};
 use std::fmt;
-use std::mem::size_of;
 
 /// int(x=0) -> integer
 /// int(x, base=10) -> integer
@@ -583,7 +582,7 @@ impl PyInt {
 
     #[pymethod(magic)]
     fn sizeof(&self) -> usize {
-        size_of::<Self>() + (((self.value.bits() + 7) & !7) / 8) as usize
+        std::mem::size_of::<Self>() + (((self.value.bits() + 7) & !7) / 8) as usize
     }
 
     #[pymethod]

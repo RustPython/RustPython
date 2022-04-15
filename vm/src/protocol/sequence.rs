@@ -1,8 +1,3 @@
-use std::borrow::{Borrow, Cow};
-use std::fmt::Debug;
-
-use itertools::Itertools;
-
 use crate::{
     builtins::{PyList, PyListRef, PySlice, PyTuple, PyTupleRef},
     common::lock::OnceCell,
@@ -10,6 +5,11 @@ use crate::{
     protocol::PyMapping,
     IdProtocol, PyArithmeticValue, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
     VirtualMachine,
+};
+use itertools::Itertools;
+use std::{
+    borrow::{Borrow, Cow},
+    fmt::Debug,
 };
 
 // Sequence Protocol

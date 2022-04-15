@@ -2,10 +2,7 @@ pub(crate) use _functools::make_module;
 
 #[pymodule]
 mod _functools {
-    use crate::function::OptionalArg;
-    use crate::protocol::PyIter;
-    use crate::vm::VirtualMachine;
-    use crate::{PyObjectRef, PyResult};
+    use crate::{function::OptionalArg, protocol::PyIter, PyObjectRef, PyResult, VirtualMachine};
 
     #[pyfunction]
     fn reduce(

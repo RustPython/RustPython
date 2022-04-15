@@ -1,16 +1,11 @@
-#![allow(clippy::unnecessary_wraps)]
-use std::fmt;
+mod instructions;
 
 use cranelift::prelude::*;
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module, ModuleError};
-
-use rustpython_bytecode as bytecode;
-
-mod instructions;
-
 use instructions::FunctionCompiler;
-use std::mem::ManuallyDrop;
+use rustpython_bytecode as bytecode;
+use std::{fmt, mem::ManuallyDrop};
 
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
@@ -292,7 +287,6 @@ impl UnTypedAbiValue {
 
 // we don't actually ever touch CompiledCode til we drop it, it should be safe.
 // TODO: confirm with wasmtime ppl that it's not unsound?
-#[allow(clippy::non_send_fields_in_send_ty)]
 unsafe impl Send for CompiledCode {}
 unsafe impl Sync for CompiledCode {}
 
