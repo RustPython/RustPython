@@ -1,13 +1,15 @@
-use criterion::measurement::WallTime;
 use criterion::{
-    criterion_group, criterion_main, BatchSize, BenchmarkGroup, BenchmarkId, Criterion, Throughput,
+    criterion_group, criterion_main, measurement::WallTime, BatchSize, BenchmarkGroup, BenchmarkId,
+    Criterion, Throughput,
 };
 use rustpython_compiler::Mode;
 use rustpython_vm::{
     common::ascii, InitParameter, Interpreter, PyObjectWrap, PyResult, PySettings,
 };
-use std::path::{Path, PathBuf};
-use std::{ffi, fs, io};
+use std::{
+    ffi, fs, io,
+    path::{Path, PathBuf},
+};
 
 pub struct MicroBenchmark {
     name: String,

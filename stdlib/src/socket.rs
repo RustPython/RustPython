@@ -24,12 +24,12 @@ mod _socket {
     use crossbeam_utils::atomic::AtomicCell;
     use num_traits::ToPrimitive;
     use socket2::{Domain, Protocol, Socket, Type as SocketType};
-    use std::mem::MaybeUninit;
-    use std::net::{self, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, ToSocketAddrs};
-    use std::time::{Duration, Instant};
     use std::{
         ffi,
         io::{self, Read, Write},
+        mem::MaybeUninit,
+        net::{self, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, ToSocketAddrs},
+        time::{Duration, Instant},
     };
 
     #[cfg(unix)]

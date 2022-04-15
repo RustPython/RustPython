@@ -1,8 +1,5 @@
 use itertools::Itertools;
-use std::env;
-use std::io::prelude::*;
-use std::path::PathBuf;
-use std::process::Command;
+use std::{env, io::prelude::*, path::PathBuf, process::Command};
 
 fn main() {
     println!("cargo:rustc-env=RUSTPYTHON_GIT_HASH={}", git_hash());

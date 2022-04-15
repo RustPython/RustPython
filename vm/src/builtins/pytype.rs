@@ -446,8 +446,7 @@ impl PyType {
             // Search the bases for the proper metatype to deal with this:
             let winner = calculate_meta_class(metatype.clone(), &bases, vm)?;
             let metatype = if !winner.is(&metatype) {
-                #[allow(clippy::redundant_clone)] // false positive
-                if let Some(ref slot_new) = winner.clone().slots.new.load() {
+                if let Some(ref slot_new) = winner.slots.new.load() {
                     // Pass it to the winner
                     return slot_new(winner, args, vm);
                 }

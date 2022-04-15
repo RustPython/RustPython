@@ -5,9 +5,7 @@ use crate::{
     IdProtocol, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
     VirtualMachine,
 };
-use std::borrow::Cow;
-use std::collections::HashMap;
-use std::ops::Range;
+use std::{borrow::Cow, collections::HashMap, fmt::Write, ops::Range};
 
 pub struct CodecsRegistry {
     inner: PyRwLock<RegistryInner>,
@@ -422,7 +420,6 @@ fn xmlcharrefreplace_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(
     // capacity rough guess; assuming that the codepoints are 3 digits in decimal + the &#;
     let mut out = String::with_capacity(num_chars * 6);
     for c in s_after_start.chars().take(num_chars) {
-        use std::fmt::Write;
         write!(out, "&#{};", c as u32).unwrap()
     }
     Ok((out, range.end))
@@ -434,7 +431,6 @@ fn backslashreplace_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(S
         let b = PyBytesRef::try_from_object(vm, err.get_attr("object", vm)?)?;
         let mut replace = String::with_capacity(4 * range.len());
         for &c in &b[range.clone()] {
-            use std::fmt::Write;
             write!(replace, "\\x{:02x}", c).unwrap();
         }
         return Ok((replace, range.end));
@@ -448,7 +444,6 @@ fn backslashreplace_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(S
     // minimum 4 output bytes per char: \xNN
     let mut out = String::with_capacity(num_chars * 4);
     for c in s_after_start.chars().take(num_chars) {
-        use std::fmt::Write;
         let c = c as u32;
         if c >= 0x10000 {
             write!(out, "\\U{:08x}", c).unwrap();
@@ -470,7 +465,6 @@ fn namereplace_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(String
         let num_chars = range.len();
         let mut out = String::with_capacity(num_chars * 4);
         for c in s_after_start.chars().take(num_chars) {
-            use std::fmt::Write;
             let c_u32 = c as u32;
             if let Some(c_name) = unicode_names2::name(c) {
                 write!(out, "\\N{{{c_name}}}").unwrap();
@@ -571,7 +565,6 @@ fn surrogatepass_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(Stri
         let num_chars = range.len();
         let mut out = String::with_capacity(num_chars * 4);
         for c in s_after_start.chars().take(num_chars).map(|x| x as u32) {
-            use std::fmt::Write;
             if !(0xd800..=0xdfff).contains(&c) {
                 // Not a surrogate, fail with original exception
                 return Err(err.downcast().unwrap());
@@ -678,7 +671,6 @@ fn surrogateescape_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(St
         let num_chars = range.len();
         let mut out = String::with_capacity(num_chars * 4);
         for c in s_after_start.chars().take(num_chars).map(|x| x as u32) {
-            use std::fmt::Write;
             if !(0xd800..=0xdfff).contains(&c) {
                 // Not a UTF-8b surrogate, fail with original exception
                 return Err(err.downcast().unwrap());
@@ -700,7 +692,6 @@ fn surrogateescape_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(St
                 // Refuse to escape ASCII bytes
                 break;
             }
-            use std::fmt::Write;
             write!(replace, "#{}", 0xdc00 + c).unwrap();
             consumed += 1;
         }

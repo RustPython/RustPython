@@ -7,10 +7,8 @@ use crate::{
 };
 use itertools::{Itertools, PeekingNext};
 use num_bigint::{BigInt, Sign};
-use num_traits::cast::ToPrimitive;
-use num_traits::Signed;
-use std::cmp;
-use std::str::FromStr;
+use num_traits::{cast::ToPrimitive, Signed};
+use std::{cmp, str::FromStr};
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 enum FormatPreconversor {

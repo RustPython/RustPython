@@ -1,12 +1,10 @@
 use super::{PositionIterInternal, PyGenericAlias, PyTypeRef};
 use crate::common::{hash::PyHash, lock::PyMutex};
-use crate::sliceable::SequenceIndex;
-use crate::TryFromBorrowedObject;
 use crate::{
     function::{IntoPyObject, OptionalArg},
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     sequence::{ObjectSequenceOp, SequenceOp},
-    sliceable::SliceableSequenceOp,
+    sliceable::{SequenceIndex, SliceableSequenceOp},
     stdlib::sys,
     types::{
         AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable,
@@ -15,11 +13,10 @@ use crate::{
     utils::collection_repr,
     vm::{ReprGuard, VirtualMachine},
     IdProtocol, PyArithmeticValue, PyClassImpl, PyComparisonValue, PyContext, PyObject,
-    PyObjectRef, PyRef, PyResult, PyValue, TransmuteFromObject, TryFromObject, TypeProtocol,
+    PyObjectRef, PyRef, PyResult, PyValue, TransmuteFromObject, TryFromBorrowedObject,
+    TryFromObject, TypeProtocol,
 };
-use std::borrow::Cow;
-use std::fmt;
-use std::marker::PhantomData;
+use std::{borrow::Cow, fmt, marker::PhantomData};
 
 /// tuple() -> empty tuple
 /// tuple(iterable) -> tuple initialized from iterable's items

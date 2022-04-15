@@ -1,9 +1,13 @@
 //! An unresizable vector backed by a `Box<[T]>`
 
-use std::borrow::{Borrow, BorrowMut};
-use std::mem::{self, MaybeUninit};
-use std::ops::{Bound, Deref, DerefMut, RangeBounds};
-use std::{alloc, cmp, fmt, ptr, slice};
+use std::{
+    alloc,
+    borrow::{Borrow, BorrowMut},
+    cmp, fmt,
+    mem::{self, MaybeUninit},
+    ops::{Bound, Deref, DerefMut, RangeBounds},
+    ptr, slice,
+};
 
 pub struct BoxVec<T> {
     xs: Box<[MaybeUninit<T>]>,
@@ -501,9 +505,7 @@ impl<T> Drop for Drain<'_, T> {
     fn drop(&mut self) {
         // len is currently 0 so panicking while dropping will not cause a double drop.
 
-        // exhaust self first, clippy warning here is seemingly a fluke.
-        #[allow(clippy::while_let_on_iterator)]
-        while let Some(_) = self.next() {}
+        for _ in self.by_ref() {}
 
         if self.tail_len > 0 {
             unsafe {

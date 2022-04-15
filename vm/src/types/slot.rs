@@ -1,19 +1,17 @@
 pub use crate::builtins::object::{generic_getattr, generic_setattr};
 use crate::common::{hash::PyHash, lock::PyRwLock};
-use crate::function::IntoPyObject;
-use crate::protocol::{PySequence, PySequenceMethods};
 use crate::{
     builtins::{PyInt, PyStrRef, PyType, PyTypeRef},
-    function::{FromArgs, FuncArgs, IntoPyResult, OptionalArg},
+    function::{FromArgs, FuncArgs, IntoPyObject, IntoPyResult, OptionalArg},
     protocol::{PyBuffer, PyIterReturn, PyMapping, PyMappingMethods},
+    protocol::{PySequence, PySequenceMethods},
     utils::Either,
     IdProtocol, PyComparisonValue, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue,
     TypeProtocol, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::{Signed, ToPrimitive};
-use std::borrow::Cow;
-use std::cmp::Ordering;
+use std::{borrow::Cow, cmp::Ordering};
 
 // The corresponding field in CPython is `tp_` prefixed.
 // e.g. name -> tp_name

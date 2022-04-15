@@ -30,10 +30,12 @@ use crate::{
     PyObjectWrap, PyRef, PyRefExact, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crossbeam_utils::atomic::AtomicCell;
-use std::borrow::Cow;
-use std::cell::{Cell, Ref, RefCell};
-use std::collections::{HashMap, HashSet};
-use std::fmt;
+use std::{
+    borrow::Cow,
+    cell::{Cell, Ref, RefCell},
+    collections::{HashMap, HashSet},
+    fmt,
+};
 
 // use objects::ects;
 
@@ -72,9 +74,7 @@ struct ExceptionStack {
 pub(crate) mod thread {
     use super::{PyObject, TypeProtocol, VirtualMachine};
     use itertools::Itertools;
-    use std::cell::RefCell;
-    use std::ptr::NonNull;
-    use std::thread_local;
+    use std::{cell::RefCell, ptr::NonNull, thread_local};
 
     thread_local! {
         pub(super) static VM_STACK: RefCell<Vec<NonNull<VirtualMachine>>> = Vec::with_capacity(1).into();

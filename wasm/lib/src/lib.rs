@@ -1,5 +1,3 @@
-#![allow(clippy::upper_case_acronyms)]
-
 pub mod browser_module;
 pub mod convert;
 pub mod js_module;
@@ -9,13 +7,11 @@ pub mod wasm_builtins;
 #[macro_use]
 extern crate rustpython_vm;
 
-pub(crate) use vm_class::weak_vm;
-
 use js_sys::{Reflect, WebAssembly::RuntimeError};
 use std::panic;
-use wasm_bindgen::prelude::*;
-
 pub use vm_class::add_init_func;
+pub(crate) use vm_class::weak_vm;
+use wasm_bindgen::prelude::*;
 
 /// Sets error info on the window object, and prints the backtrace to console
 pub fn panic_hook(info: &panic::PanicInfo) {

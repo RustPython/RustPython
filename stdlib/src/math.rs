@@ -72,7 +72,6 @@ mod math {
         abs_tol: OptionalArg<ArgIntoFloat>,
     }
 
-    #[allow(clippy::float_cmp)]
     #[pyfunction]
     fn isclose(args: IsCloseArgs, vm: &VirtualMachine) -> PyResult<bool> {
         let a = args.a.to_f64();
@@ -628,7 +627,6 @@ mod math {
                 // digit to two instead of down to zero (the 1e-16 makes the 1
                 // slightly closer to two).  With a potential 1 ULP rounding
                 // error fixed-up, math.fsum() can guarantee commutativity.
-                #[allow(clippy::float_cmp)]
                 if y == x - hi {
                     hi = x;
                 }

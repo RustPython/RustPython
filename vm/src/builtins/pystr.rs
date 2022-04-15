@@ -27,10 +27,7 @@ use rustpython_common::{
     hash,
     lock::PyMutex,
 };
-use std::mem::size_of;
-use std::ops::Range;
-use std::string::ToString;
-use std::{char, fmt};
+use std::{char, fmt, ops::Range, string::ToString};
 use unic_ucd_bidi::BidiClass;
 use unic_ucd_category::GeneralCategory;
 use unic_ucd_ident::{is_xid_continue, is_xid_start};
@@ -495,7 +492,7 @@ impl PyStr {
 
     #[pymethod(magic)]
     fn sizeof(&self) -> usize {
-        size_of::<Self>() + self.byte_len() * size_of::<u8>()
+        std::mem::size_of::<Self>() + self.byte_len() * std::mem::size_of::<u8>()
     }
 
     #[pymethod(name = "__rmul__")]

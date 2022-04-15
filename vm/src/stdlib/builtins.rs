@@ -576,7 +576,6 @@ mod builtins {
         modulus: Option<PyObjectRef>,
     }
 
-    #[allow(clippy::suspicious_else_formatting)]
     #[pyfunction]
     fn pow(args: PowArgs, vm: &VirtualMachine) -> PyResult {
         let PowArgs {
@@ -592,18 +591,12 @@ mod builtins {
                 let try_pow_value = |obj: &PyObject,
                                      args: (PyObjectRef, PyObjectRef, PyObjectRef)|
                  -> Option<PyResult> {
-                    if let Some(method) = obj.get_class_attr("__pow__") {
-                        let result = match vm.invoke(&method, args) {
-                            Ok(x) => x,
-                            Err(e) => return Some(Err(e)),
-                        };
-                        if let PyArithmeticValue::Implemented(x) =
-                            PyArithmeticValue::from_object(vm, result)
-                        {
-                            return Some(Ok(x));
-                        }
-                    }
-                    None
+                    let method = obj.get_class_attr("__pow__")?;
+                    let result = match vm.invoke(&method, args) {
+                        Ok(x) => x,
+                        Err(e) => return Some(Err(e)),
+                    };
+                    Some(Ok(PyArithmeticValue::from_object(vm, result).into_option()?))
                 };
 
                 if let Some(val) = try_pow_value(&x, (x.clone(), y.clone(), z.clone())) {

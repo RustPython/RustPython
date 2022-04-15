@@ -10,8 +10,7 @@ use itertools::Itertools;
 use num_bigint::BigInt;
 use num_complex::Complex64;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
-use std::{fmt, hash};
+use std::{collections::BTreeSet, fmt, hash};
 
 /// Sourcecode location.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]

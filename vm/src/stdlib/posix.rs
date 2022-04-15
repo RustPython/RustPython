@@ -1,5 +1,4 @@
 use crate::{PyObjectRef, PyResult, VirtualMachine};
-use nix;
 use std::os::unix::io::RawFd;
 
 pub fn raw_set_inheritable(fd: RawFd, inheritable: bool) -> nix::Result<()> {
@@ -41,12 +40,16 @@ pub mod module {
         PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
     };
     use bitflags::bitflags;
-    use nix::fcntl;
-    use nix::unistd::{self, Gid, Pid, Uid};
-    use std::ffi::{CStr, CString};
-    use std::os::unix::ffi as ffi_ext;
-    use std::os::unix::io::RawFd;
-    use std::{env, fs, io};
+    use nix::{
+        fcntl,
+        unistd::{self, Gid, Pid, Uid},
+    };
+    use std::{
+        env,
+        ffi::{CStr, CString},
+        fs, io,
+        os::unix::{ffi as ffi_ext, io::RawFd},
+    };
     use strum_macros::EnumString;
 
     #[pyattr]

@@ -19,7 +19,6 @@ use crate::{
     PyObjectView, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use rustpython_common::lock::PyMutex;
-use std::mem::size_of;
 use std::{borrow::Cow, fmt};
 
 pub type DictContentType = dictdatatype::Dict;
@@ -221,7 +220,7 @@ impl PyDict {
 
     #[pymethod(magic)]
     fn sizeof(&self) -> usize {
-        size_of::<Self>() + self.entries.sizeof()
+        std::mem::size_of::<Self>() + self.entries.sizeof()
     }
 
     #[pymethod(magic)]
@@ -679,7 +678,6 @@ where
         self.dict().len()
     }
 
-    #[allow(clippy::redundant_closure_call)]
     #[pymethod(magic)]
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
         let s = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {

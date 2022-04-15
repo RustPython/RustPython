@@ -10,8 +10,7 @@ use crate::{
     StaticType, TypeProtocol, VirtualMachine,
 };
 use num_traits::Zero;
-use std::fmt;
-use std::ops::Deref;
+use std::{fmt, ops::Deref};
 
 #[derive(Clone)]
 pub struct PyConstant(pub PyObjectRef);

@@ -7,11 +7,12 @@ load and store instructions for names.
 Inspirational file: https://github.com/python/cpython/blob/main/Python/symtable.c
 */
 
-use crate::error::{CompileError, CompileErrorType};
-use crate::IndexMap;
+use crate::{
+    error::{CompileError, CompileErrorType},
+    IndexMap,
+};
 use rustpython_ast::{self as ast, Location};
-use std::borrow::Cow;
-use std::fmt;
+use std::{borrow::Cow, fmt};
 
 pub fn make_symbol_table(program: &[ast::Stmt]) -> SymbolTableResult<SymbolTable> {
     let mut builder = SymbolTableBuilder::new();

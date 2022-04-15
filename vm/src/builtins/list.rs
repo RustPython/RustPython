@@ -17,10 +17,7 @@ use crate::{
     PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyObjectView, PyObjectWrap,
     PyRef, PyResult, PyValue, TypeProtocol,
 };
-use std::borrow::Cow;
-use std::fmt;
-use std::mem::size_of;
-use std::ops::DerefMut;
+use std::{borrow::Cow, fmt, ops::DerefMut};
 
 /// Built-in mutable sequence.
 ///
@@ -176,7 +173,8 @@ impl PyList {
 
     #[pymethod(magic)]
     fn sizeof(&self) -> usize {
-        size_of::<Self>() + self.elements.read().capacity() * size_of::<PyObjectRef>()
+        std::mem::size_of::<Self>()
+            + self.elements.read().capacity() * std::mem::size_of::<PyObjectRef>()
     }
 
     #[pymethod]

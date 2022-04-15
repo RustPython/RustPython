@@ -4,8 +4,7 @@ use criterion::{
 };
 use rustpython_compiler::Mode;
 use rustpython_parser::parser::parse_program;
-use rustpython_vm::Interpreter;
-use rustpython_vm::PyResult;
+use rustpython_vm::{Interpreter, PyResult};
 use std::collections::HashMap;
 use std::path::Path;
 

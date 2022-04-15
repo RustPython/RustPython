@@ -88,7 +88,6 @@ struct CompileContext {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-#[allow(clippy::enum_variant_names)]
 enum FunctionContext {
     NoFunction,
     Function,

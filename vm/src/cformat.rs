@@ -11,11 +11,12 @@ use crate::{
 };
 use itertools::Itertools;
 use num_bigint::{BigInt, Sign};
-use num_traits::cast::ToPrimitive;
-use num_traits::Signed;
-use std::iter::{Enumerate, Peekable};
-use std::str::FromStr;
-use std::{cmp, fmt};
+use num_traits::{cast::ToPrimitive, Signed};
+use std::{
+    cmp, fmt,
+    iter::{Enumerate, Peekable},
+    str::FromStr,
+};
 
 #[derive(Debug, PartialEq)]
 enum CFormatErrorType {

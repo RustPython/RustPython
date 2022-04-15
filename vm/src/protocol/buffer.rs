@@ -15,7 +15,6 @@ use crate::{
 };
 use std::{borrow::Cow, fmt::Debug, ops::Range};
 
-#[allow(clippy::type_complexity)]
 pub struct BufferMethods {
     pub obj_bytes: fn(&PyBuffer) -> BorrowedValue<[u8]>,
     pub obj_bytes_mut: fn(&PyBuffer) -> BorrowedValueMut<[u8]>,

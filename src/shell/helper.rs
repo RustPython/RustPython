@@ -55,7 +55,6 @@ impl<'vm> ShellHelper<'vm> {
         ShellHelper { vm, globals }
     }
 
-    #[allow(clippy::type_complexity)]
     fn get_available_completions<'w>(
         &self,
         words: &'w [String],

@@ -1,12 +1,10 @@
-use std::iter;
-use std::mem;
-use std::str;
-
-use crate::ast::{Constant, ConversionFlag, Expr, ExprKind, Location};
-use crate::error::{FStringError, FStringErrorType, ParseError};
-use crate::parser::parse_expression;
-
 use self::FStringErrorType::*;
+use crate::{
+    ast::{Constant, ConversionFlag, Expr, ExprKind, Location},
+    error::{FStringError, FStringErrorType, ParseError},
+    parser::parse_expression,
+};
+use std::{iter, mem, str};
 
 struct FStringParser<'a> {
     chars: iter::Peekable<str::Chars<'a>>,

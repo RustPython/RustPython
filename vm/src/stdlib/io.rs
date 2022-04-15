@@ -93,8 +93,10 @@ mod _io {
     use bstr::ByteSlice;
     use crossbeam_utils::atomic::AtomicCell;
     use num_traits::ToPrimitive;
-    use std::io::{self, prelude::*, Cursor, SeekFrom};
-    use std::ops::Range;
+    use std::{
+        io::{self, prelude::*, Cursor, SeekFrom},
+        ops::Range,
+    };
 
     #[allow(clippy::let_and_return)]
     fn validate_whence(whence: i32) -> bool {
@@ -136,6 +138,7 @@ mod _io {
     }
 
     impl OptionalSize {
+        #[allow(clippy::wrong_self_convention)]
         pub fn to_usize(self) -> Option<usize> {
             self.size.and_then(|v| v.to_usize())
         }
@@ -3649,8 +3652,7 @@ mod _io {
 #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
 #[pymodule]
 mod fileio {
-    use super::Offset;
-    use super::_io::*;
+    use super::{Offset, _io::*};
     use crate::{
         builtins::{PyStr, PyStrRef, PyTypeRef},
         crt_fd::Fd,

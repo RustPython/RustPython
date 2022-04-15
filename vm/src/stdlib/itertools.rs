@@ -995,7 +995,6 @@ mod decl {
 
         // TODO: make tee() a function, rename this class to itertools._tee and make
         // teedata a python class
-        #[allow(clippy::new_ret_no_self)]
         fn py_new(
             _cls: PyTypeRef,
             Self::Args { iterable, n }: Self::Args,
