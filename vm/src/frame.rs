@@ -1076,8 +1076,16 @@ impl ExecutingFrame<'_> {
                 };
 
                 let spec = self.pop_value();
-                let formatted = vm.call_special_method(value, "__format__", (spec,))?;
-                self.push_value(formatted);
+                let formatted = vm
+                    .call_special_method(value, "__format__", (spec,))?
+                    .downcast::<PyStr>()
+                    .map_err(|formatted| {
+                        vm.new_type_error(format!(
+                            "__format__ must return a str, not {}",
+                            &formatted.class().name()
+                        ))
+                    })?;
+                self.push_value(formatted.into());
                 Ok(None)
             }
             bytecode::Instruction::PopException {} => {
