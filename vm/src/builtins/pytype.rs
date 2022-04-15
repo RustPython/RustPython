@@ -483,34 +483,32 @@ impl PyType {
         }
 
         if let Some(current_frame) = vm.current_frame() {
-            if !attributes.contains_key("__module__") {
-                attributes.insert(
-                    "__module__".to_string(),
-                    vm.unwrap_or_none(current_frame.globals.get_item_opt("__name__", vm)?),
-                );
+            use std::collections::hash_map::Entry;
+            let entry = attributes.entry("__module__".to_owned());
+            if matches!(entry, Entry::Vacant(_)) {
+                let module_name =
+                    vm.unwrap_or_none(current_frame.globals.get_item_opt("__name__", vm)?);
+                entry.or_insert(module_name);
             }
         }
 
         attributes
-            .entry("__qualname__".to_string())
+            .entry("__qualname__".to_owned())
             .or_insert_with(|| vm.ctx.new_str(name.as_str()).into());
 
         // All *classes* should have a dict. Exceptions are *instances* of
         // classes that define __slots__ and instances of built-in classes
         // (with exceptions, e.g function)
-        if !attributes.contains_key("__dict__") {
-            attributes.insert(
-                "__dict__".to_owned(),
-                vm.ctx
-                    .new_getset(
-                        "__dict__",
-                        vm.ctx.types.object_type.clone(),
-                        subtype_get_dict,
-                        subtype_set_dict,
-                    )
-                    .into(),
-            );
-        }
+        attributes.entry("__dict__".to_owned()).or_insert_with(|| {
+            vm.ctx
+                .new_getset(
+                    "__dict__",
+                    vm.ctx.types.object_type.clone(),
+                    subtype_get_dict,
+                    subtype_set_dict,
+                )
+                .into()
+        });
 
         // TODO: Flags is currently initialized with HAS_DICT. Should be
         // updated when __slots__ are supported (toggling the flag off if
