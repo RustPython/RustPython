@@ -220,8 +220,8 @@ jobs:
       - uses: actions-rs/toolchain@v1
         with:
             profile: minimal
-            toolchain: stable
-            components: rustfmt
+            toolchain: nightly
+            components: rustfmt, clippy
             override: true
       - name: run rustfmt
         uses: actions-rs/cargo@v1
