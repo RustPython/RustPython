@@ -154,7 +154,7 @@ mod zlib {
     fn header_from_wbits(wbits: OptionalArg<i8>, vm: &VirtualMachine) -> PyResult<InitOptions> {
         let wbits = wbits.unwrap_or(MAX_WBITS as i8);
         let header = wbits > 0;
-        let wbits = wbits.abs() as u8;
+        let wbits = wbits.unsigned_abs();
         match wbits {
             9..=15 => Ok(InitOptions::Standard {
                 header,
