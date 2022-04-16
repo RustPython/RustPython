@@ -3,6 +3,8 @@
 //! This module makes use of the parser logic, and translates all ast nodes
 //! into python ast.AST objects.
 
+mod gen;
+
 use crate::{
     builtins::{self, PyStrRef, PyTypeRef},
     pyclass::{PyClassImpl, StaticType},
@@ -16,11 +18,6 @@ use rustpython_ast as ast;
 use rustpython_compiler as compile;
 #[cfg(feature = "rustpython-parser")]
 use rustpython_parser::parser;
-
-#[rustfmt::skip]
-#[allow(clippy::all)]
-mod gen;
-
 
 #[pymodule]
 mod _ast {
