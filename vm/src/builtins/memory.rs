@@ -2,6 +2,7 @@ use super::{
     PyBytes, PyBytesRef, PyInt, PyListRef, PySlice, PyStr, PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
 };
 use crate::{
+    buffer::FormatSpec,
     bytesinner::bytes_to_hex,
     common::{
         borrow::{BorrowedValue, BorrowedValueMut},
@@ -15,7 +16,6 @@ use crate::{
     pyclass::PyClassImpl,
     sequence::SequenceOp,
     sliceable::wrap_index,
-    stdlib::pystruct::FormatSpec,
     types::{AsBuffer, AsMapping, AsSequence, Comparable, Constructor, Hashable, PyComparisonOp},
     utils::Either,
     IdProtocol, PyContext, PyObject, PyObjectRef, PyObjectView, PyObjectWrap, PyRef, PyResult,

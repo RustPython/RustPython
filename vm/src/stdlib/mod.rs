@@ -11,7 +11,6 @@ pub mod io;
 mod itertools;
 mod marshal;
 mod operator;
-pub(crate) mod pystruct;
 // TODO: maybe make this an extension module, if we ever get those
 // mod re;
 mod sre;
@@ -85,7 +84,6 @@ pub fn get_module_inits() -> StdlibMap {
             "_operator" => operator::make_module,
             "_sre" => sre::make_module,
             "_string" => string::make_module,
-            "_struct" => pystruct::make_module,
             "time" => time::make_module,
             "_weakref" => weakref::make_module,
             "_imp" => imp::make_module,

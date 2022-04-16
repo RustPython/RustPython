@@ -1,8 +1,6 @@
 //! Buffer protocol
 //! https://docs.python.org/3/c-api/buffer.html
 
-use itertools::Itertools;
-
 use crate::{
     common::{
         borrow::{BorrowedValue, BorrowedValueMut},
@@ -13,6 +11,7 @@ use crate::{
     PyObject, PyObjectPayload, PyObjectRef, PyObjectView, PyObjectWrap, PyRef, PyResult, PyValue,
     TryFromBorrowedObject, TypeProtocol, VirtualMachine,
 };
+use itertools::Itertools;
 use std::{borrow::Cow, fmt::Debug, ops::Range};
 
 pub struct BufferMethods {
