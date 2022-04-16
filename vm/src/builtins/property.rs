@@ -4,8 +4,8 @@
 use super::PyTypeRef;
 use crate::common::lock::PyRwLock;
 use crate::{
-    function::FuncArgs, types::GetDescriptor, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult,
-    PyValue, TryFromObject, TypeProtocol, VirtualMachine,
+    function::FuncArgs, pyclass::PyClassImpl, types::GetDescriptor, PyContext, PyObjectRef, PyRef,
+    PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
 };
 
 /// Property attribute.

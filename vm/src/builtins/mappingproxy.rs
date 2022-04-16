@@ -4,10 +4,10 @@ use super::{PyDict, PyGenericAlias, PyList, PyStr, PyStrRef, PyTuple, PyTypeRef}
 use crate::{
     function::{IntoPyObject, OptionalArg},
     protocol::{PyMapping, PyMappingMethods, PySequence, PySequenceMethods},
-    pyref_type_error,
+    pyclass::PyClassImpl,
     types::{AsMapping, AsSequence, Constructor, Iterable},
-    PyClassImpl, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol, VirtualMachine,
+    PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    VirtualMachine,
 };
 
 #[pyclass(module = false, name = "mappingproxy")]
@@ -94,7 +94,7 @@ impl PyMappingProxy {
                 // let key = PyStrRef::try_from_object(vm, key)?;
                 let key = key
                     .payload::<PyStr>()
-                    .ok_or_else(|| pyref_type_error(vm, PyStr::class(vm), key))?;
+                    .ok_or_else(|| vm.new_downcast_type_error(PyStr::class(vm), key))?;
                 Ok(class.attributes.read().contains_key(key.as_str()))
             }
             MappingProxyInner::Dict(obj) => PySequence::from(obj.as_ref()).contains(key, vm),

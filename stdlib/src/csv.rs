@@ -1,4 +1,4 @@
-use crate::vm::{PyClassImpl, PyObjectRef, VirtualMachine};
+use crate::vm::{pyclass::PyClassImpl, PyObjectRef, VirtualMachine};
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;

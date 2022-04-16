@@ -200,7 +200,7 @@ macro_rules! class_or_notimplemented {
         let a: &$crate::PyObject = &*$obj;
         match $crate::PyObject::downcast_ref::<$t>(&a) {
             Some(pyref) => pyref,
-            None => return Ok($crate::PyArithmeticValue::NotImplemented),
+            None => return Ok($crate::function::PyArithmeticValue::NotImplemented),
         }
     }};
 }

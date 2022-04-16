@@ -3,8 +3,9 @@ use crate::common::linked_list::{Link, LinkedList, Pointers};
 use crate::common::lock::{PyMutex, PyMutexGuard, PyRwLock};
 use crate::common::refcount::RefCount;
 use crate::{
+    _pyobject::{IdProtocol, PyObjectPayload, PyResult, TypeProtocol},
     builtins::{PyBaseExceptionRef, PyDictRef, PyTypeRef},
-    IdProtocol, PyObjectPayload, PyResult, TypeProtocol, VirtualMachine,
+    vm::VirtualMachine,
 };
 use std::any::TypeId;
 use std::borrow::Borrow;
@@ -1056,8 +1057,10 @@ macro_rules! partially_init {
 }
 
 pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
-    use crate::builtins::{object, PyType};
-    use crate::{PyAttributes, PyClassImpl};
+    use crate::{
+        builtins::{object, PyType},
+        pyclass::PyClassImpl,
+    };
     use std::mem::MaybeUninit;
 
     // `type` inherits from `object`
@@ -1077,7 +1080,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
             bases: vec![],
             mro: vec![],
             subclasses: PyRwLock::default(),
-            attributes: PyRwLock::new(PyAttributes::default()),
+            attributes: PyRwLock::new(Default::default()),
             slots: PyType::make_slots(),
         };
         let object_payload = PyType {
@@ -1085,7 +1088,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
             bases: vec![],
             mro: vec![],
             subclasses: PyRwLock::default(),
-            attributes: PyRwLock::new(PyAttributes::default()),
+            attributes: PyRwLock::new(Default::default()),
             slots: object::PyBaseObject::make_slots(),
         };
         let type_type_ptr = Box::into_raw(Box::new(partially_init!(

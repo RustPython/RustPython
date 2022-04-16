@@ -434,14 +434,13 @@ pub(super) mod _os {
             PyBytesRef, PyGenericAlias, PyIntRef, PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
         },
         crt_fd::{Fd, Offset},
-        function::{ArgBytesLike, FuncArgs, IntoPyException, IntoPyObject, OptionalArg},
+        function::{ArgBytesLike, FuncArgs, IntoPyException, IntoPyObject, IntoPyRef, OptionalArg},
         protocol::PyIterReturn,
         suppress_iph,
         types::{IterNext, IterNextIterable},
         utils::Either,
         vm::{ReprGuard, VirtualMachine},
-        IntoPyRef, PyObjectRef, PyRef, PyResult, PyStructSequence, PyValue, TryFromObject,
-        TypeProtocol,
+        PyObjectRef, PyRef, PyResult, PyStructSequence, PyValue, TryFromObject, TypeProtocol,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;

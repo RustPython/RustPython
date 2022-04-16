@@ -2,8 +2,9 @@ use super::pystr::IntoPyStrRef;
 use super::{PyDictRef, PyStr, PyStrRef, PyTypeRef};
 use crate::{
     function::{FuncArgs, IntoPyObject},
+    pyclass::PyClassImpl,
     types::GetAttr,
-    PyClassImpl, PyContext, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue, VirtualMachine,
+    PyContext, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "module")]

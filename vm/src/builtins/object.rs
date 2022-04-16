@@ -1,9 +1,11 @@
 use super::{PyDict, PyDictRef, PyList, PyStr, PyStrRef, PyType, PyTypeRef};
 use crate::common::hash::PyHash;
 use crate::{
-    function::FuncArgs, types::PyComparisonOp, utils::Either, IdProtocol, PyArithmeticValue,
-    PyAttributes, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyResult,
-    PyValue, TypeProtocol, VirtualMachine,
+    function::{FuncArgs, PyArithmeticValue, PyComparisonValue},
+    pyclass::PyClassImpl,
+    types::PyComparisonOp,
+    utils::Either,
+    IdProtocol, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
 
 /// object()
@@ -222,7 +224,7 @@ impl PyBaseObject {
 
     #[pymethod(magic)]
     pub fn dir(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyList> {
-        let attributes: PyAttributes = obj.class().get_attributes();
+        let attributes = obj.class().get_attributes();
 
         let dict = PyDict::from_attributes(attributes, vm)?.into_ref(vm);
 

@@ -9,13 +9,11 @@ use crate::{
     bytesinner::ByteInnerNewOptions,
     common::{hash::PyHash, str::to_ascii},
     dictdatatype::DictKey,
-    function::{IntoPyObject, IntoPyResult, OptionalArg},
+    function::{IntoPyObject, IntoPyResult, OptionalArg, PyArithmeticValue},
     protocol::{PyIter, PyMapping, PySequence},
-    pyref_type_error,
     types::{Constructor, PyComparisonOp},
     utils::Either,
-    IdProtocol, PyArithmeticValue, PyObject, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
-    VirtualMachine,
+    IdProtocol, PyObject, PyObjectRef, PyResult, TryFromObject, TypeProtocol, VirtualMachine,
 };
 
 // RustPython doesn't need these items
@@ -54,7 +52,7 @@ impl PyObjectRef {
     pub fn bytes(self, vm: &VirtualMachine) -> PyResult {
         let bytes_type = &vm.ctx.types.bytes_type;
         match self.downcast_exact::<PyInt>(vm) {
-            Ok(int) => Err(pyref_type_error(vm, bytes_type, int.as_object())),
+            Ok(int) => Err(vm.new_downcast_type_error(bytes_type, int.as_object())),
             Err(obj) => PyBytes::py_new(
                 bytes_type.clone(),
                 ByteInnerNewOptions {

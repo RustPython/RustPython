@@ -1,17 +1,20 @@
 mod argument;
+mod arithmetic;
 mod buffer;
 mod number;
 
 use crate::{
     builtins::{PyBaseExceptionRef, PyTupleRef, PyTypeRef},
-    PyObject, PyObjectRef, PyRef, PyResult, PyThreadingConstraint, PyValue, TryFromObject,
-    TypeProtocol, VirtualMachine,
+    pyobject::PyThreadingConstraint,
+    PyObject, PyObjectPayload, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    VirtualMachine,
 };
 use indexmap::IndexMap;
 use itertools::Itertools;
 use std::{marker::PhantomData, ops::RangeInclusive};
 
 pub use argument::{ArgCallable, ArgIterable, ArgMapping, ArgSequence};
+pub use arithmetic::{PyArithmeticValue, PyComparisonValue};
 pub use buffer::{ArgAsciiBuffer, ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike};
 pub use number::{ArgIntoBool, ArgIntoComplex, ArgIntoFloat};
 
@@ -26,6 +29,10 @@ pub trait IntoPyObject {
 
 pub trait IntoPyResult {
     fn into_pyresult(self, vm: &VirtualMachine) -> PyResult;
+}
+
+pub trait IntoPyRef<T: PyObjectPayload> {
+    fn into_pyref(self, vm: &VirtualMachine) -> PyRef<T>;
 }
 
 pub trait IntoPyException {

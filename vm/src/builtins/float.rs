@@ -2,12 +2,15 @@ use super::{try_bigint_to_f64, PyByteArray, PyBytes, PyInt, PyIntRef, PyStr, PyS
 use crate::common::{float_ops, hash};
 use crate::{
     format::FormatSpec,
-    function::{ArgBytesLike, IntoPyObject, OptionalArg, OptionalOption},
+    function::{
+        ArgBytesLike, IntoPyObject, OptionalArg, OptionalOption,
+        PyArithmeticValue::{self, *},
+        PyComparisonValue,
+    },
+    pyclass::PyClassImpl,
     types::{Comparable, Constructor, Hashable, PyComparisonOp},
-    IdProtocol,
-    PyArithmeticValue::{self, *},
-    PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromBorrowedObject, TryFromObject, TypeProtocol, VirtualMachine,
+    IdProtocol, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromBorrowedObject,
+    TryFromObject, TypeProtocol, VirtualMachine,
 };
 use num_bigint::{BigInt, ToBigInt};
 use num_complex::Complex64;

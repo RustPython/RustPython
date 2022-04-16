@@ -1,9 +1,10 @@
 use super::{PyInt, PyStrRef, PyTypeRef};
 use crate::{
     function::{IntoPyObject, OptionalArg},
+    pyclass::PyClassImpl,
     types::Constructor,
-    IdProtocol, PyClassImpl, PyContext, PyObject, PyObjectRef, PyResult, PyValue,
-    TryFromBorrowedObject, TypeProtocol, VirtualMachine,
+    IdProtocol, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject,
+    TypeProtocol, VirtualMachine,
 };
 use num_bigint::Sign;
 use num_traits::Zero;

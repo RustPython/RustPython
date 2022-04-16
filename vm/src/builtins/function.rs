@@ -10,11 +10,12 @@ use crate::function::ArgMapping;
 use crate::{
     bytecode,
     frame::Frame,
-    function::{FuncArgs, OptionalArg},
+    function::{FuncArgs, OptionalArg, PyComparisonValue},
+    pyclass::PyClassImpl,
     scope::Scope,
     types::{Callable, Comparable, Constructor, GetAttr, GetDescriptor, PyComparisonOp},
-    IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyRef, PyResult,
-    PyValue, TypeProtocol, VirtualMachine,
+    IdProtocol, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    VirtualMachine,
 };
 #[cfg(feature = "jit")]
 use crate::{common::lock::OnceCell, function::IntoPyObject};

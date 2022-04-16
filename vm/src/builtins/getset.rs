@@ -4,9 +4,10 @@
 use super::PyTypeRef;
 use crate::{
     function::{IntoPyResult, OwnedParam, RefParam},
+    pyclass::PyClassImpl,
+    pyobject::PyThreadingConstraint,
     types::{Constructor, GetDescriptor, Unconstructible},
-    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyThreadingConstraint, PyValue,
-    TryFromObject, TypeProtocol, VirtualMachine,
+    PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
 };
 
 pub type PyGetterFunc = Box<py_dyn_fn!(dyn Fn(&VirtualMachine, PyObjectRef) -> PyResult)>;

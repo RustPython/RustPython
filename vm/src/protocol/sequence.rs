@@ -1,10 +1,9 @@
 use crate::{
     builtins::{PyList, PyListRef, PySlice, PyTuple, PyTupleRef},
     common::lock::OnceCell,
-    function::IntoPyObject,
+    function::{IntoPyObject, PyArithmeticValue},
     protocol::PyMapping,
-    IdProtocol, PyArithmeticValue, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
-    VirtualMachine,
+    IdProtocol, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
 use itertools::Itertools;
 use std::{

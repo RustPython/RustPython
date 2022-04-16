@@ -38,11 +38,16 @@ pub use rustpython_derive::*;
 #[macro_use]
 pub(crate) mod macros;
 
+#[path = "pyobject.rs"]
+mod _pyobject;
+#[path = "pyobjectrc.rs"]
+mod _pyobjectrc;
 mod anystr;
 pub mod builtins;
 mod bytesinner;
 pub mod cformat;
 mod codecs;
+pub mod convert;
 mod coroutine;
 #[cfg(any(unix, windows, target_os = "wasi"))]
 mod crt_fd;
@@ -58,8 +63,7 @@ pub mod import;
 pub mod protocol;
 pub mod py_io;
 pub mod py_serde;
-mod pyobject;
-mod pyobjectrc;
+pub mod pyclass;
 pub mod readline;
 pub mod scope;
 pub mod sequence;
@@ -72,8 +76,22 @@ pub mod utils;
 pub mod version;
 mod vm;
 
+mod pyobject {
+    pub use super::_pyobject::*;
+    pub use super::_pyobjectrc::*;
+}
+
 // pub use self::Executor;
-pub use self::pyobject::*;
+pub use self::convert::{TryFromBorrowedObject, TryFromObject};
+// pyobject items
+pub use self::pyobject::{
+    IdProtocol, PyContext, PyMethod, PyObjectPayload, PyRefExact, PyResult, PyStructSequence,
+    PyValue, TypeProtocol,
+};
+// pyobjectrc items
+pub use self::pyobject::{
+    PyObject, PyObjectRef, PyObjectView, PyObjectWeak, PyObjectWrap, PyRef, PyWeakRef,
+};
 pub use self::vm::{InitParameter, Interpreter, PySettings, VirtualMachine};
 pub use rustpython_bytecode as bytecode;
 pub use rustpython_common as common;

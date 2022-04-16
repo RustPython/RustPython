@@ -8,8 +8,9 @@ use super::{PyInt, PyTupleRef, PyTypeRef};
 use crate::{
     function::ArgCallable,
     protocol::{PyIterReturn, PySequence, PySequenceMethods},
+    pyclass::PyClassImpl,
     types::{IterNext, IterNextIterable},
-    PyClassImpl, PyContext, PyObject, PyObjectRef, PyResult, PyValue, VirtualMachine,
+    PyContext, PyObject, PyObjectRef, PyResult, PyValue, VirtualMachine,
 };
 use rustpython_common::{
     lock::{PyMutex, PyRwLock, PyRwLockUpgradableReadGuard},

@@ -1,8 +1,9 @@
 use super::PyTypeRef;
 use crate::{
     builtins::PyBoundMethod,
+    pyclass::PyClassImpl,
     types::{Constructor, GetDescriptor},
-    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
+    PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
 
 /// classmethod(function) -> method

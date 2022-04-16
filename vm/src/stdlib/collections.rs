@@ -8,7 +8,7 @@ mod _collections {
             PositionIterInternal, PyGenericAlias, PyInt, PyTypeRef,
         },
         common::lock::{PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
-        function::{FuncArgs, KwArgs, OptionalArg},
+        function::{FuncArgs, KwArgs, OptionalArg, PyComparisonValue},
         protocol::{PyIterReturn, PySequenceMethods},
         sequence::{MutObjectSequenceOp, ObjectSequenceOp},
         sliceable,
@@ -19,8 +19,7 @@ mod _collections {
         },
         utils::collection_repr,
         vm::ReprGuard,
-        PyComparisonValue, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
-        VirtualMachine,
+        PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use std::cmp::max;

@@ -8,18 +8,18 @@ use crate::{
         hash::PyHash,
         lock::OnceCell,
     },
-    function::{FuncArgs, IntoPyObject, OptionalArg},
+    function::{FuncArgs, IntoPyObject, OptionalArg, PyComparisonValue},
     protocol::{
         BufferDescriptor, BufferMethods, PyBuffer, PyMappingMethods, PySequenceMethods, VecBuffer,
     },
+    pyclass::PyClassImpl,
     sequence::SequenceOp,
     sliceable::wrap_index,
     stdlib::pystruct::FormatSpec,
     types::{AsBuffer, AsMapping, AsSequence, Comparable, Constructor, Hashable, PyComparisonOp},
     utils::Either,
-    IdProtocol, PyClassImpl, PyComparisonValue, PyContext, PyObject, PyObjectRef, PyObjectView,
-    PyObjectWrap, PyRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject, TypeProtocol,
-    VirtualMachine,
+    IdProtocol, PyContext, PyObject, PyObjectRef, PyObjectView, PyObjectWrap, PyRef, PyResult,
+    PyValue, TryFromBorrowedObject, TryFromObject, TypeProtocol, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;

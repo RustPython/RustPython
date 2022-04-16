@@ -19,6 +19,7 @@ mod array {
             class_or_notimplemented,
             function::{
                 ArgBytesLike, ArgIntoFloat, ArgIterable, IntoPyObject, IntoPyResult, OptionalArg,
+                PyComparisonValue,
             },
             protocol::{
                 BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
@@ -32,9 +33,8 @@ mod array {
                 AsBuffer, AsMapping, Comparable, Constructor, IterNext, IterNextIterable, Iterable,
                 PyComparisonOp,
             },
-            IdProtocol, PyComparisonValue, PyObject, PyObjectRef, PyObjectView, PyObjectWrap,
-            PyRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject, TypeProtocol,
-            VirtualMachine,
+            IdProtocol, PyObject, PyObjectRef, PyObjectView, PyObjectWrap, PyRef, PyResult,
+            PyValue, TryFromBorrowedObject, TryFromObject, TypeProtocol, VirtualMachine,
         },
     };
     use itertools::Itertools;
