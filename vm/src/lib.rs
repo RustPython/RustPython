@@ -43,6 +43,7 @@ mod _pyobject;
 #[path = "pyobjectrc.rs"]
 mod _pyobjectrc;
 mod anystr;
+pub mod buffer;
 pub mod builtins;
 mod bytesinner;
 pub mod cformat;
