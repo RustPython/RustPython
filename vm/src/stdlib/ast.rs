@@ -106,7 +106,7 @@ impl<T: Node> Node for Vec<T> {
     }
 
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
-        vm.extract_elements_func(&object, |obj| Node::ast_from_object(vm, obj))
+        vm.extract_elements_with(&object, |obj| Node::ast_from_object(vm, obj))
     }
 }
 

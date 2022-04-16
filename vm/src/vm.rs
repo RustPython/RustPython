@@ -630,35 +630,26 @@ impl VirtualMachine {
         }
     }
 
-    pub fn extract_elements_func<T, F>(&self, value: &PyObject, func: F) -> PyResult<Vec<T>>
+    pub fn extract_elements_with<T, F>(&self, value: &PyObject, func: F) -> PyResult<Vec<T>>
     where
         F: Fn(PyObjectRef) -> PyResult<T>,
     {
         // Extract elements from item, if possible:
         let cls = value.class();
-        if cls.is(&self.ctx.types.tuple_type) {
-            value
-                .payload::<PyTuple>()
-                .unwrap()
-                .as_slice()
-                .iter()
-                .map(|obj| func(obj.clone()))
-                .collect()
+        let list_borrow;
+        let slice = if cls.is(&self.ctx.types.tuple_type) {
+            value.payload::<PyTuple>().unwrap().as_slice()
         } else if cls.is(&self.ctx.types.list_type) {
-            value
-                .payload::<PyList>()
-                .unwrap()
-                .borrow_vec()
-                .iter()
-                .map(|obj| func(obj.clone()))
-                .collect()
+            list_borrow = value.payload::<PyList>().unwrap().borrow_vec();
+            &list_borrow
         } else {
-            self.map_pyiter(value, func)
-        }
+            return self.map_pyiter(value, func);
+        };
+        slice.iter().map(|obj| func(obj.clone())).collect()
     }
 
     pub fn extract_elements<T: TryFromObject>(&self, value: &PyObject) -> PyResult<Vec<T>> {
-        self.extract_elements_func(value, |obj| T::try_from_object(self, obj))
+        self.extract_elements_with(value, |obj| T::try_from_object(self, obj))
     }
 
     pub fn map_iterable_object<F, R>(&self, obj: &PyObject, mut f: F) -> PyResult<PyResult<Vec<R>>>
