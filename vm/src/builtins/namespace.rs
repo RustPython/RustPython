@@ -5,7 +5,7 @@ use crate::{
     pyclass::PyClassImpl,
     types::{Comparable, Constructor, PyComparisonOp},
     vm::ReprGuard,
-    IdProtocol, PyContext, PyObject, PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
+    AsPyObject, PyContext, PyObject, PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
 };
 
 /// A simple attribute-based namespace.

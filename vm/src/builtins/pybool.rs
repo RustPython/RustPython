@@ -3,7 +3,7 @@ use crate::{
     function::{IntoPyObject, OptionalArg},
     pyclass::PyClassImpl,
     types::Constructor,
-    IdProtocol, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject,
+    AsPyObject, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject,
     TypeProtocol, VirtualMachine,
 };
 use num_bigint::Sign;

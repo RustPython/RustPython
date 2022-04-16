@@ -20,7 +20,7 @@ mod _operator {
         },
         utils::Either,
         vm::ReprGuard,
-        IdProtocol, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue, TypeProtocol,
+        AsPyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue, TypeProtocol,
         VirtualMachine,
     };
 

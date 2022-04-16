@@ -4,7 +4,7 @@ use crate::{
     protocol::PyIterReturn,
     types::PyComparisonOp,
     vm::VirtualMachine,
-    IdProtocol, PyMethod, PyObject, PyObjectRef, PyResult, TypeProtocol,
+    AsPyObject, PyMethod, PyObject, PyObjectRef, PyResult, TypeProtocol,
 };
 
 /// Collection of operators

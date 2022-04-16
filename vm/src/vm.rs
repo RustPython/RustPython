@@ -24,8 +24,8 @@ use crate::{
     protocol::PyIterIter,
     pyobject::PyLease,
     scope::Scope,
-    signal, stdlib, IdProtocol, PyContext, PyObject, PyObjectRef, PyObjectWrap, PyRef, PyRefExact,
-    PyResult, PyValue, TypeProtocol,
+    signal, stdlib, AsPyObject, PyContext, PyObject, PyObjectRef, PyRef, PyRefExact, PyResult,
+    PyValue, TypeProtocol,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use std::{
@@ -872,7 +872,7 @@ impl VirtualMachine {
             if !context_exc.is(exception) {
                 let mut o = context_exc.clone();
                 while let Some(context) = o.context() {
-                    if context.is(&exception) {
+                    if context.is(exception) {
                         o.set_context(None);
                         break;
                     }

@@ -6,7 +6,7 @@ use crate::{
     protocol::{PyBuffer, PyIterReturn, PyMapping, PyMappingMethods},
     protocol::{PySequence, PySequenceMethods},
     utils::Either,
-    IdProtocol, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue, TypeProtocol,
+    AsPyObject, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue, TypeProtocol,
     VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;

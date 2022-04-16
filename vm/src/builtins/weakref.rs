@@ -7,8 +7,8 @@ use crate::{
     function::OptionalArg,
     pyclass::PyClassImpl,
     types::{Callable, Comparable, Constructor, Hashable, PyComparisonOp},
-    IdProtocol, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
-    VirtualMachine,
+    AsPyObject, PyContext, PyObject, PyObjectRef, PyObjectWrap, PyRef, PyResult, PyValue,
+    TypeProtocol, VirtualMachine,
 };
 
 pub use crate::pyobject::PyWeak;

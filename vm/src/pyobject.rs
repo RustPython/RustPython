@@ -1,6 +1,3 @@
-pub use crate::_pyobjectrc::{
-    PyObject, PyObjectRef, PyObjectView, PyObjectWeak, PyObjectWrap, PyRef, PyWeakRef,
-};
 use crate::common::lock::PyRwLockReadGuard;
 use crate::{
     builtins::{
@@ -20,6 +17,7 @@ use crate::{
     pyclass::{PyClassImpl, StaticType},
     types::{PyTypeFlags, PyTypeSlots, TypeZoo},
     VirtualMachine,
+    _pyobjectrc::{PyObject, PyObjectRef, PyObjectView, PyRef},
 };
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
@@ -389,45 +387,41 @@ impl<T: PyValue> IntoPyObject for PyRefExact<T> {
     }
 }
 
-pub trait IdProtocol {
-    fn get_id(&self) -> usize;
+pub trait AsPyObject
+where
+    Self: Borrow<PyObject>,
+{
+    #[inline(always)]
+    fn as_object(&self) -> &PyObject {
+        self.borrow()
+    }
+    #[inline(always)]
+    fn get_id(&self) -> usize {
+        self.as_object()._get_id()
+    }
+    #[inline(always)]
     fn is<T>(&self, other: &T) -> bool
     where
-        T: IdProtocol,
+        T: AsPyObject,
     {
         self.get_id() == other.get_id()
     }
 }
 
-// impl<T: ?Sized> IdProtocol for PyRc<T> {
-//     fn get_id(&self) -> usize {
-//         &**self as *const T as *const () as usize
+impl<T> AsPyObject for T where T: Borrow<PyObject> {}
+
+impl PyObject {
+    #[inline]
+    fn _get_id(&self) -> usize {
+        self as *const PyObject as usize
+    }
+}
+
+// impl<T: ?Sized> Borrow<PyObject> for PyRc<T> {
+//     fn borrow(&self) -> &PyObject {
+//         unsafe { &*(&**self as *const T as *const PyObject) }
 //     }
 // }
-
-impl<T: PyObjectPayload> IdProtocol for PyRef<T> {
-    fn get_id(&self) -> usize {
-        self.as_object().get_id()
-    }
-}
-
-impl<T: PyObjectPayload> IdProtocol for PyObjectView<T> {
-    fn get_id(&self) -> usize {
-        self.as_object().get_id()
-    }
-}
-
-impl<'a, T: PyObjectPayload> IdProtocol for PyLease<'a, T> {
-    fn get_id(&self) -> usize {
-        self.inner.get_id()
-    }
-}
-
-impl<T: IdProtocol> IdProtocol for &'_ T {
-    fn get_id(&self) -> usize {
-        (&**self).get_id()
-    }
-}
 
 /// A borrow of a reference to a Python object. This avoids having clone the `PyRef<T>`/
 /// `PyObjectRef`, which isn't that cheap as that increments the atomic reference counter.
@@ -702,6 +696,22 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
                 }),
             );
         }
+    }
+}
+
+pub trait PyObjectWrap
+where
+    Self: AsPyObject,
+{
+    fn into_object(self) -> PyObjectRef;
+}
+
+impl<T> From<T> for PyObjectRef
+where
+    T: PyObjectWrap,
+{
+    fn from(py_ref: T) -> Self {
+        py_ref.into_object()
     }
 }
 

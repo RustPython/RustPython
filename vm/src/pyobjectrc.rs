@@ -3,7 +3,7 @@ use crate::common::linked_list::{Link, LinkedList, Pointers};
 use crate::common::lock::{PyMutex, PyMutexGuard, PyRwLock};
 use crate::common::refcount::RefCount;
 use crate::{
-    _pyobject::{IdProtocol, PyObjectPayload, PyResult, TypeProtocol},
+    _pyobject::{AsPyObject, PyObjectPayload, PyObjectWrap, PyResult, TypeProtocol},
     builtins::{PyBaseExceptionRef, PyDictRef, PyTypeRef},
     vm::VirtualMachine,
 };
@@ -464,18 +464,6 @@ impl ToOwned for PyObject {
     }
 }
 
-pub trait PyObjectWrap
-where
-    Self: Borrow<PyObject>,
-{
-    #[inline(always)]
-    fn as_object(&self) -> &PyObject {
-        self.borrow()
-    }
-
-    fn into_object(self) -> PyObjectRef;
-}
-
 impl PyObjectRef {
     pub fn into_raw(self) -> *const PyObject {
         let ptr = self.as_raw();
@@ -770,30 +758,22 @@ impl AsRef<PyObject> for PyObject {
     }
 }
 
-impl IdProtocol for PyObjectRef {
-    fn get_id(&self) -> usize {
-        PyObject::get_id(self)
-    }
-}
-
-impl IdProtocol for PyObject {
-    fn get_id(&self) -> usize {
-        self as *const PyObject as usize
-    }
-}
-
 impl<'a, T: PyObjectPayload> From<&'a PyObjectView<T>> for &'a PyObject {
     fn from(py_ref: &'a PyObjectView<T>) -> Self {
         py_ref.as_object()
     }
 }
 
-impl<T> From<T> for PyObjectRef
-where
-    T: PyObjectWrap,
-{
-    fn from(py_ref: T) -> Self {
-        py_ref.into_object()
+impl Borrow<PyObject> for PyObjectWeak {
+    #[inline]
+    fn borrow(&self) -> &PyObject {
+        self.weak.as_object()
+    }
+}
+
+impl PyObjectWrap for PyObjectWeak {
+    fn into_object(self) -> PyObjectRef {
+        self.weak.into_object()
     }
 }
 
@@ -801,10 +781,6 @@ impl PyObjectWeak {
     #[inline]
     pub fn upgrade(&self) -> Option<PyObjectRef> {
         self.weak.upgrade()
-    }
-
-    pub fn into_object(self) -> PyObjectRef {
-        self.weak.into_object()
     }
 }
 
@@ -854,11 +830,6 @@ impl fmt::Debug for PyObjectWeak {
 pub struct PyObjectView<T: PyObjectPayload>(PyInner<T>);
 
 impl<T: PyObjectPayload> PyObjectView<T> {
-    #[inline(always)]
-    pub fn as_object(&self) -> &PyObject {
-        unsafe { &*(&self.0 as *const PyInner<T> as *const PyObject) }
-    }
-
     pub fn downgrade(
         &self,
         callback: Option<PyObjectRef>,
@@ -886,14 +857,16 @@ impl<T: PyObjectPayload> ToOwned for PyObjectView<T> {
 impl<T: PyObjectPayload> Deref for PyObjectView<T> {
     type Target = T;
 
+    #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.0.payload
     }
 }
 
 impl<T: PyObjectPayload> Borrow<PyObject> for PyObjectView<T> {
+    #[inline(always)]
     fn borrow(&self) -> &PyObject {
-        self.as_object()
+        unsafe { &*(&self.0 as *const PyInner<T> as *const PyObject) }
     }
 }
 
@@ -901,8 +874,9 @@ impl<T> AsRef<PyObject> for PyObjectView<T>
 where
     T: PyObjectPayload,
 {
+    #[inline(always)]
     fn as_ref(&self) -> &PyObject {
-        self.as_object()
+        self.borrow()
     }
 }
 

@@ -4,7 +4,7 @@ use crate::{
     function::{FuncArgs, IntoPyObject},
     pyclass::PyClassImpl,
     types::GetAttr,
-    PyContext, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue, VirtualMachine,
+    AsPyObject, PyContext, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "module")]

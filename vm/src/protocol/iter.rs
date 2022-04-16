@@ -1,8 +1,8 @@
 use crate::{
     builtins::iter::PySequenceIterator,
     function::{IntoPyObject, IntoPyResult},
-    PyObject, PyObjectRef, PyObjectWrap, PyResult, PyValue, TryFromObject, TypeProtocol,
-    VirtualMachine,
+    AsPyObject, PyObject, PyObjectRef, PyObjectWrap, PyResult, PyValue, TryFromObject,
+    TypeProtocol, VirtualMachine,
 };
 use std::borrow::Borrow;
 use std::ops::Deref;

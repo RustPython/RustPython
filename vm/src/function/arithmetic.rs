@@ -1,7 +1,7 @@
 use crate::{
     convert::TryFromObject,
     function::IntoPyObject,
-    pyobject::{IdProtocol, PyObjectRef, PyResult},
+    pyobject::{AsPyObject, PyObjectRef, PyResult},
     VirtualMachine,
 };
 

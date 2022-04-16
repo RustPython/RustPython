@@ -49,7 +49,7 @@ macro_rules! py_namespace {
         {
             let namespace = $crate::builtins::PyNamespace::new_ref(&$vm.ctx);
             $(
-                $vm.__module_set_attr(namespace.as_object(), $name, $value).unwrap();
+                $vm.__module_set_attr($crate::pyobject::AsPyObject::as_object(&namespace), $name, $value).unwrap();
             )*
             namespace
         }

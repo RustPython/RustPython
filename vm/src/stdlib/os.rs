@@ -3,8 +3,8 @@ use crate::{
     crt_fd::Fd,
     function::{ArgumentError, FromArgs, FuncArgs, IntoPyException, IntoPyObject},
     protocol::PyBuffer,
-    PyObject, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject, TypeProtocol,
-    VirtualMachine,
+    AsPyObject, PyObject, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject,
+    TypeProtocol, VirtualMachine,
 };
 use std::{
     ffi, fs,
