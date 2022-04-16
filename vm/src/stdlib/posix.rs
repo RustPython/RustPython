@@ -30,7 +30,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 pub mod module {
     use crate::{
         builtins::{PyDictRef, PyInt, PyIntRef, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
-        function::{IntoPyException, IntoPyObject, OptionalArg},
+        function::{ArgBytesLike, IntoPyException, IntoPyObject, OptionalArg},
         stdlib::os::{
             errno_err, DirFd, FollowSymlinks, PathOrFd, PyPathLike, SupportFunc, TargetIsDirectory,
             _os, fs_metadata, IOErrorBuilder,
@@ -1929,19 +1929,14 @@ pub mod module {
     fn _extract_vec_bytes(
         x: OptionalArg,
         vm: &VirtualMachine,
-    ) -> PyResult<Option<Vec<crate::function::ArgBytesLike>>> {
-        let inner = match x.into_option() {
-            Some(v) => {
-                let v = vm.extract_elements::<crate::function::ArgBytesLike>(&v)?;
-                if v.is_empty() {
-                    None
-                } else {
-                    Some(v)
-                }
-            }
-            None => None,
-        };
-        Ok(inner)
+    ) -> PyResult<Option<Vec<ArgBytesLike>>> {
+        x.into_option()
+            .map(|x| {
+                let v: Vec<ArgBytesLike> = x.try_to_value(vm)?;
+                Ok(if v.is_empty() { None } else { Some(v) })
+            })
+            .transpose()
+            .map(Option::flatten)
     }
 
     #[cfg(target_os = "macos")]

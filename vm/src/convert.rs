@@ -119,3 +119,9 @@ impl<T: TryFromObject> TryFromObject for Option<T> {
         }
     }
 }
+
+impl<T: TryFromObject> TryFromBorrowedObject for Vec<T> {
+    fn try_from_borrowed_object(vm: &VirtualMachine, value: &PyObject) -> PyResult<Self> {
+        vm.extract_elements_with(value, |obj| T::try_from_object(vm, obj))
+    }
+}

@@ -377,7 +377,7 @@ mod time {
 
     impl TryFromObject for PyStructTime {
         fn try_from_object(vm: &VirtualMachine, seq: PyObjectRef) -> PyResult<Self> {
-            let seq = vm.extract_elements::<PyObjectRef>(&seq)?;
+            let seq: Vec<_> = seq.try_to_value(vm)?;
             if seq.len() != 9 {
                 return Err(
                     vm.new_type_error("time.struct_time() takes a sequence of length 9".to_owned())

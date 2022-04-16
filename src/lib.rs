@@ -649,7 +649,7 @@ fn get_importer(path: &str, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>
     let path = vm.ctx.new_str(path);
     let path_hooks = vm.sys_module.clone().get_attr("path_hooks", vm)?;
     let mut importer = None;
-    let path_hooks: Vec<PyObjectRef> = vm.extract_elements(&path_hooks)?;
+    let path_hooks: Vec<PyObjectRef> = path_hooks.try_into_value(vm)?;
     for path_hook in path_hooks {
         match vm.invoke(&path_hook, (path.clone(),)) {
             Ok(imp) => {

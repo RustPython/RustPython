@@ -102,7 +102,7 @@ impl Constructor for PyTuple {
             } else {
                 iterable
             };
-            vm.extract_elements(&iterable)?
+            iterable.try_to_value(vm)?
         } else {
             vec![]
         };

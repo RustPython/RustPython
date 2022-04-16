@@ -4,7 +4,7 @@ pub(crate) use math::make_module;
 mod math {
     use crate::vm::{
         builtins::{try_bigint_to_f64, try_f64_to_bigint, PyFloat, PyInt, PyIntRef},
-        function::{ArgIntoFloat, ArgIterable, ArgSequence, OptionalArg, PosArgs},
+        function::{ArgIntoFloat, ArgIterable, OptionalArg, PosArgs},
         utils::Either,
         PyObject, PyObjectRef, PyRef, PyResult, TypeProtocol, VirtualMachine,
     };
@@ -288,16 +288,12 @@ mod math {
     }
 
     #[pyfunction]
-    fn dist(
-        p: ArgSequence<ArgIntoFloat>,
-        q: ArgSequence<ArgIntoFloat>,
-        vm: &VirtualMachine,
-    ) -> PyResult<f64> {
+    fn dist(p: Vec<ArgIntoFloat>, q: Vec<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult<f64> {
         let mut max = 0.0;
         let mut has_nan = false;
 
-        let p = ArgIntoFloat::vec_into_f64(p.into_vec());
-        let q = ArgIntoFloat::vec_into_f64(q.into_vec());
+        let p = ArgIntoFloat::vec_into_f64(p);
+        let q = ArgIntoFloat::vec_into_f64(q);
         let mut diffs = vec![];
 
         if p.len() != q.len() {

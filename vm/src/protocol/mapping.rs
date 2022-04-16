@@ -155,8 +155,6 @@ impl PyMapping<'_> {
 
         // TODO
         // PySequence::from(&iter).list(vm).map(|x| x.into())
-        vm.ctx
-            .new_list(vm.extract_elements(&iter)?)
-            .into_pyresult(vm)
+        vm.ctx.new_list(iter.try_to_value(vm)?).into_pyresult(vm)
     }
 }

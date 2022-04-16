@@ -48,7 +48,7 @@ mod decl {
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
             PyItertoolsChain {
-                iterables: vm.extract_elements(&iterable)?,
+                iterables: iterable.try_to_value(vm)?,
                 cur_idx: AtomicCell::new(0),
                 cached_iter: PyRwLock::new(None),
             }
@@ -366,7 +366,8 @@ mod decl {
             let function = &zelf.function;
             match obj {
                 PyIterReturn::Return(obj) => {
-                    PyIterReturn::from_pyresult(vm.invoke(function, vm.extract_elements(&obj)?), vm)
+                    let args: Vec<_> = obj.try_to_value(vm)?;
+                    PyIterReturn::from_pyresult(vm.invoke(function, args), vm)
                 }
                 PyIterReturn::StopIteration(v) => Ok(PyIterReturn::StopIteration(v)),
             }
@@ -1075,7 +1076,7 @@ mod decl {
             let repeat = args.repeat.unwrap_or(1);
             let mut pools = Vec::new();
             for arg in iterables.iter() {
-                pools.push(vm.extract_elements(arg)?);
+                pools.push(arg.try_to_value(vm)?);
             }
             let pools = std::iter::repeat(pools)
                 .take(repeat)
@@ -1176,7 +1177,7 @@ mod decl {
             Self::Args { iterable, r }: Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult {
-            let pool = vm.extract_elements(&iterable)?;
+            let pool: Vec<_> = iterable.try_to_value(vm)?;
 
             let r = r.as_bigint();
             if r.is_negative() {
@@ -1267,7 +1268,7 @@ mod decl {
             Self::Args { iterable, r }: Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult {
-            let pool = vm.extract_elements(&iterable)?;
+            let pool: Vec<_> = iterable.try_to_value(vm)?;
             let r = r.as_bigint();
             if r.is_negative() {
                 return Err(vm.new_value_error("r must be non-negative".to_owned()));
@@ -1363,7 +1364,7 @@ mod decl {
             Self::Args { iterable, r }: Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult {
-            let pool = vm.extract_elements(&iterable)?;
+            let pool: Vec<_> = iterable.try_to_value(vm)?;
 
             let n = pool.len();
             // If r is not provided, r == n. If provided, r must be a positive integer, or None.

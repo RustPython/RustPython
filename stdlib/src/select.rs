@@ -1,4 +1,6 @@
-use crate::vm::{builtins::PyListRef, PyObjectRef, PyResult, TryFromObject, VirtualMachine};
+use crate::vm::{
+    builtins::PyListRef, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+};
 use std::{io, mem};
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
@@ -182,8 +184,8 @@ mod decl {
         }
         let deadline = timeout.map(|s| time::time(vm).unwrap() + s);
 
-        let seq2set = |list| -> PyResult<(Vec<Selectable>, FdSet)> {
-            let v = vm.extract_elements::<Selectable>(list)?;
+        let seq2set = |list: &PyObject| -> PyResult<(Vec<Selectable>, FdSet)> {
+            let v: Vec<Selectable> = list.try_to_value(vm)?;
             let mut fds = FdSet::new();
             for fd in &v {
                 fds.insert(fd.fno);

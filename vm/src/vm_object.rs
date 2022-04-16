@@ -133,7 +133,7 @@ impl VirtualMachine {
                 .invoke((), self)?,
             None => self.call_method(self.current_locals()?.as_object(), "keys", ())?,
         };
-        let items = self.extract_elements(&seq)?;
+        let items: Vec<_> = seq.try_to_value(self)?;
         let lst = PyList::from(items);
         lst.sort(Default::default(), self)?;
         Ok(lst)

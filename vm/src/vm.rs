@@ -25,7 +25,7 @@ use crate::{
     pyobject::PyLease,
     scope::Scope,
     signal, stdlib, IdProtocol, PyContext, PyObject, PyObjectRef, PyObjectWrap, PyRef, PyRefExact,
-    PyResult, PyValue, TryFromObject, TypeProtocol,
+    PyResult, PyValue, TypeProtocol,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use std::{
@@ -646,10 +646,6 @@ impl VirtualMachine {
             return self.map_pyiter(value, func);
         };
         slice.iter().map(|obj| func(obj.clone())).collect()
-    }
-
-    pub fn extract_elements<T: TryFromObject>(&self, value: &PyObject) -> PyResult<Vec<T>> {
-        self.extract_elements_with(value, |obj| T::try_from_object(self, obj))
     }
 
     pub fn map_iterable_object<F, R>(&self, obj: &PyObject, mut f: F) -> PyResult<PyResult<Vec<R>>>

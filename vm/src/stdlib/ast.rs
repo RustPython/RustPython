@@ -36,7 +36,7 @@ mod _ast {
         fn init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             let obj: PyObjectRef = zelf.clone_class().into();
             let fields = obj.get_attr("_fields", vm)?;
-            let fields = vm.extract_elements::<PyStrRef>(&fields)?;
+            let fields: Vec<PyStrRef> = fields.try_to_value(vm)?;
             let numargs = args.args.len();
             if numargs > fields.len() {
                 return Err(vm.new_type_error(format!(

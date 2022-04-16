@@ -457,7 +457,7 @@ mod builtins {
                 }
                 args.args
             }
-            std::cmp::Ordering::Equal => vm.extract_elements(&args.args[0])?,
+            std::cmp::Ordering::Equal => args.args[0].try_to_value(vm)?,
             std::cmp::Ordering::Less => {
                 // zero arguments means type error:
                 return Err(vm.new_type_error("Expected 1 or more arguments".to_owned()));
@@ -735,7 +735,7 @@ mod builtins {
 
     #[pyfunction]
     fn sorted(iterable: PyObjectRef, opts: SortOptions, vm: &VirtualMachine) -> PyResult<PyList> {
-        let items = vm.extract_elements(&iterable)?;
+        let items: Vec<_> = iterable.try_to_value(vm)?;
         let lst = PyList::from(items);
         lst.sort(opts, vm)?;
         Ok(lst)

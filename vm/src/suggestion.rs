@@ -62,12 +62,12 @@ pub fn offer_suggestions(exc: &PyBaseExceptionRef, vm: &VirtualMachine) -> Optio
             return Some(suggestions);
         };
 
-        let globals = vm.extract_elements(tb.frame.globals.as_object()).ok()?;
+        let globals: Vec<_> = tb.frame.globals.as_object().try_to_value(vm).ok()?;
         if let Some(suggestions) = calculate_suggestions(globals.as_slice().iter(), &name) {
             return Some(suggestions);
         };
 
-        let builtins = vm.extract_elements(tb.frame.builtins.as_object()).ok()?;
+        let builtins: Vec<_> = tb.frame.builtins.as_object().try_to_value(vm).ok()?;
         calculate_suggestions(builtins.as_slice().iter(), &name)
     } else {
         None

@@ -150,8 +150,9 @@ impl<T> ArgSequence<T> {
         &self.0
     }
 }
+
 impl<T: TryFromObject> TryFromObject for ArgSequence<T> {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        vm.extract_elements(&obj).map(Self)
+        obj.try_to_value(vm).map(Self)
     }
 }
