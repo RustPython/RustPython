@@ -51,12 +51,32 @@ impl PyObjectRef {
     {
         T::try_from_object(vm, self)
     }
+}
 
-    pub fn try_borrow_to_object<T>(&self, vm: &VirtualMachine) -> PyResult<T>
+impl PyObject {
+    pub fn try_to_value<T>(&self, vm: &VirtualMachine) -> PyResult<T>
     where
         T: TryFromBorrowedObject,
     {
         T::try_from_borrowed_object(vm, self)
+    }
+
+    pub fn try_value_with<T, F, R>(&self, f: F, vm: &VirtualMachine) -> PyResult<R>
+    where
+        T: PyValue,
+        F: Fn(&T) -> PyResult<R>,
+    {
+        let class = T::class(vm);
+        let special;
+        let py_ref = if self.isinstance(class) {
+            self.downcast_ref()
+                .ok_or_else(|| vm.new_downcast_runtime_error(class, self))?
+        } else {
+            special = T::special_retrieve(vm, self)
+                .unwrap_or_else(|| Err(vm.new_downcast_type_error(class, self)))?;
+            &special
+        };
+        f(py_ref)
     }
 }
 
@@ -64,28 +84,6 @@ impl PyObjectRef {
 pub trait TryFromBorrowedObject: Sized {
     /// Attempt to convert a Python object to a value of this type.
     fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self>;
-}
-
-pub(crate) fn try_value_from_borrowed_object<T, F, R>(
-    vm: &VirtualMachine,
-    obj: &PyObject,
-    f: F,
-) -> PyResult<R>
-where
-    T: PyValue,
-    F: Fn(&T) -> PyResult<R>,
-{
-    let class = T::class(vm);
-    let special;
-    let py_ref = if obj.isinstance(class) {
-        obj.downcast_ref()
-            .ok_or_else(|| vm.new_downcast_runtime_error(class, obj))?
-    } else {
-        special = T::special_retrieve(vm, obj)
-            .unwrap_or_else(|| Err(vm.new_downcast_type_error(class, obj)))?;
-        &special
-    };
-    f(py_ref)
 }
 
 impl<T> TryFromObject for PyRef<T>
