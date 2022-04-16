@@ -489,26 +489,6 @@ impl VirtualMachine {
         PyThread { thread_vm }
     }
 
-    pub fn run_atexit_funcs(&self) -> PyResult<()> {
-        let mut last_exc = None;
-        for (func, args) in self.state.atexit_funcs.lock().drain(..).rev() {
-            if let Err(e) = self.invoke(&func, args) {
-                last_exc = Some(e.clone());
-                if !e.isinstance(&self.ctx.exceptions.system_exit) {
-                    writeln!(
-                        stdlib::sys::PyStderr(self),
-                        "Error in atexit._run_exitfuncs:"
-                    );
-                    self.print_exception(e);
-                }
-            }
-        }
-        match last_exc {
-            None => Ok(()),
-            Some(e) => Err(e),
-        }
-    }
-
     pub fn run_code_obj(&self, code: PyRef<PyCode>, scope: Scope) -> PyResult {
         let frame = Frame::new(code, scope, self.builtins.dict(), &[], self).into_ref(self);
         self.run_frame_full(frame)

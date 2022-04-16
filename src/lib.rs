@@ -43,21 +43,20 @@ extern crate env_logger;
 #[macro_use]
 extern crate log;
 
+mod shell;
+
 use clap::{App, AppSettings, Arg, ArgMatches};
 use rustpython_vm::{
-    builtins::PyDictRef, builtins::PyInt, compile, match_class, scope::Scope, stdlib::sys,
+    builtins::{PyDictRef, PyInt},
+    compile, match_class,
+    scope::Scope,
+    stdlib::{atexit, sys},
     InitParameter, Interpreter, PyObjectRef, PyResult, PySettings, TryFromObject, TypeProtocol,
     VirtualMachine,
 };
+use std::{env, path::Path, process, str::FromStr};
 
-use std::env;
-use std::path::Path;
-use std::process;
-use std::str::FromStr;
-
-mod shell;
-
-pub use rustpython_vm;
+pub use rustpython_vm as vm;
 
 /// The main cli of the `rustpython` interpreter. This function will exit with `process::exit()`
 /// based on the return code of the python code ran through the cli.
@@ -141,7 +140,7 @@ where
             }
         };
 
-        let _ = vm.run_atexit_funcs();
+        let _ = atexit::_run_exitfuncs(vm);
 
         flush_std(vm);
 
