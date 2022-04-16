@@ -6,15 +6,17 @@
 //! https://docs.rs/byteorder/1.2.6/byteorder/
 
 pub(crate) use _struct::make_module;
+
 #[pymodule]
 pub(crate) mod _struct {
-    use crate::{
+    use crate::vm::{
         buffer::{new_struct_error, struct_error_type, FormatSpec},
         builtins::{PyBytes, PyStr, PyStrRef, PyTupleRef, PyTypeRef},
         function::{ArgBytesLike, ArgMemoryBuffer, PosArgs},
+        match_class,
         protocol::PyIterReturn,
         types::{Constructor, IterNext, IterNextIterable},
-        PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
+        PyObjectRef, PyObjectView, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
 
@@ -204,7 +206,7 @@ pub(crate) mod _struct {
     }
     impl IterNextIterable for UnpackIterator {}
     impl IterNext for UnpackIterator {
-        fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        fn next(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let size = zelf.format_spec.size;
             let offset = zelf.offset.fetch_add(size);
             zelf.buffer.with_ref(|buf| {

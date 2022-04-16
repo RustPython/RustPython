@@ -17,6 +17,7 @@ mod json;
 mod math;
 mod platform;
 mod pyexpat;
+mod pystruct;
 mod random;
 // TODO: maybe make this an extension module, if we ever get those
 // mod re;
@@ -87,6 +88,7 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
             "_platform" => platform::make_module,
             "_random" => random::make_module,
             "_statistics" => statistics::make_module,
+            "_struct" => pystruct::make_module,
             "unicodedata" => unicodedata::make_module,
             "zlib" => zlib::make_module,
             // crate::vm::sysmodule::sysconfigdata_name() => sysconfigdata::make_module,

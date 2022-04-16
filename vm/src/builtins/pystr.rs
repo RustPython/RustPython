@@ -322,7 +322,7 @@ impl Constructor for PyStr {
 }
 
 impl PyStr {
-    /// SAFETY: Given 'bytes' must be valid data for given 'kind'
+    /// # Safety: Given `bytes` must be valid data for given `kind`
     pub(crate) unsafe fn new_str_unchecked(bytes: Vec<u8>, kind: PyStrKind) -> Self {
         let s = Self {
             bytes: bytes.into_boxed_slice(),
@@ -333,8 +333,9 @@ impl PyStr {
         s
     }
 
-    /// SAFETY: Given 'bytes' must be ascii
-    pub(crate) unsafe fn new_ascii_unchecked(bytes: Vec<u8>) -> Self {
+    /// # Safety
+    /// Given `bytes` must be ascii
+    pub unsafe fn new_ascii_unchecked(bytes: Vec<u8>) -> Self {
         Self::new_str_unchecked(bytes, PyStrKind::Ascii)
     }
 

@@ -309,8 +309,8 @@ pub struct FormatSpec {
     #[allow(dead_code)]
     pub(crate) endianness: Endianness,
     pub(crate) codes: Vec<FormatCode>,
-    pub(crate) size: usize,
-    pub(crate) arg_count: usize,
+    pub size: usize,
+    pub arg_count: usize,
 }
 
 impl FormatSpec {
