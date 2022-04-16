@@ -1,6 +1,7 @@
 #! /usr/bin/env python
 """Generate Rust code from an ASDL description."""
 
+import datetime
 import sys
 import json
 import textwrap
@@ -586,7 +587,7 @@ def write_ast_mod(mod, f):
     c.visit(mod)
 
 def main(input_filename, ast_mod_filename, ast_def_filename, dump_module=False):
-    auto_gen_msg = AUTOGEN_MESSAGE.format("/".join(Path(__file__).parts[-2:]))
+    auto_gen_msg = AUTOGEN_MESSAGE.format("/".join(Path(__file__).parts[-2:]), datetime.datetime.now(datetime.timezone.utc))
     mod = asdl.parse(input_filename)
     if dump_module:
         print('Parsed Module:')
