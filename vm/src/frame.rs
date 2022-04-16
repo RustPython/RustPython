@@ -1703,7 +1703,7 @@ impl ExecutingFrame<'_> {
         needle: PyObjectRef,
         haystack: PyObjectRef,
     ) -> PyResult<bool> {
-        let found = vm._membership(haystack, needle)?;
+        let found = vm._contains(haystack, needle)?;
         found.try_to_bool(vm)
     }
 
@@ -1713,8 +1713,7 @@ impl ExecutingFrame<'_> {
         needle: PyObjectRef,
         haystack: PyObjectRef,
     ) -> PyResult<bool> {
-        let found = vm._membership(haystack, needle)?;
-        Ok(!found.try_to_bool(vm)?)
+        Ok(!self._in(vm, needle, haystack)?)
     }
 
     fn _is(&self, a: PyObjectRef, b: PyObjectRef) -> bool {
