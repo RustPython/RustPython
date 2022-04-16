@@ -80,6 +80,7 @@ impl<O> Borrow<PyObject> for PyIter<O>
 where
     O: Borrow<PyObject>,
 {
+    #[inline(always)]
     fn borrow(&self) -> &PyObject {
         self.0.borrow()
     }
@@ -89,6 +90,7 @@ impl<O> AsRef<PyObject> for PyIter<O>
 where
     O: Borrow<PyObject>,
 {
+    #[inline(always)]
     fn as_ref(&self) -> &PyObject {
         self.0.borrow()
     }
@@ -99,12 +101,14 @@ where
     O: Borrow<PyObject>,
 {
     type Target = PyObject;
+    #[inline(always)]
     fn deref(&self) -> &Self::Target {
         self.0.borrow()
     }
 }
 
 impl IntoPyObject for PyIter<PyObjectRef> {
+    #[inline(always)]
     fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
         self.into()
     }

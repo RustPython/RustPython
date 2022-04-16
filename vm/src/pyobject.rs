@@ -134,14 +134,17 @@ impl PyContext {
         context
     }
 
+    #[inline(always)]
     pub fn none(&self) -> PyObjectRef {
         self.none.clone().into()
     }
 
+    #[inline(always)]
     pub fn ellipsis(&self) -> PyObjectRef {
         self.ellipsis.clone().into()
     }
 
+    #[inline(always)]
     pub fn not_implemented(&self) -> PyObjectRef {
         self.not_implemented.clone().into()
     }
@@ -170,19 +173,22 @@ impl PyContext {
         PyRef::new_ref(PyInt::from(i.clone()), self.types.int_type.clone(), None)
     }
 
+    #[inline]
     pub fn new_float(&self, value: f64) -> PyRef<PyFloat> {
         PyRef::new_ref(PyFloat::from(value), self.types.float_type.clone(), None)
     }
 
+    #[inline]
     pub fn new_str(&self, s: impl Into<pystr::PyStr>) -> PyRef<PyStr> {
         pystr::PyStr::new_ref(s, self)
     }
 
+    #[inline]
     pub fn new_bytes(&self, data: Vec<u8>) -> PyRef<bytes::PyBytes> {
         bytes::PyBytes::new_ref(data, self)
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn new_bool(&self, b: bool) -> PyIntRef {
         let value = if b {
             &self.true_value
@@ -192,14 +198,17 @@ impl PyContext {
         value.clone()
     }
 
+    #[inline(always)]
     pub fn new_tuple(&self, elements: Vec<PyObjectRef>) -> PyTupleRef {
         PyTuple::new_ref(elements, self)
     }
 
+    #[inline(always)]
     pub fn new_list(&self, elements: Vec<PyObjectRef>) -> PyListRef {
         PyList::new_ref(elements, self)
     }
 
+    #[inline(always)]
     pub fn new_dict(&self) -> PyDictRef {
         PyDict::new_ref(self)
     }
@@ -376,12 +385,13 @@ impl<T: PyValue> TryFromObject for PyRefExact<T> {
 }
 impl<T: PyValue> Deref for PyRefExact<T> {
     type Target = PyRef<T>;
+    #[inline(always)]
     fn deref(&self) -> &PyRef<T> {
         &self.obj
     }
 }
 impl<T: PyValue> IntoPyObject for PyRefExact<T> {
-    #[inline]
+    #[inline(always)]
     fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
         self.obj.into()
     }
@@ -418,6 +428,7 @@ impl PyObject {
 }
 
 // impl<T: ?Sized> Borrow<PyObject> for PyRc<T> {
+//     #[inline(always)]
 //     fn borrow(&self) -> &PyObject {
 //         unsafe { &*(&**self as *const T as *const PyObject) }
 //     }
@@ -432,12 +443,14 @@ pub struct PyLease<'a, T: PyObjectPayload> {
 impl<'a, T: PyObjectPayload + PyValue> PyLease<'a, T> {
     // Associated function on purpose, because of deref
     #[allow(clippy::wrong_self_convention)]
+    #[inline(always)]
     pub fn into_pyref(zelf: Self) -> PyRef<T> {
         zelf.inner.clone()
     }
 }
 
 impl<'a, T: PyObjectPayload + PyValue> Borrow<PyObject> for PyLease<'a, T> {
+    #[inline(always)]
     fn borrow(&self) -> &PyObject {
         self.inner.as_ref()
     }
@@ -445,7 +458,7 @@ impl<'a, T: PyObjectPayload + PyValue> Borrow<PyObject> for PyLease<'a, T> {
 
 impl<'a, T: PyObjectPayload + PyValue> Deref for PyLease<'a, T> {
     type Target = PyRef<T>;
-
+    #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.inner
     }
@@ -521,27 +534,28 @@ impl<T, P> IntoPyRef<P> for T
 where
     P: PyValue + IntoPyObject + From<T>,
 {
+    #[inline(always)]
     fn into_pyref(self, vm: &VirtualMachine) -> PyRef<P> {
         P::from(self).into_ref(vm)
     }
 }
 
 impl<T: PyObjectPayload> IntoPyObject for PyRef<T> {
-    #[inline]
+    #[inline(always)]
     fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
         self.into()
     }
 }
 
 impl IntoPyObject for PyObjectRef {
-    #[inline]
+    #[inline(always)]
     fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
         self
     }
 }
 
 impl IntoPyObject for &PyObject {
-    #[inline]
+    #[inline(always)]
     fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
         self.to_owned()
     }
@@ -553,7 +567,7 @@ impl<T> IntoPyObject for T
 where
     T: PyValue + Sized,
 {
-    #[inline]
+    #[inline(always)]
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         PyValue::into_object(self, vm)
     }
@@ -563,6 +577,7 @@ impl<T> IntoPyResult for T
 where
     T: IntoPyObject,
 {
+    #[inline(always)]
     fn into_pyresult(self, vm: &VirtualMachine) -> PyResult {
         Ok(self.into_pyobject(vm))
     }
@@ -572,6 +587,7 @@ impl<T> IntoPyResult for PyResult<T>
 where
     T: IntoPyObject,
 {
+    #[inline(always)]
     fn into_pyresult(self, vm: &VirtualMachine) -> PyResult {
         self.map(|res| T::into_pyobject(res, vm))
     }
@@ -600,6 +616,7 @@ pub trait PyValue: fmt::Debug + PyThreadingConstraint + Sized + 'static {
         None
     }
 
+    #[inline]
     fn _into_ref(self, cls: PyTypeRef, vm: &VirtualMachine) -> PyRef<Self> {
         let dict = if cls.slots.flags.has_feature(PyTypeFlags::HAS_DICT) {
             Some(vm.ctx.new_dict())
@@ -609,24 +626,36 @@ pub trait PyValue: fmt::Debug + PyThreadingConstraint + Sized + 'static {
         PyRef::new_ref(self, cls, dict)
     }
 
+    #[inline]
     fn into_ref(self, vm: &VirtualMachine) -> PyRef<Self> {
         let cls = Self::class(vm);
         self._into_ref(cls.clone(), vm)
     }
 
+    #[cold]
+    fn _into_ref_with_type_error(
+        vm: &VirtualMachine,
+        cls: &PyTypeRef,
+        exact_class: &PyTypeRef,
+    ) -> PyBaseExceptionRef {
+        vm.new_type_error(format!(
+            "'{}' is not a subtype of '{}'",
+            &cls.name(),
+            exact_class.name()
+        ))
+    }
+
+    #[inline]
     fn into_ref_with_type(self, vm: &VirtualMachine, cls: PyTypeRef) -> PyResult<PyRef<Self>> {
         let exact_class = Self::class(vm);
         if cls.issubclass(exact_class) {
             Ok(self._into_ref(cls, vm))
         } else {
-            Err(vm.new_type_error(format!(
-                "'{}' is not a subtype of '{}'",
-                &cls.name(),
-                exact_class.name()
-            )))
+            Err(Self::_into_ref_with_type_error(vm, &cls, exact_class))
         }
     }
 
+    #[inline]
     fn into_pyresult_with_type(self, vm: &VirtualMachine, cls: PyTypeRef) -> PyResult {
         self.into_ref_with_type(vm, cls).into_pyresult(vm)
     }
@@ -710,6 +739,7 @@ impl<T> From<T> for PyObjectRef
 where
     T: PyObjectWrap,
 {
+    #[inline(always)]
     fn from(py_ref: T) -> Self {
         py_ref.into_object()
     }
