@@ -1,12 +1,10 @@
-use std::collections::HashMap;
-
 use rustpython_bytecode::{CodeObject, ConstantData, Instruction};
 use rustpython_jit::{CompiledCode, JitType};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct Function {
     code: Box<CodeObject>,
-    name: String,
     annotations: HashMap<String, StackValue>,
 }
 
@@ -107,7 +105,7 @@ impl StackMachine {
                 self.stack.push(StackValue::Map(map));
             }
             Instruction::MakeFunction(_flags) => {
-                let name = if let Some(StackValue::String(name)) = self.stack.pop() {
+                let _name = if let Some(StackValue::String(name)) = self.stack.pop() {
                     name
                 } else {
                     panic!("Expected function name")
@@ -122,11 +120,8 @@ impl StackMachine {
                 } else {
                     panic!("Expected function annotations")
                 };
-                self.stack.push(StackValue::Function(Function {
-                    name,
-                    code,
-                    annotations,
-                }));
+                self.stack
+                    .push(StackValue::Function(Function { code, annotations }));
             }
             Instruction::Duplicate => {
                 let value = self.stack.last().unwrap().clone();
