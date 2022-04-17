@@ -719,7 +719,7 @@ impl Comparable for PyByteArray {
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
-        if let Some(res) = op.identical_optimization(&zelf, &other) {
+        if let Some(res) = op.identical_optimization(zelf, other) {
             return Ok(res.into());
         }
         Ok(zelf.inner().cmp(other, op, vm))

@@ -772,7 +772,7 @@ impl AsRef<PyObject> for PyObject {
 
 impl IdProtocol for PyObjectRef {
     fn get_id(&self) -> usize {
-        self.ptr.as_ptr() as usize
+        PyObject::get_id(self)
     }
 }
 

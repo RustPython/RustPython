@@ -11,7 +11,10 @@ use crate::{
 };
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::{Signed, ToPrimitive};
-use std::{borrow::Cow, cmp::Ordering};
+use std::{
+    borrow::{Borrow, Cow},
+    cmp::Ordering,
+};
 
 // The corresponding field in CPython is `tp_` prefixed.
 // e.g. name -> tp_name
@@ -517,11 +520,8 @@ pub trait GetDescriptor: PyValue {
     }
 
     #[inline]
-    fn _cls_is<T>(cls: &Option<PyObjectRef>, other: &T) -> bool
-    where
-        T: IdProtocol,
-    {
-        cls.as_ref().map_or(false, |cls| other.is(cls))
+    fn _cls_is(cls: &Option<PyObjectRef>, other: &impl Borrow<PyObject>) -> bool {
+        cls.as_ref().map_or(false, |cls| other.borrow().is(cls))
     }
 }
 
@@ -711,8 +711,12 @@ impl PyComparisonOp {
     /// Returns an appropriate return value for the comparison when a and b are the same object, if an
     /// appropriate return value exists.
     #[inline]
-    pub fn identical_optimization(self, a: &impl IdProtocol, b: &impl IdProtocol) -> Option<bool> {
-        self.map_eq(|| a.is(b))
+    pub fn identical_optimization(
+        self,
+        a: &impl Borrow<PyObject>,
+        b: &impl Borrow<PyObject>,
+    ) -> Option<bool> {
+        self.map_eq(|| a.borrow().is(b.borrow()))
     }
 
     /// Returns `Some(true)` when self is `Eq` and `f()` returns true. Returns `Some(false)` when self
