@@ -162,9 +162,7 @@ impl WeakRefList {
             if let Some(generic_weakref) = inner.generic_weakref {
                 let generic_weakref = unsafe { generic_weakref.as_ref() };
                 if generic_weakref.0.ref_count.get() != 0 {
-                    return PyObjectWeak {
-                        weak: generic_weakref.to_owned(),
-                    };
+                    return generic_weakref.to_owned();
                 }
             }
         }
@@ -182,7 +180,7 @@ impl WeakRefList {
         if is_generic {
             inner.generic_weakref = Some(NonNull::from(&*weak));
         }
-        PyObjectWeak { weak }
+        weak
     }
 
     fn clear(&self) {
@@ -258,9 +256,7 @@ impl WeakRefList {
             None => return vec![],
         };
         let mut v = Vec::with_capacity(inner.ref_count - 1);
-        v.extend(inner.iter().map(|wr| PyObjectWeak {
-            weak: wr.to_owned(),
-        }));
+        v.extend(inner.iter().map(|wr| wr.to_owned()));
         v
     }
 }
@@ -365,6 +361,15 @@ impl Drop for PyWeak {
     }
 }
 
+pub type PyObjectWeak = PyRef<PyWeak>;
+
+impl PyObjectWeak {
+    #[inline(always)]
+    pub fn upgrade(&self) -> Option<PyObjectRef> {
+        PyWeak::upgrade(self)
+    }
+}
+
 #[derive(Debug)]
 struct InstanceDict {
     d: PyRwLock<PyDictRef>,
@@ -437,12 +442,6 @@ cfg_if::cfg_if! {
         unsafe impl Send for PyObjectRef {}
         unsafe impl Sync for PyObjectRef {}
     }
-}
-
-#[derive(Clone)]
-#[repr(transparent)]
-pub struct PyObjectWeak {
-    weak: PyRef<PyWeak>,
 }
 
 #[repr(transparent)]
@@ -785,27 +784,6 @@ impl<'a, T: PyObjectPayload> From<&'a PyObjectView<T>> for &'a PyObject {
     }
 }
 
-impl Borrow<PyObject> for PyObjectWeak {
-    #[inline(always)]
-    fn borrow(&self) -> &PyObject {
-        self.weak.as_object()
-    }
-}
-
-impl From<PyObjectWeak> for PyRef<PyWeak> {
-    #[inline(always)]
-    fn from(value: PyObjectWeak) -> Self {
-        value.weak
-    }
-}
-
-impl PyObjectWeak {
-    #[inline(always)]
-    pub fn upgrade(&self) -> Option<PyObjectRef> {
-        self.weak.upgrade()
-    }
-}
-
 impl Drop for PyObjectRef {
     #[inline]
     fn drop(&mut self) {
@@ -840,12 +818,6 @@ impl fmt::Debug for PyObjectRef {
         // SAFETY: the vtable contains functions that accept payload types that always match up
         // with the payload of the object
         unsafe { ((*self).0.vtable.debug)(self, f) }
-    }
-}
-
-impl fmt::Debug for PyObjectWeak {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "(PyWeak)")
     }
 }
 
