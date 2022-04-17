@@ -19,13 +19,13 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
 
     fn try_elements_from(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         let typ = Self::static_type();
-        if !obj.fast_isinstance(typ) {
-            return Err(vm.new_type_error(format!(
-                "{} is not a subclass of {}",
-                obj.class().name(),
-                typ.name(),
-            )));
-        }
+        // if !obj.fast_isinstance(typ) {
+        //     return Err(vm.new_type_error(format!(
+        //         "{} is not a subclass of {}",
+        //         obj.class().name(),
+        //         typ.name(),
+        //     )));
+        // }
         let seq: Vec<PyObjectRef> = obj.try_into_value(vm)?;
         if seq.len() != Self::FIELD_NAMES.len() {
             return Err(vm.new_type_error(format!(
