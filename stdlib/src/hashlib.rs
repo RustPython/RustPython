@@ -77,7 +77,7 @@ mod hashlib {
 
         #[pyslot]
         fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            Ok(PyHasher::new("md5", HashWrapper::md5()).into_object(vm))
+            Ok(PyHasher::new("md5", HashWrapper::md5()).into_pyobject(vm))
         }
 
         #[pyproperty]

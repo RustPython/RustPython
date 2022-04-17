@@ -242,7 +242,7 @@ impl PyRange {
                     // always fit in a usize.
                     length: length.to_usize().unwrap_or(0),
                 }
-                .into_object(vm)
+                .into_pyobject(vm)
             } else {
                 PyLongRangeIterator {
                     index: AtomicCell::new(0),
@@ -250,7 +250,7 @@ impl PyRange {
                     step,
                     length,
                 }
-                .into_object(vm)
+                .into_pyobject(vm)
             },
         )
     }
@@ -284,7 +284,7 @@ impl PyRange {
             }
         } else {
             iter_search(
-                self.clone().into_object(vm),
+                self.clone().into_pyobject(vm),
                 needle,
                 SearchType::Contains,
                 vm,
@@ -315,8 +315,13 @@ impl PyRange {
             // Fallback to iteration.
             Ok(BigInt::from_bytes_be(
                 Sign::Plus,
-                &iter_search(self.clone().into_object(vm), needle, SearchType::Index, vm)?
-                    .to_be_bytes(),
+                &iter_search(
+                    self.clone().into_pyobject(vm),
+                    needle,
+                    SearchType::Index,
+                    vm,
+                )?
+                .to_be_bytes(),
             ))
         }
     }
@@ -332,7 +337,7 @@ impl PyRange {
         } else {
             // Dealing with classes who might compare equal with ints in their
             // __eq__, slow search.
-            iter_search(self.clone().into_object(vm), item, SearchType::Count, vm)
+            iter_search(self.clone().into_pyobject(vm), item, SearchType::Count, vm)
         }
     }
 
@@ -493,7 +498,7 @@ impl Iterable for PyRange {
                 // always fit in a usize.
                 length: length.to_usize().unwrap_or(0),
             }
-            .into_object(vm))
+            .into_pyobject(vm))
         } else {
             Ok(PyLongRangeIterator {
                 index: AtomicCell::new(0),
@@ -501,7 +506,7 @@ impl Iterable for PyRange {
                 step: step.clone(),
                 length,
             }
-            .into_object(vm))
+            .into_pyobject(vm))
         }
     }
 }

@@ -3,8 +3,7 @@ use crate::{
     builtins::{iter::PySequenceIterator, PyDict, PyDictRef},
     convert::ToPyObject,
     protocol::{PyIter, PyIterIter, PyMapping, PyMappingMethods},
-    AsObject, PyObject, PyObjectRef, PyObjectWrap, PyResult, PyValue, TryFromObject,
-    VirtualMachine,
+    AsObject, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject, VirtualMachine,
 };
 use std::{borrow::Borrow, marker::PhantomData};
 
@@ -33,9 +32,9 @@ impl AsRef<PyObject> for ArgCallable {
     }
 }
 
-impl PyObjectWrap for ArgCallable {
-    fn into_object(self) -> PyObjectRef {
-        self.obj
+impl From<ArgCallable> for PyObjectRef {
+    fn from(value: ArgCallable) -> PyObjectRef {
+        value.obj
     }
 }
 
@@ -70,7 +69,7 @@ impl<T> ArgIterable<T> {
     pub fn iter<'a>(&self, vm: &'a VirtualMachine) -> PyResult<PyIterIter<'a, T>> {
         let iter = PyIter::new(match self.iterfn {
             Some(f) => f(self.iterable.clone(), vm)?,
-            None => PySequenceIterator::new(self.iterable.clone(), vm)?.into_object(vm),
+            None => PySequenceIterator::new(self.iterable.clone(), vm)?.into_pyobject(vm),
         });
         iter.into_iter(vm)
     }
@@ -130,10 +129,9 @@ impl AsRef<PyObject> for ArgMapping {
     }
 }
 
-impl PyObjectWrap for ArgMapping {
-    #[inline(always)]
-    fn into_object(self) -> PyObjectRef {
-        self.obj
+impl From<ArgMapping> for PyObjectRef {
+    fn from(value: ArgMapping) -> PyObjectRef {
+        value.obj
     }
 }
 

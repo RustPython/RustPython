@@ -571,7 +571,7 @@ mod _collections {
 
     impl Iterable for PyDeque {
         fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-            Ok(PyDequeIterator::new(zelf).into_object(vm))
+            Ok(PyDequeIterator::new(zelf).into_pyobject(vm))
         }
     }
 

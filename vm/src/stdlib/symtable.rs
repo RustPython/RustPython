@@ -143,7 +143,7 @@ mod symtable {
                 .symtable
                 .sub_tables
                 .iter()
-                .map(|t| to_py_symbol_table(t.clone()).into_object(vm))
+                .map(|t| to_py_symbol_table(t.clone()).into_pyobject(vm))
                 .collect();
             Ok(children)
         }
@@ -231,7 +231,7 @@ mod symtable {
             let namespaces = self
                 .namespaces
                 .iter()
-                .map(|table| to_py_symbol_table(table.clone()).into_object(vm))
+                .map(|table| to_py_symbol_table(table.clone()).into_pyobject(vm))
                 .collect();
             Ok(namespaces)
         }

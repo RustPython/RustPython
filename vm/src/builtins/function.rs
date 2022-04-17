@@ -311,9 +311,9 @@ impl PyFunction {
         let is_gen = code.flags.contains(bytecode::CodeFlags::IS_GENERATOR);
         let is_coro = code.flags.contains(bytecode::CodeFlags::IS_COROUTINE);
         match (is_gen, is_coro) {
-            (true, false) => Ok(PyGenerator::new(frame, self.name()).into_object(vm)),
-            (false, true) => Ok(PyCoroutine::new(frame, self.name()).into_object(vm)),
-            (true, true) => Ok(PyAsyncGen::new(frame, self.name()).into_object(vm)),
+            (true, false) => Ok(PyGenerator::new(frame, self.name()).into_pyobject(vm)),
+            (false, true) => Ok(PyCoroutine::new(frame, self.name()).into_pyobject(vm)),
+            (true, true) => Ok(PyAsyncGen::new(frame, self.name()).into_pyobject(vm)),
             (false, false) => vm.run_frame_full(frame),
         }
     }

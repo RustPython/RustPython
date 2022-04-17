@@ -1,8 +1,7 @@
 use crate::{
     builtins::iter::PySequenceIterator,
     convert::{ToPyObject, ToPyResult},
-    AsObject, PyObject, PyObjectRef, PyObjectWrap, PyResult, PyValue, TryFromObject,
-    VirtualMachine,
+    AsObject, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject, VirtualMachine,
 };
 use std::borrow::Borrow;
 use std::ops::Deref;
@@ -70,9 +69,9 @@ impl PyIter<PyObjectRef> {
     }
 }
 
-impl PyObjectWrap for PyIter<PyObjectRef> {
-    fn into_object(self) -> PyObjectRef {
-        self.0
+impl From<PyIter<PyObjectRef>> for PyObjectRef {
+    fn from(value: PyIter<PyObjectRef>) -> PyObjectRef {
+        value.0
     }
 }
 
@@ -134,7 +133,7 @@ impl TryFromObject for PyIter<PyObjectRef> {
                 )))
             }
         } else if let Ok(seq_iter) = PySequenceIterator::new(iter_target.clone(), vm) {
-            Ok(Self(seq_iter.into_object(vm)))
+            Ok(Self(seq_iter.into_pyobject(vm)))
         } else {
             Err(vm.new_type_error(format!(
                 "'{}' object is not iterable",

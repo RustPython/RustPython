@@ -33,8 +33,8 @@ use crate::{
         IterNextIterable, Iterable, PyComparisonOp, Unconstructible, Unhashable,
     },
     utils::Either,
-    AsObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyObjectWrap, PyRef, PyResult,
-    PyValue, TryFromBorrowedObject, TryFromObject, VirtualMachine,
+    AsObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue,
+    TryFromBorrowedObject, TryFromObject, VirtualMachine,
 };
 use bstr::ByteSlice;
 use std::{borrow::Cow, mem::size_of};
@@ -751,7 +751,7 @@ static BUFFER_METHODS: BufferMethods = BufferMethods {
 impl AsBuffer for PyByteArray {
     fn as_buffer(zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
         Ok(PyBuffer::new(
-            zelf.to_owned().into_object(),
+            zelf.to_owned().into(),
             BufferDescriptor::simple(zelf.len(), false),
             &BUFFER_METHODS,
         ))
@@ -789,12 +789,12 @@ impl PyByteArray {
             Self::sequence_downcast(seq)
                 .inner()
                 .concat(other, vm)
-                .map(|x| PyByteArray::from(x).into_object(vm))
+                .map(|x| PyByteArray::from(x).into_pyobject(vm))
         }),
         repeat: Some(|seq, n, vm| {
             Self::sequence_downcast(seq)
                 .mul(n as isize, vm)
-                .map(|x| x.into_object(vm))
+                .map(|x| x.into_pyobject(vm))
         }),
         item: Some(|seq, i, vm| {
             Self::sequence_downcast(seq)
@@ -833,7 +833,7 @@ impl Iterable for PyByteArray {
         Ok(PyByteArrayIterator {
             internal: PyMutex::new(PositionIterInternal::new(zelf, 0)),
         }
-        .into_object(vm))
+        .into_pyobject(vm))
     }
 }
 

@@ -33,8 +33,7 @@ mod builtins {
         stdlib::sys,
         types::PyComparisonOp,
         utils::Either,
-        AsObject, PyObject, PyObjectRef, PyObjectWrap, PyRef, PyResult, PyValue, TryFromObject,
-        VirtualMachine,
+        AsObject, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
     };
     use num_traits::{Signed, ToPrimitive, Zero};
 
@@ -433,8 +432,8 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn locals(vm: &VirtualMachine) -> PyResult {
-        vm.current_locals().map(|x| x.into_object())
+    fn locals(vm: &VirtualMachine) -> PyResult<ArgMapping> {
+        vm.current_locals()
     }
 
     fn min_or_max(
@@ -690,7 +689,7 @@ mod builtins {
             })?;
             let len = obj.length(vm)?;
             let obj_iterator = PyReverseSequenceIterator::new(obj, len);
-            Ok(obj_iterator.into_object(vm))
+            Ok(obj_iterator.into_pyobject(vm))
         }
     }
 
@@ -793,7 +792,7 @@ mod builtins {
                 vm.new_type_error("vars() argument must have __dict__ attribute".to_owned())
             })
         } else {
-            Ok(vm.current_locals()?.into_object())
+            Ok(vm.current_locals()?.into())
         }
     }
 

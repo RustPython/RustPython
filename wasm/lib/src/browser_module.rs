@@ -112,7 +112,7 @@ mod _browser {
             JsFuture::from(response_format.get_response(&response)?).await
         };
 
-        Ok(PyPromise::from_future(future).into_object(vm))
+        Ok(PyPromise::from_future(future).into_pyobject(vm))
     }
 
     #[pyfunction]
@@ -253,7 +253,7 @@ mod _browser {
             })
         };
 
-        Ok(PyPromise::from_future(future).into_object(vm))
+        Ok(PyPromise::from_future(future).into_pyobject(vm))
     }
 }
 

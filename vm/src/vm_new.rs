@@ -10,7 +10,7 @@ use crate::{
     convert::ToPyObject,
     scope::Scope,
     vm::VirtualMachine,
-    AsObject, PyObject, PyObjectRef, PyObjectWrap, PyRef, PyValue,
+    AsObject, PyObject, PyObjectRef, PyRef, PyValue,
 };
 
 /// Collection of object creation helpers
@@ -44,7 +44,7 @@ impl VirtualMachine {
                 .unwrap_or_else(|| self.ctx.none()),
             self,
         );
-        module.into_object()
+        module.into()
     }
 
     pub fn new_scope_with_builtins(&self) -> Scope {

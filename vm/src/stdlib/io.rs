@@ -114,7 +114,7 @@ mod _io {
         types::{Constructor, Destructor, IterNext, Iterable},
         utils::Either,
         vm::{ReprGuard, VirtualMachine},
-        AsObject, PyContext, PyObject, PyObjectRef, PyObjectWrap, PyRef, PyResult, PyValue,
+        AsObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
         TryFromBorrowedObject, TryFromObject,
     };
     use bstr::ByteSlice;
@@ -3313,7 +3313,7 @@ mod _io {
         fn getbuffer(self, vm: &VirtualMachine) -> PyResult<PyMemoryView> {
             let len = self.buffer.read().cursor.get_ref().len();
             let buffer = PyBuffer::new(
-                self.into_object(),
+                self.into(),
                 BufferDescriptor::simple(len, false),
                 &BYTES_IO_BUFFER_METHODS,
             );

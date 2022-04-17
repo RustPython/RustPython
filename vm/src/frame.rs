@@ -8,7 +8,7 @@ use crate::{
         PySlice, PyStr, PyStrRef, PyTraceback, PyTypeRef,
     },
     bytecode,
-    convert::ToPyResult,
+    convert::{IntoObject, ToPyResult},
     coroutine::Coro,
     exceptions::ExceptionCtor,
     function::{ArgMapping, FuncArgs},
@@ -16,8 +16,8 @@ use crate::{
     scope::Scope,
     stdlib::builtins,
     types::PyComparisonOp,
-    AsObject, PyMethod, PyObject, PyObjectRef, PyObjectWrap, PyRef, PyResult, PyValue,
-    TryFromObject, VirtualMachine,
+    AsObject, PyMethod, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    VirtualMachine,
 };
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -727,7 +727,7 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::YieldValue => {
                 let value = self.pop_value();
                 let value = if self.code.flags.contains(bytecode::CodeFlags::IS_COROUTINE) {
-                    PyAsyncGenWrappedValue(value).into_object(vm)
+                    PyAsyncGenWrappedValue(value).into_pyobject(vm)
                 } else {
                     value
                 };
@@ -1606,7 +1606,7 @@ impl ExecutingFrame<'_> {
             defaults,
             kw_only_defaults,
         )
-        .into_object(vm);
+        .into_pyobject(vm);
 
         func_obj.set_attr("__doc__", vm.ctx.none(), vm)?;
 

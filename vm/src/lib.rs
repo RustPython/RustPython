@@ -89,7 +89,7 @@ mod pyobject {
 pub use self::convert::{TryFromBorrowedObject, TryFromObject};
 // pyobject items
 pub use self::pyobject::{
-    AsObject, PyContext, PyMethod, PyObjectWrap, PyRefExact, PyResult, PyStructSequence, PyValue,
+    AsObject, PyContext, PyMethod, PyRefExact, PyResult, PyStructSequence, PyValue,
 };
 // pyobjectrc items
 pub use self::pyobject::{PyObject, PyObjectRef, PyObjectView, PyObjectWeak, PyRef, PyWeakRef};

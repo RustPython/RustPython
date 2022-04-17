@@ -394,7 +394,7 @@ impl Iterable for PyTuple {
         Ok(PyTupleIterator {
             internal: PyMutex::new(PositionIterInternal::new(zelf, 0)),
         }
-        .into_object(vm))
+        .into_pyobject(vm))
     }
 }
 

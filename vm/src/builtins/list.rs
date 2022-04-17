@@ -16,8 +16,7 @@ use crate::{
     },
     utils::collection_repr,
     vm::{ReprGuard, VirtualMachine},
-    AsObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyObjectWrap, PyRef, PyResult,
-    PyValue,
+    AsObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue,
 };
 use std::{borrow::Cow, fmt, ops::DerefMut};
 
@@ -412,12 +411,12 @@ impl PyList {
         concat: Some(|seq, other, vm| {
             Self::sequence_downcast(seq)
                 .concat(other, vm)
-                .map(|x| x.into_object())
+                .map(|x| x.into())
         }),
         repeat: Some(|seq, n, vm| {
             Self::sequence_downcast(seq)
                 .mul(n as isize, vm)
-                .map(|x| x.into_object())
+                .map(|x| x.into())
         }),
         item: Some(|seq, i, vm| {
             Self::sequence_downcast(seq)
@@ -443,7 +442,7 @@ impl PyList {
         inplace_repeat: Some(|seq, n, vm| {
             let zelf = Self::sequence_downcast(seq);
             zelf.borrow_vec_mut().imul(vm, n as isize)?;
-            Ok(zelf.to_owned().into_object())
+            Ok(zelf.to_owned().into())
         }),
     };
 }
@@ -453,7 +452,7 @@ impl Iterable for PyList {
         Ok(PyListIterator {
             internal: PyMutex::new(PositionIterInternal::new(zelf, 0)),
         }
-        .into_object(vm))
+        .into_pyobject(vm))
     }
 }
 
