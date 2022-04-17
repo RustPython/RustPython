@@ -30,7 +30,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 pub mod module {
     use crate::{
         builtins::{PyDictRef, PyInt, PyIntRef, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
-        function::{ArgBytesLike, IntoPyException, IntoPyObject, OptionalArg},
+        function::{IntoPyException, IntoPyObject, OptionalArg},
         stdlib::os::{
             errno_err, DirFd, FollowSymlinks, PathOrFd, PyPathLike, SupportFunc, TargetIsDirectory,
             _os, fs_metadata, IOErrorBuilder,
@@ -1929,10 +1929,10 @@ pub mod module {
     fn _extract_vec_bytes(
         x: OptionalArg,
         vm: &VirtualMachine,
-    ) -> PyResult<Option<Vec<ArgBytesLike>>> {
+    ) -> PyResult<Option<Vec<crate::function::ArgBytesLike>>> {
         x.into_option()
             .map(|x| {
-                let v: Vec<ArgBytesLike> = x.try_to_value(vm)?;
+                let v: Vec<crate::function::ArgBytesLike> = x.try_to_value(vm)?;
                 Ok(if v.is_empty() { None } else { Some(v) })
             })
             .transpose()
