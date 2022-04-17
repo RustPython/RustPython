@@ -1,10 +1,11 @@
 // sliceobject.{h,c} in CPython
 use super::{PyInt, PyIntRef, PyTupleRef, PyTypeRef};
 use crate::{
-    function::{FuncArgs, IntoPyObject, OptionalArg, PyComparisonValue},
+    convert::ToPyObject,
+    function::{FuncArgs, OptionalArg, PyComparisonValue},
     pyclass::PyClassImpl,
     types::{Comparable, Constructor, Hashable, PyComparisonOp, Unhashable},
-    AsPyObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    AsObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 use num_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, ToPrimitive, Zero};
@@ -29,7 +30,7 @@ impl PyValue for PySlice {
 impl PySlice {
     #[pyproperty]
     fn start(&self, vm: &VirtualMachine) -> PyObjectRef {
-        self.start.clone().into_pyobject(vm)
+        self.start.clone().to_pyobject(vm)
     }
 
     fn start_ref<'a>(&'a self, vm: &'a VirtualMachine) -> &'a PyObject {
@@ -46,7 +47,7 @@ impl PySlice {
 
     #[pyproperty]
     fn step(&self, vm: &VirtualMachine) -> PyObjectRef {
-        self.step.clone().into_pyobject(vm)
+        self.step.clone().to_pyobject(vm)
     }
 
     fn step_ref<'a>(&'a self, vm: &'a VirtualMachine) -> &'a PyObject {

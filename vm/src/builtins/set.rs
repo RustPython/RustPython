@@ -17,7 +17,7 @@ use crate::{
     },
     utils::collection_repr,
     vm::{ReprGuard, VirtualMachine},
-    AsPyObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    AsObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
 };
 use std::borrow::Cow;
 use std::{fmt, ops::Deref};

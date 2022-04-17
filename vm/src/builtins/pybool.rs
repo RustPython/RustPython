@@ -1,17 +1,14 @@
 use super::{PyInt, PyStrRef, PyTypeRef};
 use crate::{
-    function::{IntoPyObject, OptionalArg},
-    pyclass::PyClassImpl,
-    types::Constructor,
-    AsPyObject, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject,
-    VirtualMachine,
+    convert::ToPyObject, function::OptionalArg, pyclass::PyClassImpl, types::Constructor, AsObject,
+    PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject, VirtualMachine,
 };
 use num_bigint::Sign;
 use num_traits::Zero;
 use std::fmt::{Debug, Formatter};
 
-impl IntoPyObject for bool {
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+impl ToPyObject for bool {
+    fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.new_bool(self).into()
     }
 }
@@ -134,9 +131,9 @@ impl PyBool {
         {
             let lhs = get_value(&lhs);
             let rhs = get_value(&rhs);
-            (lhs || rhs).into_pyobject(vm)
+            (lhs || rhs).to_pyobject(vm)
         } else {
-            get_py_int(&lhs).or(rhs, vm).into_pyobject(vm)
+            get_py_int(&lhs).or(rhs, vm).to_pyobject(vm)
         }
     }
 
@@ -148,9 +145,9 @@ impl PyBool {
         {
             let lhs = get_value(&lhs);
             let rhs = get_value(&rhs);
-            (lhs && rhs).into_pyobject(vm)
+            (lhs && rhs).to_pyobject(vm)
         } else {
-            get_py_int(&lhs).and(rhs, vm).into_pyobject(vm)
+            get_py_int(&lhs).and(rhs, vm).to_pyobject(vm)
         }
     }
 
@@ -162,9 +159,9 @@ impl PyBool {
         {
             let lhs = get_value(&lhs);
             let rhs = get_value(&rhs);
-            (lhs ^ rhs).into_pyobject(vm)
+            (lhs ^ rhs).to_pyobject(vm)
         } else {
-            get_py_int(&lhs).xor(rhs, vm).into_pyobject(vm)
+            get_py_int(&lhs).xor(rhs, vm).to_pyobject(vm)
         }
     }
 }

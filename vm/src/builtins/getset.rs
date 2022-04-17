@@ -3,11 +3,12 @@
 */
 use super::PyTypeRef;
 use crate::{
-    function::{IntoPyResult, OwnedParam, RefParam},
+    convert::ToPyResult,
+    function::{OwnedParam, RefParam},
     pyclass::PyClassImpl,
     pyobject::PyThreadingConstraint,
     types::{Constructor, GetDescriptor, Unconstructible},
-    AsPyObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
+    AsObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
 };
 
 pub type PyGetterFunc = Box<py_dyn_fn!(dyn Fn(&VirtualMachine, PyObjectRef) -> PyResult)>;
@@ -26,11 +27,11 @@ impl<F, T, R> IntoPyGetterFunc<(OwnedParam<T>, R, VirtualMachine)> for F
 where
     F: Fn(T, &VirtualMachine) -> R + 'static + Send + Sync,
     T: TryFromObject,
-    R: IntoPyResult,
+    R: ToPyResult,
 {
     fn get(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let obj = T::try_from_object(vm, obj)?;
-        (self)(obj, vm).into_pyresult(vm)
+        (self)(obj, vm).to_pyresult(vm)
     }
 }
 
@@ -38,11 +39,11 @@ impl<F, S, R> IntoPyGetterFunc<(RefParam<S>, R, VirtualMachine)> for F
 where
     F: Fn(&S, &VirtualMachine) -> R + 'static + Send + Sync,
     S: PyValue,
-    R: IntoPyResult,
+    R: ToPyResult,
 {
     fn get(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let zelf = PyRef::<S>::try_from_object(vm, obj)?;
-        (self)(&zelf, vm).into_pyresult(vm)
+        (self)(&zelf, vm).to_pyresult(vm)
     }
 }
 
@@ -50,11 +51,11 @@ impl<F, T, R> IntoPyGetterFunc<(OwnedParam<T>, R)> for F
 where
     F: Fn(T) -> R + 'static + Send + Sync,
     T: TryFromObject,
-    R: IntoPyResult,
+    R: ToPyResult,
 {
     fn get(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let obj = T::try_from_object(vm, obj)?;
-        (self)(obj).into_pyresult(vm)
+        (self)(obj).to_pyresult(vm)
     }
 }
 
@@ -62,11 +63,11 @@ impl<F, S, R> IntoPyGetterFunc<(RefParam<S>, R)> for F
 where
     F: Fn(&S) -> R + 'static + Send + Sync,
     S: PyValue,
-    R: IntoPyResult,
+    R: ToPyResult,
 {
     fn get(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let zelf = PyRef::<S>::try_from_object(vm, obj)?;
-        (self)(&zelf).into_pyresult(vm)
+        (self)(&zelf).to_pyresult(vm)
     }
 }
 

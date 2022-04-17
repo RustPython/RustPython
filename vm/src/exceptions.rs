@@ -4,12 +4,13 @@ use crate::{
     builtins::{
         traceback::PyTracebackRef, PyNone, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
     },
-    function::{ArgIterable, FuncArgs, IntoPyException, IntoPyObject},
+    convert::{ToPyException, ToPyObject},
+    function::{ArgIterable, FuncArgs},
     py_io::{self, Write},
     pyclass::{PyClassImpl, StaticType},
     stdlib::sys,
     suggestion::offer_suggestions,
-    AsPyObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
+    AsObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
@@ -181,7 +182,7 @@ impl VirtualMachine {
         &self,
         exc: PyBaseExceptionRef,
     ) -> (PyObjectRef, PyObjectRef, PyObjectRef) {
-        let tb = exc.traceback().into_pyobject(self);
+        let tb = exc.traceback().to_pyobject(self);
         let class = exc.class().clone();
         (class.into(), exc.into(), tb)
     }
@@ -981,15 +982,15 @@ pub fn cstring_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
     vm.new_value_error("embedded null character".to_owned())
 }
 
-impl IntoPyException for std::ffi::NulError {
-    fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+impl ToPyException for std::ffi::NulError {
+    fn to_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         cstring_error(vm)
     }
 }
 
 #[cfg(windows)]
-impl<C: widestring::UChar> IntoPyException for widestring::NulError<C> {
-    fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+impl<C: widestring::UChar> ToPyException for widestring::NulError<C> {
+    fn to_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         cstring_error(vm)
     }
 }
@@ -1027,7 +1028,8 @@ pub(super) mod types {
     #[cfg_attr(target_os = "wasi", allow(unused_imports))]
     use crate::{
         builtins::{traceback::PyTracebackRef, PyInt, PyTupleRef, PyTypeRef},
-        function::{FuncArgs, IntoPyResult},
+        convert::ToPyResult,
+        function::FuncArgs,
         PyObjectRef, PyRef, PyResult, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
@@ -1253,7 +1255,7 @@ pub(super) mod types {
         // See: `BaseException_new`
         if cls.name().deref() == vm.ctx.exceptions.os_error.name().deref() {
             match os_error_optional_new(args.args.to_vec(), vm) {
-                Some(error) => error.into_pyresult(vm),
+                Some(error) => error.to_pyresult(vm),
                 None => PyBaseException::slot_new(cls, args, vm),
             }
         } else {

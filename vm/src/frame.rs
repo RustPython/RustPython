@@ -8,14 +8,15 @@ use crate::{
         PySlice, PyStr, PyStrRef, PyTraceback, PyTypeRef,
     },
     bytecode,
+    convert::ToPyResult,
     coroutine::Coro,
     exceptions::ExceptionCtor,
-    function::{ArgMapping, FuncArgs, IntoPyResult},
+    function::{ArgMapping, FuncArgs},
     protocol::{PyIter, PyIterReturn},
     scope::Scope,
     stdlib::builtins,
     types::PyComparisonOp,
-    AsPyObject, PyMethod, PyObject, PyObjectRef, PyObjectWrap, PyRef, PyResult, PyValue,
+    AsObject, PyMethod, PyObject, PyObjectRef, PyObjectWrap, PyRef, PyResult, PyValue,
     TryFromObject, VirtualMachine,
 };
 use indexmap::IndexMap;
@@ -398,7 +399,7 @@ impl ExecutingFrame<'_> {
                 let ret = match thrower {
                     Either::A(coro) => coro
                         .throw(gen, exc_type, exc_val, exc_tb, vm)
-                        .into_pyresult(vm), // FIXME:
+                        .to_pyresult(vm), // FIXME:
                     Either::B(meth) => vm.invoke(&meth, (exc_type, exc_val, exc_tb)),
                 };
                 return ret.map(ExecutionResult::Yield).or_else(|err| {

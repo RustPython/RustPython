@@ -31,10 +31,10 @@ mod _ssl {
         socket::{self, PySocket},
         vm::{
             builtins::{PyBaseExceptionRef, PyStrRef, PyType, PyTypeRef},
+            convert::{ToPyException, ToPyObject},
             exceptions,
             function::{
-                ArgBytesLike, ArgCallable, ArgMemoryBuffer, ArgStrOrBytesLike, IntoPyException,
-                IntoPyObject, OptionalArg,
+                ArgBytesLike, ArgCallable, ArgMemoryBuffer, ArgStrOrBytesLike, OptionalArg,
             },
             stdlib::os::PyPathLike,
             types::Constructor,
@@ -1157,7 +1157,7 @@ mod _ssl {
                 "The operation did not complete (write)",
             ),
             ssl::ErrorCode::SYSCALL => match e.io_error() {
-                Some(io_err) => return io_err.into_pyexception(vm),
+                Some(io_err) => return io_err.to_pyexception(vm),
                 None => (
                     vm.class("_ssl", "SSLSyscallError"),
                     "EOF occurred in violation of protocol",
@@ -1216,7 +1216,7 @@ mod _ssl {
                 let list = name
                     .entries()
                     .map(|entry| {
-                        let txt = obj2txt(entry.object(), false).into_pyobject(vm);
+                        let txt = obj2txt(entry.object(), false).to_pyobject(vm);
                         let data = vm.ctx.new_str(entry.data().as_utf8()?.to_owned());
                         Ok(vm.new_tuple(((txt, data),)).into())
                     })
@@ -1285,7 +1285,7 @@ mod _ssl {
 
     #[pyfunction]
     fn _test_decode_cert(path: PyPathLike, vm: &VirtualMachine) -> PyResult {
-        let pem = std::fs::read(&path).map_err(|e| e.into_pyexception(vm))?;
+        let pem = std::fs::read(&path).map_err(|e| e.to_pyexception(vm))?;
         let x509 = X509::from_pem(&pem).map_err(|e| convert_openssl_error(vm, e))?;
         cert_to_py(vm, &x509, false)
     }
@@ -1399,7 +1399,7 @@ mod windows {
         common::ascii,
         vm::{
             builtins::{PyFrozenSet, PyStrRef},
-            function::IntoPyException,
+            convert::ToPyException,
             PyObjectRef, PyResult, PyValue, VirtualMachine,
         },
     };
@@ -1441,7 +1441,7 @@ mod windows {
         });
         let certs = certs
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|e: std::io::Error| e.into_pyexception(vm))?;
+            .map_err(|e: std::io::Error| e.to_pyexception(vm))?;
         Ok(certs)
     }
 }

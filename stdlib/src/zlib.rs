@@ -5,7 +5,7 @@ mod zlib {
     use crate::common::lock::PyMutex;
     use crate::vm::{
         builtins::{PyBaseExceptionRef, PyBytes, PyBytesRef, PyIntRef, PyTypeRef},
-        function::{ArgBytesLike, IntoPyRef, OptionalArg, OptionalOption},
+        function::{ArgBytesLike, OptionalArg, OptionalOption},
         PyResult, PyValue, VirtualMachine,
     };
     use adler32::RollingAdler32 as Adler32;
@@ -321,7 +321,7 @@ mod zlib {
                     .chain(leftover)
                     .copied()
                     .collect();
-                *unused_data = unused.into_pyref(vm);
+                *unused_data = vm.new_pyref(unused);
             }
         }
 

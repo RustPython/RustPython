@@ -1,9 +1,10 @@
 use crate::{
     builtins::{PyList, PyListRef, PySlice, PyTuple, PyTupleRef},
     common::lock::OnceCell,
-    function::{IntoPyObject, PyArithmeticValue},
+    convert::ToPyObject,
+    function::PyArithmeticValue,
     protocol::PyMapping,
-    AsPyObject, PyObject, PyObjectRef, PyResult, PyValue, VirtualMachine,
+    AsObject, PyObject, PyObjectRef, PyResult, PyValue, VirtualMachine,
 };
 use itertools::Itertools;
 use std::{
@@ -142,7 +143,7 @@ impl PySequence<'_> {
 
         // try fallback to __mul__
         if self.check(vm) {
-            let ret = vm._mul(self.obj, &n.into_pyobject(vm))?;
+            let ret = vm._mul(self.obj, &n.to_pyobject(vm))?;
             if let PyArithmeticValue::Implemented(ret) = PyArithmeticValue::from_object(vm, ret) {
                 return Ok(ret);
             }
@@ -180,7 +181,7 @@ impl PySequence<'_> {
         }
 
         if self.check(vm) {
-            let ret = vm._imul(self.obj, &n.into_pyobject(vm))?;
+            let ret = vm._imul(self.obj, &n.to_pyobject(vm))?;
             if let PyArithmeticValue::Implemented(ret) = PyArithmeticValue::from_object(vm, ret) {
                 return Ok(ret);
             }
@@ -224,8 +225,8 @@ impl PySequence<'_> {
     pub fn get_slice(&self, start: isize, stop: isize, vm: &VirtualMachine) -> PyResult {
         if let Ok(mapping) = PyMapping::try_protocol(self.obj, vm) {
             let slice = PySlice {
-                start: Some(start.into_pyobject(vm)),
-                stop: stop.into_pyobject(vm),
+                start: Some(start.to_pyobject(vm)),
+                stop: stop.to_pyobject(vm),
                 step: None,
             };
             mapping.subscript(&slice.into_object(vm), vm)
@@ -244,8 +245,8 @@ impl PySequence<'_> {
         let mapping = PyMapping::from(self.obj);
         if let Some(f) = mapping.methods(vm).ass_subscript {
             let slice = PySlice {
-                start: Some(start.into_pyobject(vm)),
-                stop: stop.into_pyobject(vm),
+                start: Some(start.to_pyobject(vm)),
+                stop: stop.to_pyobject(vm),
                 step: None,
             };
             f(&mapping, &slice.into_object(vm), value, vm)

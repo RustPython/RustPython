@@ -7,7 +7,7 @@ use crate::{
     bytecode::{self, BorrowedConstant, Constant, ConstantBag},
     function::FuncArgs,
     pyclass::{PyClassImpl, StaticType},
-    AsPyObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    AsObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 use num_traits::Zero;
 use std::{fmt, ops::Deref};

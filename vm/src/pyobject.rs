@@ -11,9 +11,10 @@ use crate::{
         PyType, PyTypeRef,
     },
     convert::TryFromObject,
+    convert::{ToPyObject, ToPyResult},
     dictdatatype::Dict,
     exceptions,
-    function::{IntoFuncArgs, IntoPyNativeFunc, IntoPyObject, IntoPyRef, IntoPyResult},
+    function::{IntoFuncArgs, IntoPyNativeFunc},
     pyclass::{PyClassImpl, StaticType},
     types::{PyTypeFlags, PyTypeSlots, TypeZoo},
     VirtualMachine,
@@ -390,14 +391,14 @@ impl<T: PyValue> Deref for PyRefExact<T> {
         &self.obj
     }
 }
-impl<T: PyValue> IntoPyObject for PyRefExact<T> {
+impl<T: PyValue> ToPyObject for PyRefExact<T> {
     #[inline(always)]
-    fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
+    fn to_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
         self.obj.into()
     }
 }
 
-pub trait AsPyObject
+pub trait AsObject
 where
     Self: Borrow<PyObject>,
 {
@@ -414,7 +415,7 @@ where
     #[inline(always)]
     fn is<T>(&self, other: &T) -> bool
     where
-        T: AsPyObject,
+        T: AsObject,
     {
         self.get_id() == other.get_id()
     }
@@ -436,7 +437,7 @@ where
     }
 }
 
-impl<T> AsPyObject for T where T: Borrow<PyObject> {}
+impl<T> AsObject for T where T: Borrow<PyObject> {}
 
 impl PyObject {
     #[inline(always)]
@@ -466,11 +467,9 @@ pub struct PyLease<'a, T: PyObjectPayload> {
 }
 
 impl<'a, T: PyObjectPayload + PyValue> PyLease<'a, T> {
-    // Associated function on purpose, because of deref
-    #[allow(clippy::wrong_self_convention)]
     #[inline(always)]
-    pub fn into_pyref(zelf: Self) -> PyRef<T> {
-        zelf.inner.clone()
+    pub fn into_owned(self) -> PyRef<T> {
+        self.inner.clone()
     }
 }
 
@@ -498,66 +497,56 @@ where
     }
 }
 
-impl<T, P> IntoPyRef<P> for T
-where
-    P: PyValue + IntoPyObject + From<T>,
-{
+impl<T: PyObjectPayload> ToPyObject for PyRef<T> {
     #[inline(always)]
-    fn into_pyref(self, vm: &VirtualMachine) -> PyRef<P> {
-        P::from(self).into_ref(vm)
-    }
-}
-
-impl<T: PyObjectPayload> IntoPyObject for PyRef<T> {
-    #[inline(always)]
-    fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
+    fn to_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
         self.into()
     }
 }
 
-impl IntoPyObject for PyObjectRef {
+impl ToPyObject for PyObjectRef {
     #[inline(always)]
-    fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
+    fn to_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
         self
     }
 }
 
-impl IntoPyObject for &PyObject {
+impl ToPyObject for &PyObject {
     #[inline(always)]
-    fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
+    fn to_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
         self.to_owned()
     }
 }
 
 // Allows a built-in function to return any built-in object payload without
-// explicitly implementing `IntoPyObject`.
-impl<T> IntoPyObject for T
+// explicitly implementing `ToPyObject`.
+impl<T> ToPyObject for T
 where
     T: PyValue + Sized,
 {
     #[inline(always)]
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+    fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         PyValue::into_object(self, vm)
     }
 }
 
-impl<T> IntoPyResult for T
+impl<T> ToPyResult for T
 where
-    T: IntoPyObject,
+    T: ToPyObject,
 {
     #[inline(always)]
-    fn into_pyresult(self, vm: &VirtualMachine) -> PyResult {
-        Ok(self.into_pyobject(vm))
+    fn to_pyresult(self, vm: &VirtualMachine) -> PyResult {
+        Ok(self.to_pyobject(vm))
     }
 }
 
-impl<T> IntoPyResult for PyResult<T>
+impl<T> ToPyResult for PyResult<T>
 where
-    T: IntoPyObject,
+    T: ToPyObject,
 {
     #[inline(always)]
-    fn into_pyresult(self, vm: &VirtualMachine) -> PyResult {
-        self.map(|res| T::into_pyobject(res, vm))
+    fn to_pyresult(self, vm: &VirtualMachine) -> PyResult {
+        self.map(|res| T::to_pyobject(res, vm))
     }
 }
 
@@ -625,7 +614,7 @@ pub trait PyValue: fmt::Debug + PyThreadingConstraint + Sized + 'static {
 
     #[inline]
     fn into_pyresult_with_type(self, vm: &VirtualMachine, cls: PyTypeRef) -> PyResult {
-        self.into_ref_with_type(vm, cls).into_pyresult(vm)
+        self.into_ref_with_type(vm, cls).to_pyresult(vm)
     }
 }
 
@@ -698,7 +687,7 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
 
 pub trait PyObjectWrap
 where
-    Self: AsPyObject,
+    Self: AsObject,
 {
     fn into_object(self) -> PyObjectRef;
 }
@@ -747,7 +736,7 @@ impl PyMethod {
                             .is_some()
                         {
                             drop(descr_cls);
-                            let cls = PyLease::into_pyref(cls).into();
+                            let cls = cls.into_owned().into();
                             return descr_get(descr, Some(obj), Some(cls), vm).map(Self::Attribute);
                         }
                     }
@@ -775,7 +764,7 @@ impl PyMethod {
                     })
                 }
                 Some(descr_get) => {
-                    let cls = PyLease::into_pyref(cls).into();
+                    let cls = cls.into_owned().into();
                     descr_get(attr, Some(obj), Some(cls), vm).map(Self::Attribute)
                 }
                 None => Ok(Self::Attribute(attr)),
@@ -816,7 +805,7 @@ impl PyMethod {
             drop(obj_cls);
             Self::Function { target: obj, func }
         } else {
-            let obj_cls = PyLease::into_pyref(obj_cls).into();
+            let obj_cls = obj_cls.into_owned().into();
             let attr = vm
                 .call_get_descriptor_specific(func, Some(obj), Some(obj_cls))
                 .unwrap_or_else(Ok)?;

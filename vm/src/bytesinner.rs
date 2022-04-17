@@ -9,7 +9,7 @@ use crate::{
     sequence::{SequenceMutOp, SequenceOp},
     types::PyComparisonOp,
     utils::Either,
-    AsPyObject, PyObject, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject, VirtualMachine,
+    AsObject, PyObject, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject, VirtualMachine,
 };
 use bstr::ByteSlice;
 use itertools::Itertools;

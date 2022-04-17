@@ -8,9 +8,10 @@ mod decl {
             PyInt, PyList, PySet, PyStr, PyTuple,
         },
         bytecode,
-        function::{ArgBytesLike, IntoPyObject},
+        convert::ToPyObject,
+        function::ArgBytesLike,
         protocol::PyBuffer,
-        pyobject::AsPyObject,
+        pyobject::AsObject,
         PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     };
     /// TODO
@@ -114,7 +115,7 @@ mod decl {
                 // Converts list of tuples to PyObjectRefs of tuples
                 let elements: Vec<PyObjectRef> = key_value_pairs
                     .into_iter()
-                    .map(|(k, v)| PyTuple::new_ref(vec![k, v], &vm.ctx).into_pyobject(vm))
+                    .map(|(k, v)| PyTuple::new_ref(vec![k, v], &vm.ctx).to_pyobject(vm))
                     .collect();
                 // Converts list of tuples to list, dump into binary
                 let mut dict_bytes = dump_list(elements.iter(), vm)?;
@@ -221,7 +222,7 @@ mod decl {
             )
         })?;
         match *type_indicator {
-            BOOL_BYTE => Ok((buf[0] != 0).into_pyobject(vm)),
+            BOOL_BYTE => Ok((buf[0] != 0).to_pyobject(vm)),
             INT_BYTE => {
                 let (sign_byte, uint_bytes) = buf
                     .split_first()
@@ -237,7 +238,7 @@ mod decl {
                     }
                 };
                 let pyint = BigInt::from_bytes_le(sign, uint_bytes);
-                Ok(pyint.into_pyobject(vm))
+                Ok(pyint.to_pyobject(vm))
             }
             FLOAT_BYTE => {
                 let number = f64::from_le_bytes(match buf[..].try_into() {
@@ -250,7 +251,7 @@ mod decl {
                     }
                 });
                 let pyfloat = PyFloat::from(number);
-                Ok(pyfloat.into_pyobject(vm))
+                Ok(pyfloat.to_pyobject(vm))
             }
             STR_BYTE => {
                 let pystr = PyStr::from(match AsciiStr::from_ascii(buf) {
@@ -261,11 +262,11 @@ mod decl {
                         )
                     }
                 });
-                Ok(pystr.into_pyobject(vm))
+                Ok(pystr.to_pyobject(vm))
             }
             LIST_BYTE => {
                 let elements = read_list(buf, vm)?;
-                Ok(elements.into_pyobject(vm))
+                Ok(elements.to_pyobject(vm))
             }
             SET_BYTE => {
                 let elements = read_list(buf, vm)?;
@@ -273,16 +274,16 @@ mod decl {
                 for element in elements {
                     set.add(element, vm)?;
                 }
-                Ok(set.into_pyobject(vm))
+                Ok(set.to_pyobject(vm))
             }
             FROZEN_SET_BYTE => {
                 let elements = read_list(buf, vm)?;
                 let set = PyFrozenSet::from_iter(vm, elements.into_iter())?;
-                Ok(set.into_pyobject(vm))
+                Ok(set.to_pyobject(vm))
             }
             TUPLE_BYTE => {
                 let elements = read_list(buf, vm)?;
-                let pytuple = PyTuple::new_ref(elements, &vm.ctx).into_pyobject(vm);
+                let pytuple = PyTuple::new_ref(elements, &vm.ctx).to_pyobject(vm);
                 Ok(pytuple)
             }
             DICT_BYTE => {
@@ -292,12 +293,12 @@ mod decl {
                     _ =>
                         return Err(vm.new_value_error("Couldn't unmarshal dicitionary.".to_owned())),
                 });
-                Ok(pydict.into_pyobject(vm))
+                Ok(pydict.to_pyobject(vm))
             }
             BYTE_ARRAY => {
                 // Following CPython, after marshaling, byte arrays are converted into bytes.
                 let byte_array = PyBytes::from(buf[..].to_vec());
-                Ok(byte_array.into_pyobject(vm))
+                Ok(byte_array.to_pyobject(vm))
             }
             _ => {
                 // If prefix is not identifiable, assume CodeObject, error out if it doesn't match.
@@ -311,7 +312,7 @@ mod decl {
                 Ok(PyCode {
                     code: vm.map_codeobj(code),
                 }
-                .into_pyobject(vm))
+                .to_pyobject(vm))
             }
         }
     }

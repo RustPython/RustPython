@@ -8,7 +8,8 @@ mod _browser {
     use js_sys::Promise;
     use rustpython_vm::{
         builtins::{PyDictRef, PyStrRef},
-        function::{ArgCallable, IntoPyObject, OptionalArg},
+        convert::ToPyObject,
+        function::{ArgCallable, OptionalArg},
         import::import_file,
         pyclass::PyClassImpl,
         PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
@@ -174,7 +175,7 @@ mod _browser {
                 .query_selector(query.as_str())
                 .map_err(|err| convert::js_py_typeerror(vm, err))?
                 .map(|elem| Element { elem })
-                .into_pyobject(vm);
+                .to_pyobject(vm);
             Ok(elem)
         }
     }

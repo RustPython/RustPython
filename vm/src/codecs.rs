@@ -1,8 +1,8 @@
 use crate::{
     builtins::{PyBaseExceptionRef, PyBytesRef, PyStr, PyStrRef, PyTuple, PyTupleRef},
     common::{ascii, lock::PyRwLock},
-    function::IntoPyObject,
-    AsPyObject, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject, VirtualMachine,
+    convert::ToPyObject,
+    AsObject, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject, VirtualMachine,
 };
 use std::{borrow::Cow, collections::HashMap, fmt::Write, ops::Range};
 
@@ -133,9 +133,9 @@ impl TryFromObject for PyCodec {
     }
 }
 
-impl IntoPyObject for PyCodec {
+impl ToPyObject for PyCodec {
     #[inline]
-    fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
+    fn to_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
         self.0.into()
     }
 }

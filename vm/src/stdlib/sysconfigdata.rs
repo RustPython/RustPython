@@ -2,16 +2,14 @@ pub(crate) use _sysconfigdata::make_module;
 
 #[pymodule]
 pub(crate) mod _sysconfigdata {
-    use crate::{
-        builtins::PyDictRef, function::IntoPyObject, stdlib::sys::MULTIARCH, VirtualMachine,
-    };
+    use crate::{builtins::PyDictRef, convert::ToPyObject, stdlib::sys::MULTIARCH, VirtualMachine};
 
     #[pyattr]
     fn build_time_vars(vm: &VirtualMachine) -> PyDictRef {
         let vars = vm.ctx.new_dict();
         macro_rules! sysvars {
             ($($key:literal => $value:expr),*$(,)?) => {{
-                $(vars.set_item($key, $value.into_pyobject(vm), vm).unwrap();)*
+                $(vars.set_item($key, $value.to_pyobject(vm), vm).unwrap();)*
             }};
         }
         sysvars! {

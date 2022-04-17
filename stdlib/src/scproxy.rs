@@ -6,7 +6,7 @@ mod _scproxy {
 
     use crate::vm::{
         builtins::{PyDictRef, PyStr},
-        function::IntoPyObject,
+        convert::ToPyObject,
         PyResult, VirtualMachine,
     };
     use system_configuration::core_foundation::{
@@ -62,7 +62,7 @@ mod _scproxy {
                             let a_string: std::borrow::Cow<str> = (&s).into();
                             PyStr::from(a_string.into_owned())
                         })
-                        .into_pyobject(vm)
+                        .to_pyobject(vm)
                 })
                 .collect();
             result.set_item("exceptions", vm.ctx.new_tuple(v).into(), vm)?;

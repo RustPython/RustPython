@@ -1,11 +1,12 @@
 use crate::{
     builtins::{PyList, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef},
     common::hash,
-    function::{FuncArgs, IntoPyObject, PyComparisonValue},
+    convert::ToPyObject,
+    function::{FuncArgs, PyComparisonValue},
     protocol::PyMappingMethods,
     pyclass::PyClassImpl,
     types::{AsMapping, Callable, Comparable, Constructor, GetAttr, Hashable, PyComparisonOp},
-    AsPyObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue,
+    AsObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue,
     TryFromObject, VirtualMachine,
 };
 use std::fmt;
@@ -141,18 +142,15 @@ impl PyGenericAlias {
             vm,
         )?;
 
-        Ok(
-            PyGenericAlias::new(self.origin.clone(), new_args.into_pyobject(vm), vm)
-                .into_object(vm),
-        )
+        Ok(PyGenericAlias::new(self.origin.clone(), new_args.to_pyobject(vm), vm).into_object(vm))
     }
 
     #[pymethod(magic)]
     fn dir(&self, vm: &VirtualMachine) -> PyResult<PyList> {
         let dir = vm.dir(Some(self.origin()))?;
         for exc in ATTR_EXCEPTIONS.iter() {
-            if !dir.contains((*exc).into_pyobject(vm), vm)? {
-                dir.append((*exc).into_pyobject(vm));
+            if !dir.contains((*exc).to_pyobject(vm), vm)? {
+                dir.append((*exc).to_pyobject(vm));
             }
         }
         Ok(dir)

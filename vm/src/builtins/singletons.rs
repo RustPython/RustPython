@@ -1,6 +1,6 @@
 use super::PyTypeRef;
 use crate::{
-    function::IntoPyObject, pyclass::PyClassImpl, types::Constructor, AsPyObject, PyContext,
+    convert::ToPyObject, pyclass::PyClassImpl, types::Constructor, AsObject, PyContext,
     PyObjectRef, PyResult, PyValue, VirtualMachine,
 };
 
@@ -16,16 +16,16 @@ impl PyValue for PyNone {
 
 // This allows a built-in function to not return a value, mapping to
 // Python's behavior of returning `None` in this situation.
-impl IntoPyObject for () {
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+impl ToPyObject for () {
+    fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.none()
     }
 }
 
-impl<T: IntoPyObject> IntoPyObject for Option<T> {
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+impl<T: ToPyObject> ToPyObject for Option<T> {
+    fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         match self {
-            Some(x) => x.into_pyobject(vm),
+            Some(x) => x.to_pyobject(vm),
             None => vm.ctx.none(),
         }
     }

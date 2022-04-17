@@ -5,9 +5,9 @@ mod number;
 
 use crate::{
     builtins::{PyBaseExceptionRef, PyTupleRef, PyTypeRef},
+    convert::{ToPyObject, ToPyResult},
     pyobject::PyThreadingConstraint,
-    AsPyObject, PyObject, PyObjectPayload, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    VirtualMachine,
+    AsObject, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
 };
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -17,27 +17,6 @@ pub use argument::{ArgCallable, ArgIterable, ArgMapping, ArgSequence};
 pub use arithmetic::{PyArithmeticValue, PyComparisonValue};
 pub use buffer::{ArgAsciiBuffer, ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike};
 pub use number::{ArgIntoBool, ArgIntoComplex, ArgIntoFloat};
-
-/// Implemented by any type that can be returned from a built-in Python function.
-///
-/// `IntoPyObject` has a blanket implementation for any built-in object payload,
-/// and should be implemented by many primitive Rust types, allowing a built-in
-/// function to simply return a `bool` or a `usize` for example.
-pub trait IntoPyObject {
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef;
-}
-
-pub trait IntoPyResult {
-    fn into_pyresult(self, vm: &VirtualMachine) -> PyResult;
-}
-
-pub trait IntoPyRef<T: PyObjectPayload> {
-    fn into_pyref(self, vm: &VirtualMachine) -> PyRef<T>;
-}
-
-pub trait IntoPyException {
-    fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef;
-}
 
 pub trait IntoFuncArgs: Sized {
     fn into_args(self, vm: &VirtualMachine) -> FuncArgs;
@@ -57,24 +36,24 @@ where
     }
 }
 
-// A tuple of values that each implement `IntoPyObject` represents a sequence of
+// A tuple of values that each implement `ToPyObject` represents a sequence of
 // arguments that can be bound and passed to a built-in function.
 macro_rules! into_func_args_from_tuple {
     ($(($n:tt, $T:ident)),*) => {
         impl<$($T,)*> IntoFuncArgs for ($($T,)*)
         where
-            $($T: IntoPyObject,)*
+            $($T: ToPyObject,)*
         {
             #[inline]
             fn into_args(self, vm: &VirtualMachine) -> FuncArgs {
                 let ($($n,)*) = self;
-                PosArgs::new(vec![$($n.into_pyobject(vm),)*]).into()
+                PosArgs::new(vec![$($n.to_pyobject(vm),)*]).into()
             }
 
             #[inline]
             fn into_method_args(self, obj: PyObjectRef, vm: &VirtualMachine) -> FuncArgs {
                 let ($($n,)*) = self;
-                PosArgs::new(vec![obj, $($n.into_pyobject(vm),)*]).into()
+                PosArgs::new(vec![obj, $($n.to_pyobject(vm),)*]).into()
             }
         }
     };
@@ -643,12 +622,12 @@ macro_rules! into_py_native_func_tuple {
         where
             F: Fn($($T,)* &VirtualMachine) -> R + PyThreadingConstraint + 'static,
             $($T: FromArgs,)*
-            R: IntoPyResult,
+            R: ToPyResult,
         {
             fn call_(&self, vm: &VirtualMachine, args: FuncArgs) -> PyResult {
                 let ($($n,)*) = args.bind::<($($T,)*)>(vm)?;
 
-                (self)($($n,)* vm).into_pyresult(vm)
+                (self)($($n,)* vm).to_pyresult(vm)
             }
         }
 
@@ -657,12 +636,12 @@ macro_rules! into_py_native_func_tuple {
             F: Fn(&S, $($T,)* &VirtualMachine) -> R + PyThreadingConstraint + 'static,
             S: PyValue,
             $($T: FromArgs,)*
-            R: IntoPyResult,
+            R: ToPyResult,
         {
             fn call_(&self, vm: &VirtualMachine, args: FuncArgs) -> PyResult {
                 let (zelf, $($n,)*) = args.bind::<(PyRef<S>, $($T,)*)>(vm)?;
 
-                (self)(&zelf, $($n,)* vm).into_pyresult(vm)
+                (self)(&zelf, $($n,)* vm).to_pyresult(vm)
             }
         }
 
@@ -670,12 +649,12 @@ macro_rules! into_py_native_func_tuple {
         where
             F: Fn($($T,)*) -> R + PyThreadingConstraint + 'static,
             $($T: FromArgs,)*
-            R: IntoPyResult,
+            R: ToPyResult,
         {
             fn call_(&self, vm: &VirtualMachine, args: FuncArgs) -> PyResult {
                 let ($($n,)*) = args.bind::<($($T,)*)>(vm)?;
 
-                (self)($($n,)*).into_pyresult(vm)
+                (self)($($n,)*).to_pyresult(vm)
             }
         }
 
@@ -684,12 +663,12 @@ macro_rules! into_py_native_func_tuple {
             F: Fn(&S, $($T,)*) -> R + PyThreadingConstraint + 'static,
             S: PyValue,
             $($T: FromArgs,)*
-            R: IntoPyResult,
+            R: ToPyResult,
         {
             fn call_(&self, vm: &VirtualMachine, args: FuncArgs) -> PyResult {
                 let (zelf, $($n,)*) = args.bind::<(PyRef<S>, $($T,)*)>(vm)?;
 
-                (self)(&zelf, $($n,)*).into_pyresult(vm)
+                (self)(&zelf, $($n,)*).to_pyresult(vm)
             }
         }
     };

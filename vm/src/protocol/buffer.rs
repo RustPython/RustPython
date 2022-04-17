@@ -6,10 +6,11 @@ use crate::{
         borrow::{BorrowedValue, BorrowedValueMut},
         lock::{MapImmutable, PyMutex, PyMutexGuard},
     },
+    pyobject::PyObjectPayload,
     sliceable::wrap_index,
     types::{Constructor, Unconstructible},
-    AsPyObject, PyObject, PyObjectPayload, PyObjectRef, PyObjectView, PyObjectWrap, PyRef,
-    PyResult, PyValue, TryFromBorrowedObject, VirtualMachine,
+    AsObject, PyObject, PyObjectRef, PyObjectView, PyObjectWrap, PyRef, PyResult, PyValue,
+    TryFromBorrowedObject, VirtualMachine,
 };
 use itertools::Itertools;
 use std::{borrow::Cow, fmt::Debug, ops::Range};

@@ -12,8 +12,9 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 pub(crate) mod module {
     use crate::{
         builtins::{PyStrRef, PyTupleRef},
+        convert::ToPyException,
         crt_fd::Fd,
-        function::{IntoPyException, OptionalArg},
+        function::OptionalArg,
         stdlib::os::{
             errno_err, DirFd, FollowSymlinks, PyPathLike, SupportFunc, TargetIsDirectory, _os,
             errno,
@@ -67,12 +68,12 @@ pub(crate) mod module {
         } else {
             win_fs::symlink_file(args.src.path, args.dst.path)
         };
-        res.map_err(|err| err.into_pyexception(vm))
+        res.map_err(|err| err.to_pyexception(vm))
     }
 
     #[pyfunction]
     fn set_inheritable(fd: i32, inheritable: bool, vm: &VirtualMachine) -> PyResult<()> {
-        let handle = Fd(fd).to_raw_handle().map_err(|e| e.into_pyexception(vm))?;
+        let handle = Fd(fd).to_raw_handle().map_err(|e| e.to_pyexception(vm))?;
         set_handle_inheritable(handle as _, inheritable, vm)
     }
 
@@ -103,10 +104,10 @@ pub(crate) mod module {
         } else {
             fs::symlink_metadata(&path)
         };
-        let meta = metadata.map_err(|err| err.into_pyexception(vm))?;
+        let meta = metadata.map_err(|err| err.to_pyexception(vm))?;
         let mut permissions = meta.permissions();
         permissions.set_readonly(mode & S_IWRITE == 0);
-        fs::set_permissions(&path, permissions).map_err(|err| err.into_pyexception(vm))
+        fs::set_permissions(&path, permissions).map_err(|err| err.to_pyexception(vm))
     }
 
     // cwait is available on MSVC only (according to CPython)
@@ -232,9 +233,8 @@ pub(crate) mod module {
     ) -> PyResult<()> {
         use std::iter::once;
 
-        let make_widestring = |s: &str| {
-            widestring::WideCString::from_os_str(s).map_err(|err| err.into_pyexception(vm))
-        };
+        let make_widestring =
+            |s: &str| widestring::WideCString::from_os_str(s).map_err(|err| err.to_pyexception(vm));
 
         let path = make_widestring(path.as_str())?;
 
@@ -271,7 +271,7 @@ pub(crate) mod module {
         let real = path
             .as_ref()
             .canonicalize()
-            .map_err(|e| e.into_pyexception(vm))?;
+            .map_err(|e| e.to_pyexception(vm))?;
         path.mode.process_path(real, vm)
     }
 
@@ -353,7 +353,7 @@ pub(crate) mod module {
                 };
             }
         }
-        Err(err.into_pyexception(vm))
+        Err(err.to_pyexception(vm))
     }
 
     #[pyfunction]
@@ -384,7 +384,7 @@ pub(crate) mod module {
         inheritable: bool,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        raw_set_handle_inheritable(handle, inheritable).map_err(|e| e.into_pyexception(vm))
+        raw_set_handle_inheritable(handle, inheritable).map_err(|e| e.to_pyexception(vm))
     }
 
     #[pyfunction]

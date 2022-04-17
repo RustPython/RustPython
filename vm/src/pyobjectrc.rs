@@ -3,7 +3,7 @@ use crate::common::linked_list::{Link, LinkedList, Pointers};
 use crate::common::lock::{PyMutex, PyMutexGuard, PyRwLock};
 use crate::common::refcount::RefCount;
 use crate::{
-    _pyobject::{AsPyObject, PyObjectPayload, PyObjectWrap, PyResult},
+    _pyobject::{AsObject, PyObjectPayload, PyObjectWrap, PyResult},
     builtins::{PyBaseExceptionRef, PyDictRef, PyTypeRef},
     vm::VirtualMachine,
 };

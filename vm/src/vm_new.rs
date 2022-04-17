@@ -7,17 +7,25 @@ use crate::{
         tuple::{IntoPyTuple, PyTupleRef},
         PyBaseException, PyBaseExceptionRef, PyDictRef, PyModule, PyStrRef, PyTypeRef,
     },
-    function::IntoPyObject,
+    convert::ToPyObject,
     scope::Scope,
     vm::VirtualMachine,
-    AsPyObject, PyObject, PyObjectRef, PyObjectWrap, PyRef,
+    AsObject, PyObject, PyObjectRef, PyObjectWrap, PyRef, PyValue,
 };
 
 /// Collection of object creation helpers
 impl VirtualMachine {
     /// Create a new python object
-    pub fn new_pyobj(&self, value: impl IntoPyObject) -> PyObjectRef {
-        value.into_pyobject(self)
+    pub fn new_pyobj(&self, value: impl ToPyObject) -> PyObjectRef {
+        value.to_pyobject(self)
+    }
+
+    pub fn new_pyref<T, P>(&self, value: T) -> PyRef<P>
+    where
+        T: Into<P>,
+        P: PyValue,
+    {
+        value.into().into_ref(self)
     }
 
     pub fn new_tuple(&self, value: impl IntoPyTuple) -> PyTupleRef {
@@ -222,7 +230,7 @@ impl VirtualMachine {
             .unwrap();
         syntax_error
             .as_object()
-            .set_attr("text", error.statement.clone().into_pyobject(self), self)
+            .set_attr("text", error.statement.clone().to_pyobject(self), self)
             .unwrap();
         syntax_error
             .as_object()
@@ -280,7 +288,7 @@ impl VirtualMachine {
     pub(crate) fn new_downcast_runtime_error(
         &self,
         class: &PyTypeRef,
-        obj: &impl AsPyObject,
+        obj: &impl AsObject,
     ) -> PyBaseExceptionRef {
         self.new_downcast_error(
             "payload",
@@ -293,7 +301,7 @@ impl VirtualMachine {
     pub(crate) fn new_downcast_type_error(
         &self,
         class: &PyTypeRef,
-        obj: &impl AsPyObject,
+        obj: &impl AsObject,
     ) -> PyBaseExceptionRef {
         self.new_downcast_error(
             "type",

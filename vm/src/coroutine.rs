@@ -3,7 +3,7 @@ use crate::{
     common::lock::PyMutex,
     frame::{ExecutionResult, FrameRef},
     protocol::PyIterReturn,
-    AsPyObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
+    AsObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 

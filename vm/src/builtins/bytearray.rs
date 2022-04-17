@@ -18,9 +18,9 @@ use crate::{
             PyRwLockReadGuard, PyRwLockWriteGuard,
         },
     },
+    convert::ToPyObject,
     function::{
-        ArgBytesLike, ArgIterable, FuncArgs, IntoPyObject, OptionalArg, OptionalOption,
-        PyComparisonValue,
+        ArgBytesLike, ArgIterable, FuncArgs, OptionalArg, OptionalOption, PyComparisonValue,
     },
     protocol::{
         BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
@@ -33,7 +33,7 @@ use crate::{
         IterNextIterable, Iterable, PyComparisonOp, Unconstructible, Unhashable,
     },
     utils::Either,
-    AsPyObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyObjectWrap, PyRef, PyResult,
+    AsObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyObjectWrap, PyRef, PyResult,
     PyValue, TryFromBorrowedObject, TryFromObject, VirtualMachine,
 };
 use bstr::ByteSlice;
@@ -686,7 +686,7 @@ impl PyByteArray {
         zelf: PyRef<Self>,
         vm: &VirtualMachine,
     ) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
-        let bytes = PyBytes::from(zelf.borrow_buf().to_vec()).into_pyobject(vm);
+        let bytes = PyBytes::from(zelf.borrow_buf().to_vec()).to_pyobject(vm);
         (
             zelf.class().clone(),
             PyTuple::new_ref(vec![bytes], &vm.ctx),

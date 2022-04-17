@@ -4,8 +4,8 @@ pub(crate) use pwd::make_module;
 mod pwd {
     use crate::{
         builtins::{PyIntRef, PyStrRef},
-        function::{IntoPyException, IntoPyObject},
-        AsPyObject, PyObjectRef, PyResult, PyStructSequence, VirtualMachine,
+        convert::{ToPyException, ToPyObject},
+        AsObject, PyObjectRef, PyResult, PyStructSequence, VirtualMachine,
     };
     use nix::unistd::{self, User};
     use std::ptr::NonNull;
@@ -51,7 +51,7 @@ mod pwd {
 
     #[pyfunction]
     fn getpwnam(name: PyStrRef, vm: &VirtualMachine) -> PyResult<Passwd> {
-        match User::from_name(name.as_str()).map_err(|err| err.into_pyexception(vm))? {
+        match User::from_name(name.as_str()).map_err(|err| err.to_pyexception(vm))? {
             Some(user) => Ok(Passwd::from(user)),
             None => {
                 let name_repr = name.as_object().repr(vm)?;
@@ -68,7 +68,7 @@ mod pwd {
     fn getpwuid(uid: PyIntRef, vm: &VirtualMachine) -> PyResult<Passwd> {
         let uid_t = libc::uid_t::try_from(uid.as_bigint()).map(unistd::Uid::from_raw);
         let user = match uid_t {
-            Ok(uid) => User::from_uid(uid).map_err(|err| err.into_pyexception(vm))?,
+            Ok(uid) => User::from_uid(uid).map_err(|err| err.to_pyexception(vm))?,
             Err(_) => None,
         };
         match user {
@@ -94,7 +94,7 @@ mod pwd {
         unsafe { libc::setpwent() };
         while let Some(ptr) = NonNull::new(unsafe { libc::getpwent() }) {
             let user = User::from(unsafe { ptr.as_ref() });
-            let passwd = Passwd::from(user).into_pyobject(vm);
+            let passwd = Passwd::from(user).to_pyobject(vm);
             list.push(passwd);
         }
         unsafe { libc::endpwent() };

@@ -7,7 +7,7 @@ use crate::{
         int::PyInt,
         slice::{PySlice, SaturatedSliceIter},
     },
-    AsPyObject, PyObject, PyResult, TryFromBorrowedObject, VirtualMachine,
+    AsObject, PyObject, PyResult, TryFromBorrowedObject, VirtualMachine,
 };
 
 pub trait SliceableSequenceMutOp {

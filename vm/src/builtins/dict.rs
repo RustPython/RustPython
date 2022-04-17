@@ -9,10 +9,10 @@ use crate::{
         PyTuple,
     },
     common::ascii,
+    convert::ToPyObject,
     dictdatatype::{self, DictKey},
     function::{
-        ArgIterable, FuncArgs, IntoPyObject, KwArgs, OptionalArg, PyArithmeticValue::*,
-        PyComparisonValue,
+        ArgIterable, FuncArgs, KwArgs, OptionalArg, PyArithmeticValue::*, PyComparisonValue,
     },
     protocol::{PyIterIter, PyIterReturn, PyMappingMethods, PySequenceMethods},
     pyclass::{PyClassDef, PyClassImpl},
@@ -21,7 +21,7 @@ use crate::{
         IterNextIterable, Iterable, PyComparisonOp, Unconstructible, Unhashable,
     },
     vm::{ReprGuard, VirtualMachine},
-    AsPyObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue,
+    AsObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue,
     TryFromObject,
 };
 use rustpython_common::lock::PyMutex;
@@ -163,7 +163,7 @@ impl PyDict {
                 for key in iterable.iter(vm)? {
                     pydict.setitem(key?, value.clone(), vm)?;
                 }
-                Ok(pydict.into_pyobject(vm))
+                Ok(pydict.to_pyobject(vm))
             }
             Err(pyobj) => {
                 for key in iterable.iter(vm)? {
@@ -283,7 +283,7 @@ impl PyDict {
 
     /// Set item variant which can be called with multiple
     /// key types, such as str to name a notable one.
-    pub(crate) fn inner_setitem<K: DictKey + IntoPyObject>(
+    pub(crate) fn inner_setitem<K: DictKey + ToPyObject>(
         &self,
         key: K,
         value: PyObjectRef,
@@ -292,7 +292,7 @@ impl PyDict {
         self.entries.insert(vm, key, value)
     }
 
-    pub(crate) fn inner_delitem<K: DictKey + IntoPyObject>(
+    pub(crate) fn inner_delitem<K: DictKey + ToPyObject>(
         &self,
         key: K,
         vm: &VirtualMachine,
@@ -425,8 +425,8 @@ impl PyDict {
         Ok(PyDict { entries: dict })
     }
 
-    pub fn contains_key<K: IntoPyObject>(&self, key: K, vm: &VirtualMachine) -> bool {
-        let key = key.into_pyobject(vm);
+    pub fn contains_key<K: ToPyObject>(&self, key: K, vm: &VirtualMachine) -> bool {
+        let key = key.to_pyobject(vm);
         self.entries.contains(vm, &key).unwrap()
     }
 
@@ -512,7 +512,7 @@ impl PyObjectView<PyDict> {
         self.class().is(&vm.ctx.types.dict_type)
     }
 
-    fn missing_opt<K: DictKey + IntoPyObject>(
+    fn missing_opt<K: DictKey + ToPyObject>(
         &self,
         key: K,
         vm: &VirtualMachine,
@@ -523,7 +523,7 @@ impl PyObjectView<PyDict> {
     }
 
     #[inline]
-    fn inner_getitem<K: DictKey + IntoPyObject + Clone>(
+    fn inner_getitem<K: DictKey + ToPyObject + Clone>(
         &self,
         key: K,
         vm: &VirtualMachine,
@@ -533,7 +533,7 @@ impl PyObjectView<PyDict> {
         } else if let Some(value) = self.missing_opt(key.clone(), vm)? {
             Ok(value)
         } else {
-            Err(vm.new_key_error(key.into_pyobject(vm)))
+            Err(vm.new_key_error(key.to_pyobject(vm)))
         }
     }
 
@@ -547,7 +547,7 @@ impl PyObjectView<PyDict> {
         attrs
     }
 
-    pub fn get_item_opt<K: DictKey + IntoPyObject + Clone>(
+    pub fn get_item_opt<K: DictKey + ToPyObject + Clone>(
         &self,
         key: K,
         vm: &VirtualMachine,
@@ -566,7 +566,7 @@ impl PyObjectView<PyDict> {
         }
     }
 
-    pub fn get_item<K: DictKey + IntoPyObject + Clone>(
+    pub fn get_item<K: DictKey + ToPyObject + Clone>(
         &self,
         key: K,
         vm: &VirtualMachine,
@@ -578,7 +578,7 @@ impl PyObjectView<PyDict> {
         }
     }
 
-    pub fn set_item<K: DictKey + IntoPyObject>(
+    pub fn set_item<K: DictKey + ToPyObject>(
         &self,
         key: K,
         value: PyObjectRef,
@@ -591,7 +591,7 @@ impl PyObjectView<PyDict> {
         }
     }
 
-    pub fn del_item<K: DictKey + IntoPyObject>(&self, key: K, vm: &VirtualMachine) -> PyResult<()> {
+    pub fn del_item<K: DictKey + ToPyObject>(&self, key: K, vm: &VirtualMachine) -> PyResult<()> {
         if self.exact_dict(vm) {
             self.inner_delitem(key, vm)
         } else {
@@ -599,7 +599,7 @@ impl PyObjectView<PyDict> {
         }
     }
 
-    pub fn get_chain<K: IntoPyObject + DictKey + Clone>(
+    pub fn get_chain<K: ToPyObject + DictKey + Clone>(
         &self,
         other: &Self,
         key: K,

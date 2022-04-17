@@ -17,14 +17,14 @@ use crate::{
     bytecode,
     codecs::CodecsRegistry,
     common::{ascii, hash::HashSecret, lock::PyMutex, rc::PyRc},
+    convert::ToPyObject,
     frame::{ExecutionResult, Frame, FrameRef},
     frozen,
-    function::{ArgMapping, FuncArgs, IntoPyObject},
+    function::{ArgMapping, FuncArgs},
     import,
     protocol::PyIterIter,
-    pyobject::PyLease,
     scope::Scope,
-    signal, stdlib, AsPyObject, PyContext, PyObject, PyObjectRef, PyRef, PyRefExact, PyResult,
+    signal, stdlib, AsObject, PyContext, PyObject, PyObjectRef, PyRef, PyRefExact, PyResult,
     PyValue,
 };
 use crossbeam_utils::atomic::AtomicCell;
@@ -67,7 +67,7 @@ struct ExceptionStack {
 }
 
 pub(crate) mod thread {
-    use super::{AsPyObject, PyObject, VirtualMachine};
+    use super::{AsObject, PyObject, VirtualMachine};
     use itertools::Itertools;
     use std::{cell::RefCell, ptr::NonNull, thread_local};
 
@@ -621,7 +621,7 @@ impl VirtualMachine {
                     (None, None)
                 };
                 let from_list = match from_list {
-                    Some(tup) => tup.into_pyobject(self),
+                    Some(tup) => tup.to_pyobject(self),
                     None => self.new_tuple(()).into(),
                 };
                 self.invoke(&import_func, (module, globals, locals, from_list, level))
@@ -784,7 +784,7 @@ impl VirtualMachine {
                         .is_some()
                     {
                         drop(descr_cls);
-                        let cls = PyLease::into_pyref(obj_cls).into();
+                        let cls = obj_cls.into_owned().into();
                         return descr_get(descr, Some(obj), Some(cls), self).map(Some);
                     }
                 }
@@ -807,7 +807,7 @@ impl VirtualMachine {
         } else if let Some((attr, descr_get)) = cls_attr {
             match descr_get {
                 Some(descr_get) => {
-                    let cls = PyLease::into_pyref(obj_cls).into();
+                    let cls = obj_cls.into_owned().into();
                     descr_get(attr, Some(obj), Some(cls), self).map(Some)
                 }
                 None => Ok(Some(attr)),
@@ -965,10 +965,7 @@ mod sealed {
 }
 
 /// A sealed marker trait for `DictKey` types that always become an exact instance of `str`
-pub trait Internable:
-    sealed::SealedInternable + crate::dictdatatype::DictKey + IntoPyObject
-{
-}
+pub trait Internable: sealed::SealedInternable + crate::dictdatatype::DictKey + ToPyObject {}
 
 impl Internable for String {}
 

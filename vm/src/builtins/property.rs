@@ -4,7 +4,7 @@
 use super::PyTypeRef;
 use crate::common::lock::PyRwLock;
 use crate::{
-    function::FuncArgs, pyclass::PyClassImpl, types::GetDescriptor, AsPyObject, PyContext,
+    function::FuncArgs, pyclass::PyClassImpl, types::GetDescriptor, AsObject, PyContext,
     PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
 };
 

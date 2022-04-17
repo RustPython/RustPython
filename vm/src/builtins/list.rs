@@ -4,7 +4,8 @@ use crate::common::lock::{
 };
 use crate::TryFromBorrowedObject;
 use crate::{
-    function::{FuncArgs, IntoPyObject, OptionalArg, PyComparisonValue},
+    convert::ToPyObject,
+    function::{FuncArgs, OptionalArg, PyComparisonValue},
     protocol::{PyIterReturn, PyMappingMethods, PySequence, PySequenceMethods},
     pyclass::PyClassImpl,
     sequence::{MutObjectSequenceOp, ObjectSequenceOp, SequenceMutOp, SequenceOp},
@@ -15,7 +16,7 @@ use crate::{
     },
     utils::collection_repr,
     vm::{ReprGuard, VirtualMachine},
-    AsPyObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyObjectWrap, PyRef, PyResult,
+    AsObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyObjectWrap, PyRef, PyResult,
     PyValue,
 };
 use std::{borrow::Cow, fmt, ops::DerefMut};
@@ -57,8 +58,8 @@ impl PyValue for PyList {
     }
 }
 
-impl IntoPyObject for Vec<PyObjectRef> {
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+impl ToPyObject for Vec<PyObjectRef> {
+    fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         PyList::new_ref(self, &vm.ctx).into()
     }
 }

@@ -8,7 +8,7 @@ mod gen;
 use crate::{
     builtins::{self, PyStrRef, PyTypeRef},
     pyclass::{PyClassImpl, StaticType},
-    AsPyObject, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject, VirtualMachine,
+    AsObject, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject, VirtualMachine,
 };
 use num_complex::Complex64;
 use num_traits::{ToPrimitive, Zero};
@@ -21,7 +21,7 @@ use rustpython_parser::parser;
 #[pymodule]
 mod _ast {
     use crate::{
-        builtins::PyStrRef, function::FuncArgs, AsPyObject, PyObjectRef, PyResult, PyValue,
+        builtins::PyStrRef, function::FuncArgs, AsObject, PyObjectRef, PyResult, PyValue,
         VirtualMachine,
     };
     #[pyattr]

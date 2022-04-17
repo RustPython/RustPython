@@ -7,7 +7,7 @@ use crate::{
     function::ArgIntoFloat,
     protocol::PyBuffer,
     stdlib::builtins,
-    AsPyObject, PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject, VirtualMachine,
+    AsObject, PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject, VirtualMachine,
 };
 use itertools::Itertools;
 use num_bigint::{BigInt, Sign};

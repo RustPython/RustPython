@@ -1,9 +1,9 @@
-use super::{IntoFuncArgs, IntoPyObject};
+use super::IntoFuncArgs;
 use crate::{
     builtins::{iter::PySequenceIterator, PyDict, PyDictRef},
-    protocol::PyIter,
-    protocol::{PyIterIter, PyMapping, PyMappingMethods},
-    AsPyObject, PyObject, PyObjectRef, PyObjectWrap, PyResult, PyValue, TryFromObject,
+    convert::ToPyObject,
+    protocol::{PyIter, PyIterIter, PyMapping, PyMappingMethods},
+    AsObject, PyObject, PyObjectRef, PyObjectWrap, PyResult, PyValue, TryFromObject,
     VirtualMachine,
 };
 use std::{borrow::Borrow, marker::PhantomData};
@@ -137,9 +137,9 @@ impl PyObjectWrap for ArgMapping {
     }
 }
 
-impl IntoPyObject for ArgMapping {
+impl ToPyObject for ArgMapping {
     #[inline(always)]
-    fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
+    fn to_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
         self.obj
     }
 }

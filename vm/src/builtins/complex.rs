@@ -1,13 +1,14 @@
 use super::{float, PyStr, PyTypeRef};
 use crate::{
+    convert::ToPyObject,
     function::{
-        IntoPyObject, OptionalArg, OptionalOption,
+        OptionalArg, OptionalOption,
         PyArithmeticValue::{self, *},
         PyComparisonValue,
     },
     pyclass::PyClassImpl,
     types::{Comparable, Constructor, Hashable, PyComparisonOp},
-    AsPyObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    AsObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 use num_complex::Complex64;
 use num_traits::Zero;
@@ -28,8 +29,8 @@ impl PyValue for PyComplex {
     }
 }
 
-impl IntoPyObject for Complex64 {
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+impl ToPyObject for Complex64 {
+    fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         PyComplex::new_ref(self, &vm.ctx).into()
     }
 }

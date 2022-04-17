@@ -8,11 +8,12 @@ mod decl {
     };
     use crate::{
         builtins::{int, PyGenericAlias, PyInt, PyIntRef, PyTuple, PyTupleRef, PyTypeRef},
-        function::{ArgCallable, FuncArgs, IntoPyObject, OptionalArg, OptionalOption, PosArgs},
+        convert::ToPyObject,
+        function::{ArgCallable, FuncArgs, OptionalArg, OptionalOption, PosArgs},
         protocol::{PyIter, PyIterReturn},
         stdlib::sys,
         types::{Constructor, IterNext, IterNextIterable},
-        AsPyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue, PyWeakRef, VirtualMachine,
+        AsObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue, PyWeakRef, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use num_bigint::BigInt;
@@ -195,7 +196,7 @@ mod decl {
             let mut cur = zelf.cur.write();
             let result = cur.clone();
             *cur += &zelf.step;
-            Ok(PyIterReturn::Return(result.into_pyobject(vm)))
+            Ok(PyIterReturn::Return(result.to_pyobject(vm)))
         }
     }
 
@@ -640,7 +641,7 @@ mod decl {
 
             state.grouper = Some(grouper.downgrade(None, vm).unwrap());
             Ok(PyIterReturn::Return(
-                (state.current_key.as_ref().unwrap().clone(), grouper).into_pyobject(vm),
+                (state.current_key.as_ref().unwrap().clone(), grouper).to_pyobject(vm),
             ))
         }
     }

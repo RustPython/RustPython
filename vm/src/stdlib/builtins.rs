@@ -33,7 +33,7 @@ mod builtins {
         stdlib::sys,
         types::PyComparisonOp,
         utils::Either,
-        AsPyObject, PyObject, PyObjectRef, PyObjectWrap, PyRef, PyResult, PyValue, TryFromObject,
+        AsObject, PyObject, PyObjectRef, PyObjectWrap, PyRef, PyResult, PyValue, TryFromObject,
         VirtualMachine,
     };
     use num_traits::{Signed, ToPrimitive, Zero};

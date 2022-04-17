@@ -1,7 +1,7 @@
 use crate::{
     builtins::iter::PySequenceIterator,
-    function::{IntoPyObject, IntoPyResult},
-    AsPyObject, PyObject, PyObjectRef, PyObjectWrap, PyResult, PyValue, TryFromObject,
+    convert::{ToPyObject, ToPyResult},
+    AsObject, PyObject, PyObjectRef, PyObjectWrap, PyResult, PyValue, TryFromObject,
     VirtualMachine,
 };
 use std::borrow::Borrow;
@@ -107,9 +107,9 @@ where
     }
 }
 
-impl IntoPyObject for PyIter<PyObjectRef> {
+impl ToPyObject for PyIter<PyObjectRef> {
     #[inline(always)]
-    fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
+    fn to_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
         self.into()
     }
 }
@@ -187,8 +187,8 @@ impl PyIterReturn {
     }
 }
 
-impl IntoPyResult for PyIterReturn {
-    fn into_pyresult(self, vm: &VirtualMachine) -> PyResult {
+impl ToPyResult for PyIterReturn {
+    fn to_pyresult(self, vm: &VirtualMachine) -> PyResult {
         match self {
             Self::Return(obj) => Ok(obj),
             Self::StopIteration(v) => Err(vm.new_stop_iteration(v)),
@@ -196,9 +196,9 @@ impl IntoPyResult for PyIterReturn {
     }
 }
 
-impl IntoPyResult for PyResult<PyIterReturn> {
-    fn into_pyresult(self, vm: &VirtualMachine) -> PyResult {
-        self.and_then(|obj| obj.into_pyresult(vm))
+impl ToPyResult for PyResult<PyIterReturn> {
+    fn to_pyresult(self, vm: &VirtualMachine) -> PyResult {
+        self.and_then(|obj| obj.to_pyresult(vm))
     }
 }
 
