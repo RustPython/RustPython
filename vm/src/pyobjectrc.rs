@@ -466,7 +466,7 @@ impl ToOwned for PyObject {
 
 pub trait PyObjectWrap
 where
-    Self: AsRef<PyObject>,
+    Self: Borrow<PyObject> + AsRef<PyObject>,
 {
     #[inline(always)]
     fn as_object(&self) -> &PyObject {

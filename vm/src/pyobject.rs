@@ -399,11 +399,11 @@ pub trait IdProtocol {
     }
 }
 
-impl<T: ?Sized> IdProtocol for PyRc<T> {
-    fn get_id(&self) -> usize {
-        &**self as *const T as *const () as usize
-    }
-}
+// impl<T: ?Sized> IdProtocol for PyRc<T> {
+//     fn get_id(&self) -> usize {
+//         &**self as *const T as *const () as usize
+//     }
+// }
 
 impl<T: PyObjectPayload> IdProtocol for PyRef<T> {
     fn get_id(&self) -> usize {
