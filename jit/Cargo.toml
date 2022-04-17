@@ -19,7 +19,7 @@ rustpython-bytecode = { path = "../bytecode", version = "0.1.2" }
 thiserror = "1.0"
 
 [dev-dependencies]
-approx = "0.5.0"
+approx = "0.5.1"
 rustpython-derive = { path = "../derive", version = "0.1.2" }
 
 [[test]]

@@ -11,5 +11,5 @@ fold = []
 unparse = ["rustpython-common"]
 
 [dependencies]
-num-bigint = "0.4.2"
+num-bigint = "0.4.3"
 rustpython-common = { path = "../common", optional = true }

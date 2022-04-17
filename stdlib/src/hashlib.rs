@@ -8,7 +8,7 @@ mod hashlib {
         function::{FuncArgs, OptionalArg},
         PyResult, PyValue, VirtualMachine,
     };
-    use blake2::{Blake2b, Blake2s};
+    use blake2::{Blake2b512, Blake2s256};
     use digest::DynDigest;
     use md5::Md5;
     use sha1::Sha1;
@@ -326,11 +326,11 @@ mod hashlib {
             }
         */
         fn blake2b() -> Self {
-            Self::new(Blake2b::default())
+            Self::new(Blake2b512::default())
         }
 
         fn blake2s() -> Self {
-            Self::new(Blake2s::default())
+            Self::new(Blake2s256::default())
         }
 
         fn input(&mut self, data: &[u8]) {
