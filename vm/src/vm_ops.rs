@@ -170,8 +170,8 @@ impl VirtualMachine {
         unsupported: fn(&VirtualMachine, &PyObject, &PyObject) -> PyResult,
     ) -> PyResult {
         if rhs.isinstance(&lhs.class()) {
-            let lop = lhs.class().get_attr(reflection);
-            let rop = rhs.class().get_attr(reflection);
+            let lop = lhs.get_class_attr(reflection);
+            let rop = rhs.get_class_attr(reflection);
             if let Some((lop, rop)) = lop.zip(rop) {
                 if !lop.is(&rop) {
                     if let Ok(r) = self.call_or_unsupported(rhs, lhs, reflection, |vm, _, _| {

@@ -42,7 +42,8 @@ impl PyModule {
 
     #[pymethod(magic)]
     fn init(zelf: PyRef<Self>, args: ModuleInitArgs, vm: &VirtualMachine) {
-        debug_assert!(crate::AsPyObject::class(zelf.as_object())
+        debug_assert!(zelf
+            .class()
             .slots
             .flags
             .has_feature(crate::types::PyTypeFlags::HAS_DICT));

@@ -461,7 +461,8 @@ impl Comparable for PyBoundMethod {
 
 impl GetAttr for PyBoundMethod {
     fn getattro(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(obj) = zelf.get_class_attr(name.as_str()) {
+        let class_attr = zelf.get_class_attr(name.as_str());
+        if let Some(obj) = class_attr {
             return vm.call_if_get_descriptor(obj, zelf.into());
         }
         zelf.function.clone().get_attr(name, vm)

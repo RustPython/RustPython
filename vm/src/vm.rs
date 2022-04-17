@@ -747,10 +747,11 @@ impl VirtualMachine {
     where
         F: FnOnce() -> String,
     {
-        match obj.get_class_attr(method_name) {
-            Some(method) => self.call_if_get_descriptor(method, obj),
-            None => Err(self.new_type_error(err_msg())),
-        }
+        let method = obj
+            .class()
+            .get_attr(method_name)
+            .ok_or_else(|| self.new_type_error(err_msg()))?;
+        self.call_if_get_descriptor(method, obj)
     }
 
     // TODO: remove + transfer over to get_special_method

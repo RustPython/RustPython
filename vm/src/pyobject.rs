@@ -428,10 +428,6 @@ where
         self.class().get_attr(attr_name)
     }
 
-    fn has_class_attr(&self, attr_name: &str) -> bool {
-        self.class().has_attr(attr_name)
-    }
-
     /// Determines if `obj` actually an instance of `cls`, this doesn't call __instancecheck__, so only
     /// use this if `cls` is known to have not overridden the base __instancecheck__ magic method.
     #[inline]
