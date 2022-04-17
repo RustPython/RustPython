@@ -2,7 +2,7 @@ use crate::{
     builtins::{PyBaseExceptionRef, PyList, PyStr},
     function::{FuncArgs, IntoFuncArgs},
     vm::VirtualMachine,
-    AsPyObject, PyMethod, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
+    AsPyObject, PyMethod, PyObject, PyObjectRef, PyResult, PyValue,
 };
 
 /// Trace events for sys.settrace and sys.setprofile.

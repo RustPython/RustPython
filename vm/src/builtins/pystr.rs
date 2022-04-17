@@ -19,7 +19,7 @@ use crate::{
         Iterable, PyComparisonOp, Unconstructible,
     },
     AsPyObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue,
-    TryFromBorrowedObject, TypeProtocol, VirtualMachine,
+    TryFromBorrowedObject, VirtualMachine,
 };
 use ascii::{AsciiStr, AsciiString};
 use bstr::ByteSlice;

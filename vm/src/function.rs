@@ -6,7 +6,7 @@ mod number;
 use crate::{
     builtins::{PyBaseExceptionRef, PyTupleRef, PyTypeRef},
     pyobject::PyThreadingConstraint,
-    PyObject, PyObjectPayload, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    AsPyObject, PyObject, PyObjectPayload, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     VirtualMachine,
 };
 use indexmap::IndexMap;

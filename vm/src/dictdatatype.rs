@@ -10,8 +10,7 @@ use crate::common::{
 use crate::{
     builtins::{PyInt, PyStr, PyStrRef},
     function::IntoPyObject,
-    AsPyObject, PyObject, PyObjectRef, PyObjectWrap, PyRefExact, PyResult, TypeProtocol,
-    VirtualMachine,
+    AsPyObject, PyObject, PyObjectRef, PyObjectWrap, PyRefExact, PyResult, VirtualMachine,
 };
 use num_traits::ToPrimitive;
 use std::{fmt, mem::size_of, ops::ControlFlow};

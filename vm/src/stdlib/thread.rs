@@ -10,7 +10,7 @@ pub(crate) mod _thread {
         py_io,
         types::{Constructor, GetAttr, SetAttr},
         utils::Either,
-        AsPyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
+        AsPyObject, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
     };
     use parking_lot::{
         lock_api::{RawMutex as RawMutexT, RawMutexTimed, RawReentrantMutex},

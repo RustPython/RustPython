@@ -3,7 +3,7 @@ use crate::{
     types::{richcompare_wrapper, PyComparisonOp, RichCompareFunc},
     utils::Either,
     vm::VirtualMachine,
-    AsPyObject, PyObject, PyObjectRef, PyResult, TypeProtocol,
+    AsPyObject, PyObject, PyObjectRef, PyResult,
 };
 use itertools::Itertools;
 use optional::Optioned;

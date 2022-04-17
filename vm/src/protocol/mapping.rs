@@ -5,7 +5,7 @@ use crate::{
     },
     common::lock::OnceCell,
     function::IntoPyResult,
-    AsPyObject, PyObject, PyObjectRef, PyResult, TypeProtocol, VirtualMachine,
+    AsPyObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
 };
 
 // Mapping protocol

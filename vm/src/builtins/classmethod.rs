@@ -3,7 +3,7 @@ use crate::{
     builtins::PyBoundMethod,
     pyclass::PyClassImpl,
     types::{Constructor, GetDescriptor},
-    PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
+    AsPyObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 
 /// classmethod(function) -> method

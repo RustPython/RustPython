@@ -16,7 +16,7 @@ mod _csv {
         match_class,
         protocol::{PyIter, PyIterReturn},
         types::{IterNext, IterNextIterable},
-        PyObjectRef, PyObjectView, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
+        AsPyObject, PyObjectRef, PyObjectView, PyResult, PyValue, TryFromObject, VirtualMachine,
     };
     use itertools::{self, Itertools};
     use std::fmt;

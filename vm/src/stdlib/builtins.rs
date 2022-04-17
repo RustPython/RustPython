@@ -34,7 +34,7 @@ mod builtins {
         types::PyComparisonOp,
         utils::Either,
         AsPyObject, PyObject, PyObjectRef, PyObjectWrap, PyRef, PyResult, PyValue, TryFromObject,
-        TypeProtocol, VirtualMachine,
+        VirtualMachine,
     };
     use num_traits::{Signed, ToPrimitive, Zero};
 

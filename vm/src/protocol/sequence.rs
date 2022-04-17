@@ -3,7 +3,7 @@ use crate::{
     common::lock::OnceCell,
     function::{IntoPyObject, PyArithmeticValue},
     protocol::PyMapping,
-    AsPyObject, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
+    AsPyObject, PyObject, PyObjectRef, PyResult, PyValue, VirtualMachine,
 };
 use itertools::Itertools;
 use std::{

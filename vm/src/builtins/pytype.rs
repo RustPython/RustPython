@@ -12,8 +12,7 @@ use crate::{
     pyclass::{PyClassImpl, StaticType},
     pyobject::PyLease,
     types::{Callable, GetAttr, PyTypeFlags, PyTypeSlots, SetAttr},
-    AsPyObject, PyContext, PyObjectRef, PyObjectWeak, PyRef, PyResult, PyValue, TypeProtocol,
-    VirtualMachine,
+    AsPyObject, PyContext, PyObjectRef, PyObjectWeak, PyRef, PyResult, PyValue, VirtualMachine,
 };
 use itertools::Itertools;
 use std::{

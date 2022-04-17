@@ -2,8 +2,7 @@ use crate::{
     builtins::{PyBaseExceptionRef, PyBytesRef, PyStr, PyStrRef, PyTuple, PyTupleRef},
     common::{ascii, lock::PyRwLock},
     function::IntoPyObject,
-    AsPyObject, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
-    VirtualMachine,
+    AsPyObject, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject, VirtualMachine,
 };
 use std::{borrow::Cow, collections::HashMap, fmt::Write, ops::Range};
 

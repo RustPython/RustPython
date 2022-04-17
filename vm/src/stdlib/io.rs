@@ -89,7 +89,7 @@ mod _io {
         utils::Either,
         vm::{ReprGuard, VirtualMachine},
         AsPyObject, PyContext, PyObject, PyObjectRef, PyObjectWrap, PyRef, PyResult, PyValue,
-        TryFromBorrowedObject, TryFromObject, TypeProtocol,
+        TryFromBorrowedObject, TryFromObject,
     };
     use bstr::ByteSlice;
     use crossbeam_utils::atomic::AtomicCell;
@@ -3661,8 +3661,7 @@ mod fileio {
             ArgBytesLike, ArgMemoryBuffer, FuncArgs, IntoPyException, OptionalArg, OptionalOption,
         },
         stdlib::os,
-        AsPyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
-        VirtualMachine,
+        AsPyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use std::io::{Read, Write};

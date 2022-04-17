@@ -18,7 +18,7 @@ mod _socket {
             OptionalOption,
         },
         utils::{Either, ToCString},
-        PyObjectRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject, TypeProtocol,
+        AsPyObject, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject,
         VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;

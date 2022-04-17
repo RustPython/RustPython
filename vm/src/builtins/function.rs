@@ -14,8 +14,7 @@ use crate::{
     pyclass::PyClassImpl,
     scope::Scope,
     types::{Callable, Comparable, Constructor, GetAttr, GetDescriptor, PyComparisonOp},
-    AsPyObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
-    VirtualMachine,
+    AsPyObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 #[cfg(feature = "jit")]
 use crate::{common::lock::OnceCell, function::IntoPyObject};

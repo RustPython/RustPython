@@ -10,7 +10,7 @@ use crate::{
     function::IntoPyObject,
     scope::Scope,
     vm::VirtualMachine,
-    AsPyObject, PyObject, PyObjectRef, PyObjectWrap, PyRef, TypeProtocol,
+    AsPyObject, PyObject, PyObjectRef, PyObjectWrap, PyRef,
 };
 
 /// Collection of object creation helpers

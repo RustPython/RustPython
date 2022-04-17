@@ -4,7 +4,7 @@ use serde::de::{DeserializeSeed, Visitor};
 use serde::ser::{Serialize, SerializeMap, SerializeSeq};
 
 use crate::builtins::{dict::PyDictRef, float, int, list::PyList, pybool, tuple::PyTuple, PyStr};
-use crate::{PyObject, PyObjectRef, TypeProtocol, VirtualMachine};
+use crate::{AsPyObject, PyObject, PyObjectRef, VirtualMachine};
 
 #[inline]
 pub fn serialize<S>(

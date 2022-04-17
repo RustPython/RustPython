@@ -416,6 +416,30 @@ where
     {
         self.get_id() == other.get_id()
     }
+
+    #[inline(always)]
+    fn class(&self) -> PyLease<'_, PyType> {
+        self.as_object().lease_class()
+    }
+
+    fn clone_class(&self) -> PyTypeRef {
+        PyLease::into_pyref(self.class())
+    }
+
+    fn get_class_attr(&self, attr_name: &str) -> Option<PyObjectRef> {
+        self.class().get_attr(attr_name)
+    }
+
+    fn has_class_attr(&self, attr_name: &str) -> bool {
+        self.class().has_attr(attr_name)
+    }
+
+    /// Determines if `obj` actually an instance of `cls`, this doesn't call __instancecheck__, so only
+    /// use this if `cls` is known to have not overridden the base __instancecheck__ magic method.
+    #[inline]
+    fn isinstance(&self, cls: &PyObjectView<PyType>) -> bool {
+        self.class().issubclass(cls)
+    }
 }
 
 impl<T> AsPyObject for T where T: Borrow<PyObject> {}
@@ -424,6 +448,13 @@ impl PyObject {
     #[inline]
     fn _get_id(&self) -> usize {
         self as *const PyObject as usize
+    }
+
+    #[inline]
+    fn lease_class(&self) -> PyLease<'_, PyType> {
+        PyLease {
+            inner: self.class_lock().read(),
+        }
     }
 }
 
@@ -470,57 +501,6 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Display::fmt(&**self, f)
-    }
-}
-
-pub trait TypeProtocol: AsPyObject {
-    fn class(&self) -> PyLease<'_, PyType>;
-
-    fn clone_class(&self) -> PyTypeRef {
-        PyLease::into_pyref(self.class())
-    }
-
-    fn get_class_attr(&self, attr_name: &str) -> Option<PyObjectRef> {
-        self.class().get_attr(attr_name)
-    }
-
-    fn has_class_attr(&self, attr_name: &str) -> bool {
-        self.class().has_attr(attr_name)
-    }
-
-    /// Determines if `obj` actually an instance of `cls`, this doesn't call __instancecheck__, so only
-    /// use this if `cls` is known to have not overridden the base __instancecheck__ magic method.
-    #[inline]
-    fn isinstance(&self, cls: &PyObjectView<PyType>) -> bool {
-        self.class().issubclass(cls)
-    }
-}
-
-impl TypeProtocol for PyObjectRef {
-    fn class(&self) -> PyLease<'_, PyType> {
-        PyLease {
-            inner: self.class_lock().read(),
-        }
-    }
-}
-
-impl TypeProtocol for PyObject {
-    fn class(&self) -> PyLease<'_, PyType> {
-        PyLease {
-            inner: self.class_lock().read(),
-        }
-    }
-}
-
-impl<T: PyObjectPayload> TypeProtocol for PyObjectView<T> {
-    fn class(&self) -> PyLease<'_, PyType> {
-        self.as_object().class()
-    }
-}
-
-impl<T: PyObjectPayload> TypeProtocol for PyRef<T> {
-    fn class(&self) -> PyLease<'_, PyType> {
-        self.as_object().class()
     }
 }
 

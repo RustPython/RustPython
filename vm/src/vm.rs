@@ -25,7 +25,7 @@ use crate::{
     pyobject::PyLease,
     scope::Scope,
     signal, stdlib, AsPyObject, PyContext, PyObject, PyObjectRef, PyRef, PyRefExact, PyResult,
-    PyValue, TypeProtocol,
+    PyValue,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use std::{
@@ -67,7 +67,7 @@ struct ExceptionStack {
 }
 
 pub(crate) mod thread {
-    use super::{PyObject, TypeProtocol, VirtualMachine};
+    use super::{AsPyObject, PyObject, VirtualMachine};
     use itertools::Itertools;
     use std::{cell::RefCell, ptr::NonNull, thread_local};
 

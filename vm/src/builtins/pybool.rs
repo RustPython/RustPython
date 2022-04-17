@@ -4,7 +4,7 @@ use crate::{
     pyclass::PyClassImpl,
     types::Constructor,
     AsPyObject, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject,
-    TypeProtocol, VirtualMachine,
+    VirtualMachine,
 };
 use num_bigint::Sign;
 use num_traits::Zero;

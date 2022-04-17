@@ -9,8 +9,7 @@ use crate::{
     pyclass::{PyClassImpl, StaticType},
     stdlib::sys,
     suggestion::offer_suggestions,
-    AsPyObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
-    VirtualMachine,
+    AsPyObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;

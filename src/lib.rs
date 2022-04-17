@@ -52,7 +52,7 @@ use rustpython_vm::{
     scope::Scope,
     stdlib::{atexit, sys},
     AsPyObject, InitParameter, Interpreter, PyObjectRef, PyResult, PySettings, TryFromObject,
-    TypeProtocol, VirtualMachine,
+    VirtualMachine,
 };
 use std::{env, path::Path, process, str::FromStr};
 

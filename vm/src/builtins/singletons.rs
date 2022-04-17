@@ -1,7 +1,7 @@
 use super::PyTypeRef;
 use crate::{
-    function::IntoPyObject, pyclass::PyClassImpl, types::Constructor, PyContext, PyObjectRef,
-    PyResult, PyValue, TypeProtocol, VirtualMachine,
+    function::IntoPyObject, pyclass::PyClassImpl, types::Constructor, AsPyObject, PyContext,
+    PyObjectRef, PyResult, PyValue, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "NoneType")]

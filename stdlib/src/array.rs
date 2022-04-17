@@ -34,7 +34,7 @@ mod array {
                 PyComparisonOp,
             },
             AsPyObject, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue,
-            TryFromBorrowedObject, TryFromObject, TypeProtocol, VirtualMachine,
+            TryFromBorrowedObject, TryFromObject, VirtualMachine,
         },
     };
     use itertools::Itertools;

@@ -7,7 +7,7 @@ use rustpython_vm::{
     compile::{CompileError, CompileErrorType},
     exceptions,
     function::{ArgBytesLike, FuncArgs},
-    py_serde, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject, TypeProtocol, VirtualMachine,
+    py_serde, AsPyObject, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject, VirtualMachine,
 };
 use wasm_bindgen::{closure::Closure, prelude::*, JsCast};
 

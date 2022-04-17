@@ -89,13 +89,11 @@ mod pyobject {
 pub use self::convert::{TryFromBorrowedObject, TryFromObject};
 // pyobject items
 pub use self::pyobject::{
-    PyContext, PyMethod, PyObjectPayload, PyObjectWrap, PyRefExact, PyResult, PyStructSequence,
-    PyValue, TypeProtocol,
+    AsPyObject, PyContext, PyMethod, PyObjectPayload, PyObjectWrap, PyRefExact, PyResult,
+    PyStructSequence, PyValue,
 };
 // pyobjectrc items
-pub use self::pyobject::{
-    AsPyObject, PyObject, PyObjectRef, PyObjectView, PyObjectWeak, PyRef, PyWeakRef,
-};
+pub use self::pyobject::{PyObject, PyObjectRef, PyObjectView, PyObjectWeak, PyRef, PyWeakRef};
 pub use self::vm::{InitParameter, Interpreter, PySettings, VirtualMachine};
 pub use rustpython_bytecode as bytecode;
 pub use rustpython_common as common;

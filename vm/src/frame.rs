@@ -16,7 +16,7 @@ use crate::{
     stdlib::builtins,
     types::PyComparisonOp,
     AsPyObject, PyMethod, PyObject, PyObjectRef, PyObjectWrap, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol, VirtualMachine,
+    TryFromObject, VirtualMachine,
 };
 use indexmap::IndexMap;
 use itertools::Itertools;

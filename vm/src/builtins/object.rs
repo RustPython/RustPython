@@ -5,7 +5,7 @@ use crate::{
     pyclass::PyClassImpl,
     types::PyComparisonOp,
     utils::Either,
-    AsPyObject, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
+    AsPyObject, PyContext, PyObject, PyObjectRef, PyResult, PyValue, VirtualMachine,
 };
 
 /// object()

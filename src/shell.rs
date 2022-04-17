@@ -6,7 +6,7 @@ use rustpython_vm::{
     builtins::PyBaseExceptionRef,
     compile::{self, CompileError, CompileErrorType},
     scope::Scope,
-    PyResult, TypeProtocol, VirtualMachine,
+    AsPyObject, PyResult, VirtualMachine,
 };
 
 enum ShellExecResult {

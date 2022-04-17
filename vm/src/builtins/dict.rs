@@ -22,7 +22,7 @@ use crate::{
     },
     vm::{ReprGuard, VirtualMachine},
     AsPyObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
+    TryFromObject,
 };
 use rustpython_common::lock::PyMutex;
 use std::{borrow::Cow, fmt};

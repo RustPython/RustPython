@@ -13,7 +13,7 @@ use crate::{
     protocol::{PyIter, PyMapping, PySequence},
     types::{Constructor, PyComparisonOp},
     utils::Either,
-    AsPyObject, PyObject, PyObjectRef, PyResult, TryFromObject, TypeProtocol, VirtualMachine,
+    AsPyObject, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
 };
 
 // RustPython doesn't need these items

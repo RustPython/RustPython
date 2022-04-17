@@ -4,8 +4,8 @@
 use super::PyTypeRef;
 use crate::common::lock::PyRwLock;
 use crate::{
-    function::FuncArgs, pyclass::PyClassImpl, types::GetDescriptor, PyContext, PyObjectRef, PyRef,
-    PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
+    function::FuncArgs, pyclass::PyClassImpl, types::GetDescriptor, AsPyObject, PyContext,
+    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
 };
 
 /// Property attribute.
@@ -185,7 +185,7 @@ impl PyProperty {
             deleter: PyRwLock::new(zelf.fdel()),
             doc: PyRwLock::new(None),
         }
-        .into_ref_with_type(vm, TypeProtocol::clone_class(&zelf))
+        .into_ref_with_type(vm, AsPyObject::clone_class(&zelf))
     }
 
     #[pymethod]
@@ -200,7 +200,7 @@ impl PyProperty {
             deleter: PyRwLock::new(zelf.fdel()),
             doc: PyRwLock::new(None),
         }
-        .into_ref_with_type(vm, TypeProtocol::clone_class(&zelf))
+        .into_ref_with_type(vm, AsPyObject::clone_class(&zelf))
     }
 
     #[pymethod]
@@ -215,7 +215,7 @@ impl PyProperty {
             deleter: PyRwLock::new(deleter.or_else(|| zelf.fdel())),
             doc: PyRwLock::new(None),
         }
-        .into_ref_with_type(vm, TypeProtocol::clone_class(&zelf))
+        .into_ref_with_type(vm, AsPyObject::clone_class(&zelf))
     }
 
     #[pyproperty(magic)]

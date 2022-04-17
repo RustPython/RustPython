@@ -6,8 +6,7 @@ use crate::{
     protocol::{PyBuffer, PyIterReturn, PyMapping, PyMappingMethods},
     protocol::{PySequence, PySequenceMethods},
     utils::Either,
-    AsPyObject, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue, TypeProtocol,
-    VirtualMachine,
+    AsPyObject, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::{Signed, ToPrimitive};
