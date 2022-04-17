@@ -52,7 +52,7 @@ impl PyModule {
 
     fn getattr_inner(zelf: &PyObjectView<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
         if let Some(attr) =
-            vm.generic_getattribute_opt(zelf.as_object().to_owned(), name.clone(), None)?
+            vm.generic_getattribute_opt(zelf.to_owned().into(), name.clone(), None)?
         {
             return Ok(attr);
         }

@@ -33,6 +33,7 @@ impl VirtualMachine {
         })
     }
 
+    #[inline]
     pub fn bool_eq(&self, a: &PyObject, b: &PyObject) -> PyResult<bool> {
         a.rich_compare_bool(b, PyComparisonOp::Eq, self)
     }

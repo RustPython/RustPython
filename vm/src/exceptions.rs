@@ -79,7 +79,7 @@ impl VirtualMachine {
         // This function should not be called directly,
         // use `wite_exception` as a public interface.
         // It is similar to `print_exception_recursive` from `CPython`.
-        seen.insert(exc.as_object().get_id());
+        seen.insert(exc.get_id());
 
         #[allow(clippy::manual_map)]
         if let Some((cause_or_context, msg)) = if let Some(cause) = exc.cause() {
@@ -102,11 +102,11 @@ impl VirtualMachine {
         } else {
             None
         } {
-            if !seen.contains(&cause_or_context.as_object().get_id()) {
+            if !seen.contains(&cause_or_context.get_id()) {
                 self.write_exception_recursive(output, &cause_or_context, seen)?;
                 writeln!(output, "{}", msg)?;
             } else {
-                seen.insert(cause_or_context.as_object().get_id());
+                seen.insert(cause_or_context.get_id());
             }
         }
 
@@ -494,9 +494,9 @@ impl PyBaseException {
     }
 
     #[pymethod]
-    fn with_traceback(zelf: PyRef<Self>, tb: Option<PyTracebackRef>) -> PyResult {
+    fn with_traceback(zelf: PyRef<Self>, tb: Option<PyTracebackRef>) -> PyResult<PyRef<Self>> {
         *zelf.traceback.write() = tb;
-        Ok(zelf.as_object().to_owned())
+        Ok(zelf)
     }
 
     #[pymethod(magic)]

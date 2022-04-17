@@ -102,7 +102,7 @@ impl PyGenericAlias {
 
         Ok(format!(
             "{}[{}]",
-            repr_item(self.origin.as_object().to_owned(), vm)?,
+            repr_item(self.origin.clone().into(), vm)?,
             if self.args.len() == 0 {
                 "()".to_owned()
             } else {
@@ -118,17 +118,17 @@ impl PyGenericAlias {
 
     #[pyproperty(magic)]
     fn parameters(&self) -> PyObjectRef {
-        self.parameters.as_object().to_owned()
+        self.parameters.clone().into()
     }
 
     #[pyproperty(magic)]
     fn args(&self) -> PyObjectRef {
-        self.args.as_object().to_owned()
+        self.args.clone().into()
     }
 
     #[pyproperty(magic)]
     fn origin(&self) -> PyObjectRef {
-        self.origin.as_object().to_owned()
+        self.origin.clone().into()
     }
 
     #[pymethod(magic)]

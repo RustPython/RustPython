@@ -10,7 +10,7 @@ use crate::common::{
 use crate::{
     builtins::{PyInt, PyStr, PyStrRef},
     function::IntoPyObject,
-    AsPyObject, PyObject, PyObjectRef, PyObjectWrap, PyRefExact, PyResult, VirtualMachine,
+    AsPyObject, PyObject, PyObjectRef, PyRefExact, PyResult, VirtualMachine,
 };
 use num_traits::ToPrimitive;
 use std::{fmt, mem::size_of, ops::ControlFlow};
@@ -846,7 +846,7 @@ impl DictKey for usize {
             }
         } else {
             let int = vm.ctx.new_int(*self);
-            vm.bool_eq(&int.into_object(), other_key)
+            vm.bool_eq(int.as_ref(), other_key)
         }
     }
 
