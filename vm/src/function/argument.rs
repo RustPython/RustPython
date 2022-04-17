@@ -6,7 +6,7 @@ use crate::{
     PyObject, PyObjectRef, PyObjectWrap, PyResult, PyValue, TryFromObject, TypeProtocol,
     VirtualMachine,
 };
-use std::marker::PhantomData;
+use std::{borrow::Borrow, marker::PhantomData};
 
 #[derive(Clone, Debug)]
 pub struct ArgCallable {
@@ -17,6 +17,12 @@ impl ArgCallable {
     #[inline]
     pub fn invoke(&self, args: impl IntoFuncArgs, vm: &VirtualMachine) -> PyResult {
         vm.invoke(&self.obj, args)
+    }
+}
+
+impl Borrow<PyObject> for ArgCallable {
+    fn borrow(&self) -> &PyObject {
+        &self.obj
     }
 }
 
@@ -106,6 +112,12 @@ impl ArgMapping {
 
     pub fn mapping(&self) -> PyMapping {
         PyMapping::with_methods(&self.obj, self.mapping_methods)
+    }
+}
+
+impl Borrow<PyObject> for ArgMapping {
+    fn borrow(&self) -> &PyObject {
+        &self.obj
     }
 }
 

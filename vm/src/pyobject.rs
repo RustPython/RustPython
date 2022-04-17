@@ -23,7 +23,7 @@ use crate::{
 };
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
-use std::{any::Any, fmt, ops::Deref};
+use std::{any::Any, borrow::Borrow, fmt, ops::Deref};
 
 /* Python objects and references.
 
@@ -443,8 +443,14 @@ impl<'a, T: PyObjectPayload + PyValue> PyLease<'a, T> {
     }
 }
 
+impl<'a, T: PyObjectPayload + PyValue> Borrow<PyObject> for PyLease<'a, T> {
+    fn borrow(&self) -> &PyObject {
+        self.inner.as_object()
+    }
+}
+
 impl<'a, T: PyObjectPayload + PyValue> Deref for PyLease<'a, T> {
-    type Target = T;
+    type Target = PyRef<T>;
 
     fn deref(&self) -> &Self::Target {
         &self.inner

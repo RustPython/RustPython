@@ -891,6 +891,12 @@ impl<T: PyObjectPayload> Deref for PyObjectView<T> {
     }
 }
 
+impl<T: PyObjectPayload> Borrow<PyObject> for PyObjectView<T> {
+    fn borrow(&self) -> &PyObject {
+        self.as_object()
+    }
+}
+
 impl<T> AsRef<PyObject> for PyObjectView<T>
 where
     T: PyObjectPayload,
@@ -972,6 +978,15 @@ impl<T: PyObjectPayload> PyRef<T> {
         Self {
             ptr: unsafe { NonNull::new_unchecked(inner.cast::<PyObjectView<T>>()) },
         }
+    }
+}
+
+impl<T> Borrow<PyObject> for PyRef<T>
+where
+    T: PyObjectPayload,
+{
+    fn borrow(&self) -> &PyObject {
+        self.as_object()
     }
 }
 

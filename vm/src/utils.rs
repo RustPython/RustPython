@@ -4,10 +4,20 @@ use crate::{
     PyObject, PyObjectRef, PyObjectWrap, PyResult, TryFromObject, TypeProtocol, VirtualMachine,
 };
 use num_traits::ToPrimitive;
+use std::borrow::Borrow;
 
 pub enum Either<A, B> {
     A(A),
     B(B),
+}
+
+impl<A: Borrow<PyObject>, B: Borrow<PyObject>> Borrow<PyObject> for Either<A, B> {
+    fn borrow(&self) -> &PyObject {
+        match self {
+            Either::A(a) => a.borrow(),
+            Either::B(b) => b.borrow(),
+        }
+    }
 }
 
 impl<A: AsRef<PyObject>, B: AsRef<PyObject>> AsRef<PyObject> for Either<A, B> {

@@ -76,6 +76,15 @@ impl PyObjectWrap for PyIter<PyObjectRef> {
     }
 }
 
+impl<O> Borrow<PyObject> for PyIter<O>
+where
+    O: Borrow<PyObject>,
+{
+    fn borrow(&self) -> &PyObject {
+        self.0.borrow()
+    }
+}
+
 impl<O> AsRef<PyObject> for PyIter<O>
 where
     O: Borrow<PyObject>,
