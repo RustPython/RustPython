@@ -130,7 +130,7 @@ mod resource {
     struct Limits(libc::rlimit);
     impl TryFromBorrowedObject for Limits {
         fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
-            let seq = vm.extract_elements::<libc::rlim_t>(obj)?;
+            let seq: Vec<libc::rlim_t> = obj.try_to_value(vm)?;
             match *seq {
                 [cur, max] => Ok(Self(libc::rlimit {
                     rlim_cur: cur & RLIM_INFINITY,

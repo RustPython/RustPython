@@ -289,7 +289,7 @@ impl PySequence<'_> {
     }
 
     pub fn list(&self, vm: &VirtualMachine) -> PyResult<PyListRef> {
-        let list = vm.ctx.new_list(vm.extract_elements(self.obj)?);
+        let list = vm.ctx.new_list(self.obj.try_to_value(vm)?);
         Ok(list)
     }
 

@@ -1,6 +1,6 @@
 #[cfg(feature = "rustpython-ast")]
 pub(crate) mod ast;
-mod atexit;
+pub mod atexit;
 pub mod builtins;
 mod codecs;
 mod collections;

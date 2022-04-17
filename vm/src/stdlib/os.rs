@@ -1646,7 +1646,7 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn truncate(path: PyObjectRef, length: Offset, vm: &VirtualMachine) -> PyResult<()> {
-        if let Ok(fd) = path.try_borrow_to_object(vm) {
+        if let Ok(fd) = path.try_to_value(vm) {
             return ftruncate(fd, length, vm);
         }
         let path = PyPathLike::try_from_object(vm, path)?;

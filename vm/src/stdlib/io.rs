@@ -451,7 +451,7 @@ mod _io {
         ) -> PyResult<Vec<PyObjectRef>> {
             let hint = hint.flatten().unwrap_or(-1);
             if hint <= 0 {
-                return vm.extract_elements(&instance);
+                return instance.try_to_value(vm);
             }
             let hint = hint as usize;
             let mut ret = Vec::new();

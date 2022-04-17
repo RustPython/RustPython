@@ -76,6 +76,9 @@ pub mod types;
 pub mod utils;
 pub mod version;
 mod vm;
+mod vm_new;
+mod vm_object;
+mod vm_ops;
 
 mod pyobject {
     pub use super::_pyobject::*;

@@ -2,7 +2,6 @@ use super::{float, PyByteArray, PyBytes, PyStr, PyStrRef, PyTypeRef};
 use crate::{
     bytesinner::PyBytesInner,
     common::hash,
-    convert::try_value_from_borrowed_object,
     format::FormatSpec,
     function::{
         ArgIntoBool, IntoPyObject, IntoPyResult, OptionalArg, OptionalOption, PyArithmeticValue,
@@ -86,9 +85,9 @@ macro_rules! impl_try_from_object_int {
     ($(($t:ty, $to_prim:ident),)*) => {$(
         impl TryFromBorrowedObject for $t {
             fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
-                try_value_from_borrowed_object(vm, obj, |int: &PyInt| {
+                obj.try_value_with(|int: &PyInt| {
                     int.try_to_primitive(vm)
-                })
+                }, vm)
             }
         }
     )*};

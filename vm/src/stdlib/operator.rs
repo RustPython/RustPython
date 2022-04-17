@@ -211,7 +211,7 @@ mod _operator {
     /// Return the outcome of the test b in a. Note the reversed operands.
     #[pyfunction]
     fn contains(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        vm._membership(a, b)
+        vm._contains(a, b)
     }
 
     /// Return the number of occurrences of b in a.

@@ -99,7 +99,7 @@ impl PyList {
 
     #[pymethod]
     pub(crate) fn extend(&self, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let mut new_elements = vm.extract_elements(&x)?;
+        let mut new_elements = x.try_to_value(vm)?;
         self.borrow_vec_mut().append(&mut new_elements);
         Ok(())
     }
@@ -350,7 +350,7 @@ impl PyList {
     #[pymethod(magic)]
     fn init(&self, iterable: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<()> {
         let mut elements = if let OptionalArg::Present(iterable) = iterable {
-            vm.extract_elements(&iterable)?
+            iterable.try_to_value(vm)?
         } else {
             vec![]
         };

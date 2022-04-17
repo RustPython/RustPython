@@ -91,7 +91,7 @@ mod _collections {
             let elements = iterable
                 .into_option()
                 .map(|iter| {
-                    let mut elements: Vec<PyObjectRef> = vm.extract_elements(&iter)?;
+                    let mut elements: Vec<PyObjectRef> = iter.try_to_value(vm)?;
                     if let Some(maxlen) = maxlen {
                         elements.drain(..elements.len().saturating_sub(maxlen));
                     }
@@ -177,7 +177,7 @@ mod _collections {
         fn _extend(&self, iter: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
             self.state.fetch_add(1);
             let max_len = self.maxlen;
-            let mut elements: Vec<PyObjectRef> = vm.extract_elements(iter)?;
+            let mut elements: Vec<PyObjectRef> = iter.try_to_value(vm)?;
             if let Some(max_len) = max_len {
                 if max_len > elements.len() {
                     let mut deque = self.borrow_deque_mut();
@@ -195,7 +195,7 @@ mod _collections {
         #[pymethod]
         fn extendleft(&self, iter: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             let max_len = self.maxlen;
-            let mut elements: Vec<PyObjectRef> = vm.extract_elements(&iter)?;
+            let mut elements: Vec<PyObjectRef> = iter.try_to_value(vm)?;
             elements.reverse();
 
             if let Some(max_len) = max_len {

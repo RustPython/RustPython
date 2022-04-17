@@ -83,13 +83,14 @@ mod _sre {
         // isbytes will be hanging (-1)
         // here is just a hack to let re.Scanner works only with str not bytes
         let isbytes = !vm.is_none(&pattern) && !pattern.payload_is::<PyStr>();
+        let code = code.try_to_value(vm)?;
         Ok(Pattern {
             pattern,
             flags: SreFlag::from_bits_truncate(flags),
-            code: vm.extract_elements::<u32>(&code)?,
+            code,
             groups,
             groupindex,
-            indexgroup: vm.extract_elements(&indexgroup)?,
+            indexgroup: indexgroup.try_to_value(vm)?,
             isbytes,
         })
     }

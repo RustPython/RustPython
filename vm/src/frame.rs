@@ -1032,7 +1032,7 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::UnpackSequence { size } => {
                 let value = self.pop_value();
-                let elements = vm.extract_elements(&value).map_err(|e| {
+                let elements: Vec<_> = value.try_to_value(vm).map_err(|e| {
                     if e.class().is(&vm.ctx.exceptions.type_error) {
                         vm.new_type_error(format!(
                             "cannot unpack non-iterable {} object",
@@ -1121,9 +1121,10 @@ impl ExecutingFrame<'_> {
     ) -> PyResult<Vec<PyObjectRef>> {
         let elements = self.pop_multiple(size);
         if unpack {
-            let mut result: Vec<PyObjectRef> = vec![];
+            let mut result = Vec::<PyObjectRef>::new();
             for element in elements {
-                result.extend(vm.extract_elements(&element)?);
+                let items: Vec<_> = element.try_to_value(vm)?;
+                result.extend(items);
             }
             Ok(result)
         } else {
@@ -1172,7 +1173,7 @@ impl ExecutingFrame<'_> {
         if let Some(dict) = module.dict() {
             let filter_pred: Box<dyn Fn(&str) -> bool> =
                 if let Ok(all) = dict.get_item("__all__", vm) {
-                    let all: Vec<PyStrRef> = vm.extract_elements(&all)?;
+                    let all: Vec<PyStrRef> = all.try_to_value(vm)?;
                     let all: Vec<String> = all
                         .into_iter()
                         .map(|name| name.as_str().to_owned())
@@ -1384,7 +1385,7 @@ impl ExecutingFrame<'_> {
             IndexMap::new()
         };
         let args = self.pop_value();
-        let args = vm.extract_elements(&args)?;
+        let args = args.try_to_value(vm)?;
         Ok(FuncArgs { args, kwargs })
     }
 
@@ -1497,7 +1498,7 @@ impl ExecutingFrame<'_> {
     fn execute_unpack_ex(&mut self, vm: &VirtualMachine, before: u8, after: u8) -> FrameResult {
         let (before, after) = (before as usize, after as usize);
         let value = self.pop_value();
-        let mut elements = vm.extract_elements::<PyObjectRef>(&value)?;
+        let elements: Vec<_> = value.try_to_value(vm)?;
         let min_expected = before + after;
 
         let middle = elements.len().checked_sub(min_expected).ok_or_else(|| {
@@ -1508,6 +1509,7 @@ impl ExecutingFrame<'_> {
             ))
         })?;
 
+        let mut elements = elements;
         // Elements on stack from right-to-left:
         self.state
             .stack
@@ -1703,7 +1705,7 @@ impl ExecutingFrame<'_> {
         needle: PyObjectRef,
         haystack: PyObjectRef,
     ) -> PyResult<bool> {
-        let found = vm._membership(haystack, needle)?;
+        let found = vm._contains(haystack, needle)?;
         found.try_to_bool(vm)
     }
 
@@ -1713,8 +1715,7 @@ impl ExecutingFrame<'_> {
         needle: PyObjectRef,
         haystack: PyObjectRef,
     ) -> PyResult<bool> {
-        let found = vm._membership(haystack, needle)?;
-        Ok(!found.try_to_bool(vm)?)
+        Ok(!self._in(vm, needle, haystack)?)
     }
 
     fn _is(&self, a: PyObjectRef, b: PyObjectRef) -> bool {
