@@ -1,7 +1,7 @@
 pub use crate::_pyobjectrc::{
     PyObject, PyObjectRef, PyObjectView, PyObjectWeak, PyObjectWrap, PyRef, PyWeakRef,
 };
-use crate::common::{lock::PyRwLockReadGuard, rc::PyRc};
+use crate::common::lock::PyRwLockReadGuard;
 use crate::{
     builtins::{
         builtinfunc::{PyBuiltinFunction, PyBuiltinMethod, PyNativeFuncDef},
@@ -445,7 +445,7 @@ impl<'a, T: PyObjectPayload + PyValue> PyLease<'a, T> {
 
 impl<'a, T: PyObjectPayload + PyValue> Borrow<PyObject> for PyLease<'a, T> {
     fn borrow(&self) -> &PyObject {
-        self.inner.as_object()
+        self.inner.as_ref()
     }
 }
 

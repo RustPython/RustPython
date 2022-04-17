@@ -466,11 +466,11 @@ impl ToOwned for PyObject {
 
 pub trait PyObjectWrap
 where
-    Self: Borrow<PyObject> + AsRef<PyObject>,
+    Self: Borrow<PyObject>,
 {
     #[inline(always)]
     fn as_object(&self) -> &PyObject {
-        self.as_ref()
+        self.borrow()
     }
 
     fn into_object(self) -> PyObjectRef;
@@ -986,7 +986,17 @@ where
     T: PyObjectPayload,
 {
     fn borrow(&self) -> &PyObject {
-        self.as_object()
+        (**self).as_object()
+    }
+}
+
+impl<T> AsRef<PyObject> for PyRef<T>
+where
+    T: PyObjectPayload,
+{
+    #[inline(always)]
+    fn as_ref(&self) -> &PyObject {
+        self.borrow()
     }
 }
 
@@ -998,16 +1008,6 @@ where
     fn into_object(self) -> PyObjectRef {
         let me = ManuallyDrop::new(self);
         PyObjectRef { ptr: me.ptr.cast() }
-    }
-}
-
-impl<T> AsRef<PyObject> for PyRef<T>
-where
-    T: PyObjectPayload,
-{
-    #[inline(always)]
-    fn as_ref(&self) -> &PyObject {
-        (**self).as_object()
     }
 }
 

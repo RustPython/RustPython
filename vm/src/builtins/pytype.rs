@@ -12,8 +12,8 @@ use crate::{
     pyclass::{PyClassImpl, StaticType},
     pyobject::PyLease,
     types::{Callable, GetAttr, PyTypeFlags, PyTypeSlots, SetAttr},
-    IdProtocol, PyContext, PyObject, PyObjectRef, PyObjectWeak, PyRef, PyResult, PyValue,
-    TypeProtocol, VirtualMachine,
+    IdProtocol, PyContext, PyObjectRef, PyObjectWeak, PyRef, PyResult, PyValue, TypeProtocol,
+    VirtualMachine,
 };
 use itertools::Itertools;
 use std::{
@@ -209,8 +209,11 @@ impl PyType {
 }
 
 impl PyTypeRef {
+    /// Determines if `subclass` is actually a subclass of `cls`, this doesn't call __subclasscheck__,
+    /// so only use this if `cls` is known to have not overridden the base __subclasscheck__ magic
+    /// method.
     pub fn issubclass(&self, cls: &impl Borrow<crate::PyObject>) -> bool {
-        self._issubclass(cls)
+        self.as_object().is(cls.borrow()) || self.mro.iter().any(|c| c.is(cls.borrow()))
     }
 
     pub fn iter_mro(&self) -> impl Iterator<Item = &PyTypeRef> + DoubleEndedIterator {
@@ -786,36 +789,6 @@ fn subtype_set_dict(obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -
 
 pub(crate) fn init(ctx: &PyContext) {
     PyType::extend_class(ctx, &ctx.types.type_type);
-}
-
-impl PyLease<'_, PyType> {
-    pub fn issubclass(&self, cls: &impl Borrow<crate::PyObject>) -> bool {
-        self._issubclass(cls)
-    }
-}
-
-pub trait DerefToPyType: Borrow<PyObject> {
-    fn deref_to_type(&self) -> &PyType;
-
-    /// Determines if `subclass` is actually a subclass of `cls`, this doesn't call __subclasscheck__,
-    /// so only use this if `cls` is known to have not overridden the base __subclasscheck__ magic
-    /// method.
-    fn _issubclass(&self, cls: &impl Borrow<crate::PyObject>) -> bool {
-        self.borrow().is(cls.borrow())
-            || self.deref_to_type().mro.iter().any(|c| c.is(cls.borrow()))
-    }
-}
-
-impl DerefToPyType for PyTypeRef {
-    fn deref_to_type(&self) -> &PyType {
-        self.deref()
-    }
-}
-
-impl<'a> DerefToPyType for PyLease<'a, PyType> {
-    fn deref_to_type(&self) -> &PyType {
-        self.deref()
-    }
 }
 
 pub(crate) fn call_slot_new(
