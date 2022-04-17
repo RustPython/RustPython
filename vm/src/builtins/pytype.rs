@@ -209,7 +209,7 @@ impl PyType {
 }
 
 impl PyTypeRef {
-    pub fn issubclass<R: IdProtocol>(&self, cls: R) -> bool {
+    pub fn issubclass(&self, cls: &impl Borrow<crate::PyObject>) -> bool {
         self._issubclass(cls)
     }
 
@@ -789,7 +789,7 @@ pub(crate) fn init(ctx: &PyContext) {
 }
 
 impl PyLease<'_, PyType> {
-    pub fn issubclass<R: IdProtocol>(&self, cls: R) -> bool {
+    pub fn issubclass(&self, cls: &impl Borrow<crate::PyObject>) -> bool {
         self._issubclass(cls)
     }
 }
@@ -800,11 +800,9 @@ pub trait DerefToPyType: Borrow<PyObject> {
     /// Determines if `subclass` is actually a subclass of `cls`, this doesn't call __subclasscheck__,
     /// so only use this if `cls` is known to have not overridden the base __subclasscheck__ magic
     /// method.
-    fn _issubclass<R: IdProtocol>(&self, cls: R) -> bool
-    where
-        Self: IdProtocol,
-    {
-        self.is(&cls) || self.deref_to_type().mro.iter().any(|c| c.is(&cls))
+    fn _issubclass(&self, cls: &impl Borrow<crate::PyObject>) -> bool {
+        self.borrow().is(cls.borrow())
+            || self.deref_to_type().mro.iter().any(|c| c.is(cls.borrow()))
     }
 }
 
