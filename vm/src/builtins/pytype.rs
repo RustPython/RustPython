@@ -12,8 +12,7 @@ use crate::{
     pyclass::{PyClassImpl, StaticType},
     pyobject::PyLease,
     types::{Callable, GetAttr, PyTypeFlags, PyTypeSlots, SetAttr},
-    AsPyObject, PyContext, PyObjectRef, PyObjectWeak, PyRef, PyResult, PyValue, TypeProtocol,
-    VirtualMachine,
+    AsPyObject, PyContext, PyObjectRef, PyObjectWeak, PyRef, PyResult, PyValue, VirtualMachine,
 };
 use itertools::Itertools;
 use std::{
@@ -212,7 +211,7 @@ impl PyTypeRef {
     /// Determines if `subclass` is actually a subclass of `cls`, this doesn't call __subclasscheck__,
     /// so only use this if `cls` is known to have not overridden the base __subclasscheck__ magic
     /// method.
-    pub fn issubclass(&self, cls: &impl Borrow<crate::PyObject>) -> bool {
+    pub fn fast_issubclass(&self, cls: &impl Borrow<crate::PyObject>) -> bool {
         self.as_object().is(cls.borrow()) || self.mro.iter().any(|c| c.is(cls.borrow()))
     }
 
@@ -230,7 +229,7 @@ impl PyType {
     // bound method for every type
     pub(crate) fn __new__(zelf: PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         let (subtype, args): (PyRef<Self>, FuncArgs) = args.bind(vm)?;
-        if !subtype.issubclass(&zelf) {
+        if !subtype.fast_issubclass(&zelf) {
             return Err(vm.new_type_error(format!(
                 "{zelf}.__new__({subtype}): {subtype} is not a subtype of {zelf}",
                 zelf = zelf.name(),
@@ -279,12 +278,12 @@ impl PyType {
 
     #[pymethod(magic)]
     fn instancecheck(zelf: PyRef<Self>, obj: PyObjectRef) -> bool {
-        obj.isinstance(&zelf)
+        obj.fast_isinstance(&zelf)
     }
 
     #[pymethod(magic)]
     fn subclasscheck(zelf: PyRef<Self>, subclass: PyTypeRef) -> bool {
-        subclass.issubclass(&zelf)
+        subclass.fast_issubclass(&zelf)
     }
 
     #[pyclassmethod(magic)]
@@ -338,7 +337,7 @@ impl PyType {
             .cloned()
             // We need to exclude this method from going into recursion:
             .and_then(|found| {
-                if found.isinstance(&vm.ctx.types.getset_type) {
+                if found.fast_isinstance(&vm.ctx.types.getset_type) {
                     None
                 } else {
                     Some(found)
@@ -355,7 +354,7 @@ impl PyType {
             .cloned()
             // We need to exclude this method from going into recursion:
             .and_then(|found| {
-                if found.isinstance(&vm.ctx.types.getset_type) {
+                if found.fast_isinstance(&vm.ctx.types.getset_type) {
                     None
                 } else {
                     Some(found)
@@ -416,7 +415,7 @@ impl PyType {
 
         let is_type_type = metatype.is(&vm.ctx.types.type_type);
         if is_type_type && args.args.len() == 1 && args.kwargs.is_empty() {
-            return Ok(args.args[0].clone_class().into());
+            return Ok(args.args[0].class().clone().into());
         }
 
         if args.args.len() != 3 {
@@ -719,7 +718,9 @@ impl Callable for PyType {
         vm_trace!("type_call: {:?}", zelf);
         let obj = call_slot_new(zelf.to_owned(), zelf.to_owned(), args.clone(), vm)?;
 
-        if (zelf.is(&vm.ctx.types.type_type) && args.kwargs.is_empty()) || !obj.isinstance(zelf) {
+        if (zelf.is(&vm.ctx.types.type_type) && args.kwargs.is_empty())
+            || !obj.fast_isinstance(zelf)
+        {
             return Ok(obj);
         }
 
@@ -748,7 +749,7 @@ fn find_base_dict_descr(cls: &PyTypeRef, vm: &VirtualMachine) -> Option<PyObject
 
 fn subtype_get_dict(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     // TODO: obj.class().as_pyref() need to be supported
-    let cls = obj.clone_class();
+    let cls = obj.class().clone();
     let ret = match find_base_dict_descr(&cls, vm) {
         Some(descr) => vm.call_get_descriptor(descr, obj).unwrap_or_else(|_| {
             Err(vm.new_type_error(format!(
@@ -762,7 +763,7 @@ fn subtype_get_dict(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 }
 
 fn subtype_set_dict(obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-    let cls = obj.clone_class();
+    let cls = obj.class().clone();
     match find_base_dict_descr(&cls, vm) {
         Some(descr) => {
             let descr_set = descr
@@ -870,9 +871,9 @@ fn calculate_meta_class(
     let mut winner = metatype;
     for base in bases {
         let base_type = base.class();
-        if winner.issubclass(&base_type) {
+        if winner.fast_issubclass(&base_type) {
             continue;
-        } else if base_type.issubclass(&winner) {
+        } else if base_type.fast_issubclass(&winner) {
             winner = PyLease::into_pyref(base_type);
             continue;
         }

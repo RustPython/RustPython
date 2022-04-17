@@ -3,7 +3,7 @@ use crate::common::linked_list::{Link, LinkedList, Pointers};
 use crate::common::lock::{PyMutex, PyMutexGuard, PyRwLock};
 use crate::common::refcount::RefCount;
 use crate::{
-    _pyobject::{AsPyObject, PyObjectPayload, PyObjectWrap, PyResult, TypeProtocol},
+    _pyobject::{AsPyObject, PyObjectPayload, PyObjectWrap, PyResult},
     builtins::{PyBaseExceptionRef, PyDictRef, PyTypeRef},
     vm::VirtualMachine,
 };
@@ -664,7 +664,7 @@ impl PyObject {
 
     #[inline(always)]
     pub fn payload_if_subclass<T: crate::PyValue>(&self, vm: &VirtualMachine) -> Option<&T> {
-        if self.class().issubclass(T::class(vm)) {
+        if self.class().fast_issubclass(T::class(vm)) {
             self.payload()
         } else {
             None

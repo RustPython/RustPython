@@ -14,8 +14,7 @@ use crate::{
     pyclass::PyClassImpl,
     scope::Scope,
     types::{Callable, Comparable, Constructor, GetAttr, GetDescriptor, PyComparisonOp},
-    AsPyObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
-    VirtualMachine,
+    AsPyObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 #[cfg(feature = "jit")]
 use crate::{common::lock::OnceCell, function::IntoPyObject};
@@ -462,7 +461,8 @@ impl Comparable for PyBoundMethod {
 
 impl GetAttr for PyBoundMethod {
     fn getattro(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(obj) = zelf.get_class_attr(name.as_str()) {
+        let class_attr = zelf.get_class_attr(name.as_str());
+        if let Some(obj) = class_attr {
             return vm.call_if_get_descriptor(obj, zelf.into());
         }
         zelf.function.clone().get_attr(name, vm)
@@ -507,6 +507,7 @@ impl PyBoundMethod {
 impl PyBoundMethod {
     #[pymethod(magic)]
     fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
+        #[allow(clippy::needless_match)]  // False positive on nightly
         let funcname =
             if let Some(qname) = vm.get_attribute_opt(self.function.clone(), "__qualname__")? {
                 Some(qname)
@@ -545,7 +546,7 @@ impl PyBoundMethod {
     fn qualname(&self, vm: &VirtualMachine) -> PyResult {
         if self
             .function
-            .isinstance(&vm.ctx.types.builtin_function_or_method_type)
+            .fast_isinstance(&vm.ctx.types.builtin_function_or_method_type)
         {
             // Special case: we work with `__new__`, which is not really a method.
             // It is a function, so its `__qualname__` is just `__new__`.

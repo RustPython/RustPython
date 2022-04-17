@@ -3,7 +3,7 @@ pub(crate) use atexit::make_module;
 
 #[pymodule]
 mod atexit {
-    use crate::{function::FuncArgs, PyObjectRef, PyResult, TypeProtocol, VirtualMachine};
+    use crate::{function::FuncArgs, AsPyObject, PyObjectRef, PyResult, VirtualMachine};
 
     #[pyfunction]
     fn register(func: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyObjectRef {
@@ -38,7 +38,7 @@ mod atexit {
         for (func, args) in vm.state.atexit_funcs.lock().drain(..).rev() {
             if let Err(e) = vm.invoke(&func, args) {
                 last_exc = Some(e.clone());
-                if !e.isinstance(&vm.ctx.exceptions.system_exit) {
+                if !e.fast_isinstance(&vm.ctx.exceptions.system_exit) {
                     writeln!(
                         crate::stdlib::sys::PyStderr(vm),
                         "Error in atexit._run_exitfuncs:"

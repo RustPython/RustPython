@@ -18,7 +18,6 @@ use crate::{
     utils::collection_repr,
     vm::{ReprGuard, VirtualMachine},
     AsPyObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol,
 };
 use std::borrow::Cow;
 use std::{fmt, ops::Deref};
@@ -344,7 +343,7 @@ impl PySetInner {
                     )
                     // If operation raised KeyError, report original set (set.remove)
                     .map_err(|op_err| {
-                        if op_err.isinstance(&vm.ctx.exceptions.key_error) {
+                        if op_err.fast_isinstance(&vm.ctx.exceptions.key_error) {
                             vm.new_key_error(item.to_owned())
                         } else {
                             op_err
@@ -368,7 +367,7 @@ fn reduce_set(
     vm: &VirtualMachine,
 ) -> PyResult<(PyTypeRef, PyTupleRef, Option<PyDictRef>)> {
     Ok((
-        zelf.clone_class(),
+        zelf.class().clone(),
         vm.new_tuple((extract_set(zelf)
             .unwrap_or(&PySetInner::default())
             .elements(),)),
@@ -573,9 +572,9 @@ impl PySet {
     }
 
     #[pymethod(magic)]
-    fn ior(zelf: PyRef<Self>, iterable: SetIterable, vm: &VirtualMachine) -> PyResult {
+    fn ior(zelf: PyRef<Self>, iterable: SetIterable, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         zelf.inner.update(iterable.iterable, vm)?;
-        Ok(zelf.as_object().to_owned())
+        Ok(zelf)
     }
 
     #[pymethod]
@@ -595,9 +594,13 @@ impl PySet {
     }
 
     #[pymethod(magic)]
-    fn iand(zelf: PyRef<Self>, iterable: SetIterable, vm: &VirtualMachine) -> PyResult {
+    fn iand(
+        zelf: PyRef<Self>,
+        iterable: SetIterable,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<Self>> {
         zelf.inner.intersection_update(iterable.iterable, vm)?;
-        Ok(zelf.as_object().to_owned())
+        Ok(zelf)
     }
 
     #[pymethod]
@@ -607,9 +610,13 @@ impl PySet {
     }
 
     #[pymethod(magic)]
-    fn isub(zelf: PyRef<Self>, iterable: SetIterable, vm: &VirtualMachine) -> PyResult {
+    fn isub(
+        zelf: PyRef<Self>,
+        iterable: SetIterable,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<Self>> {
         zelf.inner.difference_update(iterable.iterable, vm)?;
-        Ok(zelf.as_object().to_owned())
+        Ok(zelf)
     }
 
     #[pymethod]
@@ -623,10 +630,14 @@ impl PySet {
     }
 
     #[pymethod(magic)]
-    fn ixor(zelf: PyRef<Self>, iterable: SetIterable, vm: &VirtualMachine) -> PyResult {
+    fn ixor(
+        zelf: PyRef<Self>,
+        iterable: SetIterable,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<Self>> {
         zelf.inner
             .symmetric_difference_update(iterable.iterable, vm)?;
-        Ok(zelf.as_object().to_owned())
+        Ok(zelf)
     }
 
     #[pymethod(magic)]
@@ -933,8 +944,8 @@ struct SetIterable {
 impl TryFromObject for SetIterable {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let class = obj.class();
-        if class.issubclass(&vm.ctx.types.set_type)
-            || class.issubclass(&vm.ctx.types.frozenset_type)
+        if class.fast_issubclass(&vm.ctx.types.set_type)
+            || class.fast_issubclass(&vm.ctx.types.frozenset_type)
         {
             // the class lease needs to be drop to be able to return the object
             drop(class);

@@ -8,7 +8,7 @@ use crate::{
     pyclass::PyClassImpl,
     types::{Callable, Comparable, Constructor, Hashable, PyComparisonOp},
     AsPyObject, PyContext, PyObject, PyObjectRef, PyObjectWrap, PyRef, PyResult, PyValue,
-    TypeProtocol, VirtualMachine,
+    VirtualMachine,
 };
 
 pub use crate::pyobject::PyWeak;

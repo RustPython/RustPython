@@ -266,7 +266,7 @@ mod decl {
             common::lock::PyMutex,
             function::{IntoPyObject, OptionalArg},
             stdlib::io::Fildes,
-            PyValue, TypeProtocol,
+            AsPyObject, PyValue,
         };
         use libc::pollfd;
         use num_traits::ToPrimitive;

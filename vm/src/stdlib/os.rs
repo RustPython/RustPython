@@ -4,7 +4,7 @@ use crate::{
     function::{ArgumentError, FromArgs, FuncArgs, IntoPyException, IntoPyObject},
     protocol::PyBuffer,
     AsPyObject, PyObject, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject,
-    TypeProtocol, VirtualMachine,
+    VirtualMachine,
 };
 use std::{
     ffi, fs,
@@ -440,7 +440,7 @@ pub(super) mod _os {
         types::{IterNext, IterNextIterable},
         utils::Either,
         vm::{ReprGuard, VirtualMachine},
-        PyObjectRef, PyRef, PyResult, PyStructSequence, PyValue, TryFromObject, TypeProtocol,
+        AsPyObject, PyObjectRef, PyRef, PyResult, PyStructSequence, PyValue, TryFromObject,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
@@ -870,8 +870,8 @@ pub(super) mod _os {
             let name = match zelf.clone().get_attr("name", vm) {
                 Ok(name) => Some(name),
                 Err(e)
-                    if e.isinstance(&vm.ctx.exceptions.attribute_error)
-                        || e.isinstance(&vm.ctx.exceptions.value_error) =>
+                    if e.fast_isinstance(&vm.ctx.exceptions.attribute_error)
+                        || e.fast_isinstance(&vm.ctx.exceptions.value_error) =>
                 {
                     None
                 }

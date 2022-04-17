@@ -34,7 +34,7 @@ mod array {
                 PyComparisonOp,
             },
             AsPyObject, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue,
-            TryFromBorrowedObject, TryFromObject, TypeProtocol, VirtualMachine,
+            TryFromBorrowedObject, TryFromObject, VirtualMachine,
         },
     };
     use itertools::Itertools;
@@ -1115,7 +1115,7 @@ mod array {
                 return Self::reduce(zelf, vm);
             }
             let array = zelf.read();
-            let cls = zelf.as_object().clone_class();
+            let cls = zelf.class().clone();
             let typecode = vm.ctx.new_str(array.typecode_str());
             let bytes = vm.ctx.new_bytes(array.get_bytes().to_vec());
             let code = MachineFormatCode::from_typecode(array.typecode()).unwrap();
@@ -1135,7 +1135,7 @@ mod array {
             vm: &VirtualMachine,
         ) -> PyResult<(PyObjectRef, PyTupleRef, Option<PyDictRef>)> {
             let array = zelf.read();
-            let cls = zelf.as_object().clone_class();
+            let cls = zelf.class().clone();
             let typecode = vm.ctx.new_str(array.typecode_str());
             let values = if array.typecode() == 'u' {
                 let s = Self::_wchar_bytes_to_string(array.get_bytes(), array.itemsize(), vm)?;
@@ -1444,7 +1444,7 @@ mod array {
     }
 
     fn check_array_type(typ: PyTypeRef, vm: &VirtualMachine) -> PyResult<PyTypeRef> {
-        if !typ.issubclass(PyArray::class(vm)) {
+        if !typ.fast_issubclass(PyArray::class(vm)) {
             return Err(
                 vm.new_type_error(format!("{} is not a subtype of array.array", typ.name()))
             );

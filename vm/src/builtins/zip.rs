@@ -1,11 +1,11 @@
 use super::PyTypeRef;
 use crate::{
     builtins::PyTupleRef,
-    function::{ArgIntoBool, IntoPyObject, OptionalArg, PosArgs},
+    function::{ArgIntoBool, OptionalArg, PosArgs},
     protocol::{PyIter, PyIterReturn},
     pyclass::PyClassImpl,
     types::{Constructor, IterNext, IterNextIterable},
-    PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
+    AsPyObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
 };
 use rustpython_common::atomic::{self, PyAtomic, Radium};
 
@@ -42,7 +42,7 @@ impl Constructor for PyZip {
 impl PyZip {
     #[pymethod(magic)]
     fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
-        let cls = zelf.clone_class().into_pyobject(vm);
+        let cls = zelf.class().clone();
         let iterators = zelf
             .iterators
             .iter()

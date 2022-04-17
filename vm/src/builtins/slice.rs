@@ -4,8 +4,7 @@ use crate::{
     function::{FuncArgs, IntoPyObject, OptionalArg, PyComparisonValue},
     pyclass::PyClassImpl,
     types::{Comparable, Constructor, Hashable, PyComparisonOp, Unhashable},
-    AsPyObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
-    VirtualMachine,
+    AsPyObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 use num_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, ToPrimitive, Zero};
@@ -205,7 +204,7 @@ impl PySlice {
         (Option<PyObjectRef>, PyObjectRef, Option<PyObjectRef>),
     )> {
         Ok((
-            zelf.clone_class(),
+            zelf.class().clone(),
             (zelf.start.clone(), zelf.stop.clone(), zelf.step.clone()),
         ))
     }
@@ -452,5 +451,5 @@ impl PyEllipsis {
 
 pub fn init(context: &PyContext) {
     PySlice::extend_class(context, &context.types.slice_type);
-    PyEllipsis::extend_class(context, &context.ellipsis.clone_class());
+    PyEllipsis::extend_class(context, &context.ellipsis.class().clone());
 }

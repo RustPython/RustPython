@@ -25,7 +25,7 @@ use crate::{
     pyobject::PyLease,
     scope::Scope,
     signal, stdlib, AsPyObject, PyContext, PyObject, PyObjectRef, PyRef, PyRefExact, PyResult,
-    PyValue, TypeProtocol,
+    PyValue,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use std::{
@@ -67,7 +67,7 @@ struct ExceptionStack {
 }
 
 pub(crate) mod thread {
-    use super::{PyObject, TypeProtocol, VirtualMachine};
+    use super::{AsPyObject, PyObject, VirtualMachine};
     use itertools::Itertools;
     use std::{cell::RefCell, ptr::NonNull, thread_local};
 
@@ -91,7 +91,7 @@ pub(crate) mod thread {
         let vm_owns_obj = |intp: NonNull<VirtualMachine>| {
             // SAFETY: all references in VM_STACK should be valid
             let vm = unsafe { intp.as_ref() };
-            obj.isinstance(&vm.ctx.types.object_type)
+            obj.fast_isinstance(&vm.ctx.types.object_type)
         };
         VM_STACK.with(|vms| {
             let intp = match vms.borrow().iter().copied().exactly_one() {
@@ -718,7 +718,7 @@ impl VirtualMachine {
     {
         match obj.get_attr(attr_name, self) {
             Ok(attr) => Ok(Some(attr)),
-            Err(e) if e.isinstance(&self.ctx.exceptions.attribute_error) => Ok(None),
+            Err(e) if e.fast_isinstance(&self.ctx.exceptions.attribute_error) => Ok(None),
             Err(e) => Err(e),
         }
     }
@@ -747,10 +747,11 @@ impl VirtualMachine {
     where
         F: FnOnce() -> String,
     {
-        match obj.get_class_attr(method_name) {
-            Some(method) => self.call_if_get_descriptor(method, obj),
-            None => Err(self.new_type_error(err_msg())),
-        }
+        let method = obj
+            .class()
+            .get_attr(method_name)
+            .ok_or_else(|| self.new_type_error(err_msg()))?;
+        self.call_if_get_descriptor(method, obj)
     }
 
     // TODO: remove + transfer over to get_special_method

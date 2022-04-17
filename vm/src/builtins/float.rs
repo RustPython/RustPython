@@ -10,7 +10,7 @@ use crate::{
     pyclass::PyClassImpl,
     types::{Comparable, Constructor, Hashable, PyComparisonOp},
     AsPyObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromBorrowedObject,
-    TryFromObject, TypeProtocol, VirtualMachine,
+    TryFromObject, VirtualMachine,
 };
 use num_bigint::{BigInt, ToBigInt};
 use num_complex::Complex64;

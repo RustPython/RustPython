@@ -8,7 +8,7 @@ use crate::{
     function::OptionalArg,
     pyclass::PyClassImpl,
     types::{Constructor, GetAttr, GetDescriptor},
-    AsPyObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
+    AsPyObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "super")]
@@ -174,26 +174,23 @@ impl GetDescriptor for PySuper {
             Ok(PySuper::new(zelf.typ.clone(), obj, vm)?.into_object(vm))
         } else {
             let obj = vm.unwrap_or_none(zelf.obj.clone().map(|(o, _)| o));
-            vm.invoke(
-                zelf.as_object().clone_class().as_object(),
-                (zelf.typ.clone(), obj),
-            )
+            vm.invoke(&zelf.class(), (zelf.typ.clone(), obj))
         }
     }
 }
 
 fn supercheck(ty: PyTypeRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTypeRef> {
     if let Ok(cls) = obj.clone().downcast::<PyType>() {
-        if cls.issubclass(&ty) {
+        if cls.fast_issubclass(&ty) {
             return Ok(cls);
         }
     }
-    if obj.isinstance(&ty) {
-        return Ok(obj.clone_class());
+    if obj.fast_isinstance(&ty) {
+        return Ok(obj.class().clone());
     }
     let class_attr = obj.get_attr("__class__", vm)?;
     if let Ok(cls) = class_attr.downcast::<PyType>() {
-        if !cls.is(&ty) && cls.issubclass(&ty) {
+        if !cls.is(&ty) && cls.fast_issubclass(&ty) {
             return Ok(cls);
         }
     }

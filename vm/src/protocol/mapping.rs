@@ -5,7 +5,7 @@ use crate::{
     },
     common::lock::OnceCell,
     function::IntoPyResult,
-    AsPyObject, PyObject, PyObjectRef, PyResult, TypeProtocol, VirtualMachine,
+    AsPyObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
 };
 
 // Mapping protocol
@@ -91,7 +91,20 @@ impl PyMapping<'_> {
         })?
     }
 
-    pub fn subscript(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
+    pub fn subscript(&self, needle: &impl AsPyObject, vm: &VirtualMachine) -> PyResult {
+        self._subscript(needle.as_object(), vm)
+    }
+
+    pub fn ass_subscript(
+        &self,
+        needle: &impl AsPyObject,
+        value: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        self._ass_subscript(needle.as_object(), value, vm)
+    }
+
+    fn _subscript(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
         let f = self
             .methods(vm)
             .subscript
@@ -99,7 +112,7 @@ impl PyMapping<'_> {
         f(self, needle, vm)
     }
 
-    pub fn ass_subscript(
+    fn _ass_subscript(
         &self,
         needle: &PyObject,
         value: Option<PyObjectRef>,

@@ -2,7 +2,7 @@ use crate::{
     builtins::iter::PySequenceIterator,
     function::{IntoPyObject, IntoPyResult},
     AsPyObject, PyObject, PyObjectRef, PyObjectWrap, PyResult, PyValue, TryFromObject,
-    TypeProtocol, VirtualMachine,
+    VirtualMachine,
 };
 use std::borrow::Borrow;
 use std::ops::Deref;
@@ -154,7 +154,7 @@ impl PyIterReturn {
     pub fn from_pyresult(result: PyResult, vm: &VirtualMachine) -> PyResult<Self> {
         match result {
             Ok(obj) => Ok(Self::Return(obj)),
-            Err(err) if err.isinstance(&vm.ctx.exceptions.stop_iteration) => {
+            Err(err) if err.fast_isinstance(&vm.ctx.exceptions.stop_iteration) => {
                 let args = err.get_arg(0);
                 Ok(Self::StopIteration(args))
             }
@@ -165,10 +165,10 @@ impl PyIterReturn {
     pub fn from_getitem_result(result: PyResult, vm: &VirtualMachine) -> PyResult<Self> {
         match result {
             Ok(obj) => Ok(Self::Return(obj)),
-            Err(err) if err.isinstance(&vm.ctx.exceptions.index_error) => {
+            Err(err) if err.fast_isinstance(&vm.ctx.exceptions.index_error) => {
                 Ok(Self::StopIteration(None))
             }
-            Err(err) if err.isinstance(&vm.ctx.exceptions.stop_iteration) => {
+            Err(err) if err.fast_isinstance(&vm.ctx.exceptions.stop_iteration) => {
                 let args = err.get_arg(0);
                 Ok(Self::StopIteration(args))
             }

@@ -3,7 +3,7 @@ use crate::{
     common::lock::PyMutex,
     frame::{ExecutionResult, FrameRef},
     protocol::PyIterReturn,
-    AsPyObject, PyObject, PyObjectRef, PyResult, TypeProtocol, VirtualMachine,
+    AsPyObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 
@@ -112,13 +112,13 @@ impl Coro {
         match result {
             Ok(exec_res) => Ok(exec_res.into_iter_return(vm)),
             Err(e) => {
-                if e.isinstance(&vm.ctx.exceptions.stop_iteration) {
+                if e.fast_isinstance(&vm.ctx.exceptions.stop_iteration) {
                     let err =
                         vm.new_runtime_error(format!("{} raised StopIteration", gen_name(gen, vm)));
                     err.set_cause(Some(e));
                     Err(err)
                 } else if gen.class().is(&vm.ctx.types.async_generator)
-                    && e.isinstance(&vm.ctx.exceptions.stop_async_iteration)
+                    && e.fast_isinstance(&vm.ctx.exceptions.stop_async_iteration)
                 {
                     let err = vm
                         .new_runtime_error("async generator raised StopAsyncIteration".to_owned());
@@ -194,5 +194,5 @@ impl Coro {
 }
 
 pub fn is_gen_exit(exc: &PyBaseExceptionRef, vm: &VirtualMachine) -> bool {
-    exc.isinstance(&vm.ctx.exceptions.generator_exit)
+    exc.fast_isinstance(&vm.ctx.exceptions.generator_exit)
 }

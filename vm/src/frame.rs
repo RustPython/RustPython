@@ -16,7 +16,7 @@ use crate::{
     stdlib::builtins,
     types::PyComparisonOp,
     AsPyObject, PyMethod, PyObject, PyObjectRef, PyObjectWrap, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol, VirtualMachine,
+    TryFromObject, VirtualMachine,
 };
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -187,9 +187,9 @@ impl FrameRef {
         if !code.varnames.is_empty() {
             let fastlocals = self.fastlocals.lock();
             for (k, v) in itertools::zip(&map[..j], &**fastlocals) {
-                match locals.mapping().ass_subscript(k.as_object(), v.clone(), vm) {
+                match locals.mapping().ass_subscript(k, v.clone(), vm) {
                     Ok(()) => {}
-                    Err(e) if e.isinstance(&vm.ctx.exceptions.key_error) => {}
+                    Err(e) if e.fast_isinstance(&vm.ctx.exceptions.key_error) => {}
                     Err(e) => return Err(e),
                 }
             }
@@ -198,13 +198,11 @@ impl FrameRef {
             let map_to_dict = |keys: &[PyStrRef], values: &[PyCellRef]| {
                 for (k, v) in itertools::zip(keys, values) {
                     if let Some(value) = v.get() {
-                        locals
-                            .mapping()
-                            .ass_subscript(k.as_object(), Some(value), vm)?;
+                        locals.mapping().ass_subscript(k, Some(value), vm)?;
                     } else {
-                        match locals.mapping().ass_subscript(k.as_object(), None, vm) {
+                        match locals.mapping().ass_subscript(k, None, vm) {
                             Ok(()) => {}
-                            Err(e) if e.isinstance(&vm.ctx.exceptions.key_error) => {}
+                            Err(e) if e.fast_isinstance(&vm.ctx.exceptions.key_error) => {}
                             Err(e) => return Err(e),
                         }
                     }
@@ -406,7 +404,7 @@ impl ExecutingFrame<'_> {
                 return ret.map(ExecutionResult::Yield).or_else(|err| {
                     self.pop_value();
                     self.update_lasti(|i| *i += 1);
-                    if err.isinstance(&vm.ctx.exceptions.stop_iteration) {
+                    if err.fast_isinstance(&vm.ctx.exceptions.stop_iteration) {
                         let val = vm.unwrap_or_none(err.get_arg(0));
                         self.push_value(val);
                         self.run(vm)
@@ -498,7 +496,7 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::LoadNameAny(idx) => {
                 let name = &self.code.names[*idx as usize];
-                let value = self.locals.mapping().subscript(name.as_object(), vm).ok();
+                let value = self.locals.mapping().subscript(name, vm).ok();
                 self.push_value(match value {
                     Some(x) => x,
                     None => self.load_global_or_builtin(name, vm)?,
@@ -522,7 +520,7 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::LoadClassDeref(i) => {
                 let i = *i as usize;
                 let name = self.code.freevars[i - self.code.cellvars.len()].clone();
-                let value = self.locals.mapping().subscript(name.as_object(), vm).ok();
+                let value = self.locals.mapping().subscript(&name, vm).ok();
                 self.push_value(match value {
                     Some(v) => v,
                     None => self.cells_frees[i]
@@ -539,9 +537,7 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::StoreLocal(idx) => {
                 let name = &self.code.names[*idx as usize];
                 let value = self.pop_value();
-                self.locals
-                    .mapping()
-                    .ass_subscript(name.as_object(), Some(value), vm)?;
+                self.locals.mapping().ass_subscript(name, Some(value), vm)?;
                 Ok(None)
             }
             bytecode::Instruction::StoreGlobal(idx) => {
@@ -561,14 +557,11 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::DeleteLocal(idx) => {
                 let name = &self.code.names[*idx as usize];
-                let res = self
-                    .locals
-                    .mapping()
-                    .ass_subscript(name.as_object(), None, vm);
+                let res = self.locals.mapping().ass_subscript(name, None, vm);
 
                 match res {
                     Ok(()) => {}
-                    Err(e) if e.isinstance(&vm.ctx.exceptions.key_error) => {
+                    Err(e) if e.fast_isinstance(&vm.ctx.exceptions.key_error) => {
                         return Err(
                             vm.new_name_error(format!("name '{}' is not defined", name), name)
                         )
@@ -581,7 +574,7 @@ impl ExecutingFrame<'_> {
                 let name = &self.code.names[*idx as usize];
                 match self.globals.del_item(name.clone(), vm) {
                     Ok(()) => {}
-                    Err(e) if e.isinstance(&vm.ctx.exceptions.key_error) => {
+                    Err(e) if e.fast_isinstance(&vm.ctx.exceptions.key_error) => {
                         return Err(
                             vm.new_name_error(format!("name '{}' is not defined", name), name)
                         )
@@ -916,7 +909,7 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::EndAsyncFor => {
                 let exc = self.pop_value();
                 self.pop_value(); // async iterator we were calling __anext__ on
-                if exc.isinstance(&vm.ctx.exceptions.stop_async_iteration) {
+                if exc.fast_isinstance(&vm.ctx.exceptions.stop_async_iteration) {
                     vm.take_exception().expect("Should have exception in stack");
                     Ok(None)
                 } else {
@@ -1185,9 +1178,7 @@ impl ExecutingFrame<'_> {
             for (k, v) in dict {
                 let k = PyStrRef::try_from_object(vm, k)?;
                 if filter_pred(k.as_str()) {
-                    self.locals
-                        .mapping()
-                        .ass_subscript(k.as_object(), Some(v), vm)?;
+                    self.locals.mapping().ass_subscript(&k, Some(v), vm)?;
                 }
             }
         }

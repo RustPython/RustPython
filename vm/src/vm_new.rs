@@ -10,7 +10,7 @@ use crate::{
     function::IntoPyObject,
     scope::Scope,
     vm::VirtualMachine,
-    AsPyObject, PyObject, PyObjectRef, PyObjectWrap, PyRef, TypeProtocol,
+    AsPyObject, PyObject, PyObjectRef, PyObjectWrap, PyRef,
 };
 
 /// Collection of object creation helpers
@@ -268,9 +268,9 @@ impl VirtualMachine {
         msg: &'static str,
         error_type: &PyTypeRef,
         class: &PyTypeRef,
-        obj: impl std::borrow::Borrow<PyObject>, // the impl Borrow allows to pass PyObjectRef or &PyObject
+        obj: &PyObject, // the impl Borrow allows to pass PyObjectRef or &PyObject
     ) -> PyBaseExceptionRef {
-        let actual_class = obj.borrow().class();
+        let actual_class = obj.class();
         let actual_type = &*actual_class.name();
         let expected_type = &*class.name();
         let msg = format!("Expected {msg} '{expected_type}' but '{actual_type}' found");
@@ -280,16 +280,26 @@ impl VirtualMachine {
     pub(crate) fn new_downcast_runtime_error(
         &self,
         class: &PyTypeRef,
-        obj: impl std::borrow::Borrow<PyObject>,
+        obj: &impl AsPyObject,
     ) -> PyBaseExceptionRef {
-        self.new_downcast_error("payload", &self.ctx.exceptions.runtime_error, class, obj)
+        self.new_downcast_error(
+            "payload",
+            &self.ctx.exceptions.runtime_error,
+            class,
+            obj.as_object(),
+        )
     }
 
     pub(crate) fn new_downcast_type_error(
         &self,
         class: &PyTypeRef,
-        obj: impl std::borrow::Borrow<PyObject>,
+        obj: &impl AsPyObject,
     ) -> PyBaseExceptionRef {
-        self.new_downcast_error("type", &self.ctx.exceptions.type_error, class, obj)
+        self.new_downcast_error(
+            "type",
+            &self.ctx.exceptions.type_error,
+            class,
+            obj.as_object(),
+        )
     }
 }

@@ -366,9 +366,9 @@ impl<T: PyValue> TryFromObject for PyRefExact<T> {
             drop(cls);
             let obj = obj
                 .downcast()
-                .map_err(|obj| vm.new_downcast_runtime_error(target_cls, obj))?;
+                .map_err(|obj| vm.new_downcast_runtime_error(target_cls, &obj))?;
             Ok(Self { obj })
-        } else if cls.issubclass(target_cls) {
+        } else if cls.fast_issubclass(target_cls) {
             Err(vm.new_type_error(format!(
                 "Expected an exact instance of '{}', not a subclass '{}'",
                 target_cls.name(),
@@ -405,10 +405,12 @@ where
     fn as_object(&self) -> &PyObject {
         self.borrow()
     }
+
     #[inline(always)]
     fn get_id(&self) -> usize {
-        self.as_object()._get_id()
+        self.as_object().unique_id()
     }
+
     #[inline(always)]
     fn is<T>(&self, other: &T) -> bool
     where
@@ -416,14 +418,37 @@ where
     {
         self.get_id() == other.get_id()
     }
+
+    #[inline(always)]
+    fn class(&self) -> PyLease<'_, PyType> {
+        self.as_object().lease_class()
+    }
+
+    fn get_class_attr(&self, attr_name: &str) -> Option<PyObjectRef> {
+        self.class().get_attr(attr_name)
+    }
+
+    /// Determines if `obj` actually an instance of `cls`, this doesn't call __instancecheck__, so only
+    /// use this if `cls` is known to have not overridden the base __instancecheck__ magic method.
+    #[inline]
+    fn fast_isinstance(&self, cls: &PyObjectView<PyType>) -> bool {
+        self.class().fast_issubclass(cls)
+    }
 }
 
 impl<T> AsPyObject for T where T: Borrow<PyObject> {}
 
 impl PyObject {
-    #[inline]
-    fn _get_id(&self) -> usize {
+    #[inline(always)]
+    fn unique_id(&self) -> usize {
         self as *const PyObject as usize
+    }
+
+    #[inline]
+    fn lease_class(&self) -> PyLease<'_, PyType> {
+        PyLease {
+            inner: self.class_lock().read(),
+        }
     }
 }
 
@@ -470,63 +495,6 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Display::fmt(&**self, f)
-    }
-}
-
-pub trait TypeProtocol {
-    fn class(&self) -> PyLease<'_, PyType>;
-
-    fn clone_class(&self) -> PyTypeRef {
-        PyLease::into_pyref(self.class())
-    }
-
-    fn get_class_attr(&self, attr_name: &str) -> Option<PyObjectRef> {
-        self.class().get_attr(attr_name)
-    }
-
-    fn has_class_attr(&self, attr_name: &str) -> bool {
-        self.class().has_attr(attr_name)
-    }
-
-    /// Determines if `obj` actually an instance of `cls`, this doesn't call __instancecheck__, so only
-    /// use this if `cls` is known to have not overridden the base __instancecheck__ magic method.
-    #[inline]
-    fn isinstance(&self, cls: &PyObjectView<PyType>) -> bool {
-        self.class().issubclass(cls)
-    }
-}
-
-impl TypeProtocol for PyObjectRef {
-    fn class(&self) -> PyLease<'_, PyType> {
-        PyLease {
-            inner: self.class_lock().read(),
-        }
-    }
-}
-
-impl TypeProtocol for PyObject {
-    fn class(&self) -> PyLease<'_, PyType> {
-        PyLease {
-            inner: self.class_lock().read(),
-        }
-    }
-}
-
-impl<T: PyObjectPayload> TypeProtocol for PyObjectView<T> {
-    fn class(&self) -> PyLease<'_, PyType> {
-        self.as_object().class()
-    }
-}
-
-impl<T: PyObjectPayload> TypeProtocol for PyRef<T> {
-    fn class(&self) -> PyLease<'_, PyType> {
-        self.as_object().class()
-    }
-}
-
-impl<T: TypeProtocol> TypeProtocol for &'_ T {
-    fn class(&self) -> PyLease<'_, PyType> {
-        (&**self).class()
     }
 }
 
@@ -648,7 +616,7 @@ pub trait PyValue: fmt::Debug + PyThreadingConstraint + Sized + 'static {
     #[inline]
     fn into_ref_with_type(self, vm: &VirtualMachine, cls: PyTypeRef) -> PyResult<PyRef<Self>> {
         let exact_class = Self::class(vm);
-        if cls.issubclass(exact_class) {
+        if cls.fast_issubclass(exact_class) {
             Ok(self._into_ref(cls, vm))
         } else {
             Err(Self::_into_ref_with_type_error(vm, &cls, exact_class))
@@ -707,7 +675,7 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
     #[pymethod(magic)]
     fn reduce(zelf: PyRef<PyTuple>, vm: &VirtualMachine) -> PyTupleRef {
         vm.new_tuple((
-            zelf.clone_class(),
+            zelf.class().clone(),
             (vm.ctx.new_tuple(zelf.as_slice().to_vec()),),
         ))
     }

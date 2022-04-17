@@ -1,5 +1,5 @@
 use crate::{
-    pyobject::{PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol},
+    pyobject::{AsPyObject, PyObject, PyObjectRef, PyRef, PyResult, PyValue},
     vm::VirtualMachine,
 };
 
@@ -16,7 +16,7 @@ pub unsafe trait TransmuteFromObject: Sized {
 unsafe impl<T: PyValue> TransmuteFromObject for PyRef<T> {
     fn check(vm: &VirtualMachine, obj: &PyObject) -> PyResult<()> {
         let class = T::class(vm);
-        if obj.isinstance(class) {
+        if obj.fast_isinstance(class) {
             if obj.payload_is::<T>() {
                 Ok(())
             } else {
@@ -68,7 +68,7 @@ impl PyObject {
     {
         let class = T::class(vm);
         let special;
-        let py_ref = if self.isinstance(class) {
+        let py_ref = if self.fast_isinstance(class) {
             self.downcast_ref()
                 .ok_or_else(|| vm.new_downcast_runtime_error(class, self))?
         } else {
@@ -93,12 +93,12 @@ where
     #[inline]
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let class = T::class(vm);
-        if obj.isinstance(class) {
+        if obj.fast_isinstance(class) {
             obj.downcast()
-                .map_err(|obj| vm.new_downcast_runtime_error(class, obj))
+                .map_err(|obj| vm.new_downcast_runtime_error(class, &obj))
         } else {
             T::special_retrieve(vm, &obj)
-                .unwrap_or_else(|| Err(vm.new_downcast_type_error(class, obj)))
+                .unwrap_or_else(|| Err(vm.new_downcast_type_error(class, &obj)))
         }
     }
 }

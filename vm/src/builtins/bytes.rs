@@ -23,7 +23,7 @@ use crate::{
     },
     utils::Either,
     AsPyObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyObjectWrap, PyRef, PyResult,
-    PyValue, TryFromBorrowedObject, TryFromObject, TypeProtocol, VirtualMachine,
+    PyValue, TryFromBorrowedObject, TryFromObject, VirtualMachine,
 };
 use bstr::ByteSlice;
 use std::{borrow::Cow, mem::size_of, ops::Deref};
@@ -544,7 +544,7 @@ impl PyBytes {
     ) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
         let bytes = PyBytes::from(zelf.inner.elements.clone()).into_pyobject(vm);
         (
-            zelf.as_object().clone_class(),
+            zelf.class().clone(),
             PyTuple::new_ref(vec![bytes], &vm.ctx),
             zelf.as_object().dict(),
         )
@@ -638,7 +638,7 @@ impl Comparable for PyBytes {
     ) -> PyResult<PyComparisonValue> {
         Ok(if let Some(res) = op.identical_optimization(zelf, other) {
             res.into()
-        } else if other.isinstance(&vm.ctx.types.memoryview_type)
+        } else if other.fast_isinstance(&vm.ctx.types.memoryview_type)
             && op != PyComparisonOp::Eq
             && op != PyComparisonOp::Ne
         {

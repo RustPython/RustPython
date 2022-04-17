@@ -42,7 +42,8 @@ impl PyModule {
 
     #[pymethod(magic)]
     fn init(zelf: PyRef<Self>, args: ModuleInitArgs, vm: &VirtualMachine) {
-        debug_assert!(crate::TypeProtocol::class(zelf.as_object())
+        debug_assert!(zelf
+            .class()
             .slots
             .flags
             .has_feature(crate::types::PyTypeFlags::HAS_DICT));
@@ -51,7 +52,7 @@ impl PyModule {
 
     fn getattr_inner(zelf: &PyObjectView<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
         if let Some(attr) =
-            vm.generic_getattribute_opt(zelf.as_object().to_owned(), name.clone(), None)?
+            vm.generic_getattribute_opt(zelf.to_owned().into(), name.clone(), None)?
         {
             return Ok(attr);
         }

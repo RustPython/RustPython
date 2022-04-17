@@ -2,7 +2,7 @@ use crate::{
     builtins::{PyBaseExceptionRef, PyList, PyStr},
     function::{FuncArgs, IntoFuncArgs},
     vm::VirtualMachine,
-    AsPyObject, PyMethod, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
+    AsPyObject, PyMethod, PyObject, PyObjectRef, PyResult, PyValue,
 };
 
 /// Trace events for sys.settrace and sys.setprofile.
@@ -102,7 +102,7 @@ impl VirtualMachine {
         descr: PyObjectRef,
         obj: PyObjectRef,
     ) -> Result<PyResult, PyObjectRef> {
-        let cls = obj.clone_class().into();
+        let cls = obj.class().clone().into();
         self.call_get_descriptor_specific(descr, Some(obj), Some(cls))
     }
 
@@ -179,12 +179,8 @@ impl VirtualMachine {
     }
 
     #[inline(always)]
-    pub fn invoke<O, A>(&self, func: &O, args: A) -> PyResult
-    where
-        O: AsRef<PyObject>,
-        A: IntoFuncArgs,
-    {
-        self._invoke(func.as_ref(), args.into_args(self))
+    pub fn invoke(&self, func: &impl AsPyObject, args: impl IntoFuncArgs) -> PyResult {
+        self._invoke(func.as_object(), args.into_args(self))
     }
 
     /// Call registered trace function.

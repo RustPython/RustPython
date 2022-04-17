@@ -10,7 +10,7 @@ pub(crate) mod _thread {
         py_io,
         types::{Constructor, GetAttr, SetAttr},
         utils::Either,
-        AsPyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
+        AsPyObject, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
     };
     use parking_lot::{
         lock_api::{RawMutex as RawMutexT, RawMutexTimed, RawReentrantMutex},
@@ -252,7 +252,7 @@ pub(crate) mod _thread {
     fn run_thread(func: ArgCallable, args: FuncArgs, vm: &VirtualMachine) {
         match func.invoke(args, vm) {
             Ok(_obj) => {}
-            Err(e) if e.isinstance(&vm.ctx.exceptions.system_exit) => {}
+            Err(e) if e.fast_isinstance(&vm.ctx.exceptions.system_exit) => {}
             Err(exc) => {
                 // TODO: sys.unraisablehook
                 let stderr = std::io::stderr();

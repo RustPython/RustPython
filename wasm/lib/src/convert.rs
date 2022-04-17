@@ -7,7 +7,7 @@ use rustpython_vm::{
     compile::{CompileError, CompileErrorType},
     exceptions,
     function::{ArgBytesLike, FuncArgs},
-    py_serde, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject, TypeProtocol, VirtualMachine,
+    py_serde, AsPyObject, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject, VirtualMachine,
 };
 use wasm_bindgen::{closure::Closure, prelude::*, JsCast};
 
@@ -32,7 +32,7 @@ extern "C" {
 
 pub fn py_err_to_js_err(vm: &VirtualMachine, py_err: &PyBaseExceptionRef) -> JsValue {
     let jserr = vm.try_class("_js", "JSError").ok();
-    let js_arg = if jserr.map_or(false, |jserr| py_err.isinstance(&jserr)) {
+    let js_arg = if jserr.map_or(false, |jserr| py_err.fast_isinstance(&jserr)) {
         py_err.get_arg(0)
     } else {
         None
@@ -79,7 +79,7 @@ pub fn js_err_to_py_err(vm: &VirtualMachine, js_err: &JsValue) -> PyBaseExceptio
 
 pub fn py_to_js(vm: &VirtualMachine, py_obj: PyObjectRef) -> JsValue {
     if let Some(ref wasm_id) = vm.wasm_id {
-        if py_obj.isinstance(&vm.ctx.types.function_type) {
+        if py_obj.fast_isinstance(&vm.ctx.types.function_type) {
             let wasm_vm = WASMVirtualMachine {
                 id: wasm_id.clone(),
             };

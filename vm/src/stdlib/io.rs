@@ -89,7 +89,7 @@ mod _io {
         utils::Either,
         vm::{ReprGuard, VirtualMachine},
         AsPyObject, PyContext, PyObject, PyObjectRef, PyObjectWrap, PyRef, PyResult, PyValue,
-        TryFromBorrowedObject, TryFromObject, TypeProtocol,
+        TryFromBorrowedObject, TryFromObject,
     };
     use bstr::ByteSlice;
     use crossbeam_utils::atomic::AtomicCell;
@@ -1310,8 +1310,8 @@ mod _io {
         let name = match obj.to_owned().get_attr("name", vm) {
             Ok(name) => Some(name),
             Err(e)
-                if e.isinstance(&vm.ctx.exceptions.attribute_error)
-                    || e.isinstance(&vm.ctx.exceptions.value_error) =>
+                if e.fast_isinstance(&vm.ctx.exceptions.attribute_error)
+                    || e.fast_isinstance(&vm.ctx.exceptions.value_error) =>
             {
                 None
             }
@@ -3524,7 +3524,7 @@ mod _io {
             )
         })?;
         let raw = vm.invoke(
-            file_io_class.as_object(),
+            file_io_class,
             (file, mode.rawmode(), opts.closefd, opts.opener),
         )?;
 
@@ -3558,13 +3558,13 @@ mod _io {
         } else {
             BufferedWriter::static_type()
         };
-        let buffered = vm.invoke(cls.as_object(), (raw, buffering))?;
+        let buffered = vm.invoke(cls, (raw, buffering))?;
 
         match mode.encode {
             EncodeMode::Text => {
                 let tio = TextIOWrapper::static_type();
                 let wrapper = vm.invoke(
-                    tio.as_object(),
+                    tio,
                     (
                         buffered,
                         opts.encoding,
@@ -3661,8 +3661,7 @@ mod fileio {
             ArgBytesLike, ArgMemoryBuffer, FuncArgs, IntoPyException, OptionalArg, OptionalOption,
         },
         stdlib::os,
-        AsPyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
-        VirtualMachine,
+        AsPyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use std::io::{Read, Write};
@@ -3811,7 +3810,7 @@ mod fileio {
             zelf.mode.store(mode);
             let fd = if let Some(opener) = args.opener {
                 let fd = vm.invoke(&opener, (name.clone(), flags))?;
-                if !fd.isinstance(&vm.ctx.types.int_type) {
+                if !fd.fast_isinstance(&vm.ctx.types.int_type) {
                     return Err(vm.new_type_error("expected integer from opener".to_owned()));
                 }
                 let fd = i32::try_from_object(vm, fd)?;

@@ -12,8 +12,7 @@ mod decl {
         protocol::{PyIter, PyIterReturn},
         stdlib::sys,
         types::{Constructor, IterNext, IterNextIterable},
-        AsPyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue, PyWeakRef, TypeProtocol,
-        VirtualMachine,
+        AsPyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue, PyWeakRef, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use num_bigint::BigInt;
@@ -298,7 +297,7 @@ mod decl {
 
         #[pymethod(magic)]
         fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
-            let cls = zelf.clone_class().into_pyobject(vm);
+            let cls = zelf.class().clone();
             Ok(match zelf.times {
                 Some(ref times) => vm.new_tuple((cls, (zelf.object.clone(), *times.read()))),
                 None => vm.new_tuple((cls, (zelf.object.clone(),))),
@@ -707,7 +706,7 @@ mod decl {
         name: &'static str,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
-        let is_int = obj.isinstance(&vm.ctx.types.int_type);
+        let is_int = obj.fast_isinstance(&vm.ctx.types.int_type);
         if is_int {
             let value = int::get_value(&obj).to_usize();
             if let Some(value) = value {

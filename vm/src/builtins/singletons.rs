@@ -1,7 +1,7 @@
 use super::PyTypeRef;
 use crate::{
-    function::IntoPyObject, pyclass::PyClassImpl, types::Constructor, PyContext, PyObjectRef,
-    PyResult, PyValue, TypeProtocol, VirtualMachine,
+    function::IntoPyObject, pyclass::PyClassImpl, types::Constructor, AsPyObject, PyContext,
+    PyObjectRef, PyResult, PyValue, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "NoneType")]
@@ -87,6 +87,6 @@ impl PyNotImplemented {
 }
 
 pub fn init(context: &PyContext) {
-    PyNone::extend_class(context, &context.none.clone_class());
-    PyNotImplemented::extend_class(context, &context.not_implemented.clone_class());
+    PyNone::extend_class(context, &context.none.class());
+    PyNotImplemented::extend_class(context, &context.not_implemented.class());
 }

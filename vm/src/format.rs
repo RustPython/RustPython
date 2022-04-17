@@ -3,7 +3,7 @@ use crate::{
     common::float_ops,
     function::{FuncArgs, IntoPyException},
     stdlib::builtins,
-    PyObject, PyObjectRef, PyResult, TypeProtocol, VirtualMachine,
+    AsPyObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
 };
 use itertools::{Itertools, PeekingNext};
 use num_bigint::{BigInt, Sign};

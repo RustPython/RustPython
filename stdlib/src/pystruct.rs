@@ -16,7 +16,7 @@ pub(crate) mod _struct {
         match_class,
         protocol::PyIterReturn,
         types::{Constructor, IterNext, IterNextIterable},
-        PyObjectRef, PyObjectView, PyResult, PyValue, TryFromObject, TypeProtocol, VirtualMachine,
+        AsPyObject, PyObjectRef, PyObjectView, PyResult, PyValue, TryFromObject, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
 

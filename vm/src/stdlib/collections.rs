@@ -19,7 +19,7 @@ mod _collections {
         },
         utils::collection_repr,
         vm::ReprGuard,
-        AsPyObject, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
+        AsPyObject, PyObject, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use std::cmp::max;
@@ -155,7 +155,7 @@ mod _collections {
                 maxlen: zelf.maxlen,
                 state: AtomicCell::new(zelf.state.load()),
             }
-            .into_ref_with_type(vm, zelf.clone_class())
+            .into_ref_with_type(vm, zelf.class().clone())
         }
 
         #[pymethod]
@@ -480,7 +480,7 @@ mod _collections {
 
         #[pymethod(magic)]
         fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-            let cls = zelf.clone_class();
+            let cls = zelf.class().clone();
             let value = match zelf.maxlen {
                 Some(v) => vm.new_pyobj((vm.ctx.empty_tuple.clone(), v)),
                 None => vm.ctx.empty_tuple.clone().into(),
@@ -634,7 +634,7 @@ mod _collections {
                 Exhausted => PyDeque::default().into_ref(vm),
             };
             (
-                zelf.clone_class(),
+                zelf.class().clone(),
                 (deque, vm.ctx.new_int(internal.position).into()),
             )
         }
@@ -700,7 +700,7 @@ mod _collections {
                 Exhausted => PyDeque::default().into_ref(vm),
             };
             Ok((
-                zelf.clone_class(),
+                zelf.class().clone(),
                 (deque, vm.ctx.new_int(internal.position).into()),
             ))
         }

@@ -1,7 +1,7 @@
 use crate::{
     builtins::{PyFloat, PyStr},
     function::{IntoPyException, IntoPyObject},
-    PyObject, PyObjectRef, PyObjectWrap, PyResult, TryFromObject, TypeProtocol, VirtualMachine,
+    AsPyObject, PyObject, PyObjectRef, PyObjectWrap, PyResult, TryFromObject, VirtualMachine,
 };
 use num_traits::ToPrimitive;
 use std::borrow::Borrow;

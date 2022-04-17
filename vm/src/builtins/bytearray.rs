@@ -34,7 +34,7 @@ use crate::{
     },
     utils::Either,
     AsPyObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyObjectWrap, PyRef, PyResult,
-    PyValue, TryFromBorrowedObject, TryFromObject, TypeProtocol, VirtualMachine,
+    PyValue, TryFromBorrowedObject, TryFromObject, VirtualMachine,
 };
 use bstr::ByteSlice;
 use std::{borrow::Cow, mem::size_of};
@@ -688,7 +688,7 @@ impl PyByteArray {
     ) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
         let bytes = PyBytes::from(zelf.borrow_buf().to_vec()).into_pyobject(vm);
         (
-            zelf.as_object().clone_class(),
+            zelf.class().clone(),
             PyTuple::new_ref(vec![bytes], &vm.ctx),
             zelf.as_object().dict(),
         )

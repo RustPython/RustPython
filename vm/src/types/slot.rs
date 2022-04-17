@@ -6,8 +6,7 @@ use crate::{
     protocol::{PyBuffer, PyIterReturn, PyMapping, PyMappingMethods},
     protocol::{PySequence, PySequenceMethods},
     utils::Either,
-    AsPyObject, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue, TypeProtocol,
-    VirtualMachine,
+    AsPyObject, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::{Signed, ToPrimitive};
@@ -188,14 +187,17 @@ fn length_wrapper(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
 
 fn as_mapping_wrapper(zelf: &PyObject, _vm: &VirtualMachine) -> PyMappingMethods {
     PyMappingMethods {
-        length: then_some_closure!(zelf.has_class_attr("__len__"), |mapping, vm| {
+        length: then_some_closure!(zelf.class().has_attr("__len__"), |mapping, vm| {
             length_wrapper(mapping.obj.to_owned(), vm)
         }),
-        subscript: then_some_closure!(zelf.has_class_attr("__getitem__"), |mapping, needle, vm| {
-            vm.call_special_method(mapping.obj.to_owned(), "__getitem__", (needle.to_owned(),))
-        }),
+        subscript: then_some_closure!(
+            zelf.class().has_attr("__getitem__"),
+            |mapping, needle, vm| {
+                vm.call_special_method(mapping.obj.to_owned(), "__getitem__", (needle.to_owned(),))
+            }
+        ),
         ass_subscript: then_some_closure!(
-            zelf.has_class_attr("__setitem__") | zelf.has_class_attr("__delitem__"),
+            zelf.class().has_attr("__setitem__") | zelf.class().has_attr("__delitem__"),
             |mapping, needle, value, vm| match value {
                 Some(value) => vm
                     .call_special_method(
@@ -217,19 +219,19 @@ fn as_mapping_wrapper(zelf: &PyObject, _vm: &VirtualMachine) -> PyMappingMethods
 }
 
 fn as_sequence_wrapper(zelf: &PyObject, _vm: &VirtualMachine) -> Cow<'static, PySequenceMethods> {
-    if !zelf.has_class_attr("__getitem__") {
+    if !zelf.class().has_attr("__getitem__") {
         return Cow::Borrowed(PySequenceMethods::not_implemented());
     }
 
     Cow::Owned(PySequenceMethods {
-        length: then_some_closure!(zelf.has_class_attr("__len__"), |seq, vm| {
+        length: then_some_closure!(zelf.class().has_attr("__len__"), |seq, vm| {
             length_wrapper(seq.obj.to_owned(), vm)
         }),
         item: Some(|seq, i, vm| {
             vm.call_special_method(seq.obj.to_owned(), "__getitem__", (i.into_pyobject(vm),))
         }),
         ass_item: then_some_closure!(
-            zelf.has_class_attr("__setitem__") | zelf.has_class_attr("__delitem__"),
+            zelf.class().has_attr("__setitem__") | zelf.class().has_attr("__delitem__"),
             |seq, i, value, vm| match value {
                 Some(value) => vm
                     .call_special_method(

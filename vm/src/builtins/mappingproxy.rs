@@ -6,7 +6,7 @@ use crate::{
     protocol::{PyMapping, PyMappingMethods, PySequence, PySequenceMethods},
     pyclass::PyClassImpl,
     types::{AsMapping, AsSequence, Constructor, Iterable},
-    PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    AsPyObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     VirtualMachine,
 };
 

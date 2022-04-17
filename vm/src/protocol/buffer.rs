@@ -8,8 +8,8 @@ use crate::{
     },
     sliceable::wrap_index,
     types::{Constructor, Unconstructible},
-    PyObject, PyObjectPayload, PyObjectRef, PyObjectView, PyObjectWrap, PyRef, PyResult, PyValue,
-    TryFromBorrowedObject, TypeProtocol, VirtualMachine,
+    AsPyObject, PyObject, PyObjectPayload, PyObjectRef, PyObjectView, PyObjectWrap, PyRef,
+    PyResult, PyValue, TryFromBorrowedObject, VirtualMachine,
 };
 use itertools::Itertools;
 use std::{borrow::Cow, fmt::Debug, ops::Range};

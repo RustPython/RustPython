@@ -20,8 +20,7 @@ mod _operator {
         },
         utils::Either,
         vm::ReprGuard,
-        AsPyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue, TypeProtocol,
-        VirtualMachine,
+        AsPyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue, VirtualMachine,
     };
 
     /// Same as a < b.
@@ -200,7 +199,7 @@ mod _operator {
     #[pyfunction]
     fn concat(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         // Best attempt at checking that a is sequence-like.
-        if !a.class().has_attr("__getitem__") || a.isinstance(&vm.ctx.types.dict_type) {
+        if !a.class().has_attr("__getitem__") || a.fast_isinstance(&vm.ctx.types.dict_type) {
             return Err(
                 vm.new_type_error(format!("{} object can't be concatenated", a.class().name()))
             );
@@ -273,7 +272,7 @@ mod _operator {
     fn length_hint(obj: PyObjectRef, default: OptionalArg, vm: &VirtualMachine) -> PyResult<usize> {
         let default: usize = default
             .map(|v| {
-                if !v.isinstance(&vm.ctx.types.int_type) {
+                if !v.fast_isinstance(&vm.ctx.types.int_type) {
                     return Err(vm.new_type_error(format!(
                         "'{}' type cannot be interpreted as an integer",
                         v.class().name()
@@ -303,7 +302,7 @@ mod _operator {
     #[pyfunction]
     fn iconcat(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         // Best attempt at checking that a is sequence-like.
-        if !a.class().has_attr("__getitem__") || a.isinstance(&vm.ctx.types.dict_type) {
+        if !a.class().has_attr("__getitem__") || a.fast_isinstance(&vm.ctx.types.dict_type) {
             return Err(
                 vm.new_type_error(format!("{} object can't be concatenated", a.class().name()))
             );
@@ -447,13 +446,10 @@ mod _operator {
 
         #[pymethod(magic)]
         fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<(PyTypeRef, PyTupleRef)> {
-            let attrs = vm.ctx.new_tuple(
-                zelf.attrs
-                    .iter()
-                    .map(|v| v.as_object().to_owned())
-                    .collect(),
-            );
-            Ok((zelf.clone_class(), attrs))
+            let attrs = vm
+                .ctx
+                .new_tuple(zelf.attrs.iter().map(|v| v.clone().into()).collect());
+            Ok((zelf.class().clone(), attrs))
         }
 
         // Go through dotted parts of string and call getattr on whatever is returned.
@@ -545,7 +541,7 @@ mod _operator {
         #[pymethod(magic)]
         fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyObjectRef {
             let items = vm.ctx.new_tuple(zelf.items.to_vec());
-            vm.new_pyobj((zelf.clone_class(), items))
+            vm.new_pyobj((zelf.class().clone(), items))
         }
     }
     impl Constructor for PyItemGetter {
@@ -630,7 +626,7 @@ mod _operator {
             if zelf.args.kwargs.is_empty() {
                 let mut pargs = vec![zelf.name.as_object().to_owned()];
                 pargs.append(&mut zelf.args.args.clone());
-                Ok(vm.new_tuple((zelf.clone_class(), vm.ctx.new_tuple(pargs))))
+                Ok(vm.new_tuple((zelf.class().clone(), vm.ctx.new_tuple(pargs))))
             } else {
                 // If we have kwargs, create a partial function that contains them and pass back that
                 // along with the args.
@@ -638,7 +634,7 @@ mod _operator {
                 let callable = vm.invoke(
                     &partial,
                     FuncArgs::new(
-                        vec![zelf.clone_class().into(), zelf.name.as_object().to_owned()],
+                        vec![zelf.class().clone().into(), zelf.name.clone().into()],
                         KwArgs::new(zelf.args.kwargs.clone()),
                     ),
                 )?;

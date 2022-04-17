@@ -6,7 +6,7 @@ mod math {
         builtins::{try_bigint_to_f64, try_f64_to_bigint, PyFloat, PyInt, PyIntRef},
         function::{ArgIntoFloat, ArgIterable, OptionalArg, PosArgs},
         utils::Either,
-        PyObject, PyObjectRef, PyRef, PyResult, TypeProtocol, VirtualMachine,
+        AsPyObject, PyObject, PyObjectRef, PyRef, PyResult, VirtualMachine,
     };
     use num_bigint::BigInt;
     use num_traits::{One, Signed, Zero};

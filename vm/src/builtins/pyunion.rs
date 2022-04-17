@@ -7,7 +7,7 @@ use crate::{
     pyclass::PyClassImpl,
     types::{AsMapping, Comparable, GetAttr, Hashable, Iterable, PyComparisonOp},
     AsPyObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol, VirtualMachine,
+    TryFromObject, VirtualMachine,
 };
 use std::fmt;
 

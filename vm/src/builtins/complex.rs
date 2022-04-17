@@ -7,8 +7,7 @@ use crate::{
     },
     pyclass::PyClassImpl,
     types::{Comparable, Constructor, Hashable, PyComparisonOp},
-    AsPyObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
-    VirtualMachine,
+    AsPyObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 use num_complex::Complex64;
 use num_traits::Zero;
@@ -159,7 +158,7 @@ impl Constructor for PyComplex {
             OptionalArg::Present(obj) => {
                 if let Some(c) = obj.try_complex(vm)? {
                     c
-                } else if obj.class().issubclass(&vm.ctx.types.str_type) {
+                } else if obj.class().fast_issubclass(&vm.ctx.types.str_type) {
                     return Err(
                         vm.new_type_error("complex() second arg can't be a string".to_owned())
                     );

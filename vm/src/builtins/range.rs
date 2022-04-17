@@ -10,7 +10,7 @@ use crate::{
         Iterable, PyComparisonOp, Unconstructible,
     },
     AsPyObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol, VirtualMachine,
+    TryFromObject, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use num_bigint::{BigInt, Sign};

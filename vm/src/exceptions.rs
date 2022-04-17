@@ -9,8 +9,7 @@ use crate::{
     pyclass::{PyClassImpl, StaticType},
     stdlib::sys,
     suggestion::offer_suggestions,
-    AsPyObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
-    VirtualMachine,
+    AsPyObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
@@ -80,7 +79,7 @@ impl VirtualMachine {
         // This function should not be called directly,
         // use `wite_exception` as a public interface.
         // It is similar to `print_exception_recursive` from `CPython`.
-        seen.insert(exc.as_object().get_id());
+        seen.insert(exc.get_id());
 
         #[allow(clippy::manual_map)]
         if let Some((cause_or_context, msg)) = if let Some(cause) = exc.cause() {
@@ -103,11 +102,11 @@ impl VirtualMachine {
         } else {
             None
         } {
-            if !seen.contains(&cause_or_context.as_object().get_id()) {
+            if !seen.contains(&cause_or_context.get_id()) {
                 self.write_exception_recursive(output, &cause_or_context, seen)?;
                 writeln!(output, "{}", msg)?;
             } else {
-                seen.insert(cause_or_context.as_object().get_id());
+                seen.insert(cause_or_context.get_id());
             }
         }
 
@@ -183,7 +182,8 @@ impl VirtualMachine {
         exc: PyBaseExceptionRef,
     ) -> (PyObjectRef, PyObjectRef, PyObjectRef) {
         let tb = exc.traceback().into_pyobject(self);
-        (exc.clone_class().into(), exc.into(), tb)
+        let class = exc.class().clone();
+        (class.into(), exc.into(), tb)
     }
 
     /// Similar to PyErr_NormalizeException in CPython
@@ -207,7 +207,7 @@ impl VirtualMachine {
         args: Vec<PyObjectRef>,
     ) -> PyResult<PyBaseExceptionRef> {
         // TODO: fast-path built-in exceptions by directly instantiating them? Is that really worth it?
-        let res = self.invoke(cls.as_object(), args)?;
+        let res = self.invoke(&cls, args)?;
         PyBaseExceptionRef::try_from_object(self, res)
     }
 }
@@ -264,7 +264,7 @@ impl TryFromObject for ExceptionCtor {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         obj.downcast::<PyType>()
             .and_then(|cls| {
-                if cls.issubclass(&vm.ctx.exceptions.base_exception_type) {
+                if cls.fast_issubclass(&vm.ctx.exceptions.base_exception_type) {
                     Ok(Self::Class(cls))
                 } else {
                     Err(cls.into())
@@ -303,7 +303,7 @@ impl ExceptionCtor {
             // if the "type" is an instance and the value isn't, use the "type"
             (Self::Instance(exc), None) => Ok(exc),
             // if the value is an instance of the type, use the instance value
-            (Self::Class(cls), Some(exc)) if exc.isinstance(&cls) => Ok(exc),
+            (Self::Class(cls), Some(exc)) if exc.fast_isinstance(&cls) => Ok(exc),
             // otherwise; construct an exception of the type using the value as args
             (Self::Class(cls), _) => {
                 let args = match_class!(match value {
@@ -494,9 +494,9 @@ impl PyBaseException {
     }
 
     #[pymethod]
-    fn with_traceback(zelf: PyRef<Self>, tb: Option<PyTracebackRef>) -> PyResult {
+    fn with_traceback(zelf: PyRef<Self>, tb: Option<PyTracebackRef>) -> PyResult<PyRef<Self>> {
         *zelf.traceback.write() = tb;
-        Ok(zelf.as_object().to_owned())
+        Ok(zelf)
     }
 
     #[pymethod(magic)]
