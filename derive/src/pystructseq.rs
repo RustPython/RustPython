@@ -56,7 +56,9 @@ pub(crate) fn impl_pystruct_sequence_try_from_object(input: DeriveInput) -> Resu
     let ret = quote! {
         impl ::rustpython_vm::TryFromObject for #ty {
             fn try_from_object(vm: &::rustpython_vm::VirtualMachine, seq: ::rustpython_vm::PyObjectRef) -> ::rustpython_vm::PyResult<Self> {
-                let seq = Self::try_elements_from(seq, vm)?;
+                const LEN: usize = #ty::FIELD_NAMES.len();
+                let seq = Self::try_elements_from::<LEN>(seq, vm)?;
+                // TODO: this is possible to be written without iterator
                 let mut iter = seq.into_iter();
                 Ok(Self {#(
                     #field_names: iter.next().unwrap().clone().try_into_value(vm)?
