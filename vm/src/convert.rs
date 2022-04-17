@@ -95,10 +95,10 @@ where
         let class = T::class(vm);
         if obj.fast_isinstance(class) {
             obj.downcast()
-                .map_err(|obj| vm.new_downcast_runtime_error(class, obj))
+                .map_err(|obj| vm.new_downcast_runtime_error(class, &obj))
         } else {
             T::special_retrieve(vm, &obj)
-                .unwrap_or_else(|| Err(vm.new_downcast_type_error(class, obj)))
+                .unwrap_or_else(|| Err(vm.new_downcast_type_error(class, &obj)))
         }
     }
 }

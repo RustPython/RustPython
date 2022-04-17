@@ -366,7 +366,7 @@ impl<T: PyValue> TryFromObject for PyRefExact<T> {
             drop(cls);
             let obj = obj
                 .downcast()
-                .map_err(|obj| vm.new_downcast_runtime_error(target_cls, obj))?;
+                .map_err(|obj| vm.new_downcast_runtime_error(target_cls, &obj))?;
             Ok(Self { obj })
         } else if cls.fast_issubclass(target_cls) {
             Err(vm.new_type_error(format!(

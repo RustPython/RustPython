@@ -572,9 +572,9 @@ impl PySet {
     }
 
     #[pymethod(magic)]
-    fn ior(zelf: PyRef<Self>, iterable: SetIterable, vm: &VirtualMachine) -> PyResult {
+    fn ior(zelf: PyRef<Self>, iterable: SetIterable, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         zelf.inner.update(iterable.iterable, vm)?;
-        Ok(zelf.as_object().to_owned())
+        Ok(zelf)
     }
 
     #[pymethod]
@@ -594,9 +594,13 @@ impl PySet {
     }
 
     #[pymethod(magic)]
-    fn iand(zelf: PyRef<Self>, iterable: SetIterable, vm: &VirtualMachine) -> PyResult {
+    fn iand(
+        zelf: PyRef<Self>,
+        iterable: SetIterable,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<Self>> {
         zelf.inner.intersection_update(iterable.iterable, vm)?;
-        Ok(zelf.as_object().to_owned())
+        Ok(zelf)
     }
 
     #[pymethod]
@@ -606,9 +610,13 @@ impl PySet {
     }
 
     #[pymethod(magic)]
-    fn isub(zelf: PyRef<Self>, iterable: SetIterable, vm: &VirtualMachine) -> PyResult {
+    fn isub(
+        zelf: PyRef<Self>,
+        iterable: SetIterable,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<Self>> {
         zelf.inner.difference_update(iterable.iterable, vm)?;
-        Ok(zelf.as_object().to_owned())
+        Ok(zelf)
     }
 
     #[pymethod]
@@ -622,10 +630,14 @@ impl PySet {
     }
 
     #[pymethod(magic)]
-    fn ixor(zelf: PyRef<Self>, iterable: SetIterable, vm: &VirtualMachine) -> PyResult {
+    fn ixor(
+        zelf: PyRef<Self>,
+        iterable: SetIterable,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<Self>> {
         zelf.inner
             .symmetric_difference_update(iterable.iterable, vm)?;
-        Ok(zelf.as_object().to_owned())
+        Ok(zelf)
     }
 
     #[pymethod(magic)]
