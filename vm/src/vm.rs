@@ -23,7 +23,6 @@ use crate::{
     function::{ArgMapping, FuncArgs},
     import,
     protocol::PyIterIter,
-    pyobject::PyLease,
     scope::Scope,
     signal, stdlib, AsPyObject, PyContext, PyObject, PyObjectRef, PyRef, PyRefExact, PyResult,
     PyValue,
@@ -785,7 +784,7 @@ impl VirtualMachine {
                         .is_some()
                     {
                         drop(descr_cls);
-                        let cls = PyLease::into_owned(obj_cls).into();
+                        let cls = obj_cls.into_owned().into();
                         return descr_get(descr, Some(obj), Some(cls), self).map(Some);
                     }
                 }
@@ -808,7 +807,7 @@ impl VirtualMachine {
         } else if let Some((attr, descr_get)) = cls_attr {
             match descr_get {
                 Some(descr_get) => {
-                    let cls = PyLease::into_owned(obj_cls).into();
+                    let cls = obj_cls.into_owned().into();
                     descr_get(attr, Some(obj), Some(cls), self).map(Some)
                 }
                 None => Ok(Some(attr)),

@@ -10,7 +10,6 @@ use crate::common::{
 use crate::{
     function::{FuncArgs, KwArgs, OptionalArg},
     pyclass::{PyClassImpl, StaticType},
-    pyobject::PyLease,
     types::{Callable, GetAttr, PyTypeFlags, PyTypeSlots, SetAttr},
     AsPyObject, PyContext, PyObjectRef, PyObjectWeak, PyRef, PyResult, PyValue, VirtualMachine,
 };
@@ -647,7 +646,7 @@ impl GetAttr for PyType {
                 .is_some()
             {
                 if let Some(descr_get) = attr_class.mro_find_map(|cls| cls.slots.descr_get.load()) {
-                    let mcl = PyLease::into_owned(mcl).into();
+                    let mcl = mcl.into_owned().into();
                     return descr_get(attr.clone(), Some(zelf.into()), Some(mcl), vm);
                 }
             }
@@ -874,7 +873,7 @@ fn calculate_meta_class(
         if winner.fast_issubclass(&base_type) {
             continue;
         } else if base_type.fast_issubclass(&winner) {
-            winner = PyLease::into_owned(base_type);
+            winner = base_type.into_owned();
             continue;
         }
 

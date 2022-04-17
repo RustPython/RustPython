@@ -746,7 +746,7 @@ impl PyMethod {
                             .is_some()
                         {
                             drop(descr_cls);
-                            let cls = PyLease::into_owned(cls).into();
+                            let cls = cls.into_owned().into();
                             return descr_get(descr, Some(obj), Some(cls), vm).map(Self::Attribute);
                         }
                     }
@@ -774,7 +774,7 @@ impl PyMethod {
                     })
                 }
                 Some(descr_get) => {
-                    let cls = PyLease::into_owned(cls).into();
+                    let cls = cls.into_owned().into();
                     descr_get(attr, Some(obj), Some(cls), vm).map(Self::Attribute)
                 }
                 None => Ok(Self::Attribute(attr)),
@@ -815,7 +815,7 @@ impl PyMethod {
             drop(obj_cls);
             Self::Function { target: obj, func }
         } else {
-            let obj_cls = PyLease::into_owned(obj_cls).into();
+            let obj_cls = obj_cls.into_owned().into();
             let attr = vm
                 .call_get_descriptor_specific(func, Some(obj), Some(obj_cls))
                 .unwrap_or_else(Ok)?;
