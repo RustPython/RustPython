@@ -264,7 +264,7 @@ impl TryFromObject for ExceptionCtor {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         obj.downcast::<PyType>()
             .and_then(|cls| {
-                if cls.issubclass(&vm.ctx.exceptions.base_exception_type) {
+                if cls.fast_issubclass(&vm.ctx.exceptions.base_exception_type) {
                     Ok(Self::Class(cls))
                 } else {
                     Err(cls.into())
@@ -303,7 +303,7 @@ impl ExceptionCtor {
             // if the "type" is an instance and the value isn't, use the "type"
             (Self::Instance(exc), None) => Ok(exc),
             // if the value is an instance of the type, use the instance value
-            (Self::Class(cls), Some(exc)) if exc.isinstance(&cls) => Ok(exc),
+            (Self::Class(cls), Some(exc)) if exc.fast_isinstance(&cls) => Ok(exc),
             // otherwise; construct an exception of the type using the value as args
             (Self::Class(cls), _) => {
                 let args = match_class!(match value {

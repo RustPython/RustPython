@@ -545,7 +545,7 @@ impl PyBoundMethod {
     fn qualname(&self, vm: &VirtualMachine) -> PyResult {
         if self
             .function
-            .isinstance(&vm.ctx.types.builtin_function_or_method_type)
+            .fast_isinstance(&vm.ctx.types.builtin_function_or_method_type)
         {
             // Special case: we work with `__new__`, which is not really a method.
             // It is a function, so its `__qualname__` is just `__new__`.

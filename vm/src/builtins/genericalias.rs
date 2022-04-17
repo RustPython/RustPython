@@ -323,8 +323,8 @@ impl Callable for PyGenericAlias {
     fn call(zelf: &crate::PyObjectView<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         PyType::call(&zelf.origin, args, vm).map(|obj| {
             if let Err(exc) = obj.set_attr("__orig_class__", zelf.to_owned(), vm) {
-                if !exc.isinstance(&vm.ctx.exceptions.attribute_error)
-                    && !exc.isinstance(&vm.ctx.exceptions.type_error)
+                if !exc.fast_isinstance(&vm.ctx.exceptions.attribute_error)
+                    && !exc.fast_isinstance(&vm.ctx.exceptions.type_error)
                 {
                     return Err(exc);
                 }

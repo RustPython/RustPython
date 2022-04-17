@@ -23,7 +23,7 @@ mod _warnings {
         // TODO: Implement correctly
         let level = args.stacklevel.unwrap_or(1);
         let category = if let OptionalArg::Present(category) = args.category {
-            if !category.issubclass(&vm.ctx.exceptions.warning) {
+            if !category.fast_issubclass(&vm.ctx.exceptions.warning) {
                 return Err(vm.new_type_error(format!(
                     "category must be a Warning subclass, not '{}'",
                     category.class().name()

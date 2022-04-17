@@ -64,11 +64,11 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
             };
         if let Some(s) = self.pyobject.payload::<PyStr>() {
             serializer.serialize_str(s.as_ref())
-        } else if self.pyobject.isinstance(&self.vm.ctx.types.float_type) {
+        } else if self.pyobject.fast_isinstance(&self.vm.ctx.types.float_type) {
             serializer.serialize_f64(float::get_value(self.pyobject))
-        } else if self.pyobject.isinstance(&self.vm.ctx.types.bool_type) {
+        } else if self.pyobject.fast_isinstance(&self.vm.ctx.types.bool_type) {
             serializer.serialize_bool(pybool::get_value(self.pyobject))
-        } else if self.pyobject.isinstance(&self.vm.ctx.types.int_type) {
+        } else if self.pyobject.fast_isinstance(&self.vm.ctx.types.int_type) {
             let v = int::get_value(self.pyobject);
             let int_too_large = || serde::ser::Error::custom("int too large to serialize");
             // TODO: serialize BigInt when it does not fit into i64
@@ -84,7 +84,7 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
             serialize_seq_elements(serializer, &list.borrow_vec())
         } else if let Some(tuple) = self.pyobject.payload_if_subclass::<PyTuple>(self.vm) {
             serialize_seq_elements(serializer, tuple.as_slice())
-        } else if self.pyobject.isinstance(&self.vm.ctx.types.dict_type) {
+        } else if self.pyobject.fast_isinstance(&self.vm.ctx.types.dict_type) {
             let dict: PyDictRef = self.pyobject.to_owned().downcast().unwrap();
             let pairs: Vec<_> = dict.into_iter().collect();
             let mut map = serializer.serialize_map(Some(pairs.len()))?;

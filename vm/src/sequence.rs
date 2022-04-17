@@ -143,7 +143,8 @@ pub trait MutObjectSequenceOp<'a> {
                 borrower = Some(guard);
             } else {
                 let elem_cls = elem.class();
-                let reverse_first = !elem_cls.is(&needle_cls) && elem_cls.issubclass(&needle_cls);
+                let reverse_first =
+                    !elem_cls.is(&needle_cls) && elem_cls.fast_issubclass(&needle_cls);
 
                 let eq = if reverse_first {
                     let elem_cmp = elem_cls

@@ -664,7 +664,7 @@ impl PyObject {
 
     #[inline(always)]
     pub fn payload_if_subclass<T: crate::PyValue>(&self, vm: &VirtualMachine) -> Option<&T> {
-        if self.class().issubclass(T::class(vm)) {
+        if self.class().fast_issubclass(T::class(vm)) {
             self.payload()
         } else {
             None

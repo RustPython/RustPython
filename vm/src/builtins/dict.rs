@@ -558,7 +558,9 @@ impl PyObjectView<PyDict> {
         } else {
             match self.as_object().get_item(key.clone(), vm) {
                 Ok(value) => Ok(Some(value)),
-                Err(e) if e.isinstance(&vm.ctx.exceptions.key_error) => self.missing_opt(key, vm),
+                Err(e) if e.fast_isinstance(&vm.ctx.exceptions.key_error) => {
+                    self.missing_opt(key, vm)
+                }
                 Err(e) => Err(e),
             }
         }

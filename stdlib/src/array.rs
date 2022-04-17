@@ -1444,7 +1444,7 @@ mod array {
     }
 
     fn check_array_type(typ: PyTypeRef, vm: &VirtualMachine) -> PyResult<PyTypeRef> {
-        if !typ.issubclass(PyArray::class(vm)) {
+        if !typ.fast_issubclass(PyArray::class(vm)) {
             return Err(
                 vm.new_type_error(format!("{} is not a subtype of array.array", typ.name()))
             );

@@ -106,7 +106,7 @@ where
         // See if any exception leaked out:
         let exitcode = match res {
             Ok(()) => 0,
-            Err(err) if err.isinstance(&vm.ctx.exceptions.system_exit) => {
+            Err(err) if err.fast_isinstance(&vm.ctx.exceptions.system_exit) => {
                 let args = err.args();
                 match args.as_slice() {
                     [] => 0,
@@ -652,7 +652,7 @@ fn get_importer(path: &str, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>
                 importer = Some(imp);
                 break;
             }
-            Err(e) if e.isinstance(&vm.ctx.exceptions.import_error) => continue,
+            Err(e) if e.fast_isinstance(&vm.ctx.exceptions.import_error) => continue,
             Err(e) => return Err(e),
         }
     }

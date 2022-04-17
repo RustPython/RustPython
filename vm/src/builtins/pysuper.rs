@@ -181,16 +181,16 @@ impl GetDescriptor for PySuper {
 
 fn supercheck(ty: PyTypeRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTypeRef> {
     if let Ok(cls) = obj.clone().downcast::<PyType>() {
-        if cls.issubclass(&ty) {
+        if cls.fast_issubclass(&ty) {
             return Ok(cls);
         }
     }
-    if obj.isinstance(&ty) {
+    if obj.fast_isinstance(&ty) {
         return Ok(obj.class().clone());
     }
     let class_attr = obj.get_attr("__class__", vm)?;
     if let Ok(cls) = class_attr.downcast::<PyType>() {
-        if !cls.is(&ty) && cls.issubclass(&ty) {
+        if !cls.is(&ty) && cls.fast_issubclass(&ty) {
             return Ok(cls);
         }
     }

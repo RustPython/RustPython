@@ -71,7 +71,7 @@ impl VirtualMachine {
         match iter.length(self) {
             Ok(len) => return Ok(Some(len)),
             Err(e) => {
-                if !e.isinstance(&self.ctx.exceptions.type_error) {
+                if !e.fast_isinstance(&self.ctx.exceptions.type_error) {
                     return Err(e);
                 }
             }
@@ -88,7 +88,7 @@ impl VirtualMachine {
                 res
             }
             Err(e) => {
-                return if e.isinstance(&self.ctx.exceptions.type_error) {
+                return if e.fast_isinstance(&self.ctx.exceptions.type_error) {
                     Ok(None)
                 } else {
                     Err(e)
@@ -169,7 +169,7 @@ impl VirtualMachine {
         reflection: &str,
         unsupported: fn(&VirtualMachine, &PyObject, &PyObject) -> PyResult,
     ) -> PyResult {
-        if rhs.isinstance(&lhs.class()) {
+        if rhs.fast_isinstance(&lhs.class()) {
             let lop = lhs.get_class_attr(reflection);
             let rop = rhs.get_class_attr(reflection);
             if let Some((lop, rop)) = lop.zip(rop) {

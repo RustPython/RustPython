@@ -368,7 +368,7 @@ impl<T: PyValue> TryFromObject for PyRefExact<T> {
                 .downcast()
                 .map_err(|obj| vm.new_downcast_runtime_error(target_cls, obj))?;
             Ok(Self { obj })
-        } else if cls.issubclass(target_cls) {
+        } else if cls.fast_issubclass(target_cls) {
             Err(vm.new_type_error(format!(
                 "Expected an exact instance of '{}', not a subclass '{}'",
                 target_cls.name(),
@@ -431,8 +431,8 @@ where
     /// Determines if `obj` actually an instance of `cls`, this doesn't call __instancecheck__, so only
     /// use this if `cls` is known to have not overridden the base __instancecheck__ magic method.
     #[inline]
-    fn isinstance(&self, cls: &PyObjectView<PyType>) -> bool {
-        self.class().issubclass(cls)
+    fn fast_isinstance(&self, cls: &PyObjectView<PyType>) -> bool {
+        self.class().fast_issubclass(cls)
     }
 }
 
@@ -616,7 +616,7 @@ pub trait PyValue: fmt::Debug + PyThreadingConstraint + Sized + 'static {
     #[inline]
     fn into_ref_with_type(self, vm: &VirtualMachine, cls: PyTypeRef) -> PyResult<PyRef<Self>> {
         let exact_class = Self::class(vm);
-        if cls.issubclass(exact_class) {
+        if cls.fast_issubclass(exact_class) {
             Ok(self._into_ref(cls, vm))
         } else {
             Err(Self::_into_ref_with_type_error(vm, &cls, exact_class))

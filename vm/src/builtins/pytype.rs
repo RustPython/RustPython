@@ -211,7 +211,7 @@ impl PyTypeRef {
     /// Determines if `subclass` is actually a subclass of `cls`, this doesn't call __subclasscheck__,
     /// so only use this if `cls` is known to have not overridden the base __subclasscheck__ magic
     /// method.
-    pub fn issubclass(&self, cls: &impl Borrow<crate::PyObject>) -> bool {
+    pub fn fast_issubclass(&self, cls: &impl Borrow<crate::PyObject>) -> bool {
         self.as_object().is(cls.borrow()) || self.mro.iter().any(|c| c.is(cls.borrow()))
     }
 
@@ -229,7 +229,7 @@ impl PyType {
     // bound method for every type
     pub(crate) fn __new__(zelf: PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         let (subtype, args): (PyRef<Self>, FuncArgs) = args.bind(vm)?;
-        if !subtype.issubclass(&zelf) {
+        if !subtype.fast_issubclass(&zelf) {
             return Err(vm.new_type_error(format!(
                 "{zelf}.__new__({subtype}): {subtype} is not a subtype of {zelf}",
                 zelf = zelf.name(),
@@ -278,12 +278,12 @@ impl PyType {
 
     #[pymethod(magic)]
     fn instancecheck(zelf: PyRef<Self>, obj: PyObjectRef) -> bool {
-        obj.isinstance(&zelf)
+        obj.fast_isinstance(&zelf)
     }
 
     #[pymethod(magic)]
     fn subclasscheck(zelf: PyRef<Self>, subclass: PyTypeRef) -> bool {
-        subclass.issubclass(&zelf)
+        subclass.fast_issubclass(&zelf)
     }
 
     #[pyclassmethod(magic)]
@@ -337,7 +337,7 @@ impl PyType {
             .cloned()
             // We need to exclude this method from going into recursion:
             .and_then(|found| {
-                if found.isinstance(&vm.ctx.types.getset_type) {
+                if found.fast_isinstance(&vm.ctx.types.getset_type) {
                     None
                 } else {
                     Some(found)
@@ -354,7 +354,7 @@ impl PyType {
             .cloned()
             // We need to exclude this method from going into recursion:
             .and_then(|found| {
-                if found.isinstance(&vm.ctx.types.getset_type) {
+                if found.fast_isinstance(&vm.ctx.types.getset_type) {
                     None
                 } else {
                     Some(found)
@@ -718,7 +718,9 @@ impl Callable for PyType {
         vm_trace!("type_call: {:?}", zelf);
         let obj = call_slot_new(zelf.to_owned(), zelf.to_owned(), args.clone(), vm)?;
 
-        if (zelf.is(&vm.ctx.types.type_type) && args.kwargs.is_empty()) || !obj.isinstance(zelf) {
+        if (zelf.is(&vm.ctx.types.type_type) && args.kwargs.is_empty())
+            || !obj.fast_isinstance(zelf)
+        {
             return Ok(obj);
         }
 
@@ -869,9 +871,9 @@ fn calculate_meta_class(
     let mut winner = metatype;
     for base in bases {
         let base_type = base.class();
-        if winner.issubclass(&base_type) {
+        if winner.fast_issubclass(&base_type) {
             continue;
-        } else if base_type.issubclass(&winner) {
+        } else if base_type.fast_issubclass(&winner) {
             winner = PyLease::into_pyref(base_type);
             continue;
         }

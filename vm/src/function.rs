@@ -183,7 +183,7 @@ impl FuncArgs {
     ) -> PyResult<Option<PyObjectRef>> {
         match self.get_optional_kwarg(key) {
             Some(kwarg) => {
-                if kwarg.isinstance(&ty) {
+                if kwarg.fast_isinstance(&ty) {
                     Ok(Some(kwarg))
                 } else {
                     let expected_ty_name = &ty.name();

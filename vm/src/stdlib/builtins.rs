@@ -126,7 +126,10 @@ mod builtins {
 
             let mode_str = args.mode.as_str();
 
-            if args.source.isinstance(&ast::AstNode::make_class(&vm.ctx)) {
+            if args
+                .source
+                .fast_isinstance(&ast::AstNode::make_class(&vm.ctx))
+            {
                 #[cfg(not(feature = "rustpython-compiler"))]
                 {
                     return Err(vm.new_value_error("can't compile ast nodes when the `compiler` feature of rustpython is disabled"));
@@ -809,7 +812,7 @@ mod builtins {
         let mut new_bases: Option<Vec<PyObjectRef>> = None;
         let bases = PyTuple::new_ref(bases.into_vec(), &vm.ctx);
         for (i, base) in bases.as_slice().iter().enumerate() {
-            if base.isinstance(&vm.ctx.types.type_type) {
+            if base.fast_isinstance(&vm.ctx.types.type_type) {
                 if let Some(bases) = &mut new_bases {
                     bases.push(base.clone());
                 }
@@ -848,9 +851,9 @@ mod builtins {
             Ok(mut metaclass) => {
                 for base in bases.as_slice().iter() {
                     let base_class = base.class();
-                    if base_class.issubclass(&metaclass) {
+                    if base_class.fast_issubclass(&metaclass) {
                         metaclass = base.class().clone();
-                    } else if !metaclass.issubclass(&base_class) {
+                    } else if !metaclass.fast_issubclass(&base_class) {
                         return Err(vm.new_type_error(
                             "metaclass conflict: the metaclass of a derived class must be a (non-strict) \
                             subclass of the metaclasses of all its bases"

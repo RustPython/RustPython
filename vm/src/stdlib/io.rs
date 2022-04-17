@@ -1310,8 +1310,8 @@ mod _io {
         let name = match obj.to_owned().get_attr("name", vm) {
             Ok(name) => Some(name),
             Err(e)
-                if e.isinstance(&vm.ctx.exceptions.attribute_error)
-                    || e.isinstance(&vm.ctx.exceptions.value_error) =>
+                if e.fast_isinstance(&vm.ctx.exceptions.attribute_error)
+                    || e.fast_isinstance(&vm.ctx.exceptions.value_error) =>
             {
                 None
             }
@@ -3810,7 +3810,7 @@ mod fileio {
             zelf.mode.store(mode);
             let fd = if let Some(opener) = args.opener {
                 let fd = vm.invoke(&opener, (name.clone(), flags))?;
-                if !fd.isinstance(&vm.ctx.types.int_type) {
+                if !fd.fast_isinstance(&vm.ctx.types.int_type) {
                     return Err(vm.new_type_error("expected integer from opener".to_owned()));
                 }
                 let fd = i32::try_from_object(vm, fd)?;

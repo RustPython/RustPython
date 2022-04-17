@@ -91,7 +91,7 @@ pub(crate) mod thread {
         let vm_owns_obj = |intp: NonNull<VirtualMachine>| {
             // SAFETY: all references in VM_STACK should be valid
             let vm = unsafe { intp.as_ref() };
-            obj.isinstance(&vm.ctx.types.object_type)
+            obj.fast_isinstance(&vm.ctx.types.object_type)
         };
         VM_STACK.with(|vms| {
             let intp = match vms.borrow().iter().copied().exactly_one() {
@@ -718,7 +718,7 @@ impl VirtualMachine {
     {
         match obj.get_attr(attr_name, self) {
             Ok(attr) => Ok(Some(attr)),
-            Err(e) if e.isinstance(&self.ctx.exceptions.attribute_error) => Ok(None),
+            Err(e) if e.fast_isinstance(&self.ctx.exceptions.attribute_error) => Ok(None),
             Err(e) => Err(e),
         }
     }

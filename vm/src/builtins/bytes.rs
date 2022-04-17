@@ -638,7 +638,7 @@ impl Comparable for PyBytes {
     ) -> PyResult<PyComparisonValue> {
         Ok(if let Some(res) = op.identical_optimization(zelf, other) {
             res.into()
-        } else if other.isinstance(&vm.ctx.types.memoryview_type)
+        } else if other.fast_isinstance(&vm.ctx.types.memoryview_type)
             && op != PyComparisonOp::Eq
             && op != PyComparisonOp::Ne
         {

@@ -189,7 +189,7 @@ pub fn remove_importlib_frames(
     vm: &VirtualMachine,
     exc: &PyBaseExceptionRef,
 ) -> PyBaseExceptionRef {
-    let always_trim = exc.isinstance(&vm.ctx.exceptions.import_error);
+    let always_trim = exc.fast_isinstance(&vm.ctx.exceptions.import_error);
 
     if let Some(tb) = exc.traceback() {
         let trimmed_tb = remove_importlib_frames_inner(vm, Some(tb), always_trim).0;

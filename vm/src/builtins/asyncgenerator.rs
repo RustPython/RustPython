@@ -147,7 +147,7 @@ impl PyAsyncGenWrappedValue {
     fn unbox(ag: &PyAsyncGen, val: PyResult<PyIterReturn>, vm: &VirtualMachine) -> PyResult {
         let (closed, async_done) = match &val {
             Ok(PyIterReturn::StopIteration(_)) => (true, true),
-            Err(e) if e.isinstance(&vm.ctx.exceptions.generator_exit) => (true, true),
+            Err(e) if e.fast_isinstance(&vm.ctx.exceptions.generator_exit) => (true, true),
             Err(_) => (false, true),
             _ => (false, false),
         };
@@ -398,8 +398,8 @@ impl PyAsyncGenAThrow {
         self.ag.running_async.store(false);
         self.state.store(AwaitableState::Closed);
         if self.aclose
-            && (exc.isinstance(&vm.ctx.exceptions.stop_async_iteration)
-                || exc.isinstance(&vm.ctx.exceptions.generator_exit))
+            && (exc.fast_isinstance(&vm.ctx.exceptions.stop_async_iteration)
+                || exc.fast_isinstance(&vm.ctx.exceptions.generator_exit))
         {
             vm.new_stop_iteration(None)
         } else {

@@ -355,7 +355,7 @@ pub fn generic_setattr(
             dict.set_item(attr_name, value, vm)?;
         } else {
             dict.del_item(attr_name.clone(), vm).map_err(|e| {
-                if e.isinstance(&vm.ctx.exceptions.key_error) {
+                if e.fast_isinstance(&vm.ctx.exceptions.key_error) {
                     vm.new_attribute_error(format!(
                         "'{}' object has no attribute '{}'",
                         obj.class().name(),

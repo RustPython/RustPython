@@ -199,7 +199,7 @@ mod _operator {
     #[pyfunction]
     fn concat(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         // Best attempt at checking that a is sequence-like.
-        if !a.class().has_attr("__getitem__") || a.isinstance(&vm.ctx.types.dict_type) {
+        if !a.class().has_attr("__getitem__") || a.fast_isinstance(&vm.ctx.types.dict_type) {
             return Err(
                 vm.new_type_error(format!("{} object can't be concatenated", a.class().name()))
             );
@@ -272,7 +272,7 @@ mod _operator {
     fn length_hint(obj: PyObjectRef, default: OptionalArg, vm: &VirtualMachine) -> PyResult<usize> {
         let default: usize = default
             .map(|v| {
-                if !v.isinstance(&vm.ctx.types.int_type) {
+                if !v.fast_isinstance(&vm.ctx.types.int_type) {
                     return Err(vm.new_type_error(format!(
                         "'{}' type cannot be interpreted as an integer",
                         v.class().name()
@@ -302,7 +302,7 @@ mod _operator {
     #[pyfunction]
     fn iconcat(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         // Best attempt at checking that a is sequence-like.
-        if !a.class().has_attr("__getitem__") || a.isinstance(&vm.ctx.types.dict_type) {
+        if !a.class().has_attr("__getitem__") || a.fast_isinstance(&vm.ctx.types.dict_type) {
             return Err(
                 vm.new_type_error(format!("{} object can't be concatenated", a.class().name()))
             );

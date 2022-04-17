@@ -343,7 +343,7 @@ impl PySetInner {
                     )
                     // If operation raised KeyError, report original set (set.remove)
                     .map_err(|op_err| {
-                        if op_err.isinstance(&vm.ctx.exceptions.key_error) {
+                        if op_err.fast_isinstance(&vm.ctx.exceptions.key_error) {
                             vm.new_key_error(item.to_owned())
                         } else {
                             op_err
@@ -932,8 +932,8 @@ struct SetIterable {
 impl TryFromObject for SetIterable {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let class = obj.class();
-        if class.issubclass(&vm.ctx.types.set_type)
-            || class.issubclass(&vm.ctx.types.frozenset_type)
+        if class.fast_issubclass(&vm.ctx.types.set_type)
+            || class.fast_issubclass(&vm.ctx.types.frozenset_type)
         {
             // the class lease needs to be drop to be able to return the object
             drop(class);

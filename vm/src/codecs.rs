@@ -359,12 +359,12 @@ fn extract_unicode_error_range(err: &PyObject, vm: &VirtualMachine) -> PyResult<
 
 #[inline]
 fn is_decode_err(err: &PyObject, vm: &VirtualMachine) -> bool {
-    err.isinstance(&vm.ctx.exceptions.unicode_decode_error)
+    err.fast_isinstance(&vm.ctx.exceptions.unicode_decode_error)
 }
 #[inline]
 fn is_encode_ish_err(err: &PyObject, vm: &VirtualMachine) -> bool {
-    err.isinstance(&vm.ctx.exceptions.unicode_encode_error)
-        || err.isinstance(&vm.ctx.exceptions.unicode_translate_error)
+    err.fast_isinstance(&vm.ctx.exceptions.unicode_encode_error)
+        || err.fast_isinstance(&vm.ctx.exceptions.unicode_translate_error)
 }
 
 fn bad_err_type(err: PyObjectRef, vm: &VirtualMachine) -> PyBaseExceptionRef {
@@ -393,12 +393,12 @@ fn ignore_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(PyObjectRef
 fn replace_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(String, usize)> {
     // char::REPLACEMENT_CHARACTER as a str
     let replacement_char = "\u{FFFD}";
-    let replace = if err.isinstance(&vm.ctx.exceptions.unicode_encode_error) {
+    let replace = if err.fast_isinstance(&vm.ctx.exceptions.unicode_encode_error) {
         "?"
-    } else if err.isinstance(&vm.ctx.exceptions.unicode_decode_error) {
+    } else if err.fast_isinstance(&vm.ctx.exceptions.unicode_decode_error) {
         let range = extract_unicode_error_range(&err, vm)?;
         return Ok((replacement_char.to_owned(), range.end));
-    } else if err.isinstance(&vm.ctx.exceptions.unicode_translate_error) {
+    } else if err.fast_isinstance(&vm.ctx.exceptions.unicode_translate_error) {
         replacement_char
     } else {
         return Err(bad_err_type(err, vm));
@@ -456,7 +456,7 @@ fn backslashreplace_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(S
 }
 
 fn namereplace_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(String, usize)> {
-    if err.isinstance(&vm.ctx.exceptions.unicode_encode_error) {
+    if err.fast_isinstance(&vm.ctx.exceptions.unicode_encode_error) {
         let range = extract_unicode_error_range(&err, vm)?;
         let s = PyStrRef::try_from_object(vm, err.get_attr("object", vm)?)?;
         let s_after_start =
@@ -550,7 +550,7 @@ fn get_standard_encoding(encoding: &str) -> (usize, StandardEncoding) {
 }
 
 fn surrogatepass_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(String, usize)> {
-    if err.isinstance(&vm.ctx.exceptions.unicode_encode_error) {
+    if err.fast_isinstance(&vm.ctx.exceptions.unicode_encode_error) {
         let range = extract_unicode_error_range(&err, vm)?;
         let s = PyStrRef::try_from_object(vm, err.clone().get_attr("object", vm)?)?;
         let s_encoding = PyStrRef::try_from_object(vm, err.clone().get_attr("encoding", vm)?)?;
@@ -662,7 +662,7 @@ fn surrogatepass_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(Stri
 }
 
 fn surrogateescape_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(String, usize)> {
-    if err.isinstance(&vm.ctx.exceptions.unicode_encode_error) {
+    if err.fast_isinstance(&vm.ctx.exceptions.unicode_encode_error) {
         let range = extract_unicode_error_range(&err, vm)?;
         let s = PyStrRef::try_from_object(vm, err.clone().get_attr("object", vm)?)?;
         let s_after_start =
