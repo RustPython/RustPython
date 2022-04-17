@@ -398,7 +398,7 @@ impl<T: PyValue> ToPyObject for PyRefExact<T> {
     }
 }
 
-pub trait AsPyObject
+pub trait AsObject
 where
     Self: Borrow<PyObject>,
 {
@@ -415,7 +415,7 @@ where
     #[inline(always)]
     fn is<T>(&self, other: &T) -> bool
     where
-        T: AsPyObject,
+        T: AsObject,
     {
         self.get_id() == other.get_id()
     }
@@ -437,7 +437,7 @@ where
     }
 }
 
-impl<T> AsPyObject for T where T: Borrow<PyObject> {}
+impl<T> AsObject for T where T: Borrow<PyObject> {}
 
 impl PyObject {
     #[inline(always)]
@@ -687,7 +687,7 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
 
 pub trait PyObjectWrap
 where
-    Self: AsPyObject,
+    Self: AsObject,
 {
     fn into_object(self) -> PyObjectRef;
 }

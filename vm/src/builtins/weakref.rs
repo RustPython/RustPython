@@ -7,7 +7,7 @@ use crate::{
     function::OptionalArg,
     pyclass::PyClassImpl,
     types::{Callable, Comparable, Constructor, Hashable, PyComparisonOp},
-    AsPyObject, PyContext, PyObject, PyObjectRef, PyObjectWrap, PyRef, PyResult, PyValue,
+    AsObject, PyContext, PyObject, PyObjectRef, PyObjectWrap, PyRef, PyResult, PyValue,
     VirtualMachine,
 };
 

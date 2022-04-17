@@ -261,7 +261,7 @@ mod decl {
         use super::*;
         use crate::vm::{
             builtins::PyFloat, common::lock::PyMutex, convert::ToPyObject, function::OptionalArg,
-            stdlib::io::Fildes, AsPyObject, PyValue,
+            stdlib::io::Fildes, AsObject, PyValue,
         };
         use libc::pollfd;
         use num_traits::ToPrimitive;

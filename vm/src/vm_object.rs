@@ -2,7 +2,7 @@ use crate::{
     builtins::{PyBaseExceptionRef, PyList, PyStr},
     function::{FuncArgs, IntoFuncArgs},
     vm::VirtualMachine,
-    AsPyObject, PyMethod, PyObject, PyObjectRef, PyResult, PyValue,
+    AsObject, PyMethod, PyObject, PyObjectRef, PyResult, PyValue,
 };
 
 /// Trace events for sys.settrace and sys.setprofile.
@@ -179,7 +179,7 @@ impl VirtualMachine {
     }
 
     #[inline(always)]
-    pub fn invoke(&self, func: &impl AsPyObject, args: impl IntoFuncArgs) -> PyResult {
+    pub fn invoke(&self, func: &impl AsObject, args: impl IntoFuncArgs) -> PyResult {
         self._invoke(func.as_object(), args.into_args(self))
     }
 

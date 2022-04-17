@@ -8,7 +8,7 @@ use crate::{
     function::OptionalArg,
     pyclass::PyClassImpl,
     types::{Constructor, GetAttr, GetDescriptor},
-    AsPyObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    AsObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "super")]

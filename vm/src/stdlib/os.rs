@@ -4,7 +4,7 @@ use crate::{
     crt_fd::Fd,
     function::{ArgumentError, FromArgs, FuncArgs},
     protocol::PyBuffer,
-    AsPyObject, PyObject, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject,
+    AsObject, PyObject, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject,
     VirtualMachine,
 };
 use std::{
@@ -442,7 +442,7 @@ pub(super) mod _os {
         types::{IterNext, IterNextIterable},
         utils::Either,
         vm::{ReprGuard, VirtualMachine},
-        AsPyObject, PyObjectRef, PyRef, PyResult, PyStructSequence, PyValue, TryFromObject,
+        AsObject, PyObjectRef, PyRef, PyResult, PyStructSequence, PyValue, TryFromObject,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;

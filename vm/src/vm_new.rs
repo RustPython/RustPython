@@ -10,7 +10,7 @@ use crate::{
     convert::ToPyObject,
     scope::Scope,
     vm::VirtualMachine,
-    AsPyObject, PyObject, PyObjectRef, PyObjectWrap, PyRef, PyValue,
+    AsObject, PyObject, PyObjectRef, PyObjectWrap, PyRef, PyValue,
 };
 
 /// Collection of object creation helpers
@@ -288,7 +288,7 @@ impl VirtualMachine {
     pub(crate) fn new_downcast_runtime_error(
         &self,
         class: &PyTypeRef,
-        obj: &impl AsPyObject,
+        obj: &impl AsObject,
     ) -> PyBaseExceptionRef {
         self.new_downcast_error(
             "payload",
@@ -301,7 +301,7 @@ impl VirtualMachine {
     pub(crate) fn new_downcast_type_error(
         &self,
         class: &PyTypeRef,
-        obj: &impl AsPyObject,
+        obj: &impl AsObject,
     ) -> PyBaseExceptionRef {
         self.new_downcast_error(
             "type",

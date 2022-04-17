@@ -11,7 +11,7 @@ use crate::{
     function::{FuncArgs, KwArgs, OptionalArg},
     pyclass::{PyClassImpl, StaticType},
     types::{Callable, GetAttr, PyTypeFlags, PyTypeSlots, SetAttr},
-    AsPyObject, PyContext, PyObjectRef, PyObjectWeak, PyRef, PyResult, PyValue, VirtualMachine,
+    AsObject, PyContext, PyObjectRef, PyObjectWeak, PyRef, PyResult, PyValue, VirtualMachine,
 };
 use itertools::Itertools;
 use std::{

@@ -20,7 +20,7 @@ use crate::{
         IterNextIterable, Iterable, PyComparisonOp, Unconstructible,
     },
     utils::Either,
-    AsPyObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyObjectWrap, PyRef, PyResult,
+    AsObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyObjectWrap, PyRef, PyResult,
     PyValue, TryFromBorrowedObject, TryFromObject, VirtualMachine,
 };
 use bstr::ByteSlice;

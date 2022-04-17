@@ -38,7 +38,7 @@ pub mod module {
         },
         types::Constructor,
         utils::{Either, ToCString},
-        AsPyObject, PyObjectRef, PyResult, PyValue, VirtualMachine,
+        AsObject, PyObjectRef, PyResult, PyValue, VirtualMachine,
     };
     use bitflags::bitflags;
     use nix::{
@@ -558,7 +558,7 @@ pub mod module {
             target_os = "android"
         ))]
         fn try_to_libc(&self, vm: &VirtualMachine) -> PyResult<libc::sched_param> {
-            use crate::AsPyObject;
+            use crate::AsObject;
             let priority_class = self.sched_priority.class();
             let priority_type = priority_class.name();
             let priority = self.sched_priority.clone();

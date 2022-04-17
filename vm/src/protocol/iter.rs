@@ -1,7 +1,7 @@
 use crate::{
     builtins::iter::PySequenceIterator,
     convert::{ToPyObject, ToPyResult},
-    AsPyObject, PyObject, PyObjectRef, PyObjectWrap, PyResult, PyValue, TryFromObject,
+    AsObject, PyObject, PyObjectRef, PyObjectWrap, PyResult, PyValue, TryFromObject,
     VirtualMachine,
 };
 use std::borrow::Borrow;

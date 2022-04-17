@@ -4,7 +4,7 @@ use crate::{
     convert::ToPyObject,
     function::PyArithmeticValue,
     protocol::PyMapping,
-    AsPyObject, PyObject, PyObjectRef, PyResult, PyValue, VirtualMachine,
+    AsObject, PyObject, PyObjectRef, PyResult, PyValue, VirtualMachine,
 };
 use itertools::Itertools;
 use std::{

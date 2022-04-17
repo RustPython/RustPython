@@ -5,7 +5,7 @@ use crate::{
     function::{FuncArgs, OptionalArg, PyComparisonValue},
     pyclass::PyClassImpl,
     types::{Comparable, Constructor, Hashable, PyComparisonOp, Unhashable},
-    AsPyObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    AsObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 use num_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, ToPrimitive, Zero};

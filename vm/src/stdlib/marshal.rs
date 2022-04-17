@@ -11,7 +11,7 @@ mod decl {
         convert::ToPyObject,
         function::ArgBytesLike,
         protocol::PyBuffer,
-        pyobject::AsPyObject,
+        pyobject::AsObject,
         PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     };
     /// TODO

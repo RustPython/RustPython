@@ -16,7 +16,7 @@ mod _socket {
         convert::{ToPyException, ToPyObject, TryFromBorrowedObject, TryFromObject},
         function::{ArgBytesLike, ArgMemoryBuffer, FuncArgs, OptionalArg, OptionalOption},
         utils::{Either, ToCString},
-        AsPyObject, PyObjectRef, PyResult, PyValue, VirtualMachine,
+        AsObject, PyObjectRef, PyResult, PyValue, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use num_traits::ToPrimitive;

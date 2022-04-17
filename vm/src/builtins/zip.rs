@@ -5,7 +5,7 @@ use crate::{
     protocol::{PyIter, PyIterReturn},
     pyclass::PyClassImpl,
     types::{Constructor, IterNext, IterNextIterable},
-    AsPyObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
+    AsObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
 };
 use rustpython_common::atomic::{self, PyAtomic, Radium};
 

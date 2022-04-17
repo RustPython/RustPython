@@ -6,7 +6,7 @@ use crate::{
     protocol::PyIterReturn,
     pyclass::PyClassImpl,
     types::{Constructor, IterNext, IterNextIterable, Unconstructible},
-    AsPyObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    AsObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "coroutine")]

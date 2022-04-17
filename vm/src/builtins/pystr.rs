@@ -16,7 +16,7 @@ use crate::{
         AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable,
         Iterable, PyComparisonOp, Unconstructible,
     },
-    AsPyObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue,
+    AsObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue,
     TryFromBorrowedObject, VirtualMachine,
 };
 use ascii::{AsciiStr, AsciiString};

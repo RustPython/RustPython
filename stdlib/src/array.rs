@@ -31,7 +31,7 @@ mod array {
                 AsBuffer, AsMapping, Comparable, Constructor, IterNext, IterNextIterable, Iterable,
                 PyComparisonOp,
             },
-            AsPyObject, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue,
+            AsObject, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue,
             VirtualMachine,
         },
     };

@@ -7,7 +7,7 @@ use crate::{
     frame::{Frame, FrameRef},
     pyclass::PyClassImpl,
     types::{Constructor, Unconstructible},
-    AsPyObject, PyContext, PyObjectRef, PyObjectWrap, PyRef, PyResult, VirtualMachine,
+    AsObject, PyContext, PyObjectRef, PyObjectWrap, PyRef, PyResult, VirtualMachine,
 };
 
 pub fn init(context: &PyContext) {

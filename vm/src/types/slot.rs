@@ -8,7 +8,7 @@ use crate::{
         PyBuffer, PyIterReturn, PyMapping, PyMappingMethods, PySequence, PySequenceMethods,
     },
     utils::Either,
-    AsPyObject, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue, VirtualMachine,
+    AsObject, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::{Signed, ToPrimitive};

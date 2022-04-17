@@ -3,7 +3,7 @@ use crate::{
     bytecode::CodeFlags,
     convert::ToPyObject,
     function::FuncArgs,
-    AsPyObject, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+    AsObject, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
 };
 use num_traits::ToPrimitive;
 use rustpython_jit::{AbiValue, Args, CompiledCode, JitArgumentError, JitType};

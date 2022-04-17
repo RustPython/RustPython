@@ -21,7 +21,7 @@ use crate::{
         IterNextIterable, Iterable, PyComparisonOp, Unconstructible, Unhashable,
     },
     vm::{ReprGuard, VirtualMachine},
-    AsPyObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue,
+    AsObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue,
     TryFromObject,
 };
 use rustpython_common::lock::PyMutex;

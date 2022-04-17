@@ -1,6 +1,6 @@
 use crate::{
     convert::{ToPyObject, TryFromObject},
-    pyobject::{AsPyObject, PyObjectRef, PyResult},
+    pyobject::{AsObject, PyObjectRef, PyResult},
     VirtualMachine,
 };
 

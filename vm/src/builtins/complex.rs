@@ -8,7 +8,7 @@ use crate::{
     },
     pyclass::PyClassImpl,
     types::{Comparable, Constructor, Hashable, PyComparisonOp},
-    AsPyObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    AsObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 use num_complex::Complex64;
 use num_traits::Zero;

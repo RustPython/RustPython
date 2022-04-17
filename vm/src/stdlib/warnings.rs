@@ -5,7 +5,7 @@ mod _warnings {
     use crate::{
         builtins::{PyStrRef, PyTypeRef},
         function::OptionalArg,
-        AsPyObject, PyResult, VirtualMachine,
+        AsObject, PyResult, VirtualMachine,
     };
 
     #[derive(FromArgs)]

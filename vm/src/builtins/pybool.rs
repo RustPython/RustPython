@@ -1,8 +1,7 @@
 use super::{PyInt, PyStrRef, PyTypeRef};
 use crate::{
-    convert::ToPyObject, function::OptionalArg, pyclass::PyClassImpl, types::Constructor,
-    AsPyObject, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject,
-    VirtualMachine,
+    convert::ToPyObject, function::OptionalArg, pyclass::PyClassImpl, types::Constructor, AsObject,
+    PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject, VirtualMachine,
 };
 use num_bigint::Sign;
 use num_traits::Zero;

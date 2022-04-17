@@ -10,7 +10,7 @@ mod _json {
         function::OptionalArg,
         protocol::PyIterReturn,
         types::{Callable, Constructor},
-        AsPyObject, PyObjectRef, PyObjectView, PyResult, PyValue, VirtualMachine,
+        AsObject, PyObjectRef, PyObjectView, PyResult, PyValue, VirtualMachine,
     };
     use num_bigint::BigInt;
     use std::str::FromStr;

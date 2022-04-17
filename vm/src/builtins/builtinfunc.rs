@@ -4,7 +4,7 @@ use crate::{
     function::{FuncArgs, IntoPyNativeFunc, PyNativeFunc},
     pyclass::PyClassImpl,
     types::{Callable, Constructor, GetDescriptor, Unconstructible},
-    AsPyObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    AsObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 use std::fmt;
 

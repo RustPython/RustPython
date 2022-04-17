@@ -5,7 +5,7 @@ use crate::{
     },
     common::lock::OnceCell,
     convert::ToPyResult,
-    AsPyObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
+    AsObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
 };
 
 // Mapping protocol
@@ -91,13 +91,13 @@ impl PyMapping<'_> {
         })?
     }
 
-    pub fn subscript(&self, needle: &impl AsPyObject, vm: &VirtualMachine) -> PyResult {
+    pub fn subscript(&self, needle: &impl AsObject, vm: &VirtualMachine) -> PyResult {
         self._subscript(needle.as_object(), vm)
     }
 
     pub fn ass_subscript(
         &self,
-        needle: &impl AsPyObject,
+        needle: &impl AsObject,
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {

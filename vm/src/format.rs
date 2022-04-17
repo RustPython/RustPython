@@ -4,7 +4,7 @@ use crate::{
     convert::ToPyException,
     function::FuncArgs,
     stdlib::builtins,
-    AsPyObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
+    AsObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
 };
 use itertools::{Itertools, PeekingNext};
 use num_bigint::{BigInt, Sign};

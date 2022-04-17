@@ -7,7 +7,7 @@ use crate::{
     function::{ArgIntoBool, OptionalArg, OptionalOption, PyArithmeticValue, PyComparisonValue},
     pyclass::PyClassImpl,
     types::{Comparable, Constructor, Hashable, PyComparisonOp},
-    AsPyObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromBorrowedObject,
+    AsObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromBorrowedObject,
     VirtualMachine,
 };
 use bstr::ByteSlice;

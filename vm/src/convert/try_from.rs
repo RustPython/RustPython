@@ -1,5 +1,5 @@
 use crate::{
-    pyobject::{AsPyObject, PyObject, PyObjectRef, PyRef, PyResult, PyValue},
+    pyobject::{AsObject, PyObject, PyObjectRef, PyRef, PyResult, PyValue},
     vm::VirtualMachine,
 };
 

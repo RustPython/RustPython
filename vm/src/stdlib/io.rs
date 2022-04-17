@@ -88,7 +88,7 @@ mod _io {
         types::{Constructor, Destructor, IterNext, Iterable},
         utils::Either,
         vm::{ReprGuard, VirtualMachine},
-        AsPyObject, PyContext, PyObject, PyObjectRef, PyObjectWrap, PyRef, PyResult, PyValue,
+        AsObject, PyContext, PyObject, PyObjectRef, PyObjectWrap, PyRef, PyResult, PyValue,
         TryFromBorrowedObject, TryFromObject,
     };
     use bstr::ByteSlice;
@@ -3660,7 +3660,7 @@ mod fileio {
         crt_fd::Fd,
         function::{ArgBytesLike, ArgMemoryBuffer, FuncArgs, OptionalArg, OptionalOption},
         stdlib::os,
-        AsPyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
+        AsObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use std::io::{Read, Write};

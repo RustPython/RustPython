@@ -3,7 +3,7 @@ use crate::{
     cformat::CFormatString,
     function::{single_or_tuple_any, OptionalOption},
     protocol::PyIterIter,
-    AsPyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+    AsObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
 };
 use num_traits::{cast::ToPrimitive, sign::Signed};
 use std::str::FromStr;

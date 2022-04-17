@@ -1,7 +1,7 @@
 use super::pystr::IntoPyStrRef;
 use super::{PyDictRef, PyStr, PyStrRef, PyTypeRef};
 use crate::{
-    convert::ToPyObject, function::FuncArgs, pyclass::PyClassImpl, types::GetAttr, AsPyObject,
+    convert::ToPyObject, function::FuncArgs, pyclass::PyClassImpl, types::GetAttr, AsObject,
     PyContext, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue, VirtualMachine,
 };
 

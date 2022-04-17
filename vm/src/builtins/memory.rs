@@ -19,7 +19,7 @@ use crate::{
     sliceable::wrap_index,
     types::{AsBuffer, AsMapping, AsSequence, Comparable, Constructor, Hashable, PyComparisonOp},
     utils::Either,
-    AsPyObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyObjectWrap, PyRef, PyResult,
+    AsObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyObjectWrap, PyRef, PyResult,
     PyValue, TryFromBorrowedObject, TryFromObject, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;

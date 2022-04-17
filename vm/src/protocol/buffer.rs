@@ -9,7 +9,7 @@ use crate::{
     pyobject::PyObjectPayload,
     sliceable::wrap_index,
     types::{Constructor, Unconstructible},
-    AsPyObject, PyObject, PyObjectRef, PyObjectView, PyObjectWrap, PyRef, PyResult, PyValue,
+    AsObject, PyObject, PyObjectRef, PyObjectView, PyObjectWrap, PyRef, PyResult, PyValue,
     TryFromBorrowedObject, VirtualMachine,
 };
 use itertools::Itertools;

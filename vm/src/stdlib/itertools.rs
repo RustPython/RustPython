@@ -13,7 +13,7 @@ mod decl {
         protocol::{PyIter, PyIterReturn},
         stdlib::sys,
         types::{Constructor, IterNext, IterNextIterable},
-        AsPyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue, PyWeakRef, VirtualMachine,
+        AsObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue, PyWeakRef, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use num_bigint::BigInt;

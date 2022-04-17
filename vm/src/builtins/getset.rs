@@ -8,7 +8,7 @@ use crate::{
     pyclass::PyClassImpl,
     pyobject::PyThreadingConstraint,
     types::{Constructor, GetDescriptor, Unconstructible},
-    AsPyObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
+    AsObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
 };
 
 pub type PyGetterFunc = Box<py_dyn_fn!(dyn Fn(&VirtualMachine, PyObjectRef) -> PyResult)>;

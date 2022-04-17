@@ -6,7 +6,7 @@ use crate::{
     protocol::{PyIter, PyIterReturn},
     pyclass::PyClassImpl,
     types::{Constructor, IterNext, IterNextIterable},
-    AsPyObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    AsObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 use num_bigint::BigInt;
 use num_traits::Zero;
