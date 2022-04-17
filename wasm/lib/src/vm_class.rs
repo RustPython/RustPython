@@ -295,7 +295,7 @@ impl WASMVirtualMachine {
 
             let module = vm.new_module(&name, attrs, None);
 
-            let sys_modules = vm.sys_module.clone().get_attr("modules", vm).into_js(vm)?;
+            let sys_modules = vm.sys_module.get_attr("modules", vm).into_js(vm)?;
             sys_modules.set_item(name, module, vm).into_js(vm)?;
 
             Ok(())
@@ -314,7 +314,7 @@ impl WASMVirtualMachine {
                 });
             }
 
-            let sys_modules = vm.sys_module.clone().get_attr("modules", vm).into_js(vm)?;
+            let sys_modules = vm.sys_module.get_attr("modules", vm).into_js(vm)?;
             sys_modules.set_item(name, py_module, vm).into_js(vm)?;
 
             Ok(())

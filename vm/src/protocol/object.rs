@@ -24,25 +24,6 @@ use crate::{
 impl PyObjectRef {
     // int PyObject_Print(PyObject *o, FILE *fp, int flags)
 
-    pub fn has_attr(self, attr_name: impl IntoPyStrRef, vm: &VirtualMachine) -> PyResult<bool> {
-        self.get_attr(attr_name, vm).map(|o| vm.is_none(&o))
-    }
-
-    // get_attribute should be used for full attribute access (usually from user code).
-    #[cfg_attr(feature = "flame-it", flame("PyObjectRef"))]
-    pub fn get_attr(self, attr_name: impl IntoPyStrRef, vm: &VirtualMachine) -> PyResult {
-        let attr_name = attr_name.into_pystr_ref(vm);
-        vm_trace!("object.__getattribute__: {:?} {:?}", obj, attr_name);
-        let getattro = self
-            .class()
-            .mro_find_map(|cls| cls.slots.getattro.load())
-            .unwrap();
-        getattro(self.clone(), attr_name.clone(), vm).map_err(|exc| {
-            vm.set_attribute_error_context(&exc, self, attr_name);
-            exc
-        })
-    }
-
     // PyObject *PyObject_GenericGetDict(PyObject *o, void *context)
     // int PyObject_GenericSetDict(PyObject *o, PyObject *value, void *context)
 
@@ -94,6 +75,25 @@ impl PyObjectRef {
 }
 
 impl PyObject {
+    pub fn has_attr(&self, attr_name: impl IntoPyStrRef, vm: &VirtualMachine) -> PyResult<bool> {
+        self.get_attr(attr_name, vm).map(|o| vm.is_none(&o))
+    }
+
+    // get_attribute should be used for full attribute access (usually from user code).
+    #[cfg_attr(feature = "flame-it", flame("PyObjectRef"))]
+    pub fn get_attr(&self, attr_name: impl IntoPyStrRef, vm: &VirtualMachine) -> PyResult {
+        let attr_name = attr_name.into_pystr_ref(vm);
+        vm_trace!("object.__getattribute__: {:?} {:?}", obj, attr_name);
+        let getattro = self
+            .class()
+            .mro_find_map(|cls| cls.slots.getattro.load())
+            .unwrap();
+        getattro(self, attr_name.clone(), vm).map_err(|exc| {
+            vm.set_attribute_error_context(&exc, self.to_owned(), attr_name);
+            exc
+        })
+    }
+
     pub fn call_set_attr(
         &self,
         vm: &VirtualMachine,

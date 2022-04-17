@@ -366,8 +366,8 @@ impl Hashable for PyGenericAlias {
 }
 
 impl GetAttr for PyGenericAlias {
-    fn getattro(zelf: PyRef<Self>, attr: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        for exc in &ATTR_EXCEPTIONS {
+    fn getattro(zelf: &Py<Self>, attr: PyStrRef, vm: &VirtualMachine) -> PyResult {
+        for exc in ATTR_EXCEPTIONS.iter() {
             if *(*exc) == attr.to_string() {
                 return zelf.as_object().generic_getattr(attr, vm);
             }

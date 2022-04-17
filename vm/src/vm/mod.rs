@@ -393,7 +393,6 @@ impl VirtualMachine {
             .import(module, None, 0)
             .unwrap_or_else(|_| panic!("unable to import {}", module));
         let class = module
-            .clone()
             .get_attr(class, self)
             .unwrap_or_else(|_| panic!("module {} has no class {}", module, class));
         class.downcast().expect("not a class")
@@ -424,7 +423,7 @@ impl VirtualMachine {
         let cached_module = if weird {
             None
         } else {
-            let sys_modules = self.sys_module.clone().get_attr("modules", self)?;
+            let sys_modules = self.sys_module.get_attr("modules", self)?;
             sys_modules.get_item(module.clone(), self).ok()
         };
 

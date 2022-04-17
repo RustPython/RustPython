@@ -843,7 +843,7 @@ pub(super) mod _os {
 
         #[pymethod(magic)]
         fn repr(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
-            let name = match zelf.clone().get_attr("name", vm) {
+            let name = match zelf.get_attr("name", vm) {
                 Ok(name) => Some(name),
                 Err(e)
                     if e.fast_isinstance(&vm.ctx.exceptions.attribute_error)

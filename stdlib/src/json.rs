@@ -32,24 +32,23 @@ mod _json {
         type Args = PyObjectRef;
 
         fn py_new(cls: PyTypeRef, ctx: Self::Args, vm: &VirtualMachine) -> PyResult {
-            let strict = ctx.clone().get_attr("strict", vm)?.try_to_bool(vm)?;
-            let object_hook = vm.option_if_none(ctx.clone().get_attr("object_hook", vm)?);
-            let object_pairs_hook =
-                vm.option_if_none(ctx.clone().get_attr("object_pairs_hook", vm)?);
-            let parse_float = ctx.clone().get_attr("parse_float", vm)?;
+            let strict = ctx.get_attr("strict", vm)?.try_to_bool(vm)?;
+            let object_hook = vm.option_if_none(ctx.get_attr("object_hook", vm)?);
+            let object_pairs_hook = vm.option_if_none(ctx.get_attr("object_pairs_hook", vm)?);
+            let parse_float = ctx.get_attr("parse_float", vm)?;
             let parse_float =
                 if vm.is_none(&parse_float) || parse_float.is(&vm.ctx.types.float_type) {
                     None
                 } else {
                     Some(parse_float)
                 };
-            let parse_int = ctx.clone().get_attr("parse_int", vm)?;
+            let parse_int = ctx.get_attr("parse_int", vm)?;
             let parse_int = if vm.is_none(&parse_int) || parse_int.is(&vm.ctx.types.int_type) {
                 None
             } else {
                 Some(parse_int)
             };
-            let parse_constant = ctx.clone().get_attr("parse_constant", vm)?;
+            let parse_constant = ctx.get_attr("parse_constant", vm)?;
 
             Self {
                 strict,
@@ -91,7 +90,7 @@ mod _json {
                 }
                 '{' => {
                     // TODO: parse the object in rust
-                    let parse_obj = self.ctx.clone().get_attr("parse_object", vm)?;
+                    let parse_obj = self.ctx.get_attr("parse_object", vm)?;
                     return PyIterReturn::from_pyresult(
                         vm.invoke(
                             &parse_obj,
@@ -108,7 +107,7 @@ mod _json {
                 }
                 '[' => {
                     // TODO: parse the array in rust
-                    let parse_array = self.ctx.clone().get_attr("parse_array", vm)?;
+                    let parse_array = self.ctx.get_attr("parse_array", vm)?;
                     return PyIterReturn::from_pyresult(
                         vm.invoke(&parse_array, ((pystr, next_idx), scan_once)),
                         vm,

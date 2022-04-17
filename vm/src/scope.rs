@@ -131,7 +131,7 @@ impl Scope {
     //     if let Some(value) = self.globals.get_item_option(name.clone(), vm).unwrap() {
     //         Some(value)
     //     } else {
-    //         vm.builtins.clone().get_attr(name, vm).ok()
+    //         vm.builtins.get_attr(name, vm).ok()
     //     }
     // }
 

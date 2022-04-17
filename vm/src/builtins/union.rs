@@ -263,7 +263,7 @@ impl Hashable for PyUnion {
 }
 
 impl GetAttr for PyUnion {
-    fn getattro(zelf: PyRef<Self>, attr: PyStrRef, vm: &VirtualMachine) -> PyResult {
+    fn getattro(zelf: &Py<Self>, attr: PyStrRef, vm: &VirtualMachine) -> PyResult {
         for &exc in CLS_ATTRS {
             if *exc == attr.to_string() {
                 return zelf.as_object().generic_getattr(attr, vm);
