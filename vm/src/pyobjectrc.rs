@@ -1,3 +1,16 @@
+//! Essential types for object models
+//!
+//! +-------------------------+--------------+---------------+
+//! |       Management        |    Typed     |    Untyped    |
+//! +-------------------------+--------------+---------------+
+//! | Interpreter-independent | Py<T>        | PyObject      |
+//! | Reference-counted       | PyRef<T>     | PyObjectRef   |
+//! | Weak                    | PyWeakRef<T> | PyRef<PyWeak> |
+//! +-------------------------+--------------+---------------+
+//!
+//! PyRef<PyWeak> may looking like to be called as PyObjectWeak by the rule,
+//! but not to do to remember it is a PyRef object.
+
 use crate::common::atomic::{OncePtr, PyAtomic, Radium};
 use crate::common::linked_list::{Link, LinkedList, Pointers};
 use crate::common::lock::{PyMutex, PyMutexGuard, PyRwLock};
