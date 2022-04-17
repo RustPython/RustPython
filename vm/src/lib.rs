@@ -90,7 +90,7 @@ pub use self::convert::{TryFromBorrowedObject, TryFromObject};
 // pyobject items
 pub use self::pyobject::{AsObject, PyContext, PyMethod, PyRefExact, PyResult, PyValue};
 // pyobjectrc items
-pub use self::pyobject::{PyObject, PyObjectRef, PyObjectView, PyObjectWeak, PyRef, PyWeakRef};
+pub use self::pyobject::{PyObject, PyObjectRef, PyObjectView, PyRef, PyWeakRef};
 pub use self::types::PyStructSequence;
 pub use self::vm::{InitParameter, Interpreter, PySettings, VirtualMachine};
 

@@ -30,7 +30,7 @@ mod _ssl {
         },
         socket::{self, PySocket},
         vm::{
-            builtins::{PyBaseExceptionRef, PyStrRef, PyType, PyTypeRef},
+            builtins::{PyBaseExceptionRef, PyStrRef, PyType, PyTypeRef, PyWeak},
             convert::{ToPyException, ToPyObject},
             exceptions,
             function::{
@@ -39,7 +39,7 @@ mod _ssl {
             stdlib::os::PyPathLike,
             types::Constructor,
             utils::{Either, ToCString},
-            PyObjectRef, PyObjectWeak, PyRef, PyResult, PyValue, VirtualMachine,
+            PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
         },
     };
     use crossbeam_utils::atomic::AtomicCell;
@@ -890,7 +890,7 @@ mod _ssl {
         stream: PyRwLock<ssl::SslStream<SocketStream>>,
         socket_type: SslServerOrClient,
         server_hostname: Option<PyStrRef>,
-        owner: PyRwLock<Option<PyObjectWeak>>,
+        owner: PyRwLock<Option<PyRef<PyWeak>>>,
     }
 
     impl fmt::Debug for PySslSocket {

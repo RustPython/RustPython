@@ -8,8 +8,10 @@ pub(crate) use _weakref::make_module;
 
 #[pymodule]
 mod _weakref {
-    use crate::builtins::{PyDictRef, PyTypeRef, PyWeak};
-    use crate::{PyObjectRef, PyRef, PyResult, VirtualMachine};
+    use crate::{
+        builtins::{PyDictRef, PyTypeRef, PyWeak},
+        PyObjectRef, PyResult, VirtualMachine,
+    };
 
     #[pyattr(name = "ref")]
     fn ref_(vm: &VirtualMachine) -> PyTypeRef {
@@ -40,7 +42,7 @@ mod _weakref {
     #[pyfunction]
     fn getweakrefs(obj: PyObjectRef) -> Vec<PyObjectRef> {
         match obj.get_weak_references() {
-            Some(v) => v.into_iter().map(|weak| PyRef::from(weak).into()).collect(),
+            Some(v) => v.into_iter().map(Into::into).collect(),
             None => vec![],
         }
     }

@@ -1,6 +1,6 @@
 use super::{
     mappingproxy::PyMappingProxy, object, pyunion, PyClassMethod, PyDictRef, PyList,
-    PyStaticMethod, PyStr, PyStrRef, PyTuple, PyTupleRef,
+    PyStaticMethod, PyStr, PyStrRef, PyTuple, PyTupleRef, PyWeak,
 };
 use crate::common::{
     ascii,
@@ -11,7 +11,7 @@ use crate::{
     function::{FuncArgs, KwArgs, OptionalArg},
     pyclass::{PyClassImpl, StaticType},
     types::{Callable, GetAttr, PyTypeFlags, PyTypeSlots, SetAttr},
-    AsObject, PyContext, PyObjectRef, PyObjectWeak, PyRef, PyResult, PyValue, VirtualMachine,
+    AsObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 use itertools::Itertools;
 use std::{
@@ -29,7 +29,7 @@ pub struct PyType {
     pub base: Option<PyTypeRef>,
     pub bases: Vec<PyTypeRef>,
     pub mro: Vec<PyTypeRef>,
-    pub subclasses: PyRwLock<Vec<PyObjectWeak>>,
+    pub subclasses: PyRwLock<Vec<PyRef<PyWeak>>>,
     pub attributes: PyRwLock<PyAttributes>,
     pub slots: PyTypeSlots,
 }

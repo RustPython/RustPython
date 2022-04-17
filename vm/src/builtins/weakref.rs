@@ -43,8 +43,7 @@ impl Constructor for PyWeak {
         vm: &VirtualMachine,
     ) -> PyResult {
         let weak = referent.downgrade_with_typ(callback.into_option(), cls, vm)?;
-        let pyref_weak: PyRef<PyWeak> = weak.into();
-        Ok(pyref_weak.into())
+        Ok(weak.into())
     }
 }
 

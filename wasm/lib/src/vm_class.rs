@@ -5,10 +5,10 @@ use crate::{
 };
 use js_sys::{Object, TypeError};
 use rustpython_vm::{
+    builtins::PyWeak,
     compile::{self, Mode},
     scope::Scope,
-    InitParameter, Interpreter, PyObjectRef, PyObjectWeak, PyResult, PySettings, PyValue,
-    VirtualMachine,
+    InitParameter, Interpreter, PyObjectRef, PyRef, PyResult, PySettings, PyValue, VirtualMachine,
 };
 use std::{
     cell::RefCell,
@@ -197,7 +197,10 @@ impl WASMVirtualMachine {
         STORED_VMS.with(|cell| cell.borrow().contains_key(&self.id))
     }
 
-    pub(crate) fn push_held_rc(&self, obj: PyObjectRef) -> Result<PyResult<PyObjectWeak>, JsValue> {
+    pub(crate) fn push_held_rc(
+        &self,
+        obj: PyObjectRef,
+    ) -> Result<PyResult<PyRef<PyWeak>>, JsValue> {
         self.with_vm(|vm, stored_vm| {
             let weak = obj.downgrade(None, vm)?;
             stored_vm.held_objects.borrow_mut().push(obj);

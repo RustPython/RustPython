@@ -147,7 +147,7 @@ impl WeakRefList {
         cls_is_weakref: bool,
         callback: Option<PyObjectRef>,
         dict: Option<PyDictRef>,
-    ) -> PyObjectWeak {
+    ) -> PyRef<PyWeak> {
         let is_generic = cls_is_weakref && callback.is_none();
         let inner_ptr = self.inner.get_or_init(|| {
             Box::new(PyMutex::new(WeakListInner {
@@ -250,7 +250,7 @@ impl WeakRefList {
         Box::from_raw(ptr.as_ptr());
     }
 
-    fn get_weak_references(&self) -> Vec<PyObjectWeak> {
+    fn get_weak_references(&self) -> Vec<PyRef<PyWeak>> {
         let inner = match self.try_lock() {
             Some(inner) => inner,
             None => return vec![],
@@ -361,9 +361,7 @@ impl Drop for PyWeak {
     }
 }
 
-pub type PyObjectWeak = PyRef<PyWeak>;
-
-impl PyObjectWeak {
+impl PyRef<PyWeak> {
     #[inline(always)]
     pub fn upgrade(&self) -> Option<PyObjectRef> {
         PyWeak::upgrade(self)
@@ -562,7 +560,7 @@ impl PyObject {
         callback: Option<PyObjectRef>,
         // a reference to weakref_type **specifically**
         typ: PyTypeRef,
-    ) -> Option<PyObjectWeak> {
+    ) -> Option<PyRef<PyWeak>> {
         self.weak_ref_list()
             .map(|wrl| wrl.add(self, typ, true, callback, None))
     }
@@ -572,7 +570,7 @@ impl PyObject {
         callback: Option<PyObjectRef>,
         typ: PyTypeRef,
         vm: &VirtualMachine,
-    ) -> PyResult<PyObjectWeak> {
+    ) -> PyResult<PyRef<PyWeak>> {
         let dict = if typ
             .slots
             .flags
@@ -597,11 +595,11 @@ impl PyObject {
         &self,
         callback: Option<PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<PyObjectWeak> {
+    ) -> PyResult<PyRef<PyWeak>> {
         self.downgrade_with_typ(callback, vm.ctx.types.weakref_type.clone(), vm)
     }
 
-    pub fn get_weak_references(&self) -> Option<Vec<PyObjectWeak>> {
+    pub fn get_weak_references(&self) -> Option<Vec<PyRef<PyWeak>>> {
         self.weak_ref_list().map(|wrl| wrl.get_weak_references())
     }
 
@@ -1006,7 +1004,7 @@ where
 
 #[repr(transparent)]
 pub struct PyWeakRef<T: PyObjectPayload> {
-    weak: PyObjectWeak,
+    weak: PyRef<PyWeak>,
     _marker: PhantomData<T>,
 }
 
