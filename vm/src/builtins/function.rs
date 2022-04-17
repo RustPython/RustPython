@@ -507,7 +507,7 @@ impl PyBoundMethod {
 impl PyBoundMethod {
     #[pymethod(magic)]
     fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
-        #[allow(clippy::needless_match)]  // False positive on nightly
+        #[allow(clippy::needless_match)] // False positive on nightly
         let funcname =
             if let Some(qname) = vm.get_attribute_opt(self.function.clone(), "__qualname__")? {
                 Some(qname)
