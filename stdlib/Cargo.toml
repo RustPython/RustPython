@@ -12,60 +12,60 @@ rustpython-vm = { path = "../vm" }
 rustpython-common = { path = "../common" }
 
 # random
-rand = "0.8"
-rand_core = "0.6"
-mt19937 = "2.0"
+rand = "0.8.5"
+rand_core = "0.6.3"
+mt19937 = "2.0.1"
 
 # Crypto:
-digest = "0.9.0"
-md-5 = "0.9.1"
-sha-1 = "0.9.4"
-sha2 = "0.9.3"
-sha3 = "0.9.1"
-blake2 = "0.9.1"
+digest = "0.10.3"
+md-5 = "0.10.1"
+sha-1 = "0.10.0"
+sha2 = "0.10.2"
+sha3 = "0.10.1"
+blake2 = "0.10.4"
 
 ## unicode stuff
-unicode_names2 = "0.4"
+unicode_names2 = "0.5.0"
 # TODO: use unic for this; needed for title case:
 # https://github.com/RustPython/RustPython/pull/832#discussion_r275428939
-unicode-casing = "0.1"
+unicode-casing = "0.1.0"
 # update version all at the same time
-unic-char-property = "0.9"
-unic-normal        = "0.9"
-unic-ucd-bidi      = "0.9"
-unic-ucd-category  = "0.9"
-unic-ucd-age       = "0.9"
-unic-ucd-ident     = "0.9"
+unic-char-property = "0.9.0"
+unic-normal        = "0.9.0"
+unic-ucd-bidi      = "0.9.0"
+unic-ucd-category  = "0.9.0"
+unic-ucd-age       = "0.9.0"
+unic-ucd-ident     = "0.9.0"
 
 # compression
-adler32 = "1.0.3"
-crc32fast = "1.2.0"
-flate2 = "1.0.20"
+adler32 = "1.2.0"
+crc32fast = "1.3.2"
+flate2 = "1.0.23"
 
 num-complex = "0.4.0"
-num-bigint = "0.4.2"
+num-bigint = "0.4.3"
 num-integer = "0.1.44"
 
-crossbeam-utils = "0.8.5"
-itertools = "0.10.1"
-lexical-parse-float = "0.8.0"
+crossbeam-utils = "0.8.8"
+itertools = "0.10.3"
+lexical-parse-float = "0.8.3"
 num-traits = "0.2.14"
-memchr = "2"
-base64 = "0.13"
-csv-core = "0.1"
-hex = "0.4.0"
-puruspe = "0.1"
-nix = "0.23"
-xml-rs = "0.8"
-libc = "0.2.102"
+memchr = "2.4.1"
+base64 = "0.13.0"
+csv-core = "0.1.10"
+hex = "0.4.3"
+puruspe = "0.1.5"
+nix = "0.23.1"
+xml-rs = "0.8.4"
+libc = "0.2.123"
 cfg-if = "1.0.0"
-ahash = "0.7.4"
-libz-sys = { version = "1.0", optional = true }
-num_enum = "0.5.4"
+ahash = "0.7.6"
+libz-sys = { version = "1.1.5", optional = true }
+num_enum = "0.5.7"
 ascii = "1.0.0"
 
 [target.'cfg(all(unix, not(target_os = "redox")))'.dependencies]
-termios = "0.3"
+termios = "0.3.3"
 
 [features]
 default = ["compile-parse", "pylib"]
@@ -83,21 +83,21 @@ ssl = ["openssl", "openssl-sys", "foreign-types-shared"]
 ssl-vendor = ["ssl", "openssl/vendored", "openssl-probe"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-gethostname = "0.2.0"
-socket2 = { version = "0.4.0", features = ["all"] }
-dns-lookup = "1.0"
-openssl = { version = "0.10.32", optional = true }
-openssl-sys = { version = "0.9", optional = true }
-openssl-probe = { version = "0.1", optional = true }
-foreign-types-shared = { version = "0.1", optional = true }
+gethostname = "0.2.3"
+socket2 = { version = "0.4.4", features = ["all"] }
+dns-lookup = "1.0.8"
+openssl = { version = "0.10.38", optional = true }
+openssl-sys = { version = "0.9.72", optional = true }
+openssl-probe = { version = "0.1.5", optional = true }
+foreign-types-shared = { version = "0.1.1", optional = true }
 
 [target.'cfg(windows)'.dependencies]
-schannel = "0.1"
-widestring = "0.4"
-paste = "1.0.5"
+schannel = "0.1.19"
+widestring = "0.5.1"
+paste = "1.0.7"
 
 [target.'cfg(windows)'.dependencies.winapi]
-version = "0.3"
+version = "0.3.9"
 features = [
   "winsock2", "handleapi", "ws2def", "std", "winbase", "wincrypt", "fileapi", "processenv",
   "namedpipeapi", "winnt", "processthreadsapi", "errhandlingapi", "winuser", "synchapi", "wincon",
@@ -105,4 +105,4 @@ features = [
 ]
 
 [target.'cfg(target_os = "macos")'.dependencies]
-system-configuration = "0.4"
+system-configuration = "0.5.0"

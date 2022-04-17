@@ -31,28 +31,28 @@ ssl = ["rustpython-stdlib/ssl"]
 ssl-vendor = ["rustpython-stdlib/ssl-vendor"]
 
 [dependencies]
-log = "0.4"
+log = "0.4.16"
 env_logger = { version = "0.9.0", default-features = false, features = ["atty", "termcolor"] }
-clap = "2.33"
+clap = "2.34"
 rustpython-compiler = { path = "compiler/porcelain", version = "0.1.1" }
 rustpython-parser = { path = "parser", version = "0.1.1" }
 rustpython-vm = { path = "vm", version = "0.1.1", default-features = false, features = ["compile-parse"] }
 rustpython-stdlib = {path = "stdlib", optional = true, default-features = false, features = ["compile-parse"]}
 dirs = { package = "dirs-next", version = "2.0.0" }
-num-traits = "0.2.8"
-cfg-if = "1.0"
-libc = "0.2"
+num-traits = "0.2.14"
+cfg-if = "1.0.0"
+libc = "0.2.123"
 
-flame = { version = "0.2", optional = true }
-flamescope = { version = "0.1", optional = true }
+flame = { version = "0.2.2", optional = true }
+flamescope = { version = "0.1.2", optional = true }
 
 [target.'cfg(not(target_os = "wasi"))'.dependencies]
-rustyline = "9"
+rustyline = "9.1.2"
 
 [dev-dependencies]
 cpython = "0.7.0"
 python3-sys = "0.7.0"
-criterion = "0.3"
+criterion = "0.3.5"
 
 [[bench]]
 name = "execution"
