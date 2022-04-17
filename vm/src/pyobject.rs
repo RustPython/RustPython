@@ -473,7 +473,7 @@ where
     }
 }
 
-pub trait TypeProtocol {
+pub trait TypeProtocol: AsPyObject {
     fn class(&self) -> PyLease<'_, PyType>;
 
     fn clone_class(&self) -> PyTypeRef {
@@ -521,12 +521,6 @@ impl<T: PyObjectPayload> TypeProtocol for PyObjectView<T> {
 impl<T: PyObjectPayload> TypeProtocol for PyRef<T> {
     fn class(&self) -> PyLease<'_, PyType> {
         self.as_object().class()
-    }
-}
-
-impl<T: TypeProtocol> TypeProtocol for &'_ T {
-    fn class(&self) -> PyLease<'_, PyType> {
-        (&**self).class()
     }
 }
 
