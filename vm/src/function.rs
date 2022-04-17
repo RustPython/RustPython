@@ -5,9 +5,8 @@ mod number;
 
 use crate::{
     builtins::{PyBaseExceptionRef, PyTupleRef, PyTypeRef},
-    pyobject::PyThreadingConstraint,
-    AsPyObject, PyObject, PyObjectPayload, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    VirtualMachine,
+    pyobject::{PyObjectPayload, PyThreadingConstraint},
+    AsPyObject, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
 };
 use indexmap::IndexMap;
 use itertools::Itertools;
