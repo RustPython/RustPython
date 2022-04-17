@@ -13,7 +13,7 @@ use crate::{
     protocol::{PyIter, PyMapping, PySequence},
     types::{Constructor, PyComparisonOp},
     utils::Either,
-    IdProtocol, PyObject, PyObjectRef, PyResult, TryFromObject, TypeProtocol, VirtualMachine,
+    AsPyObject, PyObject, PyObjectRef, PyResult, TryFromObject, TypeProtocol, VirtualMachine,
 };
 
 // RustPython doesn't need these items
@@ -278,7 +278,7 @@ impl PyObject {
             PyTypeRef::try_from_object(vm, self.to_owned()),
             PyTypeRef::try_from_object(vm, cls.to_owned()),
         ) {
-            Ok(obj.issubclass(cls))
+            Ok(obj.issubclass(&cls))
         } else {
             self.check_cls(self, vm, || {
                 format!("issubclass() arg 1 must be a class, not {}", self.class())
@@ -324,7 +324,7 @@ impl PyObject {
 
     fn abstract_isinstance(&self, cls: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
         if let Ok(typ) = PyTypeRef::try_from_object(vm, cls.to_owned()) {
-            if self.class().issubclass(typ.clone()) {
+            if self.class().issubclass(&typ) {
                 Ok(true)
             } else if let Ok(icls) =
                 PyTypeRef::try_from_object(vm, self.to_owned().get_attr("__class__", vm)?)
@@ -332,7 +332,7 @@ impl PyObject {
                 if icls.is(&self.class()) {
                     Ok(false)
                 } else {
-                    Ok(icls.issubclass(typ))
+                    Ok(icls.issubclass(&typ))
                 }
             } else {
                 Ok(false)

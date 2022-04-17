@@ -51,8 +51,8 @@ use rustpython_vm::{
     compile, match_class,
     scope::Scope,
     stdlib::{atexit, sys},
-    InitParameter, Interpreter, PyObjectRef, PyResult, PySettings, TryFromObject, TypeProtocol,
-    VirtualMachine,
+    AsPyObject, InitParameter, Interpreter, PyObjectRef, PyResult, PySettings, TryFromObject,
+    TypeProtocol, VirtualMachine,
 };
 use std::{env, path::Path, process, str::FromStr};
 
@@ -536,12 +536,8 @@ fn setup_main_module(vm: &VirtualMachine) -> PyResult<Scope> {
     main_module
         .dict()
         .and_then(|d| {
-            d.set_item(
-                "__annotations__",
-                vm.ctx.new_dict().as_object().to_owned(),
-                vm,
-            )
-            .ok()
+            d.set_item("__annotations__", vm.ctx.new_dict().into(), vm)
+                .ok()
         })
         .expect("Failed to initialize __main__.__annotations__");
 

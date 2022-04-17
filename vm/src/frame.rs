@@ -15,7 +15,7 @@ use crate::{
     scope::Scope,
     stdlib::builtins,
     types::PyComparisonOp,
-    IdProtocol, PyMethod, PyObject, PyObjectRef, PyObjectWrap, PyRef, PyResult, PyValue,
+    AsPyObject, PyMethod, PyObject, PyObjectRef, PyObjectWrap, PyRef, PyResult, PyValue,
     TryFromObject, TypeProtocol, VirtualMachine,
 };
 use indexmap::IndexMap;

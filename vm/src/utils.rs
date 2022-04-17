@@ -4,13 +4,25 @@ use crate::{
     PyObject, PyObjectRef, PyObjectWrap, PyResult, TryFromObject, TypeProtocol, VirtualMachine,
 };
 use num_traits::ToPrimitive;
+use std::borrow::Borrow;
 
 pub enum Either<A, B> {
     A(A),
     B(B),
 }
 
+impl<A: Borrow<PyObject>, B: Borrow<PyObject>> Borrow<PyObject> for Either<A, B> {
+    #[inline(always)]
+    fn borrow(&self) -> &PyObject {
+        match self {
+            Either::A(a) => a.borrow(),
+            Either::B(b) => b.borrow(),
+        }
+    }
+}
+
 impl<A: AsRef<PyObject>, B: AsRef<PyObject>> AsRef<PyObject> for Either<A, B> {
+    #[inline(always)]
     fn as_ref(&self) -> &PyObject {
         match self {
             Either::A(a) => a.as_ref(),
@@ -20,6 +32,7 @@ impl<A: AsRef<PyObject>, B: AsRef<PyObject>> AsRef<PyObject> for Either<A, B> {
 }
 
 impl<A: PyObjectWrap, B: PyObjectWrap> PyObjectWrap for Either<A, B> {
+    #[inline(always)]
     fn into_object(self) -> PyObjectRef {
         match self {
             Either::A(a) => a.into_object(),
@@ -29,6 +42,7 @@ impl<A: PyObjectWrap, B: PyObjectWrap> PyObjectWrap for Either<A, B> {
 }
 
 impl<A: IntoPyObject, B: IntoPyObject> IntoPyObject for Either<A, B> {
+    #[inline(always)]
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         match self {
             Self::A(a) => a.into_pyobject(vm),

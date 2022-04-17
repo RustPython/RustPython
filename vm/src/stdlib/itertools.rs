@@ -12,7 +12,7 @@ mod decl {
         protocol::{PyIter, PyIterReturn},
         stdlib::sys,
         types::{Constructor, IterNext, IterNextIterable},
-        IdProtocol, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue, PyWeakRef, TypeProtocol,
+        AsPyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue, PyWeakRef, TypeProtocol,
         VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;

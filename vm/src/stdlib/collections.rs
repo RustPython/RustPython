@@ -19,7 +19,7 @@ mod _collections {
         },
         utils::collection_repr,
         vm::ReprGuard,
-        PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
+        AsPyObject, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use std::cmp::max;

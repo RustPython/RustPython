@@ -33,14 +33,13 @@ mod array {
                 AsBuffer, AsMapping, Comparable, Constructor, IterNext, IterNextIterable, Iterable,
                 PyComparisonOp,
             },
-            IdProtocol, PyObject, PyObjectRef, PyObjectView, PyObjectWrap, PyRef, PyResult,
-            PyValue, TryFromBorrowedObject, TryFromObject, TypeProtocol, VirtualMachine,
+            AsPyObject, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue,
+            TryFromBorrowedObject, TryFromObject, TypeProtocol, VirtualMachine,
         },
     };
     use itertools::Itertools;
     use num_traits::ToPrimitive;
-    use std::cmp::Ordering;
-    use std::{fmt, os::raw};
+    use std::{cmp::Ordering, fmt, os::raw};
 
     macro_rules! def_array_enum {
         ($(($n:ident, $t:ty, $c:literal, $scode:literal)),*$(,)?) => {

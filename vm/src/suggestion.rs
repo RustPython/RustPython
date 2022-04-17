@@ -2,7 +2,7 @@ use crate::{
     builtins::{PyStr, PyStrRef},
     exceptions::types::PyBaseExceptionRef,
     sliceable::SliceableSequenceOp,
-    IdProtocol, PyObjectRef, PyObjectView, TypeProtocol, VirtualMachine,
+    AsPyObject, PyObjectRef, PyObjectView, TypeProtocol, VirtualMachine,
 };
 use rustpython_common::str::levenshtein::{levenshtein_distance, MOVE_COST};
 use std::iter::ExactSizeIterator;

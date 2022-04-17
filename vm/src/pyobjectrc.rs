@@ -3,7 +3,7 @@ use crate::common::linked_list::{Link, LinkedList, Pointers};
 use crate::common::lock::{PyMutex, PyMutexGuard, PyRwLock};
 use crate::common::refcount::RefCount;
 use crate::{
-    _pyobject::{IdProtocol, PyObjectPayload, PyResult, TypeProtocol},
+    _pyobject::{AsPyObject, PyObjectPayload, PyObjectWrap, PyResult, TypeProtocol},
     builtins::{PyBaseExceptionRef, PyDictRef, PyTypeRef},
     vm::VirtualMachine,
 };
@@ -283,14 +283,17 @@ unsafe impl Link for WeakLink {
 
     type Target = PyObjectView<PyWeak>;
 
+    #[inline(always)]
     fn as_raw(handle: &PyRef<PyWeak>) -> NonNull<Self::Target> {
         NonNull::from(&**handle)
     }
 
+    #[inline(always)]
     unsafe fn from_raw(ptr: NonNull<Self::Target>) -> Self::Handle {
         PyRef::from_raw(ptr.as_ptr())
     }
 
+    #[inline(always)]
     unsafe fn pointers(target: NonNull<Self::Target>) -> NonNull<Pointers<Self::Target>> {
         NonNull::new_unchecked(ptr::addr_of_mut!((*target.as_ptr()).0.payload.pointers))
     }
@@ -331,7 +334,6 @@ impl PyWeak {
         guard.obj.is_none()
     }
 
-    #[inline(always)]
     fn drop_inner(&self) {
         let dealloc = {
             let mut guard = unsafe { self.parent.as_ref().lock() };
@@ -354,6 +356,7 @@ impl PyWeak {
 }
 
 impl Drop for PyWeak {
+    #[inline(always)]
     fn drop(&mut self) {
         // we do NOT have actual exclusive access!
         // no clue if doing this actually reduces chance of UB
@@ -368,7 +371,7 @@ struct InstanceDict {
 }
 
 impl From<PyDictRef> for InstanceDict {
-    #[inline]
+    #[inline(always)]
     fn from(d: PyDictRef) -> Self {
         Self::new(d)
     }
@@ -447,6 +450,7 @@ pub struct PyObject(PyInner<Erased>);
 
 impl Deref for PyObjectRef {
     type Target = PyObject;
+    #[inline(always)]
     fn deref(&self) -> &PyObject {
         unsafe { self.ptr.as_ref() }
     }
@@ -464,19 +468,8 @@ impl ToOwned for PyObject {
     }
 }
 
-pub trait PyObjectWrap
-where
-    Self: AsRef<PyObject>,
-{
-    #[inline(always)]
-    fn as_object(&self) -> &PyObject {
-        self.as_ref()
-    }
-
-    fn into_object(self) -> PyObjectRef;
-}
-
 impl PyObjectRef {
+    #[inline(always)]
     pub fn into_raw(self) -> *const PyObject {
         let ptr = self.as_raw();
         std::mem::forget(self);
@@ -488,6 +481,7 @@ impl PyObjectRef {
     /// [`PyObjectRef::into_raw`]. The user is responsible for ensuring that the inner data is not
     /// dropped more than once due to mishandling the reference count by calling this function
     /// too many times.
+    #[inline(always)]
     pub unsafe fn from_raw(ptr: *const PyObject) -> Self {
         Self {
             ptr: NonNull::new_unchecked(ptr as *mut PyObject),
@@ -498,6 +492,7 @@ impl PyObjectRef {
     ///
     /// If the downcast fails, the original ref is returned in as `Err` so
     /// another downcast can be attempted without unnecessary cloning.
+    #[inline(always)]
     pub fn downcast<T: PyObjectPayload>(self) -> Result<PyRef<T>, Self> {
         if self.payload_is::<T>() {
             Ok(unsafe { PyRef::from_obj_unchecked(self) })
@@ -506,6 +501,7 @@ impl PyObjectRef {
         }
     }
 
+    #[inline(always)]
     pub fn downcast_ref<T: PyObjectPayload>(&self) -> Option<&PyObjectView<T>> {
         if self.payload_is::<T>() {
             // SAFETY: just checked that the payload is T, and PyRef is repr(transparent) over
@@ -518,12 +514,14 @@ impl PyObjectRef {
 
     /// # Safety
     /// T must be the exact payload type
+    #[inline(always)]
     pub unsafe fn downcast_unchecked<T: PyObjectPayload>(self) -> PyRef<T> {
         PyRef::from_obj_unchecked(self)
     }
 
     /// # Safety
     /// T must be the exact payload type
+    #[inline(always)]
     pub unsafe fn downcast_unchecked_ref<T: PyObjectPayload>(&self) -> &crate::PyObjectView<T> {
         debug_assert!(self.payload_is::<T>());
         &*(self as *const PyObjectRef as *const PyRef<T>)
@@ -535,6 +533,7 @@ impl PyObjectRef {
     ///
     /// If the downcast fails, the original ref is returned in as `Err` so
     /// another downcast can be attempted without unnecessary cloning.
+    #[inline]
     pub fn downcast_exact<T: PyObjectPayload + crate::PyValue>(
         self,
         vm: &VirtualMachine,
@@ -554,7 +553,7 @@ impl PyObjectRef {
 }
 
 impl PyObject {
-    #[inline]
+    #[inline(always)]
     fn weak_ref_list(&self) -> Option<&WeakRefList> {
         Some(&self.0.weak_list)
     }
@@ -607,11 +606,12 @@ impl PyObject {
         self.weak_ref_list().map(|wrl| wrl.get_weak_references())
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn payload_is<T: PyObjectPayload>(&self) -> bool {
         self.0.typeid == TypeId::of::<T>()
     }
 
+    #[inline(always)]
     pub fn payload<T: PyObjectPayload>(&self) -> Option<&T> {
         if self.payload_is::<T>() {
             // we cast to a PyInner<T> first because we don't know T's exact offset because of
@@ -623,11 +623,12 @@ impl PyObject {
         }
     }
 
+    #[inline(always)]
     pub(crate) fn class_lock(&self) -> &PyRwLock<PyTypeRef> {
         &self.0.typ
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn payload_if_exact<T: PyObjectPayload + crate::PyValue>(
         &self,
         vm: &VirtualMachine,
@@ -639,14 +640,16 @@ impl PyObject {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     fn instance_dict(&self) -> Option<&InstanceDict> {
         self.0.dict.as_ref()
     }
 
+    #[inline(always)]
     pub fn dict(&self) -> Option<PyDictRef> {
         self.instance_dict().map(|d| d.get())
     }
+
     /// Set the dict field. Returns `Err(dict)` if this object does not have a dict field
     /// in the first place.
     pub fn set_dict(&self, dict: PyDictRef) -> Result<(), PyDictRef> {
@@ -659,7 +662,7 @@ impl PyObject {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn payload_if_subclass<T: crate::PyValue>(&self, vm: &VirtualMachine) -> Option<&T> {
         if self.class().issubclass(T::class(vm)) {
             self.payload()
@@ -668,6 +671,7 @@ impl PyObject {
         }
     }
 
+    #[inline(always)]
     pub fn downcast_ref<T: PyObjectPayload>(&self) -> Option<&PyObjectView<T>> {
         if self.payload_is::<T>() {
             // SAFETY: just checked that the payload is T, and PyRef is repr(transparent) over
@@ -678,6 +682,7 @@ impl PyObject {
         }
     }
 
+    #[inline(always)]
     pub fn downcast_ref_if_exact<T: PyObjectPayload + crate::PyValue>(
         &self,
         vm: &VirtualMachine,
@@ -689,13 +694,13 @@ impl PyObject {
 
     /// # Safety
     /// T must be the exact payload type
-    #[inline]
+    #[inline(always)]
     pub unsafe fn downcast_unchecked_ref<T: PyObjectPayload>(&self) -> &PyObjectView<T> {
         debug_assert!(self.payload_is::<T>());
         &*(self as *const PyObject as *const PyObjectView<T>)
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn strong_count(&self) -> usize {
         self.0.ref_count.get()
     }
@@ -705,12 +710,12 @@ impl PyObject {
         self.weak_ref_list().map(|wrl| wrl.count())
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn as_raw(&self) -> *const PyObject {
         self
     }
 
-    #[inline]
+    #[inline(always)] // the outer function is never inlined
     fn drop_slow_inner(&self) -> Result<(), ()> {
         // CPython-compatible drop implementation
         if let Some(slot_del) = self.class().mro_find_map(|cls| cls.slots.del.load()) {
@@ -753,62 +758,56 @@ impl PyObject {
 }
 
 impl Borrow<PyObject> for PyObjectRef {
+    #[inline(always)]
     fn borrow(&self) -> &PyObject {
         self
     }
 }
 
 impl AsRef<PyObject> for PyObjectRef {
+    #[inline(always)]
     fn as_ref(&self) -> &PyObject {
         self
     }
 }
 
 impl AsRef<PyObject> for PyObject {
+    #[inline(always)]
     fn as_ref(&self) -> &PyObject {
         self
     }
 }
 
-impl IdProtocol for PyObjectRef {
-    fn get_id(&self) -> usize {
-        self.ptr.as_ptr() as usize
-    }
-}
-
-impl IdProtocol for PyObject {
-    fn get_id(&self) -> usize {
-        self as *const PyObject as usize
-    }
-}
-
 impl<'a, T: PyObjectPayload> From<&'a PyObjectView<T>> for &'a PyObject {
+    #[inline(always)]
     fn from(py_ref: &'a PyObjectView<T>) -> Self {
         py_ref.as_object()
     }
 }
 
-impl<T> From<T> for PyObjectRef
-where
-    T: PyObjectWrap,
-{
-    fn from(py_ref: T) -> Self {
-        py_ref.into_object()
+impl Borrow<PyObject> for PyObjectWeak {
+    #[inline(always)]
+    fn borrow(&self) -> &PyObject {
+        self.weak.as_object()
     }
 }
 
-impl PyObjectWeak {
-    #[inline]
-    pub fn upgrade(&self) -> Option<PyObjectRef> {
-        self.weak.upgrade()
-    }
-
-    pub fn into_object(self) -> PyObjectRef {
+impl PyObjectWrap for PyObjectWeak {
+    #[inline(always)]
+    fn into_object(self) -> PyObjectRef {
         self.weak.into_object()
     }
 }
 
+impl PyObjectWeak {
+    #[inline(always)]
+    pub fn upgrade(&self) -> Option<PyObjectRef> {
+        self.weak.upgrade()
+    }
+}
+
 impl Drop for PyObjectRef {
+    #[inline]
     fn drop(&mut self) {
         if self.0.ref_count.dec() {
             unsafe { PyObject::drop_slow(self.ptr) }
@@ -854,11 +853,6 @@ impl fmt::Debug for PyObjectWeak {
 pub struct PyObjectView<T: PyObjectPayload>(PyInner<T>);
 
 impl<T: PyObjectPayload> PyObjectView<T> {
-    #[inline(always)]
-    pub fn as_object(&self) -> &PyObject {
-        unsafe { &*(&self.0 as *const PyInner<T> as *const PyObject) }
-    }
-
     pub fn downgrade(
         &self,
         callback: Option<PyObjectRef>,
@@ -886,8 +880,16 @@ impl<T: PyObjectPayload> ToOwned for PyObjectView<T> {
 impl<T: PyObjectPayload> Deref for PyObjectView<T> {
     type Target = T;
 
+    #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.0.payload
+    }
+}
+
+impl<T: PyObjectPayload> Borrow<PyObject> for PyObjectView<T> {
+    #[inline(always)]
+    fn borrow(&self) -> &PyObject {
+        unsafe { &*(&self.0 as *const PyInner<T> as *const PyObject) }
     }
 }
 
@@ -895,8 +897,9 @@ impl<T> AsRef<PyObject> for PyObjectView<T>
 where
     T: PyObjectPayload,
 {
+    #[inline(always)]
     fn as_ref(&self) -> &PyObject {
-        self.as_object()
+        self.borrow()
     }
 }
 
@@ -950,6 +953,7 @@ impl<T: PyObjectPayload> Clone for PyRef<T> {
 }
 
 impl<T: PyObjectPayload> PyRef<T> {
+    #[inline(always)]
     unsafe fn from_raw(raw: *const PyObjectView<T>) -> Self {
         Self {
             ptr: NonNull::new_unchecked(raw as *mut _),
@@ -957,7 +961,7 @@ impl<T: PyObjectPayload> PyRef<T> {
     }
 
     /// Safety: payload type of `obj` must be `T`
-    #[inline]
+    #[inline(always)]
     unsafe fn from_obj_unchecked(obj: PyObjectRef) -> Self {
         debug_assert!(obj.payload_is::<T>());
         let obj = ManuallyDrop::new(obj);
@@ -966,12 +970,32 @@ impl<T: PyObjectPayload> PyRef<T> {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn new_ref(payload: T, typ: crate::builtins::PyTypeRef, dict: Option<PyDictRef>) -> Self {
         let inner = Box::into_raw(PyInner::new(payload, typ, dict));
         Self {
             ptr: unsafe { NonNull::new_unchecked(inner.cast::<PyObjectView<T>>()) },
         }
+    }
+}
+
+impl<T> Borrow<PyObject> for PyRef<T>
+where
+    T: PyObjectPayload,
+{
+    #[inline(always)]
+    fn borrow(&self) -> &PyObject {
+        (**self).as_object()
+    }
+}
+
+impl<T> AsRef<PyObject> for PyRef<T>
+where
+    T: PyObjectPayload,
+{
+    #[inline(always)]
+    fn as_ref(&self) -> &PyObject {
+        self.borrow()
     }
 }
 
@@ -986,20 +1010,11 @@ where
     }
 }
 
-impl<T> AsRef<PyObject> for PyRef<T>
-where
-    T: PyObjectPayload,
-{
-    #[inline(always)]
-    fn as_ref(&self) -> &PyObject {
-        (**self).as_object()
-    }
-}
-
 impl<T> Borrow<PyObjectView<T>> for PyRef<T>
 where
     T: PyObjectPayload,
 {
+    #[inline(always)]
     fn borrow(&self) -> &PyObjectView<T> {
         self
     }

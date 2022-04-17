@@ -7,7 +7,7 @@ mod _codecs {
         builtins::{PyBaseExceptionRef, PyBytes, PyBytesRef, PyStr, PyStrRef, PyTuple},
         codecs,
         function::{ArgBytesLike, FuncArgs},
-        IdProtocol, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
+        AsPyObject, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
     };
     use std::ops::Range;
 

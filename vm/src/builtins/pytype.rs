@@ -12,11 +12,12 @@ use crate::{
     pyclass::{PyClassImpl, StaticType},
     pyobject::PyLease,
     types::{Callable, GetAttr, PyTypeFlags, PyTypeSlots, SetAttr},
-    IdProtocol, PyContext, PyObjectRef, PyObjectWeak, PyRef, PyResult, PyValue, TypeProtocol,
+    AsPyObject, PyContext, PyObjectRef, PyObjectWeak, PyRef, PyResult, PyValue, TypeProtocol,
     VirtualMachine,
 };
 use itertools::Itertools;
 use std::{
+    borrow::Borrow,
     collections::{HashMap, HashSet},
     fmt,
     ops::Deref,
@@ -208,8 +209,11 @@ impl PyType {
 }
 
 impl PyTypeRef {
-    pub fn issubclass<R: IdProtocol>(&self, cls: R) -> bool {
-        self._issubclass(cls)
+    /// Determines if `subclass` is actually a subclass of `cls`, this doesn't call __subclasscheck__,
+    /// so only use this if `cls` is known to have not overridden the base __subclasscheck__ magic
+    /// method.
+    pub fn issubclass(&self, cls: &impl Borrow<crate::PyObject>) -> bool {
+        self.as_object().is(cls.borrow()) || self.mro.iter().any(|c| c.is(cls.borrow()))
     }
 
     pub fn iter_mro(&self) -> impl Iterator<Item = &PyTypeRef> + DoubleEndedIterator {
@@ -785,44 +789,6 @@ fn subtype_set_dict(obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -
 
 pub(crate) fn init(ctx: &PyContext) {
     PyType::extend_class(ctx, &ctx.types.type_type);
-}
-
-impl PyLease<'_, PyType> {
-    pub fn issubclass<R: IdProtocol>(&self, cls: R) -> bool {
-        self._issubclass(cls)
-    }
-}
-
-pub trait DerefToPyType {
-    fn deref_to_type(&self) -> &PyType;
-
-    /// Determines if `subclass` is actually a subclass of `cls`, this doesn't call __subclasscheck__,
-    /// so only use this if `cls` is known to have not overridden the base __subclasscheck__ magic
-    /// method.
-    fn _issubclass<R: IdProtocol>(&self, cls: R) -> bool
-    where
-        Self: IdProtocol,
-    {
-        self.is(&cls) || self.deref_to_type().mro.iter().any(|c| c.is(&cls))
-    }
-}
-
-impl DerefToPyType for PyTypeRef {
-    fn deref_to_type(&self) -> &PyType {
-        self.deref()
-    }
-}
-
-impl<'a> DerefToPyType for PyLease<'a, PyType> {
-    fn deref_to_type(&self) -> &PyType {
-        self.deref()
-    }
-}
-
-impl<T: DerefToPyType> DerefToPyType for &'_ T {
-    fn deref_to_type(&self) -> &PyType {
-        (&**self).deref_to_type()
-    }
 }
 
 pub(crate) fn call_slot_new(
