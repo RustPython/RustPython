@@ -452,7 +452,7 @@ mod _operator {
                     .map(|v| v.as_object().to_owned())
                     .collect(),
             );
-            Ok((zelf.clone_class(), attrs))
+            Ok((zelf.class().clone(), attrs))
         }
 
         // Go through dotted parts of string and call getattr on whatever is returned.
@@ -544,7 +544,7 @@ mod _operator {
         #[pymethod(magic)]
         fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyObjectRef {
             let items = vm.ctx.new_tuple(zelf.items.to_vec());
-            vm.new_pyobj((zelf.clone_class(), items))
+            vm.new_pyobj((zelf.class().clone(), items))
         }
     }
     impl Constructor for PyItemGetter {
@@ -629,7 +629,7 @@ mod _operator {
             if zelf.args.kwargs.is_empty() {
                 let mut pargs = vec![zelf.name.as_object().to_owned()];
                 pargs.append(&mut zelf.args.args.clone());
-                Ok(vm.new_tuple((zelf.clone_class(), vm.ctx.new_tuple(pargs))))
+                Ok(vm.new_tuple((zelf.class().clone(), vm.ctx.new_tuple(pargs))))
             } else {
                 // If we have kwargs, create a partial function that contains them and pass back that
                 // along with the args.
@@ -637,7 +637,7 @@ mod _operator {
                 let callable = vm.invoke(
                     &partial,
                     FuncArgs::new(
-                        vec![zelf.clone_class().into(), zelf.name.as_object().to_owned()],
+                        vec![zelf.class().clone().into(), zelf.name.clone().into()],
                         KwArgs::new(zelf.args.kwargs.clone()),
                     ),
                 )?;

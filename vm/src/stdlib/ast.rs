@@ -33,7 +33,7 @@ mod _ast {
     impl AstNode {
         #[pymethod(magic)]
         fn init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-            let obj: PyObjectRef = zelf.clone_class().into();
+            let obj: PyObjectRef = zelf.class().clone().into();
             let fields = obj.get_attr("_fields", vm)?;
             let fields: Vec<PyStrRef> = fields.try_to_value(vm)?;
             let numargs = args.args.len();

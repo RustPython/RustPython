@@ -849,7 +849,7 @@ mod builtins {
                 for base in bases.as_slice().iter() {
                     let base_class = base.class();
                     if base_class.issubclass(&metaclass) {
-                        metaclass = base.clone_class();
+                        metaclass = base.class().clone();
                     } else if !metaclass.issubclass(&base_class) {
                         return Err(vm.new_type_error(
                             "metaclass conflict: the metaclass of a derived class must be a (non-strict) \

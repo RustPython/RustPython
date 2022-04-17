@@ -174,10 +174,7 @@ impl GetDescriptor for PySuper {
             Ok(PySuper::new(zelf.typ.clone(), obj, vm)?.into_object(vm))
         } else {
             let obj = vm.unwrap_or_none(zelf.obj.clone().map(|(o, _)| o));
-            vm.invoke(
-                zelf.as_object().clone_class().as_object(),
-                (zelf.typ.clone(), obj),
-            )
+            vm.invoke(zelf.class().as_object(), (zelf.typ.clone(), obj))
         }
     }
 }
@@ -189,7 +186,7 @@ fn supercheck(ty: PyTypeRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<
         }
     }
     if obj.isinstance(&ty) {
-        return Ok(obj.clone_class());
+        return Ok(obj.class().clone());
     }
     let class_attr = obj.get_attr("__class__", vm)?;
     if let Ok(cls) = class_attr.downcast::<PyType>() {

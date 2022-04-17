@@ -102,7 +102,7 @@ impl VirtualMachine {
         descr: PyObjectRef,
         obj: PyObjectRef,
     ) -> Result<PyResult, PyObjectRef> {
-        let cls = obj.clone_class().into();
+        let cls = obj.class().clone().into();
         self.call_get_descriptor_specific(descr, Some(obj), Some(cls))
     }
 

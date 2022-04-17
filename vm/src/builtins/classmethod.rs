@@ -52,7 +52,7 @@ impl GetDescriptor for PyClassMethod {
         vm: &VirtualMachine,
     ) -> PyResult {
         let (zelf, obj) = Self::_unwrap(zelf, obj, vm)?;
-        let cls = cls.unwrap_or_else(|| obj.clone_class().into());
+        let cls = cls.unwrap_or_else(|| obj.class().clone().into());
         Ok(PyBoundMethod::new_ref(cls, zelf.callable.clone(), &vm.ctx).into())
     }
 }

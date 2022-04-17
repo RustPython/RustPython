@@ -182,7 +182,8 @@ impl VirtualMachine {
         exc: PyBaseExceptionRef,
     ) -> (PyObjectRef, PyObjectRef, PyObjectRef) {
         let tb = exc.traceback().into_pyobject(self);
-        (exc.clone_class().into(), exc.into(), tb)
+        let class = exc.class().clone();
+        (class.into(), exc.into(), tb)
     }
 
     /// Similar to PyErr_NormalizeException in CPython

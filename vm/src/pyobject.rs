@@ -405,10 +405,12 @@ where
     fn as_object(&self) -> &PyObject {
         self.borrow()
     }
+
     #[inline(always)]
     fn get_id(&self) -> usize {
-        self.as_object()._get_id()
+        self.as_object().unique_id()
     }
+
     #[inline(always)]
     fn is<T>(&self, other: &T) -> bool
     where
@@ -420,10 +422,6 @@ where
     #[inline(always)]
     fn class(&self) -> PyLease<'_, PyType> {
         self.as_object().lease_class()
-    }
-
-    fn clone_class(&self) -> PyTypeRef {
-        PyLease::into_pyref(self.class())
     }
 
     fn get_class_attr(&self, attr_name: &str) -> Option<PyObjectRef> {
@@ -445,8 +443,8 @@ where
 impl<T> AsPyObject for T where T: Borrow<PyObject> {}
 
 impl PyObject {
-    #[inline]
-    fn _get_id(&self) -> usize {
+    #[inline(always)]
+    fn unique_id(&self) -> usize {
         self as *const PyObject as usize
     }
 
@@ -681,7 +679,7 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
     #[pymethod(magic)]
     fn reduce(zelf: PyRef<PyTuple>, vm: &VirtualMachine) -> PyTupleRef {
         vm.new_tuple((
-            zelf.clone_class(),
+            zelf.class().clone(),
             (vm.ctx.new_tuple(zelf.as_slice().to_vec()),),
         ))
     }

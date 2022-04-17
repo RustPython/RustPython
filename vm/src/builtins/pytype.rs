@@ -415,7 +415,7 @@ impl PyType {
 
         let is_type_type = metatype.is(&vm.ctx.types.type_type);
         if is_type_type && args.args.len() == 1 && args.kwargs.is_empty() {
-            return Ok(args.args[0].clone_class().into());
+            return Ok(args.args[0].class().clone().into());
         }
 
         if args.args.len() != 3 {
@@ -747,7 +747,7 @@ fn find_base_dict_descr(cls: &PyTypeRef, vm: &VirtualMachine) -> Option<PyObject
 
 fn subtype_get_dict(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     // TODO: obj.class().as_pyref() need to be supported
-    let cls = obj.clone_class();
+    let cls = obj.class().clone();
     let ret = match find_base_dict_descr(&cls, vm) {
         Some(descr) => vm.call_get_descriptor(descr, obj).unwrap_or_else(|_| {
             Err(vm.new_type_error(format!(
@@ -761,7 +761,7 @@ fn subtype_get_dict(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 }
 
 fn subtype_set_dict(obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-    let cls = obj.clone_class();
+    let cls = obj.class().clone();
     match find_base_dict_descr(&cls, vm) {
         Some(descr) => {
             let descr_set = descr

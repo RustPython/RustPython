@@ -255,7 +255,7 @@ impl PyBaseObject {
 
     #[pyproperty(name = "__class__")]
     fn get_class(obj: PyObjectRef) -> PyTypeRef {
-        obj.clone_class()
+        obj.class().clone()
     }
 
     #[pyproperty(name = "__class__", setter)]
@@ -300,7 +300,7 @@ impl PyBaseObject {
     fn reduce_ex(obj: PyObjectRef, proto: usize, vm: &VirtualMachine) -> PyResult {
         if let Some(reduce) = vm.get_attribute_opt(obj.clone(), "__reduce__")? {
             let object_reduce = vm.ctx.types.object_type.get_attr("__reduce__").unwrap();
-            let typ_obj: PyObjectRef = obj.clone_class().into();
+            let typ_obj: PyObjectRef = obj.class().clone().into();
             let class_reduce = typ_obj.get_attr("__reduce__", vm)?;
             if !class_reduce.is(&object_reduce) {
                 return vm.invoke(&reduce, ());

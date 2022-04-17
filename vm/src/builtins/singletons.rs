@@ -87,6 +87,6 @@ impl PyNotImplemented {
 }
 
 pub fn init(context: &PyContext) {
-    PyNone::extend_class(context, &context.none.clone_class());
-    PyNotImplemented::extend_class(context, &context.not_implemented.clone_class());
+    PyNone::extend_class(context, &context.none.class());
+    PyNotImplemented::extend_class(context, &context.not_implemented.class());
 }

@@ -430,7 +430,7 @@ impl PyObject {
         } else {
             if self.class().issubclass(&vm.ctx.types.type_type) {
                 if self.is(&vm.ctx.types.type_type) {
-                    return PyGenericAlias::new(self.clone_class(), needle, vm).into_pyresult(vm);
+                    return PyGenericAlias::new(self.class().clone(), needle, vm).into_pyresult(vm);
                 }
 
                 if let Some(class_getitem) =

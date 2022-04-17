@@ -204,7 +204,7 @@ impl PySlice {
         (Option<PyObjectRef>, PyObjectRef, Option<PyObjectRef>),
     )> {
         Ok((
-            zelf.clone_class(),
+            zelf.class().clone(),
             (zelf.start.clone(), zelf.stop.clone(), zelf.step.clone()),
         ))
     }
@@ -451,5 +451,5 @@ impl PyEllipsis {
 
 pub fn init(context: &PyContext) {
     PySlice::extend_class(context, &context.types.slice_type);
-    PyEllipsis::extend_class(context, &context.ellipsis.clone_class());
+    PyEllipsis::extend_class(context, &context.ellipsis.class().clone());
 }
