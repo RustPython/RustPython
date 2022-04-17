@@ -7,10 +7,8 @@ use crate::{
         ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
     },
     common::{hash::PyHash, lock::PyMutex},
-    function::{
-        ArgBytesLike, ArgIterable, OptionalArg, OptionalOption, PyComparisonValue, ToPyObject,
-        ToPyResult,
-    },
+    convert::{ToPyObject, ToPyResult},
+    function::{ArgBytesLike, ArgIterable, OptionalArg, OptionalOption, PyComparisonValue},
     protocol::{
         BufferDescriptor, BufferMethods, PyBuffer, PyIterReturn, PyMappingMethods,
         PySequenceMethods,

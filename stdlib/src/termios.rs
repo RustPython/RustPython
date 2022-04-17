@@ -4,7 +4,7 @@ pub(crate) use self::termios::make_module;
 mod termios {
     use crate::vm::{
         builtins::{PyBaseExceptionRef, PyBytes, PyInt, PyListRef, PyTypeRef},
-        function::ToPyObject,
+        convert::ToPyObject,
         PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     };
     use termios::Termios;

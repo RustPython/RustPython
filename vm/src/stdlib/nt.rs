@@ -12,8 +12,9 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 pub(crate) mod module {
     use crate::{
         builtins::{PyStrRef, PyTupleRef},
+        convert::ToPyException,
         crt_fd::Fd,
-        function::{OptionalArg, ToPyException},
+        function::OptionalArg,
         stdlib::os::{
             errno_err, DirFd, FollowSymlinks, PyPathLike, SupportFunc, TargetIsDirectory, _os,
             errno,

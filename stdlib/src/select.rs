@@ -154,12 +154,10 @@ fn sec_to_timeval(sec: f64) -> timeval {
 mod decl {
     use super::*;
     use crate::vm::{
-        builtins::PyTypeRef,
-        function::{OptionalOption, ToPyException},
-        stdlib::time,
-        utils::Either,
-        PyObjectRef, PyResult, VirtualMachine,
+        builtins::PyTypeRef, convert::ToPyException, function::OptionalOption, stdlib::time,
+        utils::Either, PyObjectRef, PyResult, VirtualMachine,
     };
+
     #[pyattr]
     fn error(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.exceptions.os_error.clone()
@@ -262,11 +260,8 @@ mod decl {
     pub(super) mod poll {
         use super::*;
         use crate::vm::{
-            builtins::PyFloat,
-            common::lock::PyMutex,
-            function::{OptionalArg, ToPyObject},
-            stdlib::io::Fildes,
-            AsPyObject, PyValue,
+            builtins::PyFloat, common::lock::PyMutex, convert::ToPyObject, function::OptionalArg,
+            stdlib::io::Fildes, AsPyObject, PyValue,
         };
         use libc::pollfd;
         use num_traits::ToPrimitive;

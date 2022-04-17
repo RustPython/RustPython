@@ -9,7 +9,8 @@ use crate::{
         hash::PyHash,
         lock::OnceCell,
     },
-    function::{FuncArgs, OptionalArg, PyComparisonValue, ToPyObject},
+    convert::ToPyObject,
+    function::{FuncArgs, OptionalArg, PyComparisonValue},
     protocol::{
         BufferDescriptor, BufferMethods, PyBuffer, PyMappingMethods, PySequenceMethods, VecBuffer,
     },

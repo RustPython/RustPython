@@ -9,7 +9,7 @@ use crate::common::{
 };
 use crate::{
     builtins::{PyInt, PyStr, PyStrRef},
-    function::ToPyObject,
+    convert::ToPyObject,
     AsPyObject, PyObject, PyObjectRef, PyRefExact, PyResult, VirtualMachine,
 };
 use num_traits::ToPrimitive;

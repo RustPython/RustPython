@@ -31,10 +31,10 @@ mod _ssl {
         socket::{self, PySocket},
         vm::{
             builtins::{PyBaseExceptionRef, PyStrRef, PyType, PyTypeRef},
+            convert::{ToPyException, ToPyObject},
             exceptions,
             function::{
                 ArgBytesLike, ArgCallable, ArgMemoryBuffer, ArgStrOrBytesLike, OptionalArg,
-                ToPyException, ToPyObject,
             },
             stdlib::os::PyPathLike,
             types::Constructor,
@@ -1399,7 +1399,7 @@ mod windows {
         common::ascii,
         vm::{
             builtins::{PyFrozenSet, PyStrRef},
-            function::ToPyException,
+            convert::ToPyException,
             PyObjectRef, PyResult, PyValue, VirtualMachine,
         },
     };

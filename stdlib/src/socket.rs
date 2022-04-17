@@ -13,13 +13,10 @@ mod _socket {
     use crate::common::lock::{PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard};
     use crate::vm::{
         builtins::{PyBaseExceptionRef, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
-        function::{
-            ArgBytesLike, ArgMemoryBuffer, FuncArgs, OptionalArg, OptionalOption, ToPyException,
-            ToPyObject,
-        },
+        convert::{ToPyException, ToPyObject, TryFromBorrowedObject, TryFromObject},
+        function::{ArgBytesLike, ArgMemoryBuffer, FuncArgs, OptionalArg, OptionalOption},
         utils::{Either, ToCString},
-        AsPyObject, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject,
-        VirtualMachine,
+        AsPyObject, PyObjectRef, PyResult, PyValue, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use num_traits::ToPrimitive;

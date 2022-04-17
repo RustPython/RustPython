@@ -3,7 +3,7 @@ pub(crate) use resource::make_module;
 #[pymodule]
 mod resource {
     use crate::vm::{
-        function::{ToPyException, ToPyObject},
+        convert::{ToPyException, ToPyObject},
         stdlib::os,
         PyObject, PyObjectRef, PyResult, PyStructSequence, TryFromBorrowedObject, VirtualMachine,
     };

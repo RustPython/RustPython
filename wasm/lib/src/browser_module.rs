@@ -8,7 +8,8 @@ mod _browser {
     use js_sys::Promise;
     use rustpython_vm::{
         builtins::{PyDictRef, PyStrRef},
-        function::{ArgCallable, OptionalArg, ToPyObject},
+        convert::ToPyObject,
+        function::{ArgCallable, OptionalArg},
         import::import_file,
         pyclass::PyClassImpl,
         PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,

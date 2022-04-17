@@ -1,6 +1,7 @@
 use crate::{
     builtins::{pystr::IntoPyStrRef, PyDictRef, PyStrRef},
-    function::{ArgMapping, ToPyObject},
+    convert::ToPyObject,
+    function::ArgMapping,
     VirtualMachine,
 };
 use std::fmt;

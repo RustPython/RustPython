@@ -3,7 +3,8 @@
 */
 use super::PyTypeRef;
 use crate::{
-    function::{OwnedParam, RefParam, ToPyResult},
+    convert::ToPyResult,
+    function::{OwnedParam, RefParam},
     pyclass::PyClassImpl,
     pyobject::PyThreadingConstraint,
     types::{Constructor, GetDescriptor, Unconstructible},

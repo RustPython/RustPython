@@ -1,6 +1,6 @@
 use crate::{
     builtins::{PyFloat, PyStr},
-    function::{ToPyException, ToPyObject},
+    convert::{ToPyException, ToPyObject},
     AsPyObject, PyObject, PyObjectRef, PyObjectWrap, PyResult, TryFromObject, VirtualMachine,
 };
 use num_traits::ToPrimitive;

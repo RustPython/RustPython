@@ -8,7 +8,8 @@ mod decl {
     };
     use crate::{
         builtins::{int, PyGenericAlias, PyInt, PyIntRef, PyTuple, PyTupleRef, PyTypeRef},
-        function::{ArgCallable, FuncArgs, OptionalArg, OptionalOption, PosArgs, ToPyObject},
+        convert::ToPyObject,
+        function::{ArgCallable, FuncArgs, OptionalArg, OptionalOption, PosArgs},
         protocol::{PyIter, PyIterReturn},
         stdlib::sys,
         types::{Constructor, IterNext, IterNextIterable},

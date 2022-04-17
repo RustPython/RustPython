@@ -6,7 +6,8 @@ mod _json {
     use super::machinery;
     use crate::vm::{
         builtins::{PyBaseExceptionRef, PyStrRef, PyTypeRef},
-        function::{OptionalArg, ToPyObject, ToPyResult},
+        convert::{ToPyObject, ToPyResult},
+        function::OptionalArg,
         protocol::PyIterReturn,
         types::{Callable, Constructor},
         AsPyObject, PyObjectRef, PyObjectView, PyResult, PyValue, VirtualMachine,

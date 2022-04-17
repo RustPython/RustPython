@@ -17,10 +17,8 @@ mod array {
                 PyListRef, PyStr, PyStrRef, PyTupleRef, PyTypeRef,
             },
             class_or_notimplemented,
-            function::{
-                ArgBytesLike, ArgIntoFloat, ArgIterable, OptionalArg, PyComparisonValue,
-                ToPyObject, ToPyResult,
-            },
+            convert::{ToPyObject, ToPyResult, TryFromBorrowedObject, TryFromObject},
+            function::{ArgBytesLike, ArgIntoFloat, ArgIterable, OptionalArg, PyComparisonValue},
             protocol::{
                 BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
                 PyMappingMethods,
@@ -34,7 +32,7 @@ mod array {
                 PyComparisonOp,
             },
             AsPyObject, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue,
-            TryFromBorrowedObject, TryFromObject, VirtualMachine,
+            VirtualMachine,
         },
     };
     use itertools::Itertools;

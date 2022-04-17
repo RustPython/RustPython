@@ -2,7 +2,8 @@ use super::genericalias;
 use crate::{
     builtins::{PyFrozenSet, PyStr, PyStrRef, PyTuple, PyTupleRef, PyTypeRef},
     common::hash,
-    function::{PyComparisonValue, ToPyObject},
+    convert::ToPyObject,
+    function::PyComparisonValue,
     protocol::PyMappingMethods,
     pyclass::PyClassImpl,
     types::{AsMapping, Comparable, GetAttr, Hashable, Iterable, PyComparisonOp},

@@ -77,9 +77,9 @@ mod _io {
             PyMappedThreadMutexGuard, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
             PyThreadMutex, PyThreadMutexGuard,
         },
+        convert::ToPyObject,
         function::{
             ArgBytesLike, ArgIterable, ArgMemoryBuffer, FuncArgs, OptionalArg, OptionalOption,
-            ToPyObject,
         },
         protocol::{
             BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn, VecBuffer,
@@ -160,7 +160,7 @@ mod _io {
     fn os_err(vm: &VirtualMachine, err: io::Error) -> PyBaseExceptionRef {
         #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
         {
-            use crate::function::ToPyException;
+            use crate::convert::ToPyException;
             err.to_pyexception(vm)
         }
         #[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
@@ -3656,10 +3656,9 @@ mod fileio {
     use super::{Offset, _io::*};
     use crate::{
         builtins::{PyStr, PyStrRef, PyTypeRef},
+        convert::ToPyException,
         crt_fd::Fd,
-        function::{
-            ArgBytesLike, ArgMemoryBuffer, FuncArgs, OptionalArg, OptionalOption, ToPyException,
-        },
+        function::{ArgBytesLike, ArgMemoryBuffer, FuncArgs, OptionalArg, OptionalOption},
         stdlib::os,
         AsPyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
     };

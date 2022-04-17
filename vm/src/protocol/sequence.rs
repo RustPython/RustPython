@@ -1,7 +1,8 @@
 use crate::{
     builtins::{PyList, PyListRef, PySlice, PyTuple, PyTupleRef},
     common::lock::OnceCell,
-    function::{PyArithmeticValue, ToPyObject},
+    convert::ToPyObject,
+    function::PyArithmeticValue,
     protocol::PyMapping,
     AsPyObject, PyObject, PyObjectRef, PyResult, PyValue, VirtualMachine,
 };

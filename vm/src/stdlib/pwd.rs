@@ -4,7 +4,7 @@ pub(crate) use pwd::make_module;
 mod pwd {
     use crate::{
         builtins::{PyIntRef, PyStrRef},
-        function::{ToPyException, ToPyObject},
+        convert::{ToPyException, ToPyObject},
         AsPyObject, PyObjectRef, PyResult, PyStructSequence, VirtualMachine,
     };
     use nix::unistd::{self, User};

@@ -30,14 +30,15 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 pub mod module {
     use crate::{
         builtins::{PyDictRef, PyInt, PyIntRef, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
-        function::{OptionalArg, ToPyException, ToPyObject},
+        convert::{ToPyException, ToPyObject, TryFromObject},
+        function::OptionalArg,
         stdlib::os::{
             errno_err, DirFd, FollowSymlinks, PathOrFd, PyPathLike, SupportFunc, TargetIsDirectory,
             _os, fs_metadata, IOErrorBuilder,
         },
         types::Constructor,
         utils::{Either, ToCString},
-        AsPyObject, PyObjectRef, PyResult, PyValue, TryFromObject, VirtualMachine,
+        AsPyObject, PyObjectRef, PyResult, PyValue, VirtualMachine,
     };
     use bitflags::bitflags;
     use nix::{

@@ -1,8 +1,8 @@
 use super::{PositionIterInternal, PyGenericAlias, PyTypeRef};
 use crate::common::{hash::PyHash, lock::PyMutex};
 use crate::{
-    convert::{TransmuteFromObject, TryFromBorrowedObject},
-    function::{OptionalArg, PyArithmeticValue, PyComparisonValue, ToPyObject},
+    convert::{ToPyObject, TransmuteFromObject, TryFromBorrowedObject},
+    function::{OptionalArg, PyArithmeticValue, PyComparisonValue},
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     pyclass::PyClassImpl,
     sequence::{ObjectSequenceOp, SequenceOp},

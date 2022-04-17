@@ -4,7 +4,8 @@ use crate::common::lock::{
 };
 use crate::TryFromBorrowedObject;
 use crate::{
-    function::{FuncArgs, OptionalArg, PyComparisonValue, ToPyObject},
+    convert::ToPyObject,
+    function::{FuncArgs, OptionalArg, PyComparisonValue},
     protocol::{PyIterReturn, PyMappingMethods, PySequence, PySequenceMethods},
     pyclass::PyClassImpl,
     sequence::{MutObjectSequenceOp, ObjectSequenceOp, SequenceMutOp, SequenceOp},

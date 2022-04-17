@@ -2,9 +2,11 @@ pub use crate::builtins::object::{generic_getattr, generic_setattr};
 use crate::common::{hash::PyHash, lock::PyRwLock};
 use crate::{
     builtins::{PyInt, PyStrRef, PyType, PyTypeRef},
-    function::{FromArgs, FuncArgs, OptionalArg, PyComparisonValue, ToPyObject, ToPyResult},
-    protocol::{PyBuffer, PyIterReturn, PyMapping, PyMappingMethods},
-    protocol::{PySequence, PySequenceMethods},
+    convert::{ToPyObject, ToPyResult},
+    function::{FromArgs, FuncArgs, OptionalArg, PyComparisonValue},
+    protocol::{
+        PyBuffer, PyIterReturn, PyMapping, PyMappingMethods, PySequence, PySequenceMethods,
+    },
     utils::Either,
     AsPyObject, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue, VirtualMachine,
 };

@@ -1,8 +1,8 @@
-use super::{IntoFuncArgs, ToPyObject};
+use super::IntoFuncArgs;
 use crate::{
     builtins::{iter::PySequenceIterator, PyDict, PyDictRef},
-    protocol::PyIter,
-    protocol::{PyIterIter, PyMapping, PyMappingMethods},
+    convert::ToPyObject,
+    protocol::{PyIter, PyIterIter, PyMapping, PyMappingMethods},
     AsPyObject, PyObject, PyObjectRef, PyObjectWrap, PyResult, PyValue, TryFromObject,
     VirtualMachine,
 };

@@ -1,7 +1,8 @@
 use super::{IterStatus, PositionIterInternal, PyGenericAlias, PyIntRef, PyTupleRef, PyTypeRef};
 use crate::common::lock::{PyMutex, PyRwLock};
 use crate::{
-    function::{OptionalArg, ToPyObject},
+    convert::ToPyObject,
+    function::OptionalArg,
     protocol::{PyIter, PyIterReturn},
     pyclass::PyClassImpl,
     types::{Constructor, IterNext, IterNextIterable},

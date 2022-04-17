@@ -1,7 +1,8 @@
 use crate::{
     builtins::{float, PyBaseExceptionRef, PyBytesRef, PyTuple, PyTupleRef, PyTypeRef},
     common::{static_cell, str::wchar_t},
-    function::{ArgBytesLike, ArgIntoBool, ToPyObject},
+    convert::ToPyObject,
+    function::{ArgBytesLike, ArgIntoBool},
     PyObjectRef, PyResult, TryFromObject, VirtualMachine,
 };
 use half::f16;

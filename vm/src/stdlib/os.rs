@@ -1,7 +1,8 @@
 use crate::{
     builtins::{PyBaseExceptionRef, PyBytes, PyBytesRef, PyInt, PySet, PyStr, PyStrRef},
+    convert::{ToPyException, ToPyObject},
     crt_fd::Fd,
-    function::{ArgumentError, FromArgs, FuncArgs, ToPyException, ToPyObject},
+    function::{ArgumentError, FromArgs, FuncArgs},
     protocol::PyBuffer,
     AsPyObject, PyObject, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject,
     VirtualMachine,
@@ -433,8 +434,9 @@ pub(super) mod _os {
         builtins::{
             PyBytesRef, PyGenericAlias, PyIntRef, PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
         },
+        convert::{ToPyException, ToPyObject},
         crt_fd::{Fd, Offset},
-        function::{ArgBytesLike, FuncArgs, IntoPyRef, OptionalArg, ToPyException, ToPyObject},
+        function::{ArgBytesLike, FuncArgs, IntoPyRef, OptionalArg},
         protocol::PyIterReturn,
         suppress_iph,
         types::{IterNext, IterNextIterable},

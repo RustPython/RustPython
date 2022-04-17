@@ -9,10 +9,10 @@ use crate::{
         PyTuple,
     },
     common::ascii,
+    convert::ToPyObject,
     dictdatatype::{self, DictKey},
     function::{
         ArgIterable, FuncArgs, KwArgs, OptionalArg, PyArithmeticValue::*, PyComparisonValue,
-        ToPyObject,
     },
     protocol::{PyIterIter, PyIterReturn, PyMappingMethods, PySequenceMethods},
     pyclass::{PyClassDef, PyClassImpl},

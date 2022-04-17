@@ -1,9 +1,10 @@
 use super::{float, PyStr, PyTypeRef};
 use crate::{
+    convert::ToPyObject,
     function::{
         OptionalArg, OptionalOption,
         PyArithmeticValue::{self, *},
-        PyComparisonValue, ToPyObject,
+        PyComparisonValue,
     },
     pyclass::PyClassImpl,
     types::{Comparable, Constructor, Hashable, PyComparisonOp},

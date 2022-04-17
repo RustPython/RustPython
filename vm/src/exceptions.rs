@@ -4,7 +4,8 @@ use crate::{
     builtins::{
         traceback::PyTracebackRef, PyNone, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
     },
-    function::{ArgIterable, FuncArgs, ToPyException, ToPyObject},
+    convert::{ToPyException, ToPyObject},
+    function::{ArgIterable, FuncArgs},
     py_io::{self, Write},
     pyclass::{PyClassImpl, StaticType},
     stdlib::sys,
@@ -1027,7 +1028,8 @@ pub(super) mod types {
     #[cfg_attr(target_os = "wasi", allow(unused_imports))]
     use crate::{
         builtins::{traceback::PyTracebackRef, PyInt, PyTupleRef, PyTypeRef},
-        function::{FuncArgs, ToPyResult},
+        convert::ToPyResult,
+        function::FuncArgs,
         PyObjectRef, PyRef, PyResult, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;

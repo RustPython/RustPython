@@ -1,11 +1,12 @@
 use super::{try_bigint_to_f64, PyByteArray, PyBytes, PyInt, PyIntRef, PyStr, PyStrRef, PyTypeRef};
 use crate::common::{float_ops, hash};
 use crate::{
+    convert::ToPyObject,
     format::FormatSpec,
     function::{
         ArgBytesLike, OptionalArg, OptionalOption,
         PyArithmeticValue::{self, *},
-        PyComparisonValue, ToPyObject,
+        PyComparisonValue,
     },
     pyclass::PyClassImpl,
     types::{Comparable, Constructor, Hashable, PyComparisonOp},

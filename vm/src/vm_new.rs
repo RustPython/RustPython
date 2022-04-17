@@ -7,7 +7,7 @@ use crate::{
         tuple::{IntoPyTuple, PyTupleRef},
         PyBaseException, PyBaseExceptionRef, PyDictRef, PyModule, PyStrRef, PyTypeRef,
     },
-    function::ToPyObject,
+    convert::ToPyObject,
     scope::Scope,
     vm::VirtualMachine,
     AsPyObject, PyObject, PyObjectRef, PyObjectWrap, PyRef,

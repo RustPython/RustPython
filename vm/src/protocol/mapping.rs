@@ -4,7 +4,7 @@ use crate::{
         PyDict,
     },
     common::lock::OnceCell,
-    function::ToPyResult,
+    convert::ToPyResult,
     AsPyObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
 };
 

@@ -2,11 +2,9 @@ use super::{float, PyByteArray, PyBytes, PyStr, PyStrRef, PyTypeRef};
 use crate::{
     bytesinner::PyBytesInner,
     common::hash,
+    convert::{ToPyObject, ToPyResult},
     format::FormatSpec,
-    function::{
-        ArgIntoBool, OptionalArg, OptionalOption, PyArithmeticValue, PyComparisonValue, ToPyObject,
-        ToPyResult,
-    },
+    function::{ArgIntoBool, OptionalArg, OptionalOption, PyArithmeticValue, PyComparisonValue},
     pyclass::PyClassImpl,
     types::{Comparable, Constructor, Hashable, PyComparisonOp},
     AsPyObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromBorrowedObject,

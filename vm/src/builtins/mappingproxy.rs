@@ -2,7 +2,8 @@ use std::borrow::Cow;
 
 use super::{PyDict, PyGenericAlias, PyList, PyStr, PyStrRef, PyTuple, PyTypeRef};
 use crate::{
-    function::{OptionalArg, ToPyObject},
+    convert::ToPyObject,
+    function::OptionalArg,
     protocol::{PyMapping, PyMappingMethods, PySequence, PySequenceMethods},
     pyclass::PyClassImpl,
     types::{AsMapping, AsSequence, Constructor, Iterable},

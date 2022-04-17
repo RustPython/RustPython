@@ -10,8 +10,9 @@ mod re {
      */
     use crate::vm::{
         builtins::{PyInt, PyIntRef, PyStr, PyStrRef},
-        function::{ToPyObject, OptionalArg, PosArgs},
-        match_class, PyObjectRef, PyResult, PyValue, TryFromObject, VirtualMachine,
+        convert::{ToPyObject, TryFromObject},
+        function::{OptionalArg, PosArgs},
+        match_class, PyObjectRef, PyResult, PyValue, VirtualMachine,
     };
     use num_traits::Signed;
     use regex::bytes::{Captures, Regex, RegexBuilder};
@@ -252,9 +253,11 @@ mod re {
         let split = output
             .into_iter()
             .map(|v| {
-                vm.unwrap_or_none(
-                    v.map(|v| vm.ctx.new_str(String::from_utf8_lossy(v).into_owned()).into()),
-                )
+                vm.unwrap_or_none(v.map(|v| {
+                    vm.ctx
+                        .new_str(String::from_utf8_lossy(v).into_owned())
+                        .into()
+                }))
             })
             .collect();
         Ok(vm.ctx.new_list(split).into())
@@ -369,18 +372,20 @@ mod re {
         #[pymethod]
         fn start(&self, group: OptionalArg, vm: &VirtualMachine) -> PyResult {
             let group = group.unwrap_or_else(|| vm.ctx.new_int(0).into());
-            let start = self
-                .get_bounds(group, vm)?
-                .map_or_else(|| vm.ctx.new_int(-1).into(), |r| vm.ctx.new_int(r.start).into());
+            let start = self.get_bounds(group, vm)?.map_or_else(
+                || vm.ctx.new_int(-1).into(),
+                |r| vm.ctx.new_int(r.start).into(),
+            );
             Ok(start)
         }
 
         #[pymethod]
         fn end(&self, group: OptionalArg, vm: &VirtualMachine) -> PyResult {
             let group = group.unwrap_or_else(|| vm.ctx.new_int(0).into());
-            let end = self
-                .get_bounds(group, vm)?
-                .map_or_else(|| vm.ctx.new_int(-1).into(), |r| vm.ctx.new_int(r.end).into());
+            let end = self.get_bounds(group, vm)?.map_or_else(
+                || vm.ctx.new_int(-1).into(),
+                |r| vm.ctx.new_int(r.end).into(),
+            );
             Ok(end)
         }
 

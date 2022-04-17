@@ -6,7 +6,8 @@ pub(crate) use _thread::{make_module, RawRMutex};
 pub(crate) mod _thread {
     use crate::{
         builtins::{PyDictRef, PyStrRef, PyTupleRef, PyTypeRef},
-        function::{ArgCallable, FuncArgs, KwArgs, OptionalArg, ToPyException},
+        convert::ToPyException,
+        function::{ArgCallable, FuncArgs, KwArgs, OptionalArg},
         py_io,
         types::{Constructor, GetAttr, SetAttr},
         utils::Either,

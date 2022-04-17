@@ -1,8 +1,6 @@
 use super::{PyInt, PyStrRef, PyTypeRef};
 use crate::{
-    function::{OptionalArg, ToPyObject},
-    pyclass::PyClassImpl,
-    types::Constructor,
+    convert::ToPyObject, function::OptionalArg, pyclass::PyClassImpl, types::Constructor,
     AsPyObject, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromBorrowedObject,
     VirtualMachine,
 };

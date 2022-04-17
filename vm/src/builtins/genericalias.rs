@@ -1,7 +1,8 @@
 use crate::{
     builtins::{PyList, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef},
     common::hash,
-    function::{FuncArgs, PyComparisonValue, ToPyObject},
+    convert::ToPyObject,
+    function::{FuncArgs, PyComparisonValue},
     protocol::PyMappingMethods,
     pyclass::PyClassImpl,
     types::{AsMapping, Callable, Comparable, Constructor, GetAttr, Hashable, PyComparisonOp},

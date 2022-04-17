@@ -17,7 +17,7 @@ use crate::{
     AsPyObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 #[cfg(feature = "jit")]
-use crate::{common::lock::OnceCell, function::ToPyObject};
+use crate::{common::lock::OnceCell, convert::ToPyObject};
 use itertools::Itertools;
 #[cfg(feature = "jit")]
 use rustpython_jit::CompiledCode;

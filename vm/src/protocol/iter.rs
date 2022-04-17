@@ -1,6 +1,6 @@
 use crate::{
     builtins::iter::PySequenceIterator,
-    function::{ToPyObject, ToPyResult},
+    convert::{ToPyObject, ToPyResult},
     AsPyObject, PyObject, PyObjectRef, PyObjectWrap, PyResult, PyValue, TryFromObject,
     VirtualMachine,
 };

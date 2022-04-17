@@ -1,6 +1,6 @@
 use super::PyTypeRef;
 use crate::{
-    function::ToPyObject, pyclass::PyClassImpl, types::Constructor, AsPyObject, PyContext,
+    convert::ToPyObject, pyclass::PyClassImpl, types::Constructor, AsPyObject, PyContext,
     PyObjectRef, PyResult, PyValue, VirtualMachine,
 };
 

@@ -18,9 +18,9 @@ use crate::{
             PyRwLockReadGuard, PyRwLockWriteGuard,
         },
     },
+    convert::ToPyObject,
     function::{
         ArgBytesLike, ArgIterable, FuncArgs, OptionalArg, OptionalOption, PyComparisonValue,
-        ToPyObject,
     },
     protocol::{
         BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,

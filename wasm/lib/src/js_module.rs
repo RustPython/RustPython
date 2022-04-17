@@ -14,7 +14,8 @@ mod _js {
     use js_sys::{Array, Object, Promise, Reflect};
     use rustpython_vm::{
         builtins::{PyBaseExceptionRef, PyFloat, PyStrRef, PyTypeRef},
-        function::{ArgCallable, OptionalArg, OptionalOption, PosArgs, ToPyObject},
+        convert::ToPyObject,
+        function::{ArgCallable, OptionalArg, OptionalOption, PosArgs},
         protocol::PyIterReturn,
         types::{IterNext, IterNextIterable},
         PyObjectRef, PyObjectView, PyObjectWrap, PyRef, PyResult, PyValue, TryFromObject,

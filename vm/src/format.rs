@@ -1,7 +1,8 @@
 use crate::{
     builtins::{PyBaseExceptionRef, PyStrRef},
     common::float_ops,
-    function::{FuncArgs, ToPyException},
+    convert::ToPyException,
+    function::FuncArgs,
     stdlib::builtins,
     AsPyObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
 };

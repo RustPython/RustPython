@@ -1,7 +1,8 @@
 use crate::{
     builtins::{float, int, pybool, PyBaseExceptionRef, PyDictRef, PyFunction, PyStrRef},
     bytecode::CodeFlags,
-    function::{FuncArgs, ToPyObject},
+    convert::ToPyObject,
+    function::FuncArgs,
     AsPyObject, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
 };
 use num_traits::ToPrimitive;

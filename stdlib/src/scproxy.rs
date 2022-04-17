@@ -6,7 +6,7 @@ mod _scproxy {
 
     use crate::vm::{
         builtins::{PyDictRef, PyStr},
-        function::ToPyObject,
+        convert::ToPyObject,
         PyResult, VirtualMachine,
     };
     use system_configuration::core_foundation::{
