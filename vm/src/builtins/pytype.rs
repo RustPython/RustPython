@@ -12,11 +12,12 @@ use crate::{
     pyclass::{PyClassImpl, StaticType},
     pyobject::PyLease,
     types::{Callable, GetAttr, PyTypeFlags, PyTypeSlots, SetAttr},
-    IdProtocol, PyContext, PyObjectRef, PyObjectWeak, PyRef, PyResult, PyValue, TypeProtocol,
-    VirtualMachine,
+    IdProtocol, PyContext, PyObject, PyObjectRef, PyObjectWeak, PyRef, PyResult, PyValue,
+    TypeProtocol, VirtualMachine,
 };
 use itertools::Itertools;
 use std::{
+    borrow::Borrow,
     collections::{HashMap, HashSet},
     fmt,
     ops::Deref,
@@ -793,7 +794,7 @@ impl PyLease<'_, PyType> {
     }
 }
 
-pub trait DerefToPyType {
+pub trait DerefToPyType: Borrow<PyObject> {
     fn deref_to_type(&self) -> &PyType;
 
     /// Determines if `subclass` is actually a subclass of `cls`, this doesn't call __subclasscheck__,
@@ -816,12 +817,6 @@ impl DerefToPyType for PyTypeRef {
 impl<'a> DerefToPyType for PyLease<'a, PyType> {
     fn deref_to_type(&self) -> &PyType {
         self.deref()
-    }
-}
-
-impl<T: DerefToPyType> DerefToPyType for &'_ T {
-    fn deref_to_type(&self) -> &PyType {
-        (&**self).deref_to_type()
     }
 }
 
