@@ -2,7 +2,7 @@ use super::{PyInt, PyIntRef, PySlice, PyTupleRef, PyTypeRef};
 use crate::common::hash::PyHash;
 use crate::{
     builtins::builtins_iter,
-    function::{FuncArgs, IntoPyRef, OptionalArg, PyComparisonValue},
+    function::{FuncArgs, OptionalArg, PyComparisonValue},
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     pyclass::PyClassImpl,
     types::{
@@ -183,9 +183,9 @@ pub fn init(context: &PyContext) {
 impl PyRange {
     fn new(cls: PyTypeRef, stop: PyIntRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         PyRange {
-            start: (0).into_pyref(vm),
+            start: vm.new_pyref(0),
             stop,
-            step: (1).into_pyref(vm),
+            step: vm.new_pyref(1),
         }
         .into_ref_with_type(vm, cls)
     }
@@ -197,7 +197,7 @@ impl PyRange {
         step: OptionalArg<PyIntRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        let step = step.unwrap_or_else(|| (1).into_pyref(vm));
+        let step = step.unwrap_or_else(|| vm.new_pyref(1));
         if step.as_bigint().is_zero() {
             return Err(vm.new_value_error("range() arg 3 must not be zero".to_owned()));
         }
@@ -350,9 +350,9 @@ impl PyRange {
                 substop = (substop * range_step.as_bigint()) + range_start.as_bigint();
 
                 Ok(PyRange {
-                    start: substart.into_pyref(vm),
-                    stop: substop.into_pyref(vm),
-                    step: substep.into_pyref(vm),
+                    start: vm.new_pyref(substart),
+                    stop: vm.new_pyref(substop),
+                    step: vm.new_pyref(substep),
                 }
                 .into_ref(vm)
                 .into())

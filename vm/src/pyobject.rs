@@ -14,7 +14,7 @@ use crate::{
     convert::{ToPyObject, ToPyResult},
     dictdatatype::Dict,
     exceptions,
-    function::{IntoFuncArgs, IntoPyNativeFunc, IntoPyRef},
+    function::{IntoFuncArgs, IntoPyNativeFunc},
     pyclass::{PyClassImpl, StaticType},
     types::{PyTypeFlags, PyTypeSlots, TypeZoo},
     VirtualMachine,
@@ -494,16 +494,6 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Display::fmt(&**self, f)
-    }
-}
-
-impl<T, P> IntoPyRef<P> for T
-where
-    P: PyValue + ToPyObject + From<T>,
-{
-    #[inline(always)]
-    fn into_pyref(self, vm: &VirtualMachine) -> PyRef<P> {
-        P::from(self).into_ref(vm)
     }
 }
 

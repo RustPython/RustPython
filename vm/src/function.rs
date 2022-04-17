@@ -6,7 +6,7 @@ mod number;
 use crate::{
     builtins::{PyBaseExceptionRef, PyTupleRef, PyTypeRef},
     convert::{ToPyObject, ToPyResult},
-    pyobject::{PyObjectPayload, PyThreadingConstraint},
+    pyobject::PyThreadingConstraint,
     AsPyObject, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
 };
 use indexmap::IndexMap;
@@ -17,10 +17,6 @@ pub use argument::{ArgCallable, ArgIterable, ArgMapping, ArgSequence};
 pub use arithmetic::{PyArithmeticValue, PyComparisonValue};
 pub use buffer::{ArgAsciiBuffer, ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike};
 pub use number::{ArgIntoBool, ArgIntoComplex, ArgIntoFloat};
-
-pub trait IntoPyRef<T: PyObjectPayload> {
-    fn into_pyref(self, vm: &VirtualMachine) -> PyRef<T>;
-}
 
 pub trait IntoFuncArgs: Sized {
     fn into_args(self, vm: &VirtualMachine) -> FuncArgs;
