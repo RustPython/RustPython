@@ -174,7 +174,7 @@ impl GetDescriptor for PySuper {
             Ok(PySuper::new(zelf.typ.clone(), obj, vm)?.into_object(vm))
         } else {
             let obj = vm.unwrap_or_none(zelf.obj.clone().map(|(o, _)| o));
-            vm.invoke(zelf.class().as_object(), (zelf.typ.clone(), obj))
+            vm.invoke(&zelf.class(), (zelf.typ.clone(), obj))
         }
     }
 }

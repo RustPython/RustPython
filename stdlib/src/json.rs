@@ -246,7 +246,7 @@ mod _json {
     ) -> PyBaseExceptionRef {
         let get_error = || -> PyResult<_> {
             let cls = vm.try_class("json", "JSONDecodeError")?;
-            let exc = vm.invoke(cls.as_object(), (e.msg, s, e.pos))?;
+            let exc = vm.invoke(&cls, (e.msg, s, e.pos))?;
             exc.try_into_value(vm)
         };
         match get_error() {

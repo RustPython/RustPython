@@ -3524,7 +3524,7 @@ mod _io {
             )
         })?;
         let raw = vm.invoke(
-            file_io_class.as_object(),
+            file_io_class,
             (file, mode.rawmode(), opts.closefd, opts.opener),
         )?;
 
@@ -3558,13 +3558,13 @@ mod _io {
         } else {
             BufferedWriter::static_type()
         };
-        let buffered = vm.invoke(cls.as_object(), (raw, buffering))?;
+        let buffered = vm.invoke(cls, (raw, buffering))?;
 
         match mode.encode {
             EncodeMode::Text => {
                 let tio = TextIOWrapper::static_type();
                 let wrapper = vm.invoke(
-                    tio.as_object(),
+                    tio,
                     (
                         buffered,
                         opts.encoding,

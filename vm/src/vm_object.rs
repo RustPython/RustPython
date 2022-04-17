@@ -179,12 +179,8 @@ impl VirtualMachine {
     }
 
     #[inline(always)]
-    pub fn invoke<O, A>(&self, func: &O, args: A) -> PyResult
-    where
-        O: AsRef<PyObject>,
-        A: IntoFuncArgs,
-    {
-        self._invoke(func.as_ref(), args.into_args(self))
+    pub fn invoke(&self, func: &impl AsPyObject, args: impl IntoFuncArgs) -> PyResult {
+        self._invoke(func.as_object(), args.into_args(self))
     }
 
     /// Call registered trace function.
