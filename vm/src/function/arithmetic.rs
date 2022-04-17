@@ -1,6 +1,6 @@
 use crate::{
     convert::TryFromObject,
-    function::IntoPyObject,
+    function::ToPyObject,
     pyobject::{AsPyObject, PyObjectRef, PyResult},
     VirtualMachine,
 };
@@ -29,13 +29,13 @@ impl<T: TryFromObject> TryFromObject for PyArithmeticValue<T> {
     }
 }
 
-impl<T> IntoPyObject for PyArithmeticValue<T>
+impl<T> ToPyObject for PyArithmeticValue<T>
 where
-    T: IntoPyObject,
+    T: ToPyObject,
 {
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+    fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         match self {
-            PyArithmeticValue::Implemented(v) => v.into_pyobject(vm),
+            PyArithmeticValue::Implemented(v) => v.to_pyobject(vm),
             PyArithmeticValue::NotImplemented => vm.ctx.not_implemented(),
         }
     }

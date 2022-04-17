@@ -4,8 +4,8 @@ use crate::{
     common::hash,
     format::FormatSpec,
     function::{
-        ArgIntoBool, IntoPyObject, IntoPyResult, OptionalArg, OptionalOption, PyArithmeticValue,
-        PyComparisonValue,
+        ArgIntoBool, OptionalArg, OptionalOption, PyArithmeticValue, PyComparisonValue, ToPyObject,
+        ToPyResult,
     },
     pyclass::PyClassImpl,
     types::{Comparable, Constructor, Hashable, PyComparisonOp},
@@ -71,8 +71,8 @@ impl PyValue for PyInt {
 
 macro_rules! impl_into_pyobject_int {
     ($($t:ty)*) => {$(
-        impl IntoPyObject for $t {
-            fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+        impl ToPyObject for $t {
+            fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
                 vm.ctx.new_int(self).into()
             }
         }
@@ -227,7 +227,7 @@ impl Constructor for PyInt {
                 let val = if cls.is(&vm.ctx.types.int_type) {
                     match val.downcast_exact::<PyInt>(vm) {
                         Ok(i) => {
-                            return Ok(i.into_pyobject(vm));
+                            return Ok(i.to_pyobject(vm));
                         }
                         Err(val) => val,
                     }
@@ -243,7 +243,7 @@ impl Constructor for PyInt {
             Ok(Zero::zero())
         }?;
 
-        Self::with_value(cls, value, vm).into_pyresult(vm)
+        Self::with_value(cls, value, vm).to_pyresult(vm)
     }
 }
 
@@ -717,7 +717,7 @@ impl PyInt {
 
     #[pymethod(magic)]
     fn getnewargs(&self, vm: &VirtualMachine) -> PyObjectRef {
-        (self.value.clone(),).into_pyobject(vm)
+        (self.value.clone(),).to_pyobject(vm)
     }
 }
 

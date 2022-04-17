@@ -2,7 +2,7 @@ pub use crate::builtins::object::{generic_getattr, generic_setattr};
 use crate::common::{hash::PyHash, lock::PyRwLock};
 use crate::{
     builtins::{PyInt, PyStrRef, PyType, PyTypeRef},
-    function::{FromArgs, FuncArgs, IntoPyObject, IntoPyResult, OptionalArg, PyComparisonValue},
+    function::{FromArgs, FuncArgs, OptionalArg, PyComparisonValue, ToPyObject, ToPyResult},
     protocol::{PyBuffer, PyIterReturn, PyMapping, PyMappingMethods},
     protocol::{PySequence, PySequenceMethods},
     utils::Either,
@@ -228,7 +228,7 @@ fn as_sequence_wrapper(zelf: &PyObject, _vm: &VirtualMachine) -> Cow<'static, Py
             length_wrapper(seq.obj.to_owned(), vm)
         }),
         item: Some(|seq, i, vm| {
-            vm.call_special_method(seq.obj.to_owned(), "__getitem__", (i.into_pyobject(vm),))
+            vm.call_special_method(seq.obj.to_owned(), "__getitem__", (i.to_pyobject(vm),))
         }),
         ass_item: then_some_closure!(
             zelf.class().has_attr("__setitem__") | zelf.class().has_attr("__delitem__"),
@@ -237,11 +237,11 @@ fn as_sequence_wrapper(zelf: &PyObject, _vm: &VirtualMachine) -> Cow<'static, Py
                     .call_special_method(
                         seq.obj.to_owned(),
                         "__setitem__",
-                        (i.into_pyobject(vm), value),
+                        (i.to_pyobject(vm), value),
                     )
                     .map(|_| Ok(()))?,
                 None => vm
-                    .call_special_method(seq.obj.to_owned(), "__delitem__", (i.into_pyobject(vm),))
+                    .call_special_method(seq.obj.to_owned(), "__delitem__", (i.to_pyobject(vm),))
                     .map(|_| Ok(()))?,
             }
         ),
@@ -890,7 +890,7 @@ pub trait IterNext: PyValue + Iterable {
     #[inline]
     #[pymethod]
     fn __next__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Self::slot_iternext(&zelf, vm).into_pyresult(vm)
+        Self::slot_iternext(&zelf, vm).to_pyresult(vm)
     }
 }
 

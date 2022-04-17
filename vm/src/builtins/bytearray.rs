@@ -19,8 +19,8 @@ use crate::{
         },
     },
     function::{
-        ArgBytesLike, ArgIterable, FuncArgs, IntoPyObject, OptionalArg, OptionalOption,
-        PyComparisonValue,
+        ArgBytesLike, ArgIterable, FuncArgs, OptionalArg, OptionalOption, PyComparisonValue,
+        ToPyObject,
     },
     protocol::{
         BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
@@ -686,7 +686,7 @@ impl PyByteArray {
         zelf: PyRef<Self>,
         vm: &VirtualMachine,
     ) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
-        let bytes = PyBytes::from(zelf.borrow_buf().to_vec()).into_pyobject(vm);
+        let bytes = PyBytes::from(zelf.borrow_buf().to_vec()).to_pyobject(vm);
         (
             zelf.class().clone(),
             PyTuple::new_ref(vec![bytes], &vm.ctx),

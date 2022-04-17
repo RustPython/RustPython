@@ -9,7 +9,7 @@ use crate::common::{
 };
 use crate::{
     builtins::{PyInt, PyStr, PyStrRef},
-    function::IntoPyObject,
+    function::ToPyObject,
     AsPyObject, PyObject, PyObjectRef, PyRefExact, PyResult, VirtualMachine,
 };
 use num_traits::ToPrimitive;
@@ -254,7 +254,7 @@ impl<T: Clone> Dict<T> {
     /// Store a key
     pub fn insert<K>(&self, vm: &VirtualMachine, key: K, value: T) -> PyResult<()>
     where
-        K: DictKey + IntoPyObject,
+        K: DictKey + ToPyObject,
     {
         let hash = key.key_hash(vm)?;
         let _removed = loop {
@@ -278,7 +278,7 @@ impl<T: Clone> Dict<T> {
                 }
             } else {
                 // New key:
-                inner.unchecked_push(index_index, hash, key.into_pyobject(vm), value, entry_index);
+                inner.unchecked_push(index_index, hash, key.to_pyobject(vm), value, entry_index);
                 break None;
             }
         };
@@ -355,12 +355,12 @@ impl<T: Clone> Dict<T> {
     /// Delete a key
     pub fn delete<K>(&self, vm: &VirtualMachine, key: K) -> PyResult<()>
     where
-        K: DictKey + IntoPyObject,
+        K: DictKey + ToPyObject,
     {
         if self.delete_if_exists(vm, &key)? {
             Ok(())
         } else {
-            Err(vm.new_key_error(key.into_pyobject(vm)))
+            Err(vm.new_key_error(key.to_pyobject(vm)))
         }
     }
 
@@ -410,7 +410,7 @@ impl<T: Clone> Dict<T> {
 
     pub fn setdefault<K, F>(&self, vm: &VirtualMachine, key: K, default: F) -> PyResult<T>
     where
-        K: DictKey + IntoPyObject,
+        K: DictKey + ToPyObject,
         F: FnOnce() -> T,
     {
         let hash = key.key_hash(vm)?;
@@ -433,13 +433,7 @@ impl<T: Clone> Dict<T> {
             } else {
                 let value = default();
                 let mut inner = self.write();
-                inner.unchecked_push(
-                    index_index,
-                    hash,
-                    key.into_pyobject(vm),
-                    value.clone(),
-                    entry,
-                );
+                inner.unchecked_push(index_index, hash, key.to_pyobject(vm), value.clone(), entry);
                 break value;
             }
         };
@@ -453,7 +447,7 @@ impl<T: Clone> Dict<T> {
         default: F,
     ) -> PyResult<(PyObjectRef, T)>
     where
-        K: DictKey + IntoPyObject,
+        K: DictKey + ToPyObject,
         F: FnOnce() -> T,
     {
         let hash = key.key_hash(vm)?;
@@ -475,7 +469,7 @@ impl<T: Clone> Dict<T> {
                 }
             } else {
                 let value = default();
-                let key = key.into_pyobject(vm);
+                let key = key.to_pyobject(vm);
                 let mut inner = self.write();
                 let ret = (key.clone(), value.clone());
                 inner.unchecked_push(index_index, hash, key, value, entry);

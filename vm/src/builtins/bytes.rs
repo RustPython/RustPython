@@ -8,8 +8,8 @@ use crate::{
     },
     common::{hash::PyHash, lock::PyMutex},
     function::{
-        ArgBytesLike, ArgIterable, IntoPyObject, IntoPyResult, OptionalArg, OptionalOption,
-        PyComparisonValue,
+        ArgBytesLike, ArgIterable, OptionalArg, OptionalOption, PyComparisonValue, ToPyObject,
+        ToPyResult,
     },
     protocol::{
         BufferDescriptor, BufferMethods, PyBuffer, PyIterReturn, PyMappingMethods,
@@ -50,8 +50,8 @@ impl From<PyBytesInner> for PyBytes {
     }
 }
 
-impl IntoPyObject for Vec<u8> {
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+impl ToPyObject for Vec<u8> {
+    fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.new_bytes(self).into()
     }
 }
@@ -90,7 +90,7 @@ impl Constructor for PyBytes {
     type Args = ByteInnerNewOptions;
 
     fn py_new(cls: PyTypeRef, options: Self::Args, vm: &VirtualMachine) -> PyResult {
-        options.get_bytes(cls, vm).into_pyresult(vm)
+        options.get_bytes(cls, vm).to_pyresult(vm)
     }
 }
 
@@ -523,7 +523,7 @@ impl PyBytes {
             .inner
             .elements
             .iter()
-            .map(|x| x.into_pyobject(vm))
+            .map(|x| x.to_pyobject(vm))
             .collect();
         PyTuple::new_ref(param, &vm.ctx)
     }
@@ -542,7 +542,7 @@ impl PyBytes {
         zelf: PyRef<Self>,
         vm: &VirtualMachine,
     ) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
-        let bytes = PyBytes::from(zelf.inner.elements.clone()).into_pyobject(vm);
+        let bytes = PyBytes::from(zelf.inner.elements.clone()).to_pyobject(vm);
         (
             zelf.class().clone(),
             PyTuple::new_ref(vec![bytes], &vm.ctx),

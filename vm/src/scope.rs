@@ -1,6 +1,6 @@
 use crate::{
     builtins::{pystr::IntoPyStrRef, PyDictRef, PyStrRef},
-    function::{ArgMapping, IntoPyObject},
+    function::{ArgMapping, ToPyObject},
     VirtualMachine,
 };
 use std::fmt;
@@ -145,7 +145,7 @@ mod sealed {
     impl Sealed for super::PyStrRef {}
 }
 pub trait PyName:
-    sealed::Sealed + crate::dictdatatype::DictKey + Clone + IntoPyObject + IntoPyStrRef
+    sealed::Sealed + crate::dictdatatype::DictKey + Clone + ToPyObject + IntoPyStrRef
 {
 }
 impl PyName for &str {}

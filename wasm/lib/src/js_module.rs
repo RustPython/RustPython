@@ -14,7 +14,7 @@ mod _js {
     use js_sys::{Array, Object, Promise, Reflect};
     use rustpython_vm::{
         builtins::{PyBaseExceptionRef, PyFloat, PyStrRef, PyTypeRef},
-        function::{ArgCallable, IntoPyObject, OptionalArg, OptionalOption, PosArgs},
+        function::{ArgCallable, OptionalArg, OptionalOption, PosArgs, ToPyObject},
         protocol::PyIterReturn,
         types::{IterNext, IterNextIterable},
         PyObjectRef, PyObjectView, PyObjectWrap, PyRef, PyResult, PyValue, TryFromObject,
@@ -614,7 +614,7 @@ mod _js {
     fn new_js_error(vm: &VirtualMachine, err: JsValue) -> PyBaseExceptionRef {
         vm.new_exception(
             vm.class("_js", "JSError"),
-            vec![PyJsValue::new(err).into_pyobject(vm)],
+            vec![PyJsValue::new(err).to_pyobject(vm)],
         )
     }
 }

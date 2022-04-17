@@ -9,7 +9,7 @@ use crate::{
     bytesinner::ByteInnerNewOptions,
     common::{hash::PyHash, str::to_ascii},
     dictdatatype::DictKey,
-    function::{IntoPyObject, IntoPyResult, OptionalArg, PyArithmeticValue},
+    function::{OptionalArg, PyArithmeticValue, ToPyObject, ToPyResult},
     protocol::{PyIter, PyMapping, PySequence},
     types::{Constructor, PyComparisonOp},
     utils::Either,
@@ -46,7 +46,7 @@ impl PyObjectRef {
     // int PyObject_GenericSetDict(PyObject *o, PyObject *value, void *context)
 
     pub fn rich_compare(self, other: Self, opid: PyComparisonOp, vm: &VirtualMachine) -> PyResult {
-        self._cmp(&other, opid, vm).map(|res| res.into_pyobject(vm))
+        self._cmp(&other, opid, vm).map(|res| res.to_pyobject(vm))
     }
 
     pub fn bytes(self, vm: &VirtualMachine) -> PyResult {
@@ -411,7 +411,7 @@ impl PyObject {
             .ok_or_else(|| vm.new_type_error(format!("object of type '{}' has no len()", &self)))?
     }
 
-    pub fn get_item<K: DictKey + IntoPyObject + Clone>(
+    pub fn get_item<K: DictKey + ToPyObject + Clone>(
         &self,
         needle: K,
         vm: &VirtualMachine,
@@ -420,7 +420,7 @@ impl PyObject {
             return dict.get_item(needle, vm);
         }
 
-        let needle = needle.into_pyobject(vm);
+        let needle = needle.to_pyobject(vm);
 
         if let Ok(mapping) = PyMapping::try_protocol(self, vm) {
             mapping.subscript(&needle, vm)
@@ -430,7 +430,7 @@ impl PyObject {
         } else {
             if self.class().fast_issubclass(&vm.ctx.types.type_type) {
                 if self.is(&vm.ctx.types.type_type) {
-                    return PyGenericAlias::new(self.class().clone(), needle, vm).into_pyresult(vm);
+                    return PyGenericAlias::new(self.class().clone(), needle, vm).to_pyresult(vm);
                 }
 
                 if let Some(class_getitem) =
@@ -443,7 +443,7 @@ impl PyObject {
         }
     }
 
-    pub fn set_item<K: DictKey + IntoPyObject>(
+    pub fn set_item<K: DictKey + ToPyObject>(
         &self,
         needle: K,
         value: PyObjectRef,
@@ -457,7 +457,7 @@ impl PyObject {
         let seq = PySequence::from(self);
 
         if let Some(f) = mapping.methods(vm).ass_subscript {
-            let needle = needle.into_pyobject(vm);
+            let needle = needle.to_pyobject(vm);
             f(&mapping, &needle, Some(value), vm)
         } else if let Some(f) = seq.methods(vm).ass_item {
             let i = needle.key_as_isize(vm)?;
@@ -470,7 +470,7 @@ impl PyObject {
         }
     }
 
-    pub fn del_item<K: DictKey + IntoPyObject>(
+    pub fn del_item<K: DictKey + ToPyObject>(
         &self,
         needle: K,
         vm: &VirtualMachine,
@@ -483,7 +483,7 @@ impl PyObject {
         let seq = PySequence::from(self);
 
         if let Some(f) = mapping.methods(vm).ass_subscript {
-            let needle = needle.into_pyobject(vm);
+            let needle = needle.to_pyobject(vm);
             f(&mapping, &needle, None, vm)
         } else if let Some(f) = seq.methods(vm).ass_item {
             let i = needle.key_as_isize(vm)?;

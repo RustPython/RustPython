@@ -7,8 +7,8 @@ use crate::{
     anystr::{self, adjust_indices, AnyStr, AnyStrContainer, AnyStrWrapper},
     format::{FormatSpec, FormatString, FromTemplate},
     function::{
-        ArgIterable, FuncArgs, IntoPyException, IntoPyObject, OptionalArg, OptionalOption,
-        PyComparisonValue,
+        ArgIterable, FuncArgs, OptionalArg, OptionalOption, PyComparisonValue, ToPyException,
+        ToPyObject,
     },
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     pyclass::PyClassImpl,
@@ -267,13 +267,13 @@ impl IterNext for PyStrIterator {
                 if let Some((offset, ch)) = value.char_indices().nth(internal.0.position) {
                     internal.0.position += 1;
                     internal.1 = offset + ch.len_utf8();
-                    return Ok(PyIterReturn::Return(ch.into_pyobject(vm)));
+                    return Ok(PyIterReturn::Return(ch.to_pyobject(vm)));
                 }
             } else if let Some(value) = value.get(internal.1..) {
                 if let Some(ch) = value.chars().next() {
                     internal.0.position += 1;
                     internal.1 += ch.len_utf8();
-                    return Ok(PyIterReturn::Return(ch.into_pyobject(vm)));
+                    return Ok(PyIterReturn::Return(ch.to_pyobject(vm)));
                 }
             }
             internal.0.status = Exhausted;
@@ -388,7 +388,7 @@ impl PyStr {
                 let kind = zelf.kind.kind() | other.kind.kind();
                 Self::new_str_unchecked(bytes.into_bytes(), kind)
             }
-            .into_pyobject(vm))
+            .to_pyobject(vm))
         } else if let Some(radd) = vm.get_method(other.clone(), "__radd__") {
             // hack to get around not distinguishing number add from seq concat
             vm.invoke(&radd?, (zelf,))
@@ -574,7 +574,7 @@ impl PyStr {
                     v.as_bytes()
                         .split_str(s)
                         .map(|s| {
-                            unsafe { PyStr::new_ascii_unchecked(s.to_owned()) }.into_pyobject(vm)
+                            unsafe { PyStr::new_ascii_unchecked(s.to_owned()) }.to_pyobject(vm)
                         })
                         .collect()
                 },
@@ -582,13 +582,13 @@ impl PyStr {
                     v.as_bytes()
                         .splitn_str(n, s)
                         .map(|s| {
-                            unsafe { PyStr::new_ascii_unchecked(s.to_owned()) }.into_pyobject(vm)
+                            unsafe { PyStr::new_ascii_unchecked(s.to_owned()) }.to_pyobject(vm)
                         })
                         .collect()
                 },
                 |v, n, vm| {
                     v.as_bytes().py_split_whitespace(n, |s| {
-                        unsafe { PyStr::new_ascii_unchecked(s.to_owned()) }.into_pyobject(vm)
+                        unsafe { PyStr::new_ascii_unchecked(s.to_owned()) }.to_pyobject(vm)
                     })
                 },
             ),
@@ -752,7 +752,7 @@ impl PyStr {
     #[pymethod]
     fn format(&self, args: FuncArgs, vm: &VirtualMachine) -> PyResult<String> {
         let format_string =
-            FormatString::from_str(self.as_str()).map_err(|e| e.into_pyexception(vm))?;
+            FormatString::from_str(self.as_str()).map_err(|e| e.to_pyexception(vm))?;
         format_string.format(&args, vm)
     }
 
@@ -764,7 +764,7 @@ impl PyStr {
     fn format_map(&self, mapping: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
         match FormatString::from_str(self.as_str()) {
             Ok(format_string) => format_string.format_map(&mapping, vm),
-            Err(err) => Err(err.into_pyexception(vm)),
+            Err(err) => Err(err.to_pyexception(vm)),
         }
     }
 
@@ -899,7 +899,7 @@ impl PyStr {
     #[pymethod]
     fn splitlines(&self, args: anystr::SplitLinesArgs, vm: &VirtualMachine) -> Vec<PyObjectRef> {
         self.as_str()
-            .py_splitlines(args, |s| self.new_substr(s.to_owned()).into_pyobject(vm))
+            .py_splitlines(args, |s| self.new_substr(s.to_owned()).to_pyobject(vm))
     }
 
     #[pymethod]
@@ -963,7 +963,7 @@ impl PyStr {
             },
             self.new_substr(back),
         );
-        Ok(partition.into_pyobject(vm))
+        Ok(partition.to_pyobject(vm))
     }
 
     #[pymethod]
@@ -982,7 +982,7 @@ impl PyStr {
             },
             self.new_substr(back),
         )
-            .into_pyobject(vm))
+            .to_pyobject(vm))
     }
 
     /// Return `true` if the sequence is ASCII titlecase and the sequence is not
@@ -1130,7 +1130,7 @@ impl PyStr {
 
         let mut translated = String::new();
         for c in self.as_str().chars() {
-            match table.get_item((c as u32).into_pyobject(vm), vm) {
+            match table.get_item((c as u32).to_pyobject(vm), vm) {
                 Ok(value) => {
                     if let Some(text) = value.payload::<PyStr>() {
                         translated.push_str(text.as_str());
@@ -1181,7 +1181,7 @@ impl PyStr {
                                 new_dict.set_item(vm.new_pyobj(c as u32), vm.ctx.none(), vm)?;
                             }
                         }
-                        Ok(new_dict.into_pyobject(vm))
+                        Ok(new_dict.to_pyobject(vm))
                     } else {
                         Err(vm.new_value_error(
                             "the first two maketrans arguments must have equal length".to_owned(),
@@ -1199,15 +1199,11 @@ impl PyStr {
                 Ok(dict) => {
                     for (key, val) in dict {
                         if let Some(num) = key.payload::<PyInt>() {
-                            new_dict.set_item(
-                                num.as_bigint().to_i32().into_pyobject(vm),
-                                val,
-                                vm,
-                            )?;
+                            new_dict.set_item(num.as_bigint().to_i32().to_pyobject(vm), val, vm)?;
                         } else if let Some(string) = key.payload::<PyStr>() {
                             if string.len() == 1 {
                                 let num_value = string.as_str().chars().next().unwrap() as u32;
-                                new_dict.set_item(num_value.into_pyobject(vm), val, vm)?;
+                                new_dict.set_item(num_value.to_pyobject(vm), val, vm)?;
                             } else {
                                 return Err(vm.new_value_error(
                                     "string keys in translate table must be of length 1".to_owned(),
@@ -1215,7 +1211,7 @@ impl PyStr {
                             }
                         }
                     }
-                    Ok(new_dict.into_pyobject(vm))
+                    Ok(new_dict.to_pyobject(vm))
                 }
                 _ => Err(vm.new_value_error(
                     "if you give only one argument to maketrans it must be a dict".to_owned(),
@@ -1344,38 +1340,38 @@ impl PyValue for PyStr {
     }
 }
 
-impl IntoPyObject for String {
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+impl ToPyObject for String {
+    fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.new_str(self).into()
     }
 }
 
-impl IntoPyObject for char {
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+impl ToPyObject for char {
+    fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.new_str(self.to_string()).into()
     }
 }
 
-impl IntoPyObject for &str {
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+impl ToPyObject for &str {
+    fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.new_str(self).into()
     }
 }
 
-impl IntoPyObject for &String {
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+impl ToPyObject for &String {
+    fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.new_str(self.clone()).into()
     }
 }
 
-impl IntoPyObject for &AsciiStr {
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+impl ToPyObject for &AsciiStr {
+    fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.new_str(self).into()
     }
 }
 
-impl IntoPyObject for AsciiString {
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+impl ToPyObject for AsciiString {
+    fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.new_str(self).into()
     }
 }

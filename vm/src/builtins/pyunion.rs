@@ -2,7 +2,7 @@ use super::genericalias;
 use crate::{
     builtins::{PyFrozenSet, PyStr, PyStrRef, PyTuple, PyTupleRef, PyTypeRef},
     common::hash,
-    function::{IntoPyObject, PyComparisonValue},
+    function::{PyComparisonValue, ToPyObject},
     protocol::PyMappingMethods,
     pyclass::PyClassImpl,
     types::{AsMapping, Comparable, GetAttr, Hashable, Iterable, PyComparisonOp},
@@ -195,7 +195,7 @@ pub fn make_union(args: PyTupleRef, vm: &VirtualMachine) -> PyObjectRef {
     let args = dedup_and_flatten_args(args, vm);
     match args.len() {
         1 => args.fast_getitem(0),
-        _ => PyUnion::new(args, vm).into_pyobject(vm),
+        _ => PyUnion::new(args, vm).to_pyobject(vm),
     }
 }
 
@@ -269,7 +269,7 @@ impl GetAttr for PyUnion {
                 return vm.generic_getattribute(zelf.as_object().to_owned(), attr);
             }
         }
-        zelf.as_object().into_pyobject(vm).get_attr(attr, vm)
+        zelf.as_object().to_pyobject(vm).get_attr(attr, vm)
     }
 }
 

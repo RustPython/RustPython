@@ -17,7 +17,7 @@ use crate::{
     AsPyObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 #[cfg(feature = "jit")]
-use crate::{common::lock::OnceCell, function::IntoPyObject};
+use crate::{common::lock::OnceCell, function::ToPyObject};
 use itertools::Itertools;
 #[cfg(feature = "jit")]
 use rustpython_jit::CompiledCode;
@@ -275,7 +275,7 @@ impl PyFunction {
         if let Some(jitted_code) = self.jitted_code.get() {
             match jitfunc::get_jit_args(self, &func_args, jitted_code, vm) {
                 Ok(args) => {
-                    return Ok(args.invoke().into_pyobject(vm));
+                    return Ok(args.invoke().to_pyobject(vm));
                 }
                 Err(err) => info!(
                     "jit: function `{}` is falling back to being interpreted because of the \

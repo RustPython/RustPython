@@ -4,7 +4,7 @@ pub(crate) use self::termios::make_module;
 mod termios {
     use crate::vm::{
         builtins::{PyBaseExceptionRef, PyBytes, PyInt, PyListRef, PyTypeRef},
-        function::IntoPyObject,
+        function::ToPyObject,
         PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     };
     use termios::Termios;
@@ -37,12 +37,12 @@ mod termios {
             })
             .collect::<Vec<_>>();
         let out = vec![
-            termios.c_iflag.into_pyobject(vm),
-            termios.c_oflag.into_pyobject(vm),
-            termios.c_cflag.into_pyobject(vm),
-            termios.c_lflag.into_pyobject(vm),
-            termios::cfgetispeed(&termios).into_pyobject(vm),
-            termios::cfgetospeed(&termios).into_pyobject(vm),
+            termios.c_iflag.to_pyobject(vm),
+            termios.c_oflag.to_pyobject(vm),
+            termios.c_cflag.to_pyobject(vm),
+            termios.c_lflag.to_pyobject(vm),
+            termios::cfgetispeed(&termios).to_pyobject(vm),
+            termios::cfgetospeed(&termios).to_pyobject(vm),
             vm.ctx.new_list(cc).into(),
         ];
         Ok(out)
@@ -94,7 +94,7 @@ mod termios {
         vm.new_exception(
             error_type(vm),
             vec![
-                err.raw_os_error().into_pyobject(vm),
+                err.raw_os_error().to_pyobject(vm),
                 vm.ctx.new_str(err.to_string()).into(),
             ],
         )

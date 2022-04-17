@@ -1,7 +1,7 @@
 use super::pystr::IntoPyStrRef;
 use super::{PyDictRef, PyStr, PyStrRef, PyTypeRef};
 use crate::{
-    function::{FuncArgs, IntoPyObject},
+    function::{FuncArgs, ToPyObject},
     pyclass::PyClassImpl,
     types::GetAttr,
     AsPyObject, PyContext, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue, VirtualMachine,
@@ -47,7 +47,7 @@ impl PyModule {
             .slots
             .flags
             .has_feature(crate::types::PyTypeFlags::HAS_DICT));
-        zelf.init_module_dict(args.name.into(), args.doc.into_pyobject(vm), vm);
+        zelf.init_module_dict(args.name.into(), args.doc.to_pyobject(vm), vm);
     }
 
     fn getattr_inner(zelf: &PyObjectView<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {

@@ -10,7 +10,7 @@ mod re {
      */
     use crate::vm::{
         builtins::{PyInt, PyIntRef, PyStr, PyStrRef},
-        function::{IntoPyObject, OptionalArg, PosArgs},
+        function::{ToPyObject, OptionalArg, PosArgs},
         match_class, PyObjectRef, PyResult, PyValue, TryFromObject, VirtualMachine,
     };
     use num_traits::Signed;
@@ -418,14 +418,14 @@ mod re {
             match groups.len() {
                 0 => Ok(self
                     .subgroup(self.captures[0].clone().unwrap())
-                    .into_pyobject(vm)),
+                    .to_pyobject(vm)),
                 1 => self
                     .get_group(groups.pop().unwrap(), vm)
-                    .map(|g| g.into_pyobject(vm)),
+                    .map(|g| g.to_pyobject(vm)),
                 _ => {
                     let output: Result<Vec<_>, _> = groups
                         .into_iter()
-                        .map(|id| self.get_group(id, vm).map(|g| g.into_pyobject(vm)))
+                        .map(|id| self.get_group(id, vm).map(|g| g.to_pyobject(vm)))
                         .collect();
                     Ok(vm.ctx.new_tuple(output?)).into()
                 }
@@ -442,7 +442,7 @@ mod re {
                     vm.unwrap_or_none(
                         capture
                             .as_ref()
-                            .map(|bounds| self.subgroup(bounds.clone()).into_pyobject(vm))
+                            .map(|bounds| self.subgroup(bounds.clone()).to_pyobject(vm))
                             .or_else(|| default.clone()),
                     )
                 })

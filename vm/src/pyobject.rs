@@ -13,7 +13,7 @@ use crate::{
     convert::TryFromObject,
     dictdatatype::Dict,
     exceptions,
-    function::{IntoFuncArgs, IntoPyNativeFunc, IntoPyObject, IntoPyRef, IntoPyResult},
+    function::{IntoFuncArgs, IntoPyNativeFunc, IntoPyRef, ToPyObject, ToPyResult},
     pyclass::{PyClassImpl, StaticType},
     types::{PyTypeFlags, PyTypeSlots, TypeZoo},
     VirtualMachine,
@@ -390,9 +390,9 @@ impl<T: PyValue> Deref for PyRefExact<T> {
         &self.obj
     }
 }
-impl<T: PyValue> IntoPyObject for PyRefExact<T> {
+impl<T: PyValue> ToPyObject for PyRefExact<T> {
     #[inline(always)]
-    fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
+    fn to_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
         self.obj.into()
     }
 }
@@ -500,7 +500,7 @@ where
 
 impl<T, P> IntoPyRef<P> for T
 where
-    P: PyValue + IntoPyObject + From<T>,
+    P: PyValue + ToPyObject + From<T>,
 {
     #[inline(always)]
     fn into_pyref(self, vm: &VirtualMachine) -> PyRef<P> {
@@ -508,56 +508,56 @@ where
     }
 }
 
-impl<T: PyObjectPayload> IntoPyObject for PyRef<T> {
+impl<T: PyObjectPayload> ToPyObject for PyRef<T> {
     #[inline(always)]
-    fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
+    fn to_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
         self.into()
     }
 }
 
-impl IntoPyObject for PyObjectRef {
+impl ToPyObject for PyObjectRef {
     #[inline(always)]
-    fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
+    fn to_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
         self
     }
 }
 
-impl IntoPyObject for &PyObject {
+impl ToPyObject for &PyObject {
     #[inline(always)]
-    fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
+    fn to_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
         self.to_owned()
     }
 }
 
 // Allows a built-in function to return any built-in object payload without
-// explicitly implementing `IntoPyObject`.
-impl<T> IntoPyObject for T
+// explicitly implementing `ToPyObject`.
+impl<T> ToPyObject for T
 where
     T: PyValue + Sized,
 {
     #[inline(always)]
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+    fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         PyValue::into_object(self, vm)
     }
 }
 
-impl<T> IntoPyResult for T
+impl<T> ToPyResult for T
 where
-    T: IntoPyObject,
+    T: ToPyObject,
 {
     #[inline(always)]
-    fn into_pyresult(self, vm: &VirtualMachine) -> PyResult {
-        Ok(self.into_pyobject(vm))
+    fn to_pyresult(self, vm: &VirtualMachine) -> PyResult {
+        Ok(self.to_pyobject(vm))
     }
 }
 
-impl<T> IntoPyResult for PyResult<T>
+impl<T> ToPyResult for PyResult<T>
 where
-    T: IntoPyObject,
+    T: ToPyObject,
 {
     #[inline(always)]
-    fn into_pyresult(self, vm: &VirtualMachine) -> PyResult {
-        self.map(|res| T::into_pyobject(res, vm))
+    fn to_pyresult(self, vm: &VirtualMachine) -> PyResult {
+        self.map(|res| T::to_pyobject(res, vm))
     }
 }
 
@@ -625,7 +625,7 @@ pub trait PyValue: fmt::Debug + PyThreadingConstraint + Sized + 'static {
 
     #[inline]
     fn into_pyresult_with_type(self, vm: &VirtualMachine, cls: PyTypeRef) -> PyResult {
-        self.into_ref_with_type(vm, cls).into_pyresult(vm)
+        self.into_ref_with_type(vm, cls).to_pyresult(vm)
     }
 }
 

@@ -1,9 +1,9 @@
 use super::{float, PyStr, PyTypeRef};
 use crate::{
     function::{
-        IntoPyObject, OptionalArg, OptionalOption,
+        OptionalArg, OptionalOption,
         PyArithmeticValue::{self, *},
-        PyComparisonValue,
+        PyComparisonValue, ToPyObject,
     },
     pyclass::PyClassImpl,
     types::{Comparable, Constructor, Hashable, PyComparisonOp},
@@ -28,8 +28,8 @@ impl PyValue for PyComplex {
     }
 }
 
-impl IntoPyObject for Complex64 {
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+impl ToPyObject for Complex64 {
+    fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         PyComplex::new_ref(self, &vm.ctx).into()
     }
 }

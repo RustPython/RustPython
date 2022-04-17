@@ -10,7 +10,7 @@ use crate::{
     bytecode,
     coroutine::Coro,
     exceptions::ExceptionCtor,
-    function::{ArgMapping, FuncArgs, IntoPyResult},
+    function::{ArgMapping, FuncArgs, ToPyResult},
     protocol::{PyIter, PyIterReturn},
     scope::Scope,
     stdlib::builtins,
@@ -398,7 +398,7 @@ impl ExecutingFrame<'_> {
                 let ret = match thrower {
                     Either::A(coro) => coro
                         .throw(gen, exc_type, exc_val, exc_tb, vm)
-                        .into_pyresult(vm), // FIXME:
+                        .to_pyresult(vm), // FIXME:
                     Either::B(meth) => vm.invoke(&meth, (exc_type, exc_val, exc_tb)),
                 };
                 return ret.map(ExecutionResult::Yield).or_else(|err| {

@@ -29,7 +29,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 mod winreg {
     use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
     use crate::{
-        builtins::PyStrRef, function::IntoPyException, PyObjectRef, PyRef, PyResult, PyValue,
+        builtins::PyStrRef, function::ToPyException, PyObjectRef, PyRef, PyResult, PyValue,
         TryFromObject, VirtualMachine,
     };
     use ::winreg::{enums::RegType, RegKey, RegValue};
@@ -169,7 +169,7 @@ mod winreg {
         let sub_key = sub_key.as_ref().map_or("", |s| s.as_str());
         let key = key
             .with_key(|k| k.open_subkey_with_flags(sub_key, access))
-            .map_err(|e| e.into_pyexception(vm))?;
+            .map_err(|e| e.to_pyexception(vm))?;
 
         Ok(PyHkey::new(key))
     }
@@ -178,7 +178,7 @@ mod winreg {
     fn QueryValue(key: Hkey, subkey: Option<PyStrRef>, vm: &VirtualMachine) -> PyResult<String> {
         let subkey = subkey.as_ref().map_or("", |s| s.as_str());
         key.with_key(|k| k.get_value(subkey))
-            .map_err(|e| e.into_pyexception(vm))
+            .map_err(|e| e.to_pyexception(vm))
     }
 
     #[pyfunction]
@@ -189,7 +189,7 @@ mod winreg {
     ) -> PyResult<(PyObjectRef, usize)> {
         let subkey = subkey.as_ref().map_or("", |s| s.as_str());
         key.with_key(|k| k.get_raw_value(subkey))
-            .map_err(|e| e.into_pyexception(vm))
+            .map_err(|e| e.to_pyexception(vm))
             .and_then(|regval| {
                 let ty = regval.vtype.clone() as usize;
                 Ok((reg_to_py(regval, vm)?, ty))
@@ -204,7 +204,7 @@ mod winreg {
                     winerror::ERROR_NO_MORE_ITEMS as i32,
                 ))
             })
-            .map_err(|e| e.into_pyexception(vm))
+            .map_err(|e| e.to_pyexception(vm))
     }
 
     #[pyfunction]
@@ -219,7 +219,7 @@ mod winreg {
                     winerror::ERROR_NO_MORE_ITEMS as i32,
                 ))
             })
-            .map_err(|e| e.into_pyexception(vm))
+            .map_err(|e| e.to_pyexception(vm))
             .and_then(|(name, value)| {
                 let ty = value.vtype.clone() as usize;
                 Ok((name, reg_to_py(value, vm)?, ty))
@@ -240,7 +240,7 @@ mod winreg {
             Some(subkey) => {
                 let (k, _disp) = key
                     .with_key(|k| k.create_subkey(subkey.as_str()))
-                    .map_err(|e| e.into_pyexception(vm))?;
+                    .map_err(|e| e.to_pyexception(vm))?;
                 k
             }
             None => key.into_key(),
@@ -261,13 +261,13 @@ mod winreg {
         }
         let subkey = subkey.as_ref().map_or("", |s| s.as_str());
         key.with_key(|k| k.set_value(subkey, &OsStr::new(value.as_str())))
-            .map_err(|e| e.into_pyexception(vm))
+            .map_err(|e| e.to_pyexception(vm))
     }
 
     #[pyfunction]
     fn DeleteKey(key: Hkey, subkey: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
         key.with_key(|k| k.delete_subkey(subkey.as_str()))
-            .map_err(|e| e.into_pyexception(vm))
+            .map_err(|e| e.to_pyexception(vm))
     }
 
     fn reg_to_py(value: RegValue, vm: &VirtualMachine) -> PyResult {

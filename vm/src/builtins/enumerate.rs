@@ -1,7 +1,7 @@
 use super::{IterStatus, PositionIterInternal, PyGenericAlias, PyIntRef, PyTupleRef, PyTypeRef};
 use crate::common::lock::{PyMutex, PyRwLock};
 use crate::{
-    function::{IntoPyObject, OptionalArg},
+    function::{OptionalArg, ToPyObject},
     protocol::{PyIter, PyIterReturn},
     pyclass::PyClassImpl,
     types::{Constructor, IterNext, IterNextIterable},
@@ -72,7 +72,7 @@ impl IterNext for PyEnumerate {
         let mut counter = zelf.counter.write();
         let position = counter.clone();
         *counter += 1;
-        Ok(PyIterReturn::Return((position, next_obj).into_pyobject(vm)))
+        Ok(PyIterReturn::Return((position, next_obj).to_pyobject(vm)))
     }
 }
 

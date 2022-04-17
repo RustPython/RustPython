@@ -78,8 +78,8 @@ mod _io {
             PyThreadMutex, PyThreadMutexGuard,
         },
         function::{
-            ArgBytesLike, ArgIterable, ArgMemoryBuffer, FuncArgs, IntoPyObject, OptionalArg,
-            OptionalOption,
+            ArgBytesLike, ArgIterable, ArgMemoryBuffer, FuncArgs, OptionalArg, OptionalOption,
+            ToPyObject,
         },
         protocol::{
             BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn, VecBuffer,
@@ -160,8 +160,8 @@ mod _io {
     fn os_err(vm: &VirtualMachine, err: io::Error) -> PyBaseExceptionRef {
         #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
         {
-            use crate::function::IntoPyException;
-            err.into_pyexception(vm)
+            use crate::function::ToPyException;
+            err.to_pyexception(vm)
         }
         #[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
         {
@@ -571,7 +571,7 @@ mod _io {
                     // FIXME: try to use Arc::unwrap on the bytearray to get at the inner buffer
                     bytes.clone()
                 })
-                .into_pyobject(vm))
+                .to_pyobject(vm))
             } else {
                 vm.call_method(&instance, "readall", ())
             }
@@ -873,7 +873,7 @@ mod _io {
         ) -> PyResult<Option<usize>> {
             let len = buf_range.len();
             let res = if let Some(buf) = buf {
-                let memobj = PyMemoryView::from_buffer_range(buf, buf_range, vm)?.into_pyobject(vm);
+                let memobj = PyMemoryView::from_buffer_range(buf, buf_range, vm)?.to_pyobject(vm);
 
                 // TODO: loop if write() raises an interrupt
                 vm.call_method(self.raw.as_ref().unwrap(), "write", (memobj,))?
@@ -1422,7 +1422,7 @@ mod _io {
             pos: OptionalOption<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult {
-            let pos = pos.flatten().into_pyobject(vm);
+            let pos = pos.flatten().to_pyobject(vm);
             let mut data = zelf.lock(vm)?;
             data.check_init(vm)?;
             if data.writable() {
@@ -2420,7 +2420,7 @@ mod _io {
                 ..Default::default()
             };
             if textio.decoded_chars_used.bytes == 0 {
-                return Ok(cookie.build().into_pyobject(vm));
+                return Ok(cookie.build().to_pyobject(vm));
             }
             let decoder_getstate = || {
                 let state = vm.call_method(decoder, "getstate", ())?;
@@ -2499,7 +2499,7 @@ mod _io {
             }
             vm.call_method(decoder, "setstate", (saved_state,))?;
             cookie.set_num_to_skip(num_to_skip);
-            Ok(cookie.build().into_pyobject(vm))
+            Ok(cookie.build().to_pyobject(vm))
         }
 
         #[pyproperty]
@@ -3658,7 +3658,7 @@ mod fileio {
         builtins::{PyStr, PyStrRef, PyTypeRef},
         crt_fd::Fd,
         function::{
-            ArgBytesLike, ArgMemoryBuffer, FuncArgs, IntoPyException, OptionalArg, OptionalOption,
+            ArgBytesLike, ArgMemoryBuffer, FuncArgs, OptionalArg, OptionalOption, ToPyException,
         },
         stdlib::os,
         AsPyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
@@ -3933,14 +3933,14 @@ mod fileio {
                 let mut bytes = vec![0; read_byte as usize];
                 let n = handle
                     .read(&mut bytes)
-                    .map_err(|err| err.into_pyexception(vm))?;
+                    .map_err(|err| err.to_pyexception(vm))?;
                 bytes.truncate(n);
                 bytes
             } else {
                 let mut bytes = vec![];
                 handle
                     .read_to_end(&mut bytes)
-                    .map_err(|err| err.into_pyexception(vm))?;
+                    .map_err(|err| err.to_pyexception(vm))?;
                 bytes
             };
 
@@ -3960,7 +3960,7 @@ mod fileio {
 
             let mut buf = obj.borrow_buf_mut();
             let mut f = handle.take(buf.len() as _);
-            let ret = f.read(&mut buf).map_err(|e| e.into_pyexception(vm))?;
+            let ret = f.read(&mut buf).map_err(|e| e.to_pyexception(vm))?;
 
             Ok(ret)
         }
@@ -3978,7 +3978,7 @@ mod fileio {
 
             let len = obj
                 .with_ref(|b| handle.write(b))
-                .map_err(|err| err.into_pyexception(vm))?;
+                .map_err(|err| err.to_pyexception(vm))?;
 
             //return number of bytes written
             Ok(len)
@@ -3993,7 +3993,7 @@ mod fileio {
             }
             let fd = zelf.fd.swap(-1);
             if fd >= 0 {
-                Fd(fd).close().map_err(|e| e.into_pyexception(vm))?;
+                Fd(fd).close().map_err(|e| e.to_pyexception(vm))?;
             }
             res
         }

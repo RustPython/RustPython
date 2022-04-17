@@ -9,8 +9,8 @@ mod _string {
     use crate::{
         builtins::{PyList, PyStrRef},
         format::{FieldName, FieldNamePart, FieldType, FormatPart, FormatString, FromTemplate},
-        function::IntoPyException,
-        function::IntoPyObject,
+        function::ToPyException,
+        function::ToPyObject,
         PyObjectRef, PyResult, VirtualMachine,
     };
     use std::mem;
@@ -28,13 +28,13 @@ mod _string {
             format_spec,
             preconversion_spec.map(|c| c.to_string()),
         );
-        tuple.into_pyobject(vm)
+        tuple.to_pyobject(vm)
     }
 
     #[pyfunction]
     fn formatter_parser(text: PyStrRef, vm: &VirtualMachine) -> PyResult<PyList> {
         let format_string =
-            FormatString::from_str(text.as_str()).map_err(|e| e.into_pyexception(vm))?;
+            FormatString::from_str(text.as_str()).map_err(|e| e.to_pyexception(vm))?;
 
         let mut result = Vec::new();
         let mut literal = String::new();
@@ -73,21 +73,21 @@ mod _string {
         text: PyStrRef,
         vm: &VirtualMachine,
     ) -> PyResult<(PyObjectRef, PyList)> {
-        let field_name = FieldName::parse(text.as_str()).map_err(|e| e.into_pyexception(vm))?;
+        let field_name = FieldName::parse(text.as_str()).map_err(|e| e.to_pyexception(vm))?;
 
         let first = match field_name.field_type {
             FieldType::Auto => vm.ctx.new_str(ascii!("")).into(),
-            FieldType::Index(index) => index.into_pyobject(vm),
-            FieldType::Keyword(attribute) => attribute.into_pyobject(vm),
+            FieldType::Index(index) => index.to_pyobject(vm),
+            FieldType::Keyword(attribute) => attribute.to_pyobject(vm),
         };
 
         let rest = field_name
             .parts
             .iter()
             .map(|p| match p {
-                FieldNamePart::Attribute(attribute) => (true, attribute).into_pyobject(vm),
-                FieldNamePart::StringIndex(index) => (false, index).into_pyobject(vm),
-                FieldNamePart::Index(index) => (false, *index).into_pyobject(vm),
+                FieldNamePart::Attribute(attribute) => (true, attribute).to_pyobject(vm),
+                FieldNamePart::StringIndex(index) => (false, index).to_pyobject(vm),
+                FieldNamePart::Index(index) => (false, *index).to_pyobject(vm),
             })
             .collect();
 

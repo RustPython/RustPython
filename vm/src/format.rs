@@ -1,7 +1,7 @@
 use crate::{
     builtins::{PyBaseExceptionRef, PyStrRef},
     common::float_ops,
-    function::{FuncArgs, IntoPyException},
+    function::{FuncArgs, ToPyException},
     stdlib::builtins,
     AsPyObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
 };
@@ -554,8 +554,8 @@ pub(crate) enum FormatParseError {
     InvalidCharacterAfterRightBracket,
 }
 
-impl IntoPyException for FormatParseError {
-    fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+impl ToPyException for FormatParseError {
+    fn to_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         match self {
             FormatParseError::UnmatchedBracket => {
                 vm.new_value_error("expected '}' before end of string".to_owned())
@@ -800,8 +800,8 @@ impl FormatString {
                     preconversion_spec,
                     format_spec,
                 } => {
-                    let FieldName { field_type, parts } = FieldName::parse(field_name.as_str())
-                        .map_err(|e| e.into_pyexception(vm))?;
+                    let FieldName { field_type, parts } =
+                        FieldName::parse(field_name.as_str()).map_err(|e| e.to_pyexception(vm))?;
 
                     let mut argument = field_func(field_type)?;
 
@@ -820,7 +820,7 @@ impl FormatString {
                     }
 
                     let nested_format =
-                        FormatString::from_str(format_spec).map_err(|e| e.into_pyexception(vm))?;
+                        FormatString::from_str(format_spec).map_err(|e| e.to_pyexception(vm))?;
                     let format_spec = nested_format.format_internal(vm, field_func)?;
 
                     pystr = call_object_format(vm, argument, *preconversion_spec, &format_spec)?;

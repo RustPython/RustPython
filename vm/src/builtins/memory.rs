@@ -9,7 +9,7 @@ use crate::{
         hash::PyHash,
         lock::OnceCell,
     },
-    function::{FuncArgs, IntoPyObject, OptionalArg, PyComparisonValue},
+    function::{FuncArgs, OptionalArg, PyComparisonValue, ToPyObject},
     protocol::{
         BufferDescriptor, BufferMethods, PyBuffer, PyMappingMethods, PySequenceMethods, VecBuffer,
     },
@@ -173,7 +173,7 @@ impl PyMemoryView {
             self.desc
                 .dim_desc
                 .iter()
-                .map(|(shape, _, _)| shape.into_pyobject(vm))
+                .map(|(shape, _, _)| shape.to_pyobject(vm))
                 .collect(),
         ))
     }
@@ -185,7 +185,7 @@ impl PyMemoryView {
             self.desc
                 .dim_desc
                 .iter()
-                .map(|(_, stride, _)| stride.into_pyobject(vm))
+                .map(|(_, stride, _)| stride.to_pyobject(vm))
                 .collect(),
         ))
     }
@@ -197,7 +197,7 @@ impl PyMemoryView {
             self.desc
                 .dim_desc
                 .iter()
-                .map(|(_, _, suboffset)| suboffset.into_pyobject(vm))
+                .map(|(_, _, suboffset)| suboffset.to_pyobject(vm))
                 .collect(),
         ))
     }

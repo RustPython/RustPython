@@ -4,7 +4,7 @@ use crate::{
         PyDict,
     },
     common::lock::OnceCell,
-    function::IntoPyResult,
+    function::ToPyResult,
     AsPyObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
 };
 
@@ -129,7 +129,7 @@ impl PyMapping<'_> {
 
     pub fn keys(&self, vm: &VirtualMachine) -> PyResult {
         if let Some(dict) = self.obj.downcast_ref_if_exact::<PyDict>(vm) {
-            PyDictKeys::new(dict.to_owned()).into_pyresult(vm)
+            PyDictKeys::new(dict.to_owned()).to_pyresult(vm)
         } else {
             self.method_output_as_list("keys", vm)
         }
@@ -137,7 +137,7 @@ impl PyMapping<'_> {
 
     pub fn values(&self, vm: &VirtualMachine) -> PyResult {
         if let Some(dict) = self.obj.downcast_ref_if_exact::<PyDict>(vm) {
-            PyDictValues::new(dict.to_owned()).into_pyresult(vm)
+            PyDictValues::new(dict.to_owned()).to_pyresult(vm)
         } else {
             self.method_output_as_list("values", vm)
         }
@@ -145,7 +145,7 @@ impl PyMapping<'_> {
 
     pub fn items(&self, vm: &VirtualMachine) -> PyResult {
         if let Some(dict) = self.obj.downcast_ref_if_exact::<PyDict>(vm) {
-            PyDictItems::new(dict.to_owned()).into_pyresult(vm)
+            PyDictItems::new(dict.to_owned()).to_pyresult(vm)
         } else {
             self.method_output_as_list("items", vm)
         }
@@ -168,6 +168,6 @@ impl PyMapping<'_> {
 
         // TODO
         // PySequence::from(&iter).list(vm).map(|x| x.into())
-        vm.ctx.new_list(iter.try_to_value(vm)?).into_pyresult(vm)
+        vm.ctx.new_list(iter.try_to_value(vm)?).to_pyresult(vm)
     }
 }

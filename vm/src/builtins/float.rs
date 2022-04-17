@@ -3,9 +3,9 @@ use crate::common::{float_ops, hash};
 use crate::{
     format::FormatSpec,
     function::{
-        ArgBytesLike, IntoPyObject, OptionalArg, OptionalOption,
+        ArgBytesLike, OptionalArg, OptionalOption,
         PyArithmeticValue::{self, *},
-        PyComparisonValue,
+        PyComparisonValue, ToPyObject,
     },
     pyclass::PyClassImpl,
     types::{Comparable, Constructor, Hashable, PyComparisonOp},
@@ -36,13 +36,13 @@ impl PyValue for PyFloat {
     }
 }
 
-impl IntoPyObject for f64 {
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+impl ToPyObject for f64 {
+    fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.new_float(self).into()
     }
 }
-impl IntoPyObject for f32 {
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+impl ToPyObject for f32 {
+    fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.new_float(f64::from(self)).into()
     }
 }
@@ -153,9 +153,9 @@ pub fn float_pow(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult {
     } else if v1.is_sign_negative() && (v2.floor() - v2).abs() > f64::EPSILON {
         let v1 = Complex64::new(v1, 0.);
         let v2 = Complex64::new(v2, 0.);
-        Ok(v1.powc(v2).into_pyobject(vm))
+        Ok(v1.powc(v2).to_pyobject(vm))
     } else {
-        Ok(v1.powf(v2).into_pyobject(vm))
+        Ok(v1.powf(v2).to_pyobject(vm))
     }
 }
 
@@ -504,7 +504,7 @@ impl PyFloat {
 
     #[pymethod(magic)]
     fn getnewargs(&self, vm: &VirtualMachine) -> PyObjectRef {
-        (self.value,).into_pyobject(vm)
+        (self.value,).to_pyobject(vm)
     }
 }
 

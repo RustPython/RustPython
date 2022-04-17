@@ -19,7 +19,7 @@ use crate::{
     common::{ascii, hash::HashSecret, lock::PyMutex, rc::PyRc},
     frame::{ExecutionResult, Frame, FrameRef},
     frozen,
-    function::{ArgMapping, FuncArgs, IntoPyObject},
+    function::{ArgMapping, FuncArgs, ToPyObject},
     import,
     protocol::PyIterIter,
     pyobject::PyLease,
@@ -621,7 +621,7 @@ impl VirtualMachine {
                     (None, None)
                 };
                 let from_list = match from_list {
-                    Some(tup) => tup.into_pyobject(self),
+                    Some(tup) => tup.to_pyobject(self),
                     None => self.new_tuple(()).into(),
                 };
                 self.invoke(&import_func, (module, globals, locals, from_list, level))
@@ -965,10 +965,7 @@ mod sealed {
 }
 
 /// A sealed marker trait for `DictKey` types that always become an exact instance of `str`
-pub trait Internable:
-    sealed::SealedInternable + crate::dictdatatype::DictKey + IntoPyObject
-{
-}
+pub trait Internable: sealed::SealedInternable + crate::dictdatatype::DictKey + ToPyObject {}
 
 impl Internable for String {}
 

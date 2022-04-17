@@ -1,7 +1,7 @@
 use crate::{
     builtins::{float, int, pybool, PyBaseExceptionRef, PyDictRef, PyFunction, PyStrRef},
     bytecode::CodeFlags,
-    function::{FuncArgs, IntoPyObject},
+    function::{FuncArgs, ToPyObject},
     AsPyObject, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
 };
 use num_traits::ToPrimitive;
@@ -25,12 +25,12 @@ pub enum ArgsError {
     JitError(#[from] JitArgumentError),
 }
 
-impl IntoPyObject for AbiValue {
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+impl ToPyObject for AbiValue {
+    fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         match self {
-            AbiValue::Int(i) => i.into_pyobject(vm),
-            AbiValue::Float(f) => f.into_pyobject(vm),
-            AbiValue::Bool(b) => b.into_pyobject(vm),
+            AbiValue::Int(i) => i.to_pyobject(vm),
+            AbiValue::Float(f) => f.to_pyobject(vm),
+            AbiValue::Bool(b) => b.to_pyobject(vm),
             _ => unimplemented!(),
         }
     }

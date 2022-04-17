@@ -1,4 +1,4 @@
-use super::{IntoFuncArgs, IntoPyObject};
+use super::{IntoFuncArgs, ToPyObject};
 use crate::{
     builtins::{iter::PySequenceIterator, PyDict, PyDictRef},
     protocol::PyIter,
@@ -137,9 +137,9 @@ impl PyObjectWrap for ArgMapping {
     }
 }
 
-impl IntoPyObject for ArgMapping {
+impl ToPyObject for ArgMapping {
     #[inline(always)]
-    fn into_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
+    fn to_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
         self.obj
     }
 }

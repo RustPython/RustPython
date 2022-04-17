@@ -1,7 +1,7 @@
 use crate::{
     builtins::{float, PyBaseExceptionRef, PyBytesRef, PyTuple, PyTupleRef, PyTypeRef},
     common::{static_cell, str::wchar_t},
-    function::{ArgBytesLike, ArgIntoBool, IntoPyObject},
+    function::{ArgBytesLike, ArgIntoBool, ToPyObject},
     PyObjectRef, PyResult, TryFromObject, VirtualMachine,
 };
 use half::f16;
@@ -527,7 +527,7 @@ macro_rules! make_pack_float {
 
             fn unpack<E: ByteOrder>(vm: &VirtualMachine, rdr: &[u8]) -> PyObjectRef {
                 let i = PackInt::unpack_int::<E>(rdr);
-                <$T>::from_bits(i).into_pyobject(vm)
+                <$T>::from_bits(i).to_pyobject(vm)
             }
         }
     };
@@ -549,7 +549,7 @@ impl Packable for f16 {
 
     fn unpack<E: ByteOrder>(vm: &VirtualMachine, rdr: &[u8]) -> PyObjectRef {
         let i = PackInt::unpack_int::<E>(rdr);
-        f16::from_bits(i).to_f64().into_pyobject(vm)
+        f16::from_bits(i).to_f64().to_pyobject(vm)
     }
 }
 
