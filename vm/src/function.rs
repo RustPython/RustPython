@@ -1,7 +1,7 @@
-mod argument;
 mod arithmetic;
 mod buffer;
 mod number;
+mod protocol;
 
 use crate::{
     builtins::{PyBaseExceptionRef, PyTupleRef, PyTypeRef},
@@ -13,10 +13,10 @@ use indexmap::IndexMap;
 use itertools::Itertools;
 use std::{marker::PhantomData, ops::RangeInclusive};
 
-pub use argument::{ArgCallable, ArgIterable, ArgMapping, ArgSequence};
 pub use arithmetic::{PyArithmeticValue, PyComparisonValue};
 pub use buffer::{ArgAsciiBuffer, ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike};
 pub use number::{ArgIntoBool, ArgIntoComplex, ArgIntoFloat};
+pub use protocol::{ArgCallable, ArgIterable, ArgMapping, ArgSequence};
 
 pub trait IntoFuncArgs: Sized {
     fn into_args(self, vm: &VirtualMachine) -> FuncArgs;
