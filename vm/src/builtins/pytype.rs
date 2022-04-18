@@ -160,9 +160,11 @@ impl PyType {
 
     // This is used for class initialisation where the vm is not yet available.
     pub fn set_str_attr<V: Into<PyObjectRef>>(&self, attr_name: &str, value: V) {
-        self.attributes
-            .write()
-            .insert(attr_name.to_owned(), value.into());
+        self._set_str_attr(attr_name, value.into())
+    }
+
+    fn _set_str_attr(&self, attr_name: &str, value: PyObjectRef) {
+        self.attributes.write().insert(attr_name.to_owned(), value);
     }
 
     /// This is the internal get_attr implementation for fast lookup on a class.
