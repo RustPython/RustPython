@@ -46,7 +46,7 @@ libc = "0.2.123"
 flame = { version = "0.2.2", optional = true }
 flamescope = { version = "0.1.2", optional = true }
 
-[target.'cfg(not(target_os = "wasi"))'.dependencies]
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rustyline = "9.1.2"
 
 [dev-dependencies]

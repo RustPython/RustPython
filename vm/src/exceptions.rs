@@ -1023,9 +1023,14 @@ pub(crate) fn raw_os_error_to_exc_type(errno: i32, vm: &VirtualMachine) -> Optio
     }
 }
 
+#[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
+pub(crate) fn raw_os_error_to_exc_type(_errno: i32, _vm: &VirtualMachine) -> Option<PyTypeRef> {
+    None
+}
+
 pub(super) mod types {
     use crate::common::lock::PyRwLock;
-    #[cfg_attr(target_os = "wasi", allow(unused_imports))]
+    #[cfg_attr(target_arch = "wasm32", allow(unused_imports))]
     use crate::{
         builtins::{traceback::PyTracebackRef, PyInt, PyTupleRef, PyTypeRef},
         convert::ToPyResult,
@@ -1033,7 +1038,7 @@ pub(super) mod types {
         PyObjectRef, PyRef, PyResult, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
-    #[cfg_attr(target_os = "wasi", allow(unused_imports))]
+    #[cfg_attr(target_arch = "wasm32", allow(unused_imports))]
     use std::ops::Deref;
 
     // This module is designed to be used as `use builtins::*;`.

@@ -9,8 +9,34 @@ cfg_if::cfg_if! {
     }
 }
 
-use crate::{PyObjectRef, PyResult, TryFromObject, VirtualMachine};
-pub(crate) use _io::io_open as open;
+use crate::{
+    builtins::PyBaseExceptionRef,
+    convert::{ToPyException, ToPyObject},
+    PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+};
+pub use _io::io_open as open;
+
+impl ToPyException for &'_ std::io::Error {
+    fn to_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        use std::io::ErrorKind;
+
+        let excs = &vm.ctx.exceptions;
+        #[allow(unreachable_patterns)] // some errors are just aliases of each other
+        let exc_type = match self.kind() {
+            ErrorKind::NotFound => excs.file_not_found_error.clone(),
+            ErrorKind::PermissionDenied => excs.permission_error.clone(),
+            ErrorKind::AlreadyExists => excs.file_exists_error.clone(),
+            ErrorKind::WouldBlock => excs.blocking_io_error.clone(),
+            _ => self
+                .raw_os_error()
+                .and_then(|errno| crate::exceptions::raw_os_error_to_exc_type(errno, vm))
+                .unwrap_or_else(|| excs.os_error.clone()),
+        };
+        let errno = self.raw_os_error().to_pyobject(vm);
+        let msg = vm.ctx.new_str(self.to_string()).into();
+        vm.new_exception(exc_type, vec![errno, msg])
+    }
+}
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;

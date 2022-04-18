@@ -109,6 +109,16 @@ jobs:
 
       - uses: actions-rs/toolchain@v1
         with:
+          target: wasm32-unknown-unknown
+
+      - name: Check compilation for wasm32
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: --target wasm32-unknown-unknown --no-default-features
+
+      - uses: actions-rs/toolchain@v1
+        with:
           target: wasm32-wasi
 
       - name: Check compilation for wasi
