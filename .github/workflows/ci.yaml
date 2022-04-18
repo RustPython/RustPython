@@ -119,16 +119,6 @@ jobs:
 
       - uses: actions-rs/toolchain@v1
         with:
-          target: wasm32-wasi
-
-      - name: Check compilation for wasi
-        uses: actions-rs/cargo@v1
-        with:
-          command: check
-          args: --target wasm32-wasi --features freeze-stdlib
-
-      - uses: actions-rs/toolchain@v1
-        with:
           target: x86_64-unknown-freebsd
 
       - name: Check compilation for freeBSD
