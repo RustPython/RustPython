@@ -451,7 +451,7 @@ impl ModuleItem for ClassItem {
 
         let set_attr = match py_names.len() {
             0 => quote! {
-                let _ = new_class;
+                let _ = new_class;  // suppress warning
             },
             1 => {
                 let py_name = &py_names[0];
@@ -470,10 +470,10 @@ impl ModuleItem for ClassItem {
             ident.clone(),
             py_names,
             args.cfgs.to_vec(),
-            quote_spanned! { ident.span() => {
+            quote_spanned! { ident.span() =>
                 #class_new
                 #set_attr
-            }},
+            },
             0,
         )?;
         Ok(())

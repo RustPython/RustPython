@@ -1,4 +1,4 @@
-use crate::{convert::ToPyObject, pyclass::PyClassImpl, PyObject, PyResult, VirtualMachine};
+use crate::{convert::ToPyObject, PyObject, PyResult, VirtualMachine};
 
 pub(crate) use sys::{MAXSIZE, MULTIARCH};
 
@@ -670,17 +670,9 @@ mod sys {
 }
 
 pub(crate) fn init_module(vm: &VirtualMachine, module: &PyObject, builtins: &PyObject) {
-    let ctx = &vm.ctx;
-    let _flags_type = sys::Flags::make_class(ctx);
-    let _version_info_type = crate::version::VersionInfo::make_class(ctx);
-    let _hash_info_type = sys::PyHashInfo::make_class(ctx);
-    let _float_info_type = sys::PyFloatInfo::make_class(ctx);
-    let _int_info_type = sys::PyIntInfo::make_class(ctx);
+    use crate::pyclass::PyClassImpl;
 
-    #[cfg(windows)]
-    {
-        sys::WindowsVersion::make_class(ctx);
-    }
+    let _ = crate::version::VersionInfo::make_class(&vm.ctx);
 
     sys::extend_module(vm, module);
 
