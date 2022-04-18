@@ -334,10 +334,10 @@ jobs:
           toolchain: stable
           target: wasm32-wasi
           override: true
+      - name: Setup Wasmer
+        uses: wasmerio/setup-wasmer@v1
       - name: Install clang
         run: sudo apt-get update && sudo apt-get install clang -y
-      - name: install wasmer
-        run: curl https://get.wasmer.io -sSfL | sh && source /home/runner/.wasmer/wasmer.sh
       - name: Cache cargo dependencies
         uses: actions/cache@v2
         with:
