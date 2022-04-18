@@ -76,7 +76,7 @@ fn extract_items_into_context<'a, Item>(
 {
     for item in items {
         let r = item.try_split_attr_mut(|attrs, item| {
-            let (pyitems, cfgs) = attrs_to_content_items(attrs, new_impl_item::<Item>)?;
+            let (pyitems, cfgs) = attrs_to_content_items(attrs, impl_item_new::<Item>)?;
             for pyitem in pyitems.iter().rev() {
                 let r = pyitem.gen_impl_item(ImplItemArgs::<Item> {
                     item,
@@ -997,26 +997,18 @@ fn extract_impl_attrs(attr: AttributeArgs, item: &Ident) -> Result<ExtractedImpl
     })
 }
 
-fn new_impl_item<Item>(
-    attr: &Attribute,
+fn impl_item_new<Item>(
     index: usize,
-    attr_name: String,
+    attr_name: AttrName,
 ) -> Result<Box<dyn ImplItem<Item, AttrName = AttrName>>>
 where
     Item: ItemLike + ToTokens + GetIdent,
 {
-    assert!(ALL_ALLOWED_NAMES.contains(&attr_name.as_str()));
     use AttrName::*;
-    let attr_name = AttrName::from_str(attr_name.as_str()).map_err(|wrong_name| {
-        syn::Error::new_spanned(attr, format!("#[pyimpl] doesn't accept #[{}]", wrong_name))
-    })?;
     Ok(match attr_name {
         attr_name @ Method | attr_name @ ClassMethod | attr_name @ StaticMethod => {
             Box::new(MethodItem {
-                inner: ContentItemInner {
-                    index,
-                    attr_name: attr_name,
-                },
+                inner: ContentItemInner { index, attr_name },
             })
         }
         GetSet => Box::new(PropertyItem {
@@ -1036,10 +1028,10 @@ where
 
 fn attrs_to_content_items<F, R>(
     attrs: &[Attribute],
-    new_item: F,
+    item_new: F,
 ) -> Result<(Vec<R>, Vec<Attribute>)>
 where
-    F: Fn(&Attribute, usize, String) -> Result<R>,
+    F: Fn(usize, AttrName) -> Result<R>,
 {
     let mut cfgs: Vec<Attribute> = Vec::new();
     let mut result = Vec::new();
@@ -1074,11 +1066,21 @@ where
                 "#[py*] items must be placed under `cfgs`",
             ));
         }
-        if !ALL_ALLOWED_NAMES.contains(&attr_name.as_str()) {
-            continue;
-        }
+        let attr_name = match AttrName::from_str(attr_name.as_str()) {
+            Ok(name) => name,
+            Err(wrong_name) => {
+                if ALL_ALLOWED_NAMES.contains(&attr_name.as_str()) {
+                    return Err(syn::Error::new_spanned(
+                        attr,
+                        format!("#[pyimpl] doesn't accept #[{}]", wrong_name),
+                    ));
+                } else {
+                    continue;
+                }
+            }
+        };
 
-        result.push(new_item(attr, i, attr_name)?);
+        result.push(item_new(i, attr_name)?);
     }
     Ok((result, cfgs))
 }
