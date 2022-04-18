@@ -13,6 +13,7 @@ pub struct ArgCallable {
 }
 
 impl ArgCallable {
+    #[inline(always)]
     pub fn invoke(&self, args: impl IntoFuncArgs, vm: &VirtualMachine) -> PyResult {
         vm.invoke(&self.obj, args)
     }
@@ -33,6 +34,7 @@ impl AsRef<PyObject> for ArgCallable {
 }
 
 impl From<ArgCallable> for PyObjectRef {
+    #[inline(always)]
     fn from(value: ArgCallable) -> PyObjectRef {
         value.obj
     }
@@ -103,6 +105,7 @@ pub struct ArgMapping {
 }
 
 impl ArgMapping {
+    #[inline(always)]
     pub fn from_dict_exact(dict: PyDictRef) -> Self {
         Self {
             obj: dict.into(),
@@ -110,6 +113,7 @@ impl ArgMapping {
         }
     }
 
+    #[inline(always)]
     pub fn mapping(&self) -> PyMapping {
         PyMapping::with_methods(&self.obj, self.mapping_methods)
     }
@@ -130,6 +134,7 @@ impl AsRef<PyObject> for ArgMapping {
 }
 
 impl From<ArgMapping> for PyObjectRef {
+    #[inline(always)]
     fn from(value: ArgMapping) -> PyObjectRef {
         value.obj
     }
@@ -158,9 +163,11 @@ impl TryFromObject for ArgMapping {
 pub struct ArgSequence<T = PyObjectRef>(Vec<T>);
 
 impl<T> ArgSequence<T> {
+    #[inline(always)]
     pub fn into_vec(self) -> Vec<T> {
         self.0
     }
+    #[inline(always)]
     pub fn as_slice(&self) -> &[T] {
         &self.0
     }

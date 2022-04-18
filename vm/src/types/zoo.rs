@@ -91,6 +91,7 @@ pub struct TypeZoo {
 }
 
 impl TypeZoo {
+    #[cold]
     pub(crate) fn init() -> Self {
         let (type_type, object_type, weakref_type) = crate::pyobject::init_type_hierarchy();
         Self {
@@ -179,6 +180,7 @@ impl TypeZoo {
     }
 
     /// Fill attributes of builtin types.
+    #[cold]
     pub(crate) fn extend(context: &PyContext) {
         pytype::init(context);
         object::init(context);

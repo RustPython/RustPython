@@ -26,6 +26,7 @@ pub struct PyMapping<'a> {
 }
 
 impl<'a> From<&'a PyObject> for PyMapping<'a> {
+    #[inline(always)]
     fn from(obj: &'a PyObject) -> Self {
         Self {
             obj,
@@ -35,12 +36,14 @@ impl<'a> From<&'a PyObject> for PyMapping<'a> {
 }
 
 impl AsRef<PyObject> for PyMapping<'_> {
+    #[inline(always)]
     fn as_ref(&self) -> &PyObject {
         self.obj
     }
 }
 
 impl<'a> PyMapping<'a> {
+    #[inline(always)]
     pub fn with_methods(obj: &'a PyObject, methods: PyMappingMethods) -> Self {
         Self {
             obj,
@@ -60,6 +63,7 @@ impl<'a> PyMapping<'a> {
 
 impl PyMapping<'_> {
     // PyMapping::Check
+    #[inline]
     pub fn check(&self, vm: &VirtualMachine) -> bool {
         self.methods(vm).subscript.is_some()
     }
