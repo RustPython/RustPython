@@ -387,7 +387,7 @@ impl ModuleItem for FunctionItem {
 impl ModuleItem for ClassItem {
     fn gen_module_item(&self, args: ModuleItemArgs<'_>) -> Result<()> {
         let (ident, _) = pyclass_ident_and_attrs(args.item)?;
-        let (module_name, class_name) = {
+        let (class_name, class_new) = {
             let class_attr = &mut args.attrs[self.inner.index];
             if self.pyattrs.is_empty() {
                 // check noattr before ClassItemMeta::from_attr
@@ -415,8 +415,14 @@ impl ModuleItem for ClassItem {
                 module_name
             };
             let class_name = class_meta.class_name()?;
-            (module_name, class_name)
+            let class_new = quote_spanned!(ident.span() =>
+                let new_class = <#ident as ::rustpython_vm::pyclass::PyClassImpl>::make_class(&vm.ctx);
+                new_class.set_str_attr("__module__", vm.new_pyobj(#module_name));
+            );
+            (class_name, class_new)
         };
+
+        let mut names = Vec::new();
         for attr_index in self.pyattrs.iter().rev() {
             let mut loop_unit = || {
                 let attr_attr = args.attrs.remove(*attr_index);
@@ -425,23 +431,39 @@ impl ModuleItem for ClassItem {
                 let py_name = item_meta
                     .optional_name()
                     .unwrap_or_else(|| class_name.clone());
-                let new_class = quote_spanned!(ident.span() =>
-                    <#ident as ::rustpython_vm::pyclass::PyClassImpl>::make_class(&vm.ctx);
-                );
-                let item = quote! {
-                    let new_class = #new_class;
-                    new_class.set_str_attr("__module__", vm.new_pyobj(#module_name));
-                    vm.__module_set_attr(&module, #py_name, new_class).unwrap();
-                };
+                names.push(py_name);
 
-                args.context
-                    .module_extend_items
-                    .add_item(py_name, args.cfgs.to_vec(), item)?;
                 Ok(())
             };
             let r = loop_unit();
             args.context.errors.ok_or_push(r);
         }
+
+        let set_attr = match names.len() {
+            0 => quote! {
+                let _ = new_class;
+            },
+            1 => {
+                let py_name = &names[0];
+                quote! {
+                    vm.__module_set_attr(&module, #py_name, new_class).unwrap();
+                }
+            }
+            _ => quote! {
+                for name in [#(#names,)*] {
+                    vm.__module_set_attr(&module, name, new_class.clone()).unwrap();
+                }
+            },
+        };
+
+        args.context.module_extend_items.add_item(
+            ident.to_string(),
+            args.cfgs.to_vec(),
+            quote_spanned! { ident.span() => {
+                #class_new
+                #set_attr
+            }},
+        )?;
         Ok(())
     }
 }
