@@ -10,7 +10,7 @@ use std::str::FromStr;
 use syn::{parse_quote, spanned::Spanned, Attribute, AttributeArgs, Ident, Item, Result};
 use syn_ext::ext::*;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 enum AttrName {
     Function,
     Attr,
@@ -139,12 +139,9 @@ pub fn impl_pymodule(attr: AttributeArgs, module_item: Item) -> Result<TokenStre
 
 fn new_module_item(
     index: usize,
-    attr_name: String,
+    attr_name: AttrName,
     pyattrs: Option<Vec<usize>>,
 ) -> Box<dyn ModuleItem<AttrName = AttrName>> {
-    assert!(ALL_ALLOWED_NAMES.contains(&attr_name.as_str()));
-    let attr_name = AttrName::from_str(&attr_name)
-        .unwrap_or_else(|wrong_name| unreachable!("#[pymodule] doesn't accept #[{}]", wrong_name));
     match attr_name {
         AttrName::Function => Box::new(FunctionItem {
             inner: ContentItemInner { index, attr_name },
@@ -159,9 +156,9 @@ fn new_module_item(
     }
 }
 
-fn attrs_to_module_items<F, R>(attrs: &[Attribute], new_item: F) -> Result<(Vec<R>, Vec<Attribute>)>
+fn attrs_to_module_items<F, R>(attrs: &[Attribute], item_new: F) -> Result<(Vec<R>, Vec<Attribute>)>
 where
-    F: Fn(usize, String, Option<Vec<usize>>) -> R,
+    F: Fn(usize, AttrName, Option<Vec<usize>>) -> R,
 {
     let mut cfgs: Vec<Attribute> = Vec::new();
     let mut result = Vec::new();
@@ -198,16 +195,22 @@ where
                 "#[py*] items must be placed under `cfgs`",
             ));
         }
-        if !ALL_ALLOWED_NAMES.contains(&attr_name.as_str()) {
-            continue;
-        } else if closed {
-            return Err(syn::Error::new_spanned(
-                attr,
-                "Only one #[pyattr] annotated #[py*] item can exist",
-            ));
-        }
 
-        if attr_name == "pyattr" {
+        let attr_name = match AttrName::from_str(attr_name.as_str()) {
+            Ok(name) => name,
+            Err(wrong_name) => {
+                let msg = if !ALL_ALLOWED_NAMES.contains(&wrong_name.as_str()) {
+                    continue;
+                } else if closed {
+                    "Only one #[pyattr] annotated #[py*] item can exist".to_owned()
+                } else {
+                    format!("#[pymodule] doesn't accept #[{}]", wrong_name)
+                };
+                return Err(syn::Error::new_spanned(attr, msg));
+            }
+        };
+
+        if attr_name == AttrName::Attr {
             if !result.is_empty() {
                 return Err(syn::Error::new_spanned(
                     attr,
@@ -219,23 +222,23 @@ where
         }
 
         if pyattrs.is_empty() {
-            result.push(new_item(i, attr_name, None));
+            result.push(item_new(i, attr_name, None));
         } else {
-            if attr_name != "pyclass" {
+            if attr_name != AttrName::Class {
                 return Err(syn::Error::new_spanned(
                     attr,
                     "#[pyattr] #[pyclass] is the only supported composition",
                 ));
             }
             let pyattr_indexes = pyattrs.iter().map(|(i, _)| i).copied().collect();
-            result.push(new_item(i, attr_name, Some(pyattr_indexes)));
+            result.push(item_new(i, attr_name, Some(pyattr_indexes)));
             pyattrs = Vec::new();
             closed = true;
         }
     }
     for (index, attr_name) in pyattrs {
         assert!(!closed);
-        result.push(new_item(index, attr_name, None));
+        result.push(item_new(index, attr_name, None));
     }
     Ok((result, cfgs))
 }
