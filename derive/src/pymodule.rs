@@ -140,29 +140,27 @@ pub fn impl_pymodule(attr: AttributeArgs, module_item: Item) -> Result<TokenStre
 fn module_item_new(
     index: usize,
     attr_name: AttrName,
-    pyattrs: Option<Vec<usize>>,
+    pyattrs: Vec<usize>,
 ) -> Box<dyn ModuleItem<AttrName = AttrName>> {
     match attr_name {
         AttrName::Function => Box::new(FunctionItem {
             inner: ContentItemInner { index, attr_name },
-            pyattrs: pyattrs.unwrap_or_default(),
+            pyattrs,
         }),
-        AttrName::Attr => {
-            assert!(pyattrs.is_none());
-            Box::new(AttributeItem {
-                inner: ContentItemInner { index, attr_name },
-            })
-        }
+        AttrName::Attr => Box::new(AttributeItem {
+            inner: ContentItemInner { index, attr_name },
+            pyattrs,
+        }),
         AttrName::Class => Box::new(ClassItem {
             inner: ContentItemInner { index, attr_name },
-            pyattrs: pyattrs.unwrap_or_default(),
+            pyattrs,
         }),
     }
 }
 
 fn attrs_to_module_items<F, R>(attrs: &[Attribute], item_new: F) -> Result<(Vec<R>, Vec<Attribute>)>
 where
-    F: Fn(usize, AttrName, Option<Vec<usize>>) -> R,
+    F: Fn(usize, AttrName, Vec<usize>) -> R,
 {
     let mut cfgs: Vec<Attribute> = Vec::new();
     let mut result = Vec::new();
@@ -221,17 +219,16 @@ where
                     "#[pyattr] must be placed on top of other #[py*] items",
                 ));
             }
-            pyattrs.push((i, attr_name));
+            pyattrs.push(i);
             continue;
         }
 
         if pyattrs.is_empty() {
-            result.push(item_new(i, attr_name, None));
+            result.push(item_new(i, attr_name, Vec::new()));
         } else {
             match attr_name {
                 AttrName::Class | AttrName::Function => {
-                    let pyattr_indexes = pyattrs.iter().map(|(i, _)| i).copied().collect();
-                    result.push(item_new(i, attr_name, Some(pyattr_indexes)));
+                    result.push(item_new(i, attr_name, pyattrs.clone()));
                 }
                 _ => {
                     return Err(syn::Error::new_spanned(
@@ -244,9 +241,10 @@ where
             closed = true;
         }
     }
-    for (index, attr_name) in pyattrs {
+
+    if let Some(last) = pyattrs.pop() {
         assert!(!closed);
-        result.push(item_new(index, attr_name, None));
+        result.push(item_new(last, AttrName::Attr, pyattrs));
     }
     Ok((result, cfgs))
 }
@@ -266,6 +264,7 @@ struct ClassItem {
 /// #[pyattr]
 struct AttributeItem {
     inner: ContentItemInner<AttrName>,
+    pyattrs: Vec<usize>,
 }
 
 impl ContentItem for FunctionItem {
@@ -342,40 +341,42 @@ impl ModuleItem for FunctionItem {
                     .into_ref(&vm.ctx)
             );
 
-            let mut items = vec![quote! {
-                let func = #new_func;
-            }];
+            if self.pyattrs.is_empty() {
+                quote_spanned! { ident.span() => {
+                    let func = #new_func;
+                    vm.__module_set_attr(module, #py_name, func).unwrap();
+                }}
+            } else {
+                let mut py_names = HashSet::new();
+                py_names.insert(py_name.clone());
+                for attr_index in self.pyattrs.iter().rev() {
+                    let mut loop_unit = || {
+                        let attr_attr = args.attrs.remove(*attr_index);
+                        let item_meta = SimpleItemMeta::from_attr(ident.clone(), &attr_attr)?;
 
-            let mut py_names = HashSet::new();
-            py_names.insert(py_name.clone());
-            for attr_index in self.pyattrs.iter().rev() {
-                let mut loop_unit = || {
-                    let attr_attr = args.attrs.remove(*attr_index);
-                    let item_meta = SimpleItemMeta::from_attr(ident.clone(), &attr_attr)?;
-
-                    let py_name = item_meta.simple_name()?;
-                    items.push(quote_spanned! { attr_attr.span() =>
-                        vm.__module_set_attr(module, #py_name, func.clone()).unwrap();
-                    });
-                    let inserted = py_names.insert(py_name.clone());
-                    if !inserted {
-                        return Err(self.new_syn_error(
-                            ident.span(),
-                            &format!("`{py_name}` is duplicated name for multiple py* attribute"),
-                        ));
+                        let py_name = item_meta.simple_name()?;
+                        let inserted = py_names.insert(py_name.clone());
+                        if !inserted {
+                            return Err(self.new_syn_error(
+                                ident.span(),
+                                &format!(
+                                    "`{py_name}` is duplicated name for multiple py* attribute"
+                                ),
+                            ));
+                        }
+                        Ok(())
+                    };
+                    let r = loop_unit();
+                    args.context.errors.ok_or_push(r);
+                }
+                let py_names: Vec<_> = py_names.into_iter().collect();
+                quote_spanned! { ident.span().resolved_at(Span::call_site()) => {
+                    let func = #new_func;
+                    for name in [#(#py_names,)*] {
+                        vm.__module_set_attr(module, name, func.clone()).unwrap();
                     }
-                    Ok(())
-                };
-                let r = loop_unit();
-                args.context.errors.ok_or_push(r);
+                }}
             }
-
-            items.push(quote! {
-                vm.__module_set_attr(module, #py_name, func).unwrap();
-            });
-            quote_spanned! { ident.span().resolved_at(Span::call_site()) => {
-                #(#items)*
-            }}
         };
 
         args.context
@@ -451,7 +452,7 @@ impl ModuleItem for AttributeItem {
     fn gen_module_item(&self, args: ModuleItemArgs<'_>) -> Result<()> {
         let cfgs = args.cfgs.to_vec();
         let attr = args.attrs.remove(self.index());
-        let (py_name, tokens) = match args.item {
+        let (ident, py_name, let_obj) = match args.item {
             Item::Fn(syn::ItemFn { sig, block, .. }) => {
                 let ident = &sig.ident;
                 // If `once` keyword is in #[pyattr],
@@ -482,9 +483,10 @@ impl ModuleItem for AttributeItem {
 
                 let py_name = attr_meta.simple_name()?;
                 (
-                    py_name.clone(),
+                    ident.clone(),
+                    py_name,
                     quote_spanned! { ident.span() =>
-                        vm.__module_set_attr(module, #py_name, vm.new_pyobj(#ident(vm))).unwrap();
+                        let obj = vm.new_pyobj(#ident(vm));
                     },
                 )
             }
@@ -492,13 +494,18 @@ impl ModuleItem for AttributeItem {
                 let item_meta = SimpleItemMeta::from_attr(ident.clone(), &attr)?;
                 let py_name = item_meta.simple_name()?;
                 (
-                    py_name.clone(),
+                    ident.clone(),
+                    py_name,
                     quote_spanned! { ident.span() =>
-                        vm.__module_set_attr(module, #py_name, vm.new_pyobj(#ident)).unwrap();
+                        let obj = vm.new_pyobj(#ident);
                     },
                 )
             }
             Item::Use(item) => {
+                if !self.pyattrs.is_empty() {
+                    return Err(self
+                        .new_syn_error(item.span(), "Only single #[pyattr] is allowed for `use`"));
+                }
                 return iter_use_idents(item, |ident, is_unique| {
                     let item_meta = SimpleItemMeta::from_attr(ident.clone(), &attr)?;
                     let py_name = if is_unique {
@@ -526,6 +533,44 @@ impl ModuleItem for AttributeItem {
                     self.new_syn_error(other.span(), "can only be on a function, const and use")
                 )
             }
+        };
+
+        let tokens = if self.pyattrs.is_empty() {
+            quote_spanned! { ident.span() => {
+                #let_obj
+                vm.__module_set_attr(module, #py_name, obj).unwrap();
+            }}
+        } else {
+            let mut names = vec![py_name.clone()];
+            for attr_index in self.pyattrs.iter().rev() {
+                let mut loop_unit = || {
+                    let attr_attr = args.attrs.remove(*attr_index);
+                    let item_meta = AttrItemMeta::from_attr(ident.clone(), &attr_attr)?;
+                    if item_meta.inner()._bool("once")? {
+                        return Err(self.new_syn_error(
+                            ident.span(),
+                            "#[pyattr(once)] is only allowed for the bottom-most item",
+                        ));
+                    }
+
+                    let py_name = item_meta.optional_name().ok_or_else(|| {
+                        self.new_syn_error(
+                            ident.span(),
+                            "#[pyattr(name = ...)] is mandatory except for the bottom-most item",
+                        )
+                    })?;
+                    names.push(py_name);
+                    Ok(())
+                };
+                let r = loop_unit();
+                args.context.errors.ok_or_push(r);
+            }
+            quote_spanned! { ident.span() => {
+                #let_obj
+                for name in [(#(#names,)*)] {
+                    vm.__module_set_attr(module, name, obj.clone()).unwrap();
+                }
+            }}
         };
 
         args.context
