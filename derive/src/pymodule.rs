@@ -6,8 +6,41 @@ use crate::util::{
 };
 use proc_macro2::TokenStream;
 use quote::{quote, quote_spanned, ToTokens};
+use std::str::FromStr;
 use syn::{parse_quote, spanned::Spanned, Attribute, AttributeArgs, Ident, Item, Result};
 use syn_ext::ext::*;
+
+#[derive(Clone, Copy)]
+enum AttrName {
+    Function,
+    Attr,
+    Class,
+}
+
+impl std::fmt::Display for AttrName {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let s = match self {
+            Self::Function => "pyfunction",
+            Self::Attr => "pyattr",
+            Self::Class => "pyclass",
+        };
+        s.fmt(f)
+    }
+}
+
+impl FromStr for AttrName {
+    type Err = String;
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        Ok(match s {
+            "pyfunction" => Self::Function,
+            "pyattr" => Self::Attr,
+            "pyclass" => Self::Class,
+            s => {
+                return Err(s.to_owned());
+            }
+        })
+    }
+}
 
 #[derive(Default)]
 struct ModuleContext {
@@ -108,20 +141,21 @@ fn new_module_item(
     index: usize,
     attr_name: String,
     pyattrs: Option<Vec<usize>>,
-) -> Box<dyn ModuleItem> {
+) -> Box<dyn ModuleItem<AttrName = AttrName>> {
     assert!(ALL_ALLOWED_NAMES.contains(&attr_name.as_str()));
-    match attr_name.as_str() {
-        "pyfunction" => Box::new(FunctionItem {
+    let attr_name = AttrName::from_str(&attr_name)
+        .unwrap_or_else(|wrong_name| unreachable!("#[pymodule] doesn't accept #[{}]", wrong_name));
+    match attr_name {
+        AttrName::Function => Box::new(FunctionItem {
             inner: ContentItemInner { index, attr_name },
         }),
-        "pyattr" => Box::new(AttributeItem {
+        AttrName::Attr => Box::new(AttributeItem {
             inner: ContentItemInner { index, attr_name },
         }),
-        "pyclass" => Box::new(ClassItem {
+        AttrName::Class => Box::new(ClassItem {
             inner: ContentItemInner { index, attr_name },
             pyattrs: pyattrs.unwrap_or_default(),
         }),
-        other => unreachable!("#[pymodule] doesn't accept #[{}]", other),
     }
 }
 
@@ -208,34 +242,37 @@ where
 
 /// #[pyfunction]
 struct FunctionItem {
-    inner: ContentItemInner,
+    inner: ContentItemInner<AttrName>,
 }
 
 /// #[pyclass]
 struct ClassItem {
-    inner: ContentItemInner,
+    inner: ContentItemInner<AttrName>,
     pyattrs: Vec<usize>,
 }
 
 /// #[pyattr]
 struct AttributeItem {
-    inner: ContentItemInner,
+    inner: ContentItemInner<AttrName>,
 }
 
 impl ContentItem for FunctionItem {
-    fn inner(&self) -> &ContentItemInner {
+    type AttrName = AttrName;
+    fn inner(&self) -> &ContentItemInner<AttrName> {
         &self.inner
     }
 }
 
 impl ContentItem for ClassItem {
-    fn inner(&self) -> &ContentItemInner {
+    type AttrName = AttrName;
+    fn inner(&self) -> &ContentItemInner<AttrName> {
         &self.inner
     }
 }
 
 impl ContentItem for AttributeItem {
-    fn inner(&self) -> &ContentItemInner {
+    type AttrName = AttrName;
+    fn inner(&self) -> &ContentItemInner<AttrName> {
         &self.inner
     }
 }
