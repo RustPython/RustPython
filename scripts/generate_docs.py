@@ -54,12 +54,12 @@ def traverse(module, names, item):
         yield names, item.__doc__
     attr_names = dir(item)
     for name in attr_names:
-        if name in ['__class__', '__dict__', '__doc__', '__objclass__', '__name__', '__qualname__']:
+        if name in ['__class__', '__dict__', '__doc__', '__objclass__', '__name__', '__qualname__', '__annotations__']:
             continue
         try:
             attr = getattr(item, name)
         except AttributeError:
-            assert name == '__abstractmethods__'
+            assert name == '__abstractmethods__', name
             continue
 
         if module is item and not is_child(module, attr):
