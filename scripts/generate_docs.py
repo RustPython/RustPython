@@ -28,6 +28,7 @@ def scan_modules():
 def import_module(module_name):
     import io
     from contextlib import redirect_stdout
+
     # Importing modules causes ('Constant String', 2, None, 4) and
     # "Hello world!" to be printed to stdout.
     f = io.StringIO()
@@ -43,23 +44,33 @@ def import_module(module_name):
 
 def is_child(module, item):
     import inspect
+
     item_mod = inspect.getmodule(item)
     return item_mod is module
 
 
 def traverse(module, names, item):
     import inspect
+
     has_doc = inspect.ismodule(item) or inspect.isclass(item) or inspect.isbuiltin(item)
     if has_doc and isinstance(item.__doc__, str):
         yield names, item.__doc__
     attr_names = dir(item)
     for name in attr_names:
-        if name in ['__class__', '__dict__', '__doc__', '__objclass__', '__name__', '__qualname__', '__annotations__']:
+        if name in [
+            "__class__",
+            "__dict__",
+            "__doc__",
+            "__objclass__",
+            "__name__",
+            "__qualname__",
+            "__annotations__",
+        ]:
             continue
         try:
             attr = getattr(item, name)
         except AttributeError:
-            assert name == '__abstractmethods__', name
+            assert name == "__abstractmethods__", name
             continue
 
         if module is item and not is_child(module, attr):
@@ -75,7 +86,11 @@ def traverse(module, names, item):
             pass
         elif is_type_or_module:
             yield from traverse(module, new_names, attr)
-        elif callable(attr) or not issubclass(type(attr), type) or type(attr).__name__ in ('getset_descriptor', 'member_descriptor'):
+        elif (
+            callable(attr)
+            or not issubclass(type(attr), type)
+            or type(attr).__name__ in ("getset_descriptor", "member_descriptor")
+        ):
             if inspect.isbuiltin(attr):
                 yield new_names, attr.__doc__
         else:
@@ -84,18 +99,28 @@ def traverse(module, names, item):
 
 def traverse_all():
     for module_name in scan_modules():
-        if module_name in ('this', 'antigravity'):
+        if module_name in ("this", "antigravity"):
             continue
         module = import_module(module_name)
-        if hasattr(module, '__cached__'):  # python module
+        if hasattr(module, "__cached__"):  # python module
             continue
         yield from traverse(module, [module_name], module)
 
 
 def docs():
-    docs = {'.'.join(names): doc for names, doc in traverse_all()}
+    docs = {".".join(names): doc for names, doc in traverse_all()}
     return docs
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     import json
-    print(json.dumps(docs(), indent=4, sort_keys=True))
+    import sys
+
+    try:
+        out_path = sys.argv[1]
+    except IndexError:
+        out_path = "-"
+
+    dump = json.dumps(docs(), indent=4, sort_keys=True)
+    out_file = open(out_path, "w") if out_path != "-" else sys.stdout
+    out_file.write(dump)
