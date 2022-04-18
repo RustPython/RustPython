@@ -8,8 +8,7 @@ use crate::{
     VirtualMachine,
 };
 use std::{
-    ffi, fs,
-    io::{self, ErrorKind},
+    ffi, fs, io,
     path::{Path, PathBuf},
 };
 
@@ -233,31 +232,6 @@ impl PathOrFd {
             PathOrFd::Path(path) => path.filename(vm).unwrap_or_else(|_| vm.ctx.none()),
             PathOrFd::Fd(fd) => vm.ctx.new_int(*fd).into(),
         }
-    }
-}
-
-impl ToPyException for io::Error {
-    fn to_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        (&self).to_pyexception(vm)
-    }
-}
-impl ToPyException for &'_ io::Error {
-    fn to_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        let excs = &vm.ctx.exceptions;
-        #[allow(unreachable_patterns)] // some errors are just aliases of each other
-        let exc_type = match self.kind() {
-            ErrorKind::NotFound => excs.file_not_found_error.clone(),
-            ErrorKind::PermissionDenied => excs.permission_error.clone(),
-            ErrorKind::AlreadyExists => excs.file_exists_error.clone(),
-            ErrorKind::WouldBlock => excs.blocking_io_error.clone(),
-            _ => self
-                .raw_os_error()
-                .and_then(|errno| crate::exceptions::raw_os_error_to_exc_type(errno, vm))
-                .unwrap_or_else(|| excs.os_error.clone()),
-        };
-        let errno = self.raw_os_error().to_pyobject(vm);
-        let msg = vm.ctx.new_str(self.to_string()).into();
-        vm.new_exception(exc_type, vec![errno, msg])
     }
 }
 
