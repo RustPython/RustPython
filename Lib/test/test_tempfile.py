@@ -17,6 +17,7 @@ import unittest
 from test import support
 from test.support import os_helper
 from test.support import script_helper
+from test.support import warnings_helper
 
 
 has_textmode = (tempfile._text_openflags != tempfile._bin_openflags)
@@ -70,7 +71,7 @@ class BaseTestCase(unittest.TestCase):
     b_check = re.compile(br"^[a-z0-9_-]{8}$")
 
     def setUp(self):
-        self._warnings_manager = support.check_warnings()
+        self._warnings_manager = warnings_helper.check_warnings()
         self._warnings_manager.__enter__()
         warnings.filterwarnings("ignore", category=RuntimeWarning,
                                 message="mktemp", module=__name__)
@@ -1462,7 +1463,7 @@ class TestTemporaryDirectory(BaseTestCase):
             name = d.name
 
             # Check for the resource warning
-            with support.check_warnings(('Implicitly', ResourceWarning), quiet=False):
+            with warnings_helper.check_warnings(('Implicitly', ResourceWarning), quiet=False):
                 warnings.filterwarnings("always", category=ResourceWarning)
                 del d
                 support.gc_collect()

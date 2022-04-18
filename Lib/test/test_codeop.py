@@ -6,6 +6,7 @@ import sys
 import unittest
 import warnings
 from test import support
+from test.support import warnings_helper
 
 from codeop import compile_command, PyCF_DONT_IMPLY_DEDENT
 import io
@@ -313,8 +314,8 @@ class CodeopTests(unittest.TestCase):
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_warning(self):
-        # Test that the warning is only returned once.
-        with support.check_warnings(
+        # Teswarnings_helper.check_warningsonly returned once.
+        with warnings_helper.check_warnings(
                 (".*literal", SyntaxWarning),
                 (".*invalid", DeprecationWarning),
         ) as w:

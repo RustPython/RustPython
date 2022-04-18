@@ -20,7 +20,8 @@ import warnings
 from functools import partial
 from contextlib import ExitStack
 from operator import neg
-from test.support import check_warnings, swap_attr
+from test.support import swap_attr
+from test.support.warnings_helper import check_warnings
 from test.support.script_helper import assert_python_ok
 from test.support.os_helper import EnvironmentVarGuard, TESTFN, unlink
 from unittest.mock import MagicMock, patch

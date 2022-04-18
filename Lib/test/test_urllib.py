@@ -9,7 +9,7 @@ import io
 import unittest
 from unittest.mock import patch
 from test import support
-from test.support import os_helper
+from test.support import os_helper, warnings_helper
 import os
 try:
     import ssl
@@ -51,7 +51,7 @@ def urlopen(url, data=None, proxies=None):
 
 
 def FancyURLopener():
-    with support.check_warnings(
+    with warnings_helper.check_warnings(
             ('FancyURLopener style of invoking requests is deprecated.',
             DeprecationWarning)):
         return urllib.request.FancyURLopener()
@@ -602,13 +602,13 @@ Connection: close
             self.unfakehttp()
 
     def test_URLopener_deprecation(self):
-        with support.check_warnings(('',DeprecationWarning)):
+        with warnings_helper.check_warnings(('',DeprecationWarning)):
             urllib.request.URLopener()
 
     @unittest.skipUnless(ssl, "ssl module required")
     def test_cafile_and_context(self):
         context = ssl.create_default_context()
-        with support.check_warnings(('', DeprecationWarning)):
+        with warnings_helper.check_warnings(('', DeprecationWarning)):
             with self.assertRaises(ValueError):
                 urllib.request.urlopen(
                     "https://localhost", cafile="/nonexistent/path", context=context
@@ -1587,7 +1587,7 @@ class URLopener_Tests(FakeHTTPMixin, unittest.TestCase):
         class DummyURLopener(urllib.request.URLopener):
             def open_spam(self, url):
                 return url
-        with support.check_warnings(
+        with warnings_helper.check_warnings(
                 ('DummyURLopener style of invoking requests is deprecated.',
                 DeprecationWarning)):
             self.assertEqual(DummyURLopener().open(
@@ -1598,7 +1598,7 @@ class URLopener_Tests(FakeHTTPMixin, unittest.TestCase):
                 "spam://c:|windows%/:=&?~#+!$,;'@()*[]|/path/"),
                 "//c:|windows%/:=&?~#+!$,;'@()*[]|/path/")
 
-    @support.ignore_warnings(category=DeprecationWarning)
+    @warnings_helper.ignore_warnings(category=DeprecationWarning)
     def test_urlopener_retrieve_file(self):
         with os_helper.temp_dir() as tmpdir:
             fd, tmpfile = tempfile.mkstemp(dir=tmpdir)
@@ -1608,7 +1608,7 @@ class URLopener_Tests(FakeHTTPMixin, unittest.TestCase):
             # Some buildbots have TEMP folder that uses a lowercase drive letter.
             self.assertEqual(os.path.normcase(filename), os.path.normcase(tmpfile))
 
-    @support.ignore_warnings(category=DeprecationWarning)
+    @warnings_helper.ignore_warnings(category=DeprecationWarning)
     def test_urlopener_retrieve_remote(self):
         url = "http://www.python.org/file.txt"
         self.fakehttp(b"HTTP/1.1 200 OK\r\n\r\nHello!")
@@ -1616,7 +1616,7 @@ class URLopener_Tests(FakeHTTPMixin, unittest.TestCase):
         filename, _ = urllib.request.URLopener().retrieve(url)
         self.assertEqual(os.path.splitext(filename)[1], ".txt")
 
-    @support.ignore_warnings(category=DeprecationWarning)
+    @warnings_helper.ignore_warnings(category=DeprecationWarning)
     def test_local_file_open(self):
         # bpo-35907, CVE-2019-9948: urllib must reject local_file:// scheme
         class DummyURLopener(urllib.request.URLopener):

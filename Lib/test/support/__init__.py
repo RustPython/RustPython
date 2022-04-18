@@ -3,115 +3,60 @@
 if __name__ != 'test.support':
     raise ImportError('support must be imported from the test package')
 
-import asyncio.events
 import contextlib
-import errno
-import faulthandler
-import fnmatch
 import functools
-# import gc
-import glob
-import hashlib
-import importlib
-import importlib.util
-import locale
-import logging.handlers
-# import nntplib
 import os
-import platform
 import re
-import shutil
-import socket
 import stat
-import struct
-import subprocess
 import sys
 import sysconfig
-import tempfile
-import _thread
-import threading
 import time
 import types
 import unittest
-import urllib.error
 import warnings
 
 from .testresult import get_test_runner
 
-try:
-    import multiprocessing.process
-except ImportError:
-    multiprocessing = None
 
 try:
-    import zlib
+    from _testcapi import unicode_legacy_string
 except ImportError:
-    zlib = None
-
-try:
-    import gzip
-except ImportError:
-    gzip = None
-
-try:
-    import bz2
-except ImportError:
-    bz2 = None
-
-try:
-    import lzma
-except ImportError:
-    lzma = None
-
-try:
-    import resource
-except ImportError:
-    resource = None
-
-try:
-    import _hashlib
-except ImportError:
-    _hashlib = None
+    unicode_legacy_string = None
 
 __all__ = [
     # globals
     "PIPE_MAX_SIZE", "verbose", "max_memuse", "use_resources", "failfast",
     # exceptions
     "Error", "TestFailed", "TestDidNotRun", "ResourceDenied",
-    # imports
-    # modules
     # io
     "record_original_stdout", "get_original_stdout", "captured_stdout",
     "captured_stdin", "captured_stderr",
     # unittest
     "is_resource_enabled", "requires", "requires_freebsd_version",
     "requires_linux_version", "requires_mac_ver",
-    "check_syntax_error", "check_syntax_warning",
-    "TransientResource", "time_out", "socket_peer_reset", "ioerror_peer_reset",
-    "transient_internet", "BasicTestRunner", "run_unittest", "run_doctest",
-    "skip_unless_symlink", "requires_gzip", "requires_bz2", "requires_lzma",
+    "check_syntax_error",
+    "BasicTestRunner", "run_unittest", "run_doctest",
+    "requires_gzip", "requires_bz2", "requires_lzma",
     "bigmemtest", "bigaddrspacetest", "cpython_only", "get_attribute",
-    "requires_IEEE_754", "skip_unless_xattr", "requires_zlib",
+    "requires_IEEE_754", "requires_zlib",
     "anticipate_failure", "load_package_tests", "detect_api_mismatch",
-    "check__all__", "skip_unless_bind_unix_socket", "skip_if_buggy_ucrt_strfptime",
-    "ignore_warnings",
+    "check__all__", "skip_if_buggy_ucrt_strfptime",
+    "check_disallow_instantiation", "check_sanitizer", "skip_if_sanitizer",
     # sys
     "is_jython", "is_android", "check_impl_detail", "unix_shell",
     "setswitchinterval",
     # network
     "open_urlresource",
     # processes
-    'temp_umask', "reap_children",
-    # logging
-    "TestHandler",
+    "reap_children",
     # miscellaneous
-    "check_warnings", "check_no_resource_warning", "check_no_warnings",
-    "EnvironmentVarGuard",
-    "run_with_locale", "swap_item",
+    "run_with_locale", "swap_item", "findfile",
     "swap_attr", "Matcher", "set_memlimit", "SuppressCrashReport", "sortdict",
-    "run_with_tz", "PGO", "missing_compiler_executable", "fd_count",
-    "ALWAYS_EQ", "LARGEST", "SMALLEST"
+    "run_with_tz", "PGO", "missing_compiler_executable",
+    "ALWAYS_EQ", "NEVER_EQ", "LARGEST", "SMALLEST",
+    "LOOPBACK_TIMEOUT", "INTERNET_TIMEOUT", "SHORT_TIMEOUT", "LONG_TIMEOUT",
     ]
+
 
 # Timeout in seconds for tests using a network server listening on the network
 # local loopback interface like 127.0.0.1.
@@ -154,13 +99,6 @@ SHORT_TIMEOUT = 30.0
 # option.
 LONG_TIMEOUT = 5 * 60.0
 
-# TEST_HOME_DIR refers to the top level directory of the "test" package
-# that contains Python's regression test suite
-TEST_SUPPORT_DIR = os.path.dirname(os.path.abspath(__file__))
-TEST_HOME_DIR = os.path.dirname(TEST_SUPPORT_DIR)
-STDLIB_DIR = os.path.dirname(TEST_HOME_DIR)
-REPO_ROOT = os.path.dirname(STDLIB_DIR)
-
 
 class Error(Exception):
     """Base class for regression test exceptions."""
@@ -190,23 +128,6 @@ class ResourceDenied(unittest.SkipTest):
     and unexpected skips.
     """
 
-
-def ignore_warnings(*, category):
-    """Decorator to suppress deprecation warnings.
-
-    Use of context managers to hide warnings make diffs
-    more noisy and tools like 'git blame' less useful.
-    """
-    def decorator(test):
-        @functools.wraps(test)
-        def wrapper(self, *args, **kwargs):
-            with warnings.catch_warnings():
-                warnings.simplefilter('ignore', category=category)
-                return test(self, *args, **kwargs)
-        return wrapper
-    return decorator
-
-
 def anticipate_failure(condition):
     """Decorator to mark a test that is known to be broken in some cases
 
@@ -227,7 +148,9 @@ def load_package_tests(pkg_dir, loader, standard_tests, pattern):
     """
     if pattern is None:
         pattern = "test*"
-    top_dir = STDLIB_DIR
+    top_dir = os.path.dirname(              # Lib
+                  os.path.dirname(              # test
+                      os.path.dirname(__file__)))   # support
     package_tests = loader.discover(start_dir=pkg_dir,
                                     top_level_dir=top_dir,
                                     pattern=pattern)
@@ -262,6 +185,7 @@ def record_original_stdout(stdout):
 
 def get_original_stdout():
     return _original_stdout or sys.stdout
+
 
 def _force_run(path, func, *args):
     try:
@@ -443,15 +367,39 @@ def requires_mac_ver(*min_version):
     return decorator
 
 
-def skip_if_buildbot(reason=None):
-    """Decorator raising SkipTest if running on a buildbot."""
+def check_sanitizer(*, address=False, memory=False, ub=False):
+    """Returns True if Python is compiled with sanitizer support"""
+    if not (address or memory or ub):
+        raise ValueError('At least one of address, memory, or ub must be True')
+
+
+    _cflags = sysconfig.get_config_var('CFLAGS') or ''
+    _config_args = sysconfig.get_config_var('CONFIG_ARGS') or ''
+    memory_sanitizer = (
+        '-fsanitize=memory' in _cflags or
+        '--with-memory-sanitizer' in _config_args
+    )
+    address_sanitizer = (
+        '-fsanitize=address' in _cflags or
+        '--with-memory-sanitizer' in _config_args
+    )
+    ub_sanitizer = (
+        '-fsanitize=undefined' in _cflags or
+        '--with-undefined-behavior-sanitizer' in _config_args
+    )
+    return (
+        (memory and memory_sanitizer) or
+        (address and address_sanitizer) or
+        (ub and ub_sanitizer)
+    )
+
+
+def skip_if_sanitizer(reason=None, *, address=False, memory=False, ub=False):
+    """Decorator raising SkipTest if running with a sanitizer active."""
     if not reason:
-        reason = 'not suitable for buildbots'
-    if sys.platform == 'win32':
-        isbuildbot = os.environ.get('USERNAME') == 'Buildbot'
-    else:
-        isbuildbot = os.environ.get('USER') == 'buildbot'
-    return unittest.skipIf(isbuildbot, reason)
+        reason = 'not working with sanitizers active'
+    skip = check_sanitizer(address=address, memory=memory, ub=ub)
+    return unittest.skipIf(skip, reason)
 
 
 def system_must_validate_cert(f):
@@ -487,13 +435,36 @@ SOCK_MAX_SIZE = 16 * 1024 * 1024 + 1
 #     "test requires IEEE 754 doubles")
 requires_IEEE_754 = unittest.skipIf(False, "RustPython always has IEEE 754 floating point numbers")
 
-requires_zlib = unittest.skipUnless(zlib, 'requires zlib')
+def requires_zlib(reason='requires zlib'):
+    try:
+        import zlib
+    except ImportError:
+        zlib = None
+    return unittest.skipUnless(zlib, reason)
 
-requires_gzip = unittest.skipUnless(gzip, 'requires gzip')
+def requires_gzip(reason='requires gzip'):
+    try:
+        import gzip
+    except ImportError:
+        gzip = None
+    return unittest.skipUnless(gzip, reason)
 
-requires_bz2 = unittest.skipUnless(bz2, 'requires bz2')
+def requires_bz2(reason='requires bz2'):
+    try:
+        import bz2
+    except ImportError:
+        bz2 = None
+    return unittest.skipUnless(bz2, reason)
 
-requires_lzma = unittest.skipUnless(lzma, 'requires lzma')
+def requires_lzma(reason='requires lzma'):
+    try:
+        import lzma
+    except ImportError:
+        lzma = None
+    return unittest.skipUnless(lzma, reason)
+
+requires_legacy_unicode_capi = unittest.skipUnless(unicode_legacy_string,
+                        'requires legacy Unicode C API')
 
 is_jython = sys.platform.startswith('java')
 
@@ -515,6 +486,11 @@ PGO = False
 # Set by libregrtest/main.py if we are running the extended (time consuming)
 # PGO task.  If this is True, PGO is also True.
 PGO_EXTENDED = False
+
+# TEST_HOME_DIR refers to the top level directory of the "test" package
+# that contains Python's regression test suite
+TEST_SUPPORT_DIR = os.path.dirname(os.path.abspath(__file__))
+TEST_HOME_DIR = os.path.dirname(TEST_SUPPORT_DIR)
 
 # TEST_DATA_DIR is used as a target download location for remote resources
 TEST_DATA_DIR = os.path.join(TEST_HOME_DIR, "data")
@@ -575,32 +551,6 @@ def check_syntax_error(testcase, statement, errtext='', *, lineno=None, offset=N
     if offset is not None:
         testcase.assertEqual(err.offset, offset)
 
-def check_syntax_warning(testcase, statement, errtext='', *, lineno=1, offset=None):
-    # Test also that a warning is emitted only once.
-    with warnings.catch_warnings(record=True) as warns:
-        warnings.simplefilter('always', SyntaxWarning)
-        compile(statement, '<testcase>', 'exec')
-    testcase.assertEqual(len(warns), 1, warns)
-
-    warn, = warns
-    testcase.assertTrue(issubclass(warn.category, SyntaxWarning), warn.category)
-    if errtext:
-        testcase.assertRegex(str(warn.message), errtext)
-    testcase.assertEqual(warn.filename, '<testcase>')
-    testcase.assertIsNotNone(warn.lineno)
-    if lineno is not None:
-        testcase.assertEqual(warn.lineno, lineno)
-
-    # SyntaxWarning should be converted to SyntaxError when raised,
-    # since the latter contains more information and provides better
-    # error report.
-    with warnings.catch_warnings(record=True) as warns:
-        warnings.simplefilter('error', SyntaxWarning)
-        check_syntax_error(testcase, statement, errtext,
-                           lineno=lineno, offset=offset)
-    # No warnings are leaked when a SyntaxError is raised.
-    testcase.assertEqual(warns, [])
-
 
 def open_urlresource(url, *args, **kw):
     import urllib.request, urllib.parse
@@ -657,267 +607,6 @@ def open_urlresource(url, *args, **kw):
     raise TestFailed('invalid resource %r' % fn)
 
 
-class WarningsRecorder(object):
-    """Convenience wrapper for the warnings list returned on
-       entry to the warnings.catch_warnings() context manager.
-    """
-    def __init__(self, warnings_list):
-        self._warnings = warnings_list
-        self._last = 0
-
-    def __getattr__(self, attr):
-        if len(self._warnings) > self._last:
-            return getattr(self._warnings[-1], attr)
-        elif attr in warnings.WarningMessage._WARNING_DETAILS:
-            return None
-        raise AttributeError("%r has no attribute %r" % (self, attr))
-
-    @property
-    def warnings(self):
-        return self._warnings[self._last:]
-
-    def reset(self):
-        self._last = len(self._warnings)
-
-
-def _filterwarnings(filters, quiet=False):
-    """Catch the warnings, then check if all the expected
-    warnings have been raised and re-raise unexpected warnings.
-    If 'quiet' is True, only re-raise the unexpected warnings.
-    """
-    # Clear the warning registry of the calling module
-    # in order to re-raise the warnings.
-    frame = sys._getframe(2)
-    registry = frame.f_globals.get('__warningregistry__')
-    if registry:
-        registry.clear()
-    with warnings.catch_warnings(record=True) as w:
-        # Set filter "always" to record all warnings.  Because
-        # test_warnings swap the module, we need to look up in
-        # the sys.modules dictionary.
-        sys.modules['warnings'].simplefilter("always")
-        yield WarningsRecorder(w)
-    # Filter the recorded warnings
-    reraise = list(w)
-    missing = []
-    for msg, cat in filters:
-        seen = False
-        for w in reraise[:]:
-            warning = w.message
-            # Filter out the matching messages
-            if (re.match(msg, str(warning), re.I) and
-                issubclass(warning.__class__, cat)):
-                seen = True
-                reraise.remove(w)
-        if not seen and not quiet:
-            # This filter caught nothing
-            missing.append((msg, cat.__name__))
-    if reraise:
-        raise AssertionError("unhandled warning %s" % reraise[0])
-    if missing:
-        raise AssertionError("filter (%r, %s) did not catch any warning" %
-                             missing[0])
-
-
-@contextlib.contextmanager
-def check_warnings(*filters, **kwargs):
-    """Context manager to silence warnings.
-
-    Accept 2-tuples as positional arguments:
-        ("message regexp", WarningCategory)
-
-    Optional argument:
-     - if 'quiet' is True, it does not fail if a filter catches nothing
-        (default True without argument,
-         default False if some filters are defined)
-
-    Without argument, it defaults to:
-        check_warnings(("", Warning), quiet=True)
-    """
-    quiet = kwargs.get('quiet')
-    if not filters:
-        filters = (("", Warning),)
-        # Preserve backward compatibility
-        if quiet is None:
-            quiet = True
-    return _filterwarnings(filters, quiet)
-
-
-@contextlib.contextmanager
-def check_no_warnings(testcase, message='', category=Warning, force_gc=False):
-    """Context manager to check that no warnings are emitted.
-
-    This context manager enables a given warning within its scope
-    and checks that no warnings are emitted even with that warning
-    enabled.
-
-    If force_gc is True, a garbage collection is attempted before checking
-    for warnings. This may help to catch warnings emitted when objects
-    are deleted, such as ResourceWarning.
-
-    Other keyword arguments are passed to warnings.filterwarnings().
-    """
-    with warnings.catch_warnings(record=True) as warns:
-        warnings.filterwarnings('always',
-                                message=message,
-                                category=category)
-        yield
-        if force_gc:
-            gc_collect()
-    testcase.assertEqual(warns, [])
-
-
-@contextlib.contextmanager
-def check_no_resource_warning(testcase):
-    """Context manager to check that no ResourceWarning is emitted.
-
-    Usage:
-
-        with check_no_resource_warning(self):
-            f = open(...)
-            ...
-            del f
-
-    You must remove the object which may emit ResourceWarning before
-    the end of the context manager.
-    """
-    with check_no_warnings(testcase, category=ResourceWarning, force_gc=True):
-        yield
-
-
-
-class TransientResource(object):
-
-    """Raise ResourceDenied if an exception is raised while the context manager
-    is in effect that matches the specified exception and attributes."""
-
-    def __init__(self, exc, **kwargs):
-        self.exc = exc
-        self.attrs = kwargs
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, type_=None, value=None, traceback=None):
-        """If type_ is a subclass of self.exc and value has attributes matching
-        self.attrs, raise ResourceDenied.  Otherwise let the exception
-        propagate (if any)."""
-        if type_ is not None and issubclass(self.exc, type_):
-            for attr, attr_value in self.attrs.items():
-                if not hasattr(value, attr):
-                    break
-                if getattr(value, attr) != attr_value:
-                    break
-            else:
-                raise ResourceDenied("an optional resource is not available")
-
-# Context managers that raise ResourceDenied when various issues
-# with the Internet connection manifest themselves as exceptions.
-# XXX deprecate these and use transient_internet() instead
-time_out = TransientResource(OSError, errno=errno.ETIMEDOUT)
-socket_peer_reset = TransientResource(OSError, errno=errno.ECONNRESET)
-ioerror_peer_reset = TransientResource(OSError, errno=errno.ECONNRESET)
-
-
-def get_socket_conn_refused_errs():
-    """
-    Get the different socket error numbers ('errno') which can be received
-    when a connection is refused.
-    """
-    errors = [errno.ECONNREFUSED]
-    if hasattr(errno, 'ENETUNREACH'):
-        # On Solaris, ENETUNREACH is returned sometimes instead of ECONNREFUSED
-        errors.append(errno.ENETUNREACH)
-    if hasattr(errno, 'EADDRNOTAVAIL'):
-        # bpo-31910: socket.create_connection() fails randomly
-        # with EADDRNOTAVAIL on Travis CI
-        errors.append(errno.EADDRNOTAVAIL)
-    if hasattr(errno, 'EHOSTUNREACH'):
-        # bpo-37583: The destination host cannot be reached
-        errors.append(errno.EHOSTUNREACH)
-    if not IPV6_ENABLED:
-        errors.append(errno.EAFNOSUPPORT)
-    return errors
-
-
-@contextlib.contextmanager
-def transient_internet(resource_name, *, timeout=30.0, errnos=()):
-    """Return a context manager that raises ResourceDenied when various issues
-    with the Internet connection manifest themselves as exceptions."""
-    default_errnos = [
-        ('ECONNREFUSED', 111),
-        ('ECONNRESET', 104),
-        ('EHOSTUNREACH', 113),
-        ('ENETUNREACH', 101),
-        ('ETIMEDOUT', 110),
-        # socket.create_connection() fails randomly with
-        # EADDRNOTAVAIL on Travis CI.
-        ('EADDRNOTAVAIL', 99),
-    ]
-    default_gai_errnos = [
-        ('EAI_AGAIN', -3),
-        ('EAI_FAIL', -4),
-        ('EAI_NONAME', -2),
-        ('EAI_NODATA', -5),
-        # Encountered when trying to resolve IPv6-only hostnames
-        ('WSANO_DATA', 11004),
-    ]
-
-    denied = ResourceDenied("Resource %r is not available" % resource_name)
-    captured_errnos = errnos
-    gai_errnos = []
-    if not captured_errnos:
-        captured_errnos = [getattr(errno, name, num)
-                           for (name, num) in default_errnos]
-        gai_errnos = [getattr(socket, name, num)
-                      for (name, num) in default_gai_errnos]
-
-    def filter_error(err):
-        n = getattr(err, 'errno', None)
-        if (isinstance(err, socket.timeout) or
-            (isinstance(err, socket.gaierror) and n in gai_errnos) or
-            (isinstance(err, urllib.error.HTTPError) and
-             500 <= err.code <= 599) or
-            (isinstance(err, urllib.error.URLError) and
-                 (("ConnectionRefusedError" in err.reason) or
-                  ("TimeoutError" in err.reason) or
-                  ("EOFError" in err.reason))) or
-            n in captured_errnos):
-            if not verbose:
-                sys.stderr.write(denied.args[0] + "\n")
-            raise denied from err
-
-    old_timeout = socket.getdefaulttimeout()
-    try:
-        if timeout is not None:
-            socket.setdefaulttimeout(timeout)
-        yield
-    except nntplib.NNTPTemporaryError as err:
-        if verbose:
-            sys.stderr.write(denied.args[0] + "\n")
-        raise denied from err
-    except OSError as err:
-        # urllib can wrap original socket errors multiple times (!), we must
-        # unwrap to get at the original error.
-        while True:
-            a = err.args
-            if len(a) >= 1 and isinstance(a[0], OSError):
-                err = a[0]
-            # The error can also be wrapped as args[1]:
-            #    except socket.error as msg:
-            #        raise OSError('socket error', msg).with_traceback(sys.exc_info()[2])
-            elif len(a) >= 2 and isinstance(a[1], OSError):
-                err = a[1]
-            else:
-                break
-        filter_error(err)
-        raise
-    # XXX should we catch generic exceptions and look for their
-    # __cause__ or __context__?
-    finally:
-        socket.setdefaulttimeout(old_timeout)
-
-
 @contextlib.contextmanager
 def captured_output(stream_name):
     """Return a context manager used by captured_stdout/stdin/stderr
@@ -972,6 +661,7 @@ def gc_collect():
     objects to disappear.
     """
     # TODO: RUSTPYTHON (comment out before)
+    # import gc
     # gc.collect()
     # if is_jython:
     #     time.sleep(0.1)
@@ -982,6 +672,7 @@ def gc_collect():
 @contextlib.contextmanager
 def disable_gc():
     # TODO: RUSTPYTHON (comment out before)
+    # import gc
     # have_gc = gc.isenabled()
     # gc.disable()
     # try:
@@ -1010,9 +701,11 @@ if hasattr(sys, "getobjects"):
 _vheader = _header + 'n'
 
 def calcobjsize(fmt):
+    import struct
     return struct.calcsize(_header + fmt + _align)
 
 def calcvobjsize(fmt):
+    import struct
     return struct.calcsize(_vheader + fmt + _align)
 
 
@@ -1444,18 +1137,17 @@ def _compile_match_function(patterns):
 def run_unittest(*classes):
     """Run tests from unittest.TestCase-derived classes."""
     valid_types = (unittest.TestSuite, unittest.TestCase)
-    loader = unittest.TestLoader()
     suite = unittest.TestSuite()
     for cls in classes:
         if isinstance(cls, str):
             if cls in sys.modules:
-                suite.addTest(loader.loadTestsFromModule(sys.modules[cls]))
+                suite.addTest(unittest.findTestCases(sys.modules[cls]))
             else:
                 raise ValueError("str arguments must be keys in sys.modules")
         elif isinstance(cls, valid_types):
             suite.addTest(cls)
         else:
-            suite.addTest(loader.loadTestsFromTestCase(cls))
+            suite.addTest(unittest.makeSuite(cls))
     _filter_suite(suite, match_test)
     _run_suite(suite)
 
@@ -1509,27 +1201,12 @@ def run_doctest(module, verbosity=None, optionflags=0):
 #=======================================================================
 # Support for saving and restoring the imported modules.
 
-def flush_std_streams():
-    if sys.stdout is not None:
-        sys.stdout.flush()
-    if sys.stderr is not None:
-        sys.stderr.flush()
-
-
 def print_warning(msg):
-    # bpo-45410: Explicitly flush stdout to keep logs in order
-    flush_std_streams()
-    stream = print_warning.orig_stderr
+    # bpo-39983: Print into sys.__stderr__ to display the warning even
+    # when sys.stderr is captured temporarily by a test
     for line in msg.splitlines():
-        print(f"Warning -- {line}", file=stream)
-    stream.flush()
+        print(f"Warning -- {line}", file=sys.__stderr__, flush=True)
 
-# bpo-39983: Store the original sys.stderr at Python startup to be able to
-# log warnings even if sys.stderr is captured temporarily by a test.
-print_warning.orig_stderr = sys.stderr
-
-#=======================================================================
-# Threading support to prevent reporting refleaks when running regrtest.py -R
 
 # Flag used by saved_test_environment of test.libregrtest.save_env,
 # to check if a test modified the environment. The flag should be set to False
@@ -1629,6 +1306,7 @@ def swap_item(obj, item, new_val):
             if item in obj:
                 del obj[item]
 
+# TODO: removed in  3.9.0a2
 def strip_python_stderr(stderr):
     """Strip the stderr of a Python process from potential debug output
     emitted by the interpreter.
@@ -1655,37 +1333,6 @@ def optim_args_from_interpreter_flags():
     import subprocess
     return subprocess._optim_args_from_interpreter_flags()
 
-#============================================================
-# Support for assertions about logging.
-#============================================================
-
-# class TestHandler(logging.handlers.BufferingHandler):
-#     def __init__(self, matcher):
-#         # BufferingHandler takes a "capacity" argument
-#         # so as to know when to flush. As we're overriding
-#         # shouldFlush anyway, we can set a capacity of zero.
-#         # You can call flush() manually to clear out the
-#         # buffer.
-#         logging.handlers.BufferingHandler.__init__(self, 0)
-#         self.matcher = matcher
-
-#     def shouldFlush(self):
-#         return False
-
-#     def emit(self, record):
-#         self.format(record)
-#         self.buffer.append(record.__dict__)
-
-#     def matches(self, **kwargs):
-#         """
-#         Look for a saved dict whose keys/values match the supplied arguments.
-#         """
-#         result = False
-#         for d in self.buffer:
-#             if self.matcher.matches(d, **kwargs):
-#                 result = True
-#                 break
-#         return result
 
 class Matcher(object):
 
@@ -1757,9 +1404,6 @@ class PythonSymlink:
 
         self._platform_specific()
 
-    def _platform_specific(self):
-        pass
-
     if sys.platform == "win32":
         def _platform_specific(self):
             import glob
@@ -1786,7 +1430,10 @@ class PythonSymlink:
             self._env = {k.upper(): os.getenv(k) for k in os.environ}
             self._env["PYTHONHOME"] = os.path.dirname(self.real)
             if sysconfig.is_python_build(True):
-                self._env["PYTHONPATH"] = STDLIB_DIR
+                self._env["PYTHONPATH"] = os.path.dirname(os.__file__)
+    else:
+        def _platform_specific(self):
+            pass
 
     def __enter__(self):
         os.symlink(self.real, self.link)
@@ -1830,31 +1477,6 @@ def skip_if_pgo_task(test):
     ok = not PGO or PGO_EXTENDED
     msg = "Not run for (non-extended) PGO task"
     return test if ok else unittest.skip(msg)(test)
-
-_bind_nix_socket_error = None
-def skip_unless_bind_unix_socket(test):
-    """Decorator for tests requiring a functional bind() for unix sockets."""
-    from .os_helper import TESTFN
-    if not hasattr(socket, 'AF_UNIX'):
-        return unittest.skip('No UNIX Sockets')(test)
-    global _bind_nix_socket_error
-    if _bind_nix_socket_error is None:
-        path = TESTFN + "can_bind_unix_socket"
-        with socket.socket(socket.AF_UNIX) as sock:
-            try:
-                sock.bind(path)
-                _bind_nix_socket_error = False
-            except OSError as e:
-                _bind_nix_socket_error = e
-            finally:
-                from .os_helper import unlink
-                unlink(path)
-    if _bind_nix_socket_error:
-        msg = 'Requires a functional unix bind(): %s' % _bind_nix_socket_error
-        return unittest.skip(msg)(test)
-    else:
-        return test
-
 
 
 def detect_api_mismatch(ref_api, other_api, *, ignore=()):
@@ -2448,6 +2070,16 @@ def skip_if_broken_multiprocessing_synchronize():
             raise unittest.SkipTest(f"broken multiprocessing SemLock: {exc!r}")
 
 
+@contextlib.contextmanager
+def infinite_recursion(max_depth=75):
+    original_depth = sys.getrecursionlimit()
+    try:
+        sys.setrecursionlimit(max_depth)
+        yield
+    finally:
+        sys.setrecursionlimit(original_depth)
+
+
 def check_disallow_instantiation(testcase, tp, *args, **kwds):
     """
     Check that given type cannot be instantiated using *args and **kwds.
@@ -2463,20 +2095,6 @@ def check_disallow_instantiation(testcase, tp, *args, **kwds):
     msg = f"cannot create '{re.escape(qualname)}' instances"
     testcase.assertRaisesRegex(TypeError, msg, tp, *args, **kwds)
 
-@contextlib.contextmanager
-def infinite_recursion(max_depth=75):
-    """Set a lower limit for tests that interact with infinite recursions
-    (e.g test_ast.ASTHelpers_Test.test_recursion_direct) since on some
-    debug windows builds, due to not enough functions being inlined the
-    stack size might not handle the default recursion limit (1000). See
-    bpo-11105 for details."""
-
-    original_depth = sys.getrecursionlimit()
-    try:
-        sys.setrecursionlimit(max_depth)
-        yield
-    finally:
-        sys.setrecursionlimit(original_depth)
 
 def ignore_deprecations_from(module: str, *, like: str) -> object:
     token = object()
@@ -2487,6 +2105,7 @@ def ignore_deprecations_from(module: str, *, like: str) -> object:
         message=like + fr"(?#support{id(token)})",
     )
     return token
+
 
 def clear_ignored_deprecations(*tokens: object) -> None:
     if not tokens:

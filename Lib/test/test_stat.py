@@ -2,7 +2,7 @@ import unittest
 import os
 import socket
 import sys
-from test.support import skip_unless_bind_unix_socket
+from test.support.socket_helper import skip_unless_bind_unix_socket
 from test.support.os_helper import TESTFN
 from test.support.import_helper import import_fresh_module
 

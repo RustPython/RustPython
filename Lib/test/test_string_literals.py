@@ -63,7 +63,7 @@ def byte(i):
 
 class TestLiterals(unittest.TestCase):
 
-    from test.support import check_syntax_warning
+    from test.support.warnings_helper import check_syntax_warning
 
     def setUp(self):
         self.save_path = sys.path[:]

@@ -15,7 +15,7 @@ import unicodedata
 import unittest
 import warnings
 from test import support, string_tests
-from test.support import import_helper
+from test.support import import_helper, warnings_helper
 
 # Error handling (bad decoder return)
 def search_function(encoding):
@@ -506,7 +506,7 @@ class UnicodeTest(string_tests.CommonTest,
         self.assertIs(text.replace(pattern, pattern), text)
 
     def test_bytes_comparison(self):
-        with support.check_warnings():
+        with warnings_helper.check_warnings():
             warnings.simplefilter('ignore', BytesWarning)
             self.assertEqual('abc' == b'abc', False)
             self.assertEqual('abc' != b'abc', True)

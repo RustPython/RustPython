@@ -14,7 +14,7 @@ try:
 except ImportError:
     _testcapi = None
 
-from test.support import skip_if_buggy_ucrt_strfptime
+from test.support import skip_if_buggy_ucrt_strfptime, warnings_helper
 
 # Max year is only limited by the size of C int.
 SIZEOF_INT = sysconfig.get_config_var('SIZEOF_INT') or 4
@@ -255,7 +255,7 @@ class TimeTestCase(unittest.TestCase):
         # not change output based on its value and no test for year
         # because systems vary in their support for year 0.
         expected = "2000 01 01 00 00 00 1 001"
-        with support.check_warnings():
+        with warnings_helper.check_warnings():
             result = time.strftime("%Y %m %d %H %M %S %w %j", (2000,)+(0,)*8)
         self.assertEqual(expected, result)
 

@@ -7,8 +7,7 @@ from weakref import proxy
 import io
 import _pyio as pyio
 
-from test import support
-from test.support import os_helper
+from test.support import os_helper, warnings_helper
 from test.support.os_helper import TESTFN
 from collections import UserList
 
@@ -189,7 +188,7 @@ class OtherFileTests:
         # make sure that explicitly setting the buffer size doesn't cause
         # misbehaviour especially with repeated close() calls
         for s in (-1, 0, 512):
-            with support.check_no_warnings(self,
+            with warnings_helper.check_no_warnings(self,
                                            message='line buffering',
                                            category=RuntimeWarning):
                 self._checkBufferSize(s)

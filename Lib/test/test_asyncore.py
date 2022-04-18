@@ -13,6 +13,7 @@ from test import support
 from test.support import os_helper
 from test.support import socket_helper
 from test.support import threading_helper
+from test.support import warnings_helper
 from io import BytesIO
 
 if support.PGO:
@@ -421,7 +422,7 @@ class FileWrapperTest(unittest.TestCase):
         f = asyncore.file_wrapper(fd)
 
         os.close(fd)
-        with support.check_warnings(('', ResourceWarning)):
+        with warnings_helper.check_warnings(('', ResourceWarning)):
             f = None
             support.gc_collect()
 

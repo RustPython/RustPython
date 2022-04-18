@@ -5,10 +5,11 @@ import subprocess
 import shutil
 from copy import copy
 
-from test.support import check_warnings, captured_stdout, PythonSymlink
+from test.support import captured_stdout, PythonSymlink
 from test.support.os_helper import (TESTFN, unlink, skip_unless_symlink,
                                     change_cwd)
 from test.support.import_helper import import_module
+from test.support.warnings_helper import check_warnings
 
 import sysconfig
 from sysconfig import (get_paths, get_platform, get_config_vars,

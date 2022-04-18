@@ -1,6 +1,8 @@
 import unittest
 from test import support
 from test.support import os_helper
+from test.support import socket_helper
+from test.support import warnings_helper
 from test import test_urllib
 
 import os
@@ -47,6 +49,9 @@ class TrivialTests(unittest.TestCase):
 
     def test_trivial(self):
         # A couple trivial tests
+
+        # clear _opener global variable
+        self.addCleanup(urllib.request.urlcleanup)
 
         self.assertRaises(ValueError, urllib.request.urlopen, 'bogus url')
 
@@ -136,6 +141,8 @@ class RequestHdrsTests(unittest.TestCase):
         req.remove_header("Unredirected-spam")
         self.assertFalse(req.has_header("Unredirected-spam"))
 
+    # TODO: RUSTPYTHON, AssertionError: Tuples differ: ('foo', 'ni') != (None, None)
+    @unittest.expectedFailure
     def test_password_manager(self):
         mgr = urllib.request.HTTPPasswordMgr()
         add = mgr.add_password
@@ -159,7 +166,6 @@ class RequestHdrsTests(unittest.TestCase):
         self.assertEqual(find_user_pass("Some Realm",
                                         "http://example.com/spam"),
                          ('joe', 'password'))
-
         self.assertEqual(find_user_pass("Some Realm",
                                         "http://example.com/spam/spam"),
                          ('joe', 'password'))
@@ -168,12 +174,29 @@ class RequestHdrsTests(unittest.TestCase):
 
         add("c", "http://example.com/foo", "foo", "ni")
         add("c", "http://example.com/bar", "bar", "nini")
+        add("c", "http://example.com/foo/bar", "foobar", "nibar")
 
         self.assertEqual(find_user_pass("c", "http://example.com/foo"),
                          ('foo', 'ni'))
-
         self.assertEqual(find_user_pass("c", "http://example.com/bar"),
                          ('bar', 'nini'))
+        self.assertEqual(find_user_pass("c", "http://example.com/foo/"),
+                         ('foo', 'ni'))
+        self.assertEqual(find_user_pass("c", "http://example.com/foo/bar"),
+                         ('foo', 'ni'))
+        self.assertEqual(find_user_pass("c", "http://example.com/foo/baz"),
+                         ('foo', 'ni'))
+        self.assertEqual(find_user_pass("c", "http://example.com/foobar"),
+                         (None, None))
+
+        add("c", "http://example.com/baz/", "baz", "ninini")
+
+        self.assertEqual(find_user_pass("c", "http://example.com/baz"),
+                         (None, None))
+        self.assertEqual(find_user_pass("c", "http://example.com/baz/"),
+                         ('baz', 'ninini'))
+        self.assertEqual(find_user_pass("c", "http://example.com/baz/bar"),
+                         ('baz', 'ninini'))
 
         # For the same path, newer password should be considered.
 
@@ -634,17 +657,12 @@ class OpenerDirectorTests(unittest.TestCase):
             [("http_error_302")],
             ]
         handlers = add_ordered_mock_handlers(o, meth_spec)
-
-        class Unknown:
-            def __eq__(self, other):
-                return True
-
         req = Request("http://example.com/")
         o.open(req)
         assert len(o.calls) == 2
         calls = [(handlers[0], "http_open", (req,)),
                  (handlers[2], "http_error_302",
-                  (req, Unknown(), 302, "", {}))]
+                  (req, support.ALWAYS_EQ, 302, "", {}))]
         for expected, got in zip(calls, o.calls):
             handler, method_name, args = expected
             self.assertEqual((handler, method_name), got[:2])
@@ -1307,6 +1325,10 @@ class HandlerTests(unittest.TestCase):
 
     def test_redirect_no_path(self):
         # Issue 14132: Relative redirect strips original path
+
+        # clear _opener global variable
+        self.addCleanup(urllib.request.urlcleanup)
+
         real_class = http.client.HTTPConnection
         response1 = b"HTTP/1.1 302 Found\r\nLocation: ?query\r\n\r\n"
         http.client.HTTPConnection = test_urllib.fakehttp(response1)
@@ -1522,7 +1544,7 @@ class HandlerTests(unittest.TestCase):
             self.check_basic_auth(headers, realm)
 
         # no quote: expect a warning
-        with support.check_warnings(("Basic Auth Realm was unquoted",
+        with warnings_helper.check_warnings(("Basic Auth Realm was unquoted",
                                      UserWarning)):
             headers = [f'WWW-Authenticate: Basic realm={realm}']
             self.check_basic_auth(headers, realm)
@@ -1682,8 +1704,9 @@ class HandlerTests(unittest.TestCase):
         auth_prior_handler.add_password(
             None, request_url, user, password, is_authenticated=True)
 
-        is_auth = pwd_manager.is_authenticated(request_url)
-        self.assertTrue(is_auth)
+        self.assertTrue(pwd_manager.is_authenticated(request_url))
+        self.assertTrue(pwd_manager.is_authenticated(request_url + '/nested'))
+        self.assertFalse(pwd_manager.is_authenticated(request_url + 'plain'))
 
         opener = OpenerDirector()
         opener.add_handler(auth_prior_handler)
@@ -1813,22 +1836,6 @@ class MiscTests(unittest.TestCase):
         o = build_opener(MyHTTPHandler, MyOtherHTTPHandler)
         self.opener_has_handler(o, MyHTTPHandler)
         self.opener_has_handler(o, MyOtherHTTPHandler)
-
-    @unittest.skipUnless(support.is_resource_enabled('network'),
-                         'test requires network access')
-    def test_issue16464(self):
-        with support.transient_internet("http://www.example.com/"):
-            opener = urllib.request.build_opener()
-            request = urllib.request.Request("http://www.example.com/")
-            self.assertEqual(None, request.data)
-
-            opener.open(request, "1".encode("us-ascii"))
-            self.assertEqual(b"1", request.data)
-            self.assertEqual("1", request.get_header("Content-length"))
-
-            opener.open(request, "1234567890".encode("us-ascii"))
-            self.assertEqual(b"1234567890", request.data)
-            self.assertEqual("10", request.get_header("Content-length"))
 
     def test_HTTPError_interface(self):
         """
