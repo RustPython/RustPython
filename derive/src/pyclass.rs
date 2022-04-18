@@ -6,6 +6,7 @@ use crate::util::{
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, quote_spanned, ToTokens};
 use std::collections::HashMap;
+use std::str::FromStr;
 use syn::{
     parse::{Parse, ParseStream, Result as ParsingResult},
     parse_quote,
@@ -13,6 +14,50 @@ use syn::{
     Attribute, AttributeArgs, Ident, Item, LitStr, Meta, NestedMeta, Result, Token,
 };
 use syn_ext::ext::*;
+
+#[derive(Copy, Clone, Debug)]
+enum AttrName {
+    Method,
+    ClassMethod,
+    StaticMethod,
+    GetSet,
+    Slot,
+    Attr,
+    ExtendClass,
+}
+
+impl std::fmt::Display for AttrName {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let s = match self {
+            Self::Method => "pymethod",
+            Self::ClassMethod => "pyclassmethod",
+            Self::StaticMethod => "pystaticmethod",
+            Self::GetSet => "pyproperty",
+            Self::Slot => "pyslot",
+            Self::Attr => "pyattr",
+            Self::ExtendClass => "extend_class",
+        };
+        s.fmt(f)
+    }
+}
+
+impl FromStr for AttrName {
+    type Err = String;
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        Ok(match s {
+            "pymethod" => Self::Method,
+            "pyclassmethod" => Self::ClassMethod,
+            "pystaticmethod" => Self::StaticMethod,
+            "pyproperty" => Self::GetSet,
+            "pyslot" => Self::Slot,
+            "pyattr" => Self::Attr,
+            "extend_class" => Self::ExtendClass,
+            s => {
+                return Err(s.to_owned());
+            }
+        })
+    }
+}
 
 #[derive(Default)]
 struct ImplContext {
@@ -31,7 +76,7 @@ fn extract_items_into_context<'a, Item>(
 {
     for item in items {
         let r = item.try_split_attr_mut(|attrs, item| {
-            let (pyitems, cfgs) = attrs_to_content_items(attrs, new_impl_item::<Item>)?;
+            let (pyitems, cfgs) = attrs_to_content_items(attrs, impl_item_new::<Item>)?;
             for pyitem in pyitems.iter().rev() {
                 let r = pyitem.gen_impl_item(ImplItemArgs::<Item> {
                     item,
@@ -348,52 +393,56 @@ pub(crate) fn impl_define_exception(exc_def: PyExceptionDef) -> Result<TokenStre
 
 /// #[pymethod] and #[pyclassmethod]
 struct MethodItem {
-    inner: ContentItemInner,
-    method_type: String,
+    inner: ContentItemInner<AttrName>,
 }
 
 /// #[pyproperty]
 struct PropertyItem {
-    inner: ContentItemInner,
+    inner: ContentItemInner<AttrName>,
 }
 
 /// #[pyslot]
 struct SlotItem {
-    inner: ContentItemInner,
+    inner: ContentItemInner<AttrName>,
 }
 
 /// #[pyattr]
 struct AttributeItem {
-    inner: ContentItemInner,
+    inner: ContentItemInner<AttrName>,
 }
 
 /// #[extend_class]
 struct ExtendClassItem {
-    inner: ContentItemInner,
+    inner: ContentItemInner<AttrName>,
 }
 
 impl ContentItem for MethodItem {
-    fn inner(&self) -> &ContentItemInner {
+    type AttrName = AttrName;
+    fn inner(&self) -> &ContentItemInner<AttrName> {
         &self.inner
     }
 }
 impl ContentItem for PropertyItem {
-    fn inner(&self) -> &ContentItemInner {
+    type AttrName = AttrName;
+    fn inner(&self) -> &ContentItemInner<AttrName> {
         &self.inner
     }
 }
 impl ContentItem for SlotItem {
-    fn inner(&self) -> &ContentItemInner {
+    type AttrName = AttrName;
+    fn inner(&self) -> &ContentItemInner<AttrName> {
         &self.inner
     }
 }
 impl ContentItem for AttributeItem {
-    fn inner(&self) -> &ContentItemInner {
+    type AttrName = AttrName;
+    fn inner(&self) -> &ContentItemInner<AttrName> {
         &self.inner
     }
 }
 impl ContentItem for ExtendClassItem {
-    fn inner(&self) -> &ContentItemInner {
+    type AttrName = AttrName;
+    fn inner(&self) -> &ContentItemInner<AttrName> {
         &self.inner
     }
 }
@@ -434,12 +483,12 @@ where
                 doc = format!("{}\n--\n\n{}", sig_doc, doc);
                 quote!(.with_doc(#doc.to_owned(), ctx))
             });
-            let build_func = match self.method_type.as_str() {
-                "method" => quote!(.build_method(ctx, class.clone())),
-                "classmethod" => quote!(.build_classmethod(ctx, class.clone())),
-                "staticmethod" => quote!(.build_staticmethod(ctx, class.clone())),
+            let build_func = match self.inner.attr_name {
+                AttrName::Method => quote!(.build_method(ctx, class.clone())),
+                AttrName::ClassMethod => quote!(.build_classmethod(ctx, class.clone())),
+                AttrName::StaticMethod => quote!(.build_staticmethod(ctx, class.clone())),
                 other => unreachable!(
-                    "Only 'method', 'classmethod' and 'staticmethod' are supported, got {}",
+                    "Only 'method', 'classmethod' and 'staticmethod' are supported, got {:?}",
                     other
                 ),
             };
@@ -948,52 +997,41 @@ fn extract_impl_attrs(attr: AttributeArgs, item: &Ident) -> Result<ExtractedImpl
     })
 }
 
-fn new_impl_item<Item>(
-    attr: &Attribute,
+fn impl_item_new<Item>(
     index: usize,
-    attr_name: String,
-) -> Result<Box<dyn ImplItem<Item>>>
+    attr_name: AttrName,
+) -> Result<Box<dyn ImplItem<Item, AttrName = AttrName>>>
 where
     Item: ItemLike + ToTokens + GetIdent,
 {
-    assert!(ALL_ALLOWED_NAMES.contains(&attr_name.as_str()));
-    Ok(match attr_name.as_str() {
-        attr_name @ "pymethod" | attr_name @ "pyclassmethod" | attr_name @ "pystaticmethod" => {
+    use AttrName::*;
+    Ok(match attr_name {
+        attr_name @ Method | attr_name @ ClassMethod | attr_name @ StaticMethod => {
             Box::new(MethodItem {
-                inner: ContentItemInner {
-                    index,
-                    attr_name: attr_name.to_owned(),
-                },
-                method_type: attr_name.strip_prefix("py").unwrap().to_owned(),
+                inner: ContentItemInner { index, attr_name },
             })
         }
-        "pyproperty" => Box::new(PropertyItem {
+        GetSet => Box::new(PropertyItem {
             inner: ContentItemInner { index, attr_name },
         }),
-        "pyslot" => Box::new(SlotItem {
+        Slot => Box::new(SlotItem {
             inner: ContentItemInner { index, attr_name },
         }),
-        "pyattr" => Box::new(AttributeItem {
+        Attr => Box::new(AttributeItem {
             inner: ContentItemInner { index, attr_name },
         }),
-        "extend_class" => Box::new(ExtendClassItem {
+        ExtendClass => Box::new(ExtendClassItem {
             inner: ContentItemInner { index, attr_name },
         }),
-        other => {
-            return Err(syn::Error::new_spanned(
-                attr,
-                format!("#[pyimpl] doesn't accept #[{}]", other),
-            ))
-        }
     })
 }
 
 fn attrs_to_content_items<F, R>(
     attrs: &[Attribute],
-    new_item: F,
+    item_new: F,
 ) -> Result<(Vec<R>, Vec<Attribute>)>
 where
-    F: Fn(&Attribute, usize, String) -> Result<R>,
+    F: Fn(usize, AttrName) -> Result<R>,
 {
     let mut cfgs: Vec<Attribute> = Vec::new();
     let mut result = Vec::new();
@@ -1028,11 +1066,21 @@ where
                 "#[py*] items must be placed under `cfgs`",
             ));
         }
-        if !ALL_ALLOWED_NAMES.contains(&attr_name.as_str()) {
-            continue;
-        }
+        let attr_name = match AttrName::from_str(attr_name.as_str()) {
+            Ok(name) => name,
+            Err(wrong_name) => {
+                if ALL_ALLOWED_NAMES.contains(&attr_name.as_str()) {
+                    return Err(syn::Error::new_spanned(
+                        attr,
+                        format!("#[pyimpl] doesn't accept #[{}]", wrong_name),
+                    ));
+                } else {
+                    continue;
+                }
+            }
+        };
 
-        result.push(new_item(attr, i, attr_name)?);
+        result.push(item_new(i, attr_name)?);
     }
     Ok((result, cfgs))
 }

@@ -60,18 +60,20 @@ impl ToTokens for ItemNursery {
 }
 
 #[derive(Clone)]
-pub(crate) struct ContentItemInner {
+pub(crate) struct ContentItemInner<T> {
     pub index: usize,
-    pub attr_name: String,
+    pub attr_name: T,
 }
 
 pub(crate) trait ContentItem {
-    fn inner(&self) -> &ContentItemInner;
+    type AttrName: std::str::FromStr + std::fmt::Display;
+
+    fn inner(&self) -> &ContentItemInner<Self::AttrName>;
     fn index(&self) -> usize {
         self.inner().index
     }
-    fn attr_name(&self) -> &str {
-        self.inner().attr_name.as_str()
+    fn attr_name(&self) -> &Self::AttrName {
+        &self.inner().attr_name
     }
     fn new_syn_error(&self, span: Span, message: &str) -> syn::Error {
         syn::Error::new(span, format!("#[{}] {}", self.attr_name(), message))

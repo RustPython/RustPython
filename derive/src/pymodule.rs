@@ -6,8 +6,41 @@ use crate::util::{
 };
 use proc_macro2::TokenStream;
 use quote::{quote, quote_spanned, ToTokens};
+use std::str::FromStr;
 use syn::{parse_quote, spanned::Spanned, Attribute, AttributeArgs, Ident, Item, Result};
 use syn_ext::ext::*;
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum AttrName {
+    Function,
+    Attr,
+    Class,
+}
+
+impl std::fmt::Display for AttrName {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let s = match self {
+            Self::Function => "pyfunction",
+            Self::Attr => "pyattr",
+            Self::Class => "pyclass",
+        };
+        s.fmt(f)
+    }
+}
+
+impl FromStr for AttrName {
+    type Err = String;
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        Ok(match s {
+            "pyfunction" => Self::Function,
+            "pyattr" => Self::Attr,
+            "pyclass" => Self::Class,
+            s => {
+                return Err(s.to_owned());
+            }
+        })
+    }
+}
 
 #[derive(Default)]
 struct ModuleContext {
@@ -106,28 +139,26 @@ pub fn impl_pymodule(attr: AttributeArgs, module_item: Item) -> Result<TokenStre
 
 fn new_module_item(
     index: usize,
-    attr_name: String,
+    attr_name: AttrName,
     pyattrs: Option<Vec<usize>>,
-) -> Box<dyn ModuleItem> {
-    assert!(ALL_ALLOWED_NAMES.contains(&attr_name.as_str()));
-    match attr_name.as_str() {
-        "pyfunction" => Box::new(FunctionItem {
+) -> Box<dyn ModuleItem<AttrName = AttrName>> {
+    match attr_name {
+        AttrName::Function => Box::new(FunctionItem {
             inner: ContentItemInner { index, attr_name },
         }),
-        "pyattr" => Box::new(AttributeItem {
+        AttrName::Attr => Box::new(AttributeItem {
             inner: ContentItemInner { index, attr_name },
         }),
-        "pyclass" => Box::new(ClassItem {
+        AttrName::Class => Box::new(ClassItem {
             inner: ContentItemInner { index, attr_name },
             pyattrs: pyattrs.unwrap_or_default(),
         }),
-        other => unreachable!("#[pymodule] doesn't accept #[{}]", other),
     }
 }
 
-fn attrs_to_module_items<F, R>(attrs: &[Attribute], new_item: F) -> Result<(Vec<R>, Vec<Attribute>)>
+fn attrs_to_module_items<F, R>(attrs: &[Attribute], item_new: F) -> Result<(Vec<R>, Vec<Attribute>)>
 where
-    F: Fn(usize, String, Option<Vec<usize>>) -> R,
+    F: Fn(usize, AttrName, Option<Vec<usize>>) -> R,
 {
     let mut cfgs: Vec<Attribute> = Vec::new();
     let mut result = Vec::new();
@@ -164,16 +195,22 @@ where
                 "#[py*] items must be placed under `cfgs`",
             ));
         }
-        if !ALL_ALLOWED_NAMES.contains(&attr_name.as_str()) {
-            continue;
-        } else if closed {
-            return Err(syn::Error::new_spanned(
-                attr,
-                "Only one #[pyattr] annotated #[py*] item can exist",
-            ));
-        }
 
-        if attr_name == "pyattr" {
+        let attr_name = match AttrName::from_str(attr_name.as_str()) {
+            Ok(name) => name,
+            Err(wrong_name) => {
+                let msg = if !ALL_ALLOWED_NAMES.contains(&wrong_name.as_str()) {
+                    continue;
+                } else if closed {
+                    "Only one #[pyattr] annotated #[py*] item can exist".to_owned()
+                } else {
+                    format!("#[pymodule] doesn't accept #[{}]", wrong_name)
+                };
+                return Err(syn::Error::new_spanned(attr, msg));
+            }
+        };
+
+        if attr_name == AttrName::Attr {
             if !result.is_empty() {
                 return Err(syn::Error::new_spanned(
                     attr,
@@ -185,57 +222,60 @@ where
         }
 
         if pyattrs.is_empty() {
-            result.push(new_item(i, attr_name, None));
+            result.push(item_new(i, attr_name, None));
         } else {
-            if attr_name != "pyclass" {
+            if attr_name != AttrName::Class {
                 return Err(syn::Error::new_spanned(
                     attr,
                     "#[pyattr] #[pyclass] is the only supported composition",
                 ));
             }
             let pyattr_indexes = pyattrs.iter().map(|(i, _)| i).copied().collect();
-            result.push(new_item(i, attr_name, Some(pyattr_indexes)));
+            result.push(item_new(i, attr_name, Some(pyattr_indexes)));
             pyattrs = Vec::new();
             closed = true;
         }
     }
     for (index, attr_name) in pyattrs {
         assert!(!closed);
-        result.push(new_item(index, attr_name, None));
+        result.push(item_new(index, attr_name, None));
     }
     Ok((result, cfgs))
 }
 
 /// #[pyfunction]
 struct FunctionItem {
-    inner: ContentItemInner,
+    inner: ContentItemInner<AttrName>,
 }
 
 /// #[pyclass]
 struct ClassItem {
-    inner: ContentItemInner,
+    inner: ContentItemInner<AttrName>,
     pyattrs: Vec<usize>,
 }
 
 /// #[pyattr]
 struct AttributeItem {
-    inner: ContentItemInner,
+    inner: ContentItemInner<AttrName>,
 }
 
 impl ContentItem for FunctionItem {
-    fn inner(&self) -> &ContentItemInner {
+    type AttrName = AttrName;
+    fn inner(&self) -> &ContentItemInner<AttrName> {
         &self.inner
     }
 }
 
 impl ContentItem for ClassItem {
-    fn inner(&self) -> &ContentItemInner {
+    type AttrName = AttrName;
+    fn inner(&self) -> &ContentItemInner<AttrName> {
         &self.inner
     }
 }
 
 impl ContentItem for AttributeItem {
-    fn inner(&self) -> &ContentItemInner {
+    type AttrName = AttrName;
+    fn inner(&self) -> &ContentItemInner<AttrName> {
         &self.inner
     }
 }
