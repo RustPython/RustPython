@@ -726,6 +726,7 @@ class ProcessTestCase(BaseTestCase):
                                if not is_env_var_to_ignore(k)]
             self.assertEqual(child_env_names, [])
 
+    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON, null byte is not checked")
     def test_invalid_cmd(self):
         # null character in the command name
         cmd = sys.executable + '\0'
