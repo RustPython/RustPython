@@ -1,7 +1,9 @@
-#![cfg_attr(target_os = "wasi", allow(dead_code))]
-use rustpython_vm::builtins::{PyDictRef, PyStrRef};
-use rustpython_vm::VirtualMachine;
-use rustpython_vm::{function::ArgIterable, PyResult, TryFromObject};
+#![cfg_attr(target_arch = "wasm32", allow(dead_code))]
+use rustpython_vm::{
+    builtins::{PyDictRef, PyStrRef},
+    function::ArgIterable,
+    PyResult, TryFromObject, VirtualMachine,
+};
 
 pub struct ShellHelper<'vm> {
     vm: &'vm VirtualMachine,
@@ -140,7 +142,7 @@ impl<'vm> ShellHelper<'vm> {
 }
 
 cfg_if::cfg_if! {
-    if #[cfg(not(target_os = "wasi"))] {
+    if #[cfg(not(target_arch = "wasm32"))] {
         use rustyline::{
             completion::Completer, highlight::Highlighter, hint::Hinter, validate::Validator, Context,
             Helper,

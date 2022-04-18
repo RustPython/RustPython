@@ -115,7 +115,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: check
-          args: --target wasm32-unknown-unknown --manifest-path vm/Cargo.toml
+          args: --target wasm32-unknown-unknown --no-default-features
 
       - uses: actions-rs/toolchain@v1
         with:
