@@ -13,9 +13,10 @@ mod sys {
         frame::FrameRef,
         function::{FuncArgs, OptionalArg, PosArgs},
         stdlib::builtins,
+        types::PyStructSequence,
         version,
         vm::{PySettings, VirtualMachine},
-        PyObjectRef, PyRef, PyRefExact, PyResult, PyStructSequence,
+        PyObjectRef, PyRef, PyRefExact, PyResult,
     };
     use num_traits::ToPrimitive;
     use std::{env, mem, path};

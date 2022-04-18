@@ -5,7 +5,8 @@ mod pwd {
     use crate::{
         builtins::{PyIntRef, PyStrRef},
         convert::{ToPyException, ToPyObject},
-        AsObject, PyObjectRef, PyResult, PyStructSequence, VirtualMachine,
+        types::PyStructSequence,
+        AsObject, PyObjectRef, PyResult, VirtualMachine,
     };
     use nix::unistd::{self, User};
     use std::ptr::NonNull;

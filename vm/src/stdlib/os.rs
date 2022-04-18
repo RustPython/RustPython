@@ -413,10 +413,10 @@ pub(super) mod _os {
         function::{ArgBytesLike, FuncArgs, OptionalArg},
         protocol::PyIterReturn,
         suppress_iph,
-        types::{IterNext, IterNextIterable},
+        types::{IterNext, IterNextIterable, PyStructSequence},
         utils::Either,
         vm::{ReprGuard, VirtualMachine},
-        AsObject, PyObjectRef, PyRef, PyResult, PyStructSequence, PyValue, TryFromObject,
+        AsObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;

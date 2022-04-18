@@ -21,8 +21,9 @@ mod time {
     use crate::{
         builtins::{PyStrRef, PyTypeRef},
         function::{FuncArgs, OptionalArg},
+        types::PyStructSequence,
         utils::Either,
-        PyObjectRef, PyResult, PyStructSequence, TryFromObject, VirtualMachine,
+        PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     };
     use chrono::{
         naive::{NaiveDate, NaiveDateTime, NaiveTime},
