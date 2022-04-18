@@ -500,8 +500,8 @@ mod sys {
         Ok(())
     }
 
+    #[pyattr]
     #[pyfunction(name = "__unraisablehook__")]
-    #[pyfunction]
     fn unraisablehook(unraisable: UnraisableHookArgs, vm: &VirtualMachine) {
         if let Err(e) = _unraisablehook(unraisable, vm) {
             println!("{}", e.as_object().repr(vm).unwrap().as_str());
