@@ -526,7 +526,7 @@ where
 {
     #[inline(always)]
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        PyValue::into_object(self, vm)
+        PyValue::into_pyobject(self, vm)
     }
 }
 
@@ -564,7 +564,7 @@ pub trait PyValue: fmt::Debug + PyThreadingConstraint + Sized + 'static {
     fn class(vm: &VirtualMachine) -> &PyTypeRef;
 
     #[inline]
-    fn into_object(self, vm: &VirtualMachine) -> PyObjectRef {
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         self.into_ref(vm).into()
     }
 
@@ -682,23 +682,6 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
                 }),
             );
         }
-    }
-}
-
-pub trait PyObjectWrap
-where
-    Self: AsObject,
-{
-    fn into_object(self) -> PyObjectRef;
-}
-
-impl<T> From<T> for PyObjectRef
-where
-    T: PyObjectWrap,
-{
-    #[inline(always)]
-    fn from(py_ref: T) -> Self {
-        py_ref.into_object()
     }
 }
 

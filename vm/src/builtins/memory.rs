@@ -19,8 +19,8 @@ use crate::{
     sliceable::wrap_index,
     types::{AsBuffer, AsMapping, AsSequence, Comparable, Constructor, Hashable, PyComparisonOp},
     utils::Either,
-    AsObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyObjectWrap, PyRef, PyResult,
-    PyValue, TryFromBorrowedObject, TryFromObject, VirtualMachine,
+    AsObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue,
+    TryFromBorrowedObject, TryFromObject, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
@@ -255,7 +255,7 @@ impl PyMemoryView {
         other.init_slice(slice, 0, vm)?;
         other.init_len();
 
-        Ok(other.into_ref(vm).into_object())
+        Ok(other.into_ref(vm).into())
     }
 
     fn getitem_by_multi_idx(&self, indexes: &[isize], vm: &VirtualMachine) -> PyResult {
@@ -270,7 +270,7 @@ impl PyMemoryView {
         if zelf.desc.ndim() == 0 {
             // 0-d memoryview can be referenced using mv[...] or mv[()] only
             if needle.is(&vm.ctx.ellipsis) {
-                return Ok(zelf.into_object());
+                return Ok(zelf.into());
             }
             if let Some(tuple) = needle.payload::<PyTuple>() {
                 if tuple.is_empty() {
@@ -539,9 +539,7 @@ impl PyMemoryView {
 
         let mut v = Vec::with_capacity(shape);
         for _ in 0..shape {
-            let obj = self
-                ._to_list(bytes, index + suboffset, dim + 1, vm)?
-                .into_object();
+            let obj = self._to_list(bytes, index + suboffset, dim + 1, vm)?.into();
             v.push(obj);
             index += stride;
         }
@@ -938,7 +936,7 @@ impl AsBuffer for PyMemoryView {
             Err(vm.new_value_error("operation forbidden on released memoryview object".to_owned()))
         } else {
             Ok(PyBuffer::new(
-                zelf.to_owned().into_object(),
+                zelf.to_owned().into(),
                 zelf.desc.clone(),
                 &BUFFER_METHODS,
             ))

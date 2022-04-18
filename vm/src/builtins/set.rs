@@ -338,7 +338,7 @@ impl PySetInner {
                         &PyFrozenSet {
                             inner: set.inner.copy(),
                         }
-                        .into_object(vm),
+                        .into_pyobject(vm),
                         vm,
                     )
                     // If operation raised KeyError, report original set (set.remove)
@@ -688,7 +688,7 @@ impl Unhashable for PySet {}
 
 impl Iterable for PySet {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        Ok(zelf.inner.iter().into_object(vm))
+        Ok(zelf.inner.iter().into_pyobject(vm))
     }
 }
 
@@ -933,7 +933,7 @@ impl Comparable for PyFrozenSet {
 
 impl Iterable for PyFrozenSet {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        Ok(zelf.inner.iter().into_object(vm))
+        Ok(zelf.inner.iter().into_pyobject(vm))
     }
 }
 

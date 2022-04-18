@@ -484,7 +484,7 @@ mod _sre {
                 /* get segment following last match */
                 sublist.push(slice_drive(&state.string, last_pos, state.end, vm));
 
-                let list = PyList::from(sublist).into_object(vm);
+                let list = PyList::from(sublist).into_pyobject(vm);
 
                 let join_type: PyObjectRef = if zelf.isbytes {
                     vm.ctx.new_bytes(vec![]).into()

@@ -480,7 +480,7 @@ mod array {
                     $f_swap(self)
                 }
                 fn to_object(self, vm: &VirtualMachine) -> PyObjectRef {
-                    $f_to(self).into_object(vm)
+                    $f_to(self).into_pyobject(vm)
                 }
             }
         )*};
@@ -1117,7 +1117,7 @@ mod array {
             let typecode = vm.ctx.new_str(array.typecode_str());
             let bytes = vm.ctx.new_bytes(array.get_bytes().to_vec());
             let code = MachineFormatCode::from_typecode(array.typecode()).unwrap();
-            let code = PyInt::from(u8::from(code)).into_object(vm);
+            let code = PyInt::from(u8::from(code)).into_pyobject(vm);
             let module = vm.import("array", None, 0)?;
             let func = module.get_attr("_array_reconstructor", vm)?;
             Ok((
@@ -1265,7 +1265,7 @@ mod array {
                 position: AtomicUsize::new(0),
                 array: zelf,
             }
-            .into_object(vm))
+            .into_pyobject(vm))
         }
     }
 

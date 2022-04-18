@@ -3,7 +3,7 @@ use crate::common::linked_list::{Link, LinkedList, Pointers};
 use crate::common::lock::{PyMutex, PyMutexGuard, PyRwLock};
 use crate::common::refcount::RefCount;
 use crate::{
-    _pyobject::{AsObject, PyObjectPayload, PyObjectWrap, PyResult},
+    _pyobject::{AsObject, PyObjectPayload, PyResult},
     builtins::{PyBaseExceptionRef, PyDictRef, PyTypeRef},
     vm::VirtualMachine,
 };
@@ -792,10 +792,10 @@ impl Borrow<PyObject> for PyObjectWeak {
     }
 }
 
-impl PyObjectWrap for PyObjectWeak {
+impl From<PyObjectWeak> for PyRef<PyWeak> {
     #[inline(always)]
-    fn into_object(self) -> PyObjectRef {
-        self.weak.into_object()
+    fn from(value: PyObjectWeak) -> Self {
+        value.weak
     }
 }
 
@@ -999,13 +999,13 @@ where
     }
 }
 
-impl<T> PyObjectWrap for PyRef<T>
+impl<T> From<PyRef<T>> for PyObjectRef
 where
     T: PyObjectPayload,
 {
     #[inline]
-    fn into_object(self) -> PyObjectRef {
-        let me = ManuallyDrop::new(self);
+    fn from(value: PyRef<T>) -> Self {
+        let me = ManuallyDrop::new(value);
         PyObjectRef { ptr: me.ptr.cast() }
     }
 }

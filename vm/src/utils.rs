@@ -1,7 +1,7 @@
 use crate::{
     builtins::{PyFloat, PyStr},
     convert::{ToPyException, ToPyObject},
-    AsObject, PyObject, PyObjectRef, PyObjectWrap, PyResult, TryFromObject, VirtualMachine,
+    AsObject, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
 };
 use num_traits::ToPrimitive;
 use std::borrow::Borrow;
@@ -31,12 +31,12 @@ impl<A: AsRef<PyObject>, B: AsRef<PyObject>> AsRef<PyObject> for Either<A, B> {
     }
 }
 
-impl<A: PyObjectWrap, B: PyObjectWrap> PyObjectWrap for Either<A, B> {
+impl<A: Into<PyObjectRef>, B: Into<PyObjectRef>> From<Either<A, B>> for PyObjectRef {
     #[inline(always)]
-    fn into_object(self) -> PyObjectRef {
-        match self {
-            Either::A(a) => a.into_object(),
-            Either::B(b) => b.into_object(),
+    fn from(value: Either<A, B>) -> Self {
+        match value {
+            Either::A(a) => a.into(),
+            Either::B(b) => b.into(),
         }
     }
 }

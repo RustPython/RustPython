@@ -7,8 +7,7 @@ use crate::{
     function::OptionalArg,
     pyclass::PyClassImpl,
     types::{Callable, Comparable, Constructor, Hashable, PyComparisonOp},
-    AsObject, PyContext, PyObject, PyObjectRef, PyObjectWrap, PyRef, PyResult, PyValue,
-    VirtualMachine,
+    AsObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
 };
 
 pub use crate::pyobject::PyWeak;
@@ -44,7 +43,8 @@ impl Constructor for PyWeak {
         vm: &VirtualMachine,
     ) -> PyResult {
         let weak = referent.downgrade_with_typ(callback.into_option(), cls, vm)?;
-        Ok(weak.into_object())
+        let pyref_weak: PyRef<PyWeak> = weak.into();
+        Ok(pyref_weak.into())
     }
 }
 

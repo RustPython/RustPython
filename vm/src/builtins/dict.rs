@@ -374,7 +374,7 @@ impl PyDict {
         if let Ok(other) = dicted {
             let other_cp = other.copy();
             PyDict::merge_dict(&other_cp.entries, zelf, vm)?;
-            return Ok(other_cp.into_object(vm));
+            return Ok(other_cp.into_pyobject(vm));
         }
         Ok(vm.ctx.not_implemented())
     }
@@ -385,7 +385,7 @@ impl PyDict {
         if let Ok(other) = dicted {
             let self_cp = self.copy();
             PyDict::merge_dict(&self_cp.entries, other, vm)?;
-            return Ok(self_cp.into_object(vm));
+            return Ok(self_cp.into_pyobject(vm));
         }
         Ok(vm.ctx.not_implemented())
     }
@@ -502,7 +502,7 @@ impl Unhashable for PyDict {}
 
 impl Iterable for PyDict {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        Ok(PyDictKeyIterator::new(zelf).into_object(vm))
+        Ok(PyDictKeyIterator::new(zelf).into_pyobject(vm))
     }
 }
 
@@ -737,7 +737,7 @@ macro_rules! dict_view {
 
         impl Iterable for $name {
             fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-                Ok($iter_name::new(zelf.dict.clone()).into_object(vm))
+                Ok($iter_name::new(zelf.dict.clone()).into_pyobject(vm))
             }
         }
 
@@ -1011,7 +1011,7 @@ trait ViewSetOps: DictView {
             }
             ref _set @ PySet => {
                 let inner = Self::to_set(zelf.to_owned(), vm)?;
-                let zelf_set = PySet { inner }.into_object(vm);
+                let zelf_set = PySet { inner }.into_pyobject(vm);
                 PySet::cmp(zelf_set.downcast_ref().unwrap(), other, op, vm)
             }
             _ => {

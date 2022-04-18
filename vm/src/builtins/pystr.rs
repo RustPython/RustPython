@@ -1264,7 +1264,7 @@ impl Iterable for PyStr {
         Ok(PyStrIterator {
             internal: PyMutex::new((PositionIterInternal::new(zelf, 0), 0)),
         }
-        .into_object(vm))
+        .into_pyobject(vm))
     }
 }
 

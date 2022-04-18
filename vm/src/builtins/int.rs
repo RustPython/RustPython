@@ -58,7 +58,7 @@ impl PyValue for PyInt {
         &vm.ctx.types.int_type
     }
 
-    fn into_object(self, vm: &VirtualMachine) -> PyObjectRef {
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.new_int(self.value).into()
     }
 

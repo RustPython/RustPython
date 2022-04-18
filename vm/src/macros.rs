@@ -72,7 +72,7 @@ macro_rules! py_namespace {
 /// use rustpython_vm::{PyValue};
 ///
 /// # rustpython_vm::Interpreter::default().enter(|vm| {
-/// let obj = PyInt::from(0).into_object(vm);
+/// let obj = PyInt::from(0).into_pyobject(vm);
 /// assert_eq!(
 ///     "int",
 ///     match_class!(match obj {
@@ -96,7 +96,7 @@ macro_rules! py_namespace {
 /// use rustpython_vm::{ PyValue};
 ///
 /// # rustpython_vm::Interpreter::default().enter(|vm| {
-/// let obj = PyInt::from(0).into_object(vm);
+/// let obj = PyInt::from(0).into_pyobject(vm);
 ///
 /// let int_value = match_class!(match obj {
 ///     i @ PyInt => i.as_bigint().clone(),

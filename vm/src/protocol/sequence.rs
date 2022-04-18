@@ -229,7 +229,7 @@ impl PySequence<'_> {
                 stop: stop.to_pyobject(vm),
                 step: None,
             };
-            mapping.subscript(&slice.into_object(vm), vm)
+            mapping.subscript(&slice.into_pyobject(vm), vm)
         } else {
             Err(vm.new_type_error(format!("'{}' object is unsliceable", self.obj.class())))
         }
@@ -249,7 +249,7 @@ impl PySequence<'_> {
                 stop: stop.to_pyobject(vm),
                 step: None,
             };
-            f(&mapping, &slice.into_object(vm), value, vm)
+            f(&mapping, &slice.into_pyobject(vm), value, vm)
         } else {
             Err(vm.new_type_error(format!(
                 "'{}' object doesn't support slice {}",
