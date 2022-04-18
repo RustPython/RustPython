@@ -4,9 +4,9 @@ use crate::util::{
     ClassItemMeta, ContentItem, ContentItemInner, ErrorVec, ItemMeta, ItemNursery, SimpleItemMeta,
     ALL_ALLOWED_NAMES,
 };
-use proc_macro2::TokenStream;
+use proc_macro2::{Span, TokenStream};
 use quote::{quote, quote_spanned, ToTokens};
-use std::str::FromStr;
+use std::{collections::HashSet, str::FromStr};
 use syn::{parse_quote, spanned::Spanned, Attribute, AttributeArgs, Ident, Item, Result};
 use syn_ext::ext::*;
 
@@ -70,7 +70,7 @@ pub fn impl_pymodule(attr: AttributeArgs, module_item: Item) -> Result<TokenStre
     // collect to context
     for item in items.iter_mut() {
         let r = item.try_split_attr_mut(|attrs, item| {
-            let (pyitems, cfgs) = attrs_to_module_items(attrs, new_module_item)?;
+            let (pyitems, cfgs) = attrs_to_module_items(attrs, module_item_new)?;
             for pyitem in pyitems.iter().rev() {
                 let r = pyitem.gen_module_item(ModuleItemArgs {
                     item,
@@ -137,7 +137,7 @@ pub fn impl_pymodule(attr: AttributeArgs, module_item: Item) -> Result<TokenStre
     })
 }
 
-fn new_module_item(
+fn module_item_new(
     index: usize,
     attr_name: AttrName,
     pyattrs: Option<Vec<usize>>,
@@ -145,10 +145,14 @@ fn new_module_item(
     match attr_name {
         AttrName::Function => Box::new(FunctionItem {
             inner: ContentItemInner { index, attr_name },
+            pyattrs: pyattrs.unwrap_or_default(),
         }),
-        AttrName::Attr => Box::new(AttributeItem {
-            inner: ContentItemInner { index, attr_name },
-        }),
+        AttrName::Attr => {
+            assert!(pyattrs.is_none());
+            Box::new(AttributeItem {
+                inner: ContentItemInner { index, attr_name },
+            })
+        }
         AttrName::Class => Box::new(ClassItem {
             inner: ContentItemInner { index, attr_name },
             pyattrs: pyattrs.unwrap_or_default(),
@@ -224,15 +228,19 @@ where
         if pyattrs.is_empty() {
             result.push(item_new(i, attr_name, None));
         } else {
-            if attr_name != AttrName::Class {
-                return Err(syn::Error::new_spanned(
-                    attr,
-                    "#[pyattr] #[pyclass] is the only supported composition",
-                ));
+            match attr_name {
+                AttrName::Class | AttrName::Function => {
+                    let pyattr_indexes = pyattrs.iter().map(|(i, _)| i).copied().collect();
+                    result.push(item_new(i, attr_name, Some(pyattr_indexes)));
+                }
+                _ => {
+                    return Err(syn::Error::new_spanned(
+                        attr,
+                        "#[pyclass] or #[pyfunction] only can follow #[pyattr]",
+                    ));
+                }
             }
-            let pyattr_indexes = pyattrs.iter().map(|(i, _)| i).copied().collect();
-            result.push(item_new(i, attr_name, Some(pyattr_indexes)));
-            pyattrs = Vec::new();
+            pyattrs.clear();
             closed = true;
         }
     }
@@ -246,6 +254,7 @@ where
 /// #[pyfunction]
 struct FunctionItem {
     inner: ContentItemInner<AttrName>,
+    pyattrs: Vec<usize>,
 }
 
 /// #[pyclass]
@@ -332,9 +341,41 @@ impl ModuleItem for FunctionItem {
                     .with_module(vm.new_pyobj(#module.to_owned()))
                     .into_ref(&vm.ctx)
             );
-            quote! {
-                vm.__module_set_attr(&module, #py_name, #new_func).unwrap();
+
+            let mut items = vec![quote! {
+                let func = #new_func;
+            }];
+
+            let mut py_names = HashSet::new();
+            py_names.insert(py_name.clone());
+            for attr_index in self.pyattrs.iter().rev() {
+                let mut loop_unit = || {
+                    let attr_attr = args.attrs.remove(*attr_index);
+                    let item_meta = SimpleItemMeta::from_attr(ident.clone(), &attr_attr)?;
+
+                    let py_name = item_meta.simple_name()?;
+                    items.push(quote_spanned! { attr_attr.span() =>
+                        vm.__module_set_attr(module, #py_name, func.clone()).unwrap();
+                    });
+                    let inserted = py_names.insert(py_name.clone());
+                    if !inserted {
+                        return Err(self.new_syn_error(
+                            ident.span(),
+                            &format!("`{py_name}` is duplicated name for multiple py* attribute"),
+                        ));
+                    }
+                    Ok(())
+                };
+                let r = loop_unit();
+                args.context.errors.ok_or_push(r);
             }
+
+            items.push(quote! {
+                vm.__module_set_attr(module, #py_name, func).unwrap();
+            });
+            quote_spanned! { ident.span().resolved_at(Span::call_site()) => {
+                #(#items)*
+            }}
         };
 
         args.context
