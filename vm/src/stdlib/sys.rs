@@ -65,6 +65,9 @@ mod sys {
     #[pyattr(name = "ps2")]
     const PS2: &str = "..... ";
 
+    #[pyclass(noattr)]
+    use version::VersionInfo;
+
     #[pyattr]
     fn default_prefix(_vm: &VirtualMachine) -> &'static str {
         // TODO: the windows one doesn't really make sense
@@ -670,10 +673,6 @@ mod sys {
 }
 
 pub(crate) fn init_module(vm: &VirtualMachine, module: &PyObject, builtins: &PyObject) {
-    use crate::pyclass::PyClassImpl;
-
-    let _ = crate::version::VersionInfo::make_class(&vm.ctx);
-
     sys::extend_module(vm, module);
 
     let modules = vm.ctx.new_dict();
