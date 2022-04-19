@@ -169,15 +169,13 @@ where
     while let Some((_, attr)) = iter.peek() {
         // take all cfgs but no py items
         let attr = *attr;
-        let attr_name = if let Some(ident) = attr.get_ident() {
-            ident.to_string()
-        } else {
-            continue;
-        };
-        if attr_name == "cfg" {
-            cfgs.push(attr.clone());
-        } else if ALL_ALLOWED_NAMES.contains(&attr_name.as_str()) {
-            break;
+        if let Some(ident) = attr.get_ident() {
+            let attr_name = ident.to_string();
+            if attr_name == "cfg" {
+                cfgs.push(attr.clone());
+            } else if ALL_ALLOWED_NAMES.contains(&attr_name.as_str()) {
+                break;
+            }
         }
         iter.next();
     }
