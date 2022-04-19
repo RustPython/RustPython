@@ -17,7 +17,10 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
             .unwrap()
     }
 
-    fn try_elements_from(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+    fn try_elements_from<const FIELD_LEN: usize>(
+        obj: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<[PyObjectRef; FIELD_LEN]> {
         let typ = Self::static_type();
         // if !obj.fast_isinstance(typ) {
         //     return Err(vm.new_type_error(format!(
@@ -27,13 +30,13 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
         //     )));
         // }
         let seq: Vec<PyObjectRef> = obj.try_into_value(vm)?;
-        if seq.len() != Self::FIELD_NAMES.len() {
-            return Err(vm.new_type_error(format!(
+        let seq: [PyObjectRef; FIELD_LEN] = seq.try_into().map_err(|_| {
+            vm.new_type_error(format!(
                 "{} takes a sequence of length {}",
                 typ.name(),
-                Self::FIELD_NAMES.len()
-            )));
-        }
+                FIELD_LEN
+            ))
+        })?;
         Ok(seq)
     }
 
