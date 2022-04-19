@@ -427,6 +427,11 @@ mod builtins {
     }
 
     #[pyfunction]
+    fn aiter(iter_target: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        vm.call_special_method(iter_target, "__aiter__", ())
+    }
+
+    #[pyfunction]
     fn len(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         obj.length(vm)
     }
