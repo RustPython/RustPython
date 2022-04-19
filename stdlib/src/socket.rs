@@ -1667,7 +1667,9 @@ mod _socket {
                     netioapi::ConvertInterfaceLuidToNameW(luid, buf.as_mut_ptr(), buf.len())
                 };
                 if ret == 0 {
-                    Ok(widestring::WideCString::from_vec_with_nul(&buf[..]).unwrap())
+                    Ok(widestring::WideCString::from_ustr_truncate(
+                        widestring::WideStr::from_slice(&buf[..]),
+                    ))
                 } else {
                     Err(io::Error::from_raw_os_error(ret as i32))
                 }
