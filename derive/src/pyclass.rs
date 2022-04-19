@@ -507,6 +507,7 @@ where
             vec![py_name],
             args.cfgs.to_vec(),
             tokens,
+            5,
         )?;
         Ok(())
     }
@@ -569,6 +570,7 @@ where
             vec![pyname],
             args.cfgs.to_vec(),
             tokens,
+            2,
         )?;
 
         Ok(())
@@ -615,7 +617,7 @@ where
 
         args.context
             .impl_extend_items
-            .add_item(ident.clone(), vec![py_name], cfgs, tokens)?;
+            .add_item(ident.clone(), vec![py_name], cfgs, tokens, 1)?;
 
         Ok(())
     }

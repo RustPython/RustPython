@@ -388,6 +388,7 @@ impl ModuleItem for FunctionItem {
             py_names,
             args.cfgs.to_vec(),
             tokens,
+            10,
         )?;
         Ok(())
     }
@@ -473,6 +474,7 @@ impl ModuleItem for ClassItem {
                 #class_new
                 #set_attr
             }},
+            0,
         )?;
         Ok(())
     }
@@ -557,6 +559,7 @@ impl ModuleItem for AttributeItem {
                         vec![py_name],
                         cfgs.clone(),
                         tokens,
+                        1,
                     )?;
                     Ok(())
                 });
@@ -614,7 +617,7 @@ impl ModuleItem for AttributeItem {
 
         args.context
             .module_extend_items
-            .add_item(ident, py_names, cfgs, tokens)?;
+            .add_item(ident, py_names, cfgs, tokens, 1)?;
 
         Ok(())
     }

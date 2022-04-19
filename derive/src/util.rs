@@ -24,11 +24,13 @@ pub(crate) const ALL_ALLOWED_NAMES: &[&str] = &[
     "extend_class",
 ];
 
+#[derive(Clone)]
 struct NurseryItem {
     attr_name: Ident,
     py_names: Vec<String>,
     cfgs: Vec<Attribute>,
     tokens: TokenStream,
+    sort_order: usize,
 }
 
 #[derive(Default)]
@@ -43,12 +45,14 @@ impl ItemNursery {
         py_names: Vec<String>,
         cfgs: Vec<Attribute>,
         tokens: TokenStream,
+        sort_order: usize,
     ) -> Result<()> {
         self.0.push(NurseryItem {
             attr_name,
             py_names,
             cfgs,
             tokens,
+            sort_order,
         });
         Ok(())
     }
@@ -72,8 +76,9 @@ impl ItemNursery {
 
 impl ToTokens for ValidatedItemNursery {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        let nursery = &self.0;
-        tokens.extend(nursery.0.iter().map(|item| {
+        let mut sorted = self.0 .0.clone();
+        sorted.sort_by(|a, b| a.sort_order.cmp(&b.sort_order));
+        tokens.extend(sorted.iter().map(|item| {
             let cfgs = &item.cfgs;
             let tokens = &item.tokens;
             quote! {
