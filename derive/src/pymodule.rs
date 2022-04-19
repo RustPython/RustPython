@@ -87,7 +87,7 @@ pub fn impl_pymodule(attr: AttributeArgs, module_item: Item) -> Result<TokenStre
 
     // append additional items
     let module_name = context.name.as_str();
-    let module_extend_items = context.module_extend_items;
+    let module_extend_items = context.module_extend_items.validate()?;
     let doc = doc.or_else(|| {
         crate::doc::try_read(module_name)
             .ok()
@@ -317,7 +317,7 @@ impl ModuleItem for FunctionItem {
         let py_name = item_meta.simple_name()?;
         let sig_doc = text_signature(func.sig(), &py_name);
 
-        let item = {
+        let (tokens, py_names) = {
             let module = args.module_name();
             let doc = args.attrs.doc().or_else(|| {
                 crate::doc::try_module_item(module, &py_name)
@@ -340,13 +340,16 @@ impl ModuleItem for FunctionItem {
             );
 
             if self.pyattrs.is_empty() {
-                quote_spanned! { ident.span() => {
-                    let func = #new_func;
-                    vm.__module_set_attr(module, #py_name, func).unwrap();
-                }}
+                (
+                    quote_spanned! { ident.span() => {
+                        let func = #new_func;
+                        vm.__module_set_attr(module, #py_name, func).unwrap();
+                    }},
+                    vec![py_name],
+                )
             } else {
                 let mut py_names = HashSet::new();
-                py_names.insert(py_name.clone());
+                py_names.insert(py_name);
                 for attr_index in self.pyattrs.iter().rev() {
                     let mut loop_unit = || {
                         let attr_attr = args.attrs.remove(*attr_index);
@@ -368,18 +371,24 @@ impl ModuleItem for FunctionItem {
                     args.context.errors.ok_or_push(r);
                 }
                 let py_names: Vec<_> = py_names.into_iter().collect();
-                quote_spanned! { ident.span().resolved_at(Span::call_site()) => {
-                    let func = #new_func;
-                    for name in [#(#py_names,)*] {
-                        vm.__module_set_attr(module, name, func.clone()).unwrap();
-                    }
-                }}
+                (
+                    quote_spanned! { ident.span().resolved_at(Span::call_site()) => {
+                        let func = #new_func;
+                        for name in [#(#py_names,)*] {
+                            vm.__module_set_attr(module, name, func.clone()).unwrap();
+                        }
+                    }},
+                    py_names,
+                )
             }
         };
 
-        args.context
-            .module_extend_items
-            .add_item(py_name, args.cfgs.to_vec(), item)?;
+        args.context.module_extend_items.add_item(
+            ident.clone(),
+            py_names,
+            args.cfgs.to_vec(),
+            tokens,
+        )?;
         Ok(())
     }
 }
@@ -422,7 +431,7 @@ impl ModuleItem for ClassItem {
             (class_name, class_new)
         };
 
-        let mut names = Vec::new();
+        let mut py_names = Vec::new();
         for attr_index in self.pyattrs.iter().rev() {
             let mut loop_unit = || {
                 let attr_attr = args.attrs.remove(*attr_index);
@@ -431,7 +440,7 @@ impl ModuleItem for ClassItem {
                 let py_name = item_meta
                     .optional_name()
                     .unwrap_or_else(|| class_name.clone());
-                names.push(py_name);
+                py_names.push(py_name);
 
                 Ok(())
             };
@@ -439,25 +448,26 @@ impl ModuleItem for ClassItem {
             args.context.errors.ok_or_push(r);
         }
 
-        let set_attr = match names.len() {
+        let set_attr = match py_names.len() {
             0 => quote! {
                 let _ = new_class;
             },
             1 => {
-                let py_name = &names[0];
+                let py_name = &py_names[0];
                 quote! {
                     vm.__module_set_attr(&module, #py_name, new_class).unwrap();
                 }
             }
             _ => quote! {
-                for name in [#(#names,)*] {
+                for name in [#(#py_names,)*] {
                     vm.__module_set_attr(&module, name, new_class.clone()).unwrap();
                 }
             },
         };
 
         args.context.module_extend_items.add_item(
-            ident.to_string(),
+            ident.clone(),
+            py_names,
             args.cfgs.to_vec(),
             quote_spanned! { ident.span() => {
                 #class_new
@@ -542,9 +552,12 @@ impl ModuleItem for AttributeItem {
                     let tokens = quote_spanned! { ident.span() =>
                         vm.__module_set_attr(module, #py_name, vm.new_pyobj(#ident)).unwrap();
                     };
-                    args.context
-                        .module_extend_items
-                        .add_item(py_name, cfgs.clone(), tokens)?;
+                    args.context.module_extend_items.add_item(
+                        ident.clone(),
+                        vec![py_name],
+                        cfgs.clone(),
+                        tokens,
+                    )?;
                     Ok(())
                 });
             }
@@ -555,13 +568,16 @@ impl ModuleItem for AttributeItem {
             }
         };
 
-        let tokens = if self.pyattrs.is_empty() {
-            quote_spanned! { ident.span() => {
-                #let_obj
-                vm.__module_set_attr(module, #py_name, obj).unwrap();
-            }}
+        let (tokens, py_names) = if self.pyattrs.is_empty() {
+            (
+                quote_spanned! { ident.span() => {
+                    #let_obj
+                    vm.__module_set_attr(module, #py_name, obj).unwrap();
+                }},
+                vec![py_name],
+            )
         } else {
-            let mut names = vec![py_name.clone()];
+            let mut names = vec![py_name];
             for attr_index in self.pyattrs.iter().rev() {
                 let mut loop_unit = || {
                     let attr_attr = args.attrs.remove(*attr_index);
@@ -585,17 +601,20 @@ impl ModuleItem for AttributeItem {
                 let r = loop_unit();
                 args.context.errors.ok_or_push(r);
             }
-            quote_spanned! { ident.span() => {
-                #let_obj
-                for name in [(#(#names,)*)] {
-                    vm.__module_set_attr(module, name, obj.clone()).unwrap();
-                }
-            }}
+            (
+                quote_spanned! { ident.span() => {
+                    #let_obj
+                    for name in [(#(#names,)*)] {
+                        vm.__module_set_attr(module, name, obj.clone()).unwrap();
+                    }
+                }},
+                names,
+            )
         };
 
         args.context
             .module_extend_items
-            .add_item(py_name, cfgs, tokens)?;
+            .add_item(ident, py_names, cfgs, tokens)?;
 
         Ok(())
     }

@@ -1,7 +1,6 @@
-use indexmap::map::IndexMap;
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, ToTokens};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use syn::{
     spanned::Spanned, Attribute, Ident, Meta, MetaList, NestedMeta, Path, Result, Signature,
     UseTree,
@@ -25,34 +24,62 @@ pub(crate) const ALL_ALLOWED_NAMES: &[&str] = &[
     "extend_class",
 ];
 
+struct NurseryItem {
+    attr_name: Ident,
+    py_names: Vec<String>,
+    cfgs: Vec<Attribute>,
+    tokens: TokenStream,
+}
+
 #[derive(Default)]
-pub(crate) struct ItemNursery(IndexMap<(String, Vec<Attribute>), TokenStream>);
+pub(crate) struct ItemNursery(Vec<NurseryItem>);
+
+pub(crate) struct ValidatedItemNursery(ItemNursery);
 
 impl ItemNursery {
     pub fn add_item(
         &mut self,
-        name: String,
+        attr_name: Ident,
+        py_names: Vec<String>,
         cfgs: Vec<Attribute>,
         tokens: TokenStream,
     ) -> Result<()> {
-        if let Some(existing) = self.0.insert((name.clone(), cfgs), tokens) {
-            Err(syn::Error::new_spanned(
-                existing,
-                format!("Duplicated #[py*] attribute found for '{}'", name),
-            ))
-        } else {
-            Ok(())
+        self.0.push(NurseryItem {
+            attr_name,
+            py_names,
+            cfgs,
+            tokens,
+        });
+        Ok(())
+    }
+
+    pub fn validate(self) -> Result<ValidatedItemNursery> {
+        let mut by_name: HashSet<(String, Vec<Attribute>)> = HashSet::new();
+        for item in &self.0 {
+            for py_name in &item.py_names {
+                let inserted = by_name.insert((py_name.clone(), item.cfgs.clone()));
+                if !inserted {
+                    return Err(syn::Error::new(
+                        item.attr_name.span(),
+                        &format!("Duplicated #[py*] attribute found for {:?}", &item.py_names),
+                    ));
+                }
+            }
         }
+        Ok(ValidatedItemNursery(self))
     }
 }
 
-impl ToTokens for ItemNursery {
+impl ToTokens for ValidatedItemNursery {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        tokens.extend(self.0.iter().map(|((_, cfgs), item)| {
+        let nursery = &self.0;
+        tokens.extend(nursery.0.iter().map(|item| {
+            let cfgs = &item.cfgs;
+            let tokens = &item.tokens;
             quote! {
                 #( #cfgs )*
                 {
-                    #item
+                    #tokens
                 }
             }
         }))

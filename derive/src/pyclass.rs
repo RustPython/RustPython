@@ -107,8 +107,8 @@ pub(crate) fn impl_pyimpl(attr: AttributeArgs, item: Item) -> Result<TokenStream
             } = extract_impl_attrs(attr, &Ident::new(&quote!(ty).to_string(), ty.span()))?;
 
             let getset_impl = &context.getset_items;
-            let extend_impl = &context.impl_extend_items;
-            let slots_impl = &context.extend_slots_items;
+            let extend_impl = context.impl_extend_items.validate()?;
+            let slots_impl = context.extend_slots_items.validate()?;
             let class_extensions = &context.class_extensions;
             quote! {
                 #imp
@@ -143,8 +143,8 @@ pub(crate) fn impl_pyimpl(attr: AttributeArgs, item: Item) -> Result<TokenStream
             } = extract_impl_attrs(attr, &trai.ident)?;
 
             let getset_impl = &context.getset_items;
-            let extend_impl = &context.impl_extend_items;
-            let slots_impl = &context.extend_slots_items;
+            let extend_impl = &context.impl_extend_items.validate()?;
+            let slots_impl = &context.extend_slots_items.validate()?;
             let class_extensions = &context.class_extensions;
             let extra_methods = iter_chain![
                 parse_quote! {
@@ -502,9 +502,12 @@ where
             }
         };
 
-        args.context
-            .impl_extend_items
-            .add_item(py_name, args.cfgs.to_vec(), tokens)?;
+        args.context.impl_extend_items.add_item(
+            ident.clone(),
+            vec![py_name],
+            args.cfgs.to_vec(),
+            tokens,
+        )?;
         Ok(())
     }
 }
@@ -560,8 +563,10 @@ where
             }
         };
 
+        let pyname = format!("(slot {})", slot_name);
         args.context.extend_slots_items.add_item(
-            format!("(slot {})", slot_name),
+            ident.clone(),
+            vec![pyname],
             args.cfgs.to_vec(),
             tokens,
         )?;
@@ -583,32 +588,34 @@ where
             let py_name = item_meta.simple_name()?;
             Ok(py_name)
         };
-        let (py_name, tokens) = if args.item.function_or_method().is_ok() || args.item.is_const() {
-            let ident = args.item.get_ident().unwrap();
-            let py_name = get_py_name(&attr, ident)?;
+        let (ident, py_name, tokens) =
+            if args.item.function_or_method().is_ok() || args.item.is_const() {
+                let ident = args.item.get_ident().unwrap();
+                let py_name = get_py_name(&attr, ident)?;
 
-            let value = if args.item.is_const() {
-                // TODO: ctx.new_value
-                quote_spanned!(ident.span() => ctx.new_int(Self::#ident).into())
+                let value = if args.item.is_const() {
+                    // TODO: ctx.new_value
+                    quote_spanned!(ident.span() => ctx.new_int(Self::#ident).into())
+                } else {
+                    quote_spanned!(ident.span() => Self::#ident(ctx))
+                };
+                (
+                    ident,
+                    py_name.clone(),
+                    quote! {
+                        class.set_str_attr(#py_name, #value);
+                    },
+                )
             } else {
-                quote_spanned!(ident.span() => Self::#ident(ctx))
+                return Err(self.new_syn_error(
+                    args.item.span(),
+                    "can only be on a const or an associated method without argument",
+                ));
             };
-            (
-                py_name.clone(),
-                quote! {
-                    class.set_str_attr(#py_name, #value);
-                },
-            )
-        } else {
-            return Err(self.new_syn_error(
-                args.item.span(),
-                "can only be on a const or an associated method without argument",
-            ));
-        };
 
         args.context
             .impl_extend_items
-            .add_item(py_name, cfgs, tokens)?;
+            .add_item(ident.clone(), vec![py_name], cfgs, tokens)?;
 
         Ok(())
     }
