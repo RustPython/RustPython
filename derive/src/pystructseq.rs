@@ -1,8 +1,8 @@
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{DeriveInput, Result};
+use syn::{DeriveInput, Ident, Result};
 
-pub(crate) fn impl_pystruct_sequence(input: DeriveInput) -> Result<TokenStream> {
+fn field_names(input: &DeriveInput) -> Result<Vec<&Ident>> {
     let fields = if let syn::Data::Struct(ref struc) = input.data {
         &struc.fields
     } else {
@@ -24,9 +24,14 @@ pub(crate) fn impl_pystruct_sequence(input: DeriveInput) -> Result<TokenStream> 
         ),
     };
 
+    Ok(field_names)
+}
+
+pub(crate) fn impl_pystruct_sequence(input: DeriveInput) -> Result<TokenStream> {
+    let field_names = field_names(&input)?;
     let ty = &input.ident;
     let ret = quote! {
-        impl ::rustpython_vm::PyStructSequence for #ty {
+        impl ::rustpython_vm::types::PyStructSequence for #ty {
             const FIELD_NAMES: &'static [&'static str] = &[#(stringify!(#field_names)),*];
             fn into_tuple(self, vm: &::rustpython_vm::VirtualMachine) -> ::rustpython_vm::builtins::PyTuple {
                 let items = vec![#(::rustpython_vm::convert::ToPyObject::to_pyobject(
@@ -38,7 +43,26 @@ pub(crate) fn impl_pystruct_sequence(input: DeriveInput) -> Result<TokenStream> 
         }
         impl ::rustpython_vm::convert::ToPyObject for #ty {
             fn to_pyobject(self, vm: &::rustpython_vm::VirtualMachine) -> ::rustpython_vm::PyObjectRef {
-                ::rustpython_vm::PyStructSequence::into_struct_sequence(self, vm).into()
+                ::rustpython_vm::types::PyStructSequence::into_struct_sequence(self, vm).into()
+            }
+        }
+    };
+    Ok(ret)
+}
+
+pub(crate) fn impl_pystruct_sequence_try_from_object(input: DeriveInput) -> Result<TokenStream> {
+    let field_names = field_names(&input)?;
+    let ty = &input.ident;
+    let ret = quote! {
+        impl ::rustpython_vm::TryFromObject for #ty {
+            fn try_from_object(vm: &::rustpython_vm::VirtualMachine, seq: ::rustpython_vm::PyObjectRef) -> ::rustpython_vm::PyResult<Self> {
+                const LEN: usize = #ty::FIELD_NAMES.len();
+                let seq = Self::try_elements_from::<LEN>(seq, vm)?;
+                // TODO: this is possible to be written without iterator
+                let mut iter = seq.into_iter();
+                Ok(Self {#(
+                    #field_names: iter.next().unwrap().clone().try_into_value(vm)?
+                ),*})
             }
         }
     };

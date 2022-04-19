@@ -622,66 +622,20 @@ pub trait PyObjectPayload: Any + fmt::Debug + PyThreadingConstraint + 'static {}
 
 impl<T: PyValue + 'static> PyObjectPayload for T {}
 
-#[pyimpl]
-pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
-    const FIELD_NAMES: &'static [&'static str];
+pub trait PyObjectWrap
+where
+    Self: AsObject,
+{
+    fn into_object(self) -> PyObjectRef;
+}
 
-    fn into_tuple(self, vm: &VirtualMachine) -> PyTuple;
-
-    fn into_struct_sequence(self, vm: &VirtualMachine) -> PyTupleRef {
-        self.into_tuple(vm)
-            .into_ref_with_type(vm, Self::static_type().clone())
-            .unwrap()
-    }
-
-    #[pymethod(magic)]
-    fn repr(zelf: PyRef<PyTuple>, vm: &VirtualMachine) -> PyResult<String> {
-        let format_field = |(value, name): (&PyObjectRef, _)| {
-            let s = value.repr(vm)?;
-            Ok(format!("{}={}", name, s))
-        };
-        let (body, suffix) =
-            if let Some(_guard) = rustpython_vm::vm::ReprGuard::enter(vm, zelf.as_object()) {
-                if Self::FIELD_NAMES.len() == 1 {
-                    let value = zelf.as_slice().first().unwrap();
-                    let formatted = format_field((value, Self::FIELD_NAMES[0]))?;
-                    (formatted, ",")
-                } else {
-                    let fields: PyResult<Vec<_>> = zelf
-                        .as_slice()
-                        .iter()
-                        .zip(Self::FIELD_NAMES.iter().copied())
-                        .map(format_field)
-                        .collect();
-                    (fields?.join(", "), "")
-                }
-            } else {
-                (String::new(), "...")
-            };
-        Ok(format!("{}({}{})", Self::TP_NAME, body, suffix))
-    }
-
-    #[pymethod(magic)]
-    fn reduce(zelf: PyRef<PyTuple>, vm: &VirtualMachine) -> PyTupleRef {
-        vm.new_tuple((
-            zelf.class().clone(),
-            (vm.ctx.new_tuple(zelf.as_slice().to_vec()),),
-        ))
-    }
-
-    #[extend_class]
-    fn extend_pyclass(ctx: &PyContext, class: &PyTypeRef) {
-        for (i, &name) in Self::FIELD_NAMES.iter().enumerate() {
-            // cast i to a u8 so there's less to store in the getter closure.
-            // Hopefully there's not struct sequences with >=256 elements :P
-            let i = i as u8;
-            class.set_str_attr(
-                name,
-                ctx.new_readonly_getset(name, class.clone(), move |zelf: &PyTuple| {
-                    zelf.fast_getitem(i.into())
-                }),
-            );
-        }
+impl<T> From<T> for PyObjectRef
+where
+    T: PyObjectWrap,
+{
+    #[inline(always)]
+    fn from(py_ref: T) -> Self {
+        py_ref.into_object()
     }
 }
 

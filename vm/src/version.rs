@@ -1,7 +1,7 @@
 /* Several function to retrieve version information.
  */
 
-use crate::PyStructSequence;
+use crate::types::PyStructSequence;
 use chrono::prelude::DateTime;
 use chrono::Local;
 use std::time::{Duration, UNIX_EPOCH};

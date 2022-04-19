@@ -21,8 +21,9 @@ mod time {
     use crate::{
         builtins::{PyStrRef, PyTypeRef},
         function::{FuncArgs, OptionalArg},
+        types::PyStructSequence,
         utils::Either,
-        PyObjectRef, PyResult, PyStructSequence, TryFromObject, VirtualMachine,
+        PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     };
     use chrono::{
         naive::{NaiveDate, NaiveDateTime, NaiveTime},
@@ -315,7 +316,7 @@ mod time {
 
     #[pyattr]
     #[pyclass(name = "struct_time")]
-    #[derive(PyStructSequence)]
+    #[derive(PyStructSequence, TryIntoPyStructSequence)]
     #[allow(dead_code)]
     struct PyStructTime {
         tm_year: PyObjectRef,
@@ -372,29 +373,6 @@ mod time {
             // cls is ignorable because this is not a basetype
             let seq = args.bind(vm)?;
             Ok(vm.new_pyobj(Self::try_from_object(vm, seq)?))
-        }
-    }
-
-    impl TryFromObject for PyStructTime {
-        fn try_from_object(vm: &VirtualMachine, seq: PyObjectRef) -> PyResult<Self> {
-            let seq: Vec<_> = seq.try_to_value(vm)?;
-            if seq.len() != 9 {
-                return Err(
-                    vm.new_type_error("time.struct_time() takes a sequence of length 9".to_owned())
-                );
-            }
-            let mut i = seq.into_iter();
-            Ok(PyStructTime {
-                tm_year: i.next().unwrap(),
-                tm_mon: i.next().unwrap(),
-                tm_mday: i.next().unwrap(),
-                tm_hour: i.next().unwrap(),
-                tm_min: i.next().unwrap(),
-                tm_sec: i.next().unwrap(),
-                tm_wday: i.next().unwrap(),
-                tm_yday: i.next().unwrap(),
-                tm_isdst: i.next().unwrap(),
-            })
         }
     }
 

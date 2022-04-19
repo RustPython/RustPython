@@ -102,6 +102,14 @@ pub fn pystruct_sequence(input: proc_macro::TokenStream) -> proc_macro::TokenStr
     result_to_tokens(pystructseq::impl_pystruct_sequence(input))
 }
 
+#[proc_macro_derive(TryIntoPyStructSequence)]
+pub fn pystruct_sequence_try_from_object(
+    input: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    result_to_tokens(pystructseq::impl_pystruct_sequence_try_from_object(input))
+}
+
 #[proc_macro]
 pub fn py_compile(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     result_to_tokens(compile_bytecode::impl_py_compile(input.into()))
