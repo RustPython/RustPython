@@ -278,6 +278,9 @@ fn generate_class_def(
 }
 
 pub(crate) fn impl_pyclass(attr: AttributeArgs, item: Item) -> Result<TokenStream> {
+    if matches!(item, syn::Item::Use(_)) {
+        return Ok(quote!(#item));
+    }
     let (ident, attrs) = pyclass_ident_and_attrs(&item)?;
     let fake_ident = Ident::new("pyclass", item.span());
     let class_meta = ClassItemMeta::from_nested(ident.clone(), fake_ident, attr.into_iter())?;

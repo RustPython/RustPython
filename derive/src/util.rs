@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, ToTokens};
 use std::collections::{HashMap, HashSet};
@@ -466,14 +467,28 @@ impl AttributeExt for Attribute {
 
 pub(crate) fn pyclass_ident_and_attrs(item: &syn::Item) -> Result<(&Ident, &[Attribute])> {
     use syn::Item::*;
-    match item {
-        Struct(syn::ItemStruct { ident, attrs, .. }) => Ok((ident, attrs)),
-        Enum(syn::ItemEnum { ident, attrs, .. }) => Ok((ident, attrs)),
-        other => Err(syn::Error::new_spanned(
-            other,
-            "#[pyclass] can only be on a struct or enum declaration",
-        )),
-    }
+    Ok(match item {
+        Struct(syn::ItemStruct { ident, attrs, .. }) => (ident, attrs),
+        Enum(syn::ItemEnum { ident, attrs, .. }) => (ident, attrs),
+        Use(item_use) => (
+            iter_use_idents(item_use, |ident, _is_unique| Ok(ident))?
+                .into_iter()
+                .exactly_one()
+                .map_err(|_| {
+                    syn::Error::new_spanned(
+                        item_use,
+                        "#[pyclass] can only be on single name use statement",
+                    )
+                })?,
+            &item_use.attrs,
+        ),
+        other => {
+            return Err(syn::Error::new_spanned(
+                other,
+                "#[pyclass] can only be on a struct, enum or use declaration",
+            ))
+        }
+    })
 }
 
 pub(crate) trait ErrorVec: Sized {
@@ -518,34 +533,39 @@ macro_rules! iter_chain {
     };
 }
 
-pub(crate) fn iter_use_idents<F>(item_use: &syn::ItemUse, mut f: F) -> Result<()>
+pub(crate) fn iter_use_idents<'a, F, R: 'a>(item_use: &'a syn::ItemUse, mut f: F) -> Result<Vec<R>>
 where
-    F: FnMut(&syn::Ident, bool) -> Result<()>,
+    F: FnMut(&'a syn::Ident, bool) -> Result<R>,
 {
+    let mut result = Vec::new();
     match &item_use.tree {
-        UseTree::Name(name) => f(&name.ident, true)?,
-        UseTree::Rename(rename) => f(&rename.rename, true)?,
+        UseTree::Name(name) => result.push(f(&name.ident, true)?),
+        UseTree::Rename(rename) => result.push(f(&rename.rename, true)?),
         UseTree::Path(path) => match &*path.tree {
-            UseTree::Name(name) => f(&name.ident, true)?,
-            UseTree::Rename(rename) => f(&rename.rename, true)?,
-            other => iter_use_tree_idents(other, &mut f)?,
+            UseTree::Name(name) => result.push(f(&name.ident, true)?),
+            UseTree::Rename(rename) => result.push(f(&rename.rename, true)?),
+            other => iter_use_tree_idents(other, &mut result, &mut f)?,
         },
-        other => iter_use_tree_idents(other, &mut f)?,
+        other => iter_use_tree_idents(other, &mut result, &mut f)?,
     }
-    Ok(())
+    Ok(result)
 }
 
-fn iter_use_tree_idents<F>(tree: &syn::UseTree, f: &mut F) -> Result<()>
+fn iter_use_tree_idents<'a, F, R: 'a>(
+    tree: &'a syn::UseTree,
+    result: &mut Vec<R>,
+    f: &mut F,
+) -> Result<()>
 where
-    F: FnMut(&syn::Ident, bool) -> Result<()>,
+    F: FnMut(&'a syn::Ident, bool) -> Result<R>,
 {
     match tree {
-        UseTree::Name(name) => f(&name.ident, false)?,
-        UseTree::Rename(rename) => f(&rename.rename, false)?,
-        UseTree::Path(path) => iter_use_tree_idents(&*path.tree, f)?,
+        UseTree::Name(name) => result.push(f(&name.ident, false)?),
+        UseTree::Rename(rename) => result.push(f(&rename.rename, false)?),
+        UseTree::Path(path) => iter_use_tree_idents(&*path.tree, result, f)?,
         UseTree::Group(syn::UseGroup { items, .. }) => {
             for subtree in items {
-                iter_use_tree_idents(subtree, f)?;
+                iter_use_tree_idents(subtree, result, f)?;
             }
         }
         UseTree::Glob(glob) => {

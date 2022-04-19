@@ -399,9 +399,9 @@ impl ModuleItem for ClassItem {
         let (ident, _) = pyclass_ident_and_attrs(args.item)?;
         let (class_name, class_new) = {
             let class_attr = &mut args.attrs[self.inner.index];
+            let noattr = class_attr.try_remove_name("noattr")?;
             if self.pyattrs.is_empty() {
                 // check noattr before ClassItemMeta::from_attr
-                let noattr = class_attr.try_remove_name("noattr")?;
                 if noattr.is_none() {
                     return Err(syn::Error::new_spanned(
                         ident,
@@ -413,6 +413,8 @@ impl ModuleItem for ClassItem {
                     ));
                 }
             }
+            let noattr = noattr.is_some();
+            let is_use = matches!(&args.item, syn::Item::Use(_));
 
             let class_meta = ClassItemMeta::from_attr(ident.clone(), class_attr)?;
             let module_name = args.context.name.clone();
@@ -424,7 +426,11 @@ impl ModuleItem for ClassItem {
                 })?;
                 module_name
             };
-            let class_name = class_meta.class_name()?;
+            let class_name = if noattr && is_use {
+                "<NO ATTR>".to_owned()
+            } else {
+                class_meta.class_name()?
+            };
             let class_new = quote_spanned!(ident.span() =>
                 let new_class = <#ident as ::rustpython_vm::pyclass::PyClassImpl>::make_class(&vm.ctx);
                 new_class.set_str_attr("__module__", vm.new_pyobj(#module_name));
@@ -538,7 +544,7 @@ impl ModuleItem for AttributeItem {
                     return Err(self
                         .new_syn_error(item.span(), "Only single #[pyattr] is allowed for `use`"));
                 }
-                return iter_use_idents(item, |ident, is_unique| {
+                let _ = iter_use_idents(item, |ident, is_unique| {
                     let item_meta = SimpleItemMeta::from_attr(ident.clone(), &attr)?;
                     let py_name = if is_unique {
                         item_meta.simple_name()?
@@ -562,7 +568,8 @@ impl ModuleItem for AttributeItem {
                         1,
                     )?;
                     Ok(())
-                });
+                })?;
+                return Ok(());
             }
             other => {
                 return Err(
