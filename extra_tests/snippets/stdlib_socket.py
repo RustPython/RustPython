@@ -1,6 +1,9 @@
+import _socket
 import socket
 import os
 from testutils import assert_raises
+
+assert _socket.socket == _socket.SocketType
 
 MESSAGE_A = b'aaaa'
 MESSAGE_B= b'bbbbb'

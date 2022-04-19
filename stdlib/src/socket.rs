@@ -230,7 +230,7 @@ mod _socket {
 
     #[pyattr(name = "socket")]
     #[pyattr(name = "SocketType")]
-    #[pyclass(module = "socket", name = "socket")]
+    #[pyclass(name = "socket")]
     #[derive(Debug, PyValue)]
     pub struct PySocket {
         kind: AtomicCell<i32>,
