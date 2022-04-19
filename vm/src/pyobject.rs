@@ -356,9 +356,30 @@ where
     }
 }
 
+#[derive(Debug)]
 pub struct PyRefExact<T: PyObjectPayload> {
-    obj: PyRef<T>,
+    inner: PyRef<T>,
 }
+
+impl<T: PyObjectPayload> PyRefExact<T> {
+    /// # Safety
+    /// obj must have exact type for the payload
+    pub unsafe fn new_unchecked(obj: PyRef<T>) -> Self {
+        Self { inner: obj }
+    }
+
+    pub fn into_pyref(self) -> PyRef<T> {
+        self.inner
+    }
+}
+
+impl<T: PyObjectPayload> Clone for PyRefExact<T> {
+    fn clone(&self) -> Self {
+        let inner = self.inner.clone();
+        Self { inner }
+    }
+}
+
 impl<T: PyPayload> TryFromObject for PyRefExact<T> {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let target_cls = T::class(vm);
@@ -368,7 +389,7 @@ impl<T: PyPayload> TryFromObject for PyRefExact<T> {
             let obj = obj
                 .downcast()
                 .map_err(|obj| vm.new_downcast_runtime_error(target_cls, &obj))?;
-            Ok(Self { obj })
+            Ok(Self { inner: obj })
         } else if cls.fast_issubclass(target_cls) {
             Err(vm.new_type_error(format!(
                 "Expected an exact instance of '{}', not a subclass '{}'",
@@ -388,13 +409,13 @@ impl<T: PyPayload> Deref for PyRefExact<T> {
     type Target = PyRef<T>;
     #[inline(always)]
     fn deref(&self) -> &PyRef<T> {
-        &self.obj
+        &self.inner
     }
 }
 impl<T: PyPayload> ToPyObject for PyRefExact<T> {
     #[inline(always)]
     fn to_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
-        self.obj.into()
+        self.inner.into()
     }
 }
 
