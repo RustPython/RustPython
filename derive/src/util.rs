@@ -413,7 +413,15 @@ impl AttributeExt for Attribute {
         Ok(list.nested)
     }
     fn ident_and_promoted_nested(&self) -> Result<(&Ident, PunctuatedNestedMeta)> {
-        Ok((self.get_ident().unwrap(), self.promoted_nested()?))
+        let ident = self.get_ident().unwrap_or_else(|| {
+            &self
+                .path
+                .segments
+                .last()
+                .expect("py:: paths always have segment")
+                .ident
+        });
+        Ok((ident, self.promoted_nested()?))
     }
 
     fn try_remove_name(&mut self, item_name: &str) -> Result<Option<syn::NestedMeta>> {

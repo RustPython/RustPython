@@ -174,13 +174,11 @@ where
     while let Some((_, attr)) = iter.peek() {
         // take all cfgs but no py items
         let attr = *attr;
-        if let Some(ident) = attr.get_ident() {
-            let attr_name = ident.to_string();
-            if attr_name == "cfg" {
-                cfgs.push(attr.clone());
-            } else if ALL_ALLOWED_NAMES.contains(&attr_name.as_str()) {
-                break;
-            }
+        let attr_path = attr.path_string();
+        if attr_path == "cfg" {
+            cfgs.push(attr.clone());
+        } else if attr_path.starts_with("py") {
+            break;
         }
         iter.next();
     }
@@ -189,7 +187,7 @@ where
     let mut pyattrs = Vec::new();
     for (i, attr) in iter {
         // take py items but no cfgs
-        let attr_name = attr.path.to_string();
+        let attr_name = attr.path_string();
         if attr_name == "cfg" {
             return Err(syn::Error::new_spanned(
                 attr,
