@@ -34,10 +34,15 @@ struct NurseryItem {
     sort_order: usize,
 }
 
+pub fn path_to_string(path: &syn::Path) -> String {
+    let x = format!("{}", quote! {#path});
+    x.replace(' ', "")
+}
+
 #[derive(Default)]
 pub(crate) struct ItemNursery(Vec<NurseryItem>);
 
-pub(crate) struct ValidatedItemNursery(ItemNursery);
+pub(crate) struct ValidItemNursery(ItemNursery);
 
 impl ItemNursery {
     pub fn add_item(
@@ -58,7 +63,7 @@ impl ItemNursery {
         Ok(())
     }
 
-    pub fn validate(self) -> Result<ValidatedItemNursery> {
+    pub fn validate(self) -> Result<ValidItemNursery> {
         let mut by_name: HashSet<(String, Vec<Attribute>)> = HashSet::new();
         for item in &self.0 {
             for py_name in &item.py_names {
@@ -71,11 +76,11 @@ impl ItemNursery {
                 }
             }
         }
-        Ok(ValidatedItemNursery(self))
+        Ok(ValidItemNursery(self))
     }
 }
 
-impl ToTokens for ValidatedItemNursery {
+impl ToTokens for ValidItemNursery {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let mut sorted = self.0 .0.clone();
         sorted.sort_by(|a, b| a.sort_order.cmp(&b.sort_order));
@@ -379,6 +384,7 @@ pub(crate) fn path_eq(path: &Path, s: &str) -> bool {
 }
 
 pub(crate) trait AttributeExt: SynAttributeExt {
+    fn path_string(&self) -> String;
     fn promoted_nested(&self) -> Result<PunctuatedNestedMeta>;
     fn ident_and_promoted_nested(&self) -> Result<(&Ident, PunctuatedNestedMeta)>;
     fn try_remove_name(&mut self, name: &str) -> Result<Option<syn::NestedMeta>>;
@@ -388,9 +394,12 @@ pub(crate) trait AttributeExt: SynAttributeExt {
 }
 
 impl AttributeExt for Attribute {
+    fn path_string(&self) -> String {
+        path_to_string(&self.path)
+    }
     fn promoted_nested(&self) -> Result<PunctuatedNestedMeta> {
         let list = self.promoted_list().map_err(|mut e| {
-            let name = self.get_ident().unwrap().to_string();
+            let name = self.path_string();
             e.combine(syn::Error::new_spanned(
                 self,
                 format!(

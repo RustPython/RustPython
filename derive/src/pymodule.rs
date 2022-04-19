@@ -189,17 +189,14 @@ where
     let mut pyattrs = Vec::new();
     for (i, attr) in iter {
         // take py items but no cfgs
-        let attr_name = if let Some(ident) = attr.get_ident() {
-            ident.to_string()
-        } else {
-            continue;
-        };
+        let attr_name = attr.path.to_string();
         if attr_name == "cfg" {
             return Err(syn::Error::new_spanned(
                 attr,
                 "#[py*] items must be placed under `cfgs`",
             ));
         }
+        let attr_name = attr_name.replace("::", "");
 
         let attr_name = match AttrName::from_str(attr_name.as_str()) {
             Ok(name) => name,
