@@ -1,4 +1,4 @@
-use crate::{convert::ToPyObject, pyclass::PyClassImpl, PyObject, PyResult, VirtualMachine};
+use crate::{convert::ToPyObject, PyObject, PyResult, VirtualMachine};
 
 pub(crate) use sys::{MAXSIZE, MULTIARCH};
 
@@ -64,6 +64,9 @@ mod sys {
     const PS1: &str = ">>>>> ";
     #[pyattr(name = "ps2")]
     const PS2: &str = "..... ";
+
+    #[pyclass(noattr)]
+    use version::VersionInfo;
 
     #[pyattr]
     fn default_prefix(_vm: &VirtualMachine) -> &'static str {
@@ -670,18 +673,6 @@ mod sys {
 }
 
 pub(crate) fn init_module(vm: &VirtualMachine, module: &PyObject, builtins: &PyObject) {
-    let ctx = &vm.ctx;
-    let _flags_type = sys::Flags::make_class(ctx);
-    let _version_info_type = crate::version::VersionInfo::make_class(ctx);
-    let _hash_info_type = sys::PyHashInfo::make_class(ctx);
-    let _float_info_type = sys::PyFloatInfo::make_class(ctx);
-    let _int_info_type = sys::PyIntInfo::make_class(ctx);
-
-    #[cfg(windows)]
-    {
-        sys::WindowsVersion::make_class(ctx);
-    }
-
     sys::extend_module(vm, module);
 
     let modules = vm.ctx.new_dict();

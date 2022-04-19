@@ -1,7 +1,7 @@
-use indexmap::map::IndexMap;
+use itertools::Itertools;
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, ToTokens};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use syn::{
     spanned::Spanned, Attribute, Ident, Meta, MetaList, NestedMeta, Path, Result, Signature,
     UseTree,
@@ -25,34 +25,67 @@ pub(crate) const ALL_ALLOWED_NAMES: &[&str] = &[
     "extend_class",
 ];
 
+#[derive(Clone)]
+struct NurseryItem {
+    attr_name: Ident,
+    py_names: Vec<String>,
+    cfgs: Vec<Attribute>,
+    tokens: TokenStream,
+    sort_order: usize,
+}
+
 #[derive(Default)]
-pub(crate) struct ItemNursery(IndexMap<(String, Vec<Attribute>), TokenStream>);
+pub(crate) struct ItemNursery(Vec<NurseryItem>);
+
+pub(crate) struct ValidatedItemNursery(ItemNursery);
 
 impl ItemNursery {
     pub fn add_item(
         &mut self,
-        name: String,
+        attr_name: Ident,
+        py_names: Vec<String>,
         cfgs: Vec<Attribute>,
         tokens: TokenStream,
+        sort_order: usize,
     ) -> Result<()> {
-        if let Some(existing) = self.0.insert((name.clone(), cfgs), tokens) {
-            Err(syn::Error::new_spanned(
-                existing,
-                format!("Duplicated #[py*] attribute found for '{}'", name),
-            ))
-        } else {
-            Ok(())
+        self.0.push(NurseryItem {
+            attr_name,
+            py_names,
+            cfgs,
+            tokens,
+            sort_order,
+        });
+        Ok(())
+    }
+
+    pub fn validate(self) -> Result<ValidatedItemNursery> {
+        let mut by_name: HashSet<(String, Vec<Attribute>)> = HashSet::new();
+        for item in &self.0 {
+            for py_name in &item.py_names {
+                let inserted = by_name.insert((py_name.clone(), item.cfgs.clone()));
+                if !inserted {
+                    return Err(syn::Error::new(
+                        item.attr_name.span(),
+                        &format!("Duplicated #[py*] attribute found for {:?}", &item.py_names),
+                    ));
+                }
+            }
         }
+        Ok(ValidatedItemNursery(self))
     }
 }
 
-impl ToTokens for ItemNursery {
+impl ToTokens for ValidatedItemNursery {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        tokens.extend(self.0.iter().map(|((_, cfgs), item)| {
+        let mut sorted = self.0 .0.clone();
+        sorted.sort_by(|a, b| a.sort_order.cmp(&b.sort_order));
+        tokens.extend(sorted.iter().map(|item| {
+            let cfgs = &item.cfgs;
+            let tokens = &item.tokens;
             quote! {
                 #( #cfgs )*
                 {
-                    #item
+                    #tokens
                 }
             }
         }))
@@ -434,14 +467,28 @@ impl AttributeExt for Attribute {
 
 pub(crate) fn pyclass_ident_and_attrs(item: &syn::Item) -> Result<(&Ident, &[Attribute])> {
     use syn::Item::*;
-    match item {
-        Struct(syn::ItemStruct { ident, attrs, .. }) => Ok((ident, attrs)),
-        Enum(syn::ItemEnum { ident, attrs, .. }) => Ok((ident, attrs)),
-        other => Err(syn::Error::new_spanned(
-            other,
-            "#[pyclass] can only be on a struct or enum declaration",
-        )),
-    }
+    Ok(match item {
+        Struct(syn::ItemStruct { ident, attrs, .. }) => (ident, attrs),
+        Enum(syn::ItemEnum { ident, attrs, .. }) => (ident, attrs),
+        Use(item_use) => (
+            iter_use_idents(item_use, |ident, _is_unique| Ok(ident))?
+                .into_iter()
+                .exactly_one()
+                .map_err(|_| {
+                    syn::Error::new_spanned(
+                        item_use,
+                        "#[pyclass] can only be on single name use statement",
+                    )
+                })?,
+            &item_use.attrs,
+        ),
+        other => {
+            return Err(syn::Error::new_spanned(
+                other,
+                "#[pyclass] can only be on a struct, enum or use declaration",
+            ))
+        }
+    })
 }
 
 pub(crate) trait ErrorVec: Sized {
@@ -486,34 +533,39 @@ macro_rules! iter_chain {
     };
 }
 
-pub(crate) fn iter_use_idents<F>(item_use: &syn::ItemUse, mut f: F) -> Result<()>
+pub(crate) fn iter_use_idents<'a, F, R: 'a>(item_use: &'a syn::ItemUse, mut f: F) -> Result<Vec<R>>
 where
-    F: FnMut(&syn::Ident, bool) -> Result<()>,
+    F: FnMut(&'a syn::Ident, bool) -> Result<R>,
 {
+    let mut result = Vec::new();
     match &item_use.tree {
-        UseTree::Name(name) => f(&name.ident, true)?,
-        UseTree::Rename(rename) => f(&rename.rename, true)?,
+        UseTree::Name(name) => result.push(f(&name.ident, true)?),
+        UseTree::Rename(rename) => result.push(f(&rename.rename, true)?),
         UseTree::Path(path) => match &*path.tree {
-            UseTree::Name(name) => f(&name.ident, true)?,
-            UseTree::Rename(rename) => f(&rename.rename, true)?,
-            other => iter_use_tree_idents(other, &mut f)?,
+            UseTree::Name(name) => result.push(f(&name.ident, true)?),
+            UseTree::Rename(rename) => result.push(f(&rename.rename, true)?),
+            other => iter_use_tree_idents(other, &mut result, &mut f)?,
         },
-        other => iter_use_tree_idents(other, &mut f)?,
+        other => iter_use_tree_idents(other, &mut result, &mut f)?,
     }
-    Ok(())
+    Ok(result)
 }
 
-fn iter_use_tree_idents<F>(tree: &syn::UseTree, f: &mut F) -> Result<()>
+fn iter_use_tree_idents<'a, F, R: 'a>(
+    tree: &'a syn::UseTree,
+    result: &mut Vec<R>,
+    f: &mut F,
+) -> Result<()>
 where
-    F: FnMut(&syn::Ident, bool) -> Result<()>,
+    F: FnMut(&'a syn::Ident, bool) -> Result<R>,
 {
     match tree {
-        UseTree::Name(name) => f(&name.ident, false)?,
-        UseTree::Rename(rename) => f(&rename.rename, false)?,
-        UseTree::Path(path) => iter_use_tree_idents(&*path.tree, f)?,
+        UseTree::Name(name) => result.push(f(&name.ident, false)?),
+        UseTree::Rename(rename) => result.push(f(&rename.rename, false)?),
+        UseTree::Path(path) => iter_use_tree_idents(&*path.tree, result, f)?,
         UseTree::Group(syn::UseGroup { items, .. }) => {
             for subtree in items {
-                iter_use_tree_idents(subtree, f)?;
+                iter_use_tree_idents(subtree, result, f)?;
             }
         }
         UseTree::Glob(glob) => {

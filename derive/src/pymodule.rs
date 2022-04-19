@@ -87,7 +87,7 @@ pub fn impl_pymodule(attr: AttributeArgs, module_item: Item) -> Result<TokenStre
 
     // append additional items
     let module_name = context.name.as_str();
-    let module_extend_items = context.module_extend_items;
+    let module_extend_items = context.module_extend_items.validate()?;
     let doc = doc.or_else(|| {
         crate::doc::try_read(module_name)
             .ok()
@@ -317,7 +317,7 @@ impl ModuleItem for FunctionItem {
         let py_name = item_meta.simple_name()?;
         let sig_doc = text_signature(func.sig(), &py_name);
 
-        let item = {
+        let (tokens, py_names) = {
             let module = args.module_name();
             let doc = args.attrs.doc().or_else(|| {
                 crate::doc::try_module_item(module, &py_name)
@@ -340,13 +340,16 @@ impl ModuleItem for FunctionItem {
             );
 
             if self.pyattrs.is_empty() {
-                quote_spanned! { ident.span() => {
-                    let func = #new_func;
-                    vm.__module_set_attr(module, #py_name, func).unwrap();
-                }}
+                (
+                    quote_spanned! { ident.span() => {
+                        let func = #new_func;
+                        vm.__module_set_attr(module, #py_name, func).unwrap();
+                    }},
+                    vec![py_name],
+                )
             } else {
                 let mut py_names = HashSet::new();
-                py_names.insert(py_name.clone());
+                py_names.insert(py_name);
                 for attr_index in self.pyattrs.iter().rev() {
                     let mut loop_unit = || {
                         let attr_attr = args.attrs.remove(*attr_index);
@@ -368,18 +371,25 @@ impl ModuleItem for FunctionItem {
                     args.context.errors.ok_or_push(r);
                 }
                 let py_names: Vec<_> = py_names.into_iter().collect();
-                quote_spanned! { ident.span().resolved_at(Span::call_site()) => {
-                    let func = #new_func;
-                    for name in [#(#py_names,)*] {
-                        vm.__module_set_attr(module, name, func.clone()).unwrap();
-                    }
-                }}
+                (
+                    quote_spanned! { ident.span().resolved_at(Span::call_site()) => {
+                        let func = #new_func;
+                        for name in [#(#py_names,)*] {
+                            vm.__module_set_attr(module, name, func.clone()).unwrap();
+                        }
+                    }},
+                    py_names,
+                )
             }
         };
 
-        args.context
-            .module_extend_items
-            .add_item(py_name, args.cfgs.to_vec(), item)?;
+        args.context.module_extend_items.add_item(
+            ident.clone(),
+            py_names,
+            args.cfgs.to_vec(),
+            tokens,
+            10,
+        )?;
         Ok(())
     }
 }
@@ -387,11 +397,11 @@ impl ModuleItem for FunctionItem {
 impl ModuleItem for ClassItem {
     fn gen_module_item(&self, args: ModuleItemArgs<'_>) -> Result<()> {
         let (ident, _) = pyclass_ident_and_attrs(args.item)?;
-        let (module_name, class_name) = {
+        let (class_name, class_new) = {
             let class_attr = &mut args.attrs[self.inner.index];
+            let noattr = class_attr.try_remove_name("noattr")?;
             if self.pyattrs.is_empty() {
                 // check noattr before ClassItemMeta::from_attr
-                let noattr = class_attr.try_remove_name("noattr")?;
                 if noattr.is_none() {
                     return Err(syn::Error::new_spanned(
                         ident,
@@ -403,6 +413,8 @@ impl ModuleItem for ClassItem {
                     ));
                 }
             }
+            let noattr = noattr.is_some();
+            let is_use = matches!(&args.item, syn::Item::Use(_));
 
             let class_meta = ClassItemMeta::from_attr(ident.clone(), class_attr)?;
             let module_name = args.context.name.clone();
@@ -414,9 +426,19 @@ impl ModuleItem for ClassItem {
                 })?;
                 module_name
             };
-            let class_name = class_meta.class_name()?;
-            (module_name, class_name)
+            let class_name = if noattr && is_use {
+                "<NO ATTR>".to_owned()
+            } else {
+                class_meta.class_name()?
+            };
+            let class_new = quote_spanned!(ident.span() =>
+                let new_class = <#ident as ::rustpython_vm::pyclass::PyClassImpl>::make_class(&vm.ctx);
+                new_class.set_str_attr("__module__", vm.new_pyobj(#module_name));
+            );
+            (class_name, class_new)
         };
+
+        let mut py_names = Vec::new();
         for attr_index in self.pyattrs.iter().rev() {
             let mut loop_unit = || {
                 let attr_attr = args.attrs.remove(*attr_index);
@@ -425,23 +447,41 @@ impl ModuleItem for ClassItem {
                 let py_name = item_meta
                     .optional_name()
                     .unwrap_or_else(|| class_name.clone());
-                let new_class = quote_spanned!(ident.span() =>
-                    <#ident as ::rustpython_vm::pyclass::PyClassImpl>::make_class(&vm.ctx);
-                );
-                let item = quote! {
-                    let new_class = #new_class;
-                    new_class.set_str_attr("__module__", vm.new_pyobj(#module_name));
-                    vm.__module_set_attr(&module, #py_name, new_class).unwrap();
-                };
+                py_names.push(py_name);
 
-                args.context
-                    .module_extend_items
-                    .add_item(py_name, args.cfgs.to_vec(), item)?;
                 Ok(())
             };
             let r = loop_unit();
             args.context.errors.ok_or_push(r);
         }
+
+        let set_attr = match py_names.len() {
+            0 => quote! {
+                let _ = new_class;  // suppress warning
+            },
+            1 => {
+                let py_name = &py_names[0];
+                quote! {
+                    vm.__module_set_attr(&module, #py_name, new_class).unwrap();
+                }
+            }
+            _ => quote! {
+                for name in [#(#py_names,)*] {
+                    vm.__module_set_attr(&module, name, new_class.clone()).unwrap();
+                }
+            },
+        };
+
+        args.context.module_extend_items.add_item(
+            ident.clone(),
+            py_names,
+            args.cfgs.to_vec(),
+            quote_spanned! { ident.span() =>
+                #class_new
+                #set_attr
+            },
+            0,
+        )?;
         Ok(())
     }
 }
@@ -504,7 +544,7 @@ impl ModuleItem for AttributeItem {
                     return Err(self
                         .new_syn_error(item.span(), "Only single #[pyattr] is allowed for `use`"));
                 }
-                return iter_use_idents(item, |ident, is_unique| {
+                let _ = iter_use_idents(item, |ident, is_unique| {
                     let item_meta = SimpleItemMeta::from_attr(ident.clone(), &attr)?;
                     let py_name = if is_unique {
                         item_meta.simple_name()?
@@ -520,11 +560,16 @@ impl ModuleItem for AttributeItem {
                     let tokens = quote_spanned! { ident.span() =>
                         vm.__module_set_attr(module, #py_name, vm.new_pyobj(#ident)).unwrap();
                     };
-                    args.context
-                        .module_extend_items
-                        .add_item(py_name, cfgs.clone(), tokens)?;
+                    args.context.module_extend_items.add_item(
+                        ident.clone(),
+                        vec![py_name],
+                        cfgs.clone(),
+                        tokens,
+                        1,
+                    )?;
                     Ok(())
-                });
+                })?;
+                return Ok(());
             }
             other => {
                 return Err(
@@ -533,13 +578,16 @@ impl ModuleItem for AttributeItem {
             }
         };
 
-        let tokens = if self.pyattrs.is_empty() {
-            quote_spanned! { ident.span() => {
-                #let_obj
-                vm.__module_set_attr(module, #py_name, obj).unwrap();
-            }}
+        let (tokens, py_names) = if self.pyattrs.is_empty() {
+            (
+                quote_spanned! { ident.span() => {
+                    #let_obj
+                    vm.__module_set_attr(module, #py_name, obj).unwrap();
+                }},
+                vec![py_name],
+            )
         } else {
-            let mut names = vec![py_name.clone()];
+            let mut names = vec![py_name];
             for attr_index in self.pyattrs.iter().rev() {
                 let mut loop_unit = || {
                     let attr_attr = args.attrs.remove(*attr_index);
@@ -563,17 +611,20 @@ impl ModuleItem for AttributeItem {
                 let r = loop_unit();
                 args.context.errors.ok_or_push(r);
             }
-            quote_spanned! { ident.span() => {
-                #let_obj
-                for name in [(#(#names,)*)] {
-                    vm.__module_set_attr(module, name, obj.clone()).unwrap();
-                }
-            }}
+            (
+                quote_spanned! { ident.span() => {
+                    #let_obj
+                    for name in [(#(#names,)*)] {
+                        vm.__module_set_attr(module, name, obj.clone()).unwrap();
+                    }
+                }},
+                names,
+            )
         };
 
         args.context
             .module_extend_items
-            .add_item(py_name, cfgs, tokens)?;
+            .add_item(ident, py_names, cfgs, tokens, 1)?;
 
         Ok(())
     }
