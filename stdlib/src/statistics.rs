@@ -1,31 +1,21 @@
-pub(crate) use statistics::make_module;
+pub(crate) use _statistics::make_module;
 
-#[pymodule(name = "_statistics")]
-mod statistics {
-    use rustpython_vm::{PyResult, VirtualMachine};
+#[pymodule]
+mod _statistics {
+    use crate::vm::{function::ArgIntoFloat, PyResult, VirtualMachine};
 
-    /*
-     * There is no closed-form solution to the inverse CDF for the normal
-     * distribution, so we use a rational approximation instead:
-     * Wichura, M.J. (1988). "Algorithm AS241: The Percentage Points of the
-     * Normal Distribution".  Applied Statistics. Blackwell Publishing. 37
-     * (3): 477–484. doi:10.2307/2347330. JSTOR 2347330.
-     */
-
-    #[pyfunction(name = "_normal_dist_inv_cdf")]
-    fn normal_dist_inv_cdf(p: f64, mu: f64, sigma: f64, vm: &VirtualMachine) -> PyResult<f64> {
+    // See https://github.com/python/cpython/blob/6846d6712a0894f8e1a91716c11dd79f42864216/Modules/_statisticsmodule.c#L28-L120
+    #[allow(clippy::excessive_precision)]
+    fn normal_dist_inv_cdf(p: f64, mu: f64, sigma: f64) -> Option<f64> {
         if p <= 0.0 || p >= 1.0 || sigma <= 0.0 {
-            return Err(vm.new_value_error("inv_cdf undefined for these parameters".to_string()));
+            return None;
         }
 
         let q = p - 0.5;
-        let num: f64;
-        let den: f64;
-        #[allow(clippy::excessive_precision)]
         if q.abs() <= 0.425 {
             let r = 0.180625 - q * q;
             // Hash sum-55.8831928806149014439
-            num = (((((((2.5090809287301226727e+3 * r + 3.3430575583588128105e+4) * r
+            let num = (((((((2.5090809287301226727e+3 * r + 3.3430575583588128105e+4) * r
                 + 6.7265770927008700853e+4)
                 * r
                 + 4.5921953931549871457e+4)
@@ -38,7 +28,7 @@ mod statistics {
                 * r
                 + 3.3871328727963666080e+0)
                 * q;
-            den = ((((((5.2264952788528545610e+3 * r + 2.8729085735721942674e+4) * r
+            let den = ((((((5.2264952788528545610e+3 * r + 2.8729085735721942674e+4) * r
                 + 3.9307895800092710610e+4)
                 * r
                 + 2.1213794301586595867e+4)
@@ -51,18 +41,18 @@ mod statistics {
                 * r
                 + 1.0;
             if den == 0.0 {
-                return Err(
-                    vm.new_value_error("inv_cdf undefined for these parameters".to_string())
-                );
+                return None;
             }
             let x = num / den;
-            return Ok(mu + (x * sigma));
+            return Some(mu + (x * sigma));
         }
         let r = if q <= 0.0 { p } else { 1.0 - p };
         if r <= 0.0 || r >= 1.0 {
-            return Err(vm.new_value_error("inv_cdf undefined for these parameters".to_string()));
+            return None;
         }
         let r = (-(r.ln())).sqrt();
+        let num;
+        let den;
         #[allow(clippy::excessive_precision)]
         if r <= 5.0 {
             let r = r - 1.6;
@@ -120,12 +110,23 @@ mod statistics {
                 + 1.0;
         }
         if den == 0.0 {
-            return Err(vm.new_value_error("inv_cdf undefined for these parameters".to_string()));
+            return None;
         }
         let mut x = num / den;
         if q < 0.0 {
             x = -x;
         }
-        Ok(mu + (x * sigma))
+        Some(mu + (x * sigma))
+    }
+
+    #[pyfunction]
+    fn _normal_dist_inv_cdf(
+        p: ArgIntoFloat,
+        mu: ArgIntoFloat,
+        sigma: ArgIntoFloat,
+        vm: &VirtualMachine,
+    ) -> PyResult<f64> {
+        normal_dist_inv_cdf(p.to_f64(), mu.to_f64(), sigma.to_f64())
+            .ok_or_else(|| vm.new_value_error("inv_cdf undefined for these parameters".to_owned()))
     }
 }

@@ -20,11 +20,11 @@ mod platform;
 mod pyexpat;
 mod pystruct;
 mod random;
+mod statistics;
 // TODO: maybe make this an extension module, if we ever get those
 // mod re;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod socket;
-mod statistics;
 #[cfg(unix)]
 mod syslog;
 mod unicodedata;
@@ -93,6 +93,7 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
             "_struct" => pystruct::make_module,
             "unicodedata" => unicodedata::make_module,
             "zlib" => zlib::make_module,
+            "_statistics" => statistics::make_module,
             // crate::vm::sysmodule::sysconfigdata_name() => sysconfigdata::make_module,
         }
         // parser related modules:
