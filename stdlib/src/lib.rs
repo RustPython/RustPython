@@ -9,6 +9,7 @@ pub mod array;
 mod binascii;
 mod bisect;
 mod cmath;
+mod contextvars;
 mod csv;
 mod dis;
 mod gc;
@@ -78,6 +79,7 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
             "binascii" => binascii::make_module,
             "_bisect" => bisect::make_module,
             "cmath" => cmath::make_module,
+            "_contextvars" => contextvars::make_module,
             "_csv" => csv::make_module,
             "_dis" => dis::make_module,
             "gc" => gc::make_module,
