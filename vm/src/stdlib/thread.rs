@@ -209,9 +209,26 @@ pub(crate) mod _thread {
     }
 
     fn thread_to_id(t: &thread::Thread) -> u64 {
+        use std::hash::{Hash, Hasher};
+        struct U64Hash {
+            v: Option<u64>,
+        }
+        impl Hasher for U64Hash {
+            fn write(&mut self, _: &[u8]) {
+                unreachable!()
+            }
+            fn write_u64(&mut self, i: u64) {
+                self.v = Some(i);
+            }
+            fn finish(&self) -> u64 {
+                self.v.expect("should have written a u64")
+            }
+        }
         // TODO: use id.as_u64() once it's stable, until then, ThreadId is just a wrapper
-        // around NonZeroU64, so this is safe
-        unsafe { std::mem::transmute(t.id()) }
+        // around NonZeroU64, so this should work (?)
+        let mut h = U64Hash { v: None };
+        t.id().hash(&mut h);
+        h.finish()
     }
 
     #[pyfunction]
