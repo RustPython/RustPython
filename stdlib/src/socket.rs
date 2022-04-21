@@ -682,7 +682,7 @@ mod _socket {
             let mut buffer = Vec::with_capacity(bufsize);
             let sock = self.sock(vm)?;
             let n = self.sock_op(vm, SelectKind::Read, || {
-                sock.recv_with_flags(spare_capacity_mut(&mut buffer), flags)
+                sock.recv_with_flags(buffer.spare_capacity_mut(), flags)
             })?;
             unsafe { buffer.set_len(n) };
             Ok(buffer)
@@ -718,7 +718,7 @@ mod _socket {
             let mut buffer = Vec::with_capacity(bufsize);
             let (n, addr) = self.sock_op(vm, SelectKind::Read, || {
                 self.sock_io()?
-                    .recv_from_with_flags(spare_capacity_mut(&mut buffer), flags)
+                    .recv_from_with_flags(buffer.spare_capacity_mut(), flags)
             })?;
             unsafe { buffer.set_len(n) };
             Ok((buffer, get_addr_tuple(&addr, vm)))
@@ -1205,16 +1205,6 @@ mod _socket {
         Ok(s.to_string_lossy().into_owned())
     }
 
-    // TODO: use `Vec::spare_capacity_mut` once stable.
-    fn spare_capacity_mut<T>(v: &mut Vec<T>) -> &mut [MaybeUninit<T>] {
-        let (len, cap) = (v.len(), v.capacity());
-        unsafe {
-            std::slice::from_raw_parts_mut(
-                v.as_mut_ptr().add(len) as *mut MaybeUninit<T>,
-                cap - len,
-            )
-        }
-    }
     fn slice_as_uninit<T>(v: &mut [T]) -> &mut [MaybeUninit<T>] {
         unsafe { &mut *(v as *mut [T] as *mut [MaybeUninit<T>]) }
     }
