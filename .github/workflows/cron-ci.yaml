@@ -15,6 +15,8 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
+        with:
+          components: llvm-tools-preview
       - run: sudo apt-get update && sudo apt-get -y install lcov
       - uses: actions-rs/cargo@v1
         with:
