@@ -48,7 +48,7 @@ jobs:
           rusttool cov export --instr-profile codecov.profdata target/release/rustpython --format lcov >codecov.lcov
           lcov -r codecov.lcov '/*' -o codecov.lcov
       - name: upload to Codecov
-        uses: codecov/codecov-action@v1
+        uses: codecov/codecov-action@v3
         with:
           file: ./codecov.lcov
 
