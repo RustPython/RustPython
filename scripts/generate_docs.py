@@ -108,19 +108,26 @@ def traverse_all():
 
 
 def docs():
-    docs = {".".join(names): doc for names, doc in traverse_all()}
-    return docs
+    return ((".".join(names), doc) for names, doc in traverse_all())
 
 
 if __name__ == "__main__":
-    import json
     import sys
+    import json
 
     try:
         out_path = sys.argv[1]
     except IndexError:
         out_path = "-"
 
-    dump = json.dumps(docs(), indent=4, sort_keys=True)
+    def dump(docs):
+        yield "[\n"
+        for name, doc in docs:
+            if doc is None:
+                yield f"    ({json.dumps(name)}, None),\n"
+            else:
+                yield f"    ({json.dumps(name)}, Some({json.dumps(doc)})),\n"
+        yield "]\n"
+
     out_file = open(out_path, "w") if out_path != "-" else sys.stdout
-    out_file.write(dump)
+    out_file.writelines(dump(docs()))

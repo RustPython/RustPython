@@ -1798,7 +1798,6 @@ dependencies = [
  "quote",
  "rustpython-bytecode",
  "rustpython-compiler",
- "serde_json",
  "syn",
  "syn-ext",
  "textwrap 0.15.0",
