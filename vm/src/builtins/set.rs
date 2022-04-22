@@ -11,13 +11,14 @@ use crate::{
     function::{ArgIterable, FuncArgs, OptionalArg, PosArgs, PyArithmeticValue, PyComparisonValue},
     protocol::{PyIterReturn, PySequenceMethods},
     pyclass::PyClassImpl,
+    recursion::ReprGuard,
     types::{
         AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable,
         PyComparisonOp, Unconstructible, Unhashable,
     },
     utils::collection_repr,
-    vm::{ReprGuard, VirtualMachine},
-    AsObject, PyContext, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+    vm::VirtualMachine,
+    AsObject, Context, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
 };
 use std::borrow::Cow;
 use std::{fmt, ops::Deref};
@@ -386,7 +387,7 @@ macro_rules! multi_args_set {
 }
 
 impl PySet {
-    pub fn new_ref(ctx: &PyContext) -> PyRef<Self> {
+    pub fn new_ref(ctx: &Context) -> PyRef<Self> {
         // Initialized empty, as calling __hash__ is required for adding each object to the set
         // which requires a VM context - this is done in the set code itself.
         PyRef::new_ref(Self::default(), ctx.types.set_type.clone(), None)
@@ -1028,7 +1029,7 @@ impl IterNext for PySetIterator {
     }
 }
 
-pub fn init(context: &PyContext) {
+pub fn init(context: &Context) {
     PySet::extend_class(context, &context.types.set_type);
     PyFrozenSet::extend_class(context, &context.types.frozenset_type);
     PySetIterator::extend_class(context, &context.types.set_iterator_type);

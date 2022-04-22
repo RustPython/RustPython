@@ -33,7 +33,7 @@ use crate::{
         IterNextIterable, Iterable, PyComparisonOp, Unconstructible, Unhashable,
     },
     utils::Either,
-    AsObject, Py, PyContext, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, TryFromObject, VirtualMachine,
 };
 use bstr::ByteSlice;
@@ -49,7 +49,7 @@ pub struct PyByteArray {
 pub type PyByteArrayRef = PyRef<PyByteArray>;
 
 impl PyByteArray {
-    pub fn new_ref(data: Vec<u8>, ctx: &PyContext) -> PyRef<Self> {
+    pub fn new_ref(data: Vec<u8>, ctx: &Context) -> PyRef<Self> {
         PyRef::new_ref(Self::from(data), ctx.types.bytearray_type.clone(), None)
     }
 
@@ -88,7 +88,7 @@ impl PyPayload for PyByteArray {
 }
 
 /// Fill bytearray class methods dictionary.
-pub(crate) fn init(context: &PyContext) {
+pub(crate) fn init(context: &Context) {
     PyByteArray::extend_class(context, &context.types.bytearray_type);
     PyByteArrayIterator::extend_class(context, &context.types.bytearray_iterator_type);
 }

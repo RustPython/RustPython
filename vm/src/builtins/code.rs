@@ -7,7 +7,7 @@ use crate::{
     bytecode::{self, BorrowedConstant, Constant, ConstantBag},
     function::FuncArgs,
     pyclass::{PyClassImpl, StaticType},
-    AsObject, PyContext, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use num_traits::Zero;
 use std::{fmt, ops::Deref};
@@ -83,7 +83,7 @@ impl ConstantBag for PyObjBag<'_> {
             bytecode::ConstantData::Float { value } => ctx.new_float(value).into(),
             bytecode::ConstantData::Complex { value } => vm.new_pyobj(value),
             bytecode::ConstantData::Str { value } if value.len() <= 20 => {
-                vm.intern_string(value).into()
+                vm.ctx.intern_string(value).into_pyref().into()
             }
             bytecode::ConstantData::Str { value } => vm.ctx.new_str(value).into(),
             bytecode::ConstantData::Bytes { value } => ctx.new_bytes(value.to_vec()).into(),
@@ -109,7 +109,7 @@ impl ConstantBag for PyObjBag<'_> {
             bytecode::BorrowedConstant::Float { value } => ctx.new_float(value).into(),
             bytecode::BorrowedConstant::Complex { value } => vm.new_pyobj(value),
             bytecode::BorrowedConstant::Str { value } if value.len() <= 20 => {
-                vm.intern_string(value).into()
+                vm.ctx.intern_string(value).into_pyref().into()
             }
             bytecode::BorrowedConstant::Str { value } => vm.ctx.new_str(value).into(),
             bytecode::BorrowedConstant::Bytes { value } => ctx.new_bytes(value.to_vec()).into(),
@@ -130,10 +130,10 @@ impl ConstantBag for PyObjBag<'_> {
         PyConstant(obj)
     }
     fn make_name(&self, name: String) -> PyStrRef {
-        self.0.intern_string(name)
+        self.0.ctx.intern_string(name).into_pyref()
     }
     fn make_name_ref(&self, name: &str) -> PyStrRef {
-        self.0.intern_string(name)
+        self.0.ctx.intern_string(name).into_pyref()
     }
 }
 
@@ -174,7 +174,7 @@ impl PyCode {
     /// Create a new `PyRef<PyCode>` from a `code::CodeObject`. If you have a non-mapped codeobject or
     /// this is giving you a type error even though you've passed a `CodeObject`, try
     /// [`vm.new_code_object()`](VirtualMachine::new_code_object) instead.
-    pub fn new_ref(code: CodeObject, ctx: &PyContext) -> PyRef<Self> {
+    pub fn new_ref(code: CodeObject, ctx: &Context) -> PyRef<Self> {
         PyRef::new_ref(PyCode { code }, ctx.types.code_type.clone(), None)
     }
 }
@@ -272,6 +272,6 @@ impl fmt::Display for PyCode {
     }
 }
 
-pub fn init(ctx: &PyContext) {
+pub fn init(ctx: &Context) {
     PyRef::<PyCode>::extend_class(ctx, &ctx.types.code_type);
 }

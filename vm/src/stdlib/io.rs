@@ -111,10 +111,11 @@ mod _io {
             BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn, VecBuffer,
         },
         pyclass::StaticType,
+        recursion::ReprGuard,
         types::{Constructor, Destructor, IterNext, Iterable},
         utils::Either,
-        vm::{ReprGuard, VirtualMachine},
-        AsObject, PyContext, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
+        vm::VirtualMachine,
+        AsObject, Context, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
         TryFromBorrowedObject, TryFromObject,
     };
     use bstr::ByteSlice;
@@ -397,7 +398,7 @@ mod _io {
         }
 
         #[pyattr]
-        fn __closed(ctx: &PyContext) -> PyIntRef {
+        fn __closed(ctx: &Context) -> PyIntRef {
             ctx.new_bool(false)
         }
 
@@ -3610,7 +3611,7 @@ mod _io {
         pub(super) static UNSUPPORTED_OPERATION: PyTypeRef;
     }
 
-    pub(super) fn make_unsupportedop(ctx: &PyContext) -> PyTypeRef {
+    pub(super) fn make_unsupportedop(ctx: &Context) -> PyTypeRef {
         PyType::new_ref(
             "UnsupportedOperation",
             vec![

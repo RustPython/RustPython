@@ -5,6 +5,7 @@ use crate::{
     function::{OptionalArg, PyArithmeticValue, PyComparisonValue},
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     pyclass::PyClassImpl,
+    recursion::ReprGuard,
     sequence::{ObjectSequenceOp, SequenceOp},
     sliceable::{SequenceIndex, SliceableSequenceOp},
     stdlib::sys,
@@ -13,8 +14,8 @@ use crate::{
         Iterable, PyComparisonOp, Unconstructible,
     },
     utils::collection_repr,
-    vm::{ReprGuard, VirtualMachine},
-    AsObject, PyContext, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+    vm::VirtualMachine,
+    AsObject, Context, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
 };
 use std::{borrow::Cow, fmt, marker::PhantomData};
 
@@ -118,7 +119,7 @@ impl Constructor for PyTuple {
 }
 
 impl PyTuple {
-    pub fn new_ref(elements: Vec<PyObjectRef>, ctx: &PyContext) -> PyRef<Self> {
+    pub fn new_ref(elements: Vec<PyObjectRef>, ctx: &Context) -> PyRef<Self> {
         if elements.is_empty() {
             ctx.empty_tuple.clone()
         } else {
@@ -444,7 +445,7 @@ impl IterNext for PyTupleIterator {
     }
 }
 
-pub(crate) fn init(context: &PyContext) {
+pub(crate) fn init(context: &Context) {
     PyTuple::extend_class(context, &context.types.tuple_type);
     PyTupleIterator::extend_class(context, &context.types.tuple_iterator_type);
 }

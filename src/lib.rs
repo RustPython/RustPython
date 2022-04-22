@@ -51,7 +51,7 @@ use rustpython_vm::{
     compile, match_class,
     scope::Scope,
     stdlib::{atexit, sys},
-    AsObject, InitParameter, Interpreter, PyObjectRef, PyResult, PySettings, TryFromObject,
+    AsObject, InitParameter, Interpreter, PyObjectRef, PyResult, Settings, TryFromObject,
     VirtualMachine,
 };
 use std::{env, path::Path, process, str::FromStr};
@@ -308,8 +308,8 @@ fn add_stdlib(vm: &mut VirtualMachine) {
 
 /// Create settings by examining command line arguments and environment
 /// variables.
-fn create_settings(matches: &ArgMatches) -> PySettings {
-    let mut settings = PySettings::default();
+fn create_settings(matches: &ArgMatches) -> Settings {
+    let mut settings = Settings::default();
     settings.isolated = matches.is_present("isolate");
     settings.ignore_environment = matches.is_present("ignore-environment");
     settings.interactive = !matches.is_present("c")
@@ -320,7 +320,7 @@ fn create_settings(matches: &ArgMatches) -> PySettings {
 
     let ignore_environment = settings.ignore_environment || settings.isolated;
 
-    // when rustpython-vm/pylib is enabled, PySettings::default().path_list has pylib::LIB_PATH
+    // when rustpython-vm/pylib is enabled, Settings::default().path_list has pylib::LIB_PATH
     let maybe_pylib = settings.path_list.pop();
 
     // add the current directory to sys.path
@@ -699,7 +699,7 @@ mod tests {
     use super::*;
 
     fn interpreter() -> Interpreter {
-        Interpreter::new_with_init(PySettings::default(), |vm| {
+        Interpreter::new_with_init(Settings::default(), |vm| {
             add_stdlib(vm);
             InitParameter::External
         })

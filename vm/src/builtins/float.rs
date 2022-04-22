@@ -10,7 +10,7 @@ use crate::{
     },
     pyclass::PyClassImpl,
     types::{Comparable, Constructor, Hashable, PyComparisonOp},
-    AsObject, PyContext, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject,
+    AsObject, Context, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject,
     TryFromObject, VirtualMachine,
 };
 use num_bigint::{BigInt, ToBigInt};
@@ -563,6 +563,6 @@ pub(crate) fn get_value(obj: &PyObject) -> f64 {
 }
 
 #[rustfmt::skip] // to avoid line splitting
-pub fn init(context: &PyContext) {
+pub fn init(context: &Context) {
     PyFloat::extend_class(context, &context.types.float_type);
 }

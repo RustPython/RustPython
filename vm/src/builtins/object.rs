@@ -5,7 +5,7 @@ use crate::{
     pyclass::PyClassImpl,
     types::PyComparisonOp,
     utils::Either,
-    AsObject, PyContext, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+    AsObject, Context, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 
 /// object()
@@ -376,7 +376,7 @@ pub fn generic_setattr(
     }
 }
 
-pub fn init(ctx: &PyContext) {
+pub fn init(ctx: &Context) {
     PyBaseObject::extend_class(ctx, &ctx.types.object_type);
 }
 

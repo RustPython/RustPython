@@ -7,10 +7,10 @@ use crate::{
     frame::{Frame, FrameRef},
     pyclass::PyClassImpl,
     types::{Constructor, Unconstructible},
-    AsObject, PyContext, PyObjectRef, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, PyObjectRef, PyRef, PyResult, VirtualMachine,
 };
 
-pub fn init(context: &PyContext) {
+pub fn init(context: &Context) {
     FrameRef::extend_class(context, &context.types.frame_type);
 }
 

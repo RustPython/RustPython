@@ -10,7 +10,7 @@ use crate::{
     pyclass::{PyClassImpl, StaticType},
     stdlib::sys,
     suggestion::offer_suggestions,
-    AsObject, PyContext, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+    AsObject, Context, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
@@ -683,7 +683,7 @@ impl ExceptionZoo {
 
     // TODO: remove it after fixing `errno` / `winerror` problem
     #[allow(clippy::redundant_clone)]
-    pub fn extend(ctx: &PyContext) {
+    pub fn extend(ctx: &Context) {
         use self::types::*;
 
         let excs = &ctx.exceptions;

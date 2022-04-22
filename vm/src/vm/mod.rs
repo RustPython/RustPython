@@ -2,17 +2,24 @@
 //!
 //! See also:
 //!   <https://github.com/ProgVal/pythonvm-rust/blob/master/src/processor/mod.rs>
-//!
 
 #[cfg(feature = "rustpython-compiler")]
-use crate::compile::{self, CompileError, CompileOpts};
+mod compile;
+mod context;
+mod interpreter;
+mod setting;
+pub mod thread;
+mod vm_new;
+mod vm_object;
+mod vm_ops;
+
 use crate::{
     builtins::{
         code::{self, PyCode},
         object,
         pystr::IntoPyStrRef,
         tuple::{PyTuple, PyTupleTyped},
-        PyBaseExceptionRef, PyDictRef, PyList, PyModule, PyStr, PyStrRef, PyTypeRef,
+        PyBaseExceptionRef, PyDictRef, PyList, PyModule, PyStrRef, PyTypeRef,
     },
     bytecode,
     codecs::CodecsRegistry,
@@ -24,8 +31,7 @@ use crate::{
     import,
     protocol::PyIterIter,
     scope::Scope,
-    signal, stdlib, AsObject, PyContext, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact,
-    PyResult,
+    signal, stdlib, AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use std::{
@@ -33,6 +39,10 @@ use std::{
     cell::{Cell, Ref, RefCell},
     collections::{HashMap, HashSet},
 };
+
+pub use context::Context;
+pub use interpreter::Interpreter;
+pub use setting::Settings;
 
 // Objects are live when they are on stack, or referenced by a name (for now)
 
@@ -43,7 +53,7 @@ use std::{
 pub struct VirtualMachine {
     pub builtins: PyRef<PyModule>,
     pub sys_module: PyRef<PyModule>,
-    pub ctx: PyRc<PyContext>,
+    pub ctx: PyRc<Context>,
     pub frames: RefCell<Vec<FrameRef>>,
     pub wasm_id: Option<String>,
     exceptions: RefCell<ExceptionStack>,
@@ -66,51 +76,8 @@ struct ExceptionStack {
     prev: Option<Box<ExceptionStack>>,
 }
 
-pub(crate) mod thread {
-    use super::{AsObject, PyObject, VirtualMachine};
-    use itertools::Itertools;
-    use std::{cell::RefCell, ptr::NonNull, thread_local};
-
-    thread_local! {
-        pub(super) static VM_STACK: RefCell<Vec<NonNull<VirtualMachine>>> = Vec::with_capacity(1).into();
-    }
-
-    pub fn enter_vm<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
-        VM_STACK.with(|vms| {
-            vms.borrow_mut().push(vm.into());
-            let ret = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
-            vms.borrow_mut().pop();
-            ret.unwrap_or_else(|e| std::panic::resume_unwind(e))
-        })
-    }
-
-    pub fn with_vm<F, R>(obj: &PyObject, f: F) -> Option<R>
-    where
-        F: Fn(&VirtualMachine) -> R,
-    {
-        let vm_owns_obj = |intp: NonNull<VirtualMachine>| {
-            // SAFETY: all references in VM_STACK should be valid
-            let vm = unsafe { intp.as_ref() };
-            obj.fast_isinstance(&vm.ctx.types.object_type)
-        };
-        VM_STACK.with(|vms| {
-            let intp = match vms.borrow().iter().copied().exactly_one() {
-                Ok(x) => {
-                    debug_assert!(vm_owns_obj(x));
-                    x
-                }
-                Err(mut others) => others.find(|x| vm_owns_obj(*x))?,
-            };
-            // SAFETY: all references in VM_STACK should be valid, and should not be changed or moved
-            // at least until this function returns and the stack unwinds to an enter_vm() call
-            let vm = unsafe { intp.as_ref() };
-            Some(f(vm))
-        })
-    }
-}
-
 pub struct PyGlobalState {
-    pub settings: PySettings,
+    pub settings: Settings,
     pub module_inits: stdlib::StdlibMap,
     pub frozen: HashMap<String, code::FrozenModule, ahash::RandomState>,
     pub stacksize: AtomicCell<usize>,
@@ -126,103 +93,11 @@ pub enum InitParameter {
     External,
 }
 
-/// Struct containing all kind of settings for the python vm.
-#[non_exhaustive]
-pub struct PySettings {
-    /// -d command line switch
-    pub debug: bool,
-
-    /// -i
-    pub inspect: bool,
-
-    /// -i, with no script
-    pub interactive: bool,
-
-    /// -O optimization switch counter
-    pub optimize: u8,
-
-    /// -s
-    pub no_user_site: bool,
-
-    /// -S
-    pub no_site: bool,
-
-    /// -E
-    pub ignore_environment: bool,
-
-    /// verbosity level (-v switch)
-    pub verbose: u8,
-
-    /// -q
-    pub quiet: bool,
-
-    /// -B
-    pub dont_write_bytecode: bool,
-
-    /// -b
-    pub bytes_warning: u64,
-
-    /// -Xfoo[=bar]
-    pub xopts: Vec<(String, Option<String>)>,
-
-    /// -I
-    pub isolated: bool,
-
-    /// -Xdev
-    pub dev_mode: bool,
-
-    /// -Wfoo
-    pub warnopts: Vec<String>,
-
-    /// Environment PYTHONPATH and RUSTPYTHONPATH:
-    pub path_list: Vec<String>,
-
-    /// sys.argv
-    pub argv: Vec<String>,
-
-    /// PYTHONHASHSEED=x
-    pub hash_seed: Option<u32>,
-
-    /// -u, PYTHONUNBUFFERED=x
-    // TODO: use this; can TextIOWrapper even work with a non-buffered?
-    pub stdio_unbuffered: bool,
-}
-
-/// Sensible default settings.
-impl Default for PySettings {
-    fn default() -> Self {
-        PySettings {
-            debug: false,
-            inspect: false,
-            interactive: false,
-            optimize: 0,
-            no_user_site: false,
-            no_site: false,
-            ignore_environment: false,
-            verbose: 0,
-            quiet: false,
-            dont_write_bytecode: false,
-            bytes_warning: 0,
-            xopts: vec![],
-            isolated: false,
-            dev_mode: false,
-            warnopts: vec![],
-            path_list: vec![
-                #[cfg(all(feature = "pylib", not(feature = "freeze-stdlib")))]
-                rustpython_pylib::LIB_PATH.to_owned(),
-            ],
-            argv: vec![],
-            hash_seed: None,
-            stdio_unbuffered: false,
-        }
-    }
-}
-
 impl VirtualMachine {
     /// Create a new `VirtualMachine` structure.
-    fn new(settings: PySettings) -> VirtualMachine {
+    fn new(settings: Settings) -> VirtualMachine {
         flame_guard!("new VirtualMachine");
-        let ctx = PyContext::default();
+        let ctx = Context::default();
 
         // make a new module without access to the vm; doesn't
         // set __spec__, __loader__, etc. attributes
@@ -400,71 +275,6 @@ impl VirtualMachine {
     /// Set the custom signal channel for the interpreter
     pub fn set_user_signal_channel(&mut self, signal_rx: signal::UserSignalReceiver) {
         self.signal_rx = Some(signal_rx);
-    }
-
-    /// Start a new thread with access to the same interpreter.
-    ///
-    /// # Note
-    ///
-    /// If you return a `PyObjectRef` (or a type that contains one) from `F`, and don't `join()`
-    /// on the thread, there is a possibility that that thread will panic as `PyObjectRef`'s `Drop`
-    /// implementation tries to run the `__del__` destructor of a python object but finds that it's
-    /// not in the context of any vm.
-    #[cfg(feature = "threading")]
-    pub fn start_thread<F, R>(&self, f: F) -> std::thread::JoinHandle<R>
-    where
-        F: FnOnce(&VirtualMachine) -> R,
-        F: Send + 'static,
-        R: Send + 'static,
-    {
-        let thread = self.new_thread();
-        std::thread::spawn(|| thread.run(f))
-    }
-
-    /// Create a new VM thread that can be passed to a function like [`std::thread::spawn`]
-    /// to use the same interpreter on a different thread. Note that if you just want to
-    /// use this with `thread::spawn`, you can use
-    /// [`vm.start_thread()`](`VirtualMachine::start_thread`) as a convenience.
-    ///
-    /// # Usage
-    ///
-    /// ```
-    /// # rustpython_vm::Interpreter::default().enter(|vm| {
-    /// use std::thread::Builder;
-    /// let handle = Builder::new()
-    ///     .name("my thread :)".into())
-    ///     .spawn(vm.new_thread().make_spawn_func(|vm| vm.ctx.none()))
-    ///     .expect("couldn't spawn thread");
-    /// let returned_obj = handle.join().expect("thread panicked");
-    /// assert!(vm.is_none(&returned_obj));
-    /// # })
-    /// ```
-    ///
-    /// Note: this function is safe, but running the returned PyThread in the same
-    /// thread context (i.e. with the same thread-local storage) doesn't have any
-    /// specific guaranteed behavior.
-    #[cfg(feature = "threading")]
-    pub fn new_thread(&self) -> PyThread {
-        let thread_vm = VirtualMachine {
-            builtins: self.builtins.clone(),
-            sys_module: self.sys_module.clone(),
-            ctx: self.ctx.clone(),
-            frames: RefCell::new(vec![]),
-            wasm_id: self.wasm_id.clone(),
-            exceptions: RefCell::default(),
-            import_func: self.import_func.clone(),
-            profile_func: RefCell::new(self.ctx.none()),
-            trace_func: RefCell::new(self.ctx.none()),
-            use_tracing: Cell::new(false),
-            recursion_limit: self.recursion_limit.clone(),
-            signal_handlers: None,
-            signal_rx: None,
-            repr_guards: RefCell::default(),
-            state: self.state.clone(),
-            initialized: self.initialized,
-            recursion_depth: Cell::new(0),
-        };
-        PyThread { thread_vm }
     }
 
     pub fn run_code_obj(&self, code: PyRef<PyCode>, scope: Scope) -> PyResult {
@@ -899,16 +709,6 @@ impl VirtualMachine {
         code.map_bag(&code::PyObjBag(self))
     }
 
-    pub fn intern_string<S: Internable>(&self, s: S) -> PyStrRef {
-        let (s, ()) = self
-            .ctx
-            .string_cache
-            .setdefault_entry(self, s, || ())
-            .expect("string_cache lookup should never error");
-        s.downcast()
-            .expect("only strings should be in string_cache")
-    }
-
     #[doc(hidden)]
     pub fn __module_set_attr(
         &self,
@@ -918,215 +718,5 @@ impl VirtualMachine {
     ) -> PyResult<()> {
         let val = attr_value.into();
         object::generic_setattr(module, attr_name.into_pystr_ref(self), Some(val), self)
-    }
-}
-
-#[cfg(feature = "rustpython-compiler")]
-impl VirtualMachine {
-    /// Returns a basic CompileOpts instance with options accurate to the vm. Used
-    /// as the CompileOpts for `vm.compile()`.
-    pub fn compile_opts(&self) -> CompileOpts {
-        CompileOpts {
-            optimize: self.state.settings.optimize,
-        }
-    }
-
-    pub fn compile(
-        &self,
-        source: &str,
-        mode: compile::Mode,
-        source_path: String,
-    ) -> Result<PyRef<PyCode>, CompileError> {
-        self.compile_with_opts(source, mode, source_path, self.compile_opts())
-    }
-
-    pub fn compile_with_opts(
-        &self,
-        source: &str,
-        mode: compile::Mode,
-        source_path: String,
-        opts: CompileOpts,
-    ) -> Result<PyRef<PyCode>, CompileError> {
-        compile::compile(source, mode, source_path, opts)
-            .map(|code| PyCode::new(self.map_codeobj(code)).into_ref(self))
-    }
-}
-
-mod sealed {
-    use super::*;
-
-    pub trait SealedInternable {}
-
-    impl SealedInternable for String {}
-
-    impl SealedInternable for &str {}
-
-    impl SealedInternable for PyRefExact<PyStr> {}
-}
-
-/// A sealed marker trait for `DictKey` types that always become an exact instance of `str`
-pub trait Internable: sealed::SealedInternable + crate::dictdatatype::DictKey + ToPyObject {}
-
-impl Internable for String {}
-
-impl Internable for &str {}
-
-impl Internable for PyRefExact<PyStr> {}
-
-pub struct ReprGuard<'vm> {
-    vm: &'vm VirtualMachine,
-    id: usize,
-}
-
-/// A guard to protect repr methods from recursion into itself,
-impl<'vm> ReprGuard<'vm> {
-    /// Returns None if the guard against 'obj' is still held otherwise returns the guard. The guard
-    /// which is released if dropped.
-    pub fn enter(vm: &'vm VirtualMachine, obj: &PyObject) -> Option<Self> {
-        let mut guards = vm.repr_guards.borrow_mut();
-
-        // Should this be a flag on the obj itself? putting it in a global variable for now until it
-        // decided the form of PyObject. https://github.com/RustPython/RustPython/issues/371
-        let id = obj.get_id();
-        if guards.contains(&id) {
-            return None;
-        }
-        guards.insert(id);
-        Some(ReprGuard { vm, id })
-    }
-}
-
-impl<'vm> Drop for ReprGuard<'vm> {
-    fn drop(&mut self) {
-        self.vm.repr_guards.borrow_mut().remove(&self.id);
-    }
-}
-
-/// The general interface for the VM
-///
-/// # Examples
-/// Runs a simple embedded hello world program.
-/// ```
-/// use rustpython_vm::Interpreter;
-/// use rustpython_vm::compile::Mode;
-/// Interpreter::default().enter(|vm| {
-///     let scope = vm.new_scope_with_builtins();
-///     let code_obj = vm.compile(r#"print("Hello World!")"#,
-///             Mode::Exec,
-///             "<embedded>".to_owned(),
-///     ).map_err(|err| vm.new_syntax_error(&err)).unwrap();
-///     vm.run_code_obj(code_obj, scope).unwrap();
-/// });
-/// ```
-pub struct Interpreter {
-    vm: VirtualMachine,
-}
-
-impl Interpreter {
-    pub fn new(settings: PySettings, init: InitParameter) -> Self {
-        Self::new_with_init(settings, |_| init)
-    }
-
-    pub fn new_with_init<F>(settings: PySettings, init: F) -> Self
-    where
-        F: FnOnce(&mut VirtualMachine) -> InitParameter,
-    {
-        let mut vm = VirtualMachine::new(settings);
-        let init = init(&mut vm);
-        vm.initialize(init);
-        Self { vm }
-    }
-
-    pub fn enter<F, R>(&self, f: F) -> R
-    where
-        F: FnOnce(&VirtualMachine) -> R,
-    {
-        thread::enter_vm(&self.vm, || f(&self.vm))
-    }
-
-    // TODO: interpreter shutdown
-    // pub fn run<F>(self, f: F)
-    // where
-    //     F: FnOnce(&VirtualMachine),
-    // {
-    //     self.enter(f);
-    //     self.shutdown();
-    // }
-
-    // pub fn shutdown(self) {}
-}
-
-impl Default for Interpreter {
-    fn default() -> Self {
-        Self::new(PySettings::default(), InitParameter::External)
-    }
-}
-
-#[must_use = "PyThread does nothing unless you move it to another thread and call .run()"]
-#[cfg(feature = "threading")]
-pub struct PyThread {
-    thread_vm: VirtualMachine,
-}
-
-#[cfg(feature = "threading")]
-impl PyThread {
-    /// Create a `FnOnce()` that can easily be passed to a function like [`std::thread::Builder::spawn`]
-    ///
-    /// # Note
-    ///
-    /// If you return a `PyObjectRef` (or a type that contains one) from `F`, and don't `join()`
-    /// on the thread this `FnOnce` runs in, there is a possibility that that thread will panic
-    /// as `PyObjectRef`'s `Drop` implementation tries to run the `__del__` destructor of a
-    /// Python object but finds that it's not in the context of any vm.
-    pub fn make_spawn_func<F, R>(self, f: F) -> impl FnOnce() -> R
-    where
-        F: FnOnce(&VirtualMachine) -> R,
-    {
-        move || self.run(f)
-    }
-
-    /// Run a function in this thread context
-    ///
-    /// # Note
-    ///
-    /// If you return a `PyObjectRef` (or a type that contains one) from `F`, and don't return the object
-    /// to the parent thread and then `join()` on the `JoinHandle` (or similar), there is a possibility that
-    /// the current thread will panic as `PyObjectRef`'s `Drop` implementation tries to run the `__del__`
-    /// destructor of a python object but finds that it's not in the context of any vm.
-    pub fn run<F, R>(self, f: F) -> R
-    where
-        F: FnOnce(&VirtualMachine) -> R,
-    {
-        let vm = &self.thread_vm;
-        thread::enter_vm(vm, || f(vm))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::builtins::int;
-    use num_bigint::ToBigInt;
-
-    #[test]
-    fn test_add_py_integers() {
-        Interpreter::default().enter(|vm| {
-            let a: PyObjectRef = vm.ctx.new_int(33_i32).into();
-            let b: PyObjectRef = vm.ctx.new_int(12_i32).into();
-            let res = vm._add(&a, &b).unwrap();
-            let value = int::get_value(&res);
-            assert_eq!(*value, 45_i32.to_bigint().unwrap());
-        })
-    }
-
-    #[test]
-    fn test_multiply_str() {
-        Interpreter::default().enter(|vm| {
-            let a = vm.new_pyobj(crate::common::ascii!("Hello "));
-            let b = vm.new_pyobj(4_i32);
-            let res = vm._mul(&a, &b).unwrap();
-            let value = res.payload::<PyStr>().unwrap();
-            assert_eq!(value.as_ref(), "Hello Hello Hello Hello ")
-        })
     }
 }

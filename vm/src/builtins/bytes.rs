@@ -20,7 +20,7 @@ use crate::{
         IterNextIterable, Iterable, PyComparisonOp, Unconstructible,
     },
     utils::Either,
-    AsObject, Py, PyContext, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, TryFromObject, VirtualMachine,
 };
 use bstr::ByteSlice;
@@ -79,7 +79,7 @@ impl PyPayload for PyBytes {
     }
 }
 
-pub(crate) fn init(context: &PyContext) {
+pub(crate) fn init(context: &Context) {
     PyBytes::extend_class(context, &context.types.bytes_type);
     PyBytesIterator::extend_class(context, &context.types.bytes_iterator_type);
 }
@@ -93,7 +93,7 @@ impl Constructor for PyBytes {
 }
 
 impl PyBytes {
-    pub fn new_ref(data: Vec<u8>, ctx: &PyContext) -> PyRef<Self> {
+    pub fn new_ref(data: Vec<u8>, ctx: &Context) -> PyRef<Self> {
         PyRef::new_ref(Self::from(data), ctx.types.bytes_type.clone(), None)
     }
 }

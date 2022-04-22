@@ -7,7 +7,7 @@ use crate::{
     protocol::PyIterReturn,
     pyclass::PyClassImpl,
     types::{Constructor, IterNext, IterNextIterable, Unconstructible},
-    AsObject, PyContext, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 use crossbeam_utils::atomic::AtomicCell;
@@ -415,7 +415,7 @@ impl IterNext for PyAsyncGenAThrow {
     }
 }
 
-pub fn init(ctx: &PyContext) {
+pub fn init(ctx: &Context) {
     PyAsyncGen::extend_class(ctx, &ctx.types.async_generator);
     PyAsyncGenASend::extend_class(ctx, &ctx.types.async_generator_asend);
     PyAsyncGenAThrow::extend_class(ctx, &ctx.types.async_generator_athrow);

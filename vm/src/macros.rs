@@ -209,7 +209,7 @@ macro_rules! class_or_notimplemented {
 macro_rules! named_function {
     ($ctx:expr, $module:ident, $func:ident) => {{
         #[allow(unused_variables)] // weird lint, something to do with paste probably
-        let ctx: &$crate::PyContext = &$ctx;
+        let ctx: &$crate::Context = &$ctx;
         $crate::__exports::paste::expr! {
             ctx.make_funcdef(
                 stringify!($func),

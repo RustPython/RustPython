@@ -8,7 +8,7 @@ mod gen;
 use crate::{
     builtins::{self, PyStrRef, PyTypeRef},
     pyclass::{PyClassImpl, StaticType},
-    AsObject, PyContext, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
+    AsObject, Context, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
 };
 use num_complex::Complex64;
 use num_traits::{ToPrimitive, Zero};

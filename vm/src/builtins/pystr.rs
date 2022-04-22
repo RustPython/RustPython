@@ -16,7 +16,7 @@ use crate::{
         AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable,
         Iterable, PyComparisonOp, Unconstructible,
     },
-    AsObject, Py, PyContext, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, VirtualMachine,
 };
 use ascii::{AsciiStr, AsciiString};
@@ -343,7 +343,7 @@ impl PyStr {
         Self::new_str_unchecked(bytes, PyStrKind::Ascii)
     }
 
-    pub fn new_ref(s: impl Into<Self>, ctx: &PyContext) -> PyRef<Self> {
+    pub fn new_ref(s: impl Into<Self>, ctx: &Context) -> PyRef<Self> {
         PyRef::new_ref(s.into(), ctx.types.str_type.clone(), None)
     }
 
@@ -1399,7 +1399,7 @@ impl FindArgs {
     }
 }
 
-pub fn init(ctx: &PyContext) {
+pub fn init(ctx: &Context) {
     PyStr::extend_class(ctx, &ctx.types.str_type);
 
     PyStrIterator::extend_class(ctx, &ctx.types.str_iterator_type);

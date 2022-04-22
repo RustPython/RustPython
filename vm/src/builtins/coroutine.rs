@@ -6,7 +6,7 @@ use crate::{
     protocol::PyIterReturn,
     pyclass::PyClassImpl,
     types::{Constructor, IterNext, IterNextIterable, Unconstructible},
-    AsObject, PyContext, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "coroutine")]
@@ -152,7 +152,7 @@ impl IterNext for PyCoroutineWrapper {
     }
 }
 
-pub fn init(ctx: &PyContext) {
+pub fn init(ctx: &Context) {
     PyCoroutine::extend_class(ctx, &ctx.types.coroutine_type);
     PyCoroutineWrapper::extend_class(ctx, &ctx.types.coroutine_wrapper_type);
 }

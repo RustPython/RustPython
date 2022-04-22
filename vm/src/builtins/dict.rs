@@ -16,12 +16,13 @@ use crate::{
     },
     protocol::{PyIterIter, PyIterReturn, PyMappingMethods, PySequenceMethods},
     pyclass::{PyClassDef, PyClassImpl},
+    recursion::ReprGuard,
     types::{
         AsMapping, AsSequence, Callable, Comparable, Constructor, Hashable, IterNext,
         IterNextIterable, Iterable, PyComparisonOp, Unconstructible, Unhashable,
     },
-    vm::{ReprGuard, VirtualMachine},
-    AsObject, Py, PyContext, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+    vm::VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
 };
 use rustpython_common::lock::PyMutex;
 use std::{borrow::Cow, fmt};
@@ -58,7 +59,7 @@ impl PyPayload for PyDict {
 }
 
 impl PyDict {
-    pub fn new_ref(ctx: &PyContext) -> PyRef<Self> {
+    pub fn new_ref(ctx: &Context) -> PyRef<Self> {
         PyRef::new_ref(Self::default(), ctx.types.dict_type.clone(), None)
     }
 }
@@ -1134,7 +1135,7 @@ impl PyDictValues {
     };
 }
 
-pub(crate) fn init(context: &PyContext) {
+pub(crate) fn init(context: &Context) {
     PyDict::extend_class(context, &context.types.dict_type);
     PyDictKeys::extend_class(context, &context.types.dict_keys_type);
     PyDictKeyIterator::extend_class(context, &context.types.dict_keyiterator_type);

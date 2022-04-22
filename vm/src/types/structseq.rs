@@ -1,7 +1,7 @@
 use crate::{
     builtins::{PyTuple, PyTupleRef, PyTypeRef},
     pyclass::{PyClassImpl, StaticType},
-    pyobject::PyContext,
+    vm::Context,
     AsObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
@@ -46,24 +46,25 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
             let s = value.repr(vm)?;
             Ok(format!("{}={}", name, s))
         };
-        let (body, suffix) =
-            if let Some(_guard) = rustpython_vm::vm::ReprGuard::enter(vm, zelf.as_object()) {
-                if Self::FIELD_NAMES.len() == 1 {
-                    let value = zelf.as_slice().first().unwrap();
-                    let formatted = format_field((value, Self::FIELD_NAMES[0]))?;
-                    (formatted, ",")
-                } else {
-                    let fields: PyResult<Vec<_>> = zelf
-                        .as_slice()
-                        .iter()
-                        .zip(Self::FIELD_NAMES.iter().copied())
-                        .map(format_field)
-                        .collect();
-                    (fields?.join(", "), "")
-                }
+        let (body, suffix) = if let Some(_guard) =
+            rustpython_vm::recursion::ReprGuard::enter(vm, zelf.as_object())
+        {
+            if Self::FIELD_NAMES.len() == 1 {
+                let value = zelf.as_slice().first().unwrap();
+                let formatted = format_field((value, Self::FIELD_NAMES[0]))?;
+                (formatted, ",")
             } else {
-                (String::new(), "...")
-            };
+                let fields: PyResult<Vec<_>> = zelf
+                    .as_slice()
+                    .iter()
+                    .zip(Self::FIELD_NAMES.iter().copied())
+                    .map(format_field)
+                    .collect();
+                (fields?.join(", "), "")
+            }
+        } else {
+            (String::new(), "...")
+        };
         Ok(format!("{}({}{})", Self::TP_NAME, body, suffix))
     }
 
@@ -76,7 +77,7 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
     }
 
     #[extend_class]
-    fn extend_pyclass(ctx: &PyContext, class: &PyTypeRef) {
+    fn extend_pyclass(ctx: &Context, class: &PyTypeRef) {
         for (i, &name) in Self::FIELD_NAMES.iter().enumerate() {
             // cast i to a u8 so there's less to store in the getter closure.
             // Hopefully there's not struct sequences with >=256 elements :P

@@ -14,7 +14,7 @@ use crate::{
     pyclass::PyClassImpl,
     scope::Scope,
     types::{Callable, Comparable, Constructor, GetAttr, GetDescriptor, PyComparisonOp},
-    AsObject, PyContext, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 #[cfg(feature = "jit")]
 use crate::{common::lock::OnceCell, convert::ToPyObject};
@@ -494,7 +494,7 @@ impl PyBoundMethod {
         PyBoundMethod { object, function }
     }
 
-    pub fn new_ref(object: PyObjectRef, function: PyObjectRef, ctx: &PyContext) -> PyRef<Self> {
+    pub fn new_ref(object: PyObjectRef, function: PyObjectRef, ctx: &Context) -> PyRef<Self> {
         PyRef::new_ref(
             Self::new(object, function),
             ctx.types.bound_method_type.clone(),
@@ -622,7 +622,7 @@ impl PyCell {
     }
 }
 
-pub fn init(context: &PyContext) {
+pub fn init(context: &Context) {
     PyFunction::extend_class(context, &context.types.function_type);
     PyBoundMethod::extend_class(context, &context.types.bound_method_type);
     PyCell::extend_class(context, &context.types.cell_type);

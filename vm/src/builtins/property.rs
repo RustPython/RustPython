@@ -4,8 +4,8 @@
 use super::PyTypeRef;
 use crate::common::lock::PyRwLock;
 use crate::{
-    function::FuncArgs, pyclass::PyClassImpl, types::GetDescriptor, AsObject, PyContext,
-    PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+    function::FuncArgs, pyclass::PyClassImpl, types::GetDescriptor, AsObject, Context, PyObjectRef,
+    PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 
 /// Property attribute.
@@ -245,7 +245,7 @@ impl PyProperty {
     }
 }
 
-pub(crate) fn init(context: &PyContext) {
+pub(crate) fn init(context: &Context) {
     PyProperty::extend_class(context, &context.types.property_type);
 
     // This is a bit unfortunate, but this instance attribute overlaps with the

@@ -8,7 +8,7 @@ use crate::{
     },
     pyclass::PyClassImpl,
     types::{Comparable, Constructor, Hashable, PyComparisonOp},
-    AsObject, PyContext, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use num_complex::Complex64;
 use num_traits::Zero;
@@ -71,7 +71,7 @@ impl PyObjectRef {
     }
 }
 
-pub fn init(context: &PyContext) {
+pub fn init(context: &Context) {
     PyComplex::extend_class(context, &context.types.complex_type);
 }
 
@@ -189,7 +189,7 @@ impl Constructor for PyComplex {
 }
 
 impl PyComplex {
-    pub fn new_ref(value: Complex64, ctx: &PyContext) -> PyRef<Self> {
+    pub fn new_ref(value: Complex64, ctx: &Context) -> PyRef<Self> {
         PyRef::new_ref(Self::from(value), ctx.types.complex_type.clone(), None)
     }
 
