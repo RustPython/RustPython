@@ -15,6 +15,8 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
+        with:
+          components: llvm-tools-preview
       - run: sudo apt-get update && sudo apt-get -y install lcov
       - uses: actions-rs/cargo@v1
         with:
@@ -43,10 +45,11 @@ jobs:
             local tool=$1; shift; "$(rustc --print target-libdir)/../bin/llvm-$tool" "$@"
           }
           rusttool profdata merge extra_tests/snippet-*.profraw regrtest.profraw --output codecov.profdata
-          rusttool cov export --instr-profile codecov.profdata target/release/rustpython --format lcov >codecov.lcov
-          lcov -r codecov.lcov '/*' -o codecov.lcov
+          rusttool cov export --instr-profile codecov.profdata target/release/rustpython --format lcov > codecov_tmp.lcov
+          lcov -e codecov_tmp.lcov "$PWD"/'*' -o codecov_tmp2.lcov
+          lcov -r codecov_tmp2.lcov "$PWD"/target/'*' -o codecov.lcov  # remove LALRPOP-generated parser
       - name: upload to Codecov
-        uses: codecov/codecov-action@v1
+        uses: codecov/codecov-action@v3
         with:
           file: ./codecov.lcov
 
