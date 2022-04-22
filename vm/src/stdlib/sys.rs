@@ -15,7 +15,7 @@ mod sys {
         stdlib::builtins,
         types::PyStructSequence,
         version,
-        vm::{PySettings, VirtualMachine},
+        vm::{Settings, VirtualMachine},
         PyObjectRef, PyRef, PyRefExact, PyResult,
     };
     use num_traits::ToPrimitive;
@@ -550,7 +550,7 @@ mod sys {
 
     #[pyimpl(with(PyStructSequence))]
     impl Flags {
-        fn from_settings(settings: &PySettings) -> Self {
+        fn from_settings(settings: &Settings) -> Self {
             Self {
                 debug: settings.debug as u8,
                 inspect: settings.inspect as u8,

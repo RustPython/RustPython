@@ -1,6 +1,6 @@
 /// Struct containing all kind of settings for the python vm.
 #[non_exhaustive]
-pub struct PySettings {
+pub struct Settings {
     /// -d command line switch
     pub debug: bool,
 
@@ -61,9 +61,9 @@ pub struct PySettings {
 }
 
 /// Sensible default settings.
-impl Default for PySettings {
+impl Default for Settings {
     fn default() -> Self {
-        PySettings {
+        Settings {
             debug: false,
             inspect: false,
             interactive: false,

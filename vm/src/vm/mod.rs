@@ -42,7 +42,7 @@ use std::{
 
 pub use context::PyContext;
 pub use interpreter::Interpreter;
-pub use setting::PySettings;
+pub use setting::Settings;
 
 // Objects are live when they are on stack, or referenced by a name (for now)
 
@@ -77,7 +77,7 @@ struct ExceptionStack {
 }
 
 pub struct PyGlobalState {
-    pub settings: PySettings,
+    pub settings: Settings,
     pub module_inits: stdlib::StdlibMap,
     pub frozen: HashMap<String, code::FrozenModule, ahash::RandomState>,
     pub stacksize: AtomicCell<usize>,
@@ -95,7 +95,7 @@ pub enum InitParameter {
 
 impl VirtualMachine {
     /// Create a new `VirtualMachine` structure.
-    fn new(settings: PySettings) -> VirtualMachine {
+    fn new(settings: Settings) -> VirtualMachine {
         flame_guard!("new VirtualMachine");
         let ctx = PyContext::default();
 

@@ -90,7 +90,7 @@ pub use self::pyobject::{AsObject, PyMethod, PyPayload, PyRefExact, PyResult};
 // pyobjectrc items
 pub use self::pyobject::{Py, PyObject, PyObjectRef, PyRef, PyWeakRef};
 pub use self::types::PyStructSequence;
-pub use self::vm::{InitParameter, Interpreter, PyContext, PySettings, VirtualMachine};
+pub use self::vm::{InitParameter, Interpreter, PyContext, Settings, VirtualMachine};
 
 pub use rustpython_bytecode as bytecode;
 pub use rustpython_common as common;

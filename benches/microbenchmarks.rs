@@ -3,7 +3,7 @@ use criterion::{
     Criterion, Throughput,
 };
 use rustpython_compiler::Mode;
-use rustpython_vm::{common::ascii, InitParameter, Interpreter, PyResult, PySettings};
+use rustpython_vm::{common::ascii, InitParameter, Interpreter, PyResult, Settings};
 use std::{
     ffi, fs, io,
     path::{Path, PathBuf},
@@ -109,7 +109,7 @@ fn cpy_run_code(
 }
 
 fn bench_rustpy_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchmark) {
-    let mut settings = PySettings::default();
+    let mut settings = Settings::default();
     settings.path_list.push("Lib/".to_string());
     settings.dont_write_bytecode = true;
     settings.no_user_site = true;

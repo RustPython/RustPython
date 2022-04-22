@@ -8,8 +8,7 @@ use rustpython_vm::{
     builtins::PyWeak,
     compile::{self, Mode},
     scope::Scope,
-    InitParameter, Interpreter, PyObjectRef, PyPayload, PyRef, PyResult, PySettings,
-    VirtualMachine,
+    InitParameter, Interpreter, PyObjectRef, PyPayload, PyRef, PyResult, Settings, VirtualMachine,
 };
 use std::{
     cell::RefCell,
@@ -42,7 +41,7 @@ fn init_window_module(vm: &VirtualMachine) -> PyObjectRef {
 impl StoredVirtualMachine {
     fn new(id: String, inject_browser_module: bool) -> StoredVirtualMachine {
         let mut scope = None;
-        let interp = Interpreter::new_with_init(PySettings::default(), |vm| {
+        let interp = Interpreter::new_with_init(Settings::default(), |vm| {
             vm.wasm_id = Some(id);
 
             js_module::setup_js_module(vm);

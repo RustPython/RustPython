@@ -1,4 +1,4 @@
-use super::{setting::PySettings, thread, InitParameter, VirtualMachine};
+use super::{setting::Settings, thread, InitParameter, VirtualMachine};
 
 /// The general interface for the VM
 ///
@@ -21,11 +21,11 @@ pub struct Interpreter {
 }
 
 impl Interpreter {
-    pub fn new(settings: PySettings, init: InitParameter) -> Self {
+    pub fn new(settings: Settings, init: InitParameter) -> Self {
         Self::new_with_init(settings, |_| init)
     }
 
-    pub fn new_with_init<F>(settings: PySettings, init: F) -> Self
+    pub fn new_with_init<F>(settings: Settings, init: F) -> Self
     where
         F: FnOnce(&mut VirtualMachine) -> InitParameter,
     {
@@ -56,7 +56,7 @@ impl Interpreter {
 
 impl Default for Interpreter {
     fn default() -> Self {
-        Self::new(PySettings::default(), InitParameter::External)
+        Self::new(Settings::default(), InitParameter::External)
     }
 }
 
