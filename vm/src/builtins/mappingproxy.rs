@@ -7,7 +7,7 @@ use crate::{
     protocol::{PyMapping, PyMappingMethods, PySequence, PySequenceMethods},
     pyclass::PyClassImpl,
     types::{AsMapping, AsSequence, Constructor, Iterable},
-    AsObject, PyContext, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+    AsObject, Context, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine,
 };
 
@@ -209,6 +209,6 @@ impl Iterable for PyMappingProxy {
     }
 }
 
-pub fn init(context: &PyContext) {
+pub fn init(context: &Context) {
     PyMappingProxy::extend_class(context, &context.types.mappingproxy_type)
 }

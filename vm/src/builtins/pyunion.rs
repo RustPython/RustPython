@@ -7,7 +7,7 @@ use crate::{
     protocol::PyMappingMethods,
     pyclass::PyClassImpl,
     types::{AsMapping, Comparable, GetAttr, Hashable, Iterable, PyComparisonOp},
-    AsObject, Py, PyContext, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine,
 };
 use std::fmt;
@@ -274,7 +274,7 @@ impl GetAttr for PyUnion {
     }
 }
 
-pub fn init(context: &PyContext) {
+pub fn init(context: &Context) {
     let union_type = &context.types.union_type;
     PyUnion::extend_class(context, union_type);
 }

@@ -6,7 +6,7 @@ use crate::{
     protocol::{PyIter, PyIterReturn},
     pyclass::PyClassImpl,
     types::{Constructor, IterNext, IterNextIterable},
-    AsObject, PyContext, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use num_bigint::BigInt;
 use num_traits::Zero;
@@ -131,7 +131,7 @@ impl IterNext for PyReverseSequenceIterator {
     }
 }
 
-pub fn init(context: &PyContext) {
+pub fn init(context: &Context) {
     PyEnumerate::extend_class(context, &context.types.enumerate_type);
     PyReverseSequenceIterator::extend_class(context, &context.types.reverse_iter_type);
 }

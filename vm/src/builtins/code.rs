@@ -7,7 +7,7 @@ use crate::{
     bytecode::{self, BorrowedConstant, Constant, ConstantBag},
     function::FuncArgs,
     pyclass::{PyClassImpl, StaticType},
-    AsObject, PyContext, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use num_traits::Zero;
 use std::{fmt, ops::Deref};
@@ -174,7 +174,7 @@ impl PyCode {
     /// Create a new `PyRef<PyCode>` from a `code::CodeObject`. If you have a non-mapped codeobject or
     /// this is giving you a type error even though you've passed a `CodeObject`, try
     /// [`vm.new_code_object()`](VirtualMachine::new_code_object) instead.
-    pub fn new_ref(code: CodeObject, ctx: &PyContext) -> PyRef<Self> {
+    pub fn new_ref(code: CodeObject, ctx: &Context) -> PyRef<Self> {
         PyRef::new_ref(PyCode { code }, ctx.types.code_type.clone(), None)
     }
 }
@@ -272,6 +272,6 @@ impl fmt::Display for PyCode {
     }
 }
 
-pub fn init(ctx: &PyContext) {
+pub fn init(ctx: &Context) {
     PyRef::<PyCode>::extend_class(ctx, &ctx.types.code_type);
 }

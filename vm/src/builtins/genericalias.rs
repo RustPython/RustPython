@@ -6,7 +6,7 @@ use crate::{
     protocol::PyMappingMethods,
     pyclass::PyClassImpl,
     types::{AsMapping, Callable, Comparable, Constructor, GetAttr, Hashable, PyComparisonOp},
-    AsObject, Py, PyContext, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine,
 };
 use std::fmt;
@@ -377,7 +377,7 @@ impl GetAttr for PyGenericAlias {
     }
 }
 
-pub fn init(context: &PyContext) {
+pub fn init(context: &Context) {
     let generic_alias_type = &context.types.generic_alias_type;
     PyGenericAlias::extend_class(context, generic_alias_type);
 }

@@ -7,7 +7,7 @@ use crate::{
     function::OptionalArg,
     pyclass::PyClassImpl,
     types::{Callable, Comparable, Constructor, Hashable, PyComparisonOp},
-    AsObject, PyContext, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 pub use crate::pyobject::PyWeak;
@@ -114,6 +114,6 @@ impl Comparable for PyWeak {
     }
 }
 
-pub fn init(context: &PyContext) {
+pub fn init(context: &Context) {
     PyWeak::extend_class(context, &context.types.weakref_type);
 }

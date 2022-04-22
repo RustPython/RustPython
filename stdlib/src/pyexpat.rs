@@ -35,7 +35,7 @@ mod _pyexpat {
         builtins::{PyStr, PyStrRef, PyTypeRef},
         function::ArgBytesLike,
         function::{IntoFuncArgs, OptionalArg},
-        PyContext, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+        Context, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     };
     use rustpython_common::lock::PyRwLock;
     use std::io::Cursor;
@@ -76,7 +76,7 @@ mod _pyexpat {
         }
 
         #[extend_class]
-        fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {
+        fn extend_class_with_fields(ctx: &Context, class: &PyTypeRef) {
             let mut attributes = class.attributes.write();
 
             create_property!(

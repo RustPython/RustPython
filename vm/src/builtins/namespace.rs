@@ -5,7 +5,7 @@ use crate::{
     pyclass::PyClassImpl,
     recursion::ReprGuard,
     types::{Comparable, Constructor, PyComparisonOp},
-    AsObject, PyContext, PyObject, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, PyObject, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 /// A simple attribute-based namespace.
@@ -30,7 +30,7 @@ impl Constructor for PyNamespace {
 }
 
 impl PyNamespace {
-    pub fn new_ref(ctx: &PyContext) -> PyRef<Self> {
+    pub fn new_ref(ctx: &Context) -> PyRef<Self> {
         PyRef::new_ref(
             Self {},
             ctx.types.namespace_type.clone(),
@@ -94,6 +94,6 @@ impl Comparable for PyNamespace {
     }
 }
 
-pub fn init(context: &PyContext) {
+pub fn init(context: &Context) {
     PyNamespace::extend_class(context, &context.types.namespace_type);
 }

@@ -3,7 +3,7 @@ use crate::{
     builtins::PyBoundMethod,
     pyclass::PyClassImpl,
     types::{Constructor, GetDescriptor},
-    AsObject, PyContext, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 /// classmethod(function) -> method
@@ -66,7 +66,7 @@ impl Constructor for PyClassMethod {
 }
 
 impl PyClassMethod {
-    pub fn new_ref(callable: PyObjectRef, ctx: &PyContext) -> PyRef<Self> {
+    pub fn new_ref(callable: PyObjectRef, ctx: &Context) -> PyRef<Self> {
         PyRef::new_ref(Self { callable }, ctx.types.classmethod_type.clone(), None)
     }
 }
@@ -93,6 +93,6 @@ impl PyClassMethod {
     }
 }
 
-pub(crate) fn init(context: &PyContext) {
+pub(crate) fn init(context: &Context) {
     PyClassMethod::extend_class(context, &context.types.classmethod_type);
 }

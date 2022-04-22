@@ -4,7 +4,7 @@ use crate::{
     function::{FuncArgs, IntoPyNativeFunc},
     pyclass::PyClassImpl,
     types::{Callable, Constructor, GetDescriptor},
-    PyContext, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    Context, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "staticmethod")]
@@ -50,7 +50,7 @@ impl PyStaticMethod {
         name: impl Into<PyStr>,
         class: PyTypeRef,
         f: F,
-        ctx: &PyContext,
+        ctx: &Context,
     ) -> PyRef<Self>
     where
         F: IntoPyNativeFunc<FKind>,
@@ -85,6 +85,6 @@ impl Callable for PyStaticMethod {
     }
 }
 
-pub fn init(context: &PyContext) {
+pub fn init(context: &Context) {
     PyStaticMethod::extend_class(context, &context.types.staticmethod_type);
 }

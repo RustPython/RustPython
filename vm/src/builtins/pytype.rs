@@ -11,7 +11,7 @@ use crate::{
     function::{FuncArgs, KwArgs, OptionalArg},
     pyclass::{PyClassImpl, StaticType},
     types::{Callable, GetAttr, PyTypeFlags, PyTypeSlots, SetAttr},
-    AsObject, PyContext, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use itertools::Itertools;
 use std::{
@@ -789,7 +789,7 @@ fn subtype_set_dict(obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -
  * The magical type type
  */
 
-pub(crate) fn init(ctx: &PyContext) {
+pub(crate) fn init(ctx: &Context) {
     PyType::extend_class(ctx, &ctx.types.type_type);
 }
 
@@ -946,7 +946,7 @@ mod tests {
 
     #[test]
     fn test_linearise() {
-        let context = PyContext::default();
+        let context = Context::default();
         let object = &context.types.object_type;
         let type_type = &context.types.type_type;
 

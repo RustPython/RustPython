@@ -2,7 +2,7 @@ use crate::{
     builtins::{PyBaseExceptionRef, PyBytesRef, PyStr, PyStrRef, PyTuple, PyTupleRef},
     common::{ascii, lock::PyRwLock},
     convert::ToPyObject,
-    AsObject, PyContext, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
+    AsObject, Context, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
 };
 use std::{borrow::Cow, collections::HashMap, fmt::Write, ops::Range};
 
@@ -141,7 +141,7 @@ impl ToPyObject for PyCodec {
 }
 
 impl CodecsRegistry {
-    pub(crate) fn new(ctx: &PyContext) -> Self {
+    pub(crate) fn new(ctx: &Context) -> Self {
         let errors = [
             ("strict", ctx.new_function("strict_errors", strict_errors)),
             ("ignore", ctx.new_function("ignore_errors", ignore_errors)),

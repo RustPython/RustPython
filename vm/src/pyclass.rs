@@ -4,7 +4,7 @@ use crate::{
     builtins::{PyBaseObject, PyBoundMethod, PyType, PyTypeRef},
     pyobject::{PyObjectPayload, PyObjectRef, PyRef},
     types::{PyTypeFlags, PyTypeSlots},
-    vm::PyContext,
+    vm::Context,
 };
 use rustpython_common::{lock::PyRwLock, static_cell};
 
@@ -73,9 +73,9 @@ where
 pub trait PyClassImpl: PyClassDef {
     const TP_FLAGS: PyTypeFlags = PyTypeFlags::DEFAULT;
 
-    fn impl_extend_class(ctx: &PyContext, class: &PyTypeRef);
+    fn impl_extend_class(ctx: &Context, class: &PyTypeRef);
 
-    fn extend_class(ctx: &PyContext, class: &PyTypeRef) {
+    fn extend_class(ctx: &Context, class: &PyTypeRef) {
         #[cfg(debug_assertions)]
         {
             assert!(class.slots.flags.is_created_with_flags());
@@ -106,7 +106,7 @@ pub trait PyClassImpl: PyClassDef {
         }
     }
 
-    fn make_class(ctx: &PyContext) -> PyTypeRef
+    fn make_class(ctx: &Context) -> PyTypeRef
     where
         Self: StaticType,
     {

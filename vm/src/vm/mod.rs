@@ -40,7 +40,7 @@ use std::{
     collections::{HashMap, HashSet},
 };
 
-pub use context::PyContext;
+pub use context::Context;
 pub use interpreter::Interpreter;
 pub use setting::Settings;
 
@@ -53,7 +53,7 @@ pub use setting::Settings;
 pub struct VirtualMachine {
     pub builtins: PyRef<PyModule>,
     pub sys_module: PyRef<PyModule>,
-    pub ctx: PyRc<PyContext>,
+    pub ctx: PyRc<Context>,
     pub frames: RefCell<Vec<FrameRef>>,
     pub wasm_id: Option<String>,
     exceptions: RefCell<ExceptionStack>,
@@ -97,7 +97,7 @@ impl VirtualMachine {
     /// Create a new `VirtualMachine` structure.
     fn new(settings: Settings) -> VirtualMachine {
         flame_guard!("new VirtualMachine");
-        let ctx = PyContext::default();
+        let ctx = Context::default();
 
         // make a new module without access to the vm; doesn't
         // set __spec__, __loader__, etc. attributes

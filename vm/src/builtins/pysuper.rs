@@ -8,7 +8,7 @@ use crate::{
     function::OptionalArg,
     pyclass::PyClassImpl,
     types::{Constructor, GetAttr, GetDescriptor},
-    AsObject, PyContext, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "super")]
@@ -198,7 +198,7 @@ fn supercheck(ty: PyTypeRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<
         .new_type_error("super(type, obj): obj must be an instance or subtype of type".to_owned()))
 }
 
-pub fn init(context: &PyContext) {
+pub fn init(context: &Context) {
     let super_type = &context.types.super_type;
     PySuper::extend_class(context, super_type);
 

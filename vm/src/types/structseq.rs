@@ -1,7 +1,7 @@
 use crate::{
     builtins::{PyTuple, PyTupleRef, PyTypeRef},
     pyclass::{PyClassImpl, StaticType},
-    vm::PyContext,
+    vm::Context,
     AsObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
@@ -77,7 +77,7 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
     }
 
     #[extend_class]
-    fn extend_pyclass(ctx: &PyContext, class: &PyTypeRef) {
+    fn extend_pyclass(ctx: &Context, class: &PyTypeRef) {
         for (i, &name) in Self::FIELD_NAMES.iter().enumerate() {
             // cast i to a u8 so there's less to store in the getter closure.
             // Hopefully there's not struct sequences with >=256 elements :P

@@ -60,7 +60,7 @@ impl Scope {
     //     }
     // }
 
-    // pub fn new_child_scope(&self, ctx: &PyContext) -> Scope {
+    // pub fn new_child_scope(&self, ctx: &Context) -> Scope {
     //     self.new_child_scope_with_locals(ctx.new_dict())
     // }
 

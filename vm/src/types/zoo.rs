@@ -9,7 +9,7 @@ use crate::{
         zip,
     },
     pyclass::StaticType,
-    vm::PyContext,
+    vm::Context,
 };
 
 /// Holder of references to builtin types.
@@ -181,7 +181,7 @@ impl TypeZoo {
 
     /// Fill attributes of builtin types.
     #[cold]
-    pub(crate) fn extend(context: &PyContext) {
+    pub(crate) fn extend(context: &Context) {
         pytype::init(context);
         object::init(context);
         list::init(context);

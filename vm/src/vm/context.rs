@@ -19,7 +19,7 @@ use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 
 #[derive(Debug, Clone)]
-pub struct PyContext {
+pub struct Context {
     pub true_value: PyIntRef,
     pub false_value: PyIntRef,
     pub none: PyRef<PyNone>,
@@ -40,12 +40,12 @@ pub struct PyContext {
 }
 
 // Basic objects:
-impl PyContext {
+impl Context {
     pub const INT_CACHE_POOL_MIN: i32 = -5;
     pub const INT_CACHE_POOL_MAX: i32 = 256;
 
     fn init() -> Self {
-        flame_guard!("init PyContext");
+        flame_guard!("init Context");
         let types = TypeZoo::init();
         let exceptions = exceptions::ExceptionZoo::init();
 
@@ -84,7 +84,7 @@ impl PyContext {
         let true_str = unsafe { string_pool.intern("True", types.str_type.clone()) }.into_pyref();
         let false_str = unsafe { string_pool.intern("False", types.str_type.clone()) }.into_pyref();
 
-        let context = PyContext {
+        let context = Context {
             true_value,
             false_value,
             none,
@@ -306,10 +306,10 @@ impl PyContext {
     }
 }
 
-impl Default for PyContext {
+impl Default for Context {
     fn default() -> Self {
         rustpython_common::static_cell! {
-            static CONTEXT: PyContext;
+            static CONTEXT: Context;
         }
         CONTEXT.get_or_init(Self::init).clone()
     }

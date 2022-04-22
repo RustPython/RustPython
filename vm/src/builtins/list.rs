@@ -17,7 +17,7 @@ use crate::{
     },
     utils::collection_repr,
     vm::VirtualMachine,
-    AsObject, Py, PyContext, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
 };
 use std::{borrow::Cow, fmt, ops::DerefMut};
 
@@ -65,7 +65,7 @@ impl ToPyObject for Vec<PyObjectRef> {
 }
 
 impl PyList {
-    pub fn new_ref(elements: Vec<PyObjectRef>, ctx: &PyContext) -> PyRef<Self> {
+    pub fn new_ref(elements: Vec<PyObjectRef>, ctx: &Context) -> PyRef<Self> {
         PyRef::new_ref(Self::from(elements), ctx.types.list_type.clone(), None)
     }
 
@@ -589,7 +589,7 @@ impl IterNext for PyListReverseIterator {
     }
 }
 
-pub fn init(context: &PyContext) {
+pub fn init(context: &Context) {
     let list_type = &context.types.list_type;
     PyList::extend_class(context, list_type);
 

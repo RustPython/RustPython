@@ -103,7 +103,7 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
     }
 }
 
-// This object is used as the seed for deserialization so we have access to the PyContext for type
+// This object is used as the seed for deserialization so we have access to the Context for type
 // creation
 #[derive(Clone)]
 pub struct PyObjectDeserializer<'c> {

@@ -3,7 +3,7 @@ use crate::{
     protocol::{PyIter, PyIterReturn},
     pyclass::PyClassImpl,
     types::{Constructor, IterNext, IterNextIterable},
-    PyContext, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+    Context, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 
 /// filter(function or None, iterable) --> filter object
@@ -64,6 +64,6 @@ impl IterNext for PyFilter {
     }
 }
 
-pub fn init(context: &PyContext) {
+pub fn init(context: &Context) {
     PyFilter::extend_class(context, &context.types.filter_type);
 }

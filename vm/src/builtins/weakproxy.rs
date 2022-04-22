@@ -3,7 +3,7 @@ use crate::{
     function::OptionalArg,
     pyclass::PyClassImpl,
     types::{Constructor, SetAttr},
-    PyContext, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    Context, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "weakproxy")]
@@ -88,6 +88,6 @@ impl SetAttr for PyWeakProxy {
     }
 }
 
-pub fn init(context: &PyContext) {
+pub fn init(context: &Context) {
     PyWeakProxy::extend_class(context, &context.types.weakproxy_type);
 }

@@ -1,8 +1,8 @@
 use super::pystr::IntoPyStrRef;
 use super::{PyDictRef, PyStr, PyStrRef, PyTypeRef};
 use crate::{
-    convert::ToPyObject, function::FuncArgs, pyclass::PyClassImpl, types::GetAttr, AsObject, Py,
-    PyContext, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    convert::ToPyObject, function::FuncArgs, pyclass::PyClassImpl, types::GetAttr, AsObject,
+    Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "module")]
@@ -133,6 +133,6 @@ impl GetAttr for PyModule {
     }
 }
 
-pub(crate) fn init(context: &PyContext) {
+pub(crate) fn init(context: &Context) {
     PyModule::extend_class(context, &context.types.module_type);
 }

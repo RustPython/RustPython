@@ -10,7 +10,7 @@ use crate::{
     protocol::{PyIterReturn, PySequence, PySequenceMethods},
     pyclass::PyClassImpl,
     types::{IterNext, IterNextIterable},
-    PyContext, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+    Context, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 use rustpython_common::{
     lock::{PyMutex, PyRwLock, PyRwLockUpgradableReadGuard},
@@ -261,7 +261,7 @@ impl IterNext for PyCallableIterator {
     }
 }
 
-pub fn init(context: &PyContext) {
+pub fn init(context: &Context) {
     PySequenceIterator::extend_class(context, &context.types.iter_type);
     PyCallableIterator::extend_class(context, &context.types.callable_iterator);
 }

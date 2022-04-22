@@ -9,7 +9,7 @@ use crate::{
         AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable,
         Iterable, PyComparisonOp, Unconstructible,
     },
-    AsObject, Py, PyContext, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
@@ -173,7 +173,7 @@ impl PyRange {
 //     obj.payload::<PyRange>().unwrap().clone()
 // }
 
-pub fn init(context: &PyContext) {
+pub fn init(context: &Context) {
     PyRange::extend_class(context, &context.types.range_type);
     PyLongRangeIterator::extend_class(context, &context.types.longrange_iterator_type);
     PyRangeIterator::extend_class(context, &context.types.range_iterator_type);

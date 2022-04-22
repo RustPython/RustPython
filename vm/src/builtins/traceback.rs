@@ -1,5 +1,5 @@
 use super::PyTypeRef;
-use crate::{frame::FrameRef, pyclass::PyClassImpl, PyContext, PyPayload, PyRef, VirtualMachine};
+use crate::{frame::FrameRef, pyclass::PyClassImpl, Context, PyPayload, PyRef, VirtualMachine};
 
 #[pyclass(module = false, name = "traceback")]
 #[derive(Debug)]
@@ -56,7 +56,7 @@ impl PyTracebackRef {
     }
 }
 
-pub fn init(context: &PyContext) {
+pub fn init(context: &Context) {
     PyTraceback::extend_class(context, &context.types.traceback_type);
 }
 

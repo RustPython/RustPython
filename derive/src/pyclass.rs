@@ -116,7 +116,7 @@ pub(crate) fn impl_pyimpl(attr: AttributeArgs, item: Item) -> Result<TokenStream
                     const TP_FLAGS: ::rustpython_vm::types::PyTypeFlags = #flags;
 
                     fn impl_extend_class(
-                        ctx: &::rustpython_vm::PyContext,
+                        ctx: &::rustpython_vm::Context,
                         class: &::rustpython_vm::builtins::PyTypeRef,
                     ) {
                         #getset_impl
@@ -149,7 +149,7 @@ pub(crate) fn impl_pyimpl(attr: AttributeArgs, item: Item) -> Result<TokenStream
             let extra_methods = iter_chain![
                 parse_quote! {
                     fn __extend_py_class(
-                        ctx: &::rustpython_vm::PyContext,
+                        ctx: &::rustpython_vm::Context,
                         class: &::rustpython_vm::builtins::PyTypeRef,
                     ) {
                         #getset_impl

@@ -4,7 +4,7 @@ use crate::{
     protocol::{PyIter, PyIterReturn},
     pyclass::PyClassImpl,
     types::{Constructor, IterNext, IterNextIterable},
-    PyContext, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+    Context, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 
 /// map(func, *iterables) --> map object
@@ -62,6 +62,6 @@ impl IterNext for PyMap {
     }
 }
 
-pub fn init(context: &PyContext) {
+pub fn init(context: &Context) {
     PyMap::extend_class(context, &context.types.map_type);
 }
