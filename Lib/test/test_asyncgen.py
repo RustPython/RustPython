@@ -543,8 +543,6 @@ class AsyncGenAsyncioTest(unittest.TestCase):
         self.loop.run_until_complete(consume())
         self.assertEqual(results, [1, 2])
 
-    # TODO: RUSTPYTHON, NameError: name 'aiter' is not defined
-    @unittest.expectedFailure
     def test_aiter_idempotent(self):
         async def gen():
             yield 1
@@ -766,8 +764,6 @@ class AsyncGenAsyncioTest(unittest.TestCase):
         run_test(test5)
         run_test(test6)
 
-    # TODO: RUSTPYTHON, NameError: name 'aiter' is not defined
-    @unittest.expectedFailure
     def test_aiter_bad_args(self):
         async def gen():
             yield 1

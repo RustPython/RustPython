@@ -12,6 +12,7 @@ mod builtins {
     use crate::compile;
     use crate::{
         builtins::{
+            asyncgenerator::PyAsyncGen,
             enumerate::PyReverseSequenceIterator,
             function::{PyCellRef, PyFunctionRef},
             int::PyIntRef,
@@ -423,6 +424,15 @@ mod builtins {
             Ok(PyIter::new(iterator))
         } else {
             iter_target.get_iter(vm)
+        }
+    }
+
+    #[pyfunction]
+    fn aiter(iter_target: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if iter_target.payload_is::<PyAsyncGen>() {
+            vm.call_special_method(iter_target, "__aiter__", ())
+        } else {
+            Err(vm.new_type_error("wrong argument type".to_owned()))
         }
     }
 
