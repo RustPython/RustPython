@@ -18,10 +18,25 @@ fn check_lalrpop() {
         .unwrap();
     let expected_sha3_str = sha3_line.strip_prefix("// sha3: ").unwrap();
 
-    let mut hasher = Sha3::v256();
-    hasher.update(&std::fs::read("src/python.lalrpop").unwrap());
-    let mut actual_sha3 = [0u8; 32];
-    hasher.finalize(&mut actual_sha3);
+    let actual_sha3 = {
+        let mut hasher = Sha3::v256();
+        let mut f = BufReader::new(File::open("src/python.lalrpop").unwrap());
+        let mut line = String::new();
+        while f.read_line(&mut line).unwrap() != 0 {
+            if line.ends_with('\n') {
+                line.pop();
+                if line.ends_with('\r') {
+                    line.pop();
+                }
+            }
+            hasher.update(line.as_bytes());
+            hasher.update(b"\n");
+            line.clear();
+        }
+        let mut hash = [0u8; 32];
+        hasher.finalize(&mut hash);
+        hash
+    };
 
     // stupid stupid stupid hack. lalrpop outputs each byte as "{:x}" instead of "{:02x}"
     let sha3_equal = if expected_sha3_str.len() == 64 {
