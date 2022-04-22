@@ -68,46 +68,9 @@ pub struct Lexer<T: Iterator<Item = char>> {
     location: Location,
 }
 
-pub static KEYWORDS: phf::Map<&'static str, Tok> = phf::phf_map! {
-    // Alphabetical keywords:
-    "..." => Tok::Ellipsis,
-    "False" => Tok::False,
-    "None" => Tok::None,
-    "True" => Tok::True,
-
-    "and" => Tok::And,
-    "as" => Tok::As,
-    "assert" => Tok::Assert,
-    "async" => Tok::Async,
-    "await" => Tok::Await,
-    "break" => Tok::Break,
-    "class" => Tok::Class,
-    "continue" => Tok::Continue,
-    "def" => Tok::Def,
-    "del" => Tok::Del,
-    "elif" => Tok::Elif,
-    "else" => Tok::Else,
-    "except" => Tok::Except,
-    "finally" => Tok::Finally,
-    "for" => Tok::For,
-    "from" => Tok::From,
-    "global" => Tok::Global,
-    "if" => Tok::If,
-    "import" => Tok::Import,
-    "in" => Tok::In,
-    "is" => Tok::Is,
-    "lambda" => Tok::Lambda,
-    "nonlocal" => Tok::Nonlocal,
-    "not" => Tok::Not,
-    "or" => Tok::Or,
-    "pass" => Tok::Pass,
-    "raise" => Tok::Raise,
-    "return" => Tok::Return,
-    "try" => Tok::Try,
-    "while" => Tok::While,
-    "with" => Tok::With,
-    "yield" => Tok::Yield,
-};
+// generated in build.rs, in gen_phf()
+pub static KEYWORDS: phf::Map<&'static str, Tok> =
+    include!(concat!(env!("OUT_DIR"), "/keywords.rs"));
 
 pub type Spanned = (Location, Tok, Location);
 pub type LexResult = Result<Spanned, LexicalError>;

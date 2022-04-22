@@ -1,1 +1,2 @@
 Lib/** linguist-vendored
+parser/src/python.rs linguist-generated
