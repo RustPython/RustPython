@@ -1,14 +1,17 @@
+use once_cell::sync::Lazy;
+use std::collections::HashMap;
 pub(crate) type Result = std::result::Result<Option<&'static str>, ()>;
 
 pub(crate) fn try_read(path: &str) -> Result {
-    static DATABASE: once_cell::sync::OnceCell<std::collections::HashMap<String, Option<String>>> =
-        once_cell::sync::OnceCell::new();
-    let db = DATABASE.get_or_init(|| {
-        let raw = include_str!("../docs.json");
-        serde_json::from_str(raw).expect("docs.json must be a valid json file")
+    static DATABASE: Lazy<HashMap<&str, Option<&str>>> = Lazy::new(|| {
+        let data = include!("../docs.rsinc");
+        let mut map = HashMap::with_capacity(data.len());
+        for (item, doc) in data {
+            map.insert(item, doc);
+        }
+        map
     });
-    let data = db.get(path).ok_or(())?;
-    Ok(data.as_ref().map(|s| s.as_str()))
+    DATABASE.get(path).copied().ok_or(())
 }
 
 pub(crate) fn try_module_item(module: &str, item: &str) -> Result {
