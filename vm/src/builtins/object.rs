@@ -5,7 +5,7 @@ use crate::{
     pyclass::PyClassImpl,
     types::PyComparisonOp,
     utils::Either,
-    AsObject, PyContext, PyObject, PyObjectRef, PyResult, PyValue, VirtualMachine,
+    AsObject, PyContext, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 
 /// object()
@@ -19,7 +19,7 @@ use crate::{
 #[derive(Debug)]
 pub struct PyBaseObject;
 
-impl PyValue for PyBaseObject {
+impl PyPayload for PyBaseObject {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.object_type
     }

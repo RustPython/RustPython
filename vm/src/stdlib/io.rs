@@ -114,7 +114,7 @@ mod _io {
         types::{Constructor, Destructor, IterNext, Iterable},
         utils::Either,
         vm::{ReprGuard, VirtualMachine},
-        AsObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
+        AsObject, PyContext, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
         TryFromBorrowedObject, TryFromObject,
     };
     use bstr::ByteSlice;
@@ -369,7 +369,7 @@ mod _io {
 
     #[pyattr]
     #[pyclass(name = "_IOBase")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct _IOBase;
 
     #[pyimpl(with(IterNext, Destructor), flags(BASETYPE, HAS_DICT))]
@@ -536,7 +536,7 @@ mod _io {
         }
 
         #[cold]
-        fn del(_zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyResult<()> {
+        fn del(_zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyResult<()> {
             unreachable!("slot_del is implemented")
         }
     }
@@ -562,7 +562,7 @@ mod _io {
             })
         }
 
-        fn next(_zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        fn next(_zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             unreachable!("slot_iternext is implemented")
         }
     }
@@ -1359,7 +1359,7 @@ mod _io {
     }
 
     #[pyimpl]
-    trait BufferedMixin: PyValue {
+    trait BufferedMixin: PyPayload {
         const READABLE: bool;
         const WRITABLE: bool;
         const SEEKABLE: bool = false;
@@ -1562,7 +1562,7 @@ mod _io {
     }
 
     #[pyimpl]
-    trait BufferedReadable: PyValue {
+    trait BufferedReadable: PyPayload {
         type Reader: BufferedMixin;
         fn reader(&self) -> &Self::Reader;
         #[pymethod]
@@ -1644,7 +1644,7 @@ mod _io {
 
     #[pyattr]
     #[pyclass(name = "BufferedReader", base = "_BufferedIOBase")]
-    #[derive(Debug, Default, PyValue)]
+    #[derive(Debug, Default, PyPayload)]
     struct BufferedReader {
         data: PyThreadMutex<BufferedData>,
     }
@@ -1671,7 +1671,7 @@ mod _io {
     }
 
     #[pyimpl]
-    trait BufferedWritable: PyValue {
+    trait BufferedWritable: PyPayload {
         type Writer: BufferedMixin;
         fn writer(&self) -> &Self::Writer;
         #[pymethod]
@@ -1693,7 +1693,7 @@ mod _io {
 
     #[pyattr]
     #[pyclass(name = "BufferedWriter", base = "_BufferedIOBase")]
-    #[derive(Debug, Default, PyValue)]
+    #[derive(Debug, Default, PyPayload)]
     struct BufferedWriter {
         data: PyThreadMutex<BufferedData>,
     }
@@ -1721,7 +1721,7 @@ mod _io {
 
     #[pyattr]
     #[pyclass(name = "BufferedRandom", base = "_BufferedIOBase")]
-    #[derive(Debug, Default, PyValue)]
+    #[derive(Debug, Default, PyPayload)]
     struct BufferedRandom {
         data: PyThreadMutex<BufferedData>,
     }
@@ -1759,7 +1759,7 @@ mod _io {
 
     #[pyattr]
     #[pyclass(name = "BufferedRWPair", base = "_BufferedIOBase")]
-    #[derive(Debug, Default, PyValue)]
+    #[derive(Debug, Default, PyPayload)]
     struct BufferedRWPair {
         read: BufferedReader,
         write: BufferedWriter,
@@ -2166,7 +2166,7 @@ mod _io {
 
     #[pyattr]
     #[pyclass(name = "TextIOWrapper", base = "_TextIOBase")]
-    #[derive(Debug, Default, PyValue)]
+    #[derive(Debug, Default, PyPayload)]
     struct TextIOWrapper {
         data: PyThreadMutex<Option<TextIOData>>,
     }
@@ -3022,7 +3022,7 @@ mod _io {
 
     #[pyattr]
     #[pyclass(name = "StringIO", base = "_TextIOBase")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct StringIO {
         buffer: PyRwLock<BufferedIO>,
         closed: AtomicCell<bool>,
@@ -3171,7 +3171,7 @@ mod _io {
 
     #[pyattr]
     #[pyclass(name = "BytesIO", base = "_BufferedIOBase")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct BytesIO {
         buffer: PyRwLock<BufferedIO>,
         closed: AtomicCell<bool>,
@@ -3686,7 +3686,7 @@ mod fileio {
         crt_fd::Fd,
         function::{ArgBytesLike, ArgMemoryBuffer, FuncArgs, OptionalArg, OptionalOption},
         stdlib::os,
-        AsObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
+        AsObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use std::io::{Read, Write};
@@ -3792,7 +3792,7 @@ mod fileio {
 
     #[pyattr]
     #[pyclass(module = "io", name, base = "_RawIOBase")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     pub(super) struct FileIO {
         fd: AtomicCell<i32>,
         closefd: AtomicCell<bool>,

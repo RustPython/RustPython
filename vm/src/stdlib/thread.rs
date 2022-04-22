@@ -11,7 +11,7 @@ pub(crate) mod _thread {
         py_io,
         types::{Constructor, GetAttr, SetAttr},
         utils::Either,
-        AsObject, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+        AsObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     };
     use parking_lot::{
         lock_api::{RawMutex as RawMutexT, RawMutexTimed, RawReentrantMutex},
@@ -95,7 +95,7 @@ pub(crate) mod _thread {
 
     #[pyattr(name = "LockType")]
     #[pyclass(module = "thread", name = "lock")]
-    #[derive(PyValue)]
+    #[derive(PyPayload)]
     struct Lock {
         mu: RawMutex,
     }
@@ -150,7 +150,7 @@ pub(crate) mod _thread {
     pub type RawRMutex = RawReentrantMutex<RawMutex, RawThreadId>;
     #[pyattr]
     #[pyclass(module = "thread", name = "RLock")]
-    #[derive(PyValue)]
+    #[derive(PyPayload)]
     struct RLock {
         mu: RawRMutex,
     }
@@ -305,7 +305,7 @@ pub(crate) mod _thread {
 
     #[pyattr]
     #[pyclass(module = "thread", name = "_local")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct Local {
         data: ThreadLocal<PyDictRef>,
     }
@@ -345,7 +345,7 @@ pub(crate) mod _thread {
 
     impl SetAttr for Local {
         fn setattro(
-            zelf: &crate::PyObjectView<Self>,
+            zelf: &crate::Py<Self>,
             attr: PyStrRef,
             value: Option<PyObjectRef>,
             vm: &VirtualMachine,

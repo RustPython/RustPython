@@ -8,7 +8,7 @@ use crate::{
     pyclass::PyClassImpl,
     pyobject::PyThreadingConstraint,
     types::{Constructor, GetDescriptor, Unconstructible},
-    AsObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
+    AsObject, PyContext, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 
 pub type PyGetterFunc = Box<py_dyn_fn!(dyn Fn(&VirtualMachine, PyObjectRef) -> PyResult)>;
@@ -38,7 +38,7 @@ where
 impl<F, S, R> IntoPyGetterFunc<(RefParam<S>, R, VirtualMachine)> for F
 where
     F: Fn(&S, &VirtualMachine) -> R + 'static + Send + Sync,
-    S: PyValue,
+    S: PyPayload,
     R: ToPyResult,
 {
     fn get(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -62,7 +62,7 @@ where
 impl<F, S, R> IntoPyGetterFunc<(RefParam<S>, R)> for F
 where
     F: Fn(&S) -> R + 'static + Send + Sync,
-    S: PyValue,
+    S: PyPayload,
     R: ToPyResult,
 {
     fn get(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -113,7 +113,7 @@ where
 impl<F, S, V, R> IntoPySetterFunc<(RefParam<S>, V, R, VirtualMachine)> for F
 where
     F: Fn(&S, V, &VirtualMachine) -> R + 'static + Send + Sync,
-    S: PyValue,
+    S: PyPayload,
     V: TryFromObject,
     R: IntoPyNoResult,
 {
@@ -141,7 +141,7 @@ where
 impl<F, S, V, R> IntoPySetterFunc<(RefParam<S>, V, R)> for F
 where
     F: Fn(&S, V) -> R + 'static + Send + Sync,
-    S: PyValue,
+    S: PyPayload,
     V: TryFromObject,
     R: IntoPyNoResult,
 {
@@ -174,7 +174,7 @@ where
 impl<F, S, R> IntoPyDeleterFunc<(RefParam<S>, R, VirtualMachine)> for F
 where
     F: Fn(&S, &VirtualMachine) -> R + 'static + Send + Sync,
-    S: PyValue,
+    S: PyPayload,
     R: IntoPyNoResult,
 {
     fn delete(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
@@ -198,7 +198,7 @@ where
 impl<F, S, R> IntoPyDeleterFunc<(RefParam<S>, R)> for F
 where
     F: Fn(&S) -> R + 'static + Send + Sync,
-    S: PyValue,
+    S: PyPayload,
     R: IntoPyNoResult,
 {
     fn delete(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
@@ -237,7 +237,7 @@ impl std::fmt::Debug for PyGetSet {
     }
 }
 
-impl PyValue for PyGetSet {
+impl PyPayload for PyGetSet {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.getset_type
     }

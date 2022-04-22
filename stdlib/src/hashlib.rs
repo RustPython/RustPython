@@ -6,7 +6,7 @@ mod hashlib {
     use crate::vm::{
         builtins::{PyBytes, PyBytesRef, PyStrRef, PyTypeRef},
         function::{FuncArgs, OptionalArg},
-        PyResult, PyValue, VirtualMachine,
+        PyPayload, PyResult, VirtualMachine,
     };
     use blake2::{Blake2b512, Blake2s256};
     use digest::DynDigest;
@@ -46,7 +46,7 @@ mod hashlib {
 
     #[pyattr]
     #[pyclass(module = "hashlib", name = "hasher")]
-    #[derive(PyValue)]
+    #[derive(PyPayload)]
     struct PyHasher {
         name: String,
         buffer: PyRwLock<HashWrapper>,

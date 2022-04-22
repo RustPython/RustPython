@@ -9,7 +9,7 @@ use crate::{
     pyobject::PyObjectPayload,
     sliceable::wrap_index,
     types::{Constructor, Unconstructible},
-    AsObject, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue, TryFromBorrowedObject,
+    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject,
     VirtualMachine,
 };
 use itertools::Itertools;
@@ -65,7 +65,7 @@ impl PyBuffer {
     pub fn from_byte_vector(bytes: Vec<u8>, vm: &VirtualMachine) -> Self {
         let bytes_len = bytes.len();
         PyBuffer::new(
-            PyValue::into_pyobject(VecBuffer::from(bytes), vm),
+            PyPayload::into_pyobject(VecBuffer::from(bytes), vm),
             BufferDescriptor::simple(bytes_len, true),
             &VEC_BUFFER_METHODS,
         )
@@ -108,7 +108,7 @@ impl PyBuffer {
         f(v)
     }
 
-    pub fn obj_as<T: PyObjectPayload>(&self) -> &PyObjectView<T> {
+    pub fn obj_as<T: PyObjectPayload>(&self) -> &Py<T> {
         unsafe { self.obj.downcast_unchecked_ref() }
     }
 
@@ -395,7 +395,7 @@ pub trait BufferResizeGuard<'a> {
 }
 
 #[pyclass(module = false, name = "vec_buffer")]
-#[derive(Debug, PyValue)]
+#[derive(Debug, PyPayload)]
 pub struct VecBuffer {
     data: PyMutex<Vec<u8>>,
 }

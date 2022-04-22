@@ -4,7 +4,7 @@ use crate::{
     function::{FuncArgs, IntoPyNativeFunc, PyNativeFunc},
     pyclass::PyClassImpl,
     types::{Callable, Constructor, GetDescriptor, Unconstructible},
-    AsObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    AsObject, PyContext, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use std::fmt;
 
@@ -62,7 +62,7 @@ pub struct PyBuiltinFunction {
     module: Option<PyObjectRef>,
 }
 
-impl PyValue for PyBuiltinFunction {
+impl PyPayload for PyBuiltinFunction {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.builtin_function_or_method_type
     }
@@ -105,7 +105,7 @@ impl PyBuiltinFunction {
 impl Callable for PyBuiltinFunction {
     type Args = FuncArgs;
     #[inline]
-    fn call(zelf: &crate::PyObjectView<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn call(zelf: &crate::Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         (zelf.value.func)(vm, args)
     }
 }
@@ -167,7 +167,7 @@ pub struct PyBuiltinMethod {
     class: PyTypeRef,
 }
 
-impl PyValue for PyBuiltinMethod {
+impl PyPayload for PyBuiltinMethod {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.method_descriptor_type
     }
@@ -202,7 +202,7 @@ impl GetDescriptor for PyBuiltinMethod {
 impl Callable for PyBuiltinMethod {
     type Args = FuncArgs;
     #[inline]
-    fn call(zelf: &crate::PyObjectView<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn call(zelf: &crate::Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         (zelf.value.func)(vm, args)
     }
 }

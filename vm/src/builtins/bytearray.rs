@@ -33,7 +33,7 @@ use crate::{
         IterNextIterable, Iterable, PyComparisonOp, Unconstructible, Unhashable,
     },
     utils::Either,
-    AsObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue,
+    AsObject, Py, PyContext, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, TryFromObject, VirtualMachine,
 };
 use bstr::ByteSlice;
@@ -81,7 +81,7 @@ impl From<Vec<u8>> for PyByteArray {
     }
 }
 
-impl PyValue for PyByteArray {
+impl PyPayload for PyByteArray {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.bytearray_type
     }
@@ -303,7 +303,7 @@ impl PyByteArray {
         }
     }
 
-    fn irepeat(zelf: &crate::PyObjectView<Self>, n: isize, vm: &VirtualMachine) -> PyResult<()> {
+    fn irepeat(zelf: &crate::Py<Self>, n: isize, vm: &VirtualMachine) -> PyResult<()> {
         if n == 1 {
             return Ok(());
         }
@@ -714,7 +714,7 @@ impl PyByteArray {
 
 impl Comparable for PyByteArray {
     fn cmp(
-        zelf: &crate::PyObjectView<Self>,
+        zelf: &crate::Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
@@ -749,7 +749,7 @@ static BUFFER_METHODS: BufferMethods = BufferMethods {
 };
 
 impl AsBuffer for PyByteArray {
-    fn as_buffer(zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
+    fn as_buffer(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
         Ok(PyBuffer::new(
             zelf.to_owned().into(),
             BufferDescriptor::simple(zelf.len(), false),
@@ -768,16 +768,13 @@ impl<'a> BufferResizeGuard<'a> for PyByteArray {
 }
 
 impl AsMapping for PyByteArray {
-    fn as_mapping(_zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
+    fn as_mapping(_zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
         Self::MAPPING_METHODS
     }
 }
 
 impl AsSequence for PyByteArray {
-    fn as_sequence(
-        _zelf: &PyObjectView<Self>,
-        _vm: &VirtualMachine,
-    ) -> Cow<'static, PySequenceMethods> {
+    fn as_sequence(_zelf: &Py<Self>, _vm: &VirtualMachine) -> Cow<'static, PySequenceMethods> {
         Cow::Borrowed(&Self::SEQUENCE_METHODS)
     }
 }
@@ -847,7 +844,7 @@ pub struct PyByteArrayIterator {
     internal: PyMutex<PositionIterInternal<PyByteArrayRef>>,
 }
 
-impl PyValue for PyByteArrayIterator {
+impl PyPayload for PyByteArrayIterator {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.bytearray_iterator_type
     }
@@ -877,7 +874,7 @@ impl Unconstructible for PyByteArrayIterator {}
 
 impl IterNextIterable for PyByteArrayIterator {}
 impl IterNext for PyByteArrayIterator {
-    fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal.lock().next(|bytearray, pos| {
             let buf = bytearray.borrow_buf();
             Ok(PyIterReturn::from_result(

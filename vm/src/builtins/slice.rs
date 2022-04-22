@@ -5,7 +5,7 @@ use crate::{
     function::{FuncArgs, OptionalArg, PyComparisonValue},
     pyclass::PyClassImpl,
     types::{Comparable, Constructor, Hashable, PyComparisonOp, Unhashable},
-    AsObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    AsObject, PyContext, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use num_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, ToPrimitive, Zero};
@@ -20,7 +20,7 @@ pub struct PySlice {
     pub step: Option<PyObjectRef>,
 }
 
-impl PyValue for PySlice {
+impl PyPayload for PySlice {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.slice_type
     }
@@ -213,7 +213,7 @@ impl PySlice {
 
 impl Comparable for PySlice {
     fn cmp(
-        zelf: &crate::PyObjectView<Self>,
+        zelf: &crate::Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
@@ -423,7 +423,7 @@ pub fn saturate_index(p: isize, len: usize) -> usize {
 #[derive(Debug)]
 pub struct PyEllipsis;
 
-impl PyValue for PyEllipsis {
+impl PyPayload for PyEllipsis {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.ellipsis_type
     }

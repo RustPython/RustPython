@@ -1,7 +1,7 @@
 /* Access to the unicode database.
    See also: https://docs.python.org/3/library/unicodedata.html
 */
-use crate::vm::{PyObjectRef, PyValue, VirtualMachine};
+use crate::vm::{PyObjectRef, PyPayload, VirtualMachine};
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let module = unicodedata::make_module(vm);
@@ -25,7 +25,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 #[pymodule]
 mod unicodedata {
     use crate::vm::{
-        builtins::PyStrRef, function::OptionalArg, PyObjectRef, PyRef, PyResult, PyValue,
+        builtins::PyStrRef, function::OptionalArg, PyObjectRef, PyPayload, PyRef, PyResult,
         VirtualMachine,
     };
     use itertools::Itertools;
@@ -37,7 +37,7 @@ mod unicodedata {
 
     #[pyattr]
     #[pyclass(name = "UCD")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     pub(super) struct Ucd {
         unic_version: UnicodeVersion,
     }

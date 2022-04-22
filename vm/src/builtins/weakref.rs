@@ -7,7 +7,7 @@ use crate::{
     function::OptionalArg,
     pyclass::PyClassImpl,
     types::{Callable, Comparable, Constructor, Hashable, PyComparisonOp},
-    AsObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    AsObject, PyContext, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 pub use crate::pyobject::PyWeak;
@@ -20,7 +20,7 @@ pub struct WeakNewArgs {
     callback: OptionalArg<PyObjectRef>,
 }
 
-impl PyValue for PyWeak {
+impl PyPayload for PyWeak {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.weakref_type
     }
@@ -29,7 +29,7 @@ impl PyValue for PyWeak {
 impl Callable for PyWeak {
     type Args = ();
     #[inline]
-    fn call(zelf: &crate::PyObjectView<Self>, _: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn call(zelf: &crate::Py<Self>, _: Self::Args, vm: &VirtualMachine) -> PyResult {
         Ok(vm.unwrap_or_none(zelf.upgrade()))
     }
 }
@@ -43,8 +43,7 @@ impl Constructor for PyWeak {
         vm: &VirtualMachine,
     ) -> PyResult {
         let weak = referent.downgrade_with_typ(callback.into_option(), cls, vm)?;
-        let pyref_weak: PyRef<PyWeak> = weak.into();
-        Ok(pyref_weak.into())
+        Ok(weak.into())
     }
 }
 
@@ -72,7 +71,7 @@ impl PyWeak {
 }
 
 impl Hashable for PyWeak {
-    fn hash(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+    fn hash(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
         let hash = match zelf.hash.load(Ordering::Relaxed) {
             hash::SENTINEL => {
                 let obj = zelf
@@ -98,7 +97,7 @@ impl Hashable for PyWeak {
 
 impl Comparable for PyWeak {
     fn cmp(
-        zelf: &crate::PyObjectView<Self>,
+        zelf: &crate::Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,

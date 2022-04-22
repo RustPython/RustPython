@@ -10,7 +10,7 @@ use crate::{
     pyclass::{PyClassImpl, StaticType},
     stdlib::sys,
     suggestion::offer_suggestions,
-    AsObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
+    AsObject, PyContext, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
@@ -27,7 +27,7 @@ impl std::fmt::Debug for PyBaseException {
     }
 }
 
-impl PyValue for PyBaseException {
+impl PyPayload for PyBaseException {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.exceptions.base_exception_type
     }

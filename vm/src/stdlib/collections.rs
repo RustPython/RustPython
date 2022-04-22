@@ -19,7 +19,7 @@ mod _collections {
         },
         utils::collection_repr,
         vm::ReprGuard,
-        AsObject, PyObject, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+        AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use std::cmp::max;
@@ -27,7 +27,7 @@ mod _collections {
 
     #[pyattr]
     #[pyclass(name = "deque")]
-    #[derive(Debug, Default, PyValue)]
+    #[derive(Debug, Default, PyPayload)]
     struct PyDeque {
         deque: PyRwLock<VecDeque<PyObjectRef>>,
         maxlen: Option<usize>,
@@ -508,7 +508,7 @@ mod _collections {
 
     impl AsSequence for PyDeque {
         fn as_sequence(
-            _zelf: &crate::PyObjectView<Self>,
+            _zelf: &crate::Py<Self>,
             _vm: &VirtualMachine,
         ) -> std::borrow::Cow<'static, PySequenceMethods> {
             std::borrow::Cow::Borrowed(&Self::SEQUENCE_METHDOS)
@@ -552,7 +552,7 @@ mod _collections {
 
     impl Comparable for PyDeque {
         fn cmp(
-            zelf: &crate::PyObjectView<Self>,
+            zelf: &crate::Py<Self>,
             other: &PyObject,
             op: PyComparisonOp,
             vm: &VirtualMachine,
@@ -577,7 +577,7 @@ mod _collections {
 
     #[pyattr]
     #[pyclass(name = "_deque_iterator")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct PyDequeIterator {
         state: usize,
         internal: PyMutex<PositionIterInternal<PyDequeRef>>,
@@ -642,7 +642,7 @@ mod _collections {
 
     impl IterNextIterable for PyDequeIterator {}
     impl IterNext for PyDequeIterator {
-        fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             zelf.internal.lock().next(|deque, pos| {
                 if zelf.state != deque.state.load() {
                     return Err(vm.new_runtime_error("Deque mutated during iteration".to_owned()));
@@ -657,7 +657,7 @@ mod _collections {
 
     #[pyattr]
     #[pyclass(name = "_deque_reverse_iterator")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct PyReverseDequeIterator {
         state: usize,
         // position is counting from the tail
@@ -708,7 +708,7 @@ mod _collections {
 
     impl IterNextIterable for PyReverseDequeIterator {}
     impl IterNext for PyReverseDequeIterator {
-        fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             zelf.internal.lock().next(|deque, pos| {
                 if deque.state.load() != zelf.state {
                     return Err(vm.new_runtime_error("Deque mutated during iteration".to_owned()));

@@ -10,7 +10,7 @@ use crate::{
     convert::ToPyObject,
     scope::Scope,
     vm::VirtualMachine,
-    AsObject, PyObject, PyObjectRef, PyRef, PyValue,
+    AsObject, PyObject, PyObjectRef, PyPayload, PyRef,
 };
 
 /// Collection of object creation helpers
@@ -23,7 +23,7 @@ impl VirtualMachine {
     pub fn new_pyref<T, P>(&self, value: T) -> PyRef<P>
     where
         T: Into<P>,
-        P: PyValue,
+        P: PyPayload,
     {
         value.into().into_ref(self)
     }

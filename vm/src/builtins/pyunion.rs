@@ -7,8 +7,8 @@ use crate::{
     protocol::PyMappingMethods,
     pyclass::PyClassImpl,
     types::{AsMapping, Comparable, GetAttr, Hashable, Iterable, PyComparisonOp},
-    AsObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue,
-    TryFromObject, VirtualMachine,
+    AsObject, Py, PyContext, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+    VirtualMachine,
 };
 use std::fmt;
 
@@ -26,7 +26,7 @@ impl fmt::Debug for PyUnion {
     }
 }
 
-impl PyValue for PyUnion {
+impl PyPayload for PyUnion {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.union_type
     }
@@ -232,14 +232,14 @@ impl PyUnion {
 }
 
 impl AsMapping for PyUnion {
-    fn as_mapping(_zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
+    fn as_mapping(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
         Self::MAPPING_METHODS
     }
 }
 
 impl Comparable for PyUnion {
     fn cmp(
-        zelf: &crate::PyObjectView<Self>,
+        zelf: &crate::Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
@@ -256,7 +256,7 @@ impl Comparable for PyUnion {
 
 impl Hashable for PyUnion {
     #[inline]
-    fn hash(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<hash::PyHash> {
+    fn hash(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<hash::PyHash> {
         let it = PyTuple::iter(zelf.args.clone(), vm);
         let set = PyFrozenSet::from_iter(vm, it)?;
         PyFrozenSet::hash(&set.into_ref(vm), vm)

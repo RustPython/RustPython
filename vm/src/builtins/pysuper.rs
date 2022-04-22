@@ -8,7 +8,7 @@ use crate::{
     function::OptionalArg,
     pyclass::PyClassImpl,
     types::{Constructor, GetAttr, GetDescriptor},
-    AsObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    AsObject, PyContext, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "super")]
@@ -18,7 +18,7 @@ pub struct PySuper {
     obj: Option<(PyObjectRef, PyTypeRef)>,
 }
 
-impl PyValue for PySuper {
+impl PyPayload for PySuper {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.super_type
     }

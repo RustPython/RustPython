@@ -5,7 +5,7 @@ use crate::{
     pyclass::PyClassImpl,
     types::{Comparable, Constructor, PyComparisonOp},
     vm::ReprGuard,
-    AsObject, PyContext, PyObject, PyRef, PyResult, PyValue, VirtualMachine,
+    AsObject, PyContext, PyObject, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 /// A simple attribute-based namespace.
@@ -15,7 +15,7 @@ use crate::{
 #[derive(Debug)]
 pub struct PyNamespace {}
 
-impl PyValue for PyNamespace {
+impl PyPayload for PyNamespace {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.namespace_type
     }
@@ -80,7 +80,7 @@ impl PyNamespace {
 
 impl Comparable for PyNamespace {
     fn cmp(
-        zelf: &crate::PyObjectView<Self>,
+        zelf: &crate::Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,

@@ -1,6 +1,6 @@
 use super::{
     mappingproxy::PyMappingProxy, object, pyunion, PyClassMethod, PyDictRef, PyList,
-    PyStaticMethod, PyStr, PyStrRef, PyTuple, PyTupleRef,
+    PyStaticMethod, PyStr, PyStrRef, PyTuple, PyTupleRef, PyWeak,
 };
 use crate::common::{
     ascii,
@@ -11,7 +11,7 @@ use crate::{
     function::{FuncArgs, KwArgs, OptionalArg},
     pyclass::{PyClassImpl, StaticType},
     types::{Callable, GetAttr, PyTypeFlags, PyTypeSlots, SetAttr},
-    AsObject, PyContext, PyObjectRef, PyObjectWeak, PyRef, PyResult, PyValue, VirtualMachine,
+    AsObject, PyContext, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use itertools::Itertools;
 use std::{
@@ -29,7 +29,7 @@ pub struct PyType {
     pub base: Option<PyTypeRef>,
     pub bases: Vec<PyTypeRef>,
     pub mro: Vec<PyTypeRef>,
-    pub subclasses: PyRwLock<Vec<PyObjectWeak>>,
+    pub subclasses: PyRwLock<Vec<PyRef<PyWeak>>>,
     pub attributes: PyRwLock<PyAttributes>,
     pub slots: PyTypeSlots,
 }
@@ -53,7 +53,7 @@ impl fmt::Debug for PyType {
     }
 }
 
-impl PyValue for PyType {
+impl PyPayload for PyType {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.type_type
     }
@@ -680,7 +680,7 @@ impl GetAttr for PyType {
 
 impl SetAttr for PyType {
     fn setattro(
-        zelf: &crate::PyObjectView<Self>,
+        zelf: &crate::Py<Self>,
         attr_name: PyStrRef,
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,
@@ -715,7 +715,7 @@ impl SetAttr for PyType {
 
 impl Callable for PyType {
     type Args = FuncArgs;
-    fn call(zelf: &crate::PyObjectView<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn call(zelf: &crate::Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         vm_trace!("type_call: {:?}", zelf);
         let obj = call_slot_new(zelf.to_owned(), zelf.to_owned(), args.clone(), vm)?;
 

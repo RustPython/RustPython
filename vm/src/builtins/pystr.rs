@@ -16,7 +16,7 @@ use crate::{
         AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable,
         Iterable, PyComparisonOp, Unconstructible,
     },
-    AsObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue,
+    AsObject, Py, PyContext, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, VirtualMachine,
 };
 use ascii::{AsciiStr, AsciiString};
@@ -227,7 +227,7 @@ pub struct PyStrIterator {
     internal: PyMutex<(PositionIterInternal<PyStrRef>, usize)>,
 }
 
-impl PyValue for PyStrIterator {
+impl PyPayload for PyStrIterator {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.str_iterator_type
     }
@@ -261,7 +261,7 @@ impl Unconstructible for PyStrIterator {}
 
 impl IterNextIterable for PyStrIterator {}
 impl IterNext for PyStrIterator {
-    fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let mut internal = zelf.internal.lock();
 
         if let IterStatus::Active(s) = &internal.0.status {
@@ -1245,14 +1245,14 @@ impl PyStrRef {
 
 impl Hashable for PyStr {
     #[inline]
-    fn hash(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<hash::PyHash> {
+    fn hash(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<hash::PyHash> {
         Ok(zelf.hash(vm))
     }
 }
 
 impl Comparable for PyStr {
     fn cmp(
-        zelf: &crate::PyObjectView<Self>,
+        zelf: &crate::Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         _vm: &VirtualMachine,
@@ -1275,7 +1275,7 @@ impl Iterable for PyStr {
 }
 
 impl AsMapping for PyStr {
-    fn as_mapping(_zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
+    fn as_mapping(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
         Self::MAPPING_METHODS
     }
 }
@@ -1290,7 +1290,7 @@ impl PyStr {
 
 impl AsSequence for PyStr {
     fn as_sequence(
-        _zelf: &PyObjectView<Self>,
+        _zelf: &Py<Self>,
         _vm: &VirtualMachine,
     ) -> std::borrow::Cow<'static, PySequenceMethods> {
         std::borrow::Cow::Borrowed(&Self::SEQUENCE_METHDOS)
@@ -1338,7 +1338,7 @@ pub(crate) fn encode_string(
     vm.state.codec_registry.encode_text(s, encoding, errors, vm)
 }
 
-impl PyValue for PyStr {
+impl PyPayload for PyStr {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.str_type
     }

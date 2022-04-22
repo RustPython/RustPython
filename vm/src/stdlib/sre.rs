@@ -13,7 +13,7 @@ mod _sre {
         protocol::{PyBuffer, PyMappingMethods},
         stdlib::sys,
         types::{AsMapping, Comparable, Hashable},
-        PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject,
+        PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject, TryFromObject,
         VirtualMachine,
     };
     use core::str;
@@ -123,7 +123,7 @@ mod _sre {
 
     #[pyattr]
     #[pyclass(name = "Pattern")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     pub(crate) struct Pattern {
         pub pattern: PyObjectRef,
         pub flags: SreFlag,
@@ -504,7 +504,7 @@ mod _sre {
     }
 
     impl Hashable for Pattern {
-        fn hash(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+        fn hash(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
             let hash = zelf.pattern.hash(vm)?;
             let (_, code, _) = unsafe { zelf.code.align_to::<u8>() };
             let hash = hash ^ vm.state.hash_secret.hash_bytes(code);
@@ -516,7 +516,7 @@ mod _sre {
 
     impl Comparable for Pattern {
         fn cmp(
-            zelf: &crate::PyObjectView<Self>,
+            zelf: &crate::Py<Self>,
             other: &PyObject,
             op: crate::types::PyComparisonOp,
             vm: &VirtualMachine,
@@ -541,7 +541,7 @@ mod _sre {
 
     #[pyattr]
     #[pyclass(name = "Match")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     pub(crate) struct Match {
         string: PyObjectRef,
         pattern: PyRef<Pattern>,
@@ -793,14 +793,14 @@ mod _sre {
     }
 
     impl AsMapping for Match {
-        fn as_mapping(_zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
+        fn as_mapping(_zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
             Self::MAPPING_METHODS
         }
     }
 
     #[pyattr]
     #[pyclass(name = "SRE_Scanner")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct SreScanner {
         pattern: PyRef<Pattern>,
         string: PyObjectRef,

@@ -8,7 +8,7 @@ use crate::{
     scope::Scope,
     version::get_git_revision,
     vm::{InitParameter, VirtualMachine},
-    AsObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    AsObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
 };
 use rand::Rng;
 

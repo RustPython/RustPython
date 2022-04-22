@@ -5,7 +5,7 @@ use crate::{
     protocol::{PyIter, PyIterReturn},
     pyclass::PyClassImpl,
     types::{Constructor, IterNext, IterNextIterable},
-    AsObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
+    AsObject, PyContext, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 use rustpython_common::atomic::{self, PyAtomic, Radium};
 
@@ -16,7 +16,7 @@ pub struct PyZip {
     strict: PyAtomic<bool>,
 }
 
-impl PyValue for PyZip {
+impl PyPayload for PyZip {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.zip_type
     }
@@ -67,7 +67,7 @@ impl PyZip {
 
 impl IterNextIterable for PyZip {}
 impl IterNext for PyZip {
-    fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         if zelf.iterators.is_empty() {
             return Ok(PyIterReturn::StopIteration(None));
         }

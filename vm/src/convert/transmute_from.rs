@@ -1,5 +1,5 @@
 use crate::{
-    pyobject::{AsObject, PyObject, PyRef, PyResult, PyValue},
+    pyobject::{AsObject, PyObject, PyPayload, PyRef, PyResult},
     vm::VirtualMachine,
 };
 
@@ -13,7 +13,7 @@ pub unsafe trait TransmuteFromObject: Sized {
     fn check(vm: &VirtualMachine, obj: &PyObject) -> PyResult<()>;
 }
 
-unsafe impl<T: PyValue> TransmuteFromObject for PyRef<T> {
+unsafe impl<T: PyPayload> TransmuteFromObject for PyRef<T> {
     fn check(vm: &VirtualMachine, obj: &PyObject) -> PyResult<()> {
         let class = T::class(vm);
         if obj.fast_isinstance(class) {

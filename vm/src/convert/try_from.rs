@@ -1,5 +1,5 @@
 use crate::{
-    pyobject::{AsObject, PyObject, PyObjectRef, PyRef, PyResult, PyValue},
+    pyobject::{AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult},
     vm::VirtualMachine,
 };
 
@@ -38,7 +38,7 @@ impl PyObject {
 
     pub fn try_value_with<T, F, R>(&self, f: F, vm: &VirtualMachine) -> PyResult<R>
     where
-        T: PyValue,
+        T: PyPayload,
         F: Fn(&T) -> PyResult<R>,
     {
         let class = T::class(vm);
@@ -63,7 +63,7 @@ pub trait TryFromBorrowedObject: Sized {
 
 impl<T> TryFromObject for PyRef<T>
 where
-    T: PyValue,
+    T: PyPayload,
 {
     #[inline]
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {

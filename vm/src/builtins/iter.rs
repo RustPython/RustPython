@@ -10,7 +10,7 @@ use crate::{
     protocol::{PyIterReturn, PySequence, PySequenceMethods},
     pyclass::PyClassImpl,
     types::{IterNext, IterNextIterable},
-    PyContext, PyObject, PyObjectRef, PyResult, PyValue, VirtualMachine,
+    PyContext, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 use rustpython_common::{
     lock::{PyMutex, PyRwLock, PyRwLockUpgradableReadGuard},
@@ -168,7 +168,7 @@ pub struct PySequenceIterator {
     internal: PyMutex<PositionIterInternal<PyObjectRef>>,
 }
 
-impl PyValue for PySequenceIterator {
+impl PyPayload for PySequenceIterator {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.iter_type
     }
@@ -211,7 +211,7 @@ impl PySequenceIterator {
 
 impl IterNextIterable for PySequenceIterator {}
 impl IterNext for PySequenceIterator {
-    fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal.lock().next(|obj, pos| {
             let seq = PySequence::with_methods(obj, zelf.seq_methods.clone());
             PyIterReturn::from_getitem_result(seq.get_item(pos as isize, vm), vm)
@@ -226,7 +226,7 @@ pub struct PyCallableIterator {
     status: PyRwLock<IterStatus<ArgCallable>>,
 }
 
-impl PyValue for PyCallableIterator {
+impl PyPayload for PyCallableIterator {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.callable_iterator
     }
@@ -244,7 +244,7 @@ impl PyCallableIterator {
 
 impl IterNextIterable for PyCallableIterator {}
 impl IterNext for PyCallableIterator {
-    fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let status = zelf.status.upgradable_read();
         let next = if let IterStatus::Active(callable) = &*status {
             let ret = callable.invoke((), vm)?;

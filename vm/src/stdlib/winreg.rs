@@ -29,7 +29,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 mod winreg {
     use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
     use crate::{
-        builtins::PyStrRef, convert::ToPyException, PyObjectRef, PyRef, PyResult, PyValue,
+        builtins::PyStrRef, convert::ToPyException, PyObjectRef, PyPayload, PyRef, PyResult,
         TryFromObject, VirtualMachine,
     };
     use ::winreg::{enums::RegType, RegKey, RegValue};
@@ -53,7 +53,7 @@ mod winreg {
 
     #[pyattr]
     #[pyclass(module = "winreg", name = "HKEYType")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct PyHkey {
         key: PyRwLock<RegKey>,
     }

@@ -9,7 +9,7 @@ mod _csv {
         match_class,
         protocol::{PyIter, PyIterReturn},
         types::{IterNext, IterNextIterable},
-        AsObject, PyObjectRef, PyObjectView, PyResult, PyValue, TryFromObject, VirtualMachine,
+        AsObject, Py, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
     };
     use itertools::{self, Itertools};
     use std::fmt;
@@ -153,7 +153,7 @@ mod _csv {
     }
 
     #[pyclass(noattr, module = "_csv", name = "reader")]
-    #[derive(PyValue)]
+    #[derive(PyPayload)]
     pub(super) struct Reader {
         iter: PyIter,
         state: PyMutex<ReadState>,
@@ -169,7 +169,7 @@ mod _csv {
     impl Reader {}
     impl IterNextIterable for Reader {}
     impl IterNext for Reader {
-        fn next(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let string = match zelf.iter.next(vm)? {
                 PyIterReturn::Return(obj) => obj,
                 PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
@@ -243,7 +243,7 @@ mod _csv {
     }
 
     #[pyclass(noattr, module = "_csv", name = "writer")]
-    #[derive(PyValue)]
+    #[derive(PyPayload)]
     pub(super) struct Writer {
         write: PyObjectRef,
         state: PyMutex<WriteState>,

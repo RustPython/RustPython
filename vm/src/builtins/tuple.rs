@@ -14,7 +14,7 @@ use crate::{
     },
     utils::collection_repr,
     vm::{ReprGuard, VirtualMachine},
-    AsObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    AsObject, PyContext, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
 };
 use std::{borrow::Cow, fmt, marker::PhantomData};
 
@@ -34,7 +34,7 @@ impl fmt::Debug for PyTuple {
     }
 }
 
-impl PyValue for PyTuple {
+impl PyPayload for PyTuple {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.tuple_type
     }
@@ -322,14 +322,14 @@ impl PyTuple {
 }
 
 impl AsMapping for PyTuple {
-    fn as_mapping(_zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
+    fn as_mapping(_zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
         Self::MAPPING_METHODS
     }
 }
 
 impl AsSequence for PyTuple {
     fn as_sequence(
-        _zelf: &crate::PyObjectView<Self>,
+        _zelf: &crate::Py<Self>,
         _vm: &VirtualMachine,
     ) -> Cow<'static, PySequenceMethods> {
         Cow::Borrowed(&Self::SEQUENCE_METHDOS)
@@ -367,14 +367,14 @@ impl PyTuple {
 
 impl Hashable for PyTuple {
     #[inline]
-    fn hash(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+    fn hash(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
         crate::utils::hash_iter(zelf.elements.iter(), vm)
     }
 }
 
 impl Comparable for PyTuple {
     fn cmp(
-        zelf: &crate::PyObjectView<Self>,
+        zelf: &crate::Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
@@ -404,7 +404,7 @@ pub(crate) struct PyTupleIterator {
     internal: PyMutex<PositionIterInternal<PyTupleRef>>,
 }
 
-impl PyValue for PyTupleIterator {
+impl PyPayload for PyTupleIterator {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.tuple_iterator_type
     }
@@ -435,7 +435,7 @@ impl Unconstructible for PyTupleIterator {}
 
 impl IterNextIterable for PyTupleIterator {}
 impl IterNext for PyTupleIterator {
-    fn next(zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal.lock().next(|tuple, pos| {
             Ok(PyIterReturn::from_result(
                 tuple.as_slice().get(pos).cloned().ok_or(None),

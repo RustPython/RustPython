@@ -4,7 +4,7 @@ use crate::{
     protocol::{PyIter, PyIterReturn},
     pyclass::PyClassImpl,
     types::{Constructor, IterNext, IterNextIterable},
-    PyContext, PyObjectRef, PyResult, PyValue, VirtualMachine,
+    PyContext, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 
 /// map(func, *iterables) --> map object
@@ -18,7 +18,7 @@ pub struct PyMap {
     iterators: Vec<PyIter>,
 }
 
-impl PyValue for PyMap {
+impl PyPayload for PyMap {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.map_type
     }
@@ -47,7 +47,7 @@ impl PyMap {
 
 impl IterNextIterable for PyMap {}
 impl IterNext for PyMap {
-    fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let mut next_objs = Vec::new();
         for iterator in zelf.iterators.iter() {
             let item = match iterator.next(vm)? {

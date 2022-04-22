@@ -21,8 +21,7 @@ use crate::{
         IterNextIterable, Iterable, PyComparisonOp, Unconstructible, Unhashable,
     },
     vm::{ReprGuard, VirtualMachine},
-    AsObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue,
-    TryFromObject,
+    AsObject, Py, PyContext, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
 };
 use rustpython_common::lock::PyMutex;
 use std::{borrow::Cow, fmt};
@@ -52,7 +51,7 @@ impl fmt::Debug for PyDict {
     }
 }
 
-impl PyValue for PyDict {
+impl PyPayload for PyDict {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.dict_type
     }
@@ -180,8 +179,8 @@ impl PyDict {
     }
 
     fn inner_cmp(
-        zelf: &PyObjectView<Self>,
-        other: &PyObjectView<PyDict>,
+        zelf: &Py<Self>,
+        other: &Py<PyDict>,
         op: PyComparisonOp,
         item: bool,
         vm: &VirtualMachine,
@@ -463,16 +462,13 @@ impl PyDict {
 }
 
 impl AsMapping for PyDict {
-    fn as_mapping(_zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
+    fn as_mapping(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
         Self::MAPPING_METHODS
     }
 }
 
 impl AsSequence for PyDict {
-    fn as_sequence(
-        _zelf: &PyObjectView<Self>,
-        _vm: &VirtualMachine,
-    ) -> Cow<'static, PySequenceMethods> {
+    fn as_sequence(_zelf: &Py<Self>, _vm: &VirtualMachine) -> Cow<'static, PySequenceMethods> {
         Cow::Borrowed(&Self::SEQUENCE_METHODS)
     }
 }
@@ -486,7 +482,7 @@ impl PyDict {
 
 impl Comparable for PyDict {
     fn cmp(
-        zelf: &PyObjectView<Self>,
+        zelf: &Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
@@ -506,7 +502,7 @@ impl Iterable for PyDict {
     }
 }
 
-impl PyObjectView<PyDict> {
+impl Py<PyDict> {
     #[inline]
     fn exact_dict(&self, vm: &VirtualMachine) -> bool {
         self.class().is(&vm.ctx.types.dict_type)
@@ -636,7 +632,7 @@ impl IntoIterator for &PyDictRef {
     }
 }
 
-impl IntoIterator for &PyObjectView<PyDict> {
+impl IntoIterator for &Py<PyDict> {
     type Item = (PyObjectRef, PyObjectRef);
     type IntoIter = DictIter;
 
@@ -672,9 +668,9 @@ impl Iterator for DictIter {
 }
 
 #[pyimpl]
-trait DictView: PyValue + PyClassDef + Iterable
+trait DictView: PyPayload + PyClassDef + Iterable
 where
-    Self::ReverseIter: PyValue,
+    Self::ReverseIter: PyPayload,
 {
     type ReverseIter;
 
@@ -741,7 +737,7 @@ macro_rules! dict_view {
             }
         }
 
-        impl PyValue for $name {
+        impl PyPayload for $name {
             fn class(vm: &VirtualMachine) -> &PyTypeRef {
                 &vm.ctx.types.$class
             }
@@ -754,7 +750,7 @@ macro_rules! dict_view {
             pub internal: PyMutex<PositionIterInternal<PyDictRef>>,
         }
 
-        impl PyValue for $iter_name {
+        impl PyPayload for $iter_name {
             fn class(vm: &VirtualMachine) -> &PyTypeRef {
                 &vm.ctx.types.$iter_class
             }
@@ -794,7 +790,7 @@ macro_rules! dict_view {
         impl IterNextIterable for $iter_name {}
         impl IterNext for $iter_name {
             #[allow(clippy::redundant_closure_call)]
-            fn next(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+            fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
                 let mut internal = zelf.internal.lock();
                 let next = if let IterStatus::Active(dict) = &internal.status {
                     if dict.entries.has_changed_size(&zelf.size) {
@@ -827,7 +823,7 @@ macro_rules! dict_view {
             internal: PyMutex<PositionIterInternal<PyDictRef>>,
         }
 
-        impl PyValue for $reverse_iter_name {
+        impl PyPayload for $reverse_iter_name {
             fn class(vm: &VirtualMachine) -> &PyTypeRef {
                 &vm.ctx.types.$reverse_iter_class
             }
@@ -872,7 +868,7 @@ macro_rules! dict_view {
         impl IterNextIterable for $reverse_iter_name {}
         impl IterNext for $reverse_iter_name {
             #[allow(clippy::redundant_closure_call)]
-            fn next(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+            fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
                 let mut internal = zelf.internal.lock();
                 let next = if let IterStatus::Active(dict) = &internal.status {
                     if dict.entries.has_changed_size(&zelf.size) {
@@ -994,7 +990,7 @@ trait ViewSetOps: DictView {
     }
 
     fn cmp(
-        zelf: &PyObjectView<Self>,
+        zelf: &Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
@@ -1041,7 +1037,7 @@ impl Unconstructible for PyDictKeys {}
 
 impl Comparable for PyDictKeys {
     fn cmp(
-        zelf: &PyObjectView<Self>,
+        zelf: &Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
@@ -1051,10 +1047,7 @@ impl Comparable for PyDictKeys {
 }
 
 impl AsSequence for PyDictKeys {
-    fn as_sequence(
-        _zelf: &PyObjectView<Self>,
-        _vm: &VirtualMachine,
-    ) -> Cow<'static, PySequenceMethods> {
+    fn as_sequence(_zelf: &Py<Self>, _vm: &VirtualMachine) -> Cow<'static, PySequenceMethods> {
         Cow::Borrowed(&Self::SEQUENCE_METHODS)
     }
 }
@@ -1098,7 +1091,7 @@ impl Unconstructible for PyDictItems {}
 
 impl Comparable for PyDictItems {
     fn cmp(
-        zelf: &PyObjectView<Self>,
+        zelf: &Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
@@ -1108,10 +1101,7 @@ impl Comparable for PyDictItems {
 }
 
 impl AsSequence for PyDictItems {
-    fn as_sequence(
-        _zelf: &PyObjectView<Self>,
-        _vm: &VirtualMachine,
-    ) -> Cow<'static, PySequenceMethods> {
+    fn as_sequence(_zelf: &Py<Self>, _vm: &VirtualMachine) -> Cow<'static, PySequenceMethods> {
         Cow::Borrowed(&Self::SEQUENCE_METHODS)
     }
 }
@@ -1133,10 +1123,7 @@ impl PyDictValues {}
 impl Unconstructible for PyDictValues {}
 
 impl AsSequence for PyDictValues {
-    fn as_sequence(
-        _zelf: &PyObjectView<Self>,
-        _vm: &VirtualMachine,
-    ) -> Cow<'static, PySequenceMethods> {
+    fn as_sequence(_zelf: &Py<Self>, _vm: &VirtualMachine) -> Cow<'static, PySequenceMethods> {
         Cow::Borrowed(&Self::SEQUENCE_METHODS)
     }
 }

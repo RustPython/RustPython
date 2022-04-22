@@ -10,14 +10,14 @@ mod _json {
         function::OptionalArg,
         protocol::PyIterReturn,
         types::{Callable, Constructor},
-        AsObject, PyObjectRef, PyObjectView, PyResult, PyValue, VirtualMachine,
+        AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     };
     use num_bigint::BigInt;
     use std::str::FromStr;
 
     #[pyattr(name = "make_scanner")]
     #[pyclass(name = "Scanner")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct JsonScanner {
         strict: bool,
         object_hook: Option<PyObjectRef>,
@@ -196,11 +196,7 @@ mod _json {
 
     impl Callable for JsonScanner {
         type Args = (PyStrRef, isize);
-        fn call(
-            zelf: &PyObjectView<Self>,
-            (pystr, idx): Self::Args,
-            vm: &VirtualMachine,
-        ) -> PyResult {
+        fn call(zelf: &Py<Self>, (pystr, idx): Self::Args, vm: &VirtualMachine) -> PyResult {
             if idx < 0 {
                 return Err(vm.new_value_error("idx cannot be negative".to_owned()));
             }

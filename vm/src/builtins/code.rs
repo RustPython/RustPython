@@ -7,7 +7,7 @@ use crate::{
     bytecode::{self, BorrowedConstant, Constant, ConstantBag},
     function::FuncArgs,
     pyclass::{PyClassImpl, StaticType},
-    AsObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    AsObject, PyContext, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use num_traits::Zero;
 use std::{fmt, ops::Deref};
@@ -185,7 +185,7 @@ impl fmt::Debug for PyCode {
     }
 }
 
-impl PyValue for PyCode {
+impl PyPayload for PyCode {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.code_type
     }

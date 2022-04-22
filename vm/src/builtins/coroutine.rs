@@ -6,7 +6,7 @@ use crate::{
     protocol::PyIterReturn,
     pyclass::PyClassImpl,
     types::{Constructor, IterNext, IterNextIterable, Unconstructible},
-    AsObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    AsObject, PyContext, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "coroutine")]
@@ -16,7 +16,7 @@ pub struct PyCoroutine {
     inner: Coro,
 }
 
-impl PyValue for PyCoroutine {
+impl PyPayload for PyCoroutine {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.coroutine_type
     }
@@ -108,7 +108,7 @@ impl Unconstructible for PyCoroutine {}
 
 impl IterNextIterable for PyCoroutine {}
 impl IterNext for PyCoroutine {
-    fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         Self::send(zelf.to_owned(), vm.ctx.none(), vm)
     }
 }
@@ -120,7 +120,7 @@ pub struct PyCoroutineWrapper {
     coro: PyRef<PyCoroutine>,
 }
 
-impl PyValue for PyCoroutineWrapper {
+impl PyPayload for PyCoroutineWrapper {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.coroutine_wrapper_type
     }
@@ -147,7 +147,7 @@ impl PyCoroutineWrapper {
 
 impl IterNextIterable for PyCoroutineWrapper {}
 impl IterNext for PyCoroutineWrapper {
-    fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         Self::send(zelf.to_owned(), vm.ctx.none(), vm)
     }
 }

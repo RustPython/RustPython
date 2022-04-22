@@ -7,7 +7,7 @@ use crate::{
     protocol::PyIterReturn,
     pyclass::PyClassImpl,
     types::{Constructor, IterNext, IterNextIterable, Unconstructible},
-    AsObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    AsObject, PyContext, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 use crossbeam_utils::atomic::AtomicCell;
@@ -20,7 +20,7 @@ pub struct PyAsyncGen {
 }
 type PyAsyncGenRef = PyRef<PyAsyncGen>;
 
-impl PyValue for PyAsyncGen {
+impl PyPayload for PyAsyncGen {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.async_generator
     }
@@ -134,7 +134,7 @@ impl Unconstructible for PyAsyncGen {}
 #[pyclass(module = false, name = "async_generator_wrapped_value")]
 #[derive(Debug)]
 pub(crate) struct PyAsyncGenWrappedValue(pub PyObjectRef);
-impl PyValue for PyAsyncGenWrappedValue {
+impl PyPayload for PyAsyncGenWrappedValue {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.async_generator_wrapped_value
     }
@@ -183,7 +183,7 @@ pub(crate) struct PyAsyncGenASend {
     value: PyObjectRef,
 }
 
-impl PyValue for PyAsyncGenASend {
+impl PyPayload for PyAsyncGenASend {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.async_generator_asend
     }
@@ -264,7 +264,7 @@ impl PyAsyncGenASend {
 
 impl IterNextIterable for PyAsyncGenASend {}
 impl IterNext for PyAsyncGenASend {
-    fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         PyIterReturn::from_pyresult(zelf.send(vm.ctx.none(), vm), vm)
     }
 }
@@ -278,7 +278,7 @@ pub(crate) struct PyAsyncGenAThrow {
     value: (PyObjectRef, PyObjectRef, PyObjectRef),
 }
 
-impl PyValue for PyAsyncGenAThrow {
+impl PyPayload for PyAsyncGenAThrow {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.async_generator_athrow
     }
@@ -410,7 +410,7 @@ impl PyAsyncGenAThrow {
 
 impl IterNextIterable for PyAsyncGenAThrow {}
 impl IterNext for PyAsyncGenAThrow {
-    fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         PyIterReturn::from_pyresult(zelf.send(vm.ctx.none(), vm), vm)
     }
 }

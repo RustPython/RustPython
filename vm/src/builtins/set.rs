@@ -17,7 +17,7 @@ use crate::{
     },
     utils::collection_repr,
     vm::{ReprGuard, VirtualMachine},
-    AsObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    AsObject, PyContext, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
 };
 use std::borrow::Cow;
 use std::{fmt, ops::Deref};
@@ -70,13 +70,13 @@ impl fmt::Debug for PyFrozenSet {
     }
 }
 
-impl PyValue for PySet {
+impl PyPayload for PySet {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.set_type
     }
 }
 
-impl PyValue for PyFrozenSet {
+impl PyPayload for PyFrozenSet {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.frozenset_type
     }
@@ -656,7 +656,7 @@ impl PySet {
 
 impl AsSequence for PySet {
     fn as_sequence(
-        _zelf: &crate::PyObjectView<Self>,
+        _zelf: &crate::Py<Self>,
         _vm: &VirtualMachine,
     ) -> Cow<'static, PySequenceMethods> {
         Cow::Borrowed(&Self::SEQUENCE_METHODS)
@@ -673,7 +673,7 @@ impl PySet {
 
 impl Comparable for PySet {
     fn cmp(
-        zelf: &crate::PyObjectView<Self>,
+        zelf: &crate::Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
@@ -896,7 +896,7 @@ impl PyFrozenSet {
 
 impl AsSequence for PyFrozenSet {
     fn as_sequence(
-        _zelf: &crate::PyObjectView<Self>,
+        _zelf: &crate::Py<Self>,
         _vm: &VirtualMachine,
     ) -> Cow<'static, PySequenceMethods> {
         Cow::Borrowed(&Self::SEQUENCE_METHODS)
@@ -913,14 +913,14 @@ impl PyFrozenSet {
 
 impl Hashable for PyFrozenSet {
     #[inline]
-    fn hash(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+    fn hash(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
         zelf.inner.hash(vm)
     }
 }
 
 impl Comparable for PyFrozenSet {
     fn cmp(
-        zelf: &crate::PyObjectView<Self>,
+        zelf: &crate::Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
@@ -971,7 +971,7 @@ impl fmt::Debug for PySetIterator {
     }
 }
 
-impl PyValue for PySetIterator {
+impl PyPayload for PySetIterator {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.set_iterator_type
     }
@@ -1004,7 +1004,7 @@ impl Unconstructible for PySetIterator {}
 
 impl IterNextIterable for PySetIterator {}
 impl IterNext for PySetIterator {
-    fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let mut internal = zelf.internal.lock();
         let next = if let IterStatus::Active(dict) = &internal.status {
             if dict.has_changed_size(&zelf.size) {

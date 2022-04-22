@@ -7,7 +7,7 @@ use crate::{
     function::{ArgIntoBool, OptionalArg, OptionalOption, PyArithmeticValue, PyComparisonValue},
     pyclass::PyClassImpl,
     types::{Comparable, Constructor, Hashable, PyComparisonOp},
-    AsObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromBorrowedObject,
+    AsObject, PyContext, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject,
     VirtualMachine,
 };
 use bstr::ByteSlice;
@@ -53,7 +53,7 @@ where
     }
 }
 
-impl PyValue for PyInt {
+impl PyPayload for PyInt {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.int_type
     }
@@ -721,7 +721,7 @@ impl PyInt {
 
 impl Comparable for PyInt {
     fn cmp(
-        zelf: &crate::PyObjectView<Self>,
+        zelf: &crate::Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
@@ -735,7 +735,7 @@ impl Comparable for PyInt {
 
 impl Hashable for PyInt {
     #[inline]
-    fn hash(zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyResult<hash::PyHash> {
+    fn hash(zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyResult<hash::PyHash> {
         Ok(hash::hash_bigint(zelf.as_bigint()))
     }
 }

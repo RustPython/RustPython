@@ -3,7 +3,7 @@ use crate::{
     protocol::{PyIter, PyIterReturn},
     pyclass::PyClassImpl,
     types::{Constructor, IterNext, IterNextIterable},
-    PyContext, PyObjectRef, PyResult, PyValue, VirtualMachine,
+    PyContext, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 
 /// filter(function or None, iterable) --> filter object
@@ -17,7 +17,7 @@ pub struct PyFilter {
     iterator: PyIter,
 }
 
-impl PyValue for PyFilter {
+impl PyPayload for PyFilter {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.filter_type
     }
@@ -40,7 +40,7 @@ impl PyFilter {}
 
 impl IterNextIterable for PyFilter {}
 impl IterNext for PyFilter {
-    fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let predicate = &zelf.predicate;
         loop {
             let next_obj = match zelf.iterator.next(vm)? {

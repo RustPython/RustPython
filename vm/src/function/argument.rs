@@ -1,7 +1,7 @@
 use crate::{
     builtins::{PyBaseExceptionRef, PyTupleRef, PyTypeRef},
     convert::ToPyObject,
-    AsObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
+    AsObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -406,7 +406,7 @@ impl<T> AsRef<[T]> for PosArgs<T> {
     }
 }
 
-impl<T: PyValue> PosArgs<PyRef<T>> {
+impl<T: PyPayload> PosArgs<PyRef<T>> {
     pub fn into_tuple(self, vm: &VirtualMachine) -> PyTupleRef {
         vm.ctx
             .new_tuple(self.0.into_iter().map(Into::into).collect())

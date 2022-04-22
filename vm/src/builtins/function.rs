@@ -14,7 +14,7 @@ use crate::{
     pyclass::PyClassImpl,
     scope::Scope,
     types::{Callable, Comparable, Constructor, GetAttr, GetDescriptor, PyComparisonOp},
-    AsObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    AsObject, PyContext, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 #[cfg(feature = "jit")]
 use crate::{common::lock::OnceCell, convert::ToPyObject};
@@ -324,7 +324,7 @@ impl PyFunction {
     }
 }
 
-impl PyValue for PyFunction {
+impl PyPayload for PyFunction {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.function_type
     }
@@ -422,7 +422,7 @@ impl GetDescriptor for PyFunction {
 impl Callable for PyFunction {
     type Args = FuncArgs;
     #[inline]
-    fn call(zelf: &crate::PyObjectView<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn call(zelf: &crate::Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         zelf.invoke(args, vm)
     }
 }
@@ -437,7 +437,7 @@ pub struct PyBoundMethod {
 impl Callable for PyBoundMethod {
     type Args = FuncArgs;
     #[inline]
-    fn call(zelf: &crate::PyObjectView<Self>, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn call(zelf: &crate::Py<Self>, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         args.prepend_arg(zelf.object.clone());
         vm.invoke(&zelf.function, args)
     }
@@ -445,7 +445,7 @@ impl Callable for PyBoundMethod {
 
 impl Comparable for PyBoundMethod {
     fn cmp(
-        zelf: &crate::PyObjectView<Self>,
+        zelf: &crate::Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         _vm: &VirtualMachine,
@@ -565,7 +565,7 @@ impl PyBoundMethod {
     }
 }
 
-impl PyValue for PyBoundMethod {
+impl PyPayload for PyBoundMethod {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.bound_method_type
     }
@@ -578,7 +578,7 @@ pub(crate) struct PyCell {
 }
 pub(crate) type PyCellRef = PyRef<PyCell>;
 
-impl PyValue for PyCell {
+impl PyPayload for PyCell {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.cell_type
     }

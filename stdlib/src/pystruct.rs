@@ -16,7 +16,7 @@ pub(crate) mod _struct {
         match_class,
         protocol::PyIterReturn,
         types::{Constructor, IterNext, IterNextIterable},
-        AsObject, PyObjectRef, PyObjectView, PyResult, PyValue, TryFromObject, VirtualMachine,
+        AsObject, Py, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
 
@@ -161,7 +161,7 @@ pub(crate) mod _struct {
 
     #[pyattr]
     #[pyclass(name = "unpack_iterator")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct UnpackIterator {
         format_spec: FormatSpec,
         buffer: ArgBytesLike,
@@ -206,7 +206,7 @@ pub(crate) mod _struct {
     }
     impl IterNextIterable for UnpackIterator {}
     impl IterNext for UnpackIterator {
-        fn next(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let size = zelf.format_spec.size;
             let offset = zelf.offset.fetch_add(size);
             zelf.buffer.with_ref(|buf| {
@@ -238,7 +238,7 @@ pub(crate) mod _struct {
 
     #[pyattr]
     #[pyclass(name = "Struct")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct PyStruct {
         spec: FormatSpec,
         format: PyStrRef,
