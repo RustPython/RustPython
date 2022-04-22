@@ -93,7 +93,7 @@ pub struct TypeZoo {
 impl TypeZoo {
     #[cold]
     pub(crate) fn init() -> Self {
-        let (type_type, object_type, weakref_type) = crate::pyobject::init_type_hierarchy();
+        let (type_type, object_type, weakref_type) = crate::object::init_type_hierarchy();
         Self {
             // the order matters for type, object, weakref, and int
             type_type: pytype::PyType::init_manually(type_type).clone(),

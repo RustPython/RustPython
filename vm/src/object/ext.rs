@@ -1,3 +1,4 @@
+use super::core::{Py, PyObject, PyObjectRef, PyRef};
 use crate::common::lock::PyRwLockReadGuard;
 use crate::{
     builtins::{object, pystr, PyBaseExceptionRef, PyType, PyTypeRef},
@@ -5,7 +6,6 @@ use crate::{
     function::IntoFuncArgs,
     types::PyTypeFlags,
     VirtualMachine,
-    _pyobjectrc::{Py, PyObject, PyObjectRef, PyRef},
 };
 use std::{any::Any, borrow::Borrow, fmt, ops::Deref};
 

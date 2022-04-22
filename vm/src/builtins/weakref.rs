@@ -10,7 +10,7 @@ use crate::{
     AsObject, Context, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
-pub use crate::pyobject::PyWeak;
+pub use crate::object::PyWeak;
 
 #[derive(FromArgs)]
 pub struct WeakNewArgs {

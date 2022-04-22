@@ -38,10 +38,6 @@ pub use rustpython_derive::*;
 #[macro_use]
 pub(crate) mod macros;
 
-#[path = "pyobject.rs"]
-mod _pyobject;
-#[path = "pyobjectrc.rs"]
-mod _pyobjectrc;
 mod anystr;
 pub mod buffer;
 pub mod builtins;
@@ -62,6 +58,7 @@ mod frozen;
 pub mod function;
 pub mod import;
 mod intern;
+pub mod object;
 pub mod protocol;
 pub mod py_io;
 pub mod py_serde;
@@ -77,18 +74,13 @@ pub mod suggestion;
 pub mod types;
 pub mod utils;
 pub mod version;
-mod vm;
-
-mod pyobject {
-    pub use super::_pyobject::*;
-    pub use super::_pyobjectrc::*;
-}
+pub mod vm;
 
 pub use self::convert::{TryFromBorrowedObject, TryFromObject};
 // pyobject items
-pub use self::pyobject::{AsObject, PyMethod, PyPayload, PyRefExact, PyResult};
+pub use self::object::{AsObject, PyMethod, PyPayload, PyRefExact, PyResult};
 // pyobjectrc items
-pub use self::pyobject::{Py, PyObject, PyObjectRef, PyRef, PyWeakRef};
+pub use self::object::{Py, PyObject, PyObjectRef, PyRef, PyWeakRef};
 pub use self::types::PyStructSequence;
 pub use self::vm::{Context, InitParameter, Interpreter, Settings, VirtualMachine};
 

@@ -5,8 +5,8 @@ use super::PyTypeRef;
 use crate::{
     convert::ToPyResult,
     function::{OwnedParam, RefParam},
+    object::PyThreadingConstraint,
     pyclass::PyClassImpl,
-    pyobject::PyThreadingConstraint,
     types::{Constructor, GetDescriptor, Unconstructible},
     AsObject, Context, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };

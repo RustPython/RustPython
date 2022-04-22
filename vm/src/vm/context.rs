@@ -11,8 +11,8 @@ use crate::{
     exceptions,
     function::IntoPyNativeFunc,
     intern::{Internable, StringPool},
+    object::{PyObjectPayload, PyObjectRef, PyPayload, PyRef, PyRefExact},
     pyclass::{PyClassImpl, StaticType},
-    pyobject::{PyObjectPayload, PyObjectRef, PyPayload, PyRef, PyRefExact},
     types::{PyTypeFlags, PyTypeSlots, TypeZoo},
 };
 use num_bigint::BigInt;
