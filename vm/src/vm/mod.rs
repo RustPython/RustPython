@@ -4,7 +4,14 @@
 //!   <https://github.com/ProgVal/pythonvm-rust/blob/master/src/processor/mod.rs>
 
 #[cfg(feature = "rustpython-compiler")]
-use crate::compile::{self, CompileError, CompileOpts};
+mod compile;
+mod interpreter;
+mod setting;
+pub mod thread;
+mod vm_new;
+mod vm_object;
+mod vm_ops;
+
 use crate::{
     builtins::{
         code::{self, PyCode},
@@ -32,16 +39,8 @@ use std::{
     collections::{HashMap, HashSet},
 };
 
-mod interpreter;
-mod setting;
-pub mod thread;
-mod vm_new;
-mod vm_object;
-mod vm_ops;
-
 pub use interpreter::Interpreter;
 pub use setting::PySettings;
-pub use thread::ThreadedVirtualMachine;
 
 // Objects are live when they are on stack, or referenced by a name (for now)
 
@@ -717,36 +716,5 @@ impl VirtualMachine {
     ) -> PyResult<()> {
         let val = attr_value.into();
         object::generic_setattr(module, attr_name.into_pystr_ref(self), Some(val), self)
-    }
-}
-
-#[cfg(feature = "rustpython-compiler")]
-impl VirtualMachine {
-    /// Returns a basic CompileOpts instance with options accurate to the vm. Used
-    /// as the CompileOpts for `vm.compile()`.
-    pub fn compile_opts(&self) -> CompileOpts {
-        CompileOpts {
-            optimize: self.state.settings.optimize,
-        }
-    }
-
-    pub fn compile(
-        &self,
-        source: &str,
-        mode: compile::Mode,
-        source_path: String,
-    ) -> Result<PyRef<PyCode>, CompileError> {
-        self.compile_with_opts(source, mode, source_path, self.compile_opts())
-    }
-
-    pub fn compile_with_opts(
-        &self,
-        source: &str,
-        mode: compile::Mode,
-        source_path: String,
-        opts: CompileOpts,
-    ) -> Result<PyRef<PyCode>, CompileError> {
-        compile::compile(source, mode, source_path, opts)
-            .map(|code| PyCode::new(self.map_codeobj(code)).into_ref(self))
     }
 }
