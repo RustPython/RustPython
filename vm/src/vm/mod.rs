@@ -41,7 +41,7 @@ mod vm_ops;
 
 pub use interpreter::Interpreter;
 pub use setting::PySettings;
-pub use thread::PyThread;
+pub use thread::ThreadedVirtualMachine;
 
 // Objects are live when they are on stack, or referenced by a name (for now)
 
@@ -274,71 +274,6 @@ impl VirtualMachine {
     /// Set the custom signal channel for the interpreter
     pub fn set_user_signal_channel(&mut self, signal_rx: signal::UserSignalReceiver) {
         self.signal_rx = Some(signal_rx);
-    }
-
-    /// Start a new thread with access to the same interpreter.
-    ///
-    /// # Note
-    ///
-    /// If you return a `PyObjectRef` (or a type that contains one) from `F`, and don't `join()`
-    /// on the thread, there is a possibility that that thread will panic as `PyObjectRef`'s `Drop`
-    /// implementation tries to run the `__del__` destructor of a python object but finds that it's
-    /// not in the context of any vm.
-    #[cfg(feature = "threading")]
-    pub fn start_thread<F, R>(&self, f: F) -> std::thread::JoinHandle<R>
-    where
-        F: FnOnce(&VirtualMachine) -> R,
-        F: Send + 'static,
-        R: Send + 'static,
-    {
-        let thread = self.new_thread();
-        std::thread::spawn(|| thread.run(f))
-    }
-
-    /// Create a new VM thread that can be passed to a function like [`std::thread::spawn`]
-    /// to use the same interpreter on a different thread. Note that if you just want to
-    /// use this with `thread::spawn`, you can use
-    /// [`vm.start_thread()`](`VirtualMachine::start_thread`) as a convenience.
-    ///
-    /// # Usage
-    ///
-    /// ```
-    /// # rustpython_vm::Interpreter::default().enter(|vm| {
-    /// use std::thread::Builder;
-    /// let handle = Builder::new()
-    ///     .name("my thread :)".into())
-    ///     .spawn(vm.new_thread().make_spawn_func(|vm| vm.ctx.none()))
-    ///     .expect("couldn't spawn thread");
-    /// let returned_obj = handle.join().expect("thread panicked");
-    /// assert!(vm.is_none(&returned_obj));
-    /// # })
-    /// ```
-    ///
-    /// Note: this function is safe, but running the returned PyThread in the same
-    /// thread context (i.e. with the same thread-local storage) doesn't have any
-    /// specific guaranteed behavior.
-    #[cfg(feature = "threading")]
-    pub fn new_thread(&self) -> PyThread {
-        let thread_vm = VirtualMachine {
-            builtins: self.builtins.clone(),
-            sys_module: self.sys_module.clone(),
-            ctx: self.ctx.clone(),
-            frames: RefCell::new(vec![]),
-            wasm_id: self.wasm_id.clone(),
-            exceptions: RefCell::default(),
-            import_func: self.import_func.clone(),
-            profile_func: RefCell::new(self.ctx.none()),
-            trace_func: RefCell::new(self.ctx.none()),
-            use_tracing: Cell::new(false),
-            recursion_limit: self.recursion_limit.clone(),
-            signal_handlers: None,
-            signal_rx: None,
-            repr_guards: RefCell::default(),
-            state: self.state.clone(),
-            initialized: self.initialized,
-            recursion_depth: Cell::new(0),
-        };
-        PyThread { thread_vm }
     }
 
     pub fn run_code_obj(&self, code: PyRef<PyCode>, scope: Scope) -> PyResult {
