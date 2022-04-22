@@ -3,8 +3,8 @@ use crate::{
     builtins::PyDict,
     function::{FuncArgs, PyComparisonValue},
     pyclass::PyClassImpl,
+    recursion::ReprGuard,
     types::{Comparable, Constructor, PyComparisonOp},
-    vm::ReprGuard,
     AsObject, PyContext, PyObject, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 

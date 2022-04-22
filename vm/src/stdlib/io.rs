@@ -111,9 +111,10 @@ mod _io {
             BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn, VecBuffer,
         },
         pyclass::StaticType,
+        recursion::ReprGuard,
         types::{Constructor, Destructor, IterNext, Iterable},
         utils::Either,
-        vm::{ReprGuard, VirtualMachine},
+        vm::VirtualMachine,
         AsObject, PyContext, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
         TryFromBorrowedObject, TryFromObject,
     };

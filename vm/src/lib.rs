@@ -67,6 +67,7 @@ pub mod py_io;
 pub mod py_serde;
 pub mod pyclass;
 pub mod readline;
+pub mod recursion;
 pub mod scope;
 pub mod sequence;
 pub mod signal;

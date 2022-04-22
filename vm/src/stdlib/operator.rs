@@ -14,12 +14,12 @@ mod _operator {
         builtins::{PyInt, PyIntRef, PyStrRef, PyTupleRef, PyTypeRef},
         function::{ArgBytesLike, FuncArgs, KwArgs, OptionalArg},
         protocol::PyIter,
+        recursion::ReprGuard,
         types::{
             Callable, Constructor,
             PyComparisonOp::{Eq, Ge, Gt, Le, Lt, Ne},
         },
         utils::Either,
-        vm::ReprGuard,
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     };
 

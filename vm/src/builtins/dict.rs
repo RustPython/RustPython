@@ -16,11 +16,12 @@ use crate::{
     },
     protocol::{PyIterIter, PyIterReturn, PyMappingMethods, PySequenceMethods},
     pyclass::{PyClassDef, PyClassImpl},
+    recursion::ReprGuard,
     types::{
         AsMapping, AsSequence, Callable, Comparable, Constructor, Hashable, IterNext,
         IterNextIterable, Iterable, PyComparisonOp, Unconstructible, Unhashable,
     },
-    vm::{ReprGuard, VirtualMachine},
+    vm::VirtualMachine,
     AsObject, Py, PyContext, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
 };
 use rustpython_common::lock::PyMutex;

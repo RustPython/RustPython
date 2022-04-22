@@ -5,6 +5,7 @@ use crate::{
     function::{OptionalArg, PyArithmeticValue, PyComparisonValue},
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     pyclass::PyClassImpl,
+    recursion::ReprGuard,
     sequence::{ObjectSequenceOp, SequenceOp},
     sliceable::{SequenceIndex, SliceableSequenceOp},
     stdlib::sys,
@@ -13,7 +14,7 @@ use crate::{
         Iterable, PyComparisonOp, Unconstructible,
     },
     utils::collection_repr,
-    vm::{ReprGuard, VirtualMachine},
+    vm::VirtualMachine,
     AsObject, PyContext, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
 };
 use std::{borrow::Cow, fmt, marker::PhantomData};

@@ -412,10 +412,11 @@ pub(super) mod _os {
         crt_fd::{Fd, Offset},
         function::{ArgBytesLike, FuncArgs, OptionalArg},
         protocol::PyIterReturn,
+        recursion::ReprGuard,
         suppress_iph,
         types::{IterNext, IterNextIterable, PyStructSequence},
         utils::Either,
-        vm::{ReprGuard, VirtualMachine},
+        vm::VirtualMachine,
         AsObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     };
     use crossbeam_utils::atomic::AtomicCell;

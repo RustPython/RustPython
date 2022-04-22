@@ -11,12 +11,13 @@ use crate::{
     function::{ArgIterable, FuncArgs, OptionalArg, PosArgs, PyArithmeticValue, PyComparisonValue},
     protocol::{PyIterReturn, PySequenceMethods},
     pyclass::PyClassImpl,
+    recursion::ReprGuard,
     types::{
         AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable,
         PyComparisonOp, Unconstructible, Unhashable,
     },
     utils::collection_repr,
-    vm::{ReprGuard, VirtualMachine},
+    vm::VirtualMachine,
     AsObject, PyContext, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
 };
 use std::borrow::Cow;

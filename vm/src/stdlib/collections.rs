@@ -10,6 +10,7 @@ mod _collections {
         common::lock::{PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
         function::{FuncArgs, KwArgs, OptionalArg, PyComparisonValue},
         protocol::{PyIterReturn, PySequenceMethods},
+        recursion::ReprGuard,
         sequence::{MutObjectSequenceOp, ObjectSequenceOp},
         sliceable,
         sliceable::saturate_index,
@@ -18,7 +19,6 @@ mod _collections {
             PyComparisonOp, Unhashable,
         },
         utils::collection_repr,
-        vm::ReprGuard,
         AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
