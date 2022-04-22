@@ -536,7 +536,7 @@ mod _io {
         }
 
         #[cold]
-        fn del(_zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyResult<()> {
+        fn del(_zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyResult<()> {
             unreachable!("slot_del is implemented")
         }
     }
@@ -562,7 +562,7 @@ mod _io {
             })
         }
 
-        fn next(_zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        fn next(_zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             unreachable!("slot_iternext is implemented")
         }
     }

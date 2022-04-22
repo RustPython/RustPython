@@ -127,8 +127,8 @@ impl fmt::Debug for WeakRefList {
 }
 
 struct WeakListInner {
-    list: LinkedList<WeakLink, PyObjectView<PyWeak>>,
-    generic_weakref: Option<NonNull<PyObjectView<PyWeak>>>,
+    list: LinkedList<WeakLink, Py<PyWeak>>,
+    generic_weakref: Option<NonNull<Py<PyWeak>>>,
     obj: Option<NonNull<PyObject>>,
     // one for each live PyWeak with a reference to this, + 1 for the referent object if it's not dead
     ref_count: usize,
@@ -275,7 +275,7 @@ impl WeakRefList {
 }
 
 impl WeakListInner {
-    fn iter(&self) -> impl Iterator<Item = &PyObjectView<PyWeak>> {
+    fn iter(&self) -> impl Iterator<Item = &Py<PyWeak>> {
         self.list.iter().filter(|wr| wr.0.ref_count.get() > 0)
     }
 }
@@ -290,7 +290,7 @@ struct WeakLink;
 unsafe impl Link for WeakLink {
     type Handle = PyRef<PyWeak>;
 
-    type Target = PyObjectView<PyWeak>;
+    type Target = Py<PyWeak>;
 
     #[inline(always)]
     fn as_raw(handle: &PyRef<PyWeak>) -> NonNull<Self::Target> {
@@ -311,7 +311,7 @@ unsafe impl Link for WeakLink {
 #[pyclass(name = "weakref", module = false)]
 #[derive(Debug)]
 pub struct PyWeak {
-    pointers: Pointers<PyObjectView<PyWeak>>,
+    pointers: Pointers<Py<PyWeak>>,
     parent: NonNull<PyMutex<WeakListInner>>,
     // this is treated as part of parent's mutex - you must hold that lock to access it
     callback: UnsafeCell<Option<PyObjectRef>>,
@@ -348,7 +348,7 @@ impl PyWeak {
             let mut guard = unsafe { self.parent.as_ref().lock() };
             let offset = memoffset::offset_of!(PyInner<PyWeak>, payload);
             let pyinner = (self as *const Self as usize - offset) as *const PyInner<Self>;
-            let node_ptr = unsafe { NonNull::new_unchecked(pyinner as *mut PyObjectView<Self>) };
+            let node_ptr = unsafe { NonNull::new_unchecked(pyinner as *mut Py<Self>) };
             // the list doesn't have ownership over its PyRef<PyWeak>! we're being dropped
             // right now so that should be obvious!!
             std::mem::forget(unsafe { guard.list.remove(node_ptr) });
@@ -512,7 +512,7 @@ impl PyObjectRef {
     }
 
     #[inline(always)]
-    pub fn downcast_ref<T: PyObjectPayload>(&self) -> Option<&PyObjectView<T>> {
+    pub fn downcast_ref<T: PyObjectPayload>(&self) -> Option<&Py<T>> {
         if self.payload_is::<T>() {
             // SAFETY: just checked that the payload is T, and PyRef is repr(transparent) over
             // PyObjectRef
@@ -532,7 +532,7 @@ impl PyObjectRef {
     /// # Safety
     /// T must be the exact payload type
     #[inline(always)]
-    pub unsafe fn downcast_unchecked_ref<T: PyObjectPayload>(&self) -> &crate::PyObjectView<T> {
+    pub unsafe fn downcast_unchecked_ref<T: PyObjectPayload>(&self) -> &crate::Py<T> {
         debug_assert!(self.payload_is::<T>());
         &*(self as *const PyObjectRef as *const PyRef<T>)
     }
@@ -682,7 +682,7 @@ impl PyObject {
     }
 
     #[inline(always)]
-    pub fn downcast_ref<T: PyObjectPayload>(&self) -> Option<&PyObjectView<T>> {
+    pub fn downcast_ref<T: PyObjectPayload>(&self) -> Option<&Py<T>> {
         if self.payload_is::<T>() {
             // SAFETY: just checked that the payload is T, and PyRef is repr(transparent) over
             // PyObjectRef
@@ -696,7 +696,7 @@ impl PyObject {
     pub fn downcast_ref_if_exact<T: PyObjectPayload + crate::PyPayload>(
         &self,
         vm: &VirtualMachine,
-    ) -> Option<&PyObjectView<T>> {
+    ) -> Option<&Py<T>> {
         self.class()
             .is(T::class(vm))
             .then(|| unsafe { self.downcast_unchecked_ref::<T>() })
@@ -705,9 +705,9 @@ impl PyObject {
     /// # Safety
     /// T must be the exact payload type
     #[inline(always)]
-    pub unsafe fn downcast_unchecked_ref<T: PyObjectPayload>(&self) -> &PyObjectView<T> {
+    pub unsafe fn downcast_unchecked_ref<T: PyObjectPayload>(&self) -> &Py<T> {
         debug_assert!(self.payload_is::<T>());
-        &*(self as *const PyObject as *const PyObjectView<T>)
+        &*(self as *const PyObject as *const Py<T>)
     }
 
     #[inline(always)]
@@ -788,9 +788,9 @@ impl AsRef<PyObject> for PyObject {
     }
 }
 
-impl<'a, T: PyObjectPayload> From<&'a PyObjectView<T>> for &'a PyObject {
+impl<'a, T: PyObjectPayload> From<&'a Py<T>> for &'a PyObject {
     #[inline(always)]
-    fn from(py_ref: &'a PyObjectView<T>) -> Self {
+    fn from(py_ref: &'a Py<T>) -> Self {
         py_ref.as_object()
     }
 }
@@ -833,9 +833,9 @@ impl fmt::Debug for PyObjectRef {
 }
 
 #[repr(transparent)]
-pub struct PyObjectView<T: PyObjectPayload>(PyInner<T>);
+pub struct Py<T: PyObjectPayload>(PyInner<T>);
 
-impl<T: PyObjectPayload> PyObjectView<T> {
+impl<T: PyObjectPayload> Py<T> {
     pub fn downgrade(
         &self,
         callback: Option<PyObjectRef>,
@@ -848,7 +848,7 @@ impl<T: PyObjectPayload> PyObjectView<T> {
     }
 }
 
-impl<T: PyObjectPayload> ToOwned for PyObjectView<T> {
+impl<T: PyObjectPayload> ToOwned for Py<T> {
     type Owned = PyRef<T>;
 
     #[inline(always)]
@@ -860,7 +860,7 @@ impl<T: PyObjectPayload> ToOwned for PyObjectView<T> {
     }
 }
 
-impl<T: PyObjectPayload> Deref for PyObjectView<T> {
+impl<T: PyObjectPayload> Deref for Py<T> {
     type Target = T;
 
     #[inline(always)]
@@ -869,14 +869,14 @@ impl<T: PyObjectPayload> Deref for PyObjectView<T> {
     }
 }
 
-impl<T: PyObjectPayload> Borrow<PyObject> for PyObjectView<T> {
+impl<T: PyObjectPayload> Borrow<PyObject> for Py<T> {
     #[inline(always)]
     fn borrow(&self) -> &PyObject {
         unsafe { &*(&self.0 as *const PyInner<T> as *const PyObject) }
     }
 }
 
-impl<T> AsRef<PyObject> for PyObjectView<T>
+impl<T> AsRef<PyObject> for Py<T>
 where
     T: PyObjectPayload,
 {
@@ -886,7 +886,7 @@ where
     }
 }
 
-impl<T: PyObjectPayload> fmt::Debug for PyObjectView<T> {
+impl<T: PyObjectPayload> fmt::Debug for Py<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         (**self).fmt(f)
     }
@@ -903,7 +903,7 @@ impl<T: PyObjectPayload> fmt::Debug for PyObjectView<T> {
 /// where a reference to the same object must be returned.
 #[repr(transparent)]
 pub struct PyRef<T: PyObjectPayload> {
-    ptr: NonNull<PyObjectView<T>>,
+    ptr: NonNull<Py<T>>,
 }
 
 cfg_if::cfg_if! {
@@ -937,7 +937,7 @@ impl<T: PyObjectPayload> Clone for PyRef<T> {
 
 impl<T: PyObjectPayload> PyRef<T> {
     #[inline(always)]
-    unsafe fn from_raw(raw: *const PyObjectView<T>) -> Self {
+    unsafe fn from_raw(raw: *const Py<T>) -> Self {
         Self {
             ptr: NonNull::new_unchecked(raw as *mut _),
         }
@@ -957,7 +957,7 @@ impl<T: PyObjectPayload> PyRef<T> {
     pub fn new_ref(payload: T, typ: crate::builtins::PyTypeRef, dict: Option<PyDictRef>) -> Self {
         let inner = Box::into_raw(PyInner::new(payload, typ, dict));
         Self {
-            ptr: unsafe { NonNull::new_unchecked(inner.cast::<PyObjectView<T>>()) },
+            ptr: unsafe { NonNull::new_unchecked(inner.cast::<Py<T>>()) },
         }
     }
 }
@@ -993,12 +993,12 @@ where
     }
 }
 
-impl<T> Borrow<PyObjectView<T>> for PyRef<T>
+impl<T> Borrow<Py<T>> for PyRef<T>
 where
     T: PyObjectPayload,
 {
     #[inline(always)]
-    fn borrow(&self) -> &PyObjectView<T> {
+    fn borrow(&self) -> &Py<T> {
         self
     }
 }
@@ -1007,10 +1007,10 @@ impl<T> Deref for PyRef<T>
 where
     T: PyObjectPayload,
 {
-    type Target = PyObjectView<T>;
+    type Target = Py<T>;
 
     #[inline(always)]
-    fn deref(&self) -> &PyObjectView<T> {
+    fn deref(&self) -> &Py<T> {
         unsafe { self.ptr.as_ref() }
     }
 }

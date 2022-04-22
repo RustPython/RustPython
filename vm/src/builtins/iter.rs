@@ -211,7 +211,7 @@ impl PySequenceIterator {
 
 impl IterNextIterable for PySequenceIterator {}
 impl IterNext for PySequenceIterator {
-    fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal.lock().next(|obj, pos| {
             let seq = PySequence::with_methods(obj, zelf.seq_methods.clone());
             PyIterReturn::from_getitem_result(seq.get_item(pos as isize, vm), vm)
@@ -244,7 +244,7 @@ impl PyCallableIterator {
 
 impl IterNextIterable for PyCallableIterator {}
 impl IterNext for PyCallableIterator {
-    fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let status = zelf.status.upgradable_read();
         let next = if let IterStatus::Active(callable) = &*status {
             let ret = callable.invoke((), vm)?;

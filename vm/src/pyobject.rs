@@ -18,7 +18,7 @@ use crate::{
     pyclass::{PyClassImpl, StaticType},
     types::{PyTypeFlags, PyTypeSlots, TypeZoo},
     VirtualMachine,
-    _pyobjectrc::{PyObject, PyObjectRef, PyObjectView, PyRef},
+    _pyobjectrc::{Py, PyObject, PyObjectRef, PyRef},
 };
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
@@ -347,7 +347,7 @@ where
         fmt::Display::fmt(&**self, f)
     }
 }
-impl<T: fmt::Display> fmt::Display for PyObjectView<T>
+impl<T: fmt::Display> fmt::Display for Py<T>
 where
     T: PyObjectPayload + fmt::Display,
 {
@@ -432,7 +432,7 @@ where
     /// Determines if `obj` actually an instance of `cls`, this doesn't call __instancecheck__, so only
     /// use this if `cls` is known to have not overridden the base __instancecheck__ magic method.
     #[inline]
-    fn fast_isinstance(&self, cls: &PyObjectView<PyType>) -> bool {
+    fn fast_isinstance(&self, cls: &Py<PyType>) -> bool {
         self.class().fast_issubclass(cls)
     }
 }

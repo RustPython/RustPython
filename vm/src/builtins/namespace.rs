@@ -80,7 +80,7 @@ impl PyNamespace {
 
 impl Comparable for PyNamespace {
     fn cmp(
-        zelf: &crate::PyObjectView<Self>,
+        zelf: &crate::Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,

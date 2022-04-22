@@ -1,8 +1,8 @@
 use super::pystr::IntoPyStrRef;
 use super::{PyDictRef, PyStr, PyStrRef, PyTypeRef};
 use crate::{
-    convert::ToPyObject, function::FuncArgs, pyclass::PyClassImpl, types::GetAttr, AsObject,
-    PyContext, PyObjectRef, PyObjectView, PyPayload, PyRef, PyResult, VirtualMachine,
+    convert::ToPyObject, function::FuncArgs, pyclass::PyClassImpl, types::GetAttr, AsObject, Py,
+    PyContext, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "module")]
@@ -48,7 +48,7 @@ impl PyModule {
         zelf.init_module_dict(args.name.into(), args.doc.to_pyobject(vm), vm);
     }
 
-    fn getattr_inner(zelf: &PyObjectView<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
+    fn getattr_inner(zelf: &Py<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
         if let Some(attr) =
             vm.generic_getattribute_opt(zelf.to_owned().into(), name.clone(), None)?
         {
@@ -89,12 +89,12 @@ impl PyModule {
     }
 }
 
-impl PyObjectView<PyModule> {
+impl Py<PyModule> {
     // TODO: to be replaced by the commented-out dict method above once dictoffsets land
     pub fn dict(&self) -> PyDictRef {
         self.as_object().dict().unwrap()
     }
-    // TODO: should be on PyModule, not PyObjectView<PyModule>
+    // TODO: should be on PyModule, not Py<PyModule>
     pub(crate) fn init_module_dict(
         &self,
         name: PyObjectRef,

@@ -18,7 +18,7 @@ mod _js {
         function::{ArgCallable, OptionalArg, OptionalOption, PosArgs},
         protocol::PyIterReturn,
         types::{IterNext, IterNextIterable},
-        PyObjectRef, PyObjectView, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+        Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     };
     use std::{cell, fmt, future};
     use wasm_bindgen::{closure::Closure, prelude::*, JsCast};
@@ -606,7 +606,7 @@ mod _js {
 
     impl IterNextIterable for AwaitPromise {}
     impl IterNext for AwaitPromise {
-        fn next(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             zelf.send(None, vm)
         }
     }

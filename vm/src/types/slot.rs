@@ -8,7 +8,7 @@ use crate::{
         PyBuffer, PyIterReturn, PyMapping, PyMappingMethods, PySequence, PySequenceMethods,
     },
     utils::Either,
-    AsObject, PyObject, PyObjectRef, PyObjectView, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::{Signed, ToPrimitive};
@@ -436,7 +436,7 @@ pub trait Destructor: PyPayload {
         Self::slot_del(&zelf, vm)
     }
 
-    fn del(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<()>;
+    fn del(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()>;
 }
 
 #[pyimpl]
@@ -458,7 +458,7 @@ pub trait Callable: PyPayload {
     fn __call__(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         Self::slot_call(&zelf, args.bind(vm)?, vm)
     }
-    fn call(zelf: &PyObjectView<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult;
+    fn call(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult;
 }
 
 #[pyimpl]
@@ -547,7 +547,7 @@ pub trait Hashable: PyPayload {
         Self::slot_hash(&zelf, vm)
     }
 
-    fn hash(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyHash>;
+    fn hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash>;
 }
 
 pub trait Unhashable: PyPayload {}
@@ -561,7 +561,7 @@ where
     }
 
     #[cold]
-    fn hash(_zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyResult<PyHash> {
+    fn hash(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyHash> {
         unreachable!("slot_hash is implemented for unhashable types");
     }
 }
@@ -584,7 +584,7 @@ pub trait Comparable: PyPayload {
     }
 
     fn cmp(
-        zelf: &PyObjectView<Self>,
+        zelf: &Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
@@ -758,7 +758,7 @@ pub trait GetAttr: PyPayload {
         }
     }
 
-    // TODO: make zelf: &PyObjectView<Self>
+    // TODO: make zelf: &Py<Self>
     fn getattro(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult;
 
     #[inline]
@@ -786,7 +786,7 @@ pub trait SetAttr: PyPayload {
     }
 
     fn setattro(
-        zelf: &PyObjectView<Self>,
+        zelf: &Py<Self>,
         name: PyStrRef,
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,
@@ -822,7 +822,7 @@ pub trait AsBuffer: PyPayload {
         Self::as_buffer(zelf, vm)
     }
 
-    fn as_buffer(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyBuffer>;
+    fn as_buffer(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyBuffer>;
 }
 
 #[pyimpl]
@@ -834,9 +834,9 @@ pub trait AsMapping: PyPayload {
         Self::as_mapping(zelf, vm)
     }
 
-    fn as_mapping(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyMappingMethods;
+    fn as_mapping(zelf: &Py<Self>, vm: &VirtualMachine) -> PyMappingMethods;
 
-    fn mapping_downcast<'a>(mapping: &'a PyMapping) -> &'a PyObjectView<Self> {
+    fn mapping_downcast<'a>(mapping: &'a PyMapping) -> &'a Py<Self> {
         unsafe { mapping.obj.downcast_unchecked_ref() }
     }
 }
@@ -850,12 +850,9 @@ pub trait AsSequence: PyPayload {
         Self::as_sequence(zelf, vm)
     }
 
-    fn as_sequence(
-        zelf: &PyObjectView<Self>,
-        vm: &VirtualMachine,
-    ) -> Cow<'static, PySequenceMethods>;
+    fn as_sequence(zelf: &Py<Self>, vm: &VirtualMachine) -> Cow<'static, PySequenceMethods>;
 
-    fn sequence_downcast<'a>(seq: &'a PySequence) -> &'a PyObjectView<Self> {
+    fn sequence_downcast<'a>(seq: &'a PySequence) -> &'a Py<Self> {
         unsafe { seq.obj.downcast_unchecked_ref() }
     }
 }
@@ -887,7 +884,7 @@ pub trait IterNext: PyPayload + Iterable {
         }
     }
 
-    fn next(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn>;
+    fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn>;
 
     #[inline]
     #[pymethod]

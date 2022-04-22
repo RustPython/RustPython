@@ -504,7 +504,7 @@ mod _sre {
     }
 
     impl Hashable for Pattern {
-        fn hash(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+        fn hash(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
             let hash = zelf.pattern.hash(vm)?;
             let (_, code, _) = unsafe { zelf.code.align_to::<u8>() };
             let hash = hash ^ vm.state.hash_secret.hash_bytes(code);
@@ -516,7 +516,7 @@ mod _sre {
 
     impl Comparable for Pattern {
         fn cmp(
-            zelf: &crate::PyObjectView<Self>,
+            zelf: &crate::Py<Self>,
             other: &PyObject,
             op: crate::types::PyComparisonOp,
             vm: &VirtualMachine,
@@ -793,7 +793,7 @@ mod _sre {
     }
 
     impl AsMapping for Match {
-        fn as_mapping(_zelf: &crate::PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
+        fn as_mapping(_zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
             Self::MAPPING_METHODS
         }
     }

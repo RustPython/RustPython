@@ -31,8 +31,7 @@ mod array {
                 AsBuffer, AsMapping, Comparable, Constructor, IterNext, IterNextIterable, Iterable,
                 PyComparisonOp,
             },
-            AsObject, PyObject, PyObjectRef, PyObjectView, PyPayload, PyRef, PyResult,
-            VirtualMachine,
+            AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         },
     };
     use itertools::Itertools;
@@ -1152,7 +1151,7 @@ mod array {
 
     impl Comparable for PyArray {
         fn cmp(
-            zelf: &PyObjectView<Self>,
+            zelf: &Py<Self>,
             other: &PyObject,
             op: PyComparisonOp,
             vm: &VirtualMachine,
@@ -1203,7 +1202,7 @@ mod array {
     }
 
     impl AsBuffer for PyArray {
-        fn as_buffer(zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
+        fn as_buffer(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
             let array = zelf.read();
             let buf = PyBuffer::new(
                 zelf.to_owned().into(),
@@ -1254,7 +1253,7 @@ mod array {
     }
 
     impl AsMapping for PyArray {
-        fn as_mapping(_zelf: &PyObjectView<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
+        fn as_mapping(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
             Self::MAPPING_METHODS
         }
     }
@@ -1291,7 +1290,7 @@ mod array {
 
     impl IterNextIterable for PyArrayIter {}
     impl IterNext for PyArrayIter {
-        fn next(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let pos = zelf.position.fetch_add(1, atomic::Ordering::SeqCst);
             let r = if let Some(item) = zelf.array.read().get(pos, vm) {
                 PyIterReturn::Return(item?)

@@ -2,7 +2,7 @@ use crate::{
     builtins::{PyStr, PyStrRef},
     exceptions::types::PyBaseExceptionRef,
     sliceable::SliceableSequenceOp,
-    AsObject, PyObjectRef, PyObjectView, VirtualMachine,
+    AsObject, Py, PyObjectRef, VirtualMachine,
 };
 use rustpython_common::str::levenshtein::{levenshtein_distance, MOVE_COST};
 use std::iter::ExactSizeIterator;
@@ -17,7 +17,7 @@ fn calculate_suggestions<'a>(
         return None;
     }
 
-    let mut suggestion: Option<&PyObjectView<PyStr>> = None;
+    let mut suggestion: Option<&Py<PyStr>> = None;
     let mut suggestion_distance = usize::MAX;
     let name = name.downcast_ref::<PyStr>()?;
 

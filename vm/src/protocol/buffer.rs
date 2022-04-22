@@ -9,8 +9,8 @@ use crate::{
     pyobject::PyObjectPayload,
     sliceable::wrap_index,
     types::{Constructor, Unconstructible},
-    AsObject, PyObject, PyObjectRef, PyObjectView, PyPayload, PyRef, PyResult,
-    TryFromBorrowedObject, VirtualMachine,
+    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject,
+    VirtualMachine,
 };
 use itertools::Itertools;
 use std::{borrow::Cow, fmt::Debug, ops::Range};
@@ -108,7 +108,7 @@ impl PyBuffer {
         f(v)
     }
 
-    pub fn obj_as<T: PyObjectPayload>(&self) -> &PyObjectView<T> {
+    pub fn obj_as<T: PyObjectPayload>(&self) -> &Py<T> {
         unsafe { self.obj.downcast_unchecked_ref() }
     }
 

@@ -508,7 +508,7 @@ mod _collections {
 
     impl AsSequence for PyDeque {
         fn as_sequence(
-            _zelf: &crate::PyObjectView<Self>,
+            _zelf: &crate::Py<Self>,
             _vm: &VirtualMachine,
         ) -> std::borrow::Cow<'static, PySequenceMethods> {
             std::borrow::Cow::Borrowed(&Self::SEQUENCE_METHDOS)
@@ -552,7 +552,7 @@ mod _collections {
 
     impl Comparable for PyDeque {
         fn cmp(
-            zelf: &crate::PyObjectView<Self>,
+            zelf: &crate::Py<Self>,
             other: &PyObject,
             op: PyComparisonOp,
             vm: &VirtualMachine,
@@ -642,7 +642,7 @@ mod _collections {
 
     impl IterNextIterable for PyDequeIterator {}
     impl IterNext for PyDequeIterator {
-        fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             zelf.internal.lock().next(|deque, pos| {
                 if zelf.state != deque.state.load() {
                     return Err(vm.new_runtime_error("Deque mutated during iteration".to_owned()));
@@ -708,7 +708,7 @@ mod _collections {
 
     impl IterNextIterable for PyReverseDequeIterator {}
     impl IterNext for PyReverseDequeIterator {
-        fn next(zelf: &crate::PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             zelf.internal.lock().next(|deque, pos| {
                 if deque.state.load() != zelf.state {
                     return Err(vm.new_runtime_error("Deque mutated during iteration".to_owned()));

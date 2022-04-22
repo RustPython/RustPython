@@ -345,7 +345,7 @@ pub(crate) mod _thread {
 
     impl SetAttr for Local {
         fn setattro(
-            zelf: &crate::PyObjectView<Self>,
+            zelf: &crate::Py<Self>,
             attr: PyStrRef,
             value: Option<PyObjectRef>,
             vm: &VirtualMachine,
