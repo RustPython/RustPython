@@ -9,7 +9,7 @@ use crate::{
         zip,
     },
     pyclass::StaticType,
-    pyobject::PyContext,
+    vm::PyContext,
 };
 
 /// Holder of references to builtin types.

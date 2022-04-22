@@ -2,8 +2,9 @@
 
 use crate::{
     builtins::{PyBaseObject, PyBoundMethod, PyType, PyTypeRef},
-    pyobject::{PyContext, PyObjectPayload, PyObjectRef, PyRef},
+    pyobject::{PyObjectPayload, PyObjectRef, PyRef},
     types::{PyTypeFlags, PyTypeSlots},
+    vm::PyContext,
 };
 use rustpython_common::{lock::PyRwLock, static_cell};
 

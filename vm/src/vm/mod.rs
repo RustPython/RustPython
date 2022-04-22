@@ -5,6 +5,7 @@
 
 #[cfg(feature = "rustpython-compiler")]
 mod compile;
+mod context;
 mod interpreter;
 mod setting;
 pub mod thread;
@@ -30,7 +31,7 @@ use crate::{
     import,
     protocol::PyIterIter,
     scope::Scope,
-    signal, stdlib, AsObject, PyContext, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
+    signal, stdlib, AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use std::{
@@ -39,6 +40,7 @@ use std::{
     collections::{HashMap, HashSet},
 };
 
+pub use context::PyContext;
 pub use interpreter::Interpreter;
 pub use setting::PySettings;
 
