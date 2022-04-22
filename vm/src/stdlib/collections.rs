@@ -19,7 +19,7 @@ mod _collections {
         },
         utils::collection_repr,
         vm::ReprGuard,
-        AsObject, PyObject, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+        AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use std::cmp::max;
@@ -27,7 +27,7 @@ mod _collections {
 
     #[pyattr]
     #[pyclass(name = "deque")]
-    #[derive(Debug, Default, PyValue)]
+    #[derive(Debug, Default, PyPayload)]
     struct PyDeque {
         deque: PyRwLock<VecDeque<PyObjectRef>>,
         maxlen: Option<usize>,
@@ -577,7 +577,7 @@ mod _collections {
 
     #[pyattr]
     #[pyclass(name = "_deque_iterator")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct PyDequeIterator {
         state: usize,
         internal: PyMutex<PositionIterInternal<PyDequeRef>>,
@@ -657,7 +657,7 @@ mod _collections {
 
     #[pyattr]
     #[pyclass(name = "_deque_reverse_iterator")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct PyReverseDequeIterator {
         state: usize,
         // position is counting from the tail

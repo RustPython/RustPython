@@ -2,14 +2,14 @@ use super::pystr::IntoPyStrRef;
 use super::{PyDictRef, PyStr, PyStrRef, PyTypeRef};
 use crate::{
     convert::ToPyObject, function::FuncArgs, pyclass::PyClassImpl, types::GetAttr, AsObject,
-    PyContext, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue, VirtualMachine,
+    PyContext, PyObjectRef, PyObjectView, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "module")]
 #[derive(Debug)]
 pub struct PyModule {}
 
-impl PyValue for PyModule {
+impl PyPayload for PyModule {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.module_type
     }

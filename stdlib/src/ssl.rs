@@ -39,7 +39,7 @@ mod _ssl {
             stdlib::os::PyPathLike,
             types::Constructor,
             utils::{Either, ToCString},
-            PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+            PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         },
     };
     use crossbeam_utils::atomic::AtomicCell;
@@ -415,7 +415,7 @@ mod _ssl {
 
     #[pyattr]
     #[pyclass(module = "ssl", name = "_SSLContext")]
-    #[derive(PyValue)]
+    #[derive(PyPayload)]
     struct PySslContext {
         ctx: PyRwLock<SslContextBuilder>,
         check_hostname: AtomicCell<bool>,
@@ -884,7 +884,7 @@ mod _ssl {
 
     #[pyattr]
     #[pyclass(module = "ssl", name = "_SSLSocket")]
-    #[derive(PyValue)]
+    #[derive(PyPayload)]
     struct PySslSocket {
         ctx: PyRef<PySslContext>,
         stream: PyRwLock<ssl::SslStream<SocketStream>>,
@@ -1400,7 +1400,7 @@ mod windows {
         vm::{
             builtins::{PyFrozenSet, PyStrRef},
             convert::ToPyException,
-            PyObjectRef, PyResult, PyValue, VirtualMachine,
+            PyObjectRef, PyPayload, PyResult, VirtualMachine,
         },
     };
 

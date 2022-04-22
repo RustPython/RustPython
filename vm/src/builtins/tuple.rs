@@ -14,7 +14,7 @@ use crate::{
     },
     utils::collection_repr,
     vm::{ReprGuard, VirtualMachine},
-    AsObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    AsObject, PyContext, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
 };
 use std::{borrow::Cow, fmt, marker::PhantomData};
 
@@ -34,7 +34,7 @@ impl fmt::Debug for PyTuple {
     }
 }
 
-impl PyValue for PyTuple {
+impl PyPayload for PyTuple {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.tuple_type
     }
@@ -404,7 +404,7 @@ pub(crate) struct PyTupleIterator {
     internal: PyMutex<PositionIterInternal<PyTupleRef>>,
 }
 
-impl PyValue for PyTupleIterator {
+impl PyPayload for PyTupleIterator {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.tuple_iterator_type
     }

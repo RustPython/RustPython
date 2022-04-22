@@ -7,7 +7,7 @@ mod syslog {
         builtins::{PyStr, PyStrRef},
         function::{OptionalArg, OptionalOption},
         utils::ToCString,
-        PyObjectRef, PyResult, PyValue, VirtualMachine,
+        PyObjectRef, PyPayload, PyResult, VirtualMachine,
     };
     use std::{ffi::CStr, os::raw::c_char};
 

@@ -18,7 +18,7 @@ mod _js {
         function::{ArgCallable, OptionalArg, OptionalOption, PosArgs},
         protocol::PyIterReturn,
         types::{IterNext, IterNextIterable},
-        PyObjectRef, PyObjectView, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
+        PyObjectRef, PyObjectView, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     };
     use std::{cell, fmt, future};
     use wasm_bindgen::{closure::Closure, prelude::*, JsCast};
@@ -59,7 +59,7 @@ mod _js {
 
     #[pyattr]
     #[pyclass(module = "_js", name = "JSValue")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     pub struct PyJsValue {
         pub(crate) value: JsValue,
     }
@@ -291,7 +291,7 @@ mod _js {
 
     #[pyattr]
     #[pyclass(module = "_js", name = "JSClosure")]
-    #[derive(PyValue)]
+    #[derive(PyPayload)]
     struct JsClosure {
         closure: cell::RefCell<Option<(ClosureType, PyJsValueRef)>>,
         destroyed: cell::Cell<bool>,
@@ -386,7 +386,7 @@ mod _js {
 
     #[pyattr]
     #[pyclass(module = "_js", name = "Promise")]
-    #[derive(Debug, Clone, PyValue)]
+    #[derive(Debug, Clone, PyPayload)]
     pub struct PyPromise {
         value: PromiseKind,
     }
@@ -558,7 +558,7 @@ mod _js {
     }
 
     #[pyclass(noattr, module = "_js", name = "AwaitPromise")]
-    #[derive(PyValue)]
+    #[derive(PyPayload)]
     struct AwaitPromise {
         obj: cell::Cell<Option<PyObjectRef>>,
     }

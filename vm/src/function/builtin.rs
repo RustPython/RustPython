@@ -1,6 +1,7 @@
 use super::{FromArgs, FuncArgs};
 use crate::{
-    convert::ToPyResult, pyobject::PyThreadingConstraint, PyRef, PyResult, PyValue, VirtualMachine,
+    convert::ToPyResult, pyobject::PyThreadingConstraint, PyPayload, PyRef, PyResult,
+    VirtualMachine,
 };
 use std::marker::PhantomData;
 
@@ -83,7 +84,7 @@ macro_rules! into_py_native_func_tuple {
         impl<F, S, $($T,)* R> PyNativeFuncInternal<(RefParam<S>, $(OwnedParam<$T>,)*), R, VirtualMachine> for F
         where
             F: Fn(&S, $($T,)* &VirtualMachine) -> R + PyThreadingConstraint + 'static,
-            S: PyValue,
+            S: PyPayload,
             $($T: FromArgs,)*
             R: ToPyResult,
         {
@@ -110,7 +111,7 @@ macro_rules! into_py_native_func_tuple {
         impl<F, S, $($T,)* R> PyNativeFuncInternal<(RefParam<S>, $(OwnedParam<$T>,)*), R, ()> for F
         where
             F: Fn(&S, $($T,)*) -> R + PyThreadingConstraint + 'static,
-            S: PyValue,
+            S: PyPayload,
             $($T: FromArgs,)*
             R: ToPyResult,
         {

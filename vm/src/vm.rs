@@ -24,8 +24,8 @@ use crate::{
     import,
     protocol::PyIterIter,
     scope::Scope,
-    signal, stdlib, AsObject, PyContext, PyObject, PyObjectRef, PyRef, PyRefExact, PyResult,
-    PyValue,
+    signal, stdlib, AsObject, PyContext, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact,
+    PyResult,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use std::{

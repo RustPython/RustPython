@@ -7,7 +7,7 @@ use crate::{
     protocol::PyMappingMethods,
     pyclass::PyClassImpl,
     types::{AsMapping, Comparable, GetAttr, Hashable, Iterable, PyComparisonOp},
-    AsObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue,
+    AsObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyPayload, PyRef, PyResult,
     TryFromObject, VirtualMachine,
 };
 use std::fmt;
@@ -26,7 +26,7 @@ impl fmt::Debug for PyUnion {
     }
 }
 
-impl PyValue for PyUnion {
+impl PyPayload for PyUnion {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.union_type
     }

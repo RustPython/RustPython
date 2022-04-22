@@ -6,7 +6,7 @@ use crate::{
     protocol::{PyIter, PyIterReturn},
     pyclass::PyClassImpl,
     types::{Constructor, IterNext, IterNextIterable},
-    AsObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    AsObject, PyContext, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use num_bigint::BigInt;
 use num_traits::Zero;
@@ -18,7 +18,7 @@ pub struct PyEnumerate {
     iterator: PyIter,
 }
 
-impl PyValue for PyEnumerate {
+impl PyPayload for PyEnumerate {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.enumerate_type
     }
@@ -83,7 +83,7 @@ pub struct PyReverseSequenceIterator {
     internal: PyMutex<PositionIterInternal<PyObjectRef>>,
 }
 
-impl PyValue for PyReverseSequenceIterator {
+impl PyPayload for PyReverseSequenceIterator {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.reverse_iter_type
     }

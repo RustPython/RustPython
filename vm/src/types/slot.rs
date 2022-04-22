@@ -8,7 +8,7 @@ use crate::{
         PyBuffer, PyIterReturn, PyMapping, PyMappingMethods, PySequence, PySequenceMethods,
     },
     utils::Either,
-    AsObject, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue, VirtualMachine,
+    AsObject, PyObject, PyObjectRef, PyObjectView, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::{Signed, ToPrimitive};
@@ -392,7 +392,7 @@ impl PyType {
 }
 
 #[pyimpl]
-pub trait Constructor: PyValue {
+pub trait Constructor: PyPayload {
     type Args: FromArgs;
 
     #[inline]
@@ -406,7 +406,7 @@ pub trait Constructor: PyValue {
 }
 
 /// For types that cannot be instantiated through Python code.
-pub trait Unconstructible: PyValue {}
+pub trait Unconstructible: PyPayload {}
 
 impl<T> Constructor for T
 where
@@ -420,7 +420,7 @@ where
 }
 
 #[pyimpl]
-pub trait Destructor: PyValue {
+pub trait Destructor: PyPayload {
     #[inline] // for __del__
     #[pyslot]
     fn slot_del(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
@@ -440,7 +440,7 @@ pub trait Destructor: PyValue {
 }
 
 #[pyimpl]
-pub trait Callable: PyValue {
+pub trait Callable: PyPayload {
     type Args: FromArgs;
 
     #[inline]
@@ -462,7 +462,7 @@ pub trait Callable: PyValue {
 }
 
 #[pyimpl]
-pub trait GetDescriptor: PyValue {
+pub trait GetDescriptor: PyPayload {
     #[pyslot]
     fn descr_get(
         zelf: PyObjectRef,
@@ -530,7 +530,7 @@ pub trait GetDescriptor: PyValue {
 }
 
 #[pyimpl]
-pub trait Hashable: PyValue {
+pub trait Hashable: PyPayload {
     #[inline]
     #[pyslot]
     fn slot_hash(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyHash> {
@@ -550,7 +550,7 @@ pub trait Hashable: PyValue {
     fn hash(zelf: &PyObjectView<Self>, vm: &VirtualMachine) -> PyResult<PyHash>;
 }
 
-pub trait Unhashable: PyValue {}
+pub trait Unhashable: PyPayload {}
 
 impl<T> Hashable for T
 where
@@ -567,7 +567,7 @@ where
 }
 
 #[pyimpl]
-pub trait Comparable: PyValue {
+pub trait Comparable: PyPayload {
     #[inline]
     #[pyslot]
     fn slot_richcompare(
@@ -748,7 +748,7 @@ impl PyComparisonOp {
 }
 
 #[pyimpl]
-pub trait GetAttr: PyValue {
+pub trait GetAttr: PyPayload {
     #[pyslot]
     fn slot_getattro(obj: PyObjectRef, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
         if let Ok(zelf) = obj.downcast::<Self>() {
@@ -769,7 +769,7 @@ pub trait GetAttr: PyValue {
 }
 
 #[pyimpl]
-pub trait SetAttr: PyValue {
+pub trait SetAttr: PyPayload {
     #[pyslot]
     #[inline]
     fn slot_setattro(
@@ -811,7 +811,7 @@ pub trait SetAttr: PyValue {
 }
 
 #[pyimpl]
-pub trait AsBuffer: PyValue {
+pub trait AsBuffer: PyPayload {
     // TODO: `flags` parameter
     #[inline]
     #[pyslot]
@@ -826,7 +826,7 @@ pub trait AsBuffer: PyValue {
 }
 
 #[pyimpl]
-pub trait AsMapping: PyValue {
+pub trait AsMapping: PyPayload {
     #[inline]
     #[pyslot]
     fn slot_as_mapping(zelf: &PyObject, vm: &VirtualMachine) -> PyMappingMethods {
@@ -842,7 +842,7 @@ pub trait AsMapping: PyValue {
 }
 
 #[pyimpl]
-pub trait AsSequence: PyValue {
+pub trait AsSequence: PyPayload {
     #[inline]
     #[pyslot]
     fn slot_as_sequence(zelf: &PyObject, vm: &VirtualMachine) -> Cow<'static, PySequenceMethods> {
@@ -861,7 +861,7 @@ pub trait AsSequence: PyValue {
 }
 
 #[pyimpl]
-pub trait Iterable: PyValue {
+pub trait Iterable: PyPayload {
     #[pyslot]
     #[pymethod(name = "__iter__")]
     fn slot_iter(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -877,7 +877,7 @@ pub trait Iterable: PyValue {
 
 // `Iterator` fits better, but to avoid confusion with rust std::iter::Iterator
 #[pyimpl(with(Iterable))]
-pub trait IterNext: PyValue + Iterable {
+pub trait IterNext: PyPayload + Iterable {
     #[pyslot]
     fn slot_iternext(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         if let Some(zelf) = zelf.downcast_ref() {
@@ -896,7 +896,7 @@ pub trait IterNext: PyValue + Iterable {
     }
 }
 
-pub trait IterNextIterable: PyValue {}
+pub trait IterNextIterable: PyPayload {}
 
 impl<T> Iterable for T
 where

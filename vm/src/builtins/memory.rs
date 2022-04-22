@@ -19,7 +19,7 @@ use crate::{
     sliceable::wrap_index,
     types::{AsBuffer, AsMapping, AsSequence, Comparable, Constructor, Hashable, PyComparisonOp},
     utils::Either,
-    AsObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue,
+    AsObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, TryFromObject, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
@@ -1041,7 +1041,7 @@ impl Hashable for PyMemoryView {
     }
 }
 
-impl PyValue for PyMemoryView {
+impl PyPayload for PyMemoryView {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.memoryview_type
     }

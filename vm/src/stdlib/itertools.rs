@@ -13,7 +13,7 @@ mod decl {
         protocol::{PyIter, PyIterReturn},
         stdlib::sys,
         types::{Constructor, IterNext, IterNextIterable},
-        AsObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue, PyWeakRef, VirtualMachine,
+        AsObject, PyObjectRef, PyObjectView, PyPayload, PyRef, PyResult, PyWeakRef, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use num_bigint::BigInt;
@@ -22,7 +22,7 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "chain")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct PyItertoolsChain {
         iterables: Vec<PyObjectRef>,
         cur_idx: AtomicCell<usize>,
@@ -99,7 +99,7 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "compress")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct PyItertoolsCompress {
         data: PyIter,
         selector: PyIter,
@@ -148,7 +148,7 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "count")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct PyItertoolsCount {
         cur: PyRwLock<BigInt>,
         step: BigInt,
@@ -202,7 +202,7 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "cycle")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct PyItertoolsCycle {
         iter: PyIter,
         saved: PyRwLock<Vec<PyObjectRef>>,
@@ -251,7 +251,7 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "repeat")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct PyItertoolsRepeat {
         object: PyObjectRef,
         times: Option<PyRwLock<usize>>,
@@ -331,7 +331,7 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "starmap")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct PyItertoolsStarmap {
         function: PyObjectRef,
         iterable: PyIter,
@@ -376,7 +376,7 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "takewhile")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct PyItertoolsTakewhile {
         predicate: PyObjectRef,
         iterable: PyIter,
@@ -440,7 +440,7 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "dropwhile")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct PyItertoolsDropwhile {
         predicate: ArgCallable,
         iterable: PyIter,
@@ -531,7 +531,7 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "groupby")]
-    #[derive(PyValue)]
+    #[derive(PyPayload)]
     struct PyItertoolsGroupBy {
         iterable: PyIter,
         key_func: Option<PyObjectRef>,
@@ -648,7 +648,7 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "_grouper")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct PyItertoolsGrouper {
         groupby: PyRef<PyItertoolsGroupBy>,
     }
@@ -691,7 +691,7 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "islice")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct PyItertoolsIslice {
         iterable: PyIter,
         cur: AtomicCell<usize>,
@@ -818,7 +818,7 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "filterfalse")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct PyItertoolsFilterFalse {
         predicate: PyObjectRef,
         iterable: PyIter,
@@ -879,7 +879,7 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "accumulate")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct PyItertoolsAccumulate {
         iterable: PyIter,
         binop: Option<PyObjectRef>,
@@ -977,7 +977,7 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "tee")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct PyItertoolsTee {
         tee_data: PyRc<PyItertoolsTeeData>,
         index: AtomicCell<usize>,
@@ -1055,7 +1055,7 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "product")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct PyItertoolsProduct {
         pools: Vec<Vec<PyObjectRef>>,
         idxs: PyRwLock<Vec<usize>>,
@@ -1153,7 +1153,7 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "combinations")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct PyItertoolsCombinations {
         pool: Vec<PyObjectRef>,
         indices: PyRwLock<Vec<usize>>,
@@ -1252,7 +1252,7 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "combinations_with_replacement")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct PyItertoolsCombinationsWithReplacement {
         pool: Vec<PyObjectRef>,
         indices: PyRwLock<Vec<usize>>,
@@ -1338,7 +1338,7 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "permutations")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct PyItertoolsPermutations {
         pool: Vec<PyObjectRef>,               // Collected input iterable
         indices: PyRwLock<Vec<usize>>,        // One index per element in pool
@@ -1492,7 +1492,7 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "zip_longest")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct PyItertoolsZipLongest {
         iterators: Vec<PyIter>,
         fillvalue: PyObjectRef,
@@ -1528,7 +1528,7 @@ mod decl {
 
     #[pyattr]
     #[pyclass(name = "pairwise")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct PyItertoolsPairwise {
         iterator: PyIter,
         old: PyRwLock<Option<PyObjectRef>>,

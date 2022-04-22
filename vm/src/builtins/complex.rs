@@ -8,7 +8,7 @@ use crate::{
     },
     pyclass::PyClassImpl,
     types::{Comparable, Constructor, Hashable, PyComparisonOp},
-    AsObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    AsObject, PyContext, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use num_complex::Complex64;
 use num_traits::Zero;
@@ -23,7 +23,7 @@ pub struct PyComplex {
     value: Complex64,
 }
 
-impl PyValue for PyComplex {
+impl PyPayload for PyComplex {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.complex_type
     }

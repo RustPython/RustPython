@@ -20,7 +20,7 @@ mod _operator {
         },
         utils::Either,
         vm::ReprGuard,
-        AsObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue, VirtualMachine,
+        AsObject, PyObjectRef, PyObjectView, PyPayload, PyRef, PyResult, VirtualMachine,
     };
 
     /// Same as a < b.
@@ -423,7 +423,7 @@ mod _operator {
     /// (r.name.first, r.name.last).
     #[pyattr]
     #[pyclass(name = "attrgetter")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct PyAttrGetter {
         attrs: Vec<PyStrRef>,
     }
@@ -517,7 +517,7 @@ mod _operator {
     /// After g = itemgetter(2, 5, 3), the call g(r) returns (r[2], r[5], r[3])
     #[pyattr]
     #[pyclass(name = "itemgetter")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct PyItemGetter {
         items: Vec<PyObjectRef>,
     }
@@ -583,7 +583,7 @@ mod _operator {
     /// r.name('date', foo=1).
     #[pyattr]
     #[pyclass(name = "methodcaller")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct PyMethodCaller {
         name: PyStrRef,
         args: FuncArgs,

@@ -9,7 +9,7 @@ mod _random {
         builtins::{PyInt, PyTypeRef},
         function::OptionalOption,
         types::Constructor,
-        PyObjectRef, PyResult, PyValue, VirtualMachine,
+        PyObjectRef, PyPayload, PyResult, VirtualMachine,
     };
     use num_bigint::{BigInt, Sign};
     use num_traits::{Signed, Zero};
@@ -56,7 +56,7 @@ mod _random {
 
     #[pyattr]
     #[pyclass(name = "Random")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct PyRandom {
         rng: PyMutex<PyRng>,
     }

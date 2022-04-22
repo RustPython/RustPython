@@ -11,7 +11,7 @@ use crate::{
     function::{FuncArgs, KwArgs, OptionalArg},
     pyclass::{PyClassImpl, StaticType},
     types::{Callable, GetAttr, PyTypeFlags, PyTypeSlots, SetAttr},
-    AsObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    AsObject, PyContext, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use itertools::Itertools;
 use std::{
@@ -53,7 +53,7 @@ impl fmt::Debug for PyType {
     }
 }
 
-impl PyValue for PyType {
+impl PyPayload for PyType {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.type_type
     }

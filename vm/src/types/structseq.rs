@@ -2,7 +2,7 @@ use crate::{
     builtins::{PyTuple, PyTupleRef, PyTypeRef},
     pyclass::{PyClassImpl, StaticType},
     pyobject::PyContext,
-    AsObject, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    AsObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 #[pyimpl]

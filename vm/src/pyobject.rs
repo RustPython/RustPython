@@ -84,7 +84,7 @@ impl PyContext {
         let exceptions = exceptions::ExceptionZoo::init();
 
         #[inline]
-        fn create_object<T: PyObjectPayload + PyValue>(payload: T, cls: &PyTypeRef) -> PyRef<T> {
+        fn create_object<T: PyObjectPayload + PyPayload>(payload: T, cls: &PyTypeRef) -> PyRef<T> {
             PyRef::new_ref(payload, cls.clone(), None)
         }
 
@@ -359,7 +359,7 @@ where
 pub struct PyRefExact<T: PyObjectPayload> {
     obj: PyRef<T>,
 }
-impl<T: PyValue> TryFromObject for PyRefExact<T> {
+impl<T: PyPayload> TryFromObject for PyRefExact<T> {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let target_cls = T::class(vm);
         let cls = obj.class();
@@ -384,14 +384,14 @@ impl<T: PyValue> TryFromObject for PyRefExact<T> {
         }
     }
 }
-impl<T: PyValue> Deref for PyRefExact<T> {
+impl<T: PyPayload> Deref for PyRefExact<T> {
     type Target = PyRef<T>;
     #[inline(always)]
     fn deref(&self) -> &PyRef<T> {
         &self.obj
     }
 }
-impl<T: PyValue> ToPyObject for PyRefExact<T> {
+impl<T: PyPayload> ToPyObject for PyRefExact<T> {
     #[inline(always)]
     fn to_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
         self.obj.into()
@@ -466,21 +466,21 @@ pub struct PyLease<'a, T: PyObjectPayload> {
     inner: PyRwLockReadGuard<'a, PyRef<T>>,
 }
 
-impl<'a, T: PyObjectPayload + PyValue> PyLease<'a, T> {
+impl<'a, T: PyObjectPayload + PyPayload> PyLease<'a, T> {
     #[inline(always)]
     pub fn into_owned(self) -> PyRef<T> {
         self.inner.clone()
     }
 }
 
-impl<'a, T: PyObjectPayload + PyValue> Borrow<PyObject> for PyLease<'a, T> {
+impl<'a, T: PyObjectPayload + PyPayload> Borrow<PyObject> for PyLease<'a, T> {
     #[inline(always)]
     fn borrow(&self) -> &PyObject {
         self.inner.as_ref()
     }
 }
 
-impl<'a, T: PyObjectPayload + PyValue> Deref for PyLease<'a, T> {
+impl<'a, T: PyObjectPayload + PyPayload> Deref for PyLease<'a, T> {
     type Target = PyRef<T>;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
@@ -490,7 +490,7 @@ impl<'a, T: PyObjectPayload + PyValue> Deref for PyLease<'a, T> {
 
 impl<'a, T> fmt::Display for PyLease<'a, T>
 where
-    T: PyValue + fmt::Display,
+    T: PyPayload + fmt::Display,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Display::fmt(&**self, f)
@@ -522,11 +522,11 @@ impl ToPyObject for &PyObject {
 // explicitly implementing `ToPyObject`.
 impl<T> ToPyObject for T
 where
-    T: PyValue + Sized,
+    T: PyPayload + Sized,
 {
     #[inline(always)]
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        PyValue::into_pyobject(self, vm)
+        PyPayload::into_pyobject(self, vm)
     }
 }
 
@@ -560,7 +560,7 @@ cfg_if::cfg_if! {
     }
 }
 
-pub trait PyValue: fmt::Debug + PyThreadingConstraint + Sized + 'static {
+pub trait PyPayload: fmt::Debug + PyThreadingConstraint + Sized + 'static {
     fn class(vm: &VirtualMachine) -> &PyTypeRef;
 
     #[inline]
@@ -620,7 +620,7 @@ pub trait PyValue: fmt::Debug + PyThreadingConstraint + Sized + 'static {
 
 pub trait PyObjectPayload: Any + fmt::Debug + PyThreadingConstraint + 'static {}
 
-impl<T: PyValue + 'static> PyObjectPayload for T {}
+impl<T: PyPayload + 'static> PyObjectPayload for T {}
 
 pub trait PyObjectWrap
 where

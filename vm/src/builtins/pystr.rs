@@ -16,7 +16,7 @@ use crate::{
         AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable,
         Iterable, PyComparisonOp, Unconstructible,
     },
-    AsObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue,
+    AsObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, VirtualMachine,
 };
 use ascii::{AsciiStr, AsciiString};
@@ -227,7 +227,7 @@ pub struct PyStrIterator {
     internal: PyMutex<(PositionIterInternal<PyStrRef>, usize)>,
 }
 
-impl PyValue for PyStrIterator {
+impl PyPayload for PyStrIterator {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.str_iterator_type
     }
@@ -1338,7 +1338,7 @@ pub(crate) fn encode_string(
     vm.state.codec_registry.encode_text(s, encoding, errors, vm)
 }
 
-impl PyValue for PyStr {
+impl PyPayload for PyStr {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.str_type
     }

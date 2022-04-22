@@ -10,14 +10,14 @@ mod _json {
         function::OptionalArg,
         protocol::PyIterReturn,
         types::{Callable, Constructor},
-        AsObject, PyObjectRef, PyObjectView, PyResult, PyValue, VirtualMachine,
+        AsObject, PyObjectRef, PyObjectView, PyPayload, PyResult, VirtualMachine,
     };
     use num_bigint::BigInt;
     use std::str::FromStr;
 
     #[pyattr(name = "make_scanner")]
     #[pyclass(name = "Scanner")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct JsonScanner {
         strict: bool,
         object_hook: Option<PyObjectRef>,

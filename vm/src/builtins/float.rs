@@ -10,7 +10,7 @@ use crate::{
     },
     pyclass::PyClassImpl,
     types::{Comparable, Constructor, Hashable, PyComparisonOp},
-    AsObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromBorrowedObject,
+    AsObject, PyContext, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject,
     TryFromObject, VirtualMachine,
 };
 use num_bigint::{BigInt, ToBigInt};
@@ -31,7 +31,7 @@ impl PyFloat {
     }
 }
 
-impl PyValue for PyFloat {
+impl PyPayload for PyFloat {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.float_type
     }

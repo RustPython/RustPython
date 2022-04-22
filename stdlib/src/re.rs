@@ -12,7 +12,7 @@ mod re {
         builtins::{PyInt, PyIntRef, PyStr, PyStrRef},
         convert::{ToPyObject, TryFromObject},
         function::{OptionalArg, PosArgs},
-        match_class, PyObjectRef, PyResult, PyValue, VirtualMachine,
+        match_class, PyObjectRef, PyResult, PyPayload, VirtualMachine,
     };
     use num_traits::Signed;
     use regex::bytes::{Captures, Regex, RegexBuilder};
@@ -21,7 +21,7 @@ mod re {
 
     #[pyattr]
     #[pyclass(module = "re", name = "Pattern")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct PyPattern {
         regex: Regex,
         pattern: String,
@@ -77,7 +77,7 @@ mod re {
     /// Inner data for a match object.
     #[pyattr]
     #[pyclass(module = "re", name = "Match")]
-    #[derive(PyValue)]
+    #[derive(PyPayload)]
     struct PyMatch {
         haystack: PyStrRef,
         captures: Vec<Option<Range<usize>>>,

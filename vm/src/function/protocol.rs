@@ -3,7 +3,7 @@ use crate::{
     builtins::{iter::PySequenceIterator, PyDict, PyDictRef},
     convert::ToPyObject,
     protocol::{PyIter, PyIterIter, PyMapping, PyMappingMethods},
-    AsObject, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject, VirtualMachine,
+    AsObject, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
 };
 use std::{borrow::Borrow, marker::PhantomData};
 

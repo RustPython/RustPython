@@ -17,7 +17,7 @@ use crate::{
     },
     utils::collection_repr,
     vm::{ReprGuard, VirtualMachine},
-    AsObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    AsObject, PyContext, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
 };
 use std::borrow::Cow;
 use std::{fmt, ops::Deref};
@@ -70,13 +70,13 @@ impl fmt::Debug for PyFrozenSet {
     }
 }
 
-impl PyValue for PySet {
+impl PyPayload for PySet {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.set_type
     }
 }
 
-impl PyValue for PyFrozenSet {
+impl PyPayload for PyFrozenSet {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.frozenset_type
     }
@@ -971,7 +971,7 @@ impl fmt::Debug for PySetIterator {
     }
 }
 
-impl PyValue for PySetIterator {
+impl PyPayload for PySetIterator {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.set_iterator_type
     }

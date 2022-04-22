@@ -4,7 +4,7 @@ use crate::{
     function::{FuncArgs, IntoPyNativeFunc, PyNativeFunc},
     pyclass::PyClassImpl,
     types::{Callable, Constructor, GetDescriptor, Unconstructible},
-    AsObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    AsObject, PyContext, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use std::fmt;
 
@@ -62,7 +62,7 @@ pub struct PyBuiltinFunction {
     module: Option<PyObjectRef>,
 }
 
-impl PyValue for PyBuiltinFunction {
+impl PyPayload for PyBuiltinFunction {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.builtin_function_or_method_type
     }
@@ -167,7 +167,7 @@ pub struct PyBuiltinMethod {
     class: PyTypeRef,
 }
 
-impl PyValue for PyBuiltinMethod {
+impl PyPayload for PyBuiltinMethod {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.method_descriptor_type
     }

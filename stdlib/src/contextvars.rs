@@ -4,11 +4,11 @@ pub(crate) use _contextvars::make_module;
 mod _contextvars {
     use rustpython_vm::builtins::{PyFunction, PyStrRef, PyTypeRef};
     use rustpython_vm::function::{ArgCallable, FuncArgs, OptionalArg};
-    use rustpython_vm::{PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine};
+    use rustpython_vm::{PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine};
 
     #[pyattr]
     #[pyclass(name)]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct Context {}
 
     #[pyimpl]
@@ -75,7 +75,7 @@ mod _contextvars {
 
     #[pyattr]
     #[pyclass(name)]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct ContextVar {
         #[allow(dead_code)] // TODO: RUSTPYTHON
         name: String,
@@ -147,7 +147,7 @@ mod _contextvars {
 
     #[pyattr]
     #[pyclass(name = "Token")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct ContextToken {}
 
     #[derive(FromArgs)]

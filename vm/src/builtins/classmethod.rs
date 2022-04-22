@@ -3,7 +3,7 @@ use crate::{
     builtins::PyBoundMethod,
     pyclass::PyClassImpl,
     types::{Constructor, GetDescriptor},
-    AsObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    AsObject, PyContext, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 /// classmethod(function) -> method
@@ -38,7 +38,7 @@ impl From<PyObjectRef> for PyClassMethod {
     }
 }
 
-impl PyValue for PyClassMethod {
+impl PyPayload for PyClassMethod {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.classmethod_type
     }

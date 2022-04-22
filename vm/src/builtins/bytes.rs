@@ -20,7 +20,7 @@ use crate::{
         IterNextIterable, Iterable, PyComparisonOp, Unconstructible,
     },
     utils::Either,
-    AsObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue,
+    AsObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, TryFromObject, VirtualMachine,
 };
 use bstr::ByteSlice;
@@ -73,7 +73,7 @@ impl AsRef<[u8]> for PyBytesRef {
     }
 }
 
-impl PyValue for PyBytes {
+impl PyPayload for PyBytes {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.bytes_type
     }
@@ -667,7 +667,7 @@ pub struct PyBytesIterator {
     internal: PyMutex<PositionIterInternal<PyBytesRef>>,
 }
 
-impl PyValue for PyBytesIterator {
+impl PyPayload for PyBytesIterator {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.bytes_iterator_type
     }

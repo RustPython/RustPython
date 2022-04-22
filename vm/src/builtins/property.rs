@@ -5,7 +5,7 @@ use super::PyTypeRef;
 use crate::common::lock::PyRwLock;
 use crate::{
     function::FuncArgs, pyclass::PyClassImpl, types::GetDescriptor, AsObject, PyContext,
-    PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
+    PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 
 /// Property attribute.
@@ -49,7 +49,7 @@ pub struct PyProperty {
     doc: PyRwLock<Option<PyObjectRef>>,
 }
 
-impl PyValue for PyProperty {
+impl PyPayload for PyProperty {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.property_type
     }

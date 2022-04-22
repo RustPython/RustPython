@@ -544,7 +544,7 @@ impl PyObjectRef {
     /// If the downcast fails, the original ref is returned in as `Err` so
     /// another downcast can be attempted without unnecessary cloning.
     #[inline]
-    pub fn downcast_exact<T: PyObjectPayload + crate::PyValue>(
+    pub fn downcast_exact<T: PyObjectPayload + crate::PyPayload>(
         self,
         vm: &VirtualMachine,
     ) -> Result<PyRef<T>, Self> {
@@ -639,7 +639,7 @@ impl PyObject {
     }
 
     #[inline(always)]
-    pub fn payload_if_exact<T: PyObjectPayload + crate::PyValue>(
+    pub fn payload_if_exact<T: PyObjectPayload + crate::PyPayload>(
         &self,
         vm: &VirtualMachine,
     ) -> Option<&T> {
@@ -673,7 +673,7 @@ impl PyObject {
     }
 
     #[inline(always)]
-    pub fn payload_if_subclass<T: crate::PyValue>(&self, vm: &VirtualMachine) -> Option<&T> {
+    pub fn payload_if_subclass<T: crate::PyPayload>(&self, vm: &VirtualMachine) -> Option<&T> {
         if self.class().fast_issubclass(T::class(vm)) {
             self.payload()
         } else {
@@ -693,7 +693,7 @@ impl PyObject {
     }
 
     #[inline(always)]
-    pub fn downcast_ref_if_exact<T: PyObjectPayload + crate::PyValue>(
+    pub fn downcast_ref_if_exact<T: PyObjectPayload + crate::PyPayload>(
         &self,
         vm: &VirtualMachine,
     ) -> Option<&PyObjectView<T>> {

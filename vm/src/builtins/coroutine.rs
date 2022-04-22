@@ -6,7 +6,7 @@ use crate::{
     protocol::PyIterReturn,
     pyclass::PyClassImpl,
     types::{Constructor, IterNext, IterNextIterable, Unconstructible},
-    AsObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    AsObject, PyContext, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "coroutine")]
@@ -16,7 +16,7 @@ pub struct PyCoroutine {
     inner: Coro,
 }
 
-impl PyValue for PyCoroutine {
+impl PyPayload for PyCoroutine {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.coroutine_type
     }
@@ -120,7 +120,7 @@ pub struct PyCoroutineWrapper {
     coro: PyRef<PyCoroutine>,
 }
 
-impl PyValue for PyCoroutineWrapper {
+impl PyPayload for PyCoroutineWrapper {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.coroutine_wrapper_type
     }

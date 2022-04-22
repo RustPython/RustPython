@@ -7,7 +7,7 @@ use crate::{
     function::OptionalArg,
     pyclass::PyClassImpl,
     types::{Callable, Comparable, Constructor, Hashable, PyComparisonOp},
-    AsObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    AsObject, PyContext, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 pub use crate::pyobject::PyWeak;
@@ -20,7 +20,7 @@ pub struct WeakNewArgs {
     callback: OptionalArg<PyObjectRef>,
 }
 
-impl PyValue for PyWeak {
+impl PyPayload for PyWeak {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.weakref_type
     }

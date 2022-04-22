@@ -33,7 +33,7 @@ use crate::{
         IterNextIterable, Iterable, PyComparisonOp, Unconstructible, Unhashable,
     },
     utils::Either,
-    AsObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue,
+    AsObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, TryFromObject, VirtualMachine,
 };
 use bstr::ByteSlice;
@@ -81,7 +81,7 @@ impl From<Vec<u8>> for PyByteArray {
     }
 }
 
-impl PyValue for PyByteArray {
+impl PyPayload for PyByteArray {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.bytearray_type
     }
@@ -847,7 +847,7 @@ pub struct PyByteArrayIterator {
     internal: PyMutex<PositionIterInternal<PyByteArrayRef>>,
 }
 
-impl PyValue for PyByteArrayIterator {
+impl PyPayload for PyByteArrayIterator {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.bytearray_iterator_type
     }

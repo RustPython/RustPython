@@ -6,7 +6,7 @@ use crate::{
     protocol::PyMappingMethods,
     pyclass::PyClassImpl,
     types::{AsMapping, Callable, Comparable, Constructor, GetAttr, Hashable, PyComparisonOp},
-    AsObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue,
+    AsObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyPayload, PyRef, PyResult,
     TryFromObject, VirtualMachine,
 };
 use std::fmt;
@@ -35,7 +35,7 @@ impl fmt::Debug for PyGenericAlias {
     }
 }
 
-impl PyValue for PyGenericAlias {
+impl PyPayload for PyGenericAlias {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.generic_alias_type
     }

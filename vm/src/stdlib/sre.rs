@@ -13,7 +13,7 @@ mod _sre {
         protocol::{PyBuffer, PyMappingMethods},
         stdlib::sys,
         types::{AsMapping, Comparable, Hashable},
-        PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromBorrowedObject, TryFromObject,
+        PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject, TryFromObject,
         VirtualMachine,
     };
     use core::str;
@@ -123,7 +123,7 @@ mod _sre {
 
     #[pyattr]
     #[pyclass(name = "Pattern")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     pub(crate) struct Pattern {
         pub pattern: PyObjectRef,
         pub flags: SreFlag,
@@ -541,7 +541,7 @@ mod _sre {
 
     #[pyattr]
     #[pyclass(name = "Match")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     pub(crate) struct Match {
         string: PyObjectRef,
         pattern: PyRef<Pattern>,
@@ -800,7 +800,7 @@ mod _sre {
 
     #[pyattr]
     #[pyclass(name = "SRE_Scanner")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct SreScanner {
         pattern: PyRef<Pattern>,
         string: PyObjectRef,

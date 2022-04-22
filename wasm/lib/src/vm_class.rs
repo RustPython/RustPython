@@ -8,7 +8,8 @@ use rustpython_vm::{
     builtins::PyWeak,
     compile::{self, Mode},
     scope::Scope,
-    InitParameter, Interpreter, PyObjectRef, PyRef, PyResult, PySettings, PyValue, VirtualMachine,
+    InitParameter, Interpreter, PyObjectRef, PyPayload, PyRef, PyResult, PySettings,
+    VirtualMachine,
 };
 use std::{
     cell::RefCell,

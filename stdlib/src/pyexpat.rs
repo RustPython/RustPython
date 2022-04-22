@@ -35,7 +35,7 @@ mod _pyexpat {
         builtins::{PyStr, PyStrRef, PyTypeRef},
         function::ArgBytesLike,
         function::{IntoFuncArgs, OptionalArg},
-        PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
+        PyContext, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     };
     use rustpython_common::lock::PyRwLock;
     use std::io::Cursor;
@@ -44,7 +44,7 @@ mod _pyexpat {
 
     #[pyattr]
     #[pyclass(name = "xmlparser", module = false)]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     pub struct PyExpatLikeXmlParser {
         start_element: MutableObject,
         end_element: MutableObject,

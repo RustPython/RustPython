@@ -6,7 +6,7 @@ mod zlib {
     use crate::vm::{
         builtins::{PyBaseExceptionRef, PyBytes, PyBytesRef, PyIntRef, PyTypeRef},
         function::{ArgBytesLike, OptionalArg, OptionalOption},
-        PyResult, PyValue, VirtualMachine,
+        PyPayload, PyResult, VirtualMachine,
     };
     use adler32::RollingAdler32 as Adler32;
     use crossbeam_utils::atomic::AtomicCell;
@@ -281,7 +281,7 @@ mod zlib {
     }
     #[pyattr]
     #[pyclass(name = "Decompress")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct PyDecompress {
         decompress: PyMutex<Decompress>,
         eof: AtomicCell<bool>,
@@ -447,7 +447,7 @@ mod zlib {
 
     #[pyattr]
     #[pyclass(name = "Compress")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct PyCompress {
         inner: PyMutex<CompressInner>,
     }

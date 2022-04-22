@@ -10,7 +10,7 @@ use crate::{
     protocol::PyIterReturn,
     pyclass::PyClassImpl,
     types::{Constructor, IterNext, IterNextIterable, Unconstructible},
-    AsObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    AsObject, PyContext, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "generator")]
@@ -19,7 +19,7 @@ pub struct PyGenerator {
     inner: Coro,
 }
 
-impl PyValue for PyGenerator {
+impl PyPayload for PyGenerator {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.generator_type
     }

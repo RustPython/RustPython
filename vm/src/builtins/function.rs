@@ -14,7 +14,7 @@ use crate::{
     pyclass::PyClassImpl,
     scope::Scope,
     types::{Callable, Comparable, Constructor, GetAttr, GetDescriptor, PyComparisonOp},
-    AsObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    AsObject, PyContext, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 #[cfg(feature = "jit")]
 use crate::{common::lock::OnceCell, convert::ToPyObject};
@@ -324,7 +324,7 @@ impl PyFunction {
     }
 }
 
-impl PyValue for PyFunction {
+impl PyPayload for PyFunction {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.function_type
     }
@@ -565,7 +565,7 @@ impl PyBoundMethod {
     }
 }
 
-impl PyValue for PyBoundMethod {
+impl PyPayload for PyBoundMethod {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.bound_method_type
     }
@@ -578,7 +578,7 @@ pub(crate) struct PyCell {
 }
 pub(crate) type PyCellRef = PyRef<PyCell>;
 
-impl PyValue for PyCell {
+impl PyPayload for PyCell {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.cell_type
     }

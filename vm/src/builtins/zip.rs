@@ -5,7 +5,7 @@ use crate::{
     protocol::{PyIter, PyIterReturn},
     pyclass::PyClassImpl,
     types::{Constructor, IterNext, IterNextIterable},
-    AsObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, VirtualMachine,
+    AsObject, PyContext, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 use rustpython_common::atomic::{self, PyAtomic, Radium};
 
@@ -16,7 +16,7 @@ pub struct PyZip {
     strict: PyAtomic<bool>,
 }
 
-impl PyValue for PyZip {
+impl PyPayload for PyZip {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.zip_type
     }

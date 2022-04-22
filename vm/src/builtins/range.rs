@@ -9,7 +9,7 @@ use crate::{
         AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable,
         Iterable, PyComparisonOp, Unconstructible,
     },
-    AsObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue,
+    AsObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyPayload, PyRef, PyResult,
     TryFromObject, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
@@ -74,7 +74,7 @@ pub struct PyRange {
     pub step: PyIntRef,
 }
 
-impl PyValue for PyRange {
+impl PyPayload for PyRange {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.range_type
     }
@@ -528,7 +528,7 @@ pub struct PyLongRangeIterator {
     length: BigInt,
 }
 
-impl PyValue for PyLongRangeIterator {
+impl PyPayload for PyLongRangeIterator {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.longrange_iterator_type
     }
@@ -593,7 +593,7 @@ pub struct PyRangeIterator {
     length: usize,
 }
 
-impl PyValue for PyRangeIterator {
+impl PyPayload for PyRangeIterator {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.range_iterator_type
     }

@@ -12,7 +12,7 @@ mod _browser {
         function::{ArgCallable, OptionalArg},
         import::import_file,
         pyclass::PyClassImpl,
-        PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+        PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     };
     use wasm_bindgen::{prelude::*, JsCast};
     use wasm_bindgen_futures::JsFuture;
@@ -161,7 +161,7 @@ mod _browser {
 
     #[pyattr]
     #[pyclass(module = "browser", name)]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct Document {
         doc: web_sys::Document,
     }
@@ -193,7 +193,7 @@ mod _browser {
 
     #[pyattr]
     #[pyclass(module = "browser", name)]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     struct Element {
         elem: web_sys::Element,
     }

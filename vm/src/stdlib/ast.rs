@@ -8,7 +8,7 @@ mod gen;
 use crate::{
     builtins::{self, PyStrRef, PyTypeRef},
     pyclass::{PyClassImpl, StaticType},
-    AsObject, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject, VirtualMachine,
+    AsObject, PyContext, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
 };
 use num_complex::Complex64;
 use num_traits::{ToPrimitive, Zero};
@@ -21,12 +21,12 @@ use rustpython_parser::parser;
 #[pymodule]
 mod _ast {
     use crate::{
-        builtins::PyStrRef, function::FuncArgs, AsObject, PyObjectRef, PyResult, PyValue,
+        builtins::PyStrRef, function::FuncArgs, AsObject, PyObjectRef, PyPayload, PyResult,
         VirtualMachine,
     };
     #[pyattr]
     #[pyclass(module = "_ast", name = "AST")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     pub(crate) struct AstNode;
 
     #[pyimpl(flags(BASETYPE, HAS_DICT))]

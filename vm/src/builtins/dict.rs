@@ -21,7 +21,7 @@ use crate::{
         IterNextIterable, Iterable, PyComparisonOp, Unconstructible, Unhashable,
     },
     vm::{ReprGuard, VirtualMachine},
-    AsObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue,
+    AsObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyPayload, PyRef, PyResult,
     TryFromObject,
 };
 use rustpython_common::lock::PyMutex;
@@ -52,7 +52,7 @@ impl fmt::Debug for PyDict {
     }
 }
 
-impl PyValue for PyDict {
+impl PyPayload for PyDict {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.dict_type
     }
@@ -672,9 +672,9 @@ impl Iterator for DictIter {
 }
 
 #[pyimpl]
-trait DictView: PyValue + PyClassDef + Iterable
+trait DictView: PyPayload + PyClassDef + Iterable
 where
-    Self::ReverseIter: PyValue,
+    Self::ReverseIter: PyPayload,
 {
     type ReverseIter;
 
@@ -741,7 +741,7 @@ macro_rules! dict_view {
             }
         }
 
-        impl PyValue for $name {
+        impl PyPayload for $name {
             fn class(vm: &VirtualMachine) -> &PyTypeRef {
                 &vm.ctx.types.$class
             }
@@ -754,7 +754,7 @@ macro_rules! dict_view {
             pub internal: PyMutex<PositionIterInternal<PyDictRef>>,
         }
 
-        impl PyValue for $iter_name {
+        impl PyPayload for $iter_name {
             fn class(vm: &VirtualMachine) -> &PyTypeRef {
                 &vm.ctx.types.$iter_class
             }
@@ -827,7 +827,7 @@ macro_rules! dict_view {
             internal: PyMutex<PositionIterInternal<PyDictRef>>,
         }
 
-        impl PyValue for $reverse_iter_name {
+        impl PyPayload for $reverse_iter_name {
             fn class(vm: &VirtualMachine) -> &PyTypeRef {
                 &vm.ctx.types.$reverse_iter_class
             }

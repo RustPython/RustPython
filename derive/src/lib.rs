@@ -17,8 +17,8 @@ mod doc;
 mod from_args;
 mod pyclass;
 mod pymodule;
+mod pypayload;
 mod pystructseq;
-mod pyvalue;
 
 use error::{extract_spans, Diagnostic};
 use proc_macro2::TokenStream;
@@ -120,8 +120,8 @@ pub fn py_freeze(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     result_to_tokens(compile_bytecode::impl_py_freeze(input.into()))
 }
 
-#[proc_macro_derive(PyValue)]
-pub fn pyvalue(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+#[proc_macro_derive(PyPayload)]
+pub fn pypayload(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
-    result_to_tokens(pyvalue::impl_pyvalue(input))
+    result_to_tokens(pypayload::impl_pypayload(input))
 }

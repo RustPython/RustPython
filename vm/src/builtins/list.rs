@@ -16,7 +16,7 @@ use crate::{
     },
     utils::collection_repr,
     vm::{ReprGuard, VirtualMachine},
-    AsObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue,
+    AsObject, PyContext, PyObject, PyObjectRef, PyObjectView, PyPayload, PyRef, PyResult,
 };
 use std::{borrow::Cow, fmt, ops::DerefMut};
 
@@ -51,7 +51,7 @@ impl FromIterator<PyObjectRef> for PyList {
     }
 }
 
-impl PyValue for PyList {
+impl PyPayload for PyList {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.list_type
     }
@@ -508,7 +508,7 @@ pub struct PyListIterator {
     internal: PyMutex<PositionIterInternal<PyListRef>>,
 }
 
-impl PyValue for PyListIterator {
+impl PyPayload for PyListIterator {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.list_iterator_type
     }
@@ -553,7 +553,7 @@ pub struct PyListReverseIterator {
     internal: PyMutex<PositionIterInternal<PyListRef>>,
 }
 
-impl PyValue for PyListReverseIterator {
+impl PyPayload for PyListReverseIterator {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.list_reverseiterator_type
     }

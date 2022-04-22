@@ -16,7 +16,7 @@ use crate::{
     scope::Scope,
     stdlib::builtins,
     types::PyComparisonOp,
-    AsObject, PyMethod, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    AsObject, PyMethod, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine,
 };
 use indexmap::IndexMap;
@@ -113,7 +113,7 @@ pub struct Frame {
     state: PyMutex<FrameState>,
 }
 
-impl PyValue for Frame {
+impl PyPayload for Frame {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.frame_type
     }

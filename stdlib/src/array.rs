@@ -31,7 +31,7 @@ mod array {
                 AsBuffer, AsMapping, Comparable, Constructor, IterNext, IterNextIterable, Iterable,
                 PyComparisonOp,
             },
-            AsObject, PyObject, PyObjectRef, PyObjectView, PyRef, PyResult, PyValue,
+            AsObject, PyObject, PyObjectRef, PyObjectView, PyPayload, PyRef, PyResult,
             VirtualMachine,
         },
     };
@@ -583,7 +583,7 @@ mod array {
 
     #[pyattr]
     #[pyclass(name = "array")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     pub struct PyArray {
         array: PyRwLock<ArrayContentType>,
         exports: AtomicUsize,
@@ -1280,7 +1280,7 @@ mod array {
 
     #[pyattr]
     #[pyclass(name = "array_iterator")]
-    #[derive(Debug, PyValue)]
+    #[derive(Debug, PyPayload)]
     pub struct PyArrayIter {
         position: AtomicUsize,
         array: PyArrayRef,

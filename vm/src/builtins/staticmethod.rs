@@ -4,7 +4,7 @@ use crate::{
     function::{FuncArgs, IntoPyNativeFunc},
     pyclass::PyClassImpl,
     types::{Callable, Constructor, GetDescriptor},
-    PyContext, PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+    PyContext, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "staticmethod")]
@@ -13,7 +13,7 @@ pub struct PyStaticMethod {
     pub callable: PyObjectRef,
 }
 
-impl PyValue for PyStaticMethod {
+impl PyPayload for PyStaticMethod {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.staticmethod_type
     }

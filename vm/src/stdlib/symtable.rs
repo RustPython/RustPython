@@ -5,7 +5,7 @@ mod symtable {
     use crate::{
         builtins::PyStrRef,
         compile::{self, Symbol, SymbolScope, SymbolTable, SymbolTableType},
-        PyObjectRef, PyRef, PyResult, PyValue, VirtualMachine,
+        PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     };
     use std::fmt;
 
@@ -39,7 +39,7 @@ mod symtable {
 
     #[pyattr]
     #[pyclass(name = "SymbolTable")]
-    #[derive(PyValue)]
+    #[derive(PyPayload)]
     struct PySymbolTable {
         symtable: SymbolTable,
     }
@@ -151,7 +151,7 @@ mod symtable {
 
     #[pyattr]
     #[pyclass(name = "Symbol")]
-    #[derive(PyValue)]
+    #[derive(PyPayload)]
     struct PySymbol {
         symbol: Symbol,
         namespaces: Vec<SymbolTable>,
