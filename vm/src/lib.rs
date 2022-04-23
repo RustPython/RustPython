@@ -60,6 +60,7 @@ pub mod function;
 pub mod import;
 mod intern;
 pub mod object;
+pub mod prelude;
 pub mod protocol;
 pub mod py_io;
 pub mod py_serde;
@@ -77,10 +78,9 @@ pub mod version;
 pub mod vm;
 
 pub use self::convert::{TryFromBorrowedObject, TryFromObject};
-// pyobject items
-pub use self::object::{AsObject, PyPayload, PyRefExact, PyResult};
-// pyobjectrc items
-pub use self::object::{Py, PyObject, PyObjectRef, PyRef, PyWeakRef};
+pub use self::object::{
+    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult, PyWeakRef,
+};
 pub use self::types::PyStructSequence;
 pub use self::vm::{Context, InitParameter, Interpreter, Settings, VirtualMachine};
 
