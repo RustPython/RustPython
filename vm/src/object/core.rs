@@ -11,7 +11,10 @@
 //! PyRef<PyWeak> may looking like to be called as PyObjectWeak by the rule,
 //! but not to do to remember it is a PyRef object.
 
-use super::ext::{AsObject, PyObjectPayload, PyResult};
+use super::{
+    ext::{AsObject, PyResult},
+    payload::PyObjectPayload,
+};
 use crate::common::{
     atomic::{OncePtr, PyAtomic, Radium},
     linked_list::{Link, LinkedList, Pointers},
