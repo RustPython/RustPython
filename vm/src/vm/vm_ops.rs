@@ -1,10 +1,10 @@
+use super::{PyMethod, VirtualMachine};
 use crate::{
     builtins::{PyInt, PyIntRef},
     function::PyArithmeticValue,
+    object::{AsObject, PyObject, PyObjectRef, PyResult},
     protocol::PyIterReturn,
     types::PyComparisonOp,
-    vm::VirtualMachine,
-    AsObject, PyMethod, PyObject, PyObjectRef, PyResult,
 };
 
 /// Collection of operators

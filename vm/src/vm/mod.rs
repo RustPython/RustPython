@@ -7,6 +7,7 @@
 mod compile;
 mod context;
 mod interpreter;
+mod method;
 mod setting;
 pub mod thread;
 mod vm_new;
@@ -42,6 +43,7 @@ use std::{
 
 pub use context::Context;
 pub use interpreter::Interpreter;
+pub(crate) use method::PyMethod;
 pub use setting::Settings;
 
 // Objects are live when they are on stack, or referenced by a name (for now)

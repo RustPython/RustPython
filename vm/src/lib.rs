@@ -78,7 +78,7 @@ pub mod vm;
 
 pub use self::convert::{TryFromBorrowedObject, TryFromObject};
 // pyobject items
-pub use self::object::{AsObject, PyMethod, PyPayload, PyRefExact, PyResult};
+pub use self::object::{AsObject, PyPayload, PyRefExact, PyResult};
 // pyobjectrc items
 pub use self::object::{Py, PyObject, PyObjectRef, PyRef, PyWeakRef};
 pub use self::types::PyStructSequence;
