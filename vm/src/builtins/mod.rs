@@ -54,12 +54,16 @@ pub(crate) mod object;
 pub use object::PyBaseObject;
 pub(crate) mod property;
 pub use property::PyProperty;
+#[path = "bool.rs"]
 pub(crate) mod pybool;
 pub use pybool::PyBool;
+#[path = "str.rs"]
 pub(crate) mod pystr;
 pub use pystr::{PyStr, PyStrRef};
+#[path = "super.rs"]
 pub(crate) mod pysuper;
 pub use pysuper::PySuper;
+#[path = "type.rs"]
 pub(crate) mod pytype;
 pub use pytype::{PyType, PyTypeRef};
 pub(crate) mod range;
@@ -82,6 +86,7 @@ pub(crate) mod weakref;
 pub use weakref::PyWeak;
 pub(crate) mod zip;
 pub use zip::PyZip;
+#[path = "union.rs"]
 pub(crate) mod pyunion;
 pub use pyunion::PyUnion;
 
