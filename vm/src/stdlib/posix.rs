@@ -31,13 +31,13 @@ pub mod module {
     use crate::{
         builtins::{PyDictRef, PyInt, PyIntRef, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
         convert::{ToPyException, ToPyObject, TryFromObject},
-        function::OptionalArg,
+        function::{Either, OptionalArg},
         stdlib::os::{
             errno_err, DirFd, FollowSymlinks, PathOrFd, PyPathLike, SupportFunc, TargetIsDirectory,
             _os, fs_metadata, IOErrorBuilder,
         },
         types::Constructor,
-        utils::{Either, ToCString},
+        utils::ToCString,
         AsObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     };
     use bitflags::bitflags;

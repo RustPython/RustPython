@@ -3,11 +3,11 @@ use crate::common::{hash::PyHash, lock::PyRwLock};
 use crate::{
     builtins::{PyInt, PyStrRef, PyType, PyTypeRef},
     convert::{ToPyObject, ToPyResult},
+    function::Either,
     function::{FromArgs, FuncArgs, OptionalArg, PyComparisonValue},
     protocol::{
         PyBuffer, PyIterReturn, PyMapping, PyMappingMethods, PySequence, PySequenceMethods,
     },
-    utils::Either,
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;

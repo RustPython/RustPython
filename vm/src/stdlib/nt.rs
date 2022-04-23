@@ -14,14 +14,13 @@ pub(crate) mod module {
         builtins::{PyStrRef, PyTupleRef},
         convert::ToPyException,
         crt_fd::Fd,
+        function::Either,
         function::OptionalArg,
         stdlib::os::{
             errno_err, DirFd, FollowSymlinks, PyPathLike, SupportFunc, TargetIsDirectory, _os,
             errno,
         },
-        suppress_iph,
-        utils::Either,
-        PyResult, TryFromObject, VirtualMachine,
+        suppress_iph, PyResult, TryFromObject, VirtualMachine,
     };
     use std::{env, fs, io};
 

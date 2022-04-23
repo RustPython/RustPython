@@ -12,6 +12,7 @@ mod _operator {
     use crate::common::cmp;
     use crate::{
         builtins::{PyInt, PyIntRef, PyStrRef, PyTupleRef, PyTypeRef},
+        function::Either,
         function::{ArgBytesLike, FuncArgs, KwArgs, OptionalArg},
         protocol::PyIter,
         recursion::ReprGuard,
@@ -19,7 +20,6 @@ mod _operator {
             Callable, Constructor,
             PyComparisonOp::{Eq, Ge, Gt, Le, Lt, Ne},
         },
-        utils::Either,
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     };
 

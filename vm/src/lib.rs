@@ -81,7 +81,6 @@ pub use self::convert::{TryFromBorrowedObject, TryFromObject};
 pub use self::object::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult, PyWeakRef,
 };
-pub use self::types::PyStructSequence;
 pub use self::vm::{Context, InitParameter, Interpreter, Settings, VirtualMachine};
 
 pub use rustpython_bytecode as bytecode;

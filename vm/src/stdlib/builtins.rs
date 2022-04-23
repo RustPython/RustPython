@@ -23,6 +23,7 @@ mod builtins {
         },
         class::PyClassImpl,
         common::{hash::PyHash, str::to_ascii},
+        function::Either,
         function::{
             ArgBytesLike, ArgCallable, ArgIntoBool, ArgIterable, ArgMapping, FuncArgs, KwArgs,
             OptionalArg, OptionalOption, PosArgs, PyArithmeticValue,
@@ -33,7 +34,6 @@ mod builtins {
         scope::Scope,
         stdlib::sys,
         types::PyComparisonOp,
-        utils::Either,
         AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     };
     use num_traits::{Signed, ToPrimitive, Zero};

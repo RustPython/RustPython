@@ -34,11 +34,11 @@ mod _ssl {
             convert::{ToPyException, ToPyObject},
             exceptions,
             function::{
-                ArgBytesLike, ArgCallable, ArgMemoryBuffer, ArgStrOrBytesLike, OptionalArg,
+                ArgBytesLike, ArgCallable, ArgMemoryBuffer, ArgStrOrBytesLike, Either, OptionalArg,
             },
             stdlib::os::PyPathLike,
             types::Constructor,
-            utils::{Either, ToCString},
+            utils::ToCString,
             PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         },
     };

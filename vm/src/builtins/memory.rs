@@ -11,6 +11,7 @@ use crate::{
         lock::OnceCell,
     },
     convert::ToPyObject,
+    function::Either,
     function::{FuncArgs, OptionalArg, PyComparisonValue},
     protocol::{
         BufferDescriptor, BufferMethods, PyBuffer, PyMappingMethods, PySequenceMethods, VecBuffer,
@@ -18,7 +19,6 @@ use crate::{
     sequence::SequenceOp,
     sliceable::wrap_index,
     types::{AsBuffer, AsMapping, AsSequence, Comparable, Constructor, Hashable, PyComparisonOp},
-    utils::Either,
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, TryFromObject, VirtualMachine,
 };

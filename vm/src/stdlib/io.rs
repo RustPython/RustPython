@@ -105,6 +105,7 @@ mod _io {
             PyThreadMutex, PyThreadMutexGuard,
         },
         convert::ToPyObject,
+        function::Either,
         function::{
             ArgBytesLike, ArgIterable, ArgMemoryBuffer, FuncArgs, OptionalArg, OptionalOption,
         },
@@ -113,7 +114,6 @@ mod _io {
         },
         recursion::ReprGuard,
         types::{Constructor, Destructor, IterNext, Iterable},
-        utils::Either,
         vm::VirtualMachine,
         AsObject, Context, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
         TryFromBorrowedObject, TryFromObject,
