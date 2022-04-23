@@ -11,6 +11,7 @@ use crate::{
     convert::{IntoObject, ToPyResult},
     coroutine::Coro,
     exceptions::ExceptionCtor,
+    format::call_object_format,
     function::{ArgMapping, Either, FuncArgs},
     protocol::{PyIter, PyIterReturn},
     scope::Scope,
@@ -1069,15 +1070,12 @@ impl ExecutingFrame<'_> {
                 };
 
                 let spec = self.pop_value();
-                let formatted = vm
-                    .call_special_method(value, "__format__", (spec,))?
-                    .downcast::<PyStr>()
-                    .map_err(|formatted| {
-                        vm.new_type_error(format!(
-                            "__format__ must return a str, not {}",
-                            &formatted.class().name()
-                        ))
-                    })?;
+                let formatted = call_object_format(
+                    vm,
+                    value,
+                    None,
+                    spec.downcast_ref::<PyStr>().unwrap().as_str(),
+                )?;
                 self.push_value(formatted.into());
                 Ok(None)
             }
