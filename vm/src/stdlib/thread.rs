@@ -167,7 +167,8 @@ pub(crate) mod _thread {
             RLock {
                 mu: RawRMutex::INIT,
             }
-            .into_pyresult_with_type(vm, cls)
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
         }
 
         #[pymethod]
@@ -315,7 +316,8 @@ pub(crate) mod _thread {
             Local {
                 data: ThreadLocal::new(),
             }
-            .into_pyresult_with_type(vm, cls)
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
         }
     }
 

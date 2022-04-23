@@ -91,7 +91,9 @@ impl Constructor for PySuper {
             (typ, obj)
         };
 
-        PySuper::new(typ, obj, vm)?.into_pyresult_with_type(vm, cls)
+        PySuper::new(typ, obj, vm)?
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
     }
 }
 

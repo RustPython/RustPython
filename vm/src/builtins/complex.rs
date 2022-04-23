@@ -142,7 +142,9 @@ impl Constructor for PyComplex {
                     let value = parse_str(s.as_str().trim()).ok_or_else(|| {
                         vm.new_value_error("complex() arg is a malformed string".to_owned())
                     })?;
-                    return Self::from(value).into_pyresult_with_type(vm, cls);
+                    return Self::from(value)
+                        .into_ref_with_type(vm, cls)
+                        .map(Into::into);
                 } else {
                     return Err(vm.new_type_error(format!(
                         "complex() first argument must be a string or a number, not '{}'",
@@ -184,7 +186,9 @@ impl Constructor for PyComplex {
             imag.re
         };
         let value = Complex64::new(final_real, final_imag);
-        Self::from(value).into_pyresult_with_type(vm, cls)
+        Self::from(value)
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
     }
 }
 

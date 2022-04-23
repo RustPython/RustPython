@@ -83,7 +83,9 @@ impl PyDict {
 
     #[pyslot]
     fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        PyDict::default().into_pyresult_with_type(vm, cls)
+        PyDict::default()
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
     }
 
     #[pymethod(magic)]

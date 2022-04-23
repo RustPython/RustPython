@@ -66,11 +66,6 @@ pub trait PyPayload: std::fmt::Debug + PyThreadingConstraint + Sized + 'static {
             Err(_into_ref_with_type_error(vm, &cls, exact_class))
         }
     }
-
-    #[inline]
-    fn into_pyresult_with_type(self, vm: &VirtualMachine, cls: PyTypeRef) -> PyResult {
-        self.into_ref_with_type(vm, cls).map(Into::into)
-    }
 }
 
 pub trait PyObjectPayload:

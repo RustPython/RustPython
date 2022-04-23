@@ -61,7 +61,9 @@ impl Constructor for PyClassMethod {
     type Args = PyObjectRef;
 
     fn py_new(cls: PyTypeRef, callable: Self::Args, vm: &VirtualMachine) -> PyResult {
-        PyClassMethod { callable }.into_pyresult_with_type(vm, cls)
+        PyClassMethod { callable }
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
     }
 }
 

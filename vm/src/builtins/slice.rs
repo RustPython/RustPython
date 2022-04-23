@@ -101,7 +101,7 @@ impl PySlice {
                 }
             }
         };
-        slice.into_pyresult_with_type(vm, cls)
+        slice.into_ref_with_type(vm, cls).map(Into::into)
     }
 
     pub(crate) fn inner_indices(

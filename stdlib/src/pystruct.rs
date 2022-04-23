@@ -250,7 +250,9 @@ pub(crate) mod _struct {
         fn py_new(cls: PyTypeRef, fmt: Self::Args, vm: &VirtualMachine) -> PyResult {
             let spec = fmt.format_spec(vm)?;
             let format = fmt.0;
-            PyStruct { spec, format }.into_pyresult_with_type(vm, cls)
+            PyStruct { spec, format }
+                .into_ref_with_type(vm, cls)
+                .map(Into::into)
         }
     }
 

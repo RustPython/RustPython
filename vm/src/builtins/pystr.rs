@@ -320,7 +320,9 @@ impl Constructor for PyStr {
         if string.class().is(&cls) {
             Ok(string.into())
         } else {
-            PyStr::from(string.as_str()).into_pyresult_with_type(vm, cls)
+            PyStr::from(string.as_str())
+                .into_ref_with_type(vm, cls)
+                .map(Into::into)
         }
     }
 }

@@ -35,7 +35,7 @@ impl PyModule {
 
     #[pyslot]
     fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        PyModule {}.into_pyresult_with_type(vm, cls)
+        PyModule {}.into_ref_with_type(vm, cls).map(Into::into)
     }
 
     #[pymethod(magic)]

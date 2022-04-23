@@ -57,7 +57,7 @@ impl Constructor for PyMemoryView {
 
     fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
         let zelf = Self::from_object(&args.object, vm)?;
-        zelf.into_pyresult_with_type(vm, cls)
+        zelf.into_ref_with_type(vm, cls).map(Into::into)
     }
 }
 

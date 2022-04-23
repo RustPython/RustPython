@@ -41,7 +41,9 @@ impl Constructor for PyStaticMethod {
     type Args = PyObjectRef;
 
     fn py_new(cls: PyTypeRef, callable: Self::Args, vm: &VirtualMachine) -> PyResult {
-        PyStaticMethod { callable }.into_pyresult_with_type(vm, cls)
+        PyStaticMethod { callable }
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
     }
 }
 

@@ -489,7 +489,8 @@ mod _ssl {
                 check_hostname: AtomicCell::new(check_hostname),
                 protocol: proto,
             }
-            .into_pyresult_with_type(vm, cls)
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
         }
     }
 

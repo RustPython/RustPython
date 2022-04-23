@@ -95,7 +95,8 @@ impl PyProperty {
             deleter: PyRwLock::new(None),
             doc: PyRwLock::new(None),
         }
-        .into_pyresult_with_type(vm, cls)
+        .into_ref_with_type(vm, cls)
+        .map(Into::into)
     }
 
     #[pymethod(magic)]

@@ -583,7 +583,8 @@ pub mod module {
             SchedParam {
                 sched_priority: arg.sched_priority,
             }
-            .into_pyresult_with_type(vm, cls)
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
         }
     }
 

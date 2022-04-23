@@ -100,7 +100,9 @@ pub(crate) fn init(context: &Context) {
 impl PyByteArray {
     #[pyslot]
     fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        PyByteArray::default().into_pyresult_with_type(vm, cls)
+        PyByteArray::default()
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
     }
 
     #[pymethod(magic)]

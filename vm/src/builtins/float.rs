@@ -183,7 +183,9 @@ impl Constructor for PyFloat {
                 }
             }
         };
-        PyFloat::from(float_val).into_pyresult_with_type(vm, cls)
+        PyFloat::from(float_val)
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
     }
 }
 

@@ -485,7 +485,9 @@ impl Constructor for PyBoundMethod {
         Self::Args { function, object }: Self::Args,
         vm: &VirtualMachine,
     ) -> PyResult {
-        PyBoundMethod::new(object, function).into_pyresult_with_type(vm, cls)
+        PyBoundMethod::new(object, function)
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
     }
 }
 
@@ -588,7 +590,9 @@ impl Constructor for PyCell {
     type Args = OptionalArg;
 
     fn py_new(cls: PyTypeRef, value: Self::Args, vm: &VirtualMachine) -> PyResult {
-        Self::new(value.into_option()).into_pyresult_with_type(vm, cls)
+        Self::new(value.into_option())
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
     }
 }
 

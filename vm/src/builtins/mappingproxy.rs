@@ -53,7 +53,8 @@ impl Constructor for PyMappingProxy {
             Self {
                 mapping: MappingProxyInner::Dict(mapping),
             }
-            .into_pyresult_with_type(vm, cls)
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
         }
     }
 }

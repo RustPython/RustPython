@@ -398,7 +398,7 @@ impl PySet {
 impl PySet {
     #[pyslot]
     fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        PySet::default().into_pyresult_with_type(vm, cls)
+        PySet::default().into_ref_with_type(vm, cls).map(Into::into)
     }
 
     #[pymethod(magic)]
@@ -725,7 +725,8 @@ impl Constructor for PyFrozenSet {
         if elements.is_empty() && cls.is(&vm.ctx.types.frozenset_type) {
             Ok(vm.ctx.empty_frozenset.clone().into())
         } else {
-            Self::from_iter(vm, elements).and_then(|o| o.into_pyresult_with_type(vm, cls))
+            Self::from_iter(vm, elements)
+                .and_then(|o| o.into_ref_with_type(vm, cls).map(Into::into))
         }
     }
 }
