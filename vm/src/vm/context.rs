@@ -4,7 +4,7 @@ use crate::{
         bytes,
         getset::{IntoPyGetterFunc, IntoPySetterFunc, PyGetSet},
         object, pystr,
-        pytype::PyAttributes,
+        type_::PyAttributes,
         PyBaseException, PyDict, PyDictRef, PyEllipsis, PyFloat, PyFrozenSet, PyInt, PyIntRef,
         PyList, PyListRef, PyNone, PyNotImplemented, PyStr, PyTuple, PyTupleRef, PyType, PyTypeRef,
     },

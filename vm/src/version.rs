@@ -47,7 +47,7 @@ impl VersionInfo {
     };
     #[pyslot]
     fn slot_new(
-        _cls: crate::builtins::pytype::PyTypeRef,
+        _cls: crate::builtins::type_::PyTypeRef,
         _args: crate::function::FuncArgs,
         vm: &crate::VirtualMachine,
     ) -> crate::PyResult {

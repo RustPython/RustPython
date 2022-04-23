@@ -5,7 +5,7 @@ use super::{
 use crate::{
     builtins::{
         iter::{builtins_iter, builtins_reversed},
-        pytype::PyAttributes,
+        type_::PyAttributes,
         PyTuple,
     },
     class::{PyClassDef, PyClassImpl},

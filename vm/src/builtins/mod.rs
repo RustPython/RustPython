@@ -55,17 +55,17 @@ pub use object::PyBaseObject;
 pub(crate) mod property;
 pub use property::PyProperty;
 #[path = "bool.rs"]
-pub(crate) mod pybool;
-pub use pybool::PyBool;
+pub(crate) mod bool_;
+pub use bool_::PyBool;
 #[path = "str.rs"]
 pub(crate) mod pystr;
 pub use pystr::{PyStr, PyStrRef};
 #[path = "super.rs"]
-pub(crate) mod pysuper;
-pub use pysuper::PySuper;
+pub(crate) mod super_;
+pub use super_::PySuper;
 #[path = "type.rs"]
-pub(crate) mod pytype;
-pub use pytype::{PyType, PyTypeRef};
+pub(crate) mod type_;
+pub use type_::{PyType, PyTypeRef};
 pub(crate) mod range;
 pub use range::PyRange;
 pub(crate) mod set;
@@ -87,8 +87,8 @@ pub use weakref::PyWeak;
 pub(crate) mod zip;
 pub use zip::PyZip;
 #[path = "union.rs"]
-pub(crate) mod pyunion;
-pub use pyunion::PyUnion;
+pub(crate) mod union_;
+pub use union_::PyUnion;
 
 pub use float::try_to_bigint as try_f64_to_bigint;
 pub use int::try_to_float as try_bigint_to_f64;
