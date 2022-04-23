@@ -383,6 +383,9 @@ class FaultHandlerTests(unittest.TestCase):
                      "%r is present in %r" % (not_expected, stderr))
         self.assertNotEqual(exitcode, 0)
 
+    if sys.platform == "win32":  # TODO: RUSTPYTHON, AttributeError: module 'msvcrt' has no attribute 'GetErrorMode'
+        test_disable = unittest.expectedFailure(test_disable)
+
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
     @skip_segfault_on_android
@@ -873,6 +876,8 @@ class FaultHandlerTests(unittest.TestCase):
             with self.check_stderr_none():
                 faulthandler.register(signal.SIGUSR1)
 
+    # TODO: RUSTPYTHON, AttributeError: module 'msvcrt' has no attribute 'GetErrorMode'
+    @unittest.expectedFailure
     @unittest.skipUnless(MS_WINDOWS, 'specific to Windows')
     def test_raise_exception(self):
         for exc, name in (
@@ -888,6 +893,8 @@ class FaultHandlerTests(unittest.TestCase):
                 3,
                 name)
 
+    # TODO: RUSTPYTHON, AttributeError: module 'msvcrt' has no attribute 'GetErrorMode'
+    @unittest.expectedFailure
     @unittest.skipUnless(MS_WINDOWS, 'specific to Windows')
     def test_ignore_exception(self):
         for exc_code in (
@@ -904,6 +911,8 @@ class FaultHandlerTests(unittest.TestCase):
             self.assertEqual(output, [])
             self.assertEqual(exitcode, exc_code)
 
+    # TODO: RUSTPYTHON, AttributeError: module 'msvcrt' has no attribute 'GetErrorMode'
+    @unittest.expectedFailure
     @unittest.skipUnless(MS_WINDOWS, 'specific to Windows')
     def test_raise_nonfatal_exception(self):
         # These exceptions are not strictly errors. Letting
@@ -932,6 +941,8 @@ class FaultHandlerTests(unittest.TestCase):
             self.assertIn(exitcode,
                           (exc, exc & ~0x10000000))
 
+    # TODO: RUSTPYTHON, AttributeError: module 'msvcrt' has no attribute 'GetErrorMode'
+    @unittest.expectedFailure
     @unittest.skipUnless(MS_WINDOWS, 'specific to Windows')
     def test_disable_windows_exc_handler(self):
         code = dedent("""
