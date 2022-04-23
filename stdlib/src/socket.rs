@@ -14,8 +14,8 @@ mod _socket {
     use crate::vm::{
         builtins::{PyBaseExceptionRef, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
         convert::{ToPyException, ToPyObject, TryFromBorrowedObject, TryFromObject},
-        function::{ArgBytesLike, ArgMemoryBuffer, FuncArgs, OptionalArg, OptionalOption},
-        utils::{Either, ToCString},
+        function::{ArgBytesLike, ArgMemoryBuffer, Either, FuncArgs, OptionalArg, OptionalOption},
+        utils::ToCString,
         AsObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;

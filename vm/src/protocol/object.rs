@@ -10,10 +10,10 @@ use crate::{
     common::{hash::PyHash, str::to_ascii},
     convert::{ToPyObject, ToPyResult},
     dictdatatype::DictKey,
+    function::Either,
     function::{OptionalArg, PyArithmeticValue},
     protocol::{PyIter, PyMapping, PySequence},
     types::{Constructor, PyComparisonOp},
-    utils::Either,
     AsObject, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
 };
 

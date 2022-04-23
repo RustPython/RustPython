@@ -4,8 +4,7 @@ pub(crate) use math::make_module;
 mod math {
     use crate::vm::{
         builtins::{try_bigint_to_f64, try_f64_to_bigint, PyFloat, PyInt, PyIntRef},
-        function::{ArgIntoFloat, ArgIterable, OptionalArg, PosArgs},
-        utils::Either,
+        function::{ArgIntoFloat, ArgIterable, Either, OptionalArg, PosArgs},
         AsObject, PyObject, PyObjectRef, PyRef, PyResult, VirtualMachine,
     };
     use num_bigint::BigInt;

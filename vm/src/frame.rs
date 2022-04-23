@@ -11,7 +11,7 @@ use crate::{
     convert::{IntoObject, ToPyResult},
     coroutine::Coro,
     exceptions::ExceptionCtor,
-    function::{ArgMapping, FuncArgs},
+    function::{ArgMapping, Either, FuncArgs},
     protocol::{PyIter, PyIterReturn},
     scope::Scope,
     stdlib::builtins,
@@ -386,7 +386,6 @@ impl ExecutingFrame<'_> {
         exc_tb: PyObjectRef,
     ) -> PyResult<ExecutionResult> {
         if let Some(gen) = self.yield_from_target() {
-            use crate::utils::Either;
             // borrow checker shenanigans - we only need to use exc_type/val/tb if the following
             // variable is Some
             let thrower = if let Some(coro) = self.builtin_coro(gen) {

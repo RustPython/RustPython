@@ -410,12 +410,12 @@ pub(super) mod _os {
         },
         convert::{ToPyException, ToPyObject},
         crt_fd::{Fd, Offset},
+        function::Either,
         function::{ArgBytesLike, FuncArgs, OptionalArg},
         protocol::PyIterReturn,
         recursion::ReprGuard,
         suppress_iph,
         types::{IterNext, IterNextIterable, PyStructSequence},
-        utils::Either,
         vm::VirtualMachine,
         AsObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     };

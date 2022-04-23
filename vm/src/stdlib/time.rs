@@ -20,9 +20,8 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 mod time {
     use crate::{
         builtins::{PyStrRef, PyTypeRef},
-        function::{FuncArgs, OptionalArg},
+        function::{Either, FuncArgs, OptionalArg},
         types::PyStructSequence,
-        utils::Either,
         PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     };
     use chrono::{
@@ -391,8 +390,8 @@ mod unix {
     #[cfg_attr(target_os = "macos", allow(unused_imports))]
     use crate::{
         builtins::{try_bigint_to_f64, PyFloat, PyIntRef, PyNamespace, PyStrRef},
+        function::Either,
         stdlib::os,
-        utils::Either,
         PyRef, PyResult, VirtualMachine,
     };
     use std::time::Duration;

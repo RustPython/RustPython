@@ -4,9 +4,8 @@ pub(crate) use fcntl::make_module;
 mod fcntl {
     use crate::vm::{
         builtins::PyIntRef,
-        function::{ArgMemoryBuffer, ArgStrOrBytesLike, OptionalArg},
+        function::{ArgMemoryBuffer, ArgStrOrBytesLike, Either, OptionalArg},
         stdlib::{io, os},
-        utils::Either,
         PyResult, VirtualMachine,
     };
 

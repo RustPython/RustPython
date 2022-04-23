@@ -1,7 +1,6 @@
 use crate::{
-    function::PyComparisonValue,
+    function::{Either, PyComparisonValue},
     types::{richcompare_wrapper, PyComparisonOp, RichCompareFunc},
-    utils::Either,
     vm::VirtualMachine,
     AsObject, PyObject, PyObjectRef, PyResult,
 };

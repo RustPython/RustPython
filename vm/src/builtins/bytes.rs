@@ -9,6 +9,7 @@ use crate::{
     class::PyClassImpl,
     common::{hash::PyHash, lock::PyMutex},
     convert::{ToPyObject, ToPyResult},
+    function::Either,
     function::{ArgBytesLike, ArgIterable, OptionalArg, OptionalOption, PyComparisonValue},
     protocol::{
         BufferDescriptor, BufferMethods, PyBuffer, PyIterReturn, PyMappingMethods,
@@ -19,7 +20,6 @@ use crate::{
         AsBuffer, AsMapping, AsSequence, Callable, Comparable, Constructor, Hashable, IterNext,
         IterNextIterable, Iterable, PyComparisonOp, Unconstructible,
     },
-    utils::Either,
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, TryFromObject, VirtualMachine,
 };
