@@ -5,9 +5,10 @@ use super::{
 use crate::{
     builtins::{
         iter::{builtins_iter, builtins_reversed},
-        pytype::PyAttributes,
+        type_::PyAttributes,
         PyTuple,
     },
+    class::{PyClassDef, PyClassImpl},
     common::ascii,
     convert::ToPyObject,
     dictdatatype::{self, DictKey},
@@ -15,7 +16,6 @@ use crate::{
         ArgIterable, FuncArgs, KwArgs, OptionalArg, PyArithmeticValue::*, PyComparisonValue,
     },
     protocol::{PyIterIter, PyIterReturn, PyMappingMethods, PySequenceMethods},
-    pyclass::{PyClassDef, PyClassImpl},
     recursion::ReprGuard,
     types::{
         AsMapping, AsSequence, Callable, Comparable, Constructor, Hashable, IterNext,
@@ -83,7 +83,9 @@ impl PyDict {
 
     #[pyslot]
     fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        PyDict::default().into_pyresult_with_type(vm, cls)
+        PyDict::default()
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
     }
 
     #[pymethod(magic)]

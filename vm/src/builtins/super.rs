@@ -5,8 +5,8 @@ See also [CPython source code.](https://github.com/python/cpython/blob/50b48572d
 
 use super::{PyStrRef, PyType, PyTypeRef};
 use crate::{
+    class::PyClassImpl,
     function::OptionalArg,
-    pyclass::PyClassImpl,
     types::{Constructor, GetAttr, GetDescriptor},
     AsObject, Context, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
@@ -91,7 +91,9 @@ impl Constructor for PySuper {
             (typ, obj)
         };
 
-        PySuper::new(typ, obj, vm)?.into_pyresult_with_type(vm, cls)
+        PySuper::new(typ, obj, vm)?
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
     }
 }
 

@@ -1,6 +1,6 @@
 use super::{
-    mappingproxy::PyMappingProxy, object, pyunion, PyClassMethod, PyDictRef, PyList,
-    PyStaticMethod, PyStr, PyStrRef, PyTuple, PyTupleRef, PyWeak,
+    mappingproxy::PyMappingProxy, object, union_, PyClassMethod, PyDictRef, PyList, PyStaticMethod,
+    PyStr, PyStrRef, PyTuple, PyTupleRef, PyWeak,
 };
 use crate::common::{
     ascii,
@@ -8,8 +8,8 @@ use crate::common::{
     lock::{PyRwLock, PyRwLockReadGuard},
 };
 use crate::{
+    class::{PyClassImpl, StaticType},
     function::{FuncArgs, KwArgs, OptionalArg},
-    pyclass::{PyClassImpl, StaticType},
     types::{Callable, GetAttr, PyTypeFlags, PyTypeSlots, SetAttr},
     AsObject, Context, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
@@ -402,12 +402,12 @@ impl PyType {
     #[pymethod(name = "__ror__")]
     #[pymethod(magic)]
     pub fn or(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        if !pyunion::is_unionable(zelf.clone(), vm) || !pyunion::is_unionable(other.clone(), vm) {
+        if !union_::is_unionable(zelf.clone(), vm) || !union_::is_unionable(other.clone(), vm) {
             return vm.ctx.not_implemented();
         }
 
         let tuple = PyTuple::new_ref(vec![zelf, other], &vm.ctx);
-        pyunion::make_union(tuple, vm)
+        union_::make_union(tuple, vm)
     }
 
     #[pyslot]

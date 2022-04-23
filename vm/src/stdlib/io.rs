@@ -99,6 +99,7 @@ mod _io {
             PyBaseExceptionRef, PyByteArray, PyBytes, PyBytesRef, PyIntRef, PyMemoryView, PyStr,
             PyStrRef, PyType, PyTypeRef,
         },
+        class::StaticType,
         common::lock::{
             PyMappedThreadMutexGuard, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
             PyThreadMutex, PyThreadMutexGuard,
@@ -110,7 +111,6 @@ mod _io {
         protocol::{
             BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn, VecBuffer,
         },
-        pyclass::StaticType,
         recursion::ReprGuard,
         types::{Constructor, Destructor, IterNext, Iterable},
         utils::Either,
@@ -1667,7 +1667,7 @@ mod _io {
     impl BufferedReader {
         #[pyslot]
         fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            Self::default().into_pyresult_with_type(vm, cls)
+            Self::default().into_ref_with_type(vm, cls).map(Into::into)
         }
     }
 
@@ -1716,7 +1716,7 @@ mod _io {
     impl BufferedWriter {
         #[pyslot]
         fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            Self::default().into_pyresult_with_type(vm, cls)
+            Self::default().into_ref_with_type(vm, cls).map(Into::into)
         }
     }
 
@@ -1754,7 +1754,7 @@ mod _io {
     impl BufferedRandom {
         #[pyslot]
         fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            Self::default().into_pyresult_with_type(vm, cls)
+            Self::default().into_ref_with_type(vm, cls).map(Into::into)
         }
     }
 
@@ -1781,7 +1781,7 @@ mod _io {
     impl BufferedRWPair {
         #[pyslot]
         fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            Self::default().into_pyresult_with_type(vm, cls)
+            Self::default().into_ref_with_type(vm, cls).map(Into::into)
         }
         #[pymethod(magic)]
         fn init(
@@ -2176,7 +2176,7 @@ mod _io {
     impl TextIOWrapper {
         #[pyslot]
         fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            Self::default().into_pyresult_with_type(vm, cls)
+            Self::default().into_ref_with_type(vm, cls).map(Into::into)
         }
 
         fn lock_opt(
@@ -3059,7 +3059,8 @@ mod _io {
                 buffer: PyRwLock::new(BufferedIO::new(Cursor::new(raw_bytes))),
                 closed: AtomicCell::new(false),
             }
-            .into_pyresult_with_type(vm, cls)
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
         }
     }
 
@@ -3194,7 +3195,8 @@ mod _io {
                 closed: AtomicCell::new(false),
                 exports: AtomicCell::new(0),
             }
-            .into_pyresult_with_type(vm, cls)
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
         }
     }
 
@@ -3823,7 +3825,8 @@ mod fileio {
                 mode: AtomicCell::new(Mode::empty()),
                 seekable: AtomicCell::new(None),
             }
-            .into_pyresult_with_type(vm, cls)
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
         }
 
         #[pymethod(magic)]

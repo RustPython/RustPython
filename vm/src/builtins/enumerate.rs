@@ -1,10 +1,10 @@
 use super::{IterStatus, PositionIterInternal, PyGenericAlias, PyIntRef, PyTupleRef, PyTypeRef};
 use crate::common::lock::{PyMutex, PyRwLock};
 use crate::{
+    class::PyClassImpl,
     convert::ToPyObject,
     function::OptionalArg,
     protocol::{PyIter, PyIterReturn},
-    pyclass::PyClassImpl,
     types::{Constructor, IterNext, IterNextIterable},
     AsObject, Context, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
@@ -44,7 +44,8 @@ impl Constructor for PyEnumerate {
             counter: PyRwLock::new(counter),
             iterator,
         }
-        .into_pyresult_with_type(vm, cls)
+        .into_ref_with_type(vm, cls)
+        .map(Into::into)
     }
 }
 

@@ -6,7 +6,7 @@ use crate::{
         borrow::{BorrowedValue, BorrowedValueMut},
         lock::{MapImmutable, PyMutex, PyMutexGuard},
     },
-    pyobject::PyObjectPayload,
+    object::PyObjectPayload,
     sliceable::wrap_index,
     types::{Constructor, Unconstructible},
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject,

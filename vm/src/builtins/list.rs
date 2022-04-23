@@ -4,10 +4,10 @@ use crate::common::lock::{
 };
 use crate::TryFromBorrowedObject;
 use crate::{
+    class::PyClassImpl,
     convert::ToPyObject,
     function::{FuncArgs, OptionalArg, PyComparisonValue},
     protocol::{PyIterReturn, PyMappingMethods, PySequence, PySequenceMethods},
-    pyclass::PyClassImpl,
     recursion::ReprGuard,
     sequence::{MutObjectSequenceOp, ObjectSequenceOp, SequenceMutOp, SequenceOp},
     sliceable::{saturate_index, SequenceIndex, SliceableSequenceMutOp, SliceableSequenceOp},
@@ -341,7 +341,9 @@ impl PyList {
 
     #[pyslot]
     fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        PyList::default().into_pyresult_with_type(vm, cls)
+        PyList::default()
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
     }
 
     #[pymethod(magic)]

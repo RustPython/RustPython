@@ -547,7 +547,7 @@ mod _socket {
     impl PySocket {
         #[pyslot]
         fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            Self::default().into_pyresult_with_type(vm, cls)
+            Self::default().into_ref_with_type(vm, cls).map(Into::into)
         }
 
         #[pymethod(magic)]

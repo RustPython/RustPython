@@ -1,7 +1,7 @@
 use super::{PyStrRef, PyTypeRef, PyWeak};
 use crate::{
+    class::PyClassImpl,
     function::OptionalArg,
-    pyclass::PyClassImpl,
     types::{Constructor, SetAttr},
     Context, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
@@ -48,7 +48,8 @@ impl Constructor for PyWeakProxy {
         PyWeakProxy {
             weak: referent.downgrade_with_typ(callback.into_option(), weak_cls.clone(), vm)?,
         }
-        .into_pyresult_with_type(vm, cls)
+        .into_ref_with_type(vm, cls)
+        .map(Into::into)
     }
 }
 

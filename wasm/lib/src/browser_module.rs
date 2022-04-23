@@ -8,10 +8,10 @@ mod _browser {
     use js_sys::Promise;
     use rustpython_vm::{
         builtins::{PyDictRef, PyStrRef},
+        class::PyClassImpl,
         convert::ToPyObject,
         function::{ArgCallable, OptionalArg},
         import::import_file,
-        pyclass::PyClassImpl,
         PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     };
     use wasm_bindgen::{prelude::*, JsCast};

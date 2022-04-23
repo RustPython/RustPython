@@ -38,7 +38,8 @@ mod decl {
                 cur_idx: AtomicCell::new(0),
                 cached_iter: PyRwLock::new(None),
             }
-            .into_pyresult_with_type(vm, cls)
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
         }
 
         #[pyclassmethod]
@@ -121,7 +122,9 @@ mod decl {
             Self::Args { data, selector }: Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult {
-            PyItertoolsCompress { data, selector }.into_pyresult_with_type(vm, cls)
+            PyItertoolsCompress { data, selector }
+                .into_ref_with_type(vm, cls)
+                .map(Into::into)
         }
     }
 
@@ -184,7 +187,8 @@ mod decl {
                 cur: PyRwLock::new(start),
                 step,
             }
-            .into_pyresult_with_type(vm, cls)
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
         }
     }
 
@@ -218,7 +222,8 @@ mod decl {
                 saved: PyRwLock::new(Vec::new()),
                 index: AtomicCell::new(0),
             }
-            .into_pyresult_with_type(vm, cls)
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
         }
     }
 
@@ -280,7 +285,9 @@ mod decl {
                 }
                 None => None,
             };
-            PyItertoolsRepeat { object, times }.into_pyresult_with_type(vm, cls)
+            PyItertoolsRepeat { object, times }
+                .into_ref_with_type(vm, cls)
+                .map(Into::into)
         }
     }
 
@@ -353,7 +360,9 @@ mod decl {
             Self::Args { function, iterable }: Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult {
-            PyItertoolsStarmap { function, iterable }.into_pyresult_with_type(vm, cls)
+            PyItertoolsStarmap { function, iterable }
+                .into_ref_with_type(vm, cls)
+                .map(Into::into)
         }
     }
 
@@ -407,7 +416,8 @@ mod decl {
                 iterable,
                 stop_flag: AtomicCell::new(false),
             }
-            .into_pyresult_with_type(vm, cls)
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
         }
     }
 
@@ -471,7 +481,8 @@ mod decl {
                 iterable,
                 start_flag: AtomicCell::new(false),
             }
-            .into_pyresult_with_type(vm, cls)
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
         }
     }
 
@@ -573,7 +584,8 @@ mod decl {
                     grouper: None,
                 }),
             }
-            .into_pyresult_with_type(vm, cls)
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
         }
     }
 
@@ -784,7 +796,8 @@ mod decl {
                 stop,
                 step,
             }
-            .into_pyresult_with_type(vm, cls)
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
         }
     }
 
@@ -847,7 +860,8 @@ mod decl {
                 predicate,
                 iterable,
             }
-            .into_pyresult_with_type(vm, cls)
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
         }
     }
 
@@ -906,7 +920,8 @@ mod decl {
                 initial: args.initial.flatten(),
                 acc_value: PyRwLock::new(None),
             }
-            .into_pyresult_with_type(vm, cls)
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
         }
     }
 
@@ -1091,7 +1106,8 @@ mod decl {
                 cur: AtomicCell::new(l.wrapping_sub(1)),
                 stop: AtomicCell::new(false),
             }
-            .into_pyresult_with_type(vm, cls)
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
         }
     }
 
@@ -1193,7 +1209,8 @@ mod decl {
                 r: AtomicCell::new(r),
                 exhausted: AtomicCell::new(r > n),
             }
-            .into_pyresult_with_type(vm, cls)
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
         }
     }
 
@@ -1283,7 +1300,8 @@ mod decl {
                 r: AtomicCell::new(r),
                 exhausted: AtomicCell::new(n == 0 && r > 0),
             }
-            .into_pyresult_with_type(vm, cls)
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
         }
     }
 
@@ -1392,7 +1410,8 @@ mod decl {
                 r: AtomicCell::new(r),
                 exhausted: AtomicCell::new(r > n),
             }
-            .into_pyresult_with_type(vm, cls)
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
         }
     }
 
@@ -1486,7 +1505,8 @@ mod decl {
                 iterators,
                 fillvalue,
             }
-            .into_pyresult_with_type(vm, cls)
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
         }
     }
 
@@ -1542,7 +1562,8 @@ mod decl {
                 iterator,
                 old: PyRwLock::new(None),
             }
-            .into_pyresult_with_type(vm, cls)
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
         }
     }
 

@@ -1,11 +1,11 @@
 use super::{PyCode, PyGenericAlias, PyStrRef, PyTypeRef};
 use crate::{
     builtins::PyBaseExceptionRef,
+    class::PyClassImpl,
     coroutine::Coro,
     frame::FrameRef,
     function::OptionalArg,
     protocol::PyIterReturn,
-    pyclass::PyClassImpl,
     types::{Constructor, IterNext, IterNextIterable, Unconstructible},
     AsObject, Context, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };

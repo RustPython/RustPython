@@ -4,15 +4,15 @@ use crate::{
         bytes,
         getset::{IntoPyGetterFunc, IntoPySetterFunc, PyGetSet},
         object, pystr,
-        pytype::PyAttributes,
+        type_::PyAttributes,
         PyBaseException, PyDict, PyDictRef, PyEllipsis, PyFloat, PyFrozenSet, PyInt, PyIntRef,
         PyList, PyListRef, PyNone, PyNotImplemented, PyStr, PyTuple, PyTupleRef, PyType, PyTypeRef,
     },
+    class::{PyClassImpl, StaticType},
     exceptions,
     function::IntoPyNativeFunc,
     intern::{Internable, StringPool},
-    pyclass::{PyClassImpl, StaticType},
-    pyobject::{PyObjectPayload, PyObjectRef, PyPayload, PyRef, PyRefExact},
+    object::{PyObjectPayload, PyObjectRef, PyPayload, PyRef, PyRefExact},
     types::{PyTypeFlags, PyTypeSlots, TypeZoo},
 };
 use num_bigint::BigInt;

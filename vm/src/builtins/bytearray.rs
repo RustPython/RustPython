@@ -11,6 +11,7 @@ use crate::{
         ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerSplitOptions,
         ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
     },
+    class::PyClassImpl,
     common::{
         atomic::{AtomicUsize, Ordering},
         lock::{
@@ -26,7 +27,6 @@ use crate::{
         BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
         PyMappingMethods, PySequenceMethods,
     },
-    pyclass::PyClassImpl,
     sliceable::{SequenceIndex, SliceableSequenceMutOp, SliceableSequenceOp},
     types::{
         AsBuffer, AsMapping, AsSequence, Callable, Comparable, Constructor, Hashable, IterNext,
@@ -100,7 +100,9 @@ pub(crate) fn init(context: &Context) {
 impl PyByteArray {
     #[pyslot]
     fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        PyByteArray::default().into_pyresult_with_type(vm, cls)
+        PyByteArray::default()
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
     }
 
     #[pymethod(magic)]

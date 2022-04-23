@@ -33,23 +33,16 @@ mod atexit {
     }
 
     #[pyfunction]
-    pub fn _run_exitfuncs(vm: &VirtualMachine) -> PyResult<()> {
-        let mut last_exc = None;
-        for (func, args) in vm.state.atexit_funcs.lock().drain(..).rev() {
+    pub fn _run_exitfuncs(vm: &VirtualMachine) {
+        let funcs: Vec<_> = std::mem::take(&mut *vm.state.atexit_funcs.lock());
+        for (func, args) in funcs.into_iter().rev() {
             if let Err(e) = vm.invoke(&func, args) {
-                last_exc = Some(e.clone());
-                if !e.fast_isinstance(&vm.ctx.exceptions.system_exit) {
-                    writeln!(
-                        crate::stdlib::sys::PyStderr(vm),
-                        "Error in atexit._run_exitfuncs:"
-                    );
-                    vm.print_exception(e);
+                let exit = e.fast_isinstance(&vm.ctx.exceptions.system_exit);
+                vm.run_unraisable(e, Some("Error in atexit._run_exitfuncs".to_owned()), func);
+                if exit {
+                    break;
                 }
             }
-        }
-        match last_exc {
-            None => Ok(()),
-            Some(e) => Err(e),
         }
     }
 

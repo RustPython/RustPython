@@ -1,8 +1,8 @@
 use super::pystr::IntoPyStrRef;
 use super::{PyDictRef, PyStr, PyStrRef, PyTypeRef};
 use crate::{
-    convert::ToPyObject, function::FuncArgs, pyclass::PyClassImpl, types::GetAttr, AsObject,
-    Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    class::PyClassImpl, convert::ToPyObject, function::FuncArgs, types::GetAttr, AsObject, Context,
+    Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "module")]
@@ -35,7 +35,7 @@ impl PyModule {
 
     #[pyslot]
     fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        PyModule {}.into_pyresult_with_type(vm, cls)
+        PyModule {}.into_ref_with_type(vm, cls).map(Into::into)
     }
 
     #[pymethod(magic)]

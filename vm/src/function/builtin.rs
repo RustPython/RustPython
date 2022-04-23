@@ -1,7 +1,6 @@
 use super::{FromArgs, FuncArgs};
 use crate::{
-    convert::ToPyResult, pyobject::PyThreadingConstraint, PyPayload, PyRef, PyResult,
-    VirtualMachine,
+    convert::ToPyResult, object::PyThreadingConstraint, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use std::marker::PhantomData;
 

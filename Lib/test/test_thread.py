@@ -135,8 +135,6 @@ class ThreadRunningTests(BasicThreadTest):
                 time.sleep(POLL_SLEEP)
             self.assertEqual(thread._count(), orig)
 
-    # TODO: RUSTPYTHON, AttributeError: module 'sys' has no attribute 'unraisablehook'
-    @unittest.expectedFailure
     def test_unraisable_exception(self):
         def task():
             started.release()

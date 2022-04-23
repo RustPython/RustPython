@@ -67,7 +67,7 @@ impl std::borrow::Borrow<str> for CachedPyStrRef {
 }
 
 mod sealed {
-    use crate::{builtins::PyStr, pyobject::PyRefExact};
+    use crate::{builtins::PyStr, object::PyRefExact};
 
     pub trait SealedInternable {}
 

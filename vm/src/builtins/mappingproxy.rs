@@ -2,10 +2,10 @@ use std::borrow::Cow;
 
 use super::{PyDict, PyGenericAlias, PyList, PyStr, PyStrRef, PyTuple, PyTypeRef};
 use crate::{
+    class::PyClassImpl,
     convert::ToPyObject,
     function::OptionalArg,
     protocol::{PyMapping, PyMappingMethods, PySequence, PySequenceMethods},
-    pyclass::PyClassImpl,
     types::{AsMapping, AsSequence, Constructor, Iterable},
     AsObject, Context, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine,
@@ -53,7 +53,8 @@ impl Constructor for PyMappingProxy {
             Self {
                 mapping: MappingProxyInner::Dict(mapping),
             }
-            .into_pyresult_with_type(vm, cls)
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
         }
     }
 }

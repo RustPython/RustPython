@@ -5,8 +5,8 @@
 use super::{PyStrRef, PyTupleRef, PyTypeRef};
 use crate::{
     bytecode::{self, BorrowedConstant, Constant, ConstantBag},
+    class::{PyClassImpl, StaticType},
     function::FuncArgs,
-    pyclass::{PyClassImpl, StaticType},
     AsObject, Context, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use num_traits::Zero;
@@ -31,7 +31,7 @@ fn borrow_obj_constant(obj: &PyObject) -> BorrowedConstant<PyConstant> {
     match_class!(match obj {
         ref i @ super::int::PyInt => {
             let value = i.as_bigint();
-            if obj.class().is(super::pybool::PyBool::static_type()) {
+            if obj.class().is(super::bool_::PyBool::static_type()) {
                 BorrowedConstant::Boolean {
                     value: !value.is_zero(),
                 }

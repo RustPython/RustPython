@@ -1,5 +1,5 @@
 use crate::{
-    builtins::{float, int, pybool, PyBaseExceptionRef, PyDictRef, PyFunction, PyStrRef},
+    builtins::{bool_, float, int, PyBaseExceptionRef, PyDictRef, PyFunction, PyStrRef},
     bytecode::CodeFlags,
     convert::ToPyObject,
     function::FuncArgs,
@@ -120,7 +120,7 @@ fn get_jit_value(vm: &VirtualMachine, obj: &PyObject) -> Result<AbiValue, ArgsEr
     } else if cls.is(&vm.ctx.types.float_type) {
         Ok(AbiValue::Float(float::get_value(obj)))
     } else if cls.is(&vm.ctx.types.bool_type) {
-        Ok(AbiValue::Bool(pybool::get_value(obj)))
+        Ok(AbiValue::Bool(bool_::get_value(obj)))
     } else {
         Err(ArgsError::NonJitType)
     }

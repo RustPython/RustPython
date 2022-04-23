@@ -3,7 +3,7 @@ use num_traits::sign::Signed;
 use serde::de::{DeserializeSeed, Visitor};
 use serde::ser::{Serialize, SerializeMap, SerializeSeq};
 
-use crate::builtins::{dict::PyDictRef, float, int, list::PyList, pybool, tuple::PyTuple, PyStr};
+use crate::builtins::{bool_, dict::PyDictRef, float, int, list::PyList, tuple::PyTuple, PyStr};
 use crate::{AsObject, PyObject, PyObjectRef, VirtualMachine};
 
 #[inline]
@@ -67,7 +67,7 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
         } else if self.pyobject.fast_isinstance(&self.vm.ctx.types.float_type) {
             serializer.serialize_f64(float::get_value(self.pyobject))
         } else if self.pyobject.fast_isinstance(&self.vm.ctx.types.bool_type) {
-            serializer.serialize_bool(pybool::get_value(self.pyobject))
+            serializer.serialize_bool(bool_::get_value(self.pyobject))
         } else if self.pyobject.fast_isinstance(&self.vm.ctx.types.int_type) {
             let v = int::get_value(self.pyobject);
             let int_too_large = || serde::ser::Error::custom("int too large to serialize");

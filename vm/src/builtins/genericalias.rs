@@ -1,10 +1,10 @@
 use crate::{
     builtins::{PyList, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef},
+    class::PyClassImpl,
     common::hash,
     convert::ToPyObject,
     function::{FuncArgs, PyComparisonValue},
     protocol::PyMappingMethods,
-    pyclass::PyClassImpl,
     types::{AsMapping, Callable, Comparable, Constructor, GetAttr, Hashable, PyComparisonOp},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine,
@@ -49,7 +49,9 @@ impl Constructor for PyGenericAlias {
             return Err(vm.new_type_error("GenericAlias() takes no keyword arguments".to_owned()));
         }
         let (origin, arguments): (_, PyObjectRef) = args.bind(vm)?;
-        PyGenericAlias::new(origin, arguments, vm).into_pyresult_with_type(vm, cls)
+        PyGenericAlias::new(origin, arguments, vm)
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
     }
 }
 

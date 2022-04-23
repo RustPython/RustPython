@@ -1114,8 +1114,6 @@ class CommonBufferedTests:
         # a ValueError.
         self.assertRaises(ValueError, _with)
 
-    # TODO: RUSTPYTHON, sys.unraisablehook
-    @unittest.expectedFailure
     def test_error_through_destructor(self):
         # Test that the exception state is not modified by a destructor,
         # even if close() fails.
@@ -2121,8 +2119,6 @@ class BufferedRWPairTest(unittest.TestCase):
         # Silence destructor error
         reader.close = lambda: None
 
-    # TODO: RUSTPYTHON, sys.unraisablehook
-    @unittest.expectedFailure
     def test_writer_close_error_on_close(self):
         def writer_close():
             writer_non_existing
@@ -2952,8 +2948,6 @@ class TextIOWrapperTest(unittest.TestCase):
         support.gc_collect()
         self.assertEqual(record, [1, 2, 3])
 
-    # TODO: RUSTPYTHON, sys.unraisablehook
-    @unittest.expectedFailure
     def test_error_through_destructor(self):
         # Test that the exception state is not modified by a destructor,
         # even if close() fails.

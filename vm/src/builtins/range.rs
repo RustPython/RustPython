@@ -2,9 +2,9 @@ use super::{PyInt, PyIntRef, PySlice, PyTupleRef, PyTypeRef};
 use crate::common::hash::PyHash;
 use crate::{
     builtins::builtins_iter,
+    class::PyClassImpl,
     function::{FuncArgs, OptionalArg, PyComparisonValue},
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
-    pyclass::PyClassImpl,
     types::{
         AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable,
         Iterable, PyComparisonOp, Unconstructible,

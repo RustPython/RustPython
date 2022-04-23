@@ -1,10 +1,10 @@
 use super::{PositionIterInternal, PyGenericAlias, PyTypeRef};
 use crate::common::{hash::PyHash, lock::PyMutex};
 use crate::{
+    class::PyClassImpl,
     convert::{ToPyObject, TransmuteFromObject, TryFromBorrowedObject},
     function::{OptionalArg, PyArithmeticValue, PyComparisonValue},
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
-    pyclass::PyClassImpl,
     recursion::ReprGuard,
     sequence::{ObjectSequenceOp, SequenceOp},
     sliceable::{SequenceIndex, SliceableSequenceOp},
@@ -113,7 +113,8 @@ impl Constructor for PyTuple {
             Self {
                 elements: elements.into_boxed_slice(),
             }
-            .into_pyresult_with_type(vm, cls)
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
         }
     }
 }

@@ -4,7 +4,7 @@
 use super::PyTypeRef;
 use crate::common::lock::PyRwLock;
 use crate::{
-    function::FuncArgs, pyclass::PyClassImpl, types::GetDescriptor, AsObject, Context, PyObjectRef,
+    class::PyClassImpl, function::FuncArgs, types::GetDescriptor, AsObject, Context, PyObjectRef,
     PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 
@@ -95,7 +95,8 @@ impl PyProperty {
             deleter: PyRwLock::new(None),
             doc: PyRwLock::new(None),
         }
-        .into_pyresult_with_type(vm, cls)
+        .into_ref_with_type(vm, cls)
+        .map(Into::into)
     }
 
     #[pymethod(magic)]

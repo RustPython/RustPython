@@ -1,9 +1,9 @@
 // sliceobject.{h,c} in CPython
 use super::{PyInt, PyIntRef, PyTupleRef, PyTypeRef};
 use crate::{
+    class::PyClassImpl,
     convert::ToPyObject,
     function::{FuncArgs, OptionalArg, PyComparisonValue},
-    pyclass::PyClassImpl,
     types::{Comparable, Constructor, Hashable, PyComparisonOp, Unhashable},
     AsObject, Context, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
@@ -101,7 +101,7 @@ impl PySlice {
                 }
             }
         };
-        slice.into_pyresult_with_type(vm, cls)
+        slice.into_ref_with_type(vm, cls).map(Into::into)
     }
 
     pub(crate) fn inner_indices(

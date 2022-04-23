@@ -2,7 +2,7 @@
 
 use crate::{
     builtins::{PyBaseObject, PyBoundMethod, PyType, PyTypeRef},
-    pyobject::{PyObjectPayload, PyObjectRef, PyRef},
+    object::{PyObjectPayload, PyObjectRef, PyRef},
     types::{PyTypeFlags, PyTypeSlots},
     vm::Context,
 };

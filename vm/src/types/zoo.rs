@@ -1,14 +1,13 @@
 use crate::{
     builtins::{
-        asyncgenerator, builtinfunc, bytearray, bytes, classmethod, code, complex, coroutine, dict,
-        enumerate, filter, float, frame, function, generator, genericalias, getset, int, iter,
-        list, map, mappingproxy, memory, module, namespace, object, property, pybool, pystr,
-        pysuper,
-        pytype::{self, PyTypeRef},
-        pyunion, range, set, singletons, slice, staticmethod, traceback, tuple, weakproxy, weakref,
-        zip,
+        asyncgenerator, bool_, builtinfunc, bytearray, bytes, classmethod, code, complex,
+        coroutine, dict, enumerate, filter, float, frame, function, generator, genericalias,
+        getset, int, iter, list, map, mappingproxy, memory, module, namespace, object, property,
+        pystr, range, set, singletons, slice, staticmethod, super_, traceback, tuple,
+        type_::{self, PyTypeRef},
+        union_, weakproxy, weakref, zip,
     },
-    pyclass::StaticType,
+    class::StaticType,
     vm::Context,
 };
 
@@ -93,16 +92,16 @@ pub struct TypeZoo {
 impl TypeZoo {
     #[cold]
     pub(crate) fn init() -> Self {
-        let (type_type, object_type, weakref_type) = crate::pyobject::init_type_hierarchy();
+        let (type_type, object_type, weakref_type) = crate::object::init_type_hierarchy();
         Self {
             // the order matters for type, object, weakref, and int
-            type_type: pytype::PyType::init_manually(type_type).clone(),
+            type_type: type_::PyType::init_manually(type_type).clone(),
             object_type: object::PyBaseObject::init_manually(object_type).clone(),
             weakref_type: weakref::PyWeak::init_manually(weakref_type).clone(),
             int_type: int::PyInt::init_bare_type().clone(),
 
             // types exposed as builtins
-            bool_type: pybool::PyBool::init_bare_type().clone(),
+            bool_type: bool_::PyBool::init_bare_type().clone(),
             bytearray_type: bytearray::PyByteArray::init_bare_type().clone(),
             bytes_type: bytes::PyBytes::init_bare_type().clone(),
             classmethod_type: classmethod::PyClassMethod::init_bare_type().clone(),
@@ -121,7 +120,7 @@ impl TypeZoo {
             slice_type: slice::PySlice::init_bare_type().clone(),
             staticmethod_type: staticmethod::PyStaticMethod::init_bare_type().clone(),
             str_type: pystr::PyStr::init_bare_type().clone(),
-            super_type: pysuper::PySuper::init_bare_type().clone(),
+            super_type: super_::PySuper::init_bare_type().clone(),
             tuple_type: tuple::PyTuple::init_bare_type().clone(),
             zip_type: zip::PyZip::init_bare_type().clone(),
 
@@ -175,14 +174,14 @@ impl TypeZoo {
             none_type: singletons::PyNone::init_bare_type().clone(),
             not_implemented_type: singletons::PyNotImplemented::init_bare_type().clone(),
             generic_alias_type: genericalias::PyGenericAlias::init_bare_type().clone(),
-            union_type: pyunion::PyUnion::init_bare_type().clone(),
+            union_type: union_::PyUnion::init_bare_type().clone(),
         }
     }
 
     /// Fill attributes of builtin types.
     #[cold]
     pub(crate) fn extend(context: &Context) {
-        pytype::init(context);
+        type_::init(context);
         object::init(context);
         list::init(context);
         set::init(context);
@@ -206,13 +205,13 @@ impl TypeZoo {
         pystr::init(context);
         range::init(context);
         slice::init(context);
-        pysuper::init(context);
+        super_::init(context);
         iter::init(context);
         enumerate::init(context);
         filter::init(context);
         map::init(context);
         zip::init(context);
-        pybool::init(context);
+        bool_::init(context);
         code::init(context);
         frame::init(context);
         weakref::init(context);
@@ -223,6 +222,6 @@ impl TypeZoo {
         mappingproxy::init(context);
         traceback::init(context);
         genericalias::init(context);
-        pyunion::init(context);
+        union_::init(context);
     }
 }

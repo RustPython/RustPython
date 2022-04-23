@@ -1,7 +1,7 @@
 //! Builtin function definitions.
 //!
 //! Implements the list of [builtin Python functions](https://docs.python.org/3/library/builtins.html).
-use crate::{pyclass::PyClassImpl, PyObjectRef, VirtualMachine};
+use crate::{class::PyClassImpl, PyObjectRef, VirtualMachine};
 
 /// Built-in functions, exceptions, and other objects.
 ///
@@ -21,6 +21,7 @@ mod builtins {
             PyByteArray, PyBytes, PyBytesRef, PyCode, PyDictRef, PyStr, PyStrRef, PyTuple,
             PyTupleRef, PyType,
         },
+        class::PyClassImpl,
         common::{hash::PyHash, str::to_ascii},
         function::{
             ArgBytesLike, ArgCallable, ArgIntoBool, ArgIterable, ArgMapping, FuncArgs, KwArgs,
@@ -28,7 +29,6 @@ mod builtins {
         },
         protocol::{PyIter, PyIterReturn},
         py_io,
-        pyclass::PyClassImpl,
         readline::{Readline, ReadlineResult},
         scope::Scope,
         stdlib::sys,

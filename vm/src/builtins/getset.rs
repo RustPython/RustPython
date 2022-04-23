@@ -3,10 +3,10 @@
 */
 use super::PyTypeRef;
 use crate::{
+    class::PyClassImpl,
     convert::ToPyResult,
     function::{OwnedParam, RefParam},
-    pyclass::PyClassImpl,
-    pyobject::PyThreadingConstraint,
+    object::PyThreadingConstraint,
     types::{Constructor, GetDescriptor, Unconstructible},
     AsObject, Context, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };

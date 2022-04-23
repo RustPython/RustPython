@@ -1,11 +1,11 @@
 use super::genericalias;
 use crate::{
     builtins::{PyFrozenSet, PyStr, PyStrRef, PyTuple, PyTupleRef, PyTypeRef},
+    class::PyClassImpl,
     common::hash,
     convert::ToPyObject,
     function::PyComparisonValue,
     protocol::PyMappingMethods,
-    pyclass::PyClassImpl,
     types::{AsMapping, Comparable, GetAttr, Hashable, Iterable, PyComparisonOp},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine,

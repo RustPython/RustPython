@@ -6,9 +6,9 @@ use std::borrow::Cow;
 
 use super::{PyInt, PyTupleRef, PyTypeRef};
 use crate::{
+    class::PyClassImpl,
     function::ArgCallable,
     protocol::{PyIterReturn, PySequence, PySequenceMethods},
-    pyclass::PyClassImpl,
     types::{IterNext, IterNextIterable},
     Context, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };

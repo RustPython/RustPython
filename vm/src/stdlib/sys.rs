@@ -1,6 +1,6 @@
 use crate::{convert::ToPyObject, PyObject, PyResult, VirtualMachine};
 
-pub(crate) use sys::{MAXSIZE, MULTIARCH};
+pub(crate) use sys::{UnraisableHookArgs, MAXSIZE, MULTIARCH};
 
 #[pymodule]
 mod sys {
@@ -16,7 +16,7 @@ mod sys {
         types::PyStructSequence,
         version,
         vm::{Settings, VirtualMachine},
-        PyObjectRef, PyRef, PyRefExact, PyResult,
+        AsObject, PyObjectRef, PyRef, PyRefExact, PyResult,
     };
     use num_traits::ToPrimitive;
     use std::{env, mem, path};
@@ -448,6 +448,66 @@ mod sys {
         .into_struct_sequence(vm))
     }
 
+    fn _unraisablehook(unraisable: UnraisableHookArgs, vm: &VirtualMachine) -> PyResult<()> {
+        use super::PyStderr;
+
+        let stderr = PyStderr(vm);
+        if !vm.is_none(&unraisable.object) {
+            if !vm.is_none(&unraisable.err_msg) {
+                write!(stderr, "{}: ", unraisable.err_msg.str(vm)?);
+            } else {
+                write!(stderr, "Exception ignored in: ");
+            }
+            // exception in del will be ignored but printed
+            let repr = &unraisable.object.repr(vm);
+            let str = match repr {
+                Ok(v) => v.to_string(),
+                Err(_) => format!(
+                    "<object {} repr() failed>",
+                    unraisable.object.class().name()
+                ),
+            };
+            writeln!(stderr, "{str}");
+        } else if !vm.is_none(&unraisable.err_msg) {
+            writeln!(stderr, "{}:", unraisable.err_msg.str(vm)?);
+        }
+
+        // TODO: print received unraisable.exc_traceback
+        let tb_module = vm.import("traceback", None, 0)?;
+        let print_stack = tb_module.get_attr("print_stack", vm)?;
+        vm.invoke(&print_stack, ())?;
+
+        if vm.is_none(unraisable.exc_type.as_object()) {
+            // TODO: early return, but with what error?
+        }
+        assert!(unraisable
+            .exc_type
+            .fast_issubclass(&vm.ctx.exceptions.exception_type));
+
+        // TODO: print module name and qualname
+
+        if !vm.is_none(&unraisable.exc_value) {
+            write!(stderr, ": ");
+            if let Ok(str) = unraisable.exc_value.str(vm) {
+                write!(stderr, "{}", str.as_str());
+            } else {
+                write!(stderr, "<exception str() failed>");
+            }
+        }
+        writeln!(stderr);
+        // TODO: call file.flush()
+
+        Ok(())
+    }
+
+    #[pyattr]
+    #[pyfunction(name = "__unraisablehook__")]
+    fn unraisablehook(unraisable: UnraisableHookArgs, vm: &VirtualMachine) {
+        if let Err(e) = _unraisablehook(unraisable, vm) {
+            println!("{}", e.as_object().repr(vm).unwrap().as_str());
+        }
+    }
+
     #[pyattr]
     fn hash_info(vm: &VirtualMachine) -> PyTupleRef {
         PyHashInfo::INFO.into_struct_sequence(vm)
@@ -672,6 +732,19 @@ mod sys {
     #[cfg(windows)]
     #[pyimpl(with(PyStructSequence))]
     impl WindowsVersion {}
+
+    #[pyclass(noattr, module = "sys", name = "UnraisableHookArgs")]
+    #[derive(Debug, PyStructSequence, TryIntoPyStructSequence)]
+    pub struct UnraisableHookArgs {
+        pub exc_type: PyTypeRef,
+        pub exc_value: PyObjectRef,
+        pub exc_traceback: PyObjectRef,
+        pub err_msg: PyObjectRef,
+        pub object: PyObjectRef,
+    }
+
+    #[pyimpl(with(PyStructSequence))]
+    impl UnraisableHookArgs {}
 }
 
 pub(crate) fn init_module(vm: &VirtualMachine, module: &PyObject, builtins: &PyObject) {

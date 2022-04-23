@@ -1,8 +1,8 @@
-use super::{pytype, PyClassMethod, PyStaticMethod, PyStr, PyStrRef, PyTypeRef};
+use super::{type_, PyClassMethod, PyStaticMethod, PyStr, PyStrRef, PyTypeRef};
 use crate::{
     builtins::PyBoundMethod,
+    class::PyClassImpl,
     function::{FuncArgs, IntoPyNativeFunc, PyNativeFunc},
-    pyclass::PyClassImpl,
     types::{Callable, Constructor, GetDescriptor, Unconstructible},
     AsObject, Context, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
@@ -148,7 +148,7 @@ impl PyBuiltinFunction {
     #[pyproperty(magic)]
     fn text_signature(&self) -> Option<String> {
         self.value.doc.as_ref().and_then(|doc| {
-            pytype::get_text_signature_from_internal_doc(self.value.name.as_str(), doc.as_str())
+            type_::get_text_signature_from_internal_doc(self.value.name.as_str(), doc.as_str())
                 .map(|signature| signature.to_string())
         })
     }
@@ -238,7 +238,7 @@ impl PyBuiltinMethod {
     #[pyproperty(magic)]
     fn text_signature(&self) -> Option<String> {
         self.value.doc.as_ref().and_then(|doc| {
-            pytype::get_text_signature_from_internal_doc(self.value.name.as_str(), doc.as_str())
+            type_::get_text_signature_from_internal_doc(self.value.name.as_str(), doc.as_str())
                 .map(|signature| signature.to_string())
         })
     }

@@ -1,8 +1,9 @@
+use super::PyMethod;
 use crate::{
     builtins::{PyBaseExceptionRef, PyList, PyStr},
     function::{FuncArgs, IntoFuncArgs},
+    object::{AsObject, PyObject, PyObjectRef, PyPayload, PyResult},
     vm::VirtualMachine,
-    AsObject, PyMethod, PyObject, PyObjectRef, PyPayload, PyResult,
 };
 
 /// Trace events for sys.settrace and sys.setprofile.

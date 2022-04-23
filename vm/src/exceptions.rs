@@ -4,10 +4,10 @@ use crate::{
     builtins::{
         traceback::PyTracebackRef, PyNone, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
     },
+    class::{PyClassImpl, StaticType},
     convert::{ToPyException, ToPyObject},
     function::{ArgIterable, FuncArgs},
     py_io::{self, Write},
-    pyclass::{PyClassImpl, StaticType},
     stdlib::sys,
     suggestion::offer_suggestions,
     AsObject, Context, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
@@ -427,7 +427,9 @@ impl PyBaseException {
 
     #[pyslot]
     pub(crate) fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        PyBaseException::new(args.args, vm).into_pyresult_with_type(vm, cls)
+        PyBaseException::new(args.args, vm)
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
     }
 
     #[pymethod(magic)]

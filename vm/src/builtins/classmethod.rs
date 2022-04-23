@@ -1,7 +1,7 @@
 use super::PyTypeRef;
 use crate::{
     builtins::PyBoundMethod,
-    pyclass::PyClassImpl,
+    class::PyClassImpl,
     types::{Constructor, GetDescriptor},
     AsObject, Context, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
@@ -61,7 +61,9 @@ impl Constructor for PyClassMethod {
     type Args = PyObjectRef;
 
     fn py_new(cls: PyTypeRef, callable: Self::Args, vm: &VirtualMachine) -> PyResult {
-        PyClassMethod { callable }.into_pyresult_with_type(vm, cls)
+        PyClassMethod { callable }
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
     }
 }
 

@@ -10,8 +10,8 @@ mod decl {
         bytecode,
         convert::ToPyObject,
         function::ArgBytesLike,
+        object::AsObject,
         protocol::PyBuffer,
-        pyobject::AsObject,
         PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     };
     /// TODO

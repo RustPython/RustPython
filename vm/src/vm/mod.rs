@@ -7,6 +7,7 @@
 mod compile;
 mod context;
 mod interpreter;
+mod method;
 mod setting;
 pub mod thread;
 mod vm_new;
@@ -42,6 +43,7 @@ use std::{
 
 pub use context::Context;
 pub use interpreter::Interpreter;
+pub(crate) use method::PyMethod;
 pub use setting::Settings;
 
 // Objects are live when they are on stack, or referenced by a name (for now)
@@ -280,6 +282,28 @@ impl VirtualMachine {
     pub fn run_code_obj(&self, code: PyRef<PyCode>, scope: Scope) -> PyResult {
         let frame = Frame::new(code, scope, self.builtins.dict(), &[], self).into_ref(self);
         self.run_frame_full(frame)
+    }
+
+    #[cold]
+    pub fn run_unraisable(&self, e: PyBaseExceptionRef, msg: Option<String>, object: PyObjectRef) {
+        use crate::stdlib::sys::UnraisableHookArgs;
+
+        let sys_module = self.import("sys", None, 0).unwrap();
+        let unraisablehook = sys_module.get_attr("unraisablehook", self).unwrap();
+
+        let exc_type = e.class().clone();
+        let exc_traceback = e.traceback().to_pyobject(self); // TODO: actual traceback
+        let exc_value = e.into();
+        let args = UnraisableHookArgs {
+            exc_type,
+            exc_value,
+            exc_traceback,
+            err_msg: self.new_pyobj(msg),
+            object,
+        };
+        if let Err(e) = self.invoke(&unraisablehook, (args,)) {
+            println!("{}", e.as_object().repr(self).unwrap().as_str());
+        }
     }
 
     #[inline(always)]

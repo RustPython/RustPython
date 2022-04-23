@@ -1,7 +1,7 @@
 use super::PyTypeRef;
 use crate::{
+    class::PyClassImpl,
     protocol::{PyIter, PyIterReturn},
-    pyclass::PyClassImpl,
     types::{Constructor, IterNext, IterNextIterable},
     Context, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
@@ -31,7 +31,8 @@ impl Constructor for PyFilter {
             predicate: function,
             iterator,
         }
-        .into_pyresult_with_type(vm, cls)
+        .into_ref_with_type(vm, cls)
+        .map(Into::into)
     }
 }
 

@@ -1,10 +1,10 @@
 use super::{PyCode, PyStrRef, PyTypeRef};
 use crate::{
+    class::PyClassImpl,
     coroutine::Coro,
     frame::FrameRef,
     function::OptionalArg,
     protocol::PyIterReturn,
-    pyclass::PyClassImpl,
     types::{Constructor, IterNext, IterNextIterable, Unconstructible},
     AsObject, Context, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };

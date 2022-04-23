@@ -58,7 +58,9 @@ mod _collections {
     impl PyDeque {
         #[pyslot]
         fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            PyDeque::default().into_pyresult_with_type(vm, cls)
+            PyDeque::default()
+                .into_ref_with_type(vm, cls)
+                .map(Into::into)
         }
 
         #[pymethod(magic)]
@@ -605,7 +607,7 @@ mod _collections {
                 let index = max(index, 0) as usize;
                 iter.internal.lock().position = index;
             }
-            iter.into_pyresult_with_type(vm, cls)
+            iter.into_ref_with_type(vm, cls).map(Into::into)
         }
     }
 
@@ -678,7 +680,7 @@ mod _collections {
                 let index = max(index, 0) as usize;
                 iter.internal.lock().position = index;
             }
-            iter.into_pyresult_with_type(vm, cls)
+            iter.into_ref_with_type(vm, cls).map(Into::into)
         }
     }
 

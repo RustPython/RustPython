@@ -1,8 +1,8 @@
 use super::PyTypeRef;
 use crate::{
     builtins::PyDict,
+    class::PyClassImpl,
     function::{FuncArgs, PyComparisonValue},
-    pyclass::PyClassImpl,
     recursion::ReprGuard,
     types::{Comparable, Constructor, PyComparisonOp},
     AsObject, Context, PyObject, PyPayload, PyRef, PyResult, VirtualMachine,
@@ -25,7 +25,7 @@ impl Constructor for PyNamespace {
     type Args = FuncArgs;
 
     fn py_new(cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
-        PyNamespace {}.into_pyresult_with_type(vm, cls)
+        PyNamespace {}.into_ref_with_type(vm, cls).map(Into::into)
     }
 }
 
