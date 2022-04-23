@@ -8,6 +8,7 @@ use crate::{
         pytype::PyAttributes,
         PyTuple,
     },
+    class::{PyClassDef, PyClassImpl},
     common::ascii,
     convert::ToPyObject,
     dictdatatype::{self, DictKey},
@@ -15,7 +16,6 @@ use crate::{
         ArgIterable, FuncArgs, KwArgs, OptionalArg, PyArithmeticValue::*, PyComparisonValue,
     },
     protocol::{PyIterIter, PyIterReturn, PyMappingMethods, PySequenceMethods},
-    pyclass::{PyClassDef, PyClassImpl},
     recursion::ReprGuard,
     types::{
         AsMapping, AsSequence, Callable, Comparable, Constructor, Hashable, IterNext,

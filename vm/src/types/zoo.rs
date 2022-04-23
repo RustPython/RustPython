@@ -8,7 +8,7 @@ use crate::{
         pyunion, range, set, singletons, slice, staticmethod, traceback, tuple, weakproxy, weakref,
         zip,
     },
-    pyclass::StaticType,
+    class::StaticType,
     vm::Context,
 };
 

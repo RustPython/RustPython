@@ -1,10 +1,10 @@
 use super::{IterStatus, PositionIterInternal, PyGenericAlias, PyIntRef, PyTupleRef, PyTypeRef};
 use crate::common::lock::{PyMutex, PyRwLock};
 use crate::{
+    class::PyClassImpl,
     convert::ToPyObject,
     function::OptionalArg,
     protocol::{PyIter, PyIterReturn},
-    pyclass::PyClassImpl,
     types::{Constructor, IterNext, IterNextIterable},
     AsObject, Context, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };

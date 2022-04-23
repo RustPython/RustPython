@@ -1,8 +1,8 @@
 use super::pystr::IntoPyStrRef;
 use super::{PyDictRef, PyStr, PyStrRef, PyTypeRef};
 use crate::{
-    convert::ToPyObject, function::FuncArgs, pyclass::PyClassImpl, types::GetAttr, AsObject,
-    Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    class::PyClassImpl, convert::ToPyObject, function::FuncArgs, types::GetAttr, AsObject, Context,
+    Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "module")]

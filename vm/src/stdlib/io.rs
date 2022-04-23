@@ -99,6 +99,7 @@ mod _io {
             PyBaseExceptionRef, PyByteArray, PyBytes, PyBytesRef, PyIntRef, PyMemoryView, PyStr,
             PyStrRef, PyType, PyTypeRef,
         },
+        class::StaticType,
         common::lock::{
             PyMappedThreadMutexGuard, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
             PyThreadMutex, PyThreadMutexGuard,
@@ -110,7 +111,6 @@ mod _io {
         protocol::{
             BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn, VecBuffer,
         },
-        pyclass::StaticType,
         recursion::ReprGuard,
         types::{Constructor, Destructor, IterNext, Iterable},
         utils::Either,

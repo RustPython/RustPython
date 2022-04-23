@@ -1,10 +1,10 @@
 use crate::{
     builtins::{PyList, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef},
+    class::PyClassImpl,
     common::hash,
     convert::ToPyObject,
     function::{FuncArgs, PyComparisonValue},
     protocol::PyMappingMethods,
-    pyclass::PyClassImpl,
     types::{AsMapping, Callable, Comparable, Constructor, GetAttr, Hashable, PyComparisonOp},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine,

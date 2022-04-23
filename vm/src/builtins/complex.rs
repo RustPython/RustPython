@@ -1,12 +1,12 @@
 use super::{float, PyStr, PyTypeRef};
 use crate::{
+    class::PyClassImpl,
     convert::ToPyObject,
     function::{
         OptionalArg, OptionalOption,
         PyArithmeticValue::{self, *},
         PyComparisonValue,
     },
-    pyclass::PyClassImpl,
     types::{Comparable, Constructor, Hashable, PyComparisonOp},
     AsObject, Context, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };

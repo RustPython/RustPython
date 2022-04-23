@@ -112,7 +112,7 @@ pub(crate) fn impl_pyimpl(attr: AttributeArgs, item: Item) -> Result<TokenStream
             let class_extensions = &context.class_extensions;
             quote! {
                 #imp
-                impl ::rustpython_vm::pyclass::PyClassImpl for #ty {
+                impl ::rustpython_vm::class::PyClassImpl for #ty {
                     const TP_FLAGS: ::rustpython_vm::types::PyTypeFlags = #flags;
 
                     fn impl_extend_class(
@@ -237,7 +237,7 @@ fn generate_class_def(
     .map(|typ| {
         quote! {
             fn static_baseclass() -> &'static ::rustpython_vm::builtins::PyTypeRef {
-                use rustpython_vm::pyclass::StaticType;
+                use rustpython_vm::class::StaticType;
                 #typ::static_type()
             }
         }
@@ -247,21 +247,21 @@ fn generate_class_def(
         let typ = Ident::new(&typ, ident.span());
         quote! {
             fn static_metaclass() -> &'static ::rustpython_vm::builtins::PyTypeRef {
-                use rustpython_vm::pyclass::StaticType;
+                use rustpython_vm::class::StaticType;
                 #typ::static_type()
             }
         }
     });
 
     let tokens = quote! {
-        impl ::rustpython_vm::pyclass::PyClassDef for #ident {
+        impl ::rustpython_vm::class::PyClassDef for #ident {
             const NAME: &'static str = #name;
             const MODULE_NAME: Option<&'static str> = #module_name;
             const TP_NAME: &'static str = #module_class_name;
             const DOC: Option<&'static str> = #doc;
         }
 
-        impl ::rustpython_vm::pyclass::StaticType for #ident {
+        impl ::rustpython_vm::class::StaticType for #ident {
             fn static_cell() -> &'static ::rustpython_vm::common::static_cell::StaticCell<::rustpython_vm::builtins::PyTypeRef> {
                 ::rustpython_vm::common::static_cell! {
                     static CELL: ::rustpython_vm::builtins::PyTypeRef;

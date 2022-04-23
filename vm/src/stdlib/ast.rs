@@ -7,7 +7,7 @@ mod gen;
 
 use crate::{
     builtins::{self, PyStrRef, PyTypeRef},
-    pyclass::{PyClassImpl, StaticType},
+    class::{PyClassImpl, StaticType},
     AsObject, Context, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
 };
 use num_complex::Complex64;

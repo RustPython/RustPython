@@ -4,10 +4,10 @@ use crate::common::lock::{
 };
 use crate::TryFromBorrowedObject;
 use crate::{
+    class::PyClassImpl,
     convert::ToPyObject,
     function::{FuncArgs, OptionalArg, PyComparisonValue},
     protocol::{PyIterReturn, PyMappingMethods, PySequence, PySequenceMethods},
-    pyclass::PyClassImpl,
     recursion::ReprGuard,
     sequence::{MutObjectSequenceOp, ObjectSequenceOp, SequenceMutOp, SequenceOp},
     sliceable::{saturate_index, SequenceIndex, SliceableSequenceMutOp, SliceableSequenceOp},

@@ -1,10 +1,10 @@
 use super::{PositionIterInternal, PyGenericAlias, PyTypeRef};
 use crate::common::{hash::PyHash, lock::PyMutex};
 use crate::{
+    class::PyClassImpl,
     convert::{ToPyObject, TransmuteFromObject, TryFromBorrowedObject},
     function::{OptionalArg, PyArithmeticValue, PyComparisonValue},
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
-    pyclass::PyClassImpl,
     recursion::ReprGuard,
     sequence::{ObjectSequenceOp, SequenceOp},
     sliceable::{SequenceIndex, SliceableSequenceOp},

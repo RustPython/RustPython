@@ -4,10 +4,10 @@ use crate::{
     builtins::{
         traceback::PyTracebackRef, PyNone, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
     },
+    class::{PyClassImpl, StaticType},
     convert::{ToPyException, ToPyObject},
     function::{ArgIterable, FuncArgs},
     py_io::{self, Write},
-    pyclass::{PyClassImpl, StaticType},
     stdlib::sys,
     suggestion::offer_suggestions,
     AsObject, Context, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,

@@ -9,9 +9,9 @@ use crate::common::lock::PyMutex;
 use crate::function::ArgMapping;
 use crate::{
     bytecode,
+    class::PyClassImpl,
     frame::Frame,
     function::{FuncArgs, OptionalArg, PyComparisonValue},
-    pyclass::PyClassImpl,
     scope::Scope,
     types::{Callable, Comparable, Constructor, GetAttr, GetDescriptor, PyComparisonOp},
     AsObject, Context, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,

@@ -1,6 +1,6 @@
 use super::{PyInt, PyStrRef, PyTypeRef};
 use crate::{
-    convert::ToPyObject, function::OptionalArg, pyclass::PyClassImpl, types::Constructor, AsObject,
+    class::PyClassImpl, convert::ToPyObject, function::OptionalArg, types::Constructor, AsObject,
     Context, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject, VirtualMachine,
 };
 use num_bigint::Sign;

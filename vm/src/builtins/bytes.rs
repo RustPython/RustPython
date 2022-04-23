@@ -6,6 +6,7 @@ use crate::{
         bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
         ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
     },
+    class::PyClassImpl,
     common::{hash::PyHash, lock::PyMutex},
     convert::{ToPyObject, ToPyResult},
     function::{ArgBytesLike, ArgIterable, OptionalArg, OptionalOption, PyComparisonValue},
@@ -13,7 +14,6 @@ use crate::{
         BufferDescriptor, BufferMethods, PyBuffer, PyIterReturn, PyMappingMethods,
         PySequenceMethods,
     },
-    pyclass::PyClassImpl,
     sliceable::{SequenceIndex, SliceableSequenceOp},
     types::{
         AsBuffer, AsMapping, AsSequence, Callable, Comparable, Constructor, Hashable, IterNext,

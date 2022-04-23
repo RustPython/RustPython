@@ -5,11 +5,11 @@ use super::{
 };
 use crate::{
     anystr::{self, adjust_indices, AnyStr, AnyStrContainer, AnyStrWrapper},
+    class::PyClassImpl,
     convert::{ToPyException, ToPyObject},
     format::{FormatSpec, FormatString, FromTemplate},
     function::{ArgIterable, FuncArgs, OptionalArg, OptionalOption, PyComparisonValue},
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
-    pyclass::PyClassImpl,
     sequence::SequenceOp,
     sliceable::{SequenceIndex, SliceableSequenceOp},
     types::{

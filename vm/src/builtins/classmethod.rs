@@ -1,7 +1,7 @@
 use super::PyTypeRef;
 use crate::{
     builtins::PyBoundMethod,
-    pyclass::PyClassImpl,
+    class::PyClassImpl,
     types::{Constructor, GetDescriptor},
     AsObject, Context, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };

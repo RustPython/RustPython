@@ -1,11 +1,11 @@
 use super::{float, PyByteArray, PyBytes, PyStr, PyStrRef, PyTypeRef};
 use crate::{
     bytesinner::PyBytesInner,
+    class::PyClassImpl,
     common::hash,
     convert::{ToPyObject, ToPyResult},
     format::FormatSpec,
     function::{ArgIntoBool, OptionalArg, OptionalOption, PyArithmeticValue, PyComparisonValue},
-    pyclass::PyClassImpl,
     types::{Comparable, Constructor, Hashable, PyComparisonOp},
     AsObject, Context, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject,
     VirtualMachine,

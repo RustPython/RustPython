@@ -1045,7 +1045,7 @@ macro_rules! partially_init {
 pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
     use crate::{
         builtins::{object, PyType},
-        pyclass::PyClassImpl,
+        class::PyClassImpl,
     };
     use std::mem::MaybeUninit;
 

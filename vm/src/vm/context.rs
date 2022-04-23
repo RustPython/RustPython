@@ -8,11 +8,11 @@ use crate::{
         PyBaseException, PyDict, PyDictRef, PyEllipsis, PyFloat, PyFrozenSet, PyInt, PyIntRef,
         PyList, PyListRef, PyNone, PyNotImplemented, PyStr, PyTuple, PyTupleRef, PyType, PyTypeRef,
     },
+    class::{PyClassImpl, StaticType},
     exceptions,
     function::IntoPyNativeFunc,
     intern::{Internable, StringPool},
     object::{PyObjectPayload, PyObjectRef, PyPayload, PyRef, PyRefExact},
-    pyclass::{PyClassImpl, StaticType},
     types::{PyTypeFlags, PyTypeSlots, TypeZoo},
 };
 use num_bigint::BigInt;

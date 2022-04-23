@@ -1,6 +1,6 @@
 use crate::{
     builtins::{PyTuple, PyTupleRef, PyTypeRef},
-    pyclass::{PyClassImpl, StaticType},
+    class::{PyClassImpl, StaticType},
     vm::Context,
     AsObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };

@@ -8,8 +8,8 @@ use crate::common::{
     lock::{PyRwLock, PyRwLockReadGuard},
 };
 use crate::{
+    class::{PyClassImpl, StaticType},
     function::{FuncArgs, KwArgs, OptionalArg},
-    pyclass::{PyClassImpl, StaticType},
     types::{Callable, GetAttr, PyTypeFlags, PyTypeSlots, SetAttr},
     AsObject, Context, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };

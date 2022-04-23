@@ -4,6 +4,7 @@ use super::{
 use crate::{
     buffer::FormatSpec,
     bytesinner::bytes_to_hex,
+    class::PyClassImpl,
     common::{
         borrow::{BorrowedValue, BorrowedValueMut},
         hash::PyHash,
@@ -14,7 +15,6 @@ use crate::{
     protocol::{
         BufferDescriptor, BufferMethods, PyBuffer, PyMappingMethods, PySequenceMethods, VecBuffer,
     },
-    pyclass::PyClassImpl,
     sequence::SequenceOp,
     sliceable::wrap_index,
     types::{AsBuffer, AsMapping, AsSequence, Comparable, Constructor, Hashable, PyComparisonOp},

@@ -1,7 +1,7 @@
 use super::PyTypeRef;
 use crate::{
+    class::PyClassImpl,
     protocol::{PyIter, PyIterReturn},
-    pyclass::PyClassImpl,
     types::{Constructor, IterNext, IterNextIterable},
     Context, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };

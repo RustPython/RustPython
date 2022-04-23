@@ -4,8 +4,8 @@ use crate::common::{
     hash::{self, PyHash},
 };
 use crate::{
+    class::PyClassImpl,
     function::OptionalArg,
-    pyclass::PyClassImpl,
     types::{Callable, Comparable, Constructor, Hashable, PyComparisonOp},
     AsObject, Context, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };

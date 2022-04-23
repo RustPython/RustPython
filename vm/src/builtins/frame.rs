@@ -4,8 +4,8 @@
 
 use super::{PyCode, PyDictRef, PyStrRef};
 use crate::{
+    class::PyClassImpl,
     frame::{Frame, FrameRef},
-    pyclass::PyClassImpl,
     types::{Constructor, Unconstructible},
     AsObject, Context, PyObjectRef, PyRef, PyResult, VirtualMachine,
 };

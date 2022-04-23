@@ -7,10 +7,10 @@ use super::{
 };
 use crate::common::{ascii, hash::PyHash, lock::PyMutex, rc::PyRc};
 use crate::{
+    class::PyClassImpl,
     dictdatatype::{self, DictSize},
     function::{ArgIterable, FuncArgs, OptionalArg, PosArgs, PyArithmeticValue, PyComparisonValue},
     protocol::{PyIterReturn, PySequenceMethods},
-    pyclass::PyClassImpl,
     recursion::ReprGuard,
     types::{
         AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable,

@@ -1,8 +1,8 @@
 use super::{pytype, PyClassMethod, PyStaticMethod, PyStr, PyStrRef, PyTypeRef};
 use crate::{
     builtins::PyBoundMethod,
+    class::PyClassImpl,
     function::{FuncArgs, IntoPyNativeFunc, PyNativeFunc},
-    pyclass::PyClassImpl,
     types::{Callable, Constructor, GetDescriptor, Unconstructible},
     AsObject, Context, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };

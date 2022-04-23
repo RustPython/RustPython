@@ -1,9 +1,9 @@
 use super::PyTypeRef;
 use crate::{
     builtins::PyTupleRef,
+    class::PyClassImpl,
     function::{ArgIntoBool, OptionalArg, PosArgs},
     protocol::{PyIter, PyIterReturn},
-    pyclass::PyClassImpl,
     types::{Constructor, IterNext, IterNextIterable},
     AsObject, Context, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };

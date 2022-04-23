@@ -1,7 +1,7 @@
 use super::{PyStrRef, PyTypeRef, PyWeak};
 use crate::{
+    class::PyClassImpl,
     function::OptionalArg,
-    pyclass::PyClassImpl,
     types::{Constructor, SetAttr},
     Context, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };

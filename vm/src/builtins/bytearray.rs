@@ -11,6 +11,7 @@ use crate::{
         ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerSplitOptions,
         ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
     },
+    class::PyClassImpl,
     common::{
         atomic::{AtomicUsize, Ordering},
         lock::{
@@ -26,7 +27,6 @@ use crate::{
         BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
         PyMappingMethods, PySequenceMethods,
     },
-    pyclass::PyClassImpl,
     sliceable::{SequenceIndex, SliceableSequenceMutOp, SliceableSequenceOp},
     types::{
         AsBuffer, AsMapping, AsSequence, Callable, Comparable, Constructor, Hashable, IterNext,

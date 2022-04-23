@@ -5,8 +5,8 @@ See also [CPython source code.](https://github.com/python/cpython/blob/50b48572d
 
 use super::{PyStrRef, PyType, PyTypeRef};
 use crate::{
+    class::PyClassImpl,
     function::OptionalArg,
-    pyclass::PyClassImpl,
     types::{Constructor, GetAttr, GetDescriptor},
     AsObject, Context, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };

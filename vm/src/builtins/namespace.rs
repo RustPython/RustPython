@@ -1,8 +1,8 @@
 use super::PyTypeRef;
 use crate::{
     builtins::PyDict,
+    class::PyClassImpl,
     function::{FuncArgs, PyComparisonValue},
-    pyclass::PyClassImpl,
     recursion::ReprGuard,
     types::{Comparable, Constructor, PyComparisonOp},
     AsObject, Context, PyObject, PyPayload, PyRef, PyResult, VirtualMachine,

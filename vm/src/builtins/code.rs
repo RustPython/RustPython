@@ -5,8 +5,8 @@
 use super::{PyStrRef, PyTupleRef, PyTypeRef};
 use crate::{
     bytecode::{self, BorrowedConstant, Constant, ConstantBag},
+    class::{PyClassImpl, StaticType},
     function::FuncArgs,
-    pyclass::{PyClassImpl, StaticType},
     AsObject, Context, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use num_traits::Zero;
