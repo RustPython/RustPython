@@ -1,7 +1,9 @@
 use crate::{
+    builtins::PyFloat,
     object::{AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult},
     vm::VirtualMachine,
 };
+use num_traits::ToPrimitive;
 
 /// Implemented by any type that can be created from a Python object.
 ///
@@ -98,5 +100,25 @@ impl<T: TryFromObject> TryFromObject for Option<T> {
 impl<T: TryFromObject> TryFromBorrowedObject for Vec<T> {
     fn try_from_borrowed_object(vm: &VirtualMachine, value: &PyObject) -> PyResult<Self> {
         vm.extract_elements_with(value, |obj| T::try_from_object(vm, obj))
+    }
+}
+
+impl TryFromObject for std::time::Duration {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        use std::time::Duration;
+        if let Some(float) = obj.payload::<PyFloat>() {
+            Ok(Duration::from_secs_f64(float.to_f64()))
+        } else if let Some(int) = vm.to_index_opt(obj.clone()) {
+            let sec = int?
+                .as_bigint()
+                .to_u64()
+                .ok_or_else(|| vm.new_value_error("value out of range".to_owned()))?;
+            Ok(Duration::from_secs(sec))
+        } else {
+            Err(vm.new_type_error(format!(
+                "expected an int or float for duration, got {}",
+                obj.class()
+            )))
+        }
     }
 }

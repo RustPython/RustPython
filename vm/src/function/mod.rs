@@ -2,6 +2,7 @@ mod argument;
 mod arithmetic;
 mod buffer;
 mod builtin;
+mod either;
 mod number;
 mod protocol;
 
@@ -12,6 +13,7 @@ pub use argument::{
 pub use arithmetic::{PyArithmeticValue, PyComparisonValue};
 pub use buffer::{ArgAsciiBuffer, ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike};
 pub use builtin::{IntoPyNativeFunc, OwnedParam, PyNativeFunc, RefParam};
+pub use either::Either;
 pub use number::{ArgIntoBool, ArgIntoComplex, ArgIntoFloat};
 pub use protocol::{ArgCallable, ArgIterable, ArgMapping, ArgSequence};
 
@@ -39,7 +41,7 @@ where
         Err(_) => {
             let tuple = PyTupleRef::try_from_object(vm, obj.clone())
                 .map_err(|_| vm.new_type_error((message)(&obj)))?;
-            for obj in tuple.as_slice().iter() {
+            for obj in &tuple {
                 if single_or_tuple_any(obj.clone(), predicate, message, vm)? {
                     return Ok(true);
                 }

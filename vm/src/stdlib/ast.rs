@@ -231,8 +231,7 @@ impl Node for ast::Constant {
             ref b @ builtins::bytes::PyBytes => ast::Constant::Bytes(b.as_bytes().to_owned()),
             ref t @ builtins::tuple::PyTuple => {
                 ast::Constant::Tuple(
-                    t.as_slice()
-                        .iter()
+                    t.iter()
                         .map(|elt| Self::ast_from_object(vm, elt.clone()))
                         .collect::<Result<_, _>>()?,
                 )

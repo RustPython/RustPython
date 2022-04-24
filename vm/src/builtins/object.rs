@@ -2,9 +2,9 @@ use super::{PyDict, PyDictRef, PyList, PyStr, PyStrRef, PyType, PyTypeRef};
 use crate::common::hash::PyHash;
 use crate::{
     class::PyClassImpl,
+    function::Either,
     function::{FuncArgs, PyArithmeticValue, PyComparisonValue},
     types::PyComparisonOp,
-    utils::Either,
     AsObject, Context, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 

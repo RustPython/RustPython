@@ -173,6 +173,14 @@ impl<T> ArgSequence<T> {
     }
 }
 
+impl<T> std::ops::Deref for ArgSequence<T> {
+    type Target = [T];
+    #[inline(always)]
+    fn deref(&self) -> &[T] {
+        self.as_slice()
+    }
+}
+
 impl<T: TryFromObject> TryFromObject for ArgSequence<T> {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         obj.try_to_value(vm).map(Self)

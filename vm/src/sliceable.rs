@@ -1,18 +1,16 @@
-use std::ops::Range;
-
 // export through slicable module, not slice.
-pub use crate::builtins::slice::{saturate_index, SaturatedSlice};
 use crate::{
-    builtins::{
-        int::PyInt,
-        slice::{PySlice, SaturatedSliceIter},
-    },
+    builtins::{int::PyInt, slice::PySlice},
     AsObject, PyObject, PyResult, TryFromBorrowedObject, VirtualMachine,
 };
+use num_traits::{Signed, ToPrimitive};
+use std::ops::Range;
 
-pub trait SliceableSequenceMutOp {
+pub trait SliceableSequenceMutOp
+where
+    Self: AsRef<[Self::Item]>,
+{
     type Item: Clone;
-    fn as_slice(&self) -> &[Self::Item];
     fn do_set(&mut self, index: usize, value: Self::Item);
     fn do_delele(&mut self, index: usize);
     /// as CPython, length of range and items could be different, function must act like Vec::splice()
@@ -33,7 +31,7 @@ pub trait SliceableSequenceMutOp {
         value: Self::Item,
     ) -> PyResult<()> {
         let pos = self
-            .as_slice()
+            .as_ref()
             .wrap_index(index)
             .ok_or_else(|| vm.new_index_error("assigment index out of range".to_owned()))?;
         self.do_set(pos, value);
@@ -46,7 +44,7 @@ pub trait SliceableSequenceMutOp {
         slice: SaturatedSlice,
         items: &[Self::Item],
     ) -> PyResult<()> {
-        let (range, step, slicelen) = slice.adjust_indices(self.as_slice().len());
+        let (range, step, slicelen) = slice.adjust_indices(self.as_ref().len());
         if slicelen != items.len() {
             Err(vm
                 .new_buffer_error("Existing exports of data: object cannot be re-sized".to_owned()))
@@ -68,7 +66,7 @@ pub trait SliceableSequenceMutOp {
         slice: SaturatedSlice,
         items: &[Self::Item],
     ) -> PyResult<()> {
-        let (range, step, slicelen) = slice.adjust_indices(self.as_slice().len());
+        let (range, step, slicelen) = slice.adjust_indices(self.as_ref().len());
         if step == 1 {
             self.do_set_range(range, items);
             Ok(())
@@ -89,7 +87,7 @@ pub trait SliceableSequenceMutOp {
 
     fn del_item_by_index(&mut self, vm: &VirtualMachine, index: isize) -> PyResult<()> {
         let pos = self
-            .as_slice()
+            .as_ref()
             .wrap_index(index)
             .ok_or_else(|| vm.new_index_error("assigment index out of range".to_owned()))?;
         self.do_delele(pos);
@@ -97,7 +95,7 @@ pub trait SliceableSequenceMutOp {
     }
 
     fn del_item_by_slice(&mut self, _vm: &VirtualMachine, slice: SaturatedSlice) -> PyResult<()> {
-        let (range, step, slicelen) = slice.adjust_indices(self.as_slice().len());
+        let (range, step, slicelen) = slice.adjust_indices(self.as_ref().len());
         if slicelen == 0 {
             Ok(())
         } else if step == 1 {
@@ -115,10 +113,6 @@ pub trait SliceableSequenceMutOp {
 
 impl<T: Clone> SliceableSequenceMutOp for Vec<T> {
     type Item = T;
-
-    fn as_slice(&self) -> &[Self::Item] {
-        self.as_slice()
-    }
 
     fn do_set(&mut self, index: usize, value: Self::Item) {
         self[index] = value;
@@ -303,4 +297,162 @@ pub(crate) fn wrap_index(p: isize, len: usize) -> Option<usize> {
     } else {
         Some(p)
     }
+}
+
+// Saturate p in range [0, len] inclusive
+pub fn saturate_index(p: isize, len: usize) -> usize {
+    let len = len.to_isize().unwrap_or(isize::MAX);
+    let mut p = p;
+    if p < 0 {
+        p += len;
+        if p < 0 {
+            p = 0;
+        }
+    }
+    if p > len {
+        p = len;
+    }
+    p as usize
+}
+
+/// A saturated slice with values ranging in [isize::MIN, isize::MAX]. Used for
+/// slicable sequences that require indices in the aforementioned range.
+///
+/// Invokes `__index__` on the PySliceRef during construction so as to separate the
+/// transformation from PyObject into isize and the adjusting of the slice to a given
+/// sequence length. The reason this is important is due to the fact that an objects
+/// `__index__` might get a lock on the sequence and cause a deadlock.
+#[derive(Copy, Clone, Debug)]
+pub struct SaturatedSlice {
+    start: isize,
+    stop: isize,
+    step: isize,
+}
+
+impl SaturatedSlice {
+    // Equivalent to PySlice_Unpack.
+    pub fn with_slice(slice: &PySlice, vm: &VirtualMachine) -> PyResult<Self> {
+        let step = to_isize_index(vm, slice.step_ref(vm))?.unwrap_or(1);
+        if step == 0 {
+            return Err(vm.new_value_error("slice step cannot be zero".to_owned()));
+        }
+        let start = to_isize_index(vm, slice.start_ref(vm))?.unwrap_or_else(|| {
+            if step.is_negative() {
+                isize::MAX
+            } else {
+                0
+            }
+        });
+
+        let stop = to_isize_index(vm, &slice.stop(vm))?.unwrap_or_else(|| {
+            if step.is_negative() {
+                isize::MIN
+            } else {
+                isize::MAX
+            }
+        });
+        Ok(Self { start, stop, step })
+    }
+
+    // Equivalent to PySlice_AdjustIndices
+    /// Convert for usage in indexing the underlying rust collections. Called *after*
+    /// __index__ has been called on the Slice which might mutate the collection.
+    pub fn adjust_indices(&self, len: usize) -> (Range<usize>, isize, usize) {
+        if len == 0 {
+            return (0..0, self.step, 0);
+        }
+        let range = if self.step.is_negative() {
+            let stop = if self.stop == -1 {
+                len
+            } else {
+                saturate_index(self.stop.saturating_add(1), len)
+            };
+            let start = if self.start == -1 {
+                len
+            } else {
+                saturate_index(self.start.saturating_add(1), len)
+            };
+            stop..start
+        } else {
+            saturate_index(self.start, len)..saturate_index(self.stop, len)
+        };
+
+        let (range, slicelen) = if range.start >= range.end {
+            (range.start..range.start, 0)
+        } else {
+            let slicelen = (range.end - range.start - 1) / self.step.unsigned_abs() + 1;
+            (range, slicelen)
+        };
+        (range, self.step, slicelen)
+    }
+
+    pub fn iter(&self, len: usize) -> SaturatedSliceIter {
+        SaturatedSliceIter::new(self, len)
+    }
+}
+
+pub struct SaturatedSliceIter {
+    index: isize,
+    step: isize,
+    len: usize,
+}
+
+impl SaturatedSliceIter {
+    pub fn new(slice: &SaturatedSlice, seq_len: usize) -> Self {
+        let (range, step, len) = slice.adjust_indices(seq_len);
+        Self::from_adjust_indices(range, step, len)
+    }
+
+    pub fn from_adjust_indices(range: Range<usize>, step: isize, len: usize) -> Self {
+        let index = if step.is_negative() {
+            range.end as isize - 1
+        } else {
+            range.start as isize
+        };
+        Self { index, step, len }
+    }
+
+    pub fn positive_order(mut self) -> Self {
+        if self.step.is_negative() {
+            self.index += self.step * self.len.saturating_sub(1) as isize;
+            self.step = self.step.saturating_abs()
+        }
+        self
+    }
+}
+
+impl Iterator for SaturatedSliceIter {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.len == 0 {
+            return None;
+        }
+        self.len -= 1;
+        let ret = self.index as usize;
+        // SAFETY: if index is overflowed, len should be zero
+        self.index = self.index.wrapping_add(self.step);
+        Some(ret)
+    }
+}
+
+// Go from PyObjectRef to isize w/o overflow error, out of range values are substituted by
+// isize::MIN or isize::MAX depending on type and value of step.
+// Equivalent to PyEval_SliceIndex.
+fn to_isize_index(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Option<isize>> {
+    if vm.is_none(obj) {
+        return Ok(None);
+    }
+    let result = vm.to_index_opt(obj.to_owned()).unwrap_or_else(|| {
+        Err(vm.new_type_error(
+            "slice indices must be integers or None or have an __index__ method".to_owned(),
+        ))
+    })?;
+    let value = result.as_bigint();
+    let is_negative = value.is_negative();
+    Ok(Some(value.to_isize().unwrap_or(if is_negative {
+        isize::MIN
+    } else {
+        isize::MAX
+    })))
 }

@@ -65,9 +65,6 @@ mod sys {
     #[pyattr(name = "ps2")]
     const PS2: &str = "..... ";
 
-    #[pyclass(noattr)]
-    use version::VersionInfo;
-
     #[pyattr]
     fn default_prefix(_vm: &VirtualMachine) -> &'static str {
         // TODO: the windows one doesn't really make sense
@@ -560,7 +557,7 @@ mod sys {
 
     #[pyattr]
     fn version_info(vm: &VirtualMachine) -> PyTupleRef {
-        version::VersionInfo::VERSION.into_struct_sequence(vm)
+        VersionInfo::VERSION.into_struct_sequence(vm)
     }
 
     fn update_use_tracing(vm: &VirtualMachine) {
@@ -636,7 +633,7 @@ mod sys {
         }
     }
 
-    #[pyclass(noattr, module = "sys", name = "float_info")]
+    #[pyclass(noattr, name = "float_info")]
     #[derive(PyStructSequence)]
     pub(super) struct PyFloatInfo {
         max: f64,
@@ -668,7 +665,7 @@ mod sys {
         };
     }
 
-    #[pyclass(noattr, module = "sys", name = "hash_info")]
+    #[pyclass(noattr, name = "hash_info")]
     #[derive(PyStructSequence)]
     pub(super) struct PyHashInfo {
         width: usize,
@@ -700,7 +697,7 @@ mod sys {
         };
     }
 
-    #[pyclass(noattr, module = "sys", name = "int_info")]
+    #[pyclass(noattr, name = "int_info")]
     #[derive(PyStructSequence)]
     pub(super) struct PyIntInfo {
         bits_per_digit: usize,
@@ -714,8 +711,37 @@ mod sys {
         };
     }
 
+    #[pyclass(noattr, name = "version_info")]
+    #[derive(Default, Debug, PyStructSequence)]
+    pub struct VersionInfo {
+        major: usize,
+        minor: usize,
+        micro: usize,
+        releaselevel: &'static str,
+        serial: usize,
+    }
+
+    #[pyimpl(with(PyStructSequence))]
+    impl VersionInfo {
+        pub const VERSION: VersionInfo = VersionInfo {
+            major: version::MAJOR,
+            minor: version::MINOR,
+            micro: version::MICRO,
+            releaselevel: version::RELEASELEVEL,
+            serial: version::SERIAL,
+        };
+        #[pyslot]
+        fn slot_new(
+            _cls: crate::builtins::type_::PyTypeRef,
+            _args: crate::function::FuncArgs,
+            vm: &crate::VirtualMachine,
+        ) -> crate::PyResult {
+            Err(vm.new_type_error("cannot create 'sys.version_info' instances".to_owned()))
+        }
+    }
+
     #[cfg(windows)]
-    #[pyclass(noattr, module = "sys", name = "getwindowsversion")]
+    #[pyclass(noattr, name = "getwindowsversion")]
     #[derive(Default, Debug, PyStructSequence)]
     pub(super) struct WindowsVersion {
         major: u32,
@@ -733,7 +759,7 @@ mod sys {
     #[pyimpl(with(PyStructSequence))]
     impl WindowsVersion {}
 
-    #[pyclass(noattr, module = "sys", name = "UnraisableHookArgs")]
+    #[pyclass(noattr, name = "UnraisableHookArgs")]
     #[derive(Debug, PyStructSequence, TryIntoPyStructSequence)]
     pub struct UnraisableHookArgs {
         pub exc_type: PyTypeRef,

@@ -50,12 +50,11 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
             rustpython_vm::recursion::ReprGuard::enter(vm, zelf.as_object())
         {
             if Self::FIELD_NAMES.len() == 1 {
-                let value = zelf.as_slice().first().unwrap();
+                let value = zelf.first().unwrap();
                 let formatted = format_field((value, Self::FIELD_NAMES[0]))?;
                 (formatted, ",")
             } else {
                 let fields: PyResult<Vec<_>> = zelf
-                    .as_slice()
                     .iter()
                     .zip(Self::FIELD_NAMES.iter().copied())
                     .map(format_field)
@@ -70,10 +69,7 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
 
     #[pymethod(magic)]
     fn reduce(zelf: PyRef<PyTuple>, vm: &VirtualMachine) -> PyTupleRef {
-        vm.new_tuple((
-            zelf.class().clone(),
-            (vm.ctx.new_tuple(zelf.as_slice().to_vec()),),
-        ))
+        vm.new_tuple((zelf.class().clone(), (vm.ctx.new_tuple(zelf.to_vec()),)))
     }
 
     #[extend_class]

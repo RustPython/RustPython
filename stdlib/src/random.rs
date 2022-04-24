@@ -88,9 +88,9 @@ mod _random {
 
         #[pymethod]
         fn seed(&self, n: OptionalOption<PyObjectRef>, vm: &VirtualMachine) -> PyResult<()> {
-            let new_rng = match n.flatten() {
-                None => PyRng::default(),
-                Some(n) => {
+            let new_rng = n
+                .flatten()
+                .map(|n| {
                     // Fallback to using hash if object isn't Int-like.
                     let (_, mut key) = match n.downcast::<PyInt>() {
                         Ok(n) => n.as_bigint().abs(),
@@ -101,9 +101,12 @@ mod _random {
                         key.reverse();
                     }
                     let key = if key.is_empty() { &[0] } else { key.as_slice() };
-                    PyRng::MT(Box::new(mt19937::MT19937::new_with_slice_seed(key)))
-                }
-            };
+                    Ok(PyRng::MT(Box::new(mt19937::MT19937::new_with_slice_seed(
+                        key,
+                    ))))
+                })
+                .transpose()?
+                .unwrap_or_default();
 
             *self.rng.lock() = new_rng;
             Ok(())

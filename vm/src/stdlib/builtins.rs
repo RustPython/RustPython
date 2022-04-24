@@ -23,6 +23,8 @@ mod builtins {
         },
         class::PyClassImpl,
         common::{hash::PyHash, str::to_ascii},
+        format::call_object_format,
+        function::Either,
         function::{
             ArgBytesLike, ArgCallable, ArgIntoBool, ArgIterable, ArgMapping, FuncArgs, KwArgs,
             OptionalArg, OptionalOption, PosArgs, PyArithmeticValue,
@@ -33,7 +35,6 @@ mod builtins {
         scope::Scope,
         stdlib::sys,
         types::PyComparisonOp,
-        utils::Either,
         AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     };
     use num_traits::{Signed, ToPrimitive, Zero};
@@ -306,14 +307,7 @@ mod builtins {
             .into_option()
             .unwrap_or_else(|| PyStr::from("").into_ref(vm));
 
-        vm.call_method(&value, "__format__", (format_spec,))?
-            .downcast()
-            .map_err(|obj| {
-                vm.new_type_error(format!(
-                    "__format__ must return a str, not {}",
-                    obj.class().name()
-                ))
-            })
+        call_object_format(vm, value, None, format_spec.as_str())
     }
 
     #[pyfunction]
@@ -820,7 +814,7 @@ mod builtins {
         // Update bases.
         let mut new_bases: Option<Vec<PyObjectRef>> = None;
         let bases = PyTuple::new_ref(bases.into_vec(), &vm.ctx);
-        for (i, base) in bases.as_slice().iter().enumerate() {
+        for (i, base) in bases.iter().enumerate() {
             if base.fast_isinstance(&vm.ctx.types.type_type) {
                 if let Some(bases) = &mut new_bases {
                     bases.push(base.clone());
@@ -840,8 +834,8 @@ mod builtins {
             let entries: PyTupleRef = entries
                 .downcast()
                 .map_err(|_| vm.new_type_error("__mro_entries__ must return a tuple".to_owned()))?;
-            let new_bases = new_bases.get_or_insert_with(|| bases.as_slice()[..i].to_vec());
-            new_bases.extend_from_slice(entries.as_slice());
+            let new_bases = new_bases.get_or_insert_with(|| bases[..i].to_vec());
+            new_bases.extend_from_slice(&entries);
         }
 
         let new_bases = new_bases.map(|v| PyTuple::new_ref(v, &vm.ctx));
@@ -858,7 +852,7 @@ mod builtins {
 
         let (metaclass, meta_name) = match metaclass {
             Ok(mut metaclass) => {
-                for base in bases.as_slice().iter() {
+                for base in &bases {
                     let base_class = base.class();
                     if base_class.fast_issubclass(&metaclass) {
                         metaclass = base.class().clone();

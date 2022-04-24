@@ -38,7 +38,7 @@ mod decl {
     fn hexlify(data: ArgBytesLike) -> Vec<u8> {
         data.with_ref(|bytes| {
             let mut hex = Vec::<u8>::with_capacity(bytes.len() * 2);
-            for b in bytes.iter() {
+            for b in bytes {
                 hex.push(hex_nibble(b >> 4));
                 hex.push(hex_nibble(b & 0xf));
             }

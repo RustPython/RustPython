@@ -33,9 +33,9 @@ mod _posixsubprocess {
                 .chain(std::iter::once(std::ptr::null()))
                 .collect::<Vec<_>>()
         };
-        let argv = cstrs_to_ptrs(args.args.as_slice());
+        let argv = cstrs_to_ptrs(&args.args);
         let argv = &argv;
-        let envp = args.env_list.as_ref().map(|s| cstrs_to_ptrs(s.as_slice()));
+        let envp = args.env_list.as_ref().map(|s| cstrs_to_ptrs(s));
         let envp = envp.as_deref();
         match unsafe { nix::unistd::fork() }.map_err(|err| err.to_pyexception(vm))? {
             nix::unistd::ForkResult::Child => exec(&args, ProcArgs { argv, envp }),
@@ -149,7 +149,7 @@ fn exec_inner(args: &ForkExecArgs, procargs: ProcArgs) -> nix::Result<Never> {
 
     if args.close_fds {
         #[cfg(not(target_os = "redox"))]
-        close_fds(3, args.fds_to_keep.as_slice())?;
+        close_fds(3, &args.fds_to_keep)?;
     }
 
     let mut first_err = None;

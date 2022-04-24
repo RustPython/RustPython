@@ -688,7 +688,7 @@ impl CFormatBytes {
         vm: &VirtualMachine,
         values_obj: PyObjectRef,
     ) -> PyResult<Vec<u8>> {
-        let (num_specifiers, mapping_required) = check_specifiers(self.parts.as_slice(), vm)?;
+        let (num_specifiers, mapping_required) = check_specifiers(&self.parts, vm)?;
         let mut result = vec![];
 
         let is_mapping = values_obj.class().has_attr("__getitem__")
@@ -701,7 +701,7 @@ impl CFormatBytes {
             return if is_mapping
                 || values_obj
                     .payload::<tuple::PyTuple>()
-                    .map_or(false, |e| e.as_slice().is_empty())
+                    .map_or(false, |e| e.is_empty())
             {
                 for (_, part) in &mut self.parts {
                     match part {
@@ -840,7 +840,7 @@ impl CFormatString {
         vm: &VirtualMachine,
         values_obj: PyObjectRef,
     ) -> PyResult<String> {
-        let (num_specifiers, mapping_required) = check_specifiers(self.parts.as_slice(), vm)?;
+        let (num_specifiers, mapping_required) = check_specifiers(&self.parts, vm)?;
         let mut result = String::new();
 
         let is_mapping = values_obj.class().has_attr("__getitem__")
@@ -852,7 +852,7 @@ impl CFormatString {
             return if is_mapping
                 || values_obj
                     .payload::<tuple::PyTuple>()
-                    .map_or(false, |e| e.as_slice().is_empty())
+                    .map_or(false, |e| e.is_empty())
             {
                 for (_, part) in &self.parts {
                     match part {

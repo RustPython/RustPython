@@ -20,6 +20,7 @@ use crate::{
         },
     },
     convert::ToPyObject,
+    function::Either,
     function::{
         ArgBytesLike, ArgIterable, FuncArgs, OptionalArg, OptionalOption, PyComparisonValue,
     },
@@ -32,7 +33,6 @@ use crate::{
         AsBuffer, AsMapping, AsSequence, Callable, Comparable, Constructor, Hashable, IterNext,
         IterNextIterable, Iterable, PyComparisonOp, Unconstructible, Unhashable,
     },
-    utils::Either,
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, TryFromObject, VirtualMachine,
 };
@@ -185,10 +185,10 @@ impl PyByteArray {
                     bytes_from_object(vm, &value)?
                 };
                 if let Some(mut w) = zelf.try_resizable_opt() {
-                    w.elements.set_item_by_slice(vm, slice, items.as_slice())
+                    w.elements.set_item_by_slice(vm, slice, &items)
                 } else {
                     zelf.borrow_buf_mut()
-                        .set_item_by_slice_no_resize(vm, slice, items.as_slice())
+                        .set_item_by_slice_no_resize(vm, slice, &items)
                 }
             }
         }

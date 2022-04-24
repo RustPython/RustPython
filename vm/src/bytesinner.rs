@@ -4,11 +4,10 @@ use crate::{
         pystr, PyByteArray, PyBytes, PyBytesRef, PyInt, PyIntRef, PyStr, PyStrRef, PyTypeRef,
     },
     cformat::CFormatBytes,
-    function::{ArgIterable, OptionalArg, OptionalOption, PyComparisonValue},
+    function::{ArgIterable, Either, OptionalArg, OptionalOption, PyComparisonValue},
     protocol::PyBuffer,
     sequence::{SequenceMutOp, SequenceOp},
     types::PyComparisonOp,
-    utils::Either,
     AsObject, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject, VirtualMachine,
 };
 use bstr::ByteSlice;
@@ -547,7 +546,7 @@ impl PyBytesInner {
             Vec::new()
         };
 
-        for i in self.elements.iter() {
+        for i in &self.elements {
             if !delete.contains(i) {
                 res.push(table[*i as usize]);
             }
@@ -878,7 +877,7 @@ impl PyBytesInner {
         let mut res = vec![];
         let mut spaced = true;
 
-        for i in self.elements.iter() {
+        for i in &self.elements {
             match i {
                 65..=90 | 97..=122 => {
                     if spaced {

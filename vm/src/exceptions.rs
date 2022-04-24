@@ -152,7 +152,6 @@ impl VirtualMachine {
 
     fn exception_args_as_string(&self, varargs: PyTupleRef, str_single: bool) -> Vec<PyStrRef> {
         let vm = self;
-        let varargs = varargs.as_slice();
         match varargs.len() {
             0 => vec![],
             1 => {
@@ -309,8 +308,8 @@ impl ExceptionCtor {
             (Self::Class(cls), _) => {
                 let args = match_class!(match value {
                     PyNone => vec![],
-                    tup @ PyTuple => tup.as_slice().to_vec(),
-                    exc @ PyBaseException => exc.args().as_slice().to_vec(),
+                    tup @ PyTuple => tup.to_vec(),
+                    exc @ PyBaseException => exc.args().to_vec(),
                     obj => vec![obj],
                 });
                 vm.invoke_exception(cls, args)
@@ -439,7 +438,7 @@ impl PyBaseException {
     }
 
     pub fn get_arg(&self, idx: usize) -> Option<PyObjectRef> {
-        self.args.read().as_slice().get(idx).cloned()
+        self.args.read().get(idx).cloned()
     }
 
     #[pyproperty]
@@ -740,7 +739,6 @@ impl ExceptionZoo {
         let errno_getter =
             ctx.new_readonly_getset("errno", excs.os_error.clone(), |exc: PyBaseExceptionRef| {
                 let args = exc.args();
-                let args = args.as_slice();
                 args.get(0).filter(|_| args.len() > 1).cloned()
             });
         extend_exception!(PyOSError, ctx, &excs.os_error, {
@@ -858,7 +856,7 @@ fn make_arg_getter(idx: usize) -> impl Fn(PyBaseExceptionRef) -> Option<PyObject
 
 fn key_error_str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyStrRef {
     let args = exc.args();
-    if args.as_slice().len() == 1 {
+    if args.len() == 1 {
         vm.exception_args_as_string(args, false)
             .into_iter()
             .exactly_one()
@@ -872,7 +870,7 @@ fn os_error_str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult<PyStrR
     let args = exc.args();
     let obj = exc.as_object().to_owned();
 
-    if args.as_slice().len() == 2 {
+    if args.len() == 2 {
         // SAFETY: len() == 2 is checked so get_arg 1 or 2 won't panic
         let errno = exc.get_arg(0).unwrap().str(vm)?;
         let msg = exc.get_arg(1).unwrap().str(vm)?;
@@ -899,7 +897,7 @@ fn os_error_str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult<PyStrR
 }
 
 fn system_exit_code(exc: PyBaseExceptionRef) -> Option<PyObjectRef> {
-    exc.args.read().as_slice().first().map(|code| {
+    exc.args.read().first().map(|code| {
         match_class!(match code {
             ref tup @ PyTuple => match tup.as_slice() {
                 [x] => x.clone(),
@@ -957,7 +955,6 @@ impl serde::Serialize for SerializeException<'_> {
                 fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
                     s.collect_seq(
                         self.1
-                            .as_slice()
                             .iter()
                             .map(|arg| crate::py_serde::PyObjectSerializer::new(self.0, arg)),
                     )
@@ -1244,7 +1241,6 @@ pub(super) mod types {
     ) -> Option<PyBaseExceptionRef> {
         let len = args.len();
         if len >= 2 {
-            let args = args.as_slice();
             let errno = &args[0];
             errno
                 .payload_if_subclass::<PyInt>(vm)

@@ -694,7 +694,7 @@ impl GetSetNursery {
 
     fn validate(&mut self) -> Result<()> {
         let mut errors = Vec::new();
-        for ((name, _cfgs), (getter, setter, deleter)) in self.map.iter() {
+        for ((name, _cfgs), (getter, setter, deleter)) in &self.map {
             if getter.is_none() {
                 errors.push(syn::Error::new_spanned(
                     setter.as_ref().or(deleter.as_ref()).unwrap(),

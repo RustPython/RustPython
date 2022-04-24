@@ -174,7 +174,6 @@ pub(crate) fn get_jit_args<'a>(
 
     // fill in positional defaults
     if let Some(defaults) = defaults {
-        let defaults = defaults.as_slice();
         for (i, default) in defaults.iter().enumerate() {
             let arg_idx = i + func.code.arg_count - defaults.len();
             if !jit_args.is_set(arg_idx) {

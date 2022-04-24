@@ -154,8 +154,11 @@ fn sec_to_timeval(sec: f64) -> timeval {
 mod decl {
     use super::*;
     use crate::vm::{
-        builtins::PyTypeRef, convert::ToPyException, function::OptionalOption, stdlib::time,
-        utils::Either, PyObjectRef, PyResult, VirtualMachine,
+        builtins::PyTypeRef,
+        convert::ToPyException,
+        function::{Either, OptionalOption},
+        stdlib::time,
+        PyObjectRef, PyResult, VirtualMachine,
     };
 
     #[pyattr]

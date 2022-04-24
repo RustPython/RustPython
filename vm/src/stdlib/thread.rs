@@ -7,9 +7,8 @@ pub(crate) mod _thread {
     use crate::{
         builtins::{PyDictRef, PyStrRef, PyTupleRef, PyTypeRef},
         convert::ToPyException,
-        function::{ArgCallable, FuncArgs, KwArgs, OptionalArg},
+        function::{ArgCallable, Either, FuncArgs, KwArgs, OptionalArg},
         types::{Constructor, GetAttr, SetAttr},
-        utils::Either,
         AsObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     };
     use parking_lot::{
@@ -227,7 +226,7 @@ pub(crate) mod _thread {
         vm: &VirtualMachine,
     ) -> PyResult<u64> {
         let args = FuncArgs::new(
-            args.as_slice().to_owned(),
+            args.to_vec(),
             kwargs
                 .map_or_else(Default::default, |k| k.to_attributes())
                 .into_iter()

@@ -11,7 +11,8 @@ use crate::{
     convert::{IntoObject, ToPyResult},
     coroutine::Coro,
     exceptions::ExceptionCtor,
-    function::{ArgMapping, FuncArgs},
+    format::call_object_format,
+    function::{ArgMapping, Either, FuncArgs},
     protocol::{PyIter, PyIterReturn},
     scope::Scope,
     stdlib::builtins,
@@ -386,7 +387,6 @@ impl ExecutingFrame<'_> {
         exc_tb: PyObjectRef,
     ) -> PyResult<ExecutionResult> {
         if let Some(gen) = self.yield_from_target() {
-            use crate::utils::Either;
             // borrow checker shenanigans - we only need to use exc_type/val/tb if the following
             // variable is Some
             let thrower = if let Some(coro) = self.builtin_coro(gen) {
@@ -1070,15 +1070,12 @@ impl ExecutingFrame<'_> {
                 };
 
                 let spec = self.pop_value();
-                let formatted = vm
-                    .call_special_method(value, "__format__", (spec,))?
-                    .downcast::<PyStr>()
-                    .map_err(|formatted| {
-                        vm.new_type_error(format!(
-                            "__format__ must return a str, not {}",
-                            &formatted.class().name()
-                        ))
-                    })?;
+                let formatted = call_object_format(
+                    vm,
+                    value,
+                    None,
+                    spec.downcast_ref::<PyStr>().unwrap().as_str(),
+                )?;
                 self.push_value(formatted.into());
                 Ok(None)
             }
