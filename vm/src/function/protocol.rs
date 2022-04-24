@@ -173,6 +173,13 @@ impl<T> ArgSequence<T> {
     }
 }
 
+impl<T> AsRef<[T]> for ArgSequence<T> {
+    #[inline(always)]
+    fn as_ref(&self) -> &[T] {
+        self.as_slice()
+    }
+}
+
 impl<T: TryFromObject> TryFromObject for ArgSequence<T> {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         obj.try_to_value(vm).map(Self)

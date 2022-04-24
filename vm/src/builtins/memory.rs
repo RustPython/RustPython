@@ -16,7 +16,6 @@ use crate::{
     protocol::{
         BufferDescriptor, BufferMethods, PyBuffer, PyMappingMethods, PySequenceMethods, VecBuffer,
     },
-    sequence::SequenceOp,
     sliceable::wrap_index,
     types::{AsBuffer, AsMapping, AsSequence, Comparable, Constructor, Hashable, PyComparisonOp},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
@@ -642,7 +641,7 @@ impl PyMemoryView {
                 Either::B(shape) => {
                     list = shape;
                     list_borrow = list.borrow_vec();
-                    list_borrow.as_slice()
+                    &list_borrow
                 }
             };
 

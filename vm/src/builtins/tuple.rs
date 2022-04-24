@@ -119,6 +119,12 @@ impl Constructor for PyTuple {
     }
 }
 
+impl AsRef<[PyObjectRef]> for PyTuple {
+    fn as_ref(&self) -> &[PyObjectRef] {
+        self.as_slice()
+    }
+}
+
 impl PyTuple {
     pub fn new_ref(elements: Vec<PyObjectRef>, ctx: &Context) -> PyRef<Self> {
         if elements.is_empty() {
@@ -469,6 +475,12 @@ impl<T: TransmuteFromObject> TryFromObject for PyTupleTyped<T> {
             tuple,
             _marker: PhantomData,
         })
+    }
+}
+
+impl<T: TransmuteFromObject> AsRef<[T]> for PyTupleTyped<T> {
+    fn as_ref(&self) -> &[T] {
+        self.as_slice()
     }
 }
 
