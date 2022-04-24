@@ -1897,7 +1897,7 @@ pub mod module {
     struct SendFileArgs {
         out_fd: i32,
         in_fd: i32,
-        offset: crate::crt_fd::Offset,
+        offset: crate::common::crt_fd::Offset,
         count: i64,
         #[cfg(target_os = "macos")]
         #[pyarg(any, optional)]

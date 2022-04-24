@@ -1,8 +1,7 @@
 //! A module implementing an io type backed by the C runtime's file descriptors, i.e. what's
 //! returned from libc::open, even on windows.
 
-use crate::suppress_iph;
-use std::{cmp, ffi, fs, io, mem};
+use std::{cmp, ffi, io};
 
 #[cfg(windows)]
 use libc::commit as fsync;
@@ -21,10 +20,31 @@ pub type Offset = libc::off_t;
 #[cfg(windows)]
 pub type Offset = libc::c_longlong;
 
+// copied from stdlib::os
+#[cfg(windows)]
+fn errno() -> io::Error {
+    let err = io::Error::last_os_error();
+    // FIXME: probably not ideal, we need a bigger dichotomy between GetLastError and errno
+    if err.raw_os_error() == Some(0) {
+        extern "C" {
+            fn _get_errno(pValue: *mut i32) -> i32;
+        }
+        let mut e = 0;
+        unsafe { suppress_iph!(_get_errno(&mut e)) };
+        io::Error::from_raw_os_error(e)
+    } else {
+        err
+    }
+}
+#[cfg(not(windows))]
+fn errno() -> io::Error {
+    io::Error::last_os_error()
+}
+
 #[inline]
 fn cvt<T, I: num_traits::PrimInt>(ret: I, f: impl FnOnce(I) -> T) -> io::Result<T> {
     if ret < I::zero() {
-        Err(crate::stdlib::os::errno())
+        Err(errno())
     } else {
         Ok(f(ret))
     }
@@ -73,50 +93,16 @@ impl Fd {
         cvt(unsafe { suppress_iph!(ftruncate(self.0, len)) }, drop)
     }
 
-    /// NOTE: it's not recommended to use ManuallyDrop::into_inner() to drop the file - it won't
-    /// work on all platforms, and will swallow any errors you might want to handle.
-    #[allow(unused)] // only used on windows atm
-    pub(crate) fn as_rust_file(&self) -> io::Result<mem::ManuallyDrop<fs::File>> {
-        #[cfg(windows)]
-        let file = {
-            use std::os::windows::io::FromRawHandle;
-            let handle = self.to_raw_handle()?;
-            unsafe { fs::File::from_raw_handle(handle) }
-        };
-        #[cfg(unix)]
-        let file = {
-            let fd = self.0;
-            use std::os::unix::io::FromRawFd;
-            if fd < 0 {
-                return Err(io::Error::from_raw_os_error(libc::EBADF));
-            }
-            unsafe { fs::File::from_raw_fd(fd) }
-        };
-        #[cfg(target_os = "wasi")]
-        let file = {
-            let fd = self.0;
-            if fd < 0 {
-                return Err(io::Error::from_raw_os_error(libc::EBADF));
-            }
-            // SAFETY: as of now, File is a wrapper around WasiFd, which is a wrapper around
-            // wasi::Fd (u32). This isn't likely to change, and if it does change to a different
-            // sized integer, mem::transmute will fail.
-            unsafe { mem::transmute::<u32, fs::File>(fd as u32) }
-        };
-        Ok(mem::ManuallyDrop::new(file))
-    }
-
     #[cfg(windows)]
-    pub(crate) fn to_raw_handle(&self) -> io::Result<std::os::windows::io::RawHandle> {
-        use winapi::um::{handleapi::INVALID_HANDLE_VALUE, winnt::HANDLE};
+    pub fn to_raw_handle(&self) -> io::Result<std::os::windows::io::RawHandle> {
         extern "C" {
             fn _get_osfhandle(fd: i32) -> libc::intptr_t;
         }
-        let handle = unsafe { suppress_iph!(_get_osfhandle(self.0)) } as HANDLE;
-        if handle == INVALID_HANDLE_VALUE {
+        let handle = unsafe { suppress_iph!(_get_osfhandle(self.0)) };
+        if handle == -1 {
             Err(io::Error::last_os_error())
         } else {
-            Ok(handle)
+            Ok(handle as _)
         }
     }
 }

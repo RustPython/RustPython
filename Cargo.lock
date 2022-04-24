@@ -1638,6 +1638,7 @@ dependencies = [
  "siphasher",
  "unic-ucd-category",
  "volatile",
+ "widestring",
 ]
 
 [[package]]

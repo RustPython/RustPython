@@ -12,15 +12,15 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 pub(crate) mod module {
     use crate::{
         builtins::{PyStrRef, PyTupleRef},
+        common::{crt_fd::Fd, suppress_iph},
         convert::ToPyException,
-        crt_fd::Fd,
         function::Either,
         function::OptionalArg,
         stdlib::os::{
             errno_err, DirFd, FollowSymlinks, PyPathLike, SupportFunc, TargetIsDirectory, _os,
             errno,
         },
-        suppress_iph, PyResult, TryFromObject, VirtualMachine,
+        PyResult, TryFromObject, VirtualMachine,
     };
     use std::{env, fs, io};
 
@@ -189,33 +189,6 @@ pub(crate) mod module {
             )
         };
         Ok(_os::PyTerminalSize { columns, lines })
-    }
-
-    #[cfg(target_env = "msvc")]
-    type InvalidParamHandler = extern "C" fn(
-        *const libc::wchar_t,
-        *const libc::wchar_t,
-        *const libc::wchar_t,
-        libc::c_uint,
-        libc::uintptr_t,
-    );
-    #[cfg(target_env = "msvc")]
-    extern "C" {
-        #[doc(hidden)]
-        pub fn _set_thread_local_invalid_parameter_handler(
-            pNew: InvalidParamHandler,
-        ) -> InvalidParamHandler;
-    }
-
-    #[cfg(target_env = "msvc")]
-    #[doc(hidden)]
-    pub extern "C" fn silent_iph_handler(
-        _: *const libc::wchar_t,
-        _: *const libc::wchar_t,
-        _: *const libc::wchar_t,
-        _: libc::c_uint,
-        _: libc::uintptr_t,
-    ) {
     }
 
     #[cfg(target_env = "msvc")]
@@ -407,19 +380,6 @@ pub(crate) mod module {
     pub(crate) fn support_funcs() -> Vec<SupportFunc> {
         Vec::new()
     }
-}
-
-#[cfg(all(windows, target_env = "msvc"))]
-#[macro_export]
-macro_rules! suppress_iph {
-    ($e:expr) => {{
-        let old = $crate::stdlib::nt::module::_set_thread_local_invalid_parameter_handler(
-            $crate::stdlib::nt::module::silent_iph_handler,
-        );
-        let ret = $e;
-        $crate::stdlib::nt::module::_set_thread_local_invalid_parameter_handler(old);
-        ret
-    }};
 }
 
 pub fn init_winsock() {

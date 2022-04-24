@@ -47,8 +47,6 @@ pub mod class;
 mod codecs;
 pub mod convert;
 mod coroutine;
-#[cfg(any(unix, windows, target_os = "wasi"))]
-mod crt_fd;
 mod dictdatatype;
 #[cfg(feature = "rustpython-compiler")]
 pub mod eval;

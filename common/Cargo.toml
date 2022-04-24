@@ -24,3 +24,6 @@ radium = "0.7"
 libc = "0.2.101"
 ascii = "1.0"
 unic-ucd-category = "0.9"
+
+[target.'cfg(windows)'.dependencies]
+widestring = "0.5.1"
