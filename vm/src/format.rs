@@ -882,7 +882,7 @@ impl FormatString {
     }
 }
 
-fn call_object_format(
+pub fn call_object_format(
     vm: &VirtualMachine,
     argument: PyObjectRef,
     preconversion_spec: Option<char>,

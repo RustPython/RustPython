@@ -1585,8 +1585,6 @@ class BuiltinTest(unittest.TestCase):
         l8 = self.iter_error(zip(Iter(3), "AB", strict=True), ValueError)
         self.assertEqual(l8, [(2, "A"), (1, "B")])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_format(self):
         # Test the basic machinery of the format() builtin.  Don't test
         #  the specifics of the various formatters

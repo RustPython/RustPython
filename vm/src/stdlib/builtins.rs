@@ -23,6 +23,7 @@ mod builtins {
         },
         class::PyClassImpl,
         common::{hash::PyHash, str::to_ascii},
+        format::call_object_format,
         function::Either,
         function::{
             ArgBytesLike, ArgCallable, ArgIntoBool, ArgIterable, ArgMapping, FuncArgs, KwArgs,
@@ -306,14 +307,7 @@ mod builtins {
             .into_option()
             .unwrap_or_else(|| PyStr::from("").into_ref(vm));
 
-        vm.call_method(&value, "__format__", (format_spec,))?
-            .downcast()
-            .map_err(|obj| {
-                vm.new_type_error(format!(
-                    "__format__ must return a str, not {}",
-                    obj.class().name()
-                ))
-            })
+        call_object_format(vm, value, None, format_spec.as_str())
     }
 
     #[pyfunction]
