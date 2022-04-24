@@ -69,7 +69,6 @@ impl PyUnion {
 
         Ok(self
             .args
-            .as_slice()
             .iter()
             .map(|o| repr_item(o.clone(), vm))
             .collect::<PyResult<Vec<_>>>()?
@@ -117,7 +116,7 @@ fn is_typevar(obj: &PyObjectRef) -> bool {
 
 fn make_parameters(args: &PyTupleRef, vm: &VirtualMachine) -> PyTupleRef {
     let mut parameters: Vec<PyObjectRef> = Vec::with_capacity(args.len());
-    for arg in args.as_slice() {
+    for arg in args {
         if is_typevar(arg) {
             if !parameters.iter().any(|param| param.is(arg)) {
                 parameters.push(arg.clone());
@@ -127,7 +126,7 @@ fn make_parameters(args: &PyTupleRef, vm: &VirtualMachine) -> PyTupleRef {
             .get_attr("__parameters__", vm)
             .and_then(|obj| PyTupleRef::try_from_object(vm, obj))
         {
-            for subparam in subparams.as_slice() {
+            for subparam in &subparams {
                 if !parameters.iter().any(|param| param.is(subparam)) {
                     parameters.push(subparam.clone());
                 }
@@ -141,7 +140,7 @@ fn make_parameters(args: &PyTupleRef, vm: &VirtualMachine) -> PyTupleRef {
 
 fn flatten_args(args: PyTupleRef, vm: &VirtualMachine) -> PyTupleRef {
     let mut total_args = 0;
-    for arg in args.as_slice() {
+    for arg in &args {
         if let Some(pyref) = arg.downcast_ref::<PyUnion>() {
             total_args += pyref.args.len();
         } else {
@@ -150,9 +149,9 @@ fn flatten_args(args: PyTupleRef, vm: &VirtualMachine) -> PyTupleRef {
     }
 
     let mut flattened_args = Vec::with_capacity(total_args);
-    for arg in args.as_slice() {
+    for arg in &args {
         if let Some(pyref) = arg.downcast_ref::<PyUnion>() {
-            flattened_args.extend(pyref.args.as_slice().iter().cloned());
+            flattened_args.extend(pyref.args.iter().cloned());
         } else {
             flattened_args.push(arg.clone());
         };
@@ -165,7 +164,7 @@ fn dedup_and_flatten_args(args: PyTupleRef, vm: &VirtualMachine) -> PyTupleRef {
     let args = flatten_args(args, vm);
 
     let mut new_args: Vec<PyObjectRef> = Vec::with_capacity(args.len());
-    for arg in args.as_slice() {
+    for arg in &args {
         if !new_args.iter().any(|param| {
             match (
                 PyTypeRef::try_from_object(vm, param.clone()),
@@ -214,7 +213,7 @@ impl PyUnion {
             res = make_union(new_args, vm);
         } else {
             res = new_args.fast_getitem(0);
-            for arg in new_args.as_slice().iter().skip(1) {
+            for arg in new_args.iter().skip(1) {
                 res = vm._or(&res, arg)?;
             }
         }
@@ -265,8 +264,8 @@ impl Hashable for PyUnion {
 
 impl GetAttr for PyUnion {
     fn getattro(zelf: PyRef<Self>, attr: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        for exc in CLS_ATTRS.iter() {
-            if *(*exc) == attr.to_string() {
+        for &exc in CLS_ATTRS {
+            if *exc == attr.to_string() {
                 return vm.generic_getattribute(zelf.as_object().to_owned(), attr);
             }
         }

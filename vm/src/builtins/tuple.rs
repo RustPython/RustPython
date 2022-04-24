@@ -119,6 +119,37 @@ impl Constructor for PyTuple {
     }
 }
 
+impl AsRef<[PyObjectRef]> for PyTuple {
+    fn as_ref(&self) -> &[PyObjectRef] {
+        self.as_slice()
+    }
+}
+
+impl std::ops::Deref for PyTuple {
+    type Target = [PyObjectRef];
+    fn deref(&self) -> &[PyObjectRef] {
+        self.as_slice()
+    }
+}
+
+impl<'a> std::iter::IntoIterator for &'a PyTuple {
+    type Item = &'a PyObjectRef;
+    type IntoIter = std::slice::Iter<'a, PyObjectRef>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl<'a> std::iter::IntoIterator for &'a PyTupleRef {
+    type Item = &'a PyObjectRef;
+    type IntoIter = std::slice::Iter<'a, PyObjectRef>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
 impl PyTuple {
     pub fn new_ref(elements: Vec<PyObjectRef>, ctx: &Context) -> PyRef<Self> {
         if elements.is_empty() {
@@ -159,7 +190,6 @@ impl PyTuple {
                 other
             } else {
                 let elements = zelf
-                    .as_slice()
                     .iter()
                     .chain(other.as_slice())
                     .cloned()
@@ -178,7 +208,7 @@ impl PyTuple {
     #[pymethod]
     fn count(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         let mut count: usize = 0;
-        for element in self.elements.iter() {
+        for element in self {
             if vm.identical_or_equal(element, &needle)? {
                 count += 1;
             }
@@ -256,14 +286,14 @@ impl PyTuple {
     ) -> PyResult<usize> {
         let mut start = start.into_option().unwrap_or(0);
         if start < 0 {
-            start += self.as_slice().len() as isize;
+            start += self.len() as isize;
             if start < 0 {
                 start = 0;
             }
         }
         let mut stop = stop.into_option().unwrap_or(sys::MAXSIZE);
         if stop < 0 {
-            stop += self.as_slice().len() as isize;
+            stop += self.len() as isize;
             if stop < 0 {
                 stop = 0;
             }
@@ -385,9 +415,7 @@ impl Comparable for PyTuple {
             return Ok(res.into());
         }
         let other = class_or_notimplemented!(Self, other);
-        let a = zelf.as_slice();
-        let b = other.as_slice();
-        a.cmp(vm, b, op).map(PyComparisonValue::Implemented)
+        zelf.cmp(vm, other, op).map(PyComparisonValue::Implemented)
     }
 }
 
@@ -440,7 +468,7 @@ impl IterNext for PyTupleIterator {
     fn next(zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal.lock().next(|tuple, pos| {
             Ok(PyIterReturn::from_result(
-                tuple.as_slice().get(pos).cloned().ok_or(None),
+                tuple.get(pos).cloned().ok_or(None),
             ))
         })
     }
@@ -461,7 +489,7 @@ pub struct PyTupleTyped<T: TransmuteFromObject> {
 impl<T: TransmuteFromObject> TryFromObject for PyTupleTyped<T> {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let tuple = PyTupleRef::try_from_object(vm, obj)?;
-        for elem in tuple.as_slice() {
+        for elem in &tuple {
             T::check(vm, elem)?
         }
         // SAFETY: the contract of TransmuteFromObject upholds the variant on `tuple`
@@ -469,6 +497,12 @@ impl<T: TransmuteFromObject> TryFromObject for PyTupleTyped<T> {
             tuple,
             _marker: PhantomData,
         })
+    }
+}
+
+impl<T: TransmuteFromObject> AsRef<[T]> for PyTupleTyped<T> {
+    fn as_ref(&self) -> &[T] {
+        self.as_slice()
     }
 }
 

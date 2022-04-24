@@ -41,7 +41,7 @@ where
         Err(_) => {
             let tuple = PyTupleRef::try_from_object(vm, obj.clone())
                 .map_err(|_| vm.new_type_error((message)(&obj)))?;
-            for obj in tuple.as_slice().iter() {
+            for obj in &tuple {
                 if single_or_tuple_any(obj.clone(), predicate, message, vm)? {
                     return Ok(true);
                 }

@@ -546,7 +546,7 @@ impl PyBytesInner {
             Vec::new()
         };
 
-        for i in self.elements.iter() {
+        for i in &self.elements {
             if !delete.contains(i) {
                 res.push(table[*i as usize]);
             }
@@ -877,7 +877,7 @@ impl PyBytesInner {
         let mut res = vec![];
         let mut spaced = true;
 
-        for i in self.elements.iter() {
+        for i in &self.elements {
             match i {
                 65..=90 | 97..=122 => {
                     if spaced {

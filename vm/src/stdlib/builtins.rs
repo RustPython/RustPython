@@ -814,7 +814,7 @@ mod builtins {
         // Update bases.
         let mut new_bases: Option<Vec<PyObjectRef>> = None;
         let bases = PyTuple::new_ref(bases.into_vec(), &vm.ctx);
-        for (i, base) in bases.as_slice().iter().enumerate() {
+        for (i, base) in bases.iter().enumerate() {
             if base.fast_isinstance(&vm.ctx.types.type_type) {
                 if let Some(bases) = &mut new_bases {
                     bases.push(base.clone());
@@ -834,8 +834,8 @@ mod builtins {
             let entries: PyTupleRef = entries
                 .downcast()
                 .map_err(|_| vm.new_type_error("__mro_entries__ must return a tuple".to_owned()))?;
-            let new_bases = new_bases.get_or_insert_with(|| bases.as_slice()[..i].to_vec());
-            new_bases.extend_from_slice(entries.as_slice());
+            let new_bases = new_bases.get_or_insert_with(|| bases[..i].to_vec());
+            new_bases.extend_from_slice(&entries);
         }
 
         let new_bases = new_bases.map(|v| PyTuple::new_ref(v, &vm.ctx));
@@ -852,7 +852,7 @@ mod builtins {
 
         let (metaclass, meta_name) = match metaclass {
             Ok(mut metaclass) => {
-                for base in bases.as_slice().iter() {
+                for base in &bases {
                     let base_class = base.class();
                     if base_class.fast_issubclass(&metaclass) {
                         metaclass = base.class().clone();

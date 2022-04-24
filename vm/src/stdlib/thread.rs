@@ -226,7 +226,7 @@ pub(crate) mod _thread {
         vm: &VirtualMachine,
     ) -> PyResult<u64> {
         let args = FuncArgs::new(
-            args.as_slice().to_owned(),
+            args.to_vec(),
             kwargs
                 .map_or_else(Default::default, |k| k.to_attributes())
                 .into_iter()

@@ -305,7 +305,7 @@ impl PyObject {
         }
 
         if let Ok(tuple) = PyTupleRef::try_from_object(vm, cls.to_owned()) {
-            for typ in tuple.as_slice().iter() {
+            for typ in &tuple {
                 if vm.with_recursion("in __subclasscheck__", || self.is_subclass(typ, vm))? {
                     return Ok(true);
                 }
@@ -370,7 +370,7 @@ impl PyObject {
         }
 
         if let Ok(tuple) = PyTupleRef::try_from_object(vm, cls.to_owned()) {
-            for typ in tuple.as_slice().iter() {
+            for typ in &tuple {
                 if vm.with_recursion("in __instancecheck__", || self.is_instance(typ, vm))? {
                     return Ok(true);
                 }

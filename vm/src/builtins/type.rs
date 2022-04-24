@@ -88,7 +88,7 @@ impl PyType {
     ) -> Result<PyRef<Self>, String> {
         // Check for duplicates in bases.
         let mut unique_bases = HashSet::new();
-        for base in bases.iter() {
+        for base in &bases {
             if !unique_bases.insert(base.get_id()) {
                 return Err(format!("duplicate base class {}", base.name()));
             }
@@ -437,7 +437,6 @@ impl PyType {
             return Err(vm.new_value_error("type name must not contain null characters".to_owned()));
         }
 
-        let bases = bases.as_slice();
         let (metatype, base, bases) = if bases.is_empty() {
             let base = vm.ctx.types.object_type.clone();
             (metatype, base.clone(), vec![base])
@@ -834,7 +833,7 @@ fn linearise_mro(mut bases: Vec<Vec<PyTypeRef>>) -> Result<Vec<PyTypeRef>, Strin
     // To verify this, we make sure non of the direct bases are in the mro of bases after them.
     for (i, base_mro) in bases.iter().enumerate() {
         let base = &base_mro[0]; // Mros cannot be empty.
-        for later_mro in bases[i + 1..].iter() {
+        for later_mro in &bases[i + 1..] {
             // We start at index 1 to skip direct bases.
             // This will not catch duplicate bases, but such a thing is already tested for.
             if later_mro[1..].iter().any(|cls| cls.is(base)) {

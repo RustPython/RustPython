@@ -242,35 +242,34 @@ pub trait MutObjectSequenceOp<'a> {
     }
 }
 
-pub trait SequenceOp<T: Clone> {
-    fn as_slice(&self) -> &[T];
-
+pub trait SequenceOp<T: Clone>
+where
+    Self: AsRef<[T]>,
+{
     fn mul(&self, vm: &VirtualMachine, n: isize) -> PyResult<Vec<T>> {
-        let n = vm.check_repeat_or_overflow_error(self.as_slice().len(), n)?;
-        let mut v = Vec::with_capacity(n * self.as_slice().len());
+        let n = vm.check_repeat_or_overflow_error(self.as_ref().len(), n)?;
+        let mut v = Vec::with_capacity(n * self.as_ref().len());
         for _ in 0..n {
-            v.extend_from_slice(self.as_slice());
+            v.extend_from_slice(self.as_ref());
         }
         Ok(v)
     }
 }
 
-impl<T: Clone> SequenceOp<T> for [T] {
-    fn as_slice(&self) -> &[T] {
-        self
-    }
-}
+impl<T: Clone> SequenceOp<T> for [T] {}
 
-pub trait SequenceMutOp<T: Clone> {
-    fn as_slice(&self) -> &[T];
+pub trait SequenceMutOp<T: Clone>
+where
+    Self: AsRef<[T]>,
+{
     fn as_vec_mut(&mut self) -> &mut Vec<T>;
 
     fn imul(&mut self, vm: &VirtualMachine, n: isize) -> PyResult<()> {
-        let n = vm.check_repeat_or_overflow_error(self.as_slice().len(), n)?;
+        let n = vm.check_repeat_or_overflow_error(self.as_ref().len(), n)?;
         if n == 0 {
             self.as_vec_mut().clear();
         } else if n != 1 {
-            let mut sample = self.as_slice().to_vec();
+            let mut sample = self.as_vec_mut().clone();
             if n != 2 {
                 self.as_vec_mut().reserve(sample.len() * (n - 1));
                 for _ in 0..n - 2 {
@@ -284,10 +283,6 @@ pub trait SequenceMutOp<T: Clone> {
 }
 
 impl<T: Clone> SequenceMutOp<T> for Vec<T> {
-    fn as_slice(&self) -> &[T] {
-        self.as_slice()
-    }
-
     fn as_vec_mut(&mut self) -> &mut Vec<T> {
         self
     }

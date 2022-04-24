@@ -1301,7 +1301,7 @@ pub mod module {
             if let Some(it) = self.file_actions {
                 for action in it.iter(vm)? {
                     let action = action?;
-                    let (id, args) = action.as_slice().split_first().ok_or_else(|| {
+                    let (id, args) = action.split_first().ok_or_else(|| {
                         vm.new_type_error(
                             "Each file_actions element must be a non-empty tuple".to_owned(),
                         )

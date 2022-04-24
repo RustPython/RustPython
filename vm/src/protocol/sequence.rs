@@ -356,7 +356,7 @@ impl PySequence<'_> {
         F: FnMut(&PyObject) -> PyResult<R>,
     {
         if let Some(tuple) = self.obj.payload_if_exact::<PyTuple>(vm) {
-            tuple.as_slice().iter().map(|x| f(x.as_ref())).collect()
+            tuple.iter().map(|x| f(x.as_ref())).collect()
         } else if let Some(list) = self.obj.payload_if_exact::<PyList>(vm) {
             list.borrow_vec().iter().map(|x| f(x.as_ref())).collect()
         } else {
@@ -377,7 +377,7 @@ impl PySequence<'_> {
         F: FnMut(PyObjectRef) -> PyResult<R>,
     {
         if let Some(tuple) = self.obj.payload_if_exact::<PyTuple>(vm) {
-            tuple.as_slice().iter().map(|x| f(x.clone())).collect()
+            tuple.iter().map(|x| f(x.clone())).collect()
         } else if let Some(list) = self.obj.payload_if_exact::<PyList>(vm) {
             list.borrow_vec().iter().map(|x| f(x.clone())).collect()
         } else {

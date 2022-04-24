@@ -52,7 +52,7 @@ fn borrow_obj_constant(obj: &PyObject) -> BorrowedConstant<PyConstant> {
         }
         ref t @ super::tuple::PyTuple => {
             BorrowedConstant::Tuple {
-                elements: Box::new(t.as_slice().iter().map(|o| borrow_obj_constant(o))),
+                elements: Box::new(t.iter().map(|o| borrow_obj_constant(o))),
             }
         }
         super::singletons::PyNone => BorrowedConstant::None,

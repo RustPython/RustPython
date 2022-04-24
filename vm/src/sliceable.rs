@@ -6,9 +6,11 @@ use crate::{
 use num_traits::{Signed, ToPrimitive};
 use std::ops::Range;
 
-pub trait SliceableSequenceMutOp {
+pub trait SliceableSequenceMutOp
+where
+    Self: AsRef<[Self::Item]>,
+{
     type Item: Clone;
-    fn as_slice(&self) -> &[Self::Item];
     fn do_set(&mut self, index: usize, value: Self::Item);
     fn do_delele(&mut self, index: usize);
     /// as CPython, length of range and items could be different, function must act like Vec::splice()
@@ -29,7 +31,7 @@ pub trait SliceableSequenceMutOp {
         value: Self::Item,
     ) -> PyResult<()> {
         let pos = self
-            .as_slice()
+            .as_ref()
             .wrap_index(index)
             .ok_or_else(|| vm.new_index_error("assigment index out of range".to_owned()))?;
         self.do_set(pos, value);
@@ -42,7 +44,7 @@ pub trait SliceableSequenceMutOp {
         slice: SaturatedSlice,
         items: &[Self::Item],
     ) -> PyResult<()> {
-        let (range, step, slicelen) = slice.adjust_indices(self.as_slice().len());
+        let (range, step, slicelen) = slice.adjust_indices(self.as_ref().len());
         if slicelen != items.len() {
             Err(vm
                 .new_buffer_error("Existing exports of data: object cannot be re-sized".to_owned()))
@@ -64,7 +66,7 @@ pub trait SliceableSequenceMutOp {
         slice: SaturatedSlice,
         items: &[Self::Item],
     ) -> PyResult<()> {
-        let (range, step, slicelen) = slice.adjust_indices(self.as_slice().len());
+        let (range, step, slicelen) = slice.adjust_indices(self.as_ref().len());
         if step == 1 {
             self.do_set_range(range, items);
             Ok(())
@@ -85,7 +87,7 @@ pub trait SliceableSequenceMutOp {
 
     fn del_item_by_index(&mut self, vm: &VirtualMachine, index: isize) -> PyResult<()> {
         let pos = self
-            .as_slice()
+            .as_ref()
             .wrap_index(index)
             .ok_or_else(|| vm.new_index_error("assigment index out of range".to_owned()))?;
         self.do_delele(pos);
@@ -93,7 +95,7 @@ pub trait SliceableSequenceMutOp {
     }
 
     fn del_item_by_slice(&mut self, _vm: &VirtualMachine, slice: SaturatedSlice) -> PyResult<()> {
-        let (range, step, slicelen) = slice.adjust_indices(self.as_slice().len());
+        let (range, step, slicelen) = slice.adjust_indices(self.as_ref().len());
         if slicelen == 0 {
             Ok(())
         } else if step == 1 {
@@ -111,10 +113,6 @@ pub trait SliceableSequenceMutOp {
 
 impl<T: Clone> SliceableSequenceMutOp for Vec<T> {
     type Item = T;
-
-    fn as_slice(&self) -> &[Self::Item] {
-        self.as_slice()
-    }
 
     fn do_set(&mut self, index: usize, value: Self::Item) {
         self[index] = value;

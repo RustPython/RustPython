@@ -16,7 +16,6 @@ use crate::{
     protocol::{
         BufferDescriptor, BufferMethods, PyBuffer, PyMappingMethods, PySequenceMethods, VecBuffer,
     },
-    sequence::SequenceOp,
     sliceable::wrap_index,
     types::{AsBuffer, AsMapping, AsSequence, Comparable, Constructor, Hashable, PyComparisonOp},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
@@ -642,7 +641,7 @@ impl PyMemoryView {
                 Either::B(shape) => {
                     list = shape;
                     list_borrow = list.borrow_vec();
-                    list_borrow.as_slice()
+                    &list_borrow
                 }
             };
 
@@ -667,7 +666,7 @@ impl PyMemoryView {
             let mut product_shape = itemsize;
             let mut dim_descriptor = Vec::with_capacity(shape_ndim);
 
-            for x in shape.iter() {
+            for x in shape {
                 let x = usize::try_from_borrowed_object(vm, x)?;
 
                 if x > isize::MAX as usize / product_shape {
@@ -898,7 +897,6 @@ impl TryFromObject for SubscriptNeedle {
             Ok(Self::Index(i.try_to_primitive(vm)?))
         } else {
             if let Some(tuple) = obj.payload::<PyTuple>() {
-                let tuple = tuple.as_slice();
                 if tuple.iter().all(|x| x.payload_is::<PyInt>()) {
                     let v = tuple
                         .iter()

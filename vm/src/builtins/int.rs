@@ -868,7 +868,7 @@ fn bytes_to_int(lit: &[u8], mut base: u32) -> Option<BigInt> {
     }
 
     // validate
-    for c in lit.iter() {
+    for c in lit {
         let c = *c;
         if !(c.is_ascii_alphanumeric() || c == b'_') {
             return None;

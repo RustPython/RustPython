@@ -1047,7 +1047,7 @@ pub(super) mod _os {
                 }
             };
 
-            let args: FuncArgs = flatten_args(args.args.as_slice()).into();
+            let args: FuncArgs = flatten_args(&args.args).into();
 
             let stat: StatResult = args.bind(vm)?;
             Ok(stat.to_pyobject(vm))
@@ -1342,7 +1342,6 @@ pub(super) mod _os {
     #[pyfunction]
     fn utime(args: UtimeArgs, vm: &VirtualMachine) -> PyResult<()> {
         let parse_tup = |tup: &PyTuple| -> Option<(PyObjectRef, PyObjectRef)> {
-            let tup = tup.as_slice();
             if tup.len() != 2 {
                 None
             } else {
