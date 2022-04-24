@@ -41,11 +41,11 @@ impl PyCodec {
 
     #[inline]
     pub fn get_encode_func(&self) -> &PyObject {
-        &self.0.as_slice()[0]
+        &self.0[0]
     }
     #[inline]
     pub fn get_decode_func(&self) -> &PyObject {
-        &self.0.as_slice()[1]
+        &self.0[1]
     }
 
     pub fn is_text_codec(&self, vm: &VirtualMachine) -> PyResult<bool> {
@@ -72,7 +72,7 @@ impl PyCodec {
                 vm.new_type_error("encoder must return a tuple (object, integer)".to_owned())
             })?;
         // we don't actually care about the integer
-        Ok(res.as_slice()[0].clone())
+        Ok(res[0].clone())
     }
 
     pub fn decode(
@@ -94,7 +94,7 @@ impl PyCodec {
                 vm.new_type_error("decoder must return a tuple (object,integer)".to_owned())
             })?;
         // we don't actually care about the integer
-        Ok(res.as_slice()[0].clone())
+        Ok(res[0].clone())
     }
 
     pub fn get_incremental_encoder(

@@ -106,7 +106,7 @@ mod decl {
                 fset_bytes
             }
             pytuple @ PyTuple => {
-                let mut tuple_bytes = dump_list(pytuple.as_slice().iter(), vm)?;
+                let mut tuple_bytes = dump_list(pytuple.iter(), vm)?;
                 tuple_bytes.push(TUPLE_BYTE);
                 tuple_bytes
             }
@@ -194,7 +194,7 @@ mod decl {
         let dict = DictContentType::default();
         for elem in iterable {
             let items = match_class!(match elem.clone() {
-                pytuple @ PyTuple => pytuple.as_slice().to_vec(),
+                pytuple @ PyTuple => pytuple.to_vec(),
                 _ =>
                     return Err(vm.new_value_error(
                         "Couldn't unmarshal key:value pair of dictionary".to_owned()

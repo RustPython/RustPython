@@ -508,7 +508,7 @@ impl VirtualMachine {
                     i += 1;
                 }
             }
-            ref t @ PyTuple => Ok(t.as_slice().iter().cloned().map(f).collect()),
+            ref t @ PyTuple => Ok(t.iter().cloned().map(f).collect()),
             // TODO: put internal iterable type
             obj => {
                 Ok(self.map_pyiter(obj, f))

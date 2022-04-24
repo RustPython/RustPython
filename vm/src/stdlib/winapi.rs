@@ -301,7 +301,7 @@ mod _winapi {
                     .and_then(|obj| {
                         <Option<ArgSequence<usize>>>::try_from_object(vm, obj)
                             .map(|s| match s {
-                                Some(s) if !s.as_slice().is_empty() => Some(s.into_vec()),
+                                Some(s) if !s.is_empty() => Some(s.into_vec()),
                                 _ => None,
                             })
                             .transpose()

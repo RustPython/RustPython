@@ -434,7 +434,7 @@ mod _operator {
         fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
             let fmt = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
                 let mut parts = Vec::with_capacity(zelf.attrs.len());
-                for part in zelf.attrs.iter() {
+                for part in &zelf.attrs {
                     parts.push(part.as_object().repr(vm)?.as_str().to_owned());
                 }
                 parts.join(", ")
@@ -505,7 +505,7 @@ mod _operator {
             }
             // Build tuple and call get_single on each element in attrs.
             let mut results = Vec::with_capacity(zelf.attrs.len());
-            for o in zelf.attrs.iter() {
+            for o in &zelf.attrs {
                 results.push(Self::get_single_attr(obj.clone(), o.as_str(), vm)?);
             }
             Ok(vm.ctx.new_tuple(results).into())
@@ -530,7 +530,7 @@ mod _operator {
         fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
             let fmt = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
                 let mut items = Vec::with_capacity(zelf.items.len());
-                for item in zelf.items.iter() {
+                for item in &zelf.items {
                     items.push(item.repr(vm)?.as_str().to_owned());
                 }
                 items.join(", ")
@@ -572,7 +572,7 @@ mod _operator {
             }
             // Build tuple and call get_single on each element in attrs.
             let mut results = Vec::with_capacity(zelf.items.len());
-            for item in zelf.items.iter() {
+            for item in &zelf.items {
                 results.push(obj.get_item(item.clone(), vm)?);
             }
             Ok(vm.ctx.new_tuple(results).into())

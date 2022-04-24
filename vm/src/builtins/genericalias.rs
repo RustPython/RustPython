@@ -110,7 +110,6 @@ impl PyGenericAlias {
                 "()".to_owned()
             } else {
                 self.args
-                    .as_slice()
                     .iter()
                     .map(|o| repr_item(o.clone(), vm))
                     .collect::<PyResult<Vec<_>>>()?
@@ -153,7 +152,7 @@ impl PyGenericAlias {
     #[pymethod(magic)]
     fn dir(&self, vm: &VirtualMachine) -> PyResult<PyList> {
         let dir = vm.dir(Some(self.origin()))?;
-        for exc in ATTR_EXCEPTIONS.iter() {
+        for exc in &ATTR_EXCEPTIONS {
             if !dir.contains((*exc).to_pyobject(vm), vm)? {
                 dir.append((*exc).to_pyobject(vm));
             }
@@ -198,7 +197,7 @@ fn is_typevar(obj: &PyObjectRef) -> bool {
 
 fn make_parameters(args: &PyTupleRef, vm: &VirtualMachine) -> PyTupleRef {
     let mut parameters: Vec<PyObjectRef> = Vec::with_capacity(args.len());
-    for arg in args.as_slice() {
+    for arg in args {
         if is_typevar(arg) {
             if !parameters.iter().any(|param| param.is(arg)) {
                 parameters.push(arg.clone());
@@ -208,7 +207,7 @@ fn make_parameters(args: &PyTupleRef, vm: &VirtualMachine) -> PyTupleRef {
             .get_attr("__parameters__", vm)
             .and_then(|obj| PyTupleRef::try_from_object(vm, obj))
         {
-            for subparam in subparams.as_slice() {
+            for subparam in &subparams {
                 if !parameters.iter().any(|param| param.is(subparam)) {
                     parameters.push(subparam.clone());
                 }
@@ -222,7 +221,7 @@ fn make_parameters(args: &PyTupleRef, vm: &VirtualMachine) -> PyTupleRef {
 
 #[inline]
 fn tuple_index(tuple: &PyTupleRef, item: &PyObjectRef) -> Option<usize> {
-    tuple.as_slice().iter().position(|element| element.is(item))
+    tuple.iter().position(|element| element.is(item))
 }
 
 fn subs_tvars(
@@ -240,7 +239,6 @@ fn subs_tvars(
                 .map(|sub_params| {
                     if sub_params.len() > 0 {
                         let sub_args = sub_params
-                            .as_slice()
                             .iter()
                             .map(|arg| {
                                 if let Some(idx) = tuple_index(params, arg) {
@@ -290,7 +288,6 @@ pub fn subs_parameters<F: Fn(&VirtualMachine) -> PyResult<String>>(
     }
 
     let new_args = args
-        .as_slice()
         .iter()
         .map(|arg| {
             if is_typevar(arg) {
@@ -370,7 +367,7 @@ impl Hashable for PyGenericAlias {
 
 impl GetAttr for PyGenericAlias {
     fn getattro(zelf: PyRef<Self>, attr: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        for exc in ATTR_EXCEPTIONS.iter() {
+        for exc in &ATTR_EXCEPTIONS {
             if *(*exc) == attr.to_string() {
                 return vm.generic_getattribute(zelf.as_object().to_owned(), attr);
             }

@@ -516,7 +516,7 @@ mod math {
         }
 
         let mut res = argvec[0].as_bigint().clone();
-        for num in argvec[1..].iter() {
+        for num in &argvec[1..] {
             res = op(&res, num)
         }
         res

@@ -361,7 +361,7 @@ impl FormatSpec {
 
         let mut args = args.into_iter();
         // Loop over all opcodes:
-        for code in self.codes.iter() {
+        for code in &self.codes {
             buffer = &mut buffer[code.pre_padding..];
             debug!("code: {:?}", code);
             match code.code {

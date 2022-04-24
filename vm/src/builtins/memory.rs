@@ -666,7 +666,7 @@ impl PyMemoryView {
             let mut product_shape = itemsize;
             let mut dim_descriptor = Vec::with_capacity(shape_ndim);
 
-            for x in shape.iter() {
+            for x in shape {
                 let x = usize::try_from_borrowed_object(vm, x)?;
 
                 if x > isize::MAX as usize / product_shape {
@@ -897,7 +897,6 @@ impl TryFromObject for SubscriptNeedle {
             Ok(Self::Index(i.try_to_primitive(vm)?))
         } else {
             if let Some(tuple) = obj.payload::<PyTuple>() {
-                let tuple = tuple.as_slice();
                 if tuple.iter().all(|x| x.payload_is::<PyInt>()) {
                     let v = tuple
                         .iter()

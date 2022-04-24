@@ -208,8 +208,7 @@ impl PyList {
             SequenceIndex::Int(index) => self.borrow_vec_mut().set_item_by_index(vm, index, value),
             SequenceIndex::Slice(slice) => {
                 let sec = PySequence::from(value.as_ref()).extract_cloned(Ok, vm)?;
-                self.borrow_vec_mut()
-                    .set_item_by_slice(vm, slice, sec.as_slice())
+                self.borrow_vec_mut().set_item_by_slice(vm, slice, &sec)
             }
         }
     }

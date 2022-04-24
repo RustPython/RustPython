@@ -58,17 +58,17 @@ pub fn offer_suggestions(exc: &PyBaseExceptionRef, vm: &VirtualMachine) -> Optio
         }
 
         let varnames = tb.frame.code.clone().co_varnames(vm);
-        if let Some(suggestions) = calculate_suggestions(varnames.as_slice().iter(), &name) {
+        if let Some(suggestions) = calculate_suggestions(varnames.iter(), &name) {
             return Some(suggestions);
         };
 
         let globals: Vec<_> = tb.frame.globals.as_object().try_to_value(vm).ok()?;
-        if let Some(suggestions) = calculate_suggestions(globals.as_slice().iter(), &name) {
+        if let Some(suggestions) = calculate_suggestions(globals.iter(), &name) {
             return Some(suggestions);
         };
 
         let builtins: Vec<_> = tb.frame.builtins.as_object().try_to_value(vm).ok()?;
-        calculate_suggestions(builtins.as_slice().iter(), &name)
+        calculate_suggestions(builtins.iter(), &name)
     } else {
         None
     }

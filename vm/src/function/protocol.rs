@@ -173,9 +173,10 @@ impl<T> ArgSequence<T> {
     }
 }
 
-impl<T> AsRef<[T]> for ArgSequence<T> {
+impl<T> std::ops::Deref for ArgSequence<T> {
+    type Target = [T];
     #[inline(always)]
-    fn as_ref(&self) -> &[T] {
+    fn deref(&self) -> &[T] {
         self.as_slice()
     }
 }
