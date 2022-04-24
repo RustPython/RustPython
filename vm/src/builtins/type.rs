@@ -16,7 +16,7 @@ use crate::{
 use itertools::Itertools;
 use std::{borrow::Borrow, collections::HashSet, fmt, ops::Deref};
 
-use indexmap::IndexMap;
+use indexmap::{map::Entry, IndexMap};
 
 /// type(object_or_name, bases, dict)
 /// type(object) -> the object's type
@@ -493,7 +493,7 @@ impl PyType {
 
         if let Some(current_frame) = vm.current_frame() {
             let entry = attributes.entry("__module__".to_owned());
-            if matches!(entry, indexmap::map::Entry::Vacant(_)) {
+            if matches!(entry, Entry::Vacant(_)) {
                 let module_name =
                     vm.unwrap_or_none(current_frame.globals.get_item_opt("__name__", vm)?);
                 entry.or_insert(module_name);
