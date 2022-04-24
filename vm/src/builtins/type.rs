@@ -13,10 +13,9 @@ use crate::{
     types::{Callable, GetAttr, PyTypeFlags, PyTypeSlots, SetAttr},
     AsObject, Context, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
+use indexmap::{map::Entry, IndexMap};
 use itertools::Itertools;
 use std::{borrow::Borrow, collections::HashSet, fmt, ops::Deref};
-
-use indexmap::{map::Entry, IndexMap};
 
 /// type(object_or_name, bases, dict)
 /// type(object) -> the object's type
@@ -33,9 +32,9 @@ pub struct PyType {
 
 pub type PyTypeRef = PyRef<PyType>;
 
-/// For attributes we do not use a dict, but a hashmap. This is probably
-/// faster, unordered, and only supports strings as keys.
-/// TODO: class attributes should maintain insertion order (use IndexMap here)
+/// For attributes we do not use a dict, but an IndexMap, which is an Hash Table
+/// that maintains order and is compatible with the standard HashMap  This is probably
+/// faster and only supports strings as keys.
 pub type PyAttributes = IndexMap<String, PyObjectRef, ahash::RandomState>;
 
 impl fmt::Display for PyType {
