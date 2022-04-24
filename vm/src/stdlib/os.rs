@@ -288,23 +288,7 @@ impl ToPyException for IOErrorBuilder {
 /// Convert the error stored in the `errno` variable into an Exception
 #[inline]
 pub fn errno_err(vm: &VirtualMachine) -> PyBaseExceptionRef {
-    errno().to_pyexception(vm)
-}
-
-#[cfg(windows)]
-pub fn errno() -> io::Error {
-    let err = io::Error::last_os_error();
-    // FIXME: probably not ideal, we need a bigger dichotomy between GetLastError and errno
-    if err.raw_os_error() == Some(0) {
-        io::Error::from_raw_os_error(super::msvcrt::get_errno())
-    } else {
-        err
-    }
-}
-
-#[cfg(not(windows))]
-pub fn errno() -> io::Error {
-    io::Error::last_os_error()
+    crate::common::os::errno().to_pyexception(vm)
 }
 
 #[allow(dead_code)]

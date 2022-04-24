@@ -17,6 +17,7 @@ pub mod float_ops;
 pub mod hash;
 pub mod linked_list;
 pub mod lock;
+pub mod os;
 pub mod rc;
 pub mod refcount;
 pub mod static_cell;

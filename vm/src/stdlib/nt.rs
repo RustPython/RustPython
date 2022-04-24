@@ -12,13 +12,12 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 pub(crate) mod module {
     use crate::{
         builtins::{PyStrRef, PyTupleRef},
-        common::{crt_fd::Fd, suppress_iph},
+        common::{crt_fd::Fd, os::errno, suppress_iph},
         convert::ToPyException,
         function::Either,
         function::OptionalArg,
         stdlib::os::{
             errno_err, DirFd, FollowSymlinks, PyPathLike, SupportFunc, TargetIsDirectory, _os,
-            errno,
         },
         PyResult, TryFromObject, VirtualMachine,
     };

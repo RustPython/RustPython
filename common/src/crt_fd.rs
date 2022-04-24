@@ -20,31 +20,10 @@ pub type Offset = libc::off_t;
 #[cfg(windows)]
 pub type Offset = libc::c_longlong;
 
-// copied from stdlib::os
-#[cfg(windows)]
-fn errno() -> io::Error {
-    let err = io::Error::last_os_error();
-    // FIXME: probably not ideal, we need a bigger dichotomy between GetLastError and errno
-    if err.raw_os_error() == Some(0) {
-        extern "C" {
-            fn _get_errno(pValue: *mut i32) -> i32;
-        }
-        let mut e = 0;
-        unsafe { suppress_iph!(_get_errno(&mut e)) };
-        io::Error::from_raw_os_error(e)
-    } else {
-        err
-    }
-}
-#[cfg(not(windows))]
-fn errno() -> io::Error {
-    io::Error::last_os_error()
-}
-
 #[inline]
 fn cvt<T, I: num_traits::PrimInt>(ret: I, f: impl FnOnce(I) -> T) -> io::Result<T> {
     if ret < I::zero() {
-        Err(errno())
+        Err(crate::os::errno())
     } else {
         Ok(f(ret))
     }

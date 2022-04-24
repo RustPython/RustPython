@@ -1927,7 +1927,7 @@ mod _socket {
         use winapi::um::winsock2::closesocket as close;
         let ret = unsafe { close(x as _) };
         if ret < 0 {
-            let err = crate::vm::stdlib::os::errno();
+            let err = crate::common::os::errno();
             if err.raw_os_error() != Some(errcode!(ECONNRESET)) {
                 return Err(err.to_pyexception(vm));
             }
