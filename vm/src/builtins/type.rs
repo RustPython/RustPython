@@ -14,12 +14,9 @@ use crate::{
     AsObject, Context, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use itertools::Itertools;
-use std::{
-    borrow::Borrow,
-    collections::{HashMap, HashSet},
-    fmt,
-    ops::Deref,
-};
+use std::{borrow::Borrow, collections::HashSet, fmt, ops::Deref};
+
+use indexmap::IndexMap;
 
 /// type(object_or_name, bases, dict)
 /// type(object) -> the object's type
@@ -39,7 +36,7 @@ pub type PyTypeRef = PyRef<PyType>;
 /// For attributes we do not use a dict, but a hashmap. This is probably
 /// faster, unordered, and only supports strings as keys.
 /// TODO: class attributes should maintain insertion order (use IndexMap here)
-pub type PyAttributes = HashMap<String, PyObjectRef, ahash::RandomState>;
+pub type PyAttributes = IndexMap<String, PyObjectRef, ahash::RandomState>;
 
 impl fmt::Display for PyType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -271,7 +268,7 @@ impl PyType {
     fn dir(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyList {
         let attributes: Vec<PyObjectRef> = zelf
             .get_attributes()
-            .drain()
+            .drain(..)
             .map(|(k, _)| vm.ctx.new_str(k).into())
             .collect();
         PyList::from(attributes)
@@ -496,9 +493,8 @@ impl PyType {
         }
 
         if let Some(current_frame) = vm.current_frame() {
-            use std::collections::hash_map::Entry;
             let entry = attributes.entry("__module__".to_owned());
-            if matches!(entry, Entry::Vacant(_)) {
+            if matches!(entry, indexmap::map::Entry::Vacant(_)) {
                 let module_name =
                     vm.unwrap_or_none(current_frame.globals.get_item_opt("__name__", vm)?);
                 entry.or_insert(module_name);
