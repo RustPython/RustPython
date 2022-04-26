@@ -17,7 +17,6 @@ mod vm_ops;
 use crate::{
     builtins::{
         code::{self, PyCode},
-        object,
         pystr::IntoPyStrRef,
         tuple::{PyTuple, PyTupleTyped},
         PyBaseExceptionRef, PyDictRef, PyList, PyModule, PyStrRef, PyTypeRef,
@@ -741,6 +740,6 @@ impl VirtualMachine {
         attr_value: impl Into<PyObjectRef>,
     ) -> PyResult<()> {
         let val = attr_value.into();
-        object::generic_setattr(module, attr_name.into_pystr_ref(self), Some(val), self)
+        module.generic_setattr(attr_name.into_pystr_ref(self), Some(val), self)
     }
 }

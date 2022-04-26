@@ -131,6 +131,47 @@ impl PyObject {
     }
 
     // int PyObject_GenericSetAttr(PyObject *o, PyObject *name, PyObject *value)
+    #[cfg_attr(feature = "flame-it", flame)]
+    pub fn generic_setattr(
+        &self,
+        attr_name: PyStrRef,
+        value: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        vm_trace!("object.__setattr__({:?}, {}, {:?})", obj, attr_name, value);
+
+        if let Some(attr) = self.get_class_attr(attr_name.as_str()) {
+            let descr_set = attr.class().mro_find_map(|cls| cls.slots.descr_set.load());
+            if let Some(descriptor) = descr_set {
+                return descriptor(attr, self.to_owned(), value, vm);
+            }
+        }
+
+        if let Some(dict) = self.dict() {
+            if let Some(value) = value {
+                dict.set_item(attr_name, value, vm)?;
+            } else {
+                dict.del_item(attr_name.clone(), vm).map_err(|e| {
+                    if e.fast_isinstance(&vm.ctx.exceptions.key_error) {
+                        vm.new_attribute_error(format!(
+                            "'{}' object has no attribute '{}'",
+                            self.class().name(),
+                            attr_name,
+                        ))
+                    } else {
+                        e
+                    }
+                })?;
+            }
+            Ok(())
+        } else {
+            Err(vm.new_attribute_error(format!(
+                "'{}' object has no attribute '{}'",
+                self.class().name(),
+                attr_name,
+            )))
+        }
+    }
 
     pub fn del_attr(&self, attr_name: impl IntoPyStrRef, vm: &VirtualMachine) -> PyResult<()> {
         let attr_name = attr_name.into_pystr_ref(vm);

@@ -1,4 +1,4 @@
-pub use crate::builtins::object::{generic_getattr, generic_setattr};
+pub use crate::builtins::object::generic_getattr;
 use crate::common::{hash::PyHash, lock::PyRwLock};
 use crate::{
     builtins::{PyInt, PyStrRef, PyType, PyTypeRef},
