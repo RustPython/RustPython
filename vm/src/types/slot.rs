@@ -416,6 +416,15 @@ pub trait Constructor: PyPayload {
     fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult;
 }
 
+#[pyimpl]
+pub trait DefaultConstructor: PyPayload + Default {
+    #[inline]
+    #[pyslot]
+    fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        Self::default().into_ref_with_type(vm, cls).map(Into::into)
+    }
+}
+
 /// For types that cannot be instantiated through Python code.
 pub trait Unconstructible: PyPayload {}
 

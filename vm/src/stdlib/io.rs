@@ -113,7 +113,7 @@ mod _io {
             BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn, VecBuffer,
         },
         recursion::ReprGuard,
-        types::{Constructor, Destructor, Initializer, IterNext, Iterable},
+        types::{Constructor, DefaultConstructor, Destructor, Initializer, IterNext, Iterable},
         vm::VirtualMachine,
         AsObject, Context, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
         TryFromBorrowedObject, TryFromObject,
@@ -1670,13 +1670,13 @@ mod _io {
         }
     }
 
-    #[pyimpl(with(BufferedMixin, BufferedReadable), flags(BASETYPE, HAS_DICT))]
-    impl BufferedReader {
-        #[pyslot]
-        fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            Self::default().into_ref_with_type(vm, cls).map(Into::into)
-        }
-    }
+    #[pyimpl(
+        with(DefaultConstructor, BufferedMixin, BufferedReadable),
+        flags(BASETYPE, HAS_DICT)
+    )]
+    impl BufferedReader {}
+
+    impl DefaultConstructor for BufferedReader {}
 
     #[pyimpl]
     trait BufferedWritable: PyPayload {
@@ -1719,13 +1719,13 @@ mod _io {
         }
     }
 
-    #[pyimpl(with(BufferedMixin, BufferedWritable), flags(BASETYPE, HAS_DICT))]
-    impl BufferedWriter {
-        #[pyslot]
-        fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            Self::default().into_ref_with_type(vm, cls).map(Into::into)
-        }
-    }
+    #[pyimpl(
+        with(DefaultConstructor, BufferedMixin, BufferedWritable),
+        flags(BASETYPE, HAS_DICT)
+    )]
+    impl BufferedWriter {}
+
+    impl DefaultConstructor for BufferedWriter {}
 
     #[pyattr]
     #[pyclass(name = "BufferedRandom", base = "_BufferedIOBase")]
@@ -1755,15 +1755,12 @@ mod _io {
     }
 
     #[pyimpl(
-        with(BufferedMixin, BufferedReadable, BufferedWritable),
+        with(DefaultConstructor, BufferedMixin, BufferedReadable, BufferedWritable),
         flags(BASETYPE, HAS_DICT)
     )]
-    impl BufferedRandom {
-        #[pyslot]
-        fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            Self::default().into_ref_with_type(vm, cls).map(Into::into)
-        }
-    }
+    impl BufferedRandom {}
+
+    impl DefaultConstructor for BufferedRandom {}
 
     #[pyattr]
     #[pyclass(name = "BufferedRWPair", base = "_BufferedIOBase")]
@@ -1785,13 +1782,7 @@ mod _io {
         }
     }
 
-    impl Constructor for BufferedRWPair {
-        type Args = FuncArgs;
-
-        fn py_new(cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
-            Self::default().into_ref_with_type(vm, cls).map(Into::into)
-        }
-    }
+    impl DefaultConstructor for BufferedRWPair {}
 
     impl Initializer for BufferedRWPair {
         type Args = (PyObjectRef, PyObjectRef, BufferSize);
@@ -1808,7 +1799,7 @@ mod _io {
     }
 
     #[pyimpl(
-        with(Constructor, Initializer, BufferedReadable, BufferedWritable),
+        with(DefaultConstructor, Initializer, BufferedReadable, BufferedWritable),
         flags(BASETYPE, HAS_DICT)
     )]
     impl BufferedRWPair {
@@ -2188,13 +2179,7 @@ mod _io {
         data: PyThreadMutex<Option<TextIOData>>,
     }
 
-    impl Constructor for TextIOWrapper {
-        type Args = FuncArgs;
-
-        fn py_new(cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
-            Self::default().into_ref_with_type(vm, cls).map(Into::into)
-        }
-    }
+    impl DefaultConstructor for TextIOWrapper {}
 
     impl Initializer for TextIOWrapper {
         type Args = TextIOWrapperArgs;
@@ -2289,7 +2274,7 @@ mod _io {
         }
     }
 
-    #[pyimpl(with(Constructor, Initializer), flags(BASETYPE))]
+    #[pyimpl(with(DefaultConstructor, Initializer), flags(BASETYPE))]
     impl TextIOWrapper {
         #[pymethod]
         fn seekable(&self, vm: &VirtualMachine) -> PyResult {
@@ -3709,12 +3694,12 @@ mod _io {
 mod fileio {
     use super::{Offset, _io::*};
     use crate::{
-        builtins::{PyStr, PyStrRef, PyTypeRef},
+        builtins::{PyStr, PyStrRef},
         convert::ToPyException,
         crt_fd::Fd,
-        function::{ArgBytesLike, ArgMemoryBuffer, FuncArgs, OptionalArg, OptionalOption},
+        function::{ArgBytesLike, ArgMemoryBuffer, OptionalArg, OptionalOption},
         stdlib::os,
-        types::{Constructor, Initializer},
+        types::{DefaultConstructor, Initializer},
         AsObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
@@ -3841,20 +3826,18 @@ mod fileio {
         opener: Option<PyObjectRef>,
     }
 
-    impl Constructor for FileIO {
-        type Args = FuncArgs;
-
-        fn py_new(cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
-            FileIO {
+    impl Default for FileIO {
+        fn default() -> Self {
+            Self {
                 fd: AtomicCell::new(-1),
                 closefd: AtomicCell::new(false),
                 mode: AtomicCell::new(Mode::empty()),
                 seekable: AtomicCell::new(None),
             }
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
         }
     }
+
+    impl DefaultConstructor for FileIO {}
 
     impl Initializer for FileIO {
         type Args = FileIOArgs;
@@ -3901,7 +3884,7 @@ mod fileio {
         }
     }
 
-    #[pyimpl(with(Constructor, Initializer), flags(BASETYPE, HAS_DICT))]
+    #[pyimpl(with(DefaultConstructor, Initializer), flags(BASETYPE, HAS_DICT))]
     impl FileIO {
         #[pyproperty]
         fn closed(&self) -> bool {

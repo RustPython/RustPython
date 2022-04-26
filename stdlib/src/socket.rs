@@ -14,8 +14,8 @@ mod _socket {
     use crate::vm::{
         builtins::{PyBaseExceptionRef, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
         convert::{ToPyException, ToPyObject, TryFromBorrowedObject, TryFromObject},
-        function::{ArgBytesLike, ArgMemoryBuffer, Either, FuncArgs, OptionalArg, OptionalOption},
-        types::{Constructor, Initializer},
+        function::{ArgBytesLike, ArgMemoryBuffer, Either, OptionalArg, OptionalOption},
+        types::{DefaultConstructor, Initializer},
         utils::ToCString,
         AsObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     };
@@ -542,13 +542,7 @@ mod _socket {
         }
     }
 
-    impl Constructor for PySocket {
-        type Args = FuncArgs;
-
-        fn py_new(cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
-            Self::default().into_ref_with_type(vm, cls).map(Into::into)
-        }
-    }
+    impl DefaultConstructor for PySocket {}
 
     impl Initializer for PySocket {
         type Args = (
@@ -638,7 +632,7 @@ mod _socket {
         }
     }
 
-    #[pyimpl(with(Constructor, Initializer), flags(BASETYPE))]
+    #[pyimpl(with(DefaultConstructor, Initializer), flags(BASETYPE))]
     impl PySocket {
         #[pymethod]
         fn connect(&self, address: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
