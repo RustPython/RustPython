@@ -369,7 +369,7 @@ impl GetAttr for PyGenericAlias {
     fn getattro(zelf: PyRef<Self>, attr: PyStrRef, vm: &VirtualMachine) -> PyResult {
         for exc in &ATTR_EXCEPTIONS {
             if *(*exc) == attr.to_string() {
-                return vm.generic_getattribute(zelf.as_object().to_owned(), attr);
+                return zelf.as_object().generic_getattr(attr, vm);
             }
         }
         zelf.origin().get_attr(attr, vm)

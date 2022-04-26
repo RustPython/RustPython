@@ -49,8 +49,9 @@ impl PyModule {
     }
 
     fn getattr_inner(zelf: &Py<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(attr) =
-            vm.generic_getattribute_opt(zelf.to_owned().into(), name.clone(), None)?
+        if let Some(attr) = zelf
+            .as_object()
+            .generic_getattr_opt(name.clone(), None, vm)?
         {
             return Ok(attr);
         }
@@ -66,7 +67,8 @@ impl PyModule {
     }
 
     fn name(zelf: PyRef<Self>, vm: &VirtualMachine) -> Option<PyStrRef> {
-        vm.generic_getattribute_opt(zelf.into(), PyStr::from("__name__").into_ref(vm), None)
+        zelf.as_object()
+            .generic_getattr_opt(PyStr::from("__name__").into_ref(vm), None, vm)
             .unwrap_or(None)
             .and_then(|obj| obj.downcast::<PyStr>().ok())
     }

@@ -266,7 +266,7 @@ impl GetAttr for PyUnion {
     fn getattro(zelf: PyRef<Self>, attr: PyStrRef, vm: &VirtualMachine) -> PyResult {
         for &exc in CLS_ATTRS {
             if *exc == attr.to_string() {
-                return vm.generic_getattribute(zelf.as_object().to_owned(), attr);
+                return zelf.as_object().generic_getattr(attr, vm);
             }
         }
         zelf.as_object().to_pyobject(vm).get_attr(attr, vm)

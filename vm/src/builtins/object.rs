@@ -288,7 +288,7 @@ impl PyBaseObject {
     #[pyslot]
     pub(crate) fn getattro(obj: PyObjectRef, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
         vm_trace!("object.__getattribute__({:?}, {:?})", obj, name);
-        vm.generic_getattribute(obj, name)
+        obj.as_object().generic_getattr(name, vm)
     }
 
     #[pymethod(magic)]
@@ -331,7 +331,7 @@ pub fn object_set_dict(obj: PyObjectRef, dict: PyDictRef, vm: &VirtualMachine) -
 }
 
 pub fn generic_getattr(obj: PyObjectRef, attr_name: PyStrRef, vm: &VirtualMachine) -> PyResult {
-    vm.generic_getattribute(obj, attr_name)
+    obj.as_object().generic_getattr(attr_name, vm)
 }
 
 pub fn init(ctx: &Context) {
