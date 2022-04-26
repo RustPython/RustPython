@@ -5,6 +5,7 @@ mod _contextvars {
     use crate::vm::{
         builtins::{PyFunction, PyStrRef, PyTypeRef},
         function::{ArgCallable, FuncArgs, OptionalArg},
+        types::Initializer,
         PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     };
 
@@ -13,15 +14,8 @@ mod _contextvars {
     #[derive(Debug, PyPayload)]
     struct PyContext {} // not to confuse with vm::Context
 
-    #[pyimpl]
+    #[pyimpl(with(Initializer))]
     impl PyContext {
-        #[pyslot]
-        #[pymethod(magic)]
-        fn init(zelf: PyObjectRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-            let _zelf: PyRef<Self> = zelf.try_into_value(vm)?;
-            unimplemented!("Context.__init__ is currently under construction")
-        }
-
         #[pymethod]
         fn run(
             &self,
@@ -77,6 +71,14 @@ mod _contextvars {
         }
     }
 
+    impl Initializer for PyContext {
+        type Args = FuncArgs;
+
+        fn init(_obj: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+            unimplemented!("Context.__init__ is currently under construction")
+        }
+    }
+
     #[pyattr]
     #[pyclass(name)]
     #[derive(Debug, PyPayload)]
@@ -97,15 +99,8 @@ mod _contextvars {
         default: OptionalArg<PyObjectRef>,
     }
 
-    #[pyimpl]
+    #[pyimpl(with(Initializer))]
     impl ContextVar {
-        #[pyslot]
-        #[pymethod(magic)]
-        fn init(_zelf: PyObjectRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-            let _: ContextVarOptions = _args.bind(vm)?;
-            unimplemented!("ContextVar.__init__() is currently under construction")
-        }
-
         #[pyproperty]
         fn name(&self) -> String {
             self.name.clone()
@@ -151,6 +146,14 @@ mod _contextvars {
         }
     }
 
+    impl Initializer for ContextVar {
+        type Args = ContextVarOptions;
+
+        fn init(_obj: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+            unimplemented!("ContextVar.__init__() is currently under construction")
+        }
+    }
+
     #[pyattr]
     #[pyclass(name = "Token")]
     #[derive(Debug, PyPayload)]
@@ -169,15 +172,8 @@ mod _contextvars {
         old_value: PyObjectRef,
     }
 
-    #[pyimpl]
+    #[pyimpl(with(Initializer))]
     impl ContextToken {
-        #[pyslot]
-        #[pymethod(magic)]
-        fn init(_zelf: PyObjectRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-            let _: ContextTokenOptions = _args.bind(vm)?;
-            unimplemented!("Token.__init__() is currently under construction")
-        }
-
         #[pyproperty]
         fn var(&self, _vm: &VirtualMachine) -> PyObjectRef {
             unimplemented!("Token.var() is currently under construction")
@@ -191,6 +187,14 @@ mod _contextvars {
         #[pymethod(magic)]
         fn repr(_zelf: PyRef<Self>, _vm: &VirtualMachine) -> String {
             unimplemented!("<Token {{}}var={{}} at {{}}>")
+        }
+    }
+
+    impl Initializer for ContextToken {
+        type Args = ContextTokenOptions;
+
+        fn init(_obj: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+            unimplemented!("Token.__init__() is currently under construction")
         }
     }
 
