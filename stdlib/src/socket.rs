@@ -15,6 +15,7 @@ mod _socket {
         builtins::{PyBaseExceptionRef, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
         convert::{ToPyException, ToPyObject, TryFromBorrowedObject, TryFromObject},
         function::{ArgBytesLike, ArgMemoryBuffer, Either, FuncArgs, OptionalArg, OptionalOption},
+        types::{Constructor, Initializer},
         utils::ToCString,
         AsObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     };
@@ -541,23 +542,27 @@ mod _socket {
         }
     }
 
-    #[pyimpl(flags(BASETYPE))]
-    impl PySocket {
-        #[pyslot]
-        fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    impl Constructor for PySocket {
+        type Args = FuncArgs;
+
+        fn py_new(cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
             Self::default().into_ref_with_type(vm, cls).map(Into::into)
         }
+    }
 
-        #[pyslot]
-        #[pymethod(magic)]
-        fn init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-            let zelf: PyRef<Self> = zelf.try_into_value(vm)?;
-            let (family, socket_kind, proto, fileno): (
-                OptionalArg<i32>,
-                OptionalArg<i32>,
-                OptionalArg<i32>,
-                OptionalOption<PyObjectRef>,
-            ) = args.bind(vm)?;
+    impl Initializer for PySocket {
+        type Args = (
+            OptionalArg<i32>,
+            OptionalArg<i32>,
+            OptionalArg<i32>,
+            OptionalOption<PyObjectRef>,
+        );
+
+        fn init(
+            zelf: PyRef<Self>,
+            (family, socket_kind, proto, fileno): Self::Args,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
             let mut family = family.unwrap_or(-1);
             let mut socket_kind = socket_kind.unwrap_or(-1);
             let mut proto = proto.unwrap_or(-1);
@@ -631,7 +636,10 @@ mod _socket {
             };
             zelf.init_inner(family, socket_kind, proto, sock, vm)
         }
+    }
 
+    #[pyimpl(with(Constructor, Initializer), flags(BASETYPE))]
+    impl PySocket {
         #[pymethod]
         fn connect(&self, address: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             self.connect_inner(address, "connect", vm)
