@@ -62,15 +62,7 @@ impl PyDict {
     pub fn new_ref(ctx: &Context) -> PyRef<Self> {
         PyRef::new_ref(Self::default(), ctx.types.dict_type.clone(), None)
     }
-}
 
-// Python dict methods:
-#[allow(clippy::len_without_is_empty)]
-#[pyimpl(
-    with(Initializer, AsMapping, Hashable, Comparable, Iterable, AsSequence),
-    flags(BASETYPE)
-)]
-impl PyDict {
     /// escape hatch to access the underlying data structure directly. prefer adding a method on
     /// PyDict instead of using this
     pub(crate) fn _as_dict_inner(&self) -> &DictContentType {
@@ -79,13 +71,6 @@ impl PyDict {
 
     pub(crate) fn from_entries(entries: DictContentType) -> Self {
         Self { entries }
-    }
-
-    #[pyslot]
-    fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        PyDict::default()
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
     }
 
     // Used in update and ior.
@@ -141,36 +126,6 @@ impl PyDict {
         Ok(())
     }
 
-    #[pyclassmethod]
-    fn fromkeys(
-        class: PyTypeRef,
-        iterable: ArgIterable,
-        value: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
-        let value = value.unwrap_or_none(vm);
-        let d = PyType::call(&class, ().into(), vm)?;
-        match d.downcast_exact::<PyDict>(vm) {
-            Ok(pydict) => {
-                for key in iterable.iter(vm)? {
-                    pydict.setitem(key?, value.clone(), vm)?;
-                }
-                Ok(pydict.to_pyobject(vm))
-            }
-            Err(pyobj) => {
-                for key in iterable.iter(vm)? {
-                    pyobj.set_item(key?, value.clone(), vm)?;
-                }
-                Ok(pyobj)
-            }
-        }
-    }
-
-    #[pymethod(magic)]
-    fn bool(&self) -> bool {
-        !self.entries.is_empty()
-    }
-
     fn inner_cmp(
         zelf: &Py<Self>,
         other: &Py<PyDict>,
@@ -208,12 +163,121 @@ impl PyDict {
         Ok(Implemented(true))
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.entries.len() == 0
+    }
+
+    /// Set item variant which can be called with multiple
+    /// key types, such as str to name a notable one.
+    pub(crate) fn inner_setitem<K: DictKey + ToPyObject>(
+        &self,
+        key: K,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        self.entries.insert(vm, key, value)
+    }
+
+    pub(crate) fn inner_delitem<K: DictKey + ToPyObject>(
+        &self,
+        key: K,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        self.entries.delete(vm, key)
+    }
+
+    pub fn get_or_insert(
+        &self,
+        vm: &VirtualMachine,
+        key: PyObjectRef,
+        default: impl FnOnce() -> PyObjectRef,
+    ) -> PyResult {
+        self.entries.setdefault(vm, key, default)
+    }
+
+    pub fn from_attributes(attrs: PyAttributes, vm: &VirtualMachine) -> PyResult<Self> {
+        let dict = DictContentType::default();
+
+        for (key, value) in attrs {
+            dict.insert(vm, vm.new_pyobj(key), value)?;
+        }
+
+        Ok(PyDict { entries: dict })
+    }
+
+    pub fn contains_key<K: ToPyObject>(&self, key: K, vm: &VirtualMachine) -> bool {
+        let key = key.to_pyobject(vm);
+        self.entries.contains(vm, &key).unwrap()
+    }
+
+    pub fn size(&self) -> dictdatatype::DictSize {
+        self.entries.size()
+    }
+
+    pub(crate) const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
+        length: Some(|mapping, _vm| Ok(Self::mapping_downcast(mapping).len())),
+        subscript: Some(|mapping, needle, vm| {
+            Self::mapping_downcast(mapping).inner_getitem(needle, vm)
+        }),
+        ass_subscript: Some(|mapping, needle, value, vm| {
+            let zelf = Self::mapping_downcast(mapping);
+            if let Some(value) = value {
+                zelf.inner_setitem(needle, value, vm)
+            } else {
+                zelf.inner_delitem(needle, vm)
+            }
+        }),
+    };
+}
+
+// Python dict methods:
+#[allow(clippy::len_without_is_empty)]
+#[pyimpl(
+    with(
+        Constructor,
+        Initializer,
+        AsMapping,
+        Hashable,
+        Comparable,
+        Iterable,
+        AsSequence
+    ),
+    flags(BASETYPE)
+)]
+impl PyDict {
+    #[pyclassmethod]
+    fn fromkeys(
+        class: PyTypeRef,
+        iterable: ArgIterable,
+        value: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let value = value.unwrap_or_none(vm);
+        let d = PyType::call(&class, ().into(), vm)?;
+        match d.downcast_exact::<PyDict>(vm) {
+            Ok(pydict) => {
+                for key in iterable.iter(vm)? {
+                    pydict.setitem(key?, value.clone(), vm)?;
+                }
+                Ok(pydict.to_pyobject(vm))
+            }
+            Err(pyobj) => {
+                for key in iterable.iter(vm)? {
+                    pyobj.set_item(key?, value.clone(), vm)?;
+                }
+                Ok(pyobj)
+            }
+        }
+    }
+
+    #[pymethod(magic)]
+    fn bool(&self) -> bool {
+        !self.entries.is_empty()
+    }
+
     #[pymethod(magic)]
     pub fn len(&self) -> usize {
         self.entries.len()
-    }
-    pub fn is_empty(&self) -> bool {
-        self.entries.len() == 0
     }
 
     #[pymethod(magic)]
@@ -273,25 +337,6 @@ impl PyDict {
         self.inner_setitem(key, value, vm)
     }
 
-    /// Set item variant which can be called with multiple
-    /// key types, such as str to name a notable one.
-    pub(crate) fn inner_setitem<K: DictKey + ToPyObject>(
-        &self,
-        key: K,
-        value: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        self.entries.insert(vm, key, value)
-    }
-
-    pub(crate) fn inner_delitem<K: DictKey + ToPyObject>(
-        &self,
-        key: K,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        self.entries.delete(vm, key)
-    }
-
     #[pymethod(magic)]
     #[cfg_attr(feature = "flame-it", flame("PyDictRef"))]
     fn getitem(zelf: PyRef<Self>, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -320,15 +365,6 @@ impl PyDict {
     ) -> PyResult {
         self.entries
             .setdefault(vm, key, || default.unwrap_or_none(vm))
-    }
-
-    pub fn get_or_insert(
-        &self,
-        vm: &VirtualMachine,
-        key: PyObjectRef,
-        default: impl FnOnce() -> PyObjectRef,
-    ) -> PyResult {
-        self.entries.setdefault(vm, key, default)
     }
 
     #[pymethod]
@@ -407,25 +443,6 @@ impl PyDict {
         Ok((key, value))
     }
 
-    pub fn from_attributes(attrs: PyAttributes, vm: &VirtualMachine) -> PyResult<Self> {
-        let dict = DictContentType::default();
-
-        for (key, value) in attrs {
-            dict.insert(vm, vm.new_pyobj(key), value)?;
-        }
-
-        Ok(PyDict { entries: dict })
-    }
-
-    pub fn contains_key<K: ToPyObject>(&self, key: K, vm: &VirtualMachine) -> bool {
-        let key = key.to_pyobject(vm);
-        self.entries.contains(vm, &key).unwrap()
-    }
-
-    pub fn size(&self) -> dictdatatype::DictSize {
-        self.entries.size()
-    }
-
     #[pymethod(magic)]
     fn reversed(zelf: PyRef<Self>) -> PyDictReverseKeyIterator {
         PyDictReverseKeyIterator::new(zelf)
@@ -437,21 +454,14 @@ impl PyDict {
     }
 }
 
-impl PyDict {
-    pub(crate) const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
-        length: Some(|mapping, _vm| Ok(Self::mapping_downcast(mapping).len())),
-        subscript: Some(|mapping, needle, vm| {
-            Self::mapping_downcast(mapping).inner_getitem(needle, vm)
-        }),
-        ass_subscript: Some(|mapping, needle, value, vm| {
-            let zelf = Self::mapping_downcast(mapping);
-            if let Some(value) = value {
-                zelf.inner_setitem(needle, value, vm)
-            } else {
-                zelf.inner_delitem(needle, vm)
-            }
-        }),
-    };
+impl Constructor for PyDict {
+    type Args = FuncArgs;
+
+    fn py_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        PyDict::default()
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
+    }
 }
 
 impl Initializer for PyDict {
