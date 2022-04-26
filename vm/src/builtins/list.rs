@@ -89,7 +89,15 @@ pub(crate) struct SortOptions {
 pub type PyListRef = PyRef<PyList>;
 
 #[pyimpl(
-    with(Initializer, AsMapping, Iterable, Hashable, Comparable, AsSequence),
+    with(
+        Constructor,
+        Initializer,
+        AsMapping,
+        Iterable,
+        Hashable,
+        Comparable,
+        AsSequence
+    ),
     flags(BASETYPE)
 )]
 impl PyList {
@@ -338,28 +346,9 @@ impl PyList {
         Ok(())
     }
 
-    #[pyslot]
-    fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        PyList::default()
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
-    }
-
     #[pyclassmethod(magic)]
     fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
         PyGenericAlias::new(cls, args, vm)
-    }
-}
-
-impl<'a> MutObjectSequenceOp<'a> for PyList {
-    type Guard = PyMappedRwLockReadGuard<'a, [PyObjectRef]>;
-
-    fn do_get(index: usize, guard: &Self::Guard) -> Option<&PyObjectRef> {
-        guard.get(index)
-    }
-
-    fn do_lock(&'a self) -> Self::Guard {
-        self.borrow_vec()
     }
 }
 
@@ -376,6 +365,28 @@ impl PyList {
             }
         }),
     };
+}
+
+impl<'a> MutObjectSequenceOp<'a> for PyList {
+    type Guard = PyMappedRwLockReadGuard<'a, [PyObjectRef]>;
+
+    fn do_get(index: usize, guard: &Self::Guard) -> Option<&PyObjectRef> {
+        guard.get(index)
+    }
+
+    fn do_lock(&'a self) -> Self::Guard {
+        self.borrow_vec()
+    }
+}
+
+impl Constructor for PyList {
+    type Args = FuncArgs;
+
+    fn py_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        PyList::default()
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
+    }
 }
 
 impl Initializer for PyList {
