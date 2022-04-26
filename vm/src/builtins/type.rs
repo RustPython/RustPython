@@ -267,7 +267,7 @@ impl PyType {
     fn dir(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyList {
         let attributes: Vec<PyObjectRef> = zelf
             .get_attributes()
-            .drain(..)
+            .into_iter()
             .map(|(k, _)| vm.ctx.new_str(k).into())
             .collect();
         PyList::from(attributes)
