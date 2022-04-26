@@ -18,7 +18,7 @@ use crate::{
     protocol::{PyIterIter, PyIterReturn, PyMappingMethods, PySequenceMethods},
     recursion::ReprGuard,
     types::{
-        AsMapping, AsSequence, Callable, Comparable, Constructor, Hashable, IterNext,
+        AsMapping, AsSequence, Callable, Comparable, Constructor, Hashable, Initializer, IterNext,
         IterNextIterable, Iterable, PyComparisonOp, Unconstructible, Unhashable,
     },
     vm::VirtualMachine,
@@ -67,7 +67,7 @@ impl PyDict {
 // Python dict methods:
 #[allow(clippy::len_without_is_empty)]
 #[pyimpl(
-    with(AsMapping, Hashable, Comparable, Iterable, AsSequence),
+    with(Initializer, AsMapping, Hashable, Comparable, Iterable, AsSequence),
     flags(BASETYPE)
 )]
 impl PyDict {
@@ -86,14 +86,6 @@ impl PyDict {
         PyDict::default()
             .into_ref_with_type(vm, cls)
             .map(Into::into)
-    }
-
-    #[pyslot]
-    #[pymethod(magic)]
-    fn init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let zelf: PyRef<Self> = zelf.try_into_value(vm)?;
-        let (dict_obj, kwargs): (OptionalArg<PyObjectRef>, KwArgs) = args.bind(vm)?;
-        zelf.update(dict_obj, kwargs, vm)
     }
 
     // Used in update and ior.
@@ -460,6 +452,18 @@ impl PyDict {
             }
         }),
     };
+}
+
+impl Initializer for PyDict {
+    type Args = (OptionalArg<PyObjectRef>, KwArgs);
+
+    fn init(
+        zelf: PyRef<Self>,
+        (dict_obj, kwargs): Self::Args,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        zelf.update(dict_obj, kwargs, vm)
+    }
 }
 
 impl AsMapping for PyDict {
