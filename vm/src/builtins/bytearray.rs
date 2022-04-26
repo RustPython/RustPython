@@ -30,8 +30,8 @@ use crate::{
     },
     sliceable::{SequenceIndex, SliceableSequenceMutOp, SliceableSequenceOp},
     types::{
-        AsBuffer, AsMapping, AsSequence, Callable, Comparable, Constructor, Hashable, IterNext,
-        IterNextIterable, Iterable, PyComparisonOp, Unconstructible, Unhashable,
+        AsBuffer, AsMapping, AsSequence, Callable, Comparable, Constructor, Hashable, Initializer,
+        IterNext, IterNextIterable, Iterable, PyComparisonOp, Unconstructible, Unhashable,
     },
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, TryFromObject, VirtualMachine,
@@ -95,7 +95,7 @@ pub(crate) fn init(context: &Context) {
 
 #[pyimpl(
     flags(BASETYPE),
-    with(Hashable, Comparable, AsBuffer, AsMapping, AsSequence, Iterable)
+    with(Initializer, Hashable, Comparable, AsBuffer, AsMapping, AsSequence, Iterable)
 )]
 impl PyByteArray {
     #[pyslot]
@@ -103,17 +103,6 @@ impl PyByteArray {
         PyByteArray::default()
             .into_ref_with_type(vm, cls)
             .map(Into::into)
-    }
-
-    #[pyslot]
-    #[pymethod(magic)]
-    fn init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let zelf: PyRef<Self> = zelf.try_into_value(vm)?;
-        let options: ByteInnerNewOptions = args.bind(vm)?;
-        // First unpack bytearray and *then* get a lock to set it.
-        let mut inner = options.get_bytearray_inner(vm)?;
-        std::mem::swap(&mut *zelf.inner_mut(), &mut inner);
-        Ok(())
     }
 
     #[cfg(debug_assertions)]
@@ -715,6 +704,17 @@ impl PyByteArray {
             }
         }),
     };
+}
+
+impl Initializer for PyByteArray {
+    type Args = ByteInnerNewOptions;
+
+    fn init(zelf: PyRef<Self>, options: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        // First unpack bytearray and *then* get a lock to set it.
+        let mut inner = options.get_bytearray_inner(vm)?;
+        std::mem::swap(&mut *zelf.inner_mut(), &mut inner);
+        Ok(())
+    }
 }
 
 impl Comparable for PyByteArray {
