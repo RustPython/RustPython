@@ -330,10 +330,6 @@ pub fn object_set_dict(obj: PyObjectRef, dict: PyDictRef, vm: &VirtualMachine) -
         .map_err(|_| vm.new_attribute_error("This object has no __dict__".to_owned()))
 }
 
-pub fn generic_getattr(obj: PyObjectRef, attr_name: PyStrRef, vm: &VirtualMachine) -> PyResult {
-    obj.as_object().generic_getattr(attr_name, vm)
-}
-
 pub fn init(ctx: &Context) {
     PyBaseObject::extend_class(ctx, &ctx.types.object_type);
 }
