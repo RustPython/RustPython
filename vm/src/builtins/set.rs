@@ -13,8 +13,8 @@ use crate::{
     protocol::{PyIterReturn, PySequenceMethods},
     recursion::ReprGuard,
     types::{
-        AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable,
-        PyComparisonOp, Unconstructible, Unhashable,
+        AsSequence, Comparable, Constructor, Hashable, Initializer, IterNext, IterNextIterable,
+        Iterable, PyComparisonOp, Unconstructible, Unhashable,
     },
     utils::collection_repr,
     vm::VirtualMachine,
@@ -394,27 +394,11 @@ impl PySet {
     }
 }
 
-#[pyimpl(with(AsSequence, Hashable, Comparable, Iterable), flags(BASETYPE))]
+#[pyimpl(
+    with(Constructor, Initializer, AsSequence, Hashable, Comparable, Iterable),
+    flags(BASETYPE)
+)]
 impl PySet {
-    #[pyslot]
-    fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        PySet::default().into_ref_with_type(vm, cls).map(Into::into)
-    }
-
-    #[pyslot]
-    #[pymethod(magic)]
-    fn init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let zelf: PyRef<Self> = zelf.try_into_value(vm)?;
-        let iterable: OptionalArg<ArgIterable> = args.bind(vm)?;
-        if zelf.len() > 0 {
-            zelf.clear();
-        }
-        if let OptionalArg::Present(it) = iterable {
-            zelf.update(PosArgs::new(vec![it]), vm)?;
-        }
-        Ok(())
-    }
-
     #[pymethod(magic)]
     fn len(&self) -> usize {
         self.inner.len()
@@ -658,6 +642,28 @@ impl PySet {
     }
 }
 
+impl Constructor for PySet {
+    type Args = FuncArgs;
+
+    fn py_new(cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
+        PySet::default().into_ref_with_type(vm, cls).map(Into::into)
+    }
+}
+
+impl Initializer for PySet {
+    type Args = OptionalArg<ArgIterable>;
+
+    fn init(zelf: PyRef<Self>, iterable: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        if zelf.len() > 0 {
+            zelf.clear();
+        }
+        if let OptionalArg::Present(it) = iterable {
+            zelf.update(PosArgs::new(vec![it]), vm)?;
+        }
+        Ok(())
+    }
+}
+
 impl AsSequence for PySet {
     fn as_sequence(
         _zelf: &crate::Py<Self>,
@@ -736,7 +742,7 @@ impl Constructor for PyFrozenSet {
 
 #[pyimpl(
     flags(BASETYPE),
-    with(AsSequence, Hashable, Comparable, Iterable, Constructor)
+    with(Constructor, AsSequence, Hashable, Comparable, Iterable)
 )]
 impl PyFrozenSet {
     // Also used by ssl.rs windows.
