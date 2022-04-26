@@ -95,16 +95,18 @@ pub(crate) fn init(context: &Context) {
 
 #[pyimpl(
     flags(BASETYPE),
-    with(Initializer, Hashable, Comparable, AsBuffer, AsMapping, AsSequence, Iterable)
+    with(
+        Constructor,
+        Initializer,
+        Hashable,
+        Comparable,
+        AsBuffer,
+        AsMapping,
+        AsSequence,
+        Iterable
+    )
 )]
 impl PyByteArray {
-    #[pyslot]
-    fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        PyByteArray::default()
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
-    }
-
     #[cfg(debug_assertions)]
     #[pyproperty]
     fn exports(&self) -> usize {
@@ -704,6 +706,16 @@ impl PyByteArray {
             }
         }),
     };
+}
+
+impl Constructor for PyByteArray {
+    type Args = FuncArgs;
+
+    fn py_new(cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
+        PyByteArray::default()
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
+    }
 }
 
 impl Initializer for PyByteArray {
