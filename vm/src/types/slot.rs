@@ -431,6 +431,27 @@ where
 }
 
 #[pyimpl]
+pub trait Initializer: PyPayload {
+    type Args: FromArgs;
+
+    #[pyslot]
+    #[inline]
+    fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let zelf = zelf.try_into_value(vm)?;
+        let args: Self::Args = args.bind(vm)?;
+        Self::init(zelf, args, vm)
+    }
+
+    #[pymethod]
+    #[inline]
+    fn __init__(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        Self::init(zelf, args, vm)
+    }
+
+    fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()>;
+}
+
+#[pyimpl]
 pub trait Destructor: PyPayload {
     #[inline] // for __del__
     #[pyslot]
