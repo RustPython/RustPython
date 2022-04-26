@@ -162,13 +162,13 @@ impl PyBaseObject {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        generic_setattr(&obj, name, Some(value), vm)
+        obj.generic_setattr(name, Some(value), vm)
     }
 
     /// Implement delattr(self, name).
     #[pymethod]
     fn __delattr__(obj: PyObjectRef, name: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-        generic_setattr(&obj, name, None, vm)
+        obj.generic_setattr(name, None, vm)
     }
 
     #[pyslot]
@@ -178,7 +178,7 @@ impl PyBaseObject {
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        generic_setattr(&*obj, attr_name, value, vm)
+        obj.generic_setattr(attr_name, value, vm)
     }
 
     /// Return str(self).
@@ -288,7 +288,7 @@ impl PyBaseObject {
     #[pyslot]
     pub(crate) fn getattro(obj: PyObjectRef, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
         vm_trace!("object.__getattribute__({:?}, {:?})", obj, name);
-        vm.generic_getattribute(obj, name)
+        obj.as_object().generic_getattr(name, vm)
     }
 
     #[pymethod(magic)]
@@ -328,52 +328,6 @@ pub fn object_get_dict(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyDict
 pub fn object_set_dict(obj: PyObjectRef, dict: PyDictRef, vm: &VirtualMachine) -> PyResult<()> {
     obj.set_dict(dict)
         .map_err(|_| vm.new_attribute_error("This object has no __dict__".to_owned()))
-}
-
-pub fn generic_getattr(obj: PyObjectRef, attr_name: PyStrRef, vm: &VirtualMachine) -> PyResult {
-    vm.generic_getattribute(obj, attr_name)
-}
-
-#[cfg_attr(feature = "flame-it", flame)]
-pub fn generic_setattr(
-    obj: &PyObject,
-    attr_name: PyStrRef,
-    value: Option<PyObjectRef>,
-    vm: &VirtualMachine,
-) -> PyResult<()> {
-    vm_trace!("object.__setattr__({:?}, {}, {:?})", obj, attr_name, value);
-
-    if let Some(attr) = obj.get_class_attr(attr_name.as_str()) {
-        let descr_set = attr.class().mro_find_map(|cls| cls.slots.descr_set.load());
-        if let Some(descriptor) = descr_set {
-            return descriptor(attr, obj.to_owned(), value, vm);
-        }
-    }
-
-    if let Some(dict) = obj.dict() {
-        if let Some(value) = value {
-            dict.set_item(attr_name, value, vm)?;
-        } else {
-            dict.del_item(attr_name.clone(), vm).map_err(|e| {
-                if e.fast_isinstance(&vm.ctx.exceptions.key_error) {
-                    vm.new_attribute_error(format!(
-                        "'{}' object has no attribute '{}'",
-                        obj.class().name(),
-                        attr_name,
-                    ))
-                } else {
-                    e
-                }
-            })?;
-        }
-        Ok(())
-    } else {
-        Err(vm.new_attribute_error(format!(
-            "'{}' object has no attribute '{}'",
-            obj.class().name(),
-            attr_name,
-        )))
-    }
 }
 
 pub fn init(ctx: &Context) {

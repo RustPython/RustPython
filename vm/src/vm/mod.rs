@@ -17,7 +17,6 @@ mod vm_ops;
 use crate::{
     builtins::{
         code::{self, PyCode},
-        object,
         pystr::IntoPyStrRef,
         tuple::{PyTuple, PyTupleTyped},
         PyBaseExceptionRef, PyDictRef, PyList, PyModule, PyStrRef, PyTypeRef,
@@ -594,66 +593,6 @@ impl VirtualMachine {
         Some(self.call_if_get_descriptor(method, obj))
     }
 
-    pub fn generic_getattribute(&self, obj: PyObjectRef, name: PyStrRef) -> PyResult {
-        self.generic_getattribute_opt(obj.clone(), name.clone(), None)?
-            .ok_or_else(|| self.new_attribute_error(format!("{} has no attribute '{}'", obj, name)))
-    }
-
-    /// CPython _PyObject_GenericGetAttrWithDict
-    pub fn generic_getattribute_opt(
-        &self,
-        obj: PyObjectRef,
-        name_str: PyStrRef,
-        dict: Option<PyDictRef>,
-    ) -> PyResult<Option<PyObjectRef>> {
-        let name = name_str.as_str();
-        let obj_cls = obj.class();
-        let cls_attr = match obj_cls.get_attr(name) {
-            Some(descr) => {
-                let descr_cls = descr.class();
-                let descr_get = descr_cls.mro_find_map(|cls| cls.slots.descr_get.load());
-                if let Some(descr_get) = descr_get {
-                    if descr_cls
-                        .mro_find_map(|cls| cls.slots.descr_set.load())
-                        .is_some()
-                    {
-                        drop(descr_cls);
-                        let cls = obj_cls.into_owned().into();
-                        return descr_get(descr, Some(obj), Some(cls), self).map(Some);
-                    }
-                }
-                drop(descr_cls);
-                Some((descr, descr_get))
-            }
-            None => None,
-        };
-
-        let dict = dict.or_else(|| obj.dict());
-
-        let attr = if let Some(dict) = dict {
-            dict.get_item_opt(name, self)?
-        } else {
-            None
-        };
-
-        if let Some(obj_attr) = attr {
-            Ok(Some(obj_attr))
-        } else if let Some((attr, descr_get)) = cls_attr {
-            match descr_get {
-                Some(descr_get) => {
-                    let cls = obj_cls.into_owned().into();
-                    descr_get(attr, Some(obj), Some(cls), self).map(Some)
-                }
-                None => Ok(Some(attr)),
-            }
-        } else if let Some(getter) = obj_cls.get_attr("__getattr__") {
-            drop(obj_cls);
-            self.invoke(&getter, (obj, name_str)).map(Some)
-        } else {
-            Ok(None)
-        }
-    }
-
     pub fn is_callable(&self, obj: &PyObject) -> bool {
         obj.class()
             .mro_find_map(|cls| cls.slots.call.load())
@@ -741,6 +680,6 @@ impl VirtualMachine {
         attr_value: impl Into<PyObjectRef>,
     ) -> PyResult<()> {
         let val = attr_value.into();
-        object::generic_setattr(module, attr_name.into_pystr_ref(self), Some(val), self)
+        module.generic_setattr(attr_name.into_pystr_ref(self), Some(val), self)
     }
 }

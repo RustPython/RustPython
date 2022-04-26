@@ -326,7 +326,8 @@ pub(crate) mod _thread {
             if attr.as_str() == "__dict__" {
                 Ok(ldict.into())
             } else {
-                vm.generic_getattribute_opt(zelf.clone().into(), attr.clone(), Some(ldict))?
+                zelf.as_object()
+                    .generic_getattr_opt(attr.clone(), Some(ldict), vm)?
                     .ok_or_else(|| {
                         vm.new_attribute_error(format!(
                             "{} has no attribute '{}'",

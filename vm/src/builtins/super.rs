@@ -126,7 +126,7 @@ impl PySuper {
 
 impl GetAttr for PySuper {
     fn getattro(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        let skip = |zelf: PyRef<Self>, name| vm.generic_getattribute(zelf.into(), name);
+        let skip = |zelf: PyRef<Self>, name| zelf.as_object().generic_getattr(name, vm);
         let (obj, start_type): (PyObjectRef, PyTypeRef) = match zelf.obj.clone() {
             Some(o) => o,
             None => return skip(zelf, name),

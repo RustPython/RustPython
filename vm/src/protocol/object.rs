@@ -3,8 +3,8 @@
 
 use crate::{
     builtins::{
-        pystr::IntoPyStrRef, PyBytes, PyDict, PyGenericAlias, PyInt, PyStrRef, PyTupleRef,
-        PyTypeRef,
+        pystr::IntoPyStrRef, PyBytes, PyDict, PyDictRef, PyGenericAlias, PyInt, PyStrRef,
+        PyTupleRef, PyTypeRef,
     },
     bytesinner::ByteInnerNewOptions,
     common::{hash::PyHash, str::to_ascii},
@@ -118,8 +118,6 @@ impl PyObject {
         setattro(self, attr_name, attr_value, vm)
     }
 
-    // PyObject *PyObject_GenericGetAttr(PyObject *o, PyObject *name)
-
     pub fn set_attr(
         &self,
         attr_name: impl IntoPyStrRef,
@@ -131,6 +129,109 @@ impl PyObject {
     }
 
     // int PyObject_GenericSetAttr(PyObject *o, PyObject *name, PyObject *value)
+    #[cfg_attr(feature = "flame-it", flame)]
+    pub fn generic_setattr(
+        &self,
+        attr_name: PyStrRef,
+        value: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        vm_trace!("object.__setattr__({:?}, {}, {:?})", obj, attr_name, value);
+
+        if let Some(attr) = self.get_class_attr(attr_name.as_str()) {
+            let descr_set = attr.class().mro_find_map(|cls| cls.slots.descr_set.load());
+            if let Some(descriptor) = descr_set {
+                return descriptor(attr, self.to_owned(), value, vm);
+            }
+        }
+
+        if let Some(dict) = self.dict() {
+            if let Some(value) = value {
+                dict.set_item(attr_name, value, vm)?;
+            } else {
+                dict.del_item(attr_name.clone(), vm).map_err(|e| {
+                    if e.fast_isinstance(&vm.ctx.exceptions.key_error) {
+                        vm.new_attribute_error(format!(
+                            "'{}' object has no attribute '{}'",
+                            self.class().name(),
+                            attr_name,
+                        ))
+                    } else {
+                        e
+                    }
+                })?;
+            }
+            Ok(())
+        } else {
+            Err(vm.new_attribute_error(format!(
+                "'{}' object has no attribute '{}'",
+                self.class().name(),
+                attr_name,
+            )))
+        }
+    }
+
+    pub fn generic_getattr(&self, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
+        self.generic_getattr_opt(name.clone(), None, vm)?
+            .ok_or_else(|| vm.new_attribute_error(format!("{} has no attribute '{}'", self, name)))
+    }
+
+    /// CPython _PyObject_GenericGetAttrWithDict
+    pub fn generic_getattr_opt(
+        &self,
+        name_str: PyStrRef,
+        dict: Option<PyDictRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyObjectRef>> {
+        let name = name_str.as_str();
+        let obj_cls = self.class();
+        let cls_attr = match obj_cls.get_attr(name) {
+            Some(descr) => {
+                let descr_cls = descr.class();
+                let descr_get = descr_cls.mro_find_map(|cls| cls.slots.descr_get.load());
+                if let Some(descr_get) = descr_get {
+                    if descr_cls
+                        .mro_find_map(|cls| cls.slots.descr_set.load())
+                        .is_some()
+                    {
+                        drop(descr_cls);
+                        let cls = obj_cls.into_owned().into();
+                        return descr_get(descr, Some(self.to_pyobject(vm)), Some(cls), vm)
+                            .map(Some);
+                    }
+                }
+                drop(descr_cls);
+                Some((descr, descr_get))
+            }
+            None => None,
+        };
+
+        let dict = dict.or_else(|| self.dict());
+
+        let attr = if let Some(dict) = dict {
+            dict.get_item_opt(name, vm)?
+        } else {
+            None
+        };
+
+        if let Some(obj_attr) = attr {
+            Ok(Some(obj_attr))
+        } else if let Some((attr, descr_get)) = cls_attr {
+            match descr_get {
+                Some(descr_get) => {
+                    let cls = obj_cls.into_owned().into();
+                    descr_get(attr, Some(self.to_pyobject(vm)), Some(cls), vm).map(Some)
+                }
+                None => Ok(Some(attr)),
+            }
+        } else if let Some(getter) = obj_cls.get_attr("__getattr__") {
+            drop(obj_cls);
+            vm.invoke(&getter, (self.to_pyobject(vm), name_str))
+                .map(Some)
+        } else {
+            Ok(None)
+        }
+    }
 
     pub fn del_attr(&self, attr_name: impl IntoPyStrRef, vm: &VirtualMachine) -> PyResult<()> {
         let attr_name = attr_name.into_pystr_ref(vm);
