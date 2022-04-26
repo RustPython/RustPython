@@ -113,7 +113,7 @@ mod _io {
             BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn, VecBuffer,
         },
         recursion::ReprGuard,
-        types::{Constructor, Destructor, IterNext, Iterable},
+        types::{Constructor, Destructor, Initializer, IterNext, Iterable},
         vm::VirtualMachine,
         AsObject, Context, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
         TryFromBorrowedObject, TryFromObject,
@@ -1784,23 +1784,34 @@ mod _io {
             &self.write
         }
     }
-    #[pyimpl(with(BufferedReadable, BufferedWritable), flags(BASETYPE, HAS_DICT))]
-    impl BufferedRWPair {
-        #[pyslot]
-        fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+
+    impl Constructor for BufferedRWPair {
+        type Args = FuncArgs;
+
+        fn py_new(cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
             Self::default().into_ref_with_type(vm, cls).map(Into::into)
         }
-        #[pyslot]
-        #[pymethod(magic)]
-        fn init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-            let zelf: PyRef<Self> = zelf.try_into_value(vm)?;
-            let (reader, writer, buffer_size): (PyObjectRef, PyObjectRef, BufferSize) =
-                args.bind(vm)?;
+    }
+
+    impl Initializer for BufferedRWPair {
+        type Args = (PyObjectRef, PyObjectRef, BufferSize);
+
+        fn init(
+            zelf: PyRef<Self>,
+            (reader, writer, buffer_size): Self::Args,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
             zelf.read.init(reader, buffer_size.clone(), vm)?;
             zelf.write.init(writer, buffer_size, vm)?;
             Ok(())
         }
+    }
 
+    #[pyimpl(
+        with(Constructor, Initializer, BufferedReadable, BufferedWritable),
+        flags(BASETYPE, HAS_DICT)
+    )]
+    impl BufferedRWPair {
         #[pymethod]
         fn flush(&self, vm: &VirtualMachine) -> PyResult<()> {
             self.write.flush(vm)
@@ -2177,32 +2188,18 @@ mod _io {
         data: PyThreadMutex<Option<TextIOData>>,
     }
 
-    #[pyimpl(flags(BASETYPE))]
-    impl TextIOWrapper {
-        #[pyslot]
-        fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    impl Constructor for TextIOWrapper {
+        type Args = FuncArgs;
+
+        fn py_new(cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
             Self::default().into_ref_with_type(vm, cls).map(Into::into)
         }
+    }
 
-        fn lock_opt(
-            &self,
-            vm: &VirtualMachine,
-        ) -> PyResult<PyThreadMutexGuard<Option<TextIOData>>> {
-            self.data
-                .lock()
-                .ok_or_else(|| vm.new_runtime_error("reentrant call inside textio".to_owned()))
-        }
-        fn lock(&self, vm: &VirtualMachine) -> PyResult<PyMappedThreadMutexGuard<TextIOData>> {
-            let lock = self.lock_opt(vm)?;
-            PyThreadMutexGuard::try_map(lock, |x| x.as_mut())
-                .map_err(|_| vm.new_value_error("I/O operation on uninitialized object".to_owned()))
-        }
+    impl Initializer for TextIOWrapper {
+        type Args = TextIOWrapperArgs;
 
-        #[pyslot]
-        #[pymethod(magic)]
-        fn init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-            let zelf: PyRef<Self> = zelf.try_into_value(vm)?;
-            let args: TextIOWrapperArgs = args.bind(vm)?;
+        fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
             let mut data = zelf.lock_opt(vm)?;
             *data = None;
 
@@ -2273,7 +2270,27 @@ mod _io {
 
             Ok(())
         }
+    }
 
+    impl TextIOWrapper {
+        fn lock_opt(
+            &self,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyThreadMutexGuard<Option<TextIOData>>> {
+            self.data
+                .lock()
+                .ok_or_else(|| vm.new_runtime_error("reentrant call inside textio".to_owned()))
+        }
+
+        fn lock(&self, vm: &VirtualMachine) -> PyResult<PyMappedThreadMutexGuard<TextIOData>> {
+            let lock = self.lock_opt(vm)?;
+            PyThreadMutexGuard::try_map(lock, |x| x.as_mut())
+                .map_err(|_| vm.new_value_error("I/O operation on uninitialized object".to_owned()))
+        }
+    }
+
+    #[pyimpl(with(Constructor, Initializer), flags(BASETYPE))]
+    impl TextIOWrapper {
         #[pymethod]
         fn seekable(&self, vm: &VirtualMachine) -> PyResult {
             let textio = self.lock(vm)?;
@@ -3697,6 +3714,7 @@ mod fileio {
         crt_fd::Fd,
         function::{ArgBytesLike, ArgMemoryBuffer, FuncArgs, OptionalArg, OptionalOption},
         stdlib::os,
+        types::{Constructor, Initializer},
         AsObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
@@ -3812,7 +3830,7 @@ mod fileio {
     }
 
     #[derive(FromArgs)]
-    struct FileIOArgs {
+    pub struct FileIOArgs {
         #[pyarg(positional)]
         name: PyObjectRef,
         #[pyarg(any, default)]
@@ -3823,10 +3841,10 @@ mod fileio {
         opener: Option<PyObjectRef>,
     }
 
-    #[pyimpl(flags(BASETYPE, HAS_DICT))]
-    impl FileIO {
-        #[pyslot]
-        fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    impl Constructor for FileIO {
+        type Args = FuncArgs;
+
+        fn py_new(cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
             FileIO {
                 fd: AtomicCell::new(-1),
                 closefd: AtomicCell::new(false),
@@ -3836,12 +3854,12 @@ mod fileio {
             .into_ref_with_type(vm, cls)
             .map(Into::into)
         }
+    }
 
-        #[pyslot]
-        #[pymethod(magic)]
-        fn init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-            let zelf: PyRef<Self> = zelf.try_into_value(vm)?;
-            let args: FileIOArgs = args.bind(vm)?;
+    impl Initializer for FileIO {
+        type Args = FileIOArgs;
+
+        fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
             let mode_obj = args.mode.unwrap_or_else(|| PyStr::from("rb").into_ref(vm));
             let mode_str = mode_obj.as_str();
             let name = args.name;
@@ -3881,7 +3899,10 @@ mod fileio {
             zelf.as_object().set_attr("name", name, vm)?;
             Ok(())
         }
+    }
 
+    #[pyimpl(with(Constructor, Initializer), flags(BASETYPE, HAS_DICT))]
+    impl FileIO {
         #[pyproperty]
         fn closed(&self) -> bool {
             self.fd.load() < 0
