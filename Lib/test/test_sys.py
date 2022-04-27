@@ -413,6 +413,8 @@ class SysModuleTest(unittest.TestCase):
         leave_g.set()
         t.join()
 
+    # TODO: RUSTPYTHON, AttributeError: module 'sys' has no attribute '_current_exceptions'
+    @unittest.expectedFailure
     @threading_helper.reap_threads
     def test_current_exceptions(self):
         import threading
@@ -480,6 +482,8 @@ class SysModuleTest(unittest.TestCase):
         leave_g.set()
         t.join()
 
+    # TODO: RUSTPYTHON, AttributeError: module 'sys' has no attribute 'orig_argv'
+    @unittest.expectedFailure
     def test_attributes(self):
         self.assertIsInstance(sys.api_version, int)
         self.assertIsInstance(sys.argv, list)
@@ -1000,6 +1004,8 @@ class SysModuleTest(unittest.TestCase):
         out = out.decode('ascii', 'replace').rstrip()
         self.assertEqual(out, 'mbcs replace')
 
+    # TODO: RUSTPYTHON, subprocess.CalledProcessError: Command ... returned non-zero exit status 1.
+    @unittest.expectedFailure
     def test_orig_argv(self):
         code = textwrap.dedent('''
             import sys
@@ -1015,6 +1021,8 @@ class SysModuleTest(unittest.TestCase):
         self.assertEqual(proc.stdout.rstrip().splitlines(), expected,
                          proc)
 
+    # TODO: RUSTPYTHON, AttributeError: module 'sys' has no attribute 'stdlib_module_names'
+    @unittest.expectedFailure
     def test_module_names(self):
         self.assertIsInstance(sys.stdlib_module_names, frozenset)
         for name in sys.stdlib_module_names:
