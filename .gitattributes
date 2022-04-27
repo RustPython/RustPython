@@ -1,2 +1,2 @@
 Lib/** linguist-vendored
-parser/src/python.rs linguist-generated
+parser/src/python.rs linguist-generated -diff -merge
