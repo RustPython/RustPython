@@ -2251,8 +2251,6 @@ output.append(4)
         output.append(1)
         1 / 0
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @jump_test(3, 2, [2, 5], event='return')
     def test_jump_from_yield(output):
         def gen():
