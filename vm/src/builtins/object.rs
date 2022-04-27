@@ -250,8 +250,11 @@ impl PyBaseObject {
         }
     }
 
+    #[pyslot]
     #[pymethod(magic)]
-    fn init(_args: FuncArgs) {}
+    fn init(_zelf: PyObjectRef, _args: FuncArgs, _vm: &VirtualMachine) -> PyResult<()> {
+        Ok(())
+    }
 
     #[pyproperty(name = "__class__")]
     fn get_class(obj: PyObjectRef) -> PyTypeRef {

@@ -15,8 +15,8 @@ mod _collections {
         sliceable,
         sliceable::saturate_index,
         types::{
-            AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable, Iterable,
-            PyComparisonOp, Unhashable,
+            AsSequence, Comparable, Constructor, Hashable, Initializer, IterNext, IterNextIterable,
+            Iterable, PyComparisonOp, Unhashable,
         },
         utils::collection_repr,
         AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
@@ -54,75 +54,11 @@ mod _collections {
         }
     }
 
-    #[pyimpl(flags(BASETYPE), with(AsSequence, Comparable, Hashable, Iterable))]
+    #[pyimpl(
+        flags(BASETYPE),
+        with(Constructor, Initializer, AsSequence, Comparable, Hashable, Iterable)
+    )]
     impl PyDeque {
-        #[pyslot]
-        fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            PyDeque::default()
-                .into_ref_with_type(vm, cls)
-                .map(Into::into)
-        }
-
-        #[pymethod(magic)]
-        fn init(
-            zelf: PyRef<Self>,
-            PyDequeOptions { iterable, maxlen }: PyDequeOptions,
-            vm: &VirtualMachine,
-        ) -> PyResult<()> {
-            // TODO: This is _basically_ pyobject_to_opt_usize in itertools.rs
-            // need to move that function elsewhere and refactor usages.
-            let maxlen = if let Some(obj) = maxlen.into_option() {
-                if !vm.is_none(&obj) {
-                    let maxlen: isize = obj
-                        .payload::<PyInt>()
-                        .ok_or_else(|| vm.new_type_error("an integer is required.".to_owned()))?
-                        .try_to_primitive(vm)?;
-
-                    if maxlen.is_negative() {
-                        return Err(vm.new_value_error("maxlen must be non-negative.".to_owned()));
-                    }
-                    Some(maxlen as usize)
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
-
-            // retrieve elements first to not to make too huge lock
-            let elements = iterable
-                .into_option()
-                .map(|iter| {
-                    let mut elements: Vec<PyObjectRef> = iter.try_to_value(vm)?;
-                    if let Some(maxlen) = maxlen {
-                        elements.drain(..elements.len().saturating_sub(maxlen));
-                    }
-                    Ok(elements)
-                })
-                .transpose()?;
-
-            // SAFETY: This is hacky part for read-only field
-            // Because `maxlen` is only mutated from __init__. We can abuse the lock of deque to ensure this is locked enough.
-            // If we make a single lock of deque not only for extend but also for setting maxlen, it will be safe.
-            {
-                let mut deque = zelf.borrow_deque_mut();
-                // Clear any previous data present.
-                deque.clear();
-                unsafe {
-                    // `maxlen` is better to be defined as UnsafeCell in common practice,
-                    // but then more type works without any safety benefits
-                    let unsafe_maxlen =
-                        &zelf.maxlen as *const _ as *const std::cell::UnsafeCell<Option<usize>>;
-                    *(*unsafe_maxlen).get() = maxlen;
-                }
-                if let Some(elements) = elements {
-                    deque.extend(elements);
-                }
-            }
-
-            Ok(())
-        }
-
         #[pymethod]
         fn append(&self, obj: PyObjectRef) {
             self.state.fetch_add(1);
@@ -505,6 +441,79 @@ mod _collections {
 
         fn do_lock(&'a self) -> Self::Guard {
             self.borrow_deque()
+        }
+    }
+
+    impl Constructor for PyDeque {
+        type Args = FuncArgs;
+
+        fn py_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            PyDeque::default()
+                .into_ref_with_type(vm, cls)
+                .map(Into::into)
+        }
+    }
+
+    impl Initializer for PyDeque {
+        type Args = PyDequeOptions;
+
+        fn init(
+            zelf: PyRef<Self>,
+            PyDequeOptions { iterable, maxlen }: Self::Args,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            // TODO: This is _basically_ pyobject_to_opt_usize in itertools.rs
+            // need to move that function elsewhere and refactor usages.
+            let maxlen = if let Some(obj) = maxlen.into_option() {
+                if !vm.is_none(&obj) {
+                    let maxlen: isize = obj
+                        .payload::<PyInt>()
+                        .ok_or_else(|| vm.new_type_error("an integer is required.".to_owned()))?
+                        .try_to_primitive(vm)?;
+
+                    if maxlen.is_negative() {
+                        return Err(vm.new_value_error("maxlen must be non-negative.".to_owned()));
+                    }
+                    Some(maxlen as usize)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            // retrieve elements first to not to make too huge lock
+            let elements = iterable
+                .into_option()
+                .map(|iter| {
+                    let mut elements: Vec<PyObjectRef> = iter.try_to_value(vm)?;
+                    if let Some(maxlen) = maxlen {
+                        elements.drain(..elements.len().saturating_sub(maxlen));
+                    }
+                    Ok(elements)
+                })
+                .transpose()?;
+
+            // SAFETY: This is hacky part for read-only field
+            // Because `maxlen` is only mutated from __init__. We can abuse the lock of deque to ensure this is locked enough.
+            // If we make a single lock of deque not only for extend but also for setting maxlen, it will be safe.
+            {
+                let mut deque = zelf.borrow_deque_mut();
+                // Clear any previous data present.
+                deque.clear();
+                unsafe {
+                    // `maxlen` is better to be defined as UnsafeCell in common practice,
+                    // but then more type works without any safety benefits
+                    let unsafe_maxlen =
+                        &zelf.maxlen as *const _ as *const std::cell::UnsafeCell<Option<usize>>;
+                    *(*unsafe_maxlen).get() = maxlen;
+                }
+                if let Some(elements) = elements {
+                    deque.extend(elements);
+                }
+            }
+
+            Ok(())
         }
     }
 

@@ -12,8 +12,8 @@ use crate::{
     sequence::{MutObjectSequenceOp, ObjectSequenceOp, SequenceMutOp, SequenceOp},
     sliceable::{saturate_index, SequenceIndex, SliceableSequenceMutOp, SliceableSequenceOp},
     types::{
-        AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable,
-        Iterable, PyComparisonOp, Unconstructible, Unhashable,
+        AsMapping, AsSequence, Comparable, Constructor, Hashable, Initializer, IterNext,
+        IterNextIterable, Iterable, PyComparisonOp, Unconstructible, Unhashable,
     },
     utils::collection_repr,
     vm::VirtualMachine,
@@ -89,7 +89,15 @@ pub(crate) struct SortOptions {
 pub type PyListRef = PyRef<PyList>;
 
 #[pyimpl(
-    with(AsMapping, Iterable, Hashable, Comparable, AsSequence),
+    with(
+        Constructor,
+        Initializer,
+        AsMapping,
+        Iterable,
+        Hashable,
+        Comparable,
+        AsSequence
+    ),
     flags(BASETYPE)
 )]
 impl PyList {
@@ -338,39 +346,9 @@ impl PyList {
         Ok(())
     }
 
-    #[pyslot]
-    fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        PyList::default()
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
-    }
-
-    #[pymethod(magic)]
-    fn init(&self, iterable: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<()> {
-        let mut elements = if let OptionalArg::Present(iterable) = iterable {
-            iterable.try_to_value(vm)?
-        } else {
-            vec![]
-        };
-        std::mem::swap(self.borrow_vec_mut().deref_mut(), &mut elements);
-        Ok(())
-    }
-
     #[pyclassmethod(magic)]
     fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
         PyGenericAlias::new(cls, args, vm)
-    }
-}
-
-impl<'a> MutObjectSequenceOp<'a> for PyList {
-    type Guard = PyMappedRwLockReadGuard<'a, [PyObjectRef]>;
-
-    fn do_get(index: usize, guard: &Self::Guard) -> Option<&PyObjectRef> {
-        guard.get(index)
-    }
-
-    fn do_lock(&'a self) -> Self::Guard {
-        self.borrow_vec()
     }
 }
 
@@ -387,6 +365,42 @@ impl PyList {
             }
         }),
     };
+}
+
+impl<'a> MutObjectSequenceOp<'a> for PyList {
+    type Guard = PyMappedRwLockReadGuard<'a, [PyObjectRef]>;
+
+    fn do_get(index: usize, guard: &Self::Guard) -> Option<&PyObjectRef> {
+        guard.get(index)
+    }
+
+    fn do_lock(&'a self) -> Self::Guard {
+        self.borrow_vec()
+    }
+}
+
+impl Constructor for PyList {
+    type Args = FuncArgs;
+
+    fn py_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        PyList::default()
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
+    }
+}
+
+impl Initializer for PyList {
+    type Args = OptionalArg<PyObjectRef>;
+
+    fn init(zelf: PyRef<Self>, iterable: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        let mut elements = if let OptionalArg::Present(iterable) = iterable {
+            iterable.try_to_value(vm)?
+        } else {
+            vec![]
+        };
+        std::mem::swap(zelf.borrow_vec_mut().deref_mut(), &mut elements);
+        Ok(())
+    }
 }
 
 impl AsMapping for PyList {

@@ -30,8 +30,8 @@ use crate::{
     },
     sliceable::{SequenceIndex, SliceableSequenceMutOp, SliceableSequenceOp},
     types::{
-        AsBuffer, AsMapping, AsSequence, Callable, Comparable, Constructor, Hashable, IterNext,
-        IterNextIterable, Iterable, PyComparisonOp, Unconstructible, Unhashable,
+        AsBuffer, AsMapping, AsSequence, Callable, Comparable, Constructor, Hashable, Initializer,
+        IterNext, IterNextIterable, Iterable, PyComparisonOp, Unconstructible, Unhashable,
     },
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, TryFromObject, VirtualMachine,
@@ -95,24 +95,18 @@ pub(crate) fn init(context: &Context) {
 
 #[pyimpl(
     flags(BASETYPE),
-    with(Hashable, Comparable, AsBuffer, AsMapping, AsSequence, Iterable)
+    with(
+        Constructor,
+        Initializer,
+        Hashable,
+        Comparable,
+        AsBuffer,
+        AsMapping,
+        AsSequence,
+        Iterable
+    )
 )]
 impl PyByteArray {
-    #[pyslot]
-    fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        PyByteArray::default()
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
-    }
-
-    #[pymethod(magic)]
-    fn init(&self, options: ByteInnerNewOptions, vm: &VirtualMachine) -> PyResult<()> {
-        // First unpack bytearray and *then* get a lock to set it.
-        let mut inner = options.get_bytearray_inner(vm)?;
-        std::mem::swap(&mut *self.inner_mut(), &mut inner);
-        Ok(())
-    }
-
     #[cfg(debug_assertions)]
     #[pyproperty]
     fn exports(&self) -> usize {
@@ -712,6 +706,27 @@ impl PyByteArray {
             }
         }),
     };
+}
+
+impl Constructor for PyByteArray {
+    type Args = FuncArgs;
+
+    fn py_new(cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
+        PyByteArray::default()
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
+    }
+}
+
+impl Initializer for PyByteArray {
+    type Args = ByteInnerNewOptions;
+
+    fn init(zelf: PyRef<Self>, options: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        // First unpack bytearray and *then* get a lock to set it.
+        let mut inner = options.get_bytearray_inner(vm)?;
+        std::mem::swap(&mut *zelf.inner_mut(), &mut inner);
+        Ok(())
+    }
 }
 
 impl Comparable for PyByteArray {

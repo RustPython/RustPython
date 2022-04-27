@@ -4,8 +4,10 @@
 use super::PyTypeRef;
 use crate::common::lock::PyRwLock;
 use crate::{
-    class::PyClassImpl, function::FuncArgs, types::GetDescriptor, AsObject, Context, PyObjectRef,
-    PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+    class::PyClassImpl,
+    function::FuncArgs,
+    types::{Constructor, GetDescriptor, Initializer},
+    AsObject, Context, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 
 /// Property attribute.
@@ -56,7 +58,7 @@ impl PyPayload for PyProperty {
 }
 
 #[derive(FromArgs)]
-struct PropertyArgs {
+pub struct PropertyArgs {
     #[pyarg(any, default)]
     fget: Option<PyObjectRef>,
     #[pyarg(any, default)]
@@ -85,28 +87,8 @@ impl GetDescriptor for PyProperty {
     }
 }
 
-#[pyimpl(with(GetDescriptor), flags(BASETYPE))]
+#[pyimpl(with(Constructor, Initializer, GetDescriptor), flags(BASETYPE))]
 impl PyProperty {
-    #[pyslot]
-    fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        PyProperty {
-            getter: PyRwLock::new(None),
-            setter: PyRwLock::new(None),
-            deleter: PyRwLock::new(None),
-            doc: PyRwLock::new(None),
-        }
-        .into_ref_with_type(vm, cls)
-        .map(Into::into)
-    }
-
-    #[pymethod(magic)]
-    fn init(&self, args: PropertyArgs) {
-        *self.getter.write() = args.fget;
-        *self.setter.write() = args.fset;
-        *self.deleter.write() = args.fdel;
-        *self.doc.write() = args.doc;
-    }
-
     // Descriptor methods
 
     #[pyslot]
@@ -242,6 +224,33 @@ impl PyProperty {
         if let Some(getter) = self.getter.read().to_owned() {
             getter.set_attr("__isabstractmethod__", value, vm)?;
         }
+        Ok(())
+    }
+}
+
+impl Constructor for PyProperty {
+    type Args = FuncArgs;
+
+    fn py_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        PyProperty {
+            getter: PyRwLock::new(None),
+            setter: PyRwLock::new(None),
+            deleter: PyRwLock::new(None),
+            doc: PyRwLock::new(None),
+        }
+        .into_ref_with_type(vm, cls)
+        .map(Into::into)
+    }
+}
+
+impl Initializer for PyProperty {
+    type Args = PropertyArgs;
+
+    fn init(zelf: PyRef<Self>, args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+        *zelf.getter.write() = args.fget;
+        *zelf.setter.write() = args.fset;
+        *zelf.deleter.write() = args.fdel;
+        *zelf.doc.write() = args.doc;
         Ok(())
     }
 }

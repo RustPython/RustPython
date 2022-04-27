@@ -719,12 +719,8 @@ impl Callable for PyType {
             return Ok(obj);
         }
 
-        if let Some(init_method_or_err) = vm.get_method(obj.clone(), "__init__") {
-            let init_method = init_method_or_err?;
-            let res = vm.invoke(&init_method, args)?;
-            if !vm.is_none(&res) {
-                return Err(vm.new_type_error("__init__ must return None".to_owned()));
-            }
+        if let Some(init_method) = obj.class().mro_find_map(|cls| cls.slots.init.load()) {
+            init_method(obj.clone(), args, vm)?;
         }
         Ok(obj)
     }
