@@ -20,7 +20,6 @@
 
 #[macro_use]
 extern crate log;
-use lalrpop_util::lalrpop_mod;
 pub use rustpython_ast as ast;
 
 pub mod error;
@@ -29,9 +28,8 @@ mod function;
 pub mod lexer;
 pub mod mode;
 pub mod parser;
-lalrpop_mod!(
-    #[allow(clippy::all)]
-    #[allow(unused)]
-    python
-);
+#[allow(clippy::all)]
+#[allow(unused)]
+#[rustfmt::skip]
+mod python;
 pub mod token;

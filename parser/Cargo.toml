@@ -9,7 +9,8 @@ license = "MIT"
 edition = "2021"
 
 [build-dependencies]
-lalrpop = "0.19.7"
+tiny-keccak = { version = "2", features = ["sha3"] }
+phf_codegen = "0.10"
 
 [dependencies]
 rustpython-ast = { path = "../ast" }
@@ -20,7 +21,7 @@ num-traits = "0.2.14"
 unic-emoji-char = "0.9.0"
 unic-ucd-ident  = "0.9.0"
 unicode_names2 = "0.5.0"
-phf = { version = "0.10.1", features = ["macros"] }
+phf = "0.10.1"
 ahash = "0.7.6"
 
 [dev-dependencies]
