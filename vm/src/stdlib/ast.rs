@@ -34,7 +34,7 @@ mod _ast {
         #[pyslot]
         #[pymethod(magic)]
         fn init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-            let fields = zelf.clone().get_attr("_fields", vm)?;
+            let fields = zelf.get_attr("_fields", vm)?;
             let fields: Vec<PyStrRef> = fields.try_to_value(vm)?;
             let numargs = args.args.len();
             if numargs > fields.len() {
