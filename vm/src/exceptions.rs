@@ -528,7 +528,7 @@ impl PyBaseException {
     ) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
         (
             zelf.class().clone(),
-            zelf.args().clone(),
+            zelf.args(),
             zelf.as_object().dict(),
         )
     }
