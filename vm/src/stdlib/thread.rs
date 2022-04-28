@@ -9,7 +9,7 @@ pub(crate) mod _thread {
         convert::ToPyException,
         function::{ArgCallable, Either, FuncArgs, KwArgs, OptionalArg},
         types::{Constructor, GetAttr, SetAttr},
-        AsObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     };
     use parking_lot::{
         lock_api::{RawMutex as RawMutexT, RawMutexTimed, RawReentrantMutex},
@@ -321,7 +321,7 @@ pub(crate) mod _thread {
     }
 
     impl GetAttr for Local {
-        fn getattro(zelf: PyRef<Self>, attr: PyStrRef, vm: &VirtualMachine) -> PyResult {
+        fn getattro(zelf: &Py<Self>, attr: PyStrRef, vm: &VirtualMachine) -> PyResult {
             let ldict = zelf.ldict(vm);
             if attr.as_str() == "__dict__" {
                 Ok(ldict.into())

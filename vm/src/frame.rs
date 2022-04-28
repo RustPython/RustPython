@@ -798,7 +798,7 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::SetupWith { end } => {
                 let context_manager = self.pop_value();
-                let exit = context_manager.clone().get_attr("__exit__", vm)?;
+                let exit = context_manager.get_attr("__exit__", vm)?;
                 self.push_value(exit);
                 // Call enter:
                 let enter_res = vm.call_special_method(context_manager, "__enter__", ())?;
@@ -808,7 +808,7 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::BeforeAsyncWith => {
                 let mgr = self.pop_value();
-                let aexit = mgr.clone().get_attr("__aexit__", vm)?;
+                let aexit = mgr.get_attr("__aexit__", vm)?;
                 self.push_value(aexit);
                 let aenter_res = vm.call_special_method(mgr, "__aenter__", ())?;
                 self.push_value(aenter_res);
@@ -1021,7 +1021,7 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::LoadBuildClass => {
-                self.push_value(vm.builtins.clone().get_attr("__build_class__", vm)?);
+                self.push_value(vm.builtins.get_attr("__build_class__", vm)?);
                 Ok(None)
             }
             bytecode::Instruction::UnpackSequence { size } => {

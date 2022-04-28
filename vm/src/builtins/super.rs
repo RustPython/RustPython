@@ -8,7 +8,7 @@ use crate::{
     class::PyClassImpl,
     function::OptionalArg,
     types::{Constructor, GetAttr, GetDescriptor},
-    AsObject, Context, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "super")]
@@ -125,8 +125,8 @@ impl PySuper {
 }
 
 impl GetAttr for PySuper {
-    fn getattro(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        let skip = |zelf: PyRef<Self>, name| zelf.as_object().generic_getattr(name, vm);
+    fn getattro(zelf: &Py<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
+        let skip = |zelf: &Py<Self>, name| zelf.as_object().generic_getattr(name, vm);
         let (obj, start_type): (PyObjectRef, PyTypeRef) = match zelf.obj.clone() {
             Some(o) => o,
             None => return skip(zelf, name),

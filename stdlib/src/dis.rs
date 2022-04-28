@@ -10,7 +10,7 @@ mod decl {
 
     #[pyfunction]
     fn dis(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let co = if let Ok(co) = obj.clone().get_attr("__code__", vm) {
+        let co = if let Ok(co) = obj.get_attr("__code__", vm) {
             // Method or function:
             PyRef::try_from_object(vm, co)?
         } else if let Ok(co_str) = PyStrRef::try_from_object(vm, obj.clone()) {

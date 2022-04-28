@@ -15,7 +15,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         .copied()
     {
         crate::vm::extend_module!(vm, &module, {
-            attr => ucd.clone().get_attr(attr, vm).unwrap(),
+            attr => ucd.get_attr(attr, vm).unwrap(),
         });
     }
 

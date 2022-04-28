@@ -137,8 +137,8 @@ impl Initializer for PyModule {
 }
 
 impl GetAttr for PyModule {
-    fn getattro(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        Self::getattr_inner(&zelf, name, vm)
+    fn getattro(zelf: &Py<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
+        Self::getattr_inner(zelf, name, vm)
     }
 }
 

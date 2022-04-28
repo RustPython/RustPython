@@ -51,7 +51,7 @@ impl VirtualMachine {
                 let _ = self.write_exception(&mut py_io::IoWriter(io::stderr()), exc);
             }
         };
-        if let Ok(excepthook) = vm.sys_module.clone().get_attr("excepthook", vm) {
+        if let Ok(excepthook) = vm.sys_module.get_attr("excepthook", vm) {
             let (exc_type, exc_val, exc_tb) = vm.split_exception(exc.clone());
             if let Err(eh_exc) = vm.invoke(&excepthook, (exc_type, exc_val, exc_tb)) {
                 write_fallback(&eh_exc, "Error in sys.excepthook:");
@@ -877,7 +877,7 @@ fn os_error_str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult<PyStrR
         let errno = exc.get_arg(0).unwrap().str(vm)?;
         let msg = exc.get_arg(1).unwrap().str(vm)?;
 
-        let s = match obj.clone().get_attr("filename", vm) {
+        let s = match obj.get_attr("filename", vm) {
             Ok(filename) => match obj.get_attr("filename2", vm) {
                 Ok(filename2) => format!(
                     "[Errno {}] {}: '{}' -> '{}'",

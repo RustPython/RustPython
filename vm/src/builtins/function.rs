@@ -14,7 +14,7 @@ use crate::{
     function::{FuncArgs, OptionalArg, PyComparisonValue},
     scope::Scope,
     types::{Callable, Comparable, Constructor, GetAttr, GetDescriptor, PyComparisonOp},
-    AsObject, Context, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 #[cfg(feature = "jit")]
 use crate::{common::lock::OnceCell, convert::ToPyObject};
@@ -460,12 +460,12 @@ impl Comparable for PyBoundMethod {
 }
 
 impl GetAttr for PyBoundMethod {
-    fn getattro(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
+    fn getattro(zelf: &Py<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
         let class_attr = zelf.get_class_attr(name.as_str());
         if let Some(obj) = class_attr {
-            return vm.call_if_get_descriptor(obj, zelf.into());
+            return vm.call_if_get_descriptor(obj, zelf.to_owned().into());
         }
-        zelf.function.clone().get_attr(name, vm)
+        zelf.function.get_attr(name, vm)
     }
 }
 
@@ -526,7 +526,7 @@ impl PyBoundMethod {
 
     #[pyproperty(magic)]
     fn doc(&self, vm: &VirtualMachine) -> PyResult {
-        self.function.clone().get_attr("__doc__", vm)
+        self.function.get_attr("__doc__", vm)
     }
 
     #[pyproperty(magic)]
@@ -541,7 +541,7 @@ impl PyBoundMethod {
 
     #[pyproperty(magic)]
     fn module(&self, vm: &VirtualMachine) -> Option<PyObjectRef> {
-        self.function.clone().get_attr("__module__", vm).ok()
+        self.function.get_attr("__module__", vm).ok()
     }
 
     #[pyproperty(magic)]
@@ -563,7 +563,7 @@ impl PyBoundMethod {
                 ))
                 .into());
         }
-        self.function.clone().get_attr("__qualname__", vm)
+        self.function.get_attr("__qualname__", vm)
     }
 }
 

@@ -11,7 +11,7 @@ use crate::{
     class::{PyClassImpl, StaticType},
     function::{FuncArgs, KwArgs, OptionalArg},
     types::{Callable, GetAttr, PyTypeFlags, PyTypeSlots, SetAttr},
-    AsObject, Context, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use indexmap::{map::Entry, IndexMap};
 use itertools::Itertools;
@@ -628,7 +628,7 @@ pub(crate) fn get_text_signature_from_internal_doc<'a>(
 }
 
 impl GetAttr for PyType {
-    fn getattro(zelf: PyRef<Self>, name_str: PyStrRef, vm: &VirtualMachine) -> PyResult {
+    fn getattro(zelf: &Py<Self>, name_str: PyStrRef, vm: &VirtualMachine) -> PyResult {
         let name = name_str.as_str();
         vm_trace!("type.__getattribute__({:?}, {:?})", zelf, name);
         let mcl = zelf.class();
@@ -643,7 +643,7 @@ impl GetAttr for PyType {
             {
                 if let Some(descr_get) = attr_class.mro_find_map(|cls| cls.slots.descr_get.load()) {
                     let mcl = mcl.into_owned().into();
-                    return descr_get(attr.clone(), Some(zelf.into()), Some(mcl), vm);
+                    return descr_get(attr.clone(), Some(zelf.to_owned().into()), Some(mcl), vm);
                 }
             }
         }
@@ -653,7 +653,7 @@ impl GetAttr for PyType {
         if let Some(ref attr) = zelf_attr {
             if let Some(descr_get) = attr.class().mro_find_map(|cls| cls.slots.descr_get.load()) {
                 drop(mcl);
-                return descr_get(attr.clone(), None, Some(zelf.into()), vm);
+                return descr_get(attr.clone(), None, Some(zelf.to_owned().into()), vm);
             }
         }
 
@@ -661,7 +661,7 @@ impl GetAttr for PyType {
             Ok(cls_attr)
         } else if let Some(attr) = mcl_attr {
             drop(mcl);
-            vm.call_if_get_descriptor(attr, zelf.into())
+            vm.call_if_get_descriptor(attr, zelf.to_owned().into())
         } else {
             Err(vm.new_attribute_error(format!(
                 "type object '{}' has no attribute '{}'",

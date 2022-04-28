@@ -138,7 +138,7 @@ pub(crate) type GenericMethod = fn(&PyObject, FuncArgs, &VirtualMachine) -> PyRe
 pub(crate) type AsMappingFunc = fn(&PyObject, &VirtualMachine) -> PyMappingMethods;
 pub(crate) type HashFunc = fn(&PyObject, &VirtualMachine) -> PyResult<PyHash>;
 // CallFunc = GenericMethod
-pub(crate) type GetattroFunc = fn(PyObjectRef, PyStrRef, &VirtualMachine) -> PyResult;
+pub(crate) type GetattroFunc = fn(&PyObject, PyStrRef, &VirtualMachine) -> PyResult;
 pub(crate) type SetattroFunc =
     fn(&PyObject, PyStrRef, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>;
 pub(crate) type AsBufferFunc = fn(&PyObject, &VirtualMachine) -> PyResult<PyBuffer>;
@@ -263,8 +263,8 @@ fn call_wrapper(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResul
     vm.call_special_method(zelf.to_owned(), "__call__", args)
 }
 
-fn getattro_wrapper(zelf: PyObjectRef, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
-    vm.call_special_method(zelf, "__getattribute__", (name,))
+fn getattro_wrapper(zelf: &PyObject, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
+    vm.call_special_method(zelf.to_owned(), "__getattribute__", (name,))
 }
 
 fn setattro_wrapper(
@@ -791,21 +791,20 @@ impl PyComparisonOp {
 #[pyimpl]
 pub trait GetAttr: PyPayload {
     #[pyslot]
-    fn slot_getattro(obj: PyObjectRef, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        if let Ok(zelf) = obj.downcast::<Self>() {
+    fn slot_getattro(obj: &PyObject, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
+        if let Some(zelf) = obj.downcast_ref::<Self>() {
             Self::getattro(zelf, name, vm)
         } else {
             Err(vm.new_type_error("unexpected payload for __getattribute__".to_owned()))
         }
     }
 
-    // TODO: make zelf: &Py<Self>
-    fn getattro(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult;
+    fn getattro(zelf: &Py<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult;
 
     #[inline]
     #[pymethod(magic)]
     fn getattribute(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        Self::getattro(zelf, name, vm)
+        Self::getattro(&zelf, name, vm)
     }
 }
 
