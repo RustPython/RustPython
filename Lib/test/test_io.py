@@ -1537,8 +1537,6 @@ class BufferedReaderTest(unittest.TestCase, CommonBufferedTests):
         self.assertRaises(ValueError, b.peek)
         self.assertRaises(ValueError, b.read1, 1)
 
-    # TODO: RUSTPYTHON, AssertionError: UnsupportedOperation not raised by truncate
-    @unittest.expectedFailure
     def test_truncate_on_read_only(self):
         rawio = self.MockFileIO(b"abc")
         bufio = self.tp(rawio)
@@ -1624,6 +1622,11 @@ class CBufferedReaderTest(BufferedReaderTest, SizeofTest):
     @unittest.expectedFailure
     def test_flush_error_on_close(self):
         super().test_flush_error_on_close()
+
+    # TODO: RUSTPYTHON, AssertionError: UnsupportedOperation not raised by truncate
+    @unittest.expectedFailure
+    def test_truncate_on_read_only(self): # TODO: RUSTPYTHON, remove when this passes
+        super().test_truncate_on_read_only() # TODO: RUSTPYTHON, remove when this passes
 
 
 class PyBufferedReaderTest(BufferedReaderTest):
@@ -4417,8 +4420,6 @@ class MiscIOTest(unittest.TestCase):
         # there used to be a buffer overflow in the parser for rawmode
         self.assertRaises(ValueError, self.open, os_helper.TESTFN, 'rwax+', encoding="utf-8")
 
-    # TODO: RUSTPYTHON, AssertionError: 22 != 10 : _PythonRunResult(rc=22, out=b'', err=b'')
-    @unittest.expectedFailure
     def test_check_encoding_errors(self):
         # bpo-37388: open() and TextIOWrapper must check encoding and errors
         # arguments in dev mode
@@ -4556,6 +4557,11 @@ class CMiscIOTest(MiscIOTest):
 
     def test_daemon_threads_shutdown_stderr_deadlock(self):
         self.check_daemon_threads_shutdown_deadlock('stderr')
+
+    # TODO: RUSTPYTHON, AssertionError: 22 != 10 : _PythonRunResult(rc=22, out=b'', err=b'')
+    @unittest.expectedFailure
+    def test_check_encoding_errors(self): # TODO: RUSTPYTHON, remove when this passes
+        super().test_check_encoding_errors() # TODO: RUSTPYTHON, remove when this passes
 
 
 class PyMiscIOTest(MiscIOTest):

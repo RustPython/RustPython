@@ -461,7 +461,8 @@ if {open, stat} <= supports_dir_fd and {scandir, stat} <= supports_fd:
                 dirs.remove('CVS')  # don't visit CVS directories
         """
         sys.audit("os.fwalk", top, topdown, onerror, follow_symlinks, dir_fd)
-        top = fspath(top)
+        if not isinstance(top, int) or not hasattr(top, '__index__'):
+            top = fspath(top)
         # Note: To guard against symlink races, we use the standard
         # lstat()/open()/fstat() trick.
         if not follow_symlinks:
@@ -703,11 +704,9 @@ class _Environ(MutableMapping):
         return len(self._data)
 
     def __repr__(self):
-        formatted_items = ", ".join(
-            f"{self.decodekey(key)!r}: {self.decodevalue(value)!r}"
-            for key, value in self._data.items()
-        )
-        return f"environ({{{formatted_items}}})"
+        return 'environ({{{}}})'.format(', '.join(
+            ('{!r}: {!r}'.format(self.decodekey(key), self.decodevalue(value))
+            for key, value in self._data.items())))
 
     def copy(self):
         return dict(self)
@@ -973,7 +972,7 @@ otherwise return -SIG, where SIG is the signal that killed it. """
 # VxWorks has no user space shell provided. As a result, running
 # command in a shell can't be supported.
 if sys.platform != 'vxworks':
-# Supply os.popen()
+    # Supply os.popen()
     def popen(cmd, mode="r", buffering=-1):
         if not isinstance(cmd, str):
             raise TypeError("invalid cmd type (%s, expected string)" % type(cmd))
@@ -995,28 +994,28 @@ if sys.platform != 'vxworks':
                                     bufsize=buffering)
             return _wrap_close(proc.stdin, proc)
 
-# Helper for popen() -- a proxy for a file whose close waits for the process
-class _wrap_close:
-    def __init__(self, stream, proc):
-        self._stream = stream
-        self._proc = proc
-    def close(self):
-        self._stream.close()
-        returncode = self._proc.wait()
-        if returncode == 0:
-            return None
-        if name == 'nt':
-            return returncode
-        else:
-            return returncode << 8  # Shift left to match old behavior
-    def __enter__(self):
-        return self
-    def __exit__(self, *args):
-        self.close()
-    def __getattr__(self, name):
-        return getattr(self._stream, name)
-    def __iter__(self):
-        return iter(self._stream)
+    # Helper for popen() -- a proxy for a file whose close waits for the process
+    class _wrap_close:
+        def __init__(self, stream, proc):
+            self._stream = stream
+            self._proc = proc
+        def close(self):
+            self._stream.close()
+            returncode = self._proc.wait()
+            if returncode == 0:
+                return None
+            if name == 'nt':
+                return returncode
+            else:
+                return returncode << 8  # Shift left to match old behavior
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            self.close()
+        def __getattr__(self, name):
+            return getattr(self._stream, name)
+        def __iter__(self):
+            return iter(self._stream)
 
     __all__.append("popen")
 
@@ -1026,9 +1025,7 @@ def fdopen(fd, mode="r", buffering=-1, encoding=None, *args, **kwargs):
         raise TypeError("invalid fd type (%s, expected integer)" % type(fd))
     import io
     if "b" not in mode:
-        # TODO: RUSTPYTHON (module 'io' has no attribute 'text_encoding')
-        # encoding = io.text_encoding(encoding)
-        pass
+        encoding = io.text_encoding(encoding)
     return io.open(fd, mode, buffering, encoding, *args, **kwargs)
 
 

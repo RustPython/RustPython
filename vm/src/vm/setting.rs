@@ -43,6 +43,9 @@ pub struct Settings {
     /// -Xdev
     pub dev_mode: bool,
 
+    /// -X warn_default_encoding, PYTHONWARNDEFAULTENCODING
+    pub warn_default_encoding: bool,
+
     /// -Wfoo
     pub warnopts: Vec<String>,
 
@@ -78,6 +81,7 @@ impl Default for Settings {
             xopts: vec![],
             isolated: false,
             dev_mode: false,
+            warn_default_encoding: false,
             warnopts: vec![],
             path_list: vec![
                 #[cfg(all(feature = "pylib", not(feature = "freeze-stdlib")))]
