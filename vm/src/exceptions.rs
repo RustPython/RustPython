@@ -526,11 +526,7 @@ impl PyBaseException {
         zelf: PyRef<Self>,
         _vm: &VirtualMachine,
     ) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
-        (
-            zelf.class().clone(),
-            zelf.args(),
-            zelf.as_object().dict(),
-        )
+        (zelf.class().clone(), zelf.args(), zelf.as_object().dict())
     }
 }
 
