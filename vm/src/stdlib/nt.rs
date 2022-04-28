@@ -303,7 +303,7 @@ pub(crate) mod module {
                 return Err(errno_err(vm));
             }
         }
-        let buffer = widestring::WideCString::from_vec_with_nul(buffer).unwrap();
+        let buffer = widestring::WideCString::from_vec_truncate(buffer);
         path.mode.process_path(buffer.to_os_string(), vm)
     }
 
@@ -318,7 +318,7 @@ pub(crate) mod module {
         if ret == 0 {
             return Err(errno_err(vm));
         }
-        let buffer = widestring::WideCString::from_vec_with_nul(buffer).unwrap();
+        let buffer = widestring::WideCString::from_vec_truncate(buffer);
         path.mode.process_path(buffer.to_os_string(), vm)
     }
 
