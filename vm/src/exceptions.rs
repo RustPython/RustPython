@@ -2,8 +2,7 @@ use self::types::{PyBaseException, PyBaseExceptionRef};
 use crate::common::lock::PyRwLock;
 use crate::{
     builtins::{
-        traceback::PyTracebackRef, PyDictRef, PyNone, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType,
-        PyTypeRef,
+        traceback::PyTracebackRef, PyNone, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
     },
     class::{PyClassImpl, StaticType},
     convert::{ToPyException, ToPyObject},
@@ -522,11 +521,12 @@ impl PyBaseException {
     }
 
     #[pymethod(magic)]
-    fn reduce(
-        zelf: PyRef<Self>,
-        _vm: &VirtualMachine,
-    ) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
-        (zelf.class().clone(), zelf.args(), zelf.as_object().dict())
+    fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyTupleRef {
+        if let Some(dict) = zelf.as_object().dict().filter(|x| !x.is_empty()) {
+            return vm.new_tuple((zelf.class().clone(), zelf.args(), dict));
+        } else {
+            return vm.new_tuple((zelf.class().clone(), zelf.args()));
+        }
     }
 }
 
