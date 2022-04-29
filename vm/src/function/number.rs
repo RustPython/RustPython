@@ -57,16 +57,25 @@ pub struct ArgIntoFloat {
 }
 
 impl ArgIntoFloat {
-    pub fn to_f64(self) -> f64 {
-        self.value
-    }
-
     pub fn vec_into_f64(v: Vec<Self>) -> Vec<f64> {
         // TODO: Vec::into_raw_parts once stabilized
         let mut v = std::mem::ManuallyDrop::new(v);
         let (p, l, c) = (v.as_mut_ptr(), v.len(), v.capacity());
         // SAFETY: IntoPyFloat is repr(transparent) over f64
         unsafe { Vec::from_raw_parts(p.cast(), l, c) }
+    }
+}
+
+impl From<ArgIntoFloat> for f64 {
+    fn from(arg: ArgIntoFloat) -> Self {
+        arg.value
+    }
+}
+
+impl Deref for ArgIntoFloat {
+    type Target = f64;
+    fn deref(&self) -> &Self::Target {
+        &self.value
     }
 }
 

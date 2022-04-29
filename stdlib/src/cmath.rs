@@ -38,7 +38,7 @@ mod cmath {
     /// Convert from polar coordinates to rectangular coordinates.
     #[pyfunction]
     fn rect(r: ArgIntoFloat, phi: ArgIntoFloat) -> Complex64 {
-        Complex64::from_polar(r.to_f64(), phi.to_f64())
+        Complex64::from_polar(*r, *phi)
     }
 
     /// Checks if the real or imaginary part of z is infinite.
@@ -196,8 +196,8 @@ mod cmath {
     fn isclose(args: IsCloseArgs, vm: &VirtualMachine) -> PyResult<bool> {
         let a = args.a.to_complex();
         let b = args.b.to_complex();
-        let rel_tol = args.rel_tol.map_or(1e-09, |value| value.to_f64());
-        let abs_tol = args.abs_tol.map_or(0.0, |value| value.to_f64());
+        let rel_tol = args.rel_tol.map_or(1e-09, Into::into);
+        let abs_tol = args.abs_tol.map_or(0.0, Into::into);
 
         if rel_tol < 0.0 || abs_tol < 0.0 {
             return Err(vm.new_value_error("tolerances must be non-negative".to_owned()));
