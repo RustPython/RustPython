@@ -519,6 +519,15 @@ impl PyBaseException {
         let cls = zelf.class();
         format!("{}({})", cls.name(), repr_args.iter().format(", "))
     }
+
+    #[pymethod(magic)]
+    fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyTupleRef {
+        if let Some(dict) = zelf.as_object().dict().filter(|x| !x.is_empty()) {
+            return vm.new_tuple((zelf.class().clone(), zelf.args(), dict));
+        } else {
+            return vm.new_tuple((zelf.class().clone(), zelf.args()));
+        }
+    }
 }
 
 impl ExceptionZoo {

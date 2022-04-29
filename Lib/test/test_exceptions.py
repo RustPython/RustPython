@@ -1923,8 +1923,6 @@ class ImportErrorTests(unittest.TestCase):
             exc = ImportError(arg)
             self.assertEqual(str(arg), str(exc))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_copy_pickle(self):
         for kwargs in (dict(),
                        dict(name='somename'),
