@@ -173,7 +173,6 @@ where
     }
 }
 
-#[inline]
 fn inner_truediv(i1: &BigInt, i2: &BigInt, vm: &VirtualMachine) -> PyResult {
     if i2.is_zero() {
         return Err(vm.new_zero_division_error("integer division by zero".to_owned()));
