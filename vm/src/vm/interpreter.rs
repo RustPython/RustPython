@@ -1,4 +1,4 @@
-use super::{setting::Settings, thread, InitParameter, VirtualMachine};
+use super::{setting::Settings, thread, VirtualMachine};
 
 /// The general interface for the VM
 ///
@@ -7,7 +7,7 @@ use super::{setting::Settings, thread, InitParameter, VirtualMachine};
 /// ```
 /// use rustpython_vm::Interpreter;
 /// use rustpython_vm::compile::Mode;
-/// Interpreter::default().enter(|vm| {
+/// Interpreter::without_stdlib(Default::default()).enter(|vm| {
 ///     let scope = vm.new_scope_with_builtins();
 ///     let code_obj = vm.compile(r#"print("Hello World!")"#,
 ///             Mode::Exec,
@@ -21,17 +21,28 @@ pub struct Interpreter {
 }
 
 impl Interpreter {
-    pub fn new(settings: Settings, init: InitParameter) -> Self {
-        Self::new_with_init(settings, |_| init)
+    /// To create with stdlib, use `with_init`
+    pub fn without_stdlib(settings: Settings) -> Self {
+        Self::with_init(settings, |_| {})
     }
 
-    pub fn new_with_init<F>(settings: Settings, init: F) -> Self
+    /// Create with initialize function taking mutable vm reference.
+    /// ```
+    /// use rustpython_vm::Interpreter;
+    /// Interpreter::with_init(Default::default(), |vm| {
+    ///     // put this line to add stdlib to the vm
+    ///     // vm.add_native_modules(rustpython_stdlib::get_module_inits());
+    /// }).enter(|vm| {
+    ///     vm.run_code_string(vm.new_scope_with_builtins(), "print(1)", "<...>".to_owned());
+    /// });
+    /// ```
+    pub fn with_init<F>(settings: Settings, init: F) -> Self
     where
-        F: FnOnce(&mut VirtualMachine) -> InitParameter,
+        F: FnOnce(&mut VirtualMachine),
     {
         let mut vm = VirtualMachine::new(settings);
-        let init = init(&mut vm);
-        vm.initialize(init);
+        init(&mut vm);
+        vm.initialize();
         Self { vm }
     }
 
@@ -54,12 +65,6 @@ impl Interpreter {
     // pub fn shutdown(self) {}
 }
 
-impl Default for Interpreter {
-    fn default() -> Self {
-        Self::new(Settings::default(), InitParameter::External)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -71,7 +76,7 @@ mod tests {
 
     #[test]
     fn test_add_py_integers() {
-        Interpreter::default().enter(|vm| {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
             let a: PyObjectRef = vm.ctx.new_int(33_i32).into();
             let b: PyObjectRef = vm.ctx.new_int(12_i32).into();
             let res = vm._add(&a, &b).unwrap();
@@ -82,7 +87,7 @@ mod tests {
 
     #[test]
     fn test_multiply_str() {
-        Interpreter::default().enter(|vm| {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
             let a = vm.new_pyobj(crate::common::ascii!("Hello "));
             let b = vm.new_pyobj(4_i32);
             let res = vm._mul(&a, &b).unwrap();

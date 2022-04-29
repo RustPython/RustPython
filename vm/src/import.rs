@@ -7,16 +7,23 @@ use crate::{
     builtins::{code, code::CodeObject, list, traceback::PyTraceback, PyBaseExceptionRef},
     scope::Scope,
     version::get_git_revision,
-    vm::{InitParameter, VirtualMachine},
+    vm::{thread, VirtualMachine},
     AsObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
 };
 use rand::Rng;
 
 pub(crate) fn init_importlib(
     vm: &mut VirtualMachine,
-    initialize_parameter: InitParameter,
+    allow_external_library: bool,
 ) -> PyResult<()> {
-    use crate::vm::thread::enter_vm;
+    let importlib = init_importlib_base(vm)?;
+    if allow_external_library && cfg!(feature = "rustpython-compiler") {
+        init_importlib_package(vm, importlib)?;
+    }
+    Ok(())
+}
+
+pub(crate) fn init_importlib_base(vm: &mut VirtualMachine) -> PyResult<PyObjectRef> {
     flame_guard!("init importlib");
 
     // importlib_bootstrap needs these and it inlines checks to sys.modules before calling into
@@ -26,7 +33,7 @@ pub(crate) fn init_importlib(
     import_builtin(vm, "_warnings")?;
     import_builtin(vm, "_weakref")?;
 
-    let importlib = enter_vm(vm, || {
+    let importlib = thread::enter_vm(vm, || {
         let importlib = import_frozen(vm, "_frozen_importlib")?;
         let impmod = import_builtin(vm, "_imp")?;
         let install = importlib.get_attr("_install", vm)?;
@@ -34,45 +41,48 @@ pub(crate) fn init_importlib(
         Ok(importlib)
     })?;
     vm.import_func = importlib.get_attr("__import__", vm)?;
+    Ok(importlib)
+}
 
-    if initialize_parameter == InitParameter::External && cfg!(feature = "rustpython-compiler") {
-        enter_vm(vm, || {
-            flame_guard!("install_external");
+pub(crate) fn init_importlib_package(
+    vm: &mut VirtualMachine,
+    importlib: PyObjectRef,
+) -> PyResult<()> {
+    thread::enter_vm(vm, || {
+        flame_guard!("install_external");
 
-            // same deal as imports above
-            #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
-            import_builtin(vm, crate::stdlib::os::MODULE_NAME)?;
-            #[cfg(windows)]
-            import_builtin(vm, "winreg")?;
-            import_builtin(vm, "_io")?;
-            import_builtin(vm, "marshal")?;
+        // same deal as imports above
+        #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+        import_builtin(vm, crate::stdlib::os::MODULE_NAME)?;
+        #[cfg(windows)]
+        import_builtin(vm, "winreg")?;
+        import_builtin(vm, "_io")?;
+        import_builtin(vm, "marshal")?;
 
-            let install_external = importlib.get_attr("_install_external_importers", vm)?;
-            vm.invoke(&install_external, ())?;
-            // Set pyc magic number to commit hash. Should be changed when bytecode will be more stable.
-            let importlib_external = vm.import("_frozen_importlib_external", None, 0)?;
-            let mut magic = get_git_revision().into_bytes();
-            magic.truncate(4);
-            if magic.len() != 4 {
-                magic = rand::thread_rng().gen::<[u8; 4]>().to_vec();
-            }
-            let magic: PyObjectRef = vm.ctx.new_bytes(magic).into();
-            importlib_external.set_attr("MAGIC_NUMBER", magic, vm)?;
-            let zipimport_res = (|| -> PyResult<()> {
-                let zipimport = vm.import("zipimport", None, 0)?;
-                let zipimporter = zipimport.get_attr("zipimporter", vm)?;
-                let path_hooks = vm.sys_module.get_attr("path_hooks", vm)?;
-                let path_hooks = list::PyListRef::try_from_object(vm, path_hooks)?;
-                path_hooks.insert(0, zipimporter);
-                Ok(())
-            })();
-            if zipimport_res.is_err() {
-                warn!("couldn't init zipimport")
-            }
+        let install_external = importlib.get_attr("_install_external_importers", vm)?;
+        vm.invoke(&install_external, ())?;
+        // Set pyc magic number to commit hash. Should be changed when bytecode will be more stable.
+        let importlib_external = vm.import("_frozen_importlib_external", None, 0)?;
+        let mut magic = get_git_revision().into_bytes();
+        magic.truncate(4);
+        if magic.len() != 4 {
+            magic = rand::thread_rng().gen::<[u8; 4]>().to_vec();
+        }
+        let magic: PyObjectRef = vm.ctx.new_bytes(magic).into();
+        importlib_external.set_attr("MAGIC_NUMBER", magic, vm)?;
+        let zipimport_res = (|| -> PyResult<()> {
+            let zipimport = vm.import("zipimport", None, 0)?;
+            let zipimporter = zipimport.get_attr("zipimporter", vm)?;
+            let path_hooks = vm.sys_module.get_attr("path_hooks", vm)?;
+            let path_hooks = list::PyListRef::try_from_object(vm, path_hooks)?;
+            path_hooks.insert(0, zipimporter);
             Ok(())
-        })?
-    }
-    Ok(())
+        })();
+        if zipimport_res.is_err() {
+            warn!("couldn't init zipimport")
+        }
+        Ok(())
+    })
 }
 
 pub fn import_frozen(vm: &VirtualMachine, module_name: &str) -> PyResult {

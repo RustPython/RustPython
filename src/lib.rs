@@ -51,7 +51,7 @@ use rustpython_vm::{
     match_class,
     scope::Scope,
     stdlib::{atexit, sys},
-    AsObject, InitParameter, Interpreter, PyResult, Settings, VirtualMachine,
+    AsObject, Interpreter, PyResult, Settings, VirtualMachine,
 };
 use std::{env, process, str::FromStr};
 
@@ -83,10 +83,9 @@ where
         }
     }
 
-    let interp = Interpreter::new_with_init(settings, |vm| {
+    let interp = Interpreter::with_init(settings, |vm| {
         add_stdlib(vm);
         init(vm);
-        InitParameter::External
     });
 
     let exitcode = interp.enter(move |vm| {
@@ -573,7 +572,7 @@ __import__("io").TextIOWrapper(
         .downcast()
         .expect("TextIOWrapper.read() should return str");
     eprintln!("running get-pip.py...");
-    _run_string(vm, scope, getpip_code.as_str(), "get-pip.py".to_owned())
+    vm.run_code_string(scope, getpip_code.as_str(), "get-pip.py".to_owned())
 }
 
 #[cfg(not(feature = "ssl"))]
@@ -599,7 +598,7 @@ fn run_rustpython(vm: &VirtualMachine, matches: &ArgMatches) -> PyResult<()> {
     // Figure out if a -c option was given:
     if let Some(command) = matches.value_of("c") {
         debug!("Running command {}", command);
-        vm.run_code_string(scope, &command, "<stdin>".to_owned())?;
+        vm.run_code_string(scope, command, "<stdin>".to_owned())?;
     } else if let Some(module) = matches.value_of("m") {
         debug!("Running module {}", module);
         vm.run_module(module)?;
@@ -627,9 +626,8 @@ mod tests {
     use super::*;
 
     fn interpreter() -> Interpreter {
-        Interpreter::new_with_init(Settings::default(), |vm| {
+        Interpreter::with_init(Settings::default(), |vm| {
             add_stdlib(vm);
-            InitParameter::External
         })
     }
 

@@ -81,7 +81,7 @@ pub use self::convert::{TryFromBorrowedObject, TryFromObject};
 pub use self::object::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult, PyWeakRef,
 };
-pub use self::vm::{Context, InitParameter, Interpreter, Settings, VirtualMachine};
+pub use self::vm::{Context, Interpreter, Settings, VirtualMachine};
 
 pub use rustpython_bytecode as bytecode;
 pub use rustpython_common as common;

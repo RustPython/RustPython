@@ -872,7 +872,7 @@ mod tests {
 
     #[test]
     fn test_insert() {
-        Interpreter::default().enter(|vm| {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
             let dict = Dict::default();
             assert_eq!(0, dict.len());
 
@@ -921,7 +921,7 @@ mod tests {
     }
 
     fn check_hash_equivalence(text: &str) {
-        Interpreter::default().enter(|vm| {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
             let value1 = text;
             let value2 = vm.new_pyobj(value1.to_owned());
 

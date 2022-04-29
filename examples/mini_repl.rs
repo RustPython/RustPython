@@ -29,7 +29,7 @@ fn on(b: bool) {
 }
 
 fn main() -> vm::PyResult<()> {
-    vm::Interpreter::default().enter(run)
+    vm::Interpreter::without_stdlib(Default::default()).enter(run)
 }
 
 fn run(vm: &vm::VirtualMachine) -> vm::PyResult<()> {

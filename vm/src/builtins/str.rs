@@ -1559,7 +1559,7 @@ mod tests {
 
     #[test]
     fn str_maketrans_and_translate() {
-        Interpreter::default().enter(|vm| {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
             let table = vm.ctx.new_dict();
             table
                 .set_item("a", vm.ctx.new_str("🎅").into(), &vm)

@@ -3,7 +3,7 @@ use criterion::{
     Criterion, Throughput,
 };
 use rustpython_compiler::Mode;
-use rustpython_vm::{common::ascii, InitParameter, Interpreter, PyResult, Settings};
+use rustpython_vm::{common::ascii, Interpreter, PyResult, Settings};
 use std::{
     ffi, fs, io,
     path::{Path, PathBuf},
@@ -114,11 +114,10 @@ fn bench_rustpy_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchmar
     settings.dont_write_bytecode = true;
     settings.no_user_site = true;
 
-    Interpreter::new_with_init(settings, |vm| {
+    Interpreter::with_init(settings, |vm| {
         for (name, init) in rustpython_stdlib::get_module_inits().into_iter() {
             vm.add_native_module(name, init);
         }
-        InitParameter::External
     })
     .enter(|vm| {
         let setup_code = vm

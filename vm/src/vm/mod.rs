@@ -88,12 +88,6 @@ pub struct PyGlobalState {
     pub codec_registry: CodecsRegistry,
 }
 
-#[derive(Copy, Clone, PartialEq, Eq)]
-pub enum InitParameter {
-    Internal,
-    External,
-}
-
 impl VirtualMachine {
     /// Create a new `VirtualMachine` structure.
     fn new(settings: Settings) -> VirtualMachine {
@@ -177,7 +171,7 @@ impl VirtualMachine {
         vm
     }
 
-    fn initialize(&mut self, initialize_parameter: InitParameter) {
+    fn initialize(&mut self) {
         flame_guard!("init VirtualMachine");
 
         if self.initialized {
@@ -190,8 +184,7 @@ impl VirtualMachine {
         let mut inner_init = || -> PyResult<()> {
             #[cfg(not(target_arch = "wasm32"))]
             import::import_builtin(self, "_signal")?;
-
-            import::init_importlib(self, initialize_parameter)?;
+            import::init_importlib(self, self.state.settings.allow_external_library)?;
 
             // set up the encodings search function
             self.import("encodings", None, 0).map_err(|import_err| {
@@ -249,7 +242,7 @@ impl VirtualMachine {
             .expect("there should not be multiple threads while a user has a mut ref to a vm")
     }
 
-    /// Can only be used in the initialization closure passed to [`Interpreter::new_with_init`]
+    /// Can only be used in the initialization closure passed to [`Interpreter::with_init`]
     pub fn add_native_module<S>(&mut self, name: S, module: stdlib::StdlibInitFunc)
     where
         S: Into<Cow<'static, str>>,
@@ -264,7 +257,7 @@ impl VirtualMachine {
         self.state_mut().module_inits.extend(iter);
     }
 
-    /// Can only be used in the initialization closure passed to [`Interpreter::new_with_init`]
+    /// Can only be used in the initialization closure passed to [`Interpreter::with_init`]
     pub fn add_frozen<I>(&mut self, frozen: I)
     where
         I: IntoIterator<Item = (String, bytecode::FrozenModule)>,

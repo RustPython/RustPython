@@ -23,7 +23,7 @@ fn bench_cpython_code(b: &mut Bencher, source: &str) {
 
 fn bench_rustpy_code(b: &mut Bencher, name: &str, source: &str) {
     // NOTE: Take long time.
-    Interpreter::default().enter(|vm| {
+    Interpreter::without_stdlib(Default::default()).enter(|vm| {
         // Note: bench_cpython is both compiling and executing the code.
         // As such we compile the code in the benchmark loop as well.
         b.iter(|| {
