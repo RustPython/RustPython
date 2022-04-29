@@ -607,12 +607,7 @@ impl PyInt {
         args: IntFromByteArgs,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        let signed = if let OptionalArg::Present(signed) = args.signed {
-            signed.to_bool()
-        } else {
-            false
-        };
-
+        let signed = args.signed.map_or(false, |s| s.to_bool());
         let value = match (args.byteorder.as_str(), signed) {
             ("big", true) => BigInt::from_signed_bytes_be(&args.bytes.elements),
             ("big", false) => BigInt::from_bytes_be(Sign::Plus, &args.bytes.elements),

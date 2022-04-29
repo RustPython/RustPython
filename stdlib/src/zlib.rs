@@ -366,15 +366,10 @@ mod zlib {
         #[pymethod]
         fn flush(&self, length: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
             let length = match length {
-                OptionalArg::Present(l) => {
-                    if l <= 0 {
-                        return Err(
-                            vm.new_value_error("length must be greater than zero".to_owned())
-                        );
-                    } else {
-                        l as usize
-                    }
+                OptionalArg::Present(l) if l <= 0 => {
+                    return Err(vm.new_value_error("length must be greater than zero".to_owned()));
                 }
+                OptionalArg::Present(l) => l as usize,
                 OptionalArg::Missing => DEF_BUF_SIZE,
             };
 

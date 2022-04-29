@@ -22,10 +22,9 @@ mod _bisect {
         arg: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<Option<isize>> {
-        Ok(match arg {
-            OptionalArg::Present(v) => Some(vm.to_index(&v)?.try_to_primitive(vm)?),
-            OptionalArg::Missing => None,
-        })
+        arg.into_option()
+            .map(|v| vm.to_index(&v)?.try_to_primitive(vm))
+            .transpose()
     }
 
     // Handles defaults for lo, hi.

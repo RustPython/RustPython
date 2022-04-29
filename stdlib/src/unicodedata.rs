@@ -101,12 +101,7 @@ mod unicodedata {
                     }
                 }
             }
-            match default {
-                OptionalArg::Present(obj) => Ok(obj),
-                OptionalArg::Missing => {
-                    Err(vm.new_value_error("character name not found!".to_owned()))
-                }
-            }
+            default.ok_or_else(|| vm.new_value_error("character name not found!".to_owned()))
         }
 
         #[pymethod]
