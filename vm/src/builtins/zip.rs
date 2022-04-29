@@ -61,7 +61,7 @@ impl PyZip {
     #[pymethod(magic)]
     fn setstate(zelf: PyRef<Self>, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if let Ok(obj) = ArgIntoBool::try_from_object(vm, state) {
-            zelf.strict.store(obj.to_bool(), atomic::Ordering::Release);
+            zelf.strict.store(obj.into(), atomic::Ordering::Release);
         }
         Ok(())
     }

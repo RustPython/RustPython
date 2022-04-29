@@ -47,7 +47,7 @@ mod builtins {
     #[pyfunction]
     fn all(iterable: ArgIterable<ArgIntoBool>, vm: &VirtualMachine) -> PyResult<bool> {
         for item in iterable.iter(vm)? {
-            if !item?.to_bool() {
+            if !*item? {
                 return Ok(false);
             }
         }
@@ -57,7 +57,7 @@ mod builtins {
     #[pyfunction]
     fn any(iterable: ArgIterable<ArgIntoBool>, vm: &VirtualMachine) -> PyResult<bool> {
         for item in iterable.iter(vm)? {
-            if item?.to_bool() {
+            if *item? {
                 return Ok(true);
             }
         }
@@ -671,7 +671,7 @@ mod builtins {
             .unwrap_or_else(|| PyStr::from("\n").into_ref(vm));
         write(end)?;
 
-        if options.flush.to_bool() {
+        if *options.flush {
             vm.call_method(&file, "flush", ())?;
         }
 

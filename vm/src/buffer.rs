@@ -566,7 +566,7 @@ impl Packable for *mut raw::c_void {
 
 impl Packable for bool {
     fn pack<E: ByteOrder>(vm: &VirtualMachine, arg: PyObjectRef, data: &mut [u8]) -> PyResult<()> {
-        let v = ArgIntoBool::try_from_object(vm, arg)?.to_bool() as u8;
+        let v = *ArgIntoBool::try_from_object(vm, arg)? as u8;
         v.pack_int::<E>(data);
         Ok(())
     }

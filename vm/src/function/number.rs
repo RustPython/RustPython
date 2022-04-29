@@ -1,5 +1,6 @@
 use crate::{AsObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine};
 use num_complex::Complex64;
+use std::ops::Deref;
 
 /// A Python complex-like object.
 ///
@@ -10,10 +11,18 @@ use num_complex::Complex64;
 /// method, this method will first be called to convert the object into a float.
 /// If `__complex__()` is not defined then it falls back to `__float__()`. If
 /// `__float__()` is not defined it falls back to `__index__()`.
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, PartialEq)]
 #[repr(transparent)]
 pub struct ArgIntoComplex {
     value: Complex64,
+}
+
+impl Deref for ArgIntoComplex {
+    type Target = Complex64;
+
+    fn deref(&self) -> &Self::Target {
+        &self.value
+    }
 }
 
 impl ArgIntoComplex {
@@ -41,7 +50,7 @@ impl TryFromObject for ArgIntoComplex {
 /// If the object is not a Python floating point object but has a `__float__()`
 /// method, this method will first be called to convert the object into a float.
 /// If `__float__()` is not defined then it falls back to `__index__()`.
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, PartialEq)]
 #[repr(transparent)]
 pub struct ArgIntoFloat {
     value: f64,
@@ -79,23 +88,32 @@ impl TryFromObject for ArgIntoFloat {
 /// By default an object is considered true unless its class defines either a
 /// `__bool__()` method that returns False or a `__len__()` method that returns
 /// zero, when called with the object.
-#[derive(Debug, Default, Copy, Clone, PartialEq)]
+#[derive(Debug, Default, PartialEq)]
 pub struct ArgIntoBool {
     value: bool,
 }
 
 impl ArgIntoBool {
-    pub const TRUE: ArgIntoBool = ArgIntoBool { value: true };
-    pub const FALSE: ArgIntoBool = ArgIntoBool { value: false };
+    pub const TRUE: Self = Self { value: true };
+    pub const FALSE: Self = Self { value: false };
+}
 
-    pub fn to_bool(self) -> bool {
-        self.value
+impl From<ArgIntoBool> for bool {
+    fn from(arg: ArgIntoBool) -> Self {
+        arg.value
+    }
+}
+
+impl Deref for ArgIntoBool {
+    type Target = bool;
+    fn deref(&self) -> &Self::Target {
+        &self.value
     }
 }
 
 impl TryFromObject for ArgIntoBool {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        Ok(ArgIntoBool {
+        Ok(Self {
             value: obj.try_to_bool(vm)?,
         })
     }
