@@ -447,18 +447,16 @@ impl CFormatSpec {
             },
             CFormatType::Float(_) => {
                 let type_name = obj.class().name().to_string();
-                let value = ArgIntoFloat::try_from_object(vm, obj)
-                    .map_err(|e| {
-                        if e.fast_isinstance(&vm.ctx.exceptions.type_error) {
-                            // formatfloat in bytesobject.c generates its own specific exception
-                            // text in this case, mirror it here.
-                            vm.new_type_error(format!("float argument required, not {}", type_name))
-                        } else {
-                            e
-                        }
-                    })?
-                    .to_f64();
-                Ok(self.format_float(value).into_bytes())
+                let value = ArgIntoFloat::try_from_object(vm, obj).map_err(|e| {
+                    if e.fast_isinstance(&vm.ctx.exceptions.type_error) {
+                        // formatfloat in bytesobject.c generates its own specific exception
+                        // text in this case, mirror it here.
+                        vm.new_type_error(format!("float argument required, not {}", type_name))
+                    } else {
+                        e
+                    }
+                })?;
+                Ok(self.format_float(value.into()).into_bytes())
             }
             CFormatType::Character => {
                 if let Some(i) = obj.payload::<PyInt>() {
@@ -542,8 +540,8 @@ impl CFormatSpec {
                 }
             },
             CFormatType::Float(_) => {
-                let value = ArgIntoFloat::try_from_object(vm, obj)?.to_f64();
-                Ok(self.format_float(value))
+                let value = ArgIntoFloat::try_from_object(vm, obj)?;
+                Ok(self.format_float(value.into()))
             }
             CFormatType::Character => {
                 if let Some(i) = obj.payload::<PyInt>() {

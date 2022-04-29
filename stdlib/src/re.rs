@@ -296,10 +296,7 @@ mod re {
     }
 
     fn extract_flags(flags: OptionalArg<usize>) -> PyRegexFlags {
-        match flags {
-            OptionalArg::Present(flags) => PyRegexFlags::from_int(flags),
-            OptionalArg::Missing => Default::default(),
-        }
+        flags.map_or_else(Default::default, PyRegexFlags::from_int)
     }
 
     #[pyfunction]

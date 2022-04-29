@@ -469,10 +469,7 @@ pub type OptionalOption<T = PyObjectRef> = OptionalArg<Option<T>>;
 impl<T> OptionalOption<T> {
     #[inline]
     pub fn flatten(self) -> Option<T> {
-        match self {
-            OptionalArg::Present(Some(value)) => Some(value),
-            _ => None,
-        }
+        self.into_option().flatten()
     }
 }
 

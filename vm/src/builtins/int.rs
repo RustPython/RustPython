@@ -173,7 +173,6 @@ where
     }
 }
 
-#[inline]
 fn inner_truediv(i1: &BigInt, i2: &BigInt, vm: &VirtualMachine) -> PyResult {
     if i2.is_zero() {
         return Err(vm.new_zero_division_error("integer division by zero".to_owned()));
@@ -607,12 +606,7 @@ impl PyInt {
         args: IntFromByteArgs,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        let signed = if let OptionalArg::Present(signed) = args.signed {
-            signed.to_bool()
-        } else {
-            false
-        };
-
+        let signed = args.signed.map_or(false, Into::into);
         let value = match (args.byteorder.as_str(), signed) {
             ("big", true) => BigInt::from_signed_bytes_be(&args.bytes.elements),
             ("big", false) => BigInt::from_bytes_be(Sign::Plus, &args.bytes.elements),
@@ -629,12 +623,7 @@ impl PyInt {
 
     #[pymethod]
     fn to_bytes(&self, args: IntToByteArgs, vm: &VirtualMachine) -> PyResult<PyBytes> {
-        let signed = if let OptionalArg::Present(signed) = args.signed {
-            signed.to_bool()
-        } else {
-            false
-        };
-
+        let signed = args.signed.map_or(false, Into::into);
         let byte_len = args.length.try_to_primitive(vm)?;
 
         let value = self.as_bigint();

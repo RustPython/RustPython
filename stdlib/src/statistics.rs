@@ -126,7 +126,7 @@ mod _statistics {
         sigma: ArgIntoFloat,
         vm: &VirtualMachine,
     ) -> PyResult<f64> {
-        normal_dist_inv_cdf(p.to_f64(), mu.to_f64(), sigma.to_f64())
+        normal_dist_inv_cdf(*p, *mu, *sigma)
             .ok_or_else(|| vm.new_value_error("inv_cdf undefined for these parameters".to_owned()))
     }
 }

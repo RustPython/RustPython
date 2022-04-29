@@ -933,11 +933,7 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn scandir(path: OptionalArg<PyPathLike>, vm: &VirtualMachine) -> PyResult {
-        let path = match path {
-            OptionalArg::Present(path) => path,
-            OptionalArg::Missing => PyPathLike::new_str("."),
-        };
-
+        let path = path.unwrap_or_else(|| PyPathLike::new_str("."));
         let entries = fs::read_dir(path.path).map_err(|err| err.to_pyexception(vm))?;
         Ok(ScandirIterator {
             entries: PyRwLock::new(entries),
