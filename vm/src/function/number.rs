@@ -17,17 +17,17 @@ pub struct ArgIntoComplex {
     value: Complex64,
 }
 
+impl From<ArgIntoComplex> for Complex64 {
+    fn from(arg: ArgIntoComplex) -> Self {
+        arg.value
+    }
+}
+
 impl Deref for ArgIntoComplex {
     type Target = Complex64;
 
     fn deref(&self) -> &Self::Target {
         &self.value
-    }
-}
-
-impl ArgIntoComplex {
-    pub fn to_complex(self) -> Complex64 {
-        self.value
     }
 }
 
