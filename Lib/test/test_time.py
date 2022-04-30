@@ -1,4 +1,5 @@
 from test import support
+from test.support import warnings_helper
 import decimal
 import enum
 import locale
@@ -14,7 +15,7 @@ try:
 except ImportError:
     _testcapi = None
 
-from test.support import skip_if_buggy_ucrt_strfptime, warnings_helper
+from test.support import skip_if_buggy_ucrt_strfptime
 
 # Max year is only limited by the size of C int.
 SIZEOF_INT = sysconfig.get_config_var('SIZEOF_INT') or 4
@@ -114,12 +115,13 @@ class TimeTestCase(unittest.TestCase):
         clk_id = time.pthread_getcpuclockid(threading.get_ident())
         self.assertTrue(type(clk_id) is int)
         # when in 32-bit mode AIX only returns the predefined constant
-        if not platform.system() == "AIX":
-            self.assertNotEqual(clk_id, time.CLOCK_THREAD_CPUTIME_ID)
-        elif (sys.maxsize.bit_length() > 32):
-            self.assertNotEqual(clk_id, time.CLOCK_THREAD_CPUTIME_ID)
-        else:
+        if platform.system() == "AIX" and (sys.maxsize.bit_length() <= 32):
             self.assertEqual(clk_id, time.CLOCK_THREAD_CPUTIME_ID)
+        # Solaris returns CLOCK_THREAD_CPUTIME_ID when current thread is given
+        elif sys.platform.startswith("sunos"):
+            self.assertEqual(clk_id, time.CLOCK_THREAD_CPUTIME_ID)
+        else:
+            self.assertNotEqual(clk_id, time.CLOCK_THREAD_CPUTIME_ID)
         t1 = time.clock_gettime(clk_id)
         t2 = time.clock_gettime(clk_id)
         self.assertLessEqual(t1, t2)
@@ -460,8 +462,8 @@ class TimeTestCase(unittest.TestCase):
     @unittest.skipUnless(platform.libc_ver()[0] != 'glibc',
                          "disabled because of a bug in glibc. Issue #13309")
     def test_mktime_error(self):
-        # It may not be possible to reliably make mktime return error
-        # on all platfom.  This will make sure that no other exception
+        # It may not be possible to reliably make mktime return an error
+        # on all platforms.  This will make sure that no other exception
         # than OverflowError is raised for an extreme value.
         tt = time.gmtime(self.t)
         tzname = time.strftime('%Z', tt)
@@ -570,20 +572,26 @@ class TimeTestCase(unittest.TestCase):
         self.assertRaises(ValueError, time.ctime, float("nan"))
 
     def test_get_clock_info(self):
-        clocks = ['monotonic', 'perf_counter', 'process_time', 'time']
+        clocks = [
+            'monotonic',
+            'perf_counter',
+            'process_time',
+            'time',
+            'thread_time',
+        ]
 
         for name in clocks:
-            info = time.get_clock_info(name)
+            with self.subTest(name=name):
+                info = time.get_clock_info(name)
 
-            #self.assertIsInstance(info, dict)
-            self.assertIsInstance(info.implementation, str)
-            self.assertNotEqual(info.implementation, '')
-            self.assertIsInstance(info.monotonic, bool)
-            self.assertIsInstance(info.resolution, float)
-            # 0.0 < resolution <= 1.0
-            self.assertGreater(info.resolution, 0.0)
-            self.assertLessEqual(info.resolution, 1.0)
-            self.assertIsInstance(info.adjustable, bool)
+                self.assertIsInstance(info.implementation, str)
+                self.assertNotEqual(info.implementation, '')
+                self.assertIsInstance(info.monotonic, bool)
+                self.assertIsInstance(info.resolution, float)
+                # 0.0 < resolution <= 1.0
+                self.assertGreater(info.resolution, 0.0)
+                self.assertLessEqual(info.resolution, 1.0)
+                self.assertIsInstance(info.adjustable, bool)
 
         self.assertRaises(ValueError, time.get_clock_info, 'xxx')
 
@@ -863,7 +871,7 @@ class CPyTimeTestCase:
                     try:
                         result = pytime_converter(value, time_rnd)
                         expected = expected_func(value)
-                    except Exception as exc:
+                    except Exception:
                         self.fail("Error on timestamp conversion: %s" % debug_info)
                     self.assertEqual(result,
                                      expected,
@@ -1077,6 +1085,36 @@ class TestOldPyTime(CPyTimeTestCase, unittest.TestCase):
         for time_rnd, _ in ROUNDING_MODES:
             with self.assertRaises(ValueError):
                 pytime_object_to_timespec(float('nan'), time_rnd)
+
+@unittest.skipUnless(sys.platform == "darwin", "test weak linking on macOS")
+class TestTimeWeaklinking(unittest.TestCase):
+    # These test cases verify that weak linking support on macOS works
+    # as expected. These cases only test new behaviour introduced by weak linking,
+    # regular behaviour is tested by the normal test cases.
+    #
+    # See the section on Weak Linking in Mac/README.txt for more information.
+    def test_clock_functions(self):
+        import sysconfig
+        import platform
+
+        config_vars = sysconfig.get_config_vars()
+        var_name = "HAVE_CLOCK_GETTIME"
+        if var_name not in config_vars or not config_vars[var_name]:
+            raise unittest.SkipTest(f"{var_name} is not available")
+
+        mac_ver = tuple(int(x) for x in platform.mac_ver()[0].split("."))
+
+        clock_names = [
+            "CLOCK_MONOTONIC", "clock_gettime", "clock_gettime_ns", "clock_settime",
+            "clock_settime_ns", "clock_getres"]
+
+        if mac_ver >= (10, 12):
+            for name in clock_names:
+                self.assertTrue(hasattr(time, name), f"time.{name} is not available")
+
+        else:
+            for name in clock_names:
+                self.assertFalse(hasattr(time, name), f"time.{name} is available")
 
 
 if __name__ == "__main__":
