@@ -501,7 +501,8 @@ mod sys {
     #[pyfunction(name = "__unraisablehook__")]
     fn unraisablehook(unraisable: UnraisableHookArgs, vm: &VirtualMachine) {
         if let Err(e) = _unraisablehook(unraisable, vm) {
-            println!("{}", e.as_object().repr(vm).unwrap().as_str());
+            let stderr = super::PyStderr(vm);
+            writeln!(stderr, "{}", e.as_object().repr(vm).unwrap().as_str());
         }
     }
 

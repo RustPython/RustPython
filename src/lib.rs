@@ -106,31 +106,30 @@ where
             Ok(()) => 0,
             Err(err) if err.fast_isinstance(&vm.ctx.exceptions.system_exit) => {
                 let args = err.args();
-                match args.as_slice() {
-                    [] => 0,
+                let exitcode = match args.as_slice() {
+                    [] => Ok(0),
                     [arg] => match_class!(match arg {
                         ref i @ PyInt => {
                             use num_traits::cast::ToPrimitive;
-                            i.as_bigint().to_i32().unwrap_or(0)
+                            Ok(i.as_bigint().to_i32().unwrap_or(0))
                         }
                         arg => {
                             if vm.is_none(arg) {
-                                0
+                                Ok(0)
                             } else {
-                                if let Ok(s) = arg.str(vm) {
-                                    eprintln!("{}", s);
-                                }
-                                1
+                                Err(arg.str(vm).ok())
                             }
                         }
                     }),
-                    _ => {
-                        if let Ok(r) = args.as_object().repr(vm) {
-                            eprintln!("{}", r);
-                        }
-                        1
+                    _ => Err(args.as_object().repr(vm).ok()),
+                };
+                exitcode.unwrap_or_else(|msg| {
+                    if let Some(msg) = msg {
+                        let stderr = sys::PyStderr(vm);
+                        writeln!(stderr, "{}", msg);
                     }
-                }
+                    1
+                })
             }
             Err(exc) => {
                 vm.print_exception(exc);
