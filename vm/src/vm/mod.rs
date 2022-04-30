@@ -19,7 +19,7 @@ use crate::{
         code::{self, PyCode},
         pystr::IntoPyStrRef,
         tuple::{PyTuple, PyTupleTyped},
-        PyBaseExceptionRef, PyDictRef, PyList, PyModule, PyStrRef, PyTypeRef,
+        PyBaseExceptionRef, PyDictRef, PyInt, PyList, PyModule, PyStrRef, PyTypeRef,
     },
     bytecode,
     codecs::CodecsRegistry,
@@ -278,15 +278,13 @@ impl VirtualMachine {
 
     #[cold]
     pub fn run_unraisable(&self, e: PyBaseExceptionRef, msg: Option<String>, object: PyObjectRef) {
-        use crate::stdlib::sys::UnraisableHookArgs;
-
         let sys_module = self.import("sys", None, 0).unwrap();
         let unraisablehook = sys_module.get_attr("unraisablehook", self).unwrap();
 
         let exc_type = e.class().clone();
         let exc_traceback = e.traceback().to_pyobject(self); // TODO: actual traceback
         let exc_value = e.into();
-        let args = UnraisableHookArgs {
+        let args = stdlib::sys::UnraisableHookArgs {
             exc_type,
             exc_value,
             exc_traceback,
@@ -657,6 +655,37 @@ impl VirtualMachine {
                 return Some(exc.clone());
             }
             cur = cur.prev.as_deref()?;
+        }
+    }
+
+    pub fn handle_exit_exception(&self, exc: PyBaseExceptionRef) -> i32 {
+        if exc.fast_isinstance(&self.ctx.exceptions.system_exit) {
+            let args = exc.args();
+            let msg = match args.as_slice() {
+                [] => return 0,
+                [arg] => match_class!(match arg {
+                    ref i @ PyInt => {
+                        use num_traits::cast::ToPrimitive;
+                        return i.as_bigint().to_i32().unwrap_or(0);
+                    }
+                    arg => {
+                        if self.is_none(arg) {
+                            return 0;
+                        } else {
+                            arg.str(self).ok()
+                        }
+                    }
+                }),
+                _ => args.as_object().repr(self).ok(),
+            };
+            if let Some(msg) = msg {
+                let stderr = stdlib::sys::PyStderr(self);
+                writeln!(stderr, "{}", msg);
+            }
+            1
+        } else {
+            self.print_exception(exc);
+            1
         }
     }
 

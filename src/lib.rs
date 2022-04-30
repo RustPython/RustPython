@@ -47,11 +47,9 @@ mod shell;
 
 use clap::{App, AppSettings, Arg, ArgMatches};
 use rustpython_vm::{
-    builtins::PyInt,
-    match_class,
     scope::Scope,
     stdlib::{atexit, sys},
-    AsObject, Interpreter, PyResult, Settings, VirtualMachine,
+    Interpreter, PyResult, Settings, VirtualMachine,
 };
 use std::{env, process, str::FromStr};
 
@@ -68,7 +66,8 @@ where
     env_logger::init();
     let app = App::new("RustPython");
     let matches = parse_arguments(app);
-    let settings = create_settings(&matches);
+    let matches = &matches;
+    let settings = create_settings(matches);
 
     // don't translate newlines (\r\n <=> \n)
     #[cfg(windows)]
@@ -89,60 +88,30 @@ where
     });
 
     let exitcode = interp.enter(move |vm| {
-        let res = run_rustpython(vm, &matches);
+        let res = run_rustpython(vm, matches);
 
         flush_std(vm);
 
-        #[cfg(feature = "flame-it")]
-        {
-            main_guard.end();
-            if let Err(e) = write_profile(&matches) {
-                error!("Error writing profile information: {}", e);
-            }
-        }
-
         // See if any exception leaked out:
-        let exitcode = match res {
-            Ok(()) => 0,
-            Err(err) if err.fast_isinstance(&vm.ctx.exceptions.system_exit) => {
-                let args = err.args();
-                let exitcode = match args.as_slice() {
-                    [] => Ok(0),
-                    [arg] => match_class!(match arg {
-                        ref i @ PyInt => {
-                            use num_traits::cast::ToPrimitive;
-                            Ok(i.as_bigint().to_i32().unwrap_or(0))
-                        }
-                        arg => {
-                            if vm.is_none(arg) {
-                                Ok(0)
-                            } else {
-                                Err(arg.str(vm).ok())
-                            }
-                        }
-                    }),
-                    _ => Err(args.as_object().repr(vm).ok()),
-                };
-                exitcode.unwrap_or_else(|msg| {
-                    if let Some(msg) = msg {
-                        let stderr = sys::PyStderr(vm);
-                        writeln!(stderr, "{}", msg);
-                    }
-                    1
-                })
-            }
-            Err(exc) => {
-                vm.print_exception(exc);
-                1
-            }
-        };
+        let exit_code = res
+            .map(|_| 0)
+            .map_err(|exc| vm.handle_exit_exception(exc))
+            .unwrap_or_else(|code| code);
 
         let _ = atexit::_run_exitfuncs(vm);
 
         flush_std(vm);
 
-        exitcode
+        exit_code
     });
+
+    #[cfg(feature = "flame-it")]
+    {
+        main_guard.end();
+        if let Err(e) = write_profile(&matches) {
+            error!("Error writing profile information: {}", e);
+        }
+    }
 
     process::exit(exitcode)
 }
