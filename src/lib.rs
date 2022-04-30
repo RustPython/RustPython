@@ -46,13 +46,7 @@ extern crate log;
 mod shell;
 
 use clap::{App, AppSettings, Arg, ArgMatches};
-use rustpython_vm::{
-    builtins::PyInt,
-    match_class,
-    scope::Scope,
-    stdlib::{atexit, sys},
-    AsObject, Interpreter, PyResult, Settings, VirtualMachine,
-};
+use rustpython_vm::{scope::Scope, Interpreter, PyResult, Settings, VirtualMachine};
 use std::{env, process, str::FromStr};
 
 pub use rustpython_vm as vm;
@@ -68,7 +62,8 @@ where
     env_logger::init();
     let app = App::new("RustPython");
     let matches = parse_arguments(app);
-    let settings = create_settings(&matches);
+    let matches = &matches;
+    let settings = create_settings(matches);
 
     // don't translate newlines (\r\n <=> \n)
     #[cfg(windows)]
@@ -88,73 +83,17 @@ where
         init(vm);
     });
 
-    let exitcode = interp.enter(move |vm| {
-        let res = run_rustpython(vm, &matches);
+    let exitcode = interp.run(move |vm| run_rustpython(vm, matches));
 
-        flush_std(vm);
-
-        #[cfg(feature = "flame-it")]
-        {
-            main_guard.end();
-            if let Err(e) = write_profile(&matches) {
-                error!("Error writing profile information: {}", e);
-            }
+    #[cfg(feature = "flame-it")]
+    {
+        main_guard.end();
+        if let Err(e) = write_profile(&matches) {
+            error!("Error writing profile information: {}", e);
         }
-
-        // See if any exception leaked out:
-        let exitcode = match res {
-            Ok(()) => 0,
-            Err(err) if err.fast_isinstance(&vm.ctx.exceptions.system_exit) => {
-                let args = err.args();
-                match args.as_slice() {
-                    [] => 0,
-                    [arg] => match_class!(match arg {
-                        ref i @ PyInt => {
-                            use num_traits::cast::ToPrimitive;
-                            i.as_bigint().to_i32().unwrap_or(0)
-                        }
-                        arg => {
-                            if vm.is_none(arg) {
-                                0
-                            } else {
-                                if let Ok(s) = arg.str(vm) {
-                                    eprintln!("{}", s);
-                                }
-                                1
-                            }
-                        }
-                    }),
-                    _ => {
-                        if let Ok(r) = args.as_object().repr(vm) {
-                            eprintln!("{}", r);
-                        }
-                        1
-                    }
-                }
-            }
-            Err(exc) => {
-                vm.print_exception(exc);
-                1
-            }
-        };
-
-        let _ = atexit::_run_exitfuncs(vm);
-
-        flush_std(vm);
-
-        exitcode
-    });
+    }
 
     process::exit(exitcode)
-}
-
-fn flush_std(vm: &VirtualMachine) {
-    if let Ok(stdout) = sys::get_stdout(vm) {
-        let _ = vm.call_method(&stdout, "flush", ());
-    }
-    if let Ok(stderr) = sys::get_stderr(vm) {
-        let _ = vm.call_method(&stderr, "flush", ());
-    }
 }
 
 fn parse_arguments<'a>(app: App<'a, '_>) -> ArgMatches<'a> {

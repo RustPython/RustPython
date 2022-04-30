@@ -2,10 +2,14 @@ pub(crate) use decl::make_module;
 
 #[pymodule(name = "faulthandler")]
 mod decl {
-    use crate::vm::{frame::FrameRef, function::OptionalArg, VirtualMachine};
+    use crate::vm::{
+        frame::FrameRef, function::OptionalArg, stdlib::sys::PyStderr, VirtualMachine,
+    };
 
-    fn dump_frame(frame: &FrameRef) {
-        eprintln!(
+    fn dump_frame(frame: &FrameRef, vm: &VirtualMachine) {
+        let stderr = PyStderr(vm);
+        writeln!(
+            stderr,
             "  File \"{}\", line {} in {}",
             frame.code.source_path,
             frame.current_location().row(),
@@ -19,10 +23,11 @@ mod decl {
         _all_threads: OptionalArg<bool>,
         vm: &VirtualMachine,
     ) {
-        eprintln!("Stack (most recent call first):");
+        let stderr = PyStderr(vm);
+        writeln!(stderr, "Stack (most recent call first):");
 
         for frame in vm.frames.borrow().iter() {
-            dump_frame(frame);
+            dump_frame(frame, vm);
         }
     }
 

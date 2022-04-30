@@ -1,4 +1,8 @@
 use super::{setting::Settings, thread, VirtualMachine};
+use crate::{
+    stdlib::{atexit, sys},
+    PyResult,
+};
 
 /// The general interface for the VM
 ///
@@ -53,16 +57,36 @@ impl Interpreter {
         thread::enter_vm(&self.vm, || f(&self.vm))
     }
 
-    // TODO: interpreter shutdown
-    // pub fn run<F>(self, f: F)
-    // where
-    //     F: FnOnce(&VirtualMachine),
-    // {
-    //     self.enter(f);
-    //     self.shutdown();
-    // }
+    pub fn run<F, R>(self, f: F) -> i32
+    where
+        F: FnOnce(&VirtualMachine) -> PyResult<R>,
+    {
+        self.enter(|vm| {
+            let res = f(vm);
+            flush_std(vm);
 
-    // pub fn shutdown(self) {}
+            // See if any exception leaked out:
+            let exit_code = res
+                .map(|_| 0)
+                .map_err(|exc| vm.handle_exit_exception(exc))
+                .unwrap_or_else(|code| code);
+
+            let _ = atexit::_run_exitfuncs(vm);
+
+            flush_std(vm);
+
+            exit_code
+        })
+    }
+}
+
+fn flush_std(vm: &VirtualMachine) {
+    if let Ok(stdout) = sys::get_stdout(vm) {
+        let _ = vm.call_method(&stdout, "flush", ());
+    }
+    if let Ok(stderr) = sys::get_stderr(vm) {
+        let _ = vm.call_method(&stderr, "flush", ());
+    }
 }
 
 #[cfg(test)]

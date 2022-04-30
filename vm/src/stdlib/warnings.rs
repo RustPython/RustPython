@@ -5,6 +5,7 @@ mod _warnings {
     use crate::{
         builtins::{PyStrRef, PyTypeRef},
         function::OptionalArg,
+        stdlib::sys::PyStderr,
         AsObject, PyResult, VirtualMachine,
     };
 
@@ -33,7 +34,14 @@ mod _warnings {
         } else {
             vm.ctx.exceptions.user_warning.clone()
         };
-        eprintln!("level:{}: {}: {}", level, category.name(), args.message);
+        let stderr = PyStderr(vm);
+        writeln!(
+            stderr,
+            "level:{}: {}: {}",
+            level,
+            category.name(),
+            args.message
+        );
         Ok(())
     }
 }
