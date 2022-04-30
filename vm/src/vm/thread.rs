@@ -107,7 +107,7 @@ impl VirtualMachine {
     /// # Usage
     ///
     /// ```
-    /// # rustpython_vm::Interpreter::default().enter(|vm| {
+    /// # rustpython_vm::Interpreter::without_stdlib(Default::default()).enter(|vm| {
     /// use std::thread::Builder;
     /// let handle = Builder::new()
     ///     .name("my thread :)".into())

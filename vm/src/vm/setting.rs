@@ -61,6 +61,9 @@ pub struct Settings {
     /// -u, PYTHONUNBUFFERED=x
     // TODO: use this; can TextIOWrapper even work with a non-buffered?
     pub stdio_unbuffered: bool,
+
+    /// false for wasm. Not a command-line option
+    pub allow_external_library: bool,
 }
 
 /// Sensible default settings.
@@ -90,6 +93,7 @@ impl Default for Settings {
             argv: vec![],
             hash_seed: None,
             stdio_unbuffered: false,
+            allow_external_library: true,
         }
     }
 }

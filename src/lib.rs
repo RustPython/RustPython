@@ -47,14 +47,13 @@ mod shell;
 
 use clap::{App, AppSettings, Arg, ArgMatches};
 use rustpython_vm::{
-    builtins::{PyDictRef, PyInt},
-    compile, match_class,
+    builtins::PyInt,
+    match_class,
     scope::Scope,
     stdlib::{atexit, sys},
-    AsObject, InitParameter, Interpreter, PyObjectRef, PyResult, Settings, TryFromObject,
-    VirtualMachine,
+    AsObject, Interpreter, PyResult, Settings, VirtualMachine,
 };
-use std::{env, path::Path, process, str::FromStr};
+use std::{env, process, str::FromStr};
 
 pub use rustpython_vm as vm;
 
@@ -84,10 +83,9 @@ where
         }
     }
 
-    let interp = Interpreter::new_with_init(settings, |vm| {
+    let interp = Interpreter::with_init(settings, |vm| {
         add_stdlib(vm);
         init(vm);
-        InitParameter::External
     });
 
     let exitcode = interp.enter(move |vm| {
@@ -574,7 +572,7 @@ __import__("io").TextIOWrapper(
         .downcast()
         .expect("TextIOWrapper.read() should return str");
     eprintln!("running get-pip.py...");
-    _run_string(vm, scope, getpip_code.as_str(), "get-pip.py".to_owned())
+    vm.run_code_string(scope, getpip_code.as_str(), "get-pip.py".to_owned())
 }
 
 #[cfg(not(feature = "ssl"))]
@@ -599,13 +597,16 @@ fn run_rustpython(vm: &VirtualMachine, matches: &ArgMatches) -> PyResult<()> {
 
     // Figure out if a -c option was given:
     if let Some(command) = matches.value_of("c") {
-        run_command(vm, scope, command.to_owned())?;
+        debug!("Running command {}", command);
+        vm.run_code_string(scope, command, "<stdin>".to_owned())?;
     } else if let Some(module) = matches.value_of("m") {
-        run_module(vm, module)?;
+        debug!("Running module {}", module);
+        vm.run_module(module)?;
     } else if matches.is_present("install_pip") {
         install_pip(scope, vm)?;
     } else if let Some(filename) = matches.value_of("script") {
-        run_script(vm, scope.clone(), filename)?;
+        debug!("Running file {}", filename);
+        vm.run_script(scope.clone(), filename)?;
         if matches.is_present("inspect") {
             shell::run_shell(vm, scope)?;
         }
@@ -620,97 +621,13 @@ fn run_rustpython(vm: &VirtualMachine, matches: &ArgMatches) -> PyResult<()> {
     Ok(())
 }
 
-fn _run_string(vm: &VirtualMachine, scope: Scope, source: &str, source_path: String) -> PyResult {
-    let code_obj = vm
-        .compile(source, compile::Mode::Exec, source_path.clone())
-        .map_err(|err| vm.new_syntax_error(&err))?;
-    // trace!("Code object: {:?}", code_obj.borrow());
-    scope
-        .globals
-        .set_item("__file__", vm.new_pyobj(source_path), vm)?;
-    vm.run_code_obj(code_obj, scope)
-}
-
-fn run_command(vm: &VirtualMachine, scope: Scope, source: String) -> PyResult<()> {
-    debug!("Running command {}", source);
-    _run_string(vm, scope, &source, "<stdin>".to_owned())?;
-    Ok(())
-}
-
-fn run_module(vm: &VirtualMachine, module: &str) -> PyResult<()> {
-    debug!("Running module {}", module);
-    let runpy = vm.import("runpy", None, 0)?;
-    let run_module_as_main = runpy.get_attr("_run_module_as_main", vm)?;
-    vm.invoke(&run_module_as_main, (module,))?;
-    Ok(())
-}
-
-fn get_importer(path: &str, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
-    let path_importer_cache = vm.sys_module.get_attr("path_importer_cache", vm)?;
-    let path_importer_cache = PyDictRef::try_from_object(vm, path_importer_cache)?;
-    if let Some(importer) = path_importer_cache.get_item_opt(path, vm)? {
-        return Ok(Some(importer));
-    }
-    let path = vm.ctx.new_str(path);
-    let path_hooks = vm.sys_module.get_attr("path_hooks", vm)?;
-    let mut importer = None;
-    let path_hooks: Vec<PyObjectRef> = path_hooks.try_into_value(vm)?;
-    for path_hook in path_hooks {
-        match vm.invoke(&path_hook, (path.clone(),)) {
-            Ok(imp) => {
-                importer = Some(imp);
-                break;
-            }
-            Err(e) if e.fast_isinstance(&vm.ctx.exceptions.import_error) => continue,
-            Err(e) => return Err(e),
-        }
-    }
-    Ok(if let Some(imp) = importer {
-        let imp = path_importer_cache.get_or_insert(vm, path.into(), || imp.clone())?;
-        Some(imp)
-    } else {
-        None
-    })
-}
-
-fn insert_sys_path(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<()> {
-    let sys_path = vm.sys_module.get_attr("path", vm).unwrap();
-    vm.call_method(&sys_path, "insert", (0, obj))?;
-    Ok(())
-}
-
-fn run_script(vm: &VirtualMachine, scope: Scope, script_file: &str) -> PyResult<()> {
-    debug!("Running file {}", script_file);
-    if get_importer(script_file, vm)?.is_some() {
-        insert_sys_path(vm, vm.ctx.new_str(script_file).into())?;
-        let runpy = vm.import("runpy", None, 0)?;
-        let run_module_as_main = runpy.get_attr("_run_module_as_main", vm)?;
-        vm.invoke(&run_module_as_main, (vm.ctx.new_str("__main__"), false))?;
-        return Ok(());
-    }
-    let dir = Path::new(script_file).parent().unwrap().to_str().unwrap();
-    insert_sys_path(vm, vm.ctx.new_str(dir).into())?;
-
-    match std::fs::read_to_string(script_file) {
-        Ok(source) => {
-            _run_string(vm, scope, &source, script_file.to_owned())?;
-        }
-        Err(err) => {
-            error!("Failed reading file '{}': {}", script_file, err);
-            process::exit(1);
-        }
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn interpreter() -> Interpreter {
-        Interpreter::new_with_init(Settings::default(), |vm| {
+        Interpreter::with_init(Settings::default(), |vm| {
             add_stdlib(vm);
-            InitParameter::External
         })
     }
 
@@ -720,11 +637,11 @@ mod tests {
             vm.unwrap_pyresult((|| {
                 let scope = setup_main_module(vm)?;
                 // test file run
-                run_script(vm, scope, "extra_tests/snippets/dir_main/__main__.py")?;
+                vm.run_script(scope, "extra_tests/snippets/dir_main/__main__.py")?;
 
                 let scope = setup_main_module(vm)?;
                 // test module run
-                run_script(vm, scope, "extra_tests/snippets/dir_main")?;
+                vm.run_script(scope, "extra_tests/snippets/dir_main")?;
 
                 Ok(())
             })());

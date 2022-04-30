@@ -20,7 +20,7 @@ mod tests {
 
     #[test]
     fn test_print_42() {
-        Interpreter::default().enter(|vm| {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
             let source = String::from("print('Hello world')");
             let vars = vm.new_scope_with_builtins();
             let result = eval(&vm, &source, vars, "<unittest>").expect("this should pass");
