@@ -46,11 +46,7 @@ extern crate log;
 mod shell;
 
 use clap::{App, AppSettings, Arg, ArgMatches};
-use rustpython_vm::{
-    scope::Scope,
-    stdlib::{atexit, sys},
-    Interpreter, PyResult, Settings, VirtualMachine,
-};
+use rustpython_vm::{scope::Scope, Interpreter, PyResult, Settings, VirtualMachine};
 use std::{env, process, str::FromStr};
 
 pub use rustpython_vm as vm;
@@ -87,23 +83,7 @@ where
         init(vm);
     });
 
-    let exitcode = interp.enter(move |vm| {
-        let res = run_rustpython(vm, matches);
-
-        flush_std(vm);
-
-        // See if any exception leaked out:
-        let exit_code = res
-            .map(|_| 0)
-            .map_err(|exc| vm.handle_exit_exception(exc))
-            .unwrap_or_else(|code| code);
-
-        let _ = atexit::_run_exitfuncs(vm);
-
-        flush_std(vm);
-
-        exit_code
-    });
+    let exitcode = interp.run(move |vm| run_rustpython(vm, matches));
 
     #[cfg(feature = "flame-it")]
     {
@@ -114,15 +94,6 @@ where
     }
 
     process::exit(exitcode)
-}
-
-fn flush_std(vm: &VirtualMachine) {
-    if let Ok(stdout) = sys::get_stdout(vm) {
-        let _ = vm.call_method(&stdout, "flush", ());
-    }
-    if let Ok(stderr) = sys::get_stderr(vm) {
-        let _ = vm.call_method(&stderr, "flush", ());
-    }
 }
 
 fn parse_arguments<'a>(app: App<'a, '_>) -> ArgMatches<'a> {
