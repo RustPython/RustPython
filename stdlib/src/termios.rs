@@ -10,17 +10,159 @@ mod termios {
     use termios::Termios;
 
     // TODO: more ioctl numbers
+    // NOTE: B2500000, B3000000, B3500000, B4000000, and CIBAUD
+    //       are only available on specific architectures
+    // TODO: supply these from <sys/ttydefaults.h> (please file an issue/PR upstream):
+    //       CDEL, CDSUSP, CEOF, CEOL, CEOL2, CEOT, CERASE, CESC, CFLUSH, CINTR, CKILL, CLNEXT,
+    //       CNUL, COMMON, CQUIT, CRPRNT, CSTART, CSTOP, CSUSP, CSWTCH, CWERASE
+    // NOTE: the constant INIT_C_CC is most likely missing nowadays
+    // TODO: supply these from <asm-generic/ioctl.h> (please file an issue/PR upstream):
+    //       IOCSIZE_MASK, IOCSIZE_SHIFT
+    // TODO: supply NCC from <asm-generic/termios.h> (please file an issue/PR upstream)
+    // NOTE: I have only found NSWTCH on cygwin, so please alert the RustPython maintainers if it
+    //       is present on your system
+    // TODO: supply these from <bits/ioctl-types.h> or <linux/tty.h> (please file an issue/PR
+    //       upstream):
+    //       N_MOUSE, N_PPP, N_SLIP, N_STRIP, N_TTY
+    // NOTE: some of these have incomplete coverage in rust libc (please file an issue/PR upstream)
+    // TODO: possibly supply these from <asm-generic/ioctls.h> (please file an issue/PR upstream):
+    //       TCSBRKP, TIOCGICOUNT, TIOCGLCKTRMIOS, TIOCSERCONFIG, TIOCSERGETLSR, TIOCSERGETMULTI,
+    //       TIOCSERGSTRUCT, TIOCSERGWILD, TIOCSERSETMULTI, TIOCSERSWILD, TIOCSER_TEMT,
+    //       TIOCSLCKTRMIOS, TIOCSSERIAL, TIOCTTYGSTRUCT
+    #[cfg(any(target_os = "illumos", target_os = "solaris"))]
     #[pyattr]
-    use libc::{TIOCGWINSZ, TIOCSWINSZ};
+    use libc::{CSTART, CSTOP, CSWTCH};
+    #[cfg(any(
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "macos",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    ))]
+    #[pyattr]
+    use libc::{FIOASYNC, TIOCGETD, TIOCSETD};
+    #[pyattr]
+    use libc::{FIOCLEX, FIONBIO, TIOCGWINSZ, TIOCSWINSZ};
+    #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    ))]
+    #[pyattr]
+    use libc::{
+        FIONCLEX, FIONREAD, TIOCEXCL, TIOCMBIC, TIOCMBIS, TIOCMGET, TIOCMSET, TIOCM_CAR, TIOCM_CD,
+        TIOCM_CTS, TIOCM_DSR, TIOCM_DTR, TIOCM_LE, TIOCM_RI, TIOCM_RNG, TIOCM_RTS, TIOCM_SR,
+        TIOCM_ST, TIOCNXCL, TIOCSCTTY,
+    };
+    #[cfg(any(target_os = "android", target_os = "linux"))]
+    #[pyattr]
+    use libc::{
+        IBSHIFT, TCFLSH, TCGETA, TCGETS, TCSBRK, TCSETA, TCSETAF, TCSETAW, TCSETS, TCSETSF,
+        TCSETSW, TCXONC, TIOCGSERIAL, TIOCGSOFTCAR, TIOCINQ, TIOCLINUX, TIOCSSOFTCAR, XTABS,
+    };
+    #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "macos"
+    ))]
+    #[pyattr]
+    use libc::{TIOCCONS, TIOCGPGRP, TIOCOUTQ, TIOCSPGRP, TIOCSTI};
+    #[cfg(any(target_os = "dragonfly", target_os = "freebsd", target_os = "macos"))]
+    #[pyattr]
+    use libc::{
+        TIOCNOTTY, TIOCPKT, TIOCPKT_DATA, TIOCPKT_DOSTOP, TIOCPKT_FLUSHREAD, TIOCPKT_FLUSHWRITE,
+        TIOCPKT_NOSTOP, TIOCPKT_START, TIOCPKT_STOP,
+    };
+    #[cfg(any(
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "illumos",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "openbsd",
+        target_os = "solaris"
+    ))]
+    #[pyattr]
+    use termios::os::target::TAB3;
+    #[cfg(any(
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "macos",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    ))]
+    #[pyattr]
+    use termios::os::target::TCSASOFT;
+    #[cfg(any(target_os = "android", target_os = "linux"))]
+    #[pyattr]
+    use termios::os::target::{
+        B1000000, B1152000, B1500000, B2000000, B2500000, B3000000, B3500000, B4000000, B500000,
+        B576000, CBAUDEX,
+    };
+    #[cfg(any(
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "illumos",
+        target_os = "linux",
+        target_os = "netbsd",
+        target_os = "solaris"
+    ))]
+    #[pyattr]
+    use termios::os::target::{B460800, B921600};
+    #[cfg(any(
+        target_os = "android",
+        target_os = "illumos",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "solaris"
+    ))]
+    #[pyattr]
+    use termios::os::target::{
+        BS0, BS1, BSDLY, CR0, CR1, CR2, CR3, CRDLY, FF0, FF1, FFDLY, NL0, NL1, NLDLY, OFDEL, OFILL,
+        TAB1, TAB2, VT0, VT1, VTDLY,
+    };
+    #[cfg(any(
+        target_os = "android",
+        target_os = "illumos",
+        target_os = "linux",
+        target_os = "solaris"
+    ))]
+    #[pyattr]
+    use termios::os::target::{CBAUD, CIBAUD, IUCLC, OLCUC, XCASE};
+    #[cfg(any(
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "illumos",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "solaris"
+    ))]
+    #[pyattr]
+    use termios::os::target::{TAB0, TABDLY};
+    #[cfg(any(target_os = "android", target_os = "linux"))]
+    #[pyattr]
+    use termios::os::target::{VSWTC, VSWTC as VSWTCH};
+    #[cfg(any(target_os = "illumos", target_os = "solaris"))]
+    #[pyattr]
+    use termios::os::target::{VSWTCH, VSWTCH as VSWTC};
     #[pyattr]
     use termios::{
-        os::target::NCCS, B0, B110, B1200, B134, B150, B1800, B19200, B200, B2400, B300, B38400,
-        B4800, B50, B600, B75, B9600, BRKINT, CLOCAL, CREAD, CS5, CS6, CS7, CS8, CSIZE, CSTOPB,
-        ECHO, ECHOE, ECHOK, ECHONL, HUPCL, ICANON, ICRNL, IEXTEN, IGNBRK, IGNCR, IGNPAR, INLCR,
-        INPCK, ISIG, ISTRIP, IXANY, IXOFF, IXON, NOFLSH, OCRNL, ONLCR, ONLRET, ONOCR, OPOST,
-        PARENB, PARMRK, PARODD, TCIFLUSH, TCIOFF, TCIOFLUSH, TCION, TCOFLUSH, TCOOFF, TCOON,
-        TCSADRAIN, TCSAFLUSH, TCSANOW, TOSTOP, VEOF, VEOL, VERASE, VINTR, VKILL, VMIN, VQUIT,
-        VSTART, VSTOP, VSUSP, VTIME,
+        os::target::{
+            B115200, B230400, B57600, CRTSCTS, ECHOCTL, ECHOKE, ECHOPRT, EXTA, EXTB, FLUSHO,
+            IMAXBEL, NCCS, PENDIN, VDISCARD, VEOL2, VLNEXT, VREPRINT, VWERASE,
+        },
+        B0, B110, B1200, B134, B150, B1800, B19200, B200, B2400, B300, B38400, B4800, B50, B600,
+        B75, B9600, BRKINT, CLOCAL, CREAD, CS5, CS6, CS7, CS8, CSIZE, CSTOPB, ECHO, ECHOE, ECHOK,
+        ECHONL, HUPCL, ICANON, ICRNL, IEXTEN, IGNBRK, IGNCR, IGNPAR, INLCR, INPCK, ISIG, ISTRIP,
+        IXANY, IXOFF, IXON, NOFLSH, OCRNL, ONLCR, ONLRET, ONOCR, OPOST, PARENB, PARMRK, PARODD,
+        TCIFLUSH, TCIOFF, TCIOFLUSH, TCION, TCOFLUSH, TCOOFF, TCOON, TCSADRAIN, TCSAFLUSH, TCSANOW,
+        TOSTOP, VEOF, VEOL, VERASE, VINTR, VKILL, VMIN, VQUIT, VSTART, VSTOP, VSUSP, VTIME,
     };
 
     #[pyfunction]
