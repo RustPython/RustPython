@@ -232,6 +232,30 @@ mod termios {
         Ok(())
     }
 
+    #[pyfunction]
+    fn tcsendbreak(fd: i32, duration: i32, vm: &VirtualMachine) -> PyResult<()> {
+        termios::tcsendbreak(fd, duration).map_err(|e| termios_error(e, vm))?;
+        Ok(())
+    }
+
+    #[pyfunction]
+    fn tcdrain(fd: i32, vm: &VirtualMachine) -> PyResult<()> {
+        termios::tcdrain(fd).map_err(|e| termios_error(e, vm))?;
+        Ok(())
+    }
+
+    #[pyfunction]
+    fn tcflush(fd: i32, queue: i32, vm: &VirtualMachine) -> PyResult<()> {
+        termios::tcflush(fd, queue).map_err(|e| termios_error(e, vm))?;
+        Ok(())
+    }
+
+    #[pyfunction]
+    fn tcflow(fd: i32, action: i32, vm: &VirtualMachine) -> PyResult<()> {
+        termios::tcflow(fd, action).map_err(|e| termios_error(e, vm))?;
+        Ok(())
+    }
+
     fn termios_error(err: std::io::Error, vm: &VirtualMachine) -> PyBaseExceptionRef {
         vm.new_exception(
             error_type(vm),
