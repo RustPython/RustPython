@@ -127,16 +127,20 @@ pub fn compile_top(
     }
 }
 
-macro_rules! compile_impl {
-    ($ast:expr, $source_path:expr, $opts:expr, $st:ident, $compile:ident) => {{
-        let symbol_table = match $st($ast) {
-            Ok(x) => x,
-            Err(e) => return Err(e.into_compile_error($source_path)),
-        };
-        with_compiler($source_path, $opts, |compiler| {
-            compiler.$compile($ast, symbol_table)
-        })
-    }};
+fn compile_impl<Ast: ?Sized>(
+    ast: &Ast,
+    source_path: String,
+    opts: CompileOpts,
+    make_symbol_table: fn(&Ast) -> Result<SymbolTable, symboltable::SymbolTableError>,
+    compile: fn(&mut Compiler, &Ast, SymbolTable) -> CompileResult<()>,
+) -> CompileResult<CodeObject> {
+    let symbol_table = match make_symbol_table(ast) {
+        Ok(x) => x,
+        Err(e) => return Err(e.into_compile_error(source_path)),
+    };
+    with_compiler(source_path, opts, |compiler| {
+        compile(compiler, ast, symbol_table)
+    })
 }
 
 /// Compile a standard Python program to bytecode
@@ -145,7 +149,13 @@ pub fn compile_program(
     source_path: String,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
-    compile_impl!(ast, source_path, opts, make_symbol_table, compile_program)
+    compile_impl(
+        ast,
+        source_path,
+        opts,
+        make_symbol_table,
+        Compiler::compile_program,
+    )
 }
 
 /// Compile a Python program to bytecode for the context of a REPL
@@ -154,12 +164,12 @@ pub fn compile_program_single(
     source_path: String,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
-    compile_impl!(
+    compile_impl(
         ast,
         source_path,
         opts,
         make_symbol_table,
-        compile_program_single
+        Compiler::compile_program_single,
     )
 }
 
@@ -168,7 +178,13 @@ pub fn compile_expression(
     source_path: String,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
-    compile_impl!(ast, source_path, opts, make_symbol_table_expr, compile_eval)
+    compile_impl(
+        ast,
+        source_path,
+        opts,
+        make_symbol_table_expr,
+        Compiler::compile_eval,
+    )
 }
 
 impl Compiler {
