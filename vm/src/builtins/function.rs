@@ -314,7 +314,7 @@ impl PyFunction {
             (true, false) => Ok(PyGenerator::new(frame, self.name()).into_pyobject(vm)),
             (false, true) => Ok(PyCoroutine::new(frame, self.name()).into_pyobject(vm)),
             (true, true) => Ok(PyAsyncGen::new(frame, self.name()).into_pyobject(vm)),
-            (false, false) => vm.run_frame_full(frame),
+            (false, false) => vm.run_frame(frame),
         }
     }
 
