@@ -100,19 +100,6 @@ impl CompileContext {
     }
 }
 
-/// A helper function for the shared code of the different compile functions
-fn with_compiler(
-    source_path: String,
-    opts: CompileOpts,
-    f: impl FnOnce(&mut Compiler) -> CompileResult<()>,
-) -> CompileResult<CodeObject> {
-    let mut compiler = Compiler::new(opts, source_path, "<module>".to_owned());
-    f(&mut compiler)?;
-    let code = compiler.pop_code_object();
-    trace!("Compilation completed: {:?}", code);
-    Ok(code)
-}
-
 /// Compile an ast::Mod produced from rustpython_parser::parser::parse()
 pub fn compile_top(
     ast: &ast::Mod,
@@ -127,6 +114,7 @@ pub fn compile_top(
     }
 }
 
+/// A helper function for the shared code of the different compile functions
 fn compile_impl<Ast: ?Sized>(
     ast: &Ast,
     source_path: String,
@@ -138,9 +126,12 @@ fn compile_impl<Ast: ?Sized>(
         Ok(x) => x,
         Err(e) => return Err(e.into_compile_error(source_path)),
     };
-    with_compiler(source_path, opts, |compiler| {
-        compile(compiler, ast, symbol_table)
-    })
+
+    let mut compiler = Compiler::new(opts, source_path, "<module>".to_owned());
+    compile(&mut compiler, ast, symbol_table)?;
+    let code = compiler.pop_code_object();
+    trace!("Compilation completed: {:?}", code);
+    Ok(code)
 }
 
 /// Compile a standard Python program to bytecode
