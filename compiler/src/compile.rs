@@ -337,31 +337,30 @@ impl Compiler {
     ) -> CompileResult<()> {
         self.symbol_table_stack.push(symbol_table);
 
-        let mut emitted_return = false;
+        let (last, body) = if let Some(splited) = body.split_last() {
+            splited
+        } else {
+            return Ok(());
+        };
 
-        for (i, statement) in body.iter().enumerate() {
-            let is_last = i == body.len() - 1;
-
+        for statement in body {
             if let ast::StmtKind::Expr { value } = &statement.node {
                 self.compile_expression(value)?;
-
-                if is_last {
-                    self.emit(Instruction::Duplicate);
-                    self.emit(Instruction::PrintExpr);
-                    self.emit(Instruction::ReturnValue);
-                    emitted_return = true;
-                } else {
-                    self.emit(Instruction::PrintExpr);
-                }
+                self.emit(Instruction::PrintExpr);
             } else {
                 self.compile_statement(statement)?;
             }
         }
 
-        if !emitted_return {
+        if let ast::StmtKind::Expr { value } = &last.node {
+            self.compile_expression(value)?;
+            self.emit(Instruction::Duplicate);
+            self.emit(Instruction::PrintExpr);
+        } else {
+            self.compile_statement(last)?;
             self.emit_constant(ConstantData::None);
-            self.emit(Instruction::ReturnValue);
         }
+        self.emit(Instruction::ReturnValue);
 
         Ok(())
     }
