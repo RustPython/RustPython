@@ -316,7 +316,7 @@ impl Compiler {
         let size_before = self.code_stack.len();
         self.symbol_table_stack.push(symbol_table);
 
-        let (statements, doc) = get_doc(body);
+        let (doc, statements) = split_doc(body);
         if let Some(value) = doc {
             self.emit_constant(ConstantData::Str { value });
             let doc = self.name("__doc__");
@@ -1052,7 +1052,7 @@ impl Compiler {
         let qualified_name = self.qualified_path.join(".");
         self.push_qualified_path("<locals>");
 
-        let (body, doc_str) = get_doc(body);
+        let (doc_str, body) = split_doc(body);
 
         self.compile_statements(body)?;
 
@@ -1171,6 +1171,7 @@ impl Compiler {
         true
     }
 
+    // Python/compile.c find_ann
     fn find_ann(&self, body: &[ast::Stmt]) -> bool {
         use ast::StmtKind::*;
 
@@ -1222,7 +1223,7 @@ impl Compiler {
 
         self.push_output(bytecode::CodeFlags::empty(), 0, 0, 0, name.to_owned());
 
-        let (new_body, doc_str) = get_doc(body);
+        let (doc_str, body) = split_doc(body);
 
         let dunder_name = self.name("__name__");
         self.emit(Instruction::LoadGlobal(dunder_name));
@@ -1240,7 +1241,7 @@ impl Compiler {
         if self.find_ann(body) {
             self.emit(Instruction::SetupAnnotation);
         }
-        self.compile_statements(new_body)?;
+        self.compile_statements(body)?;
 
         let classcell_idx = self
             .code_stack
@@ -2572,15 +2573,15 @@ impl Compiler {
     }
 }
 
-fn get_doc(body: &[ast::Stmt]) -> (&[ast::Stmt], Option<String>) {
+fn split_doc(body: &[ast::Stmt]) -> (Option<String>, &[ast::Stmt]) {
     if let Some((val, body_rest)) = body.split_first() {
         if let ast::StmtKind::Expr { value } = &val.node {
             if let Some(doc) = try_get_constant_string(std::slice::from_ref(value)) {
-                return (body_rest, Some(doc));
+                return (Some(doc), body_rest);
             }
         }
     }
-    (body, None)
+    (None, body)
 }
 
 fn try_get_constant_string(values: &[ast::Expr]) -> Option<String> {
