@@ -4,8 +4,9 @@ pub use msvcrt::*;
 mod msvcrt {
     use crate::{
         builtins::{PyBytes, PyStrRef},
+        common::suppress_iph,
         stdlib::os::errno_err,
-        suppress_iph, PyRef, PyResult, VirtualMachine,
+        PyRef, PyResult, VirtualMachine,
     };
     use itertools::Itertools;
     use winapi::{

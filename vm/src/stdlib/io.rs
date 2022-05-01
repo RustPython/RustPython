@@ -3,7 +3,7 @@
  */
 cfg_if::cfg_if! {
     if #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))] {
-        use crate::crt_fd::Offset;
+        use crate::common::crt_fd::Offset;
     } else {
         type Offset = i64;
     }
@@ -3695,8 +3695,8 @@ mod fileio {
     use super::{Offset, _io::*};
     use crate::{
         builtins::{PyStr, PyStrRef},
+        common::crt_fd::Fd,
         convert::ToPyException,
-        crt_fd::Fd,
         function::{ArgBytesLike, ArgMemoryBuffer, OptionalArg, OptionalOption},
         stdlib::os,
         types::{DefaultConstructor, Initializer},

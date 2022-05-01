@@ -1,7 +1,7 @@
 use crate::{
     builtins::{PyBaseExceptionRef, PyBytes, PyBytesRef, PyInt, PySet, PyStr, PyStrRef},
+    common::crt_fd::Fd,
     convert::{ToPyException, ToPyObject},
-    crt_fd::Fd,
     function::{ArgumentError, FromArgs, FuncArgs},
     protocol::PyBuffer,
     AsObject, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject, TryFromObject,
@@ -288,23 +288,7 @@ impl ToPyException for IOErrorBuilder {
 /// Convert the error stored in the `errno` variable into an Exception
 #[inline]
 pub fn errno_err(vm: &VirtualMachine) -> PyBaseExceptionRef {
-    errno().to_pyexception(vm)
-}
-
-#[cfg(windows)]
-pub fn errno() -> io::Error {
-    let err = io::Error::last_os_error();
-    // FIXME: probably not ideal, we need a bigger dichotomy between GetLastError and errno
-    if err.raw_os_error() == Some(0) {
-        io::Error::from_raw_os_error(super::msvcrt::get_errno())
-    } else {
-        err
-    }
-}
-
-#[cfg(not(windows))]
-pub fn errno() -> io::Error {
-    io::Error::last_os_error()
+    crate::common::os::errno().to_pyexception(vm)
 }
 
 #[allow(dead_code)]
@@ -408,13 +392,13 @@ pub(super) mod _os {
         builtins::{
             PyBytesRef, PyGenericAlias, PyIntRef, PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
         },
+        common::crt_fd::{Fd, Offset},
+        common::suppress_iph,
         convert::{ToPyException, ToPyObject},
-        crt_fd::{Fd, Offset},
         function::Either,
         function::{ArgBytesLike, FuncArgs, OptionalArg},
         protocol::PyIterReturn,
         recursion::ReprGuard,
-        suppress_iph,
         types::{IterNext, IterNextIterable, PyStructSequence},
         vm::VirtualMachine,
         AsObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
@@ -1123,7 +1107,13 @@ pub(super) mod _os {
         let [] = dir_fd.0;
         let meta = match file {
             PathOrFd::Path(path) => super::fs_metadata(&path, follow_symlinks.0)?,
-            PathOrFd::Fd(fno) => Fd(fno).as_rust_file()?.metadata()?,
+            PathOrFd::Fd(fno) => {
+                use std::os::windows::io::FromRawHandle;
+                let handle = Fd(fno).to_raw_handle()?;
+                let file =
+                    std::mem::ManuallyDrop::new(unsafe { std::fs::File::from_raw_handle(handle) });
+                file.metadata()?
+            }
         };
         meta_to_stat(&meta).map(Some)
     }
@@ -1825,11 +1815,3 @@ use super::posix as platform;
 use super::nt as platform;
 
 pub(crate) use platform::module::MODULE_NAME;
-
-#[cfg(not(all(windows, target_env = "msvc")))]
-#[macro_export]
-macro_rules! suppress_iph {
-    ($e:expr) => {
-        $e
-    };
-}
