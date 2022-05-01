@@ -3,10 +3,13 @@ pub enum Mode {
     Exec,
     Eval,
     Single,
+    BlockExpr,
 }
 
 impl std::str::FromStr for Mode {
     type Err = ModeParseError;
+
+    // To support `builtins.compile()` `mode` argument
     fn from_str(s: &str) -> Result<Self, ModeParseError> {
         match s {
             "exec" => Ok(Mode::Exec),

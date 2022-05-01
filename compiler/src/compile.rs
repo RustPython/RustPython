@@ -104,11 +104,16 @@ impl CompileContext {
 pub fn compile_top(
     ast: &ast::Mod,
     source_path: String,
+    mode: Mode,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
     match ast {
         ast::Mod::Module { body, .. } => compile_program(body, source_path, opts),
-        ast::Mod::Interactive { body } => compile_program_single(body, source_path, opts),
+        ast::Mod::Interactive { body } => match mode {
+            Mode::Single => compile_program_single(body, source_path, opts),
+            Mode::BlockExpr => compile_block_expression(body, source_path, opts),
+            _ => unreachable!("only Single and BlockExpr parsed to Interactive"),
+        },
         ast::Mod::Expression { body } => compile_expression(body, source_path, opts),
         ast::Mod::FunctionType { .. } => panic!("can't compile a FunctionType"),
     }
@@ -161,6 +166,20 @@ pub fn compile_program_single(
         opts,
         make_symbol_table,
         Compiler::compile_program_single,
+    )
+}
+
+pub fn compile_block_expression(
+    ast: &[ast::Stmt],
+    source_path: String,
+    opts: CompileOpts,
+) -> CompileResult<CodeObject> {
+    compile_impl(
+        ast,
+        source_path,
+        opts,
+        make_symbol_table,
+        Compiler::compile_block_expr,
     )
 }
 
@@ -367,6 +386,35 @@ impl Compiler {
         };
 
         self.emit(Instruction::ReturnValue);
+        Ok(())
+    }
+
+    fn compile_block_expr(
+        &mut self,
+        body: &[ast::Stmt],
+        symbol_table: SymbolTable,
+    ) -> CompileResult<()> {
+        self.symbol_table_stack.push(symbol_table);
+
+        self.compile_statements(body)?;
+
+        if let Some(last_statement) = body.last() {
+            match last_statement.node {
+                ast::StmtKind::Expr { .. } => {
+                    self.current_block().instructions.pop(); // pop Instruction::Pop
+                }
+                ast::StmtKind::FunctionDef { .. }
+                | ast::StmtKind::AsyncFunctionDef { .. }
+                | ast::StmtKind::ClassDef { .. } => {
+                    let store_inst = self.current_block().instructions.pop().unwrap(); // pop Instruction::Store
+                    self.emit(Instruction::Duplicate);
+                    self.current_block().instructions.push(store_inst);
+                }
+                _ => self.emit_constant(ConstantData::None),
+            }
+        }
+        self.emit(Instruction::ReturnValue);
+
         Ok(())
     }
 
