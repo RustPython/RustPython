@@ -8,18 +8,16 @@ use vm::{
 fn py_main(interp: &Interpreter) -> vm::PyResult<()> {
     let generator = interp.enter(|vm| {
         let scope = vm.new_scope_with_builtins();
-        let _ = vm.run_code_string(
+        let generator = vm.run_block_expr(
             scope.clone(),
             r#"
 def gen():
     for i in range(10):
         yield i
 
-generator = gen()
+gen()
 "#,
-            "".to_owned(),
         )?;
-        let generator = scope.globals.get_item("generator", vm)?;
         Ok(generator)
     })?;
 
