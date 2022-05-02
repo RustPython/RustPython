@@ -112,6 +112,7 @@ fn gen_phf() {
         .entry("in", "Tok::In")
         .entry("is", "Tok::Is")
         .entry("lambda", "Tok::Lambda")
+        .entry("match", "Tok::Match")
         .entry("nonlocal", "Tok::Nonlocal")
         .entry("not", "Tok::Not")
         .entry("or", "Tok::Or")
