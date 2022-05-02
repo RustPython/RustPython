@@ -119,8 +119,8 @@ fn compile_impl<Ast: ?Sized>(
     ast: &Ast,
     source_path: String,
     opts: CompileOpts,
-    make_symbol_table: fn(&Ast) -> Result<SymbolTable, symboltable::SymbolTableError>,
-    compile: fn(&mut Compiler, &Ast, SymbolTable) -> CompileResult<()>,
+    make_symbol_table: impl FnOnce(&Ast) -> Result<SymbolTable, symboltable::SymbolTableError>,
+    compile: impl FnOnce(&mut Compiler, &Ast, SymbolTable) -> CompileResult<()>,
 ) -> CompileResult<CodeObject> {
     let symbol_table = match make_symbol_table(ast) {
         Ok(x) => x,
