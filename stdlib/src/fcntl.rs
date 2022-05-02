@@ -9,6 +9,16 @@ mod fcntl {
         PyResult, VirtualMachine,
     };
 
+    // TODO: supply these from <asm-generic/fnctl.h> (please file an issue/PR upstream):
+    //       LOCK_MAND, LOCK_READ, LOCK_WRITE, LOCK_RW, F_GETSIG, F_SETSIG, F_GETLK64, F_SETLK64,
+    //       F_SETLKW64, FASYNC, F_EXLCK, F_SHLCK, DN_ACCESS, DN_MODIFY, DN_CREATE, DN_DELETE,
+    //       DN_RENAME, DN_ATTRIB, DN_MULTISHOT
+    // NOTE: these are/were from <stropts.h>, which may not be present on systems nowadays:
+    //       I_PUSH, I_POP, I_LOOK, I_FLUSH, I_FLUSHBAND, I_SETSIG, I_GETSIG, I_FIND, I_PEEK,
+    //       I_SRDOPT, I_GRDOPT, I_NREAD, I_FDINSERT, I_STR, I_SWROPT, I_GWROPT, I_SENDFD,
+    //       I_RECVFD, I_LIST, I_ATMARK, I_CKBAND, I_GETBAND, I_CANPUT, I_SETCLTIME, I_GETCLTIME,
+    //       I_LINK, I_UNLINK, I_PLINK, I_PUNLINK
+
     #[pyattr]
     use libc::{FD_CLOEXEC, F_GETFD, F_GETFL, F_SETFD, F_SETFL};
 
@@ -22,11 +32,26 @@ mod fcntl {
 
     #[cfg(target_vendor = "apple")]
     #[pyattr]
-    use libc::F_NOCACHE;
+    use libc::{F_FULLFSYNC, F_NOCACHE};
 
     #[cfg(target_os = "freebsd")]
     #[pyattr]
     use libc::{F_DUP2FD, F_DUP2FD_CLOEXEC};
+
+    #[cfg(any(target_os = "android", target_os = "linux"))]
+    #[pyattr]
+    use libc::{F_OFD_GETLK, F_OFD_SETLK, F_OFD_SETLKW};
+
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    use libc::{
+        F_ADD_SEALS, F_GETLEASE, F_GETPIPE_SZ, F_GET_SEALS, F_NOTIFY, F_SEAL_GROW, F_SEAL_SEAL,
+        F_SEAL_SHRINK, F_SEAL_WRITE, F_SETLEASE, F_SETPIPE_SZ,
+    };
+
+    #[cfg(any(target_os = "dragonfly", target_os = "netbsd", target_vendor = "apple"))]
+    #[pyattr]
+    use libc::F_GETPATH;
 
     #[pyfunction]
     fn fcntl(
