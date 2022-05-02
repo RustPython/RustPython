@@ -387,7 +387,7 @@ class ClassDefVisitor(EmitVisitor):
         self.emit("#[pyimpl(flags(HAS_DICT, BASETYPE))]", depth)
         self.emit(f"impl {structname} {{", depth)
         self.emit(f"#[extend_class]", depth + 1)
-        self.emit("fn extend_class_with_fields(ctx: &PyContext, class: &PyTypeRef) {", depth + 1)
+        self.emit("fn extend_class_with_fields(ctx: &Context, class: &PyTypeRef) {", depth + 1)
         fields = ",".join(f"ctx.new_str(ascii!({json.dumps(f.name)})).into()" for f in fields)
         self.emit(f'class.set_str_attr("_fields", ctx.new_list(vec![{fields}]));', depth + 2)
         attrs = ",".join(f"ctx.new_str(ascii!({json.dumps(attr.name)})).into()" for attr in attrs)
