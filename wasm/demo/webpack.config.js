@@ -13,6 +13,9 @@ module.exports = (env = {}) => {
             path: path.join(__dirname, 'dist'),
             filename: 'index.js',
         },
+        experiments: {
+            asyncWebAssembly: true,
+        },
         mode: 'development',
         resolve: {
             alias: {
