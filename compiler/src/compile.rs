@@ -100,19 +100,6 @@ impl CompileContext {
     }
 }
 
-/// A helper function for the shared code of the different compile functions
-fn with_compiler(
-    source_path: String,
-    opts: CompileOpts,
-    f: impl FnOnce(&mut Compiler) -> CompileResult<()>,
-) -> CompileResult<CodeObject> {
-    let mut compiler = Compiler::new(opts, source_path, "<module>".to_owned());
-    f(&mut compiler)?;
-    let code = compiler.pop_code_object();
-    trace!("Compilation completed: {:?}", code);
-    Ok(code)
-}
-
 /// Compile an ast::Mod produced from rustpython_parser::parser::parse()
 pub fn compile_top(
     ast: &ast::Mod,
@@ -127,16 +114,24 @@ pub fn compile_top(
     }
 }
 
-macro_rules! compile_impl {
-    ($ast:expr, $source_path:expr, $opts:expr, $st:ident, $compile:ident) => {{
-        let symbol_table = match $st($ast) {
-            Ok(x) => x,
-            Err(e) => return Err(e.into_compile_error($source_path)),
-        };
-        with_compiler($source_path, $opts, |compiler| {
-            compiler.$compile($ast, symbol_table)
-        })
-    }};
+/// A helper function for the shared code of the different compile functions
+fn compile_impl<Ast: ?Sized>(
+    ast: &Ast,
+    source_path: String,
+    opts: CompileOpts,
+    make_symbol_table: impl FnOnce(&Ast) -> Result<SymbolTable, symboltable::SymbolTableError>,
+    compile: impl FnOnce(&mut Compiler, &Ast, SymbolTable) -> CompileResult<()>,
+) -> CompileResult<CodeObject> {
+    let symbol_table = match make_symbol_table(ast) {
+        Ok(x) => x,
+        Err(e) => return Err(e.into_compile_error(source_path)),
+    };
+
+    let mut compiler = Compiler::new(opts, source_path, "<module>".to_owned());
+    compile(&mut compiler, ast, symbol_table)?;
+    let code = compiler.pop_code_object();
+    trace!("Compilation completed: {:?}", code);
+    Ok(code)
 }
 
 /// Compile a standard Python program to bytecode
@@ -145,7 +140,13 @@ pub fn compile_program(
     source_path: String,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
-    compile_impl!(ast, source_path, opts, make_symbol_table, compile_program)
+    compile_impl(
+        ast,
+        source_path,
+        opts,
+        make_symbol_table,
+        Compiler::compile_program,
+    )
 }
 
 /// Compile a Python program to bytecode for the context of a REPL
@@ -154,12 +155,12 @@ pub fn compile_program_single(
     source_path: String,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
-    compile_impl!(
+    compile_impl(
         ast,
         source_path,
         opts,
         make_symbol_table,
-        compile_program_single
+        Compiler::compile_program_single,
     )
 }
 
@@ -168,7 +169,13 @@ pub fn compile_expression(
     source_path: String,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
-    compile_impl!(ast, source_path, opts, make_symbol_table_expr, compile_eval)
+    compile_impl(
+        ast,
+        source_path,
+        opts,
+        make_symbol_table_expr,
+        Compiler::compile_eval,
+    )
 }
 
 impl Compiler {
@@ -309,7 +316,7 @@ impl Compiler {
         let size_before = self.code_stack.len();
         self.symbol_table_stack.push(symbol_table);
 
-        let (statements, doc) = get_doc(body);
+        let (doc, statements) = split_doc(body);
         if let Some(value) = doc {
             self.emit_constant(ConstantData::Str { value });
             let doc = self.name("__doc__");
@@ -337,31 +344,30 @@ impl Compiler {
     ) -> CompileResult<()> {
         self.symbol_table_stack.push(symbol_table);
 
-        let mut emitted_return = false;
+        let (last, body) = if let Some(splited) = body.split_last() {
+            splited
+        } else {
+            return Ok(());
+        };
 
-        for (i, statement) in body.iter().enumerate() {
-            let is_last = i == body.len() - 1;
-
+        for statement in body {
             if let ast::StmtKind::Expr { value } = &statement.node {
                 self.compile_expression(value)?;
-
-                if is_last {
-                    self.emit(Instruction::Duplicate);
-                    self.emit(Instruction::PrintExpr);
-                    self.emit(Instruction::ReturnValue);
-                    emitted_return = true;
-                } else {
-                    self.emit(Instruction::PrintExpr);
-                }
+                self.emit(Instruction::PrintExpr);
             } else {
                 self.compile_statement(statement)?;
             }
         }
 
-        if !emitted_return {
+        if let ast::StmtKind::Expr { value } = &last.node {
+            self.compile_expression(value)?;
+            self.emit(Instruction::Duplicate);
+            self.emit(Instruction::PrintExpr);
+        } else {
+            self.compile_statement(last)?;
             self.emit_constant(ConstantData::None);
-            self.emit(Instruction::ReturnValue);
         }
+        self.emit(Instruction::ReturnValue);
 
         Ok(())
     }
@@ -1046,7 +1052,7 @@ impl Compiler {
         let qualified_name = self.qualified_path.join(".");
         self.push_qualified_path("<locals>");
 
-        let (body, doc_str) = get_doc(body);
+        let (doc_str, body) = split_doc(body);
 
         self.compile_statements(body)?;
 
@@ -1165,6 +1171,7 @@ impl Compiler {
         true
     }
 
+    // Python/compile.c find_ann
     fn find_ann(&self, body: &[ast::Stmt]) -> bool {
         use ast::StmtKind::*;
 
@@ -1216,7 +1223,7 @@ impl Compiler {
 
         self.push_output(bytecode::CodeFlags::empty(), 0, 0, 0, name.to_owned());
 
-        let (new_body, doc_str) = get_doc(body);
+        let (doc_str, body) = split_doc(body);
 
         let dunder_name = self.name("__name__");
         self.emit(Instruction::LoadGlobal(dunder_name));
@@ -1234,7 +1241,7 @@ impl Compiler {
         if self.find_ann(body) {
             self.emit(Instruction::SetupAnnotation);
         }
-        self.compile_statements(new_body)?;
+        self.compile_statements(body)?;
 
         let classcell_idx = self
             .code_stack
@@ -2566,15 +2573,15 @@ impl Compiler {
     }
 }
 
-fn get_doc(body: &[ast::Stmt]) -> (&[ast::Stmt], Option<String>) {
+fn split_doc(body: &[ast::Stmt]) -> (Option<String>, &[ast::Stmt]) {
     if let Some((val, body_rest)) = body.split_first() {
         if let ast::StmtKind::Expr { value } = &val.node {
             if let Some(doc) = try_get_constant_string(std::slice::from_ref(value)) {
-                return (body_rest, Some(doc));
+                return (Some(doc), body_rest);
             }
         }
     }
-    (body, None)
+    (None, body)
 }
 
 fn try_get_constant_string(values: &[ast::Expr]) -> Option<String> {

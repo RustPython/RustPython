@@ -273,7 +273,7 @@ impl VirtualMachine {
 
     pub fn run_code_obj(&self, code: PyRef<PyCode>, scope: Scope) -> PyResult {
         let frame = Frame::new(code, scope, self.builtins.dict(), &[], self).into_ref(self);
-        self.run_frame_full(frame)
+        self.run_frame(frame)
     }
 
     #[cold]
@@ -297,8 +297,8 @@ impl VirtualMachine {
     }
 
     #[inline(always)]
-    pub fn run_frame_full(&self, frame: FrameRef) -> PyResult {
-        match self.run_frame(frame)? {
+    pub fn run_frame(&self, frame: FrameRef) -> PyResult {
+        match self.with_frame(frame, |f| f.run(self))? {
             ExecutionResult::Return(value) => Ok(value),
             _ => panic!("Got unexpected result from function"),
         }
@@ -331,10 +331,6 @@ impl VirtualMachine {
             let _popped = self.frames.borrow_mut().pop();
             result
         })
-    }
-
-    pub fn run_frame(&self, frame: FrameRef) -> PyResult<ExecutionResult> {
-        self.with_frame(frame, |f| f.run(self))
     }
 
     // To be called right before raising the recursion depth.
