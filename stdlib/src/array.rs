@@ -581,7 +581,7 @@ mod array {
     }
 
     #[pyattr]
-    #[pyclass(name = "array.array")]
+    #[pyclass(name = "array")]
     #[derive(Debug, PyPayload)]
     pub struct PyArray {
         array: PyRwLock<ArrayContentType>,
@@ -1280,7 +1280,7 @@ mod array {
     }
 
     #[pyattr]
-    #[pyclass(name = "arrayiterator")]
+    #[pyclass(name = "array_iterator")]
     #[derive(Debug, PyPayload)]
     pub struct PyArrayIter {
         position: AtomicUsize,
