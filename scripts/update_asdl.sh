@@ -3,5 +3,5 @@ set -e
 
 cd "$(dirname "$(dirname "$0")")"
 
-python ast/asdl_rs.py -D ast/src/ast_gen.rs -M vm/src/stdlib/ast/gen.rs ast/Python.asdl
-rustfmt ast/src/ast_gen.rs vm/src/stdlib/ast/gen.rs
+python ast/asdl_rs.py -D ast/bootstrap/ast_def.rs -M ast/bootstrap/ast_mod.rs ast/Python.asdl
+rustfmt ast/bootstrap/ast_def.rs ast/bootstrap/ast_mod.rs
