@@ -28,7 +28,7 @@ mod fcntl {
 
     #[cfg(not(any(target_os = "wasi", target_os = "redox")))]
     #[pyattr]
-    use libc::{F_GETOWN, F_RDLCK, F_SETOWN, F_UNLCK, F_WRLCK};
+    use libc::{F_GETOWN, F_RDLCK, F_SETOWN, F_UNLCK, F_WRLCK, LOCK_EX, LOCK_NB, LOCK_SH, LOCK_UN};
 
     #[cfg(target_vendor = "apple")]
     #[pyattr]
