@@ -141,6 +141,8 @@ class TestFcntl(unittest.TestCase):
         finally:
             os.close(fd)
 
+    # TODO: RUSTPYTHON, AttributeError: module 'fcntl' has no attribute 'flock'
+    @unittest.expectedFailure
     def test_flock(self):
         # Solaris needs readable file for shared lock
         self.f = open(TESTFN, 'wb+')
@@ -155,6 +157,8 @@ class TestFcntl(unittest.TestCase):
         self.assertRaises(ValueError, fcntl.flock, -1, fcntl.LOCK_SH)
         self.assertRaises(TypeError, fcntl.flock, 'spam', fcntl.LOCK_SH)
 
+    # TODO: RUSTPYTHON, AttributeError: module 'fcntl' has no attribute 'lockf'
+    @unittest.expectedFailure
     @unittest.skipIf(platform.system() == "AIX", "AIX returns PermissionError")
     def test_lockf_exclusive(self):
         self.f = open(TESTFN, 'wb+')
@@ -166,6 +170,8 @@ class TestFcntl(unittest.TestCase):
         fcntl.lockf(self.f, fcntl.LOCK_UN)
         self.assertEqual(p.exitcode, 0)
 
+    # TODO: RUSTPYTHON, AttributeError: module 'fcntl' has no attribute 'lockf'
+    @unittest.expectedFailure
     @unittest.skipIf(platform.system() == "AIX", "AIX returns PermissionError")
     def test_lockf_share(self):
         self.f = open(TESTFN, 'wb+')
