@@ -31,6 +31,10 @@ module.exports = (env = {}) => {
                     test: /\.css$/,
                     use: [MiniCssExtractPlugin.loader, 'css-loader'],
                 },
+                {
+                    test: /\.py$/,
+                    type: 'asset/source'
+                }
             ],
         },
         plugins: [
