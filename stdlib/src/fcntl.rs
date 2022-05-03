@@ -2,14 +2,13 @@ pub(crate) use fcntl::make_module;
 
 #[pymodule]
 mod fcntl {
-    use std::mem;
-
     use crate::vm::{
         builtins::PyIntRef,
         function::{ArgMemoryBuffer, ArgStrOrBytesLike, Either, OptionalArg},
         stdlib::{io, os},
         PyResult, VirtualMachine,
     };
+    use std::mem;
 
     // TODO: supply these from <asm-generic/fnctl.h> (please file an issue/PR upstream):
     //       LOCK_MAND, LOCK_READ, LOCK_WRITE, LOCK_RW, F_GETSIG, F_SETSIG, F_GETLK64, F_SETLK64,
