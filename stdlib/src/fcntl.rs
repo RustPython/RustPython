@@ -20,7 +20,9 @@ mod fcntl {
     //       I_LINK, I_UNLINK, I_PLINK, I_PUNLINK
 
     #[pyattr]
-    use libc::{FD_CLOEXEC, F_GETFD, F_GETFL, F_SETFD, F_SETFL};
+    use libc::{
+        FD_CLOEXEC, F_GETFD, F_GETFL, F_SETFD, F_SETFL, LOCK_EX, LOCK_NB, LOCK_SH, LOCK_UN,
+    };
 
     #[cfg(not(target_os = "wasi"))]
     #[pyattr]
