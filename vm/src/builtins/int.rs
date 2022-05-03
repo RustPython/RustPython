@@ -530,20 +530,13 @@ impl PyInt {
         match precision {
             OptionalArg::Missing => (),
             OptionalArg::Present(ref value) => {
-                if !vm.is_none(value) {
-                    // Only accept int type ndigits
-                    let _ndigits = value.payload_if_subclass::<PyInt>(vm).ok_or_else(|| {
-                        vm.new_type_error(format!(
-                            "'{}' object cannot be interpreted as an integer",
-                            value.class().name()
-                        ))
-                    })?;
-                } else {
-                    return Err(vm.new_type_error(format!(
+                // Only accept int type ndigits
+                let _ndigits = value.payload_if_subclass::<PyInt>(vm).ok_or_else(|| {
+                    vm.new_type_error(format!(
                         "'{}' object cannot be interpreted as an integer",
                         value.class().name()
-                    )));
-                }
+                    ))
+                })?;
             }
         }
         Ok(zelf)
