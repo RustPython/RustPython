@@ -1,3 +1,28 @@
+from testutils import assert_raises
+
+assert 1 < 2
+assert 1 < 2 < 3
+assert 5 == 5 == 5
+assert (5 == 5) == True
+assert 5 == 5 != 4 == 4 > 3 > 2 < 3 <= 3 != 0 == 0
+
+assert not 1 > 2
+assert not 5 == 5 == True
+assert not 5 == 5 != 5 == 5
+assert not 1 < 2 < 3 > 4
+assert not 1 < 2 > 3 < 4
+assert not 1 > 2 < 3 < 4
+
+def test_type_error(x, y):
+    assert_raises(TypeError, lambda: x < y)
+    assert_raises(TypeError, lambda: x <= y)
+    assert_raises(TypeError, lambda: x > y)
+    assert_raises(TypeError, lambda: x >= y)
+
+test_type_error([], 0)
+test_type_error((), 0)
+
+
 # 10**308 cannot be represented exactly in f64, thus it is not equal to 1e308 float
 assert not (10**308 == 1e308)
 # but the 1e308 float can be converted to big int and then it still should be equal to itself
