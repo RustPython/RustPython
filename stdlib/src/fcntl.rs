@@ -20,9 +20,7 @@ mod fcntl {
     //       I_LINK, I_UNLINK, I_PLINK, I_PUNLINK
 
     #[pyattr]
-    use libc::{
-        FD_CLOEXEC, F_GETFD, F_GETFL, F_SETFD, F_SETFL, LOCK_EX, LOCK_NB, LOCK_SH, LOCK_UN,
-    };
+    use libc::{FD_CLOEXEC, F_GETFD, F_GETFL, F_SETFD, F_SETFL};
 
     #[cfg(not(target_os = "wasi"))]
     #[pyattr]
@@ -30,7 +28,7 @@ mod fcntl {
 
     #[cfg(not(any(target_os = "wasi", target_os = "redox")))]
     #[pyattr]
-    use libc::{F_GETOWN, F_RDLCK, F_SETOWN, F_UNLCK, F_WRLCK};
+    use libc::{F_GETOWN, F_RDLCK, F_SETOWN, F_UNLCK, F_WRLCK, LOCK_EX, LOCK_NB, LOCK_SH, LOCK_UN};
 
     #[cfg(target_vendor = "apple")]
     #[pyattr]
