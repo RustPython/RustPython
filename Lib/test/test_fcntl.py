@@ -141,7 +141,7 @@ class TestFcntl(unittest.TestCase):
         finally:
             os.close(fd)
 
-    # TODO: RUSTPYTHON, AttributeError: module 'fcntl' has no attribute 'flock'
+    # TODO: RUSTPYTHON, TypeError: 'BufferedRandom' object cannot be interpreted as an integer
     @unittest.expectedFailure
     def test_flock(self):
         # Solaris needs readable file for shared lock
@@ -157,7 +157,7 @@ class TestFcntl(unittest.TestCase):
         self.assertRaises(ValueError, fcntl.flock, -1, fcntl.LOCK_SH)
         self.assertRaises(TypeError, fcntl.flock, 'spam', fcntl.LOCK_SH)
 
-    # TODO: RUSTPYTHON, AttributeError: module 'fcntl' has no attribute 'lockf'
+    # TODO: RUSTPYTHON, TypeError: 'BufferedRandom' object cannot be interpreted as an integer
     @unittest.expectedFailure
     @unittest.skipIf(platform.system() == "AIX", "AIX returns PermissionError")
     def test_lockf_exclusive(self):
@@ -170,7 +170,7 @@ class TestFcntl(unittest.TestCase):
         fcntl.lockf(self.f, fcntl.LOCK_UN)
         self.assertEqual(p.exitcode, 0)
 
-    # TODO: RUSTPYTHON, AttributeError: module 'fcntl' has no attribute 'lockf'
+    # TODO: RUSTPYTHON, TypeError: 'BufferedRandom' object cannot be interpreted as an integer
     @unittest.expectedFailure
     @unittest.skipIf(platform.system() == "AIX", "AIX returns PermissionError")
     def test_lockf_share(self):
