@@ -352,6 +352,6 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --release --target wasm32-wasi --features freeze-stdlib --verbose
+          args: --release --target wasm32-wasi --features freeze-stdlib,stdlib --verbose
       - name: run snippets
-        run: wasmer run --dir . target/wasm32-wasi/release/rustpython.wasm -- extra_tests/snippets/variables.py
+        run: wasmer run --dir . target/wasm32-wasi/release/rustpython.wasm -- extra_tests/snippets/stdlib_random.py

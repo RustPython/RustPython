@@ -5,6 +5,8 @@ import sys
 
 from testutils import assert_raises
 
+assert os.name == 'posix' or os.name == 'nt'
+
 fd = os.open('README.md', os.O_RDONLY)
 assert fd > 0
 

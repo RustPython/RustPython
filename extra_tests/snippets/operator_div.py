@@ -1,5 +1,15 @@
 from testutils import assert_raises
 
+assert_raises(ZeroDivisionError, lambda: 5 / 0)
+assert_raises(ZeroDivisionError, lambda: 5 / -0.0)
+assert_raises(ZeroDivisionError, lambda: 5 / (2-2))
+assert_raises(ZeroDivisionError, lambda: 5 % 0)
+assert_raises(ZeroDivisionError, lambda: 5 // 0)
+assert_raises(ZeroDivisionError, lambda: 5.3 // (-0.0))
+assert_raises(ZeroDivisionError, divmod, 5, 0)
+
+assert issubclass(ZeroDivisionError, ArithmeticError)
+
 # 2.456984346552728
 res = 10**500 / (4 * 10**499 + 7 * 10**497 + 3 * 10**494)
 assert 2.456984 <= res <= 2.456985

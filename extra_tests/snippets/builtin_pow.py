@@ -6,6 +6,22 @@ assert pow(5, 3, 100) == 25
 assert pow(41, 7, 2) == 1
 assert pow(7, 2, 49) == 0
 
+assert pow(0, 0) == 1
+assert pow(2, 2) == 4
+assert pow(1, 2.0) == 1.0
+assert pow(2.0, 1) == 2.0
+assert pow(0, 10**1000) == 0
+assert pow(1, 10**1000) == 1
+assert pow(-1, 10**1000+1) == -1
+assert pow(-1, 10**1000) == 1
+
+assert pow(2, 4, 5) == 1
+assert_raises(TypeError, pow, 2, 4, 5.0)
+assert_raises(TypeError, pow, 2, 4.0, 5)
+assert_raises(TypeError, pow, 2.0, 4, 5)
+assert pow(2, -1, 5) == 3
+assert_raises(ValueError, pow, 2, 2, 0)
+
 
 assert_almost_equal = assert_equal
 
