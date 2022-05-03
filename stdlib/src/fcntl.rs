@@ -2,6 +2,8 @@ pub(crate) use fcntl::make_module;
 
 #[pymodule]
 mod fcntl {
+    use std::mem;
+
     use crate::vm::{
         builtins::PyIntRef,
         function::{ArgMemoryBuffer, ArgStrOrBytesLike, Either, OptionalArg},
@@ -138,5 +140,73 @@ mod fcntl {
                 Ok(vm.ctx.new_int(ret).into())
             }
         }
+    }
+
+    #[pyfunction]
+    fn flock(fd: i32, operation: i32, vm: &VirtualMachine) -> PyResult {
+        let ret = unsafe { libc::flock(fd, operation) };
+        // TODO: add support for platforms that don't have a builtin `flock` syscall
+        if ret < 0 {
+            return Err(os::errno_err(vm));
+        }
+        Ok(vm.ctx.new_int(ret).into())
+    }
+
+    // XXX: at the time of writing, wasi and redox don't have the necessary constants
+    #[cfg(not(any(target_os = "wasi", target_os = "redox")))]
+    #[pyfunction]
+    fn lockf(
+        fd: i32,
+        cmd: i32,
+        len: OptionalArg<PyIntRef>,
+        start: OptionalArg<PyIntRef>,
+        whence: OptionalArg<i32>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let mut l: libc::flock = unsafe { mem::zeroed() };
+        if cmd == libc::LOCK_UN {
+            l.l_type = libc::F_UNLCK
+                .try_into()
+                .map_err(|e| vm.new_overflow_error(format!("{e}")))?;
+        } else if (cmd & libc::LOCK_SH) != 0 {
+            l.l_type = libc::F_RDLCK
+                .try_into()
+                .map_err(|e| vm.new_overflow_error(format!("{e}")))?;
+        } else if (cmd & libc::LOCK_EX) != 0 {
+            l.l_type = libc::F_WRLCK
+                .try_into()
+                .map_err(|e| vm.new_overflow_error(format!("{e}")))?;
+        } else {
+            return Err(vm.new_value_error("unrecognized lockf argument".to_owned()));
+        }
+        l.l_start = match start {
+            OptionalArg::Present(s) => s.try_to_primitive(vm)?,
+            OptionalArg::Missing => 0,
+        };
+        l.l_len = match len {
+            OptionalArg::Present(l_) => l_.try_to_primitive(vm)?,
+            OptionalArg::Missing => 0,
+        };
+        l.l_whence = match whence {
+            OptionalArg::Present(w) => w
+                .try_into()
+                .map_err(|e| vm.new_overflow_error(format!("{e}")))?,
+            OptionalArg::Missing => 0,
+        };
+        let ret = unsafe {
+            libc::fcntl(
+                fd,
+                if (cmd & libc::LOCK_NB) != 0 {
+                    libc::F_SETLK
+                } else {
+                    libc::F_SETLKW
+                },
+                &l,
+            )
+        };
+        if ret < 0 {
+            return Err(os::errno_err(vm));
+        }
+        Ok(vm.ctx.new_int(ret).into())
     }
 }
