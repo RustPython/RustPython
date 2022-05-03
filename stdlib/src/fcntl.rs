@@ -141,6 +141,8 @@ mod fcntl {
         }
     }
 
+    // XXX: at the time of writing, wasi and redox don't have the necessary constants/function
+    #[cfg(not(any(target_os = "wasi", target_os = "redox")))]
     #[pyfunction]
     fn flock(fd: i32, operation: i32, vm: &VirtualMachine) -> PyResult {
         let ret = unsafe { libc::flock(fd, operation) };
