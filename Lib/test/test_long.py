@@ -953,8 +953,6 @@ class LongTest(unittest.TestCase):
     def test_huge_lshift(self, size):
         self.assertEqual(1 << (sys.maxsize + 1000), 1 << 1000 << sys.maxsize)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_huge_rshift(self):
         self.assertEqual(42 >> (1 << 1000), 0)
         self.assertEqual((-42) >> (1 << 1000), -1)

@@ -157,19 +157,47 @@ fn inner_divmod(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
     Ok(vm.new_tuple((div, modulo)).into())
 }
 
-fn inner_shift<F>(int1: &BigInt, int2: &BigInt, shift_op: F, vm: &VirtualMachine) -> PyResult
+fn inner_lshift(base: &BigInt, bits: &BigInt, vm: &VirtualMachine) -> PyResult {
+    inner_shift(
+        base,
+        bits,
+        |base, bits| base << bits,
+        |bits, vm| {
+            bits.to_usize().ok_or_else(|| {
+                vm.new_overflow_error("the number is too large to convert to int".to_owned())
+            })
+        },
+        vm,
+    )
+}
+
+fn inner_rshift(base: &BigInt, bits: &BigInt, vm: &VirtualMachine) -> PyResult {
+    inner_shift(
+        base,
+        bits,
+        |base, bits| base >> bits,
+        |bits, _vm| Ok(bits.to_usize().unwrap_or(usize::MAX)),
+        vm,
+    )
+}
+
+fn inner_shift<F, S>(
+    base: &BigInt,
+    bits: &BigInt,
+    shift_op: F,
+    shift_bits: S,
+    vm: &VirtualMachine,
+) -> PyResult
 where
     F: Fn(&BigInt, usize) -> BigInt,
+    S: Fn(&BigInt, &VirtualMachine) -> PyResult<usize>,
 {
-    if int2.is_negative() {
+    if bits.is_negative() {
         Err(vm.new_value_error("negative shift count".to_owned()))
-    } else if int1.is_zero() {
+    } else if base.is_zero() {
         Ok(vm.ctx.new_int(0).into())
     } else {
-        let int2 = int2.to_usize().ok_or_else(|| {
-            vm.new_overflow_error("the number is too large to convert to int".to_owned())
-        })?;
-        Ok(vm.ctx.new_int(shift_op(int1, int2)).into())
+        shift_bits(bits, vm).map(|bits| vm.ctx.new_int(shift_op(base, bits)).into())
     }
 }
 
@@ -361,22 +389,22 @@ impl PyInt {
 
     #[pymethod(magic)]
     fn lshift(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.general_op(other, |a, b| inner_shift(a, b, |a, b| a << b, vm), vm)
+        self.general_op(other, |a, b| inner_lshift(a, b, vm), vm)
     }
 
     #[pymethod(magic)]
     fn rlshift(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.general_op(other, |a, b| inner_shift(b, a, |a, b| a << b, vm), vm)
+        self.general_op(other, |a, b| inner_lshift(b, a, vm), vm)
     }
 
     #[pymethod(magic)]
     fn rshift(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.general_op(other, |a, b| inner_shift(a, b, |a, b| a >> b, vm), vm)
+        self.general_op(other, |a, b| inner_rshift(a, b, vm), vm)
     }
 
     #[pymethod(magic)]
     fn rrshift(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.general_op(other, |a, b| inner_shift(b, a, |a, b| a >> b, vm), vm)
+        self.general_op(other, |a, b| inner_rshift(b, a, vm), vm)
     }
 
     #[pymethod(name = "__rxor__")]
