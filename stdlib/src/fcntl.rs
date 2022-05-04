@@ -8,7 +8,6 @@ mod fcntl {
         stdlib::{io, os},
         PyResult, VirtualMachine,
     };
-    use std::mem;
 
     // TODO: supply these from <asm-generic/fnctl.h> (please file an issue/PR upstream):
     //       LOCK_MAND, LOCK_READ, LOCK_WRITE, LOCK_RW, F_GETSIG, F_SETSIG, F_GETLK64, F_SETLK64,
@@ -164,7 +163,7 @@ mod fcntl {
         whence: OptionalArg<i32>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let mut l: libc::flock = unsafe { mem::zeroed() };
+        let mut l: libc::flock = unsafe { std::mem::zeroed() };
         if cmd == libc::LOCK_UN {
             l.l_type = libc::F_UNLCK
                 .try_into()
