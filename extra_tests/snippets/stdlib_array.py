@@ -105,3 +105,10 @@ u = array('u', test_str)
 if u.itemsize >= 4:
     assert u.__reduce_ex__(1)[1][1] == list(test_str)
     assert loads(dumps(u, 1)) == loads(dumps(u, 3))
+
+# test array name
+a = array('b', [])
+assert str(a.__class__.__name__) == "array"
+# test arrayiterator name
+i = iter(a)
+assert str(i.__class__.__name__) == "arrayiterator"

@@ -1280,7 +1280,7 @@ mod array {
     }
 
     #[pyattr]
-    #[pyclass(name = "array_iterator")]
+    #[pyclass(name = "arrayiterator")]
     #[derive(Debug, PyPayload)]
     pub struct PyArrayIter {
         position: AtomicUsize,
