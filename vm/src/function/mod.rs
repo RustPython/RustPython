@@ -17,36 +17,25 @@ pub use either::Either;
 pub use number::{ArgIntoBool, ArgIntoComplex, ArgIntoFloat};
 pub use protocol::{ArgCallable, ArgIterable, ArgMapping, ArgSequence};
 
-use crate::{
-    builtins::PyTupleRef, convert::TryFromObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
-};
+use crate::{builtins::PyStr, convert::TryFromBorrowedObject, PyObject, PyResult, VirtualMachine};
 
-/// Tests that the predicate is True on a single value, or if the value is a tuple a tuple, then
-/// test that any of the values contained within the tuples satisfies the predicate. Type parameter
-/// T specifies the type that is expected, if the input value is not of that type or a tuple of
-/// values of that type, then a TypeError is raised.
-pub fn single_or_tuple_any<T, F, M>(
-    obj: PyObjectRef,
-    predicate: &F,
-    message: &M,
-    vm: &VirtualMachine,
-) -> PyResult<bool>
-where
-    T: TryFromObject,
-    F: Fn(&T) -> PyResult<bool>,
-    M: Fn(&PyObject) -> String,
-{
-    match T::try_from_object(vm, obj.clone()) {
-        Ok(single) => (predicate)(&single),
-        Err(_) => {
-            let tuple = PyTupleRef::try_from_object(vm, obj.clone())
-                .map_err(|_| vm.new_type_error((message)(&obj)))?;
-            for obj in &tuple {
-                if single_or_tuple_any(obj.clone(), predicate, message, vm)? {
-                    return Ok(true);
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ArgByteOrder {
+    Big,
+    Little,
+}
+
+impl TryFromBorrowedObject for ArgByteOrder {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
+        obj.try_value_with(
+            |s: &PyStr| match s.as_str() {
+                "big" => Ok(Self::Big),
+                "little" => Ok(Self::Little),
+                _ => {
+                    Err(vm.new_value_error("byteorder must be either 'little' or 'big'".to_owned()))
                 }
-            }
-            Ok(false)
-        }
+            },
+            vm,
+        )
     }
 }

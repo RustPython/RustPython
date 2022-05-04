@@ -1,9 +1,9 @@
 use crate::{
-    builtins::PyIntRef,
+    builtins::{PyIntRef, PyTupleRef},
     cformat::CFormatString,
-    function::{single_or_tuple_any, OptionalOption},
+    function::OptionalOption,
     protocol::PyIterIter,
-    AsObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+    AsObject, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
 };
 use num_traits::{cast::ToPrimitive, sign::Signed};
 use std::str::FromStr;
@@ -439,5 +439,35 @@ pub trait AnyStr<'s>: 's {
         CFormatString::from_str(format_string)
             .map_err(|err| vm.new_value_error(err.to_string()))?
             .format(vm, values)
+    }
+}
+
+/// Tests that the predicate is True on a single value, or if the value is a tuple a tuple, then
+/// test that any of the values contained within the tuples satisfies the predicate. Type parameter
+/// T specifies the type that is expected, if the input value is not of that type or a tuple of
+/// values of that type, then a TypeError is raised.
+pub fn single_or_tuple_any<T, F, M>(
+    obj: PyObjectRef,
+    predicate: &F,
+    message: &M,
+    vm: &VirtualMachine,
+) -> PyResult<bool>
+where
+    T: TryFromObject,
+    F: Fn(&T) -> PyResult<bool>,
+    M: Fn(&PyObject) -> String,
+{
+    match T::try_from_object(vm, obj.clone()) {
+        Ok(single) => (predicate)(&single),
+        Err(_) => {
+            let tuple = PyTupleRef::try_from_object(vm, obj.clone())
+                .map_err(|_| vm.new_type_error((message)(&obj)))?;
+            for obj in &tuple {
+                if single_or_tuple_any(obj.clone(), predicate, message, vm)? {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        }
     }
 }
