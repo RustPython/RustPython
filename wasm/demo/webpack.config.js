@@ -34,7 +34,7 @@ module.exports = (env = {}) => {
                 {
                     test: /\.py$/,
                     type: 'asset/source'
-                }
+                },
             ],
         },
         plugins: [
