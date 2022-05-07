@@ -115,10 +115,11 @@ impl PySuper {
     }
 
     #[pyproperty(magic)]
-    fn selfclass(&self) -> Option<PyTypeRef> {
+    fn self_class(&self) -> Option<PyTypeRef> {
         Some(self.obj.as_ref()?.1.clone())
     }
 
+    #[pyproperty]
     fn __self__(&self) -> Option<PyObjectRef> {
         Some(self.obj.as_ref()?.0.clone())
     }
