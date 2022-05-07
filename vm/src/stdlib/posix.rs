@@ -516,8 +516,7 @@ pub mod module {
 
     #[pyfunction]
     fn sched_yield(vm: &VirtualMachine) -> PyResult<()> {
-        let _ = nix::sched::sched_yield().map_err(|e| e.to_pyexception(vm))?;
-        Ok(())
+        nix::sched::sched_yield().map_err(|e| e.to_pyexception(vm))
     }
 
     #[pyattr]

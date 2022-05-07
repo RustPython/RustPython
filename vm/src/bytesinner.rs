@@ -307,7 +307,11 @@ impl PyBytesInner {
     }
 
     pub fn isdigit(&self) -> bool {
-        !self.elements.is_empty() && self.elements.iter().all(|x| char::from(*x).is_digit(10))
+        !self.elements.is_empty()
+            && self
+                .elements
+                .iter()
+                .all(|x| char::from(*x).is_ascii_digit())
     }
 
     pub fn islower(&self) -> bool {

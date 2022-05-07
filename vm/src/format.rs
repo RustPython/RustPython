@@ -120,7 +120,7 @@ pub(crate) struct FormatSpec {
 
 pub(crate) fn get_num_digits(text: &str) -> usize {
     for (index, character) in text.char_indices() {
-        if !character.is_digit(10) {
+        if !character.is_ascii_digit() {
             return index;
         }
     }
