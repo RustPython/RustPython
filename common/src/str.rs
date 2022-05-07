@@ -312,7 +312,7 @@ impl Repr<'_> {
             repr.write_str(s)?;
         } else {
             for ch in s.chars() {
-                let res = match ch {
+                match ch {
                     '\n' => repr.write_str("\\n"),
                     '\t' => repr.write_str("\\t"),
                     '\r' => repr.write_str("\\r"),
@@ -338,8 +338,7 @@ impl Repr<'_> {
                     _ => {
                         write!(repr, "\\U{:08x}", ch as u32)
                     }
-                };
-                let () = res?;
+                }?;
             }
         }
         repr.write_char(quote)

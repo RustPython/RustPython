@@ -1280,7 +1280,7 @@ mod _io {
                 }
             }
             if self.writable() {
-                let _ = self.flush_rewind(vm)?;
+                self.flush_rewind(vm)?;
             }
             self.reset_read();
             self.pos = 0;

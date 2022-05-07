@@ -1763,7 +1763,7 @@ pub(crate) struct SupportFunc {
     follow_symlinks: Option<bool>,
 }
 
-impl<'a> SupportFunc {
+impl SupportFunc {
     pub(crate) fn new(
         name: &'static str,
         fd: Option<bool>,

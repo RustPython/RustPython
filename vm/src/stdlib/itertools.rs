@@ -316,7 +316,8 @@ mod decl {
         fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
             let mut fmt = format!("{}", &self.object.repr(vm)?);
             if let Some(ref times) = self.times {
-                fmt.push_str(&format!(", {}", times.read()));
+                fmt.push_str(", ");
+                fmt.push_str(&times.read().to_string());
             }
             Ok(format!("repeat({})", fmt))
         }

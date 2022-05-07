@@ -71,7 +71,7 @@ impl Interpreter {
                 .map_err(|exc| vm.handle_exit_exception(exc))
                 .unwrap_or_else(|code| code);
 
-            let _ = atexit::_run_exitfuncs(vm);
+            atexit::_run_exitfuncs(vm);
 
             flush_std(vm);
 
