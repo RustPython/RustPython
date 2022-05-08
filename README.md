@@ -74,6 +74,17 @@ this isn't officially supported and may be out of date:
 
 You can compile RustPython to a standalone WebAssembly WASI module so it can run anywhere.
 
+Build
+```shell
+$ cargo build --target wasm32-wasi --no-default-features --features freeze-stdlib,stdlib --release
+```
+
+Run by wasmer
+```shell
+$ wasmer run --dir . target/wasm32-wasi/release/rustpython.wasm extra_tests/snippets/stdlib_random.py
+```
+
+Run by wapm
 ```shell
 $ wapm install rustpython
 $ wapm run rustpython
