@@ -33,7 +33,7 @@ module.exports = (env = {}) => {
                 },
                 {
                     test: /\.py$/,
-                    type: 'asset/source'
+                    type: 'asset/source',
                 },
             ],
         },
