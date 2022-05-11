@@ -776,22 +776,15 @@ impl PyComparisonOp {
     /// is `Ne` and `f()` returns true. Otherwise returns `None`.
     #[inline]
     pub fn map_eq(self, f: impl FnOnce() -> bool) -> Option<bool> {
-        match self {
-            Self::Eq => {
-                if f() {
-                    Some(true)
-                } else {
-                    None
-                }
-            }
-            Self::Ne => {
-                if f() {
-                    Some(false)
-                } else {
-                    None
-                }
-            }
-            _ => None,
+        let eq = match self {
+            Self::Eq => true,
+            Self::Ne => false,
+            _ => return None,
+        };
+        if f() {
+            Some(eq)
+        } else {
+            None
         }
     }
 }
