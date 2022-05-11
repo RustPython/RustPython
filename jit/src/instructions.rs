@@ -1,8 +1,8 @@
 use cranelift::prelude::*;
 use num_traits::cast::ToPrimitive;
 use rustpython_bytecode::{
-    self as bytecode, BinaryOperator, BorrowedConstant, CodeObject, CompareOperator, Instruction,
-    Label, UnaryOperator,
+    self as bytecode, BinaryOperator, BorrowedConstant, CodeObject, ComparisonOperator,
+    Instruction, Label, UnaryOperator,
 };
 use std::collections::HashMap;
 
@@ -260,13 +260,12 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 match (a.ty, b.ty) {
                     (JitType::Int, JitType::Int) => {
                         let cond = match op {
-                            CompareOperator::Equal => IntCC::Equal,
-                            CompareOperator::NotEqual => IntCC::NotEqual,
-                            CompareOperator::Less => IntCC::SignedLessThan,
-                            CompareOperator::LessOrEqual => IntCC::SignedLessThanOrEqual,
-                            CompareOperator::Greater => IntCC::SignedGreaterThan,
-                            CompareOperator::GreaterOrEqual => IntCC::SignedLessThanOrEqual,
-                            _ => return Err(JitCompileError::NotSupported),
+                            ComparisonOperator::Equal => IntCC::Equal,
+                            ComparisonOperator::NotEqual => IntCC::NotEqual,
+                            ComparisonOperator::Less => IntCC::SignedLessThan,
+                            ComparisonOperator::LessOrEqual => IntCC::SignedLessThanOrEqual,
+                            ComparisonOperator::Greater => IntCC::SignedGreaterThan,
+                            ComparisonOperator::GreaterOrEqual => IntCC::SignedLessThanOrEqual,
                         };
 
                         let val = self.builder.ins().icmp(cond, a.val, b.val);

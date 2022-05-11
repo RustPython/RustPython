@@ -16,47 +16,44 @@ mod _operator {
         function::{ArgBytesLike, FuncArgs, KwArgs, OptionalArg},
         protocol::PyIter,
         recursion::ReprGuard,
-        types::{
-            Callable, Constructor,
-            PyComparisonOp::{Eq, Ge, Gt, Le, Lt, Ne},
-        },
+        types::{Callable, Constructor, PyComparisonOp},
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     };
 
     /// Same as a < b.
     #[pyfunction]
     fn lt(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        a.rich_compare(b, Lt, vm)
+        a.rich_compare(b, PyComparisonOp::Lt, vm)
     }
 
     /// Same as a <= b.
     #[pyfunction]
     fn le(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        a.rich_compare(b, Le, vm)
+        a.rich_compare(b, PyComparisonOp::Le, vm)
     }
 
     /// Same as a > b.
     #[pyfunction]
     fn gt(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        a.rich_compare(b, Gt, vm)
+        a.rich_compare(b, PyComparisonOp::Gt, vm)
     }
 
     /// Same as a >= b.
     #[pyfunction]
     fn ge(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        a.rich_compare(b, Ge, vm)
+        a.rich_compare(b, PyComparisonOp::Ge, vm)
     }
 
     /// Same as a == b.
     #[pyfunction]
     fn eq(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        a.rich_compare(b, Eq, vm)
+        a.rich_compare(b, PyComparisonOp::Eq, vm)
     }
 
     /// Same as a != b.
     #[pyfunction]
     fn ne(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        a.rich_compare(b, Ne, vm)
+        a.rich_compare(b, PyComparisonOp::Ne, vm)
     }
 
     /// Same as not a.

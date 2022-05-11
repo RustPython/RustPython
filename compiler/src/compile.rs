@@ -1469,22 +1469,22 @@ impl Compiler {
 
         let compile_cmpop = |op: &ast::Cmpop| match op {
             ast::Cmpop::Eq => Instruction::CompareOperation {
-                op: bytecode::CompareOperator::Equal,
+                op: bytecode::ComparisonOperator::Equal,
             },
             ast::Cmpop::NotEq => Instruction::CompareOperation {
-                op: bytecode::CompareOperator::NotEqual,
+                op: bytecode::ComparisonOperator::NotEqual,
             },
             ast::Cmpop::Lt => Instruction::CompareOperation {
-                op: bytecode::CompareOperator::Less,
+                op: bytecode::ComparisonOperator::Less,
             },
             ast::Cmpop::LtE => Instruction::CompareOperation {
-                op: bytecode::CompareOperator::LessOrEqual,
+                op: bytecode::ComparisonOperator::LessOrEqual,
             },
             ast::Cmpop::Gt => Instruction::CompareOperation {
-                op: bytecode::CompareOperator::Greater,
+                op: bytecode::ComparisonOperator::Greater,
             },
             ast::Cmpop::GtE => Instruction::CompareOperation {
-                op: bytecode::CompareOperator::GreaterOrEqual,
+                op: bytecode::ComparisonOperator::GreaterOrEqual,
             },
             ast::Cmpop::In => Instruction::TestOperation {
                 op: bytecode::TestOperator::In,

@@ -720,7 +720,7 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::DeleteAttr { idx } => self.delete_attr(vm, *idx),
             bytecode::Instruction::UnaryOperation { ref op } => self.execute_unop(vm, op),
             bytecode::Instruction::TestOperation { ref op } => self.execute_test(vm, op),
-            bytecode::Instruction::CompareOperation { ref op } => self.execute_compare(vm, op),
+            bytecode::Instruction::CompareOperation { op } => self.execute_compare(vm, *op),
             bytecode::Instruction::ReturnValue => {
                 let value = self.pop_value();
                 self.unwind_blocks(vm, UnwindReason::Returning { value })
@@ -1725,18 +1725,11 @@ impl ExecutingFrame<'_> {
     fn execute_compare(
         &mut self,
         vm: &VirtualMachine,
-        op: &bytecode::CompareOperator,
+        op: bytecode::ComparisonOperator,
     ) -> FrameResult {
         let b = self.pop_value();
         let a = self.pop_value();
-        let op = match *op {
-            bytecode::CompareOperator::Equal => PyComparisonOp::Eq,
-            bytecode::CompareOperator::NotEqual => PyComparisonOp::Ne,
-            bytecode::CompareOperator::Less => PyComparisonOp::Lt,
-            bytecode::CompareOperator::LessOrEqual => PyComparisonOp::Le,
-            bytecode::CompareOperator::Greater => PyComparisonOp::Gt,
-            bytecode::CompareOperator::GreaterOrEqual => PyComparisonOp::Ge,
-        };
+        let op = PyComparisonOp::from(op);
         let value = a.rich_compare(b, op, vm)?;
         self.push_value(value);
         Ok(None)

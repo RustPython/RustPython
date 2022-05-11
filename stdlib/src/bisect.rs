@@ -3,7 +3,7 @@ pub(crate) use _bisect::make_module;
 #[pymodule]
 mod _bisect {
     use crate::vm::{
-        function::OptionalArg, types::PyComparisonOp::Lt, PyObjectRef, PyResult, VirtualMachine,
+        function::OptionalArg, types::PyComparisonOp, PyObjectRef, PyResult, VirtualMachine,
     };
 
     #[derive(FromArgs)]
@@ -74,7 +74,9 @@ mod _bisect {
         while lo < hi {
             // Handles issue 13496.
             let mid = (lo + hi) / 2;
-            if a.get_item(mid, vm)?.rich_compare_bool(&x, Lt, vm)? {
+            if a.get_item(mid, vm)?
+                .rich_compare_bool(&x, PyComparisonOp::Lt, vm)?
+            {
                 lo = mid + 1;
             } else {
                 hi = mid;
@@ -102,7 +104,7 @@ mod _bisect {
         while lo < hi {
             // Handles issue 13496.
             let mid = (lo + hi) / 2;
-            if x.rich_compare_bool(&*a.get_item(mid, vm)?, Lt, vm)? {
+            if x.rich_compare_bool(&*a.get_item(mid, vm)?, PyComparisonOp::Lt, vm)? {
                 hi = mid;
             } else {
                 lo = mid + 1;

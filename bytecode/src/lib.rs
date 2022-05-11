@@ -264,7 +264,7 @@ pub enum Instruction {
         op: TestOperator,
     },
     CompareOperation {
-        op: CompareOperator,
+        op: ComparisonOperator,
     },
     Pop,
     Rotate2,
@@ -584,17 +584,19 @@ impl<C: Constant> BorrowedConstant<'_, C> {
 }
 
 /// The possible comparison operators
-#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
-pub enum CompareOperator {
-    Greater,
-    GreaterOrEqual,
-    Less,
-    LessOrEqual,
-    Equal,
-    NotEqual,
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ComparisonOperator {
+    // be intentional with bits so that we can do eval_ord with just a bitwise and
+    // bits: | Equal | Greater | Less |
+    Less = 0b001,
+    Greater = 0b010,
+    NotEqual = 0b011,
+    Equal = 0b100,
+    LessOrEqual = 0b101,
+    GreaterOrEqual = 0b110,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TestOperator {
     In,
     NotIn,
