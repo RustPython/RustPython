@@ -163,14 +163,14 @@ impl<T> DictInner<T> {
                 let mut idxs = GenIndexes::new(entry.hash, mask);
                 loop {
                     let index_index = idxs.next();
-                    let idx = &mut self.indices[index_index];
-                    if *idx == IndexEntry::FREE {
-                        *idx = unsafe {
-                            // entry_idx never grow up to usize::MAX
-                            IndexEntry::from_index_unchecked(entry_idx)
-                        };
-                        entry.index = index_index;
-                        break;
+                    unsafe {
+                        // index is always valid here
+                        let idx = self.indices.get_unchecked_mut(index_index);
+                        if *idx == IndexEntry::FREE {
+                            *idx = IndexEntry::from_index_unchecked(entry_idx);
+                            entry.index = index_index;
+                            break;
+                        }
                     }
                 }
             } else {
@@ -531,7 +531,7 @@ impl<T: Clone> Dict<T> {
         mut lock: Option<PyRwLockReadGuard<DictInner<T>>>,
     ) -> PyResult<LookupResult> {
         let mut idxs = None;
-        let mut freeslot = None;
+        let mut free_slot = None;
         let ret = 'outer: loop {
             let (entry_key, ret) = {
                 let inner = lock.take().unwrap_or_else(|| self.read());
@@ -540,25 +540,27 @@ impl<T: Clone> Dict<T> {
                 });
                 loop {
                     let index_index = idxs.next();
-                    match inner.indices[index_index] {
+                    let index_entry = *unsafe { inner.indices.get_unchecked(index_index) };
+                    match index_entry {
                         IndexEntry::DUMMY => {
-                            if freeslot.is_none() {
-                                freeslot = Some(index_index);
+                            if free_slot.is_none() {
+                                free_slot = Some(index_index);
                             }
                         }
                         IndexEntry::FREE => {
-                            let idxs = match freeslot {
+                            let idxs = match free_slot {
                                 Some(free) => (IndexEntry::DUMMY, free),
                                 None => (IndexEntry::FREE, index_index),
                             };
                             return Ok(idxs);
                         }
                         idx => {
-                            let i = idx.index().unwrap_or_else(|| unsafe {
-                                // DUMMY and FREE is already checked above.
-                                std::hint::unreachable_unchecked()
-                            });
-                            let entry = &inner.entries[i].as_ref().unwrap();
+                            let entry = unsafe {
+                                // DUMMY and FREE are already handled above.
+                                // i is always valid and entry always exists.
+                                let i = idx.index().unwrap_unchecked();
+                                inner.entries.get_unchecked(i).as_ref().unwrap_unchecked()
+                            };
                             let ret = (idx, index_index);
                             if key.key_is(&entry.key) {
                                 break 'outer ret;
@@ -617,7 +619,7 @@ impl<T: Clone> Dict<T> {
             // The dict was changed since we did lookup. Let's try again.
             _ => return Ok(ControlFlow::Continue(())),
         }
-        inner.indices[index_index] = IndexEntry::DUMMY;
+        *unsafe { inner.indices.get_unchecked_mut(index_index) } = IndexEntry::DUMMY;
         inner.used -= 1;
         let removed = slot.take();
         Ok(ControlFlow::Break(removed))
@@ -645,7 +647,7 @@ impl<T: Clone> Dict<T> {
             }
         };
         inner.used -= 1;
-        inner.indices[entry.index] = IndexEntry::DUMMY;
+        *unsafe { inner.indices.get_unchecked_mut(entry.index) } = IndexEntry::DUMMY;
         Some((entry.key, entry.value))
     }
 
