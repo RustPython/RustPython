@@ -645,14 +645,15 @@ impl<T: Clone> Dict<T> {
 
     pub fn pop_back(&self) -> Option<(PyObjectRef, T)> {
         let mut inner = &mut *self.write();
-        let (entry_idx, entry) = inner.entries[..inner.next_new_entry_idx]
-            .iter_mut()
-            .enumerate()
-            .rev()
-            .find_map(|(i, entry)| entry.take().map(|e| (i, e)))?;
+        let entry = loop {
+            let entry = inner.entries.pop()?;
+            if let Some(entry) = entry {
+                break entry;
+            }
+        };
         inner.used -= 1;
         inner.indices[entry.index] = IndexEntry::DUMMY;
-        inner.next_new_entry_idx = entry_idx;
+        inner.next_new_entry_idx = inner.entries.len();
         Some((entry.key, entry.value))
     }
 
