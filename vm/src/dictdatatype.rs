@@ -75,8 +75,6 @@ struct DictInner<T> {
     filled: usize,
     indices: Vec<i64>,
     entries: Vec<Option<DictEntry<T>>>,
-    // index to new inserted element should be in entries
-    next_new_entry_idx: usize,
 }
 
 impl<T: Clone> Clone for Dict<T> {
@@ -95,7 +93,6 @@ impl<T> Default for Dict<T> {
                 filled: 0,
                 indices: vec![IndexEntry::FREE; 8],
                 entries: Vec::new(),
-                next_new_entry_idx: 0,
             }),
         }
     }
@@ -188,7 +185,6 @@ impl<T> DictInner<T> {
             }
         }
         self.filled = self.used;
-        self.next_new_entry_idx = self.entries.len();
     }
 
     fn unchecked_push(
@@ -205,15 +201,10 @@ impl<T> DictInner<T> {
             value,
             index,
         };
-        let entry_index = self.next_new_entry_idx;
-        if self.entries.len() == entry_index {
-            self.entries.push(Some(entry));
-        } else {
-            self.entries[entry_index] = Some(entry);
-        }
+        let entry_index = self.entries.len();
+        self.entries.push(Some(entry));
         self.indices[index] = entry_index as i64;
         self.used += 1;
-        self.next_new_entry_idx += 1;
         if let IndexEntry::Free = index_entry {
             self.filled += 1;
             if let Some(new_size) = self.should_resize() {
@@ -347,7 +338,6 @@ impl<T: Clone> Dict<T> {
             inner.indices.resize(8, IndexEntry::FREE);
             inner.used = 0;
             inner.filled = 0;
-            inner.next_new_entry_idx = 0;
             // defer dec rc
             std::mem::take(&mut inner.entries)
         };
@@ -653,7 +643,6 @@ impl<T: Clone> Dict<T> {
         };
         inner.used -= 1;
         inner.indices[entry.index] = IndexEntry::DUMMY;
-        inner.next_new_entry_idx = inner.entries.len();
         Some((entry.key, entry.value))
     }
 
