@@ -108,6 +108,7 @@ struct DictEntry<T> {
     index: IndexIndex,
     value: T,
 }
+static_assertions::assert_eq_size!(DictEntry<PyObjectRef>, Option<DictEntry<PyObjectRef>>);
 
 impl<T: Clone> DictEntry<T> {
     pub(crate) fn as_tuple(&self) -> (PyObjectRef, T) {
