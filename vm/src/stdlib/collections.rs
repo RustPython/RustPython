@@ -391,7 +391,7 @@ mod _collections {
                     .maxlen
                     .and_then(|maxlen| deque.len().checked_sub(maxlen))
                     .unwrap_or(0);
-                deque.drain(0..skipped);
+                deque.drain(..skipped);
 
                 Ok(PyDeque {
                     deque: PyRwLock::new(deque),
