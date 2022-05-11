@@ -260,8 +260,11 @@ pub enum Instruction {
     LoadAttr {
         idx: NameIdx,
     },
+    TestOperation {
+        op: TestOperator,
+    },
     CompareOperation {
-        op: ComparisonOperator,
+        op: CompareOperator,
     },
     Pop,
     Rotate2,
@@ -582,13 +585,17 @@ impl<C: Constant> BorrowedConstant<'_, C> {
 
 /// The possible comparison operators
 #[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
-pub enum ComparisonOperator {
+pub enum CompareOperator {
     Greater,
     GreaterOrEqual,
     Less,
     LessOrEqual,
     Equal,
     NotEqual,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
+pub enum TestOperator {
     In,
     NotIn,
     Is,
@@ -968,7 +975,10 @@ impl Instruction {
             DeleteAttr { .. } => -1,
             LoadConst { .. } => 1,
             UnaryOperation { .. } => 0,
-            BinaryOperation { .. } | BinaryOperationInplace { .. } | CompareOperation { .. } => -1,
+            BinaryOperation { .. }
+            | BinaryOperationInplace { .. }
+            | TestOperation { .. }
+            | CompareOperation { .. } => -1,
             Pop => -1,
             Rotate2 | Rotate3 => 0,
             Duplicate => 1,
@@ -1153,6 +1163,7 @@ impl Instruction {
                 w!(BinaryOperationInplace, format_args!("{:?}", op))
             }
             LoadAttr { idx } => w!(LoadAttr, name(*idx)),
+            TestOperation { op } => w!(TestOperation, format_args!("{:?}", op)),
             CompareOperation { op } => w!(CompareOperation, format_args!("{:?}", op)),
             Pop => w!(Pop),
             Rotate2 => w!(Rotate2),

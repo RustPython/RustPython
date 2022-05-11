@@ -719,6 +719,7 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::StoreAttr { idx } => self.store_attr(vm, *idx),
             bytecode::Instruction::DeleteAttr { idx } => self.delete_attr(vm, *idx),
             bytecode::Instruction::UnaryOperation { ref op } => self.execute_unop(vm, op),
+            bytecode::Instruction::TestOperation { ref op } => self.execute_test(vm, op),
             bytecode::Instruction::CompareOperation { ref op } => self.execute_compare(vm, op),
             bytecode::Instruction::ReturnValue => {
                 let value = self.pop_value();
@@ -1684,10 +1685,6 @@ impl ExecutingFrame<'_> {
         Ok(None)
     }
 
-    fn _id(&self, a: PyObjectRef) -> usize {
-        a.get_id()
-    }
-
     fn _in(
         &self,
         vm: &VirtualMachine,
@@ -1698,6 +1695,7 @@ impl ExecutingFrame<'_> {
         found.try_to_bool(vm)
     }
 
+    #[inline(always)]
     fn _not_in(
         &self,
         vm: &VirtualMachine,
@@ -1707,43 +1705,39 @@ impl ExecutingFrame<'_> {
         Ok(!self._in(vm, needle, haystack)?)
     }
 
-    fn _is(&self, a: PyObjectRef, b: PyObjectRef) -> bool {
-        // Pointer equal:
-        a.is(&b)
-    }
+    #[cfg_attr(feature = "flame-it", flame("Frame"))]
+    fn execute_test(&mut self, vm: &VirtualMachine, op: &bytecode::TestOperator) -> FrameResult {
+        let b = self.pop_value();
+        let a = self.pop_value();
+        let value = match *op {
+            bytecode::TestOperator::Is => a.is(&b),
+            bytecode::TestOperator::IsNot => !a.is(&b),
+            bytecode::TestOperator::In => self._in(vm, a, b)?,
+            bytecode::TestOperator::NotIn => self._not_in(vm, a, b)?,
+            bytecode::TestOperator::ExceptionMatch => a.is_instance(&b, vm)?,
+        };
 
-    fn _is_not(&self, a: PyObjectRef, b: PyObjectRef) -> bool {
-        !a.is(&b)
+        self.push_value(vm.ctx.new_bool(value).into());
+        Ok(None)
     }
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
     fn execute_compare(
         &mut self,
         vm: &VirtualMachine,
-        op: &bytecode::ComparisonOperator,
+        op: &bytecode::CompareOperator,
     ) -> FrameResult {
         let b = self.pop_value();
         let a = self.pop_value();
-        let value = match *op {
-            bytecode::ComparisonOperator::Equal => a.rich_compare(b, PyComparisonOp::Eq, vm)?,
-            bytecode::ComparisonOperator::NotEqual => a.rich_compare(b, PyComparisonOp::Ne, vm)?,
-            bytecode::ComparisonOperator::Less => a.rich_compare(b, PyComparisonOp::Lt, vm)?,
-            bytecode::ComparisonOperator::LessOrEqual => {
-                a.rich_compare(b, PyComparisonOp::Le, vm)?
-            }
-            bytecode::ComparisonOperator::Greater => a.rich_compare(b, PyComparisonOp::Gt, vm)?,
-            bytecode::ComparisonOperator::GreaterOrEqual => {
-                a.rich_compare(b, PyComparisonOp::Ge, vm)?
-            }
-            bytecode::ComparisonOperator::Is => vm.ctx.new_bool(self._is(a, b)).into(),
-            bytecode::ComparisonOperator::IsNot => vm.ctx.new_bool(self._is_not(a, b)).into(),
-            bytecode::ComparisonOperator::In => vm.ctx.new_bool(self._in(vm, a, b)?).into(),
-            bytecode::ComparisonOperator::NotIn => vm.ctx.new_bool(self._not_in(vm, a, b)?).into(),
-            bytecode::ComparisonOperator::ExceptionMatch => {
-                vm.ctx.new_bool(a.is_instance(&b, vm)?).into()
-            }
+        let op = match *op {
+            bytecode::CompareOperator::Equal => PyComparisonOp::Eq,
+            bytecode::CompareOperator::NotEqual => PyComparisonOp::Ne,
+            bytecode::CompareOperator::Less => PyComparisonOp::Lt,
+            bytecode::CompareOperator::LessOrEqual => PyComparisonOp::Le,
+            bytecode::CompareOperator::Greater => PyComparisonOp::Gt,
+            bytecode::CompareOperator::GreaterOrEqual => PyComparisonOp::Ge,
         };
-
+        let value = a.rich_compare(b, op, vm)?;
         self.push_value(value);
         Ok(None)
     }
@@ -1784,10 +1778,12 @@ impl ExecutingFrame<'_> {
         block
     }
 
+    #[inline]
     fn current_block(&self) -> Option<Block> {
         self.state.blocks.last().cloned()
     }
 
+    #[inline]
     fn push_value(&mut self, obj: PyObjectRef) {
         match self.state.stack.try_push(obj) {
             Ok(()) => {}
@@ -1795,6 +1791,7 @@ impl ExecutingFrame<'_> {
         }
     }
 
+    #[inline]
     fn pop_value(&mut self) -> PyObjectRef {
         match self.state.stack.pop() {
             Some(x) => x,
@@ -1807,6 +1804,7 @@ impl ExecutingFrame<'_> {
         self.state.stack.drain(stack_len - count..stack_len)
     }
 
+    #[inline]
     fn last_value(&self) -> PyObjectRef {
         self.last_value_ref().to_owned()
     }
@@ -1819,6 +1817,7 @@ impl ExecutingFrame<'_> {
         }
     }
 
+    #[inline]
     fn nth_value(&self, depth: u32) -> PyObjectRef {
         self.state.stack[self.state.stack.len() - depth as usize - 1].clone()
     }
