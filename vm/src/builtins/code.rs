@@ -82,7 +82,7 @@ impl ConstantBag for PyObjBag<'_> {
             bytecode::BorrowedConstant::Float { value } => ctx.new_float(value).into(),
             bytecode::BorrowedConstant::Complex { value } => ctx.new_complex(value).into(),
             bytecode::BorrowedConstant::Str { value } if value.len() <= 20 => {
-                ctx.intern_string(value).into_pyref().into()
+                ctx.intern_str(value).to_object()
             }
             bytecode::BorrowedConstant::Str { value } => ctx.new_str(value).into(),
             bytecode::BorrowedConstant::Bytes { value } => ctx.new_bytes(value.to_vec()).into(),
@@ -104,7 +104,7 @@ impl ConstantBag for PyObjBag<'_> {
     }
 
     fn make_name(&self, name: &str) -> PyStrRef {
-        self.0.intern_string(name).into_pyref()
+        self.0.intern_str(name).to_str()
     }
 }
 

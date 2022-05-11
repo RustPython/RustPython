@@ -681,8 +681,8 @@ mod array {
         #[pyproperty]
         fn typecode(&self, vm: &VirtualMachine) -> PyStrRef {
             vm.ctx
-                .intern_string(self.read().typecode().to_string())
-                .into_pyref()
+                .intern_str(self.read().typecode().to_string())
+                .to_str()
         }
 
         #[pyproperty]

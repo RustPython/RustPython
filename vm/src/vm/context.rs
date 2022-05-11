@@ -13,8 +13,8 @@ use crate::{
     class::{PyClassImpl, StaticType},
     exceptions,
     function::IntoPyNativeFunc,
-    intern::{Internable, StringPool},
-    object::{PyObjectPayload, PyObjectRef, PyPayload, PyRef, PyRefExact},
+    intern::{Internable, PyStrInterned, StringPool},
+    object::{PyObjectPayload, PyObjectRef, PyPayload, PyRef},
     types::{PyTypeFlags, PyTypeSlots, TypeZoo},
 };
 use num_bigint::BigInt;
@@ -32,8 +32,8 @@ pub struct Context {
     pub ellipsis: PyRef<PyEllipsis>,
     pub not_implemented: PyRef<PyNotImplemented>,
 
-    pub(crate) true_str: PyRef<PyStr>,
-    pub(crate) false_str: PyRef<PyStr>,
+    pub(crate) true_str: &'static PyStrInterned,
+    pub(crate) false_str: &'static PyStrInterned,
 
     pub types: TypeZoo,
     pub exceptions: exceptions::ExceptionZoo,
@@ -80,14 +80,15 @@ impl Context {
 
         let new_str = unsafe { string_pool.intern("__new__", types.str_type.clone()) };
         let slot_new_wrapper = create_object(
-            PyNativeFuncDef::new(PyType::__new__.into_func(), new_str.into_pyref()).into_function(),
+            PyNativeFuncDef::new(PyType::__new__.into_func(), new_str.to_owned().into_pyref())
+                .into_function(),
             &types.builtin_function_or_method_type,
         )
         .into();
 
-        let true_str = unsafe { string_pool.intern("True", types.str_type.clone()) }.into_pyref();
-        let false_str = unsafe { string_pool.intern("False", types.str_type.clone()) }.into_pyref();
-        let empty_str = unsafe { string_pool.intern("", types.str_type.clone()) }.into_pyref();
+        let true_str = unsafe { string_pool.intern("True", types.str_type.clone()) };
+        let false_str = unsafe { string_pool.intern("False", types.str_type.clone()) };
+        let empty_str = unsafe { string_pool.intern("", types.str_type.clone()) }.to_str();
 
         let context = Context {
             true_value,
@@ -114,7 +115,7 @@ impl Context {
         context
     }
 
-    pub fn intern_string<S: Internable>(&self, s: S) -> PyRefExact<PyStr> {
+    pub fn intern_str<S: Internable>(&self, s: S) -> &'static PyStrInterned {
         unsafe { self.string_pool.intern(s, self.types.str_type.clone()) }
     }
 
