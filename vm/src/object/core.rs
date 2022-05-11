@@ -734,25 +734,36 @@ impl PyObject {
 
     #[inline(always)] // the outer function is never inlined
     fn drop_slow_inner(&self) -> Result<(), ()> {
-        // CPython-compatible drop implementation
-        if let Some(slot_del) = self.class().mro_find_map(|cls| cls.slots.del.load()) {
-            let ret = crate::vm::thread::with_vm(self, |vm| {
-                self.0.ref_count.inc();
-                if let Err(e) = slot_del(self, vm) {
-                    let del_method = self.get_class_attr("__del__").unwrap();
+        // __del__ is mostly not implemented
+        #[inline(never)]
+        #[cold]
+        fn call_slot_del(
+            zelf: &PyObject,
+            slot_del: fn(&PyObject, &VirtualMachine) -> PyResult<()>,
+        ) -> Result<(), ()> {
+            let ret = crate::vm::thread::with_vm(zelf, |vm| {
+                zelf.0.ref_count.inc();
+                if let Err(e) = slot_del(zelf, vm) {
+                    let del_method = zelf.get_class_attr("__del__").unwrap();
                     vm.run_unraisable(e, None, del_method);
                 }
-                self.0.ref_count.dec()
+                zelf.0.ref_count.dec()
             });
             match ret {
                 // the decref right above set ref_count back to 0
-                Some(true) => {}
+                Some(true) => Ok(()),
                 // we've been resurrected by __del__
-                Some(false) => return Err(()),
+                Some(false) => Err(()),
                 None => {
-                    warn!("couldn't run __del__ method for object")
+                    warn!("couldn't run __del__ method for object");
+                    Ok(())
                 }
             }
+        }
+
+        // CPython-compatible drop implementation
+        if let Some(slot_del) = self.class().mro_find_map(|cls| cls.slots.del.load()) {
+            call_slot_del(self, slot_del)?;
         }
         if let Some(wrl) = self.weak_ref_list() {
             wrl.clear();
@@ -763,7 +774,6 @@ impl PyObject {
 
     /// Can only be called when ref_count has dropped to zero. `ptr` must be valid
     #[inline(never)]
-    #[cold]
     unsafe fn drop_slow(ptr: NonNull<PyObject>) {
         if let Err(()) = ptr.as_ref().drop_slow_inner() {
             // abort drop for whatever reason
