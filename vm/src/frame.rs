@@ -16,7 +16,6 @@ use crate::{
     protocol::{PyIter, PyIterReturn},
     scope::Scope,
     stdlib::builtins,
-    types::PyComparisonOp,
     vm::PyMethod,
     AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
@@ -1729,8 +1728,7 @@ impl ExecutingFrame<'_> {
     ) -> FrameResult {
         let b = self.pop_value();
         let a = self.pop_value();
-        let op = PyComparisonOp::from(op);
-        let value = a.rich_compare(b, op, vm)?;
+        let value = a.rich_compare(b, op.into(), vm)?;
         self.push_value(value);
         Ok(None)
     }
