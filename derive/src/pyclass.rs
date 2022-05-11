@@ -191,7 +191,8 @@ fn generate_class_def(
 ) -> Result<TokenStream> {
     let doc = attrs.doc().or_else(|| {
         let module_name = module_name.unwrap_or("builtins");
-        crate::doc::try_module_item(module_name, name)
+        crate::doc::Database::shared()
+            .try_module_item(module_name, name)
             .ok()
             .flatten()
             .map(str::to_owned)

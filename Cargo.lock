@@ -1679,9 +1679,18 @@ dependencies = [
  "quote",
  "rustpython-bytecode",
  "rustpython-compiler",
+ "rustpython-doc",
  "syn",
  "syn-ext",
  "textwrap 0.15.0",
+]
+
+[[package]]
+name = "rustpython-doc"
+version = "0.1.0"
+source = "git+https://github.com/RustPython/__doc__?branch=main#66be54cd61cc5eb29bb4870314160c337a296a32"
+dependencies = [
+ "once_cell",
 ]
 
 [[package]]
