@@ -34,7 +34,7 @@ impl VirtualMachine {
     pub fn new_module(&self, name: &str, dict: PyDictRef, doc: Option<&str>) -> PyObjectRef {
         let module = PyRef::new_ref(PyModule {}, self.ctx.types.module_type.clone(), Some(dict));
         module.init_module_dict(
-            self.new_pyobj(name.to_owned()),
+            self.ctx.intern_str(name),
             doc.map(|doc| self.new_pyobj(doc.to_owned()))
                 .unwrap_or_else(|| self.ctx.none()),
             self,

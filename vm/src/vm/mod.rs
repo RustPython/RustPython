@@ -23,7 +23,7 @@ use crate::{
     },
     bytecode,
     codecs::CodecsRegistry,
-    common::{ascii, hash::HashSecret, lock::PyMutex, rc::PyRc},
+    common::{hash::HashSecret, lock::PyMutex, rc::PyRc},
     convert::{ToPyObject, TryFromObject},
     frame::{ExecutionResult, Frame, FrameRef},
     frozen,
@@ -160,13 +160,10 @@ impl VirtualMachine {
         let frozen = frozen::get_module_inits().collect();
         PyRc::get_mut(&mut vm.state).unwrap().frozen = frozen;
 
-        vm.builtins.init_module_dict(
-            vm.ctx.new_str(ascii!("builtins")).into(),
-            vm.ctx.none(),
-            &vm,
-        );
+        vm.builtins
+            .init_module_dict(vm.ctx.intern_str("builtins"), vm.ctx.none(), &vm);
         vm.sys_module
-            .init_module_dict(vm.ctx.new_str(ascii!("sys")).into(), vm.ctx.none(), &vm);
+            .init_module_dict(vm.ctx.intern_str("sys"), vm.ctx.none(), &vm);
 
         vm
     }
