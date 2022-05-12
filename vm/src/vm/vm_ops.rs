@@ -1,6 +1,6 @@
 use super::{PyMethod, VirtualMachine};
 use crate::{
-    builtins::{PyInt, PyIntRef},
+    builtins::{PyInt, PyIntRef, PyStrInterned},
     function::PyArithmeticValue,
     object::{AsObject, PyObject, PyObjectRef, PyResult},
     protocol::PyIterReturn,
@@ -12,15 +12,17 @@ impl VirtualMachine {
     pub fn to_index_opt(&self, obj: PyObjectRef) -> Option<PyResult<PyIntRef>> {
         match obj.downcast() {
             Ok(val) => Some(Ok(val)),
-            Err(obj) => self.get_method(obj, "__index__").map(|index| {
-                // TODO: returning strict subclasses of int in __index__ is deprecated
-                self.invoke(&index?, ())?.downcast().map_err(|bad| {
-                    self.new_type_error(format!(
-                        "__index__ returned non-int (type {})",
-                        bad.class().name()
-                    ))
-                })
-            }),
+            Err(obj) => self
+                .get_method(obj, identifier!(self, __index__))
+                .map(|index| {
+                    // TODO: returning strict subclasses of int in __index__ is deprecated
+                    self.invoke(&index?, ())?.downcast().map_err(|bad| {
+                        self.new_type_error(format!(
+                            "__index__ returned non-int (type {})",
+                            bad.class().name()
+                        ))
+                    })
+                }),
         }
     }
 
@@ -77,7 +79,7 @@ impl VirtualMachine {
                 }
             }
         }
-        let hint = match self.get_method(iter, "__length_hint__") {
+        let hint = match self.get_method(iter, identifier!(self, __length_hint__)) {
             Some(hint) => hint?,
             None => return Ok(None),
         };
@@ -135,7 +137,7 @@ impl VirtualMachine {
         &self,
         obj: &PyObject,
         arg: &PyObject,
-        method: &str,
+        method: &'static PyStrInterned,
         unsupported: F,
     ) -> PyResult
     where
@@ -166,8 +168,8 @@ impl VirtualMachine {
         &self,
         lhs: &PyObject,
         rhs: &PyObject,
-        default: &str,
-        reflection: &str,
+        default: &'static PyStrInterned,
+        reflection: &'static PyStrInterned,
         unsupported: fn(&VirtualMachine, &PyObject, &PyObject) -> PyResult,
     ) -> PyResult {
         if rhs.fast_isinstance(&lhs.class()) {
@@ -199,213 +201,321 @@ impl VirtualMachine {
     }
 
     pub fn _sub(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_reflection(a, b, "__sub__", "__rsub__", |vm, a, b| {
-            Err(vm.new_unsupported_binop_error(a, b, "-"))
-        })
+        self.call_or_reflection(
+            a,
+            b,
+            identifier!(self, __sub__),
+            identifier!(self, __rsub__),
+            |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "-")),
+        )
     }
 
     pub fn _isub(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_unsupported(a, b, "__isub__", |vm, a, b| {
-            vm.call_or_reflection(a, b, "__sub__", "__rsub__", |vm, a, b| {
-                Err(vm.new_unsupported_binop_error(a, b, "-="))
-            })
+        self.call_or_unsupported(a, b, identifier!(self, __isub__), |vm, a, b| {
+            vm.call_or_reflection(
+                a,
+                b,
+                identifier!(self, __sub__),
+                identifier!(self, __rsub__),
+                |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "-=")),
+            )
         })
     }
 
     pub fn _add(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_reflection(a, b, "__add__", "__radd__", |vm, a, b| {
-            Err(vm.new_unsupported_binop_error(a, b, "+"))
-        })
+        self.call_or_reflection(
+            a,
+            b,
+            identifier!(self, __add__),
+            identifier!(self, __radd__),
+            |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "+")),
+        )
     }
 
     pub fn _iadd(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_unsupported(a, b, "__iadd__", |vm, a, b| {
-            vm.call_or_reflection(a, b, "__add__", "__radd__", |vm, a, b| {
-                Err(vm.new_unsupported_binop_error(a, b, "+="))
-            })
+        self.call_or_unsupported(a, b, identifier!(self, __iadd__), |vm, a, b| {
+            vm.call_or_reflection(
+                a,
+                b,
+                identifier!(self, __add__),
+                identifier!(self, __radd__),
+                |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "+=")),
+            )
         })
     }
 
     pub fn _mul(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_reflection(a, b, "__mul__", "__rmul__", |vm, a, b| {
-            Err(vm.new_unsupported_binop_error(a, b, "*"))
-        })
+        self.call_or_reflection(
+            a,
+            b,
+            identifier!(self, __mul__),
+            identifier!(self, __rmul__),
+            |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "*")),
+        )
     }
 
     pub fn _imul(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_unsupported(a, b, "__imul__", |vm, a, b| {
-            vm.call_or_reflection(a, b, "__mul__", "__rmul__", |vm, a, b| {
-                Err(vm.new_unsupported_binop_error(a, b, "*="))
-            })
+        self.call_or_unsupported(a, b, identifier!(self, __imul__), |vm, a, b| {
+            vm.call_or_reflection(
+                a,
+                b,
+                identifier!(self, __mul__),
+                identifier!(self, __rmul__),
+                |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "*=")),
+            )
         })
     }
 
     pub fn _matmul(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_reflection(a, b, "__matmul__", "__rmatmul__", |vm, a, b| {
-            Err(vm.new_unsupported_binop_error(a, b, "@"))
-        })
+        self.call_or_reflection(
+            a,
+            b,
+            identifier!(self, __matmul__),
+            identifier!(self, __rmatmul__),
+            |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "@")),
+        )
     }
 
     pub fn _imatmul(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_unsupported(a, b, "__imatmul__", |vm, a, b| {
-            vm.call_or_reflection(a, b, "__matmul__", "__rmatmul__", |vm, a, b| {
-                Err(vm.new_unsupported_binop_error(a, b, "@="))
-            })
+        self.call_or_unsupported(a, b, identifier!(self, __imatmul__), |vm, a, b| {
+            vm.call_or_reflection(
+                a,
+                b,
+                identifier!(self, __matmul__),
+                identifier!(self, __rmatmul__),
+                |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "@=")),
+            )
         })
     }
 
     pub fn _truediv(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_reflection(a, b, "__truediv__", "__rtruediv__", |vm, a, b| {
-            Err(vm.new_unsupported_binop_error(a, b, "/"))
-        })
+        self.call_or_reflection(
+            a,
+            b,
+            identifier!(self, __truediv__),
+            identifier!(self, __rtruediv__),
+            |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "/")),
+        )
     }
 
     pub fn _itruediv(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_unsupported(a, b, "__itruediv__", |vm, a, b| {
-            vm.call_or_reflection(a, b, "__truediv__", "__rtruediv__", |vm, a, b| {
-                Err(vm.new_unsupported_binop_error(a, b, "/="))
-            })
+        self.call_or_unsupported(a, b, identifier!(self, __itruediv__), |vm, a, b| {
+            vm.call_or_reflection(
+                a,
+                b,
+                identifier!(self, __truediv__),
+                identifier!(self, __rtruediv__),
+                |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "/=")),
+            )
         })
     }
 
     pub fn _floordiv(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_reflection(a, b, "__floordiv__", "__rfloordiv__", |vm, a, b| {
-            Err(vm.new_unsupported_binop_error(a, b, "//"))
-        })
+        self.call_or_reflection(
+            a,
+            b,
+            identifier!(self, __floordiv__),
+            identifier!(self, __rfloordiv__),
+            |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "//")),
+        )
     }
 
     pub fn _ifloordiv(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_unsupported(a, b, "__ifloordiv__", |vm, a, b| {
-            vm.call_or_reflection(a, b, "__floordiv__", "__rfloordiv__", |vm, a, b| {
-                Err(vm.new_unsupported_binop_error(a, b, "//="))
-            })
+        self.call_or_unsupported(a, b, identifier!(self, __ifloordiv__), |vm, a, b| {
+            vm.call_or_reflection(
+                a,
+                b,
+                identifier!(self, __floordiv__),
+                identifier!(self, __rfloordiv__),
+                |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "//=")),
+            )
         })
     }
 
     pub fn _pow(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_reflection(a, b, "__pow__", "__rpow__", |vm, a, b| {
-            Err(vm.new_unsupported_binop_error(a, b, "**"))
-        })
+        self.call_or_reflection(
+            a,
+            b,
+            identifier!(self, __pow__),
+            identifier!(self, __rpow__),
+            |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "**")),
+        )
     }
 
     pub fn _ipow(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_unsupported(a, b, "__ipow__", |vm, a, b| {
-            vm.call_or_reflection(a, b, "__pow__", "__rpow__", |vm, a, b| {
-                Err(vm.new_unsupported_binop_error(a, b, "**="))
-            })
+        self.call_or_unsupported(a, b, identifier!(self, __ipow__), |vm, a, b| {
+            vm.call_or_reflection(
+                a,
+                b,
+                identifier!(self, __pow__),
+                identifier!(self, __rpow__),
+                |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "**=")),
+            )
         })
     }
 
     pub fn _mod(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_reflection(a, b, "__mod__", "__rmod__", |vm, a, b| {
-            Err(vm.new_unsupported_binop_error(a, b, "%"))
-        })
+        self.call_or_reflection(
+            a,
+            b,
+            identifier!(self, __mod__),
+            identifier!(self, __rmod__),
+            |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "%")),
+        )
     }
 
     pub fn _imod(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_unsupported(a, b, "__imod__", |vm, a, b| {
-            vm.call_or_reflection(a, b, "__mod__", "__rmod__", |vm, a, b| {
-                Err(vm.new_unsupported_binop_error(a, b, "%="))
-            })
+        self.call_or_unsupported(a, b, identifier!(self, __imod__), |vm, a, b| {
+            vm.call_or_reflection(
+                a,
+                b,
+                identifier!(self, __mod__),
+                identifier!(self, __rmod__),
+                |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "%=")),
+            )
         })
     }
 
     pub fn _divmod(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_reflection(a, b, "__divmod__", "__rdivmod__", |vm, a, b| {
-            Err(vm.new_unsupported_binop_error(a, b, "divmod"))
-        })
+        self.call_or_reflection(
+            a,
+            b,
+            identifier!(self, __divmod__),
+            identifier!(self, __rdivmod__),
+            |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "divmod")),
+        )
     }
 
     pub fn _lshift(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_reflection(a, b, "__lshift__", "__rlshift__", |vm, a, b| {
-            Err(vm.new_unsupported_binop_error(a, b, "<<"))
-        })
+        self.call_or_reflection(
+            a,
+            b,
+            identifier!(self, __lshift__),
+            identifier!(self, __rlshift__),
+            |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "<<")),
+        )
     }
 
     pub fn _ilshift(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_unsupported(a, b, "__ilshift__", |vm, a, b| {
-            vm.call_or_reflection(a, b, "__lshift__", "__rlshift__", |vm, a, b| {
-                Err(vm.new_unsupported_binop_error(a, b, "<<="))
-            })
+        self.call_or_unsupported(a, b, identifier!(self, __ilshift__), |vm, a, b| {
+            vm.call_or_reflection(
+                a,
+                b,
+                identifier!(self, __lshift__),
+                identifier!(self, __rlshift__),
+                |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "<<=")),
+            )
         })
     }
 
     pub fn _rshift(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_reflection(a, b, "__rshift__", "__rrshift__", |vm, a, b| {
-            Err(vm.new_unsupported_binop_error(a, b, ">>"))
-        })
+        self.call_or_reflection(
+            a,
+            b,
+            identifier!(self, __rshift__),
+            identifier!(self, __rrshift__),
+            |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, ">>")),
+        )
     }
 
     pub fn _irshift(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_unsupported(a, b, "__irshift__", |vm, a, b| {
-            vm.call_or_reflection(a, b, "__rshift__", "__rrshift__", |vm, a, b| {
-                Err(vm.new_unsupported_binop_error(a, b, ">>="))
-            })
+        self.call_or_unsupported(a, b, identifier!(self, __irshift__), |vm, a, b| {
+            vm.call_or_reflection(
+                a,
+                b,
+                identifier!(self, __rshift__),
+                identifier!(self, __rrshift__),
+                |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, ">>=")),
+            )
         })
     }
 
     pub fn _xor(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_reflection(a, b, "__xor__", "__rxor__", |vm, a, b| {
-            Err(vm.new_unsupported_binop_error(a, b, "^"))
-        })
+        self.call_or_reflection(
+            a,
+            b,
+            identifier!(self, __xor__),
+            identifier!(self, __rxor__),
+            |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "^")),
+        )
     }
 
     pub fn _ixor(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_unsupported(a, b, "__ixor__", |vm, a, b| {
-            vm.call_or_reflection(a, b, "__xor__", "__rxor__", |vm, a, b| {
-                Err(vm.new_unsupported_binop_error(a, b, "^="))
-            })
+        self.call_or_unsupported(a, b, identifier!(self, __ixor__), |vm, a, b| {
+            vm.call_or_reflection(
+                a,
+                b,
+                identifier!(self, __xor__),
+                identifier!(self, __rxor__),
+                |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "^=")),
+            )
         })
     }
 
     pub fn _or(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_reflection(a, b, "__or__", "__ror__", |vm, a, b| {
-            Err(vm.new_unsupported_binop_error(a, b, "|"))
-        })
+        self.call_or_reflection(
+            a,
+            b,
+            identifier!(self, __or__),
+            identifier!(self, __ror__),
+            |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "|")),
+        )
     }
 
     pub fn _ior(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_unsupported(a, b, "__ior__", |vm, a, b| {
-            vm.call_or_reflection(a, b, "__or__", "__ror__", |vm, a, b| {
-                Err(vm.new_unsupported_binop_error(a, b, "|="))
-            })
+        self.call_or_unsupported(a, b, identifier!(self, __ior__), |vm, a, b| {
+            vm.call_or_reflection(
+                a,
+                b,
+                identifier!(self, __or__),
+                identifier!(self, __ror__),
+                |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "|=")),
+            )
         })
     }
 
     pub fn _and(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_reflection(a, b, "__and__", "__rand__", |vm, a, b| {
-            Err(vm.new_unsupported_binop_error(a, b, "&"))
-        })
+        self.call_or_reflection(
+            a,
+            b,
+            identifier!(self, __and__),
+            identifier!(self, __rand__),
+            |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "&")),
+        )
     }
 
     pub fn _iand(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_unsupported(a, b, "__iand__", |vm, a, b| {
-            vm.call_or_reflection(a, b, "__and__", "__rand__", |vm, a, b| {
-                Err(vm.new_unsupported_binop_error(a, b, "&="))
-            })
+        self.call_or_unsupported(a, b, identifier!(self, __iand__), |vm, a, b| {
+            vm.call_or_reflection(
+                a,
+                b,
+                identifier!(self, __and__),
+                identifier!(self, __rand__),
+                |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "&=")),
+            )
         })
     }
 
     pub fn _abs(&self, a: &PyObject) -> PyResult<PyObjectRef> {
-        self.get_special_method(a.to_owned(), "__abs__")?
+        self.get_special_method(a.to_owned(), identifier!(self, __abs__))?
             .map_err(|_| self.new_unsupported_unary_error(a, "abs()"))?
             .invoke((), self)
     }
 
     pub fn _pos(&self, a: &PyObject) -> PyResult {
-        self.get_special_method(a.to_owned(), "__pos__")?
+        self.get_special_method(a.to_owned(), identifier!(self, __pos__))?
             .map_err(|_| self.new_unsupported_unary_error(a, "unary +"))?
             .invoke((), self)
     }
 
     pub fn _neg(&self, a: &PyObject) -> PyResult {
-        self.get_special_method(a.to_owned(), "__neg__")?
+        self.get_special_method(a.to_owned(), identifier!(self, __neg__))?
             .map_err(|_| self.new_unsupported_unary_error(a, "unary -"))?
             .invoke((), self)
     }
 
     pub fn _invert(&self, a: &PyObject) -> PyResult {
-        self.get_special_method(a.to_owned(), "__invert__")?
+        self.get_special_method(a.to_owned(), identifier!(self, __invert__))?
             .map_err(|_| self.new_unsupported_unary_error(a, "unary ~"))?
             .invoke((), self)
     }
@@ -431,7 +541,7 @@ impl VirtualMachine {
     }
 
     pub fn _contains(&self, haystack: PyObjectRef, needle: PyObjectRef) -> PyResult {
-        match PyMethod::get_special(haystack, "__contains__", self)? {
+        match PyMethod::get_special(haystack, identifier!(self, __contains__), self)? {
             Ok(method) => method.invoke((needle,), self),
             Err(haystack) => self
                 ._membership_iter_search(haystack, needle)

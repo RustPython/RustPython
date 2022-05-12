@@ -3,9 +3,9 @@ pub(crate) use math::make_module;
 #[pymodule]
 mod math {
     use crate::vm::{
-        builtins::{try_bigint_to_f64, try_f64_to_bigint, PyFloat, PyInt, PyIntRef},
+        builtins::{try_bigint_to_f64, try_f64_to_bigint, PyFloat, PyInt, PyIntRef, PyStrInterned},
         function::{ArgIntoFloat, ArgIterable, Either, OptionalArg, PosArgs},
-        AsObject, PyObject, PyObjectRef, PyRef, PyResult, VirtualMachine,
+        identifier, AsObject, PyObject, PyObjectRef, PyRef, PyResult, VirtualMachine,
     };
     use num_bigint::BigInt;
     use num_traits::{One, Signed, Zero};
@@ -430,12 +430,16 @@ mod math {
         }
     }
 
-    fn try_magic_method(func_name: &str, vm: &VirtualMachine, value: &PyObject) -> PyResult {
+    fn try_magic_method(
+        func_name: &'static PyStrInterned,
+        vm: &VirtualMachine,
+        value: &PyObject,
+    ) -> PyResult {
         let method = vm.get_method_or_type_error(value.to_owned(), func_name, || {
             format!(
                 "type '{}' doesn't define '{}' method",
                 value.class().name(),
-                func_name,
+                func_name.as_str(),
             )
         })?;
         vm.invoke(&method, ())
@@ -443,12 +447,12 @@ mod math {
 
     #[pyfunction]
     fn trunc(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        try_magic_method("__trunc__", vm, &x)
+        try_magic_method(identifier!(vm, __trunc__), vm, &x)
     }
 
     #[pyfunction]
     fn ceil(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let result_or_err = try_magic_method("__ceil__", vm, &x);
+        let result_or_err = try_magic_method(identifier!(vm, __ceil__), vm, &x);
         if result_or_err.is_err() {
             if let Ok(Some(v)) = x.try_to_f64(vm) {
                 let v = try_f64_to_bigint(v.ceil(), vm)?;
@@ -460,7 +464,7 @@ mod math {
 
     #[pyfunction]
     fn floor(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let result_or_err = try_magic_method("__floor__", vm, &x);
+        let result_or_err = try_magic_method(identifier!(vm, __floor__), vm, &x);
         if result_or_err.is_err() {
             if let Ok(Some(v)) = x.try_to_f64(vm) {
                 let v = try_f64_to_bigint(v.floor(), vm)?;

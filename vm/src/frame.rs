@@ -723,6 +723,7 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::YieldFrom => self.execute_yield_from(vm),
             bytecode::Instruction::SetupAnnotation => {
+                let __annotations__ = identifier!(vm, __annotations__);
                 // Try using locals as dict first, if not, fallback to generic method.
                 let has_annotations = match self
                     .locals
@@ -730,15 +731,15 @@ impl ExecutingFrame<'_> {
                     .into_object()
                     .downcast_exact::<PyDict>(vm)
                 {
-                    Ok(d) => d.contains_key("__annotations__", vm),
+                    Ok(d) => d.contains_key(__annotations__, vm),
                     Err(o) => {
-                        let needle = vm.new_pyobj("__annotations__");
+                        let needle = __annotations__.to_object();
                         self._in(vm, needle, o)?
                     }
                 };
                 if !has_annotations {
                     self.locals.as_object().set_item(
-                        "__annotations__",
+                        __annotations__,
                         vm.ctx.new_dict().into(),
                         vm,
                     )?;
@@ -786,19 +787,20 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::SetupWith { end } => {
                 let context_manager = self.pop_value();
-                let exit = context_manager.get_attr("__exit__", vm)?;
+                let exit = context_manager.get_attr(identifier!(vm, __exit__), vm)?;
                 self.push_value(exit);
                 // Call enter:
-                let enter_res = vm.call_special_method(context_manager, "__enter__", ())?;
+                let enter_res =
+                    vm.call_special_method(context_manager, identifier!(vm, __enter__), ())?;
                 self.push_block(BlockType::Finally { handler: *end });
                 self.push_value(enter_res);
                 Ok(None)
             }
             bytecode::Instruction::BeforeAsyncWith => {
                 let mgr = self.pop_value();
-                let aexit = mgr.get_attr("__aexit__", vm)?;
+                let aexit = mgr.get_attr(identifier!(vm, __aexit__), vm)?;
                 self.push_value(aexit);
-                let aenter_res = vm.call_special_method(mgr, "__aenter__", ())?;
+                let aenter_res = vm.call_special_method(mgr, identifier!(vm, __aenter__), ())?;
                 self.push_value(aenter_res);
 
                 Ok(None)
@@ -866,13 +868,16 @@ impl ExecutingFrame<'_> {
                 let awaitable = if awaited_obj.payload_is::<PyCoroutine>() {
                     awaited_obj
                 } else {
-                    let await_method =
-                        vm.get_method_or_type_error(awaited_obj.clone(), "__await__", || {
+                    let await_method = vm.get_method_or_type_error(
+                        awaited_obj.clone(),
+                        identifier!(vm, __await__),
+                        || {
                             format!(
                                 "object {} can't be used in 'await' expression",
                                 awaited_obj.class().name(),
                             )
-                        })?;
+                        },
+                    )?;
                     vm.invoke(&await_method, ())?
                 };
                 self.push_value(awaitable);
@@ -880,17 +885,17 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::GetAIter => {
                 let aiterable = self.pop_value();
-                let aiter = vm.call_special_method(aiterable, "__aiter__", ())?;
+                let aiter = vm.call_special_method(aiterable, identifier!(vm, __aiter__), ())?;
                 self.push_value(aiter);
                 Ok(None)
             }
             bytecode::Instruction::GetANext => {
                 let aiter = self.last_value();
-                let awaitable = vm.call_special_method(aiter, "__anext__", ())?;
+                let awaitable = vm.call_special_method(aiter, identifier!(vm, __anext__), ())?;
                 let awaitable = if awaitable.payload_is::<PyCoroutine>() {
                     awaitable
                 } else {
-                    vm.call_special_method(awaitable, "__await__", ())?
+                    vm.call_special_method(awaitable, identifier!(vm, __await__), ())?
                 };
                 self.push_value(awaitable);
                 Ok(None)
@@ -1009,7 +1014,7 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::LoadBuildClass => {
-                self.push_value(vm.builtins.get_attr("__build_class__", vm)?);
+                self.push_value(vm.builtins.get_attr(identifier!(vm, __build_class__), vm)?);
                 Ok(None)
             }
             bytecode::Instruction::UnpackSequence { size } => {
@@ -1135,7 +1140,9 @@ impl ExecutingFrame<'_> {
             return Ok(obj);
         }
         // fallback to importing '{module.__name__}.{name}' from sys.modules
-        let mod_name = module.get_attr("__name__", vm).map_err(|_| err())?;
+        let mod_name = module
+            .get_attr(identifier!(vm, __name__), vm)
+            .map_err(|_| err())?;
         let mod_name = mod_name.downcast::<PyStr>().map_err(|_| err())?;
         let full_mod_name = format!("{}.{}", mod_name, name);
         let sys_modules = vm
@@ -1153,7 +1160,7 @@ impl ExecutingFrame<'_> {
         // Grab all the names from the module and put them in the context
         if let Some(dict) = module.dict() {
             let filter_pred: Box<dyn Fn(&str) -> bool> =
-                if let Ok(all) = dict.get_item("__all__", vm) {
+                if let Ok(all) = dict.get_item(identifier!(vm, __all__), vm) {
                     let all: Vec<PyStrRef> = all.try_to_value(vm)?;
                     let all: Vec<String> = all
                         .into_iter()
@@ -1595,14 +1602,14 @@ impl ExecutingFrame<'_> {
         )
         .into_pyobject(vm);
 
-        func_obj.set_attr("__doc__", vm.ctx.none(), vm)?;
+        func_obj.set_attr(identifier!(vm, __doc__), vm.ctx.none(), vm)?;
 
         let name = qualified_name.as_str().split('.').next_back().unwrap();
-        func_obj.set_attr("__name__", vm.new_pyobj(name), vm)?;
-        func_obj.set_attr("__qualname__", qualified_name, vm)?;
-        let module = vm.unwrap_or_none(self.globals.get_item_opt("__name__", vm)?);
-        func_obj.set_attr("__module__", module, vm)?;
-        func_obj.set_attr("__annotations__", annotations, vm)?;
+        func_obj.set_attr(identifier!(vm, __name__), vm.new_pyobj(name), vm)?;
+        func_obj.set_attr(identifier!(vm, __qualname__), qualified_name, vm)?;
+        let module = vm.unwrap_or_none(self.globals.get_item_opt(identifier!(vm, __name__), vm)?);
+        func_obj.set_attr(identifier!(vm, __module__), module, vm)?;
+        func_obj.set_attr(identifier!(vm, __annotations__), annotations, vm)?;
 
         self.push_value(func_obj);
         Ok(None)

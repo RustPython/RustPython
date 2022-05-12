@@ -744,7 +744,7 @@ impl PyObject {
             let ret = crate::vm::thread::with_vm(zelf, |vm| {
                 zelf.0.ref_count.inc();
                 if let Err(e) = slot_del(zelf, vm) {
-                    let del_method = zelf.get_class_attr("__del__").unwrap();
+                    let del_method = zelf.get_class_attr(identifier!(vm, __del__)).unwrap();
                     vm.run_unraisable(e, None, del_method);
                 }
                 zelf.0.ref_count.dec()

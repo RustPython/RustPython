@@ -78,11 +78,12 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
             // cast i to a u8 so there's less to store in the getter closure.
             // Hopefully there's not struct sequences with >=256 elements :P
             let i = i as u8;
-            class.set_str_attr(
-                name,
+            class.set_attr(
+                ctx.intern_str(name),
                 ctx.new_readonly_getset(name, class.clone(), move |zelf: &PyTuple| {
                     zelf.fast_getitem(i.into())
-                }),
+                })
+                .into(),
             );
         }
     }

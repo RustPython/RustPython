@@ -38,7 +38,7 @@ impl PyBaseObject {
         };
 
         // Ensure that all abstract methods are implemented before instantiating instance.
-        if let Some(abs_methods) = cls.get_attr("__abstractmethods__") {
+        if let Some(abs_methods) = cls.get_attr(identifier!(vm, __abstractmethods__)) {
             if let Some(unimplemented_abstract_method_count) = abs_methods.length_opt(vm) {
                 if unimplemented_abstract_method_count? > 0 {
                     return Err(
@@ -230,7 +230,11 @@ impl PyBaseObject {
 
         // Get instance attributes:
         if let Some(object_dict) = obj.dict() {
-            vm.call_method(dict.as_object(), "update", (object_dict,))?;
+            vm.call_method(
+                dict.as_object(),
+                identifier!(vm, update).as_str(),
+                (object_dict,),
+            )?;
         }
 
         let attributes: Vec<_> = dict.into_iter().map(|(k, _v)| k).collect();
@@ -305,10 +309,15 @@ impl PyBaseObject {
 
     #[pymethod(magic)]
     fn reduce_ex(obj: PyObjectRef, proto: usize, vm: &VirtualMachine) -> PyResult {
-        if let Some(reduce) = vm.get_attribute_opt(obj.clone(), "__reduce__")? {
-            let object_reduce = vm.ctx.types.object_type.get_attr("__reduce__").unwrap();
+        if let Some(reduce) = vm.get_attribute_opt(obj.clone(), identifier!(vm, __reduce__))? {
+            let object_reduce = vm
+                .ctx
+                .types
+                .object_type
+                .get_attr(identifier!(vm, __reduce__))
+                .unwrap();
             let typ_obj: PyObjectRef = obj.class().clone().into();
-            let class_reduce = typ_obj.get_attr("__reduce__", vm)?;
+            let class_reduce = typ_obj.get_attr(identifier!(vm, __reduce__), vm)?;
             if !class_reduce.is(&object_reduce) {
                 return vm.invoke(&reduce, ());
             }

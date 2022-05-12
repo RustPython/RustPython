@@ -282,7 +282,7 @@ mod _sre {
                 must_advance: AtomicCell::new(false),
             }
             .into_ref(vm);
-            let search = vm.get_method(scanner.into(), "search").unwrap()?;
+            let search = vm.get_str_method(scanner.into(), "search").unwrap()?;
             let search = ArgCallable::try_from_object(vm, search)?;
             let iterator = PyCallableIterator::new(search, vm.ctx.none());
             Ok(iterator)

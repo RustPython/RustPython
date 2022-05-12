@@ -503,7 +503,8 @@ where
                     #py_name,
                     ctx.make_funcdef(#py_name, Self::#ident)
                         #doc
-                        #build_func
+                        #build_func,
+                    ctx,
                 );
             }
         };
@@ -611,7 +612,7 @@ where
                     ident,
                     py_name.clone(),
                     quote! {
-                        class.set_str_attr(#py_name, #value);
+                        class.set_str_attr(#py_name, #value, ctx);
                     },
                 )
             } else {
@@ -736,7 +737,8 @@ impl ToTokens for GetSetNursery {
                             ::rustpython_vm::builtins::PyGetSet::new(#name.into(), class.clone())
                                 .with_get(&Self::#getter)
                                 #setter #deleter,
-                            ctx.types.getset_type.clone(), None)
+                            ctx.types.getset_type.clone(), None),
+                        ctx
                     );
                 }
             });

@@ -1,13 +1,15 @@
 use crate::common::{hash::PyHash, lock::PyRwLock};
 use crate::{
-    builtins::{PyInt, PyStrRef, PyType, PyTypeRef},
+    builtins::{PyInt, PyStrInterned, PyStrRef, PyType, PyTypeRef},
     bytecode::ComparisonOperator,
     convert::{ToPyObject, ToPyResult},
     function::Either,
     function::{FromArgs, FuncArgs, OptionalArg, PyComparisonValue},
+    identifier,
     protocol::{
         PyBuffer, PyIterReturn, PyMapping, PyMappingMethods, PySequence, PySequenceMethods,
     },
+    vm::Context,
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
@@ -173,7 +175,7 @@ macro_rules! then_some_closure {
 }
 
 fn length_wrapper(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-    let ret = vm.call_special_method(obj, "__len__", ())?;
+    let ret = vm.call_special_method(obj, identifier!(vm, __len__), ())?;
     let len = ret.payload::<PyInt>().ok_or_else(|| {
         vm.new_type_error(format!(
             "'{}' object cannot be interpreted as an integer",
@@ -190,31 +192,37 @@ fn length_wrapper(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
     Ok(len as usize)
 }
 
-fn as_mapping_wrapper(zelf: &PyObject, _vm: &VirtualMachine) -> PyMappingMethods {
+fn as_mapping_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyMappingMethods {
     PyMappingMethods {
-        length: then_some_closure!(zelf.class().has_attr("__len__"), |mapping, vm| {
-            length_wrapper(mapping.obj.to_owned(), vm)
-        }),
+        length: then_some_closure!(
+            zelf.class().has_attr(identifier!(vm, __len__)),
+            |mapping, vm| { length_wrapper(mapping.obj.to_owned(), vm) }
+        ),
         subscript: then_some_closure!(
-            zelf.class().has_attr("__getitem__"),
+            zelf.class().has_attr(identifier!(vm, __getitem__)),
             |mapping, needle, vm| {
-                vm.call_special_method(mapping.obj.to_owned(), "__getitem__", (needle.to_owned(),))
+                vm.call_special_method(
+                    mapping.obj.to_owned(),
+                    identifier!(vm, __getitem__),
+                    (needle.to_owned(),),
+                )
             }
         ),
         ass_subscript: then_some_closure!(
-            zelf.class().has_attr("__setitem__") | zelf.class().has_attr("__delitem__"),
+            zelf.class().has_attr(identifier!(vm, __setitem__))
+                | zelf.class().has_attr(identifier!(vm, __delitem__)),
             |mapping, needle, value, vm| match value {
                 Some(value) => vm
                     .call_special_method(
                         mapping.obj.to_owned(),
-                        "__setitem__",
+                        identifier!(vm, __setitem__),
                         (needle.to_owned(), value),
                     )
                     .map(|_| Ok(()))?,
                 None => vm
                     .call_special_method(
                         mapping.obj.to_owned(),
-                        "__delitem__",
+                        identifier!(vm, __delitem__),
                         (needle.to_owned(),)
                     )
                     .map(|_| Ok(()))?,
@@ -223,30 +231,40 @@ fn as_mapping_wrapper(zelf: &PyObject, _vm: &VirtualMachine) -> PyMappingMethods
     }
 }
 
-fn as_sequence_wrapper(zelf: &PyObject, _vm: &VirtualMachine) -> Cow<'static, PySequenceMethods> {
-    if !zelf.class().has_attr("__getitem__") {
+fn as_sequence_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> Cow<'static, PySequenceMethods> {
+    if !zelf.class().has_attr(identifier!(vm, __getitem__)) {
         return Cow::Borrowed(PySequenceMethods::not_implemented());
     }
 
     Cow::Owned(PySequenceMethods {
-        length: then_some_closure!(zelf.class().has_attr("__len__"), |seq, vm| {
-            length_wrapper(seq.obj.to_owned(), vm)
-        }),
+        length: then_some_closure!(
+            zelf.class().has_attr(identifier!(vm, __len__)),
+            |seq, vm| { length_wrapper(seq.obj.to_owned(), vm) }
+        ),
         item: Some(|seq, i, vm| {
-            vm.call_special_method(seq.obj.to_owned(), "__getitem__", (i.to_pyobject(vm),))
+            vm.call_special_method(
+                seq.obj.to_owned(),
+                identifier!(vm, __getitem__),
+                (i.to_pyobject(vm),),
+            )
         }),
         ass_item: then_some_closure!(
-            zelf.class().has_attr("__setitem__") | zelf.class().has_attr("__delitem__"),
+            zelf.class().has_attr(identifier!(vm, __setitem__))
+                | zelf.class().has_attr(identifier!(vm, __delitem__)),
             |seq, i, value, vm| match value {
                 Some(value) => vm
                     .call_special_method(
                         seq.obj.to_owned(),
-                        "__setitem__",
+                        identifier!(vm, __setitem__),
                         (i.to_pyobject(vm), value),
                     )
                     .map(|_| Ok(()))?,
                 None => vm
-                    .call_special_method(seq.obj.to_owned(), "__delitem__", (i.to_pyobject(vm),))
+                    .call_special_method(
+                        seq.obj.to_owned(),
+                        identifier!(vm, __delitem__),
+                        (i.to_pyobject(vm),)
+                    )
                     .map(|_| Ok(()))?,
             }
         ),
@@ -255,7 +273,7 @@ fn as_sequence_wrapper(zelf: &PyObject, _vm: &VirtualMachine) -> Cow<'static, Py
 }
 
 fn hash_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyHash> {
-    let hash_obj = vm.call_special_method(zelf.to_owned(), "__hash__", ())?;
+    let hash_obj = vm.call_special_method(zelf.to_owned(), identifier!(vm, __hash__), ())?;
     match hash_obj.payload_if_subclass::<PyInt>(vm) {
         Some(py_int) => Ok(rustpython_common::hash::hash_bigint(py_int.as_bigint())),
         None => Err(vm.new_type_error("__hash__ method should return an integer".to_owned())),
@@ -263,11 +281,11 @@ fn hash_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyHash> {
 }
 
 fn call_wrapper(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-    vm.call_special_method(zelf.to_owned(), "__call__", args)
+    vm.call_special_method(zelf.to_owned(), identifier!(vm, __call__), args)
 }
 
 fn getattro_wrapper(zelf: &PyObject, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
-    vm.call_special_method(zelf.to_owned(), "__getattribute__", (name,))
+    vm.call_special_method(zelf.to_owned(), identifier!(vm, __getattribute__), (name,))
 }
 
 fn setattro_wrapper(
@@ -279,10 +297,10 @@ fn setattro_wrapper(
     let zelf = zelf.to_owned();
     match value {
         Some(value) => {
-            vm.call_special_method(zelf, "__setattr__", (name, value))?;
+            vm.call_special_method(zelf, identifier!(vm, __setattr__), (name, value))?;
         }
         None => {
-            vm.call_special_method(zelf, "__delattr__", (name,))?;
+            vm.call_special_method(zelf, identifier!(vm, __delattr__), (name,))?;
         }
     };
     Ok(())
@@ -294,16 +312,23 @@ pub(crate) fn richcompare_wrapper(
     op: PyComparisonOp,
     vm: &VirtualMachine,
 ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
-    vm.call_special_method(zelf.to_owned(), op.method_name(), (other.to_owned(),))
-        .map(Either::A)
+    vm.call_special_method(
+        zelf.to_owned(),
+        op.method_name(&vm.ctx),
+        (other.to_owned(),),
+    )
+    .map(Either::A)
 }
 
 fn iter_wrapper(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    vm.call_special_method(zelf, "__iter__", ())
+    vm.call_special_method(zelf, identifier!(vm, __iter__), ())
 }
 
 fn iternext_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-    PyIterReturn::from_pyresult(vm.call_special_method(zelf.to_owned(), "__next__", ()), vm)
+    PyIterReturn::from_pyresult(
+        vm.call_special_method(zelf.to_owned(), identifier!(vm, __next__), ()),
+        vm,
+    )
 }
 
 fn descr_get_wrapper(
@@ -312,7 +337,7 @@ fn descr_get_wrapper(
     cls: Option<PyObjectRef>,
     vm: &VirtualMachine,
 ) -> PyResult {
-    vm.call_special_method(zelf, "__get__", (obj, cls))
+    vm.call_special_method(zelf, identifier!(vm, __get__), (obj, cls))
 }
 
 fn descr_set_wrapper(
@@ -322,14 +347,14 @@ fn descr_set_wrapper(
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     match value {
-        Some(val) => vm.call_special_method(zelf, "__set__", (obj, val)),
-        None => vm.call_special_method(zelf, "__delete__", (obj,)),
+        Some(val) => vm.call_special_method(zelf, identifier!(vm, __set__), (obj, val)),
+        None => vm.call_special_method(zelf, identifier!(vm, __delete__), (obj,)),
     }
     .map(drop)
 }
 
 fn init_wrapper(obj: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-    let res = vm.call_special_method(obj, "__init__", args)?;
+    let res = vm.call_special_method(obj, identifier!(vm, __init__), args)?;
     if !vm.is_none(&res) {
         return Err(vm.new_type_error("__init__ must return None".to_owned()));
     }
@@ -337,29 +362,27 @@ fn init_wrapper(obj: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResu
 }
 
 fn new_wrapper(cls: PyTypeRef, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-    let new = vm
-        .get_attribute_opt(cls.as_object().to_owned(), "__new__")?
-        .unwrap();
+    let new = cls.get_attr(identifier!(vm, __new__)).unwrap();
     args.prepend_arg(cls.into());
     vm.invoke(&new, args)
 }
 
 fn del_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
-    vm.call_special_method(zelf.to_owned(), "__del__", ())?;
+    vm.call_special_method(zelf.to_owned(), identifier!(vm, __del__), ())?;
     Ok(())
 }
 
 impl PyType {
-    pub(crate) fn update_slot(&self, name: &str, add: bool) {
-        debug_assert!(name.starts_with("__"));
-        debug_assert!(name.ends_with("__"));
+    pub(crate) fn update_slot(&self, name: &'static PyStrInterned, add: bool) {
+        debug_assert!(name.as_str().starts_with("__"));
+        debug_assert!(name.as_str().ends_with("__"));
 
         macro_rules! update_slot {
             ($name:ident, $func:expr) => {{
                 self.slots.$name.store(if add { Some($func) } else { None });
             }};
         }
-        match name {
+        match name.as_str() {
             "__len__" | "__getitem__" | "__setitem__" | "__delitem__" => {
                 update_slot!(as_mapping, as_mapping_wrapper);
                 update_slot!(as_sequence, as_sequence_wrapper);
@@ -623,7 +646,10 @@ pub trait Comparable: PyPayload {
         if let Some(zelf) = zelf.downcast_ref() {
             Self::cmp(zelf, other, op, vm).map(Either::B)
         } else {
-            Err(vm.new_type_error(format!("unexpected payload for {}", op.method_name())))
+            Err(vm.new_type_error(format!(
+                "unexpected payload for {}",
+                op.method_name(&vm.ctx).as_str()
+            )))
         }
     }
 
@@ -741,14 +767,14 @@ impl PyComparisonOp {
         }
     }
 
-    pub fn method_name(self) -> &'static str {
+    pub fn method_name(self, ctx: &Context) -> &'static PyStrInterned {
         match self {
-            Self::Lt => "__lt__",
-            Self::Le => "__le__",
-            Self::Eq => "__eq__",
-            Self::Ne => "__ne__",
-            Self::Ge => "__ge__",
-            Self::Gt => "__gt__",
+            Self::Lt => identifier!(ctx, __lt__),
+            Self::Le => identifier!(ctx, __le__),
+            Self::Eq => identifier!(ctx, __eq__),
+            Self::Ne => identifier!(ctx, __ne__),
+            Self::Ge => identifier!(ctx, __ge__),
+            Self::Gt => identifier!(ctx, __gt__),
         }
     }
 

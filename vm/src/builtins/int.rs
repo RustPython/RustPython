@@ -952,7 +952,7 @@ pub(crate) fn try_int(obj: &PyObject, vm: &VirtualMachine) -> PyResult<BigInt> {
     }
     // call __int__, then __index__, then __trunc__ (converting the __trunc__ result via  __index__ if needed)
     // TODO: using __int__ is deprecated and removed in Python 3.10
-    if let Some(method) = vm.get_method(obj.to_owned(), "__int__") {
+    if let Some(method) = vm.get_method(obj.to_owned(), identifier!(vm, __int__)) {
         let result = vm.invoke(&method?, ())?;
         return match result.payload::<PyInt>() {
             Some(int_obj) => Ok(int_obj.as_bigint().clone()),
@@ -966,7 +966,7 @@ pub(crate) fn try_int(obj: &PyObject, vm: &VirtualMachine) -> PyResult<BigInt> {
     if let Some(r) = vm.to_index_opt(obj.to_owned()).transpose()? {
         return Ok(r.as_bigint().clone());
     }
-    if let Some(method) = vm.get_method(obj.to_owned(), "__trunc__") {
+    if let Some(method) = vm.get_method(obj.to_owned(), identifier!(vm, __trunc__)) {
         let result = vm.invoke(&method?, ())?;
         return vm
             .to_index_opt(result.clone())

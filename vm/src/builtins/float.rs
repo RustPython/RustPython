@@ -9,6 +9,7 @@ use crate::{
         PyArithmeticValue::{self, *},
         PyComparisonValue,
     },
+    identifier,
     types::{Comparable, Constructor, Hashable, PyComparisonOp},
     AsObject, Context, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject,
     TryFromObject, VirtualMachine,
@@ -59,7 +60,7 @@ impl PyObject {
         if let Some(float) = self.payload_if_exact::<PyFloat>(vm) {
             return Ok(Some(float.value));
         }
-        if let Some(method) = vm.get_method(self.to_owned(), "__float__") {
+        if let Some(method) = vm.get_method(self.to_owned(), identifier!(vm, __float__)) {
             let result = vm.invoke(&method?, ())?;
             // TODO: returning strict subclasses of float in __float__ is deprecated
             return match result.payload::<PyFloat>() {

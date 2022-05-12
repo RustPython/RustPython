@@ -765,7 +765,8 @@ impl ExceptionZoo {
         });
         // TODO: this isn't really accurate
         #[cfg(windows)]
-        excs.os_error.set_str_attr("winerror", errno_getter.clone());
+        excs.os_error
+            .set_str_attr("winerror", errno_getter.clone(), ctx);
 
         extend_exception!(PyBlockingIOError, ctx, &excs.blocking_io_error);
         extend_exception!(PyChildProcessError, ctx, &excs.child_process_error);

@@ -245,8 +245,9 @@ pub(crate) mod _thread {
         let args = FuncArgs::new(
             args.to_vec(),
             kwargs
-                .map_or_else(Default::default, |k| k.to_attributes())
+                .map_or_else(Default::default, |k| k.to_attributes(vm))
                 .into_iter()
+                .map(|(k, v)| (k.as_str().to_owned(), v))
                 .collect::<KwArgs>(),
         );
         let mut thread_builder = thread::Builder::new();

@@ -389,9 +389,9 @@ class ClassDefVisitor(EmitVisitor):
         self.emit(f"#[extend_class]", depth + 1)
         self.emit("fn extend_class_with_fields(ctx: &Context, class: &PyTypeRef) {", depth + 1)
         fields = ",".join(f"ctx.new_str(ascii!({json.dumps(f.name)})).into()" for f in fields)
-        self.emit(f'class.set_str_attr("_fields", ctx.new_list(vec![{fields}]));', depth + 2)
+        self.emit(f'class.set_attr(interned!(ctx, _fields), ctx.new_list(vec![{fields}]).into());', depth + 2)
         attrs = ",".join(f"ctx.new_str(ascii!({json.dumps(attr.name)})).into()" for attr in attrs)
-        self.emit(f'class.set_str_attr("_attributes", ctx.new_list(vec![{attrs}]));', depth + 2)
+        self.emit(f'class.set_attr(interned!(ctx, _attributes), ctx.new_list(vec![{attrs}]).into());', depth + 2)
         self.emit("}", depth + 1)
         self.emit("}", depth)
 

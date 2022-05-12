@@ -14,6 +14,7 @@ mod _operator {
         builtins::{PyInt, PyIntRef, PyStrRef, PyTupleRef, PyTypeRef},
         function::Either,
         function::{ArgBytesLike, FuncArgs, KwArgs, OptionalArg},
+        identifier,
         protocol::PyIter,
         recursion::ReprGuard,
         types::{Callable, Constructor, PyComparisonOp},
@@ -196,7 +197,9 @@ mod _operator {
     #[pyfunction]
     fn concat(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         // Best attempt at checking that a is sequence-like.
-        if !a.class().has_attr("__getitem__") || a.fast_isinstance(&vm.ctx.types.dict_type) {
+        if !a.class().has_attr(identifier!(vm, __getitem__))
+            || a.fast_isinstance(&vm.ctx.types.dict_type)
+        {
             return Err(
                 vm.new_type_error(format!("{} object can't be concatenated", a.class().name()))
             );
@@ -299,7 +302,9 @@ mod _operator {
     #[pyfunction]
     fn iconcat(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         // Best attempt at checking that a is sequence-like.
-        if !a.class().has_attr("__getitem__") || a.fast_isinstance(&vm.ctx.types.dict_type) {
+        if !a.class().has_attr(identifier!(vm, __getitem__))
+            || a.fast_isinstance(&vm.ctx.types.dict_type)
+        {
             return Err(
                 vm.new_type_error(format!("{} object can't be concatenated", a.class().name()))
             );

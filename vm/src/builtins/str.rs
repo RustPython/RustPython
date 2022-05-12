@@ -409,7 +409,7 @@ impl PyStr {
                 Self::new_str_unchecked(bytes.into_bytes(), kind)
             }
             .to_pyobject(vm))
-        } else if let Some(radd) = vm.get_method(other.clone(), "__radd__") {
+        } else if let Some(radd) = vm.get_method(other.clone(), identifier!(vm, __radd__)) {
             // hack to get around not distinguishing number add from seq concat
             vm.invoke(&radd?, (zelf,))
         } else {
@@ -1149,7 +1149,7 @@ impl PyStr {
     // https://docs.python.org/3/library/stdtypes.html#str.translate
     #[pymethod]
     fn translate(&self, table: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
-        vm.get_method_or_type_error(table.clone(), "__getitem__", || {
+        vm.get_method_or_type_error(table.clone(), identifier!(vm, __getitem__), || {
             format!("'{}' object is not subscriptable", table.class().name())
         })?;
 

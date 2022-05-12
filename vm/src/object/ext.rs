@@ -4,7 +4,7 @@ use super::{
 };
 use crate::common::lock::PyRwLockReadGuard;
 use crate::{
-    builtins::{PyBaseExceptionRef, PyType},
+    builtins::{PyBaseExceptionRef, PyStrInterned, PyType},
     convert::{ToPyException, ToPyObject, ToPyResult, TryFromObject},
     VirtualMachine,
 };
@@ -251,7 +251,7 @@ where
         self.as_object().lease_class()
     }
 
-    fn get_class_attr(&self, attr_name: &str) -> Option<PyObjectRef> {
+    fn get_class_attr(&self, attr_name: &'static PyStrInterned) -> Option<PyObjectRef> {
         self.class().get_attr(attr_name)
     }
 

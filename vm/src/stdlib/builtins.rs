@@ -218,9 +218,9 @@ mod builtins {
         fn make_scope(self, vm: &VirtualMachine) -> PyResult<Scope> {
             let (globals, locals) = match self.globals {
                 Some(globals) => {
-                    if !globals.contains_key("__builtins__", vm) {
+                    if !globals.contains_key(identifier!(vm, __builtins__), vm) {
                         let builtins_dict = vm.builtins.dict().into();
-                        globals.set_item("__builtins__", builtins_dict, vm)?;
+                        globals.set_item(identifier!(vm, __builtins__), builtins_dict, vm)?;
                     }
                     (
                         globals.clone(),
@@ -424,7 +424,7 @@ mod builtins {
     #[pyfunction]
     fn aiter(iter_target: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if iter_target.payload_is::<PyAsyncGen>() {
-            vm.call_special_method(iter_target, "__aiter__", ())
+            vm.call_special_method(iter_target, identifier!(vm, __aiter__), ())
         } else {
             Err(vm.new_type_error("wrong argument type".to_owned()))
         }
@@ -591,14 +591,18 @@ mod builtins {
             modulus,
         } = args;
         match modulus {
-            None => vm.call_or_reflection(&x, &y, "__pow__", "__rpow__", |vm, x, y| {
-                Err(vm.new_unsupported_binop_error(x, y, "pow"))
-            }),
+            None => vm.call_or_reflection(
+                &x,
+                &y,
+                identifier!(vm, __pow__),
+                identifier!(vm, __rpow__),
+                |vm, x, y| Err(vm.new_unsupported_binop_error(x, y, "pow")),
+            ),
             Some(z) => {
                 let try_pow_value = |obj: &PyObject,
                                      args: (PyObjectRef, PyObjectRef, PyObjectRef)|
                  -> Option<PyResult> {
-                    let method = obj.get_class_attr("__pow__")?;
+                    let method = obj.get_class_attr(identifier!(vm, __pow__))?;
                     let result = match vm.invoke(&method, args) {
                         Ok(x) => x,
                         Err(e) => return Some(Err(e)),
@@ -685,10 +689,10 @@ mod builtins {
 
     #[pyfunction]
     fn reversed(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(reversed_method) = vm.get_method(obj.clone(), "__reversed__") {
+        if let Some(reversed_method) = vm.get_method(obj.clone(), identifier!(vm, __reversed__)) {
             vm.invoke(&reversed_method?, ())
         } else {
-            vm.get_method_or_type_error(obj.clone(), "__getitem__", || {
+            vm.get_method_or_type_error(obj.clone(), identifier!(vm, __getitem__), || {
                 "argument to reversed() must be a sequence".to_owned()
             })?;
             let len = obj.length(vm)?;
@@ -707,7 +711,7 @@ mod builtins {
     #[pyfunction]
     fn round(RoundArgs { number, ndigits }: RoundArgs, vm: &VirtualMachine) -> PyResult {
         let meth = vm
-            .get_special_method(number, "__round__")?
+            .get_special_method(number, identifier!(vm, __round__))?
             .map_err(|number| {
                 vm.new_type_error(format!(
                     "type {} doesn't define __round__",
@@ -792,9 +796,10 @@ mod builtins {
     #[pyfunction]
     fn vars(obj: OptionalArg, vm: &VirtualMachine) -> PyResult {
         if let OptionalArg::Present(obj) = obj {
-            obj.get_attr("__dict__", vm).map_err(|_| {
-                vm.new_type_error("vars() argument must have __dict__ attribute".to_owned())
-            })
+            obj.get_attr(identifier!(vm, __dict__).to_owned(), vm)
+                .map_err(|_| {
+                    vm.new_type_error("vars() argument must have __dict__ attribute".to_owned())
+                })
         } else {
             Ok(vm.current_locals()?.into())
         }
@@ -821,7 +826,8 @@ mod builtins {
                 }
                 continue;
             }
-            let mro_entries = vm.get_attribute_opt(base.clone(), "__mro_entries__")?;
+            let mro_entries =
+                vm.get_attribute_opt(base.clone(), identifier!(vm, __mro_entries__))?;
             let entries = match mro_entries {
                 Some(meth) => vm.invoke(&meth, (bases.clone(),))?,
                 None => {
@@ -874,7 +880,7 @@ mod builtins {
 
         // Prepare uses full __getattribute__ resolution chain.
         let namespace = vm
-            .get_attribute_opt(metaclass.clone(), "__prepare__")?
+            .get_attribute_opt(metaclass.clone(), identifier!(vm, __prepare__))?
             .map_or(Ok(vm.ctx.new_dict().into()), |prepare| {
                 vm.invoke(
                     &prepare,
@@ -895,9 +901,11 @@ mod builtins {
         let classcell = <Option<PyCellRef>>::try_from_object(vm, classcell)?;
 
         if let Some(orig_bases) = orig_bases {
-            namespace
-                .as_object()
-                .set_item("__orig_bases__", orig_bases.into(), vm)?;
+            namespace.as_object().set_item(
+                identifier!(vm, __orig_bases__),
+                orig_bases.into(),
+                vm,
+            )?;
         }
 
         let class = vm.invoke(

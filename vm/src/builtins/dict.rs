@@ -83,7 +83,7 @@ impl PyDict {
             Ok(dict_other) => return Self::merge_dict(dict, dict_other, vm),
             Err(other) => other,
         };
-        if let Some(keys) = vm.get_method(other.clone(), "keys") {
+        if let Some(keys) = vm.get_method(other.clone(), vm.ctx.intern_str("keys")) {
             let keys = vm.invoke(&keys?, ())?.get_iter(vm)?;
             while let PyIterReturn::Return(key) = keys.next(vm)? {
                 let val = other.get_item(&*key, vm)?;
@@ -196,13 +196,13 @@ impl PyDict {
     }
 
     pub fn from_attributes(attrs: PyAttributes, vm: &VirtualMachine) -> PyResult<Self> {
-        let dict = DictContentType::default();
+        let entries = DictContentType::default();
 
         for (key, value) in attrs {
-            dict.insert(vm, key.as_str(), value)?;
+            entries.insert(vm, key, value)?;
         }
 
-        Ok(PyDict { entries: dict })
+        Ok(Self { entries })
     }
 
     pub fn contains_key<K: DictKey + ?Sized>(&self, key: &K, vm: &VirtualMachine) -> bool {
@@ -527,7 +527,7 @@ impl Py<PyDict> {
         key: &K,
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
-        vm.get_method(self.to_owned().into(), "__missing__")
+        vm.get_method(self.to_owned().into(), identifier!(vm, __missing__))
             .map(|methods| vm.invoke(&methods?, (key.to_pyobject(vm),)))
             .transpose()
     }
@@ -548,11 +548,12 @@ impl Py<PyDict> {
     }
 
     /// Take a python dictionary and convert it to attributes.
-    pub fn to_attributes(&self) -> PyAttributes {
+    pub fn to_attributes(&self, vm: &VirtualMachine) -> PyAttributes {
         let mut attrs = PyAttributes::default();
         for (key, value) in self {
+            // TODO: use PyRefExact for interning
             let key: PyStrRef = key.downcast().expect("dict has non-string keys");
-            attrs.insert(key.as_str().to_owned(), value);
+            attrs.insert(vm.ctx.intern_str(key.as_str()), value);
         }
         attrs
     }

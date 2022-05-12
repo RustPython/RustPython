@@ -8,7 +8,7 @@ use crate::common::{
     lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
 };
 use crate::{
-    builtins::{PyInt, PyStr, PyStrRef},
+    builtins::{PyInt, PyStr, PyStrInterned, PyStrRef},
     convert::ToPyObject,
     AsObject, Py, PyExact, PyObject, PyObjectRef, PyRefExact, PyResult, VirtualMachine,
 };
@@ -751,9 +751,34 @@ impl DictKey for Py<PyStr> {
     }
 }
 
+impl DictKey for PyStrInterned {
+    type Owned = PyRefExact<PyStr>;
+    #[inline]
+    fn _to_owned(&self, _vm: &VirtualMachine) -> Self::Owned {
+        let zelf: &'static PyStrInterned = unsafe { &*(self as *const _) };
+        zelf.to_exact()
+    }
+    #[inline]
+    fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
+        (**self).key_hash(vm)
+    }
+    #[inline]
+    fn key_is(&self, other: &PyObject) -> bool {
+        (**self).key_is(other)
+    }
+    #[inline]
+    fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObject) -> PyResult<bool> {
+        (**self).key_eq(vm, other_key)
+    }
+    #[inline]
+    fn key_as_isize(&self, vm: &VirtualMachine) -> PyResult<isize> {
+        (**self).key_as_isize(vm)
+    }
+}
+
 impl DictKey for PyExact<PyStr> {
     type Owned = PyRefExact<PyStr>;
-    #[inline(always)]
+    #[inline]
     fn _to_owned(&self, _vm: &VirtualMachine) -> Self::Owned {
         self.to_owned()
     }
@@ -761,7 +786,7 @@ impl DictKey for PyExact<PyStr> {
     fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
         (**self).key_hash(vm)
     }
-    #[inline]
+    #[inline(always)]
     fn key_is(&self, other: &PyObject) -> bool {
         (**self).key_is(other)
     }

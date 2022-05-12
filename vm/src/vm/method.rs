@@ -3,7 +3,7 @@
 
 use super::VirtualMachine;
 use crate::{
-    builtins::{PyBaseObject, PyStrRef},
+    builtins::{PyBaseObject, PyStrInterned, PyStrRef},
     function::IntoFuncArgs,
     object::{AsObject, PyObjectRef, PyResult},
     types::PyTypeFlags,
@@ -27,9 +27,10 @@ impl PyMethod {
             return obj.get_attr(name, vm).map(Self::Attribute);
         }
 
+        let interned_name = vm.ctx.interned_str(&*name);
         let mut is_method = false;
 
-        let cls_attr = match cls.get_attr(name.as_str()) {
+        let cls_attr = match interned_name.and_then(|name| cls.get_attr(name)) {
             Some(descr) => {
                 let descr_cls = descr.class();
                 let descr_get = if descr_cls.slots.flags.has_feature(PyTypeFlags::METHOD_DESCR) {
@@ -76,7 +77,7 @@ impl PyMethod {
                 }
                 None => Ok(Self::Attribute(attr)),
             }
-        } else if let Some(getter) = cls.get_attr("__getattr__") {
+        } else if let Some(getter) = cls.get_attr(identifier!(vm, __getattr__)) {
             drop(cls);
             vm.invoke(&getter, (obj, name)).map(Self::Attribute)
         } else {
@@ -92,7 +93,7 @@ impl PyMethod {
 
     pub(crate) fn get_special(
         obj: PyObjectRef,
-        name: &str,
+        name: &'static PyStrInterned,
         vm: &VirtualMachine,
     ) -> PyResult<Result<Self, PyObjectRef>> {
         let obj_cls = obj.class();
