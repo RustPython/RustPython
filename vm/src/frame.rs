@@ -1804,7 +1804,7 @@ impl ExecutingFrame<'_> {
 
     fn pop_multiple(&mut self, count: usize) -> crate::common::boxvec::Drain<PyObjectRef> {
         let stack_len = self.state.stack.len();
-        self.state.stack.drain(stack_len - count..stack_len)
+        self.state.stack.drain(stack_len - count..)
     }
 
     fn last_value(&self) -> PyObjectRef {
