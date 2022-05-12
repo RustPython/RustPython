@@ -24,16 +24,6 @@ mod msvcrt {
         unsafe { suppress_iph!(_setmode(fd, libc::O_BINARY)) };
     }
 
-    pub fn get_errno() -> i32 {
-        let mut e = 0;
-        unsafe { suppress_iph!(_get_errno(&mut e)) };
-        e
-    }
-
-    extern "C" {
-        fn _get_errno(pValue: *mut i32) -> i32;
-    }
-
     extern "C" {
         fn _getch() -> i32;
         fn _getwch() -> u32;
