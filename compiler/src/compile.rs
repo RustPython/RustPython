@@ -946,8 +946,8 @@ impl Compiler {
 
                 // Check exception type:
                 self.compile_expression(exc_type)?;
-                self.emit(Instruction::CompareOperation {
-                    op: bytecode::ComparisonOperator::ExceptionMatch,
+                self.emit(Instruction::TestOperation {
+                    op: bytecode::TestOperator::ExceptionMatch,
                 });
 
                 // We cannot handle this exception type:
@@ -1468,16 +1468,36 @@ impl Compiler {
         let (last_val, mid_vals) = vals.split_last().unwrap();
 
         let compile_cmpop = |op: &ast::Cmpop| match op {
-            ast::Cmpop::Eq => bytecode::ComparisonOperator::Equal,
-            ast::Cmpop::NotEq => bytecode::ComparisonOperator::NotEqual,
-            ast::Cmpop::Lt => bytecode::ComparisonOperator::Less,
-            ast::Cmpop::LtE => bytecode::ComparisonOperator::LessOrEqual,
-            ast::Cmpop::Gt => bytecode::ComparisonOperator::Greater,
-            ast::Cmpop::GtE => bytecode::ComparisonOperator::GreaterOrEqual,
-            ast::Cmpop::In => bytecode::ComparisonOperator::In,
-            ast::Cmpop::NotIn => bytecode::ComparisonOperator::NotIn,
-            ast::Cmpop::Is => bytecode::ComparisonOperator::Is,
-            ast::Cmpop::IsNot => bytecode::ComparisonOperator::IsNot,
+            ast::Cmpop::Eq => Instruction::CompareOperation {
+                op: bytecode::ComparisonOperator::Equal,
+            },
+            ast::Cmpop::NotEq => Instruction::CompareOperation {
+                op: bytecode::ComparisonOperator::NotEqual,
+            },
+            ast::Cmpop::Lt => Instruction::CompareOperation {
+                op: bytecode::ComparisonOperator::Less,
+            },
+            ast::Cmpop::LtE => Instruction::CompareOperation {
+                op: bytecode::ComparisonOperator::LessOrEqual,
+            },
+            ast::Cmpop::Gt => Instruction::CompareOperation {
+                op: bytecode::ComparisonOperator::Greater,
+            },
+            ast::Cmpop::GtE => Instruction::CompareOperation {
+                op: bytecode::ComparisonOperator::GreaterOrEqual,
+            },
+            ast::Cmpop::In => Instruction::TestOperation {
+                op: bytecode::TestOperator::In,
+            },
+            ast::Cmpop::NotIn => Instruction::TestOperation {
+                op: bytecode::TestOperator::NotIn,
+            },
+            ast::Cmpop::Is => Instruction::TestOperation {
+                op: bytecode::TestOperator::Is,
+            },
+            ast::Cmpop::IsNot => Instruction::TestOperation {
+                op: bytecode::TestOperator::IsNot,
+            },
         };
 
         // a == b == c == d
@@ -1506,9 +1526,7 @@ impl Compiler {
             self.emit(Instruction::Duplicate);
             self.emit(Instruction::Rotate3);
 
-            self.emit(Instruction::CompareOperation {
-                op: compile_cmpop(op),
-            });
+            self.emit(compile_cmpop(op));
 
             // if comparison result is false, we break with this value; if true, try the next one.
             if let Some((break_block, _)) = end_blocks {
@@ -1520,9 +1538,7 @@ impl Compiler {
 
         // handle the last comparison
         self.compile_expression(last_val)?;
-        self.emit(Instruction::CompareOperation {
-            op: compile_cmpop(last_op),
-        });
+        self.emit(compile_cmpop(last_op));
 
         if let Some((break_block, after_block)) = end_blocks {
             self.emit(Instruction::Jump {

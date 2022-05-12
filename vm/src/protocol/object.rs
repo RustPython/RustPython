@@ -27,6 +27,7 @@ impl PyObjectRef {
     // PyObject *PyObject_GenericGetDict(PyObject *o, void *context)
     // int PyObject_GenericSetDict(PyObject *o, PyObject *value, void *context)
 
+    #[inline(always)]
     pub fn rich_compare(self, other: Self, opid: PyComparisonOp, vm: &VirtualMachine) -> PyResult {
         self._cmp(&other, opid, vm).map(|res| res.to_pyobject(vm))
     }
@@ -241,6 +242,7 @@ impl PyObject {
     // Perform a comparison, raising TypeError when the requested comparison
     // operator is not supported.
     // see: CPython PyObject_RichCompare
+    #[inline] // called by ExecutingFrame::execute_compare with const op
     fn _cmp(
         &self,
         other: &Self,

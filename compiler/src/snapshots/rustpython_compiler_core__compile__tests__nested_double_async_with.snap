@@ -45,7 +45,7 @@ expression: "compile_exec(\"\\\nfor stop_exc in (StopIteration('spam'), StopAsyn
                 39 Jump                 (54)
           >>    40 Duplicate
                 41 LoadNameAny          (7, Exception)
-                42 CompareOperation     (ExceptionMatch)
+                42 TestOperation        (ExceptionMatch)
                 43 JumpIfFalse          (53)
                 44 StoreLocal           (8, ex)
                 45 LoadNameAny          (3, self)

@@ -1,6 +1,7 @@
 use crate::common::{hash::PyHash, lock::PyRwLock};
 use crate::{
     builtins::{PyInt, PyStrRef, PyType, PyTypeRef},
+    bytecode::ComparisonOperator,
     convert::{ToPyObject, ToPyResult},
     function::Either,
     function::{FromArgs, FuncArgs, OptionalArg, PyComparisonValue},
@@ -687,18 +688,25 @@ pub trait Comparable: PyPayload {
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub enum PyComparisonOp {
-    // be intentional with bits so that we can do eval_ord with just a bitwise and
-    // bits: | Equal | Greater | Less |
-    Lt = 0b001,
-    Gt = 0b010,
-    Ne = 0b011,
-    Eq = 0b100,
-    Le = 0b101,
-    Ge = 0b110,
+#[repr(transparent)]
+pub struct PyComparisonOp(ComparisonOperator);
+
+impl From<ComparisonOperator> for PyComparisonOp {
+    fn from(op: ComparisonOperator) -> Self {
+        Self(op)
+    }
 }
 
-use PyComparisonOp::*;
+#[allow(non_upper_case_globals)]
+impl PyComparisonOp {
+    pub const Lt: Self = Self(ComparisonOperator::Less);
+    pub const Gt: Self = Self(ComparisonOperator::Greater);
+    pub const Ne: Self = Self(ComparisonOperator::NotEqual);
+    pub const Eq: Self = Self(ComparisonOperator::Equal);
+    pub const Le: Self = Self(ComparisonOperator::LessOrEqual);
+    pub const Ge: Self = Self(ComparisonOperator::GreaterOrEqual);
+}
+
 impl PyComparisonOp {
     pub fn eq_only(
         self,
@@ -713,43 +721,43 @@ impl PyComparisonOp {
 
     pub fn eval_ord(self, ord: Ordering) -> bool {
         let bit = match ord {
-            Ordering::Less => Lt,
-            Ordering::Equal => Eq,
-            Ordering::Greater => Gt,
+            Ordering::Less => Self::Lt,
+            Ordering::Equal => Self::Eq,
+            Ordering::Greater => Self::Gt,
         };
-        self as u8 & bit as u8 != 0
+        self.0 as u8 & bit.0 as u8 != 0
     }
 
     pub fn swapped(self) -> Self {
         match self {
-            Lt => Gt,
-            Le => Ge,
-            Eq => Eq,
-            Ne => Ne,
-            Ge => Le,
-            Gt => Lt,
+            Self::Lt => Self::Gt,
+            Self::Le => Self::Ge,
+            Self::Eq => Self::Eq,
+            Self::Ne => Self::Ne,
+            Self::Ge => Self::Le,
+            Self::Gt => Self::Lt,
         }
     }
 
     pub fn method_name(self) -> &'static str {
         match self {
-            Lt => "__lt__",
-            Le => "__le__",
-            Eq => "__eq__",
-            Ne => "__ne__",
-            Ge => "__ge__",
-            Gt => "__gt__",
+            Self::Lt => "__lt__",
+            Self::Le => "__le__",
+            Self::Eq => "__eq__",
+            Self::Ne => "__ne__",
+            Self::Ge => "__ge__",
+            Self::Gt => "__gt__",
         }
     }
 
     pub fn operator_token(self) -> &'static str {
         match self {
-            Lt => "<",
-            Le => "<=",
-            Eq => "==",
-            Ne => "!=",
-            Ge => ">=",
-            Gt => ">",
+            Self::Lt => "<",
+            Self::Le => "<=",
+            Self::Eq => "==",
+            Self::Ne => "!=",
+            Self::Ge => ">=",
+            Self::Gt => ">",
         }
     }
 
@@ -768,22 +776,15 @@ impl PyComparisonOp {
     /// is `Ne` and `f()` returns true. Otherwise returns `None`.
     #[inline]
     pub fn map_eq(self, f: impl FnOnce() -> bool) -> Option<bool> {
-        match self {
-            Self::Eq => {
-                if f() {
-                    Some(true)
-                } else {
-                    None
-                }
-            }
-            Self::Ne => {
-                if f() {
-                    Some(false)
-                } else {
-                    None
-                }
-            }
-            _ => None,
+        let eq = match self {
+            Self::Eq => true,
+            Self::Ne => false,
+            _ => return None,
+        };
+        if f() {
+            Some(eq)
+        } else {
+            None
         }
     }
 }
