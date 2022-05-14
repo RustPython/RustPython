@@ -25,6 +25,7 @@ pub struct Context {
     pub none: PyRef<PyNone>,
     pub empty_tuple: PyTupleRef,
     pub empty_frozenset: PyRef<PyFrozenSet>,
+    pub empty_str: PyRef<PyStr>,
     pub ellipsis: PyRef<PyEllipsis>,
     pub not_implemented: PyRef<PyNotImplemented>,
 
@@ -83,6 +84,7 @@ impl Context {
 
         let true_str = unsafe { string_pool.intern("True", types.str_type.clone()) }.into_pyref();
         let false_str = unsafe { string_pool.intern("False", types.str_type.clone()) }.into_pyref();
+        let empty_str = unsafe { string_pool.intern("", types.str_type.clone()) }.into_pyref();
 
         let context = Context {
             true_value,
@@ -90,6 +92,8 @@ impl Context {
             none,
             empty_tuple,
             empty_frozenset,
+            empty_str,
+
             ellipsis,
             not_implemented,
 

@@ -1188,6 +1188,8 @@ class MixinStrUnicodeUserStringTest:
                                     slice(start, stop, step))
 
     def test_mul(self):
+        self.assertTrue("('' * 3) is ''");
+        self.assertTrue("('a' * 0) is ''");
         self.checkequal('', 'abc', '__mul__', -1)
         self.checkequal('', 'abc', '__mul__', 0)
         self.checkequal('abc', 'abc', '__mul__', 1)

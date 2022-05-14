@@ -509,8 +509,13 @@ impl PyStr {
     #[pymethod(name = "__rmul__")]
     #[pymethod(magic)]
     fn mul(zelf: PyRef<Self>, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        if value == 1 && zelf.class().is(&vm.ctx.types.str_type) {
-            // Special case: when some `str` is multiplied by `1`,
+        if value == 0 && zelf.class().is(&vm.ctx.types.str_type) {
+            // Special case: when some `str` is multiplied by `0`,
+            // returns the empty `str`.
+            return Ok(vm.ctx.empty_str.clone());
+        }
+        if (value == 1 || zelf.is_empty()) && zelf.class().is(&vm.ctx.types.str_type) {
+            // Special case: when some `str` is multiplied by `1` or is the empty `str`,
             // nothing really happens, we need to return an object itself
             // with the same `id()` to be compatible with CPython.
             // This only works for `str` itself, not its subclasses.
