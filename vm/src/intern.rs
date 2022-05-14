@@ -42,6 +42,7 @@ impl StringPool {
 }
 
 #[derive(Debug, Clone)]
+#[repr(transparent)]
 pub struct CachedPyStrRef {
     inner: PyRefExact<PyStr>,
 }
