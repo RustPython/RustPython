@@ -783,6 +783,16 @@ impl PyObject {
         // call drop only when there are no references in scope - stacked borrows stuff
         drop_dealloc(ptr.as_ptr())
     }
+
+    /// # Safety
+    /// This call will make the object live forever.
+    pub(crate) unsafe fn mark_intern(&self) {
+        self.0.ref_count.leak();
+    }
+
+    pub(crate) fn is_interned(&self) -> bool {
+        self.0.ref_count.is_leaked()
+    }
 }
 
 impl Borrow<PyObject> for PyObjectRef {

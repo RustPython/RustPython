@@ -13,7 +13,7 @@ use crate::{
     class::{PyClassImpl, StaticType},
     exceptions,
     function::IntoPyNativeFunc,
-    intern::{Internable, PyStrInterned, StringPool},
+    intern::{Internable, MaybeInterned, PyStrInterned, StringPool},
     object::{PyObjectPayload, PyObjectRef, PyPayload, PyRef},
     types::{PyTypeFlags, PyTypeSlots, TypeZoo},
 };
@@ -117,6 +117,10 @@ impl Context {
 
     pub fn intern_str<S: Internable>(&self, s: S) -> &'static PyStrInterned {
         unsafe { self.string_pool.intern(s, self.types.str_type.clone()) }
+    }
+
+    pub fn interned_str<S: MaybeInterned + ?Sized>(&self, s: &S) -> Option<&'static PyStrInterned> {
+        self.string_pool.interned(s)
     }
 
     #[inline(always)]
