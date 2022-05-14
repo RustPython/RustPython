@@ -1196,7 +1196,7 @@ mod tests {
 
     #[test]
     fn miri_test_drop() {
-        let ctx = crate::Context::default();
+        let ctx = crate::Context::genesis();
         let obj = ctx.new_bytes(b"dfghjkl".to_vec());
         drop(obj);
     }

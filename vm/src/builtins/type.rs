@@ -964,7 +964,7 @@ mod tests {
 
     #[test]
     fn test_linearise() {
-        let context = Context::default();
+        let context = Context::genesis();
         let object = &context.types.object_type;
         let type_type = &context.types.type_type;
 

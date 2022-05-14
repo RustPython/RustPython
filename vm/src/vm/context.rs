@@ -11,6 +11,7 @@ use crate::{
         PyTupleRef, PyType, PyTypeRef,
     },
     class::{PyClassImpl, StaticType},
+    common::rc::PyRc,
     exceptions,
     function::IntoPyNativeFunc,
     intern::{Internable, MaybeInterned, StringPool},
@@ -21,7 +22,7 @@ use num_bigint::BigInt;
 use num_complex::Complex64;
 use num_traits::ToPrimitive;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Context {
     pub true_value: PyIntRef,
     pub false_value: PyIntRef,
@@ -43,7 +44,7 @@ pub struct Context {
 
 macro_rules! declare_const_name {
     ($($name:ident,)*) => {
-        #[derive(Debug, Clone)]
+        #[derive(Debug, Clone, Copy)]
         #[allow(non_snake_case)]
         pub struct ConstName {
             $(pub $name: &'static PyStrInterned,)*
@@ -214,7 +215,14 @@ impl Context {
     pub const INT_CACHE_POOL_MIN: i32 = -5;
     pub const INT_CACHE_POOL_MAX: i32 = 256;
 
-    fn init() -> Self {
+    pub fn genesis() -> &'static PyRc<Self> {
+        rustpython_common::static_cell! {
+            static CONTEXT: PyRc<Context>;
+        }
+        CONTEXT.get_or_init(|| PyRc::new(Self::init_genesis()))
+    }
+
+    fn init_genesis() -> Self {
         flame_guard!("init Context");
         let types = TypeZoo::init();
         let exceptions = exceptions::ExceptionZoo::init();
@@ -491,15 +499,6 @@ impl Context {
     pub fn new_code(&self, code: impl code::IntoCodeObject) -> PyRef<PyCode> {
         let code = code.into_codeobj(self);
         PyRef::new_ref(PyCode { code }, self.types.code_type.clone(), None)
-    }
-}
-
-impl Default for Context {
-    fn default() -> Self {
-        rustpython_common::static_cell! {
-            static CONTEXT: Context;
-        }
-        CONTEXT.get_or_init(Self::init).clone()
     }
 }
 

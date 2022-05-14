@@ -1,4 +1,4 @@
-use super::{setting::Settings, thread, VirtualMachine};
+use super::{setting::Settings, thread, Context, VirtualMachine};
 use crate::{
     stdlib::{atexit, sys},
     PyResult,
@@ -44,7 +44,8 @@ impl Interpreter {
     where
         F: FnOnce(&mut VirtualMachine),
     {
-        let mut vm = VirtualMachine::new(settings);
+        let ctx = Context::genesis();
+        let mut vm = VirtualMachine::new(settings, ctx.clone());
         init(&mut vm);
         vm.initialize();
         Self { vm }

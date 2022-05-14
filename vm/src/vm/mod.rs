@@ -90,9 +90,8 @@ pub struct PyGlobalState {
 
 impl VirtualMachine {
     /// Create a new `VirtualMachine` structure.
-    fn new(settings: Settings) -> VirtualMachine {
+    fn new(settings: Settings, ctx: PyRc<Context>) -> VirtualMachine {
         flame_guard!("new VirtualMachine");
-        let ctx = Context::default();
 
         // make a new module without access to the vm; doesn't
         // set __spec__, __loader__, etc. attributes
@@ -131,7 +130,7 @@ impl VirtualMachine {
         let mut vm = VirtualMachine {
             builtins,
             sys_module,
-            ctx: PyRc::new(ctx),
+            ctx,
             frames: RefCell::new(vec![]),
             wasm_id: None,
             exceptions: RefCell::default(),
