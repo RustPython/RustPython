@@ -2588,7 +2588,7 @@ mod _io {
                     }
                 }
                 if chunks.is_empty() {
-                    PyStr::from("").into_ref(vm)
+                    vm.ctx.empty_str.clone()
                 } else if chunks.len() == 1 {
                     chunks.pop().unwrap()
                 } else {
@@ -2850,7 +2850,7 @@ mod _io {
             } else if let Some(cur_line) = cur_line {
                 cur_line.slice_pystr(vm)
             } else {
-                PyStr::from("").into_ref(vm)
+                vm.ctx.empty_str.clone()
             };
             Ok(line)
         }
@@ -3009,7 +3009,7 @@ mod _io {
             append: Option<PyStrRef>,
             vm: &VirtualMachine,
         ) -> PyStrRef {
-            let empty_str = || PyStr::from("").into_ref(vm);
+            let empty_str = || vm.ctx.empty_str.clone();
             let chars_pos = std::mem::take(&mut self.decoded_chars_used).bytes;
             let decoded_chars = match std::mem::take(&mut self.decoded_chars) {
                 None => return append.unwrap_or_else(empty_str),
