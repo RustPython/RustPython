@@ -6,6 +6,7 @@ use super::{PyStrRef, PyTupleRef, PyTypeRef};
 use crate::{
     bytecode::{self, BorrowedConstant, Constant, ConstantBag},
     class::{PyClassImpl, StaticType},
+    convert::ToPyObject,
     function::FuncArgs,
     AsObject, Context, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
@@ -112,6 +113,7 @@ pub type CodeObject = bytecode::CodeObject<PyConstant>;
 pub trait IntoCodeObject {
     fn into_codeobj(self, ctx: &Context) -> CodeObject;
 }
+
 impl IntoCodeObject for CodeObject {
     fn into_codeobj(self, _ctx: &Context) -> CodeObject {
         self
@@ -139,13 +141,6 @@ impl Deref for PyCode {
 impl PyCode {
     pub fn new(code: CodeObject) -> PyCode {
         PyCode { code }
-    }
-
-    /// Create a new `PyRef<PyCode>` from a `code::CodeObject`. If you have a non-mapped codeobject or
-    /// this is giving you a type error even though you've passed a `CodeObject`, try
-    /// [`vm.new_code_object()`](VirtualMachine::new_code_object) instead.
-    pub fn new_ref(code: CodeObject, ctx: &Context) -> PyRef<Self> {
-        PyRef::new_ref(PyCode { code }, ctx.types.code_type.clone(), None)
     }
 }
 
@@ -239,6 +234,18 @@ impl PyRef<PyCode> {
 impl fmt::Display for PyCode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         (**self).fmt(f)
+    }
+}
+
+impl ToPyObject for CodeObject {
+    fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.new_code(self).into()
+    }
+}
+
+impl ToPyObject for bytecode::CodeObject {
+    fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.new_code(self).into()
     }
 }
 

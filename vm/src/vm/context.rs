@@ -322,11 +322,8 @@ impl Context {
     }
 
     pub fn new_code(&self, code: impl code::IntoCodeObject) -> PyRef<PyCode> {
-        PyCode::new_ref(code.into_codeobj(self), self)
-    }
-
-    pub fn new_code_object(&self, code: crate::bytecode::CodeObject) -> code::CodeObject {
-        code.map_bag(code::PyObjBag(self))
+        let code = code.into_codeobj(self);
+        PyRef::new_ref(PyCode { code }, self.types.code_type.clone(), None)
     }
 }
 
