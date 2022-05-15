@@ -738,36 +738,6 @@ impl DictKey for Py<PyStr> {
     }
 }
 
-impl DictKey for PyStrRef {
-    type Owned = Self;
-    #[inline]
-    fn _to_owned(&self, _vm: &VirtualMachine) -> Self::Owned {
-        self.clone()
-    }
-
-    fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
-        Ok(self.hash(vm))
-    }
-
-    fn key_is(&self, other: &PyObject) -> bool {
-        self.is(other)
-    }
-
-    fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObject) -> PyResult<bool> {
-        if self.is(other_key) {
-            Ok(true)
-        } else if let Some(pystr) = str_exact(other_key, vm) {
-            Ok(pystr.as_str() == self.as_str())
-        } else {
-            vm.bool_eq(self.as_object(), other_key)
-        }
-    }
-
-    fn key_as_isize(&self, vm: &VirtualMachine) -> PyResult<isize> {
-        self.as_object().key_as_isize(vm)
-    }
-}
-
 impl DictKey for PyRefExact<PyStr> {
     type Owned = Self;
     #[inline]
@@ -793,39 +763,6 @@ impl DictKey for PyRefExact<PyStr> {
 
 /// Implement trait for the str type, so that we can use strings
 /// to index dictionaries.
-impl DictKey for &str {
-    type Owned = String;
-    #[inline]
-    fn _to_owned(&self, _vm: &VirtualMachine) -> Self::Owned {
-        (**self).to_owned()
-    }
-
-    fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
-        // follow a similar route as the hashing of PyStrRef
-        Ok(vm.state.hash_secret.hash_str(*self))
-    }
-
-    fn key_is(&self, _other: &PyObject) -> bool {
-        // No matter who the other pyobject is, we are never the same thing, since
-        // we are a str, not a pyobject.
-        false
-    }
-
-    fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObject) -> PyResult<bool> {
-        if let Some(pystr) = str_exact(other_key, vm) {
-            Ok(pystr.as_str() == *self)
-        } else {
-            // Fall back to PyObjectRef implementation.
-            let s = vm.ctx.new_str(*self);
-            s.key_eq(vm, other_key)
-        }
-    }
-
-    fn key_as_isize(&self, vm: &VirtualMachine) -> PyResult<isize> {
-        Err(vm.new_type_error("'str' object cannot be interpreted as an integer".to_owned()))
-    }
-}
-
 impl DictKey for str {
     type Owned = String;
     #[inline]
@@ -964,7 +901,7 @@ mod tests {
             assert_eq!(true, dict.contains(&vm, &*key1).unwrap());
             assert_eq!(true, dict.contains(&vm, "x").unwrap());
 
-            let val = dict.get(&vm, &"x").unwrap().unwrap();
+            let val = dict.get(&vm, "x").unwrap().unwrap();
             vm.bool_eq(&val, &value2)
                 .expect("retrieved value must be equal to inserted value.");
         })

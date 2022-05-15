@@ -188,7 +188,7 @@ pub(crate) fn get_jit_args<'a>(
             let arg_idx = i + func.code.arg_count;
             if !jit_args.is_set(arg_idx) {
                 let default = kw_only_defaults
-                    .get_item(&*name, vm)
+                    .get_item(&**name, vm)
                     .map_err(|_| ArgsError::NotAllArgsPassed)
                     .and_then(|obj| get_jit_value(vm, &obj))?;
                 jit_args.set(arg_idx, default)?;

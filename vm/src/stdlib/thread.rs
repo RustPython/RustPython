@@ -371,9 +371,9 @@ pub(crate) mod _thread {
             } else {
                 let dict = zelf.ldict(vm);
                 if let Some(value) = value {
-                    dict.set_item(&attr, value, vm)?;
+                    dict.set_item(&*attr, value, vm)?;
                 } else {
-                    dict.del_item(&attr, vm)?;
+                    dict.del_item(&*attr, vm)?;
                 }
                 Ok(())
             }

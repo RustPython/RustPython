@@ -572,7 +572,7 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::DeleteGlobal(idx) => {
                 let name = &self.code.names[*idx as usize];
-                match self.globals.del_item(&*name, vm) {
+                match self.globals.del_item(&**name, vm) {
                     Ok(()) => {}
                     Err(e) if e.fast_isinstance(&vm.ctx.exceptions.key_error) => {
                         return Err(

@@ -242,7 +242,7 @@ impl PyFunction {
                 .filter(|(slot, _)| slot.is_none())
             {
                 if let Some(defaults) = &get_defaults!().1 {
-                    if let Some(default) = defaults.get_item_opt(&*kwarg, vm)? {
+                    if let Some(default) = defaults.get_item_opt(&**kwarg, vm)? {
                         *slot = Some(default);
                         continue;
                     }
