@@ -116,6 +116,13 @@ impl<T: PyPayload> Deref for PyRefExact<T> {
     }
 }
 
+impl<T: PyObjectPayload> AsRef<Py<T>> for PyRefExact<T> {
+    #[inline(always)]
+    fn as_ref(&self) -> &Py<T> {
+        self.inner.as_ref()
+    }
+}
+
 impl<T: PyPayload> ToPyObject for PyRefExact<T> {
     #[inline(always)]
     fn to_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {

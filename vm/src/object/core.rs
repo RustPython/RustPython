@@ -1001,6 +1001,16 @@ where
     }
 }
 
+impl<T> AsRef<Py<T>> for PyRef<T>
+where
+    T: PyObjectPayload,
+{
+    #[inline(always)]
+    fn as_ref(&self) -> &Py<T> {
+        self
+    }
+}
+
 impl<T> Deref for PyRef<T>
 where
     T: PyObjectPayload,
