@@ -309,10 +309,7 @@ mod decl {
                     ),
                     _ => vm.new_value_error("Couldn't deserialize python bytecode".to_owned()),
                 })?;
-                Ok(PyCode {
-                    code: vm.map_codeobj(code),
-                }
-                .to_pyobject(vm))
+                Ok(vm.ctx.new_code(code).into())
             }
         }
     }

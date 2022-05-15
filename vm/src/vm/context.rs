@@ -2,11 +2,13 @@ use crate::{
     builtins::{
         builtinfunc::{PyBuiltinFunction, PyBuiltinMethod, PyNativeFuncDef},
         bytes,
+        code::{self, PyCode},
         getset::{IntoPyGetterFunc, IntoPySetterFunc, PyGetSet},
         object, pystr,
         type_::PyAttributes,
-        PyBaseException, PyDict, PyDictRef, PyEllipsis, PyFloat, PyFrozenSet, PyInt, PyIntRef,
-        PyList, PyListRef, PyNone, PyNotImplemented, PyStr, PyTuple, PyTupleRef, PyType, PyTypeRef,
+        PyBaseException, PyComplex, PyDict, PyDictRef, PyEllipsis, PyFloat, PyFrozenSet, PyInt,
+        PyIntRef, PyList, PyListRef, PyNone, PyNotImplemented, PyStr, PyTuple, PyTupleRef, PyType,
+        PyTypeRef,
     },
     class::{PyClassImpl, StaticType},
     exceptions,
@@ -16,6 +18,7 @@ use crate::{
     types::{PyTypeFlags, PyTypeSlots, TypeZoo},
 };
 use num_bigint::BigInt;
+use num_complex::Complex64;
 use num_traits::ToPrimitive;
 
 #[derive(Debug, Clone)]
@@ -157,6 +160,15 @@ impl Context {
     #[inline]
     pub fn new_float(&self, value: f64) -> PyRef<PyFloat> {
         PyRef::new_ref(PyFloat::from(value), self.types.float_type.clone(), None)
+    }
+
+    #[inline]
+    pub fn new_complex(&self, value: Complex64) -> PyRef<PyComplex> {
+        PyRef::new_ref(
+            PyComplex::from(value),
+            self.types.complex_type.clone(),
+            None,
+        )
     }
 
     #[inline]
@@ -307,6 +319,11 @@ impl Context {
             dict.is_some()
         );
         PyRef::new_ref(object::PyBaseObject, class, dict).into()
+    }
+
+    pub fn new_code(&self, code: impl code::IntoCodeObject) -> PyRef<PyCode> {
+        let code = code.into_codeobj(self);
+        PyRef::new_ref(PyCode { code }, self.types.code_type.clone(), None)
     }
 }
 

@@ -1,24 +1,6 @@
-use crate::builtins::code;
-use crate::bytecode;
-use crate::VirtualMachine;
+use crate::bytecode::FrozenModule;
 
-pub fn map_frozen<'a>(
-    vm: &'a VirtualMachine,
-    i: impl IntoIterator<Item = (String, bytecode::FrozenModule)> + 'a,
-) -> impl Iterator<Item = (String, code::FrozenModule)> + 'a {
-    i.into_iter()
-        .map(move |(k, bytecode::FrozenModule { code, package })| {
-            (
-                k,
-                code::FrozenModule {
-                    code: vm.map_codeobj(code),
-                    package,
-                },
-            )
-        })
-}
-
-pub fn get_module_inits() -> impl Iterator<Item = (String, bytecode::FrozenModule)> {
+pub fn get_module_inits() -> impl Iterator<Item = (String, FrozenModule)> {
     let iter = std::iter::empty();
     macro_rules! ext_modules {
         ($iter:ident, ($modules:expr)) => {

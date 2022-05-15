@@ -467,7 +467,7 @@ impl ExecutingFrame<'_> {
 
         match instruction {
             bytecode::Instruction::LoadConst { idx } => {
-                self.push_value(self.code.constants[*idx as usize].0.clone());
+                self.push_value(self.code.constants[*idx as usize].clone().into());
                 Ok(None)
             }
             bytecode::Instruction::ImportName { idx } => {

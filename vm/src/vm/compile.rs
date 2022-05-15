@@ -1,7 +1,7 @@
 use crate::{
     builtins::PyCode,
     compile::{self, CompileError, CompileOpts},
-    PyPayload, PyRef, VirtualMachine,
+    PyRef, VirtualMachine,
 };
 
 impl VirtualMachine {
@@ -29,7 +29,6 @@ impl VirtualMachine {
         source_path: String,
         opts: CompileOpts,
     ) -> Result<PyRef<PyCode>, CompileError> {
-        compile::compile(source, mode, source_path, opts)
-            .map(|code| PyCode::new(self.map_codeobj(code)).into_ref(self))
+        compile::compile(source, mode, source_path, opts).map(|code| self.ctx.new_code(code))
     }
 }

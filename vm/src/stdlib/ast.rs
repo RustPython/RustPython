@@ -276,7 +276,7 @@ pub(crate) fn compile(
     let code = rustpython_compiler_core::compile::compile_top(&ast, filename.to_owned(), opts)
         // TODO: use vm.new_syntax_error()
         .map_err(|err| vm.new_value_error(err.to_string()))?;
-    Ok(vm.new_code_object(code).into())
+    Ok(vm.ctx.new_code(code).into())
 }
 
 // Required crate visibility for inclusion by gen.rs

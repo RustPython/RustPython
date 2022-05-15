@@ -16,7 +16,7 @@ mod vm_ops;
 
 use crate::{
     builtins::{
-        code::{self, PyCode},
+        code::PyCode,
         pystr::IntoPyStrRef,
         tuple::{PyTuple, PyTupleTyped},
         PyBaseExceptionRef, PyDictRef, PyInt, PyList, PyModule, PyStrRef, PyTypeRef,
@@ -80,7 +80,7 @@ struct ExceptionStack {
 pub struct PyGlobalState {
     pub settings: Settings,
     pub module_inits: stdlib::StdlibMap,
-    pub frozen: HashMap<String, code::FrozenModule, ahash::RandomState>,
+    pub frozen: HashMap<String, bytecode::FrozenModule, ahash::RandomState>,
     pub stacksize: AtomicCell<usize>,
     pub thread_count: AtomicCell<usize>,
     pub hash_secret: HashSecret,
@@ -157,7 +157,7 @@ impl VirtualMachine {
             recursion_depth: Cell::new(0),
         };
 
-        let frozen = frozen::map_frozen(&vm, frozen::get_module_inits()).collect();
+        let frozen = frozen::get_module_inits().collect();
         PyRc::get_mut(&mut vm.state).unwrap().frozen = frozen;
 
         vm.builtins.init_module_dict(
@@ -262,7 +262,6 @@ impl VirtualMachine {
     where
         I: IntoIterator<Item = (String, bytecode::FrozenModule)>,
     {
-        let frozen = frozen::map_frozen(self, frozen).collect::<Vec<_>>();
         self.state_mut().frozen.extend(frozen);
     }
 
@@ -683,10 +682,6 @@ impl VirtualMachine {
             self.print_exception(exc);
             1
         }
-    }
-
-    pub fn map_codeobj(&self, code: bytecode::CodeObject) -> code::CodeObject {
-        code.map_bag(&code::PyObjBag(self))
     }
 
     #[doc(hidden)]
