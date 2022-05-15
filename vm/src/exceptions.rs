@@ -507,7 +507,7 @@ impl PyBaseException {
     pub(super) fn str(&self, vm: &VirtualMachine) -> PyStrRef {
         let str_args = vm.exception_args_as_string(self.args(), true);
         match str_args.into_iter().exactly_one() {
-            Err(i) if i.len() == 0 => PyStr::from("").into_ref(vm),
+            Err(i) if i.len() == 0 => vm.ctx.empty_str.clone(),
             Ok(s) => s,
             Err(i) => PyStr::from(format!("({})", i.format(", "))).into_ref(vm),
         }

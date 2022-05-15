@@ -305,7 +305,7 @@ mod builtins {
     ) -> PyResult<PyStrRef> {
         let format_spec = format_spec
             .into_option()
-            .unwrap_or_else(|| PyStr::from("").into_ref(vm));
+            .unwrap_or_else(|| vm.ctx.empty_str.clone());
 
         call_object_format(vm, value, None, format_spec.as_str())
     }
