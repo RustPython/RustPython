@@ -47,10 +47,6 @@ pub trait Constant: Sized {
 
     /// Transforms the given Constant to a BorrowedConstant
     fn borrow_constant(&self) -> BorrowedConstant<Self>;
-    /// Map this Constant to a Bag's constant
-    fn map_constant<Bag: ConstantBag>(self, bag: &Bag) -> Bag::Constant {
-        bag.make_constant(self.borrow_constant())
-    }
 
     /// Maps the name for the given Bag.
     fn map_name<Bag: ConstantBag>(
@@ -765,7 +761,7 @@ impl<C: Constant> CodeObject<C> {
                 .constants
                 .into_vec()
                 .into_iter()
-                .map(|x| x.map_constant(bag))
+                .map(|x| bag.make_constant(x.borrow_constant()))
                 .collect(),
             names: map_names(self.names),
             varnames: map_names(self.varnames),

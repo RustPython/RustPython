@@ -66,9 +66,6 @@ impl Constant for PyConstant {
     fn borrow_constant(&self) -> BorrowedConstant<Self> {
         borrow_obj_constant(&self.0)
     }
-    fn map_constant<Bag: ConstantBag>(self, bag: &Bag) -> Bag::Constant {
-        bag.make_constant(self.borrow_constant())
-    }
 }
 
 pub(crate) struct PyObjBag<'a>(pub &'a Context);
