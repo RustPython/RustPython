@@ -123,9 +123,9 @@ pub fn import_file(
     file_path: String,
     content: String,
 ) -> PyResult {
-    let code_obj = compile::compile(&content, compile::Mode::Exec, file_path, vm.compile_opts())
+    let code = compile::compile(&content, compile::Mode::Exec, file_path, vm.compile_opts())
         .map_err(|err| vm.new_syntax_error(&err))?;
-    import_codeobj(vm, module_name, vm.map_codeobj(code_obj), true)
+    import_codeobj(vm, module_name, vm.ctx.new_code_object(code), true)
 }
 
 pub fn import_codeobj(

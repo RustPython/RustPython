@@ -15,7 +15,7 @@ macro_rules! add_python_function {
         // compile the code to bytecode
         let code = vm::py_compile!(source = $src);
         // convert the rustpython_bytecode::CodeObject to a PyRef<PyCode>
-        let code = $vm.new_code_object(code);
+        let code = $vm.ctx.new_code(code);
 
         // run the python code in the scope to store the function
         $vm.run_code_obj(code, $scope.clone())

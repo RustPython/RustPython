@@ -2,7 +2,6 @@
 use crate::compile::{CompileError, CompileErrorType};
 use crate::{
     builtins::{
-        code::{self, PyCode},
         pystr::IntoPyStrRef,
         tuple::{IntoPyTuple, PyTupleRef},
         PyBaseException, PyBaseExceptionRef, PyDictRef, PyModule, PyStrRef, PyTypeRef,
@@ -30,10 +29,6 @@ impl VirtualMachine {
 
     pub fn new_tuple(&self, value: impl IntoPyTuple) -> PyTupleRef {
         value.into_pytuple(self)
-    }
-
-    pub fn new_code_object(&self, code: impl code::IntoCodeObject) -> PyRef<PyCode> {
-        PyCode::new_ref(code.into_codeobj(self), &self.ctx)
     }
 
     pub fn new_module(&self, name: &str, dict: PyDictRef, doc: Option<&str>) -> PyObjectRef {

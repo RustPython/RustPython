@@ -71,24 +71,23 @@ impl Constant for PyConstant {
     }
 }
 
-pub(crate) struct PyObjBag<'a>(pub &'a VirtualMachine);
+pub(crate) struct PyObjBag<'a>(pub &'a Context);
 
 impl ConstantBag for PyObjBag<'_> {
     type Constant = PyConstant;
     fn make_constant(&self, constant: bytecode::ConstantData) -> Self::Constant {
-        let vm = self.0;
-        let ctx = &vm.ctx;
+        let ctx = self.0;
         let obj = match constant {
             bytecode::ConstantData::Integer { value } => ctx.new_int(value).into(),
             bytecode::ConstantData::Float { value } => ctx.new_float(value).into(),
-            bytecode::ConstantData::Complex { value } => vm.new_pyobj(value),
+            bytecode::ConstantData::Complex { value } => ctx.new_complex(value).into(),
             bytecode::ConstantData::Str { value } if value.len() <= 20 => {
-                vm.ctx.intern_string(value).into_pyref().into()
+                ctx.intern_string(value).into_pyref().into()
             }
-            bytecode::ConstantData::Str { value } => vm.ctx.new_str(value).into(),
+            bytecode::ConstantData::Str { value } => ctx.new_str(value).into(),
             bytecode::ConstantData::Bytes { value } => ctx.new_bytes(value.to_vec()).into(),
             bytecode::ConstantData::Boolean { value } => ctx.new_bool(value).into(),
-            bytecode::ConstantData::Code { code } => vm.new_code_object(code.map_bag(self)).into(),
+            bytecode::ConstantData::Code { code } => ctx.new_code(code.map_bag(self)).into(),
             bytecode::ConstantData::Tuple { elements } => {
                 let elements = elements
                     .into_iter()
@@ -102,20 +101,19 @@ impl ConstantBag for PyObjBag<'_> {
         PyConstant(obj)
     }
     fn make_constant_borrowed<C: Constant>(&self, constant: BorrowedConstant<C>) -> Self::Constant {
-        let vm = self.0;
-        let ctx = &vm.ctx;
+        let ctx = &self.0;
         let obj = match constant {
             bytecode::BorrowedConstant::Integer { value } => ctx.new_bigint(value).into(),
             bytecode::BorrowedConstant::Float { value } => ctx.new_float(value).into(),
-            bytecode::BorrowedConstant::Complex { value } => vm.new_pyobj(value),
+            bytecode::BorrowedConstant::Complex { value } => ctx.new_complex(value).into(),
             bytecode::BorrowedConstant::Str { value } if value.len() <= 20 => {
-                vm.ctx.intern_string(value).into_pyref().into()
+                ctx.intern_string(value).into_pyref().into()
             }
-            bytecode::BorrowedConstant::Str { value } => vm.ctx.new_str(value).into(),
+            bytecode::BorrowedConstant::Str { value } => ctx.new_str(value).into(),
             bytecode::BorrowedConstant::Bytes { value } => ctx.new_bytes(value.to_vec()).into(),
             bytecode::BorrowedConstant::Boolean { value } => ctx.new_bool(value).into(),
             bytecode::BorrowedConstant::Code { code } => {
-                vm.new_code_object(code.map_clone_bag(self)).into()
+                ctx.new_code(code.map_clone_bag(self)).into()
             }
             bytecode::BorrowedConstant::Tuple { elements } => {
                 let elements = elements
@@ -130,10 +128,10 @@ impl ConstantBag for PyObjBag<'_> {
         PyConstant(obj)
     }
     fn make_name(&self, name: String) -> PyStrRef {
-        self.0.ctx.intern_string(name).into_pyref()
+        self.0.intern_string(name).into_pyref()
     }
     fn make_name_ref(&self, name: &str) -> PyStrRef {
-        self.0.ctx.intern_string(name).into_pyref()
+        self.0.intern_string(name).into_pyref()
     }
 }
 
@@ -141,16 +139,17 @@ pub type CodeObject = bytecode::CodeObject<PyConstant>;
 pub type FrozenModule = bytecode::FrozenModule<PyConstant>;
 
 pub trait IntoCodeObject {
-    fn into_codeobj(self, vm: &VirtualMachine) -> CodeObject;
+    fn into_codeobj(self, ctx: &Context) -> CodeObject;
 }
 impl IntoCodeObject for CodeObject {
-    fn into_codeobj(self, _vm: &VirtualMachine) -> CodeObject {
+    fn into_codeobj(self, _ctx: &Context) -> CodeObject {
         self
     }
 }
+
 impl IntoCodeObject for bytecode::CodeObject {
-    fn into_codeobj(self, vm: &VirtualMachine) -> CodeObject {
-        vm.map_codeobj(self)
+    fn into_codeobj(self, ctx: &Context) -> CodeObject {
+        self.map_bag(&PyObjBag(ctx))
     }
 }
 

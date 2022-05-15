@@ -506,7 +506,7 @@ __import__("io").TextIOWrapper(
         mode = "eval"
     );
     eprintln!("downloading get-pip.py...");
-    let getpip_code = vm.run_code_obj(vm.new_code_object(get_getpip), scope.clone())?;
+    let getpip_code = vm.run_code_obj(vm.ctx.new_code(get_getpip), scope.clone())?;
     let getpip_code: rustpython_vm::builtins::PyStrRef = getpip_code
         .downcast()
         .expect("TextIOWrapper.read() should return str");

@@ -11,7 +11,7 @@ pub fn map_frozen<'a>(
             (
                 k,
                 code::FrozenModule {
-                    code: vm.map_codeobj(code),
+                    code: vm.ctx.new_code_object(code),
                     package,
                 },
             )

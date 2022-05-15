@@ -30,6 +30,6 @@ impl VirtualMachine {
         opts: CompileOpts,
     ) -> Result<PyRef<PyCode>, CompileError> {
         compile::compile(source, mode, source_path, opts)
-            .map(|code| PyCode::new(self.map_codeobj(code)).into_ref(self))
+            .map(|code| PyCode::new(self.ctx.new_code_object(code)).into_ref(self))
     }
 }

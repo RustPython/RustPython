@@ -685,10 +685,6 @@ impl VirtualMachine {
         }
     }
 
-    pub fn map_codeobj(&self, code: bytecode::CodeObject) -> code::CodeObject {
-        code.map_bag(&code::PyObjBag(self))
-    }
-
     #[doc(hidden)]
     pub fn __module_set_attr(
         &self,
