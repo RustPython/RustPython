@@ -226,13 +226,13 @@ mod _operator {
     /// Remove the value of a at index b.
     #[pyfunction]
     fn delitem(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        a.del_item(b, vm)
+        a.del_item(&*b, vm)
     }
 
     /// Return the value of a at index b.
     #[pyfunction]
     fn getitem(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        a.get_item(b, vm)
+        a.get_item(&*b, vm)
     }
 
     /// Return the number of occurrences of b in a.
@@ -255,7 +255,7 @@ mod _operator {
         c: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        a.set_item(b, c, vm)
+        a.set_item(&*b, c, vm)
     }
 
     /// Return an estimate of the number of items in obj.
@@ -565,12 +565,12 @@ mod _operator {
         fn call(zelf: &Py<Self>, obj: Self::Args, vm: &VirtualMachine) -> PyResult {
             // Handle case where we only have one attribute.
             if zelf.items.len() == 1 {
-                return obj.get_item(zelf.items[0].clone(), vm);
+                return obj.get_item(&*zelf.items[0], vm);
             }
             // Build tuple and call get_single on each element in attrs.
             let mut results = Vec::with_capacity(zelf.items.len());
             for item in &zelf.items {
-                results.push(obj.get_item(item.clone(), vm)?);
+                results.push(obj.get_item(&**item, vm)?);
             }
             Ok(vm.ctx.new_tuple(results).into())
         }

@@ -133,7 +133,7 @@ impl PyObject {
     #[cfg_attr(feature = "flame-it", flame)]
     pub fn generic_setattr(
         &self,
-        attr_name: PyStrRef,
+        attr_name: PyStrRef, // TODO: Py<PyStr>
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -148,9 +148,9 @@ impl PyObject {
 
         if let Some(dict) = self.dict() {
             if let Some(value) = value {
-                dict.set_item(attr_name, value, vm)?;
+                dict.set_item(&*attr_name, value, vm)?;
             } else {
-                dict.del_item(attr_name.clone(), vm).map_err(|e| {
+                dict.del_item(&*attr_name, vm).map_err(|e| {
                     if e.fast_isinstance(&vm.ctx.exceptions.key_error) {
                         vm.new_attribute_error(format!(
                             "'{}' object has no attribute '{}'",
@@ -197,8 +197,7 @@ impl PyObject {
                     {
                         drop(descr_cls);
                         let cls = obj_cls.into_owned().into();
-                        return descr_get(descr, Some(self.to_pyobject(vm)), Some(cls), vm)
-                            .map(Some);
+                        return descr_get(descr, Some(self.to_owned()), Some(cls), vm).map(Some);
                     }
                 }
                 drop(descr_cls);
@@ -221,14 +220,13 @@ impl PyObject {
             match descr_get {
                 Some(descr_get) => {
                     let cls = obj_cls.into_owned().into();
-                    descr_get(attr, Some(self.to_pyobject(vm)), Some(cls), vm).map(Some)
+                    descr_get(attr, Some(self.to_owned()), Some(cls), vm).map(Some)
                 }
                 None => Ok(Some(attr)),
             }
         } else if let Some(getter) = obj_cls.get_attr("__getattr__") {
             drop(obj_cls);
-            vm.invoke(&getter, (self.to_pyobject(vm), name_str))
-                .map(Some)
+            vm.invoke(&getter, (self.to_owned(), name_str)).map(Some)
         } else {
             Ok(None)
         }
@@ -515,11 +513,7 @@ impl PyObject {
             .ok_or_else(|| vm.new_type_error(format!("object of type '{}' has no len()", &self)))?
     }
 
-    pub fn get_item<K: DictKey + ToPyObject + Clone>(
-        &self,
-        needle: K,
-        vm: &VirtualMachine,
-    ) -> PyResult {
+    pub fn get_item<K: DictKey + ?Sized>(&self, needle: &K, vm: &VirtualMachine) -> PyResult {
         if let Some(dict) = self.downcast_ref_if_exact::<PyDict>(vm) {
             return dict.get_item(needle, vm);
         }
@@ -547,9 +541,9 @@ impl PyObject {
         }
     }
 
-    pub fn set_item<K: DictKey + ToPyObject>(
+    pub fn set_item<K: DictKey + ?Sized>(
         &self,
-        needle: K,
+        needle: &K,
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -574,11 +568,7 @@ impl PyObject {
         }
     }
 
-    pub fn del_item<K: DictKey + ToPyObject>(
-        &self,
-        needle: K,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
+    pub fn del_item<K: DictKey + ?Sized>(&self, needle: &K, vm: &VirtualMachine) -> PyResult<()> {
         if let Some(dict) = self.downcast_ref_if_exact::<PyDict>(vm) {
             return dict.del_item(needle, vm);
         }

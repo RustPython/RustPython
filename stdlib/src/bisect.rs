@@ -74,7 +74,7 @@ mod _bisect {
         while lo < hi {
             // Handles issue 13496.
             let mid = (lo + hi) / 2;
-            if a.get_item(mid, vm)?
+            if a.get_item(&mid, vm)?
                 .rich_compare_bool(&x, PyComparisonOp::Lt, vm)?
             {
                 lo = mid + 1;
@@ -104,7 +104,7 @@ mod _bisect {
         while lo < hi {
             // Handles issue 13496.
             let mid = (lo + hi) / 2;
-            if x.rich_compare_bool(&*a.get_item(mid, vm)?, PyComparisonOp::Lt, vm)? {
+            if x.rich_compare_bool(&*a.get_item(&mid, vm)?, PyComparisonOp::Lt, vm)? {
                 hi = mid;
             } else {
                 lo = mid + 1;

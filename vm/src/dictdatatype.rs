@@ -252,13 +252,13 @@ impl<T: Clone> Dict<T> {
     }
 
     /// Store a key
-    pub fn insert<K>(&self, vm: &VirtualMachine, key: K, value: T) -> PyResult<()>
+    pub fn insert<K>(&self, vm: &VirtualMachine, key: &K, value: T) -> PyResult<()>
     where
-        K: DictKey + ToPyObject,
+        K: DictKey + ?Sized,
     {
         let hash = key.key_hash(vm)?;
         let _removed = loop {
-            let (entry_index, index_index) = self.lookup(vm, &key, hash, None)?;
+            let (entry_index, index_index) = self.lookup(vm, key, hash, None)?;
             let mut inner = self.write();
             if let IndexEntry::Index(index) = entry_index {
                 // Update existing key
@@ -285,19 +285,19 @@ impl<T: Clone> Dict<T> {
         Ok(())
     }
 
-    pub fn contains<K: DictKey>(&self, vm: &VirtualMachine, key: &K) -> PyResult<bool> {
+    pub fn contains<K: DictKey + ?Sized>(&self, vm: &VirtualMachine, key: &K) -> PyResult<bool> {
         let (entry, _) = self.lookup(vm, key, key.key_hash(vm)?, None)?;
         Ok(matches!(entry, IndexEntry::Index(_)))
     }
 
     /// Retrieve a key
     #[cfg_attr(feature = "flame-it", flame("Dict"))]
-    pub fn get<K: DictKey>(&self, vm: &VirtualMachine, key: &K) -> PyResult<Option<T>> {
+    pub fn get<K: DictKey + ?Sized>(&self, vm: &VirtualMachine, key: &K) -> PyResult<Option<T>> {
         let hash = key.key_hash(vm)?;
         self._get_inner(vm, key, hash)
     }
 
-    fn _get_inner<K: DictKey>(
+    fn _get_inner<K: DictKey + ?Sized>(
         &self,
         vm: &VirtualMachine,
         key: &K,
@@ -325,7 +325,7 @@ impl<T: Clone> Dict<T> {
         Ok(ret)
     }
 
-    pub fn get_chain<K: DictKey>(
+    pub fn get_chain<K: DictKey + ?Sized>(
         &self,
         other: &Self,
         vm: &VirtualMachine,
@@ -353,11 +353,11 @@ impl<T: Clone> Dict<T> {
     }
 
     /// Delete a key
-    pub fn delete<K>(&self, vm: &VirtualMachine, key: K) -> PyResult<()>
+    pub fn delete<K>(&self, vm: &VirtualMachine, key: &K) -> PyResult<()>
     where
-        K: DictKey + ToPyObject,
+        K: DictKey + ?Sized,
     {
-        if self.delete_if_exists(vm, &key)? {
+        if self.delete_if_exists(vm, key)? {
             Ok(())
         } else {
             Err(vm.new_key_error(key.to_pyobject(vm)))
@@ -366,7 +366,7 @@ impl<T: Clone> Dict<T> {
 
     pub fn delete_if_exists<K>(&self, vm: &VirtualMachine, key: &K) -> PyResult<bool>
     where
-        K: DictKey,
+        K: DictKey + ?Sized,
     {
         self.delete_if(vm, key, |_| Ok(true))
     }
@@ -375,7 +375,7 @@ impl<T: Clone> Dict<T> {
     /// the dict's internal mutex is held
     pub(crate) fn delete_if<K, F>(&self, vm: &VirtualMachine, key: &K, pred: F) -> PyResult<bool>
     where
-        K: DictKey,
+        K: DictKey + ?Sized,
         F: Fn(&T) -> PyResult<bool>,
     {
         let hash = key.key_hash(vm)?;
@@ -408,14 +408,14 @@ impl<T: Clone> Dict<T> {
         Ok(())
     }
 
-    pub fn setdefault<K, F>(&self, vm: &VirtualMachine, key: K, default: F) -> PyResult<T>
+    pub fn setdefault<K, F>(&self, vm: &VirtualMachine, key: &K, default: F) -> PyResult<T>
     where
-        K: DictKey + ToPyObject,
+        K: DictKey + ?Sized,
         F: FnOnce() -> T,
     {
         let hash = key.key_hash(vm)?;
         let res = loop {
-            let lookup = self.lookup(vm, &key, hash, None)?;
+            let lookup = self.lookup(vm, key, hash, None)?;
             let (entry, index_index) = lookup;
             if let IndexEntry::Index(index) = entry {
                 let inner = self.read();
@@ -444,16 +444,16 @@ impl<T: Clone> Dict<T> {
     pub fn setdefault_entry<K, F>(
         &self,
         vm: &VirtualMachine,
-        key: K,
+        key: &K,
         default: F,
     ) -> PyResult<(PyObjectRef, T)>
     where
-        K: DictKey + ToPyObject,
+        K: DictKey + ?Sized,
         F: FnOnce() -> T,
     {
         let hash = key.key_hash(vm)?;
         let res = loop {
-            let lookup = self.lookup(vm, &key, hash, None)?;
+            let lookup = self.lookup(vm, key, hash, None)?;
             let (entry, index_index) = lookup;
             if let IndexEntry::Index(index) = entry {
                 let inner = self.read();
@@ -533,7 +533,7 @@ impl<T: Clone> Dict<T> {
 
     /// Lookup the index for the given key.
     #[cfg_attr(feature = "flame-it", flame("Dict"))]
-    fn lookup<K: DictKey>(
+    fn lookup<K: DictKey + ?Sized>(
         &self,
         vm: &VirtualMachine,
         key: &K,
@@ -630,7 +630,7 @@ impl<T: Clone> Dict<T> {
     }
 
     /// Retrieve and delete a key
-    pub fn pop<K: DictKey>(&self, vm: &VirtualMachine, key: &K) -> PyResult<Option<T>> {
+    pub fn pop<K: DictKey + ?Sized>(&self, vm: &VirtualMachine, key: &K) -> PyResult<Option<T>> {
         let hash_value = key.key_hash(vm)?;
         let removed = loop {
             let lookup = self.lookup(vm, key, hash_value, None)?;
@@ -671,6 +671,11 @@ type LookupResult = (IndexEntry, IndexIndex);
 /// - PyObjectRef -> arbitrary python type used as key
 /// - str -> string reference used as key, this is often used internally
 pub trait DictKey {
+    type Owned: ToPyObject;
+    fn _to_owned(&self, vm: &VirtualMachine) -> Self::Owned;
+    fn to_pyobject(&self, vm: &VirtualMachine) -> PyObjectRef {
+        self._to_owned(vm).to_pyobject(vm)
+    }
     fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue>;
     fn key_is(&self, other: &PyObject) -> bool;
     fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObject) -> PyResult<bool>;
@@ -679,45 +684,13 @@ pub trait DictKey {
 
 /// Implement trait for PyObjectRef such that we can use python objects
 /// to index dictionaries.
-impl DictKey for PyObjectRef {
-    #[inline]
-    fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
-        (**self).key_hash(vm)
-    }
-    #[inline]
-    fn key_is(&self, other: &PyObject) -> bool {
-        (**self).key_is(other)
-    }
-    #[inline]
-    fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObject) -> PyResult<bool> {
-        (**self).key_eq(vm, other_key)
-    }
-    #[inline]
-    fn key_as_isize(&self, vm: &VirtualMachine) -> PyResult<isize> {
-        (**self).key_as_isize(vm)
-    }
-}
-
-impl DictKey for &PyObject {
-    #[inline]
-    fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
-        (**self).key_hash(vm)
-    }
-    #[inline]
-    fn key_is(&self, other: &PyObject) -> bool {
-        (**self).key_is(other)
-    }
-    #[inline]
-    fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObject) -> PyResult<bool> {
-        (**self).key_eq(vm, other_key)
-    }
-    #[inline]
-    fn key_as_isize(&self, vm: &VirtualMachine) -> PyResult<isize> {
-        (**self).key_as_isize(vm)
-    }
-}
-
 impl DictKey for PyObject {
+    type Owned = PyObjectRef;
+    #[inline]
+    fn _to_owned(&self, _vm: &VirtualMachine) -> Self::Owned {
+        self.to_owned()
+    }
+
     fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
         self.hash(vm)
     }
@@ -736,6 +709,12 @@ impl DictKey for PyObject {
 }
 
 impl DictKey for Py<PyStr> {
+    type Owned = PyStrRef;
+    #[inline]
+    fn _to_owned(&self, _vm: &VirtualMachine) -> Self::Owned {
+        self.to_owned()
+    }
+
     fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
         Ok(self.hash(vm))
     }
@@ -760,6 +739,12 @@ impl DictKey for Py<PyStr> {
 }
 
 impl DictKey for PyStrRef {
+    type Owned = Self;
+    #[inline]
+    fn _to_owned(&self, _vm: &VirtualMachine) -> Self::Owned {
+        self.clone()
+    }
+
     fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
         Ok(self.hash(vm))
     }
@@ -784,6 +769,12 @@ impl DictKey for PyStrRef {
 }
 
 impl DictKey for PyRefExact<PyStr> {
+    type Owned = Self;
+    #[inline]
+    fn _to_owned(&self, _vm: &VirtualMachine) -> Self::Owned {
+        self.clone()
+    }
+
     fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
         (**self).key_hash(vm)
     }
@@ -803,6 +794,12 @@ impl DictKey for PyRefExact<PyStr> {
 /// Implement trait for the str type, so that we can use strings
 /// to index dictionaries.
 impl DictKey for &str {
+    type Owned = String;
+    #[inline]
+    fn _to_owned(&self, _vm: &VirtualMachine) -> Self::Owned {
+        (**self).to_owned()
+    }
+
     fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
         // follow a similar route as the hashing of PyStrRef
         Ok(vm.state.hash_secret.hash_str(*self))
@@ -829,7 +826,46 @@ impl DictKey for &str {
     }
 }
 
+impl DictKey for str {
+    type Owned = String;
+    #[inline]
+    fn _to_owned(&self, _vm: &VirtualMachine) -> Self::Owned {
+        self.to_owned()
+    }
+
+    fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
+        // follow a similar route as the hashing of PyStrRef
+        Ok(vm.state.hash_secret.hash_str(self))
+    }
+
+    fn key_is(&self, _other: &PyObject) -> bool {
+        // No matter who the other pyobject is, we are never the same thing, since
+        // we are a str, not a pyobject.
+        false
+    }
+
+    fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObject) -> PyResult<bool> {
+        if let Some(pystr) = str_exact(other_key, vm) {
+            Ok(pystr.as_str() == self)
+        } else {
+            // Fall back to PyObjectRef implementation.
+            let s = vm.ctx.new_str(self);
+            s.key_eq(vm, other_key)
+        }
+    }
+
+    fn key_as_isize(&self, vm: &VirtualMachine) -> PyResult<isize> {
+        Err(vm.new_type_error("'str' object cannot be interpreted as an integer".to_owned()))
+    }
+}
+
 impl DictKey for String {
+    type Owned = String;
+    #[inline]
+    fn _to_owned(&self, _vm: &VirtualMachine) -> Self::Owned {
+        self.clone()
+    }
+
     fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
         self.as_str().key_hash(vm)
     }
@@ -848,6 +884,12 @@ impl DictKey for String {
 }
 
 impl DictKey for usize {
+    type Owned = usize;
+    #[inline]
+    fn _to_owned(&self, _vm: &VirtualMachine) -> Self::Owned {
+        *self
+    }
+
     fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
         Ok(vm.state.hash_secret.hash_value(self))
     }
@@ -902,25 +944,25 @@ mod tests {
 
             let key1 = vm.new_pyobj(true);
             let value1 = vm.new_pyobj(ascii!("abc"));
-            dict.insert(&vm, key1.clone(), value1.clone()).unwrap();
+            dict.insert(&vm, &*key1, value1.clone()).unwrap();
             assert_eq!(1, dict.len());
 
             let key2 = vm.new_pyobj(ascii!("x"));
             let value2 = vm.new_pyobj(ascii!("def"));
-            dict.insert(&vm, key2.clone(), value2.clone()).unwrap();
+            dict.insert(&vm, &*key2, value2.clone()).unwrap();
             assert_eq!(2, dict.len());
 
-            dict.insert(&vm, key1.clone(), value2.clone()).unwrap();
+            dict.insert(&vm, &*key1, value2.clone()).unwrap();
             assert_eq!(2, dict.len());
 
-            dict.delete(&vm, key1.clone()).unwrap();
+            dict.delete(&vm, &*key1).unwrap();
             assert_eq!(1, dict.len());
 
-            dict.insert(&vm, key1.clone(), value2.clone()).unwrap();
+            dict.insert(&vm, &*key1, value2.clone()).unwrap();
             assert_eq!(2, dict.len());
 
-            assert_eq!(true, dict.contains(&vm, &key1).unwrap());
-            assert_eq!(true, dict.contains(&vm, &"x").unwrap());
+            assert_eq!(true, dict.contains(&vm, &*key1).unwrap());
+            assert_eq!(true, dict.contains(&vm, "x").unwrap());
 
             let val = dict.get(&vm, &"x").unwrap().unwrap();
             vm.bool_eq(&val, &value2)

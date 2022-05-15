@@ -410,7 +410,7 @@ impl VirtualMachine {
             None
         } else {
             let sys_modules = self.sys_module.get_attr("modules", self)?;
-            sys_modules.get_item(module.clone(), self).ok()
+            sys_modules.get_item(&*module, self).ok()
         };
 
         match cached_module {

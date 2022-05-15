@@ -1147,7 +1147,7 @@ impl PyStr {
 
         let mut translated = String::new();
         for c in self.as_str().chars() {
-            match table.get_item((c as u32).to_pyobject(vm), vm) {
+            match table.get_item(&*(c as u32).to_pyobject(vm), vm) {
                 Ok(value) => {
                     if let Some(text) = value.payload::<PyStr>() {
                         translated.push_str(text.as_str());
@@ -1188,14 +1188,14 @@ impl PyStr {
                     if to_str.len() == from_str.len() {
                         for (c1, c2) in from_str.as_str().chars().zip(to_str.as_str().chars()) {
                             new_dict.set_item(
-                                vm.new_pyobj(c1 as u32),
+                                &*vm.new_pyobj(c1 as u32),
                                 vm.new_pyobj(c2 as u32),
                                 vm,
                             )?;
                         }
                         if let OptionalArg::Present(none_str) = none_str {
                             for c in none_str.as_str().chars() {
-                                new_dict.set_item(vm.new_pyobj(c as u32), vm.ctx.none(), vm)?;
+                                new_dict.set_item(&*vm.new_pyobj(c as u32), vm.ctx.none(), vm)?;
                             }
                         }
                         Ok(new_dict.to_pyobject(vm))
@@ -1215,12 +1215,17 @@ impl PyStr {
             match dict_or_str.downcast::<PyDict>() {
                 Ok(dict) => {
                     for (key, val) in dict {
+                        // FIXME: ints are key-compatible
                         if let Some(num) = key.payload::<PyInt>() {
-                            new_dict.set_item(num.as_bigint().to_i32().to_pyobject(vm), val, vm)?;
+                            new_dict.set_item(
+                                &*num.as_bigint().to_i32().to_pyobject(vm),
+                                val,
+                                vm,
+                            )?;
                         } else if let Some(string) = key.payload::<PyStr>() {
                             if string.len() == 1 {
                                 let num_value = string.as_str().chars().next().unwrap() as u32;
-                                new_dict.set_item(num_value.to_pyobject(vm), val, vm)?;
+                                new_dict.set_item(&*num_value.to_pyobject(vm), val, vm)?;
                             } else {
                                 return Err(vm.new_value_error(
                                     "string keys in translate table must be of length 1".to_owned(),

@@ -205,7 +205,7 @@ impl<'de> Visitor<'de> for PyObjectDeserializer<'de> {
         // Although JSON keys must be strings, implementation accepts any keys
         // and can be reused by other deserializers without such limit
         while let Some((key_obj, value)) = access.next_entry_seed(self.clone(), self.clone())? {
-            dict.set_item(key_obj, value, self.vm).unwrap();
+            dict.set_item(&*key_obj, value, self.vm).unwrap();
         }
         Ok(dict.into())
     }

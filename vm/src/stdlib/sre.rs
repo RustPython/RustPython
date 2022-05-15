@@ -725,7 +725,7 @@ mod _sre {
                             .and_then(|x| self.get_slice(x, str_drive, vm))
                             .map(|x| x.to_pyobject(vm))
                             .unwrap_or_else(|| default.clone());
-                        dict.set_item(key, value, vm)?;
+                        dict.set_item(&*key, value, vm)?;
                     }
                     Ok(dict)
                 })
@@ -750,7 +750,7 @@ mod _sre {
             } else {
                 self.pattern
                     .groupindex
-                    .get_item_opt(group, vm)
+                    .get_item_opt(&*group, vm)
                     .ok()??
                     .downcast::<PyInt>()
                     .ok()?

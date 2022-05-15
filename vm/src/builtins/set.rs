@@ -174,7 +174,7 @@ impl PySetInner {
     ) -> PyResult<PySetInner> {
         let set = self.copy();
         for item in other.iter(vm)? {
-            set.content.delete_if_exists(vm, &item?)?;
+            set.content.delete_if_exists(vm, &*item?)?;
         }
         Ok(set)
     }
@@ -231,13 +231,11 @@ impl PySetInner {
     }
 
     fn add(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.content.insert(vm, item, ())
+        self.content.insert(vm, &*item, ())
     }
 
     fn remove(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.retry_op_with_frozenset(&item, vm, |item, vm| {
-            self.content.delete(vm, item.to_owned())
-        })
+        self.retry_op_with_frozenset(&item, vm, |item, vm| self.content.delete(vm, item))
     }
 
     fn discard(&self, item: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
@@ -293,7 +291,7 @@ impl PySetInner {
     fn difference_update(&self, others: PosArgs<ArgIterable>, vm: &VirtualMachine) -> PyResult<()> {
         for iterable in others {
             for item in iterable.iter(vm)? {
-                self.content.delete_if_exists(vm, &item?)?;
+                self.content.delete_if_exists(vm, &*item?)?;
             }
         }
         Ok(())

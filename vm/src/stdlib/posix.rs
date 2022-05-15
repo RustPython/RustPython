@@ -291,7 +291,7 @@ pub mod module {
         for (key, value) in env::vars_os() {
             let key: PyObjectRef = vm.ctx.new_bytes(key.into_vec()).into();
             let value: PyObjectRef = vm.ctx.new_bytes(value.into_vec()).into();
-            environ.set_item(key, value, vm).unwrap();
+            environ.set_item(&*key, value, vm).unwrap();
         }
 
         environ

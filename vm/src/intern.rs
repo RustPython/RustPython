@@ -1,7 +1,6 @@
 use crate::{
     builtins::{PyStr, PyTypeRef},
     common::lock::PyRwLock,
-    convert::ToPyObject,
     PyRef, PyRefExact,
 };
 use std::ops::Deref;
@@ -89,7 +88,7 @@ mod sealed {
 }
 
 /// A sealed marker trait for `DictKey` types that always become an exact instance of `str`
-pub trait Internable: sealed::SealedInternable + crate::dictdatatype::DictKey + ToPyObject {
+pub trait Internable: sealed::SealedInternable + crate::dictdatatype::DictKey {
     fn as_str(&self) -> &str;
     fn into_pyref(self, str_type: PyTypeRef) -> PyRefExact<PyStr>;
 }
