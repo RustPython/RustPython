@@ -11,24 +11,24 @@ use crate::{
     AsObject, Context, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use num_traits::Zero;
-use std::{fmt, ops::Deref};
+use std::{borrow::Borrow, fmt, ops::Deref};
 
 #[derive(Clone)]
-pub struct PyConstant(pub PyObjectRef);
-// pub(crate) enum PyConstant {
-//     Integer { value: super::int::PyIntRef },
-//     Float { value: super::int::PyFloatRef },
-//     Complex { value: super::complex::PyComplexRef },
-//     Boolean { value: super::int::PyIntRef },
-//     Str { value: super::pystr::PyStrRef },
-//     Bytes { value: super::bytes::PyBytesRef },
-//     Code { code: PyRef<PyCode> },
-//     Tuple { elements: super::tuple::PyTupleRef },
-//     None(PyObjectRef),
-//     Ellipsis(PyObjectRef),
-// }
+pub struct Literal(PyObjectRef);
 
-fn borrow_obj_constant(obj: &PyObject) -> BorrowedConstant<PyConstant> {
+impl Borrow<PyObject> for Literal {
+    fn borrow(&self) -> &PyObject {
+        &self.0
+    }
+}
+
+impl From<Literal> for PyObjectRef {
+    fn from(obj: Literal) -> Self {
+        obj.0
+    }
+}
+
+fn borrow_obj_constant(obj: &PyObject) -> BorrowedConstant<Literal> {
     match_class!(match obj {
         ref i @ super::int::PyInt => {
             let value = i.as_bigint();
@@ -62,7 +62,7 @@ fn borrow_obj_constant(obj: &PyObject) -> BorrowedConstant<PyConstant> {
     })
 }
 
-impl Constant for PyConstant {
+impl Constant for Literal {
     type Name = PyStrRef;
     fn borrow_constant(&self) -> BorrowedConstant<Self> {
         borrow_obj_constant(&self.0)
@@ -73,7 +73,7 @@ impl Constant for PyConstant {
 pub(crate) struct PyObjBag<'a>(pub &'a Context);
 
 impl ConstantBag for PyObjBag<'_> {
-    type Constant = PyConstant;
+    type Constant = Literal;
 
     fn make_constant<C: Constant>(&self, constant: BorrowedConstant<C>) -> Self::Constant {
         let ctx = self.0;
@@ -100,7 +100,7 @@ impl ConstantBag for PyObjBag<'_> {
             bytecode::BorrowedConstant::None => ctx.none(),
             bytecode::BorrowedConstant::Ellipsis => ctx.ellipsis(),
         };
-        PyConstant(obj)
+        Literal(obj)
     }
 
     fn make_name(&self, name: &str) -> PyStrRef {
@@ -108,7 +108,7 @@ impl ConstantBag for PyObjBag<'_> {
     }
 }
 
-pub type CodeObject = bytecode::CodeObject<PyConstant>;
+pub type CodeObject = bytecode::CodeObject<Literal>;
 
 pub trait IntoCodeObject {
     fn into_codeobj(self, ctx: &Context) -> CodeObject;
