@@ -85,17 +85,16 @@ pub(crate) fn init_importlib_package(
     })
 }
 
-pub fn import_frozen(vm: &VirtualMachine, module_name: &str) -> PyResult {
+pub fn make_frozen(vm: &VirtualMachine, name: &str) -> PyResult<code::CodeObject> {
     vm.state
         .frozen
-        .get(module_name)
-        .ok_or_else(|| {
-            vm.new_import_error(
-                format!("Cannot import frozen module {}", module_name),
-                module_name,
-            )
-        })
-        .and_then(|frozen| import_codeobj(vm, module_name, frozen.code.clone(), false))
+        .get(name)
+        .map(|frozen| vm.ctx.new_code_object(frozen.code.clone()))
+        .ok_or_else(|| vm.new_import_error(format!("No such frozen object named {}", name), name))
+}
+
+pub fn import_frozen(vm: &VirtualMachine, module_name: &str) -> PyResult {
+    make_frozen(vm, module_name).and_then(|frozen| import_codeobj(vm, module_name, frozen, false))
 }
 
 pub fn import_builtin(vm: &VirtualMachine, module_name: &str) -> PyResult {

@@ -51,8 +51,8 @@ mod lock {
 #[pymodule]
 mod _imp {
     use crate::{
-        builtins::{PyBytesRef, PyCode, PyModule, PyStr, PyStrRef},
-        import, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+        builtins::{PyBytesRef, PyCode, PyModule, PyStrRef},
+        import, PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,
     };
 
     #[pyfunction]
@@ -92,18 +92,8 @@ mod _imp {
     }
 
     #[pyfunction]
-    fn get_frozen_object(name: PyStrRef, vm: &VirtualMachine) -> PyResult<PyCode> {
-        vm.state
-            .frozen
-            .get(name.as_str())
-            .map(|frozen| {
-                let mut frozen = frozen.code.clone();
-                frozen.source_path = PyStr::from(format!("frozen {}", name)).into_ref(vm);
-                PyCode::new(frozen)
-            })
-            .ok_or_else(|| {
-                vm.new_import_error(format!("No such frozen object named {}", name), name)
-            })
+    fn get_frozen_object(name: PyStrRef, vm: &VirtualMachine) -> PyResult<PyRef<PyCode>> {
+        import::make_frozen(vm, name.as_str()).map(|code| vm.ctx.new_code(code))
     }
 
     #[pyfunction]

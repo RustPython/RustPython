@@ -1254,12 +1254,8 @@ impl<C: Constant> fmt::Debug for CodeObject<C> {
 
 /// A frozen module. Holds a code object and whether it is part of a package
 #[derive(Serialize, Deserialize, Debug)]
-pub struct FrozenModule<C: Constant = ConstantData> {
-    #[serde(bound(
-        deserialize = "C: serde::Deserialize<'de>, C::Name: serde::Deserialize<'de>",
-        serialize = "C: serde::Serialize, C::Name: serde::Serialize"
-    ))]
-    pub code: CodeObject<C>,
+pub struct FrozenModule {
+    pub code: CodeObject<ConstantData>,
     pub package: bool,
 }
 

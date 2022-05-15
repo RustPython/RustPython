@@ -101,7 +101,7 @@ impl ConstantBag for PyObjBag<'_> {
         PyConstant(obj)
     }
     fn make_constant_borrowed<C: Constant>(&self, constant: BorrowedConstant<C>) -> Self::Constant {
-        let ctx = &self.0;
+        let ctx = self.0;
         let obj = match constant {
             bytecode::BorrowedConstant::Integer { value } => ctx.new_bigint(value).into(),
             bytecode::BorrowedConstant::Float { value } => ctx.new_float(value).into(),
@@ -136,7 +136,6 @@ impl ConstantBag for PyObjBag<'_> {
 }
 
 pub type CodeObject = bytecode::CodeObject<PyConstant>;
-pub type FrozenModule = bytecode::FrozenModule<PyConstant>;
 
 pub trait IntoCodeObject {
     fn into_codeobj(self, ctx: &Context) -> CodeObject;
