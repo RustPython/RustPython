@@ -36,8 +36,17 @@ impl StringPool {
         let cache = CachedPyStrRef {
             inner: s.into_pyref(typ),
         };
-        self.inner.write().insert(cache.clone());
-        cache.inner
+        let inserted = self.inner.write().insert(cache.clone());
+        if inserted {
+            cache.inner
+        } else {
+            self.inner
+                .read()
+                .get(cache.inner.as_str())
+                .unwrap()
+                .clone()
+                .inner
+        }
     }
 }
 
