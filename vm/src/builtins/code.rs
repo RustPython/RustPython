@@ -100,10 +100,8 @@ impl ConstantBag for PyObjBag<'_> {
         };
         PyConstant(obj)
     }
-    fn make_name(&self, name: String) -> PyStrRef {
-        self.0.intern_string(name).into_pyref()
-    }
-    fn make_name_ref(&self, name: &str) -> PyStrRef {
+
+    fn make_name(&self, name: &str) -> PyStrRef {
         self.0.intern_string(name).into_pyref()
     }
 }

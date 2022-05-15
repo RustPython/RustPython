@@ -53,7 +53,7 @@ pub trait Constant: Sized {
         name: Self::Name,
         bag: &Bag,
     ) -> <Bag::Constant as Constant>::Name {
-        bag.make_name_ref(name.as_ref())
+        bag.make_name(name.as_ref())
     }
 }
 
@@ -76,19 +76,13 @@ impl Constant for ConstantData {
             ConstantData::Ellipsis => Ellipsis,
         }
     }
-    fn map_name<Bag: ConstantBag>(name: String, bag: &Bag) -> <Bag::Constant as Constant>::Name {
-        bag.make_name(name)
-    }
 }
 
 /// A Constant Bag
 pub trait ConstantBag: Sized {
     type Constant: Constant;
     fn make_constant<C: Constant>(&self, constant: BorrowedConstant<C>) -> Self::Constant;
-    fn make_name(&self, name: String) -> <Self::Constant as Constant>::Name;
-    fn make_name_ref(&self, name: &str) -> <Self::Constant as Constant>::Name {
-        self.make_name(name.to_owned())
-    }
+    fn make_name(&self, name: &str) -> <Self::Constant as Constant>::Name;
 }
 
 #[derive(Clone)]
@@ -99,8 +93,8 @@ impl ConstantBag for BasicBag {
     fn make_constant<C: Constant>(&self, constant: BorrowedConstant<C>) -> Self::Constant {
         constant.to_owned()
     }
-    fn make_name(&self, name: String) -> <Self::Constant as Constant>::Name {
-        name
+    fn make_name(&self, name: &str) -> <Self::Constant as Constant>::Name {
+        name.to_owned()
     }
 }
 
@@ -784,12 +778,8 @@ impl<C: Constant> CodeObject<C> {
 
     /// Same as `map_bag` but clones `self`
     pub fn map_clone_bag<Bag: ConstantBag>(&self, bag: &Bag) -> CodeObject<Bag::Constant> {
-        let map_names = |names: &[C::Name]| {
-            names
-                .iter()
-                .map(|x| bag.make_name_ref(x.as_ref()))
-                .collect()
-        };
+        let map_names =
+            |names: &[C::Name]| names.iter().map(|x| bag.make_name(x.as_ref())).collect();
         CodeObject {
             constants: self
                 .constants
@@ -800,8 +790,8 @@ impl<C: Constant> CodeObject<C> {
             varnames: map_names(&self.varnames),
             cellvars: map_names(&self.cellvars),
             freevars: map_names(&self.freevars),
-            source_path: bag.make_name_ref(self.source_path.as_ref()),
-            obj_name: bag.make_name_ref(self.obj_name.as_ref()),
+            source_path: bag.make_name(self.source_path.as_ref()),
+            obj_name: bag.make_name(self.obj_name.as_ref()),
 
             instructions: self.instructions.clone(),
             locations: self.locations.clone(),
