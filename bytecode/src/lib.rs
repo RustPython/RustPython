@@ -15,8 +15,8 @@ use std::{collections::BTreeSet, fmt, hash};
 /// Sourcecode location.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Location {
-    row: usize,
-    column: usize,
+    row: u32,
+    column: u32,
 }
 
 impl Location {
@@ -28,17 +28,19 @@ impl Location {
     /// let loc = Location::new(10, 10);
     /// ```
     pub fn new(row: usize, column: usize) -> Self {
+        let row = row.try_into().expect("Location::row over u32");
+        let column = column.try_into().expect("Location::column over u32");
         Location { row, column }
     }
 
     /// Current row
     pub fn row(&self) -> usize {
-        self.row
+        self.row as usize
     }
 
     /// Current column
     pub fn column(&self) -> usize {
-        self.column
+        self.column as usize
     }
 }
 
