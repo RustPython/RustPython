@@ -93,7 +93,7 @@ mod _imp {
 
     #[pyfunction]
     fn get_frozen_object(name: PyStrRef, vm: &VirtualMachine) -> PyResult<PyRef<PyCode>> {
-        import::make_frozen(vm, name.as_str()).map(|code| vm.ctx.new_code(code))
+        import::make_frozen(vm, name.as_str())
     }
 
     #[pyfunction]

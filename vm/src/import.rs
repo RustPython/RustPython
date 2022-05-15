@@ -4,7 +4,7 @@
 #[cfg(feature = "rustpython-compiler")]
 use crate::compile;
 use crate::{
-    builtins::{code, code::CodeObject, list, traceback::PyTraceback, PyBaseExceptionRef},
+    builtins::{list, traceback::PyTraceback, PyBaseExceptionRef, PyCode},
     scope::Scope,
     version::get_git_revision,
     vm::{thread, VirtualMachine},
@@ -85,12 +85,11 @@ pub(crate) fn init_importlib_package(
     })
 }
 
-pub fn make_frozen(vm: &VirtualMachine, name: &str) -> PyResult<code::CodeObject> {
-    vm.state
-        .frozen
-        .get(name)
-        .map(|frozen| vm.ctx.new_code_object(frozen.code.clone()))
-        .ok_or_else(|| vm.new_import_error(format!("No such frozen object named {}", name), name))
+pub fn make_frozen(vm: &VirtualMachine, name: &str) -> PyResult<PyRef<PyCode>> {
+    let frozen = vm.state.frozen.get(name).ok_or_else(|| {
+        vm.new_import_error(format!("No such frozen object named {}", name), name)
+    })?;
+    Ok(vm.ctx.new_code(frozen.code.clone()))
 }
 
 pub fn import_frozen(vm: &VirtualMachine, module_name: &str) -> PyResult {
@@ -122,15 +121,16 @@ pub fn import_file(
     file_path: String,
     content: String,
 ) -> PyResult {
-    let code = compile::compile(&content, compile::Mode::Exec, file_path, vm.compile_opts())
+    let code = vm
+        .compile_with_opts(&content, compile::Mode::Exec, file_path, vm.compile_opts())
         .map_err(|err| vm.new_syntax_error(&err))?;
-    import_codeobj(vm, module_name, vm.ctx.new_code_object(code), true)
+    import_codeobj(vm, module_name, code, true)
 }
 
 pub fn import_codeobj(
     vm: &VirtualMachine,
     module_name: &str,
-    code_obj: CodeObject,
+    code_obj: PyRef<PyCode>,
     set_file_attr: bool,
 ) -> PyResult {
     let attrs = vm.ctx.new_dict();
@@ -145,10 +145,7 @@ pub fn import_codeobj(
     sys_modules.set_item(module_name, module.clone(), vm)?;
 
     // Execute main code in module:
-    vm.run_code_obj(
-        code::PyCode::new(code_obj).into_ref(vm),
-        Scope::with_builtins(None, attrs, vm),
-    )?;
+    vm.run_code_obj(code_obj, Scope::with_builtins(None, attrs, vm))?;
     Ok(module)
 }
 
