@@ -47,14 +47,6 @@ pub trait Constant: Sized {
 
     /// Transforms the given Constant to a BorrowedConstant
     fn borrow_constant(&self) -> BorrowedConstant<Self>;
-
-    /// Maps the name for the given Bag.
-    fn map_name<Bag: ConstantBag>(
-        name: Self::Name,
-        bag: &Bag,
-    ) -> <Bag::Constant as Constant>::Name {
-        bag.make_name(name.as_ref())
-    }
 }
 
 impl Constant for ConstantData {
@@ -79,13 +71,13 @@ impl Constant for ConstantData {
 }
 
 /// A Constant Bag
-pub trait ConstantBag: Sized {
+pub trait ConstantBag: Sized + Copy {
     type Constant: Constant;
     fn make_constant<C: Constant>(&self, constant: BorrowedConstant<C>) -> Self::Constant;
     fn make_name(&self, name: &str) -> <Self::Constant as Constant>::Name;
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct BasicBag;
 
 impl ConstantBag for BasicBag {
@@ -742,12 +734,12 @@ impl<C: Constant> CodeObject<C> {
     }
 
     /// Map this CodeObject to one that holds a Bag::Constant
-    pub fn map_bag<Bag: ConstantBag>(self, bag: &Bag) -> CodeObject<Bag::Constant> {
+    pub fn map_bag<Bag: ConstantBag>(self, bag: Bag) -> CodeObject<Bag::Constant> {
         let map_names = |names: Box<[C::Name]>| {
             names
                 .into_vec()
                 .into_iter()
-                .map(|x| C::map_name(x, bag))
+                .map(|x| bag.make_name(x.as_ref()))
                 .collect::<Box<[_]>>()
         };
         CodeObject {
@@ -761,8 +753,8 @@ impl<C: Constant> CodeObject<C> {
             varnames: map_names(self.varnames),
             cellvars: map_names(self.cellvars),
             freevars: map_names(self.freevars),
-            source_path: C::map_name(self.source_path, bag),
-            obj_name: C::map_name(self.obj_name, bag),
+            source_path: bag.make_name(self.source_path.as_ref()),
+            obj_name: bag.make_name(self.obj_name.as_ref()),
 
             instructions: self.instructions,
             locations: self.locations,

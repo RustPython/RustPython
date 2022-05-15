@@ -326,7 +326,7 @@ impl Context {
     }
 
     pub fn new_code_object(&self, code: crate::bytecode::CodeObject) -> code::CodeObject {
-        code.map_bag(&code::PyObjBag(self))
+        code.map_bag(code::PyObjBag(self))
     }
 }
 

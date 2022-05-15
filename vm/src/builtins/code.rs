@@ -68,6 +68,7 @@ impl Constant for PyConstant {
     }
 }
 
+#[derive(Clone, Copy)]
 pub(crate) struct PyObjBag<'a>(pub &'a Context);
 
 impl ConstantBag for PyObjBag<'_> {
@@ -119,7 +120,7 @@ impl IntoCodeObject for CodeObject {
 
 impl IntoCodeObject for bytecode::CodeObject {
     fn into_codeobj(self, ctx: &Context) -> CodeObject {
-        self.map_bag(&PyObjBag(ctx))
+        self.map_bag(PyObjBag(ctx))
     }
 }
 
