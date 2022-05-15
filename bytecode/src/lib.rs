@@ -49,7 +49,7 @@ pub trait Constant: Sized {
     fn borrow_constant(&self) -> BorrowedConstant<Self>;
     /// Map this Constant to a Bag's constant
     fn map_constant<Bag: ConstantBag>(self, bag: &Bag) -> Bag::Constant {
-        bag.make_constant(self.borrow_constant().to_owned())
+        bag.make_constant(self.borrow_constant())
     }
 
     /// Maps the name for the given Bag.
@@ -88,10 +88,7 @@ impl Constant for ConstantData {
 /// A Constant Bag
 pub trait ConstantBag: Sized {
     type Constant: Constant;
-    fn make_constant(&self, constant: ConstantData) -> Self::Constant;
-    fn make_constant_borrowed<C: Constant>(&self, constant: BorrowedConstant<C>) -> Self::Constant {
-        self.make_constant(constant.to_owned())
-    }
+    fn make_constant<C: Constant>(&self, constant: BorrowedConstant<C>) -> Self::Constant;
     fn make_name(&self, name: String) -> <Self::Constant as Constant>::Name;
     fn make_name_ref(&self, name: &str) -> <Self::Constant as Constant>::Name {
         self.make_name(name.to_owned())
@@ -103,8 +100,8 @@ pub struct BasicBag;
 
 impl ConstantBag for BasicBag {
     type Constant = ConstantData;
-    fn make_constant(&self, constant: ConstantData) -> Self::Constant {
-        constant
+    fn make_constant<C: Constant>(&self, constant: BorrowedConstant<C>) -> Self::Constant {
+        constant.to_owned()
     }
     fn make_name(&self, name: String) -> <Self::Constant as Constant>::Name {
         name
@@ -801,7 +798,7 @@ impl<C: Constant> CodeObject<C> {
             constants: self
                 .constants
                 .iter()
-                .map(|x| bag.make_constant_borrowed(x.borrow_constant()))
+                .map(|x| bag.make_constant(x.borrow_constant()))
                 .collect(),
             names: map_names(&self.names),
             varnames: map_names(&self.varnames),

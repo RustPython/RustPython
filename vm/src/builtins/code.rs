@@ -67,7 +67,7 @@ impl Constant for PyConstant {
         borrow_obj_constant(&self.0)
     }
     fn map_constant<Bag: ConstantBag>(self, bag: &Bag) -> Bag::Constant {
-        bag.make_constant_borrowed(self.borrow_constant())
+        bag.make_constant(self.borrow_constant())
     }
 }
 
@@ -75,32 +75,8 @@ pub(crate) struct PyObjBag<'a>(pub &'a Context);
 
 impl ConstantBag for PyObjBag<'_> {
     type Constant = PyConstant;
-    fn make_constant(&self, constant: bytecode::ConstantData) -> Self::Constant {
-        let ctx = self.0;
-        let obj = match constant {
-            bytecode::ConstantData::Integer { value } => ctx.new_int(value).into(),
-            bytecode::ConstantData::Float { value } => ctx.new_float(value).into(),
-            bytecode::ConstantData::Complex { value } => ctx.new_complex(value).into(),
-            bytecode::ConstantData::Str { value } if value.len() <= 20 => {
-                ctx.intern_string(value).into_pyref().into()
-            }
-            bytecode::ConstantData::Str { value } => ctx.new_str(value).into(),
-            bytecode::ConstantData::Bytes { value } => ctx.new_bytes(value.to_vec()).into(),
-            bytecode::ConstantData::Boolean { value } => ctx.new_bool(value).into(),
-            bytecode::ConstantData::Code { code } => ctx.new_code(code.map_bag(self)).into(),
-            bytecode::ConstantData::Tuple { elements } => {
-                let elements = elements
-                    .into_iter()
-                    .map(|constant| self.make_constant(constant).0)
-                    .collect();
-                ctx.new_tuple(elements).into()
-            }
-            bytecode::ConstantData::None => ctx.none(),
-            bytecode::ConstantData::Ellipsis => ctx.ellipsis(),
-        };
-        PyConstant(obj)
-    }
-    fn make_constant_borrowed<C: Constant>(&self, constant: BorrowedConstant<C>) -> Self::Constant {
+
+    fn make_constant<C: Constant>(&self, constant: BorrowedConstant<C>) -> Self::Constant {
         let ctx = self.0;
         let obj = match constant {
             bytecode::BorrowedConstant::Integer { value } => ctx.new_bigint(value).into(),
@@ -118,7 +94,7 @@ impl ConstantBag for PyObjBag<'_> {
             bytecode::BorrowedConstant::Tuple { elements } => {
                 let elements = elements
                     .into_iter()
-                    .map(|constant| self.make_constant_borrowed(constant).0)
+                    .map(|constant| self.make_constant(constant).0)
                     .collect();
                 ctx.new_tuple(elements).into()
             }
