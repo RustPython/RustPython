@@ -47,13 +47,9 @@ pub trait Constant: Sized {
 
     /// Transforms the given Constant to a BorrowedConstant
     fn borrow_constant(&self) -> BorrowedConstant<Self>;
-    /// Get the data this Constant holds.
-    fn into_data(self) -> ConstantData {
-        self.borrow_constant().into_data()
-    }
     /// Map this Constant to a Bag's constant
     fn map_constant<Bag: ConstantBag>(self, bag: &Bag) -> Bag::Constant {
-        bag.make_constant(self.into_data())
+        bag.make_constant(self.borrow_constant().to_owned())
     }
 
     /// Maps the name for the given Bag.
@@ -84,9 +80,6 @@ impl Constant for ConstantData {
             ConstantData::Ellipsis => Ellipsis,
         }
     }
-    fn into_data(self) -> ConstantData {
-        self
-    }
     fn map_name<Bag: ConstantBag>(name: String, bag: &Bag) -> <Bag::Constant as Constant>::Name {
         bag.make_name(name)
     }
@@ -97,7 +90,7 @@ pub trait ConstantBag: Sized {
     type Constant: Constant;
     fn make_constant(&self, constant: ConstantData) -> Self::Constant;
     fn make_constant_borrowed<C: Constant>(&self, constant: BorrowedConstant<C>) -> Self::Constant {
-        self.make_constant(constant.into_data())
+        self.make_constant(constant.to_owned())
     }
     fn make_name(&self, name: String) -> <Self::Constant as Constant>::Name;
     fn make_name_ref(&self, name: &str) -> <Self::Constant as Constant>::Name {
@@ -556,7 +549,7 @@ impl<C: Constant> BorrowedConstant<'_, C> {
             BorrowedConstant::Ellipsis => write!(f, "..."),
         }
     }
-    pub fn into_data(self) -> ConstantData {
+    pub fn to_owned(self) -> ConstantData {
         use ConstantData::*;
         match self {
             BorrowedConstant::Integer { value } => Integer {
@@ -575,7 +568,7 @@ impl<C: Constant> BorrowedConstant<'_, C> {
                 code: Box::new(code.map_clone_bag(&BasicBag)),
             },
             BorrowedConstant::Tuple { elements } => Tuple {
-                elements: elements.map(BorrowedConstant::into_data).collect(),
+                elements: elements.map(BorrowedConstant::to_owned).collect(),
             },
             BorrowedConstant::None => None,
             BorrowedConstant::Ellipsis => Ellipsis,
