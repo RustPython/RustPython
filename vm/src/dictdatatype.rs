@@ -10,7 +10,7 @@ use crate::common::{
 use crate::{
     builtins::{PyInt, PyStr, PyStrRef},
     convert::ToPyObject,
-    AsObject, PyObject, PyObjectRef, PyRefExact, PyResult, VirtualMachine,
+    AsObject, Py, PyObject, PyObjectRef, PyRefExact, PyResult, VirtualMachine,
 };
 use num_traits::ToPrimitive;
 use std::{fmt, mem::size_of, ops::ControlFlow};
@@ -732,6 +732,30 @@ impl DictKey for PyObject {
 
     fn key_as_isize(&self, vm: &VirtualMachine) -> PyResult<isize> {
         vm.to_index(self)?.try_to_primitive(vm)
+    }
+}
+
+impl DictKey for Py<PyStr> {
+    fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
+        Ok(self.hash(vm))
+    }
+
+    fn key_is(&self, other: &PyObject) -> bool {
+        self.is(other)
+    }
+
+    fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObject) -> PyResult<bool> {
+        if self.is(other_key) {
+            Ok(true)
+        } else if let Some(pystr) = str_exact(other_key, vm) {
+            Ok(pystr.as_str() == self.as_str())
+        } else {
+            vm.bool_eq(self.as_object(), other_key)
+        }
+    }
+
+    fn key_as_isize(&self, vm: &VirtualMachine) -> PyResult<isize> {
+        self.as_object().key_as_isize(vm)
     }
 }
 
