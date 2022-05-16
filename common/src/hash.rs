@@ -186,8 +186,8 @@ pub fn mod_int(value: i64) -> PyHash {
 
 pub fn lcg_urandom(mut x: u32, buf: &mut [u8]) {
     for b in buf {
-        x *= 214013;
-        x += 2531011;
+        x = x.wrapping_mul(214013);
+        x = x.wrapping_add(2531011);
         *b = ((x >> 16) & 0xff) as u8;
     }
 }
