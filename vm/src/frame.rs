@@ -17,7 +17,7 @@ use crate::{
     scope::Scope,
     stdlib::builtins,
     vm::PyMethod,
-    AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -543,7 +543,7 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::StoreGlobal(idx) => {
                 let value = self.pop_value();
                 self.globals
-                    .set_item(self.code.names[*idx as usize].clone(), value, vm)?;
+                    .set_item(&*self.code.names[*idx as usize].clone(), value, vm)?;
                 Ok(None)
             }
             bytecode::Instruction::StoreDeref(i) => {
@@ -572,7 +572,7 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::DeleteGlobal(idx) => {
                 let name = &self.code.names[*idx as usize];
-                match self.globals.del_item(name.clone(), vm) {
+                match self.globals.del_item(&**name, vm) {
                     Ok(()) => {}
                     Err(e) if e.fast_isinstance(&vm.ctx.exceptions.key_error) => {
                         return Err(
@@ -695,7 +695,7 @@ impl ExecutingFrame<'_> {
                 };
                 let key = self.pop_value();
                 let value = self.pop_value();
-                dict.set_item(key, value, vm)?;
+                dict.set_item(&*key, value, vm)?;
                 Ok(None)
             }
             bytecode::Instruction::MapAddRev { i } => {
@@ -707,7 +707,7 @@ impl ExecutingFrame<'_> {
                 };
                 let value = self.pop_value();
                 let key = self.pop_value();
-                dict.set_item(key, value, vm)?;
+                dict.set_item(&*key, value, vm)?;
                 Ok(None)
             }
             bytecode::Instruction::BinaryOperation { op } => self.execute_binop(vm, *op),
@@ -1097,10 +1097,12 @@ impl ExecutingFrame<'_> {
     }
 
     #[inline]
-    fn load_global_or_builtin(&self, name: &PyStrRef, vm: &VirtualMachine) -> PyResult {
+    fn load_global_or_builtin(&self, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
         self.globals
-            .get_chain(self.builtins, name.clone(), vm)?
-            .ok_or_else(|| vm.new_name_error(format!("name '{}' is not defined", name), name))
+            .get_chain(self.builtins, name, vm)?
+            .ok_or_else(|| {
+                vm.new_name_error(format!("name '{}' is not defined", name), &name.to_owned())
+            })
     }
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
@@ -1153,7 +1155,7 @@ impl ExecutingFrame<'_> {
             .clone()
             .get_attr("modules", vm)
             .map_err(|_| err())?;
-        sys_modules.get_item(full_mod_name, vm).map_err(|_| err())
+        sys_modules.get_item(&full_mod_name, vm).map_err(|_| err())
     }
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
@@ -1260,7 +1262,7 @@ impl ExecutingFrame<'_> {
     fn execute_subscript(&mut self, vm: &VirtualMachine) -> FrameResult {
         let b_ref = self.pop_value();
         let a_ref = self.pop_value();
-        let value = a_ref.get_item(b_ref, vm)?;
+        let value = a_ref.get_item(&*b_ref, vm)?;
         self.push_value(value);
         Ok(None)
     }
@@ -1269,14 +1271,14 @@ impl ExecutingFrame<'_> {
         let idx = self.pop_value();
         let obj = self.pop_value();
         let value = self.pop_value();
-        obj.set_item(idx, value, vm)?;
+        obj.set_item(&*idx, value, vm)?;
         Ok(None)
     }
 
     fn execute_delete_subscript(&mut self, vm: &VirtualMachine) -> FrameResult {
         let idx = self.pop_value();
         let obj = self.pop_value();
-        obj.del_item(idx, vm)?;
+        obj.del_item(&*idx, vm)?;
         Ok(None)
     }
 
@@ -1298,7 +1300,7 @@ impl ExecutingFrame<'_> {
                 for (key, value) in dict {
                     #[allow(clippy::collapsible_if)]
                     if for_call {
-                        if map_obj.contains_key(key.clone(), vm) {
+                        if map_obj.contains_key(&*key, vm) {
                             let key_repr = &key.repr(vm)?;
                             let msg = format!(
                                 "got multiple values for keyword argument {}",
@@ -1307,12 +1309,12 @@ impl ExecutingFrame<'_> {
                             return Err(vm.new_type_error(msg));
                         }
                     }
-                    map_obj.set_item(key, value, vm)?;
+                    map_obj.set_item(&*key, value, vm)?;
                 }
             }
         } else {
             for (key, value) in self.pop_multiple(2 * size).tuples() {
-                map_obj.set_item(key, value, vm)?;
+                map_obj.set_item(&*key, value, vm)?;
             }
         }
 

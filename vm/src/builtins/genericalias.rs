@@ -249,7 +249,7 @@ fn subs_tvars(
                             })
                             .collect::<Vec<_>>();
                         let sub_args: PyObjectRef = PyTuple::new_ref(sub_args, &vm.ctx).into();
-                        Some(obj.get_item(sub_args, vm))
+                        Some(obj.get_item(&*sub_args, vm))
                     } else {
                         None
                     }

@@ -33,8 +33,12 @@ mod decl {
     fn compiler_flag_names(vm: &VirtualMachine) -> PyDictRef {
         let dict = vm.ctx.new_dict();
         for (name, flag) in CodeFlags::NAME_MAPPING {
-            dict.set_item(vm.new_pyobj(flag.bits()), vm.ctx.new_str(*name).into(), vm)
-                .unwrap();
+            dict.set_item(
+                &*vm.new_pyobj(flag.bits()),
+                vm.ctx.new_str(*name).into(),
+                vm,
+            )
+            .unwrap();
         }
         dict
     }

@@ -13,9 +13,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     for (name, code) in ERROR_CODES {
         let name = vm.ctx.new_str(*name);
         let code = vm.new_pyobj(*code);
-        errorcode
-            .set_item(code.clone(), name.clone().into(), vm)
-            .unwrap();
+        errorcode.set_item(&*code, name.clone().into(), vm).unwrap();
         module.set_attr(name, code, vm).unwrap();
     }
     module

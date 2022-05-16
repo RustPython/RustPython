@@ -1,9 +1,4 @@
-use crate::{
-    builtins::{pystr::IntoPyStrRef, PyDictRef, PyStrRef},
-    convert::ToPyObject,
-    function::ArgMapping,
-    VirtualMachine,
-};
+use crate::{builtins::PyDictRef, function::ArgMapping, VirtualMachine};
 use std::fmt;
 
 #[derive(Clone)]
@@ -140,14 +135,14 @@ impl Scope {
     // }
 }
 
-mod sealed {
-    pub trait Sealed {}
-    impl Sealed for &str {}
-    impl Sealed for super::PyStrRef {}
-}
-pub trait PyName:
-    sealed::Sealed + crate::dictdatatype::DictKey + Clone + ToPyObject + IntoPyStrRef
-{
-}
-impl PyName for &str {}
-impl PyName for PyStrRef {}
+// mod sealed {
+//     pub trait Sealed {}
+//     impl Sealed for &str {}
+//     impl Sealed for super::PyStrRef {}
+// }
+// pub trait PyName:
+//     sealed::Sealed + crate::dictdatatype::DictKey + Clone + ToPyObject + IntoPyStrRef
+// {
+// }
+// impl PyName for str {}
+// impl PyName for Py<PyStr> {}

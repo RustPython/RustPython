@@ -56,7 +56,7 @@ impl PyMethod {
         };
 
         if let Some(dict) = obj.dict() {
-            if let Some(attr) = dict.get_item_opt(name.clone(), vm)? {
+            if let Some(attr) = dict.get_item_opt(&*name, vm)? {
                 return Ok(Self::Attribute(attr));
             }
         }

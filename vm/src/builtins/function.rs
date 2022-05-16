@@ -137,7 +137,7 @@ impl PyFunction {
                 }
                 *slot = Some(value);
             } else if let Some(kwargs) = kwargs.as_ref() {
-                kwargs.set_item(name, value, vm)?;
+                kwargs.set_item(&name, value, vm)?;
             } else if argpos(0..code.posonlyarg_count, &name).is_some() {
                 posonly_passed_as_kwarg.push(name);
             } else {
@@ -242,7 +242,7 @@ impl PyFunction {
                 .filter(|(slot, _)| slot.is_none())
             {
                 if let Some(defaults) = &get_defaults!().1 {
-                    if let Some(default) = defaults.get_item_opt(kwarg.clone(), vm)? {
+                    if let Some(default) = defaults.get_item_opt(&**kwarg, vm)? {
                         *slot = Some(default);
                         continue;
                     }

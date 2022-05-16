@@ -76,7 +76,7 @@ mod _imp {
         let name = spec.get_attr("name", vm)?;
         let name = PyStrRef::try_from_object(vm, name)?;
 
-        if let Ok(module) = sys_modules.get_item(name.clone(), vm) {
+        if let Ok(module) = sys_modules.get_item(&*name, vm) {
             Ok(module)
         } else if let Some(make_module_func) = vm.state.module_inits.get(name.as_str()) {
             Ok(make_module_func(vm))

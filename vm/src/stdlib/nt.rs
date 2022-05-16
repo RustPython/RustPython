@@ -80,9 +80,7 @@ pub(crate) mod module {
         let environ = vm.ctx.new_dict();
 
         for (key, value) in env::vars() {
-            environ
-                .set_item(vm.new_pyobj(key), vm.new_pyobj(value), vm)
-                .unwrap();
+            environ.set_item(&key, vm.new_pyobj(value), vm).unwrap();
         }
         environ
     }

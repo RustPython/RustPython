@@ -1,8 +1,7 @@
 use crate::{
     builtins::{PyStr, PyTypeRef},
     common::lock::PyRwLock,
-    convert::ToPyObject,
-    PyRef, PyRefExact,
+    Py, PyRef, PyRefExact,
 };
 use std::ops::Deref;
 
@@ -36,8 +35,17 @@ impl StringPool {
         let cache = CachedPyStrRef {
             inner: s.into_pyref(typ),
         };
-        self.inner.write().insert(cache.clone());
-        cache.inner
+        let inserted = self.inner.write().insert(cache.clone());
+        if inserted {
+            cache.inner
+        } else {
+            self.inner
+                .read()
+                .get(cache.inner.as_str())
+                .unwrap()
+                .clone()
+                .inner
+        }
     }
 }
 
@@ -80,12 +88,14 @@ mod sealed {
 }
 
 /// A sealed marker trait for `DictKey` types that always become an exact instance of `str`
-pub trait Internable: sealed::SealedInternable + crate::dictdatatype::DictKey + ToPyObject {
+pub trait Internable: sealed::SealedInternable + AsRef<Self::Key> {
+    type Key: crate::dictdatatype::DictKey + ?Sized;
     fn as_str(&self) -> &str;
     fn into_pyref(self, str_type: PyTypeRef) -> PyRefExact<PyStr>;
 }
 
 impl Internable for String {
+    type Key = str;
     fn as_str(&self) -> &str {
         String::as_str(self)
     }
@@ -96,6 +106,7 @@ impl Internable for String {
 }
 
 impl Internable for &str {
+    type Key = str;
     fn as_str(&self) -> &str {
         self
     }
@@ -105,6 +116,7 @@ impl Internable for &str {
 }
 
 impl Internable for PyRefExact<PyStr> {
+    type Key = Py<PyStr>;
     fn as_str(&self) -> &str {
         self.deref().as_str()
     }

@@ -812,10 +812,10 @@ impl FormatString {
                                 argument = argument.get_attr(attribute.as_str(), vm)?;
                             }
                             FieldNamePart::Index(index) => {
-                                argument = argument.get_item(index, vm)?;
+                                argument = argument.get_item(&index, vm)?;
                             }
                             FieldNamePart::StringIndex(index) => {
-                                argument = argument.get_item(index, vm)?;
+                                argument = argument.get_item(&index, vm)?;
                             }
                         }
                     }
@@ -877,7 +877,7 @@ impl FormatString {
             FieldType::Auto | FieldType::Index(_) => {
                 Err(vm.new_value_error("Format string contains positional fields".to_owned()))
             }
-            FieldType::Keyword(keyword) => dict.get_item(keyword, vm),
+            FieldType::Keyword(keyword) => dict.get_item(&keyword, vm),
         })
     }
 }

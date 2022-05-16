@@ -54,7 +54,7 @@ mod _weakref {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         dict._as_dict_inner()
-            .delete_if(vm, &key, |wr| {
+            .delete_if(vm, &*key, |wr| {
                 let wr = wr
                     .payload::<PyWeak>()
                     .ok_or_else(|| vm.new_type_error("not a weakref".to_owned()))?;

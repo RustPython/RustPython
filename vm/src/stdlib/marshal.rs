@@ -201,11 +201,7 @@ mod decl {
                     )),
             });
             // Marshalled tuples are always in format key:value.
-            dict.insert(
-                vm,
-                items.get(0).unwrap().clone(),
-                items.get(1).unwrap().clone(),
-            )?;
+            dict.insert(vm, &**items.get(0).unwrap(), items.get(1).unwrap().clone())?;
         }
         Ok(PyDict::from_entries(dict))
     }

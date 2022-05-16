@@ -229,7 +229,7 @@ impl WASMVirtualMachine {
     pub fn add_to_scope(&self, name: String, value: JsValue) -> Result<(), JsValue> {
         self.with_vm(move |vm, StoredVirtualMachine { ref scope, .. }| {
             let value = convert::js_to_py(vm, value);
-            scope.globals.set_item(name, value, vm).into_js(vm)
+            scope.globals.set_item(&name, value, vm).into_js(vm)
         })?
     }
 
@@ -296,7 +296,7 @@ impl WASMVirtualMachine {
             let module = vm.new_module(&name, attrs, None);
 
             let sys_modules = vm.sys_module.get_attr("modules", vm).into_js(vm)?;
-            sys_modules.set_item(name, module, vm).into_js(vm)?;
+            sys_modules.set_item(&name, module, vm).into_js(vm)?;
 
             Ok(())
         })?
@@ -315,7 +315,7 @@ impl WASMVirtualMachine {
             }
 
             let sys_modules = vm.sys_module.get_attr("modules", vm).into_js(vm)?;
-            sys_modules.set_item(name, py_module, vm).into_js(vm)?;
+            sys_modules.set_item(&name, py_module, vm).into_js(vm)?;
 
             Ok(())
         })?
