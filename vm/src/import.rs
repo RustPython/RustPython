@@ -142,7 +142,7 @@ pub fn import_codeobj(
     if set_file_attr {
         attrs.set_item(
             identifier!(vm, __file__),
-            code_obj.source_path.clone().into(),
+            code_obj.source_path.to_object(),
             vm,
         )?;
     }

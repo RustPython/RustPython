@@ -5,7 +5,7 @@ use crate::{
         function::{PyCell, PyCellRef, PyFunction},
         tuple::{PyTuple, PyTupleTyped},
         PyBaseExceptionRef, PyCode, PyCoroutine, PyDict, PyDictRef, PyGenerator, PyList, PySet,
-        PySlice, PyStr, PyStrRef, PyTraceback, PyTypeRef,
+        PySlice, PyStr, PyStrInterned, PyStrRef, PyTraceback, PyTypeRef,
     },
     bytecode,
     convert::{IntoObject, ToPyResult},
@@ -187,7 +187,7 @@ impl FrameRef {
         let j = std::cmp::min(map.len(), code.varnames.len());
         if !code.varnames.is_empty() {
             let fastlocals = self.fastlocals.lock();
-            for (k, v) in itertools::zip(&map[..j], &**fastlocals) {
+            for (&k, v) in itertools::zip(&map[..j], &**fastlocals) {
                 match locals.mapping().ass_subscript(k, v.clone(), vm) {
                     Ok(()) => {}
                     Err(e) if e.fast_isinstance(&vm.ctx.exceptions.key_error) => {}
@@ -196,8 +196,8 @@ impl FrameRef {
             }
         }
         if !code.cellvars.is_empty() || !code.freevars.is_empty() {
-            let map_to_dict = |keys: &[PyStrRef], values: &[PyCellRef]| {
-                for (k, v) in itertools::zip(keys, values) {
+            let map_to_dict = |keys: &[&PyStrInterned], values: &[PyCellRef]| {
+                for (&k, v) in itertools::zip(keys, values) {
                     if let Some(value) = v.get() {
                         locals.mapping().ass_subscript(k, Some(value), vm)?;
                     } else {
@@ -424,19 +424,19 @@ impl ExecutingFrame<'_> {
     }
 
     fn unbound_cell_exception(&self, i: usize, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        if let Some(name) = self.code.cellvars.get(i) {
+        if let Some(&name) = self.code.cellvars.get(i) {
             vm.new_exception_msg(
                 vm.ctx.exceptions.unbound_local_error.clone(),
                 format!("local variable '{}' referenced before assignment", name),
             )
         } else {
-            let name = &self.code.freevars[i - self.code.cellvars.len()];
+            let name = self.code.freevars[i - self.code.cellvars.len()];
             vm.new_name_error(
                 format!(
                     "free variable '{}' referenced before assignment in enclosing scope",
                     name
                 ),
-                name,
+                name.to_owned(),
             )
         }
     }
@@ -471,7 +471,7 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::ImportName { idx } => {
-                self.import(vm, Some(self.code.names[*idx as usize].clone()))
+                self.import(vm, Some(self.code.names[*idx as usize].to_owned()))
             }
             bytecode::Instruction::ImportNameless => self.import(vm, None),
             bytecode::Instruction::ImportStar => self.import_star(vm),
@@ -495,7 +495,7 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::LoadNameAny(idx) => {
-                let name = &self.code.names[*idx as usize];
+                let name = self.code.names[*idx as usize];
                 let value = self.locals.mapping().subscript(name, vm).ok();
                 self.push_value(match value {
                     Some(x) => x,
@@ -519,8 +519,8 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::LoadClassDeref(i) => {
                 let i = *i as usize;
-                let name = self.code.freevars[i - self.code.cellvars.len()].clone();
-                let value = self.locals.mapping().subscript(&name, vm).ok();
+                let name = self.code.freevars[i - self.code.cellvars.len()];
+                let value = self.locals.mapping().subscript(name, vm).ok();
                 self.push_value(match value {
                     Some(v) => v,
                     None => self.cells_frees[i]
@@ -535,7 +535,7 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::StoreLocal(idx) => {
-                let name = &self.code.names[*idx as usize];
+                let name = self.code.names[*idx as usize];
                 let value = self.pop_value();
                 self.locals.mapping().ass_subscript(name, Some(value), vm)?;
                 Ok(None)
@@ -543,7 +543,7 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::StoreGlobal(idx) => {
                 let value = self.pop_value();
                 self.globals
-                    .set_item(&*self.code.names[*idx as usize].clone(), value, vm)?;
+                    .set_item(self.code.names[*idx as usize], value, vm)?;
                 Ok(None)
             }
             bytecode::Instruction::StoreDeref(i) => {
@@ -556,28 +556,30 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::DeleteLocal(idx) => {
-                let name = &self.code.names[*idx as usize];
+                let name = self.code.names[*idx as usize];
                 let res = self.locals.mapping().ass_subscript(name, None, vm);
 
                 match res {
                     Ok(()) => {}
                     Err(e) if e.fast_isinstance(&vm.ctx.exceptions.key_error) => {
-                        return Err(
-                            vm.new_name_error(format!("name '{}' is not defined", name), name)
-                        )
+                        return Err(vm.new_name_error(
+                            format!("name '{}' is not defined", name),
+                            name.to_owned(),
+                        ))
                     }
                     Err(e) => return Err(e),
                 }
                 Ok(None)
             }
             bytecode::Instruction::DeleteGlobal(idx) => {
-                let name = &self.code.names[*idx as usize];
-                match self.globals.del_item(&**name, vm) {
+                let name = self.code.names[*idx as usize];
+                match self.globals.del_item(name, vm) {
                     Ok(()) => {}
                     Err(e) if e.fast_isinstance(&vm.ctx.exceptions.key_error) => {
-                        return Err(
-                            vm.new_name_error(format!("name '{}' is not defined", name), name)
-                        )
+                        return Err(vm.new_name_error(
+                            format!("name '{}' is not defined", name),
+                            name.to_owned(),
+                        ))
                     }
                     Err(e) => return Err(e),
                 }
@@ -926,8 +928,8 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::LoadMethod { idx } => {
                 let obj = self.pop_value();
-                let method_name = self.code.names[*idx as usize].clone();
-                let method = PyMethod::get(obj, method_name, vm)?;
+                let method_name = self.code.names[*idx as usize];
+                let method = PyMethod::get(obj, method_name.to_owned(), vm)?;
                 let (target, is_method, func) = match method {
                     PyMethod::Function { target, func } => (target, true, func),
                     PyMethod::Attribute(val) => (vm.ctx.none(), false, val),
@@ -1094,7 +1096,7 @@ impl ExecutingFrame<'_> {
         self.globals
             .get_chain(self.builtins, name, vm)?
             .ok_or_else(|| {
-                vm.new_name_error(format!("name '{}' is not defined", name), &name.to_owned())
+                vm.new_name_error(format!("name '{}' is not defined", name), name.to_owned())
             })
     }
 
@@ -1133,10 +1135,10 @@ impl ExecutingFrame<'_> {
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
     fn import_from(&mut self, vm: &VirtualMachine, idx: bytecode::NameIdx) -> PyResult {
         let module = self.last_value();
-        let name = &self.code.names[idx as usize];
-        let err = || vm.new_import_error(format!("cannot import name '{}'", name), name.clone());
+        let name = self.code.names[idx as usize];
+        let err = || vm.new_import_error(format!("cannot import name '{}'", name), name);
         // Load attribute, and transform any error into import error.
-        if let Some(obj) = vm.get_attribute_opt(module.clone(), name.clone())? {
+        if let Some(obj) = vm.get_attribute_opt(module.clone(), name)? {
             return Ok(obj);
         }
         // fallback to importing '{module.__name__}.{name}' from sys.modules
@@ -1731,7 +1733,7 @@ impl ExecutingFrame<'_> {
     }
 
     fn load_attr(&mut self, vm: &VirtualMachine, attr: bytecode::NameIdx) -> FrameResult {
-        let attr_name = self.code.names[attr as usize].clone();
+        let attr_name = self.code.names[attr as usize];
         let parent = self.pop_value();
         let obj = parent.get_attr(attr_name, vm)?;
         self.push_value(obj);
@@ -1739,7 +1741,7 @@ impl ExecutingFrame<'_> {
     }
 
     fn store_attr(&mut self, vm: &VirtualMachine, attr: bytecode::NameIdx) -> FrameResult {
-        let attr_name = self.code.names[attr as usize].clone();
+        let attr_name = self.code.names[attr as usize];
         let parent = self.pop_value();
         let value = self.pop_value();
         parent.set_attr(attr_name, value, vm)?;
@@ -1747,7 +1749,7 @@ impl ExecutingFrame<'_> {
     }
 
     fn delete_attr(&mut self, vm: &VirtualMachine, attr: bytecode::NameIdx) -> FrameResult {
-        let attr_name = self.code.names[attr as usize].clone();
+        let attr_name = self.code.names[attr as usize];
         let parent = self.pop_value();
         parent.del_attr(attr_name, vm)?;
         Ok(None)

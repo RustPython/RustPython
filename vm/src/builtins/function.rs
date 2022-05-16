@@ -42,7 +42,7 @@ impl PyFunction {
         defaults: Option<PyTupleRef>,
         kw_only_defaults: Option<PyDictRef>,
     ) -> Self {
-        let name = PyMutex::new(code.obj_name.clone());
+        let name = PyMutex::new(code.obj_name.to_owned());
         PyFunction {
             code,
             globals,

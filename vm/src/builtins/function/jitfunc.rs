@@ -1,5 +1,5 @@
 use crate::{
-    builtins::{bool_, float, int, PyBaseExceptionRef, PyDictRef, PyFunction, PyStrRef},
+    builtins::{bool_, float, int, PyBaseExceptionRef, PyDictRef, PyFunction, PyStrInterned},
     bytecode::CodeFlags,
     convert::ToPyObject,
     function::FuncArgs,
@@ -153,7 +153,7 @@ pub(crate) fn get_jit_args<'a>(
     // Handle keyword arguments
     for (name, value) in &func_args.kwargs {
         let arg_pos =
-            |args: &[PyStrRef], name: &str| args.iter().position(|arg| arg.as_str() == name);
+            |args: &[&PyStrInterned], name: &str| args.iter().position(|arg| arg.as_str() == name);
         if let Some(arg_idx) = arg_pos(arg_names.args, name) {
             if jit_args.is_set(arg_idx) {
                 return Err(ArgsError::ArgPassedMultipleTimes);
