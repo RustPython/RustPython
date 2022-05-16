@@ -344,31 +344,29 @@ impl Compiler {
     ) -> CompileResult<()> {
         self.symbol_table_stack.push(symbol_table);
 
-        let (last, body) = if let Some(splited) = body.split_last() {
-            splited
-        } else {
-            return Ok(());
-        };
+        if let Some((last, body)) = body.split_last() {
+            for statement in body {
+                if let ast::StmtKind::Expr { value } = &statement.node {
+                    self.compile_expression(value)?;
+                    self.emit(Instruction::PrintExpr);
+                } else {
+                    self.compile_statement(statement)?;
+                }
+            }
 
-        for statement in body {
-            if let ast::StmtKind::Expr { value } = &statement.node {
+            if let ast::StmtKind::Expr { value } = &last.node {
                 self.compile_expression(value)?;
+                self.emit(Instruction::Duplicate);
                 self.emit(Instruction::PrintExpr);
             } else {
-                self.compile_statement(statement)?;
+                self.compile_statement(last)?;
+                self.emit_constant(ConstantData::None);
             }
-        }
-
-        if let ast::StmtKind::Expr { value } = &last.node {
-            self.compile_expression(value)?;
-            self.emit(Instruction::Duplicate);
-            self.emit(Instruction::PrintExpr);
         } else {
-            self.compile_statement(last)?;
             self.emit_constant(ConstantData::None);
-        }
-        self.emit(Instruction::ReturnValue);
+        };
 
+        self.emit(Instruction::ReturnValue);
         Ok(())
     }
 
