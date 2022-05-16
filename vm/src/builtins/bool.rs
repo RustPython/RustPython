@@ -112,10 +112,12 @@ impl PyBool {
     #[pymethod(magic)]
     fn repr(zelf: bool, vm: &VirtualMachine) -> PyStrRef {
         if zelf {
-            vm.ctx.true_str.clone()
+            vm.ctx.true_str
         } else {
-            vm.ctx.false_str.clone()
+            vm.ctx.false_str
         }
+        .to_owned()
+        .into_pyref()
     }
 
     #[pymethod(magic)]
