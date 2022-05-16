@@ -14,7 +14,7 @@ mod builtins {
         builtins::{
             asyncgenerator::PyAsyncGen,
             enumerate::PyReverseSequenceIterator,
-            function::{PyCellRef, PyFunctionRef},
+            function::{PyCellRef, PyFunction},
             int::PyIntRef,
             iter::PyCallableIterator,
             list::{PyList, SortOptions},
@@ -802,7 +802,7 @@ mod builtins {
 
     #[pyfunction]
     pub fn __build_class__(
-        function: PyFunctionRef,
+        function: PyRef<PyFunction>,
         qualified_name: PyStrRef,
         bases: PosArgs,
         mut kwargs: KwArgs,

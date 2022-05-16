@@ -2,7 +2,7 @@
 mod jitfunc;
 
 use super::{
-    tuple::PyTupleTyped, PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyStrRef,
+    tuple::PyTupleTyped, PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyStr, PyStrRef,
     PyTupleRef, PyTypeRef,
 };
 use crate::common::lock::PyMutex;
@@ -21,9 +21,6 @@ use crate::{common::lock::OnceCell, convert::ToPyObject};
 use itertools::Itertools;
 #[cfg(feature = "jit")]
 use rustpython_jit::CompiledCode;
-use rustpython_vm::builtins::PyStr;
-
-pub type PyFunctionRef = PyRef<PyFunction>;
 
 #[pyclass(module = false, name = "function")]
 #[derive(Debug)]
