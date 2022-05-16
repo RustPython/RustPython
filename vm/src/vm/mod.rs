@@ -163,6 +163,16 @@ impl VirtualMachine {
             recursion_depth: Cell::new(0),
         };
 
+        if vm.state.hash_secret.hash_str("")
+            != vm
+                .ctx
+                .interned_str("")
+                .expect("empty str must be interned")
+                .hash(&vm)
+        {
+            panic!("Interpreters in same process must share the hash seed");
+        }
+
         let frozen = frozen::get_module_inits().collect();
         PyRc::get_mut(&mut vm.state).unwrap().frozen = frozen;
 
