@@ -88,6 +88,12 @@ pub struct PyGlobalState {
     pub codec_registry: CodecsRegistry,
 }
 
+pub fn process_hash_secret_seed() -> u32 {
+    use once_cell::sync::OnceCell;
+    static SEED: OnceCell<u32> = OnceCell::new();
+    *SEED.get_or_init(rand::random)
+}
+
 impl VirtualMachine {
     /// Create a new `VirtualMachine` structure.
     fn new(settings: Settings, ctx: PyRc<Context>) -> VirtualMachine {
@@ -120,10 +126,11 @@ impl VirtualMachine {
 
         let module_inits = stdlib::get_module_inits();
 
-        let hash_secret = match settings.hash_seed {
-            Some(seed) => HashSecret::new(seed),
-            None => rand::random(),
+        let seed = match settings.hash_seed {
+            Some(seed) => seed,
+            None => process_hash_secret_seed(),
         };
+        let hash_secret = HashSecret::new(seed);
 
         let codec_registry = CodecsRegistry::new(&ctx);
 
