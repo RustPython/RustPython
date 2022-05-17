@@ -280,6 +280,52 @@ impl TryFromObject for ExceptionCtor {
     }
 }
 
+pub struct SimpleException {
+    typ: &'static Py<PyType>,
+    message: Option<&'static str>,
+}
+
+impl SimpleException {
+    #[inline]
+    pub fn new(typ: &'static Py<PyType>) -> Self {
+        Self { typ, message: None }
+    }
+    #[inline]
+    pub fn with_message(typ: &'static Py<PyType>, message: &'static str) -> Self {
+        let message = Some(message);
+        Self { typ, message }
+    }
+}
+
+impl ToPyException for SimpleException {
+    #[inline]
+    fn to_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        let Self { typ, message } = self;
+        match message {
+            Some(message) => vm.new_exception_msg(typ.to_owned(), message.to_owned()),
+            None => vm.new_exception_empty(typ.to_owned()),
+        }
+    }
+}
+
+pub struct DeferredException<M>
+where
+    M: FnOnce(&VirtualMachine) -> String,
+{
+    typ: &'static Py<PyType>,
+    build_message: M,
+}
+
+impl<M> ToPyException for DeferredException<M>
+where
+    M: FnOnce(&VirtualMachine) -> String,
+{
+    fn to_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        let Self { typ, build_message } = self;
+        vm.new_exception_msg(typ.to_owned(), build_message(vm))
+    }
+}
+
 impl ExceptionCtor {
     pub fn instantiate(self, vm: &VirtualMachine) -> PyResult<PyBaseExceptionRef> {
         match self {
