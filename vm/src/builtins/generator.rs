@@ -21,7 +21,7 @@ pub struct PyGenerator {
 
 impl PyPayload for PyGenerator {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.generator_type
+        vm.ctx.types.generator_type
     }
 }
 
@@ -106,5 +106,5 @@ impl IterNext for PyGenerator {
 }
 
 pub fn init(ctx: &Context) {
-    PyGenerator::extend_class(ctx, &ctx.types.generator_type);
+    PyGenerator::extend_class(ctx, ctx.types.generator_type);
 }

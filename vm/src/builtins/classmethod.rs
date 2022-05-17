@@ -40,7 +40,7 @@ impl From<PyObjectRef> for PyClassMethod {
 
 impl PyPayload for PyClassMethod {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.classmethod_type
+        vm.ctx.types.classmethod_type
     }
 }
 
@@ -96,5 +96,5 @@ impl PyClassMethod {
 }
 
 pub(crate) fn init(context: &Context) {
-    PyClassMethod::extend_class(context, &context.types.classmethod_type);
+    PyClassMethod::extend_class(context, context.types.classmethod_type);
 }

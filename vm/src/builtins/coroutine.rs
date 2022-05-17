@@ -18,7 +18,7 @@ pub struct PyCoroutine {
 
 impl PyPayload for PyCoroutine {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.coroutine_type
+        vm.ctx.types.coroutine_type
     }
 }
 
@@ -122,7 +122,7 @@ pub struct PyCoroutineWrapper {
 
 impl PyPayload for PyCoroutineWrapper {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.coroutine_wrapper_type
+        vm.ctx.types.coroutine_wrapper_type
     }
 }
 
@@ -153,6 +153,6 @@ impl IterNext for PyCoroutineWrapper {
 }
 
 pub fn init(ctx: &Context) {
-    PyCoroutine::extend_class(ctx, &ctx.types.coroutine_type);
-    PyCoroutineWrapper::extend_class(ctx, &ctx.types.coroutine_wrapper_type);
+    PyCoroutine::extend_class(ctx, ctx.types.coroutine_type);
+    PyCoroutineWrapper::extend_class(ctx, ctx.types.coroutine_wrapper_type);
 }

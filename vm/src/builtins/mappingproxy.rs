@@ -25,7 +25,7 @@ enum MappingProxyInner {
 
 impl PyPayload for PyMappingProxy {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.mappingproxy_type
+        vm.ctx.types.mappingproxy_type
     }
 }
 
@@ -211,5 +211,5 @@ impl Iterable for PyMappingProxy {
 }
 
 pub fn init(context: &Context) {
-    PyMappingProxy::extend_class(context, &context.types.mappingproxy_type)
+    PyMappingProxy::extend_class(context, context.types.mappingproxy_type)
 }

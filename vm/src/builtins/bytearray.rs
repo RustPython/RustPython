@@ -83,14 +83,14 @@ impl From<Vec<u8>> for PyByteArray {
 
 impl PyPayload for PyByteArray {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.bytearray_type
+        vm.ctx.types.bytearray_type
     }
 }
 
 /// Fill bytearray class methods dictionary.
 pub(crate) fn init(context: &Context) {
-    PyByteArray::extend_class(context, &context.types.bytearray_type);
-    PyByteArrayIterator::extend_class(context, &context.types.bytearray_iterator_type);
+    PyByteArray::extend_class(context, context.types.bytearray_type);
+    PyByteArrayIterator::extend_class(context, context.types.bytearray_iterator_type);
 }
 
 #[pyimpl(
@@ -863,7 +863,7 @@ pub struct PyByteArrayIterator {
 
 impl PyPayload for PyByteArrayIterator {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.bytearray_iterator_type
+        vm.ctx.types.bytearray_iterator_type
     }
 }
 

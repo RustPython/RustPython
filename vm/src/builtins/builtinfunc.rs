@@ -64,7 +64,7 @@ pub struct PyBuiltinFunction {
 
 impl PyPayload for PyBuiltinFunction {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.builtin_function_or_method_type
+        vm.ctx.types.builtin_function_or_method_type
     }
 }
 
@@ -169,7 +169,7 @@ pub struct PyBuiltinMethod {
 
 impl PyPayload for PyBuiltinMethod {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.method_descriptor_type
+        vm.ctx.types.method_descriptor_type
     }
 }
 
@@ -254,6 +254,6 @@ impl PyBuiltinMethod {
 impl Unconstructible for PyBuiltinMethod {}
 
 pub fn init(context: &Context) {
-    PyBuiltinFunction::extend_class(context, &context.types.builtin_function_or_method_type);
-    PyBuiltinMethod::extend_class(context, &context.types.method_descriptor_type);
+    PyBuiltinFunction::extend_class(context, context.types.builtin_function_or_method_type);
+    PyBuiltinMethod::extend_class(context, context.types.method_descriptor_type);
 }

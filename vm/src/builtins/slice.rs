@@ -21,7 +21,7 @@ pub struct PySlice {
 
 impl PyPayload for PySlice {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.slice_type
+        vm.ctx.types.slice_type
     }
 }
 
@@ -266,7 +266,7 @@ pub struct PyEllipsis;
 
 impl PyPayload for PyEllipsis {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.ellipsis_type
+        vm.ctx.types.ellipsis_type
     }
 }
 
@@ -291,7 +291,7 @@ impl PyEllipsis {
     }
 }
 
-pub fn init(context: &Context) {
-    PySlice::extend_class(context, &context.types.slice_type);
-    PyEllipsis::extend_class(context, &context.ellipsis.class().clone());
+pub fn init(ctx: &Context) {
+    PySlice::extend_class(ctx, ctx.types.slice_type);
+    PyEllipsis::extend_class(ctx, &ctx.ellipsis.class());
 }

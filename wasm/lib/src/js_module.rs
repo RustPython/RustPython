@@ -623,7 +623,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let module = _js::make_module(vm);
 
     let ctx = &vm.ctx;
-    let js_error = PyType::new_simple_ref("JSError", &vm.ctx.exceptions.exception_type).unwrap();
+    let js_error = PyType::new_simple_ref("JSError", vm.ctx.exceptions.exception_type).unwrap();
     extend_class!(ctx, &js_error, {
         "value" => ctx.new_readonly_getset("value", js_error.clone(), |exc: PyBaseExceptionRef| exc.get_arg(0)),
     });

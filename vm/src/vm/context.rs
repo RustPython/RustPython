@@ -66,12 +66,12 @@ impl Context {
             .map(|v| PyRef::new_ref(PyInt::from(BigInt::from(v)), types.int_type.clone(), None))
             .collect();
 
-        let true_value = create_object(PyInt::from(1), &types.bool_type);
-        let false_value = create_object(PyInt::from(0), &types.bool_type);
+        let true_value = create_object(PyInt::from(1), types.bool_type);
+        let false_value = create_object(PyInt::from(0), types.bool_type);
 
         let empty_tuple = create_object(
             PyTuple::new_unchecked(Vec::new().into_boxed_slice()),
-            &types.tuple_type,
+            types.tuple_type,
         );
         let empty_frozenset =
             PyRef::new_ref(PyFrozenSet::default(), types.frozenset_type.clone(), None);
@@ -81,7 +81,7 @@ impl Context {
         let new_str = unsafe { string_pool.intern("__new__", types.str_type.clone()) };
         let slot_new_wrapper = create_object(
             PyNativeFuncDef::new(PyType::__new__.into_func(), new_str.to_owned()).into_function(),
-            &types.builtin_function_or_method_type,
+            types.builtin_function_or_method_type,
         )
         .into();
 

@@ -18,7 +18,7 @@ pub struct PyZip {
 
 impl PyPayload for PyZip {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.zip_type
+        vm.ctx.types.zip_type
     }
 }
 
@@ -109,6 +109,6 @@ impl IterNext for PyZip {
     }
 }
 
-pub fn init(context: &Context) {
-    PyZip::extend_class(context, &context.types.zip_type);
+pub fn init(ctx: &Context) {
+    PyZip::extend_class(ctx, ctx.types.zip_type);
 }

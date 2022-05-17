@@ -20,7 +20,7 @@ pub struct PyEnumerate {
 
 impl PyPayload for PyEnumerate {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.enumerate_type
+        vm.ctx.types.enumerate_type
     }
 }
 
@@ -86,7 +86,7 @@ pub struct PyReverseSequenceIterator {
 
 impl PyPayload for PyReverseSequenceIterator {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.reverse_iter_type
+        vm.ctx.types.reverse_iter_type
     }
 }
 
@@ -133,6 +133,6 @@ impl IterNext for PyReverseSequenceIterator {
 }
 
 pub fn init(context: &Context) {
-    PyEnumerate::extend_class(context, &context.types.enumerate_type);
-    PyReverseSequenceIterator::extend_class(context, &context.types.reverse_iter_type);
+    PyEnumerate::extend_class(context, context.types.enumerate_type);
+    PyReverseSequenceIterator::extend_class(context, context.types.reverse_iter_type);
 }

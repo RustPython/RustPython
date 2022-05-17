@@ -44,11 +44,11 @@ pub fn new_jit_error(msg: String, vm: &VirtualMachine) -> PyBaseExceptionRef {
 
 fn get_jit_arg_type(dict: &PyDictRef, name: &str, vm: &VirtualMachine) -> PyResult<JitType> {
     if let Some(value) = dict.get_item_opt(name, vm)? {
-        if value.is(&vm.ctx.types.int_type) {
+        if value.is(vm.ctx.types.int_type) {
             Ok(JitType::Int)
-        } else if value.is(&vm.ctx.types.float_type) {
+        } else if value.is(vm.ctx.types.float_type) {
             Ok(JitType::Float)
-        } else if value.is(&vm.ctx.types.bool_type) {
+        } else if value.is(vm.ctx.types.bool_type) {
             Ok(JitType::Bool)
         } else {
             Err(new_jit_error(
@@ -112,14 +112,14 @@ pub fn get_jit_arg_types(
 fn get_jit_value(vm: &VirtualMachine, obj: &PyObject) -> Result<AbiValue, ArgsError> {
     // This does exact type checks as subclasses of int/float can't be passed to jitted functions
     let cls = obj.class();
-    if cls.is(&vm.ctx.types.int_type) {
+    if cls.is(vm.ctx.types.int_type) {
         int::get_value(obj)
             .to_i64()
             .map(AbiValue::Int)
             .ok_or(ArgsError::IntOverflow)
-    } else if cls.is(&vm.ctx.types.float_type) {
+    } else if cls.is(vm.ctx.types.float_type) {
         Ok(AbiValue::Float(float::get_value(obj)))
-    } else if cls.is(&vm.ctx.types.bool_type) {
+    } else if cls.is(vm.ctx.types.bool_type) {
         Ok(AbiValue::Bool(bool_::get_value(obj)))
     } else {
         Err(ArgsError::NonJitType)

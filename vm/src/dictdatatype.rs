@@ -870,7 +870,7 @@ impl DictKey for usize {
 }
 
 fn str_exact<'a>(obj: &'a PyObject, vm: &VirtualMachine) -> Option<&'a PyStr> {
-    if obj.class().is(&vm.ctx.types.str_type) {
+    if obj.class().is(vm.ctx.types.str_type) {
         obj.payload::<PyStr>()
     } else {
         None

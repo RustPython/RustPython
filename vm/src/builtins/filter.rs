@@ -19,7 +19,7 @@ pub struct PyFilter {
 
 impl PyPayload for PyFilter {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.filter_type
+        vm.ctx.types.filter_type
     }
 }
 
@@ -74,5 +74,5 @@ impl IterNext for PyFilter {
 }
 
 pub fn init(context: &Context) {
-    PyFilter::extend_class(context, &context.types.filter_type);
+    PyFilter::extend_class(context, context.types.filter_type);
 }

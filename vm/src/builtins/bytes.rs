@@ -75,13 +75,13 @@ impl AsRef<[u8]> for PyBytesRef {
 
 impl PyPayload for PyBytes {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.bytes_type
+        vm.ctx.types.bytes_type
     }
 }
 
 pub(crate) fn init(context: &Context) {
-    PyBytes::extend_class(context, &context.types.bytes_type);
-    PyBytesIterator::extend_class(context, &context.types.bytes_iterator_type);
+    PyBytes::extend_class(context, context.types.bytes_type);
+    PyBytesIterator::extend_class(context, context.types.bytes_iterator_type);
 }
 
 impl Constructor for PyBytes {
@@ -134,7 +134,7 @@ impl PyBytes {
 
     #[pymethod(magic)]
     fn bytes(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRef<Self> {
-        if zelf.is(&vm.ctx.types.bytes_type) {
+        if zelf.is(vm.ctx.types.bytes_type) {
             zelf
         } else {
             PyBytes::from(zelf.inner.clone()).into_ref(vm)
@@ -480,7 +480,7 @@ impl PyBytes {
     #[pymethod(name = "__rmul__")]
     #[pymethod(magic)]
     fn mul(zelf: PyRef<Self>, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        if value == 1 && zelf.class().is(&vm.ctx.types.bytes_type) {
+        if value == 1 && zelf.class().is(vm.ctx.types.bytes_type) {
             // Special case: when some `bytes` is multiplied by `1`,
             // nothing really happens, we need to return an object itself
             // with the same `id()` to be compatible with CPython.
@@ -633,7 +633,7 @@ impl Comparable for PyBytes {
     ) -> PyResult<PyComparisonValue> {
         Ok(if let Some(res) = op.identical_optimization(zelf, other) {
             res.into()
-        } else if other.fast_isinstance(&vm.ctx.types.memoryview_type)
+        } else if other.fast_isinstance(vm.ctx.types.memoryview_type)
             && op != PyComparisonOp::Eq
             && op != PyComparisonOp::Ne
         {
@@ -666,7 +666,7 @@ pub struct PyBytesIterator {
 
 impl PyPayload for PyBytesIterator {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.bytes_iterator_type
+        vm.ctx.types.bytes_iterator_type
     }
 }
 

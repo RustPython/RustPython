@@ -213,7 +213,7 @@ impl Node for ast::Constant {
         let constant = match_class!(match object {
             ref i @ builtins::int::PyInt => {
                 let value = i.as_bigint();
-                if object.class().is(&vm.ctx.types.bool_type) {
+                if object.class().is(vm.ctx.types.bool_type) {
                     ast::Constant::Bool(!value.is_zero())
                 } else {
                     ast::Constant::Int(value.clone())

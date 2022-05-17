@@ -37,7 +37,7 @@ impl fmt::Debug for PyGenericAlias {
 
 impl PyPayload for PyGenericAlias {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.generic_alias_type
+        vm.ctx.types.generic_alias_type
     }
 }
 
@@ -323,8 +323,8 @@ impl Callable for PyGenericAlias {
     fn call(zelf: &crate::Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         PyType::call(&zelf.origin, args, vm).map(|obj| {
             if let Err(exc) = obj.set_attr("__orig_class__", zelf.to_owned(), vm) {
-                if !exc.fast_isinstance(&vm.ctx.exceptions.attribute_error)
-                    && !exc.fast_isinstance(&vm.ctx.exceptions.type_error)
+                if !exc.fast_isinstance(vm.ctx.exceptions.attribute_error)
+                    && !exc.fast_isinstance(vm.ctx.exceptions.type_error)
                 {
                     return Err(exc);
                 }

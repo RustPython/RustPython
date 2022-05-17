@@ -11,7 +11,7 @@ use crate::{
 };
 
 pub fn init(context: &Context) {
-    FrameRef::extend_class(context, &context.types.frame_type);
+    FrameRef::extend_class(context, context.types.frame_type);
 }
 
 #[pyimpl(with(Constructor, PyRef))]

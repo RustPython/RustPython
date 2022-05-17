@@ -22,7 +22,7 @@ type PyAsyncGenRef = PyRef<PyAsyncGen>;
 
 impl PyPayload for PyAsyncGen {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.async_generator
+        vm.ctx.types.async_generator
     }
 }
 
@@ -136,7 +136,7 @@ impl Unconstructible for PyAsyncGen {}
 pub(crate) struct PyAsyncGenWrappedValue(pub PyObjectRef);
 impl PyPayload for PyAsyncGenWrappedValue {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.async_generator_wrapped_value
+        vm.ctx.types.async_generator_wrapped_value
     }
 }
 
@@ -147,7 +147,7 @@ impl PyAsyncGenWrappedValue {
     fn unbox(ag: &PyAsyncGen, val: PyResult<PyIterReturn>, vm: &VirtualMachine) -> PyResult {
         let (closed, async_done) = match &val {
             Ok(PyIterReturn::StopIteration(_)) => (true, true),
-            Err(e) if e.fast_isinstance(&vm.ctx.exceptions.generator_exit) => (true, true),
+            Err(e) if e.fast_isinstance(vm.ctx.exceptions.generator_exit) => (true, true),
             Err(_) => (false, true),
             _ => (false, false),
         };
@@ -185,7 +185,7 @@ pub(crate) struct PyAsyncGenASend {
 
 impl PyPayload for PyAsyncGenASend {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.async_generator_asend
+        vm.ctx.types.async_generator_asend
     }
 }
 
@@ -280,7 +280,7 @@ pub(crate) struct PyAsyncGenAThrow {
 
 impl PyPayload for PyAsyncGenAThrow {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.async_generator_athrow
+        vm.ctx.types.async_generator_athrow
     }
 }
 
@@ -398,8 +398,8 @@ impl PyAsyncGenAThrow {
         self.ag.running_async.store(false);
         self.state.store(AwaitableState::Closed);
         if self.aclose
-            && (exc.fast_isinstance(&vm.ctx.exceptions.stop_async_iteration)
-                || exc.fast_isinstance(&vm.ctx.exceptions.generator_exit))
+            && (exc.fast_isinstance(vm.ctx.exceptions.stop_async_iteration)
+                || exc.fast_isinstance(vm.ctx.exceptions.generator_exit))
         {
             vm.new_stop_iteration(None)
         } else {
@@ -416,7 +416,7 @@ impl IterNext for PyAsyncGenAThrow {
 }
 
 pub fn init(ctx: &Context) {
-    PyAsyncGen::extend_class(ctx, &ctx.types.async_generator);
-    PyAsyncGenASend::extend_class(ctx, &ctx.types.async_generator_asend);
-    PyAsyncGenAThrow::extend_class(ctx, &ctx.types.async_generator_athrow);
+    PyAsyncGen::extend_class(ctx, ctx.types.async_generator);
+    PyAsyncGenASend::extend_class(ctx, ctx.types.async_generator_asend);
+    PyAsyncGenAThrow::extend_class(ctx, ctx.types.async_generator_athrow);
 }
