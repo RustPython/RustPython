@@ -832,8 +832,8 @@ pub(super) mod _os {
             let name = match zelf.get_attr("name", vm) {
                 Ok(name) => Some(name),
                 Err(e)
-                    if e.fast_isinstance(&vm.ctx.exceptions.attribute_error)
-                        || e.fast_isinstance(&vm.ctx.exceptions.value_error) =>
+                    if e.fast_isinstance(vm.ctx.exceptions.attribute_error)
+                        || e.fast_isinstance(vm.ctx.exceptions.value_error) =>
                 {
                     None
                 }

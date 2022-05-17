@@ -121,7 +121,7 @@ mod _io {
         recursion::ReprGuard,
         types::{Constructor, DefaultConstructor, Destructor, Initializer, IterNext, Iterable},
         vm::VirtualMachine,
-        AsObject, Context, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
+        AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
         TryFromBorrowedObject, TryFromObject,
     };
     use bstr::ByteSlice;
@@ -1343,8 +1343,8 @@ mod _io {
         let name = match obj.to_owned().get_attr("name", vm) {
             Ok(name) => Some(name),
             Err(e)
-                if e.fast_isinstance(&vm.ctx.exceptions.attribute_error)
-                    || e.fast_isinstance(&vm.ctx.exceptions.value_error) =>
+                if e.fast_isinstance(vm.ctx.exceptions.attribute_error)
+                    || e.fast_isinstance(vm.ctx.exceptions.value_error) =>
             {
                 None
             }
@@ -3561,7 +3561,7 @@ mod _io {
 
         // Construct a FileIO (subclass of RawIOBase)
         // This is subsequently consumed by a Buffered Class.
-        let file_io_class = {
+        let file_io_class: &Py<PyType> = {
             cfg_if::cfg_if! {
                 if #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))] {
                     Some(super::fileio::FileIO::static_type())
@@ -3569,8 +3569,8 @@ mod _io {
                     None
                 }
             }
-        };
-        let file_io_class: &PyTypeRef = file_io_class.ok_or_else(|| {
+        }
+        .ok_or_else(|| {
             new_unsupported_operation(
                 vm,
                 "Couldn't get FileIO, io.open likely isn't supported on your platform".to_owned(),
@@ -3865,7 +3865,7 @@ mod fileio {
             zelf.mode.store(mode);
             let fd = if let Some(opener) = args.opener {
                 let fd = vm.invoke(&opener, (name.clone(), flags))?;
-                if !fd.fast_isinstance(&vm.ctx.types.int_type) {
+                if !fd.fast_isinstance(vm.ctx.types.int_type) {
                     return Err(vm.new_type_error("expected integer from opener".to_owned()));
                 }
                 let fd = i32::try_from_object(vm, fd)?;

@@ -15,7 +15,7 @@ pub struct PyModule {}
 
 impl PyPayload for PyModule {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.module_type
+        vm.ctx.types.module_type
     }
 }
 
@@ -148,5 +148,5 @@ impl GetAttr for PyModule {
 }
 
 pub(crate) fn init(context: &Context) {
-    PyModule::extend_class(context, &context.types.module_type);
+    PyModule::extend_class(context, context.types.module_type);
 }

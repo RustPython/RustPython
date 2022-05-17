@@ -153,7 +153,7 @@ impl fmt::Debug for PyCode {
 
 impl PyPayload for PyCode {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.code_type
+        vm.ctx.types.code_type
     }
 }
 
@@ -246,5 +246,5 @@ impl ToPyObject for bytecode::CodeObject {
 }
 
 pub fn init(ctx: &Context) {
-    PyRef::<PyCode>::extend_class(ctx, &ctx.types.code_type);
+    PyRef::<PyCode>::extend_class(ctx, ctx.types.code_type);
 }

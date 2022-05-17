@@ -14,7 +14,7 @@ pub struct PyWeakProxy {
 
 impl PyPayload for PyWeakProxy {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.weakproxy_type
+        vm.ctx.types.weakproxy_type
     }
 }
 
@@ -40,7 +40,7 @@ impl Constructor for PyWeakProxy {
             vm.ctx.new_class(
                 None,
                 "__weakproxy",
-                &vm.ctx.types.weakref_type,
+                vm.ctx.types.weakref_type,
                 super::PyWeak::make_slots(),
             )
         });
@@ -99,5 +99,5 @@ impl SetAttr for PyWeakProxy {
 }
 
 pub fn init(context: &Context) {
-    PyWeakProxy::extend_class(context, &context.types.weakproxy_type);
+    PyWeakProxy::extend_class(context, context.types.weakproxy_type);
 }

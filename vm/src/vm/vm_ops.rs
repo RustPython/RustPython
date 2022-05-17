@@ -74,7 +74,7 @@ impl VirtualMachine {
         match iter.length(self) {
             Ok(len) => return Ok(Some(len)),
             Err(e) => {
-                if !e.fast_isinstance(&self.ctx.exceptions.type_error) {
+                if !e.fast_isinstance(self.ctx.exceptions.type_error) {
                     return Err(e);
                 }
             }
@@ -91,7 +91,7 @@ impl VirtualMachine {
                 res
             }
             Err(e) => {
-                return if e.fast_isinstance(&self.ctx.exceptions.type_error) {
+                return if e.fast_isinstance(self.ctx.exceptions.type_error) {
                     Ok(None)
                 } else {
                     Err(e)

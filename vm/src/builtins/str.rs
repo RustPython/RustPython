@@ -243,7 +243,7 @@ pub struct PyStrIterator {
 
 impl PyPayload for PyStrIterator {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.str_iterator_type
+        vm.ctx.types.str_iterator_type
     }
 }
 
@@ -523,12 +523,12 @@ impl PyStr {
     #[pymethod(name = "__rmul__")]
     #[pymethod(magic)]
     fn mul(zelf: PyRef<Self>, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        if value == 0 && zelf.class().is(&vm.ctx.types.str_type) {
+        if value == 0 && zelf.class().is(vm.ctx.types.str_type) {
             // Special case: when some `str` is multiplied by `0`,
             // returns the empty `str`.
             return Ok(vm.ctx.empty_str.clone());
         }
-        if (value == 1 || zelf.is_empty()) && zelf.class().is(&vm.ctx.types.str_type) {
+        if (value == 1 || zelf.is_empty()) && zelf.class().is(vm.ctx.types.str_type) {
             // Special case: when some `str` is multiplied by `1` or is the empty `str`,
             // nothing really happens, we need to return an object itself
             // with the same `id()` to be compatible with CPython.
@@ -1366,7 +1366,7 @@ pub(crate) fn encode_string(
 
 impl PyPayload for PyStr {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.str_type
+        vm.ctx.types.str_type
     }
 }
 
@@ -1426,9 +1426,9 @@ impl FindArgs {
 }
 
 pub fn init(ctx: &Context) {
-    PyStr::extend_class(ctx, &ctx.types.str_type);
+    PyStr::extend_class(ctx, ctx.types.str_type);
 
-    PyStrIterator::extend_class(ctx, &ctx.types.str_iterator_type);
+    PyStrIterator::extend_class(ctx, ctx.types.str_iterator_type);
 }
 
 impl SliceableSequenceOp for PyStr {

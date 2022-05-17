@@ -14,7 +14,7 @@ pub type PyTracebackRef = PyRef<PyTraceback>;
 
 impl PyPayload for PyTraceback {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.traceback_type
+        vm.ctx.types.traceback_type
     }
 }
 
@@ -57,7 +57,7 @@ impl PyTracebackRef {
 }
 
 pub fn init(context: &Context) {
-    PyTraceback::extend_class(context, &context.types.traceback_type);
+    PyTraceback::extend_class(context, context.types.traceback_type);
 }
 
 impl serde::Serialize for PyTraceback {

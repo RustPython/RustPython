@@ -479,7 +479,7 @@ mod sys {
         }
         assert!(unraisable
             .exc_type
-            .fast_issubclass(&vm.ctx.exceptions.exception_type));
+            .fast_issubclass(vm.ctx.exceptions.exception_type));
 
         // TODO: print module name and qualname
 

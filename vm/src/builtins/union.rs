@@ -28,7 +28,7 @@ impl fmt::Debug for PyUnion {
 
 impl PyPayload for PyUnion {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.union_type
+        vm.ctx.types.union_type
     }
 }
 
@@ -103,10 +103,10 @@ impl PyUnion {
 }
 
 pub fn is_unionable(obj: PyObjectRef, vm: &VirtualMachine) -> bool {
-    obj.class().is(&vm.ctx.types.none_type)
-        || obj.class().is(&vm.ctx.types.type_type)
-        || obj.class().is(&vm.ctx.types.generic_alias_type)
-        || obj.class().is(&vm.ctx.types.union_type)
+    obj.class().is(vm.ctx.types.none_type)
+        || obj.class().is(vm.ctx.types.type_type)
+        || obj.class().is(vm.ctx.types.generic_alias_type)
+        || obj.class().is(vm.ctx.types.union_type)
 }
 
 fn is_typevar(obj: &PyObjectRef, vm: &VirtualMachine) -> bool {
@@ -175,8 +175,8 @@ fn dedup_and_flatten_args(args: PyTupleRef, vm: &VirtualMachine) -> PyTupleRef {
                 PyTypeRef::try_from_object(vm, arg.clone()),
             ) {
                 (Ok(a), Ok(b))
-                    if a.is(&vm.ctx.types.generic_alias_type)
-                        && b.is(&vm.ctx.types.generic_alias_type) =>
+                    if a.is(vm.ctx.types.generic_alias_type)
+                        && b.is(vm.ctx.types.generic_alias_type) =>
                 {
                     param
                         .rich_compare_bool(arg, PyComparisonOp::Eq, vm)

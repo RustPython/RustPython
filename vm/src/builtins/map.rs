@@ -21,7 +21,7 @@ pub struct PyMap {
 
 impl PyPayload for PyMap {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.map_type
+        vm.ctx.types.map_type
     }
 }
 
@@ -73,5 +73,5 @@ impl IterNext for PyMap {
 }
 
 pub fn init(context: &Context) {
-    PyMap::extend_class(context, &context.types.map_type);
+    PyMap::extend_class(context, context.types.map_type);
 }

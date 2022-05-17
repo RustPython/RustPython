@@ -53,7 +53,7 @@ pub struct PyProperty {
 
 impl PyPayload for PyProperty {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.property_type
+        vm.ctx.types.property_type
     }
 }
 
@@ -256,11 +256,11 @@ impl Initializer for PyProperty {
 }
 
 pub(crate) fn init(context: &Context) {
-    PyProperty::extend_class(context, &context.types.property_type);
+    PyProperty::extend_class(context, context.types.property_type);
 
     // This is a bit unfortunate, but this instance attribute overlaps with the
     // class __doc__ string..
-    extend_class!(context, &context.types.property_type, {
+    extend_class!(context, context.types.property_type, {
         "__doc__" => context.new_getset(
             "__doc__",
             context.types.property_type.clone(),

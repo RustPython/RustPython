@@ -729,7 +729,7 @@ mod decl {
         name: &'static str,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
-        let is_int = obj.fast_isinstance(&vm.ctx.types.int_type);
+        let is_int = obj.fast_isinstance(vm.ctx.types.int_type);
         if is_int {
             let value = int::get_value(&obj).to_usize();
             if let Some(value) = value {

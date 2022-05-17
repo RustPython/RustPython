@@ -323,7 +323,7 @@ impl PyFunction {
 
 impl PyPayload for PyFunction {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.function_type
+        vm.ctx.types.function_type
     }
 }
 
@@ -548,7 +548,7 @@ impl PyBoundMethod {
     fn qualname(&self, vm: &VirtualMachine) -> PyResult {
         if self
             .function
-            .fast_isinstance(&vm.ctx.types.builtin_function_or_method_type)
+            .fast_isinstance(vm.ctx.types.builtin_function_or_method_type)
         {
             // Special case: we work with `__new__`, which is not really a method.
             // It is a function, so its `__qualname__` is just `__new__`.
@@ -569,7 +569,7 @@ impl PyBoundMethod {
 
 impl PyPayload for PyBoundMethod {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.bound_method_type
+        vm.ctx.types.bound_method_type
     }
 }
 
@@ -582,7 +582,7 @@ pub(crate) type PyCellRef = PyRef<PyCell>;
 
 impl PyPayload for PyCell {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.cell_type
+        vm.ctx.types.cell_type
     }
 }
 
@@ -627,7 +627,7 @@ impl PyCell {
 }
 
 pub fn init(context: &Context) {
-    PyFunction::extend_class(context, &context.types.function_type);
-    PyBoundMethod::extend_class(context, &context.types.bound_method_type);
-    PyCell::extend_class(context, &context.types.cell_type);
+    PyFunction::extend_class(context, context.types.function_type);
+    PyBoundMethod::extend_class(context, context.types.bound_method_type);
+    PyCell::extend_class(context, context.types.cell_type);
 }

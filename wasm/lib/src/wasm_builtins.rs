@@ -26,7 +26,7 @@ pub fn make_stdout_object(
     let ctx = &vm.ctx;
     // there's not really any point to storing this class so that there's a consistent type object,
     // we just want a half-decent repr() output
-    let cls = py_class!(ctx, "JSStdout", &vm.ctx.types.object_type, {});
+    let cls = py_class!(ctx, "JSStdout", vm.ctx.types.object_type, {});
     let write_method = ctx.new_method(
         "write",
         cls.clone(),

@@ -161,7 +161,7 @@ impl PyMapping<'_> {
         vm: &VirtualMachine,
     ) -> PyResult {
         let meth_output = vm.call_method(self.obj, method_name.as_str(), ())?;
-        if meth_output.is(&vm.ctx.types.list_type) {
+        if meth_output.is(vm.ctx.types.list_type) {
             return Ok(meth_output);
         }
 

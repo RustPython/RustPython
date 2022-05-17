@@ -115,7 +115,7 @@ pub struct Frame {
 
 impl PyPayload for Frame {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.frame_type
+        vm.ctx.types.frame_type
     }
 }
 
@@ -190,7 +190,7 @@ impl FrameRef {
             for (&k, v) in itertools::zip(&map[..j], &**fastlocals) {
                 match locals.mapping().ass_subscript(k, v.clone(), vm) {
                     Ok(()) => {}
-                    Err(e) if e.fast_isinstance(&vm.ctx.exceptions.key_error) => {}
+                    Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {}
                     Err(e) => return Err(e),
                 }
             }
@@ -203,7 +203,7 @@ impl FrameRef {
                     } else {
                         match locals.mapping().ass_subscript(k, None, vm) {
                             Ok(()) => {}
-                            Err(e) if e.fast_isinstance(&vm.ctx.exceptions.key_error) => {}
+                            Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {}
                             Err(e) => return Err(e),
                         }
                     }
@@ -404,7 +404,7 @@ impl ExecutingFrame<'_> {
                 return ret.map(ExecutionResult::Yield).or_else(|err| {
                     self.pop_value();
                     self.update_lasti(|i| *i += 1);
-                    if err.fast_isinstance(&vm.ctx.exceptions.stop_iteration) {
+                    if err.fast_isinstance(vm.ctx.exceptions.stop_iteration) {
                         let val = vm.unwrap_or_none(err.get_arg(0));
                         self.push_value(val);
                         self.run(vm)
@@ -561,7 +561,7 @@ impl ExecutingFrame<'_> {
 
                 match res {
                     Ok(()) => {}
-                    Err(e) if e.fast_isinstance(&vm.ctx.exceptions.key_error) => {
+                    Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {
                         return Err(vm.new_name_error(
                             format!("name '{}' is not defined", name),
                             name.to_owned(),
@@ -575,7 +575,7 @@ impl ExecutingFrame<'_> {
                 let name = self.code.names[*idx as usize];
                 match self.globals.del_item(name, vm) {
                     Ok(()) => {}
-                    Err(e) if e.fast_isinstance(&vm.ctx.exceptions.key_error) => {
+                    Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {
                         return Err(vm.new_name_error(
                             format!("name '{}' is not defined", name),
                             name.to_owned(),
@@ -905,7 +905,7 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::EndAsyncFor => {
                 let exc = self.pop_value();
                 self.pop_value(); // async iterator we were calling __anext__ on
-                if exc.fast_isinstance(&vm.ctx.exceptions.stop_async_iteration) {
+                if exc.fast_isinstance(vm.ctx.exceptions.stop_async_iteration) {
                     vm.take_exception().expect("Should have exception in stack");
                     Ok(None)
                 } else {
@@ -1022,7 +1022,7 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::UnpackSequence { size } => {
                 let value = self.pop_value();
                 let elements: Vec<_> = value.try_to_value(vm).map_err(|e| {
-                    if e.class().is(&vm.ctx.exceptions.type_error) {
+                    if e.class().is(vm.ctx.exceptions.type_error) {
                         vm.new_type_error(format!(
                             "cannot unpack non-iterable {} object",
                             value.class().name()

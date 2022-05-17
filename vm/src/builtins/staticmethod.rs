@@ -15,7 +15,7 @@ pub struct PyStaticMethod {
 
 impl PyPayload for PyStaticMethod {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.staticmethod_type
+        vm.ctx.types.staticmethod_type
     }
 }
 
@@ -88,5 +88,5 @@ impl Callable for PyStaticMethod {
 }
 
 pub fn init(context: &Context) {
-    PyStaticMethod::extend_class(context, &context.types.staticmethod_type);
+    PyStaticMethod::extend_class(context, context.types.staticmethod_type);
 }

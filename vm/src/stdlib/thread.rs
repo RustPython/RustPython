@@ -270,7 +270,7 @@ pub(crate) mod _thread {
     fn run_thread(func: ArgCallable, args: FuncArgs, vm: &VirtualMachine) {
         match func.invoke(args, vm) {
             Ok(_obj) => {}
-            Err(e) if e.fast_isinstance(&vm.ctx.exceptions.system_exit) => {}
+            Err(e) if e.fast_isinstance(vm.ctx.exceptions.system_exit) => {}
             Err(exc) => {
                 vm.run_unraisable(
                     exc,

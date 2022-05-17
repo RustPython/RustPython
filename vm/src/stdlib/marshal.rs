@@ -60,7 +60,7 @@ mod decl {
     fn _dumps(value: PyObjectRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         let r = match_class!(match value {
             pyint @ PyInt => {
-                if pyint.class().is(&vm.ctx.types.bool_type) {
+                if pyint.class().is(vm.ctx.types.bool_type) {
                     let (_, mut bool_bytes) = pyint.as_bigint().to_bytes_le();
                     bool_bytes.push(BOOL_BYTE);
                     bool_bytes

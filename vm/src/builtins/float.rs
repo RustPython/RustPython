@@ -34,7 +34,7 @@ impl PyFloat {
 
 impl PyPayload for PyFloat {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.float_type
+        vm.ctx.types.float_type
     }
 }
 
@@ -168,7 +168,7 @@ impl Constructor for PyFloat {
         let float_val = match arg {
             OptionalArg::Missing => 0.0,
             OptionalArg::Present(val) => {
-                let val = if cls.is(&vm.ctx.types.float_type) {
+                let val = if cls.is(vm.ctx.types.float_type) {
                     match val.downcast_exact::<PyFloat>(vm) {
                         Ok(f) => return Ok(f.into()),
                         Err(val) => val,
@@ -567,5 +567,5 @@ pub(crate) fn get_value(obj: &PyObject) -> f64 {
 
 #[rustfmt::skip] // to avoid line splitting
 pub fn init(context: &Context) {
-    PyFloat::extend_class(context, &context.types.float_type);
+    PyFloat::extend_class(context, context.types.float_type);
 }

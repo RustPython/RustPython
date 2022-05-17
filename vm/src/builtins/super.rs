@@ -20,7 +20,7 @@ pub struct PySuper {
 
 impl PyPayload for PySuper {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.super_type
+        vm.ctx.types.super_type
     }
 }
 
@@ -184,7 +184,7 @@ impl GetDescriptor for PySuper {
             return Ok(zelf.into());
         }
         let zelf_class = zelf.as_object().class();
-        if zelf_class.is(&vm.ctx.types.super_type) {
+        if zelf_class.is(vm.ctx.types.super_type) {
             Ok(PySuper::new(zelf.typ.clone(), obj, vm)?.into_pyobject(vm))
         } else {
             let obj = vm.unwrap_or_none(zelf.obj.clone().map(|(o, _)| o));

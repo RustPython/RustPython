@@ -239,7 +239,7 @@ impl std::fmt::Debug for PyGetSet {
 
 impl PyPayload for PyGetSet {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.getset_type
+        vm.ctx.types.getset_type
     }
 }
 
@@ -366,5 +366,5 @@ impl PyGetSet {
 impl Unconstructible for PyGetSet {}
 
 pub(crate) fn init(context: &Context) {
-    PyGetSet::extend_class(context, &context.types.getset_type);
+    PyGetSet::extend_class(context, context.types.getset_type);
 }

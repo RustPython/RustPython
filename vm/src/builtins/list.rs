@@ -54,7 +54,7 @@ impl FromIterator<PyObjectRef> for PyList {
 
 impl PyPayload for PyList {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.list_type
+        vm.ctx.types.list_type
     }
 }
 
@@ -522,7 +522,7 @@ pub struct PyListIterator {
 
 impl PyPayload for PyListIterator {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.list_iterator_type
+        vm.ctx.types.list_iterator_type
     }
 }
 
@@ -567,7 +567,7 @@ pub struct PyListReverseIterator {
 
 impl PyPayload for PyListReverseIterator {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.list_reverseiterator_type
+        vm.ctx.types.list_reverseiterator_type
     }
 }
 
@@ -608,6 +608,6 @@ pub fn init(context: &Context) {
     let list_type = &context.types.list_type;
     PyList::extend_class(context, list_type);
 
-    PyListIterator::extend_class(context, &context.types.list_iterator_type);
-    PyListReverseIterator::extend_class(context, &context.types.list_reverseiterator_type);
+    PyListIterator::extend_class(context, context.types.list_iterator_type);
+    PyListReverseIterator::extend_class(context, context.types.list_reverseiterator_type);
 }

@@ -45,12 +45,12 @@ fn calculate_suggestions<'a>(
 }
 
 pub fn offer_suggestions(exc: &PyBaseExceptionRef, vm: &VirtualMachine) -> Option<PyStrRef> {
-    if exc.class().is(&vm.ctx.exceptions.attribute_error) {
+    if exc.class().is(vm.ctx.exceptions.attribute_error) {
         let name = exc.as_object().to_owned().get_attr("name", vm).unwrap();
         let obj = exc.as_object().to_owned().get_attr("obj", vm).unwrap();
 
         calculate_suggestions(vm.dir(Some(obj)).ok()?.borrow_vec().iter(), &name)
-    } else if exc.class().is(&vm.ctx.exceptions.name_error) {
+    } else if exc.class().is(vm.ctx.exceptions.name_error) {
         let name = exc.as_object().to_owned().get_attr("name", vm).unwrap();
         let mut tb = exc.traceback().unwrap();
         while let Some(traceback) = tb.next.clone() {

@@ -22,7 +22,7 @@ pub struct WeakNewArgs {
 
 impl PyPayload for PyWeak {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.weakref_type
+        vm.ctx.types.weakref_type
     }
 }
 
@@ -115,5 +115,5 @@ impl Comparable for PyWeak {
 }
 
 pub fn init(context: &Context) {
-    PyWeak::extend_class(context, &context.types.weakref_type);
+    PyWeak::extend_class(context, context.types.weakref_type);
 }

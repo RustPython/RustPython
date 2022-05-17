@@ -17,7 +17,7 @@ pub struct PyNamespace {}
 
 impl PyPayload for PyNamespace {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.namespace_type
+        vm.ctx.types.namespace_type
     }
 }
 
@@ -44,7 +44,7 @@ impl PyNamespace {
     #[pymethod(magic)]
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
         let o = zelf.as_object();
-        let name = if o.class().is(&vm.ctx.types.namespace_type) {
+        let name = if o.class().is(vm.ctx.types.namespace_type) {
             "namespace".to_owned()
         } else {
             o.class().slot_name()
@@ -98,5 +98,5 @@ impl Comparable for PyNamespace {
 }
 
 pub fn init(context: &Context) {
-    PyNamespace::extend_class(context, &context.types.namespace_type);
+    PyNamespace::extend_class(context, context.types.namespace_type);
 }

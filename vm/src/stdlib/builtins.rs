@@ -820,7 +820,7 @@ mod builtins {
         let mut new_bases: Option<Vec<PyObjectRef>> = None;
         let bases = PyTuple::new_ref(bases.into_vec(), &vm.ctx);
         for (i, base) in bases.iter().enumerate() {
-            if base.fast_isinstance(&vm.ctx.types.type_type) {
+            if base.fast_isinstance(vm.ctx.types.type_type) {
                 if let Some(bases) = &mut new_bases {
                     bases.push(base.clone());
                 }

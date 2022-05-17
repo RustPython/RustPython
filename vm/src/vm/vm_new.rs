@@ -284,7 +284,7 @@ impl VirtualMachine {
     ) -> PyBaseExceptionRef {
         self.new_downcast_error(
             "payload",
-            &self.ctx.exceptions.runtime_error,
+            self.ctx.exceptions.runtime_error,
             class,
             obj.as_object(),
         )
@@ -297,7 +297,7 @@ impl VirtualMachine {
     ) -> PyBaseExceptionRef {
         self.new_downcast_error(
             "type",
-            &self.ctx.exceptions.type_error,
+            self.ctx.exceptions.type_error,
             class,
             obj.as_object(),
         )

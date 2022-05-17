@@ -170,7 +170,7 @@ pub struct PySequenceIterator {
 
 impl PyPayload for PySequenceIterator {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.iter_type
+        vm.ctx.types.iter_type
     }
 }
 
@@ -228,7 +228,7 @@ pub struct PyCallableIterator {
 
 impl PyPayload for PyCallableIterator {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.callable_iterator
+        vm.ctx.types.callable_iterator
     }
 }
 
@@ -262,6 +262,6 @@ impl IterNext for PyCallableIterator {
 }
 
 pub fn init(context: &Context) {
-    PySequenceIterator::extend_class(context, &context.types.iter_type);
-    PyCallableIterator::extend_class(context, &context.types.callable_iterator);
+    PySequenceIterator::extend_class(context, context.types.iter_type);
+    PyCallableIterator::extend_class(context, context.types.callable_iterator);
 }

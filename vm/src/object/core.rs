@@ -600,7 +600,7 @@ impl PyObject {
         } else {
             None
         };
-        let cls_is_weakref = typ.is(&vm.ctx.types.weakref_type);
+        let cls_is_weakref = typ.is(vm.ctx.types.weakref_type);
         self.weak_ref_list()
             .map(|wrl| wrl.add(self, typ, cls_is_weakref, callback, dict))
             .ok_or_else(|| {

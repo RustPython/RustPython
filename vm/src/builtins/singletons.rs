@@ -10,7 +10,7 @@ pub struct PyNone;
 
 impl PyPayload for PyNone {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.none_type
+        vm.ctx.types.none_type
     }
 }
 
@@ -58,7 +58,7 @@ pub struct PyNotImplemented;
 
 impl PyPayload for PyNotImplemented {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.not_implemented_type
+        vm.ctx.types.not_implemented_type
     }
 }
 

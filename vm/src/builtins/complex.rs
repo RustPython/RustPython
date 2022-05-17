@@ -26,7 +26,7 @@ pub struct PyComplex {
 
 impl PyPayload for PyComplex {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.complex_type
+        vm.ctx.types.complex_type
     }
 }
 
@@ -73,7 +73,7 @@ impl PyObjectRef {
 }
 
 pub fn init(context: &Context) {
-    PyComplex::extend_class(context, &context.types.complex_type);
+    PyComplex::extend_class(context, context.types.complex_type);
 }
 
 fn to_op_complex(value: &PyObject, vm: &VirtualMachine) -> PyResult<Option<Complex64>> {
@@ -121,7 +121,7 @@ impl Constructor for PyComplex {
         let (real, real_was_complex) = match args.real {
             OptionalArg::Missing => (Complex64::new(0.0, 0.0), false),
             OptionalArg::Present(val) => {
-                let val = if cls.is(&vm.ctx.types.complex_type) && imag_missing {
+                let val = if cls.is(vm.ctx.types.complex_type) && imag_missing {
                     match val.downcast_exact::<PyComplex>(vm) {
                         Ok(c) => {
                             return Ok(c.into());
@@ -162,7 +162,7 @@ impl Constructor for PyComplex {
             OptionalArg::Present(obj) => {
                 if let Some(c) = obj.try_complex(vm)? {
                     c
-                } else if obj.class().fast_issubclass(&vm.ctx.types.str_type) {
+                } else if obj.class().fast_issubclass(vm.ctx.types.str_type) {
                     return Err(
                         vm.new_type_error("complex() second arg can't be a string".to_owned())
                     );
@@ -207,7 +207,7 @@ impl PyComplex {
 impl PyComplex {
     #[pymethod(magic)]
     fn complex(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRef<PyComplex> {
-        if zelf.is(&vm.ctx.types.complex_type) {
+        if zelf.is(vm.ctx.types.complex_type) {
             zelf
         } else {
             PyComplex::from(zelf.value).into_ref(vm)

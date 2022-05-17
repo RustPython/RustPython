@@ -73,13 +73,13 @@ impl fmt::Debug for PyFrozenSet {
 
 impl PyPayload for PySet {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.set_type
+        vm.ctx.types.set_type
     }
 }
 
 impl PyPayload for PyFrozenSet {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.frozenset_type
+        vm.ctx.types.frozenset_type
     }
 }
 
@@ -342,7 +342,7 @@ impl PySetInner {
                     )
                     // If operation raised KeyError, report original set (set.remove)
                     .map_err(|op_err| {
-                        if op_err.fast_isinstance(&vm.ctx.exceptions.key_error) {
+                        if op_err.fast_isinstance(vm.ctx.exceptions.key_error) {
                             vm.new_key_error(item.to_owned())
                         } else {
                             op_err
@@ -715,7 +715,7 @@ impl Constructor for PyFrozenSet {
 
     fn py_new(cls: PyTypeRef, iterable: Self::Args, vm: &VirtualMachine) -> PyResult {
         let elements = if let OptionalArg::Present(iterable) = iterable {
-            let iterable = if cls.is(&vm.ctx.types.frozenset_type) {
+            let iterable = if cls.is(vm.ctx.types.frozenset_type) {
                 match iterable.downcast_exact::<Self>(vm) {
                     Ok(fs) => return Ok(fs.into()),
                     Err(iterable) => iterable,
@@ -729,7 +729,7 @@ impl Constructor for PyFrozenSet {
         };
 
         // Return empty fs if iterable passed is empty and only for exact fs types.
-        if elements.is_empty() && cls.is(&vm.ctx.types.frozenset_type) {
+        if elements.is_empty() && cls.is(vm.ctx.types.frozenset_type) {
             Ok(vm.ctx.empty_frozenset.clone().into())
         } else {
             Self::from_iter(vm, elements)
@@ -768,7 +768,7 @@ impl PyFrozenSet {
 
     #[pymethod]
     fn copy(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRef<Self> {
-        if zelf.class().is(&vm.ctx.types.frozenset_type) {
+        if zelf.class().is(vm.ctx.types.frozenset_type) {
             zelf
         } else {
             Self {
@@ -953,8 +953,8 @@ struct SetIterable {
 impl TryFromObject for SetIterable {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let class = obj.class();
-        if class.fast_issubclass(&vm.ctx.types.set_type)
-            || class.fast_issubclass(&vm.ctx.types.frozenset_type)
+        if class.fast_issubclass(vm.ctx.types.set_type)
+            || class.fast_issubclass(vm.ctx.types.frozenset_type)
         {
             // the class lease needs to be drop to be able to return the object
             drop(class);
@@ -982,7 +982,7 @@ impl fmt::Debug for PySetIterator {
 
 impl PyPayload for PySetIterator {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.set_iterator_type
+        vm.ctx.types.set_iterator_type
     }
 }
 
@@ -1038,7 +1038,7 @@ impl IterNext for PySetIterator {
 }
 
 pub fn init(context: &Context) {
-    PySet::extend_class(context, &context.types.set_type);
-    PyFrozenSet::extend_class(context, &context.types.frozenset_type);
-    PySetIterator::extend_class(context, &context.types.set_iterator_type);
+    PySet::extend_class(context, context.types.set_type);
+    PyFrozenSet::extend_class(context, context.types.frozenset_type);
+    PySetIterator::extend_class(context, context.types.set_iterator_type);
 }

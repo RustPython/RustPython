@@ -153,7 +153,7 @@ mod _socket {
         type CastFrom = libc::c_longlong;
 
         // should really just be to_index() but test_socket tests the error messages explicitly
-        if obj.fast_isinstance(&vm.ctx.types.float_type) {
+        if obj.fast_isinstance(vm.ctx.types.float_type) {
             return Err(vm.new_type_error("integer argument expected, got float".to_owned()));
         }
         let int = vm
