@@ -1,7 +1,6 @@
 import sys
 
 import unittest
-import math
 from test import support
 from test.test_grammar import (VALID_UNDERSCORE_LITERALS,
                                INVALID_UNDERSCORE_LITERALS)
@@ -570,25 +569,6 @@ class IntTestCases(unittest.TestCase):
         self.assertEqual(int('1_2_3_4_5_6_7_8_9', 16), 0x123456789)
         self.assertEqual(int('1_2_3_4_5_6_7', 32), 1144132807)
 
-    def test_issue3687(self):
-        big_int = 1000000
-        small_int = 3
-
-        self.assertTrue(big_int.real is big_int)
-        self.assertTrue(big_int.numerator is big_int)
-        self.assertTrue(math.trunc(big_int) is big_int)
-        self.assertTrue(math.floor(big_int) is big_int)
-        self.assertTrue(math.ceil(big_int) is big_int)
-        self.assertTrue(small_int.real is small_int)
-        self.assertTrue(math.trunc(small_int) is small_int)
-        self.assertTrue(math.floor(small_int) is small_int)
-        self.assertTrue(math.ceil(small_int) is small_int)
-
-        # test subclassing int
-        class SubInt(int): pass
-        subint = int.__new__(SubInt, 11)
-        self.assertTrue(subint.real is not subint)
-        self.assertTrue(type(subint.real) is int)
 
 if __name__ == "__main__":
     unittest.main()

@@ -324,3 +324,25 @@ with assert_raises(SyntaxError):
 assert 1 is 1  # noqa
 x = 6
 assert 5 is (x-1)  # noqa
+
+
+# test issue3687
+import math
+big_int = 1000000
+small_int = 3
+assert big_int.real is big_int
+assert big_int.numerator is big_int
+assert math.trunc(big_int) is big_int
+assert math.floor(big_int) is big_int
+assert math.ceil(big_int) is big_int
+assert small_int.real is small_int
+assert small_int.numerator is small_int
+assert math.trunc(small_int) is small_int
+assert math.floor(small_int) is small_int
+assert math.ceil(small_int) is small_int
+
+# test subclassing int
+class SubInt(int): pass
+subint = int.__new__(SubInt, 11)
+assert subint.real is not subint
+assert type(subint.real) is int
