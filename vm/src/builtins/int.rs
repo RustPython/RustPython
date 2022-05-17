@@ -562,17 +562,17 @@ impl PyInt {
 
     #[pymethod(magic)]
     fn trunc(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRef<Self> {
-        Self::long_long(zelf, vm)
+        Self::clone_if_subclass(zelf, vm)
     }
 
     #[pymethod(magic)]
     fn floor(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRef<Self> {
-        Self::long_long(zelf, vm)
+        Self::clone_if_subclass(zelf, vm)
     }
 
     #[pymethod(magic)]
     fn ceil(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRef<Self> {
-        Self::long_long(zelf, vm)
+        Self::clone_if_subclass(zelf, vm)
     }
 
     #[pymethod(magic)]
@@ -619,7 +619,7 @@ impl PyInt {
 
     #[pymethod]
     fn conjugate(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRef<Self> {
-        Self::long_long(zelf, vm)
+        Self::clone_if_subclass(zelf, vm)
     }
 
     #[pyclassmethod]
@@ -689,7 +689,7 @@ impl PyInt {
     }
 
     #[inline]
-    fn long_long(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRef<Self> {
+    fn clone_if_subclass(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRef<Self> {
         if zelf.class().is(&vm.ctx.types.int_type) {
             return zelf;
         }
@@ -699,7 +699,7 @@ impl PyInt {
 
     #[pyproperty]
     fn real(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRef<Self> {
-        Self::long_long(zelf, vm)
+        Self::clone_if_subclass(zelf, vm)
     }
 
     #[pyproperty]
@@ -709,7 +709,7 @@ impl PyInt {
 
     #[pyproperty]
     fn numerator(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRef<Self> {
-        Self::long_long(zelf, vm)
+        Self::clone_if_subclass(zelf, vm)
     }
 
     #[pyproperty]
