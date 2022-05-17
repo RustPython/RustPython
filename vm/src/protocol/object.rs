@@ -80,10 +80,15 @@ impl PyObject {
         self.get_attr(attr_name, vm).map(|o| vm.is_none(&o))
     }
 
-    // get_attribute should be used for full attribute access (usually from user code).
-    #[cfg_attr(feature = "flame-it", flame("PyObjectRef"))]
     pub fn get_attr(&self, attr_name: impl IntoPyStrRef, vm: &VirtualMachine) -> PyResult {
         let attr_name = attr_name.into_pystr_ref(vm);
+        self._get_attr(attr_name, vm)
+    }
+
+    // get_attribute should be used for full attribute access (usually from user code).
+    #[cfg_attr(feature = "flame-it", flame("PyObjectRef"))]
+    #[inline]
+    fn _get_attr(&self, attr_name: PyStrRef, vm: &VirtualMachine) -> PyResult {
         vm_trace!("object.__getattribute__: {:?} {:?}", obj, attr_name);
         let getattro = self
             .class()
@@ -290,6 +295,7 @@ impl PyObject {
             _ => Err(vm.new_unsupported_binop_error(self, other, op.operator_token())),
         }
     }
+    #[inline(always)]
     pub fn rich_compare_bool(
         &self,
         other: &Self,
