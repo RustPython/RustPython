@@ -16,6 +16,12 @@ use crate::{
 };
 pub use _io::io_open as open;
 
+impl ToPyException for std::io::Error {
+    fn to_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        (&self).to_pyexception(vm)
+    }
+}
+
 impl ToPyException for &'_ std::io::Error {
     fn to_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         use std::io::ErrorKind;
