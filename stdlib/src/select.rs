@@ -318,15 +318,10 @@ mod decl {
             }
 
             #[pymethod]
-            fn modify(
-                &self,
-                Fildes(fd): Fildes,
-                eventmask: u16,
-                vm: &VirtualMachine,
-            ) -> PyResult<()> {
+            fn modify(&self, Fildes(fd): Fildes, eventmask: u16) -> io::Result<()> {
                 let mut fds = self.fds.lock();
                 let pfd = get_fd_mut(&mut fds, fd)
-                    .ok_or_else(|| io::Error::from_raw_os_error(libc::ENOENT).to_pyexception(vm))?;
+                    .ok_or_else(|| io::Error::from_raw_os_error(libc::ENOENT))?;
                 pfd.events = eventmask as i16;
                 Ok(())
             }

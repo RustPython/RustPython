@@ -5,7 +5,7 @@ use super::{
 use crate::common::lock::PyRwLockReadGuard;
 use crate::{
     builtins::{PyBaseExceptionRef, PyType},
-    convert::{ToPyObject, ToPyResult, TryFromObject},
+    convert::{ToPyException, ToPyObject, ToPyResult, TryFromObject},
     VirtualMachine,
 };
 use std::{borrow::Borrow, fmt, ops::Deref};
@@ -27,7 +27,7 @@ Basically reference counting, but then done by rust.
 /// Use this type for functions which return a python object or an exception.
 /// Both the python object and the python exception are `PyObjectRef` types
 /// since exceptions are also python objects.
-pub type PyResult<T = PyObjectRef> = Result<T, PyBaseExceptionRef>; // A valid value, or an exception
+pub type PyResult<T = PyObjectRef, E = PyBaseExceptionRef> = Result<T, E>; // A valid value, or an exception
 
 // TODO: remove these 2 impls
 impl fmt::Display for PyObjectRef {
@@ -272,12 +272,21 @@ where
     }
 }
 
-impl<T> ToPyResult for PyResult<T>
+impl<T, E> ToPyResult for PyResult<T, E>
 where
     T: ToPyObject,
+    E: ToPyException,
 {
     #[inline(always)]
     fn to_pyresult(self, vm: &VirtualMachine) -> PyResult {
         self.map(|res| T::to_pyobject(res, vm))
+            .map_err(|e| E::to_pyexception(e, vm))
+    }
+}
+
+impl ToPyException for PyBaseExceptionRef {
+    #[inline(always)]
+    fn to_pyexception(self, _vm: &VirtualMachine) -> PyBaseExceptionRef {
+        self
     }
 }
