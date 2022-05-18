@@ -1,5 +1,5 @@
 use crate::{
-    builtins::{PyStr, PyTypeRef},
+    builtins::{PyStr, PyStrInterned, PyTypeRef},
     common::lock::PyRwLock,
     convert::ToPyObject,
     AsObject, Py, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, VirtualMachine,
@@ -42,17 +42,16 @@ impl StringPool {
             let cache = CachedPyStrRef { inner: s };
             let inserted = zelf.inner.write().insert(cache.clone());
             if inserted {
-                let interned = unsafe { PyStrInterned::borrow_cache(&cache) };
+                let interned = unsafe { cache.as_interned_str() };
                 unsafe { interned.as_object().mark_intern() };
                 interned
             } else {
                 unsafe {
-                    PyStrInterned::borrow_cache(
-                        zelf.inner
-                            .read()
-                            .get(cache.as_ref())
-                            .expect("inserted is false"),
-                    )
+                    zelf.inner
+                        .read()
+                        .get(cache.as_ref())
+                        .expect("inserted is false")
+                        .as_interned_str()
                 }
             }
         }
@@ -68,7 +67,7 @@ impl StringPool {
         self.inner
             .read()
             .get(s.as_ref())
-            .map(|cached| unsafe { PyStrInterned::borrow_cache(cached) })
+            .map(|cached| unsafe { cached.as_interned_str() })
     }
 }
 
@@ -107,6 +106,13 @@ impl AsRef<str> for CachedPyStrRef {
 }
 
 impl CachedPyStrRef {
+    /// # Safety
+    /// the given cache must be alive while returned reference is alive
+    #[inline]
+    unsafe fn as_interned_str(&self) -> &'static PyStrInterned {
+        std::mem::transmute_copy(self)
+    }
+
     #[inline]
     fn as_str(&self) -> &str {
         self.inner.as_str()
@@ -185,37 +191,6 @@ impl<T: PyPayload + std::fmt::Debug> std::fmt::Debug for PyInterned<T> {
 impl<T: PyPayload> ToPyObject for &'static PyInterned<T> {
     fn to_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
         self.to_owned().into()
-    }
-}
-
-/// The unique reference of interned PyStr
-/// Always intended to be used as a static reference
-pub type PyStrInterned = PyInterned<PyStr>;
-
-impl PyStrInterned {
-    /// # Safety
-    /// the given cache must be alive while returned reference is alive
-    #[inline]
-    unsafe fn borrow_cache(cache: &CachedPyStrRef) -> &'static Self {
-        std::mem::transmute_copy(cache)
-    }
-
-    #[inline]
-    pub fn to_exact(&'static self) -> PyRefExact<PyStr> {
-        unsafe { PyRefExact::new_unchecked(self.to_owned()) }
-    }
-}
-
-impl std::fmt::Display for PyStrInterned {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Display::fmt(self.as_str(), f)
-    }
-}
-
-impl AsRef<str> for PyStrInterned {
-    #[inline(always)]
-    fn as_ref(&self) -> &str {
-        self.as_str()
     }
 }
 

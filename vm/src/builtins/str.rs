@@ -9,6 +9,7 @@ use crate::{
     convert::{ToPyException, ToPyObject},
     format::{FormatSpec, FormatString, FromTemplate},
     function::{ArgIterable, FuncArgs, OptionalArg, OptionalOption, PyComparisonValue},
+    intern::PyInterned,
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     sequence::SequenceOp,
     sliceable::{SequenceIndex, SliceableSequenceOp},
@@ -227,7 +228,7 @@ impl IntoPyStrRef for &str {
     }
 }
 
-impl IntoPyStrRef for &'static crate::intern::PyStrInterned {
+impl IntoPyStrRef for &'static PyStrInterned {
     #[inline]
     fn into_pystr_ref(self, _vm: &VirtualMachine) -> PyRef<PyStr> {
         self.to_owned()
@@ -1739,5 +1740,29 @@ impl<'s> AnyStr<'s> for str {
             splited.push(convert(&self[..last_offset]));
         }
         splited
+    }
+}
+
+/// The unique reference of interned PyStr
+/// Always intended to be used as a static reference
+pub type PyStrInterned = PyInterned<PyStr>;
+
+impl PyStrInterned {
+    #[inline]
+    pub fn to_exact(&'static self) -> PyRefExact<PyStr> {
+        unsafe { PyRefExact::new_unchecked(self.to_owned()) }
+    }
+}
+
+impl std::fmt::Display for PyStrInterned {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self.as_str(), f)
+    }
+}
+
+impl AsRef<str> for PyStrInterned {
+    #[inline(always)]
+    fn as_ref(&self) -> &str {
+        self.as_str()
     }
 }
