@@ -230,7 +230,7 @@ impl IntoPyStrRef for &str {
 impl IntoPyStrRef for &'static crate::intern::PyStrInterned {
     #[inline]
     fn into_pystr_ref(self, _vm: &VirtualMachine) -> PyRef<PyStr> {
-        self.to_str()
+        self.to_owned()
     }
 }
 

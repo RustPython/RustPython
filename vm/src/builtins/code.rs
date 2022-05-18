@@ -104,7 +104,7 @@ impl ConstantBag for PyObjBag<'_> {
     }
 
     fn make_name(&self, name: &str) -> PyStrRef {
-        self.0.intern_str(name).to_str()
+        self.0.intern_str(name).to_owned()
     }
 }
 

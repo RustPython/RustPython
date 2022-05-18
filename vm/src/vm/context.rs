@@ -80,15 +80,14 @@ impl Context {
 
         let new_str = unsafe { string_pool.intern("__new__", types.str_type.clone()) };
         let slot_new_wrapper = create_object(
-            PyNativeFuncDef::new(PyType::__new__.into_func(), new_str.to_owned().into_pyref())
-                .into_function(),
+            PyNativeFuncDef::new(PyType::__new__.into_func(), new_str.to_owned()).into_function(),
             &types.builtin_function_or_method_type,
         )
         .into();
 
         let true_str = unsafe { string_pool.intern("True", types.str_type.clone()) };
         let false_str = unsafe { string_pool.intern("False", types.str_type.clone()) };
-        let empty_str = unsafe { string_pool.intern("", types.str_type.clone()) }.to_str();
+        let empty_str = unsafe { string_pool.intern("", types.str_type.clone()) }.to_owned();
 
         let context = Context {
             true_value,
