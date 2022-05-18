@@ -1,4 +1,4 @@
-use super::{PositionIterInternal, PyGenericAlias, PyTupleRef, PyTypeRef};
+use super::{PositionIterInternal, PyGenericAlias, PyTupleRef, PyType, PyTypeRef};
 use crate::common::lock::{
     PyMappedRwLockReadGuard, PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
 };
@@ -53,7 +53,7 @@ impl FromIterator<PyObjectRef> for PyList {
 }
 
 impl PyPayload for PyList {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
         vm.ctx.types.list_type
     }
 }
@@ -66,7 +66,7 @@ impl ToPyObject for Vec<PyObjectRef> {
 
 impl PyList {
     pub fn new_ref(elements: Vec<PyObjectRef>, ctx: &Context) -> PyRef<Self> {
-        PyRef::new_ref(Self::from(elements), ctx.types.list_type.clone(), None)
+        PyRef::new_ref(Self::from(elements), ctx.types.list_type.to_owned(), None)
     }
 
     pub fn borrow_vec(&self) -> PyMappedRwLockReadGuard<'_, [PyObjectRef]> {
@@ -521,7 +521,7 @@ pub struct PyListIterator {
 }
 
 impl PyPayload for PyListIterator {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
         vm.ctx.types.list_iterator_type
     }
 }
@@ -566,7 +566,7 @@ pub struct PyListReverseIterator {
 }
 
 impl PyPayload for PyListReverseIterator {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
         vm.ctx.types.list_reverseiterator_type
     }
 }

@@ -117,7 +117,7 @@ pub(crate) fn impl_pyimpl(attr: AttributeArgs, item: Item) -> Result<TokenStream
 
                     fn impl_extend_class(
                         ctx: &::rustpython_vm::Context,
-                        class: &::rustpython_vm::builtins::PyTypeRef,
+                        class: &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType>,
                     ) {
                         #getset_impl
                         #extend_impl
@@ -150,7 +150,7 @@ pub(crate) fn impl_pyimpl(attr: AttributeArgs, item: Item) -> Result<TokenStream
                 parse_quote! {
                     fn __extend_py_class(
                         ctx: &::rustpython_vm::Context,
-                        class: &::rustpython_vm::builtins::PyTypeRef,
+                        class: &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType>,
                     ) {
                         #getset_impl
                         #extend_impl
@@ -238,7 +238,7 @@ fn generate_class_def(
     }
     .map(|typ| {
         quote! {
-            fn static_baseclass() -> &'static ::rustpython_vm::builtins::PyTypeRef {
+            fn static_baseclass() -> &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType> {
                 use rustpython_vm::class::StaticType;
                 #typ::static_type()
             }
@@ -248,7 +248,7 @@ fn generate_class_def(
     let meta_class = metaclass.map(|typ| {
         let typ = Ident::new(&typ, ident.span());
         quote! {
-            fn static_metaclass() -> &'static ::rustpython_vm::builtins::PyTypeRef {
+            fn static_metaclass() -> &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType> {
                 use rustpython_vm::class::StaticType;
                 #typ::static_type()
             }
@@ -368,8 +368,8 @@ pub(crate) fn impl_define_exception(exc_def: PyExceptionDef) -> Result<TokenStre
 
         // We need this to make extend mechanism work:
         impl ::rustpython_vm::PyPayload for #class_name {
-            fn class(vm: &::rustpython_vm::VirtualMachine) -> &::rustpython_vm::builtins::PyTypeRef {
-                &vm.ctx.exceptions.#ctx_name
+            fn class(vm: &::rustpython_vm::VirtualMachine) -> &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType> {
+                vm.ctx.exceptions.#ctx_name
             }
         }
 
@@ -491,9 +491,9 @@ where
                 quote!(.with_doc(#doc.to_owned(), ctx))
             });
             let build_func = match self.inner.attr_name {
-                AttrName::Method => quote!(.build_method(ctx, class.clone())),
-                AttrName::ClassMethod => quote!(.build_classmethod(ctx, class.clone())),
-                AttrName::StaticMethod => quote!(.build_staticmethod(ctx, class.clone())),
+                AttrName::Method => quote!(.build_method(ctx, class)),
+                AttrName::ClassMethod => quote!(.build_classmethod(ctx, class)),
+                AttrName::StaticMethod => quote!(.build_staticmethod(ctx, class)),
                 other => unreachable!(
                     "Only 'method', 'classmethod' and 'staticmethod' are supported, got {:?}",
                     other
@@ -735,10 +735,10 @@ impl ToTokens for GetSetNursery {
                     class.set_str_attr(
                         #name,
                         ::rustpython_vm::PyRef::new_ref(
-                            ::rustpython_vm::builtins::PyGetSet::new(#name.into(), class.clone())
+                            ::rustpython_vm::builtins::PyGetSet::new(#name.into(), class)
                                 .with_get(&Self::#getter)
                                 #setter #deleter,
-                            ctx.types.getset_type.clone(), None),
+                                ctx.types.getset_type.to_owned(), None),
                         ctx
                     );
                 }

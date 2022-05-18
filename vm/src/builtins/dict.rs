@@ -53,14 +53,14 @@ impl fmt::Debug for PyDict {
 }
 
 impl PyPayload for PyDict {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
         vm.ctx.types.dict_type
     }
 }
 
 impl PyDict {
     pub fn new_ref(ctx: &Context) -> PyRef<Self> {
-        PyRef::new_ref(Self::default(), ctx.types.dict_type.clone(), None)
+        PyRef::new_ref(Self::default(), ctx.types.dict_type.to_owned(), None)
     }
 
     /// escape hatch to access the underlying data structure directly. prefer adding a method on
@@ -749,7 +749,7 @@ macro_rules! dict_view {
         }
 
         impl PyPayload for $name {
-            fn class(vm: &VirtualMachine) -> &PyTypeRef {
+            fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
                 vm.ctx.types.$class
             }
         }
@@ -762,7 +762,7 @@ macro_rules! dict_view {
         }
 
         impl PyPayload for $iter_name {
-            fn class(vm: &VirtualMachine) -> &PyTypeRef {
+            fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
                 vm.ctx.types.$iter_class
             }
         }
@@ -835,7 +835,7 @@ macro_rules! dict_view {
         }
 
         impl PyPayload for $reverse_iter_name {
-            fn class(vm: &VirtualMachine) -> &PyTypeRef {
+            fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
                 vm.ctx.types.$reverse_iter_class
             }
         }

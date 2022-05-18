@@ -1,6 +1,6 @@
-use super::{PyObject, PyObjectRef, PyRef, PyResult};
+use super::{Py, PyObject, PyObjectRef, PyRef, PyResult};
 use crate::{
-    builtins::{PyBaseExceptionRef, PyTypeRef},
+    builtins::{PyBaseExceptionRef, PyType, PyTypeRef},
     types::PyTypeFlags,
     vm::VirtualMachine,
 };
@@ -16,7 +16,7 @@ cfg_if::cfg_if! {
 }
 
 pub trait PyPayload: std::fmt::Debug + PyThreadingConstraint + Sized + 'static {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef;
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType>;
 
     #[inline]
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
@@ -41,7 +41,7 @@ pub trait PyPayload: std::fmt::Debug + PyThreadingConstraint + Sized + 'static {
     #[inline]
     fn into_ref(self, vm: &VirtualMachine) -> PyRef<Self> {
         let cls = Self::class(vm);
-        self._into_ref(cls.clone(), vm)
+        self._into_ref(cls.to_owned(), vm)
     }
 
     #[inline]
@@ -55,7 +55,7 @@ pub trait PyPayload: std::fmt::Debug + PyThreadingConstraint + Sized + 'static {
             fn _into_ref_with_type_error(
                 vm: &VirtualMachine,
                 cls: &PyTypeRef,
-                exact_class: &PyTypeRef,
+                exact_class: &Py<PyType>,
             ) -> PyBaseExceptionRef {
                 vm.new_type_error(format!(
                     "'{}' is not a subtype of '{}'",

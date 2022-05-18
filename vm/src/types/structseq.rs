@@ -1,8 +1,8 @@
 use crate::{
-    builtins::{PyTuple, PyTupleRef, PyTypeRef},
+    builtins::{PyTuple, PyTupleRef, PyType},
     class::{PyClassImpl, StaticType},
     vm::Context,
-    AsObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 #[pyimpl]
@@ -13,7 +13,7 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
 
     fn into_struct_sequence(self, vm: &VirtualMachine) -> PyTupleRef {
         self.into_tuple(vm)
-            .into_ref_with_type(vm, Self::static_type().clone())
+            .into_ref_with_type(vm, Self::static_type().to_owned())
             .unwrap()
     }
 
@@ -73,14 +73,14 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
     }
 
     #[extend_class]
-    fn extend_pyclass(ctx: &Context, class: &PyTypeRef) {
+    fn extend_pyclass(ctx: &Context, class: &'static Py<PyType>) {
         for (i, &name) in Self::FIELD_NAMES.iter().enumerate() {
             // cast i to a u8 so there's less to store in the getter closure.
             // Hopefully there's not struct sequences with >=256 elements :P
             let i = i as u8;
             class.set_attr(
                 ctx.intern_str(name),
-                ctx.new_readonly_getset(name, class.clone(), move |zelf: &PyTuple| {
+                ctx.new_readonly_getset(name, class, move |zelf: &PyTuple| {
                     zelf.fast_getitem(i.into())
                 })
                 .into(),

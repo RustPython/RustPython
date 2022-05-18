@@ -1,4 +1,4 @@
-use super::{PositionIterInternal, PyGenericAlias, PyTypeRef};
+use super::{PositionIterInternal, PyGenericAlias, PyType, PyTypeRef};
 use crate::common::{hash::PyHash, lock::PyMutex};
 use crate::{
     class::PyClassImpl,
@@ -15,7 +15,7 @@ use crate::{
     },
     utils::collection_repr,
     vm::VirtualMachine,
-    AsObject, Context, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
 };
 use std::{borrow::Cow, fmt, marker::PhantomData};
 
@@ -36,7 +36,7 @@ impl fmt::Debug for PyTuple {
 }
 
 impl PyPayload for PyTuple {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
         vm.ctx.types.tuple_type
     }
 }
@@ -156,7 +156,7 @@ impl PyTuple {
             ctx.empty_tuple.clone()
         } else {
             let elements = elements.into_boxed_slice();
-            PyRef::new_ref(Self { elements }, ctx.types.tuple_type.clone(), None)
+            PyRef::new_ref(Self { elements }, ctx.types.tuple_type.to_owned(), None)
         }
     }
 
@@ -435,7 +435,7 @@ pub(crate) struct PyTupleIterator {
 }
 
 impl PyPayload for PyTupleIterator {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
         vm.ctx.types.tuple_iterator_type
     }
 }

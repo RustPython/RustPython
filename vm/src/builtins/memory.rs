@@ -1,5 +1,6 @@
 use super::{
-    PyBytes, PyBytesRef, PyInt, PyListRef, PySlice, PyStr, PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
+    PyBytes, PyBytesRef, PyInt, PyListRef, PySlice, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType,
+    PyTypeRef,
 };
 use crate::{
     buffer::FormatSpec,
@@ -1041,7 +1042,7 @@ impl Hashable for PyMemoryView {
 }
 
 impl PyPayload for PyMemoryView {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
         vm.ctx.types.memoryview_type
     }
 }

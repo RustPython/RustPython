@@ -5,7 +5,7 @@ use crate::{
         function::{PyCell, PyCellRef, PyFunction},
         tuple::{PyTuple, PyTupleTyped},
         PyBaseExceptionRef, PyCode, PyCoroutine, PyDict, PyDictRef, PyGenerator, PyList, PySet,
-        PySlice, PyStr, PyStrInterned, PyStrRef, PyTraceback, PyTypeRef,
+        PySlice, PyStr, PyStrInterned, PyStrRef, PyTraceback, PyType,
     },
     bytecode,
     convert::{IntoObject, ToPyResult},
@@ -114,7 +114,7 @@ pub struct Frame {
 }
 
 impl PyPayload for Frame {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
         vm.ctx.types.frame_type
     }
 }
@@ -426,7 +426,7 @@ impl ExecutingFrame<'_> {
     fn unbound_cell_exception(&self, i: usize, vm: &VirtualMachine) -> PyBaseExceptionRef {
         if let Some(&name) = self.code.cellvars.get(i) {
             vm.new_exception_msg(
-                vm.ctx.exceptions.unbound_local_error.clone(),
+                vm.ctx.exceptions.unbound_local_error.to_owned(),
                 format!("local variable '{}' referenced before assignment", name),
             )
         } else {
@@ -484,7 +484,7 @@ impl ExecutingFrame<'_> {
                 let idx = *idx as usize;
                 let x = self.fastlocals.lock()[idx].clone().ok_or_else(|| {
                     vm.new_exception_msg(
-                        vm.ctx.exceptions.unbound_local_error.clone(),
+                        vm.ctx.exceptions.unbound_local_error.to_owned(),
                         format!(
                             "local variable '{}' referenced before assignment",
                             self.code.varnames[idx]

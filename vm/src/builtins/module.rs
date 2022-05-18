@@ -1,5 +1,5 @@
 use super::pystr::IntoPyStrRef;
-use super::{PyDictRef, PyStr, PyStrRef, PyTypeRef};
+use super::{PyDictRef, PyStr, PyStrRef, PyType, PyTypeRef};
 use crate::{
     builtins::PyStrInterned,
     class::PyClassImpl,
@@ -14,7 +14,7 @@ use crate::{
 pub struct PyModule {}
 
 impl PyPayload for PyModule {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
         vm.ctx.types.module_type
     }
 }

@@ -29,18 +29,18 @@ impl ToPyException for &'_ std::io::Error {
         let excs = &vm.ctx.exceptions;
         #[allow(unreachable_patterns)] // some errors are just aliases of each other
         let exc_type = match self.kind() {
-            ErrorKind::NotFound => excs.file_not_found_error.clone(),
-            ErrorKind::PermissionDenied => excs.permission_error.clone(),
-            ErrorKind::AlreadyExists => excs.file_exists_error.clone(),
-            ErrorKind::WouldBlock => excs.blocking_io_error.clone(),
+            ErrorKind::NotFound => excs.file_not_found_error,
+            ErrorKind::PermissionDenied => excs.permission_error,
+            ErrorKind::AlreadyExists => excs.file_exists_error,
+            ErrorKind::WouldBlock => excs.blocking_io_error,
             _ => self
                 .raw_os_error()
                 .and_then(|errno| crate::exceptions::raw_os_error_to_exc_type(errno, vm))
-                .unwrap_or_else(|| excs.os_error.clone()),
+                .unwrap_or(excs.os_error),
         };
         let errno = self.raw_os_error().to_pyobject(vm);
         let msg = vm.ctx.new_str(self.to_string()).into();
-        vm.new_exception(exc_type, vec![errno, msg])
+        vm.new_exception(exc_type.to_owned(), vec![errno, msg])
     }
 }
 
@@ -57,7 +57,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         .clone();
     extend_module!(vm, module, {
         "UnsupportedOperation" => unsupported_operation,
-        "BlockingIOError" => ctx.exceptions.blocking_io_error.clone(),
+        "BlockingIOError" => ctx.exceptions.blocking_io_error.to_owned(),
     });
 
     module
@@ -808,7 +808,7 @@ mod _io {
                     self.raw_write(None, self.write_pos as usize..self.write_end as usize, vm)?;
                 let n = n.ok_or_else(|| {
                     vm.new_exception_msg(
-                        vm.ctx.exceptions.blocking_io_error.clone(),
+                        vm.ctx.exceptions.blocking_io_error.to_owned(),
                         "write could not complete without blocking".to_owned(),
                     )
                 })?;
@@ -1006,7 +1006,7 @@ mod _io {
                             // TODO: BlockingIOError(errno, msg, written)
                             // written += self.buffer.len();
                             return Err(vm.new_exception_msg(
-                                vm.ctx.exceptions.blocking_io_error.clone(),
+                                vm.ctx.exceptions.blocking_io_error.to_owned(),
                                 "write could not complete without blocking".to_owned(),
                             ));
                         } else {
@@ -3641,12 +3641,12 @@ mod _io {
         PyType::new_ref(
             "UnsupportedOperation",
             vec![
-                ctx.exceptions.os_error.clone(),
-                ctx.exceptions.value_error.clone(),
+                ctx.exceptions.os_error.to_owned(),
+                ctx.exceptions.value_error.to_owned(),
             ],
             Default::default(),
             Default::default(),
-            ctx.types.type_type.clone(),
+            ctx.types.type_type.to_owned(),
         )
         .unwrap()
     }

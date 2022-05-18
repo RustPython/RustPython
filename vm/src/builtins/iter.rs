@@ -2,20 +2,19 @@
  * iterator types
  */
 
-use std::borrow::Cow;
-
-use super::{PyInt, PyTupleRef, PyTypeRef};
+use super::{PyInt, PyTupleRef, PyType};
 use crate::{
     class::PyClassImpl,
     function::ArgCallable,
     protocol::{PyIterReturn, PySequence, PySequenceMethods},
     types::{IterNext, IterNextIterable},
-    Context, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+    Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 use rustpython_common::{
     lock::{PyMutex, PyRwLock, PyRwLockUpgradableReadGuard},
     static_cell,
 };
+use std::borrow::Cow;
 
 /// Marks status of iterator.
 #[derive(Debug, Clone)]
@@ -169,7 +168,7 @@ pub struct PySequenceIterator {
 }
 
 impl PyPayload for PySequenceIterator {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
         vm.ctx.types.iter_type
     }
 }
@@ -227,7 +226,7 @@ pub struct PyCallableIterator {
 }
 
 impl PyPayload for PyCallableIterator {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
         vm.ctx.types.callable_iterator
     }
 }

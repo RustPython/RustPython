@@ -1,10 +1,10 @@
-use super::{type_, PyClassMethod, PyStaticMethod, PyStr, PyStrRef, PyTypeRef};
+use super::{type_, PyClassMethod, PyStaticMethod, PyStr, PyStrRef, PyType};
 use crate::{
     builtins::PyBoundMethod,
     class::PyClassImpl,
     function::{FuncArgs, IntoPyNativeFunc, PyNativeFunc},
     types::{Callable, Constructor, GetDescriptor, Unconstructible},
-    AsObject, Context, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use std::fmt;
 
@@ -34,23 +34,31 @@ impl PyNativeFuncDef {
     pub fn build_function(self, ctx: &Context) -> PyRef<PyBuiltinFunction> {
         self.into_function().into_ref(ctx)
     }
-    pub fn build_method(self, ctx: &Context, class: PyTypeRef) -> PyRef<PyBuiltinMethod> {
+    pub fn build_method(self, ctx: &Context, class: &'static Py<PyType>) -> PyRef<PyBuiltinMethod> {
         PyRef::new_ref(
             PyBuiltinMethod { value: self, class },
-            ctx.types.method_descriptor_type.clone(),
+            ctx.types.method_descriptor_type.to_owned(),
             None,
         )
     }
-    pub fn build_classmethod(self, ctx: &Context, class: PyTypeRef) -> PyRef<PyClassMethod> {
+    pub fn build_classmethod(
+        self,
+        ctx: &Context,
+        class: &'static Py<PyType>,
+    ) -> PyRef<PyClassMethod> {
         // TODO: classmethod_descriptor
         let callable = self.build_method(ctx, class).into();
         PyClassMethod::new_ref(callable, ctx)
     }
-    pub fn build_staticmethod(self, ctx: &Context, class: PyTypeRef) -> PyRef<PyStaticMethod> {
+    pub fn build_staticmethod(
+        self,
+        ctx: &Context,
+        class: &'static Py<PyType>,
+    ) -> PyRef<PyStaticMethod> {
         let callable = self.build_method(ctx, class).into();
         PyRef::new_ref(
             PyStaticMethod { callable },
-            ctx.types.staticmethod_type.clone(),
+            ctx.types.staticmethod_type.to_owned(),
             None,
         )
     }
@@ -63,7 +71,7 @@ pub struct PyBuiltinFunction {
 }
 
 impl PyPayload for PyBuiltinFunction {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
         vm.ctx.types.builtin_function_or_method_type
     }
 }
@@ -92,7 +100,7 @@ impl PyBuiltinFunction {
     pub fn into_ref(self, ctx: &Context) -> PyRef<Self> {
         PyRef::new_ref(
             self,
-            ctx.types.builtin_function_or_method_type.clone(),
+            ctx.types.builtin_function_or_method_type.to_owned(),
             None,
         )
     }
@@ -164,11 +172,11 @@ impl Unconstructible for PyBuiltinFunction {}
 #[pyclass(module = false, name = "method_descriptor")]
 pub struct PyBuiltinMethod {
     value: PyNativeFuncDef,
-    class: PyTypeRef,
+    class: &'static Py<PyType>,
 }
 
 impl PyPayload for PyBuiltinMethod {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
         vm.ctx.types.method_descriptor_type
     }
 }
@@ -210,7 +218,7 @@ impl Callable for PyBuiltinMethod {
 impl PyBuiltinMethod {
     pub fn new_ref<F, FKind>(
         name: impl Into<PyStr>,
-        class: PyTypeRef,
+        class: &'static Py<PyType>,
         f: F,
         ctx: &Context,
     ) -> PyRef<Self>

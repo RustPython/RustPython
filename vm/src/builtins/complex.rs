@@ -1,4 +1,4 @@
-use super::{float, PyStr, PyTypeRef};
+use super::{float, PyStr, PyType, PyTypeRef};
 use crate::{
     class::PyClassImpl,
     convert::ToPyObject,
@@ -9,7 +9,7 @@ use crate::{
     },
     identifier,
     types::{Comparable, Constructor, Hashable, PyComparisonOp},
-    AsObject, Context, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use num_complex::Complex64;
 use num_traits::Zero;
@@ -25,7 +25,7 @@ pub struct PyComplex {
 }
 
 impl PyPayload for PyComplex {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
         vm.ctx.types.complex_type
     }
 }
@@ -195,7 +195,7 @@ impl Constructor for PyComplex {
 
 impl PyComplex {
     pub fn new_ref(value: Complex64, ctx: &Context) -> PyRef<Self> {
-        PyRef::new_ref(Self::from(value), ctx.types.complex_type.clone(), None)
+        PyRef::new_ref(Self::from(value), ctx.types.complex_type.to_owned(), None)
     }
 
     pub fn to_complex(&self) -> Complex64 {

@@ -1,12 +1,12 @@
 // sliceobject.{h,c} in CPython
-use super::{PyInt, PyIntRef, PyTupleRef, PyTypeRef};
+use super::{PyInt, PyIntRef, PyTupleRef, PyType, PyTypeRef};
 use crate::{
     class::PyClassImpl,
     convert::ToPyObject,
     function::{FuncArgs, OptionalArg, PyComparisonValue},
     sliceable::SaturatedSlice,
     types::{Comparable, Constructor, Hashable, PyComparisonOp, Unhashable},
-    AsObject, Context, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use num_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, Zero};
@@ -20,7 +20,7 @@ pub struct PySlice {
 }
 
 impl PyPayload for PySlice {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
         vm.ctx.types.slice_type
     }
 }
@@ -265,7 +265,7 @@ impl Unhashable for PySlice {}
 pub struct PyEllipsis;
 
 impl PyPayload for PyEllipsis {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
         vm.ctx.types.ellipsis_type
     }
 }
@@ -293,5 +293,5 @@ impl PyEllipsis {
 
 pub fn init(ctx: &Context) {
     PySlice::extend_class(ctx, ctx.types.slice_type);
-    PyEllipsis::extend_class(ctx, &ctx.ellipsis.class());
+    PyEllipsis::extend_class(ctx, ctx.types.ellipsis_type);
 }

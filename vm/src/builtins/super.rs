@@ -19,7 +19,7 @@ pub struct PySuper {
 }
 
 impl PyPayload for PySuper {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
         vm.ctx.types.super_type
     }
 }

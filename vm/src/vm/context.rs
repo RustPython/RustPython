@@ -15,7 +15,7 @@ use crate::{
     exceptions,
     function::IntoPyNativeFunc,
     intern::{Internable, MaybeInterned, StringPool},
-    object::{PyObjectPayload, PyObjectRef, PyPayload, PyRef},
+    object::{Py, PyObjectPayload, PyObjectRef, PyPayload, PyRef},
     types::{PyTypeFlags, PyTypeSlots, TypeZoo},
 };
 use num_bigint::BigInt;
@@ -228,8 +228,11 @@ impl Context {
         let exceptions = exceptions::ExceptionZoo::init();
 
         #[inline]
-        fn create_object<T: PyObjectPayload + PyPayload>(payload: T, cls: &PyTypeRef) -> PyRef<T> {
-            PyRef::new_ref(payload, cls.clone(), None)
+        fn create_object<T: PyObjectPayload + PyPayload>(
+            payload: T,
+            cls: &'static Py<PyType>,
+        ) -> PyRef<T> {
+            PyRef::new_ref(payload, cls.to_owned(), None)
         }
 
         let none = create_object(PyNone, PyNone::static_type());
@@ -237,7 +240,13 @@ impl Context {
         let not_implemented = create_object(PyNotImplemented, PyNotImplemented::static_type());
 
         let int_cache_pool = (Self::INT_CACHE_POOL_MIN..=Self::INT_CACHE_POOL_MAX)
-            .map(|v| PyRef::new_ref(PyInt::from(BigInt::from(v)), types.int_type.clone(), None))
+            .map(|v| {
+                PyRef::new_ref(
+                    PyInt::from(BigInt::from(v)),
+                    types.int_type.to_owned(),
+                    None,
+                )
+            })
             .collect();
 
         let true_value = create_object(PyInt::from(1), types.bool_type);
@@ -247,11 +256,14 @@ impl Context {
             PyTuple::new_unchecked(Vec::new().into_boxed_slice()),
             types.tuple_type,
         );
-        let empty_frozenset =
-            PyRef::new_ref(PyFrozenSet::default(), types.frozenset_type.clone(), None);
+        let empty_frozenset = PyRef::new_ref(
+            PyFrozenSet::default(),
+            types.frozenset_type.to_owned(),
+            None,
+        );
 
         let string_pool = StringPool::default();
-        let names = unsafe { ConstName::new(&string_pool, types.str_type) };
+        let names = unsafe { ConstName::new(&string_pool, &types.str_type.to_owned()) };
 
         let slot_new_wrapper = create_object(
             PyNativeFuncDef::new(PyType::__new__.into_func(), names.__new__.to_owned())
@@ -260,7 +272,7 @@ impl Context {
         )
         .into();
 
-        let empty_str = unsafe { string_pool.intern("", types.str_type.clone()) }.to_owned();
+        let empty_str = unsafe { string_pool.intern("", types.str_type.to_owned()) }.to_owned();
 
         let context = Context {
             true_value,
@@ -286,7 +298,7 @@ impl Context {
     }
 
     pub fn intern_str<S: Internable>(&self, s: S) -> &'static PyStrInterned {
-        unsafe { self.string_pool.intern(s, self.types.str_type.clone()) }
+        unsafe { self.string_pool.intern(s, self.types.str_type.to_owned()) }
     }
 
     pub fn interned_str<S: MaybeInterned + ?Sized>(&self, s: &S) -> Option<&'static PyStrInterned> {
@@ -318,7 +330,7 @@ impl Context {
                 return self.int_cache_pool[inner_idx].clone();
             }
         }
-        PyRef::new_ref(PyInt::from(i), self.types.int_type.clone(), None)
+        PyRef::new_ref(PyInt::from(i), self.types.int_type.to_owned(), None)
     }
 
     #[inline]
@@ -329,19 +341,19 @@ impl Context {
                 return self.int_cache_pool[inner_idx].clone();
             }
         }
-        PyRef::new_ref(PyInt::from(i.clone()), self.types.int_type.clone(), None)
+        PyRef::new_ref(PyInt::from(i.clone()), self.types.int_type.to_owned(), None)
     }
 
     #[inline]
     pub fn new_float(&self, value: f64) -> PyRef<PyFloat> {
-        PyRef::new_ref(PyFloat::from(value), self.types.float_type.clone(), None)
+        PyRef::new_ref(PyFloat::from(value), self.types.float_type.to_owned(), None)
     }
 
     #[inline]
     pub fn new_complex(&self, value: Complex64) -> PyRef<PyComplex> {
         PyRef::new_ref(
             PyComplex::from(value),
-            self.types.complex_type.clone(),
+            self.types.complex_type.to_owned(),
             None,
         )
     }
@@ -385,7 +397,7 @@ impl Context {
         &self,
         module: Option<&str>,
         name: &str,
-        base: &PyTypeRef,
+        base: PyTypeRef,
         slots: PyTypeSlots,
     ) -> PyTypeRef {
         let mut attrs = PyAttributes::default();
@@ -394,10 +406,10 @@ impl Context {
         };
         PyType::new_ref(
             name,
-            vec![base.clone()],
+            vec![base],
             attrs,
             slots,
-            self.types.type_type.clone(),
+            self.types.type_type.to_owned(),
         )
         .unwrap()
     }
@@ -411,7 +423,7 @@ impl Context {
         let bases = if let Some(bases) = bases {
             bases
         } else {
-            vec![self.exceptions.exception_type.clone()]
+            vec![self.exceptions.exception_type.to_owned()]
         };
         let mut attrs = PyAttributes::default();
         attrs.insert(identifier!(self, __module__), self.new_str(module).into());
@@ -421,7 +433,7 @@ impl Context {
             bases,
             attrs,
             PyBaseException::make_slots(),
-            self.types.type_type.clone(),
+            self.types.type_type.to_owned(),
         )
         .unwrap()
     }
@@ -445,7 +457,7 @@ impl Context {
     pub fn new_method<F, FKind>(
         &self,
         name: impl Into<PyStr>,
-        class: PyTypeRef,
+        class: &'static Py<PyType>,
         f: F,
     ) -> PyRef<PyBuiltinMethod>
     where
@@ -457,7 +469,7 @@ impl Context {
     pub fn new_readonly_getset<F, T>(
         &self,
         name: impl Into<String>,
-        class: PyTypeRef,
+        class: &'static Py<PyType>,
         f: F,
     ) -> PyRef<PyGetSet>
     where
@@ -465,7 +477,7 @@ impl Context {
     {
         PyRef::new_ref(
             PyGetSet::new(name.into(), class).with_get(f),
-            self.types.getset_type.clone(),
+            self.types.getset_type.to_owned(),
             None,
         )
     }
@@ -473,7 +485,7 @@ impl Context {
     pub fn new_getset<G, S, T, U>(
         &self,
         name: impl Into<String>,
-        class: PyTypeRef,
+        class: &'static Py<PyType>,
         g: G,
         s: S,
     ) -> PyRef<PyGetSet>
@@ -483,7 +495,7 @@ impl Context {
     {
         PyRef::new_ref(
             PyGetSet::new(name.into(), class).with_get(g).with_set(s),
-            self.types.getset_type.clone(),
+            self.types.getset_type.to_owned(),
             None,
         )
     }
@@ -498,7 +510,7 @@ impl Context {
 
     pub fn new_code(&self, code: impl code::IntoCodeObject) -> PyRef<PyCode> {
         let code = code.into_codeobj(self);
-        PyRef::new_ref(PyCode { code }, self.types.code_type.clone(), None)
+        PyRef::new_ref(PyCode { code }, self.types.code_type.to_owned(), None)
     }
 }
 

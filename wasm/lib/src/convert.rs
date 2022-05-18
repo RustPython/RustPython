@@ -67,11 +67,11 @@ pub fn js_err_to_py_err(vm: &VirtualMachine, js_err: &JsValue) -> PyBaseExceptio
                 "SyntaxError" => vm.ctx.exceptions.syntax_error,
                 _ => vm.ctx.exceptions.exception_type,
             }
-            .clone();
+            .to_owned();
             vm.new_exception_msg(exc_type, err.message().into())
         }
         None => vm.new_exception_msg(
-            vm.ctx.exceptions.exception_type.clone(),
+            vm.ctx.exceptions.exception_type.to_owned(),
             format!("{:?}", js_err),
         ),
     }

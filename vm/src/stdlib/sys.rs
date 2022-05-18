@@ -279,7 +279,7 @@ mod sys {
     #[pyfunction]
     fn exit(code: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
         let code = code.unwrap_or_none(vm);
-        Err(vm.new_exception(vm.ctx.exceptions.system_exit.clone(), vec![code]))
+        Err(vm.new_exception(vm.ctx.exceptions.system_exit.to_owned(), vec![code]))
     }
 
     #[pyfunction(name = "__displayhook__")]

@@ -15,23 +15,23 @@ mod _weakref {
 
     #[pyattr(name = "ref")]
     fn ref_(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.weakref_type.clone()
+        vm.ctx.types.weakref_type.to_owned()
     }
     #[pyattr]
     fn proxy(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.weakproxy_type.clone()
+        vm.ctx.types.weakproxy_type.to_owned()
     }
     #[pyattr(name = "ReferenceType")]
     fn reference_type(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.weakref_type.clone()
+        vm.ctx.types.weakref_type.to_owned()
     }
     #[pyattr(name = "ProxyType")]
     fn proxy_type(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.weakproxy_type.clone()
+        vm.ctx.types.weakproxy_type.to_owned()
     }
     #[pyattr(name = "CallableProxyType")]
     fn callable_proxy_type(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.weakproxy_type.clone()
+        vm.ctx.types.weakproxy_type.to_owned()
     }
 
     #[pyfunction]

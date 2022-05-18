@@ -1,8 +1,5 @@
 pub(crate) use _js::{PyJsValue, PyPromise};
-use rustpython_vm::{
-    builtins::{PyBaseExceptionRef, PyType},
-    PyObjectRef, VirtualMachine,
-};
+use rustpython_vm::VirtualMachine;
 
 #[pymodule]
 mod _js {
@@ -13,7 +10,7 @@ mod _js {
     };
     use js_sys::{Array, Object, Promise, Reflect};
     use rustpython_vm::{
-        builtins::{PyBaseExceptionRef, PyFloat, PyStrRef, PyTypeRef},
+        builtins::{PyBaseExceptionRef, PyFloat, PyStrRef, PyType, PyTypeRef},
         convert::{IntoObject, ToPyObject},
         function::{ArgCallable, OptionalArg, OptionalOption, PosArgs},
         protocol::PyIterReturn,
@@ -617,23 +614,22 @@ mod _js {
             vec![PyJsValue::new(err).to_pyobject(vm)],
         )
     }
+
+    #[pyattr(name = "JSError", once)]
+    fn js_error(vm: &VirtualMachine) -> PyTypeRef {
+        let ctx = &vm.ctx;
+        let js_error = PyRef::leak(
+            PyType::new_simple_ref("JSError", &vm.ctx.exceptions.exception_type.to_owned())
+                .unwrap(),
+        );
+        extend_class!(ctx, js_error, {
+            "value" => ctx.new_readonly_getset("value", js_error, |exc: PyBaseExceptionRef| exc.get_arg(0)),
+        });
+        js_error.to_owned()
+    }
 }
 
-pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
-    let module = _js::make_module(vm);
-
-    let ctx = &vm.ctx;
-    let js_error = PyType::new_simple_ref("JSError", vm.ctx.exceptions.exception_type).unwrap();
-    extend_class!(ctx, &js_error, {
-        "value" => ctx.new_readonly_getset("value", js_error.clone(), |exc: PyBaseExceptionRef| exc.get_arg(0)),
-    });
-
-    extend_module!(vm, module, {
-        "JSError" => js_error,
-    });
-
-    module
-}
+pub(crate) use _js::make_module;
 
 pub fn setup_js_module(vm: &mut VirtualMachine) {
     vm.add_native_module("_js".to_owned(), Box::new(make_module));

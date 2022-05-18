@@ -2,14 +2,14 @@
 
 */
 
-use super::{PyStrRef, PyTupleRef, PyTypeRef};
+use super::{PyStrRef, PyTupleRef, PyType, PyTypeRef};
 use crate::{
     builtins::PyStrInterned,
     bytecode::{self, BorrowedConstant, Constant, ConstantBag},
     class::{PyClassImpl, StaticType},
     convert::ToPyObject,
     function::FuncArgs,
-    AsObject, Context, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use num_traits::Zero;
 use std::{borrow::Borrow, fmt, ops::Deref};
@@ -152,7 +152,7 @@ impl fmt::Debug for PyCode {
 }
 
 impl PyPayload for PyCode {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
         vm.ctx.types.code_type
     }
 }

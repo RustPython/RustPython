@@ -1,11 +1,11 @@
-use super::PyTypeRef;
+use super::{PyType, PyTypeRef};
 use crate::{
     builtins::PyDict,
     class::PyClassImpl,
     function::{FuncArgs, PyComparisonValue},
     recursion::ReprGuard,
     types::{Comparable, Constructor, Initializer, PyComparisonOp},
-    AsObject, Context, PyObject, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 /// A simple attribute-based namespace.
@@ -16,7 +16,7 @@ use crate::{
 pub struct PyNamespace {}
 
 impl PyPayload for PyNamespace {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
         vm.ctx.types.namespace_type
     }
 }
@@ -33,7 +33,7 @@ impl PyNamespace {
     pub fn new_ref(ctx: &Context) -> PyRef<Self> {
         PyRef::new_ref(
             Self {},
-            ctx.types.namespace_type.clone(),
+            ctx.types.namespace_type.to_owned(),
             Some(ctx.new_dict()),
         )
     }

@@ -1,14 +1,13 @@
-use std::borrow::Cow;
-
-use super::{PyDict, PyGenericAlias, PyList, PyTuple, PyTypeRef};
+use super::{PyDict, PyGenericAlias, PyList, PyTuple, PyType, PyTypeRef};
 use crate::{
     class::PyClassImpl,
     convert::ToPyObject,
     function::OptionalArg,
     protocol::{PyMapping, PyMappingMethods, PySequence, PySequenceMethods},
     types::{AsMapping, AsSequence, Constructor, Iterable},
-    AsObject, Context, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
+use std::borrow::Cow;
 
 #[pyclass(module = false, name = "mappingproxy")]
 #[derive(Debug)]
@@ -23,7 +22,7 @@ enum MappingProxyInner {
 }
 
 impl PyPayload for PyMappingProxy {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
         vm.ctx.types.mappingproxy_type
     }
 }

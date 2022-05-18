@@ -32,7 +32,7 @@ mod _warnings {
             }
             category
         } else {
-            vm.ctx.exceptions.user_warning.clone()
+            vm.ctx.exceptions.user_warning.to_owned()
         };
         let stderr = PyStderr(vm);
         writeln!(

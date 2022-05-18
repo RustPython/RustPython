@@ -3,7 +3,7 @@ mod jitfunc;
 
 use super::{
     tuple::PyTupleTyped, PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyStr, PyStrRef,
-    PyTupleRef, PyTypeRef,
+    PyTupleRef, PyType, PyTypeRef,
 };
 use crate::common::lock::PyMutex;
 use crate::function::ArgMapping;
@@ -322,7 +322,7 @@ impl PyFunction {
 }
 
 impl PyPayload for PyFunction {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
         vm.ctx.types.function_type
     }
 }
@@ -499,7 +499,7 @@ impl PyBoundMethod {
     pub fn new_ref(object: PyObjectRef, function: PyObjectRef, ctx: &Context) -> PyRef<Self> {
         PyRef::new_ref(
             Self::new(object, function),
-            ctx.types.bound_method_type.clone(),
+            ctx.types.bound_method_type.to_owned(),
             None,
         )
     }
@@ -568,7 +568,7 @@ impl PyBoundMethod {
 }
 
 impl PyPayload for PyBoundMethod {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
         vm.ctx.types.bound_method_type
     }
 }
@@ -581,7 +581,7 @@ pub(crate) struct PyCell {
 pub(crate) type PyCellRef = PyRef<PyCell>;
 
 impl PyPayload for PyCell {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
         vm.ctx.types.cell_type
     }
 }

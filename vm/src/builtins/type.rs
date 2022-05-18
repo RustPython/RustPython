@@ -52,7 +52,7 @@ impl fmt::Debug for PyType {
 }
 
 impl PyPayload for PyType {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
         vm.ctx.types.type_type
     }
 }
@@ -64,7 +64,7 @@ impl PyType {
             vec![base.clone()],
             Default::default(),
             Default::default(),
-            Self::static_type().clone(),
+            Self::static_type().to_owned(),
         )
     }
     pub fn new_ref(
@@ -127,7 +127,7 @@ impl PyType {
             base.subclasses.write().push(
                 new_type
                     .as_object()
-                    .downgrade_with_weakref_typ_opt(None, weakref_type.clone())
+                    .downgrade_with_weakref_typ_opt(None, weakref_type.to_owned())
                     .unwrap(),
             );
         }
@@ -442,7 +442,7 @@ impl PyType {
         }
 
         let (metatype, base, bases) = if bases.is_empty() {
-            let base = vm.ctx.types.object_type.clone();
+            let base = vm.ctx.types.object_type.to_owned();
             (metatype, base.clone(), vec![base])
         } else {
             let bases = bases
@@ -520,18 +520,17 @@ impl PyType {
         // All *classes* should have a dict. Exceptions are *instances* of
         // classes that define __slots__ and instances of built-in classes
         // (with exceptions, e.g function)
-        attributes
-            .entry(identifier!(vm, __dict__))
-            .or_insert_with(|| {
-                vm.ctx
-                    .new_getset(
-                        "__dict__",
-                        vm.ctx.types.object_type.clone(),
-                        subtype_get_dict,
-                        subtype_set_dict,
-                    )
-                    .into()
-            });
+        let __dict__ = identifier!(vm, __dict__);
+        attributes.entry(__dict__).or_insert_with(|| {
+            vm.ctx
+                .new_getset(
+                    "__dict__",
+                    vm.ctx.types.object_type,
+                    subtype_get_dict,
+                    subtype_set_dict,
+                )
+                .into()
+        });
 
         // TODO: Flags is currently initialized with HAS_DICT. Should be
         // updated when __slots__ are supported (toggling the flag off if
@@ -723,7 +722,7 @@ impl SetAttr for PyType {
             let prev_value = attributes.remove(attr_name);
             if prev_value.is_none() {
                 return Err(vm.new_exception(
-                    vm.ctx.exceptions.attribute_error.clone(),
+                    vm.ctx.exceptions.attribute_error.to_owned(),
                     vec![attr_name.to_object()],
                 ));
             }
@@ -964,8 +963,8 @@ mod tests {
     #[test]
     fn test_linearise() {
         let context = Context::genesis();
-        let object = context.types.object_type;
-        let type_type = context.types.type_type;
+        let object = context.types.object_type.to_owned();
+        let type_type = context.types.type_type.to_owned();
 
         let a = PyType::new_ref(
             "A",

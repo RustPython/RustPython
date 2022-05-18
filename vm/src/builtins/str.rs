@@ -1,7 +1,7 @@
 use super::{
     int::{PyInt, PyIntRef},
     iter::IterStatus::{self, Exhausted},
-    PositionIterInternal, PyBytesRef, PyDict, PyTupleRef, PyTypeRef,
+    PositionIterInternal, PyBytesRef, PyDict, PyTupleRef, PyType, PyTypeRef,
 };
 use crate::{
     anystr::{self, adjust_indices, AnyStr, AnyStrContainer, AnyStrWrapper},
@@ -242,7 +242,7 @@ pub struct PyStrIterator {
 }
 
 impl PyPayload for PyStrIterator {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
         vm.ctx.types.str_iterator_type
     }
 }
@@ -360,7 +360,7 @@ impl PyStr {
     }
 
     pub fn new_ref(s: impl Into<Self>, ctx: &Context) -> PyRef<Self> {
-        PyRef::new_ref(s.into(), ctx.types.str_type.clone(), None)
+        PyRef::new_ref(s.into(), ctx.types.str_type.to_owned(), None)
     }
 
     fn new_substr(&self, s: String) -> Self {
@@ -1365,7 +1365,7 @@ pub(crate) fn encode_string(
 }
 
 impl PyPayload for PyStr {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
         vm.ctx.types.str_type
     }
 }

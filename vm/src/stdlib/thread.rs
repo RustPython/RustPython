@@ -31,7 +31,7 @@ pub(crate) mod _thread {
 
     #[pyattr]
     fn error(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.exceptions.runtime_error.clone()
+        vm.ctx.exceptions.runtime_error.to_owned()
     }
 
     #[derive(FromArgs)]
@@ -291,7 +291,7 @@ pub(crate) mod _thread {
 
     #[pyfunction]
     fn exit(vm: &VirtualMachine) -> PyResult {
-        Err(vm.new_exception_empty(vm.ctx.exceptions.system_exit.clone()))
+        Err(vm.new_exception_empty(vm.ctx.exceptions.system_exit.to_owned()))
     }
 
     thread_local!(static SENTINELS: RefCell<Vec<PyRef<Lock>>> = RefCell::default());

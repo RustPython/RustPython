@@ -1066,7 +1066,7 @@ mod decl {
                 tee_data: PyItertoolsTeeData::new(iterator, vm)?,
                 index: AtomicCell::new(0),
             }
-            .into_ref_with_type(vm, class.clone())?
+            .into_ref_with_type(vm, class.to_owned())?
             .into())
         }
 
