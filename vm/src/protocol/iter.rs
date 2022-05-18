@@ -180,7 +180,7 @@ impl PyIterReturn {
             Self::Return(obj) => Ok(obj),
             Self::StopIteration(v) => Err({
                 let args = if let Some(v) = v { vec![v] } else { Vec::new() };
-                vm.new_exception(vm.ctx.exceptions.stop_async_iteration.clone(), args)
+                vm.new_exception(vm.ctx.exceptions.stop_async_iteration.to_owned(), args)
             }),
         }
     }

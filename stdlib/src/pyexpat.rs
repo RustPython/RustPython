@@ -32,10 +32,10 @@ macro_rules! create_property {
 #[pymodule(name = "pyexpat")]
 mod _pyexpat {
     use crate::vm::{
-        builtins::{PyStr, PyStrRef, PyTypeRef},
+        builtins::{PyStr, PyStrRef, PyType},
         function::ArgBytesLike,
         function::{IntoFuncArgs, OptionalArg},
-        Context, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+        Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     };
     use rustpython_common::lock::PyRwLock;
     use std::io::Cursor;
@@ -76,38 +76,20 @@ mod _pyexpat {
         }
 
         #[extend_class]
-        fn extend_class_with_fields(ctx: &Context, class: &PyTypeRef) {
+        fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
             let mut attributes = class.attributes.write();
 
-            create_property!(
-                ctx,
-                attributes,
-                "StartElementHandler",
-                class.clone(),
-                start_element
-            );
-            create_property!(
-                ctx,
-                attributes,
-                "EndElementHandler",
-                class.clone(),
-                end_element
-            );
+            create_property!(ctx, attributes, "StartElementHandler", class, start_element);
+            create_property!(ctx, attributes, "EndElementHandler", class, end_element);
             create_property!(
                 ctx,
                 attributes,
                 "CharacterDataHandler",
-                class.clone(),
+                class,
                 character_data
             );
-            create_property!(
-                ctx,
-                attributes,
-                "EntityDeclHandler",
-                class.clone(),
-                entity_decl
-            );
-            create_property!(ctx, attributes, "buffer_text", class.clone(), buffer_text);
+            create_property!(ctx, attributes, "EntityDeclHandler", class, entity_decl);
+            create_property!(ctx, attributes, "buffer_text", class, buffer_text);
         }
 
         fn create_config(&self) -> xml::ParserConfig {

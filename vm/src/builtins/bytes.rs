@@ -1,7 +1,8 @@
-use super::{PositionIterInternal, PyDictRef, PyIntRef, PyStrRef, PyTuple, PyTupleRef, PyTypeRef};
+use super::{
+    PositionIterInternal, PyDictRef, PyIntRef, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
+};
 use crate::{
     anystr::{self, AnyStr},
-    builtins::PyType,
     bytesinner::{
         bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
         ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
@@ -74,7 +75,7 @@ impl AsRef<[u8]> for PyBytesRef {
 }
 
 impl PyPayload for PyBytes {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
         vm.ctx.types.bytes_type
     }
 }
@@ -94,7 +95,7 @@ impl Constructor for PyBytes {
 
 impl PyBytes {
     pub fn new_ref(data: Vec<u8>, ctx: &Context) -> PyRef<Self> {
-        PyRef::new_ref(Self::from(data), ctx.types.bytes_type.clone(), None)
+        PyRef::new_ref(Self::from(data), ctx.types.bytes_type.to_owned(), None)
     }
 }
 
@@ -665,7 +666,7 @@ pub struct PyBytesIterator {
 }
 
 impl PyPayload for PyBytesIterator {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
         vm.ctx.types.bytes_iterator_type
     }
 }

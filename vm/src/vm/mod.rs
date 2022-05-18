@@ -99,7 +99,7 @@ impl VirtualMachine {
         let new_module = || {
             PyRef::new_ref(
                 PyModule {},
-                ctx.types.module_type.clone(),
+                ctx.types.module_type.to_owned(),
                 Some(ctx.new_dict()),
             )
         };

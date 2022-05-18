@@ -163,7 +163,7 @@ mod decl {
 
     #[pyattr]
     fn error(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.exceptions.os_error.clone()
+        vm.ctx.exceptions.os_error.to_owned()
     }
 
     #[pyfunction]

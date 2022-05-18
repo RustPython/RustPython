@@ -1,7 +1,7 @@
-use super::{PyInt, PyStrRef, PyTypeRef};
+use super::{PyInt, PyStrRef, PyType, PyTypeRef};
 use crate::{
     class::PyClassImpl, convert::ToPyObject, function::OptionalArg, types::Constructor, AsObject,
-    Context, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject, VirtualMachine,
+    Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject, VirtualMachine,
 };
 use num_bigint::Sign;
 use num_traits::Zero;
@@ -79,7 +79,7 @@ impl PyObjectRef {
 pub struct PyBool;
 
 impl PyPayload for PyBool {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
         vm.ctx.types.bool_type
     }
 }

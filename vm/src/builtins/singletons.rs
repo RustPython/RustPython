@@ -1,6 +1,6 @@
-use super::PyTypeRef;
+use super::{PyType, PyTypeRef};
 use crate::{
-    class::PyClassImpl, convert::ToPyObject, types::Constructor, AsObject, Context, PyObjectRef,
+    class::PyClassImpl, convert::ToPyObject, types::Constructor, Context, Py, PyObjectRef,
     PyPayload, PyResult, VirtualMachine,
 };
 
@@ -9,7 +9,7 @@ use crate::{
 pub struct PyNone;
 
 impl PyPayload for PyNone {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
         vm.ctx.types.none_type
     }
 }
@@ -57,7 +57,7 @@ impl PyNone {
 pub struct PyNotImplemented;
 
 impl PyPayload for PyNotImplemented {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
         vm.ctx.types.not_implemented_type
     }
 }
@@ -92,6 +92,6 @@ impl PyNotImplemented {
 }
 
 pub fn init(context: &Context) {
-    PyNone::extend_class(context, &context.none.class());
-    PyNotImplemented::extend_class(context, &context.not_implemented.class());
+    PyNone::extend_class(context, context.types.none_type);
+    PyNotImplemented::extend_class(context, context.types.not_implemented_type);
 }

@@ -5,7 +5,7 @@ use crate::{
     function::Either,
     function::{FuncArgs, PyArithmeticValue, PyComparisonValue},
     types::PyComparisonOp,
-    AsObject, Context, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 
 /// object()
@@ -20,7 +20,7 @@ use crate::{
 pub struct PyBaseObject;
 
 impl PyPayload for PyBaseObject {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
         vm.ctx.types.object_type
     }
 }

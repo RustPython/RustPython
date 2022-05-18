@@ -37,7 +37,7 @@ impl PyObjectRef {
         match self.downcast_exact::<PyInt>(vm) {
             Ok(int) => Err(vm.new_downcast_type_error(bytes_type, &int)),
             Err(obj) => PyBytes::py_new(
-                bytes_type.clone(),
+                bytes_type.to_owned(),
                 ByteInnerNewOptions {
                     source: OptionalArg::Present(obj),
                     encoding: OptionalArg::Missing,

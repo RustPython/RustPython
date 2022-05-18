@@ -180,7 +180,7 @@ mod _ssl {
         vm.ctx.new_exception_type(
             "ssl",
             "SSLError",
-            Some(vec![vm.ctx.exceptions.os_error.clone()]),
+            Some(vec![vm.ctx.exceptions.os_error.to_owned()]),
         )
     }
 
@@ -190,7 +190,10 @@ mod _ssl {
         vm.ctx.new_exception_type(
             "ssl",
             "SSLCertVerificationError",
-            Some(vec![ssl_error(vm), vm.ctx.exceptions.value_error.clone()]),
+            Some(vec![
+                ssl_error(vm),
+                vm.ctx.exceptions.value_error.to_owned(),
+            ]),
         )
     }
 

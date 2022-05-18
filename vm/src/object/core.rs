@@ -616,7 +616,7 @@ impl PyObject {
         callback: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<PyWeak>> {
-        self.downgrade_with_typ(callback, vm.ctx.types.weakref_type.clone(), vm)
+        self.downgrade_with_typ(callback, vm.ctx.types.weakref_type.to_owned(), vm)
     }
 
     pub fn get_weak_references(&self) -> Option<Vec<PyRef<PyWeak>>> {
@@ -967,6 +967,12 @@ impl<T: PyObjectPayload> PyRef<T> {
         Self {
             ptr: unsafe { NonNull::new_unchecked(inner.cast::<Py<T>>()) },
         }
+    }
+
+    pub fn leak(pyref: Self) -> &'static Py<T> {
+        let ptr = pyref.ptr;
+        std::mem::forget(pyref);
+        unsafe { &*ptr.as_ptr() }
     }
 }
 
