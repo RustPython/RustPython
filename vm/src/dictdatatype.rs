@@ -10,7 +10,7 @@ use crate::common::{
 use crate::{
     builtins::{PyInt, PyStr, PyStrRef},
     convert::ToPyObject,
-    AsObject, Py, PyObject, PyObjectRef, PyRefExact, PyResult, VirtualMachine,
+    AsObject, Py, PyExact, PyObject, PyObjectRef, PyRefExact, PyResult, VirtualMachine,
 };
 use num_traits::ToPrimitive;
 use std::{fmt, mem::size_of, ops::ControlFlow};
@@ -686,23 +686,23 @@ pub trait DictKey {
 /// to index dictionaries.
 impl DictKey for PyObject {
     type Owned = PyObjectRef;
-    #[inline]
+    #[inline(always)]
     fn _to_owned(&self, _vm: &VirtualMachine) -> Self::Owned {
         self.to_owned()
     }
-
+    #[inline(always)]
     fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
         self.hash(vm)
     }
-
+    #[inline(always)]
     fn key_is(&self, other: &PyObject) -> bool {
         self.is(other)
     }
-
+    #[inline(always)]
     fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObject) -> PyResult<bool> {
         vm.identical_or_equal(self, other_key)
     }
-
+    #[inline]
     fn key_as_isize(&self, vm: &VirtualMachine) -> PyResult<isize> {
         vm.to_index(self)?.try_to_primitive(vm)
     }
@@ -710,15 +710,15 @@ impl DictKey for PyObject {
 
 impl DictKey for Py<PyStr> {
     type Owned = PyStrRef;
-    #[inline]
+    #[inline(always)]
     fn _to_owned(&self, _vm: &VirtualMachine) -> Self::Owned {
         self.to_owned()
     }
-
+    #[inline]
     fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
         Ok(self.hash(vm))
     }
-
+    #[inline(always)]
     fn key_is(&self, other: &PyObject) -> bool {
         self.is(other)
     }
@@ -732,28 +732,31 @@ impl DictKey for Py<PyStr> {
             vm.bool_eq(self.as_object(), other_key)
         }
     }
-
+    #[inline(always)]
     fn key_as_isize(&self, vm: &VirtualMachine) -> PyResult<isize> {
         self.as_object().key_as_isize(vm)
     }
 }
 
-impl DictKey for PyRefExact<PyStr> {
-    type Owned = Self;
-    #[inline]
+impl DictKey for PyExact<PyStr> {
+    type Owned = PyRefExact<PyStr>;
+    #[inline(always)]
     fn _to_owned(&self, _vm: &VirtualMachine) -> Self::Owned {
-        self.clone()
+        self.to_owned()
     }
-
+    #[inline(always)]
     fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
         (**self).key_hash(vm)
     }
+    #[inline]
     fn key_is(&self, other: &PyObject) -> bool {
         (**self).key_is(other)
     }
+    #[inline(always)]
     fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObject) -> PyResult<bool> {
         (**self).key_eq(vm, other_key)
     }
+    #[inline(always)]
     fn key_as_isize(&self, vm: &VirtualMachine) -> PyResult<isize> {
         (**self).key_as_isize(vm)
     }
@@ -765,16 +768,16 @@ impl DictKey for PyRefExact<PyStr> {
 /// to index dictionaries.
 impl DictKey for str {
     type Owned = String;
-    #[inline]
+    #[inline(always)]
     fn _to_owned(&self, _vm: &VirtualMachine) -> Self::Owned {
         self.to_owned()
     }
-
+    #[inline]
     fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
         // follow a similar route as the hashing of PyStrRef
         Ok(vm.state.hash_secret.hash_str(self))
     }
-
+    #[inline(always)]
     fn key_is(&self, _other: &PyObject) -> bool {
         // No matter who the other pyobject is, we are never the same thing, since
         // we are a str, not a pyobject.

@@ -2,7 +2,7 @@ use crate::{
     builtins::{PyStr, PyTypeRef},
     common::lock::PyRwLock,
     convert::ToPyObject,
-    Py, PyObject, PyObjectRef, PyRef, PyRefExact,
+    Py, PyExact, PyObject, PyObjectRef, PyRef, PyRefExact,
 };
 use std::{
     borrow::{Borrow, ToOwned},
@@ -199,7 +199,7 @@ impl std::fmt::Display for PyStrInterned {
 mod sealed {
     use crate::{
         builtins::PyStr,
-        object::{Py, PyRefExact},
+        object::{Py, PyExact, PyRefExact},
     };
 
     pub trait SealedInternable {}
@@ -211,7 +211,7 @@ mod sealed {
     pub trait SealedMaybeInterned {}
 
     impl SealedMaybeInterned for str {}
-    impl SealedMaybeInterned for PyRefExact<PyStr> {}
+    impl SealedMaybeInterned for PyExact<PyStr> {}
     impl SealedMaybeInterned for Py<PyStr> {}
 }
 
@@ -253,6 +253,13 @@ pub trait MaybeInterned:
 }
 
 impl MaybeInterned for str {
+    #[inline(always)]
+    fn as_interned(&self) -> Option<&'static PyStrInterned> {
+        None
+    }
+}
+
+impl MaybeInterned for PyExact<PyStr> {
     #[inline(always)]
     fn as_interned(&self) -> Option<&'static PyStrInterned> {
         None
