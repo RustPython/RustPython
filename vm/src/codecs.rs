@@ -218,7 +218,7 @@ impl CodecsRegistry {
         }
         let search_path = inner.search_path.clone();
         drop(inner); // don't want to deadlock
-        let encoding = PyStr::from(encoding.into_owned()).into_ref(vm);
+        let encoding = PyStr::from(encoding.into_owned()).into_ref(&vm.ctx);
         for func in search_path {
             let res = vm.invoke(&func, (encoding.clone(),))?;
             let res: Option<PyCodec> = res.try_into_value(vm)?;

@@ -31,7 +31,7 @@ mod syslog {
                         Some(value) => &argv[value..],
                         None => argv,
                     })
-                    .into_ref(vm),
+                    .into_ref(&vm.ctx),
                 );
             }
         }

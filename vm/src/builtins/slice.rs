@@ -20,8 +20,9 @@ pub struct PySlice {
 }
 
 impl PyPayload for PySlice {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.slice_type
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.slice_type
     }
 }
 
@@ -265,8 +266,9 @@ impl Unhashable for PySlice {}
 pub struct PyEllipsis;
 
 impl PyPayload for PyEllipsis {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.ellipsis_type
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.ellipsis_type
     }
 }
 

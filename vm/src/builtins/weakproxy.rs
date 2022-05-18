@@ -13,8 +13,9 @@ pub struct PyWeakProxy {
 }
 
 impl PyPayload for PyWeakProxy {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.weakproxy_type
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.weakproxy_type
     }
 }
 

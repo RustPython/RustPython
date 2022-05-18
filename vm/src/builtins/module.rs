@@ -13,8 +13,9 @@ use crate::{
 pub struct PyModule {}
 
 impl PyPayload for PyModule {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.module_type
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.module_type
     }
 }
 
@@ -61,7 +62,7 @@ impl PyModule {
 
     fn name(zelf: PyRef<Self>, vm: &VirtualMachine) -> Option<PyStrRef> {
         zelf.as_object()
-            .generic_getattr_opt(PyStr::from("__name__").into_ref(vm), None, vm)
+            .generic_getattr_opt(PyStr::from("__name__").into_ref(&vm.ctx), None, vm)
             .unwrap_or(None)
             .and_then(|obj| obj.downcast::<PyStr>().ok())
     }

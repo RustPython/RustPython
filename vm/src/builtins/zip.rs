@@ -17,8 +17,9 @@ pub struct PyZip {
 }
 
 impl PyPayload for PyZip {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.zip_type
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.zip_type
     }
 }
 

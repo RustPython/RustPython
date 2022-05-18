@@ -72,7 +72,7 @@ mod _pyexpat {
                 entity_decl: MutableObject::new(vm.ctx.none()),
                 buffer_text: MutableObject::new(vm.ctx.new_bool(false).into()),
             }
-            .into_ref(vm))
+            .into_ref(&vm.ctx))
         }
 
         #[extend_class]
@@ -118,15 +118,15 @@ mod _pyexpat {
                             .unwrap();
                         }
 
-                        let name_str = PyStr::from(name.local_name).into_ref(vm);
+                        let name_str = PyStr::from(name.local_name).into_ref(&vm.ctx);
                         invoke_handler(vm, &self.start_element, (name_str, dict));
                     }
                     Ok(XmlEvent::EndElement { name, .. }) => {
-                        let name_str = PyStr::from(name.local_name).into_ref(vm);
+                        let name_str = PyStr::from(name.local_name).into_ref(&vm.ctx);
                         invoke_handler(vm, &self.end_element, (name_str,));
                     }
                     Ok(XmlEvent::Characters(chars)) => {
-                        let str = PyStr::from(chars).into_ref(vm);
+                        let str = PyStr::from(chars).into_ref(&vm.ctx);
                         invoke_handler(vm, &self.character_data, (str,));
                     }
                     _ => {}

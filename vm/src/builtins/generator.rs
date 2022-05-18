@@ -20,8 +20,9 @@ pub struct PyGenerator {
 }
 
 impl PyPayload for PyGenerator {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.generator_type
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.generator_type
     }
 }
 

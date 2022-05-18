@@ -17,8 +17,9 @@ pub struct PyCoroutine {
 }
 
 impl PyPayload for PyCoroutine {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.coroutine_type
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.coroutine_type
     }
 }
 
@@ -121,8 +122,9 @@ pub struct PyCoroutineWrapper {
 }
 
 impl PyPayload for PyCoroutineWrapper {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.coroutine_wrapper_type
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.coroutine_wrapper_type
     }
 }
 

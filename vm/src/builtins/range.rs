@@ -75,8 +75,9 @@ pub struct PyRange {
 }
 
 impl PyPayload for PyRange {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.range_type
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.range_type
     }
 }
 
@@ -359,7 +360,7 @@ impl PyRange {
                     stop: vm.new_pyref(substop),
                     step: vm.new_pyref(substep),
                 }
-                .into_ref(vm)
+                .into_ref(&vm.ctx)
                 .into())
             }
             RangeIndex::Int(index) => match self.get(index.as_bigint()) {
@@ -403,7 +404,7 @@ impl PyRange {
         item: Some(|seq, i, vm| {
             Self::sequence_downcast(seq)
                 .get(&i.into())
-                .map(|x| PyInt::from(x).into_ref(vm).into())
+                .map(|x| PyInt::from(x).into_ref(&vm.ctx).into())
                 .ok_or_else(|| vm.new_index_error("index out of range".to_owned()))
         }),
         contains: Some(|seq, needle, vm| {
@@ -529,8 +530,9 @@ pub struct PyLongRangeIterator {
 }
 
 impl PyPayload for PyLongRangeIterator {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.longrange_iterator_type
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.longrange_iterator_type
     }
 }
 
@@ -594,8 +596,9 @@ pub struct PyRangeIterator {
 }
 
 impl PyPayload for PyRangeIterator {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.range_iterator_type
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.range_iterator_type
     }
 }
 
@@ -658,9 +661,9 @@ fn range_iter_reduce(
     let iter = builtins_iter(vm).to_owned();
     let stop = start.clone() + length * step.clone();
     let range = PyRange {
-        start: PyInt::from(start).into_ref(vm),
-        stop: PyInt::from(stop).into_ref(vm),
-        step: PyInt::from(step).into_ref(vm),
+        start: PyInt::from(start).into_ref(&vm.ctx),
+        stop: PyInt::from(stop).into_ref(&vm.ctx),
+        step: PyInt::from(step).into_ref(&vm.ctx),
     };
     Ok(vm.new_tuple((iter, (range,), index)))
 }

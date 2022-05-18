@@ -7,7 +7,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let module = unicodedata::make_module(vm);
 
     let ucd: PyObjectRef = unicodedata::Ucd::new(unic_ucd_age::UNICODE_VERSION)
-        .into_ref(vm)
+        .into_ref(&vm.ctx)
         .into();
 
     for attr in ["category", "lookup", "name", "bidirectional", "normalize"]
@@ -147,7 +147,7 @@ mod unicodedata {
                 micro: 0,
             },
         }
-        .into_ref(vm)
+        .into_ref(&vm.ctx)
     }
 
     #[pyattr]

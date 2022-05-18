@@ -1,14 +1,13 @@
 use crate::{
     builtins::{
         builtinfunc::{PyBuiltinFunction, PyBuiltinMethod, PyNativeFuncDef},
-        bytes,
         code::{self, PyCode},
         getset::{IntoPyGetterFunc, IntoPySetterFunc, PyGetSet},
         object, pystr,
         type_::PyAttributes,
-        PyBaseException, PyComplex, PyDict, PyDictRef, PyEllipsis, PyFloat, PyFrozenSet, PyInt,
-        PyIntRef, PyList, PyListRef, PyNone, PyNotImplemented, PyStr, PyTuple, PyTupleRef, PyType,
-        PyTypeRef,
+        PyBaseException, PyByteArray, PyBytes, PyComplex, PyDict, PyDictRef, PyEllipsis, PyFloat,
+        PyFrozenSet, PyInt, PyIntRef, PyList, PyListRef, PyNone, PyNotImplemented, PyStr, PyTuple,
+        PyTupleRef, PyType, PyTypeRef,
     },
     class::{PyClassImpl, StaticType},
     exceptions,
@@ -193,8 +192,17 @@ impl Context {
     }
 
     #[inline]
-    pub fn new_bytes(&self, data: Vec<u8>) -> PyRef<bytes::PyBytes> {
-        bytes::PyBytes::new_ref(data, self)
+    pub fn new_bytes(&self, data: Vec<u8>) -> PyRef<PyBytes> {
+        PyBytes::new_ref(data, self)
+    }
+
+    #[inline]
+    pub fn new_bytearray(&self, data: Vec<u8>) -> PyRef<PyByteArray> {
+        PyRef::new_ref(
+            PyByteArray::from(data),
+            self.types.bytearray_type.to_owned(),
+            None,
+        )
     }
 
     #[inline(always)]
@@ -219,7 +227,7 @@ impl Context {
 
     #[inline(always)]
     pub fn new_dict(&self) -> PyDictRef {
-        PyDict::new_ref(self)
+        PyDict::default().into_ref(self)
     }
 
     pub fn new_class(

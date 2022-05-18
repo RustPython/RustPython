@@ -23,8 +23,9 @@ enum MappingProxyInner {
 }
 
 impl PyPayload for PyMappingProxy {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.mappingproxy_type
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.mappingproxy_type
     }
 }
 
@@ -95,7 +96,7 @@ impl PyMappingProxy {
                 // let key = PyStrRef::try_from_object(vm, key)?;
                 let key = key
                     .payload::<PyStr>()
-                    .ok_or_else(|| vm.new_downcast_type_error(PyStr::class(vm), key))?;
+                    .ok_or_else(|| vm.new_downcast_type_error(vm.ctx.types.str_type, key))?;
                 Ok(class.attributes.read().contains_key(key.as_str()))
             }
             MappingProxyInner::Dict(obj) => PySequence::from(obj.as_ref()).contains(key, vm),

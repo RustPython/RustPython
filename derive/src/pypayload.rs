@@ -7,7 +7,8 @@ pub(crate) fn impl_pypayload(input: DeriveInput) -> Result<TokenStream> {
 
     let ret = quote! {
         impl ::rustpython_vm::PyPayload for #ty {
-            fn class(_vm: &::rustpython_vm::VirtualMachine) -> &'static rustpython_vm::Py<::rustpython_vm::builtins::PyType> {
+            #[inline]
+            fn class(_ctx: &::rustpython_vm::vm::Context) -> &'static rustpython_vm::Py<::rustpython_vm::builtins::PyType> {
                 <Self as ::rustpython_vm::class::StaticType>::static_type()
             }
         }

@@ -120,7 +120,7 @@ impl VirtualMachine {
 
         PyMethod::get(
             obj.to_owned(),
-            PyStr::from(method_name).into_ref(self),
+            PyStr::from(method_name).into_ref(&self.ctx),
             self,
         )?
         .invoke(args, self)

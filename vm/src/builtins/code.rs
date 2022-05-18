@@ -151,8 +151,9 @@ impl fmt::Debug for PyCode {
 }
 
 impl PyPayload for PyCode {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.code_type
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.code_type
     }
 }
 

@@ -27,8 +27,9 @@ impl fmt::Debug for PyUnion {
 }
 
 impl PyPayload for PyUnion {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.union_type
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.union_type
     }
 }
 
@@ -258,7 +259,7 @@ impl Hashable for PyUnion {
     fn hash(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<hash::PyHash> {
         let it = PyTuple::iter(zelf.args.clone(), vm);
         let set = PyFrozenSet::from_iter(vm, it)?;
-        PyFrozenSet::hash(&set.into_ref(vm), vm)
+        PyFrozenSet::hash(&set.into_ref(&vm.ctx), vm)
     }
 }
 

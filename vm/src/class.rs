@@ -5,22 +5,28 @@ use crate::{
     object::{Py, PyObjectPayload, PyObjectRef, PyRef},
     types::{PyTypeFlags, PyTypeSlots},
     vm::Context,
+    PyPayload,
 };
 use rustpython_common::{lock::PyRwLock, static_cell};
 
 pub trait StaticType {
     // Ideally, saving PyType is better than PyTypeRef
     fn static_cell() -> &'static static_cell::StaticCell<PyTypeRef>;
+    #[inline]
     fn static_metaclass() -> &'static Py<PyType> {
         PyType::static_type()
     }
+    #[inline]
     fn static_baseclass() -> &'static Py<PyType> {
         PyBaseObject::static_type()
     }
+    #[inline]
     fn static_type() -> &'static Py<PyType> {
-        Self::static_cell()
-            .get()
-            .expect("static type has not been initialized")
+        #[cold]
+        fn fail() -> ! {
+            panic!("static type has not been initialized");
+        }
+        Self::static_cell().get().unwrap_or_else(|| fail())
     }
     fn init_manually(typ: PyTypeRef) -> &'static Py<PyType> {
         let cell = Self::static_cell();
@@ -102,7 +108,8 @@ pub trait PyClassImpl: PyClassDef {
         }
         if class.slots.new.load().is_some() {
             let bound: PyObjectRef =
-                PyBoundMethod::new_ref(class.to_owned().into(), ctx.slot_new_wrapper.clone(), ctx)
+                PyBoundMethod::new(class.to_owned().into(), ctx.slot_new_wrapper.clone())
+                    .into_ref(ctx)
                     .into();
             class.set_str_attr("__new__", bound);
         }

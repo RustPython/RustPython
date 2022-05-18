@@ -34,8 +34,9 @@ impl PyFloat {
 }
 
 impl PyPayload for PyFloat {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.float_type
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.float_type
     }
 }
 

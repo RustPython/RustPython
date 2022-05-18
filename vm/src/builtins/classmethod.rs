@@ -2,7 +2,7 @@ use super::{PyBoundMethod, PyType, PyTypeRef};
 use crate::{
     class::PyClassImpl,
     types::{Constructor, GetDescriptor},
-    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 
 /// classmethod(function) -> method
@@ -38,8 +38,9 @@ impl From<PyObjectRef> for PyClassMethod {
 }
 
 impl PyPayload for PyClassMethod {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.classmethod_type
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.classmethod_type
     }
 }
 
@@ -52,7 +53,9 @@ impl GetDescriptor for PyClassMethod {
     ) -> PyResult {
         let (zelf, obj) = Self::_unwrap(zelf, obj, vm)?;
         let cls = cls.unwrap_or_else(|| obj.class().clone().into());
-        Ok(PyBoundMethod::new_ref(cls, zelf.callable.clone(), &vm.ctx).into())
+        Ok(PyBoundMethod::new(cls, zelf.callable.clone())
+            .into_ref(&vm.ctx)
+            .into())
     }
 }
 
@@ -63,16 +66,6 @@ impl Constructor for PyClassMethod {
         PyClassMethod { callable }
             .into_ref_with_type(vm, cls)
             .map(Into::into)
-    }
-}
-
-impl PyClassMethod {
-    pub fn new_ref(callable: PyObjectRef, ctx: &Context) -> PyRef<Self> {
-        PyRef::new_ref(
-            Self { callable },
-            ctx.types.classmethod_type.to_owned(),
-            None,
-        )
     }
 }
 

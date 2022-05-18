@@ -18,8 +18,9 @@ pub struct PyFilter {
 }
 
 impl PyPayload for PyFilter {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.filter_type
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.filter_type
     }
 }
 

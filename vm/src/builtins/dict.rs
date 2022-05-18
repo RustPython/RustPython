@@ -53,16 +53,13 @@ impl fmt::Debug for PyDict {
 }
 
 impl PyPayload for PyDict {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.dict_type
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.dict_type
     }
 }
 
 impl PyDict {
-    pub fn new_ref(ctx: &Context) -> PyRef<Self> {
-        PyRef::new_ref(Self::default(), ctx.types.dict_type.to_owned(), None)
-    }
-
     /// escape hatch to access the underlying data structure directly. prefer adding a method on
     /// PyDict instead of using this
     pub(crate) fn _as_dict_inner(&self) -> &DictContentType {
@@ -748,8 +745,9 @@ macro_rules! dict_view {
         }
 
         impl PyPayload for $name {
-            fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-                vm.ctx.types.$class
+            #[inline]
+            fn class(ctx: &Context) -> &'static Py<PyType> {
+                ctx.types.$class
             }
         }
 
@@ -761,8 +759,9 @@ macro_rules! dict_view {
         }
 
         impl PyPayload for $iter_name {
-            fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-                vm.ctx.types.$iter_class
+            #[inline]
+            fn class(ctx: &Context) -> &'static Py<PyType> {
+                ctx.types.$iter_class
             }
         }
 
@@ -834,8 +833,9 @@ macro_rules! dict_view {
         }
 
         impl PyPayload for $reverse_iter_name {
-            fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-                vm.ctx.types.$reverse_iter_class
+            #[inline]
+            fn class(ctx: &Context) -> &'static Py<PyType> {
+                ctx.types.$reverse_iter_class
             }
         }
 

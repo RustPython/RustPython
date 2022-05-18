@@ -43,7 +43,7 @@ impl PyObject {
         T: PyPayload,
         F: Fn(&T) -> PyResult<R>,
     {
-        let class = T::class(vm);
+        let class = T::class(&vm.ctx);
         let special;
         let py_ref = if self.fast_isinstance(class) {
             self.downcast_ref()
@@ -69,7 +69,7 @@ where
 {
     #[inline]
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        let class = T::class(vm);
+        let class = T::class(&vm.ctx);
         if obj.fast_isinstance(class) {
             obj.downcast()
                 .map_err(|obj| vm.new_downcast_runtime_error(class, &obj))

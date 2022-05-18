@@ -24,14 +24,15 @@ pub struct PyComplex {
 }
 
 impl PyPayload for PyComplex {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.complex_type
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.complex_type
     }
 }
 
 impl ToPyObject for Complex64 {
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        PyComplex::new_ref(self, &vm.ctx).into()
+        PyComplex::from(self).to_pyobject(vm)
     }
 }
 
@@ -193,10 +194,6 @@ impl Constructor for PyComplex {
 }
 
 impl PyComplex {
-    pub fn new_ref(value: Complex64, ctx: &Context) -> PyRef<Self> {
-        PyRef::new_ref(Self::from(value), ctx.types.complex_type.to_owned(), None)
-    }
-
     pub fn to_complex(&self) -> Complex64 {
         self.value
     }
@@ -209,7 +206,7 @@ impl PyComplex {
         if zelf.is(vm.ctx.types.complex_type) {
             zelf
         } else {
-            PyComplex::from(zelf.value).into_ref(vm)
+            PyComplex::from(zelf.value).into_ref(&vm.ctx)
         }
     }
 

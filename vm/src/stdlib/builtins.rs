@@ -413,7 +413,7 @@ mod builtins {
         if let OptionalArg::Present(sentinel) = sentinel {
             let callable = ArgCallable::try_from_object(vm, iter_target)?;
             let iterator = PyCallableIterator::new(callable, sentinel)
-                .into_ref(vm)
+                .into_ref(&vm.ctx)
                 .into();
             Ok(PyIter::new(iterator))
         } else {
@@ -653,7 +653,9 @@ mod builtins {
         };
         let write = |obj: PyStrRef| vm.call_method(&file, "write", (obj,));
 
-        let sep = options.sep.unwrap_or_else(|| PyStr::from(" ").into_ref(vm));
+        let sep = options
+            .sep
+            .unwrap_or_else(|| PyStr::from(" ").into_ref(&vm.ctx));
 
         let mut first = true;
         for object in objects {
@@ -668,7 +670,7 @@ mod builtins {
 
         let end = options
             .end
-            .unwrap_or_else(|| PyStr::from("\n").into_ref(vm));
+            .unwrap_or_else(|| PyStr::from("\n").into_ref(&vm.ctx));
         write(end)?;
 
         if *options.flush {

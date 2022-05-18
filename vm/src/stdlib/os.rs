@@ -902,7 +902,7 @@ pub(super) mod _os {
                             #[cfg(not(unix))]
                             ino: AtomicCell::new(None),
                         }
-                        .into_ref(vm)
+                        .into_ref(&vm.ctx)
                         .into(),
                     )),
                     Err(err) => Err(err.to_pyexception(vm)),
@@ -924,7 +924,7 @@ pub(super) mod _os {
             exhausted: AtomicCell::new(false),
             mode: path.mode,
         }
-        .into_ref(vm)
+        .into_ref(&vm.ctx)
         .into())
     }
 
@@ -1783,9 +1783,9 @@ pub fn extend_module(vm: &VirtualMachine, module: &PyObject) {
     _os::extend_module(vm, module);
 
     let support_funcs = _os::support_funcs();
-    let supports_fd = PySet::default().into_ref(vm);
-    let supports_dir_fd = PySet::default().into_ref(vm);
-    let supports_follow_symlinks = PySet::default().into_ref(vm);
+    let supports_fd = PySet::default().into_ref(&vm.ctx);
+    let supports_dir_fd = PySet::default().into_ref(&vm.ctx);
+    let supports_follow_symlinks = PySet::default().into_ref(&vm.ctx);
     for support in support_funcs {
         let func_obj = module.to_owned().get_attr(support.name, vm).unwrap();
         if support.fd.unwrap_or(false) {

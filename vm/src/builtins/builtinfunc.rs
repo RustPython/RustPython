@@ -47,7 +47,7 @@ impl PyNativeFuncDef {
         class: &'static Py<PyType>,
     ) -> PyRef<PyClassMethod> {
         // TODO: classmethod_descriptor
-        let callable = self.build_method(ctx, class).into();
+        let callable: PyObjectRef = self.build_method(ctx, class).into();
         PyClassMethod::new_ref(callable, ctx)
     }
     pub fn build_staticmethod(
@@ -71,8 +71,9 @@ pub struct PyBuiltinFunction {
 }
 
 impl PyPayload for PyBuiltinFunction {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.builtin_function_or_method_type
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.builtin_function_or_method_type
     }
 }
 
@@ -95,14 +96,6 @@ impl PyBuiltinFunction {
     pub fn with_module(mut self, module: PyObjectRef) -> Self {
         self.module = Some(module);
         self
-    }
-
-    pub fn into_ref(self, ctx: &Context) -> PyRef<Self> {
-        PyRef::new_ref(
-            self,
-            ctx.types.builtin_function_or_method_type.to_owned(),
-            None,
-        )
     }
 
     pub fn as_func(&self) -> &PyNativeFunc {
@@ -176,8 +169,9 @@ pub struct PyBuiltinMethod {
 }
 
 impl PyPayload for PyBuiltinMethod {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.method_descriptor_type
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.method_descriptor_type
     }
 }
 
@@ -201,7 +195,9 @@ impl GetDescriptor for PyBuiltinMethod {
         let r = if vm.is_none(&obj) && !Self::_cls_is(&cls, &obj.class()) {
             zelf.into()
         } else {
-            PyBoundMethod::new_ref(obj, zelf.into(), &vm.ctx).into()
+            PyBoundMethod::new(obj, zelf.into())
+                .into_ref(&vm.ctx)
+                .into()
         };
         Ok(r)
     }

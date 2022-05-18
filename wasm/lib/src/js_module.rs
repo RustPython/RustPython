@@ -333,7 +333,7 @@ mod _js {
             } else {
                 Closure::once(Box::new(f))
             };
-            let wrapped = PyJsValue::new(wrap_closure(closure.as_ref())).into_ref(vm);
+            let wrapped = PyJsValue::new(wrap_closure(closure.as_ref())).into_ref(&vm.ctx);
             Ok(JsClosure {
                 closure: Some((closure, wrapped)).into(),
                 destroyed: false.into(),

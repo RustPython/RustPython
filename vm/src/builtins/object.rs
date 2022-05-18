@@ -20,8 +20,9 @@ use crate::{
 pub struct PyBaseObject;
 
 impl PyPayload for PyBaseObject {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.object_type
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.object_type
     }
 }
 
@@ -226,7 +227,7 @@ impl PyBaseObject {
     pub fn dir(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyList> {
         let attributes = obj.class().get_attributes();
 
-        let dict = PyDict::from_attributes(attributes, vm)?.into_ref(vm);
+        let dict = PyDict::from_attributes(attributes, vm)?.into_ref(&vm.ctx);
 
         // Get instance attributes:
         if let Some(object_dict) = obj.dict() {

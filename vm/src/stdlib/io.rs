@@ -121,7 +121,7 @@ mod _io {
         recursion::ReprGuard,
         types::{Constructor, DefaultConstructor, Destructor, Initializer, IterNext, Iterable},
         vm::VirtualMachine,
-        AsObject, Context, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
+        AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
         TryFromBorrowedObject, TryFromObject,
     };
     use bstr::ByteSlice;
@@ -593,7 +593,7 @@ mod _io {
         fn read(instance: PyObjectRef, size: OptionalSize, vm: &VirtualMachine) -> PyResult {
             if let Some(size) = size.to_usize() {
                 // FIXME: unnecessary zero-init
-                let b = PyByteArray::from(vec![0; size]).into_ref(vm);
+                let b = PyByteArray::from(vec![0; size]).into_ref(&vm.ctx);
                 let n = <Option<usize>>::try_from_object(
                     vm,
                     vm.call_method(&instance, "readinto", (b.clone(),))?,
@@ -912,13 +912,13 @@ mod _io {
                 vm.call_method(self.raw.as_ref().unwrap(), "write", (memobj,))?
             } else {
                 let v = std::mem::take(&mut self.buffer);
-                let writebuf = VecBuffer::from(v).into_ref(vm);
+                let writebuf = VecBuffer::from(v).into_ref(&vm.ctx);
                 let memobj = PyMemoryView::from_buffer_range(
                     writebuf.clone().into_pybuffer(true),
                     buf_range,
                     vm,
                 )?
-                .into_ref(vm);
+                .into_ref(&vm.ctx);
 
                 // TODO: loop if write() raises an interrupt
                 let res = vm.call_method(self.raw.as_ref().unwrap(), "write", (memobj.clone(),));
@@ -1137,13 +1137,13 @@ mod _io {
             let res = match v {
                 Either::A(v) => {
                     let v = v.unwrap_or(&mut self.buffer);
-                    let readbuf = VecBuffer::from(std::mem::take(v)).into_ref(vm);
+                    let readbuf = VecBuffer::from(std::mem::take(v)).into_ref(&vm.ctx);
                     let memobj = PyMemoryView::from_buffer_range(
                         readbuf.clone().into_pybuffer(false),
                         buf_range,
                         vm,
                     )?
-                    .into_ref(vm);
+                    .into_ref(&vm.ctx);
 
                     // TODO: loop if readinto() raises an interrupt
                     let res =
@@ -1201,7 +1201,7 @@ mod _io {
                     if let Some(bytes) = res {
                         data.extend_from_slice(bytes.as_bytes());
                     }
-                    Some(PyBytes::from(data).into_ref(vm))
+                    Some(PyBytes::from(data).into_ref(&vm.ctx))
                 } else {
                     res
                 };
@@ -1233,7 +1233,7 @@ mod _io {
                             for bytes in &chunks {
                                 data.extend_from_slice(bytes.as_bytes())
                             }
-                            Some(PyBytes::from(data).into_ref(vm))
+                            Some(PyBytes::from(data).into_ref(&vm.ctx))
                         };
                         break Ok(ret);
                     }
@@ -1596,7 +1596,7 @@ mod _io {
             match n.to_usize() {
                 Some(n) => data
                     .read_generic(n, vm)
-                    .map(|x| x.map(|b| PyBytes::from(b).into_ref(vm))),
+                    .map(|x| x.map(|b| PyBytes::from(b).into_ref(&vm.ctx))),
                 None => data.read_all(vm),
             }
         }
@@ -2097,7 +2097,7 @@ mod _io {
             };
             let mut buf = Vec::with_capacity(num_bytes);
             writes_iter.for_each(|chunk| buf.extend_from_slice(chunk.as_bytes()));
-            PyBytes::from(buf).into_ref(vm)
+            PyBytes::from(buf).into_ref(&vm.ctx)
         }
     }
 
@@ -2206,13 +2206,13 @@ mod _io {
                 Some(enc) => enc,
                 None => {
                     // TODO: try os.device_encoding(fileno) and then locale.getpreferredencoding()
-                    PyStr::from(crate::codecs::DEFAULT_ENCODING).into_ref(vm)
+                    PyStr::from(crate::codecs::DEFAULT_ENCODING).into_ref(&vm.ctx)
                 }
             };
 
             let errors = args
                 .errors
-                .unwrap_or_else(|| PyStr::from("strict").into_ref(vm));
+                .unwrap_or_else(|| PyStr::from("strict").into_ref(&vm.ctx));
 
             let buffer = args.buffer;
 
@@ -2434,7 +2434,7 @@ mod _io {
                 }
                 textio.decoded_chars_used = cookie.num_to_skip();
             } else {
-                textio.snapshot = Some((cookie.dec_flags, PyBytes::from(vec![]).into_ref(vm)))
+                textio.snapshot = Some((cookie.dec_flags, PyBytes::from(vec![]).into_ref(&vm.ctx)))
             }
             if let Some((encoder, _)) = &textio.encoder {
                 let start_of_stream = cookie.start_pos == 0 && cookie.dec_flags == 0;
@@ -2610,7 +2610,7 @@ mod _io {
                     for chunk in chunks {
                         ret.push_str(chunk.as_str())
                     }
-                    PyStr::from(ret).into_ref(vm)
+                    PyStr::from(ret).into_ref(&vm.ctx)
                 }
             } else {
                 let bytes = vm.call_method(&textio.buffer, "read", ())?;
@@ -2650,7 +2650,7 @@ mod _io {
             let flush = textio.line_buffering && (has_lf || data.contains('\r'));
             let chunk = if let Some(replace_nl) = replace_nl {
                 if has_lf {
-                    PyStr::from(data.replace('\n', replace_nl)).into_ref(vm)
+                    PyStr::from(data.replace('\n', replace_nl)).into_ref(&vm.ctx)
                 } else {
                     obj
                 }
@@ -2744,7 +2744,7 @@ mod _io {
                         self.0
                     } else {
                         // TODO: try to use Arc::get_mut() on the str?
-                        PyStr::from(self.slice()).into_ref(vm)
+                        PyStr::from(self.slice()).into_ref(&vm.ctx)
                     }
                 }
                 fn utf8_len(&self) -> Utf8size {
@@ -2798,7 +2798,7 @@ mod _io {
                                 String::with_capacity(remaining.len() + decoded_chars.len());
                             s.push_str(remaining);
                             s.push_str(decoded_chars);
-                            PyStr::from(s).into_ref(vm)
+                            PyStr::from(s).into_ref(&vm.ctx)
                         };
                         start = Utf8size::default();
                         line
@@ -2860,7 +2860,7 @@ mod _io {
                 for chunk in chunks {
                     s.push_str(chunk.slice())
                 }
-                PyStr::from(s).into_ref(vm)
+                PyStr::from(s).into_ref(&vm.ctx)
             } else if let Some(cur_line) = cur_line {
                 cur_line.slice_pystr(vm)
             } else {
@@ -2972,7 +2972,7 @@ mod _io {
                 // TODO: inplace append to bytes when refcount == 1
                 let mut next_input = dec_buffer.as_bytes().to_vec();
                 next_input.extend_from_slice(&*buf.borrow_buf());
-                self.snapshot = Some((dec_flags, PyBytes::from(next_input).into_ref(vm)));
+                self.snapshot = Some((dec_flags, PyBytes::from(next_input).into_ref(&vm.ctx)));
             }
 
             Ok(eof)
@@ -3002,11 +3002,11 @@ mod _io {
                 if self.decoded_chars_used.bytes == 0 {
                     (decoded_chars.clone(), avail_chars)
                 } else {
-                    (PyStr::from(avail).into_ref(vm), avail_chars)
+                    (PyStr::from(avail).into_ref(&vm.ctx), avail_chars)
                 }
             } else {
                 let s = crate::common::str::get_chars(avail, 0..n);
-                (PyStr::from(s).into_ref(vm), n)
+                (PyStr::from(s).into_ref(&vm.ctx), n)
             };
             self.decoded_chars_used += Utf8size {
                 bytes: chars.byte_len(),
@@ -3041,7 +3041,7 @@ mod _io {
             if let Some(append) = append {
                 s.push_str(append.as_str())
             }
-            PyStr::from(s).into_ref(vm)
+            PyStr::from(s).into_ref(&vm.ctx)
         }
     }
 
@@ -3561,7 +3561,7 @@ mod _io {
 
         // Construct a FileIO (subclass of RawIOBase)
         // This is subsequently consumed by a Buffered Class.
-        let file_io_class = {
+        let file_io_class: &'static Py<PyType> = {
             cfg_if::cfg_if! {
                 if #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))] {
                     Some(super::fileio::FileIO::static_type())
@@ -3857,7 +3857,9 @@ mod fileio {
         type Args = FileIOArgs;
 
         fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-            let mode_obj = args.mode.unwrap_or_else(|| PyStr::from("rb").into_ref(vm));
+            let mode_obj = args
+                .mode
+                .unwrap_or_else(|| PyStr::from("rb").into_ref(&vm.ctx));
             let mode_str = mode_obj.as_str();
             let name = args.name;
             let (mode, flags) =

@@ -202,28 +202,28 @@ impl IntoPyStrRef for PyStrRef {
 impl IntoPyStrRef for PyStr {
     #[inline]
     fn into_pystr_ref(self, vm: &VirtualMachine) -> PyRef<PyStr> {
-        self.into_ref(vm)
+        self.into_ref(&vm.ctx)
     }
 }
 
 impl IntoPyStrRef for AsciiString {
     #[inline]
     fn into_pystr_ref(self, vm: &VirtualMachine) -> PyRef<PyStr> {
-        PyStr::from(self).into_ref(vm)
+        PyStr::from(self).into_ref(&vm.ctx)
     }
 }
 
 impl IntoPyStrRef for String {
     #[inline]
     fn into_pystr_ref(self, vm: &VirtualMachine) -> PyRef<PyStr> {
-        PyStr::from(self).into_ref(vm)
+        PyStr::from(self).into_ref(&vm.ctx)
     }
 }
 
 impl IntoPyStrRef for &str {
     #[inline]
     fn into_pystr_ref(self, vm: &VirtualMachine) -> PyRef<PyStr> {
-        PyStr::from(self).into_ref(vm)
+        PyStr::from(self).into_ref(&vm.ctx)
     }
 }
 
@@ -241,8 +241,9 @@ pub struct PyStrIterator {
 }
 
 impl PyPayload for PyStrIterator {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.str_iterator_type
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.str_iterator_type
     }
 }
 
@@ -358,10 +359,6 @@ impl PyStr {
         Self::new_str_unchecked(bytes, PyStrKind::Ascii)
     }
 
-    pub fn new_ref(s: impl Into<Self>, ctx: &Context) -> PyRef<Self> {
-        PyRef::new_ref(s.into(), ctx.types.str_type.to_owned(), None)
-    }
-
     fn new_substr(&self, s: String) -> Self {
         let kind = if self.kind.kind() == PyStrKind::Ascii || s.is_ascii() {
             PyStrKind::Ascii
@@ -445,7 +442,7 @@ impl PyStr {
             SequenceIndex::Int(i) => self.get_item_by_index(vm, i).map(|x| x.to_string()),
             SequenceIndex::Slice(slice) => self.get_item_by_slice(vm, slice),
         }
-        .map(|x| self.new_substr(x).into_ref(vm).into())
+        .map(|x| self.new_substr(x).into_ref(&vm.ctx).into())
     }
 
     #[pymethod(magic)]
@@ -537,7 +534,7 @@ impl PyStr {
         zelf.as_str()
             .as_bytes()
             .mul(vm, value)
-            .map(|x| Self::from(unsafe { String::from_utf8_unchecked(x) }).into_ref(vm))
+            .map(|x| Self::from(unsafe { String::from_utf8_unchecked(x) }).into_ref(&vm.ctx))
     }
 
     #[pymethod(magic)]
@@ -1264,7 +1261,7 @@ impl PyStrRef {
         let mut s = String::with_capacity(self.byte_len() + other.len());
         s.push_str(self.as_ref());
         s.push_str(other);
-        *self = PyStr::from(s).into_ref(vm);
+        *self = PyStr::from(s).into_ref(&vm.ctx);
     }
 }
 
@@ -1336,7 +1333,7 @@ impl PyStr {
         item: Some(|seq, i, vm| {
             let zelf = Self::sequence_downcast(seq);
             zelf.get_item_by_index(vm, i)
-                .map(|x| zelf.new_substr(x.to_string()).into_ref(vm).into())
+                .map(|x| zelf.new_substr(x.to_string()).into_ref(&vm.ctx).into())
         }),
         contains: Some(|seq, needle, vm| Self::sequence_downcast(seq)._contains(needle, vm)),
         ..*PySequenceMethods::not_implemented()
@@ -1364,8 +1361,9 @@ pub(crate) fn encode_string(
 }
 
 impl PyPayload for PyStr {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.str_type
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.str_type
     }
 }
 

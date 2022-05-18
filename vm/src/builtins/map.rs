@@ -20,8 +20,9 @@ pub struct PyMap {
 }
 
 impl PyPayload for PyMap {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.map_type
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.map_type
     }
 }
 

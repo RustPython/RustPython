@@ -27,7 +27,7 @@ mod symtable {
             .map_err(|err| vm.new_syntax_error(&err))?;
 
         let py_symbol_table = to_py_symbol_table(symtable);
-        Ok(py_symbol_table.into_ref(vm))
+        Ok(py_symbol_table.into_ref(&vm.ctx))
     }
 
     fn to_py_symbol_table(symtable: SymbolTable) -> PySymbolTable {
@@ -91,7 +91,7 @@ mod symtable {
                         .cloned()
                         .collect(),
                 }
-                .into_ref(vm))
+                .into_ref(&vm.ctx))
             } else {
                 Err(vm.new_key_error(vm.ctx.new_str(format!("lookup {} failed", name)).into()))
             }
@@ -125,7 +125,7 @@ mod symtable {
                             .cloned()
                             .collect(),
                     })
-                    .into_ref(vm)
+                    .into_ref(&vm.ctx)
                     .into()
                 })
                 .collect();
@@ -244,7 +244,7 @@ mod symtable {
                 );
             }
             Ok(to_py_symbol_table(self.namespaces.first().unwrap().clone())
-                .into_ref(vm)
+                .into_ref(&vm.ctx)
                 .into())
         }
     }

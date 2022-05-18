@@ -75,8 +75,9 @@ impl AsRef<[u8]> for PyBytesRef {
 }
 
 impl PyPayload for PyBytes {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.bytes_type
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.bytes_type
     }
 }
 
@@ -90,12 +91,6 @@ impl Constructor for PyBytes {
 
     fn py_new(cls: PyTypeRef, options: Self::Args, vm: &VirtualMachine) -> PyResult {
         options.get_bytes(cls, vm).to_pyresult(vm)
-    }
-}
-
-impl PyBytes {
-    pub fn new_ref(data: Vec<u8>, ctx: &Context) -> PyRef<Self> {
-        PyRef::new_ref(Self::from(data), ctx.types.bytes_type.to_owned(), None)
     }
 }
 
@@ -138,7 +133,7 @@ impl PyBytes {
         if zelf.is(vm.ctx.types.bytes_type) {
             zelf
         } else {
-            PyBytes::from(zelf.inner.clone()).into_ref(vm)
+            PyBytes::from(zelf.inner.clone()).into_ref(&vm.ctx)
         }
     }
 
@@ -490,7 +485,7 @@ impl PyBytes {
         }
         zelf.inner
             .mul(value, vm)
-            .map(|x| Self::from(x).into_ref(vm))
+            .map(|x| Self::from(x).into_ref(&vm.ctx))
     }
 
     #[pymethod(name = "__mod__")]
@@ -666,8 +661,9 @@ pub struct PyBytesIterator {
 }
 
 impl PyPayload for PyBytesIterator {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.bytes_iterator_type
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.bytes_iterator_type
     }
 }
 

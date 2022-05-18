@@ -15,7 +15,7 @@ pub unsafe trait TransmuteFromObject: Sized {
 
 unsafe impl<T: PyPayload> TransmuteFromObject for PyRef<T> {
     fn check(vm: &VirtualMachine, obj: &PyObject) -> PyResult<()> {
-        let class = T::class(vm);
+        let class = T::class(&vm.ctx);
         if obj.fast_isinstance(class) {
             if obj.payload_is::<T>() {
                 Ok(())

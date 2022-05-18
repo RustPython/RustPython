@@ -24,7 +24,7 @@ impl VirtualMachine {
         T: Into<P>,
         P: PyPayload,
     {
-        value.into().into_ref(self)
+        value.into().into_ref(&self.ctx)
     }
 
     pub fn new_tuple(&self, value: impl IntoPyTuple) -> PyTupleRef {

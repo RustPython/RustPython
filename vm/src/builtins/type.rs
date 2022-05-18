@@ -50,8 +50,9 @@ impl fmt::Debug for PyType {
 }
 
 impl PyPayload for PyType {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.type_type
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.type_type
     }
 }
 
@@ -533,7 +534,13 @@ impl PyType {
             .iter()
             .filter_map(|(name, obj)| {
                 vm.get_method(obj.clone(), "__set_name__").map(|res| {
-                    res.map(|meth| (obj.clone(), PyStr::from(name.clone()).into_ref(vm), meth))
+                    res.map(|meth| {
+                        (
+                            obj.clone(),
+                            PyStr::from(name.clone()).into_ref(&vm.ctx),
+                            meth,
+                        )
+                    })
                 })
             })
             .collect::<PyResult<Vec<_>>>()?;
