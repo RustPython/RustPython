@@ -668,45 +668,45 @@ impl ExecutingFrame<'_> {
             } => self.execute_build_map(vm, *size, *unpack, *for_call),
             bytecode::Instruction::BuildSlice { step } => self.execute_build_slice(vm, *step),
             bytecode::Instruction::ListAppend { i } => {
+                let item = self.pop_value();
                 let obj = self.nth_value(*i);
                 let list: PyListRef = unsafe {
                     // SAFETY: trust compiler
                     obj.downcast_unchecked()
                 };
-                let item = self.pop_value();
                 list.append(item);
                 Ok(None)
             }
             bytecode::Instruction::SetAdd { i } => {
+                let item = self.pop_value();
                 let obj = self.nth_value(*i);
                 let set: PyRef<PySet> = unsafe {
                     // SAFETY: trust compiler
                     obj.downcast_unchecked()
                 };
-                let item = self.pop_value();
                 set.add(item, vm)?;
                 Ok(None)
             }
             bytecode::Instruction::MapAdd { i } => {
-                let obj = self.nth_value(*i + 1);
+                let key = self.pop_value();
+                let value = self.pop_value();
+                let obj = self.nth_value(*i);
                 let dict: PyDictRef = unsafe {
                     // SAFETY: trust compiler
                     obj.downcast_unchecked()
                 };
-                let key = self.pop_value();
-                let value = self.pop_value();
                 dict.set_item(&*key, value, vm)?;
                 Ok(None)
             }
             bytecode::Instruction::MapAddRev { i } => {
                 // change order of evalutio of key and value to support Py3.8 Named expressions in dict comprehension
-                let obj = self.nth_value(*i + 1);
+                let value = self.pop_value();
+                let key = self.pop_value();
+                let obj = self.nth_value(*i);
                 let dict: PyDictRef = unsafe {
                     // SAFETY: trust compiler
                     obj.downcast_unchecked()
                 };
-                let value = self.pop_value();
-                let key = self.pop_value();
                 dict.set_item(&*key, value, vm)?;
                 Ok(None)
             }

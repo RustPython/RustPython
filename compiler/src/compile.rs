@@ -2095,7 +2095,7 @@ impl Compiler {
                     &|compiler| {
                         compiler.compile_comprehension_element(elt)?;
                         compiler.emit(Instruction::ListAppend {
-                            i: (1 + generators.len()) as u32,
+                            i: generators.len() as u32,
                         });
                         Ok(())
                     },
@@ -2112,7 +2112,7 @@ impl Compiler {
                     &|compiler| {
                         compiler.compile_comprehension_element(elt)?;
                         compiler.emit(Instruction::SetAdd {
-                            i: (1 + generators.len()) as u32,
+                            i: generators.len() as u32,
                         });
                         Ok(())
                     },
@@ -2137,7 +2137,7 @@ impl Compiler {
                         compiler.compile_expression(value)?;
 
                         compiler.emit(Instruction::MapAddRev {
-                            i: (1 + generators.len()) as u32,
+                            i: generators.len() as u32,
                         });
 
                         Ok(())
