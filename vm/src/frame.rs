@@ -688,18 +688,6 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::MapAdd { i } => {
-                let key = self.pop_value();
-                let value = self.pop_value();
-                let obj = self.nth_value(*i);
-                let dict: &Py<PyDict> = unsafe {
-                    // SAFETY: trust compiler
-                    obj.downcast_unchecked_ref()
-                };
-                dict.set_item(&*key, value, vm)?;
-                Ok(None)
-            }
-            bytecode::Instruction::MapAddRev { i } => {
-                // change order of evalutio of key and value to support Py3.8 Named expressions in dict comprehension
                 let value = self.pop_value();
                 let key = self.pop_value();
                 let obj = self.nth_value(*i);

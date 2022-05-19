@@ -2136,7 +2136,7 @@ impl Compiler {
                         compiler.compile_expression(key)?;
                         compiler.compile_expression(value)?;
 
-                        compiler.emit(Instruction::MapAddRev {
+                        compiler.emit(Instruction::MapAdd {
                             i: generators.len() as u32,
                         });
 
