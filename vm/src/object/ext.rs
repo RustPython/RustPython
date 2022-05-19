@@ -27,7 +27,7 @@ Basically reference counting, but then done by rust.
 /// Use this type for functions which return a python object or an exception.
 /// Both the python object and the python exception are `PyObjectRef` types
 /// since exceptions are also python objects.
-pub type PyResult<T = PyObjectRef, E = PyBaseExceptionRef> = Result<T, E>; // A valid value, or an exception
+pub type PyResult<T = PyObjectRef> = Result<T, PyBaseExceptionRef>; // A valid value, or an exception
 
 // TODO: remove these 2 impls
 impl fmt::Display for PyObjectRef {
@@ -366,7 +366,7 @@ where
     }
 }
 
-impl<T, E> ToPyResult for PyResult<T, E>
+impl<T, E> ToPyResult for Result<T, E>
 where
     T: ToPyObject,
     E: ToPyException,

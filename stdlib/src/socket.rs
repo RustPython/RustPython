@@ -372,7 +372,7 @@ mod _socket {
             addr: PyObjectRef,
             caller: &str,
             vm: &VirtualMachine,
-        ) -> PyResult<socket2::SockAddr, IoOrPyException> {
+        ) -> Result<socket2::SockAddr, IoOrPyException> {
             let family = self.family.load();
             match family {
                 #[cfg(unix)]
@@ -550,7 +550,7 @@ mod _socket {
             zelf: PyRef<Self>,
             (family, socket_kind, proto, fileno): <Self as Initializer>::Args,
             vm: &VirtualMachine,
-        ) -> PyResult<(), IoOrPyException> {
+        ) -> Result<(), IoOrPyException> {
             let mut family = family.unwrap_or(-1);
             let mut socket_kind = socket_kind.unwrap_or(-1);
             let mut proto = proto.unwrap_or(-1);
@@ -629,7 +629,7 @@ mod _socket {
             &self,
             address: PyObjectRef,
             vm: &VirtualMachine,
-        ) -> PyResult<(), IoOrPyException> {
+        ) -> Result<(), IoOrPyException> {
             self.connect_inner(address, "connect", vm)
         }
 
@@ -642,13 +642,13 @@ mod _socket {
         }
 
         #[pymethod]
-        fn bind(&self, address: PyObjectRef, vm: &VirtualMachine) -> PyResult<(), IoOrPyException> {
+        fn bind(&self, address: PyObjectRef, vm: &VirtualMachine) -> Result<(), IoOrPyException> {
             let sock_addr = self.extract_address(address, "bind", vm)?;
             Ok(self.sock()?.bind(&sock_addr)?)
         }
 
         #[pymethod]
-        fn listen(&self, backlog: OptionalArg<i32>) -> PyResult<(), io::Error> {
+        fn listen(&self, backlog: OptionalArg<i32>) -> io::Result<()> {
             let backlog = backlog.unwrap_or(128);
             let backlog = if backlog < 0 { 0 } else { backlog };
             self.sock()?.listen(backlog)
@@ -658,7 +658,7 @@ mod _socket {
         fn _accept(
             &self,
             vm: &VirtualMachine,
-        ) -> PyResult<(RawSocket, PyObjectRef), IoOrPyException> {
+        ) -> Result<(RawSocket, PyObjectRef), IoOrPyException> {
             let (sock, addr) = self.sock_op(vm, SelectKind::Read, || self.sock()?.accept())?;
             let fd = into_sock_fileno(sock);
             Ok((fd, get_addr_tuple(&addr, vm)))
@@ -670,7 +670,7 @@ mod _socket {
             bufsize: usize,
             flags: OptionalArg<i32>,
             vm: &VirtualMachine,
-        ) -> PyResult<Vec<u8>, IoOrPyException> {
+        ) -> Result<Vec<u8>, IoOrPyException> {
             let flags = flags.unwrap_or(0);
             let mut buffer = Vec::with_capacity(bufsize);
             let sock = self.sock()?;
@@ -687,7 +687,7 @@ mod _socket {
             buf: ArgMemoryBuffer,
             flags: OptionalArg<i32>,
             vm: &VirtualMachine,
-        ) -> PyResult<usize, IoOrPyException> {
+        ) -> Result<usize, IoOrPyException> {
             let flags = flags.unwrap_or(0);
             let sock = self.sock()?;
             let mut buf = buf.borrow_buf_mut();
@@ -703,7 +703,7 @@ mod _socket {
             bufsize: isize,
             flags: OptionalArg<i32>,
             vm: &VirtualMachine,
-        ) -> PyResult<(Vec<u8>, PyObjectRef), IoOrPyException> {
+        ) -> Result<(Vec<u8>, PyObjectRef), IoOrPyException> {
             let flags = flags.unwrap_or(0);
             let bufsize = bufsize
                 .to_usize()
@@ -724,7 +724,7 @@ mod _socket {
             nbytes: OptionalArg<isize>,
             flags: OptionalArg<i32>,
             vm: &VirtualMachine,
-        ) -> PyResult<(usize, PyObjectRef), IoOrPyException> {
+        ) -> Result<(usize, PyObjectRef), IoOrPyException> {
             let mut buf = buf.borrow_buf_mut();
             let buf = &mut *buf;
             let buf = match nbytes {
@@ -754,7 +754,7 @@ mod _socket {
             bytes: ArgBytesLike,
             flags: OptionalArg<i32>,
             vm: &VirtualMachine,
-        ) -> PyResult<usize, IoOrPyException> {
+        ) -> Result<usize, IoOrPyException> {
             let flags = flags.unwrap_or(0);
             let buf = bytes.borrow_buf();
             let buf = &*buf;
@@ -769,7 +769,7 @@ mod _socket {
             bytes: ArgBytesLike,
             flags: OptionalArg<i32>,
             vm: &VirtualMachine,
-        ) -> PyResult<(), IoOrPyException> {
+        ) -> Result<(), IoOrPyException> {
             let flags = flags.unwrap_or(0);
 
             let timeout = self.get_timeout().ok();
@@ -799,7 +799,7 @@ mod _socket {
             arg2: PyObjectRef,
             arg3: OptionalArg<PyObjectRef>,
             vm: &VirtualMachine,
-        ) -> PyResult<usize, IoOrPyException> {
+        ) -> Result<usize, IoOrPyException> {
             // signature is bytes[, flags], address
             let (flags, address) = match arg3 {
                 OptionalArg::Present(arg3) => {
@@ -966,7 +966,7 @@ mod _socket {
         }
 
         #[pymethod]
-        fn shutdown(&self, how: i32, vm: &VirtualMachine) -> PyResult<(), IoOrPyException> {
+        fn shutdown(&self, how: i32, vm: &VirtualMachine) -> Result<(), IoOrPyException> {
             let how = match how {
                 c::SHUT_RD => Shutdown::Read,
                 c::SHUT_WR => Shutdown::Write,
@@ -1113,7 +1113,7 @@ mod _socket {
 
     #[cfg(all(unix, not(target_os = "redox")))]
     #[pyfunction]
-    fn sethostname(hostname: PyStrRef) -> PyResult<(), nix::errno::Errno> {
+    fn sethostname(hostname: PyStrRef) -> nix::Result<()> {
         nix::unistd::sethostname(hostname.as_str())
     }
 
@@ -1315,7 +1315,7 @@ mod _socket {
     fn getaddrinfo(
         opts: GAIOptions,
         vm: &VirtualMachine,
-    ) -> PyResult<Vec<PyObjectRef>, IoOrPyException> {
+    ) -> Result<Vec<PyObjectRef>, IoOrPyException> {
         let hints = dns_lookup::AddrInfoHints {
             socktype: opts.ty,
             protocol: opts.proto,
@@ -1356,7 +1356,7 @@ mod _socket {
     fn gethostbyaddr(
         addr: PyStrRef,
         vm: &VirtualMachine,
-    ) -> PyResult<(String, PyListRef, PyListRef), IoOrPyException> {
+    ) -> Result<(String, PyListRef, PyListRef), IoOrPyException> {
         let addr = get_addr(vm, addr, c::AF_UNSPEC)?;
         let (hostname, _) = dns_lookup::getnameinfo(&addr, 0)
             .map_err(|e| convert_socket_error(vm, e, SocketError::HError))?;
@@ -1369,7 +1369,7 @@ mod _socket {
     }
 
     #[pyfunction]
-    fn gethostbyname(name: PyStrRef, vm: &VirtualMachine) -> PyResult<String, IoOrPyException> {
+    fn gethostbyname(name: PyStrRef, vm: &VirtualMachine) -> Result<String, IoOrPyException> {
         let addr = get_addr(vm, name, c::AF_INET)?;
         match addr {
             SocketAddr::V4(ip) => Ok(ip.ip().to_string()),
@@ -1381,7 +1381,7 @@ mod _socket {
     fn gethostbyname_ex(
         name: PyStrRef,
         vm: &VirtualMachine,
-    ) -> PyResult<(String, PyListRef, PyListRef), IoOrPyException> {
+    ) -> Result<(String, PyListRef, PyListRef), IoOrPyException> {
         let addr = get_addr(vm, name, c::AF_UNSPEC)?;
         let (hostname, _) = dns_lookup::getnameinfo(&addr, 0)
             .map_err(|e| convert_socket_error(vm, e, SocketError::HError))?;
@@ -1450,7 +1450,7 @@ mod _socket {
         address: PyTupleRef,
         flags: i32,
         vm: &VirtualMachine,
-    ) -> PyResult<(String, String), IoOrPyException> {
+    ) -> Result<(String, String), IoOrPyException> {
         match address.len() {
             2 | 3 | 4 => {}
             _ => {
@@ -1500,7 +1500,7 @@ mod _socket {
         family: OptionalArg<i32>,
         socket_kind: OptionalArg<i32>,
         proto: OptionalArg<i32>,
-    ) -> PyResult<(PySocket, PySocket), IoOrPyException> {
+    ) -> Result<(PySocket, PySocket), IoOrPyException> {
         let family = family.unwrap_or(libc::AF_UNIX);
         let socket_kind = socket_kind.unwrap_or(libc::SOCK_STREAM);
         let proto = proto.unwrap_or(0);
@@ -1685,7 +1685,7 @@ mod _socket {
         vm: &VirtualMachine,
         pyname: PyStrRef,
         af: i32,
-    ) -> PyResult<SocketAddr, IoOrPyException> {
+    ) -> Result<SocketAddr, IoOrPyException> {
         let name = pyname.as_str();
         if name.is_empty() {
             let hints = dns_lookup::AddrInfoHints {
@@ -1897,7 +1897,7 @@ mod _socket {
     }
 
     #[pyfunction]
-    fn dup(x: PyObjectRef, vm: &VirtualMachine) -> PyResult<RawSocket, IoOrPyException> {
+    fn dup(x: PyObjectRef, vm: &VirtualMachine) -> Result<RawSocket, IoOrPyException> {
         let sock = get_raw_sock(x, vm)?;
         let sock = std::mem::ManuallyDrop::new(sock_from_raw(sock, vm)?);
         let newsock = sock.try_clone()?;
@@ -1908,7 +1908,7 @@ mod _socket {
     }
 
     #[pyfunction]
-    fn close(x: PyObjectRef, vm: &VirtualMachine) -> PyResult<(), IoOrPyException> {
+    fn close(x: PyObjectRef, vm: &VirtualMachine) -> Result<(), IoOrPyException> {
         Ok(close_inner(get_raw_sock(x, vm)?)?)
     }
 
