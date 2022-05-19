@@ -4,7 +4,7 @@ use crate::{
         asyncgenerator::PyAsyncGenWrappedValue,
         function::{PyCell, PyCellRef, PyFunction},
         tuple::{PyTuple, PyTupleTyped},
-        PyBaseExceptionRef, PyCode, PyCoroutine, PyDict, PyDictRef, PyGenerator, PyListRef, PySet,
+        PyBaseExceptionRef, PyCode, PyCoroutine, PyDict, PyDictRef, PyGenerator, PyList, PySet,
         PySlice, PyStr, PyStrRef, PyTraceback, PyTypeRef,
     },
     bytecode,
@@ -670,9 +670,9 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::ListAppend { i } => {
                 let item = self.pop_value();
                 let obj = self.nth_value(*i);
-                let list: PyListRef = unsafe {
+                let list: &Py<PyList> = unsafe {
                     // SAFETY: trust compiler
-                    obj.downcast_unchecked()
+                    obj.downcast_unchecked_ref()
                 };
                 list.append(item);
                 Ok(None)
@@ -680,9 +680,9 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::SetAdd { i } => {
                 let item = self.pop_value();
                 let obj = self.nth_value(*i);
-                let set: PyRef<PySet> = unsafe {
+                let set: &Py<PySet> = unsafe {
                     // SAFETY: trust compiler
-                    obj.downcast_unchecked()
+                    obj.downcast_unchecked_ref()
                 };
                 set.add(item, vm)?;
                 Ok(None)
@@ -691,9 +691,9 @@ impl ExecutingFrame<'_> {
                 let key = self.pop_value();
                 let value = self.pop_value();
                 let obj = self.nth_value(*i);
-                let dict: PyDictRef = unsafe {
+                let dict: &Py<PyDict> = unsafe {
                     // SAFETY: trust compiler
-                    obj.downcast_unchecked()
+                    obj.downcast_unchecked_ref()
                 };
                 dict.set_item(&*key, value, vm)?;
                 Ok(None)
@@ -703,9 +703,9 @@ impl ExecutingFrame<'_> {
                 let value = self.pop_value();
                 let key = self.pop_value();
                 let obj = self.nth_value(*i);
-                let dict: PyDictRef = unsafe {
+                let dict: &Py<PyDict> = unsafe {
                     // SAFETY: trust compiler
-                    obj.downcast_unchecked()
+                    obj.downcast_unchecked_ref()
                 };
                 dict.set_item(&*key, value, vm)?;
                 Ok(None)
@@ -1811,8 +1811,9 @@ impl ExecutingFrame<'_> {
     }
 
     #[inline]
-    fn nth_value(&self, depth: u32) -> PyObjectRef {
-        self.state.stack[self.state.stack.len() - depth as usize - 1].clone()
+    fn nth_value(&self, depth: u32) -> &PyObject {
+        let stack = &self.state.stack;
+        &stack[stack.len() - depth as usize - 1]
     }
 
     #[cold]
