@@ -1361,6 +1361,7 @@ mod _io {
 
     #[pyimpl]
     trait BufferedMixin: PyPayload {
+        const CLASS_NAME: &'static str;
         const READABLE: bool;
         const WRITABLE: bool;
         const SEEKABLE: bool = false;
@@ -1374,7 +1375,11 @@ mod _io {
         #[pyslot]
         fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             let zelf: PyRef<Self> = zelf.try_into_value(vm)?;
-            let (raw, BufferSize { buffer_size }): (PyObjectRef, _) = args.bind(vm)?;
+            let (raw, BufferSize { buffer_size }): (PyObjectRef, _) =
+                args.bind(vm).map_err(|e| {
+                    let msg = format!("{}() {}", Self::CLASS_NAME, *e.str(vm));
+                    vm.new_exception_msg(e.class().clone(), msg)
+                })?;
             zelf.init(raw, BufferSize { buffer_size }, vm)
         }
 
@@ -1657,6 +1662,7 @@ mod _io {
         data: PyThreadMutex<BufferedData>,
     }
     impl BufferedMixin for BufferedReader {
+        const CLASS_NAME: &'static str = "BufferedReader";
         const READABLE: bool = true;
         const WRITABLE: bool = false;
         fn data(&self) -> &PyThreadMutex<BufferedData> {
@@ -1706,6 +1712,7 @@ mod _io {
         data: PyThreadMutex<BufferedData>,
     }
     impl BufferedMixin for BufferedWriter {
+        const CLASS_NAME: &'static str = "BufferedWriter";
         const READABLE: bool = false;
         const WRITABLE: bool = true;
         fn data(&self) -> &PyThreadMutex<BufferedData> {
@@ -1734,6 +1741,7 @@ mod _io {
         data: PyThreadMutex<BufferedData>,
     }
     impl BufferedMixin for BufferedRandom {
+        const CLASS_NAME: &'static str = "BufferedRandom";
         const READABLE: bool = true;
         const WRITABLE: bool = true;
         const SEEKABLE: bool = true;

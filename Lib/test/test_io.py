@@ -1593,8 +1593,6 @@ class CBufferedReaderTest(BufferedReaderTest, SizeofTest):
             support.gc_collect()
         self.assertIsNone(wr(), wr)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_args_error(self):
         # Issue #17275
         with self.assertRaisesRegex(TypeError, "BufferedReader"):
@@ -1974,8 +1972,6 @@ class CBufferedWriterTest(BufferedWriterTest, SizeofTest):
         with self.open(os_helper.TESTFN, "rb") as f:
             self.assertEqual(f.read(), b"123xxx")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_args_error(self):
         # Issue #17275
         with self.assertRaisesRegex(TypeError, "BufferedWriter"):
@@ -2460,8 +2456,6 @@ class CBufferedRandomTest(BufferedRandomTest, SizeofTest):
         CBufferedReaderTest.test_garbage_collection(self)
         CBufferedWriterTest.test_garbage_collection(self)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_args_error(self):
         # Issue #17275
         with self.assertRaisesRegex(TypeError, "BufferedRandom"):
