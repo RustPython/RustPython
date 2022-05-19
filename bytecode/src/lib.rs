@@ -401,6 +401,7 @@ pub enum Instruction {
         i: u32,
     },
 }
+static_assertions::assert_eq_size!(Instruction, u64);
 
 use self::Instruction::*;
 
