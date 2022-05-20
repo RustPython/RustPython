@@ -23,7 +23,9 @@ use std::{
 #[non_exhaustive]
 pub struct PyTypeSlots {
     pub name: PyRwLock<Option<String>>, // tp_name, not class name
-    // tp_basicsize, tp_itemsize
+
+    pub basicsize: usize,
+    // tp_itemsize
 
     // Methods to implement standard operations
 

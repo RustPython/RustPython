@@ -210,6 +210,7 @@ fn generate_class_def(
         Some(v) => quote!(Some(#v) ),
         None => quote!(None),
     };
+    let basicsize = quote!(std::mem::size_of::<#ident>());
     let is_pystruct = attrs.iter().any(|attr| {
         path_eq(&attr.path, "derive")
             && if let Ok(Meta::List(l)) = attr.parse_meta() {
@@ -259,6 +260,7 @@ fn generate_class_def(
             const MODULE_NAME: Option<&'static str> = #module_name;
             const TP_NAME: &'static str = #module_class_name;
             const DOC: Option<&'static str> = #doc;
+            const BASICSIZE: usize = #basicsize;
         }
 
         impl ::rustpython_vm::class::StaticType for #ident {
