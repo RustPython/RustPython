@@ -41,6 +41,7 @@ assert 5 / complex(3, -4) == complex(0.6, 0.8)
 # "can't mod complex numbers.
 assert_raises(TypeError, lambda: complex(2, -3) % 2)
 assert_raises(TypeError, lambda: 2 % complex(2, -3))
+assert_raises(TypeError, lambda: complex(2, -3).__mod__(2))
 
 # __floordiv__, __rfloordiv__
 # can't take floor of complex number.
