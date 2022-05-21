@@ -56,6 +56,8 @@ mod zlib {
     const DEF_BUF_SIZE: usize = 16 * 1024;
     #[pyattr]
     const DEF_MEM_LEVEL: u8 = 8;
+
+    #[cfg(feature = "zlib")]
     #[pyattr(name = "ZLIB_RUNTIME_VERSION", once)]
     fn zlib_runtime_version(_vm: &VirtualMachine) -> String {
         unsafe {
@@ -64,6 +66,8 @@ mod zlib {
                 .into_owned()
         }
     }
+
+    #[cfg(feature = "zlib")]
     #[pyattr(name = "ZLIB_VERSION", once)]
     fn zlib_version(_vm: &VirtualMachine) -> String {
         unsafe {
