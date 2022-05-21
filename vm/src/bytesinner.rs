@@ -202,16 +202,19 @@ impl ByteInnerPaddingOptions {
 #[derive(FromArgs)]
 pub struct ByteInnerTranslateOptions {
     #[pyarg(positional)]
-    table: Option<PyBytesInner>,
+    table: Option<PyObjectRef>,
     #[pyarg(any, optional)]
-    delete: OptionalArg<PyBytesInner>,
+    delete: OptionalArg<PyObjectRef>,
 }
 
 impl ByteInnerTranslateOptions {
     pub fn get_value(self, vm: &VirtualMachine) -> PyResult<(Vec<u8>, Vec<u8>)> {
         let table = self.table.map_or_else(
             || Ok((0..=255).collect::<Vec<u8>>()),
-            |v| {
+            |v: PyObjectRef| {
+                let v: PyBytesInner = v.try_into_value(vm).map_err(|_| {
+                    vm.new_value_error("translation table must be 256 characters long".to_owned())
+                })?;
                 if v.elements.len() != 256 {
                     return Err(vm.new_value_error(
                         "translation table must be 256 characters long".to_owned(),
@@ -222,7 +225,10 @@ impl ByteInnerTranslateOptions {
         )?;
 
         let delete = match self.delete {
-            OptionalArg::Present(byte) => byte.elements,
+            OptionalArg::Present(byte) => {
+                let byte: PyBytesInner = byte.try_into_value(vm)?;
+                byte.elements
+            }
             _ => vec![],
         };
 
