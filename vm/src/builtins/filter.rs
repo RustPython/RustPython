@@ -40,7 +40,10 @@ impl Constructor for PyFilter {
 impl PyFilter {
     #[pymethod(magic)]
     fn reduce(&self, vm: &VirtualMachine) -> (PyTypeRef, (PyObjectRef, PyIter)) {
-        (vm.ctx.types.filter_type.clone(), (self.predicate.clone(), self.iterator.clone()))
+        (
+            vm.ctx.types.filter_type.clone(),
+            (self.predicate.clone(), self.iterator.clone()),
+        )
     }
 }
 
