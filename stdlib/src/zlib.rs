@@ -17,6 +17,7 @@ mod zlib {
         write::ZlibEncoder, Compress, Compression, Decompress, FlushCompress, FlushDecompress,
         Status,
     };
+    use std::ffi::CStr;
     use std::io::Write;
 
     #[cfg(not(feature = "zlib"))]
@@ -55,6 +56,22 @@ mod zlib {
     const DEF_BUF_SIZE: usize = 16 * 1024;
     #[pyattr]
     const DEF_MEM_LEVEL: u8 = 8;
+    #[pyattr(name = "ZLIB_RUNTIME_VERSION", once)]
+    fn zlib_runtime_version(_vm: &VirtualMachine) -> String {
+        unsafe {
+            CStr::from_ptr(libz_sys::zlibVersion())
+                .to_string_lossy()
+                .into_owned()
+        }
+    }
+    #[pyattr(name = "ZLIB_VERSION", once)]
+    fn zlib_version(_vm: &VirtualMachine) -> String {
+        unsafe {
+            CStr::from_ptr(libz_sys::zlibVersion())
+                .to_string_lossy()
+                .into_owned()
+        }
+    }
 
     #[pyattr(once)]
     fn error(vm: &VirtualMachine) -> PyTypeRef {
