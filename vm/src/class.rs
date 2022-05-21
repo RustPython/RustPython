@@ -58,6 +58,7 @@ pub trait PyClassDef {
     const MODULE_NAME: Option<&'static str>;
     const TP_NAME: &'static str;
     const DOC: Option<&'static str> = None;
+    const BASICSIZE: usize;
 }
 
 impl<T> PyClassDef for PyRef<T>
@@ -68,6 +69,7 @@ where
     const MODULE_NAME: Option<&'static str> = T::MODULE_NAME;
     const TP_NAME: &'static str = T::TP_NAME;
     const DOC: Option<&'static str> = T::DOC;
+    const BASICSIZE: usize = T::BASICSIZE;
 }
 
 pub trait PyClassImpl: PyClassDef {
@@ -125,6 +127,7 @@ pub trait PyClassImpl: PyClassDef {
         let mut slots = PyTypeSlots {
             flags: Self::TP_FLAGS,
             name: PyRwLock::new(Some(Self::TP_NAME.to_owned())),
+            basicsize: Self::BASICSIZE,
             doc: Self::DOC,
             ..Default::default()
         };

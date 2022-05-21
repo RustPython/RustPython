@@ -326,6 +326,11 @@ impl PyBaseObject {
     fn hash(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyHash> {
         Self::slot_hash(&zelf, vm)
     }
+
+    #[pymethod(magic)]
+    fn sizeof(zelf: PyObjectRef) -> usize {
+        zelf.class().slots.basicsize
+    }
 }
 
 pub fn object_get_dict(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyDictRef> {
