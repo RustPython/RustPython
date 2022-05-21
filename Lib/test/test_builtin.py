@@ -658,8 +658,6 @@ class BuiltinTest(unittest.TestCase):
         self.assertEqual(list(filter(lambda x: x>=3, (1, 2, 3, 4))), [3, 4])
         self.assertRaises(TypeError, list, filter(42, (1, 2)))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_filter_pickle(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             f1 = filter(filter_char, "abcdeabcde")
