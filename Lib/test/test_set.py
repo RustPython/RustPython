@@ -613,8 +613,6 @@ class TestSet(TestJointOps, unittest.TestCase):
         t ^= t
         self.assertEqual(t, self.thetype())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_weakref(self):
         s = self.thetype('gallahad')
         p = weakref.proxy(s)

@@ -62,14 +62,23 @@ impl PyWeakProxy {
     // TODO: callbacks
     #[pymethod(magic)]
     fn getattr(&self, attr_name: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        let obj = self.weak.upgrade().ok_or_else(|| {
-            vm.new_exception_msg(
-                vm.ctx.exceptions.reference_error.clone(),
-                "weakly-referenced object no longer exists".to_owned(),
-            )
-        })?;
+        let obj = self.weak.upgrade().ok_or_else(|| new_reference_error(vm))?;
         obj.get_attr(attr_name, vm)
     }
+    #[pymethod(magic)]
+    fn str(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        match self.weak.upgrade() {
+            Some(obj) => obj.str(vm),
+            None => Err(new_reference_error(vm)),
+        }
+    }
+}
+
+fn new_reference_error(vm: &VirtualMachine) -> PyRef<super::PyBaseException> {
+    vm.new_exception_msg(
+        vm.ctx.exceptions.reference_error.clone(),
+        "weakly-referenced object no longer exists".to_owned(),
+    )
 }
 
 impl SetAttr for PyWeakProxy {
