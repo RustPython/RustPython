@@ -37,7 +37,15 @@ impl Constructor for PyFilter {
 }
 
 #[pyimpl(with(IterNext, Constructor), flags(BASETYPE))]
-impl PyFilter {}
+impl PyFilter {
+    #[pymethod(magic)]
+    fn reduce(&self, vm: &VirtualMachine) -> (PyTypeRef, (PyObjectRef, PyIter)) {
+        (
+            vm.ctx.types.filter_type.clone(),
+            (self.predicate.clone(), self.iterator.clone()),
+        )
+    }
+}
 
 impl IterNextIterable for PyFilter {}
 impl IterNext for PyFilter {
