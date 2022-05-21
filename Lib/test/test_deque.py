@@ -889,8 +889,6 @@ class TestSubclass(unittest.TestCase):
             for d in DequeWithBadIter('abc'), DequeWithBadIter('abc', 2):
                 self.assertRaises(TypeError, pickle.dumps, d, proto)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_weakref(self):
         d = deque('gallahad')
         p = weakref.proxy(d)
