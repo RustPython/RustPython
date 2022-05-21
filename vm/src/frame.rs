@@ -4,7 +4,7 @@ use crate::{
         asyncgenerator::PyAsyncGenWrappedValue,
         function::{PyCell, PyCellRef, PyFunction},
         tuple::{PyTuple, PyTupleTyped},
-        PyBaseExceptionRef, PyCode, PyCoroutine, PyDict, PyDictRef, PyGenerator, PyListRef, PySet,
+        PyBaseExceptionRef, PyCode, PyCoroutine, PyDict, PyDictRef, PyGenerator, PyList, PySet,
         PySlice, PyStr, PyStrRef, PyTraceback, PyTypeRef,
     },
     bytecode,
@@ -668,45 +668,33 @@ impl ExecutingFrame<'_> {
             } => self.execute_build_map(vm, *size, *unpack, *for_call),
             bytecode::Instruction::BuildSlice { step } => self.execute_build_slice(vm, *step),
             bytecode::Instruction::ListAppend { i } => {
-                let obj = self.nth_value(*i);
-                let list: PyListRef = unsafe {
-                    // SAFETY: trust compiler
-                    obj.downcast_unchecked()
-                };
                 let item = self.pop_value();
+                let obj = self.nth_value(*i);
+                let list: &Py<PyList> = unsafe {
+                    // SAFETY: trust compiler
+                    obj.downcast_unchecked_ref()
+                };
                 list.append(item);
                 Ok(None)
             }
             bytecode::Instruction::SetAdd { i } => {
-                let obj = self.nth_value(*i);
-                let set: PyRef<PySet> = unsafe {
-                    // SAFETY: trust compiler
-                    obj.downcast_unchecked()
-                };
                 let item = self.pop_value();
+                let obj = self.nth_value(*i);
+                let set: &Py<PySet> = unsafe {
+                    // SAFETY: trust compiler
+                    obj.downcast_unchecked_ref()
+                };
                 set.add(item, vm)?;
                 Ok(None)
             }
             bytecode::Instruction::MapAdd { i } => {
-                let obj = self.nth_value(*i + 1);
-                let dict: PyDictRef = unsafe {
-                    // SAFETY: trust compiler
-                    obj.downcast_unchecked()
-                };
-                let key = self.pop_value();
-                let value = self.pop_value();
-                dict.set_item(&*key, value, vm)?;
-                Ok(None)
-            }
-            bytecode::Instruction::MapAddRev { i } => {
-                // change order of evalutio of key and value to support Py3.8 Named expressions in dict comprehension
-                let obj = self.nth_value(*i + 1);
-                let dict: PyDictRef = unsafe {
-                    // SAFETY: trust compiler
-                    obj.downcast_unchecked()
-                };
                 let value = self.pop_value();
                 let key = self.pop_value();
+                let obj = self.nth_value(*i);
+                let dict: &Py<PyDict> = unsafe {
+                    // SAFETY: trust compiler
+                    obj.downcast_unchecked_ref()
+                };
                 dict.set_item(&*key, value, vm)?;
                 Ok(None)
             }
@@ -1811,8 +1799,9 @@ impl ExecutingFrame<'_> {
     }
 
     #[inline]
-    fn nth_value(&self, depth: u32) -> PyObjectRef {
-        self.state.stack[self.state.stack.len() - depth as usize - 1].clone()
+    fn nth_value(&self, depth: u32) -> &PyObject {
+        let stack = &self.state.stack;
+        &stack[stack.len() - depth as usize - 1]
     }
 
     #[cold]
