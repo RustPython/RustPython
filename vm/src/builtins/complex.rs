@@ -204,6 +204,11 @@ impl PyComplex {
 
 #[pyimpl(flags(BASETYPE), with(Comparable, Hashable, Constructor))]
 impl PyComplex {
+    #[pymethod(name = "__mod__")]
+    fn mod_(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        return Err(vm.new_type_error("can't mod complex numbers.".to_owned(),))
+    }
+
     #[pymethod(magic)]
     fn complex(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRef<PyComplex> {
         if zelf.is(&vm.ctx.types.complex_type) {
