@@ -3,7 +3,7 @@ use crate::{
     builtins::builtinfunc::PyBuiltinMethod,
     class::PyClassImpl,
     function::{FuncArgs, IntoPyNativeFunc},
-    types::{Callable, Constructor, GetDescriptor},
+    types::{Callable, Constructor, GetDescriptor, Initializer},
     Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
@@ -73,7 +73,18 @@ impl PyStaticMethod {
     }
 }
 
-#[pyclass(with(Callable, GetDescriptor, Constructor), flags(BASETYPE, HAS_DICT))]
+impl Initializer for PyStaticMethod {
+    type Args = PyObjectRef;
+
+    fn init(_zelf: PyRef<Self>, _func: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+        Ok(())
+    }
+}
+
+#[pyclass(
+    with(Callable, GetDescriptor, Constructor, Initializer),
+    flags(BASETYPE, HAS_DICT)
+)]
 impl PyStaticMethod {
     #[pyproperty(magic)]
     fn func(&self) -> PyObjectRef {
