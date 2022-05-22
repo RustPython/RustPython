@@ -3,36 +3,18 @@ use crate::{
     builtins::{PyInt, PyIntRef, PyStrInterned},
     function::PyArithmeticValue,
     object::{AsObject, PyObject, PyObjectRef, PyResult},
-    protocol::PyIterReturn,
+    protocol::{PyIterReturn, PyNumber},
     types::PyComparisonOp,
 };
 
 /// Collection of operators
 impl VirtualMachine {
     pub fn to_index_opt(&self, obj: PyObjectRef) -> Option<PyResult<PyIntRef>> {
-        match obj.downcast() {
-            Ok(val) => Some(Ok(val)),
-            Err(obj) => self
-                .get_method(obj, identifier!(self, __index__))
-                .map(|index| {
-                    // TODO: returning strict subclasses of int in __index__ is deprecated
-                    self.invoke(&index?, ())?.downcast().map_err(|bad| {
-                        self.new_type_error(format!(
-                            "__index__ returned non-int (type {})",
-                            bad.class().name()
-                        ))
-                    })
-                }),
-        }
+        PyNumber::from(obj.as_ref()).index_opt(self).transpose()
     }
 
     pub fn to_index(&self, obj: &PyObject) -> PyResult<PyIntRef> {
-        self.to_index_opt(obj.to_owned()).unwrap_or_else(|| {
-            Err(self.new_type_error(format!(
-                "'{}' object cannot be interpreted as an integer",
-                obj.class().name()
-            )))
-        })
+        PyNumber::from(obj).index(self)
     }
 
     #[inline]

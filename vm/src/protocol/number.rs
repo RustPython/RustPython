@@ -134,9 +134,11 @@ impl PyNumber<'_> {
                     ),
                     1,
                     vm,
-                )?
+                )?;
+                Ok(vm.ctx.new_int(ret.as_bigint().clone()))
+            } else {
+                Ok(ret)
             }
-            Ok(ret)
         } else if self.methods(vm).index.is_some() {
             self.index(vm)
         } else if let Ok(Ok(f)) =
@@ -173,9 +175,13 @@ impl PyNumber<'_> {
         }
     }
 
-    pub fn index(&self, vm: &VirtualMachine) -> PyResult<PyIntRef> {
+    pub fn index_opt(&self, vm: &VirtualMachine) -> PyResult<Option<PyIntRef>> {
         if self.obj.class().is(PyInt::class(vm)) {
-            Ok(unsafe { self.obj.to_owned().downcast_unchecked::<PyInt>() })
+            Ok(Some(unsafe {
+                self.obj.to_owned().downcast_unchecked::<PyInt>()
+            }))
+        } else if let Some(i) = self.obj.downcast_ref::<PyInt>() {
+            Ok(Some(i.to_owned()))
         } else if let Some(f) = self.methods(vm).index {
             let ret = f(self, vm)?;
             if !ret.class().is(PyInt::class(vm)) {
@@ -189,15 +195,23 @@ impl PyNumber<'_> {
                     ),
                     1,
                     vm,
-                )?
+                )?;
+                Ok(Some(vm.ctx.new_int(ret.as_bigint().clone())))
+            } else {
+                Ok(Some(ret))
             }
-            Ok(ret)
         } else {
-            Err(vm.new_type_error(format!(
+            Ok(None)
+        }
+    }
+
+    pub fn index(&self, vm: &VirtualMachine) -> PyResult<PyIntRef> {
+        self.index_opt(vm)?.ok_or_else(|| {
+            vm.new_type_error(format!(
                 "'{}' object cannot be interpreted as an integer",
                 self.obj.class()
-            )))
-        }
+            ))
+        })
     }
 
     pub fn float_opt(&self, vm: &VirtualMachine) -> PyResult<Option<PyRef<PyFloat>>> {
