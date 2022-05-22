@@ -581,6 +581,7 @@ mod array {
     }
 
     #[pyattr]
+    #[pyattr(name = "ArrayType")]
     #[pyclass(name = "array")]
     #[derive(Debug, PyPayload)]
     pub struct PyArray {
