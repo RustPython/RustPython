@@ -193,7 +193,12 @@ mod decl {
     }
 
     #[pyimpl(with(IterNext, Constructor))]
-    impl PyItertoolsCount {}
+    impl PyItertoolsCount {
+        #[pymethod(magic)]
+        fn reduce(&self, vm: &VirtualMachine) -> (PyTypeRef, BigInt) {
+            (vm.ctx.types.map_type.clone(), self.cur.read().clone())
+        }
+    }
     impl IterNextIterable for PyItertoolsCount {}
     impl IterNext for PyItertoolsCount {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
