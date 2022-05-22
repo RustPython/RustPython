@@ -1210,8 +1210,6 @@ class LongTest(unittest.TestCase):
                          b'\xff\xff\xff\xff\xff')
         self.assertRaises(OverflowError, (1).to_bytes, 0, 'big')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_from_bytes(self):
         def check(tests, byteorder, signed=False):
             for test, expected in tests.items():
