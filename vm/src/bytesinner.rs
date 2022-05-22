@@ -211,7 +211,7 @@ impl ByteInnerTranslateOptions {
     pub fn get_value(self, vm: &VirtualMachine) -> PyResult<(Vec<u8>, Vec<u8>)> {
         let table = self.table.map_or_else(
             || Ok((0..=255).collect::<Vec<u8>>()),
-            |v: PyObjectRef| {
+            |v| {
                 let bytes = v
                     .try_into_value::<PyBytesInner>(vm)
                     .ok()
