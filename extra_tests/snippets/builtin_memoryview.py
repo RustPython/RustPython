@@ -69,3 +69,17 @@ def test_resizable():
     b.append(7)
 
 test_resizable()
+
+def test_delitem():
+    a = b'abc'
+    b = memoryview(a)
+    assert_raises(TypeError, lambda : b.__delitem__())
+    assert_raises(TypeError, lambda : b.__delitem__(0))
+    assert_raises(TypeError, lambda : b.__delitem__(10))
+    a = bytearray(b'abc')
+    b = memoryview(a)
+    assert_raises(TypeError, lambda : b.__delitem__())
+    assert_raises(TypeError, lambda : b.__delitem__(1))
+    assert_raises(TypeError, lambda : b.__delitem__(12))
+
+test_delitem()
