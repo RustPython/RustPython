@@ -130,8 +130,6 @@ class PyPicklerTests(AbstractPickleTests, unittest.TestCase):
     def test_newobj_proxies(self): # TODO: RUSTPYTHON, remove when this passes
         super().test_newobj_proxies() # TODO: RUSTPYTHON, remove when this passes
 
-    # TODO: RUSTPYTHON, TypeError: cannot pickle 'NotImplementedType' object
-    @unittest.expectedFailure
     def test_notimplemented(self): # TODO: RUSTPYTHON, remove when this passes
         super().test_notimplemented() # TODO: RUSTPYTHON, remove when this passes
 
@@ -165,8 +163,6 @@ class PyPicklerTests(AbstractPickleTests, unittest.TestCase):
     def test_recursive_nested_names(self): # TODO: RUSTPYTHON, remove when this passes
         super().test_recursive_nested_names() # TODO: RUSTPYTHON, remove when this passes
 
-    # TODO: RUSTPYTHON, TypeError: cannot pickle 'NotImplementedType' object
-    @unittest.expectedFailure
     def test_singleton_types(self): # TODO: RUSTPYTHON, remove when this passes
         super().test_singleton_types() # TODO: RUSTPYTHON, remove when this passes
 
@@ -251,8 +247,6 @@ class InMemoryPickleTests(AbstractPickleTests, AbstractUnpickleTests,
     def test_newobj_proxies(self): # TODO: RUSTPYTHON, remove when this passes
         super().test_newobj_proxies() # TODO: RUSTPYTHON, remove when this passes
 
-    # TODO: RUSTPYTHON, TypeError: cannot pickle 'NotImplementedType' object
-    @unittest.expectedFailure
     def test_notimplemented(self): # TODO: RUSTPYTHON, remove when this passes
         super().test_notimplemented() # TODO: RUSTPYTHON, remove when this passes
 
@@ -286,8 +280,6 @@ class InMemoryPickleTests(AbstractPickleTests, AbstractUnpickleTests,
     def test_recursive_nested_names(self): # TODO: RUSTPYTHON, remove when this passes
         super().test_recursive_nested_names() # TODO: RUSTPYTHON, remove when this passes
 
-    # TODO: RUSTPYTHON, TypeError: cannot pickle 'NotImplementedType' object
-    @unittest.expectedFailure
     def test_singleton_types(self): # TODO: RUSTPYTHON, remove when this passes
         super().test_singleton_types() # TODO: RUSTPYTHON, remove when this passes
 
