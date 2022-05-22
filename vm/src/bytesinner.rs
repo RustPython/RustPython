@@ -1206,7 +1206,9 @@ pub fn bytes_from_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Vec<u8
     }
 
     if let Ok(elements) = vm.map_iterable_object(obj, |x| value_from_object(vm, &x)) {
-        return elements;
+        if elements.as_ref().map_or(true, |es| !es.is_empty()) {
+            return elements;
+        }
     }
 
     Err(vm.new_type_error(
