@@ -100,8 +100,6 @@ class PyPicklerTests(AbstractPickleTests, unittest.TestCase):
     def test_c_methods(self): # TODO: RUSTPYTHON, remove when this passes
         super().test_c_methods() # TODO: RUSTPYTHON, remove when this passes
 
-    # TODO: RUSTPYTHON, TypeError: cannot pickle 'map' object
-    @unittest.expectedFailure
     def test_compat_pickle(self): # TODO: RUSTPYTHON, remove when this passes
         super().test_compat_pickle() # TODO: RUSTPYTHON, remove when this passes
 
@@ -211,8 +209,6 @@ class InMemoryPickleTests(AbstractPickleTests, AbstractUnpickleTests,
     def test_c_methods(self): # TODO: RUSTPYTHON, remove when this passes
         super().test_c_methods() # TODO: RUSTPYTHON, remove when this passes
 
-    # TODO: RUSTPYTHON, TypeError: cannot pickle 'map' object
-    @unittest.expectedFailure
     def test_compat_pickle(self): # TODO: RUSTPYTHON, remove when this passes
         super().test_compat_pickle() # TODO: RUSTPYTHON, remove when this passes
 
