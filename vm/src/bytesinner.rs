@@ -212,15 +212,16 @@ impl ByteInnerTranslateOptions {
         let table = self.table.map_or_else(
             || Ok((0..=255).collect::<Vec<u8>>()),
             |v: PyObjectRef| {
-                let v: PyBytesInner = v.try_into_value(vm).map_err(|_| {
-                    vm.new_value_error("translation table must be 256 characters long".to_owned())
-                })?;
-                if v.elements.len() != 256 {
-                    return Err(vm.new_value_error(
-                        "translation table must be 256 characters long".to_owned(),
-                    ));
-                }
-                Ok(v.elements.to_vec())
+                let bytes = v
+                    .try_into_value::<PyBytesInner>(vm)
+                    .ok()
+                    .filter(|v| v.elements.len() == 256)
+                    .ok_or_else(|| {
+                        vm.new_value_error(
+                            "translation table must be 256 characters long".to_owned(),
+                        )
+                    })?;
+                Ok(bytes.elements.to_vec())
             },
         )?;
 
