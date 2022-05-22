@@ -84,6 +84,11 @@ impl PyNotImplemented {
     fn repr(&self) -> String {
         "NotImplemented".to_owned()
     }
+
+    #[pymethod(magic)]
+    fn reduce(&self) -> String {
+        "NotImplemented".to_owned()
+    }
 }
 
 pub fn init(context: &Context) {
