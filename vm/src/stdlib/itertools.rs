@@ -194,7 +194,6 @@ mod decl {
 
     #[pyimpl(with(IterNext, Constructor))]
     impl PyItertoolsCount {
-
         // TODO: Implement this
         // if (lz->cnt == PY_SSIZE_T_MAX)
         //      return Py_BuildValue("0(00)", Py_TYPE(lz), lz->long_cnt, lz->long_step);
@@ -312,7 +311,6 @@ mod decl {
             Ok(*times.read())
         }
 
-        
         #[pymethod(magic)]
         fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
             let cls = zelf.class().clone();
