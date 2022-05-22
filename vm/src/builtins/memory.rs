@@ -363,6 +363,14 @@ impl PyMemoryView {
     }
 
     #[pymethod(magic)]
+    fn delitem(&self, _needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        if self.desc.readonly {
+            return Err(vm.new_type_error("cannot modify read-only memory".to_owned()));
+        }
+        Err(vm.new_type_error("cannot delete memory".to_owned()))
+    }
+
+    #[pymethod(magic)]
     fn setitem(
         zelf: PyRef<Self>,
         needle: PyObjectRef,
