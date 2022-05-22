@@ -1,5 +1,6 @@
 use super::PyTypeRef;
 use crate::{
+    builtins::PyTupleRef,
     class::PyClassImpl,
     function::PosArgs,
     protocol::{PyIter, PyIterReturn},
@@ -44,6 +45,13 @@ impl PyMap {
             let max = std::cmp::max(prev, cur);
             Ok(max)
         })
+    }
+
+    #[pymethod(magic)]
+    fn reduce(&self, vm: &VirtualMachine) -> (PyTypeRef, PyTupleRef) {
+        let mut vec = vec![self.mapper.clone()];
+        vec.extend(self.iterators.iter().map(|o| o.clone().into()));
+        (vm.ctx.types.map_type.clone(), vm.new_tuple(vec))
     }
 }
 
