@@ -36,14 +36,14 @@ mod _json {
             let object_hook = vm.option_if_none(ctx.get_attr("object_hook", vm)?);
             let object_pairs_hook = vm.option_if_none(ctx.get_attr("object_pairs_hook", vm)?);
             let parse_float = ctx.get_attr("parse_float", vm)?;
-            let parse_float =
-                if vm.is_none(&parse_float) || parse_float.is(&vm.ctx.types.float_type) {
-                    None
-                } else {
-                    Some(parse_float)
-                };
+            let parse_float = if vm.is_none(&parse_float) || parse_float.is(vm.ctx.types.float_type)
+            {
+                None
+            } else {
+                Some(parse_float)
+            };
             let parse_int = ctx.get_attr("parse_int", vm)?;
-            let parse_int = if vm.is_none(&parse_int) || parse_int.is(&vm.ctx.types.int_type) {
+            let parse_int = if vm.is_none(&parse_int) || parse_int.is(vm.ctx.types.int_type) {
                 None
             } else {
                 Some(parse_int)

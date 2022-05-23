@@ -1,6 +1,6 @@
 use super::genericalias;
 use crate::{
-    builtins::{PyFrozenSet, PyStr, PyStrRef, PyTuple, PyTupleRef, PyTypeRef},
+    builtins::{PyFrozenSet, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef},
     class::PyClassImpl,
     common::hash,
     convert::ToPyObject,
@@ -27,8 +27,9 @@ impl fmt::Debug for PyUnion {
 }
 
 impl PyPayload for PyUnion {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.union_type
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.union_type
     }
 }
 
@@ -99,10 +100,10 @@ impl PyUnion {
 }
 
 pub fn is_unionable(obj: PyObjectRef, vm: &VirtualMachine) -> bool {
-    obj.class().is(&vm.ctx.types.none_type)
-        || obj.class().is(&vm.ctx.types.type_type)
-        || obj.class().is(&vm.ctx.types.generic_alias_type)
-        || obj.class().is(&vm.ctx.types.union_type)
+    obj.class().is(vm.ctx.types.none_type)
+        || obj.class().is(vm.ctx.types.type_type)
+        || obj.class().is(vm.ctx.types.generic_alias_type)
+        || obj.class().is(vm.ctx.types.union_type)
 }
 
 fn is_typevar(obj: &PyObjectRef) -> bool {
@@ -171,8 +172,8 @@ fn dedup_and_flatten_args(args: PyTupleRef, vm: &VirtualMachine) -> PyTupleRef {
                 PyTypeRef::try_from_object(vm, arg.clone()),
             ) {
                 (Ok(a), Ok(b))
-                    if a.is(&vm.ctx.types.generic_alias_type)
-                        && b.is(&vm.ctx.types.generic_alias_type) =>
+                    if a.is(vm.ctx.types.generic_alias_type)
+                        && b.is(vm.ctx.types.generic_alias_type) =>
                 {
                     param
                         .rich_compare_bool(arg, PyComparisonOp::Eq, vm)
@@ -258,7 +259,7 @@ impl Hashable for PyUnion {
     fn hash(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<hash::PyHash> {
         let it = PyTuple::iter(zelf.args.clone(), vm);
         let set = PyFrozenSet::from_iter(vm, it)?;
-        PyFrozenSet::hash(&set.into_ref(vm), vm)
+        PyFrozenSet::hash(&set.into_ref(&vm.ctx), vm)
     }
 }
 

@@ -387,7 +387,7 @@ class ClassDefVisitor(EmitVisitor):
         self.emit("#[pyimpl(flags(HAS_DICT, BASETYPE))]", depth)
         self.emit(f"impl {structname} {{", depth)
         self.emit(f"#[extend_class]", depth + 1)
-        self.emit("fn extend_class_with_fields(ctx: &Context, class: &PyTypeRef) {", depth + 1)
+        self.emit("fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {", depth + 1)
         fields = ",".join(f"ctx.new_str(ascii!({json.dumps(f.name)})).into()" for f in fields)
         self.emit(f'class.set_str_attr("_fields", ctx.new_list(vec![{fields}]));', depth + 2)
         attrs = ",".join(f"ctx.new_str(ascii!({json.dumps(attr.name)})).into()" for attr in attrs)
@@ -481,7 +481,7 @@ class TraitImplVisitor(EmitVisitor):
 
     def make_node(self, variant, fields, depth):
         lines = []
-        self.emit(f"let _node = AstNode.into_ref_with_type(_vm, Node{variant}::static_type().clone()).unwrap();", depth)
+        self.emit(f"let _node = AstNode.into_ref_with_type(_vm, Node{variant}::static_type().to_owned()).unwrap();", depth)
         if fields:
             self.emit("let _dict = _node.as_object().dict().unwrap();", depth)
         for f in fields:

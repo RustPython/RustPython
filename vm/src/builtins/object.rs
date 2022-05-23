@@ -5,7 +5,7 @@ use crate::{
     function::Either,
     function::{FuncArgs, PyArithmeticValue, PyComparisonValue},
     types::PyComparisonOp,
-    AsObject, Context, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 
 /// object()
@@ -20,8 +20,9 @@ use crate::{
 pub struct PyBaseObject;
 
 impl PyPayload for PyBaseObject {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.object_type
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.object_type
     }
 }
 
@@ -31,7 +32,7 @@ impl PyBaseObject {
     #[pyslot]
     fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         // more or less __new__ operator
-        let dict = if cls.is(&vm.ctx.types.object_type) {
+        let dict = if cls.is(vm.ctx.types.object_type) {
             None
         } else {
             Some(vm.ctx.new_dict())
@@ -226,7 +227,7 @@ impl PyBaseObject {
     pub fn dir(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyList> {
         let attributes = obj.class().get_attributes();
 
-        let dict = PyDict::from_attributes(attributes, vm)?.into_ref(vm);
+        let dict = PyDict::from_attributes(attributes, vm)?.into_ref(&vm.ctx);
 
         // Get instance attributes:
         if let Some(object_dict) = obj.dict() {
@@ -343,7 +344,7 @@ pub fn object_set_dict(obj: PyObjectRef, dict: PyDictRef, vm: &VirtualMachine) -
 }
 
 pub fn init(ctx: &Context) {
-    PyBaseObject::extend_class(ctx, &ctx.types.object_type);
+    PyBaseObject::extend_class(ctx, ctx.types.object_type);
 }
 
 fn common_reduce(obj: PyObjectRef, proto: usize, vm: &VirtualMachine) -> PyResult {

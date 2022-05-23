@@ -64,7 +64,7 @@ pub fn file_readline(obj: &PyObject, size: Option<usize>, vm: &VirtualMachine) -
     let ret = vm.call_method(obj, "readline", args)?;
     let eof_err = || {
         vm.new_exception(
-            vm.ctx.exceptions.eof_error.clone(),
+            vm.ctx.exceptions.eof_error.to_owned(),
             vec![vm.ctx.new_str(ascii!("EOF when reading a line")).into()],
         )
     };

@@ -121,7 +121,7 @@ mod _codecs {
             let vm = self.vm;
             let data_str = vm.ctx.new_str(data).into();
             let encode_exc = vm.new_exception(
-                vm.ctx.exceptions.unicode_encode_error.clone(),
+                vm.ctx.exceptions.unicode_encode_error.to_owned(),
                 vec![
                     vm.ctx.new_str(self.encoding).into(),
                     data_str,
@@ -164,7 +164,7 @@ mod _codecs {
             let vm = self.vm;
             let data_bytes: PyObjectRef = vm.ctx.new_bytes(data.to_vec()).into();
             let decode_exc = vm.new_exception(
-                vm.ctx.exceptions.unicode_decode_error.clone(),
+                vm.ctx.exceptions.unicode_decode_error.to_owned(),
                 vec![
                     vm.ctx.new_str(self.encoding).into(),
                     data_bytes.clone(),
@@ -222,7 +222,7 @@ mod _codecs {
         ) -> Self::Error {
             let vm = self.vm;
             vm.new_exception(
-                vm.ctx.exceptions.unicode_encode_error.clone(),
+                vm.ctx.exceptions.unicode_encode_error.to_owned(),
                 vec![
                     vm.ctx.new_str(self.encoding).into(),
                     vm.ctx.new_str(data).into(),

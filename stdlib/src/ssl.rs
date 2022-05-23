@@ -180,7 +180,7 @@ mod _ssl {
         vm.ctx.new_exception_type(
             "ssl",
             "SSLError",
-            Some(vec![vm.ctx.exceptions.os_error.clone()]),
+            Some(vec![vm.ctx.exceptions.os_error.to_owned()]),
         )
     }
 
@@ -190,7 +190,10 @@ mod _ssl {
         vm.ctx.new_exception_type(
             "ssl",
             "SSLCertVerificationError",
-            Some(vec![ssl_error(vm), vm.ctx.exceptions.value_error.clone()]),
+            Some(vec![
+                ssl_error(vm),
+                vm.ctx.exceptions.value_error.to_owned(),
+            ]),
         )
     }
 
@@ -1435,7 +1438,7 @@ mod windows {
                     oids.into_iter().map(|oid| vm.ctx.new_str(oid).into()),
                 )
                 .unwrap()
-                .into_ref(vm)
+                .into_ref(&vm.ctx)
                 .into(),
             };
             Ok(vm.new_tuple((cert, enc_type, usage)).into())

@@ -2,7 +2,7 @@ use crate::{
     builtins::{PyStr, PyTypeRef},
     common::lock::PyRwLock,
     convert::ToPyObject,
-    Py, PyExact, PyObject, PyObjectRef, PyRef, PyRefExact,
+    AsObject, Py, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, VirtualMachine,
 };
 use std::{
     borrow::{Borrow, ToOwned},
@@ -43,14 +43,17 @@ impl StringPool {
             let inserted = zelf.inner.write().insert(cache.clone());
             if inserted {
                 let interned = unsafe { PyStrInterned::borrow_cache(&cache) };
-                // unsafe { interned.as_object().mark_intern() };
+                unsafe { interned.as_object().mark_intern() };
                 interned
             } else {
-                zelf.inner
-                    .read()
-                    .get(cache.as_str())
-                    .map(|cached| unsafe { PyStrInterned::borrow_cache(cached) })
-                    .expect("")
+                unsafe {
+                    PyStrInterned::borrow_cache(
+                        zelf.inner
+                            .read()
+                            .get(cache.as_ref())
+                            .expect("inserted is false"),
+                    )
+                }
             }
         }
         let str_ref = s.into_pyref_exact(typ);
@@ -110,11 +113,84 @@ impl CachedPyStrRef {
     }
 }
 
+pub struct PyInterned<T>
+where
+    T: PyPayload,
+{
+    inner: Py<T>,
+}
+
+impl<T: PyPayload> PyInterned<T> {
+    #[inline]
+    pub fn leak(cache: PyRef<T>) -> &'static Self {
+        unsafe { std::mem::transmute(cache) }
+    }
+
+    #[inline]
+    fn as_ptr(&self) -> *const Py<T> {
+        self as *const _ as *const _
+    }
+
+    #[inline]
+    pub fn to_owned(&'static self) -> PyRef<T> {
+        unsafe { (*(&self as *const _ as *const PyRef<T>)).clone() }
+    }
+
+    #[inline]
+    pub fn to_object(&'static self) -> PyObjectRef {
+        self.to_owned().into()
+    }
+}
+
+impl<T: PyPayload> Borrow<PyObject> for PyInterned<T> {
+    #[inline(always)]
+    fn borrow(&self) -> &PyObject {
+        self.inner.borrow()
+    }
+}
+
+// NOTE: std::hash::Hash of Self and Self::Borrowed *must* be the same
+// This is ok only because PyObject doesn't implement Hash
+impl<T: PyPayload> std::hash::Hash for PyInterned<T> {
+    #[inline(always)]
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.get_id().hash(state)
+    }
+}
+
+impl<T: PyPayload> Deref for PyInterned<T> {
+    type Target = Py<T>;
+    #[inline(always)]
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl<T: PyPayload> PartialEq for PyInterned<T> {
+    #[inline(always)]
+    fn eq(&self, other: &Self) -> bool {
+        std::ptr::eq(self, other)
+    }
+}
+
+impl<T: PyPayload> Eq for PyInterned<T> {}
+
+impl<T: PyPayload + std::fmt::Debug> std::fmt::Debug for PyInterned<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(&**self, f)?;
+        write!(f, "@{:p}", self.as_ptr())
+    }
+}
+
+impl<T: PyPayload> ToPyObject for &'static PyInterned<T> {
+    fn to_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
+        self.to_owned().into()
+    }
+}
+
 /// The unique reference of interned PyStr
 /// Always intended to be used as a static reference
-pub struct PyStrInterned {
-    inner: Py<PyStr>,
-}
+pub type PyStrInterned = PyInterned<PyStr>;
 
 impl PyStrInterned {
     /// # Safety
@@ -125,74 +201,21 @@ impl PyStrInterned {
     }
 
     #[inline]
-    fn as_ptr(&self) -> *const Py<PyStr> {
-        self as *const _ as *const _
-    }
-
-    #[inline]
-    pub fn to_owned(&'static self) -> PyRefExact<PyStr> {
-        unsafe { (*(&self as *const _ as *const PyRefExact<PyStr>)).clone() }
-    }
-
-    #[inline]
-    pub fn to_str(&'static self) -> PyRef<PyStr> {
-        self.to_owned().into_pyref()
-    }
-
-    #[inline]
-    pub fn to_object(&'static self) -> PyObjectRef {
-        self.to_str().into()
-    }
-}
-
-impl Borrow<PyObject> for PyStrInterned {
-    #[inline(always)]
-    fn borrow(&self) -> &PyObject {
-        self.inner.borrow()
-    }
-}
-
-impl Deref for PyStrInterned {
-    type Target = Py<PyStr>;
-    #[inline(always)]
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-
-impl std::hash::Hash for PyStrInterned {
-    #[inline(always)]
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        std::hash::Hash::hash(&(self as *const _), state)
-    }
-}
-
-impl PartialEq for PyStrInterned {
-    #[inline(always)]
-    fn eq(&self, other: &Self) -> bool {
-        std::ptr::eq(self, other)
-    }
-}
-
-impl Eq for PyStrInterned {}
-
-impl AsRef<str> for PyStrInterned {
-    #[inline]
-    fn as_ref(&self) -> &str {
-        self.as_str()
-    }
-}
-
-impl std::fmt::Debug for PyStrInterned {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Debug::fmt(self.as_str(), f)?;
-        write!(f, "@{:p}", self.as_ptr())
+    pub fn to_exact(&'static self) -> PyRefExact<PyStr> {
+        unsafe { PyRefExact::new_unchecked(self.to_owned()) }
     }
 }
 
 impl std::fmt::Display for PyStrInterned {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(self.as_str(), f)
+    }
+}
+
+impl AsRef<str> for PyStrInterned {
+    #[inline(always)]
+    fn as_ref(&self) -> &str {
+        self.as_str()
     }
 }
 
@@ -216,8 +239,12 @@ mod sealed {
 }
 
 /// A sealed marker trait for `DictKey` types that always become an exact instance of `str`
-pub trait Internable: sealed::SealedInternable + ToPyObject + AsRef<Self::Interned> {
-    type Interned: ?Sized + MaybeInterned;
+pub trait Internable
+where
+    Self: sealed::SealedInternable + ToPyObject + AsRef<Self::Interned>,
+    Self::Interned: MaybeInterned,
+{
+    type Interned: ?Sized;
     fn into_pyref_exact(self, str_type: PyTypeRef) -> PyRefExact<PyStr>;
 }
 
@@ -269,6 +296,24 @@ impl MaybeInterned for PyExact<PyStr> {
 impl MaybeInterned for Py<PyStr> {
     #[inline(always)]
     fn as_interned(&self) -> Option<&'static PyStrInterned> {
-        None
+        if self.as_object().is_interned() {
+            Some(unsafe { std::mem::transmute(self) })
+        } else {
+            None
+        }
+    }
+}
+
+impl PyObject {
+    #[inline]
+    pub fn as_interned_str(&self, vm: &crate::VirtualMachine) -> Option<&'static PyStrInterned> {
+        let s: Option<&Py<PyStr>> = self.downcast_ref();
+        if self.is_interned() {
+            s.unwrap().as_interned()
+        } else if let Some(s) = s {
+            vm.ctx.interned_str(s.as_str())
+        } else {
+            None
+        }
     }
 }

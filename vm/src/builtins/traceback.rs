@@ -1,5 +1,5 @@
-use super::PyTypeRef;
-use crate::{class::PyClassImpl, frame::FrameRef, Context, PyPayload, PyRef, VirtualMachine};
+use super::PyType;
+use crate::{class::PyClassImpl, frame::FrameRef, Context, Py, PyPayload, PyRef};
 
 #[pyclass(module = false, name = "traceback")]
 #[derive(Debug)]
@@ -13,8 +13,9 @@ pub struct PyTraceback {
 pub type PyTracebackRef = PyRef<PyTraceback>;
 
 impl PyPayload for PyTraceback {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.traceback_type
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.traceback_type
     }
 }
 
@@ -57,7 +58,7 @@ impl PyTracebackRef {
 }
 
 pub fn init(context: &Context) {
-    PyTraceback::extend_class(context, &context.types.traceback_type);
+    PyTraceback::extend_class(context, context.types.traceback_type);
 }
 
 impl serde::Serialize for PyTraceback {

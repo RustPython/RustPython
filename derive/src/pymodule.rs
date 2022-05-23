@@ -332,11 +332,12 @@ impl ModuleItem for FunctionItem {
             };
             let doc = quote!(.with_doc(#doc.to_owned(), &vm.ctx));
             let new_func = quote_spanned!(ident.span()=>
-                vm.ctx.make_funcdef(#py_name, #ident)
-                    #doc
-                    .into_function()
-                    .with_module(vm.new_pyobj(#module.to_owned()))
-                    .into_ref(&vm.ctx)
+                ::rustpython_vm::object::PyPayload::into_ref(
+                    vm.ctx.make_funcdef(#py_name, #ident)
+                        #doc
+                        .into_function()
+                        .with_module(vm.new_pyobj(#module.to_owned())),
+                    &vm.ctx)
             );
 
             if self.pyattrs.is_empty() {

@@ -33,11 +33,11 @@ impl PyObjectRef {
     }
 
     pub fn bytes(self, vm: &VirtualMachine) -> PyResult {
-        let bytes_type = &vm.ctx.types.bytes_type;
+        let bytes_type = vm.ctx.types.bytes_type;
         match self.downcast_exact::<PyInt>(vm) {
             Ok(int) => Err(vm.new_downcast_type_error(bytes_type, &int)),
             Err(obj) => PyBytes::py_new(
-                bytes_type.clone(),
+                bytes_type.to_owned(),
                 ByteInnerNewOptions {
                     source: OptionalArg::Present(obj),
                     encoding: OptionalArg::Missing,
@@ -156,7 +156,7 @@ impl PyObject {
                 dict.set_item(&*attr_name, value, vm)?;
             } else {
                 dict.del_item(&*attr_name, vm).map_err(|e| {
-                    if e.fast_isinstance(&vm.ctx.exceptions.key_error) {
+                    if e.fast_isinstance(vm.ctx.exceptions.key_error) {
                         vm.new_attribute_error(format!(
                             "'{}' object has no attribute '{}'",
                             self.class().name(),
@@ -323,7 +323,7 @@ impl PyObject {
 
     // Container of the virtual machine state:
     pub fn str(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        if self.class().is(&vm.ctx.types.str_type) {
+        if self.class().is(vm.ctx.types.str_type) {
             Ok(self.to_owned().downcast().unwrap())
         } else {
             let s = vm.call_special_method(self.to_owned(), "__str__", ())?;
@@ -339,7 +339,7 @@ impl PyObject {
     {
         cls.to_owned().get_attr("__bases__", vm).map_err(|e| {
             // Only mask AttributeErrors.
-            if e.class().is(&vm.ctx.exceptions.attribute_error) {
+            if e.class().is(vm.ctx.exceptions.attribute_error) {
                 vm.new_type_error(msg())
             } else {
                 e
@@ -404,7 +404,7 @@ impl PyObject {
     /// Determines if `self` is a subclass of `cls`, either directly, indirectly or virtually
     /// via the __subclasscheck__ magic method.
     pub fn is_subclass(&self, cls: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-        if cls.class().is(&vm.ctx.types.type_type) {
+        if cls.class().is(vm.ctx.types.type_type) {
             if self.is(cls) {
                 return Ok(true);
             }
@@ -472,7 +472,7 @@ impl PyObject {
             return Ok(true);
         }
 
-        if cls.class().is(&vm.ctx.types.type_type) {
+        if cls.class().is(vm.ctx.types.type_type) {
             return self.abstract_isinstance(cls, vm);
         }
 
@@ -532,8 +532,8 @@ impl PyObject {
             let i = needle.key_as_isize(vm)?;
             seq.get_item(i, vm)
         } else {
-            if self.class().fast_issubclass(&vm.ctx.types.type_type) {
-                if self.is(&vm.ctx.types.type_type) {
+            if self.class().fast_issubclass(vm.ctx.types.type_type) {
+                if self.is(vm.ctx.types.type_type) {
                     return PyGenericAlias::new(self.class().clone(), needle, vm).to_pyresult(vm);
                 }
 

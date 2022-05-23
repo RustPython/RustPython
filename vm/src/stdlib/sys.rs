@@ -132,7 +132,7 @@ mod sys {
             } else {
                 "unknown"
             })
-            .to_str()
+            .to_owned()
     }
 
     #[pyattr]
@@ -279,7 +279,7 @@ mod sys {
     #[pyfunction]
     fn exit(code: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
         let code = code.unwrap_or_none(vm);
-        Err(vm.new_exception(vm.ctx.exceptions.system_exit.clone(), vec![code]))
+        Err(vm.new_exception(vm.ctx.exceptions.system_exit.to_owned(), vec![code]))
     }
 
     #[pyfunction(name = "__displayhook__")]
@@ -479,7 +479,7 @@ mod sys {
         }
         assert!(unraisable
             .exc_type
-            .fast_issubclass(&vm.ctx.exceptions.exception_type));
+            .fast_issubclass(vm.ctx.exceptions.exception_type));
 
         // TODO: print module name and qualname
 
@@ -513,7 +513,7 @@ mod sys {
 
     #[pyfunction]
     fn intern(s: PyRefExact<PyStr>, vm: &VirtualMachine) -> PyRefExact<PyStr> {
-        vm.ctx.intern_str(s).to_owned()
+        vm.ctx.intern_str(s).to_exact()
     }
 
     #[pyattr]

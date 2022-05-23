@@ -16,7 +16,7 @@ mod decl {
         vm.ctx.new_exception_type(
             "binascii",
             "Error",
-            Some(vec![vm.ctx.exceptions.value_error.clone()]),
+            Some(vec![vm.ctx.exceptions.value_error.to_owned()]),
         )
     }
 

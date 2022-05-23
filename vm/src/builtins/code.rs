@@ -2,13 +2,13 @@
 
 */
 
-use super::{PyStrRef, PyTupleRef, PyTypeRef};
+use super::{PyStrRef, PyTupleRef, PyType, PyTypeRef};
 use crate::{
     bytecode::{self, BorrowedConstant, Constant, ConstantBag},
     class::{PyClassImpl, StaticType},
     convert::ToPyObject,
     function::FuncArgs,
-    AsObject, Context, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use num_traits::Zero;
 use std::{borrow::Borrow, fmt, ops::Deref};
@@ -104,7 +104,7 @@ impl ConstantBag for PyObjBag<'_> {
     }
 
     fn make_name(&self, name: &str) -> PyStrRef {
-        self.0.intern_str(name).to_str()
+        self.0.intern_str(name).to_owned()
     }
 }
 
@@ -151,8 +151,9 @@ impl fmt::Debug for PyCode {
 }
 
 impl PyPayload for PyCode {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.code_type
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.code_type
     }
 }
 
@@ -250,5 +251,5 @@ impl ToPyObject for bytecode::CodeObject {
 }
 
 pub fn init(ctx: &Context) {
-    PyRef::<PyCode>::extend_class(ctx, &ctx.types.code_type);
+    PyRef::<PyCode>::extend_class(ctx, ctx.types.code_type);
 }

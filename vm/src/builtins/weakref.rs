@@ -1,4 +1,4 @@
-use super::{PyGenericAlias, PyTypeRef};
+use super::{PyGenericAlias, PyType, PyTypeRef};
 use crate::common::{
     atomic::{Ordering, Radium},
     hash::{self, PyHash},
@@ -7,7 +7,7 @@ use crate::{
     class::PyClassImpl,
     function::OptionalArg,
     types::{Callable, Comparable, Constructor, Hashable, PyComparisonOp},
-    AsObject, Context, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 pub use crate::object::PyWeak;
@@ -21,8 +21,9 @@ pub struct WeakNewArgs {
 }
 
 impl PyPayload for PyWeak {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.weakref_type
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.weakref_type
     }
 }
 
@@ -115,5 +116,5 @@ impl Comparable for PyWeak {
 }
 
 pub fn init(context: &Context) {
-    PyWeak::extend_class(context, &context.types.weakref_type);
+    PyWeak::extend_class(context, context.types.weakref_type);
 }

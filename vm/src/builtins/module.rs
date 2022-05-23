@@ -1,5 +1,5 @@
 use super::pystr::IntoPyStrRef;
-use super::{PyDictRef, PyStr, PyStrRef, PyTypeRef};
+use super::{PyDictRef, PyStr, PyStrRef, PyType, PyTypeRef};
 use crate::{
     class::PyClassImpl,
     convert::ToPyObject,
@@ -13,8 +13,9 @@ use crate::{
 pub struct PyModule {}
 
 impl PyPayload for PyModule {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.module_type
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.module_type
     }
 }
 
@@ -61,7 +62,7 @@ impl PyModule {
 
     fn name(zelf: PyRef<Self>, vm: &VirtualMachine) -> Option<PyStrRef> {
         zelf.as_object()
-            .generic_getattr_opt(PyStr::from("__name__").into_ref(vm), None, vm)
+            .generic_getattr_opt(PyStr::from("__name__").into_ref(&vm.ctx), None, vm)
             .unwrap_or(None)
             .and_then(|obj| obj.downcast::<PyStr>().ok())
     }
@@ -143,5 +144,5 @@ impl GetAttr for PyModule {
 }
 
 pub(crate) fn init(context: &Context) {
-    PyModule::extend_class(context, &context.types.module_type);
+    PyModule::extend_class(context, context.types.module_type);
 }

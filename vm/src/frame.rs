@@ -5,7 +5,7 @@ use crate::{
         function::{PyCell, PyCellRef, PyFunction},
         tuple::{PyTuple, PyTupleTyped},
         PyBaseExceptionRef, PyCode, PyCoroutine, PyDict, PyDictRef, PyGenerator, PyList, PySet,
-        PySlice, PyStr, PyStrRef, PyTraceback, PyTypeRef,
+        PySlice, PyStr, PyStrRef, PyTraceback, PyType,
     },
     bytecode,
     convert::{IntoObject, ToPyResult},
@@ -16,7 +16,7 @@ use crate::{
     protocol::{PyIter, PyIterReturn},
     scope::Scope,
     stdlib::builtins,
-    vm::PyMethod,
+    vm::{Context, PyMethod},
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 use indexmap::IndexMap;
@@ -114,8 +114,9 @@ pub struct Frame {
 }
 
 impl PyPayload for Frame {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.frame_type
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.frame_type
     }
 }
 
@@ -136,7 +137,7 @@ impl Frame {
         closure: &[PyCellRef],
         vm: &VirtualMachine,
     ) -> Frame {
-        let cells_frees = std::iter::repeat_with(|| PyCell::default().into_ref(vm))
+        let cells_frees = std::iter::repeat_with(|| PyCell::default().into_ref(&vm.ctx))
             .take(code.cellvars.len())
             .chain(closure.iter().cloned())
             .collect();
@@ -190,7 +191,7 @@ impl FrameRef {
             for (k, v) in itertools::zip(&map[..j], &**fastlocals) {
                 match locals.mapping().ass_subscript(k, v.clone(), vm) {
                     Ok(()) => {}
-                    Err(e) if e.fast_isinstance(&vm.ctx.exceptions.key_error) => {}
+                    Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {}
                     Err(e) => return Err(e),
                 }
             }
@@ -203,7 +204,7 @@ impl FrameRef {
                     } else {
                         match locals.mapping().ass_subscript(k, None, vm) {
                             Ok(()) => {}
-                            Err(e) if e.fast_isinstance(&vm.ctx.exceptions.key_error) => {}
+                            Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {}
                             Err(e) => return Err(e),
                         }
                     }
@@ -346,7 +347,7 @@ impl ExecutingFrame<'_> {
                     let new_traceback =
                         PyTraceback::new(next, self.object.clone(), self.lasti(), loc.row());
                     vm_trace!("Adding to traceback: {:?} {:?}", new_traceback, loc.row());
-                    exception.set_traceback(Some(new_traceback.into_ref(vm)));
+                    exception.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
 
                     vm.contextualize_exception(&exception);
 
@@ -404,7 +405,7 @@ impl ExecutingFrame<'_> {
                 return ret.map(ExecutionResult::Yield).or_else(|err| {
                     self.pop_value();
                     self.update_lasti(|i| *i += 1);
-                    if err.fast_isinstance(&vm.ctx.exceptions.stop_iteration) {
+                    if err.fast_isinstance(vm.ctx.exceptions.stop_iteration) {
                         let val = vm.unwrap_or_none(err.get_arg(0));
                         self.push_value(val);
                         self.run(vm)
@@ -426,7 +427,7 @@ impl ExecutingFrame<'_> {
     fn unbound_cell_exception(&self, i: usize, vm: &VirtualMachine) -> PyBaseExceptionRef {
         if let Some(name) = self.code.cellvars.get(i) {
             vm.new_exception_msg(
-                vm.ctx.exceptions.unbound_local_error.clone(),
+                vm.ctx.exceptions.unbound_local_error.to_owned(),
                 format!("local variable '{}' referenced before assignment", name),
             )
         } else {
@@ -484,7 +485,7 @@ impl ExecutingFrame<'_> {
                 let idx = *idx as usize;
                 let x = self.fastlocals.lock()[idx].clone().ok_or_else(|| {
                     vm.new_exception_msg(
-                        vm.ctx.exceptions.unbound_local_error.clone(),
+                        vm.ctx.exceptions.unbound_local_error.to_owned(),
                         format!(
                             "local variable '{}' referenced before assignment",
                             self.code.varnames[idx]
@@ -561,7 +562,7 @@ impl ExecutingFrame<'_> {
 
                 match res {
                     Ok(()) => {}
-                    Err(e) if e.fast_isinstance(&vm.ctx.exceptions.key_error) => {
+                    Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {
                         return Err(
                             vm.new_name_error(format!("name '{}' is not defined", name), name)
                         )
@@ -574,7 +575,7 @@ impl ExecutingFrame<'_> {
                 let name = &self.code.names[*idx as usize];
                 match self.globals.del_item(&**name, vm) {
                     Ok(()) => {}
-                    Err(e) if e.fast_isinstance(&vm.ctx.exceptions.key_error) => {
+                    Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {
                         return Err(
                             vm.new_name_error(format!("name '{}' is not defined", name), name)
                         )
@@ -898,7 +899,7 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::EndAsyncFor => {
                 let exc = self.pop_value();
                 self.pop_value(); // async iterator we were calling __anext__ on
-                if exc.fast_isinstance(&vm.ctx.exceptions.stop_async_iteration) {
+                if exc.fast_isinstance(vm.ctx.exceptions.stop_async_iteration) {
                     vm.take_exception().expect("Should have exception in stack");
                     Ok(None)
                 } else {
@@ -1015,7 +1016,7 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::UnpackSequence { size } => {
                 let value = self.pop_value();
                 let elements: Vec<_> = value.try_to_value(vm).map_err(|e| {
-                    if e.class().is(&vm.ctx.exceptions.type_error) {
+                    if e.class().is(vm.ctx.exceptions.type_error) {
                         vm.new_type_error(format!(
                             "cannot unpack non-iterable {} object",
                             value.class().name()
@@ -1320,7 +1321,7 @@ impl ExecutingFrame<'_> {
             stop,
             step,
         }
-        .into_ref(vm);
+        .into_ref(&vm.ctx);
         self.push_value(obj.into());
         Ok(None)
     }

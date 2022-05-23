@@ -555,7 +555,7 @@ impl PyObjectRef {
         self,
         vm: &VirtualMachine,
     ) -> Result<PyRef<T>, Self> {
-        if self.class().is(T::class(vm)) {
+        if self.class().is(T::class(&vm.ctx)) {
             // TODO: is this always true?
             assert!(
                 self.payload_is::<T>(),
@@ -600,7 +600,7 @@ impl PyObject {
         } else {
             None
         };
-        let cls_is_weakref = typ.is(&vm.ctx.types.weakref_type);
+        let cls_is_weakref = typ.is(vm.ctx.types.weakref_type);
         self.weak_ref_list()
             .map(|wrl| wrl.add(self, typ, cls_is_weakref, callback, dict))
             .ok_or_else(|| {
@@ -616,7 +616,7 @@ impl PyObject {
         callback: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<PyWeak>> {
-        self.downgrade_with_typ(callback, vm.ctx.types.weakref_type.clone(), vm)
+        self.downgrade_with_typ(callback, vm.ctx.types.weakref_type.to_owned(), vm)
     }
 
     pub fn get_weak_references(&self) -> Option<Vec<PyRef<PyWeak>>> {
@@ -650,7 +650,7 @@ impl PyObject {
         &self,
         vm: &VirtualMachine,
     ) -> Option<&T> {
-        if self.class().is(T::class(vm)) {
+        if self.class().is(T::class(&vm.ctx)) {
             self.payload()
         } else {
             None
@@ -681,7 +681,7 @@ impl PyObject {
 
     #[inline(always)]
     pub fn payload_if_subclass<T: crate::PyPayload>(&self, vm: &VirtualMachine) -> Option<&T> {
-        if self.class().fast_issubclass(T::class(vm)) {
+        if self.class().fast_issubclass(T::class(&vm.ctx)) {
             self.payload()
         } else {
             None
@@ -705,7 +705,7 @@ impl PyObject {
         vm: &VirtualMachine,
     ) -> Option<&Py<T>> {
         self.class()
-            .is(T::class(vm))
+            .is(T::class(&vm.ctx))
             .then(|| unsafe { self.downcast_unchecked_ref::<T>() })
     }
 
@@ -782,6 +782,16 @@ impl PyObject {
         let drop_dealloc = ptr.as_ref().0.vtable.drop_dealloc;
         // call drop only when there are no references in scope - stacked borrows stuff
         drop_dealloc(ptr.as_ptr())
+    }
+
+    /// # Safety
+    /// This call will make the object live forever.
+    pub(crate) unsafe fn mark_intern(&self) {
+        self.0.ref_count.leak();
+    }
+
+    pub(crate) fn is_interned(&self) -> bool {
+        self.0.ref_count.is_leaked()
     }
 }
 
@@ -957,6 +967,12 @@ impl<T: PyObjectPayload> PyRef<T> {
         Self {
             ptr: unsafe { NonNull::new_unchecked(inner.cast::<Py<T>>()) },
         }
+    }
+
+    pub fn leak(pyref: Self) -> &'static Py<T> {
+        let ptr = pyref.ptr;
+        std::mem::forget(pyref);
+        unsafe { &*ptr.as_ptr() }
     }
 }
 

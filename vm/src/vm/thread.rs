@@ -22,7 +22,7 @@ where
     let vm_owns_obj = |intp: NonNull<VirtualMachine>| {
         // SAFETY: all references in VM_STACK should be valid
         let vm = unsafe { intp.as_ref() };
-        obj.fast_isinstance(&vm.ctx.types.object_type)
+        obj.fast_isinstance(vm.ctx.types.object_type)
     };
     VM_STACK.with(|vms| {
         let intp = match vms.borrow().iter().copied().exactly_one() {

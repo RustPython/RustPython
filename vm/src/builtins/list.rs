@@ -1,4 +1,4 @@
-use super::{PositionIterInternal, PyGenericAlias, PyTupleRef, PyTypeRef};
+use super::{PositionIterInternal, PyGenericAlias, PyTupleRef, PyType, PyTypeRef};
 use crate::common::lock::{
     PyMappedRwLockReadGuard, PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
 };
@@ -53,8 +53,9 @@ impl FromIterator<PyObjectRef> for PyList {
 }
 
 impl PyPayload for PyList {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.list_type
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.list_type
     }
 }
 
@@ -65,10 +66,6 @@ impl ToPyObject for Vec<PyObjectRef> {
 }
 
 impl PyList {
-    pub fn new_ref(elements: Vec<PyObjectRef>, ctx: &Context) -> PyRef<Self> {
-        PyRef::new_ref(Self::from(elements), ctx.types.list_type.clone(), None)
-    }
-
     pub fn borrow_vec(&self) -> PyMappedRwLockReadGuard<'_, [PyObjectRef]> {
         PyRwLockReadGuard::map(self.elements.read(), |v| &**v)
     }
@@ -124,7 +121,7 @@ impl PyList {
         let other = other.payload_if_subclass::<PyList>(vm).ok_or_else(|| {
             vm.new_type_error(format!(
                 "Cannot add {} and {}",
-                Self::class(vm).name(),
+                Self::class(&vm.ctx).name(),
                 other.class().name()
             ))
         })?;
@@ -521,8 +518,9 @@ pub struct PyListIterator {
 }
 
 impl PyPayload for PyListIterator {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.list_iterator_type
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.list_iterator_type
     }
 }
 
@@ -566,8 +564,9 @@ pub struct PyListReverseIterator {
 }
 
 impl PyPayload for PyListReverseIterator {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.list_reverseiterator_type
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.list_reverseiterator_type
     }
 }
 
@@ -608,6 +607,6 @@ pub fn init(context: &Context) {
     let list_type = &context.types.list_type;
     PyList::extend_class(context, list_type);
 
-    PyListIterator::extend_class(context, &context.types.list_iterator_type);
-    PyListReverseIterator::extend_class(context, &context.types.list_reverseiterator_type);
+    PyListIterator::extend_class(context, context.types.list_iterator_type);
+    PyListReverseIterator::extend_class(context, context.types.list_reverseiterator_type);
 }

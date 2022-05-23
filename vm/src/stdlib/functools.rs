@@ -16,7 +16,7 @@ mod _functools {
             val
         } else {
             iter.next().transpose()?.ok_or_else(|| {
-                let exc_type = vm.ctx.exceptions.type_error.clone();
+                let exc_type = vm.ctx.exceptions.type_error.to_owned();
                 vm.new_exception_msg(
                     exc_type,
                     "reduce() of empty sequence with no initial value".to_owned(),

@@ -271,7 +271,7 @@ mod termios {
         vm.ctx.new_exception_type(
             "termios",
             "error",
-            Some(vec![vm.ctx.exceptions.os_error.clone()]),
+            Some(vec![vm.ctx.exceptions.os_error.to_owned()]),
         )
     }
 }

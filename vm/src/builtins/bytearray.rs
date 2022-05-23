@@ -1,11 +1,10 @@
 //! Implementation of the python bytearray object.
 use super::{
     PositionIterInternal, PyBytes, PyBytesRef, PyDictRef, PyIntRef, PyStrRef, PyTuple, PyTupleRef,
-    PyTypeRef,
+    PyType, PyTypeRef,
 };
 use crate::{
     anystr::{self, AnyStr},
-    builtins::PyType,
     bytesinner::{
         bytes_decode, bytes_from_object, value_from_object, ByteInnerFindOptions,
         ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerSplitOptions,
@@ -49,10 +48,6 @@ pub struct PyByteArray {
 pub type PyByteArrayRef = PyRef<PyByteArray>;
 
 impl PyByteArray {
-    pub fn new_ref(data: Vec<u8>, ctx: &Context) -> PyRef<Self> {
-        PyRef::new_ref(Self::from(data), ctx.types.bytearray_type.clone(), None)
-    }
-
     fn from_inner(inner: PyBytesInner) -> Self {
         PyByteArray {
             inner: PyRwLock::new(inner),
@@ -82,15 +77,16 @@ impl From<Vec<u8>> for PyByteArray {
 }
 
 impl PyPayload for PyByteArray {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.bytearray_type
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.bytearray_type
     }
 }
 
 /// Fill bytearray class methods dictionary.
 pub(crate) fn init(context: &Context) {
-    PyByteArray::extend_class(context, &context.types.bytearray_type);
-    PyByteArrayIterator::extend_class(context, &context.types.bytearray_iterator_type);
+    PyByteArray::extend_class(context, context.types.bytearray_type);
+    PyByteArrayIterator::extend_class(context, context.types.bytearray_iterator_type);
 }
 
 #[pyimpl(
@@ -215,7 +211,7 @@ impl PyByteArray {
             SequenceIndex::Slice(slice) => self
                 .borrow_buf()
                 .get_item_by_slice(vm, slice)
-                .map(|x| Self::new_ref(x, &vm.ctx).into()),
+                .map(|x| vm.ctx.new_bytearray(x).into()),
         }
     }
 
@@ -548,11 +544,8 @@ impl PyByteArray {
         options: ByteInnerSplitOptions,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<PyObjectRef>> {
-        self.inner().split(
-            options,
-            |s, vm| Self::new_ref(s.to_vec(), &vm.ctx).into(),
-            vm,
-        )
+        self.inner()
+            .split(options, |s, vm| vm.ctx.new_bytearray(s.to_vec()).into(), vm)
     }
 
     #[pymethod]
@@ -561,11 +554,8 @@ impl PyByteArray {
         options: ByteInnerSplitOptions,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<PyObjectRef>> {
-        self.inner().rsplit(
-            options,
-            |s, vm| Self::new_ref(s.to_vec(), &vm.ctx).into(),
-            vm,
-        )
+        self.inner()
+            .rsplit(options, |s, vm| vm.ctx.new_bytearray(s.to_vec()).into(), vm)
     }
 
     #[pymethod]
@@ -575,9 +565,10 @@ impl PyByteArray {
         let value = self.inner();
         let (front, has_mid, back) = value.partition(&sep, vm)?;
         Ok(vm.new_tuple((
-            Self::new_ref(front.to_vec(), &vm.ctx),
-            Self::new_ref(if has_mid { sep.elements } else { Vec::new() }, &vm.ctx),
-            Self::new_ref(back.to_vec(), &vm.ctx),
+            vm.ctx.new_bytearray(front.to_vec()),
+            vm.ctx
+                .new_bytearray(if has_mid { sep.elements } else { Vec::new() }),
+            vm.ctx.new_bytearray(back.to_vec()),
         )))
     }
 
@@ -586,9 +577,10 @@ impl PyByteArray {
         let value = self.inner();
         let (back, has_mid, front) = value.rpartition(&sep, vm)?;
         Ok(vm.new_tuple((
-            Self::new_ref(front.to_vec(), &vm.ctx),
-            Self::new_ref(if has_mid { sep.elements } else { Vec::new() }, &vm.ctx),
-            Self::new_ref(back.to_vec(), &vm.ctx),
+            vm.ctx.new_bytearray(front.to_vec()),
+            vm.ctx
+                .new_bytearray(if has_mid { sep.elements } else { Vec::new() }),
+            vm.ctx.new_bytearray(back.to_vec()),
         )))
     }
 
@@ -600,7 +592,7 @@ impl PyByteArray {
     #[pymethod]
     fn splitlines(&self, options: anystr::SplitLinesArgs, vm: &VirtualMachine) -> Vec<PyObjectRef> {
         self.inner()
-            .splitlines(options, |x| Self::new_ref(x.to_vec(), &vm.ctx).into())
+            .splitlines(options, |x| vm.ctx.new_bytearray(x.to_vec()).into())
     }
 
     #[pymethod]
@@ -862,8 +854,9 @@ pub struct PyByteArrayIterator {
 }
 
 impl PyPayload for PyByteArrayIterator {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.bytearray_iterator_type
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.bytearray_iterator_type
     }
 }
 

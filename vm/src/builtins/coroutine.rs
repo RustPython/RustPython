@@ -1,4 +1,4 @@
-use super::{PyCode, PyStrRef, PyTypeRef};
+use super::{PyCode, PyStrRef, PyType};
 use crate::{
     class::PyClassImpl,
     coroutine::Coro,
@@ -6,7 +6,7 @@ use crate::{
     function::OptionalArg,
     protocol::PyIterReturn,
     types::{Constructor, IterNext, IterNextIterable, Unconstructible},
-    AsObject, Context, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "coroutine")]
@@ -17,8 +17,9 @@ pub struct PyCoroutine {
 }
 
 impl PyPayload for PyCoroutine {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.coroutine_type
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.coroutine_type
     }
 }
 
@@ -121,8 +122,9 @@ pub struct PyCoroutineWrapper {
 }
 
 impl PyPayload for PyCoroutineWrapper {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.coroutine_wrapper_type
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.coroutine_wrapper_type
     }
 }
 
@@ -153,6 +155,6 @@ impl IterNext for PyCoroutineWrapper {
 }
 
 pub fn init(ctx: &Context) {
-    PyCoroutine::extend_class(ctx, &ctx.types.coroutine_type);
-    PyCoroutineWrapper::extend_class(ctx, &ctx.types.coroutine_wrapper_type);
+    PyCoroutine::extend_class(ctx, ctx.types.coroutine_type);
+    PyCoroutineWrapper::extend_class(ctx, ctx.types.coroutine_wrapper_type);
 }

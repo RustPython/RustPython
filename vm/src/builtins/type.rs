@@ -50,8 +50,9 @@ impl fmt::Debug for PyType {
 }
 
 impl PyPayload for PyType {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.type_type
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.type_type
     }
 }
 
@@ -62,7 +63,7 @@ impl PyType {
             vec![base.clone()],
             Default::default(),
             Default::default(),
-            Self::static_type().clone(),
+            Self::static_type().to_owned(),
         )
     }
     pub fn new_ref(
@@ -125,7 +126,7 @@ impl PyType {
             base.subclasses.write().push(
                 new_type
                     .as_object()
-                    .downgrade_with_weakref_typ_opt(None, weakref_type.clone())
+                    .downgrade_with_weakref_typ_opt(None, weakref_type.to_owned())
                     .unwrap(),
             );
         }
@@ -334,7 +335,7 @@ impl PyType {
             .cloned()
             // We need to exclude this method from going into recursion:
             .and_then(|found| {
-                if found.fast_isinstance(&vm.ctx.types.getset_type) {
+                if found.fast_isinstance(vm.ctx.types.getset_type) {
                     None
                 } else {
                     Some(found)
@@ -351,7 +352,7 @@ impl PyType {
             .cloned()
             // We need to exclude this method from going into recursion:
             .and_then(|found| {
-                if found.fast_isinstance(&vm.ctx.types.getset_type) {
+                if found.fast_isinstance(vm.ctx.types.getset_type) {
                     None
                 } else {
                     Some(found)
@@ -410,7 +411,7 @@ impl PyType {
     fn slot_new(metatype: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         vm_trace!("type.__new__ {:?}", args);
 
-        let is_type_type = metatype.is(&vm.ctx.types.type_type);
+        let is_type_type = metatype.is(vm.ctx.types.type_type);
         if is_type_type && args.args.len() == 1 && args.kwargs.is_empty() {
             return Ok(args.args[0].class().clone().into());
         }
@@ -434,7 +435,7 @@ impl PyType {
         }
 
         let (metatype, base, bases) = if bases.is_empty() {
-            let base = vm.ctx.types.object_type.clone();
+            let base = vm.ctx.types.object_type.to_owned();
             (metatype, base.clone(), vec![base])
         } else {
             let bases = bases
@@ -473,19 +474,19 @@ impl PyType {
 
         let mut attributes = dict.to_attributes();
         if let Some(f) = attributes.get_mut("__new__") {
-            if f.class().is(&vm.ctx.types.function_type) {
+            if f.class().is(vm.ctx.types.function_type) {
                 *f = PyStaticMethod::from(f.clone()).into_pyobject(vm);
             }
         }
 
         if let Some(f) = attributes.get_mut("__init_subclass__") {
-            if f.class().is(&vm.ctx.types.function_type) {
+            if f.class().is(vm.ctx.types.function_type) {
                 *f = PyClassMethod::from(f.clone()).into_pyobject(vm);
             }
         }
 
         if let Some(f) = attributes.get_mut("__class_getitem__") {
-            if f.class().is(&vm.ctx.types.function_type) {
+            if f.class().is(vm.ctx.types.function_type) {
                 *f = PyClassMethod::from(f.clone()).into_pyobject(vm);
             }
         }
@@ -510,7 +511,7 @@ impl PyType {
             vm.ctx
                 .new_getset(
                     "__dict__",
-                    vm.ctx.types.object_type.clone(),
+                    vm.ctx.types.object_type,
                     subtype_get_dict,
                     subtype_set_dict,
                 )
@@ -533,7 +534,13 @@ impl PyType {
             .iter()
             .filter_map(|(name, obj)| {
                 vm.get_method(obj.clone(), "__set_name__").map(|res| {
-                    res.map(|meth| (obj.clone(), PyStr::from(name.clone()).into_ref(vm), meth))
+                    res.map(|meth| {
+                        (
+                            obj.clone(),
+                            PyStr::from(name.clone()).into_ref(&vm.ctx),
+                            meth,
+                        )
+                    })
                 })
             })
             .collect::<PyResult<Vec<_>>>()?;
@@ -694,7 +701,7 @@ impl SetAttr for PyType {
             let prev_value = attributes.remove(attr_name.as_str());
             if prev_value.is_none() {
                 return Err(vm.new_exception(
-                    vm.ctx.exceptions.attribute_error.clone(),
+                    vm.ctx.exceptions.attribute_error.to_owned(),
                     vec![attr_name.into()],
                 ));
             }
@@ -713,8 +720,7 @@ impl Callable for PyType {
         vm_trace!("type_call: {:?}", zelf);
         let obj = call_slot_new(zelf.to_owned(), zelf.to_owned(), args.clone(), vm)?;
 
-        if (zelf.is(&vm.ctx.types.type_type) && args.kwargs.is_empty())
-            || !obj.fast_isinstance(zelf)
+        if (zelf.is(vm.ctx.types.type_type) && args.kwargs.is_empty()) || !obj.fast_isinstance(zelf)
         {
             return Ok(obj);
         }
@@ -730,7 +736,7 @@ fn find_base_dict_descr(cls: &PyTypeRef, vm: &VirtualMachine) -> Option<PyObject
     cls.iter_base_chain().skip(1).find_map(|cls| {
         // TODO: should actually be some translation of:
         // cls.slot_dictoffset != 0 && !cls.flags.contains(HEAPTYPE)
-        if cls.is(&vm.ctx.types.type_type) {
+        if cls.is(vm.ctx.types.type_type) {
             cls.get_attr("__dict__")
         } else {
             None
@@ -780,7 +786,7 @@ fn subtype_set_dict(obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -
  */
 
 pub(crate) fn init(ctx: &Context) {
-    PyType::extend_class(ctx, &ctx.types.type_type);
+    PyType::extend_class(ctx, ctx.types.type_type);
 }
 
 pub(crate) fn call_slot_new(
@@ -937,8 +943,8 @@ mod tests {
     #[test]
     fn test_linearise() {
         let context = Context::default();
-        let object = &context.types.object_type;
-        let type_type = &context.types.type_type;
+        let object = context.types.object_type.to_owned();
+        let type_type = context.types.type_type.to_owned();
 
         let a = PyType::new_ref(
             "A",

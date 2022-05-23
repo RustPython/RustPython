@@ -532,12 +532,12 @@ mod _collections {
             concat: Some(|seq, other, vm| {
                 Self::sequence_downcast(seq)
                     .concat(other, vm)
-                    .map(|x| x.into_ref(vm).into())
+                    .map(|x| x.into_ref(&vm.ctx).into())
             }),
             repeat: Some(|seq, n, vm| {
                 Self::sequence_downcast(seq)
                     .mul(n as isize, vm)
-                    .map(|x| x.into_ref(vm).into())
+                    .map(|x| x.into_ref(&vm.ctx).into())
             }),
             item: Some(|seq, i, vm| Self::sequence_downcast(seq).getitem(i, vm)),
             ass_item: Some(|seq, i, value, vm| {
@@ -642,7 +642,7 @@ mod _collections {
             let internal = zelf.internal.lock();
             let deque = match &internal.status {
                 Active(obj) => obj.clone(),
-                Exhausted => PyDeque::default().into_ref(vm),
+                Exhausted => PyDeque::default().into_ref(&vm.ctx),
             };
             (
                 zelf.class().clone(),
@@ -708,7 +708,7 @@ mod _collections {
             let internal = zelf.internal.lock();
             let deque = match &internal.status {
                 Active(obj) => obj.clone(),
-                Exhausted => PyDeque::default().into_ref(vm),
+                Exhausted => PyDeque::default().into_ref(&vm.ctx),
             };
             Ok((
                 zelf.class().clone(),
