@@ -78,11 +78,41 @@ pub struct PyTypeSlots {
 }
 
 impl PyTypeSlots {
-    pub fn from_flags(flags: PyTypeFlags) -> Self {
+    pub fn with_flags(flags: PyTypeFlags) -> Self {
         Self {
             flags,
             ..Default::default()
         }
+    }
+
+    pub fn inherits(&mut self, mro: &[PyTypeRef]) {
+        macro_rules! inherit {
+            ($name:ident) => {
+                if self.$name.load().is_none() {
+                    for ty in mro {
+                        if let Some(func) = ty.slots.$name.load() {
+                            self.$name.store(Some(func));
+                            break;
+                        }
+                    }
+                }
+            };
+        }
+        inherit!(as_sequence);
+        inherit!(as_mapping);
+        inherit!(hash);
+        inherit!(call);
+        inherit!(getattro);
+        inherit!(setattro);
+        // inherit!(as_buffer);
+        inherit!(richcompare);
+        inherit!(iter);
+        inherit!(iternext);
+        inherit!(descr_get);
+        inherit!(descr_set);
+        inherit!(init);
+        inherit!(new);
+        inherit!(del);
     }
 }
 

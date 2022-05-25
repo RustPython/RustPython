@@ -95,6 +95,7 @@ impl PyType {
             .map(|x| x.iter_mro().cloned().collect())
             .collect();
         let mro = linearise_mro(mros)?;
+        slots.inherits(&mro);
 
         if base.slots.flags.has_feature(PyTypeFlags::HAS_DICT) {
             slots.flags |= PyTypeFlags::HAS_DICT
@@ -521,7 +522,7 @@ impl PyType {
         // updated when __slots__ are supported (toggling the flag off if
         // a class has __slots__ defined).
         let flags = PyTypeFlags::heap_type_flags() | PyTypeFlags::HAS_DICT;
-        let slots = PyTypeSlots::from_flags(flags);
+        let slots = PyTypeSlots::with_flags(flags);
 
         let typ = Self::new_verbose_ref(name.as_str(), base, bases, attributes, slots, metatype)
             .map_err(|e| vm.new_type_error(e))?;
