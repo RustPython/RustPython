@@ -1,9 +1,9 @@
 pub(crate) use _warnings::make_module;
 
-use crate::{builtins::PyTypeRef, PyResult, VirtualMachine};
+use crate::{builtins::PyType, Py, PyResult, VirtualMachine};
 
 pub fn warn(
-    category: PyTypeRef,
+    category: &Py<PyType>,
     message: String,
     stack_level: usize,
     vm: &VirtualMachine,
@@ -14,7 +14,7 @@ pub fn warn(
     // TODO
     if let Ok(module) = vm.import("warnings", None, 0) {
         if let Ok(func) = module.get_attr("warn", vm) {
-            let _ = vm.invoke(&func, (message, category, stack_level));
+            let _ = vm.invoke(&func, (message, category.to_owned(), stack_level));
         }
     }
     Ok(())

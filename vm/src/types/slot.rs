@@ -1,6 +1,6 @@
 use crate::common::{hash::PyHash, lock::PyRwLock};
 use crate::{
-    builtins::{PyInt, PyStrInterned, PyStrRef, PyType, PyTypeRef},
+    builtins::{PyFloat, PyInt, PyStrInterned, PyStrRef, PyType, PyTypeRef},
     bytecode::ComparisonOperator,
     convert::{ToPyObject, ToPyResult},
     function::Either,
@@ -340,29 +340,41 @@ fn as_sequence_generic(zelf: &PyObject, vm: &VirtualMachine) -> &'static PySeque
     static_as_sequence_generic(has_length, has_ass_item)
 }
 
-fn as_number_wrapper(zelf: &PyObject, _vm: &VirtualMachine) -> Cow<'static, PyNumberMethods> {
+fn as_number_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> Cow<'static, PyNumberMethods> {
     Cow::Owned(PyNumberMethods {
-        int: then_some_closure!(zelf.class().has_attr("__int__"), |num, vm| {
-            let ret = vm.call_special_method(num.obj.to_owned(), "__int__", ())?;
-            ret.downcast::<PyInt>().map_err(|obj| {
-                vm.new_type_error(format!("__int__ returned non-int (type {})", obj.class()))
-            })
-        }),
-        float: then_some_closure!(zelf.class().has_attr("__float__"), |num, vm| {
-            let ret = vm.call_special_method(num.obj.to_owned(), "__float__", ())?;
-            ret.downcast::<PyFloat>().map_err(|obj| {
-                vm.new_type_error(format!(
-                    "__float__ returned non-float (type {})",
-                    obj.class()
-                ))
-            })
-        }),
-        index: then_some_closure!(zelf.class().has_attr("__index__"), |num, vm| {
-            let ret = vm.call_special_method(num.obj.to_owned(), "__index__", ())?;
-            ret.downcast::<PyInt>().map_err(|obj| {
-                vm.new_type_error(format!("__index__ returned non-int (type {})", obj.class()))
-            })
-        }),
+        int: then_some_closure!(
+            zelf.class().has_attr(identifier!(vm, __int__)),
+            |num, vm| {
+                let ret =
+                    vm.call_special_method(num.obj.to_owned(), identifier!(vm, __int__), ())?;
+                ret.downcast::<PyInt>().map_err(|obj| {
+                    vm.new_type_error(format!("__int__ returned non-int (type {})", obj.class()))
+                })
+            }
+        ),
+        float: then_some_closure!(
+            zelf.class().has_attr(identifier!(vm, __float__)),
+            |num, vm| {
+                let ret =
+                    vm.call_special_method(num.obj.to_owned(), identifier!(vm, __float__), ())?;
+                ret.downcast::<PyFloat>().map_err(|obj| {
+                    vm.new_type_error(format!(
+                        "__float__ returned non-float (type {})",
+                        obj.class()
+                    ))
+                })
+            }
+        ),
+        index: then_some_closure!(
+            zelf.class().has_attr(identifier!(vm, __index__)),
+            |num, vm| {
+                let ret =
+                    vm.call_special_method(num.obj.to_owned(), identifier!(vm, __index__), ())?;
+                ret.downcast::<PyInt>().map_err(|obj| {
+                    vm.new_type_error(format!("__index__ returned non-int (type {})", obj.class()))
+                })
+            }
+        ),
         ..*PyNumberMethods::not_implemented()
     })
 }
@@ -1035,25 +1047,7 @@ pub trait AsNumber: PyPayload {
     fn as_number(zelf: &Py<Self>, vm: &VirtualMachine) -> Cow<'static, PyNumberMethods>;
 
     fn number_downcast<'a>(number: &'a PyNumber) -> &'a Py<Self> {
-        unsafe { number.obj.downcast_unchecked_ref::<Self>() }
-    }
-
-    fn downcast_or_binop_error<'a, 'b>(
-        a: &'a PyNumber,
-        b: &'b PyObject,
-        op: &str,
-        vm: &VirtualMachine,
-    ) -> PyResult<(&'a Self, &'b Self)> {
-        if let (Some(a), Some(b)) = (a.obj.payload::<Self>(), b.payload::<Self>()) {
-            Ok((a, b))
-        } else {
-            Err(vm.new_type_error(format!(
-                "unsupported operand type(s) for {}: '{}' and '{}'",
-                op,
-                a.obj.class(),
-                b.class()
-            )))
-        }
+        unsafe { number.obj.downcast_unchecked_ref() }
     }
 }
 

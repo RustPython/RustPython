@@ -125,8 +125,13 @@ impl PyNumber<'_> {
             let ret = f(self, vm)?;
             if !ret.class().is(PyInt::class(vm)) {
                 warnings::warn(
-                    vm.ctx.exceptions.deprecation_warning.clone(),
-                    format!("__int__ returned non-int (type {})", ret.class()),
+                    vm.ctx.exceptions.deprecation_warning,
+                    format!(
+                        "__int__ returned non-int (type {}).  \
+                The ability to return an instance of a strict subclass of int \
+                is deprecated, and may be removed in a future version of Python.",
+                        ret.class()
+                    ),
                     1,
                     vm,
                 )?
@@ -134,7 +139,9 @@ impl PyNumber<'_> {
             Ok(ret)
         } else if self.methods(vm).index.is_some() {
             self.index(vm)
-        } else if let Ok(Ok(f)) = vm.get_special_method(self.obj.to_owned(), "__trunc__") {
+        } else if let Ok(Ok(f)) =
+            vm.get_special_method(self.obj.to_owned(), identifier!(vm, __trunc__))
+        {
             // TODO: Deprecate in 3.11
             // warnings::warn(
             //     vm.ctx.exceptions.deprecation_warning.clone(),
@@ -173,8 +180,13 @@ impl PyNumber<'_> {
             let ret = f(self, vm)?;
             if !ret.class().is(PyInt::class(vm)) {
                 warnings::warn(
-                    vm.ctx.exceptions.deprecation_warning.clone(),
-                    format!("__index__ returned non-int (type {})", ret.class()),
+                    vm.ctx.exceptions.deprecation_warning,
+                    format!(
+                        "__index__ returned non-int (type {}).  \
+                The ability to return an instance of a strict subclass of int \
+                is deprecated, and may be removed in a future version of Python.",
+                        ret.class()
+                    ),
                     1,
                     vm,
                 )?
@@ -186,6 +198,46 @@ impl PyNumber<'_> {
                 self.obj.class()
             )))
         }
+    }
+
+    pub fn float_opt(&self, vm: &VirtualMachine) -> PyResult<Option<PyRef<PyFloat>>> {
+        if self.obj.class().is(PyFloat::class(vm)) {
+            Ok(Some(unsafe {
+                self.obj.to_owned().downcast_unchecked::<PyFloat>()
+            }))
+        } else if let Some(f) = self.methods(vm).float {
+            let ret = f(self, vm)?;
+            if !ret.class().is(PyFloat::class(vm)) {
+                warnings::warn(
+                    vm.ctx.exceptions.deprecation_warning,
+                    format!(
+                        "__float__ returned non-float (type {}).  \
+                The ability to return an instance of a strict subclass of float \
+                is deprecated, and may be removed in a future version of Python.",
+                        ret.class()
+                    ),
+                    1,
+                    vm,
+                )?;
+                Ok(Some(vm.ctx.new_float(ret.to_f64())))
+            } else {
+                Ok(Some(ret))
+            }
+        } else if self.methods(vm).index.is_some() {
+            let i = self.index(vm)?;
+            let value = int::try_to_float(i.as_bigint(), vm)?;
+            Ok(Some(vm.ctx.new_float(value)))
+        } else if let Some(value) = self.obj.downcast_ref::<PyFloat>() {
+            Ok(Some(vm.ctx.new_float(value.to_f64())))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn float(&self, vm: &VirtualMachine) -> PyResult<PyRef<PyFloat>> {
+        self.float_opt(vm)?.ok_or_else(|| {
+            vm.new_type_error(format!("must be real number, not {}", self.obj.class()))
+        })
     }
 }
 

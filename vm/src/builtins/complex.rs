@@ -65,8 +65,8 @@ impl PyObjectRef {
         if let Some(complex) = self.payload_if_subclass::<PyComplex>(vm) {
             return Ok(Some((complex.value, true)));
         }
-        if let Some(float) = self.try_to_f64(vm)? {
-            return Ok(Some((Complex64::new(float, 0.0), false)));
+        if let Some(float) = self.try_float_opt(vm)? {
+            return Ok(Some((Complex64::new(float.to_f64(), 0.0), false)));
         }
         Ok(None)
     }

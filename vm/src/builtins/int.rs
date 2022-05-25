@@ -9,7 +9,8 @@ use crate::{
         ArgByteOrder, ArgIntoBool, OptionalArg, OptionalOption, PyArithmeticValue,
         PyComparisonValue,
     },
-    types::{Comparable, Constructor, Hashable, PyComparisonOp},
+    protocol::{PyNumber, PyNumberMethods},
+    types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, VirtualMachine,
 };
@@ -17,8 +18,8 @@ use bstr::ByteSlice;
 use num_bigint::{BigInt, BigUint, Sign};
 use num_integer::Integer;
 use num_traits::{One, Pow, PrimInt, Signed, ToPrimitive, Zero};
-use std::borrow::Cow;
 use std::fmt;
+use std::{borrow::Cow, ops::Neg};
 
 /// int(x=0) -> integer
 /// int(x, base=10) -> integer
@@ -264,7 +265,6 @@ impl Constructor for PyInt {
                     val
                 };
 
-                // try_int(&val, vm)
                 PyNumber::from(val.as_ref())
                     .int(vm)
                     .map(|x| x.as_bigint().clone())
@@ -762,22 +762,25 @@ impl AsNumber for PyInt {
 }
 
 impl PyInt {
-    fn number_protocol_binop<F>(
-        number: &PyNumber,
-        other: &PyObject,
-        op: &str,
-        f: F,
-        vm: &VirtualMachine,
-    ) -> PyResult
+    fn np_general_op<F>(number: &PyNumber, other: &PyObject, op: F, vm: &VirtualMachine) -> PyResult
+    where
+        F: FnOnce(&BigInt, &BigInt, &VirtualMachine) -> PyResult,
+    {
+        if let (Some(a), Some(b)) = (number.obj.payload::<Self>(), other.payload::<Self>()) {
+            op(&a.value, &b.value, vm)
+        } else {
+            Ok(vm.ctx.not_implemented())
+        }
+    }
+
+    fn np_int_op<F>(number: &PyNumber, other: &PyObject, op: F, vm: &VirtualMachine) -> PyResult
     where
         F: FnOnce(&BigInt, &BigInt) -> BigInt,
     {
-        let (a, b) = Self::downcast_or_binop_error(number, other, op, vm)?;
-        let ret = f(&a.value, &b.value);
-        Ok(vm.ctx.new_int(ret).into())
+        Self::np_general_op(number, other, |a, b, _vm| op(a, b).to_pyresult(vm), vm)
     }
 
-    fn number_protocol_int(number: &PyNumber, vm: &VirtualMachine) -> PyIntRef {
+    fn np_int(number: &PyNumber, vm: &VirtualMachine) -> PyIntRef {
         if let Some(zelf) = number.obj.downcast_ref_if_exact::<Self>(vm) {
             zelf.to_owned()
         } else {
@@ -787,78 +790,43 @@ impl PyInt {
     }
 
     const NUMBER_METHODS: PyNumberMethods = PyNumberMethods {
-        add: Some(|number, other, vm| {
-            Self::number_protocol_binop(number, other, "+", |a, b| a + b, vm)
-        }),
-        subtract: Some(|number, other, vm| {
-            Self::number_protocol_binop(number, other, "-", |a, b| a - b, vm)
-        }),
-        multiply: Some(|number, other, vm| {
-            Self::number_protocol_binop(number, other, "*", |a, b| a * b, vm)
-        }),
-        remainder: Some(|number, other, vm| {
-            let (a, b) = Self::downcast_or_binop_error(number, other, "%", vm)?;
-            inner_mod(&a.value, &b.value, vm)
-        }),
-        divmod: Some(|number, other, vm| {
-            let (a, b) = Self::downcast_or_binop_error(number, other, "divmod()", vm)?;
-            inner_divmod(&a.value, &b.value, vm)
-        }),
-        power: Some(|number, other, vm| {
-            let (a, b) = Self::downcast_or_binop_error(number, other, "** or pow()", vm)?;
-            inner_pow(&a.value, &b.value, vm)
-        }),
+        add: Some(|number, other, vm| Self::np_int_op(number, other, |a, b| a + b, vm)),
+        subtract: Some(|number, other, vm| Self::np_int_op(number, other, |a, b| a - b, vm)),
+        multiply: Some(|number, other, vm| Self::np_int_op(number, other, |a, b| a * b, vm)),
+        remainder: Some(|number, other, vm| Self::np_general_op(number, other, inner_mod, vm)),
+        divmod: Some(|number, other, vm| Self::np_general_op(number, other, inner_divmod, vm)),
+        power: Some(|number, other, vm| Self::np_general_op(number, other, inner_pow, vm)),
         negative: Some(|number, vm| {
-            let zelf = Self::number_downcast(number);
-            Ok(vm.ctx.new_int(-&zelf.value).into())
+            Self::number_downcast(number)
+                .value
+                .clone()
+                .neg()
+                .to_pyresult(vm)
         }),
-        positive: Some(|number, vm| Ok(Self::number_protocol_int(number, vm).into())),
-        absolute: Some(|number, vm| {
-            let zelf = Self::number_downcast(number);
-            Ok(vm.ctx.new_int(zelf.value.abs()).into())
-        }),
-        boolean: Some(|number, _vm| {
-            let zelf = Self::number_downcast(number);
-            Ok(zelf.value.is_zero())
-        }),
+        positive: Some(|number, vm| Ok(Self::np_int(number, vm).into())),
+        absolute: Some(|number, vm| Self::number_downcast(number).value.abs().to_pyresult(vm)),
+        boolean: Some(|number, _vm| Ok(Self::number_downcast(number).value.is_zero())),
         invert: Some(|number, vm| {
-            let zelf = Self::number_downcast(number);
-            Ok(vm.ctx.new_int(!&zelf.value).into())
+            let value = Self::number_downcast(number).value.clone();
+            (!value).to_pyresult(vm)
         }),
-        lshift: Some(|number, other, vm| {
-            let (a, b) = Self::downcast_or_binop_error(number, other, "<<", vm)?;
-            inner_lshift(&a.value, &b.value, vm)
-        }),
-        rshift: Some(|number, other, vm| {
-            let (a, b) = Self::downcast_or_binop_error(number, other, ">>", vm)?;
-            inner_rshift(&a.value, &b.value, vm)
-        }),
-        and: Some(|number, other, vm| {
-            Self::number_protocol_binop(number, other, "&", |a, b| a & b, vm)
-        }),
-        xor: Some(|number, other, vm| {
-            Self::number_protocol_binop(number, other, "^", |a, b| a ^ b, vm)
-        }),
-        or: Some(|number, other, vm| {
-            Self::number_protocol_binop(number, other, "|", |a, b| a | b, vm)
-        }),
-        int: Some(|number, other| Ok(Self::number_protocol_int(number, other))),
+        lshift: Some(|number, other, vm| Self::np_general_op(number, other, inner_lshift, vm)),
+        rshift: Some(|number, other, vm| Self::np_general_op(number, other, inner_rshift, vm)),
+        and: Some(|number, other, vm| Self::np_int_op(number, other, |a, b| a & b, vm)),
+        xor: Some(|number, other, vm| Self::np_int_op(number, other, |a, b| a ^ b, vm)),
+        or: Some(|number, other, vm| Self::np_int_op(number, other, |a, b| a | b, vm)),
+        int: Some(|number, other| Ok(Self::np_int(number, other))),
         float: Some(|number, vm| {
-            let zelf = number
-                .obj
-                .downcast_ref::<Self>()
-                .ok_or_else(|| vm.new_type_error("an integer is required".to_owned()))?;
+            let zelf = Self::number_downcast(number);
             try_to_float(&zelf.value, vm).map(|x| vm.ctx.new_float(x))
         }),
         floor_divide: Some(|number, other, vm| {
-            let (a, b) = Self::downcast_or_binop_error(number, other, "//", vm)?;
-            inner_floordiv(&a.value, &b.value, vm)
+            Self::np_general_op(number, other, inner_floordiv, vm)
         }),
         true_divide: Some(|number, other, vm| {
-            let (a, b) = Self::downcast_or_binop_error(number, other, "/", vm)?;
-            inner_truediv(&a.value, &b.value, vm)
+            Self::np_general_op(number, other, inner_truediv, vm)
         }),
-        index: Some(|number, vm| Ok(Self::number_protocol_int(number, vm))),
+        index: Some(|number, vm| Ok(Self::np_int(number, vm))),
         ..*PyNumberMethods::not_implemented()
     };
 }

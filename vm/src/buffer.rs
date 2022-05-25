@@ -1,8 +1,8 @@
 use crate::{
-    builtins::{float, PyBaseExceptionRef, PyBytesRef, PyTuple, PyTupleRef, PyTypeRef},
+    builtins::{PyBaseExceptionRef, PyBytesRef, PyTuple, PyTupleRef, PyTypeRef},
     common::{static_cell, str::wchar_t},
     convert::ToPyObject,
-    function::{ArgBytesLike, ArgIntoBool},
+    function::{ArgBytesLike, ArgIntoBool, ArgIntoFloat},
     PyObjectRef, PyResult, TryFromObject, VirtualMachine,
 };
 use half::f16;
@@ -521,7 +521,7 @@ macro_rules! make_pack_float {
                 arg: PyObjectRef,
                 data: &mut [u8],
             ) -> PyResult<()> {
-                let f = float::try_float(&arg, vm)? as $T;
+                let f = *ArgIntoFloat::try_from_object(vm, arg)? as $T;
                 f.to_bits().pack_int::<E>(data);
                 Ok(())
             }
@@ -539,7 +539,7 @@ make_pack_float!(f64);
 
 impl Packable for f16 {
     fn pack<E: ByteOrder>(vm: &VirtualMachine, arg: PyObjectRef, data: &mut [u8]) -> PyResult<()> {
-        let f_64 = float::try_float(&arg, vm)?;
+        let f_64 = *ArgIntoFloat::try_from_object(vm, arg)?;
         let f_16 = f16::from_f64(f_64);
         if f_16.is_infinite() != f_64.is_infinite() {
             return Err(vm.new_overflow_error("float too large to pack with e format".to_owned()));
