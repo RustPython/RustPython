@@ -883,8 +883,6 @@ class TestBasicOps(unittest.TestCase):
             c = filter(isEven, range(6))
             self.pickletest(proto, c)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_filterfalse(self):
         self.assertEqual(list(filterfalse(isEven, range(6))), [1,3,5])
         self.assertEqual(list(filterfalse(None, [0,1,0,2,0])), [0,0,0])
