@@ -145,7 +145,7 @@ impl PyObject {
         vm_trace!("object.__setattr__({:?}, {}, {:?})", obj, attr_name, value);
 
         if let Some(attr) = self.get_class_attr(attr_name.as_str()) {
-            let descr_set = attr.class().mro_find_map(|cls| cls.slots.descr_set.load());
+            let descr_set = attr.class().slots.descr_set.load();
             if let Some(descriptor) = descr_set {
                 return descriptor(attr, self.to_owned(), value, vm);
             }
@@ -194,12 +194,9 @@ impl PyObject {
         let cls_attr = match obj_cls.get_attr(name) {
             Some(descr) => {
                 let descr_cls = descr.class();
-                let descr_get = descr_cls.mro_find_map(|cls| cls.slots.descr_get.load());
+                let descr_get = descr_cls.slots.descr_get.load();
                 if let Some(descr_get) = descr_get {
-                    if descr_cls
-                        .mro_find_map(|cls| cls.slots.descr_set.load())
-                        .is_some()
-                    {
+                    if descr_cls.slots.descr_set.load().is_some() {
                         drop(descr_cls);
                         let cls = obj_cls.into_owned().into();
                         return descr_get(descr, Some(self.to_owned()), Some(cls), vm).map(Some);

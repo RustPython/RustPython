@@ -638,11 +638,8 @@ impl GetAttr for PyType {
 
         if let Some(ref attr) = mcl_attr {
             let attr_class = attr.class();
-            if attr_class
-                .mro_find_map(|cls| cls.slots.descr_set.load())
-                .is_some()
-            {
-                if let Some(descr_get) = attr_class.mro_find_map(|cls| cls.slots.descr_get.load()) {
+            if attr_class.slots.descr_set.load().is_some() {
+                if let Some(descr_get) = attr_class.slots.descr_get.load() {
                     let mcl = mcl.into_owned().into();
                     return descr_get(attr.clone(), Some(zelf.to_owned().into()), Some(mcl), vm);
                 }
@@ -652,7 +649,7 @@ impl GetAttr for PyType {
         let zelf_attr = zelf.get_attr(name);
 
         if let Some(ref attr) = zelf_attr {
-            if let Some(descr_get) = attr.class().mro_find_map(|cls| cls.slots.descr_get.load()) {
+            if let Some(descr_get) = attr.class().slots.descr_get.load() {
                 drop(mcl);
                 return descr_get(attr.clone(), None, Some(zelf.to_owned().into()), vm);
             }
@@ -681,7 +678,7 @@ impl SetAttr for PyType {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         if let Some(attr) = zelf.get_class_attr(attr_name.as_str()) {
-            let descr_set = attr.class().mro_find_map(|cls| cls.slots.descr_set.load());
+            let descr_set = attr.class().slots.descr_set.load();
             if let Some(descriptor) = descr_set {
                 return descriptor(attr, zelf.to_owned().into(), value, vm);
             }
@@ -758,15 +755,12 @@ fn subtype_set_dict(obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -
     let cls = obj.class().clone();
     match find_base_dict_descr(&cls, vm) {
         Some(descr) => {
-            let descr_set = descr
-                .class()
-                .mro_find_map(|cls| cls.slots.descr_set.load())
-                .ok_or_else(|| {
-                    vm.new_type_error(format!(
-                        "this __dict__ descriptor does not support '{}' objects",
-                        cls.name()
-                    ))
-                })?;
+            let descr_set = descr.class().slots.descr_set.load().ok_or_else(|| {
+                vm.new_type_error(format!(
+                    "this __dict__ descriptor does not support '{}' objects",
+                    cls.name()
+                ))
+            })?;
             descr_set(descr, obj, Some(value), vm)
         }
         None => {

@@ -36,12 +36,9 @@ impl PyMethod {
                     is_method = true;
                     None
                 } else {
-                    let descr_get = descr_cls.mro_find_map(|cls| cls.slots.descr_get.load());
+                    let descr_get = descr_cls.slots.descr_get.load();
                     if let Some(descr_get) = descr_get {
-                        if descr_cls
-                            .mro_find_map(|cls| cls.slots.descr_set.load())
-                            .is_some()
-                        {
+                        if descr_cls.slots.descr_set.load().is_some() {
                             drop(descr_cls);
                             let cls = cls.into_owned().into();
                             return descr_get(descr, Some(obj), Some(cls), vm).map(Self::Attribute);
