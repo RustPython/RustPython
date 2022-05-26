@@ -13,7 +13,6 @@ mod error;
 mod util;
 
 mod compile_bytecode;
-mod doc;
 mod from_args;
 mod pyclass;
 mod pymodule;
@@ -23,6 +22,7 @@ mod pystructseq;
 use error::{extract_spans, Diagnostic};
 use proc_macro2::TokenStream;
 use quote::ToTokens;
+use rustpython_doc as doc;
 use syn::{parse_macro_input, AttributeArgs, DeriveInput, Item};
 
 fn result_to_tokens(result: Result<TokenStream, impl Into<Diagnostic>>) -> proc_macro::TokenStream {

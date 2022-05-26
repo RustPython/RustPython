@@ -89,7 +89,8 @@ pub fn impl_pymodule(attr: AttributeArgs, module_item: Item) -> Result<TokenStre
     let module_name = context.name.as_str();
     let module_extend_items = context.module_extend_items.validate()?;
     let doc = doc.or_else(|| {
-        crate::doc::try_read(module_name)
+        crate::doc::Database::shared()
+            .try_path(module_name)
             .ok()
             .flatten()
             .map(str::to_owned)
@@ -320,7 +321,8 @@ impl ModuleItem for FunctionItem {
         let (tokens, py_names) = {
             let module = args.module_name();
             let doc = args.attrs.doc().or_else(|| {
-                crate::doc::try_module_item(module, &py_name)
+                crate::doc::Database::shared()
+                    .try_module_item(module, &py_name)
                     .ok() // TODO: doc must exist at least one of code or CPython
                     .flatten()
                     .map(str::to_owned)
