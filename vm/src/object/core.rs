@@ -1152,13 +1152,15 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
         }
     };
 
+    let mut weakref_slots = PyWeak::make_slots();
+    weakref_slots.inherits(&[&object_type]);
     let weakref_type = PyType {
         base: Some(object_type.clone()),
         bases: vec![object_type.clone()],
         mro: vec![object_type.clone()],
         subclasses: PyRwLock::default(),
         attributes: PyRwLock::default(),
-        slots: PyWeak::make_slots(),
+        slots: weakref_slots,
     };
     let weakref_type = PyRef::new_ref(weakref_type, type_type.clone(), None);
 
