@@ -21,7 +21,7 @@ pub enum PyMethod {
 impl PyMethod {
     pub fn get(obj: PyObjectRef, name: PyStrRef, vm: &VirtualMachine) -> PyResult<Self> {
         let cls = obj.class();
-        let getattro = cls.mro_find_map(|cls| cls.slots.getattro.load()).unwrap();
+        let getattro = cls.slots.getattro.load().unwrap();
         if getattro as usize != PyBaseObject::getattro as usize {
             drop(cls);
             return obj.get_attr(name, vm).map(Self::Attribute);

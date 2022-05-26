@@ -90,10 +90,7 @@ impl PyObject {
     #[inline]
     fn _get_attr(&self, attr_name: PyStrRef, vm: &VirtualMachine) -> PyResult {
         vm_trace!("object.__getattribute__: {:?} {:?}", obj, attr_name);
-        let getattro = self
-            .class()
-            .mro_find_map(|cls| cls.slots.getattro.load())
-            .unwrap();
+        let getattro = self.class().slots.getattro.load().unwrap();
         getattro(self, attr_name.clone(), vm).map_err(|exc| {
             vm.set_attribute_error_context(&exc, self.to_owned(), attr_name);
             exc
@@ -108,18 +105,17 @@ impl PyObject {
     ) -> PyResult<()> {
         let setattro = {
             let cls = self.class();
-            cls.mro_find_map(|cls| cls.slots.setattro.load())
-                .ok_or_else(|| {
-                    let assign = attr_value.is_some();
-                    let has_getattr = cls.mro_find_map(|cls| cls.slots.getattro.load()).is_some();
-                    vm.new_type_error(format!(
-                        "'{}' object has {} attributes ({} {})",
-                        cls.name(),
-                        if has_getattr { "only read-only" } else { "no" },
-                        if assign { "assign to" } else { "del" },
-                        attr_name
-                    ))
-                })?
+            cls.slots.setattro.load().ok_or_else(|| {
+                let assign = attr_value.is_some();
+                let has_getattr = cls.slots.getattro.load().is_some();
+                vm.new_type_error(format!(
+                    "'{}' object has {} attributes ({} {})",
+                    cls.name(),
+                    if has_getattr { "only read-only" } else { "no" },
+                    if assign { "assign to" } else { "del" },
+                    attr_name
+                ))
+            })?
         };
         setattro(self, attr_name, attr_value, vm)
     }
@@ -251,10 +247,7 @@ impl PyObject {
     ) -> PyResult<Either<PyObjectRef, bool>> {
         let swapped = op.swapped();
         let call_cmp = |obj: &PyObject, other: &PyObject, op| {
-            let cmp = obj
-                .class()
-                .mro_find_map(|cls| cls.slots.richcompare.load())
-                .unwrap();
+            let cmp = obj.class().slots.richcompare.load().unwrap();
             let r = match cmp(obj, other, op, vm)? {
                 Either::A(obj) => PyArithmeticValue::from_object(vm, obj).map(Either::A),
                 Either::B(arithmetic) => arithmetic.map(Either::B),
@@ -493,10 +486,7 @@ impl PyObject {
     }
 
     pub fn hash(&self, vm: &VirtualMachine) -> PyResult<PyHash> {
-        let hash = self
-            .class()
-            .mro_find_map(|cls| cls.slots.hash.load())
-            .unwrap(); // hash always exist
+        let hash = self.class().slots.hash.load().unwrap(); // hash always exist
         hash(self, vm)
     }
 

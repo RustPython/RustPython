@@ -85,7 +85,7 @@ where
         let iterfn;
         {
             let cls = obj.class();
-            iterfn = cls.mro_find_map(|x| x.slots.iter.load());
+            iterfn = cls.slots.iter.load();
             if iterfn.is_none() && !cls.has_attr("__getitem__") {
                 return Err(vm.new_type_error(format!("'{}' object is not iterable", cls.name())));
             }

@@ -95,7 +95,8 @@ impl PyType {
             .map(|x| x.iter_mro().cloned().collect())
             .collect();
         let mro = linearise_mro(mros)?;
-        slots.inherits(&mro);
+        slots.inherits(&mro.iter().map(|t| -> &PyType { &t }).collect::<Vec<_>>());
+        debug_assert!(slots.hash.load().is_some(), "{}", name);
 
         if base.slots.flags.has_feature(PyTypeFlags::HAS_DICT) {
             slots.flags |= PyTypeFlags::HAS_DICT
@@ -140,19 +141,6 @@ impl PyType {
 
     pub fn iter_mro(&self) -> impl Iterator<Item = &PyType> + DoubleEndedIterator {
         std::iter::once(self).chain(self.mro.iter().map(|cls| -> &PyType { cls }))
-    }
-
-    pub(crate) fn mro_find_map<F, R>(&self, f: F) -> Option<R>
-    where
-        F: Fn(&Self) -> Option<R>,
-    {
-        // the hot path will be primitive types which usually hit the result from itself.
-        // try std::intrinsics::likely once it is stablized
-        if let Some(r) = f(self) {
-            Some(r)
-        } else {
-            self.mro.iter().find_map(|cls| f(cls))
-        }
     }
 
     // This is used for class initialisation where the vm is not yet available.
@@ -717,7 +705,7 @@ impl Callable for PyType {
             return Ok(obj);
         }
 
-        if let Some(init_method) = obj.class().mro_find_map(|cls| cls.slots.init.load()) {
+        if let Some(init_method) = obj.class().slots.init.load() {
             init_method(obj.clone(), args, vm)?;
         }
         Ok(obj)

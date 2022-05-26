@@ -762,7 +762,7 @@ impl PyObject {
         }
 
         // CPython-compatible drop implementation
-        if let Some(slot_del) = self.class().mro_find_map(|cls| cls.slots.del.load()) {
+        if let Some(slot_del) = self.class().slots.del.load() {
             call_slot_del(self, slot_del)?;
         }
         if let Some(wrl) = self.weak_ref_list() {
@@ -1081,14 +1081,6 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
         static_assertions::assert_eq_size!(MaybeUninit<PyInner<PyType>>, PyInner<PyType>);
         static_assertions::assert_eq_align!(MaybeUninit<PyInner<PyType>>, PyInner<PyType>);
 
-        let type_payload = PyType {
-            base: None,
-            bases: vec![],
-            mro: vec![],
-            subclasses: PyRwLock::default(),
-            attributes: PyRwLock::new(Default::default()),
-            slots: PyType::make_slots(),
-        };
         let object_payload = PyType {
             base: None,
             bases: vec![],
@@ -1097,6 +1089,17 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
             attributes: PyRwLock::new(Default::default()),
             slots: object::PyBaseObject::make_slots(),
         };
+        let mut type_slots = PyType::make_slots();
+        type_slots.inherits(&[&object_payload]);
+        let type_payload = PyType {
+            base: None,
+            bases: vec![],
+            mro: vec![],
+            subclasses: PyRwLock::default(),
+            attributes: PyRwLock::new(Default::default()),
+            slots: type_slots,
+        };
+
         let type_type_ptr = Box::into_raw(Box::new(partially_init!(
             PyInner::<PyType> {
                 ref_count: RefCount::new(),

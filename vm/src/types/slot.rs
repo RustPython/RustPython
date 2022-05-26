@@ -85,9 +85,19 @@ impl PyTypeSlots {
         }
     }
 
-    pub fn inherits(&mut self, mro: &[PyTypeRef]) {
+    pub fn inherits(&mut self, mro: &[&PyType]) {
         macro_rules! inherit {
             ($name:ident) => {
+                if self.$name.is_none() {
+                    for ty in mro {
+                        if let Some(func) = ty.slots.$name {
+                            self.$name = Some(func);
+                            break;
+                        }
+                    }
+                }
+            };
+            ($name:ident, "atomic") => {
                 if self.$name.load().is_none() {
                     for ty in mro {
                         if let Some(func) = ty.slots.$name.load() {
@@ -98,21 +108,21 @@ impl PyTypeSlots {
                 }
             };
         }
-        inherit!(as_sequence);
-        inherit!(as_mapping);
-        inherit!(hash);
-        inherit!(call);
-        inherit!(getattro);
-        inherit!(setattro);
-        // inherit!(as_buffer);
-        inherit!(richcompare);
-        inherit!(iter);
-        inherit!(iternext);
-        inherit!(descr_get);
-        inherit!(descr_set);
-        inherit!(init);
-        inherit!(new);
-        inherit!(del);
+        inherit!(as_sequence, "atomic");
+        inherit!(as_mapping, "atomic");
+        inherit!(hash, "atomic");
+        inherit!(call, "atomic");
+        inherit!(getattro, "atomic");
+        inherit!(setattro, "atomic");
+        inherit!(as_buffer);
+        inherit!(richcompare, "atomic");
+        inherit!(iter, "atomic");
+        inherit!(iternext, "atomic");
+        inherit!(descr_get, "atomic");
+        inherit!(descr_set, "atomic");
+        inherit!(init, "atomic");
+        inherit!(new, "atomic");
+        inherit!(del, "atomic");
     }
 }
 

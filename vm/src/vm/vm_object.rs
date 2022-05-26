@@ -164,7 +164,7 @@ impl VirtualMachine {
 
     fn _invoke(&self, callable: &PyObject, args: FuncArgs) -> PyResult {
         vm_trace!("Invoke: {:?} {:?}", callable, args);
-        let slot_call = callable.class().mro_find_map(|cls| cls.slots.call.load());
+        let slot_call = callable.class().slots.call.load();
         match slot_call {
             Some(slot_call) => {
                 self.trace_event(TraceEvent::Call)?;
