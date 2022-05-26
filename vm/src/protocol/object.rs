@@ -90,10 +90,7 @@ impl PyObject {
     #[inline]
     fn _get_attr(&self, attr_name: PyStrRef, vm: &VirtualMachine) -> PyResult {
         vm_trace!("object.__getattribute__: {:?} {:?}", obj, attr_name);
-        let getattro = self
-            .class()
-            .mro_find_map(|cls| cls.slots.getattro.load())
-            .unwrap();
+        let getattro = self.class().slots.getattro.load().unwrap();
         getattro(self, attr_name.clone(), vm).map_err(|exc| {
             vm.set_attribute_error_context(&exc, self.to_owned(), attr_name);
             exc
@@ -108,18 +105,17 @@ impl PyObject {
     ) -> PyResult<()> {
         let setattro = {
             let cls = self.class();
-            cls.mro_find_map(|cls| cls.slots.setattro.load())
-                .ok_or_else(|| {
-                    let assign = attr_value.is_some();
-                    let has_getattr = cls.mro_find_map(|cls| cls.slots.getattro.load()).is_some();
-                    vm.new_type_error(format!(
-                        "'{}' object has {} attributes ({} {})",
-                        cls.name(),
-                        if has_getattr { "only read-only" } else { "no" },
-                        if assign { "assign to" } else { "del" },
-                        attr_name
-                    ))
-                })?
+            cls.slots.setattro.load().ok_or_else(|| {
+                let assign = attr_value.is_some();
+                let has_getattr = cls.slots.getattro.load().is_some();
+                vm.new_type_error(format!(
+                    "'{}' object has {} attributes ({} {})",
+                    cls.name(),
+                    if has_getattr { "only read-only" } else { "no" },
+                    if assign { "assign to" } else { "del" },
+                    attr_name
+                ))
+            })?
         };
         setattro(self, attr_name, attr_value, vm)
     }
@@ -145,7 +141,7 @@ impl PyObject {
         vm_trace!("object.__setattr__({:?}, {}, {:?})", obj, attr_name, value);
 
         if let Some(attr) = self.get_class_attr(attr_name.as_str()) {
-            let descr_set = attr.class().mro_find_map(|cls| cls.slots.descr_set.load());
+            let descr_set = attr.class().slots.descr_set.load();
             if let Some(descriptor) = descr_set {
                 return descriptor(attr, self.to_owned(), value, vm);
             }
@@ -194,12 +190,9 @@ impl PyObject {
         let cls_attr = match obj_cls.get_attr(name) {
             Some(descr) => {
                 let descr_cls = descr.class();
-                let descr_get = descr_cls.mro_find_map(|cls| cls.slots.descr_get.load());
+                let descr_get = descr_cls.slots.descr_get.load();
                 if let Some(descr_get) = descr_get {
-                    if descr_cls
-                        .mro_find_map(|cls| cls.slots.descr_set.load())
-                        .is_some()
-                    {
+                    if descr_cls.slots.descr_set.load().is_some() {
                         drop(descr_cls);
                         let cls = obj_cls.into_owned().into();
                         return descr_get(descr, Some(self.to_owned()), Some(cls), vm).map(Some);
@@ -254,10 +247,7 @@ impl PyObject {
     ) -> PyResult<Either<PyObjectRef, bool>> {
         let swapped = op.swapped();
         let call_cmp = |obj: &PyObject, other: &PyObject, op| {
-            let cmp = obj
-                .class()
-                .mro_find_map(|cls| cls.slots.richcompare.load())
-                .unwrap();
+            let cmp = obj.class().slots.richcompare.load().unwrap();
             let r = match cmp(obj, other, op, vm)? {
                 Either::A(obj) => PyArithmeticValue::from_object(vm, obj).map(Either::A),
                 Either::B(arithmetic) => arithmetic.map(Either::B),
@@ -496,10 +486,7 @@ impl PyObject {
     }
 
     pub fn hash(&self, vm: &VirtualMachine) -> PyResult<PyHash> {
-        let hash = self
-            .class()
-            .mro_find_map(|cls| cls.slots.hash.load())
-            .unwrap(); // hash always exist
+        let hash = self.class().slots.hash.load().unwrap(); // hash always exist
         hash(self, vm)
     }
 

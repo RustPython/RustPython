@@ -16,9 +16,7 @@ where
 
 impl PyIter<PyObjectRef> {
     pub fn check(obj: &PyObject) -> bool {
-        obj.class()
-            .mro_find_map(|x| x.slots.iternext.load())
-            .is_some()
+        obj.class().slots.iternext.load().is_some()
     }
 }
 
@@ -34,7 +32,9 @@ where
             self.0
                 .borrow()
                 .class()
-                .mro_find_map(|x| x.slots.iternext.load())
+                .slots
+                .iternext
+                .load()
                 .ok_or_else(|| {
                     vm.new_type_error(format!(
                         "'{}' object is not an iterator",
@@ -120,7 +120,7 @@ impl TryFromObject for PyIter<PyObjectRef> {
     fn try_from_object(vm: &VirtualMachine, iter_target: PyObjectRef) -> PyResult<Self> {
         let getiter = {
             let cls = iter_target.class();
-            cls.mro_find_map(|x| x.slots.iter.load())
+            cls.slots.iter.load()
         };
         if let Some(getiter) = getiter {
             let iter = getiter(iter_target, vm)?;

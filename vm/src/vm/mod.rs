@@ -579,9 +579,7 @@ impl VirtualMachine {
     }
 
     pub fn is_callable(&self, obj: &PyObject) -> bool {
-        obj.class()
-            .mro_find_map(|cls| cls.slots.call.load())
-            .is_some()
+        obj.class().slots.call.load().is_some()
     }
 
     #[inline]

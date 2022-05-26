@@ -78,11 +78,51 @@ pub struct PyTypeSlots {
 }
 
 impl PyTypeSlots {
-    pub fn from_flags(flags: PyTypeFlags) -> Self {
+    pub fn with_flags(flags: PyTypeFlags) -> Self {
         Self {
             flags,
             ..Default::default()
         }
+    }
+
+    pub fn inherits(&mut self, mro: &[&PyType]) {
+        macro_rules! inherit {
+            ($name:ident) => {
+                if self.$name.is_none() {
+                    for ty in mro {
+                        if let Some(func) = ty.slots.$name {
+                            self.$name = Some(func);
+                            break;
+                        }
+                    }
+                }
+            };
+            ($name:ident, "atomic") => {
+                if self.$name.load().is_none() {
+                    for ty in mro {
+                        if let Some(func) = ty.slots.$name.load() {
+                            self.$name.store(Some(func));
+                            break;
+                        }
+                    }
+                }
+            };
+        }
+        inherit!(as_sequence, "atomic");
+        inherit!(as_mapping, "atomic");
+        inherit!(hash, "atomic");
+        inherit!(call, "atomic");
+        inherit!(getattro, "atomic");
+        inherit!(setattro, "atomic");
+        inherit!(as_buffer);
+        inherit!(richcompare, "atomic");
+        inherit!(iter, "atomic");
+        inherit!(iternext, "atomic");
+        inherit!(descr_get, "atomic");
+        inherit!(descr_set, "atomic");
+        inherit!(init, "atomic");
+        inherit!(new, "atomic");
+        inherit!(del, "atomic");
     }
 }
 

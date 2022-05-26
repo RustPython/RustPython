@@ -70,11 +70,7 @@ impl PyMapping<'_> {
 
     pub fn methods(&self, vm: &VirtualMachine) -> &PyMappingMethods {
         self.methods.get_or_init(|| {
-            if let Some(f) = self
-                .obj
-                .class()
-                .mro_find_map(|cls| cls.slots.as_mapping.load())
-            {
+            if let Some(f) = self.obj.class().slots.as_mapping.load() {
                 f(self.obj, vm)
             } else {
                 PyMappingMethods::default()

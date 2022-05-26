@@ -91,7 +91,7 @@ impl VirtualMachine {
         obj: Option<PyObjectRef>,
         cls: Option<PyObjectRef>,
     ) -> Result<PyResult, PyObjectRef> {
-        let descr_get = descr.class().mro_find_map(|cls| cls.slots.descr_get.load());
+        let descr_get = descr.class().slots.descr_get.load();
         match descr_get {
             Some(descr_get) => Ok(descr_get(descr, obj, cls, self)),
             None => Err(descr),
@@ -164,7 +164,7 @@ impl VirtualMachine {
 
     fn _invoke(&self, callable: &PyObject, args: FuncArgs) -> PyResult {
         vm_trace!("Invoke: {:?} {:?}", callable, args);
-        let slot_call = callable.class().mro_find_map(|cls| cls.slots.call.load());
+        let slot_call = callable.class().slots.call.load();
         match slot_call {
             Some(slot_call) => {
                 self.trace_event(TraceEvent::Call)?;

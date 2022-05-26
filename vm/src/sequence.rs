@@ -111,9 +111,7 @@ pub trait MutObjectSequenceOp<'a> {
         F: FnMut(),
     {
         let needle_cls = needle.class();
-        let needle_cmp = needle_cls
-            .mro_find_map(|cls| cls.slots.richcompare.load())
-            .unwrap();
+        let needle_cmp = needle_cls.slots.richcompare.load().unwrap();
 
         let mut borrower = None;
         let mut i = range.start;
@@ -146,9 +144,7 @@ pub trait MutObjectSequenceOp<'a> {
                     !elem_cls.is(&needle_cls) && elem_cls.fast_issubclass(&needle_cls);
 
                 let eq = if reverse_first {
-                    let elem_cmp = elem_cls
-                        .mro_find_map(|cls| cls.slots.richcompare.load())
-                        .unwrap();
+                    let elem_cmp = elem_cls.slots.richcompare.load().unwrap();
                     drop(elem_cls);
 
                     fn cmp(
@@ -195,9 +191,7 @@ pub trait MutObjectSequenceOp<'a> {
                             obj.try_to_bool(vm)?
                         }
                         _ => {
-                            let elem_cmp = elem_cls
-                                .mro_find_map(|cls| cls.slots.richcompare.load())
-                                .unwrap();
+                            let elem_cmp = elem_cls.slots.richcompare.load().unwrap();
                             drop(elem_cls);
 
                             fn cmp(

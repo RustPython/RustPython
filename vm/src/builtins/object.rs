@@ -77,10 +77,7 @@ impl PyBaseObject {
                 }
             }
             PyComparisonOp::Ne => {
-                let cmp = zelf
-                    .class()
-                    .mro_find_map(|cls| cls.slots.richcompare.load())
-                    .unwrap();
+                let cmp = zelf.class().slots.richcompare.load().unwrap();
                 let value = match cmp(zelf, other, PyComparisonOp::Eq, vm)? {
                     Either::A(obj) => PyArithmeticValue::from_object(vm, obj)
                         .map(|obj| obj.try_to_bool(vm))

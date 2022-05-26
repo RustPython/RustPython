@@ -95,6 +95,8 @@ impl PyType {
             .map(|x| x.iter_mro().cloned().collect())
             .collect();
         let mro = linearise_mro(mros)?;
+        slots.inherits(&mro.iter().map(|t| -> &PyType { &t }).collect::<Vec<_>>());
+        debug_assert!(slots.hash.load().is_some(), "{}", name);
 
         if base.slots.flags.has_feature(PyTypeFlags::HAS_DICT) {
             slots.flags |= PyTypeFlags::HAS_DICT
@@ -139,19 +141,6 @@ impl PyType {
 
     pub fn iter_mro(&self) -> impl Iterator<Item = &PyType> + DoubleEndedIterator {
         std::iter::once(self).chain(self.mro.iter().map(|cls| -> &PyType { cls }))
-    }
-
-    pub(crate) fn mro_find_map<F, R>(&self, f: F) -> Option<R>
-    where
-        F: Fn(&Self) -> Option<R>,
-    {
-        // the hot path will be primitive types which usually hit the result from itself.
-        // try std::intrinsics::likely once it is stablized
-        if let Some(r) = f(self) {
-            Some(r)
-        } else {
-            self.mro.iter().find_map(|cls| f(cls))
-        }
     }
 
     // This is used for class initialisation where the vm is not yet available.
@@ -521,7 +510,7 @@ impl PyType {
         // updated when __slots__ are supported (toggling the flag off if
         // a class has __slots__ defined).
         let flags = PyTypeFlags::heap_type_flags() | PyTypeFlags::HAS_DICT;
-        let slots = PyTypeSlots::from_flags(flags);
+        let slots = PyTypeSlots::with_flags(flags);
 
         let typ = Self::new_verbose_ref(name.as_str(), base, bases, attributes, slots, metatype)
             .map_err(|e| vm.new_type_error(e))?;
@@ -637,11 +626,8 @@ impl GetAttr for PyType {
 
         if let Some(ref attr) = mcl_attr {
             let attr_class = attr.class();
-            if attr_class
-                .mro_find_map(|cls| cls.slots.descr_set.load())
-                .is_some()
-            {
-                if let Some(descr_get) = attr_class.mro_find_map(|cls| cls.slots.descr_get.load()) {
+            if attr_class.slots.descr_set.load().is_some() {
+                if let Some(descr_get) = attr_class.slots.descr_get.load() {
                     let mcl = mcl.into_owned().into();
                     return descr_get(attr.clone(), Some(zelf.to_owned().into()), Some(mcl), vm);
                 }
@@ -651,7 +637,7 @@ impl GetAttr for PyType {
         let zelf_attr = zelf.get_attr(name);
 
         if let Some(ref attr) = zelf_attr {
-            if let Some(descr_get) = attr.class().mro_find_map(|cls| cls.slots.descr_get.load()) {
+            if let Some(descr_get) = attr.class().slots.descr_get.load() {
                 drop(mcl);
                 return descr_get(attr.clone(), None, Some(zelf.to_owned().into()), vm);
             }
@@ -680,7 +666,7 @@ impl SetAttr for PyType {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         if let Some(attr) = zelf.get_class_attr(attr_name.as_str()) {
-            let descr_set = attr.class().mro_find_map(|cls| cls.slots.descr_set.load());
+            let descr_set = attr.class().slots.descr_set.load();
             if let Some(descriptor) = descr_set {
                 return descriptor(attr, zelf.to_owned().into(), value, vm);
             }
@@ -719,7 +705,7 @@ impl Callable for PyType {
             return Ok(obj);
         }
 
-        if let Some(init_method) = obj.class().mro_find_map(|cls| cls.slots.init.load()) {
+        if let Some(init_method) = obj.class().slots.init.load() {
             init_method(obj.clone(), args, vm)?;
         }
         Ok(obj)
@@ -757,15 +743,12 @@ fn subtype_set_dict(obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -
     let cls = obj.class().clone();
     match find_base_dict_descr(&cls, vm) {
         Some(descr) => {
-            let descr_set = descr
-                .class()
-                .mro_find_map(|cls| cls.slots.descr_set.load())
-                .ok_or_else(|| {
-                    vm.new_type_error(format!(
-                        "this __dict__ descriptor does not support '{}' objects",
-                        cls.name()
-                    ))
-                })?;
+            let descr_set = descr.class().slots.descr_set.load().ok_or_else(|| {
+                vm.new_type_error(format!(
+                    "this __dict__ descriptor does not support '{}' objects",
+                    cls.name()
+                ))
+            })?;
             descr_set(descr, obj, Some(value), vm)
         }
         None => {
