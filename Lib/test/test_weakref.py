@@ -1856,6 +1856,7 @@ class MappingTestCase(TestBase):
         # copying should not result in a crash.
         self.check_threaded_weak_dict_copy(weakref.WeakValueDictionary, False)
 
+    @unittest.skip("TODO: RUSTPYTHON; flaky test")
     def test_threaded_weak_value_dict_deepcopy(self):
         # Issue #35615: Weakref keys or values getting GC'ed during dict
         # copying should not result in a crash.
