@@ -875,7 +875,15 @@ mod decl {
     }
 
     #[pyimpl(with(IterNext, Constructor))]
-    impl PyItertoolsFilterFalse {}
+    impl PyItertoolsFilterFalse {
+        #[pymethod(magic)]
+        fn reduce(zelf: PyRef<Self>) -> (PyTypeRef, (PyObjectRef, PyIter)) {
+            (
+                zelf.class().clone(),
+                (zelf.predicate.clone(), zelf.iterable.clone()),
+            )
+        }
+    }
     impl IterNextIterable for PyItertoolsFilterFalse {}
     impl IterNext for PyItertoolsFilterFalse {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
