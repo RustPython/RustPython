@@ -429,8 +429,6 @@ class TestEnum(unittest.TestCase):
                 green = 2
                 blue = 3
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_enum_with_value_name(self):
         class Huh(Enum):
             name = 1
@@ -1668,8 +1666,6 @@ class TestEnum(unittest.TestCase):
             test = 1
         self.assertIs(type(Test.test), Test)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_subclass_duplicate_name_dynamic(self):
         from types import DynamicClassAttribute
         class Base(Enum):
