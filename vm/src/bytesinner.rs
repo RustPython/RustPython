@@ -5,6 +5,7 @@ use crate::{
     },
     cformat::CFormatBytes,
     function::{ArgIterable, Either, OptionalArg, OptionalOption, PyComparisonValue},
+    identifier,
     protocol::PyBuffer,
     sequence::{SequenceMutOp, SequenceOp},
     types::PyComparisonOp,
@@ -86,7 +87,7 @@ impl ByteInnerNewOptions {
                     obj
                 };
 
-                if let Some(bytes_method) = vm.get_method(obj, "__bytes__") {
+                if let Some(bytes_method) = vm.get_method(obj, identifier!(vm, __bytes__)) {
                     // construct an exact bytes from __bytes__ slot.
                     // if __bytes__ return a bytes, use the bytes object except we are the subclass of the bytes
                     let bytes = vm.invoke(&bytes_method?, ())?;

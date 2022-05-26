@@ -42,7 +42,7 @@ impl PyFunction {
         defaults: Option<PyTupleRef>,
         kw_only_defaults: Option<PyDictRef>,
     ) -> Self {
-        let name = PyMutex::new(code.obj_name.clone());
+        let name = PyMutex::new(code.obj_name.to_owned());
         PyFunction {
             code,
             globals,
@@ -458,7 +458,10 @@ impl Comparable for PyBoundMethod {
 
 impl GetAttr for PyBoundMethod {
     fn getattro(zelf: &Py<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        let class_attr = zelf.get_class_attr(name.as_str());
+        let class_attr = vm
+            .ctx
+            .interned_str(&*name)
+            .and_then(|attr_name| zelf.get_class_attr(attr_name));
         if let Some(obj) = class_attr {
             return vm.call_if_get_descriptor(obj, zelf.to_owned().into());
         }

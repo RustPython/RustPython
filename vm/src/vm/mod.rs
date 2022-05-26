@@ -19,11 +19,11 @@ use crate::{
         code::PyCode,
         pystr::IntoPyStrRef,
         tuple::{PyTuple, PyTupleTyped},
-        PyBaseExceptionRef, PyDictRef, PyInt, PyList, PyModule, PyStrRef, PyTypeRef,
+        PyBaseExceptionRef, PyDictRef, PyInt, PyList, PyModule, PyStrInterned, PyStrRef, PyTypeRef,
     },
     bytecode,
     codecs::CodecsRegistry,
-    common::{ascii, hash::HashSecret, lock::PyMutex, rc::PyRc},
+    common::{hash::HashSecret, lock::PyMutex, rc::PyRc},
     convert::{ToPyObject, TryFromObject},
     frame::{ExecutionResult, Frame, FrameRef},
     frozen,
@@ -88,11 +88,16 @@ pub struct PyGlobalState {
     pub codec_registry: CodecsRegistry,
 }
 
+pub fn process_hash_secret_seed() -> u32 {
+    use once_cell::sync::OnceCell;
+    static SEED: OnceCell<u32> = OnceCell::new();
+    *SEED.get_or_init(rand::random)
+}
+
 impl VirtualMachine {
     /// Create a new `VirtualMachine` structure.
-    fn new(settings: Settings) -> VirtualMachine {
+    fn new(settings: Settings, ctx: PyRc<Context>) -> VirtualMachine {
         flame_guard!("new VirtualMachine");
-        let ctx = Context::default();
 
         // make a new module without access to the vm; doesn't
         // set __spec__, __loader__, etc. attributes
@@ -121,17 +126,18 @@ impl VirtualMachine {
 
         let module_inits = stdlib::get_module_inits();
 
-        let hash_secret = match settings.hash_seed {
-            Some(seed) => HashSecret::new(seed),
-            None => rand::random(),
+        let seed = match settings.hash_seed {
+            Some(seed) => seed,
+            None => process_hash_secret_seed(),
         };
+        let hash_secret = HashSecret::new(seed);
 
         let codec_registry = CodecsRegistry::new(&ctx);
 
         let mut vm = VirtualMachine {
             builtins,
             sys_module,
-            ctx: PyRc::new(ctx),
+            ctx,
             frames: RefCell::new(vec![]),
             wasm_id: None,
             exceptions: RefCell::default(),
@@ -157,16 +163,23 @@ impl VirtualMachine {
             recursion_depth: Cell::new(0),
         };
 
+        if vm.state.hash_secret.hash_str("")
+            != vm
+                .ctx
+                .interned_str("")
+                .expect("empty str must be interned")
+                .hash(&vm)
+        {
+            panic!("Interpreters in same process must share the hash seed");
+        }
+
         let frozen = frozen::get_module_inits().collect();
         PyRc::get_mut(&mut vm.state).unwrap().frozen = frozen;
 
-        vm.builtins.init_module_dict(
-            vm.ctx.new_str(ascii!("builtins")).into(),
-            vm.ctx.none(),
-            &vm,
-        );
+        vm.builtins
+            .init_module_dict(vm.ctx.intern_str("builtins"), vm.ctx.none(), &vm);
         vm.sys_module
-            .init_module_dict(vm.ctx.new_str(ascii!("sys")).into(), vm.ctx.none(), &vm);
+            .init_module_dict(vm.ctx.intern_str("sys"), vm.ctx.none(), &vm);
 
         vm
     }
@@ -425,13 +438,13 @@ impl VirtualMachine {
                 }
             }
             None => {
-                let import_func =
-                    self.builtins
-                        .clone()
-                        .get_attr("__import__", self)
-                        .map_err(|_| {
-                            self.new_import_error("__import__ not found".to_owned(), module.clone())
-                        })?;
+                let import_func = self
+                    .builtins
+                    .clone()
+                    .get_attr(identifier!(self, __import__), self)
+                    .map_err(|_| {
+                        self.new_import_error("__import__ not found".to_owned(), module.clone())
+                    })?;
 
                 let (locals, globals) = if let Some(frame) = self.current_frame() {
                     (Some(frame.locals.clone()), Some(frame.globals.clone()))
@@ -559,7 +572,7 @@ impl VirtualMachine {
     pub fn get_method_or_type_error<F>(
         &self,
         obj: PyObjectRef,
-        method_name: &str,
+        method_name: &'static PyStrInterned,
         err_msg: F,
     ) -> PyResult
     where
@@ -573,9 +586,18 @@ impl VirtualMachine {
     }
 
     // TODO: remove + transfer over to get_special_method
-    pub(crate) fn get_method(&self, obj: PyObjectRef, method_name: &str) -> Option<PyResult> {
+    pub(crate) fn get_method(
+        &self,
+        obj: PyObjectRef,
+        method_name: &'static PyStrInterned,
+    ) -> Option<PyResult> {
         let method = obj.get_class_attr(method_name)?;
         Some(self.call_if_get_descriptor(method, obj))
+    }
+
+    pub(crate) fn get_str_method(&self, obj: PyObjectRef, method_name: &str) -> Option<PyResult> {
+        let method_name = self.ctx.interned_str(method_name)?;
+        self.get_method(obj, method_name)
     }
 
     pub fn is_callable(&self, obj: &PyObject) -> bool {
@@ -706,7 +728,10 @@ impl VirtualMachine {
             self.insert_sys_path(self.new_pyobj(path))?;
             let runpy = self.import("runpy", None, 0)?;
             let run_module_as_main = runpy.get_attr("_run_module_as_main", self)?;
-            self.invoke(&run_module_as_main, (self.ctx.new_str("__main__"), false))?;
+            self.invoke(
+                &run_module_as_main,
+                (identifier!(self, __main__).to_owned(), false),
+            )?;
             return Ok(());
         }
 
@@ -734,9 +759,11 @@ impl VirtualMachine {
             .compile(source, crate::compile::Mode::Exec, source_path.clone())
             .map_err(|err| self.new_syntax_error(&err))?;
         // trace!("Code object: {:?}", code_obj.borrow());
-        scope
-            .globals
-            .set_item("__file__", self.new_pyobj(source_path), self)?;
+        scope.globals.set_item(
+            identifier!(self, __file__),
+            self.new_pyobj(source_path),
+            self,
+        )?;
         self.run_code_obj(code_obj, scope)
     }
 
@@ -774,4 +801,10 @@ fn get_importer(path: &str, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>
     } else {
         None
     })
+}
+
+impl AsRef<Context> for VirtualMachine {
+    fn as_ref(&self) -> &Context {
+        &self.ctx
+    }
 }

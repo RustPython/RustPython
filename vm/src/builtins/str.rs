@@ -9,6 +9,7 @@ use crate::{
     convert::{ToPyException, ToPyObject},
     format::{FormatSpec, FormatString, FromTemplate},
     function::{ArgIterable, FuncArgs, OptionalArg, OptionalOption, PyComparisonValue},
+    intern::PyInterned,
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     sequence::SequenceOp,
     sliceable::{SequenceIndex, SliceableSequenceOp},
@@ -227,10 +228,10 @@ impl IntoPyStrRef for &str {
     }
 }
 
-impl IntoPyStrRef for &'static crate::intern::PyStrInterned {
+impl IntoPyStrRef for &'static PyStrInterned {
     #[inline]
     fn into_pystr_ref(self, _vm: &VirtualMachine) -> PyRef<PyStr> {
-        self.to_str()
+        self.to_owned()
     }
 }
 
@@ -408,7 +409,7 @@ impl PyStr {
                 Self::new_str_unchecked(bytes.into_bytes(), kind)
             }
             .to_pyobject(vm))
-        } else if let Some(radd) = vm.get_method(other.clone(), "__radd__") {
+        } else if let Some(radd) = vm.get_method(other.clone(), identifier!(vm, __radd__)) {
             // hack to get around not distinguishing number add from seq concat
             vm.invoke(&radd?, (zelf,))
         } else {
@@ -1148,7 +1149,7 @@ impl PyStr {
     // https://docs.python.org/3/library/stdtypes.html#str.translate
     #[pymethod]
     fn translate(&self, table: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
-        vm.get_method_or_type_error(table.clone(), "__getitem__", || {
+        vm.get_method_or_type_error(table.clone(), identifier!(vm, __getitem__), || {
             format!("'{}' object is not subscriptable", table.class().name())
         })?;
 
@@ -1739,5 +1740,29 @@ impl<'s> AnyStr<'s> for str {
             splited.push(convert(&self[..last_offset]));
         }
         splited
+    }
+}
+
+/// The unique reference of interned PyStr
+/// Always intended to be used as a static reference
+pub type PyStrInterned = PyInterned<PyStr>;
+
+impl PyStrInterned {
+    #[inline]
+    pub fn to_exact(&'static self) -> PyRefExact<PyStr> {
+        unsafe { PyRefExact::new_unchecked(self.to_owned()) }
+    }
+}
+
+impl std::fmt::Display for PyStrInterned {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self.as_str(), f)
+    }
+}
+
+impl AsRef<str> for PyStrInterned {
+    #[inline(always)]
+    fn as_ref(&self) -> &str {
+        self.as_str()
     }
 }

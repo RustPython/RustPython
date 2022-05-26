@@ -1,7 +1,8 @@
 use super::PyMethod;
 use crate::{
-    builtins::{PyBaseExceptionRef, PyList, PyStr},
+    builtins::{PyBaseExceptionRef, PyList, PyStr, PyStrInterned},
     function::{FuncArgs, IntoFuncArgs},
+    identifier,
     object::{AsObject, PyObject, PyObjectRef, PyPayload, PyResult},
     vm::VirtualMachine,
 };
@@ -118,21 +119,24 @@ impl VirtualMachine {
     {
         flame_guard!(format!("call_method({:?})", method_name));
 
-        PyMethod::get(
-            obj.to_owned(),
-            PyStr::from(method_name).into_ref(self),
-            self,
-        )?
-        .invoke(args, self)
+        let name = self
+            .ctx
+            .interned_str(method_name)
+            .map_or_else(|| PyStr::from(method_name).into_ref(self), |s| s.to_owned());
+        PyMethod::get(obj.to_owned(), name, self)?.invoke(args, self)
     }
 
     pub fn dir(&self, obj: Option<PyObjectRef>) -> PyResult<PyList> {
         let seq = match obj {
             Some(obj) => self
-                .get_special_method(obj, "__dir__")?
+                .get_special_method(obj, identifier!(self, __dir__))?
                 .map_err(|_obj| self.new_type_error("object does not provide __dir__".to_owned()))?
                 .invoke((), self)?,
-            None => self.call_method(self.current_locals()?.as_object(), "keys", ())?,
+            None => self.call_method(
+                self.current_locals()?.as_object(),
+                identifier!(self, keys).as_str(),
+                (),
+            )?,
         };
         let items: Vec<_> = seq.try_to_value(self)?;
         let lst = PyList::from(items);
@@ -144,7 +148,7 @@ impl VirtualMachine {
     pub(crate) fn get_special_method(
         &self,
         obj: PyObjectRef,
-        method: &str,
+        method: &'static PyStrInterned,
     ) -> PyResult<Result<PyMethod, PyObjectRef>> {
         PyMethod::get_special(obj, method, self)
     }
@@ -154,11 +158,11 @@ impl VirtualMachine {
     pub fn call_special_method(
         &self,
         obj: PyObjectRef,
-        method: &str,
+        method: &'static PyStrInterned,
         args: impl IntoFuncArgs,
     ) -> PyResult {
         self.get_special_method(obj, method)?
-            .map_err(|_obj| self.new_attribute_error(method.to_owned()))?
+            .map_err(|_obj| self.new_attribute_error(method.as_str().to_owned()))?
             .invoke(args, self)
     }
 

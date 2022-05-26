@@ -1,6 +1,7 @@
 use super::pystr::IntoPyStrRef;
 use super::{PyDictRef, PyStr, PyStrRef, PyTypeRef};
 use crate::{
+    builtins::PyStrInterned,
     class::PyClassImpl,
     convert::ToPyObject,
     function::FuncArgs,
@@ -48,7 +49,7 @@ impl PyModule {
         {
             return Ok(attr);
         }
-        if let Ok(getattr) = zelf.dict().get_item("__getattr__", vm) {
+        if let Ok(getattr) = zelf.dict().get_item(identifier!(vm, __getattr__), vm) {
             return vm.invoke(&getattr, (name,));
         }
         let module_name = if let Some(name) = Self::name(zelf.to_owned(), vm) {
@@ -61,7 +62,7 @@ impl PyModule {
 
     fn name(zelf: PyRef<Self>, vm: &VirtualMachine) -> Option<PyStrRef> {
         zelf.as_object()
-            .generic_getattr_opt(PyStr::from("__name__").into_ref(vm), None, vm)
+            .generic_getattr_opt(identifier!(vm, __name__).to_owned(), None, vm)
             .unwrap_or(None)
             .and_then(|obj| obj.downcast::<PyStr>().ok())
     }
@@ -92,14 +93,14 @@ impl Py<PyModule> {
     // TODO: should be on PyModule, not Py<PyModule>
     pub(crate) fn init_module_dict(
         &self,
-        name: PyObjectRef,
+        name: &'static PyStrInterned,
         doc: PyObjectRef,
         vm: &VirtualMachine,
     ) {
         let dict = self.dict();
-        dict.set_item("__name__", name, vm)
+        dict.set_item(identifier!(vm, __name__), name.to_object(), vm)
             .expect("Failed to set __name__ on module");
-        dict.set_item("__doc__", doc, vm)
+        dict.set_item(identifier!(vm, __doc__), doc, vm)
             .expect("Failed to set __doc__ on module");
         dict.set_item("__package__", vm.ctx.none(), vm)
             .expect("Failed to set __package__ on module");
@@ -131,7 +132,11 @@ impl Initializer for PyModule {
             .slots
             .flags
             .has_feature(crate::types::PyTypeFlags::HAS_DICT));
-        zelf.init_module_dict(args.name.into(), args.doc.to_pyobject(vm), vm);
+        zelf.init_module_dict(
+            vm.ctx.intern_str(args.name.as_str()),
+            args.doc.to_pyobject(vm),
+            vm,
+        );
         Ok(())
     }
 }

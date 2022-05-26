@@ -116,7 +116,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         .map(|entry| {
             let path = entry.unwrap().path();
             (
-                path.file_name().unwrap().to_str().unwrap().to_owned(),
+                path.file_name().unwrap().to_owned().unwrap().to_owned(),
                 std::fs::read_to_string(path).unwrap(),
             )
         })

@@ -2,6 +2,7 @@ use super::IntoFuncArgs;
 use crate::{
     builtins::{iter::PySequenceIterator, PyDict, PyDictRef},
     convert::ToPyObject,
+    identifier,
     protocol::{PyIter, PyIterIter, PyMapping, PyMappingMethods},
     AsObject, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
 };
@@ -86,7 +87,7 @@ where
         {
             let cls = obj.class();
             iterfn = cls.mro_find_map(|x| x.slots.iter.load());
-            if iterfn.is_none() && !cls.has_attr("__getitem__") {
+            if iterfn.is_none() && !cls.has_attr(identifier!(vm, __getitem__)) {
                 return Err(vm.new_type_error(format!("'{}' object is not iterable", cls.name())));
             }
         }

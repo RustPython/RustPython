@@ -1,7 +1,7 @@
 use crate::{
     builtins::{
         dict::{PyDictItems, PyDictKeys, PyDictValues},
-        PyDict,
+        PyDict, PyStrInterned,
     },
     common::lock::OnceCell,
     convert::ToPyResult,
@@ -135,7 +135,7 @@ impl PyMapping<'_> {
         if let Some(dict) = self.obj.downcast_ref_if_exact::<PyDict>(vm) {
             PyDictKeys::new(dict.to_owned()).to_pyresult(vm)
         } else {
-            self.method_output_as_list("keys", vm)
+            self.method_output_as_list(identifier!(vm, keys), vm)
         }
     }
 
@@ -143,7 +143,7 @@ impl PyMapping<'_> {
         if let Some(dict) = self.obj.downcast_ref_if_exact::<PyDict>(vm) {
             PyDictValues::new(dict.to_owned()).to_pyresult(vm)
         } else {
-            self.method_output_as_list("values", vm)
+            self.method_output_as_list(identifier!(vm, values), vm)
         }
     }
 
@@ -151,12 +151,16 @@ impl PyMapping<'_> {
         if let Some(dict) = self.obj.downcast_ref_if_exact::<PyDict>(vm) {
             PyDictItems::new(dict.to_owned()).to_pyresult(vm)
         } else {
-            self.method_output_as_list("items", vm)
+            self.method_output_as_list(identifier!(vm, items), vm)
         }
     }
 
-    fn method_output_as_list(&self, method_name: &str, vm: &VirtualMachine) -> PyResult {
-        let meth_output = vm.call_method(self.obj, method_name, ())?;
+    fn method_output_as_list(
+        &self,
+        method_name: &'static PyStrInterned,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let meth_output = vm.call_method(self.obj, method_name.as_str(), ())?;
         if meth_output.is(&vm.ctx.types.list_type) {
             return Ok(meth_output);
         }
@@ -165,7 +169,7 @@ impl PyMapping<'_> {
             vm.new_type_error(format!(
                 "{}.{}() returned a non-iterable (type {})",
                 self.obj.class(),
-                method_name,
+                method_name.as_str(),
                 meth_output.class()
             ))
         })?;

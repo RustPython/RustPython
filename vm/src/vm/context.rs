@@ -7,13 +7,14 @@ use crate::{
         object, pystr,
         type_::PyAttributes,
         PyBaseException, PyComplex, PyDict, PyDictRef, PyEllipsis, PyFloat, PyFrozenSet, PyInt,
-        PyIntRef, PyList, PyListRef, PyNone, PyNotImplemented, PyStr, PyTuple, PyTupleRef, PyType,
-        PyTypeRef,
+        PyIntRef, PyList, PyListRef, PyNone, PyNotImplemented, PyStr, PyStrInterned, PyTuple,
+        PyTupleRef, PyType, PyTypeRef,
     },
     class::{PyClassImpl, StaticType},
+    common::rc::PyRc,
     exceptions,
     function::IntoPyNativeFunc,
-    intern::{Internable, PyStrInterned, StringPool},
+    intern::{Internable, MaybeInterned, StringPool},
     object::{PyObjectPayload, PyObjectRef, PyPayload, PyRef},
     types::{PyTypeFlags, PyTypeSlots, TypeZoo},
 };
@@ -21,7 +22,7 @@ use num_bigint::BigInt;
 use num_complex::Complex64;
 use num_traits::ToPrimitive;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Context {
     pub true_value: PyIntRef,
     pub false_value: PyIntRef,
@@ -32,15 +33,181 @@ pub struct Context {
     pub ellipsis: PyRef<PyEllipsis>,
     pub not_implemented: PyRef<PyNotImplemented>,
 
-    pub(crate) true_str: &'static PyStrInterned,
-    pub(crate) false_str: &'static PyStrInterned,
-
     pub types: TypeZoo,
     pub exceptions: exceptions::ExceptionZoo,
     pub int_cache_pool: Vec<PyIntRef>,
     // there should only be exact objects of str in here, no non-strs and no subclasses
     pub(crate) string_pool: StringPool,
     pub(crate) slot_new_wrapper: PyObjectRef,
+    pub names: ConstName,
+}
+
+macro_rules! declare_const_name {
+    ($($name:ident,)*) => {
+        #[derive(Debug, Clone, Copy)]
+        #[allow(non_snake_case)]
+        pub struct ConstName {
+            $(pub $name: &'static PyStrInterned,)*
+        }
+
+        impl ConstName {
+            unsafe fn new(pool: &StringPool, typ: &PyTypeRef) -> Self {
+                Self {
+                    $($name: pool.intern(stringify!($name), typ.clone()),)*
+                }
+            }
+        }
+    }
+}
+
+declare_const_name! {
+    True,
+    False,
+
+    // magic methods
+    __abs__,
+    __abstractmethods__,
+    __add__,
+    __aenter__,
+    __aexit__,
+    __aiter__,
+    __all__,
+    __and__,
+    __anext__,
+    __annotations__,
+    __args__,
+    __await__,
+    __bases__,
+    __bool__,
+    __build_class__,
+    __builtins__,
+    __bytes__,
+    __call__,
+    __ceil__,
+    __cformat__,
+    __class__,
+    __class_getitem__,
+    __complex__,
+    __contains__,
+    __copy__,
+    __deepcopy__,
+    __del__,
+    __delattr__,
+    __delete__,
+    __delitem__,
+    __dict__,
+    __dir__,
+    __div__,
+    __divmod__,
+    __doc__,
+    __enter__,
+    __eq__,
+    __exit__,
+    __file__,
+    __float__,
+    __floor__,
+    __floordiv__,
+    __format__,
+    __fspath__,
+    __ge__,
+    __get__,
+    __getattr__,
+    __getattribute__,
+    __getitem__,
+    __gt__,
+    __hash__,
+    __iadd__,
+    __iand__,
+    __idiv__,
+    __ifloordiv__,
+    __ilshift__,
+    __imatmul__,
+    __imod__,
+    __import__,
+    __imul__,
+    __index__,
+    __init__,
+    __init_subclass__,
+    __instancecheck__,
+    __int__,
+    __invert__,
+    __ior__,
+    __ipow__,
+    __irshift__,
+    __isub__,
+    __iter__,
+    __itruediv__,
+    __ixor__,
+    __le__,
+    __len__,
+    __length_hint__,
+    __lshift__,
+    __lt__,
+    __main__,
+    __matmul__,
+    __missing__,
+    __mod__,
+    __module__,
+    __mro_entries__,
+    __mul__,
+    __name__,
+    __ne__,
+    __neg__,
+    __new__,
+    __next__,
+    __or__,
+    __orig_bases__,
+    __orig_class__,
+    __origin__,
+    __parameters__,
+    __pos__,
+    __pow__,
+    __prepare__,
+    __qualname__,
+    __radd__,
+    __rand__,
+    __rdiv__,
+    __rdivmod__,
+    __reduce__,
+    __reduce_ex__,
+    __repr__,
+    __reversed__,
+    __rfloordiv__,
+    __rlshift__,
+    __rmatmul__,
+    __rmod__,
+    __rmul__,
+    __ror__,
+    __round__,
+    __rpow__,
+    __rrshift__,
+    __rshift__,
+    __rsub__,
+    __rtruediv__,
+    __rxor__,
+    __set__,
+    __set_name__,
+    __setattr__,
+    __setitem__,
+    __str__,
+    __sub__,
+    __subclasscheck__,
+    __truediv__,
+    __trunc__,
+    __xor__,
+
+    // common names
+    _attributes,
+    _fields,
+    decode,
+    encode,
+    keys,
+    items,
+    values,
+    update,
+    copy,
+    flush,
+    close,
 }
 
 // Basic objects:
@@ -48,7 +215,14 @@ impl Context {
     pub const INT_CACHE_POOL_MIN: i32 = -5;
     pub const INT_CACHE_POOL_MAX: i32 = 256;
 
-    fn init() -> Self {
+    pub fn genesis() -> &'static PyRc<Self> {
+        rustpython_common::static_cell! {
+            static CONTEXT: PyRc<Context>;
+        }
+        CONTEXT.get_or_init(|| PyRc::new(Self::init_genesis()))
+    }
+
+    fn init_genesis() -> Self {
         flame_guard!("init Context");
         let types = TypeZoo::init();
         let exceptions = exceptions::ExceptionZoo::init();
@@ -77,18 +251,16 @@ impl Context {
             PyRef::new_ref(PyFrozenSet::default(), types.frozenset_type.clone(), None);
 
         let string_pool = StringPool::default();
+        let names = unsafe { ConstName::new(&string_pool, &types.str_type) };
 
-        let new_str = unsafe { string_pool.intern("__new__", types.str_type.clone()) };
         let slot_new_wrapper = create_object(
-            PyNativeFuncDef::new(PyType::__new__.into_func(), new_str.to_owned().into_pyref())
+            PyNativeFuncDef::new(PyType::__new__.into_func(), names.__new__.to_owned())
                 .into_function(),
             &types.builtin_function_or_method_type,
         )
         .into();
 
-        let true_str = unsafe { string_pool.intern("True", types.str_type.clone()) };
-        let false_str = unsafe { string_pool.intern("False", types.str_type.clone()) };
-        let empty_str = unsafe { string_pool.intern("", types.str_type.clone()) }.to_str();
+        let empty_str = unsafe { string_pool.intern("", types.str_type.clone()) }.to_owned();
 
         let context = Context {
             true_value,
@@ -101,14 +273,12 @@ impl Context {
             ellipsis,
             not_implemented,
 
-            true_str,
-            false_str,
-
             types,
             exceptions,
             int_cache_pool,
             string_pool,
             slot_new_wrapper,
+            names,
         };
         TypeZoo::extend(&context);
         exceptions::ExceptionZoo::extend(&context);
@@ -117,6 +287,10 @@ impl Context {
 
     pub fn intern_str<S: Internable>(&self, s: S) -> &'static PyStrInterned {
         unsafe { self.string_pool.intern(s, self.types.str_type.clone()) }
+    }
+
+    pub fn interned_str<S: MaybeInterned + ?Sized>(&self, s: &S) -> Option<&'static PyStrInterned> {
+        self.string_pool.interned(s)
     }
 
     #[inline(always)]
@@ -216,7 +390,7 @@ impl Context {
     ) -> PyTypeRef {
         let mut attrs = PyAttributes::default();
         if let Some(module) = module {
-            attrs.insert("__module__".to_string(), self.new_str(module).into());
+            attrs.insert(identifier!(self, __module__), self.new_str(module).into());
         };
         PyType::new_ref(
             name,
@@ -240,7 +414,7 @@ impl Context {
             vec![self.exceptions.exception_type.clone()]
         };
         let mut attrs = PyAttributes::default();
-        attrs.insert("__module__".to_owned(), self.new_str(module).into());
+        attrs.insert(identifier!(self, __module__), self.new_str(module).into());
 
         PyType::new_ref(
             name,
@@ -328,11 +502,8 @@ impl Context {
     }
 }
 
-impl Default for Context {
-    fn default() -> Self {
-        rustpython_common::static_cell! {
-            static CONTEXT: Context;
-        }
-        CONTEXT.get_or_init(Self::init).clone()
+impl AsRef<Context> for Context {
+    fn as_ref(&self) -> &Self {
+        self
     }
 }

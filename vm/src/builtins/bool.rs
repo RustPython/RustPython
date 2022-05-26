@@ -1,7 +1,8 @@
 use super::{PyInt, PyStrRef, PyTypeRef};
 use crate::{
-    class::PyClassImpl, convert::ToPyObject, function::OptionalArg, types::Constructor, AsObject,
-    Context, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject, VirtualMachine,
+    class::PyClassImpl, convert::ToPyObject, function::OptionalArg, identifier, types::Constructor,
+    AsObject, Context, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject,
+    VirtualMachine,
 };
 use num_bigint::Sign;
 use num_traits::Zero;
@@ -32,7 +33,7 @@ impl PyObjectRef {
         if self.is(&vm.ctx.false_value) {
             return Ok(false);
         }
-        let rs_bool = match vm.get_method(self.clone(), "__bool__") {
+        let rs_bool = match vm.get_method(self.clone(), identifier!(vm, __bool__)) {
             Some(method_or_err) => {
                 // If descriptor returns Error, propagate it further
                 let method = method_or_err?;
@@ -46,7 +47,7 @@ impl PyObjectRef {
 
                 get_value(&bool_obj)
             }
-            None => match vm.get_method(self, "__len__") {
+            None => match vm.get_method(self, identifier!(vm, __len__)) {
                 Some(method_or_err) => {
                     let method = method_or_err?;
                     let bool_obj = vm.invoke(&method, ())?;
@@ -112,12 +113,11 @@ impl PyBool {
     #[pymethod(magic)]
     fn repr(zelf: bool, vm: &VirtualMachine) -> PyStrRef {
         if zelf {
-            vm.ctx.true_str
+            vm.ctx.names.True
         } else {
-            vm.ctx.false_str
+            vm.ctx.names.False
         }
         .to_owned()
-        .into_pyref()
     }
 
     #[pymethod(magic)]

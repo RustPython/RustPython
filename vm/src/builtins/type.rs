@@ -1,6 +1,6 @@
 use super::{
     mappingproxy::PyMappingProxy, object, union_, PyClassMethod, PyDictRef, PyList, PyStaticMethod,
-    PyStr, PyStrRef, PyTuple, PyTupleRef, PyWeak,
+    PyStr, PyStrInterned, PyStrRef, PyTuple, PyTupleRef, PyWeak,
 };
 use crate::common::{
     ascii,
@@ -8,8 +8,10 @@ use crate::common::{
     lock::{PyRwLock, PyRwLockReadGuard},
 };
 use crate::{
+    builtins::PyBaseExceptionRef,
     class::{PyClassImpl, StaticType},
     function::{FuncArgs, KwArgs, OptionalArg},
+    identifier,
     types::{Callable, GetAttr, PyTypeFlags, PyTypeSlots, SetAttr},
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
@@ -35,7 +37,7 @@ pub type PyTypeRef = PyRef<PyType>;
 /// For attributes we do not use a dict, but an IndexMap, which is an Hash Table
 /// that maintains order and is compatible with the standard HashMap  This is probably
 /// faster and only supports strings as keys.
-pub type PyAttributes = IndexMap<String, PyObjectRef, ahash::RandomState>;
+pub type PyAttributes = IndexMap<&'static PyStrInterned, PyObjectRef, ahash::RandomState>;
 
 impl fmt::Display for PyType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -116,7 +118,7 @@ impl PyType {
         );
 
         for attr_name in new_type.attributes.read().keys() {
-            if attr_name.starts_with("__") && attr_name.ends_with("__") {
+            if attr_name.as_str().starts_with("__") && attr_name.as_str().ends_with("__") {
                 new_type.update_slot(attr_name, true);
             }
         }
@@ -155,34 +157,40 @@ impl PyType {
     }
 
     // This is used for class initialisation where the vm is not yet available.
-    pub fn set_str_attr<V: Into<PyObjectRef>>(&self, attr_name: &str, value: V) {
-        self._set_str_attr(attr_name, value.into())
+    pub fn set_str_attr<V: Into<PyObjectRef>>(
+        &self,
+        attr_name: &str,
+        value: V,
+        ctx: impl AsRef<Context>,
+    ) {
+        let attr_name = ctx.as_ref().intern_str(attr_name);
+        self.set_attr(attr_name, value.into())
     }
 
-    fn _set_str_attr(&self, attr_name: &str, value: PyObjectRef) {
-        self.attributes.write().insert(attr_name.to_owned(), value);
+    pub fn set_attr(&self, attr_name: &'static PyStrInterned, value: PyObjectRef) {
+        self.attributes.write().insert(attr_name, value);
     }
 
     /// This is the internal get_attr implementation for fast lookup on a class.
-    pub fn get_attr(&self, attr_name: &str) -> Option<PyObjectRef> {
+    pub fn get_attr(&self, attr_name: &'static PyStrInterned) -> Option<PyObjectRef> {
         flame_guard!(format!("class_get_attr({:?})", attr_name));
 
         self.get_direct_attr(attr_name)
             .or_else(|| self.get_super_attr(attr_name))
     }
 
-    pub fn get_direct_attr(&self, attr_name: &str) -> Option<PyObjectRef> {
+    pub fn get_direct_attr(&self, attr_name: &'static PyStrInterned) -> Option<PyObjectRef> {
         self.attributes.read().get(attr_name).cloned()
     }
 
-    pub fn get_super_attr(&self, attr_name: &str) -> Option<PyObjectRef> {
+    pub fn get_super_attr(&self, attr_name: &'static PyStrInterned) -> Option<PyObjectRef> {
         self.mro
             .iter()
             .find_map(|class| class.attributes.read().get(attr_name).cloned())
     }
 
     // This is the internal has_attr implementation for fast lookup on a class.
-    pub fn has_attr(&self, attr_name: &str) -> bool {
+    pub fn has_attr(&self, attr_name: &'static PyStrInterned) -> bool {
         self.attributes.read().contains_key(attr_name)
             || self
                 .mro
@@ -264,11 +272,11 @@ impl PyType {
     }
 
     #[pymethod(magic)]
-    fn dir(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyList {
+    fn dir(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyList {
         let attributes: Vec<PyObjectRef> = zelf
             .get_attributes()
             .into_iter()
-            .map(|(k, _)| vm.ctx.new_str(k).into())
+            .map(|(k, _)| k.to_object())
             .collect();
         PyList::from(attributes)
     }
@@ -330,7 +338,7 @@ impl PyType {
     pub fn qualname(&self, vm: &VirtualMachine) -> PyObjectRef {
         self.attributes
             .read()
-            .get("__qualname__")
+            .get(identifier!(vm, __qualname__))
             .cloned()
             // We need to exclude this method from going into recursion:
             .and_then(|found| {
@@ -347,7 +355,7 @@ impl PyType {
     pub fn module(&self, vm: &VirtualMachine) -> PyObjectRef {
         self.attributes
             .read()
-            .get("__module__")
+            .get(identifier!(vm, __module__))
             .cloned()
             // We need to exclude this method from going into recursion:
             .and_then(|found| {
@@ -361,10 +369,10 @@ impl PyType {
     }
 
     #[pyproperty(magic, setter)]
-    fn set_module(&self, value: PyObjectRef) {
+    fn set_module(&self, value: PyObjectRef, vm: &VirtualMachine) {
         self.attributes
             .write()
-            .insert("__module__".to_owned(), value);
+            .insert(identifier!(vm, __module__), value);
     }
 
     #[pyclassmethod(magic)]
@@ -441,7 +449,10 @@ impl PyType {
                 .iter()
                 .map(|obj| {
                     obj.clone().downcast::<PyType>().or_else(|obj| {
-                        if vm.get_attribute_opt(obj, "__mro_entries__")?.is_some() {
+                        if vm
+                            .get_attribute_opt(obj, identifier!(vm, __mro_entries__))?
+                            .is_some()
+                        {
                             Err(vm.new_type_error(
                                 "type() doesn't support MRO entry resolution; \
                                  use types.new_class()"
@@ -471,51 +482,56 @@ impl PyType {
             (metatype, base, bases)
         };
 
-        let mut attributes = dict.to_attributes();
-        if let Some(f) = attributes.get_mut("__new__") {
+        let mut attributes = dict.to_attributes(vm);
+        if let Some(f) = attributes.get_mut(identifier!(vm, __new__)) {
             if f.class().is(&vm.ctx.types.function_type) {
                 *f = PyStaticMethod::from(f.clone()).into_pyobject(vm);
             }
         }
 
-        if let Some(f) = attributes.get_mut("__init_subclass__") {
+        if let Some(f) = attributes.get_mut(identifier!(vm, __init_subclass__)) {
             if f.class().is(&vm.ctx.types.function_type) {
                 *f = PyClassMethod::from(f.clone()).into_pyobject(vm);
             }
         }
 
-        if let Some(f) = attributes.get_mut("__class_getitem__") {
+        if let Some(f) = attributes.get_mut(identifier!(vm, __class_getitem__)) {
             if f.class().is(&vm.ctx.types.function_type) {
                 *f = PyClassMethod::from(f.clone()).into_pyobject(vm);
             }
         }
 
         if let Some(current_frame) = vm.current_frame() {
-            let entry = attributes.entry("__module__".to_owned());
+            let entry = attributes.entry(identifier!(vm, __module__));
             if matches!(entry, Entry::Vacant(_)) {
-                let module_name =
-                    vm.unwrap_or_none(current_frame.globals.get_item_opt("__name__", vm)?);
+                let module_name = vm.unwrap_or_none(
+                    current_frame
+                        .globals
+                        .get_item_opt(identifier!(vm, __name__), vm)?,
+                );
                 entry.or_insert(module_name);
             }
         }
 
         attributes
-            .entry("__qualname__".to_owned())
+            .entry(identifier!(vm, __qualname__))
             .or_insert_with(|| vm.ctx.new_str(name.as_str()).into());
 
         // All *classes* should have a dict. Exceptions are *instances* of
         // classes that define __slots__ and instances of built-in classes
         // (with exceptions, e.g function)
-        attributes.entry("__dict__".to_owned()).or_insert_with(|| {
-            vm.ctx
-                .new_getset(
-                    "__dict__",
-                    vm.ctx.types.object_type.clone(),
-                    subtype_get_dict,
-                    subtype_set_dict,
-                )
-                .into()
-        });
+        attributes
+            .entry(identifier!(vm, __dict__))
+            .or_insert_with(|| {
+                vm.ctx
+                    .new_getset(
+                        "__dict__",
+                        vm.ctx.types.object_type.clone(),
+                        subtype_get_dict,
+                        subtype_set_dict,
+                    )
+                    .into()
+            });
 
         // TODO: Flags is currently initialized with HAS_DICT. Should be
         // updated when __slots__ are supported (toggling the flag off if
@@ -532,13 +548,12 @@ impl PyType {
             .read()
             .iter()
             .filter_map(|(name, obj)| {
-                vm.get_method(obj.clone(), "__set_name__").map(|res| {
-                    res.map(|meth| (obj.clone(), PyStr::from(name.clone()).into_ref(vm), meth))
-                })
+                vm.get_method(obj.clone(), identifier!(vm, __set_name__))
+                    .map(|res| res.map(|meth| (obj.clone(), name.to_owned(), meth)))
             })
             .collect::<PyResult<Vec<_>>>()?;
         for (obj, name, set_name) in attributes {
-            vm.invoke(&set_name, (typ.clone(), name.clone()))
+            vm.invoke(&set_name, (typ.clone(), name.to_owned()))
                 .map_err(|e| {
                     let err = vm.new_runtime_error(format!(
                         "Error calling __set_name__ on '{}' instance {} in '{}'",
@@ -551,7 +566,7 @@ impl PyType {
                 })?;
         }
 
-        if let Some(initter) = typ.get_super_attr("__init_subclass__") {
+        if let Some(initter) = typ.get_super_attr(identifier!(vm, __init_subclass__)) {
             let initter = vm
                 .call_get_descriptor_specific(initter.clone(), None, Some(typ.clone().into()))
                 .unwrap_or(Ok(initter))?;
@@ -629,10 +644,26 @@ pub(crate) fn get_text_signature_from_internal_doc<'a>(
 
 impl GetAttr for PyType {
     fn getattro(zelf: &Py<Self>, name_str: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        let name = name_str.as_str();
+        #[cold]
+        fn attribute_error(
+            zelf: &Py<PyType>,
+            name: &str,
+            vm: &VirtualMachine,
+        ) -> PyBaseExceptionRef {
+            vm.new_attribute_error(format!(
+                "type object '{}' has no attribute '{}'",
+                zelf.slot_name(),
+                name,
+            ))
+        }
+
+        let name = if let Some(name) = vm.ctx.interned_str(&*name_str) {
+            name
+        } else {
+            return Err(attribute_error(zelf, name_str.as_str(), vm));
+        };
         vm_trace!("type.__getattribute__({:?}, {:?})", zelf, name);
         let mcl = zelf.class();
-
         let mcl_attr = mcl.get_attr(name);
 
         if let Some(ref attr) = mcl_attr {
@@ -663,11 +694,7 @@ impl GetAttr for PyType {
             drop(mcl);
             vm.call_if_get_descriptor(attr, zelf.to_owned().into())
         } else {
-            Err(vm.new_attribute_error(format!(
-                "type object '{}' has no attribute '{}'",
-                zelf.slot_name(),
-                name
-            )))
+            return Err(attribute_error(zelf, name_str.as_str(), vm));
         }
     }
 }
@@ -679,7 +706,9 @@ impl SetAttr for PyType {
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        if let Some(attr) = zelf.get_class_attr(attr_name.as_str()) {
+        // TODO: pass PyRefExact instead of &str
+        let attr_name = vm.ctx.intern_str(attr_name.as_str());
+        if let Some(attr) = zelf.get_class_attr(attr_name) {
             let descr_set = attr.class().mro_find_map(|cls| cls.slots.descr_set.load());
             if let Some(descriptor) = descr_set {
                 return descriptor(attr, zelf.to_owned().into(), value, vm);
@@ -689,18 +718,17 @@ impl SetAttr for PyType {
 
         let mut attributes = zelf.attributes.write();
         if let Some(value) = value {
-            attributes.insert(attr_name.as_str().to_owned(), value);
+            attributes.insert(attr_name, value);
         } else {
-            let prev_value = attributes.remove(attr_name.as_str());
+            let prev_value = attributes.remove(attr_name);
             if prev_value.is_none() {
                 return Err(vm.new_exception(
                     vm.ctx.exceptions.attribute_error.clone(),
-                    vec![attr_name.into()],
+                    vec![attr_name.to_object()],
                 ));
             }
         }
-        let attr_name = attr_name.as_str();
-        if attr_name.starts_with("__") && attr_name.ends_with("__") {
+        if attr_name.as_str().starts_with("__") && attr_name.as_str().ends_with("__") {
             zelf.update_slot(attr_name, assign);
         }
         Ok(())
@@ -731,7 +759,7 @@ fn find_base_dict_descr(cls: &PyTypeRef, vm: &VirtualMachine) -> Option<PyObject
         // TODO: should actually be some translation of:
         // cls.slot_dictoffset != 0 && !cls.flags.contains(HEAPTYPE)
         if cls.is(&vm.ctx.types.type_type) {
-            cls.get_attr("__dict__")
+            cls.get_attr(identifier!(vm, __dict__))
         } else {
             None
         }
@@ -936,7 +964,7 @@ mod tests {
 
     #[test]
     fn test_linearise() {
-        let context = Context::default();
+        let context = Context::genesis();
         let object = &context.types.object_type;
         let type_type = &context.types.type_type;
 

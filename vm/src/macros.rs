@@ -30,7 +30,7 @@ macro_rules! py_class {
     (@extract_slots($ctx:expr, $class:expr, $name:expr, $value:expr)) => {};
     (@extract_attrs($ctx:expr, $slots:expr, (slot $slot_name:ident), $value:expr)) => {};
     (@extract_attrs($ctx:expr, $class:expr, $name:expr, $value:expr)) => {
-        $class.set_str_attr($name, $value);
+        $class.set_attr($name, $value);
     };
 }
 
@@ -38,7 +38,7 @@ macro_rules! py_class {
 macro_rules! extend_class {
     ( $ctx:expr, $class:expr, { $($name:expr => $value:expr),* $(,)* }) => {
         $(
-            $class.set_str_attr($name, $value);
+            $class.set_attr($ctx.intern_str($name), $value.into());
         )*
     };
 }
@@ -176,6 +176,13 @@ macro_rules! match_class {
         $crate::match_class!(@parse_match ($($target)* $next) ($($rest)*))
     };
 }
+
+#[macro_export]
+macro_rules! identifier(
+    ($as_ctx:expr, $name:ident) => {
+        $as_ctx.as_ref().names.$name
+    };
+);
 
 /// Super detailed logging. Might soon overflow your logbuffers
 /// Default, this logging is discarded, except when a the `vm-tracing-logging`

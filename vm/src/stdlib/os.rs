@@ -3,6 +3,7 @@ use crate::{
     common::crt_fd::Fd,
     convert::{ToPyException, ToPyObject},
     function::{ArgumentError, FromArgs, FuncArgs},
+    identifier,
     protocol::PyBuffer,
     AsObject, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject, TryFromObject,
     VirtualMachine,
@@ -137,12 +138,13 @@ impl FsPath {
             Ok(pathlike) => return Ok(pathlike),
             Err(obj) => obj,
         };
-        let method = vm.get_method_or_type_error(obj.clone(), "__fspath__", || {
-            format!(
-                "should be string, bytes, os.PathLike or integer, not {}",
-                obj.class().name()
-            )
-        })?;
+        let method =
+            vm.get_method_or_type_error(obj.clone(), identifier!(vm, __fspath__), || {
+                format!(
+                    "should be string, bytes, os.PathLike or integer, not {}",
+                    obj.class().name()
+                )
+            })?;
         let result = vm.invoke(&method, ())?;
         match1(result)?.map_err(|result| {
             vm.new_type_error(format!(

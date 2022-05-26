@@ -1192,7 +1192,7 @@ mod _io {
             }
 
             let readall = vm
-                .get_method(self.raw.clone().unwrap(), "readall")
+                .get_str_method(self.raw.clone().unwrap(), "readall")
                 .transpose()?;
             if let Some(readall) = readall {
                 let res = vm.invoke(&readall, ())?;

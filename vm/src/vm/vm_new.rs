@@ -34,7 +34,7 @@ impl VirtualMachine {
     pub fn new_module(&self, name: &str, dict: PyDictRef, doc: Option<&str>) -> PyObjectRef {
         let module = PyRef::new_ref(PyModule {}, self.ctx.types.module_type.clone(), Some(dict));
         module.init_module_dict(
-            self.new_pyobj(name.to_owned()),
+            self.ctx.intern_str(name),
             doc.map(|doc| self.new_pyobj(doc.to_owned()))
                 .unwrap_or_else(|| self.ctx.none()),
             self,
@@ -97,13 +97,10 @@ impl VirtualMachine {
         self.new_exception_msg(type_error, msg)
     }
 
-    pub fn new_name_error(&self, msg: String, name: &PyStrRef) -> PyBaseExceptionRef {
+    pub fn new_name_error(&self, msg: String, name: PyStrRef) -> PyBaseExceptionRef {
         let name_error_type = self.ctx.exceptions.name_error.clone();
         let name_error = self.new_exception_msg(name_error_type, msg);
-        name_error
-            .as_object()
-            .set_attr("name", name.clone(), self)
-            .unwrap();
+        name_error.as_object().set_attr("name", name, self).unwrap();
         name_error
     }
 

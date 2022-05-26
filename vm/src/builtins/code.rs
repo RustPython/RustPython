@@ -4,6 +4,7 @@
 
 use super::{PyStrRef, PyTupleRef, PyTypeRef};
 use crate::{
+    builtins::PyStrInterned,
     bytecode::{self, BorrowedConstant, Constant, ConstantBag},
     class::{PyClassImpl, StaticType},
     convert::ToPyObject,
@@ -63,7 +64,7 @@ fn borrow_obj_constant(obj: &PyObject) -> BorrowedConstant<Literal> {
 }
 
 impl Constant for Literal {
-    type Name = PyStrRef;
+    type Name = &'static PyStrInterned;
     fn borrow_constant(&self) -> BorrowedConstant<Self> {
         borrow_obj_constant(&self.0)
     }
@@ -103,8 +104,8 @@ impl ConstantBag for PyObjBag<'_> {
         Literal(obj)
     }
 
-    fn make_name(&self, name: &str) -> PyStrRef {
-        self.0.intern_str(name).to_str()
+    fn make_name(&self, name: &str) -> &'static PyStrInterned {
+        self.0.intern_str(name)
     }
 }
 
@@ -190,7 +191,7 @@ impl PyRef<PyCode> {
 
     #[pyproperty]
     fn co_filename(self) -> PyStrRef {
-        self.code.source_path.clone()
+        self.code.source_path.to_owned()
     }
 
     #[pyproperty]
@@ -211,7 +212,7 @@ impl PyRef<PyCode> {
 
     #[pyproperty]
     fn co_name(self) -> PyStrRef {
-        self.code.obj_name.clone()
+        self.code.obj_name.to_owned()
     }
 
     #[pyproperty]
@@ -221,12 +222,7 @@ impl PyRef<PyCode> {
 
     #[pyproperty]
     pub fn co_varnames(self, vm: &VirtualMachine) -> PyTupleRef {
-        let varnames = self
-            .code
-            .varnames
-            .iter()
-            .map(|s| s.clone().into())
-            .collect();
+        let varnames = self.code.varnames.iter().map(|s| s.to_object()).collect();
         vm.ctx.new_tuple(varnames)
     }
 }

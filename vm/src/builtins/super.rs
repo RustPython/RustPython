@@ -148,22 +148,24 @@ impl GetAttr for PySuper {
             return skip(zelf, name);
         }
 
-        // skip the classes in start_type.mro up to and including zelf.typ
-        let mro: Vec<_> = start_type
-            .iter_mro()
-            .skip_while(|cls| !cls.is(&zelf.typ))
-            .skip(1) // skip su->type (if any)
-            .collect();
-        for cls in mro {
-            if let Some(descr) = cls.get_direct_attr(name.as_str()) {
-                return vm
-                    .call_get_descriptor_specific(
-                        descr.clone(),
-                        // Only pass 'obj' param if this is instance-mode super (See https://bugs.python.org/issue743267)
-                        if obj.is(&start_type) { None } else { Some(obj) },
-                        Some(start_type.as_object().to_owned()),
-                    )
-                    .unwrap_or(Ok(descr));
+        if let Some(name) = vm.ctx.interned_str(&*name) {
+            // skip the classes in start_type.mro up to and including zelf.typ
+            let mro: Vec<_> = start_type
+                .iter_mro()
+                .skip_while(|cls| !cls.is(&zelf.typ))
+                .skip(1) // skip su->type (if any)
+                .collect();
+            for cls in mro {
+                if let Some(descr) = cls.get_direct_attr(name) {
+                    return vm
+                        .call_get_descriptor_specific(
+                            descr.clone(),
+                            // Only pass 'obj' param if this is instance-mode super (See https://bugs.python.org/issue743267)
+                            if obj.is(&start_type) { None } else { Some(obj) },
+                            Some(start_type.as_object().to_owned()),
+                        )
+                        .unwrap_or(Ok(descr));
+                }
             }
         }
         skip(zelf, name)

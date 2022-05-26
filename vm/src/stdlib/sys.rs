@@ -132,7 +132,7 @@ mod sys {
             } else {
                 "unknown"
             })
-            .to_str()
+            .to_owned()
     }
 
     #[pyattr]
@@ -512,7 +512,7 @@ mod sys {
     }
 
     #[pyfunction]
-    fn intern(s: PyRefExact<PyStr>, vm: &VirtualMachine) -> PyRefExact<PyStr> {
+    fn intern(s: PyRefExact<PyStr>, vm: &VirtualMachine) -> PyRef<PyStr> {
         vm.ctx.intern_str(s).to_owned()
     }
 

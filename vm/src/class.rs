@@ -2,6 +2,7 @@
 
 use crate::{
     builtins::{PyBaseObject, PyBoundMethod, PyType, PyTypeRef},
+    identifier,
     object::{PyObjectPayload, PyObjectRef, PyRef},
     types::{PyTypeFlags, PyTypeSlots},
     vm::Context,
@@ -83,28 +84,33 @@ pub trait PyClassImpl: PyClassDef {
             assert!(class.slots.flags.is_created_with_flags());
         }
         if Self::TP_FLAGS.has_feature(PyTypeFlags::HAS_DICT) {
-            class.set_str_attr(
-                "__dict__",
+            let __dict__ = identifier!(ctx, __dict__);
+            class.set_attr(
+                __dict__,
                 ctx.new_getset(
                     "__dict__",
                     class.clone(),
                     crate::builtins::object::object_get_dict,
                     crate::builtins::object::object_set_dict,
-                ),
+                )
+                .into(),
             );
         }
         Self::impl_extend_class(ctx, class);
         if let Some(doc) = Self::DOC {
-            class.set_str_attr("__doc__", ctx.new_str(doc));
+            class.set_attr(identifier!(ctx, __doc__), ctx.new_str(doc).into());
         }
         if let Some(module_name) = Self::MODULE_NAME {
-            class.set_str_attr("__module__", ctx.new_str(module_name));
+            class.set_attr(
+                identifier!(ctx, __module__),
+                ctx.new_str(module_name).into(),
+            );
         }
         if class.slots.new.load().is_some() {
             let bound: PyObjectRef =
                 PyBoundMethod::new_ref(class.clone().into(), ctx.slot_new_wrapper.clone(), ctx)
                     .into();
-            class.set_str_attr("__new__", bound);
+            class.set_attr(identifier!(ctx, __new__), bound);
         }
     }
 

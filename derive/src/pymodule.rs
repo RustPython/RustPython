@@ -433,7 +433,7 @@ impl ModuleItem for ClassItem {
             };
             let class_new = quote_spanned!(ident.span() =>
                 let new_class = <#ident as ::rustpython_vm::class::PyClassImpl>::make_class(&vm.ctx);
-                new_class.set_str_attr("__module__", vm.new_pyobj(#module_name));
+                new_class.set_attr(rustpython_vm::identifier!(vm, __module__), vm.new_pyobj(#module_name));
             );
             (class_name, class_new)
         };

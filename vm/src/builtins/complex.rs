@@ -7,6 +7,7 @@ use crate::{
         PyArithmeticValue::{self, *},
         PyComparisonValue,
     },
+    identifier,
     types::{Comparable, Constructor, Hashable, PyComparisonOp},
     AsObject, Context, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
@@ -48,7 +49,7 @@ impl PyObjectRef {
         if let Some(complex) = self.payload_if_exact::<PyComplex>(vm) {
             return Ok(Some((complex.value, true)));
         }
-        if let Some(method) = vm.get_method(self.clone(), "__complex__") {
+        if let Some(method) = vm.get_method(self.clone(), identifier!(vm, __complex__)) {
             let result = vm.invoke(&method?, ())?;
             // TODO: returning strict subclasses of complex in __complex__ is deprecated
             return match result.payload::<PyComplex>() {

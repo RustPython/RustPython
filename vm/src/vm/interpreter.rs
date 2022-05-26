@@ -1,4 +1,4 @@
-use super::{setting::Settings, thread, VirtualMachine};
+use super::{setting::Settings, thread, Context, VirtualMachine};
 use crate::{
     stdlib::{atexit, sys},
     PyResult,
@@ -44,7 +44,8 @@ impl Interpreter {
     where
         F: FnOnce(&mut VirtualMachine),
     {
-        let mut vm = VirtualMachine::new(settings);
+        let ctx = Context::genesis();
+        let mut vm = VirtualMachine::new(settings, ctx.clone());
         init(&mut vm);
         vm.initialize();
         Self { vm }
@@ -82,10 +83,10 @@ impl Interpreter {
 
 fn flush_std(vm: &VirtualMachine) {
     if let Ok(stdout) = sys::get_stdout(vm) {
-        let _ = vm.call_method(&stdout, "flush", ());
+        let _ = vm.call_method(&stdout, identifier!(vm, flush).as_str(), ());
     }
     if let Ok(stderr) = sys::get_stderr(vm) {
-        let _ = vm.call_method(&stderr, "flush", ());
+        let _ = vm.call_method(&stderr, identifier!(vm, flush).as_str(), ());
     }
 }
 

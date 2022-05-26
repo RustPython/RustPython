@@ -54,8 +54,9 @@ impl HashSecret {
     pub fn new(seed: u32) -> Self {
         let mut buf = [0u8; 16];
         lcg_urandom(seed, &mut buf);
-        let k0 = u64::from_le_bytes(buf[..8].try_into().unwrap());
-        let k1 = u64::from_le_bytes(buf[8..].try_into().unwrap());
+        let (left, right) = buf.split_at(8);
+        let k0 = u64::from_le_bytes(left.try_into().unwrap());
+        let k1 = u64::from_le_bytes(right.try_into().unwrap());
         Self { k0, k1 }
     }
 }
