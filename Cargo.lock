@@ -1579,6 +1579,7 @@ dependencies = [
  "num-bigint",
  "num-complex",
  "serde",
+ "static_assertions",
 ]
 
 [[package]]

@@ -394,6 +394,7 @@ pub enum Instruction {
     GetANext,
     EndAsyncFor,
 }
+static_assertions::assert_eq_size!(Instruction, u64);
 
 use self::Instruction::*;
 
