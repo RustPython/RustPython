@@ -2,8 +2,8 @@ use std::ops;
 
 use crate::IndexSet;
 use rustpython_compiler_core::{
-    CodeFlags, CodeObject, CodeUnit, ConstantData, InstrDisplayContext, Instruction, Label,
-    Location, OpArg,
+    CodeFlags, CodeObject, CodeObjectInner, CodeUnit, ConstantData, InstrDisplayContext,
+    Instruction, Label, Location, OpArg,
 };
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -151,7 +151,7 @@ impl CodeInfo {
             locations.clear()
         }
 
-        CodeObject {
+        let code_object = CodeObjectInner {
             flags,
             posonlyarg_count,
             arg_count,
@@ -169,7 +169,10 @@ impl CodeInfo {
             cellvars: cellvar_cache.into_iter().collect(),
             freevars: freevar_cache.into_iter().collect(),
             cell2arg,
-        }
+        };
+
+        // SAFETY: we assume that the compiler produces correct output
+        unsafe { CodeObject::new(code_object) }
     }
 
     fn cell2arg(&self) -> Option<Box<[isize]>> {

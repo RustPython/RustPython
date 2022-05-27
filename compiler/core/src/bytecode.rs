@@ -63,7 +63,7 @@ impl ConstantBag for BasicBag {
 /// Primary container of a single code object. Each python function has
 /// a codeobject. Also a module has a codeobject.
 #[derive(Clone, Serialize, Deserialize)]
-pub struct CodeObject<C: Constant = ConstantData> {
+pub struct CodeObjectInner<C: Constant = ConstantData> {
     pub instructions: Box<[CodeUnit]>,
     pub locations: Box<[Location]>,
     pub flags: CodeFlags,
@@ -863,7 +863,7 @@ impl<N: AsRef<str>> fmt::Debug for Arguments<'_, N> {
     }
 }
 
-impl<C: Constant> CodeObject<C> {
+impl<C: Constant> CodeObjectInner<C> {
     /// Get all arguments of the code object
     /// like inspect.getargs
     pub fn arg_names(&self) -> Arguments<C::Name> {
@@ -896,7 +896,7 @@ impl<C: Constant> CodeObject<C> {
         }
     }
 
-    /// Return the labels targeted by the instructions of this CodeObject
+    /// Return the labels targeted by the instructions of this codeobject
     pub fn label_targets(&self) -> BTreeSet<Label> {
         let mut label_targets = BTreeSet::new();
         let mut arg_state = OpArgState::default();
@@ -957,79 +957,15 @@ impl<C: Constant> CodeObject<C> {
         Ok(())
     }
 
-    /// Recursively display this CodeObject
+    /// Recursively display this codeobject
     pub fn display_expand_codeobjects(&self) -> impl fmt::Display + '_ {
-        struct Display<'a, C: Constant>(&'a CodeObject<C>);
+        struct Display<'a, C: Constant>(&'a CodeObjectInner<C>);
         impl<C: Constant> fmt::Display for Display<'_, C> {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 self.0.display_inner(f, true, 1)
             }
         }
         Display(self)
-    }
-
-    /// Map this CodeObject to one that holds a Bag::Constant
-    pub fn map_bag<Bag: ConstantBag>(self, bag: Bag) -> CodeObject<Bag::Constant> {
-        let map_names = |names: Box<[C::Name]>| {
-            names
-                .into_vec()
-                .into_iter()
-                .map(|x| bag.make_name(x.as_ref()))
-                .collect::<Box<[_]>>()
-        };
-        CodeObject {
-            constants: self
-                .constants
-                .into_vec()
-                .into_iter()
-                .map(|x| bag.make_constant(x.borrow_constant()))
-                .collect(),
-            names: map_names(self.names),
-            varnames: map_names(self.varnames),
-            cellvars: map_names(self.cellvars),
-            freevars: map_names(self.freevars),
-            source_path: bag.make_name(self.source_path.as_ref()),
-            obj_name: bag.make_name(self.obj_name.as_ref()),
-
-            instructions: self.instructions,
-            locations: self.locations,
-            flags: self.flags,
-            posonlyarg_count: self.posonlyarg_count,
-            arg_count: self.arg_count,
-            kwonlyarg_count: self.kwonlyarg_count,
-            first_line_number: self.first_line_number,
-            max_stackdepth: self.max_stackdepth,
-            cell2arg: self.cell2arg,
-        }
-    }
-
-    /// Same as `map_bag` but clones `self`
-    pub fn map_clone_bag<Bag: ConstantBag>(&self, bag: &Bag) -> CodeObject<Bag::Constant> {
-        let map_names =
-            |names: &[C::Name]| names.iter().map(|x| bag.make_name(x.as_ref())).collect();
-        CodeObject {
-            constants: self
-                .constants
-                .iter()
-                .map(|x| bag.make_constant(x.borrow_constant()))
-                .collect(),
-            names: map_names(&self.names),
-            varnames: map_names(&self.varnames),
-            cellvars: map_names(&self.cellvars),
-            freevars: map_names(&self.freevars),
-            source_path: bag.make_name(self.source_path.as_ref()),
-            obj_name: bag.make_name(self.obj_name.as_ref()),
-
-            instructions: self.instructions.clone(),
-            locations: self.locations.clone(),
-            flags: self.flags,
-            posonlyarg_count: self.posonlyarg_count,
-            arg_count: self.arg_count,
-            kwonlyarg_count: self.kwonlyarg_count,
-            first_line_number: self.first_line_number,
-            max_stackdepth: self.max_stackdepth,
-            cell2arg: self.cell2arg.clone(),
-        }
     }
 }
 
@@ -1054,7 +990,7 @@ impl fmt::Display for CodeDeserializeError {
 
 impl std::error::Error for CodeDeserializeError {}
 
-impl CodeObject<ConstantData> {
+impl CodeObjectInner<ConstantData> {
     /// Load a code object from bytes
     pub fn from_bytes(data: &[u8]) -> Result<Self, CodeDeserializeError> {
         use lz4_flex::block::DecompressError;
@@ -1075,12 +1011,12 @@ impl CodeObject<ConstantData> {
 
     /// Serialize this bytecode to bytes.
     pub fn to_bytes(&self) -> Vec<u8> {
-        let data = bincode::serialize(&self).expect("CodeObject is not serializable");
+        let data = bincode::serialize(&self).expect("codeobject is not serializable");
         lz4_flex::compress_prepend_size(&data)
     }
 }
 
-impl<C: Constant> fmt::Display for CodeObject<C> {
+impl<C: Constant> fmt::Display for CodeObjectInner<C> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.display_inner(f, false, 1)?;
         for constant in &*self.constants {
@@ -1428,7 +1364,7 @@ pub trait InstrDisplayContext {
     fn get_cellname(&self, i: usize) -> &str;
 }
 
-impl<C: Constant> InstrDisplayContext for CodeObject<C> {
+impl<C: Constant> InstrDisplayContext for CodeObjectInner<C> {
     type Constant = C;
     fn get_constant(&self, i: usize) -> &C {
         &self.constants[i]
@@ -1446,6 +1382,21 @@ impl<C: Constant> InstrDisplayContext for CodeObject<C> {
             .as_ref()
     }
 }
+impl<C: Constant> InstrDisplayContext for CodeObject<C> {
+    type Constant = C;
+    fn get_constant(&self, i: usize) -> &C {
+        (**self).get_constant(i)
+    }
+    fn get_name(&self, i: usize) -> &str {
+        (**self).get_name(i)
+    }
+    fn get_varname(&self, i: usize) -> &str {
+        (**self).get_varname(i)
+    }
+    fn get_cellname(&self, i: usize) -> &str {
+        (**self).get_cellname(i)
+    }
+}
 
 impl fmt::Display for ConstantData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -1453,7 +1404,7 @@ impl fmt::Display for ConstantData {
     }
 }
 
-impl<C: Constant> fmt::Debug for CodeObject<C> {
+impl<C: Constant> fmt::Debug for CodeObjectInner<C> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -1478,7 +1429,10 @@ pub mod frozen_lib {
     use std::io;
 
     /// Decode a library to a iterable of frozen modules
-    pub fn decode_lib(bytes: &[u8]) -> FrozenModulesIter {
+    ///
+    /// # Safety
+    /// `bytes` must be the output from [`encode_lib`].
+    pub unsafe fn decode_lib(bytes: &[u8]) -> FrozenModulesIter {
         let data = lz4_flex::decompress_size_prepended(bytes).unwrap();
         let r = VecReader { data, pos: 0 };
         let mut de = bincode::Deserializer::with_bincode_read(r, options());
@@ -1599,5 +1553,136 @@ pub mod frozen_lib {
         {
             visitor.visit_bytes(self.get_byte_slice(length)?)
         }
+    }
+}
+
+/// A wrapper around [`CodeObjectInner`] that guarantees correctness of all
+/// aspects of the contained bytecode, in order for the VM to make optimizations
+/// that skip safety checks.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[repr(transparent)]
+pub struct CodeObject<C: Constant = ConstantData>(
+    // invariant: this codeobject must be correct Python bytecode
+    #[serde(bound(
+        deserialize = "CodeObjectInner<C>: serde::Deserialize<'de>",
+        serialize = "CodeObjectInner<C>: serde::Serialize"
+    ))]
+    CodeObjectInner<C>,
+);
+
+impl<C: Constant> Clone for CodeObject<C>
+where
+    CodeObjectInner<C>: Clone,
+{
+    fn clone(&self) -> Self {
+        CodeObject(self.0.clone())
+    }
+}
+
+impl<C: Constant> fmt::Display for CodeObject<C> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Display::fmt(&**self, f)
+    }
+}
+
+impl<C: Constant> fmt::Debug for CodeObject<C> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Debug::fmt(&**self, f)
+    }
+}
+
+impl<C: Constant> std::ops::Deref for CodeObject<C> {
+    type Target = CodeObjectInner<C>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<C: Constant> CodeObject<C> {
+    /// Create a new CodeObject
+    ///
+    /// # Safety
+    ///
+    /// Caller is responsible for ensuring that `code` is correct python bytecode.
+    /// The easiest way to do so is get a CodeObject from the
+    /// `rustpython-compiler` crate.
+    pub unsafe fn new(code: CodeObjectInner<C>) -> Self {
+        Self(code)
+    }
+
+    pub fn set_source_path(&mut self, source_path: C::Name) {
+        self.0.source_path = source_path;
+    }
+
+    pub fn into_inner(self) -> CodeObjectInner<C> {
+        self.0
+    }
+
+    /// Map this CodeObject to one that holds a Bag::Constant
+    pub fn map_bag<Bag: ConstantBag>(self, bag: Bag) -> CodeObject<Bag::Constant> {
+        let this = self.0;
+        let map_names = |names: Box<[C::Name]>| {
+            names
+                .into_vec()
+                .into_iter()
+                .map(|x| bag.make_name(x.as_ref()))
+                .collect::<Box<[_]>>()
+        };
+        let new_code = CodeObjectInner {
+            constants: this
+                .constants
+                .into_vec()
+                .into_iter()
+                .map(|x| bag.make_constant(x.borrow_constant()))
+                .collect(),
+            names: map_names(this.names),
+            varnames: map_names(this.varnames),
+            cellvars: map_names(this.cellvars),
+            freevars: map_names(this.freevars),
+            source_path: bag.make_name(this.source_path.as_ref()),
+            obj_name: bag.make_name(this.obj_name.as_ref()),
+
+            instructions: this.instructions,
+            locations: this.locations,
+            flags: this.flags,
+            posonlyarg_count: this.posonlyarg_count,
+            arg_count: this.arg_count,
+            kwonlyarg_count: this.kwonlyarg_count,
+            first_line_number: this.first_line_number,
+            max_stackdepth: this.max_stackdepth,
+            cell2arg: this.cell2arg,
+        };
+        unsafe { CodeObject::new(new_code) }
+    }
+
+    /// Same as `map_bag` but clones `self`
+    pub fn map_clone_bag<Bag: ConstantBag>(&self, bag: &Bag) -> CodeObject<Bag::Constant> {
+        let this = self;
+        let map_names =
+            |names: &[C::Name]| names.iter().map(|x| bag.make_name(x.as_ref())).collect();
+        let new_code = CodeObjectInner {
+            constants: this
+                .constants
+                .iter()
+                .map(|x| bag.make_constant(x.borrow_constant()))
+                .collect(),
+            names: map_names(&this.names),
+            varnames: map_names(&this.varnames),
+            cellvars: map_names(&this.cellvars),
+            freevars: map_names(&this.freevars),
+            source_path: bag.make_name(this.source_path.as_ref()),
+            obj_name: bag.make_name(this.obj_name.as_ref()),
+
+            instructions: this.instructions.clone(),
+            locations: this.locations.clone(),
+            flags: this.flags,
+            posonlyarg_count: this.posonlyarg_count,
+            arg_count: this.arg_count,
+            kwonlyarg_count: this.kwonlyarg_count,
+            first_line_number: this.first_line_number,
+            max_stackdepth: this.max_stackdepth,
+            cell2arg: this.cell2arg.clone(),
+        };
+        unsafe { CodeObject::new(new_code) }
     }
 }
