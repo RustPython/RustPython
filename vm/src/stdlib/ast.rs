@@ -269,13 +269,14 @@ pub(crate) fn compile(
     vm: &VirtualMachine,
     object: PyObjectRef,
     filename: &str,
-    _mode: compile::Mode,
+    mode: compile::Mode,
 ) -> PyResult {
     let opts = vm.compile_opts();
     let ast = Node::ast_from_object(vm, object)?;
-    let code = rustpython_compiler_core::compile::compile_top(&ast, filename.to_owned(), opts)
-        // TODO: use vm.new_syntax_error()
-        .map_err(|err| vm.new_value_error(err.to_string()))?;
+    let code =
+        rustpython_compiler_core::compile::compile_top(&ast, filename.to_owned(), mode, opts)
+            // TODO: use vm.new_syntax_error()
+            .map_err(|err| vm.new_value_error(err.to_string()))?;
     Ok(vm.ctx.new_code(code).into())
 }
 

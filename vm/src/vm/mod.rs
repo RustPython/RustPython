@@ -767,6 +767,18 @@ impl VirtualMachine {
         self.run_code_obj(code_obj, scope)
     }
 
+    pub fn run_block_expr(&self, scope: Scope, source: &str) -> PyResult {
+        let code_obj = self
+            .compile(
+                source,
+                crate::compile::Mode::BlockExpr,
+                "<embedded>".to_owned(),
+            )
+            .map_err(|err| self.new_syntax_error(&err))?;
+        // trace!("Code object: {:?}", code_obj.borrow());
+        self.run_code_obj(code_obj, scope)
+    }
+
     pub fn run_module(&self, module: &str) -> PyResult<()> {
         let runpy = self.import("runpy", None, 0)?;
         let run_module_as_main = runpy.get_attr("_run_module_as_main", self)?;
