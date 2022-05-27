@@ -690,23 +690,6 @@ impl PyByteArray {
     }
 }
 
-impl PyByteArray {
-    const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
-        length: Some(|mapping, _vm| Ok(Self::mapping_downcast(mapping).len())),
-        subscript: Some(|mapping, needle, vm| {
-            Self::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
-        }),
-        ass_subscript: Some(|mapping, needle, value, vm| {
-            let zelf = Self::mapping_downcast(mapping);
-            if let Some(value) = value {
-                Self::setitem(zelf.to_owned(), needle.to_owned(), value, vm)
-            } else {
-                zelf.delitem(needle.to_owned(), vm)
-            }
-        }),
-    };
-}
-
 impl Constructor for PyByteArray {
     type Args = FuncArgs;
 
@@ -784,9 +767,20 @@ impl<'a> BufferResizeGuard<'a> for PyByteArray {
 }
 
 impl AsMapping for PyByteArray {
-    fn as_mapping(_zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
-        Self::MAPPING_METHODS
-    }
+    const AS_MAPPING: PyMappingMethods = PyMappingMethods {
+        length: Some(|mapping, _vm| Ok(Self::mapping_downcast(mapping).len())),
+        subscript: Some(|mapping, needle, vm| {
+            Self::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
+        }),
+        ass_subscript: Some(|mapping, needle, value, vm| {
+            let zelf = Self::mapping_downcast(mapping);
+            if let Some(value) = value {
+                Self::setitem(zelf.to_owned(), needle.to_owned(), value, vm)
+            } else {
+                zelf.delitem(needle.to_owned(), vm)
+            }
+        }),
+    };
 }
 
 impl AsSequence for PyByteArray {

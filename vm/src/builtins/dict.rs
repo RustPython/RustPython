@@ -212,21 +212,6 @@ impl PyDict {
     pub fn size(&self) -> dictdatatype::DictSize {
         self.entries.size()
     }
-
-    pub(crate) const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
-        length: Some(|mapping, _vm| Ok(Self::mapping_downcast(mapping).len())),
-        subscript: Some(|mapping, needle, vm| {
-            Self::mapping_downcast(mapping).inner_getitem(needle, vm)
-        }),
-        ass_subscript: Some(|mapping, needle, value, vm| {
-            let zelf = Self::mapping_downcast(mapping);
-            if let Some(value) = value {
-                zelf.inner_setitem(needle, value, vm)
-            } else {
-                zelf.inner_delitem(needle, vm)
-            }
-        }),
-    };
 }
 
 // Python dict methods:
@@ -476,9 +461,20 @@ impl Initializer for PyDict {
 }
 
 impl AsMapping for PyDict {
-    fn as_mapping(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
-        Self::MAPPING_METHODS
-    }
+    const AS_MAPPING: PyMappingMethods = PyMappingMethods {
+        length: Some(|mapping, _vm| Ok(Self::mapping_downcast(mapping).len())),
+        subscript: Some(|mapping, needle, vm| {
+            Self::mapping_downcast(mapping).inner_getitem(needle, vm)
+        }),
+        ass_subscript: Some(|mapping, needle, value, vm| {
+            let zelf = Self::mapping_downcast(mapping);
+            if let Some(value) = value {
+                zelf.inner_setitem(needle, value, vm)
+            } else {
+                zelf.inner_delitem(needle, vm)
+            }
+        }),
+    };
 }
 
 impl AsSequence for PyDict {

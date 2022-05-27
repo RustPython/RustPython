@@ -1301,13 +1301,7 @@ impl Iterable for PyStr {
 }
 
 impl AsMapping for PyStr {
-    fn as_mapping(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
-        Self::MAPPING_METHODS
-    }
-}
-
-impl PyStr {
-    const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
+    const AS_MAPPING: PyMappingMethods = PyMappingMethods {
         length: Some(|mapping, _vm| Ok(Self::mapping_downcast(mapping).len())),
         subscript: Some(|mapping, needle, vm| Self::mapping_downcast(mapping)._getitem(needle, vm)),
         ass_subscript: None,

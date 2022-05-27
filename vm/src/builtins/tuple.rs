@@ -345,18 +345,12 @@ impl PyTuple {
     }
 }
 
-impl PyTuple {
-    const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
+impl AsMapping for PyTuple {
+    const AS_MAPPING: PyMappingMethods = PyMappingMethods {
         length: Some(|mapping, _vm| Ok(Self::mapping_downcast(mapping).len())),
         subscript: Some(|mapping, needle, vm| Self::mapping_downcast(mapping)._getitem(needle, vm)),
         ass_subscript: None,
     };
-}
-
-impl AsMapping for PyTuple {
-    fn as_mapping(_zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
-        Self::MAPPING_METHODS
-    }
 }
 
 impl AsSequence for PyTuple {

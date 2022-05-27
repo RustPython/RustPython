@@ -157,20 +157,14 @@ impl PyMappingProxy {
     }
 }
 
-impl PyMappingProxy {
-    const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
+impl AsMapping for PyMappingProxy {
+    const AS_MAPPING: PyMappingMethods = PyMappingMethods {
         length: None,
         subscript: Some(|mapping, needle, vm| {
             Self::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
         }),
         ass_subscript: None,
     };
-}
-
-impl AsMapping for PyMappingProxy {
-    fn as_mapping(_zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
-        Self::MAPPING_METHODS
-    }
 }
 
 impl AsSequence for PyMappingProxy {

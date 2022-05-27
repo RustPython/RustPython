@@ -1238,8 +1238,8 @@ mod array {
         },
     };
 
-    impl PyArray {
-        const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
+    impl AsMapping for PyArray {
+        const AS_MAPPING: PyMappingMethods = PyMappingMethods {
             length: Some(|mapping, _vm| Ok(Self::mapping_downcast(mapping).len())),
             subscript: Some(|mapping, needle, vm| {
                 Self::mapping_downcast(mapping)._getitem(needle, vm)
@@ -1253,12 +1253,6 @@ mod array {
                 }
             }),
         };
-    }
-
-    impl AsMapping for PyArray {
-        fn as_mapping(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
-            Self::MAPPING_METHODS
-        }
     }
 
     impl Iterable for PyArray {

@@ -352,21 +352,6 @@ impl PyList {
     }
 }
 
-impl PyList {
-    const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
-        length: Some(|mapping, _vm| Ok(Self::mapping_downcast(mapping).len())),
-        subscript: Some(|mapping, needle, vm| Self::mapping_downcast(mapping)._getitem(needle, vm)),
-        ass_subscript: Some(|mapping, needle, value, vm| {
-            let zelf = Self::mapping_downcast(mapping);
-            if let Some(value) = value {
-                zelf._setitem(needle, value, vm)
-            } else {
-                zelf._delitem(needle, vm)
-            }
-        }),
-    };
-}
-
 impl<'a> MutObjectSequenceOp<'a> for PyList {
     type Guard = PyMappedRwLockReadGuard<'a, [PyObjectRef]>;
 
@@ -404,9 +389,18 @@ impl Initializer for PyList {
 }
 
 impl AsMapping for PyList {
-    fn as_mapping(_zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
-        Self::MAPPING_METHODS
-    }
+    const AS_MAPPING: PyMappingMethods = PyMappingMethods {
+        length: Some(|mapping, _vm| Ok(Self::mapping_downcast(mapping).len())),
+        subscript: Some(|mapping, needle, vm| Self::mapping_downcast(mapping)._getitem(needle, vm)),
+        ass_subscript: Some(|mapping, needle, value, vm| {
+            let zelf = Self::mapping_downcast(mapping);
+            if let Some(value) = value {
+                zelf._setitem(needle, value, vm)
+            } else {
+                zelf._delitem(needle, vm)
+            }
+        }),
+    };
 }
 
 impl AsSequence for PyList {

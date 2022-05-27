@@ -957,8 +957,8 @@ impl Drop for PyMemoryView {
     }
 }
 
-impl PyMemoryView {
-    const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
+impl AsMapping for PyMemoryView {
+    const AS_MAPPING: PyMappingMethods = PyMappingMethods {
         length: Some(|mapping, vm| Self::mapping_downcast(mapping).len(vm)),
         subscript: Some(|mapping, needle, vm| {
             let zelf = Self::mapping_downcast(mapping);
@@ -973,12 +973,6 @@ impl PyMemoryView {
             }
         }),
     };
-}
-
-impl AsMapping for PyMemoryView {
-    fn as_mapping(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
-        Self::MAPPING_METHODS
-    }
 }
 
 impl AsSequence for PyMemoryView {

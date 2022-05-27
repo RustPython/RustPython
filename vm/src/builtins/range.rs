@@ -390,14 +390,6 @@ impl PyRange {
             .map(|x| x as usize)
     }
 
-    const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
-        length: Some(|mapping, vm| Self::mapping_downcast(mapping).protocol_length(vm)),
-        subscript: Some(|mapping, needle, vm| {
-            Self::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
-        }),
-        ass_subscript: None,
-    };
-
     const SEQUENCE_METHDOS: PySequenceMethods = PySequenceMethods {
         length: Some(|seq, vm| Self::sequence_downcast(seq).protocol_length(vm)),
         item: Some(|seq, i, vm| {
@@ -414,9 +406,13 @@ impl PyRange {
 }
 
 impl AsMapping for PyRange {
-    fn as_mapping(_zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
-        Self::MAPPING_METHODS
-    }
+    const AS_MAPPING: PyMappingMethods = PyMappingMethods {
+        length: Some(|mapping, vm| Self::mapping_downcast(mapping).protocol_length(vm)),
+        subscript: Some(|mapping, needle, vm| {
+            Self::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
+        }),
+        ass_subscript: None,
+    };
 }
 
 impl AsSequence for PyRange {
