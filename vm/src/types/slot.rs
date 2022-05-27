@@ -896,14 +896,13 @@ pub trait AsBuffer: PyPayload {
 
 #[pyimpl]
 pub trait AsMapping: PyPayload {
+    const AS_MAPPING: PyMappingMethods;
+
     #[inline]
     #[pyslot]
-    fn slot_as_mapping(zelf: &PyObject, vm: &VirtualMachine) -> PyMappingMethods {
-        let zelf = unsafe { zelf.downcast_unchecked_ref::<Self>() };
-        Self::as_mapping(zelf, vm)
+    fn as_mapping(_zelf: &PyObject, _vm: &VirtualMachine) -> PyMappingMethods {
+        Self::AS_MAPPING
     }
-
-    fn as_mapping(zelf: &Py<Self>, vm: &VirtualMachine) -> PyMappingMethods;
 
     fn mapping_downcast<'a>(mapping: &'a PyMapping) -> &'a Py<Self> {
         unsafe { mapping.obj.downcast_unchecked_ref() }

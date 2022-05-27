@@ -4,6 +4,7 @@ use crate::{
     convert::ToPyObject,
     identifier,
     protocol::{PyIter, PyIterIter, PyMapping, PyMappingMethods},
+    types::AsMapping,
     AsObject, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
 };
 use std::{borrow::Borrow, marker::PhantomData};
@@ -110,7 +111,7 @@ impl ArgMapping {
     pub fn from_dict_exact(dict: PyDictRef) -> Self {
         Self {
             obj: dict.into(),
-            mapping_methods: PyDict::MAPPING_METHODS,
+            mapping_methods: PyDict::AS_MAPPING,
         }
     }
 
