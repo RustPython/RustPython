@@ -106,7 +106,7 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
                 continuing = false;
                 full_input.clear();
                 let keyboard_interrupt =
-                    vm.new_exception_empty(vm.ctx.exceptions.keyboard_interrupt.clone());
+                    vm.new_exception_empty(vm.ctx.exceptions.keyboard_interrupt.to_owned());
                 Err(keyboard_interrupt)
             }
             ReadlineResult::Eof => {
@@ -127,7 +127,7 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
         };
 
         if let Err(exc) = result {
-            if exc.fast_isinstance(&vm.ctx.exceptions.system_exit) {
+            if exc.fast_isinstance(vm.ctx.exceptions.system_exit) {
                 repl.save_history(&repl_history_path).unwrap();
                 return Err(exc);
             }

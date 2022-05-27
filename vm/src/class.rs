@@ -3,7 +3,7 @@
 use crate::{
     builtins::{PyBaseObject, PyBoundMethod, PyType, PyTypeRef},
     identifier,
-    object::{PyObjectPayload, PyObjectRef, PyRef},
+    object::{Py, PyObjectPayload, PyObjectRef, PyRef},
     types::{PyTypeFlags, PyTypeSlots},
     vm::Context,
 };
@@ -12,24 +12,24 @@ use rustpython_common::{lock::PyRwLock, static_cell};
 pub trait StaticType {
     // Ideally, saving PyType is better than PyTypeRef
     fn static_cell() -> &'static static_cell::StaticCell<PyTypeRef>;
-    fn static_metaclass() -> &'static PyTypeRef {
+    fn static_metaclass() -> &'static Py<PyType> {
         PyType::static_type()
     }
-    fn static_baseclass() -> &'static PyTypeRef {
+    fn static_baseclass() -> &'static Py<PyType> {
         PyBaseObject::static_type()
     }
-    fn static_type() -> &'static PyTypeRef {
+    fn static_type() -> &'static Py<PyType> {
         Self::static_cell()
             .get()
             .expect("static type has not been initialized")
     }
-    fn init_manually(typ: PyTypeRef) -> &'static PyTypeRef {
+    fn init_manually(typ: PyTypeRef) -> &'static Py<PyType> {
         let cell = Self::static_cell();
         cell.set(typ)
             .unwrap_or_else(|_| panic!("double initialization from init_manually"));
         cell.get().unwrap()
     }
-    fn init_bare_type() -> &'static PyTypeRef
+    fn init_bare_type() -> &'static Py<PyType>
     where
         Self: PyClassImpl,
     {
@@ -45,10 +45,10 @@ pub trait StaticType {
     {
         PyType::new_ref(
             Self::NAME,
-            vec![Self::static_baseclass().clone()],
+            vec![Self::static_baseclass().to_owned()],
             Default::default(),
             Self::make_slots(),
-            Self::static_metaclass().clone(),
+            Self::static_metaclass().to_owned(),
         )
         .unwrap()
     }
@@ -76,9 +76,9 @@ where
 pub trait PyClassImpl: PyClassDef {
     const TP_FLAGS: PyTypeFlags = PyTypeFlags::DEFAULT;
 
-    fn impl_extend_class(ctx: &Context, class: &PyTypeRef);
+    fn impl_extend_class(ctx: &Context, class: &'static Py<PyType>);
 
-    fn extend_class(ctx: &Context, class: &PyTypeRef) {
+    fn extend_class(ctx: &Context, class: &'static Py<PyType>) {
         #[cfg(debug_assertions)]
         {
             assert!(class.slots.flags.is_created_with_flags());
@@ -89,7 +89,7 @@ pub trait PyClassImpl: PyClassDef {
                 __dict__,
                 ctx.new_getset(
                     "__dict__",
-                    class.clone(),
+                    class,
                     crate::builtins::object::object_get_dict,
                     crate::builtins::object::object_set_dict,
                 )
@@ -108,7 +108,7 @@ pub trait PyClassImpl: PyClassDef {
         }
         if class.slots.new.load().is_some() {
             let bound: PyObjectRef =
-                PyBoundMethod::new_ref(class.clone().into(), ctx.slot_new_wrapper.clone(), ctx)
+                PyBoundMethod::new_ref(class.to_owned().into(), ctx.slot_new_wrapper.clone(), ctx)
                     .into();
             class.set_attr(identifier!(ctx, __new__), bound);
         }
@@ -118,13 +118,16 @@ pub trait PyClassImpl: PyClassDef {
     where
         Self: StaticType,
     {
-        Self::static_cell()
-            .get_or_init(|| {
-                let typ = Self::create_bare_type();
-                Self::extend_class(ctx, &typ);
-                typ
-            })
-            .clone()
+        (*Self::static_cell().get_or_init(|| {
+            let typ = Self::create_bare_type();
+            Self::extend_class(ctx, unsafe {
+                // typ will be saved in static_cell
+                let r: &Py<PyType> = &typ;
+                &*(r as *const _)
+            });
+            typ
+        }))
+        .to_owned()
     }
 
     fn extend_slots(slots: &mut PyTypeSlots);

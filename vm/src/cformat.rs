@@ -448,7 +448,7 @@ impl CFormatSpec {
             CFormatType::Float(_) => {
                 let type_name = obj.class().name().to_string();
                 let value = ArgIntoFloat::try_from_object(vm, obj).map_err(|e| {
-                    if e.fast_isinstance(&vm.ctx.exceptions.type_error) {
+                    if e.fast_isinstance(vm.ctx.exceptions.type_error) {
                         // formatfloat in bytesobject.c generates its own specific exception
                         // text in this case, mirror it here.
                         vm.new_type_error(format!("float argument required, not {}", type_name))
@@ -690,9 +690,9 @@ impl CFormatBytes {
         let mut result = vec![];
 
         let is_mapping = values_obj.class().has_attr(identifier!(vm, __getitem__))
-            && !values_obj.fast_isinstance(&vm.ctx.types.tuple_type)
-            && !values_obj.fast_isinstance(&vm.ctx.types.bytes_type)
-            && !values_obj.fast_isinstance(&vm.ctx.types.bytearray_type);
+            && !values_obj.fast_isinstance(vm.ctx.types.tuple_type)
+            && !values_obj.fast_isinstance(vm.ctx.types.bytes_type)
+            && !values_obj.fast_isinstance(vm.ctx.types.bytearray_type);
 
         if num_specifiers == 0 {
             // literal only
@@ -842,8 +842,8 @@ impl CFormatString {
         let mut result = String::new();
 
         let is_mapping = values_obj.class().has_attr(identifier!(vm, __getitem__))
-            && !values_obj.fast_isinstance(&vm.ctx.types.tuple_type)
-            && !values_obj.fast_isinstance(&vm.ctx.types.str_type);
+            && !values_obj.fast_isinstance(vm.ctx.types.tuple_type)
+            && !values_obj.fast_isinstance(vm.ctx.types.str_type);
 
         if num_specifiers == 0 {
             // literal only

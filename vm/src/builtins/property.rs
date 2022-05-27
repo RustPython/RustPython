@@ -1,13 +1,13 @@
 /*! Python `property` descriptor class.
 
 */
-use super::PyTypeRef;
+use super::{PyType, PyTypeRef};
 use crate::common::lock::PyRwLock;
 use crate::{
     class::PyClassImpl,
     function::FuncArgs,
     types::{Constructor, GetDescriptor, Initializer},
-    AsObject, Context, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 
 /// Property attribute.
@@ -52,8 +52,8 @@ pub struct PyProperty {
 }
 
 impl PyPayload for PyProperty {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.property_type
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
+        vm.ctx.types.property_type
     }
 }
 
@@ -256,14 +256,14 @@ impl Initializer for PyProperty {
 }
 
 pub(crate) fn init(context: &Context) {
-    PyProperty::extend_class(context, &context.types.property_type);
+    PyProperty::extend_class(context, context.types.property_type);
 
     // This is a bit unfortunate, but this instance attribute overlaps with the
     // class __doc__ string..
-    extend_class!(context, &context.types.property_type, {
+    extend_class!(context, context.types.property_type, {
         "__doc__" => context.new_getset(
             "__doc__",
-            context.types.property_type.clone(),
+            context.types.property_type,
             PyProperty::doc_getter,
             PyProperty::doc_setter,
         ),

@@ -1,4 +1,6 @@
-use super::{try_bigint_to_f64, PyByteArray, PyBytes, PyInt, PyIntRef, PyStr, PyStrRef, PyTypeRef};
+use super::{
+    try_bigint_to_f64, PyByteArray, PyBytes, PyInt, PyIntRef, PyStr, PyStrRef, PyType, PyTypeRef,
+};
 use crate::common::{float_ops, hash};
 use crate::{
     class::PyClassImpl,
@@ -11,8 +13,8 @@ use crate::{
     },
     identifier,
     types::{Comparable, Constructor, Hashable, PyComparisonOp},
-    AsObject, Context, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject,
-    TryFromObject, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
+    TryFromBorrowedObject, TryFromObject, VirtualMachine,
 };
 use num_bigint::{BigInt, ToBigInt};
 use num_complex::Complex64;
@@ -33,8 +35,8 @@ impl PyFloat {
 }
 
 impl PyPayload for PyFloat {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.float_type
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
+        vm.ctx.types.float_type
     }
 }
 
@@ -168,7 +170,7 @@ impl Constructor for PyFloat {
         let float_val = match arg {
             OptionalArg::Missing => 0.0,
             OptionalArg::Present(val) => {
-                let val = if cls.is(&vm.ctx.types.float_type) {
+                let val = if cls.is(vm.ctx.types.float_type) {
                     match val.downcast_exact::<PyFloat>(vm) {
                         Ok(f) => return Ok(f.into()),
                         Err(val) => val,
@@ -567,5 +569,5 @@ pub(crate) fn get_value(obj: &PyObject) -> f64 {
 
 #[rustfmt::skip] // to avoid line splitting
 pub fn init(context: &Context) {
-    PyFloat::extend_class(context, &context.types.float_type);
+    PyFloat::extend_class(context, context.types.float_type);
 }

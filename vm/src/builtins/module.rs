@@ -1,5 +1,5 @@
 use super::pystr::IntoPyStrRef;
-use super::{PyDictRef, PyStr, PyStrRef, PyTypeRef};
+use super::{PyDictRef, PyStr, PyStrRef, PyType, PyTypeRef};
 use crate::{
     builtins::PyStrInterned,
     class::PyClassImpl,
@@ -14,8 +14,8 @@ use crate::{
 pub struct PyModule {}
 
 impl PyPayload for PyModule {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.module_type
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
+        vm.ctx.types.module_type
     }
 }
 
@@ -148,5 +148,5 @@ impl GetAttr for PyModule {
 }
 
 pub(crate) fn init(context: &Context) {
-    PyModule::extend_class(context, &context.types.module_type);
+    PyModule::extend_class(context, context.types.module_type);
 }

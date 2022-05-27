@@ -1,11 +1,11 @@
-use super::PyTypeRef;
+use super::{PyType, PyTypeRef};
 use crate::{
     builtins::PyTupleRef,
     class::PyClassImpl,
     function::{ArgIntoBool, OptionalArg, PosArgs},
     protocol::{PyIter, PyIterReturn},
     types::{Constructor, IterNext, IterNextIterable},
-    AsObject, Context, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 use rustpython_common::atomic::{self, PyAtomic, Radium};
 
@@ -17,8 +17,8 @@ pub struct PyZip {
 }
 
 impl PyPayload for PyZip {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.zip_type
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
+        vm.ctx.types.zip_type
     }
 }
 
@@ -109,6 +109,6 @@ impl IterNext for PyZip {
     }
 }
 
-pub fn init(context: &Context) {
-    PyZip::extend_class(context, &context.types.zip_type);
+pub fn init(ctx: &Context) {
+    PyZip::extend_class(ctx, ctx.types.zip_type);
 }

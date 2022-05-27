@@ -1,14 +1,14 @@
 /*! Python `attribute` descriptor class. (PyGetSet)
 
 */
-use super::PyTypeRef;
+use super::PyType;
 use crate::{
     class::PyClassImpl,
     convert::ToPyResult,
     function::{OwnedParam, RefParam},
     object::PyThreadingConstraint,
     types::{Constructor, GetDescriptor, Unconstructible},
-    AsObject, Context, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 
 pub type PyGetterFunc = Box<py_dyn_fn!(dyn Fn(&VirtualMachine, PyObjectRef) -> PyResult)>;
@@ -210,7 +210,7 @@ where
 #[pyclass(module = false, name = "getset_descriptor")]
 pub struct PyGetSet {
     name: String,
-    class: PyTypeRef,
+    class: &'static Py<PyType>,
     getter: Option<PyGetterFunc>,
     setter: Option<PySetterFunc>,
     deleter: Option<PyDeleterFunc>,
@@ -238,8 +238,8 @@ impl std::fmt::Debug for PyGetSet {
 }
 
 impl PyPayload for PyGetSet {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.getset_type
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
+        vm.ctx.types.getset_type
     }
 }
 
@@ -267,7 +267,7 @@ impl GetDescriptor for PyGetSet {
 }
 
 impl PyGetSet {
-    pub fn new(name: String, class: PyTypeRef) -> Self {
+    pub fn new(name: String, class: &'static Py<PyType>) -> Self {
         Self {
             name,
             class,
@@ -366,5 +366,5 @@ impl PyGetSet {
 impl Unconstructible for PyGetSet {}
 
 pub(crate) fn init(context: &Context) {
-    PyGetSet::extend_class(context, &context.types.getset_type);
+    PyGetSet::extend_class(context, context.types.getset_type);
 }

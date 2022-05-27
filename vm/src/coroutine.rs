@@ -38,9 +38,9 @@ pub struct Coro {
 
 fn gen_name(gen: &PyObject, vm: &VirtualMachine) -> &'static str {
     let typ = gen.class();
-    if typ.is(&vm.ctx.types.coroutine_type) {
+    if typ.is(vm.ctx.types.coroutine_type) {
         "coroutine"
-    } else if typ.is(&vm.ctx.types.async_generator) {
+    } else if typ.is(vm.ctx.types.async_generator) {
         "async generator"
     } else {
         "generator"
@@ -112,13 +112,13 @@ impl Coro {
         match result {
             Ok(exec_res) => Ok(exec_res.into_iter_return(vm)),
             Err(e) => {
-                if e.fast_isinstance(&vm.ctx.exceptions.stop_iteration) {
+                if e.fast_isinstance(vm.ctx.exceptions.stop_iteration) {
                     let err =
                         vm.new_runtime_error(format!("{} raised StopIteration", gen_name(gen, vm)));
                     err.set_cause(Some(e));
                     Err(err)
-                } else if gen.class().is(&vm.ctx.types.async_generator)
-                    && e.fast_isinstance(&vm.ctx.exceptions.stop_async_iteration)
+                } else if gen.class().is(vm.ctx.types.async_generator)
+                    && e.fast_isinstance(vm.ctx.exceptions.stop_async_iteration)
                 {
                     let err = vm
                         .new_runtime_error("async generator raised StopAsyncIteration".to_owned());
@@ -153,7 +153,7 @@ impl Coro {
         let result = self.run_with_context(gen, vm, |f| {
             f.gen_throw(
                 vm,
-                vm.ctx.exceptions.generator_exit.clone().into(),
+                vm.ctx.exceptions.generator_exit.to_owned().into(),
                 vm.ctx.none(),
                 vm.ctx.none(),
             )
@@ -194,5 +194,5 @@ impl Coro {
 }
 
 pub fn is_gen_exit(exc: &PyBaseExceptionRef, vm: &VirtualMachine) -> bool {
-    exc.fast_isinstance(&vm.ctx.exceptions.generator_exit)
+    exc.fast_isinstance(vm.ctx.exceptions.generator_exit)
 }

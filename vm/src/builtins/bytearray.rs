@@ -1,11 +1,10 @@
 //! Implementation of the python bytearray object.
 use super::{
     PositionIterInternal, PyBytes, PyBytesRef, PyDictRef, PyIntRef, PyStrRef, PyTuple, PyTupleRef,
-    PyTypeRef,
+    PyType, PyTypeRef,
 };
 use crate::{
     anystr::{self, AnyStr},
-    builtins::PyType,
     bytesinner::{
         bytes_decode, bytes_from_object, value_from_object, ByteInnerFindOptions,
         ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerSplitOptions,
@@ -50,7 +49,7 @@ pub type PyByteArrayRef = PyRef<PyByteArray>;
 
 impl PyByteArray {
     pub fn new_ref(data: Vec<u8>, ctx: &Context) -> PyRef<Self> {
-        PyRef::new_ref(Self::from(data), ctx.types.bytearray_type.clone(), None)
+        PyRef::new_ref(Self::from(data), ctx.types.bytearray_type.to_owned(), None)
     }
 
     fn from_inner(inner: PyBytesInner) -> Self {
@@ -82,15 +81,15 @@ impl From<Vec<u8>> for PyByteArray {
 }
 
 impl PyPayload for PyByteArray {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.bytearray_type
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
+        vm.ctx.types.bytearray_type
     }
 }
 
 /// Fill bytearray class methods dictionary.
 pub(crate) fn init(context: &Context) {
-    PyByteArray::extend_class(context, &context.types.bytearray_type);
-    PyByteArrayIterator::extend_class(context, &context.types.bytearray_iterator_type);
+    PyByteArray::extend_class(context, context.types.bytearray_type);
+    PyByteArrayIterator::extend_class(context, context.types.bytearray_iterator_type);
 }
 
 #[pyimpl(
@@ -862,8 +861,8 @@ pub struct PyByteArrayIterator {
 }
 
 impl PyPayload for PyByteArrayIterator {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.bytearray_iterator_type
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
+        vm.ctx.types.bytearray_iterator_type
     }
 }
 

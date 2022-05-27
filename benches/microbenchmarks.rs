@@ -3,7 +3,7 @@ use criterion::{
     Criterion, Throughput,
 };
 use rustpython_compiler::Mode;
-use rustpython_vm::{common::ascii, Interpreter, PyResult, Settings};
+use rustpython_vm::{common::ascii, AsObject, Interpreter, PyResult, Settings};
 use std::{
     ffi, fs, io,
     path::{Path, PathBuf},

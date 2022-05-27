@@ -96,7 +96,7 @@ impl PySequence<'_> {
     pub fn methods_cow(&self, vm: &VirtualMachine) -> &Cow<'static, PySequenceMethods> {
         self.methods.get_or_init(|| {
             let cls = self.obj.class();
-            if !cls.is(&vm.ctx.types.dict_type) {
+            if !cls.is(vm.ctx.types.dict_type) {
                 if let Some(f) = cls.mro_find_map(|x| x.slots.as_sequence.load()) {
                     return f(self.obj, vm);
                 }

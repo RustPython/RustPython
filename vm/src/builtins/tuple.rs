@@ -1,4 +1,4 @@
-use super::{PositionIterInternal, PyGenericAlias, PyTypeRef};
+use super::{PositionIterInternal, PyGenericAlias, PyType, PyTypeRef};
 use crate::common::{hash::PyHash, lock::PyMutex};
 use crate::{
     class::PyClassImpl,
@@ -15,7 +15,7 @@ use crate::{
     },
     utils::collection_repr,
     vm::VirtualMachine,
-    AsObject, Context, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
 };
 use std::{borrow::Cow, fmt, marker::PhantomData};
 
@@ -36,8 +36,8 @@ impl fmt::Debug for PyTuple {
 }
 
 impl PyPayload for PyTuple {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.tuple_type
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
+        vm.ctx.types.tuple_type
     }
 }
 
@@ -94,7 +94,7 @@ impl Constructor for PyTuple {
 
     fn py_new(cls: PyTypeRef, iterable: Self::Args, vm: &VirtualMachine) -> PyResult {
         let elements = if let OptionalArg::Present(iterable) = iterable {
-            let iterable = if cls.is(&vm.ctx.types.tuple_type) {
+            let iterable = if cls.is(vm.ctx.types.tuple_type) {
                 match iterable.downcast_exact::<Self>(vm) {
                     Ok(tuple) => return Ok(tuple.into()),
                     Err(iterable) => iterable,
@@ -107,7 +107,7 @@ impl Constructor for PyTuple {
             vec![]
         };
         // Return empty tuple only for exact tuple types if the iterable is empty.
-        if elements.is_empty() && cls.is(&vm.ctx.types.tuple_type) {
+        if elements.is_empty() && cls.is(vm.ctx.types.tuple_type) {
             Ok(vm.ctx.empty_tuple.clone().into())
         } else {
             Self {
@@ -156,7 +156,7 @@ impl PyTuple {
             ctx.empty_tuple.clone()
         } else {
             let elements = elements.into_boxed_slice();
-            PyRef::new_ref(Self { elements }, ctx.types.tuple_type.clone(), None)
+            PyRef::new_ref(Self { elements }, ctx.types.tuple_type.to_owned(), None)
         }
     }
 
@@ -184,9 +184,9 @@ impl PyTuple {
         vm: &VirtualMachine,
     ) -> PyArithmeticValue<PyRef<Self>> {
         let added = other.downcast::<Self>().map(|other| {
-            if other.elements.is_empty() && zelf.class().is(&vm.ctx.types.tuple_type) {
+            if other.elements.is_empty() && zelf.class().is(vm.ctx.types.tuple_type) {
                 zelf
-            } else if zelf.elements.is_empty() && other.class().is(&vm.ctx.types.tuple_type) {
+            } else if zelf.elements.is_empty() && other.class().is(vm.ctx.types.tuple_type) {
                 other
             } else {
                 let elements = zelf
@@ -248,7 +248,7 @@ impl PyTuple {
     fn mul(zelf: PyRef<Self>, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         Ok(if zelf.elements.is_empty() || value == 0 {
             vm.ctx.empty_tuple.clone()
-        } else if value == 1 && zelf.class().is(&vm.ctx.types.tuple_type) {
+        } else if value == 1 && zelf.class().is(vm.ctx.types.tuple_type) {
             // Special case: when some `tuple` is multiplied by `1`,
             // nothing really happens, we need to return an object itself
             // with the same `id()` to be compatible with CPython.
@@ -331,7 +331,7 @@ impl PyTuple {
         // the arguments to pass to tuple() is just one tuple - so we'll be doing tuple(tup), which
         // should just return tup, or tuplesubclass(tup), which'll copy/validate (e.g. for a
         // structseq)
-        let tup_arg = if zelf.class().is(&vm.ctx.types.tuple_type) {
+        let tup_arg = if zelf.class().is(vm.ctx.types.tuple_type) {
             zelf
         } else {
             PyTuple::new_ref(zelf.elements.clone().into_vec(), &vm.ctx)
@@ -435,8 +435,8 @@ pub(crate) struct PyTupleIterator {
 }
 
 impl PyPayload for PyTupleIterator {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.tuple_iterator_type
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
+        vm.ctx.types.tuple_iterator_type
     }
 }
 
@@ -475,8 +475,8 @@ impl IterNext for PyTupleIterator {
 }
 
 pub(crate) fn init(context: &Context) {
-    PyTuple::extend_class(context, &context.types.tuple_type);
-    PyTupleIterator::extend_class(context, &context.types.tuple_iterator_type);
+    PyTuple::extend_class(context, context.types.tuple_type);
+    PyTupleIterator::extend_class(context, context.types.tuple_iterator_type);
 }
 
 pub struct PyTupleTyped<T: TransmuteFromObject> {

@@ -60,7 +60,7 @@ mod decl {
     fn _dumps(value: PyObjectRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         let r = match_class!(match value {
             pyint @ PyInt => {
-                if pyint.class().is(&vm.ctx.types.bool_type) {
+                if pyint.class().is(vm.ctx.types.bool_type) {
                     let (_, mut bool_bytes) = pyint.as_bigint().to_bytes_le();
                     bool_bytes.push(BOOL_BYTE);
                     bool_bytes
@@ -213,7 +213,7 @@ mod decl {
         })?;
         let (type_indicator, buf) = full_buff.split_last().ok_or_else(|| {
             vm.new_exception_msg(
-                vm.ctx.exceptions.eof_error.clone(),
+                vm.ctx.exceptions.eof_error.to_owned(),
                 "EOF where object expected.".to_owned(),
             )
         })?;
@@ -300,7 +300,7 @@ mod decl {
                 // If prefix is not identifiable, assume CodeObject, error out if it doesn't match.
                 let code = bytecode::CodeObject::from_bytes(&full_buff).map_err(|e| match e {
                     bytecode::CodeDeserializeError::Eof => vm.new_exception_msg(
-                        vm.ctx.exceptions.eof_error.clone(),
+                        vm.ctx.exceptions.eof_error.to_owned(),
                         "End of file while deserializing bytecode".to_owned(),
                     ),
                     _ => vm.new_value_error("Couldn't deserialize python bytecode".to_owned()),

@@ -104,7 +104,7 @@ impl VirtualMachine {
         let new_module = || {
             PyRef::new_ref(
                 PyModule {},
-                ctx.types.module_type.clone(),
+                ctx.types.module_type.to_owned(),
                 Some(ctx.new_dict()),
             )
         };
@@ -468,9 +468,9 @@ impl VirtualMachine {
         // Extract elements from item, if possible:
         let cls = value.class();
         let list_borrow;
-        let slice = if cls.is(&self.ctx.types.tuple_type) {
+        let slice = if cls.is(self.ctx.types.tuple_type) {
             value.payload::<PyTuple>().unwrap().as_slice()
-        } else if cls.is(&self.ctx.types.list_type) {
+        } else if cls.is(self.ctx.types.list_type) {
             list_borrow = value.payload::<PyList>().unwrap().borrow_vec();
             &list_borrow
         } else {
@@ -519,7 +519,7 @@ impl VirtualMachine {
     {
         let iter = value.to_owned().get_iter(self)?;
         let cap = match self.length_hint_opt(value.to_owned()) {
-            Err(e) if e.class().is(&self.ctx.exceptions.runtime_error) => return Err(e),
+            Err(e) if e.class().is(self.ctx.exceptions.runtime_error) => return Err(e),
             Ok(Some(value)) => Some(value),
             // Use a power of 2 as a default capacity.
             _ => None,
@@ -549,7 +549,7 @@ impl VirtualMachine {
     {
         match obj.get_attr(attr_name, self) {
             Ok(attr) => Ok(Some(attr)),
-            Err(e) if e.fast_isinstance(&self.ctx.exceptions.attribute_error) => Ok(None),
+            Err(e) if e.fast_isinstance(self.ctx.exceptions.attribute_error) => Ok(None),
             Err(e) => Err(e),
         }
     }
@@ -560,7 +560,7 @@ impl VirtualMachine {
         obj: PyObjectRef,
         name: PyStrRef,
     ) {
-        if exc.class().is(&self.ctx.exceptions.attribute_error) {
+        if exc.class().is(self.ctx.exceptions.attribute_error) {
             let exc = exc.as_object();
             exc.set_attr("name", name, self).unwrap();
             exc.set_attr("obj", obj, self).unwrap();
@@ -676,7 +676,7 @@ impl VirtualMachine {
     }
 
     pub fn handle_exit_exception(&self, exc: PyBaseExceptionRef) -> i32 {
-        if exc.fast_isinstance(&self.ctx.exceptions.system_exit) {
+        if exc.fast_isinstance(self.ctx.exceptions.system_exit) {
             let args = exc.args();
             let msg = match args.as_slice() {
                 [] => return 0,
@@ -803,7 +803,7 @@ fn get_importer(path: &str, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>
                 importer = Some(imp);
                 break;
             }
-            Err(e) if e.fast_isinstance(&vm.ctx.exceptions.import_error) => continue,
+            Err(e) if e.fast_isinstance(vm.ctx.exceptions.import_error) => continue,
             Err(e) => return Err(e),
         }
     }

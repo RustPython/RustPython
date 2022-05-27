@@ -176,7 +176,7 @@ pub(crate) mod _signal {
         _arg: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult {
-        Err(vm.new_exception_empty(vm.ctx.exceptions.keyboard_interrupt.clone()))
+        Err(vm.new_exception_empty(vm.ctx.exceptions.keyboard_interrupt.to_owned()))
     }
 
     #[derive(FromArgs)]

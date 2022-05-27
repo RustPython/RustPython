@@ -1,9 +1,8 @@
-use super::PyTypeRef;
+use super::{PyBoundMethod, PyType, PyTypeRef};
 use crate::{
-    builtins::PyBoundMethod,
     class::PyClassImpl,
     types::{Constructor, GetDescriptor},
-    AsObject, Context, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 /// classmethod(function) -> method
@@ -39,8 +38,8 @@ impl From<PyObjectRef> for PyClassMethod {
 }
 
 impl PyPayload for PyClassMethod {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.classmethod_type
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
+        vm.ctx.types.classmethod_type
     }
 }
 
@@ -69,7 +68,11 @@ impl Constructor for PyClassMethod {
 
 impl PyClassMethod {
     pub fn new_ref(callable: PyObjectRef, ctx: &Context) -> PyRef<Self> {
-        PyRef::new_ref(Self { callable }, ctx.types.classmethod_type.clone(), None)
+        PyRef::new_ref(
+            Self { callable },
+            ctx.types.classmethod_type.to_owned(),
+            None,
+        )
     }
 }
 
@@ -96,5 +99,5 @@ impl PyClassMethod {
 }
 
 pub(crate) fn init(context: &Context) {
-    PyClassMethod::extend_class(context, &context.types.classmethod_type);
+    PyClassMethod::extend_class(context, context.types.classmethod_type);
 }

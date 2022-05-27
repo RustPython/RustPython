@@ -28,7 +28,7 @@ mod _csv {
         vm.ctx.new_exception_type(
             "_csv",
             "Error",
-            Some(vec![vm.ctx.exceptions.exception_type.clone()]),
+            Some(vec![vm.ctx.exceptions.exception_type.to_owned()]),
         )
     }
 

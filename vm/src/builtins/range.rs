@@ -1,4 +1,4 @@
-use super::{PyInt, PyIntRef, PySlice, PyTupleRef, PyTypeRef};
+use super::{PyInt, PyIntRef, PySlice, PyTupleRef, PyType, PyTypeRef};
 use crate::common::hash::PyHash;
 use crate::{
     builtins::builtins_iter,
@@ -75,8 +75,8 @@ pub struct PyRange {
 }
 
 impl PyPayload for PyRange {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.range_type
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
+        vm.ctx.types.range_type
     }
 }
 
@@ -174,9 +174,9 @@ impl PyRange {
 // }
 
 pub fn init(context: &Context) {
-    PyRange::extend_class(context, &context.types.range_type);
-    PyLongRangeIterator::extend_class(context, &context.types.longrange_iterator_type);
-    PyRangeIterator::extend_class(context, &context.types.range_iterator_type);
+    PyRange::extend_class(context, context.types.range_type);
+    PyLongRangeIterator::extend_class(context, context.types.longrange_iterator_type);
+    PyRangeIterator::extend_class(context, context.types.range_iterator_type);
 }
 
 #[pyimpl(with(AsMapping, AsSequence, Hashable, Comparable, Iterable))]
@@ -301,7 +301,7 @@ impl PyRange {
             .map(|x| x.as_object().to_owned())
             .collect();
         let range_paramters_tuple = vm.ctx.new_tuple(range_paramters);
-        (vm.ctx.types.range_type.clone(), range_paramters_tuple)
+        (vm.ctx.types.range_type.to_owned(), range_paramters_tuple)
     }
 
     #[pymethod]
@@ -529,8 +529,8 @@ pub struct PyLongRangeIterator {
 }
 
 impl PyPayload for PyLongRangeIterator {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.longrange_iterator_type
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
+        vm.ctx.types.longrange_iterator_type
     }
 }
 
@@ -594,8 +594,8 @@ pub struct PyRangeIterator {
 }
 
 impl PyPayload for PyRangeIterator {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.range_iterator_type
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
+        vm.ctx.types.range_iterator_type
     }
 }
 

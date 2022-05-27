@@ -74,7 +74,7 @@ impl VirtualMachine {
         match iter.length(self) {
             Ok(len) => return Ok(Some(len)),
             Err(e) => {
-                if !e.fast_isinstance(&self.ctx.exceptions.type_error) {
+                if !e.fast_isinstance(self.ctx.exceptions.type_error) {
                     return Err(e);
                 }
             }
@@ -91,7 +91,7 @@ impl VirtualMachine {
                 res
             }
             Err(e) => {
-                return if e.fast_isinstance(&self.ctx.exceptions.type_error) {
+                return if e.fast_isinstance(self.ctx.exceptions.type_error) {
                     Ok(None)
                 } else {
                     Err(e)
@@ -178,7 +178,7 @@ impl VirtualMachine {
             if let Some((lop, rop)) = lop.zip(rop) {
                 if !lop.is(&rop) {
                     if let Ok(r) = self.call_or_unsupported(rhs, lhs, reflection, |vm, _, _| {
-                        Err(vm.new_exception_empty(vm.ctx.exceptions.exception_type.clone()))
+                        Err(vm.new_exception_empty(vm.ctx.exceptions.exception_type.to_owned()))
                     }) {
                         return Ok(r);
                     }

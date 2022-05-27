@@ -374,10 +374,10 @@ mod builtins {
             match readline.readline(prompt) {
                 ReadlineResult::Line(s) => Ok(vm.ctx.new_str(s).into()),
                 ReadlineResult::Eof => {
-                    Err(vm.new_exception_empty(vm.ctx.exceptions.eof_error.clone()))
+                    Err(vm.new_exception_empty(vm.ctx.exceptions.eof_error.to_owned()))
                 }
                 ReadlineResult::Interrupt => {
-                    Err(vm.new_exception_empty(vm.ctx.exceptions.keyboard_interrupt.clone()))
+                    Err(vm.new_exception_empty(vm.ctx.exceptions.keyboard_interrupt.to_owned()))
                 }
                 ReadlineResult::Io(e) => Err(vm.new_os_error(e.to_string())),
                 ReadlineResult::EncodingError => {
@@ -634,7 +634,7 @@ mod builtins {
     #[pyfunction]
     pub fn exit(exit_code_arg: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
         let code = exit_code_arg.unwrap_or_else(|| vm.ctx.new_int(0).into());
-        Err(vm.new_exception(vm.ctx.exceptions.system_exit.clone(), vec![code]))
+        Err(vm.new_exception(vm.ctx.exceptions.system_exit.to_owned(), vec![code]))
     }
 
     #[derive(Debug, Default, FromArgs)]
@@ -820,7 +820,7 @@ mod builtins {
         let mut new_bases: Option<Vec<PyObjectRef>> = None;
         let bases = PyTuple::new_ref(bases.into_vec(), &vm.ctx);
         for (i, base) in bases.iter().enumerate() {
-            if base.fast_isinstance(&vm.ctx.types.type_type) {
+            if base.fast_isinstance(vm.ctx.types.type_type) {
                 if let Some(bases) = &mut new_bases {
                     bases.push(base.clone());
                 }
@@ -854,7 +854,7 @@ mod builtins {
         let metaclass = kwargs
             .pop_kwarg("metaclass")
             .map(|metaclass| metaclass.downcast_exact::<PyType>(vm))
-            .unwrap_or_else(|| Ok(vm.ctx.types.type_type.clone()));
+            .unwrap_or_else(|| Ok(vm.ctx.types.type_type.to_owned()));
 
         let (metaclass, meta_name) = match metaclass {
             Ok(mut metaclass) => {
@@ -934,31 +934,31 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
     extend_module!(vm, module, {
         "__debug__" => ctx.new_bool(debug_mode),
 
-        "bool" => ctx.types.bool_type.clone(),
-        "bytearray" => ctx.types.bytearray_type.clone(),
-        "bytes" => ctx.types.bytes_type.clone(),
-        "classmethod" => ctx.types.classmethod_type.clone(),
-        "complex" => ctx.types.complex_type.clone(),
-        "dict" => ctx.types.dict_type.clone(),
-        "enumerate" => ctx.types.enumerate_type.clone(),
-        "float" => ctx.types.float_type.clone(),
-        "frozenset" => ctx.types.frozenset_type.clone(),
-        "filter" => ctx.types.filter_type.clone(),
-        "int" => ctx.types.int_type.clone(),
-        "list" => ctx.types.list_type.clone(),
-        "map" => ctx.types.map_type.clone(),
-        "memoryview" => ctx.types.memoryview_type.clone(),
-        "object" => ctx.types.object_type.clone(),
-        "property" => ctx.types.property_type.clone(),
-        "range" => ctx.types.range_type.clone(),
-        "set" => ctx.types.set_type.clone(),
-        "slice" => ctx.types.slice_type.clone(),
-        "staticmethod" => ctx.types.staticmethod_type.clone(),
-        "str" => ctx.types.str_type.clone(),
-        "super" => ctx.types.super_type.clone(),
-        "tuple" => ctx.types.tuple_type.clone(),
-        "type" => ctx.types.type_type.clone(),
-        "zip" => ctx.types.zip_type.clone(),
+        "bool" => ctx.types.bool_type.to_owned(),
+        "bytearray" => ctx.types.bytearray_type.to_owned(),
+        "bytes" => ctx.types.bytes_type.to_owned(),
+        "classmethod" => ctx.types.classmethod_type.to_owned(),
+        "complex" => ctx.types.complex_type.to_owned(),
+        "dict" => ctx.types.dict_type.to_owned(),
+        "enumerate" => ctx.types.enumerate_type.to_owned(),
+        "float" => ctx.types.float_type.to_owned(),
+        "frozenset" => ctx.types.frozenset_type.to_owned(),
+        "filter" => ctx.types.filter_type.to_owned(),
+        "int" => ctx.types.int_type.to_owned(),
+        "list" => ctx.types.list_type.to_owned(),
+        "map" => ctx.types.map_type.to_owned(),
+        "memoryview" => ctx.types.memoryview_type.to_owned(),
+        "object" => ctx.types.object_type.to_owned(),
+        "property" => ctx.types.property_type.to_owned(),
+        "range" => ctx.types.range_type.to_owned(),
+        "set" => ctx.types.set_type.to_owned(),
+        "slice" => ctx.types.slice_type.to_owned(),
+        "staticmethod" => ctx.types.staticmethod_type.to_owned(),
+        "str" => ctx.types.str_type.to_owned(),
+        "super" => ctx.types.super_type.to_owned(),
+        "tuple" => ctx.types.tuple_type.to_owned(),
+        "type" => ctx.types.type_type.to_owned(),
+        "zip" => ctx.types.zip_type.to_owned(),
 
         // Constants
         "None" => ctx.none(),
@@ -969,80 +969,80 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
 
         // ordered by exception_hierarachy.txt
         // Exceptions:
-        "BaseException" => ctx.exceptions.base_exception_type.clone(),
-        "SystemExit" => ctx.exceptions.system_exit.clone(),
-        "KeyboardInterrupt" => ctx.exceptions.keyboard_interrupt.clone(),
-        "GeneratorExit" => ctx.exceptions.generator_exit.clone(),
-        "Exception" => ctx.exceptions.exception_type.clone(),
-        "StopIteration" => ctx.exceptions.stop_iteration.clone(),
-        "StopAsyncIteration" => ctx.exceptions.stop_async_iteration.clone(),
-        "ArithmeticError" => ctx.exceptions.arithmetic_error.clone(),
-        "FloatingPointError" => ctx.exceptions.floating_point_error.clone(),
-        "OverflowError" => ctx.exceptions.overflow_error.clone(),
-        "ZeroDivisionError" => ctx.exceptions.zero_division_error.clone(),
-        "AssertionError" => ctx.exceptions.assertion_error.clone(),
-        "AttributeError" => ctx.exceptions.attribute_error.clone(),
-        "BufferError" => ctx.exceptions.buffer_error.clone(),
-        "EOFError" => ctx.exceptions.eof_error.clone(),
-        "ImportError" => ctx.exceptions.import_error.clone(),
-        "ModuleNotFoundError" => ctx.exceptions.module_not_found_error.clone(),
-        "LookupError" => ctx.exceptions.lookup_error.clone(),
-        "IndexError" => ctx.exceptions.index_error.clone(),
-        "KeyError" => ctx.exceptions.key_error.clone(),
-        "MemoryError" => ctx.exceptions.memory_error.clone(),
-        "NameError" => ctx.exceptions.name_error.clone(),
-        "UnboundLocalError" => ctx.exceptions.unbound_local_error.clone(),
-        "OSError" => ctx.exceptions.os_error.clone(),
+        "BaseException" => ctx.exceptions.base_exception_type.to_owned(),
+        "SystemExit" => ctx.exceptions.system_exit.to_owned(),
+        "KeyboardInterrupt" => ctx.exceptions.keyboard_interrupt.to_owned(),
+        "GeneratorExit" => ctx.exceptions.generator_exit.to_owned(),
+        "Exception" => ctx.exceptions.exception_type.to_owned(),
+        "StopIteration" => ctx.exceptions.stop_iteration.to_owned(),
+        "StopAsyncIteration" => ctx.exceptions.stop_async_iteration.to_owned(),
+        "ArithmeticError" => ctx.exceptions.arithmetic_error.to_owned(),
+        "FloatingPointError" => ctx.exceptions.floating_point_error.to_owned(),
+        "OverflowError" => ctx.exceptions.overflow_error.to_owned(),
+        "ZeroDivisionError" => ctx.exceptions.zero_division_error.to_owned(),
+        "AssertionError" => ctx.exceptions.assertion_error.to_owned(),
+        "AttributeError" => ctx.exceptions.attribute_error.to_owned(),
+        "BufferError" => ctx.exceptions.buffer_error.to_owned(),
+        "EOFError" => ctx.exceptions.eof_error.to_owned(),
+        "ImportError" => ctx.exceptions.import_error.to_owned(),
+        "ModuleNotFoundError" => ctx.exceptions.module_not_found_error.to_owned(),
+        "LookupError" => ctx.exceptions.lookup_error.to_owned(),
+        "IndexError" => ctx.exceptions.index_error.to_owned(),
+        "KeyError" => ctx.exceptions.key_error.to_owned(),
+        "MemoryError" => ctx.exceptions.memory_error.to_owned(),
+        "NameError" => ctx.exceptions.name_error.to_owned(),
+        "UnboundLocalError" => ctx.exceptions.unbound_local_error.to_owned(),
+        "OSError" => ctx.exceptions.os_error.to_owned(),
         // OSError alias
-        "IOError" => ctx.exceptions.os_error.clone(),
-        "EnvironmentError" => ctx.exceptions.os_error.clone(),
-        "BlockingIOError" => ctx.exceptions.blocking_io_error.clone(),
-        "ChildProcessError" => ctx.exceptions.child_process_error.clone(),
-        "ConnectionError" => ctx.exceptions.connection_error.clone(),
-        "BrokenPipeError" => ctx.exceptions.broken_pipe_error.clone(),
-        "ConnectionAbortedError" => ctx.exceptions.connection_aborted_error.clone(),
-        "ConnectionRefusedError" => ctx.exceptions.connection_refused_error.clone(),
-        "ConnectionResetError" => ctx.exceptions.connection_reset_error.clone(),
-        "FileExistsError" => ctx.exceptions.file_exists_error.clone(),
-        "FileNotFoundError" => ctx.exceptions.file_not_found_error.clone(),
-        "InterruptedError" => ctx.exceptions.interrupted_error.clone(),
-        "IsADirectoryError" => ctx.exceptions.is_a_directory_error.clone(),
-        "NotADirectoryError" => ctx.exceptions.not_a_directory_error.clone(),
-        "PermissionError" => ctx.exceptions.permission_error.clone(),
-        "ProcessLookupError" => ctx.exceptions.process_lookup_error.clone(),
-        "TimeoutError" => ctx.exceptions.timeout_error.clone(),
-        "ReferenceError" => ctx.exceptions.reference_error.clone(),
-        "RuntimeError" => ctx.exceptions.runtime_error.clone(),
-        "NotImplementedError" => ctx.exceptions.not_implemented_error.clone(),
-        "RecursionError" => ctx.exceptions.recursion_error.clone(),
-        "SyntaxError" =>  ctx.exceptions.syntax_error.clone(),
-        "IndentationError" =>  ctx.exceptions.indentation_error.clone(),
-        "TabError" =>  ctx.exceptions.tab_error.clone(),
-        "SystemError" => ctx.exceptions.system_error.clone(),
-        "TypeError" => ctx.exceptions.type_error.clone(),
-        "ValueError" => ctx.exceptions.value_error.clone(),
-        "UnicodeError" => ctx.exceptions.unicode_error.clone(),
-        "UnicodeDecodeError" => ctx.exceptions.unicode_decode_error.clone(),
-        "UnicodeEncodeError" => ctx.exceptions.unicode_encode_error.clone(),
-        "UnicodeTranslateError" => ctx.exceptions.unicode_translate_error.clone(),
+        "IOError" => ctx.exceptions.os_error.to_owned(),
+        "EnvironmentError" => ctx.exceptions.os_error.to_owned(),
+        "BlockingIOError" => ctx.exceptions.blocking_io_error.to_owned(),
+        "ChildProcessError" => ctx.exceptions.child_process_error.to_owned(),
+        "ConnectionError" => ctx.exceptions.connection_error.to_owned(),
+        "BrokenPipeError" => ctx.exceptions.broken_pipe_error.to_owned(),
+        "ConnectionAbortedError" => ctx.exceptions.connection_aborted_error.to_owned(),
+        "ConnectionRefusedError" => ctx.exceptions.connection_refused_error.to_owned(),
+        "ConnectionResetError" => ctx.exceptions.connection_reset_error.to_owned(),
+        "FileExistsError" => ctx.exceptions.file_exists_error.to_owned(),
+        "FileNotFoundError" => ctx.exceptions.file_not_found_error.to_owned(),
+        "InterruptedError" => ctx.exceptions.interrupted_error.to_owned(),
+        "IsADirectoryError" => ctx.exceptions.is_a_directory_error.to_owned(),
+        "NotADirectoryError" => ctx.exceptions.not_a_directory_error.to_owned(),
+        "PermissionError" => ctx.exceptions.permission_error.to_owned(),
+        "ProcessLookupError" => ctx.exceptions.process_lookup_error.to_owned(),
+        "TimeoutError" => ctx.exceptions.timeout_error.to_owned(),
+        "ReferenceError" => ctx.exceptions.reference_error.to_owned(),
+        "RuntimeError" => ctx.exceptions.runtime_error.to_owned(),
+        "NotImplementedError" => ctx.exceptions.not_implemented_error.to_owned(),
+        "RecursionError" => ctx.exceptions.recursion_error.to_owned(),
+        "SyntaxError" =>  ctx.exceptions.syntax_error.to_owned(),
+        "IndentationError" =>  ctx.exceptions.indentation_error.to_owned(),
+        "TabError" =>  ctx.exceptions.tab_error.to_owned(),
+        "SystemError" => ctx.exceptions.system_error.to_owned(),
+        "TypeError" => ctx.exceptions.type_error.to_owned(),
+        "ValueError" => ctx.exceptions.value_error.to_owned(),
+        "UnicodeError" => ctx.exceptions.unicode_error.to_owned(),
+        "UnicodeDecodeError" => ctx.exceptions.unicode_decode_error.to_owned(),
+        "UnicodeEncodeError" => ctx.exceptions.unicode_encode_error.to_owned(),
+        "UnicodeTranslateError" => ctx.exceptions.unicode_translate_error.to_owned(),
 
         // Warnings
-        "Warning" => ctx.exceptions.warning.clone(),
-        "DeprecationWarning" => ctx.exceptions.deprecation_warning.clone(),
-        "PendingDeprecationWarning" => ctx.exceptions.pending_deprecation_warning.clone(),
-        "RuntimeWarning" => ctx.exceptions.runtime_warning.clone(),
-        "SyntaxWarning" => ctx.exceptions.syntax_warning.clone(),
-        "UserWarning" => ctx.exceptions.user_warning.clone(),
-        "FutureWarning" => ctx.exceptions.future_warning.clone(),
-        "ImportWarning" => ctx.exceptions.import_warning.clone(),
-        "UnicodeWarning" => ctx.exceptions.unicode_warning.clone(),
-        "BytesWarning" => ctx.exceptions.bytes_warning.clone(),
-        "ResourceWarning" => ctx.exceptions.resource_warning.clone(),
-        "EncodingWarning" => ctx.exceptions.encoding_warning.clone(),
+        "Warning" => ctx.exceptions.warning.to_owned(),
+        "DeprecationWarning" => ctx.exceptions.deprecation_warning.to_owned(),
+        "PendingDeprecationWarning" => ctx.exceptions.pending_deprecation_warning.to_owned(),
+        "RuntimeWarning" => ctx.exceptions.runtime_warning.to_owned(),
+        "SyntaxWarning" => ctx.exceptions.syntax_warning.to_owned(),
+        "UserWarning" => ctx.exceptions.user_warning.to_owned(),
+        "FutureWarning" => ctx.exceptions.future_warning.to_owned(),
+        "ImportWarning" => ctx.exceptions.import_warning.to_owned(),
+        "UnicodeWarning" => ctx.exceptions.unicode_warning.to_owned(),
+        "BytesWarning" => ctx.exceptions.bytes_warning.to_owned(),
+        "ResourceWarning" => ctx.exceptions.resource_warning.to_owned(),
+        "EncodingWarning" => ctx.exceptions.encoding_warning.to_owned(),
     });
 
     #[cfg(feature = "jit")]
     extend_module!(vm, module, {
-        "JitError" => ctx.exceptions.jit_error.clone(),
+        "JitError" => ctx.exceptions.jit_error.to_owned(),
     });
 }

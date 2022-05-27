@@ -62,16 +62,16 @@ pub fn js_err_to_py_err(vm: &VirtualMachine, js_err: &JsValue) -> PyBaseExceptio
     match js_err.dyn_ref::<js_sys::Error>() {
         Some(err) => {
             let exc_type = match String::from(err.name()).as_str() {
-                "TypeError" => &vm.ctx.exceptions.type_error,
-                "ReferenceError" => &vm.ctx.exceptions.name_error,
-                "SyntaxError" => &vm.ctx.exceptions.syntax_error,
-                _ => &vm.ctx.exceptions.exception_type,
+                "TypeError" => vm.ctx.exceptions.type_error,
+                "ReferenceError" => vm.ctx.exceptions.name_error,
+                "SyntaxError" => vm.ctx.exceptions.syntax_error,
+                _ => vm.ctx.exceptions.exception_type,
             }
-            .clone();
+            .to_owned();
             vm.new_exception_msg(exc_type, err.message().into())
         }
         None => vm.new_exception_msg(
-            vm.ctx.exceptions.exception_type.clone(),
+            vm.ctx.exceptions.exception_type.to_owned(),
             format!("{:?}", js_err),
         ),
     }
@@ -79,7 +79,7 @@ pub fn js_err_to_py_err(vm: &VirtualMachine, js_err: &JsValue) -> PyBaseExceptio
 
 pub fn py_to_js(vm: &VirtualMachine, py_obj: PyObjectRef) -> JsValue {
     if let Some(ref wasm_id) = vm.wasm_id {
-        if py_obj.fast_isinstance(&vm.ctx.types.function_type) {
+        if py_obj.fast_isinstance(vm.ctx.types.function_type) {
             let wasm_vm = WASMVirtualMachine {
                 id: wasm_id.clone(),
             };

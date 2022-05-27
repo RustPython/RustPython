@@ -153,7 +153,7 @@ impl PyIterReturn {
     pub fn from_pyresult(result: PyResult, vm: &VirtualMachine) -> PyResult<Self> {
         match result {
             Ok(obj) => Ok(Self::Return(obj)),
-            Err(err) if err.fast_isinstance(&vm.ctx.exceptions.stop_iteration) => {
+            Err(err) if err.fast_isinstance(vm.ctx.exceptions.stop_iteration) => {
                 let args = err.get_arg(0);
                 Ok(Self::StopIteration(args))
             }
@@ -164,10 +164,10 @@ impl PyIterReturn {
     pub fn from_getitem_result(result: PyResult, vm: &VirtualMachine) -> PyResult<Self> {
         match result {
             Ok(obj) => Ok(Self::Return(obj)),
-            Err(err) if err.fast_isinstance(&vm.ctx.exceptions.index_error) => {
+            Err(err) if err.fast_isinstance(vm.ctx.exceptions.index_error) => {
                 Ok(Self::StopIteration(None))
             }
-            Err(err) if err.fast_isinstance(&vm.ctx.exceptions.stop_iteration) => {
+            Err(err) if err.fast_isinstance(vm.ctx.exceptions.stop_iteration) => {
                 let args = err.get_arg(0);
                 Ok(Self::StopIteration(args))
             }
@@ -180,7 +180,7 @@ impl PyIterReturn {
             Self::Return(obj) => Ok(obj),
             Self::StopIteration(v) => Err({
                 let args = if let Some(v) = v { vec![v] } else { Vec::new() };
-                vm.new_exception(vm.ctx.exceptions.stop_async_iteration.clone(), args)
+                vm.new_exception(vm.ctx.exceptions.stop_async_iteration.to_owned(), args)
             }),
         }
     }

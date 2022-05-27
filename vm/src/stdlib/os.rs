@@ -832,8 +832,8 @@ pub(super) mod _os {
             let name = match zelf.get_attr("name", vm) {
                 Ok(name) => Some(name),
                 Err(e)
-                    if e.fast_isinstance(&vm.ctx.exceptions.attribute_error)
-                        || e.fast_isinstance(&vm.ctx.exceptions.value_error) =>
+                    if e.fast_isinstance(vm.ctx.exceptions.attribute_error)
+                        || e.fast_isinstance(vm.ctx.exceptions.value_error) =>
                 {
                     None
                 }
@@ -1805,7 +1805,7 @@ pub fn extend_module(vm: &VirtualMachine, module: &PyObject) {
         "supports_fd" => supports_fd,
         "supports_dir_fd" => supports_dir_fd,
         "supports_follow_symlinks" => supports_follow_symlinks,
-        "error" => vm.ctx.exceptions.os_error.clone(),
+        "error" => vm.ctx.exceptions.os_error.to_owned(),
     });
 }
 pub(crate) use _os::os_open as open;

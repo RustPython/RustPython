@@ -1,11 +1,11 @@
-use super::PyTypeRef;
+use super::{PyType, PyTypeRef};
 use crate::{
     builtins::PyTupleRef,
     class::PyClassImpl,
     function::PosArgs,
     protocol::{PyIter, PyIterReturn},
     types::{Constructor, IterNext, IterNextIterable},
-    Context, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+    Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 
 /// map(func, *iterables) --> map object
@@ -20,8 +20,8 @@ pub struct PyMap {
 }
 
 impl PyPayload for PyMap {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.map_type
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
+        vm.ctx.types.map_type
     }
 }
 
@@ -51,7 +51,7 @@ impl PyMap {
     fn reduce(&self, vm: &VirtualMachine) -> (PyTypeRef, PyTupleRef) {
         let mut vec = vec![self.mapper.clone()];
         vec.extend(self.iterators.iter().map(|o| o.clone().into()));
-        (vm.ctx.types.map_type.clone(), vm.new_tuple(vec))
+        (vm.ctx.types.map_type.to_owned(), vm.new_tuple(vec))
     }
 }
 
@@ -73,5 +73,5 @@ impl IterNext for PyMap {
 }
 
 pub fn init(context: &Context) {
-    PyMap::extend_class(context, &context.types.map_type);
+    PyMap::extend_class(context, context.types.map_type);
 }

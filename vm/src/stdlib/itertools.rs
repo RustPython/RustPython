@@ -729,7 +729,7 @@ mod decl {
         name: &'static str,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
-        let is_int = obj.fast_isinstance(&vm.ctx.types.int_type);
+        let is_int = obj.fast_isinstance(vm.ctx.types.int_type);
         if is_int {
             let value = int::get_value(&obj).to_usize();
             if let Some(value) = value {
@@ -1066,7 +1066,7 @@ mod decl {
                 tee_data: PyItertoolsTeeData::new(iterator, vm)?,
                 index: AtomicCell::new(0),
             }
-            .into_ref_with_type(vm, class.clone())?
+            .into_ref_with_type(vm, class.to_owned())?
             .into())
         }
 

@@ -58,7 +58,7 @@ mod zlib {
         vm.ctx.new_exception_type(
             "zlib",
             "error",
-            Some(vec![vm.ctx.exceptions.exception_type.clone()]),
+            Some(vec![vm.ctx.exceptions.exception_type.to_owned()]),
         )
     }
 
