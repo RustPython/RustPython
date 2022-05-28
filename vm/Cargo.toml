@@ -9,7 +9,7 @@ edition = "2021"
 include = ["src/**/*.rs", "Cargo.toml", "build.rs", "Lib/**/*.py"]
 
 [features]
-default = ["compile-parse", "threading", "pylib"]
+default = ["compile-parse", "pylib"]
 vm-tracing-logging = []
 flame-it = ["flame", "flamer"]
 pylib = ["rustpython-pylib"]
