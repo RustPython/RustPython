@@ -103,7 +103,7 @@ where
 #[derive(Clone)]
 pub struct ArgMapping {
     obj: PyObjectRef,
-    mapping_methods: PyMappingMethods,
+    mapping_methods: &'static PyMappingMethods,
 }
 
 impl ArgMapping {
@@ -111,7 +111,7 @@ impl ArgMapping {
     pub fn from_dict_exact(dict: PyDictRef) -> Self {
         Self {
             obj: dict.into(),
-            mapping_methods: PyDict::AS_MAPPING,
+            mapping_methods: &PyDict::AS_MAPPING,
         }
     }
 
@@ -152,7 +152,7 @@ impl ToPyObject for ArgMapping {
 impl TryFromObject for ArgMapping {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let mapping = PyMapping::try_protocol(&obj, vm)?;
-        let mapping_methods = *mapping.methods(vm);
+        let mapping_methods = mapping.methods;
         Ok(Self {
             obj,
             mapping_methods,

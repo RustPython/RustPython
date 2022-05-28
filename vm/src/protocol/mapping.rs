@@ -3,7 +3,6 @@ use crate::{
         dict::{PyDictItems, PyDictKeys, PyDictValues},
         PyDict, PyStrInterned,
     },
-    common::lock::OnceCell,
     convert::ToPyResult,
     AsObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
 };
@@ -11,7 +10,6 @@ use crate::{
 // Mapping protocol
 // https://docs.python.org/3/c-api/mapping.html
 #[allow(clippy::type_complexity)]
-#[derive(Default, Copy, Clone)]
 pub struct PyMappingMethods {
     pub length: Option<fn(&PyMapping, &VirtualMachine) -> PyResult<usize>>,
     pub subscript: Option<fn(&PyMapping, &PyObject, &VirtualMachine) -> PyResult>,
@@ -19,20 +17,16 @@ pub struct PyMappingMethods {
         Option<fn(&PyMapping, &PyObject, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>>,
 }
 
+impl PyMappingMethods {
+    fn check(&self) -> bool {
+        self.subscript.is_some()
+    }
+}
+
 #[derive(Clone)]
 pub struct PyMapping<'a> {
     pub obj: &'a PyObject,
-    methods: OnceCell<PyMappingMethods>,
-}
-
-impl<'a> From<&'a PyObject> for PyMapping<'a> {
-    #[inline(always)]
-    fn from(obj: &'a PyObject) -> Self {
-        Self {
-            obj,
-            methods: OnceCell::new(),
-        }
-    }
+    pub methods: &'static PyMappingMethods,
 }
 
 impl AsRef<PyObject> for PyMapping<'_> {
@@ -43,47 +37,47 @@ impl AsRef<PyObject> for PyMapping<'_> {
 }
 
 impl<'a> PyMapping<'a> {
+    #[inline]
+    pub fn new(obj: &'a PyObject, vm: &VirtualMachine) -> Option<Self> {
+        let methods = Self::find_methods(obj, vm)?;
+        Some(Self { obj, methods })
+    }
+
     #[inline(always)]
-    pub fn with_methods(obj: &'a PyObject, methods: PyMappingMethods) -> Self {
-        Self {
-            obj,
-            methods: OnceCell::from(methods),
-        }
+    pub fn with_methods(obj: &'a PyObject, methods: &'static PyMappingMethods) -> Self {
+        Self { obj, methods }
     }
 
     pub fn try_protocol(obj: &'a PyObject, vm: &VirtualMachine) -> PyResult<Self> {
-        let zelf = Self::from(obj);
-        if zelf.check(vm) {
-            Ok(zelf)
-        } else {
-            Err(vm.new_type_error(format!("{} is not a mapping object", zelf.obj.class())))
+        if let Some(methods) = Self::find_methods(obj, vm) {
+            if methods.check() {
+                return Ok(Self::with_methods(obj, methods));
+            }
         }
+
+        Err(vm.new_type_error(format!("{} is not a mapping object", obj.class())))
     }
 }
 
 impl PyMapping<'_> {
     // PyMapping::Check
     #[inline]
-    pub fn check(&self, vm: &VirtualMachine) -> bool {
-        self.methods(vm).subscript.is_some()
+    pub fn check(obj: &PyObject, vm: &VirtualMachine) -> bool {
+        Self::find_methods(obj, vm)
+            .and_then(|m| m.subscript)
+            .is_some()
     }
 
-    pub fn methods(&self, vm: &VirtualMachine) -> &PyMappingMethods {
-        self.methods.get_or_init(|| {
-            if let Some(f) = self
-                .obj
-                .class()
-                .mro_find_map(|cls| cls.slots.as_mapping.load())
-            {
-                f(self.obj, vm)
-            } else {
-                PyMappingMethods::default()
-            }
-        })
+    pub fn find_methods(obj: &PyObject, vm: &VirtualMachine) -> Option<&'static PyMappingMethods> {
+        if let Some(f) = obj.class().mro_find_map(|cls| cls.slots.as_mapping.load()) {
+            Some(f(obj, vm))
+        } else {
+            None
+        }
     }
 
     pub fn length_opt(&self, vm: &VirtualMachine) -> Option<PyResult<usize>> {
-        self.methods(vm).length.map(|f| f(self, vm))
+        self.methods.length.map(|f| f(self, vm))
     }
 
     pub fn length(&self, vm: &VirtualMachine) -> PyResult<usize> {
@@ -110,7 +104,7 @@ impl PyMapping<'_> {
 
     fn _subscript(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
         let f = self
-            .methods(vm)
+            .methods
             .subscript
             .ok_or_else(|| vm.new_type_error(format!("{} is not a mapping", self.obj.class())))?;
         f(self, needle, vm)
@@ -122,7 +116,7 @@ impl PyMapping<'_> {
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let f = self.methods(vm).ass_subscript.ok_or_else(|| {
+        let f = self.methods.ass_subscript.ok_or_else(|| {
             vm.new_type_error(format!(
                 "'{}' object does not support item assignment",
                 self.obj.class()

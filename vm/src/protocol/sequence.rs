@@ -242,8 +242,8 @@ impl PySequence<'_> {
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let mapping = PyMapping::from(self.obj);
-        if let Some(f) = mapping.methods(vm).ass_subscript {
+        let mapping = PyMapping::new(self.obj, vm).unwrap();
+        if let Some(f) = mapping.methods.ass_subscript {
             let slice = PySlice {
                 start: Some(start.to_pyobject(vm)),
                 stop: stop.to_pyobject(vm),

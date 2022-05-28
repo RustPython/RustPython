@@ -524,7 +524,7 @@ impl PyObject {
     pub fn length_opt(&self, vm: &VirtualMachine) -> Option<PyResult<usize>> {
         PySequence::from(self)
             .length_opt(vm)
-            .or_else(|| PyMapping::from(self).length_opt(vm))
+            .or_else(|| PyMapping::new(self, vm).and_then(|mapping| mapping.length_opt(vm)))
     }
 
     pub fn length(&self, vm: &VirtualMachine) -> PyResult<usize> {
@@ -570,13 +570,15 @@ impl PyObject {
             return dict.set_item(needle, value, vm);
         }
 
-        let mapping = PyMapping::from(self);
-        let seq = PySequence::from(self);
+        if let Some(mapping) = PyMapping::new(self, vm) {
+            if let Some(f) = mapping.methods.ass_subscript {
+                let needle = needle.to_pyobject(vm);
+                return f(&mapping, &needle, Some(value), vm);
+            }
+        }
 
-        if let Some(f) = mapping.methods(vm).ass_subscript {
-            let needle = needle.to_pyobject(vm);
-            f(&mapping, &needle, Some(value), vm)
-        } else if let Some(f) = seq.methods(vm).ass_item {
+        let seq = PySequence::from(self);
+        if let Some(f) = seq.methods(vm).ass_item {
             let i = needle.key_as_isize(vm)?;
             f(&seq, i, Some(value), vm)
         } else {
@@ -592,13 +594,16 @@ impl PyObject {
             return dict.del_item(needle, vm);
         }
 
-        let mapping = PyMapping::from(self);
+        if let Some(mapping) = PyMapping::new(self, vm) {
+            if let Some(f) = mapping.methods.ass_subscript {
+                let needle = needle.to_pyobject(vm);
+                return f(&mapping, &needle, None, vm);
+            }
+        }
+
         let seq = PySequence::from(self);
 
-        if let Some(f) = mapping.methods(vm).ass_subscript {
-            let needle = needle.to_pyobject(vm);
-            f(&mapping, &needle, None, vm)
-        } else if let Some(f) = seq.methods(vm).ass_item {
+        if let Some(f) = seq.methods(vm).ass_item {
             let i = needle.key_as_isize(vm)?;
             f(&seq, i, None, vm)
         } else {
