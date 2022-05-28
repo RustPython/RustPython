@@ -16,7 +16,7 @@ use crossbeam_utils::atomic::AtomicCell;
 use num_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_traits::{One, Signed, ToPrimitive, Zero};
-use std::{borrow::Cow, cmp::max};
+use std::cmp::max;
 
 // Search flag passed to iter_search
 enum SearchType {
@@ -389,20 +389,6 @@ impl PyRange {
             .try_to_primitive::<isize>(vm)
             .map(|x| x as usize)
     }
-
-    const SEQUENCE_METHDOS: PySequenceMethods = PySequenceMethods {
-        length: Some(|seq, vm| Self::sequence_downcast(seq).protocol_length(vm)),
-        item: Some(|seq, i, vm| {
-            Self::sequence_downcast(seq)
-                .get(&i.into())
-                .map(|x| PyInt::from(x).into_ref(vm).into())
-                .ok_or_else(|| vm.new_index_error("index out of range".to_owned()))
-        }),
-        contains: Some(|seq, needle, vm| {
-            Ok(Self::sequence_downcast(seq).contains(needle.to_owned(), vm))
-        }),
-        ..*PySequenceMethods::not_implemented()
-    };
 }
 
 impl AsMapping for PyRange {
@@ -416,12 +402,19 @@ impl AsMapping for PyRange {
 }
 
 impl AsSequence for PyRange {
-    fn as_sequence(
-        _zelf: &crate::Py<Self>,
-        _vm: &VirtualMachine,
-    ) -> Cow<'static, PySequenceMethods> {
-        Cow::Borrowed(&Self::SEQUENCE_METHDOS)
-    }
+    const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
+        length: Some(|seq, vm| Self::sequence_downcast(seq).protocol_length(vm)),
+        item: Some(|seq, i, vm| {
+            Self::sequence_downcast(seq)
+                .get(&i.into())
+                .map(|x| PyInt::from(x).into_ref(vm).into())
+                .ok_or_else(|| vm.new_index_error("index out of range".to_owned()))
+        }),
+        contains: Some(|seq, needle, vm| {
+            Ok(Self::sequence_downcast(seq).contains(needle.to_owned(), vm))
+        }),
+        ..*PySequenceMethods::not_implemented()
+    };
 }
 
 impl Hashable for PyRange {

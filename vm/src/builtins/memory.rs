@@ -24,7 +24,7 @@ use crate::{
 };
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
-use std::{borrow::Cow, cmp::Ordering, fmt::Debug, mem::ManuallyDrop, ops::Range};
+use std::{cmp::Ordering, fmt::Debug, mem::ManuallyDrop, ops::Range};
 
 #[derive(FromArgs)]
 pub struct PyMemoryViewNewArgs {
@@ -976,13 +976,7 @@ impl AsMapping for PyMemoryView {
 }
 
 impl AsSequence for PyMemoryView {
-    fn as_sequence(_zelf: &Py<Self>, _vm: &VirtualMachine) -> Cow<'static, PySequenceMethods> {
-        Cow::Borrowed(&Self::SEQUENCE_METHODS)
-    }
-}
-
-impl PyMemoryView {
-    const SEQUENCE_METHODS: PySequenceMethods = PySequenceMethods {
+    const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
         length: Some(|seq, vm| {
             let zelf = Self::sequence_downcast(seq);
             zelf.try_not_released(vm)?;

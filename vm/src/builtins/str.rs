@@ -1309,16 +1309,7 @@ impl AsMapping for PyStr {
 }
 
 impl AsSequence for PyStr {
-    fn as_sequence(
-        _zelf: &Py<Self>,
-        _vm: &VirtualMachine,
-    ) -> std::borrow::Cow<'static, PySequenceMethods> {
-        std::borrow::Cow::Borrowed(&Self::SEQUENCE_METHDOS)
-    }
-}
-
-impl PyStr {
-    const SEQUENCE_METHDOS: PySequenceMethods = PySequenceMethods {
+    const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
         length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
         concat: Some(|seq, other, vm| {
             let zelf = Self::sequence_downcast(seq);

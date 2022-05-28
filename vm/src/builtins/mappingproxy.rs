@@ -7,7 +7,6 @@ use crate::{
     types::{AsMapping, AsSequence, Constructor, Iterable},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
-use std::borrow::Cow;
 
 #[pyclass(module = false, name = "mappingproxy")]
 #[derive(Debug)]
@@ -157,16 +156,7 @@ impl AsMapping for PyMappingProxy {
 }
 
 impl AsSequence for PyMappingProxy {
-    fn as_sequence(
-        _zelf: &crate::Py<Self>,
-        _vm: &VirtualMachine,
-    ) -> Cow<'static, PySequenceMethods> {
-        Cow::Borrowed(&Self::SEQUENCE_METHODS)
-    }
-}
-
-impl PyMappingProxy {
-    const SEQUENCE_METHODS: PySequenceMethods = PySequenceMethods {
+    const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
         contains: Some(|seq, target, vm| Self::sequence_downcast(seq)._contains(target, vm)),
         ..*PySequenceMethods::not_implemented()
     };

@@ -20,7 +20,6 @@ use crate::{
     vm::VirtualMachine,
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
 };
-use std::borrow::Cow;
 use std::{fmt, ops::Deref};
 
 pub type SetContentType = dictdatatype::Dict<()>;
@@ -663,16 +662,7 @@ impl Initializer for PySet {
 }
 
 impl AsSequence for PySet {
-    fn as_sequence(
-        _zelf: &crate::Py<Self>,
-        _vm: &VirtualMachine,
-    ) -> Cow<'static, PySequenceMethods> {
-        Cow::Borrowed(&Self::SEQUENCE_METHODS)
-    }
-}
-
-impl PySet {
-    const SEQUENCE_METHODS: PySequenceMethods = PySequenceMethods {
+    const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
         length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
         contains: Some(|seq, needle, vm| Self::sequence_downcast(seq).inner.contains(needle, vm)),
         ..*PySequenceMethods::not_implemented()
@@ -904,16 +894,7 @@ impl PyFrozenSet {
 }
 
 impl AsSequence for PyFrozenSet {
-    fn as_sequence(
-        _zelf: &crate::Py<Self>,
-        _vm: &VirtualMachine,
-    ) -> Cow<'static, PySequenceMethods> {
-        Cow::Borrowed(&Self::SEQUENCE_METHODS)
-    }
-}
-
-impl PyFrozenSet {
-    const SEQUENCE_METHODS: PySequenceMethods = PySequenceMethods {
+    const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
         length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
         contains: Some(|seq, needle, vm| Self::sequence_downcast(seq).inner.contains(needle, vm)),
         ..*PySequenceMethods::not_implemented()

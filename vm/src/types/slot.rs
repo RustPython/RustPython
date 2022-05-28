@@ -963,14 +963,13 @@ pub trait AsMapping: PyPayload {
 
 #[pyimpl]
 pub trait AsSequence: PyPayload {
+    const AS_SEQUENCE: PySequenceMethods;
+
     #[inline]
     #[pyslot]
-    fn slot_as_sequence(zelf: &PyObject, vm: &VirtualMachine) -> Cow<'static, PySequenceMethods> {
-        let zelf = unsafe { zelf.downcast_unchecked_ref::<Self>() };
-        Self::as_sequence(zelf, vm)
+    fn as_sequence(_zelf: &PyObject, _vm: &VirtualMachine) -> Cow<'static, PySequenceMethods> {
+        Cow::Borrowed(&Self::AS_SEQUENCE)
     }
-
-    fn as_sequence(zelf: &Py<Self>, vm: &VirtualMachine) -> Cow<'static, PySequenceMethods>;
 
     fn sequence_downcast<'a>(seq: &'a PySequence) -> &'a Py<Self> {
         unsafe { seq.obj.downcast_unchecked_ref() }

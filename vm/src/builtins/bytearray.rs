@@ -36,7 +36,7 @@ use crate::{
     TryFromBorrowedObject, TryFromObject, VirtualMachine,
 };
 use bstr::ByteSlice;
-use std::{borrow::Cow, mem::size_of};
+use std::mem::size_of;
 
 #[pyclass(module = false, name = "bytearray")]
 #[derive(Debug, Default)]
@@ -784,13 +784,7 @@ impl AsMapping for PyByteArray {
 }
 
 impl AsSequence for PyByteArray {
-    fn as_sequence(_zelf: &Py<Self>, _vm: &VirtualMachine) -> Cow<'static, PySequenceMethods> {
-        Cow::Borrowed(&Self::SEQUENCE_METHODS)
-    }
-}
-
-impl PyByteArray {
-    const SEQUENCE_METHODS: PySequenceMethods = PySequenceMethods {
+    const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
         length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
         concat: Some(|seq, other, vm| {
             Self::sequence_downcast(seq)

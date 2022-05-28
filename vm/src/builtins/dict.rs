@@ -25,7 +25,7 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
 };
 use rustpython_common::lock::PyMutex;
-use std::{borrow::Cow, fmt};
+use std::fmt;
 
 pub type DictContentType = dictdatatype::Dict;
 
@@ -478,13 +478,7 @@ impl AsMapping for PyDict {
 }
 
 impl AsSequence for PyDict {
-    fn as_sequence(_zelf: &Py<Self>, _vm: &VirtualMachine) -> Cow<'static, PySequenceMethods> {
-        Cow::Borrowed(&Self::SEQUENCE_METHODS)
-    }
-}
-
-impl PyDict {
-    const SEQUENCE_METHODS: PySequenceMethods = PySequenceMethods {
+    const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
         contains: Some(|seq, target, vm| Self::sequence_downcast(seq).entries.contains(vm, target)),
         ..*PySequenceMethods::not_implemented()
     };
@@ -1054,12 +1048,7 @@ impl Comparable for PyDictKeys {
 }
 
 impl AsSequence for PyDictKeys {
-    fn as_sequence(_zelf: &Py<Self>, _vm: &VirtualMachine) -> Cow<'static, PySequenceMethods> {
-        Cow::Borrowed(&Self::SEQUENCE_METHODS)
-    }
-}
-impl PyDictKeys {
-    const SEQUENCE_METHODS: PySequenceMethods = PySequenceMethods {
+    const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
         length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
         contains: Some(|seq, target, vm| {
             Self::sequence_downcast(seq)
@@ -1108,12 +1097,7 @@ impl Comparable for PyDictItems {
 }
 
 impl AsSequence for PyDictItems {
-    fn as_sequence(_zelf: &Py<Self>, _vm: &VirtualMachine) -> Cow<'static, PySequenceMethods> {
-        Cow::Borrowed(&Self::SEQUENCE_METHODS)
-    }
-}
-impl PyDictItems {
-    const SEQUENCE_METHODS: PySequenceMethods = PySequenceMethods {
+    const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
         length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
         contains: Some(|seq, target, vm| {
             Self::sequence_downcast(seq)
@@ -1130,12 +1114,7 @@ impl PyDictValues {}
 impl Unconstructible for PyDictValues {}
 
 impl AsSequence for PyDictValues {
-    fn as_sequence(_zelf: &Py<Self>, _vm: &VirtualMachine) -> Cow<'static, PySequenceMethods> {
-        Cow::Borrowed(&Self::SEQUENCE_METHODS)
-    }
-}
-impl PyDictValues {
-    const SEQUENCE_METHODS: PySequenceMethods = PySequenceMethods {
+    const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
         length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
         ..*PySequenceMethods::not_implemented()
     };

@@ -17,7 +17,7 @@ use crate::{
     vm::VirtualMachine,
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
 };
-use std::{borrow::Cow, fmt, marker::PhantomData};
+use std::{fmt, marker::PhantomData};
 
 /// tuple() -> empty tuple
 /// tuple(iterable) -> tuple initialized from iterable's items
@@ -354,16 +354,7 @@ impl AsMapping for PyTuple {
 }
 
 impl AsSequence for PyTuple {
-    fn as_sequence(
-        _zelf: &crate::Py<Self>,
-        _vm: &VirtualMachine,
-    ) -> Cow<'static, PySequenceMethods> {
-        Cow::Borrowed(&Self::SEQUENCE_METHDOS)
-    }
-}
-
-impl PyTuple {
-    const SEQUENCE_METHDOS: PySequenceMethods = PySequenceMethods {
+    const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
         length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
         concat: Some(|seq, other, vm| {
             let zelf = Self::sequence_downcast(seq);
