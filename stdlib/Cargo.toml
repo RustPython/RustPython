@@ -57,14 +57,17 @@ hex = "0.4.3"
 puruspe = "0.1.5"
 nix = "0.23.1"
 xml-rs = "0.8.4"
-libc = "0.2.123"
+libc = "0.2.126"
 cfg-if = "1.0.0"
 ahash = "0.7.6"
 libz-sys = { version = "1.1.5", optional = true }
 num_enum = "0.5.7"
 ascii = "1.0.0"
-memmap2 = "0.5.0"
-page_size = "0.4.2"
+
+# mmap
+[target.'cfg(all(unix, not(target_arch = "wasm32")))'.dependencies]
+memmap2 = "0.5.4"
+page_size = "0.4"
 
 [target.'cfg(all(unix, not(target_os = "redox")))'.dependencies]
 termios = "0.3.3"

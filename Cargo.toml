@@ -41,7 +41,7 @@ rustpython-stdlib = {path = "stdlib", optional = true, default-features = false,
 dirs = { package = "dirs-next", version = "2.0.0" }
 num-traits = "0.2.14"
 cfg-if = "1.0.0"
-libc = "0.2.123"
+libc = "0.2.126"
 
 flame = { version = "0.2.2", optional = true }
 flamescope = { version = "0.1.2", optional = true }
