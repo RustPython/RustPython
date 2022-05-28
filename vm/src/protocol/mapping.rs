@@ -69,9 +69,7 @@ impl PyMapping<'_> {
     // PyMapping::Check
     #[inline]
     pub fn check(obj: &PyObject, vm: &VirtualMachine) -> bool {
-        Self::find_methods(obj, vm)
-            .and_then(|m| m.subscript)
-            .is_some()
+        Self::find_methods(obj, vm).map_or(false, PyMappingMethods::check)
     }
 
     pub fn find_methods(obj: &PyObject, vm: &VirtualMachine) -> Option<&'static PyMappingMethods> {

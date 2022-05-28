@@ -139,7 +139,7 @@ impl PyList {
     }
 
     fn inplace_concat(zelf: &Py<Self>, other: &PyObject, vm: &VirtualMachine) -> PyObjectRef {
-        if let Ok(mut seq) = PySequence::from(other).extract_cloned(Ok, vm) {
+        if let Ok(mut seq) = extract_cloned(other, Ok, vm) {
             zelf.borrow_vec_mut().append(&mut seq);
             zelf.to_owned().into()
         } else {
@@ -149,7 +149,7 @@ impl PyList {
 
     #[pymethod(magic)]
     fn iadd(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        if let Ok(mut seq) = PySequence::from(other.as_ref()).extract_cloned(Ok, vm) {
+        if let Ok(mut seq) = extract_cloned(&*other, Ok, vm) {
             zelf.borrow_vec_mut().append(&mut seq);
             zelf.into()
         } else {
@@ -215,7 +215,7 @@ impl PyList {
         match SequenceIndex::try_from_borrowed_object(vm, needle)? {
             SequenceIndex::Int(index) => self.borrow_vec_mut().set_item_by_index(vm, index, value),
             SequenceIndex::Slice(slice) => {
-                let sec = PySequence::from(value.as_ref()).extract_cloned(Ok, vm)?;
+                let sec = extract_cloned(&*value, Ok, vm)?;
                 self.borrow_vec_mut().set_item_by_slice(vm, slice, &sec)
             }
         }
@@ -349,6 +349,31 @@ impl PyList {
     #[pyclassmethod(magic)]
     fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
         PyGenericAlias::new(cls, args, vm)
+    }
+}
+
+fn extract_cloned<F, R>(obj: &PyObject, mut f: F, vm: &VirtualMachine) -> PyResult<Vec<R>>
+where
+    F: FnMut(PyObjectRef) -> PyResult<R>,
+{
+    use crate::builtins::PyTuple;
+    if let Some(tuple) = obj.payload_if_exact::<PyTuple>(vm) {
+        tuple.iter().map(|x| f(x.clone())).collect()
+    } else if let Some(list) = obj.payload_if_exact::<PyList>(vm) {
+        list.borrow_vec().iter().map(|x| f(x.clone())).collect()
+    } else {
+        let iter = obj.to_owned().get_iter(vm)?;
+        let iter = iter.iter::<PyObjectRef>(vm)?;
+        let len = PySequence::new(obj, vm)
+            .and_then(|seq| seq.length_opt(vm))
+            .transpose()?
+            .unwrap_or(0);
+        let mut v = Vec::with_capacity(len);
+        for x in iter {
+            v.push(f(x?)?);
+        }
+        v.shrink_to_fit();
+        Ok(v)
     }
 }
 

@@ -14,10 +14,7 @@ use crate::{
 };
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::{Signed, ToPrimitive};
-use std::{
-    borrow::{Borrow, Cow},
-    cmp::Ordering,
-};
+use std::{borrow::Borrow, cmp::Ordering};
 
 // The corresponding field in CPython is `tp_` prefixed.
 // e.g. name -> tp_name
@@ -162,7 +159,7 @@ pub(crate) type DescrSetFunc =
 pub(crate) type NewFunc = fn(PyTypeRef, FuncArgs, &VirtualMachine) -> PyResult;
 pub(crate) type InitFunc = fn(PyObjectRef, FuncArgs, &VirtualMachine) -> PyResult<()>;
 pub(crate) type DelFunc = fn(&PyObject, &VirtualMachine) -> PyResult<()>;
-pub(crate) type AsSequenceFunc = fn(&PyObject, &VirtualMachine) -> Cow<'static, PySequenceMethods>;
+pub(crate) type AsSequenceFunc = fn(&PyObject, &VirtualMachine) -> &'static PySequenceMethods;
 
 fn length_wrapper(obj: &PyObject, vm: &VirtualMachine) -> PyResult<usize> {
     let ret = vm.call_special_method(obj.to_owned(), identifier!(vm, __len__), ())?;
@@ -327,9 +324,9 @@ pub(crate) fn static_as_sequence_generic(
     &METHODS[key]
 }
 
-fn as_sequence_generic(zelf: &PyObject, vm: &VirtualMachine) -> Cow<'static, PySequenceMethods> {
+fn as_sequence_generic(zelf: &PyObject, vm: &VirtualMachine) -> &'static PySequenceMethods {
     if !zelf.class().has_attr(identifier!(vm, __getitem__)) {
-        return Cow::Borrowed(&PySequenceMethods::NOT_IMPLEMENTED);
+        return &PySequenceMethods::NOT_IMPLEMENTED;
     }
 
     let (has_length, has_ass_item) = (
@@ -338,7 +335,7 @@ fn as_sequence_generic(zelf: &PyObject, vm: &VirtualMachine) -> Cow<'static, PyS
             | zelf.class().has_attr(identifier!(vm, __delitem__)),
     );
 
-    Cow::Borrowed(static_as_sequence_generic(has_length, has_ass_item))
+    static_as_sequence_generic(has_length, has_ass_item)
 }
 
 fn hash_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyHash> {
@@ -985,8 +982,8 @@ pub trait AsSequence: PyPayload {
 
     #[inline]
     #[pyslot]
-    fn as_sequence(_zelf: &PyObject, _vm: &VirtualMachine) -> Cow<'static, PySequenceMethods> {
-        Cow::Borrowed(&Self::AS_SEQUENCE)
+    fn as_sequence(_zelf: &PyObject, _vm: &VirtualMachine) -> &'static PySequenceMethods {
+        &Self::AS_SEQUENCE
     }
 
     fn sequence_downcast<'a>(seq: &'a PySequence) -> &'a Py<Self> {

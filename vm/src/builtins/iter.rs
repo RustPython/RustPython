@@ -14,7 +14,6 @@ use rustpython_common::{
     lock::{PyMutex, PyRwLock, PyRwLockUpgradableReadGuard},
     static_cell,
 };
-use std::borrow::Cow;
 
 /// Marks status of iterator.
 #[derive(Debug, Clone)]
@@ -163,7 +162,7 @@ pub fn builtins_reversed(vm: &VirtualMachine) -> &PyObject {
 #[derive(Debug)]
 pub struct PySequenceIterator {
     // cached sequence methods
-    seq_methods: Cow<'static, PySequenceMethods>,
+    seq_methods: &'static PySequenceMethods,
     internal: PyMutex<PositionIterInternal<PyObjectRef>>,
 }
 
@@ -177,9 +176,8 @@ impl PyPayload for PySequenceIterator {
 impl PySequenceIterator {
     pub fn new(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
         let seq = PySequence::try_protocol(obj.as_ref(), vm)?;
-        let seq_methods = seq.methods_cow(vm).clone();
         Ok(Self {
-            seq_methods,
+            seq_methods: seq.methods,
             internal: PyMutex::new(PositionIterInternal::new(obj, 0)),
         })
     }
@@ -188,7 +186,7 @@ impl PySequenceIterator {
     fn length_hint(&self, vm: &VirtualMachine) -> PyObjectRef {
         let internal = self.internal.lock();
         if let IterStatus::Active(obj) = &internal.status {
-            let seq = PySequence::with_methods(obj, self.seq_methods.clone());
+            let seq = PySequence::with_methods(obj, self.seq_methods);
             seq.length(vm)
                 .map(|x| PyInt::from(x).into_pyobject(vm))
                 .unwrap_or_else(|_| vm.ctx.not_implemented())
@@ -212,7 +210,7 @@ impl IterNextIterable for PySequenceIterator {}
 impl IterNext for PySequenceIterator {
     fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal.lock().next(|obj, pos| {
-            let seq = PySequence::with_methods(obj, zelf.seq_methods.clone());
+            let seq = PySequence::with_methods(obj, zelf.seq_methods);
             PyIterReturn::from_getitem_result(seq.get_item(pos as isize, vm), vm)
         })
     }

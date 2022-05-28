@@ -522,8 +522,8 @@ impl PyObject {
     // int PyObject_TypeCheck(PyObject *o, PyTypeObject *type)
 
     pub fn length_opt(&self, vm: &VirtualMachine) -> Option<PyResult<usize>> {
-        PySequence::from(self)
-            .length_opt(vm)
+        PySequence::new(self, vm)
+            .and_then(|seq| seq.length_opt(vm))
             .or_else(|| PyMapping::new(self, vm).and_then(|mapping| mapping.length_opt(vm)))
     }
 
@@ -576,17 +576,17 @@ impl PyObject {
                 return f(&mapping, &needle, Some(value), vm);
             }
         }
-
-        let seq = PySequence::from(self);
-        if let Some(f) = seq.methods(vm).ass_item {
-            let i = needle.key_as_isize(vm)?;
-            f(&seq, i, Some(value), vm)
-        } else {
-            Err(vm.new_type_error(format!(
-                "'{}' does not support item assignment",
-                self.class()
-            )))
+        if let Some(seq) = PySequence::new(self, vm) {
+            if let Some(f) = seq.methods.ass_item {
+                let i = needle.key_as_isize(vm)?;
+                return f(&seq, i, Some(value), vm);
+            }
         }
+
+        Err(vm.new_type_error(format!(
+            "'{}' does not support item assignment",
+            self.class()
+        )))
     }
 
     pub fn del_item<K: DictKey + ?Sized>(&self, needle: &K, vm: &VirtualMachine) -> PyResult<()> {
@@ -600,14 +600,13 @@ impl PyObject {
                 return f(&mapping, &needle, None, vm);
             }
         }
-
-        let seq = PySequence::from(self);
-
-        if let Some(f) = seq.methods(vm).ass_item {
-            let i = needle.key_as_isize(vm)?;
-            f(&seq, i, None, vm)
-        } else {
-            Err(vm.new_type_error(format!("'{}' does not support item deletion", self.class())))
+        if let Some(seq) = PySequence::new(self, vm) {
+            if let Some(f) = seq.methods.ass_item {
+                let i = needle.key_as_isize(vm)?;
+                return f(&seq, i, None, vm);
+            }
         }
+
+        Err(vm.new_type_error(format!("'{}' does not support item deletion", self.class())))
     }
 }
