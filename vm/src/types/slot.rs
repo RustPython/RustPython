@@ -174,8 +174,8 @@ macro_rules! then_some_closure {
     };
 }
 
-fn length_wrapper(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-    let ret = vm.call_special_method(obj, identifier!(vm, __len__), ())?;
+fn length_wrapper(obj: &PyObject, vm: &VirtualMachine) -> PyResult<usize> {
+    let ret = vm.call_special_method(obj.to_owned(), identifier!(vm, __len__), ())?;
     let len = ret.payload::<PyInt>().ok_or_else(|| {
         vm.new_type_error(format!(
             "'{}' object cannot be interpreted as an integer",
@@ -192,26 +192,30 @@ fn length_wrapper(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
     Ok(len as usize)
 }
 
-fn as_mapping_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyMappingMethods {
+const fn new_as_mapping_wrapper(
+    has_length: bool,
+    has_subscript: bool,
+    has_ass_subscript: bool,
+) -> PyMappingMethods {
     PyMappingMethods {
-        length: then_some_closure!(
-            zelf.class().has_attr(identifier!(vm, __len__)),
-            |mapping, vm| { length_wrapper(mapping.obj.to_owned(), vm) }
-        ),
-        subscript: then_some_closure!(
-            zelf.class().has_attr(identifier!(vm, __getitem__)),
-            |mapping, needle, vm| {
+        length: if has_length {
+            Some(|mapping, vm| length_wrapper(&mapping.obj, vm))
+        } else {
+            None
+        },
+        subscript: if has_subscript {
+            Some(|mapping, needle, vm| {
                 vm.call_special_method(
                     mapping.obj.to_owned(),
                     identifier!(vm, __getitem__),
                     (needle.to_owned(),),
                 )
-            }
-        ),
-        ass_subscript: then_some_closure!(
-            zelf.class().has_attr(identifier!(vm, __setitem__))
-                | zelf.class().has_attr(identifier!(vm, __delitem__)),
-            |mapping, needle, value, vm| match value {
+            })
+        } else {
+            None
+        },
+        ass_subscript: if has_ass_subscript {
+            Some(|mapping, needle, value, vm| match value {
                 Some(value) => vm
                     .call_special_method(
                         mapping.obj.to_owned(),
@@ -223,12 +227,44 @@ fn as_mapping_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyMappingMethods 
                     .call_special_method(
                         mapping.obj.to_owned(),
                         identifier!(vm, __delitem__),
-                        (needle.to_owned(),)
+                        (needle.to_owned(),),
                     )
                     .map(|_| Ok(()))?,
-            }
-        ),
+            })
+        } else {
+            None
+        },
     }
+}
+
+fn as_mapping_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyMappingMethods {
+    static MAPPING_METHODS: &[PyMappingMethods] = &[
+        new_as_mapping_wrapper(false, false, false),
+        new_as_mapping_wrapper(true, false, false),
+        new_as_mapping_wrapper(false, true, false),
+        new_as_mapping_wrapper(true, true, false),
+        new_as_mapping_wrapper(false, false, true),
+        new_as_mapping_wrapper(true, false, true),
+        new_as_mapping_wrapper(false, true, true),
+        new_as_mapping_wrapper(true, true, true),
+    ];
+    const fn bool_int(v: bool) -> usize {
+        if v {
+            1
+        } else {
+            0
+        }
+    }
+    let (has_length, has_subscript, has_ass_subscript) = (
+        zelf.class().has_attr(identifier!(vm, __len__)),
+        zelf.class().has_attr(identifier!(vm, __getitem__)),
+        zelf.class().has_attr(identifier!(vm, __setitem__))
+            | zelf.class().has_attr(identifier!(vm, __delitem__)),
+    );
+    let key = (bool_int(has_length) << 0)
+        | (bool_int(has_subscript) << 1)
+        | (bool_int(has_ass_subscript) << 2);
+    MAPPING_METHODS[key].clone()
 }
 
 fn as_sequence_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> Cow<'static, PySequenceMethods> {
@@ -239,7 +275,7 @@ fn as_sequence_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> Cow<'static, PyS
     Cow::Owned(PySequenceMethods {
         length: then_some_closure!(
             zelf.class().has_attr(identifier!(vm, __len__)),
-            |seq, vm| { length_wrapper(seq.obj.to_owned(), vm) }
+            |seq, vm| { length_wrapper(&seq.obj, vm) }
         ),
         item: Some(|seq, i, vm| {
             vm.call_special_method(
