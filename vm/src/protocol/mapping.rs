@@ -17,6 +17,12 @@ pub struct PyMappingMethods {
         Option<fn(&PyMapping, &PyObject, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>>,
 }
 
+impl std::fmt::Debug for PyMappingMethods {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "mapping methods")
+    }
+}
+
 impl PyMappingMethods {
     fn check(&self) -> bool {
         self.subscript.is_some()
