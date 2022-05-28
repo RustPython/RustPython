@@ -30,9 +30,16 @@ pub struct PySequenceMethods {
 }
 
 impl PySequenceMethods {
-    pub const fn not_implemented() -> &'static Self {
-        &NOT_IMPLEMENTED
-    }
+    pub const NOT_IMPLEMENTED: PySequenceMethods = PySequenceMethods {
+        length: None,
+        concat: None,
+        repeat: None,
+        item: None,
+        ass_item: None,
+        contains: None,
+        inplace_concat: None,
+        inplace_repeat: None,
+    };
 }
 
 impl Debug for PySequenceMethods {
@@ -101,7 +108,7 @@ impl PySequence<'_> {
                     return f(self.obj, vm);
                 }
             }
-            Cow::Borrowed(PySequenceMethods::not_implemented())
+            Cow::Borrowed(&PySequenceMethods::NOT_IMPLEMENTED)
         })
     }
 
@@ -393,14 +400,3 @@ impl PySequence<'_> {
         }
     }
 }
-
-const NOT_IMPLEMENTED: PySequenceMethods = PySequenceMethods {
-    length: None,
-    concat: None,
-    repeat: None,
-    item: None,
-    ass_item: None,
-    contains: None,
-    inplace_concat: None,
-    inplace_repeat: None,
-};

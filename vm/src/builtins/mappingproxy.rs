@@ -158,7 +158,7 @@ impl AsMapping for PyMappingProxy {
 impl AsSequence for PyMappingProxy {
     const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
         contains: Some(|seq, target, vm| Self::sequence_downcast(seq)._contains(target, vm)),
-        ..*PySequenceMethods::not_implemented()
+        ..PySequenceMethods::NOT_IMPLEMENTED
     };
 }
 

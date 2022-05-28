@@ -413,7 +413,7 @@ impl AsSequence for PyRange {
         contains: Some(|seq, needle, vm| {
             Ok(Self::sequence_downcast(seq).contains(needle.to_owned(), vm))
         }),
-        ..*PySequenceMethods::not_implemented()
+        ..PySequenceMethods::NOT_IMPLEMENTED
     };
 }
 

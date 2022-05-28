@@ -987,7 +987,7 @@ impl AsSequence for PyMemoryView {
             zelf.try_not_released(vm)?;
             zelf.getitem_by_idx(i, vm)
         }),
-        ..*PySequenceMethods::not_implemented()
+        ..PySequenceMethods::NOT_IMPLEMENTED
     };
 }
 

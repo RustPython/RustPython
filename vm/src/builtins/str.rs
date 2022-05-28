@@ -1325,7 +1325,7 @@ impl AsSequence for PyStr {
                 .map(|x| zelf.new_substr(x.to_string()).into_ref(vm).into())
         }),
         contains: Some(|seq, needle, vm| Self::sequence_downcast(seq)._contains(needle, vm)),
-        ..*PySequenceMethods::not_implemented()
+        ..PySequenceMethods::NOT_IMPLEMENTED
     };
 }
 

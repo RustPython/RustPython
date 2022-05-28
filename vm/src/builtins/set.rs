@@ -665,7 +665,7 @@ impl AsSequence for PySet {
     const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
         length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
         contains: Some(|seq, needle, vm| Self::sequence_downcast(seq).inner.contains(needle, vm)),
-        ..*PySequenceMethods::not_implemented()
+        ..PySequenceMethods::NOT_IMPLEMENTED
     };
 }
 
@@ -897,7 +897,7 @@ impl AsSequence for PyFrozenSet {
     const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
         length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
         contains: Some(|seq, needle, vm| Self::sequence_downcast(seq).inner.contains(needle, vm)),
-        ..*PySequenceMethods::not_implemented()
+        ..PySequenceMethods::NOT_IMPLEMENTED
     };
 }
 

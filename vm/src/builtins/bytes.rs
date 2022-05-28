@@ -602,7 +602,7 @@ impl AsSequence for PyBytes {
             let other = <Either<PyBytesInner, PyIntRef>>::try_from_object(vm, other.to_owned())?;
             Self::sequence_downcast(seq).contains(other, vm)
         }),
-        ..*PySequenceMethods::not_implemented()
+        ..PySequenceMethods::NOT_IMPLEMENTED
     };
 }
 

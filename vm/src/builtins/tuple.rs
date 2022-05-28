@@ -378,7 +378,7 @@ impl AsSequence for PyTuple {
             let zelf = Self::sequence_downcast(seq);
             zelf._contains(needle, vm)
         }),
-        ..*PySequenceMethods::not_implemented()
+        ..PySequenceMethods::NOT_IMPLEMENTED
     };
 }
 

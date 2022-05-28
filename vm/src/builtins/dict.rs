@@ -480,7 +480,7 @@ impl AsMapping for PyDict {
 impl AsSequence for PyDict {
     const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
         contains: Some(|seq, target, vm| Self::sequence_downcast(seq).entries.contains(vm, target)),
-        ..*PySequenceMethods::not_implemented()
+        ..PySequenceMethods::NOT_IMPLEMENTED
     };
 }
 
@@ -1056,7 +1056,7 @@ impl AsSequence for PyDictKeys {
                 .entries
                 .contains(vm, target)
         }),
-        ..*PySequenceMethods::not_implemented()
+        ..PySequenceMethods::NOT_IMPLEMENTED
     };
 }
 
@@ -1105,7 +1105,7 @@ impl AsSequence for PyDictItems {
                 .entries
                 .contains(vm, target)
         }),
-        ..*PySequenceMethods::not_implemented()
+        ..PySequenceMethods::NOT_IMPLEMENTED
     };
 }
 
@@ -1116,7 +1116,7 @@ impl Unconstructible for PyDictValues {}
 impl AsSequence for PyDictValues {
     const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
         length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
-        ..*PySequenceMethods::not_implemented()
+        ..PySequenceMethods::NOT_IMPLEMENTED
     };
 }
 
