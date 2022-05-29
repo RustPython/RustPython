@@ -458,8 +458,6 @@ class IntTestCases(unittest.TestCase):
         self.assertEqual(my_int, 7)
         self.assertRaises(TypeError, int, my_int)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_int_returns_int_subclass(self):
         class BadIndex:
             def __index__(self):

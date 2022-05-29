@@ -1,18 +1,18 @@
 use super::{
     try_bigint_to_f64, PyByteArray, PyBytes, PyInt, PyIntRef, PyStr, PyStrRef, PyType, PyTypeRef,
 };
-use crate::common::{float_ops, hash};
 use crate::{
     class::PyClassImpl,
-    convert::ToPyObject,
+    common::{float_ops, hash},
+    convert::{ToPyObject, ToPyResult},
     format::FormatSpec,
     function::{
         ArgBytesLike, OptionalArg, OptionalOption,
         PyArithmeticValue::{self, *},
         PyComparisonValue,
     },
-    identifier,
-    types::{Comparable, Constructor, Hashable, PyComparisonOp},
+    protocol::{PyNumber, PyNumberMethods},
+    types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, TryFromObject, VirtualMachine,
 };
@@ -58,32 +58,13 @@ impl From<f64> for PyFloat {
 }
 
 impl PyObject {
-    pub fn try_to_f64(&self, vm: &VirtualMachine) -> PyResult<Option<f64>> {
-        if let Some(float) = self.payload_if_exact::<PyFloat>(vm) {
-            return Ok(Some(float.value));
-        }
-        if let Some(method) = vm.get_method(self.to_owned(), identifier!(vm, __float__)) {
-            let result = vm.invoke(&method?, ())?;
-            // TODO: returning strict subclasses of float in __float__ is deprecated
-            return match result.payload::<PyFloat>() {
-                Some(float_obj) => Ok(Some(float_obj.value)),
-                None => Err(vm.new_type_error(format!(
-                    "__float__ returned non-float (type '{}')",
-                    result.class().name()
-                ))),
-            };
-        }
-        if let Some(r) = vm.to_index_opt(self.to_owned()).transpose()? {
-            return Ok(Some(try_bigint_to_f64(r.as_bigint(), vm)?));
-        }
-        Ok(None)
+    pub fn try_float_opt(&self, vm: &VirtualMachine) -> PyResult<Option<PyRef<PyFloat>>> {
+        PyNumber::new(self, vm).float_opt(vm)
     }
-}
 
-pub fn try_float(obj: &PyObject, vm: &VirtualMachine) -> PyResult<f64> {
-    obj.try_to_f64(vm)?.ok_or_else(|| {
-        vm.new_type_error(format!("must be real number, not {}", obj.class().name()))
-    })
+    pub fn try_float(&self, vm: &VirtualMachine) -> PyResult<PyRef<PyFloat>> {
+        PyNumber::new(self, vm).float(vm)
+    }
 }
 
 pub(crate) fn to_op_float(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Option<f64>> {
@@ -170,17 +151,8 @@ impl Constructor for PyFloat {
         let float_val = match arg {
             OptionalArg::Missing => 0.0,
             OptionalArg::Present(val) => {
-                let val = if cls.is(vm.ctx.types.float_type) {
-                    match val.downcast_exact::<PyFloat>(vm) {
-                        Ok(f) => return Ok(f.into()),
-                        Err(val) => val,
-                    }
-                } else {
-                    val
-                };
-
-                if let Some(f) = val.try_to_f64(vm)? {
-                    f
+                if let Some(f) = val.try_float_opt(vm)? {
+                    f.value
                 } else {
                     float_from_string(val, vm)?
                 }
@@ -220,7 +192,7 @@ fn float_from_string(val: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
     })
 }
 
-#[pyimpl(flags(BASETYPE), with(Comparable, Hashable, Constructor))]
+#[pyimpl(flags(BASETYPE), with(Comparable, Hashable, Constructor, AsNumber))]
 impl PyFloat {
     #[pymethod(magic)]
     fn format(&self, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
@@ -559,6 +531,78 @@ impl Hashable for PyFloat {
     #[inline]
     fn hash(zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyResult<hash::PyHash> {
         Ok(hash::hash_float(zelf.to_f64()))
+    }
+}
+
+impl AsNumber for PyFloat {
+    const AS_NUMBER: PyNumberMethods = PyNumberMethods {
+        add: Some(|number, other, vm| Self::number_float_op(number, other, |a, b| a + b, vm)),
+        subtract: Some(|number, other, vm| Self::number_float_op(number, other, |a, b| a - b, vm)),
+        multiply: Some(|number, other, vm| Self::number_float_op(number, other, |a, b| a * b, vm)),
+        remainder: Some(|number, other, vm| Self::number_general_op(number, other, inner_mod, vm)),
+        divmod: Some(|number, other, vm| Self::number_general_op(number, other, inner_divmod, vm)),
+        power: Some(|number, other, vm| Self::number_general_op(number, other, float_pow, vm)),
+        negative: Some(|number, vm| {
+            let value = Self::number_downcast(number).value;
+            (-value).to_pyresult(vm)
+        }),
+        positive: Some(|number, vm| Self::number_float(number, vm).to_pyresult(vm)),
+        absolute: Some(|number, vm| {
+            let value = Self::number_downcast(number).value;
+            value.abs().to_pyresult(vm)
+        }),
+        boolean: Some(|number, _vm| Ok(Self::number_downcast(number).value.is_zero())),
+        int: Some(|number, vm| {
+            let value = Self::number_downcast(number).value;
+            try_to_bigint(value, vm).map(|x| vm.ctx.new_int(x))
+        }),
+        float: Some(|number, vm| Ok(Self::number_float(number, vm))),
+        floor_divide: Some(|number, other, vm| {
+            Self::number_general_op(number, other, inner_floordiv, vm)
+        }),
+        true_divide: Some(|number, other, vm| {
+            Self::number_general_op(number, other, inner_div, vm)
+        }),
+        ..PyNumberMethods::NOT_IMPLEMENTED
+    };
+}
+
+impl PyFloat {
+    fn number_general_op<F, R>(
+        number: &PyNumber,
+        other: &PyObject,
+        op: F,
+        vm: &VirtualMachine,
+    ) -> PyResult
+    where
+        F: FnOnce(f64, f64, &VirtualMachine) -> R,
+        R: ToPyResult,
+    {
+        if let (Some(a), Some(b)) = (to_op_float(number.obj, vm)?, to_op_float(other, vm)?) {
+            op(a, b, vm).to_pyresult(vm)
+        } else {
+            Ok(vm.ctx.not_implemented())
+        }
+    }
+
+    fn number_float_op<F>(
+        number: &PyNumber,
+        other: &PyObject,
+        op: F,
+        vm: &VirtualMachine,
+    ) -> PyResult
+    where
+        F: FnOnce(f64, f64) -> f64,
+    {
+        Self::number_general_op(number, other, |a, b, _vm| op(a, b), vm)
+    }
+
+    fn number_float(number: &PyNumber, vm: &VirtualMachine) -> PyRef<PyFloat> {
+        if let Some(zelf) = number.obj.downcast_ref_if_exact::<Self>(vm) {
+            zelf.to_owned()
+        } else {
+            vm.ctx.new_float(Self::number_downcast(number).value)
+        }
     }
 }
 

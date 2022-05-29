@@ -1,13 +1,14 @@
 use crate::common::{hash::PyHash, lock::PyRwLock};
 use crate::{
-    builtins::{PyInt, PyStrInterned, PyStrRef, PyType, PyTypeRef},
+    builtins::{PyFloat, PyInt, PyStrInterned, PyStrRef, PyType, PyTypeRef},
     bytecode::ComparisonOperator,
     convert::{ToPyObject, ToPyResult},
     function::Either,
     function::{FromArgs, FuncArgs, OptionalArg, PyComparisonValue},
     identifier,
     protocol::{
-        PyBuffer, PyIterReturn, PyMapping, PyMappingMethods, PySequence, PySequenceMethods,
+        PyBuffer, PyIterReturn, PyMapping, PyMappingMethods, PyNumber, PyNumberMethods, PySequence,
+        PySequenceMethods,
     },
     vm::Context,
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
@@ -29,7 +30,7 @@ pub struct PyTypeSlots {
     // Methods to implement standard operations
 
     // Method suites for standard classes
-    // tp_as_number
+    pub as_number: AtomicCell<Option<AsNumberFunc>>,
     pub as_sequence: AtomicCell<Option<AsSequenceFunc>>,
     pub as_mapping: AtomicCell<Option<AsMappingFunc>>,
 
@@ -138,6 +139,7 @@ impl Default for PyTypeFlags {
 
 pub(crate) type GenericMethod = fn(&PyObject, FuncArgs, &VirtualMachine) -> PyResult;
 pub(crate) type AsMappingFunc = fn(&PyObject, &VirtualMachine) -> &'static PyMappingMethods;
+pub(crate) type AsNumberFunc = fn(&PyObject, &VirtualMachine) -> &'static PyNumberMethods;
 pub(crate) type HashFunc = fn(&PyObject, &VirtualMachine) -> PyResult<PyHash>;
 // CallFunc = GenericMethod
 pub(crate) type GetattroFunc = fn(&PyObject, PyStrRef, &VirtualMachine) -> PyResult;
@@ -338,6 +340,67 @@ fn as_sequence_generic(zelf: &PyObject, vm: &VirtualMachine) -> &'static PySeque
     static_as_sequence_generic(has_length, has_ass_item)
 }
 
+pub(crate) fn static_as_number_generic(
+    has_int: bool,
+    has_float: bool,
+    has_index: bool,
+) -> &'static PyNumberMethods {
+    static METHODS: &[PyNumberMethods] = &[
+        new_generic(false, false, false),
+        new_generic(true, false, false),
+        new_generic(false, true, false),
+        new_generic(true, true, false),
+        new_generic(false, false, true),
+        new_generic(true, false, true),
+        new_generic(false, true, true),
+        new_generic(true, true, true),
+    ];
+
+    fn int(num: &PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyInt>> {
+        let ret = vm.call_special_method(num.obj.to_owned(), identifier!(vm, __int__), ())?;
+        ret.downcast::<PyInt>().map_err(|obj| {
+            vm.new_type_error(format!("__int__ returned non-int (type {})", obj.class()))
+        })
+    }
+    fn float(num: &PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyFloat>> {
+        let ret = vm.call_special_method(num.obj.to_owned(), identifier!(vm, __float__), ())?;
+        ret.downcast::<PyFloat>().map_err(|obj| {
+            vm.new_type_error(format!(
+                "__float__ returned non-float (type {})",
+                obj.class()
+            ))
+        })
+    }
+    fn index(num: &PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyInt>> {
+        let ret = vm.call_special_method(num.obj.to_owned(), identifier!(vm, __index__), ())?;
+        ret.downcast::<PyInt>().map_err(|obj| {
+            vm.new_type_error(format!("__index__ returned non-int (type {})", obj.class()))
+        })
+    }
+
+    const fn new_generic(has_int: bool, has_float: bool, has_index: bool) -> PyNumberMethods {
+        PyNumberMethods {
+            int: if has_int { Some(int) } else { None },
+            float: if has_float { Some(float) } else { None },
+            index: if has_index { Some(index) } else { None },
+            ..PyNumberMethods::NOT_IMPLEMENTED
+        }
+    }
+
+    let key = bool_int(has_int) | (bool_int(has_float) << 1) | (bool_int(has_index) << 2);
+
+    &METHODS[key]
+}
+
+fn as_number_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> &'static PyNumberMethods {
+    let (has_int, has_float, has_index) = (
+        zelf.class().has_attr(identifier!(vm, __int__)),
+        zelf.class().has_attr(identifier!(vm, __float__)),
+        zelf.class().has_attr(identifier!(vm, __index__)),
+    );
+    static_as_number_generic(has_int, has_float, has_index)
+}
+
 fn hash_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyHash> {
     let hash_obj = vm.call_special_method(zelf.to_owned(), identifier!(vm, __hash__), ())?;
     match hash_obj.payload_if_subclass::<PyInt>(vm) {
@@ -488,6 +551,9 @@ impl PyType {
             }
             "__del__" => {
                 update_slot!(del, del_wrapper);
+            }
+            "__int__" | "__index__" | "__float__" => {
+                update_slot!(as_number, as_number_wrapper);
             }
             _ => {}
         }
@@ -988,6 +1054,21 @@ pub trait AsSequence: PyPayload {
 
     fn sequence_downcast<'a>(seq: &'a PySequence) -> &'a Py<Self> {
         unsafe { seq.obj.downcast_unchecked_ref() }
+    }
+}
+
+#[pyimpl]
+pub trait AsNumber: PyPayload {
+    const AS_NUMBER: PyNumberMethods;
+
+    #[inline]
+    #[pyslot]
+    fn as_number(_zelf: &PyObject, _vm: &VirtualMachine) -> &'static PyNumberMethods {
+        &Self::AS_NUMBER
+    }
+
+    fn number_downcast<'a>(number: &'a PyNumber) -> &'a Py<Self> {
+        unsafe { number.obj.downcast_unchecked_ref() }
     }
 }
 

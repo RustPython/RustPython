@@ -1,4 +1,4 @@
-use crate::{AsObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine};
+use crate::{protocol::PyNumber, AsObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine};
 use num_complex::Complex64;
 use std::ops::Deref;
 
@@ -82,9 +82,7 @@ impl Deref for ArgIntoFloat {
 impl TryFromObject for ArgIntoFloat {
     // Equivalent to PyFloat_AsDouble.
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        let value = obj.try_to_f64(vm)?.ok_or_else(|| {
-            vm.new_type_error(format!("must be real number, not {}", obj.class().name()))
-        })?;
+        let value = PyNumber::new(obj.as_ref(), vm).float(vm)?.to_f64();
         Ok(ArgIntoFloat { value })
     }
 }

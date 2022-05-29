@@ -177,8 +177,6 @@ class GeneralFloatCases(unittest.TestCase):
         self.assertEqual(float("  25.e-1  "), 2.5)
         self.assertAlmostEqual(float("  .25e-1  "), .025)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_floatconversion(self):
         # Make sure that calls to __float__() work properly
         class Foo1(object):
