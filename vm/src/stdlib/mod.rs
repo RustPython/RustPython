@@ -21,7 +21,7 @@ mod sysconfigdata;
 #[cfg(feature = "threading")]
 mod thread;
 pub mod time;
-mod warnings;
+pub mod warnings;
 mod weakref;
 
 #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]

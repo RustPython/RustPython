@@ -4,6 +4,7 @@ use crate::{
     builtins::{int, PyByteArray, PyBytes, PyComplex, PyFloat, PyInt, PyIntRef, PyStr},
     common::lock::OnceCell,
     function::ArgBytesLike,
+    stdlib::warnings,
     AsObject, PyObject, PyPayload, PyRef, PyResult, TryFromBorrowedObject, VirtualMachine,
 };
 
@@ -119,15 +120,34 @@ impl PyNumber<'_> {
         }
 
         if self.obj.class().is(PyInt::class(vm)) {
-            Ok(unsafe { self.obj.downcast_unchecked_ref::<PyInt>() }.to_owned())
+            Ok(unsafe { self.obj.to_owned().downcast_unchecked::<PyInt>() })
         } else if let Some(f) = self.methods(vm).int {
-            f(self, vm)
-        } else if let Some(f) = self.methods(vm).index {
-            f(self, vm)
+            let ret = f(self, vm)?;
+            if !ret.class().is(PyInt::class(vm)) {
+                warnings::warn(
+                    vm.ctx.exceptions.deprecation_warning.clone(),
+                    format!("__int__ returned non-int (type {})", ret.class()),
+                    1,
+                    vm,
+                )?
+            }
+            Ok(ret)
+        } else if self.methods(vm).index.is_some() {
+            self.index(vm)
         } else if let Ok(Ok(f)) = vm.get_special_method(self.obj.to_owned(), "__trunc__") {
-            let r = f.invoke((), vm)?;
-            PyNumber::from(r.as_ref()).index(vm).map_err(|_| {
-                vm.new_type_error("__trunc__ returned non-Integral (type NonIntegral)".to_string())
+            // TODO: Deprecate in 3.11
+            // warnings::warn(
+            //     vm.ctx.exceptions.deprecation_warning.clone(),
+            //     "The delegation of int() to __trunc__ is deprecated.".to_owned(),
+            //     1,
+            //     vm,
+            // )?;
+            let ret = f.invoke((), vm)?;
+            PyNumber::from(ret.as_ref()).index(vm).map_err(|_| {
+                vm.new_type_error(format!(
+                    "__trunc__ returned non-Integral (type {})",
+                    ret.class()
+                ))
             })
         } else if let Some(s) = self.obj.payload::<PyStr>() {
             try_convert(self.obj, s.as_str().as_bytes(), vm)
@@ -148,9 +168,18 @@ impl PyNumber<'_> {
 
     pub fn index(&self, vm: &VirtualMachine) -> PyResult<PyIntRef> {
         if self.obj.class().is(PyInt::class(vm)) {
-            Ok(unsafe { self.obj.downcast_unchecked_ref::<PyInt>() }.to_owned())
+            Ok(unsafe { self.obj.to_owned().downcast_unchecked::<PyInt>() })
         } else if let Some(f) = self.methods(vm).index {
-            f(self, vm)
+            let ret = f(self, vm)?;
+            if !ret.class().is(PyInt::class(vm)) {
+                warnings::warn(
+                    vm.ctx.exceptions.deprecation_warning.clone(),
+                    format!("__index__ returned non-int (type {})", ret.class()),
+                    1,
+                    vm,
+                )?
+            }
+            Ok(ret)
         } else {
             Err(vm.new_type_error(format!(
                 "'{}' object cannot be interpreted as an integer",

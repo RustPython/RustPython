@@ -344,30 +344,24 @@ fn as_number_wrapper(zelf: &PyObject, _vm: &VirtualMachine) -> Cow<'static, PyNu
     Cow::Owned(PyNumberMethods {
         int: then_some_closure!(zelf.class().has_attr("__int__"), |num, vm| {
             let ret = vm.call_special_method(num.obj.to_owned(), "__int__", ())?;
-            if let Some(i) = ret.downcast_ref::<PyInt>() {
-                Ok(i.to_owned())
-            } else {
-                // TODO
-                Err(vm.new_type_error("".to_string()))
-            }
+            ret.downcast::<PyInt>().map_err(|obj| {
+                vm.new_type_error(format!("__int__ returned non-int (type {})", obj.class()))
+            })
         }),
         float: then_some_closure!(zelf.class().has_attr("__float__"), |num, vm| {
             let ret = vm.call_special_method(num.obj.to_owned(), "__float__", ())?;
-            if let Some(f) = ret.downcast_ref::<PyFloat>() {
-                Ok(f.to_owned())
-            } else {
-                // TODO
-                Err(vm.new_type_error("".to_string()))
-            }
+            ret.downcast::<PyFloat>().map_err(|obj| {
+                vm.new_type_error(format!(
+                    "__float__ returned non-float (type {})",
+                    obj.class()
+                ))
+            })
         }),
         index: then_some_closure!(zelf.class().has_attr("__index__"), |num, vm| {
             let ret = vm.call_special_method(num.obj.to_owned(), "__index__", ())?;
-            if let Some(i) = ret.downcast_ref::<PyInt>() {
-                Ok(i.to_owned())
-            } else {
-                // TODO
-                Err(vm.new_type_error("".to_string()))
-            }
+            ret.downcast::<PyInt>().map_err(|obj| {
+                vm.new_type_error(format!("__index__ returned non-int (type {})", obj.class()))
+            })
         }),
         ..*PyNumberMethods::not_implemented()
     })
