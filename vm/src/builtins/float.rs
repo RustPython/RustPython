@@ -59,11 +59,11 @@ impl From<f64> for PyFloat {
 
 impl PyObject {
     pub fn try_float_opt(&self, vm: &VirtualMachine) -> PyResult<Option<PyRef<PyFloat>>> {
-        PyNumber::from(self).float_opt(vm)
+        PyNumber::new(self, vm).float_opt(vm)
     }
 
     pub fn try_float(&self, vm: &VirtualMachine) -> PyResult<PyRef<PyFloat>> {
-        PyNumber::from(self).float(vm)
+        PyNumber::new(self, vm).float(vm)
     }
 }
 

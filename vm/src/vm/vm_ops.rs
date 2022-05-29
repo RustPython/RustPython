@@ -10,11 +10,13 @@ use crate::{
 /// Collection of operators
 impl VirtualMachine {
     pub fn to_index_opt(&self, obj: PyObjectRef) -> Option<PyResult<PyIntRef>> {
-        PyNumber::from(obj.as_ref()).index_opt(self).transpose()
+        PyNumber::new(obj.as_ref(), self)
+            .index_opt(self)
+            .transpose()
     }
 
     pub fn to_index(&self, obj: &PyObject) -> PyResult<PyIntRef> {
-        PyNumber::from(obj).index(self)
+        PyNumber::new(obj, self).index(self)
     }
 
     #[inline]
