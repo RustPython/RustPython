@@ -8,10 +8,7 @@ pub fn warn(
     stack_level: usize,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
-    // let module = vm.import("warnings", None, 0)?;
-    // let func = module.get_attr("warn", vm)?;
-    // vm.invoke(&func, (message, category, stack_level))?;
-    // TODO
+    // TODO: use rust warnings module
     if let Ok(module) = vm.import("warnings", None, 0) {
         if let Ok(func) = module.get_attr("warn", vm) {
             let _ = vm.invoke(&func, (message, category.to_owned(), stack_level));

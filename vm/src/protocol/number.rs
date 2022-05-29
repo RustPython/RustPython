@@ -34,7 +34,7 @@ pub struct PyNumberMethods {
     pub float: Option<fn(&PyNumber, &VirtualMachine) -> PyResult<PyRef<PyFloat>>>,
 
     pub inplace_add: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
-    pub inplace_substract: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
+    pub inplace_subtract: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
     pub inplace_multiply: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
     pub inplace_remainder: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
     pub inplace_divmod: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
@@ -48,7 +48,7 @@ pub struct PyNumberMethods {
     pub floor_divide: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
     pub true_divide: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
     pub inplace_floor_divide: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
-    pub inplace_true_devide: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
+    pub inplace_true_divide: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
 
     pub index: Option<fn(&PyNumber, &VirtualMachine) -> PyResult<PyIntRef>>,
 
@@ -57,9 +57,44 @@ pub struct PyNumberMethods {
 }
 
 impl PyNumberMethods {
-    pub const fn not_implemented() -> &'static Self {
-        &NOT_IMPLEMENTED
-    }
+    pub const NOT_IMPLEMENTED: PyNumberMethods = PyNumberMethods {
+        add: None,
+        subtract: None,
+        multiply: None,
+        remainder: None,
+        divmod: None,
+        power: None,
+        negative: None,
+        positive: None,
+        absolute: None,
+        boolean: None,
+        invert: None,
+        lshift: None,
+        rshift: None,
+        and: None,
+        xor: None,
+        or: None,
+        int: None,
+        float: None,
+        inplace_add: None,
+        inplace_subtract: None,
+        inplace_multiply: None,
+        inplace_remainder: None,
+        inplace_divmod: None,
+        inplace_power: None,
+        inplace_lshift: None,
+        inplace_rshift: None,
+        inplace_and: None,
+        inplace_xor: None,
+        inplace_or: None,
+        floor_divide: None,
+        true_divide: None,
+        inplace_floor_divide: None,
+        inplace_true_divide: None,
+        index: None,
+        matrix_multiply: None,
+        inplace_matrix_multiply: None,
+    };
 }
 
 pub struct PyNumber<'a> {
@@ -88,7 +123,7 @@ impl PyNumber<'_> {
                 .class()
                 .mro_find_map(|x| x.slots.as_number.load())
                 .map(|f| f(self.obj, vm))
-                .unwrap_or_else(|| Cow::Borrowed(PyNumberMethods::not_implemented()))
+                .unwrap_or_else(|| Cow::Borrowed(&PyNumberMethods::NOT_IMPLEMENTED))
         })
     }
 
@@ -119,8 +154,8 @@ impl PyNumber<'_> {
             }
         }
 
-        if self.obj.class().is(PyInt::class(vm)) {
-            Ok(unsafe { self.obj.to_owned().downcast_unchecked::<PyInt>() })
+        if let Some(i) = self.obj.downcast_ref_if_exact::<PyInt>(vm) {
+            Ok(i.to_owned())
         } else if let Some(f) = self.methods(vm).int {
             let ret = f(self, vm)?;
             if !ret.class().is(PyInt::class(vm)) {
@@ -135,7 +170,7 @@ impl PyNumber<'_> {
                     1,
                     vm,
                 )?;
-                Ok(vm.ctx.new_int(ret.as_bigint().clone()))
+                Ok(vm.ctx.new_bigint(ret.as_bigint()))
             } else {
                 Ok(ret)
             }
@@ -176,12 +211,10 @@ impl PyNumber<'_> {
     }
 
     pub fn index_opt(&self, vm: &VirtualMachine) -> PyResult<Option<PyIntRef>> {
-        if self.obj.class().is(PyInt::class(vm)) {
-            Ok(Some(unsafe {
-                self.obj.to_owned().downcast_unchecked::<PyInt>()
-            }))
-        } else if let Some(i) = self.obj.downcast_ref::<PyInt>() {
+        if let Some(i) = self.obj.downcast_ref_if_exact::<PyInt>(vm) {
             Ok(Some(i.to_owned()))
+        } else if let Some(i) = self.obj.payload::<PyInt>() {
+            Ok(Some(vm.ctx.new_bigint(i.as_bigint())))
         } else if let Some(f) = self.methods(vm).index {
             let ret = f(self, vm)?;
             if !ret.class().is(PyInt::class(vm)) {
@@ -196,7 +229,7 @@ impl PyNumber<'_> {
                     1,
                     vm,
                 )?;
-                Ok(Some(vm.ctx.new_int(ret.as_bigint().clone())))
+                Ok(Some(vm.ctx.new_bigint(ret.as_bigint())))
             } else {
                 Ok(Some(ret))
             }
@@ -215,10 +248,8 @@ impl PyNumber<'_> {
     }
 
     pub fn float_opt(&self, vm: &VirtualMachine) -> PyResult<Option<PyRef<PyFloat>>> {
-        if self.obj.class().is(PyFloat::class(vm)) {
-            Ok(Some(unsafe {
-                self.obj.to_owned().downcast_unchecked::<PyFloat>()
-            }))
+        if let Some(float) = self.obj.downcast_ref_if_exact::<PyFloat>(vm) {
+            Ok(Some(float.to_owned()))
         } else if let Some(f) = self.methods(vm).float {
             let ret = f(self, vm)?;
             if !ret.class().is(PyFloat::class(vm)) {
@@ -254,42 +285,3 @@ impl PyNumber<'_> {
         })
     }
 }
-
-const NOT_IMPLEMENTED: PyNumberMethods = PyNumberMethods {
-    add: None,
-    subtract: None,
-    multiply: None,
-    remainder: None,
-    divmod: None,
-    power: None,
-    negative: None,
-    positive: None,
-    absolute: None,
-    boolean: None,
-    invert: None,
-    lshift: None,
-    rshift: None,
-    and: None,
-    xor: None,
-    or: None,
-    int: None,
-    float: None,
-    inplace_add: None,
-    inplace_substract: None,
-    inplace_multiply: None,
-    inplace_remainder: None,
-    inplace_divmod: None,
-    inplace_power: None,
-    inplace_lshift: None,
-    inplace_rshift: None,
-    inplace_and: None,
-    inplace_xor: None,
-    inplace_or: None,
-    floor_divide: None,
-    true_divide: None,
-    inplace_floor_divide: None,
-    inplace_true_devide: None,
-    index: None,
-    matrix_multiply: None,
-    inplace_matrix_multiply: None,
-};

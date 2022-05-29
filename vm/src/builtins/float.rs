@@ -1,5 +1,3 @@
-use std::borrow::Cow;
-
 use super::{
     try_bigint_to_f64, PyByteArray, PyBytes, PyInt, PyIntRef, PyStr, PyStrRef, PyType, PyTypeRef,
 };
@@ -153,9 +151,7 @@ impl Constructor for PyFloat {
         let float_val = match arg {
             OptionalArg::Missing => 0.0,
             OptionalArg::Present(val) => {
-                if cls.is(vm.ctx.types.float_type) && val.class().is(PyFloat::class(vm)) {
-                    unsafe { val.downcast_unchecked::<PyFloat>().value }
-                } else if let Some(f) = val.try_float_opt(vm)? {
+                if let Some(f) = val.try_float_opt(vm)? {
                     f.value
                 } else {
                     float_from_string(val, vm)?
@@ -539,13 +535,40 @@ impl Hashable for PyFloat {
 }
 
 impl AsNumber for PyFloat {
-    fn as_number(_zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> Cow<'static, PyNumberMethods> {
-        Cow::Borrowed(&Self::NUMBER_METHODS)
-    }
+    const AS_NUMBER: PyNumberMethods = PyNumberMethods {
+        add: Some(|number, other, vm| Self::number_float_op(number, other, |a, b| a + b, vm)),
+        subtract: Some(|number, other, vm| Self::number_float_op(number, other, |a, b| a - b, vm)),
+        multiply: Some(|number, other, vm| Self::number_float_op(number, other, |a, b| a * b, vm)),
+        remainder: Some(|number, other, vm| Self::number_general_op(number, other, inner_mod, vm)),
+        divmod: Some(|number, other, vm| Self::number_general_op(number, other, inner_divmod, vm)),
+        power: Some(|number, other, vm| Self::number_general_op(number, other, float_pow, vm)),
+        negative: Some(|number, vm| {
+            let value = Self::number_downcast(number).value;
+            (-value).to_pyresult(vm)
+        }),
+        positive: Some(|number, vm| Self::number_float(number, vm).to_pyresult(vm)),
+        absolute: Some(|number, vm| {
+            let value = Self::number_downcast(number).value;
+            value.abs().to_pyresult(vm)
+        }),
+        boolean: Some(|number, _vm| Ok(Self::number_downcast(number).value.is_zero())),
+        int: Some(|number, vm| {
+            let value = Self::number_downcast(number).value;
+            try_to_bigint(value, vm).map(|x| vm.ctx.new_int(x))
+        }),
+        float: Some(|number, vm| Ok(Self::number_float(number, vm))),
+        floor_divide: Some(|number, other, vm| {
+            Self::number_general_op(number, other, inner_floordiv, vm)
+        }),
+        true_divide: Some(|number, other, vm| {
+            Self::number_general_op(number, other, inner_div, vm)
+        }),
+        ..PyNumberMethods::NOT_IMPLEMENTED
+    };
 }
 
 impl PyFloat {
-    fn np_general_op<F, R>(
+    fn number_general_op<F, R>(
         number: &PyNumber,
         other: &PyObject,
         op: F,
@@ -562,49 +585,25 @@ impl PyFloat {
         }
     }
 
-    fn np_float_op<F>(number: &PyNumber, other: &PyObject, op: F, vm: &VirtualMachine) -> PyResult
+    fn number_float_op<F>(
+        number: &PyNumber,
+        other: &PyObject,
+        op: F,
+        vm: &VirtualMachine,
+    ) -> PyResult
     where
         F: FnOnce(f64, f64) -> f64,
     {
-        Self::np_general_op(number, other, |a, b, _vm| op(a, b), vm)
+        Self::number_general_op(number, other, |a, b, _vm| op(a, b), vm)
     }
 
-    fn np_float(number: &PyNumber, vm: &VirtualMachine) -> PyRef<PyFloat> {
+    fn number_float(number: &PyNumber, vm: &VirtualMachine) -> PyRef<PyFloat> {
         if let Some(zelf) = number.obj.downcast_ref_if_exact::<Self>(vm) {
             zelf.to_owned()
         } else {
             vm.ctx.new_float(Self::number_downcast(number).value)
         }
     }
-
-    const NUMBER_METHODS: PyNumberMethods = PyNumberMethods {
-        add: Some(|number, other, vm| Self::np_float_op(number, other, |a, b| a + b, vm)),
-        subtract: Some(|number, other, vm| Self::np_float_op(number, other, |a, b| a - b, vm)),
-        multiply: Some(|number, other, vm| Self::np_float_op(number, other, |a, b| a * b, vm)),
-        remainder: Some(|number, other, vm| Self::np_general_op(number, other, inner_mod, vm)),
-        divmod: Some(|number, other, vm| Self::np_general_op(number, other, inner_divmod, vm)),
-        power: Some(|number, other, vm| Self::np_general_op(number, other, float_pow, vm)),
-        negative: Some(|number, vm| {
-            let value = Self::number_downcast(number).value;
-            (-value).to_pyresult(vm)
-        }),
-        positive: Some(|number, vm| Self::np_float(number, vm).to_pyresult(vm)),
-        absolute: Some(|number, vm| {
-            let value = Self::number_downcast(number).value;
-            value.abs().to_pyresult(vm)
-        }),
-        boolean: Some(|number, _vm| Ok(Self::number_downcast(number).value.is_zero())),
-        int: Some(|number, vm| {
-            let value = Self::number_downcast(number).value;
-            try_to_bigint(value, vm).map(|x| vm.ctx.new_int(x))
-        }),
-        float: Some(|number, vm| Ok(Self::np_float(number, vm))),
-        floor_divide: Some(|number, other, vm| {
-            Self::np_general_op(number, other, inner_floordiv, vm)
-        }),
-        true_divide: Some(|number, other, vm| Self::np_general_op(number, other, inner_div, vm)),
-        ..*PyNumberMethods::not_implemented()
-    };
 }
 
 // Retrieve inner float value:

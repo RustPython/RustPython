@@ -375,7 +375,7 @@ fn as_number_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> Cow<'static, PyNum
                 })
             }
         ),
-        ..*PyNumberMethods::not_implemented()
+        ..PyNumberMethods::NOT_IMPLEMENTED
     })
 }
 
@@ -1037,14 +1037,13 @@ pub trait AsSequence: PyPayload {
 
 #[pyimpl]
 pub trait AsNumber: PyPayload {
+    const AS_NUMBER: PyNumberMethods;
+
     #[inline]
     #[pyslot]
-    fn slot_as_number(zelf: &PyObject, vm: &VirtualMachine) -> Cow<'static, PyNumberMethods> {
-        let zelf = unsafe { zelf.downcast_unchecked_ref::<Self>() };
-        Self::as_number(zelf, vm)
+    fn as_number(_zelf: &PyObject, _vm: &VirtualMachine) -> Cow<'static, PyNumberMethods> {
+        Cow::Borrowed(&Self::AS_NUMBER)
     }
-
-    fn as_number(zelf: &Py<Self>, vm: &VirtualMachine) -> Cow<'static, PyNumberMethods>;
 
     fn number_downcast<'a>(number: &'a PyNumber) -> &'a Py<Self> {
         unsafe { number.obj.downcast_unchecked_ref() }

@@ -18,8 +18,8 @@ use bstr::ByteSlice;
 use num_bigint::{BigInt, BigUint, Sign};
 use num_integer::Integer;
 use num_traits::{One, Pow, PrimInt, Signed, ToPrimitive, Zero};
-use std::fmt;
-use std::{borrow::Cow, ops::Neg};
+use std::ops::Neg;
+use std::{fmt, ops::Not};
 
 /// int(x=0) -> integer
 /// int(x, base=10) -> integer
@@ -756,13 +756,46 @@ impl Hashable for PyInt {
 }
 
 impl AsNumber for PyInt {
-    fn as_number(_zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> Cow<'static, PyNumberMethods> {
-        Cow::Borrowed(&Self::NUMBER_METHODS)
-    }
+    const AS_NUMBER: PyNumberMethods = PyNumberMethods {
+        add: Some(|number, other, vm| Self::number_int_op(number, other, |a, b| a + b, vm)),
+        subtract: Some(|number, other, vm| Self::number_int_op(number, other, |a, b| a - b, vm)),
+        multiply: Some(|number, other, vm| Self::number_int_op(number, other, |a, b| a * b, vm)),
+        remainder: Some(|number, other, vm| Self::number_general_op(number, other, inner_mod, vm)),
+        divmod: Some(|number, other, vm| Self::number_general_op(number, other, inner_divmod, vm)),
+        power: Some(|number, other, vm| Self::number_general_op(number, other, inner_pow, vm)),
+        negative: Some(|number, vm| (&Self::number_downcast(number).value).neg().to_pyresult(vm)),
+        positive: Some(|number, vm| Ok(Self::number_int(number, vm).into())),
+        absolute: Some(|number, vm| Self::number_downcast(number).value.abs().to_pyresult(vm)),
+        boolean: Some(|number, _vm| Ok(Self::number_downcast(number).value.is_zero())),
+        invert: Some(|number, vm| (&Self::number_downcast(number).value).not().to_pyresult(vm)),
+        lshift: Some(|number, other, vm| Self::number_general_op(number, other, inner_lshift, vm)),
+        rshift: Some(|number, other, vm| Self::number_general_op(number, other, inner_rshift, vm)),
+        and: Some(|number, other, vm| Self::number_int_op(number, other, |a, b| a & b, vm)),
+        xor: Some(|number, other, vm| Self::number_int_op(number, other, |a, b| a ^ b, vm)),
+        or: Some(|number, other, vm| Self::number_int_op(number, other, |a, b| a | b, vm)),
+        int: Some(|number, other| Ok(Self::number_int(number, other))),
+        float: Some(|number, vm| {
+            let zelf = Self::number_downcast(number);
+            try_to_float(&zelf.value, vm).map(|x| vm.ctx.new_float(x))
+        }),
+        floor_divide: Some(|number, other, vm| {
+            Self::number_general_op(number, other, inner_floordiv, vm)
+        }),
+        true_divide: Some(|number, other, vm| {
+            Self::number_general_op(number, other, inner_truediv, vm)
+        }),
+        index: Some(|number, vm| Ok(Self::number_int(number, vm))),
+        ..PyNumberMethods::NOT_IMPLEMENTED
+    };
 }
 
 impl PyInt {
-    fn np_general_op<F>(number: &PyNumber, other: &PyObject, op: F, vm: &VirtualMachine) -> PyResult
+    fn number_general_op<F>(
+        number: &PyNumber,
+        other: &PyObject,
+        op: F,
+        vm: &VirtualMachine,
+    ) -> PyResult
     where
         F: FnOnce(&BigInt, &BigInt, &VirtualMachine) -> PyResult,
     {
@@ -773,14 +806,14 @@ impl PyInt {
         }
     }
 
-    fn np_int_op<F>(number: &PyNumber, other: &PyObject, op: F, vm: &VirtualMachine) -> PyResult
+    fn number_int_op<F>(number: &PyNumber, other: &PyObject, op: F, vm: &VirtualMachine) -> PyResult
     where
         F: FnOnce(&BigInt, &BigInt) -> BigInt,
     {
-        Self::np_general_op(number, other, |a, b, _vm| op(a, b).to_pyresult(vm), vm)
+        Self::number_general_op(number, other, |a, b, _vm| op(a, b).to_pyresult(vm), vm)
     }
 
-    fn np_int(number: &PyNumber, vm: &VirtualMachine) -> PyIntRef {
+    fn number_int(number: &PyNumber, vm: &VirtualMachine) -> PyIntRef {
         if let Some(zelf) = number.obj.downcast_ref_if_exact::<Self>(vm) {
             zelf.to_owned()
         } else {
@@ -788,47 +821,6 @@ impl PyInt {
             vm.ctx.new_int(zelf.value.clone())
         }
     }
-
-    const NUMBER_METHODS: PyNumberMethods = PyNumberMethods {
-        add: Some(|number, other, vm| Self::np_int_op(number, other, |a, b| a + b, vm)),
-        subtract: Some(|number, other, vm| Self::np_int_op(number, other, |a, b| a - b, vm)),
-        multiply: Some(|number, other, vm| Self::np_int_op(number, other, |a, b| a * b, vm)),
-        remainder: Some(|number, other, vm| Self::np_general_op(number, other, inner_mod, vm)),
-        divmod: Some(|number, other, vm| Self::np_general_op(number, other, inner_divmod, vm)),
-        power: Some(|number, other, vm| Self::np_general_op(number, other, inner_pow, vm)),
-        negative: Some(|number, vm| {
-            Self::number_downcast(number)
-                .value
-                .clone()
-                .neg()
-                .to_pyresult(vm)
-        }),
-        positive: Some(|number, vm| Ok(Self::np_int(number, vm).into())),
-        absolute: Some(|number, vm| Self::number_downcast(number).value.abs().to_pyresult(vm)),
-        boolean: Some(|number, _vm| Ok(Self::number_downcast(number).value.is_zero())),
-        invert: Some(|number, vm| {
-            let value = Self::number_downcast(number).value.clone();
-            (!value).to_pyresult(vm)
-        }),
-        lshift: Some(|number, other, vm| Self::np_general_op(number, other, inner_lshift, vm)),
-        rshift: Some(|number, other, vm| Self::np_general_op(number, other, inner_rshift, vm)),
-        and: Some(|number, other, vm| Self::np_int_op(number, other, |a, b| a & b, vm)),
-        xor: Some(|number, other, vm| Self::np_int_op(number, other, |a, b| a ^ b, vm)),
-        or: Some(|number, other, vm| Self::np_int_op(number, other, |a, b| a | b, vm)),
-        int: Some(|number, other| Ok(Self::np_int(number, other))),
-        float: Some(|number, vm| {
-            let zelf = Self::number_downcast(number);
-            try_to_float(&zelf.value, vm).map(|x| vm.ctx.new_float(x))
-        }),
-        floor_divide: Some(|number, other, vm| {
-            Self::np_general_op(number, other, inner_floordiv, vm)
-        }),
-        true_divide: Some(|number, other, vm| {
-            Self::np_general_op(number, other, inner_truediv, vm)
-        }),
-        index: Some(|number, vm| Ok(Self::np_int(number, vm))),
-        ..*PyNumberMethods::not_implemented()
-    };
 }
 
 #[derive(FromArgs)]
