@@ -522,9 +522,9 @@ impl PyObject {
     // int PyObject_TypeCheck(PyObject *o, PyTypeObject *type)
 
     pub fn length_opt(&self, vm: &VirtualMachine) -> Option<PyResult<usize>> {
-        PySequence::from(self)
-            .length_opt(vm)
-            .or_else(|| PyMapping::from(self).length_opt(vm))
+        PySequence::new(self, vm)
+            .and_then(|seq| seq.length_opt(vm))
+            .or_else(|| PyMapping::new(self, vm).and_then(|mapping| mapping.length_opt(vm)))
     }
 
     pub fn length(&self, vm: &VirtualMachine) -> PyResult<usize> {
@@ -570,21 +570,23 @@ impl PyObject {
             return dict.set_item(needle, value, vm);
         }
 
-        let mapping = PyMapping::from(self);
-        let seq = PySequence::from(self);
-
-        if let Some(f) = mapping.methods(vm).ass_subscript {
-            let needle = needle.to_pyobject(vm);
-            f(&mapping, &needle, Some(value), vm)
-        } else if let Some(f) = seq.methods(vm).ass_item {
-            let i = needle.key_as_isize(vm)?;
-            f(&seq, i, Some(value), vm)
-        } else {
-            Err(vm.new_type_error(format!(
-                "'{}' does not support item assignment",
-                self.class()
-            )))
+        if let Some(mapping) = PyMapping::new(self, vm) {
+            if let Some(f) = mapping.methods.ass_subscript {
+                let needle = needle.to_pyobject(vm);
+                return f(&mapping, &needle, Some(value), vm);
+            }
         }
+        if let Some(seq) = PySequence::new(self, vm) {
+            if let Some(f) = seq.methods.ass_item {
+                let i = needle.key_as_isize(vm)?;
+                return f(&seq, i, Some(value), vm);
+            }
+        }
+
+        Err(vm.new_type_error(format!(
+            "'{}' does not support item assignment",
+            self.class()
+        )))
     }
 
     pub fn del_item<K: DictKey + ?Sized>(&self, needle: &K, vm: &VirtualMachine) -> PyResult<()> {
@@ -592,17 +594,19 @@ impl PyObject {
             return dict.del_item(needle, vm);
         }
 
-        let mapping = PyMapping::from(self);
-        let seq = PySequence::from(self);
-
-        if let Some(f) = mapping.methods(vm).ass_subscript {
-            let needle = needle.to_pyobject(vm);
-            f(&mapping, &needle, None, vm)
-        } else if let Some(f) = seq.methods(vm).ass_item {
-            let i = needle.key_as_isize(vm)?;
-            f(&seq, i, None, vm)
-        } else {
-            Err(vm.new_type_error(format!("'{}' does not support item deletion", self.class())))
+        if let Some(mapping) = PyMapping::new(self, vm) {
+            if let Some(f) = mapping.methods.ass_subscript {
+                let needle = needle.to_pyobject(vm);
+                return f(&mapping, &needle, None, vm);
+            }
         }
+        if let Some(seq) = PySequence::new(self, vm) {
+            if let Some(f) = seq.methods.ass_item {
+                let i = needle.key_as_isize(vm)?;
+                return f(&seq, i, None, vm);
+            }
+        }
+
+        Err(vm.new_type_error(format!("'{}' does not support item deletion", self.class())))
     }
 }

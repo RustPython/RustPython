@@ -4,9 +4,10 @@ use crate::{
     convert::ToPyObject,
     identifier,
     protocol::{PyIter, PyIterIter, PyMapping, PyMappingMethods},
+    types::AsMapping,
     AsObject, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
 };
-use std::{borrow::Borrow, marker::PhantomData};
+use std::{borrow::Borrow, marker::PhantomData, ops::Deref};
 
 #[derive(Clone, Debug)]
 pub struct ArgCallable {
@@ -99,24 +100,29 @@ where
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct ArgMapping {
     obj: PyObjectRef,
-    mapping_methods: PyMappingMethods,
+    methods: &'static PyMappingMethods,
 }
 
 impl ArgMapping {
+    #[inline]
+    pub fn with_methods(obj: PyObjectRef, methods: &'static PyMappingMethods) -> Self {
+        Self { obj, methods }
+    }
+
     #[inline(always)]
     pub fn from_dict_exact(dict: PyDictRef) -> Self {
         Self {
             obj: dict.into(),
-            mapping_methods: PyDict::MAPPING_METHODS,
+            methods: &PyDict::AS_MAPPING,
         }
     }
 
     #[inline(always)]
     pub fn mapping(&self) -> PyMapping {
-        PyMapping::with_methods(&self.obj, self.mapping_methods)
+        PyMapping::with_methods(&self.obj, self.methods)
     }
 }
 
@@ -130,6 +136,14 @@ impl Borrow<PyObject> for ArgMapping {
 impl AsRef<PyObject> for ArgMapping {
     #[inline(always)]
     fn as_ref(&self) -> &PyObject {
+        &self.obj
+    }
+}
+
+impl Deref for ArgMapping {
+    type Target = PyObject;
+    #[inline(always)]
+    fn deref(&self) -> &PyObject {
         &self.obj
     }
 }
@@ -151,11 +165,8 @@ impl ToPyObject for ArgMapping {
 impl TryFromObject for ArgMapping {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let mapping = PyMapping::try_protocol(&obj, vm)?;
-        let mapping_methods = *mapping.methods(vm);
-        Ok(Self {
-            obj,
-            mapping_methods,
-        })
+        let methods = mapping.methods;
+        Ok(Self { obj, methods })
     }
 }
 

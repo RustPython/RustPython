@@ -14,10 +14,7 @@ use crate::{
 };
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::{Signed, ToPrimitive};
-use std::{
-    borrow::{Borrow, Cow},
-    cmp::Ordering,
-};
+use std::{borrow::Borrow, cmp::Ordering};
 
 // The corresponding field in CPython is `tp_` prefixed.
 // e.g. name -> tp_name
@@ -140,7 +137,7 @@ impl Default for PyTypeFlags {
 }
 
 pub(crate) type GenericMethod = fn(&PyObject, FuncArgs, &VirtualMachine) -> PyResult;
-pub(crate) type AsMappingFunc = fn(&PyObject, &VirtualMachine) -> PyMappingMethods;
+pub(crate) type AsMappingFunc = fn(&PyObject, &VirtualMachine) -> &'static PyMappingMethods;
 pub(crate) type HashFunc = fn(&PyObject, &VirtualMachine) -> PyResult<PyHash>;
 // CallFunc = GenericMethod
 pub(crate) type GetattroFunc = fn(&PyObject, PyStrRef, &VirtualMachine) -> PyResult;
@@ -162,20 +159,10 @@ pub(crate) type DescrSetFunc =
 pub(crate) type NewFunc = fn(PyTypeRef, FuncArgs, &VirtualMachine) -> PyResult;
 pub(crate) type InitFunc = fn(PyObjectRef, FuncArgs, &VirtualMachine) -> PyResult<()>;
 pub(crate) type DelFunc = fn(&PyObject, &VirtualMachine) -> PyResult<()>;
-pub(crate) type AsSequenceFunc = fn(&PyObject, &VirtualMachine) -> Cow<'static, PySequenceMethods>;
+pub(crate) type AsSequenceFunc = fn(&PyObject, &VirtualMachine) -> &'static PySequenceMethods;
 
-macro_rules! then_some_closure {
-    ($cond:expr, $closure:expr) => {
-        if $cond {
-            Some($closure)
-        } else {
-            None
-        }
-    };
-}
-
-fn length_wrapper(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-    let ret = vm.call_special_method(obj, identifier!(vm, __len__), ())?;
+fn length_wrapper(obj: &PyObject, vm: &VirtualMachine) -> PyResult<usize> {
+    let ret = vm.call_special_method(obj.to_owned(), identifier!(vm, __len__), ())?;
     let len = ret.payload::<PyInt>().ok_or_else(|| {
         vm.new_type_error(format!(
             "'{}' object cannot be interpreted as an integer",
@@ -192,84 +179,163 @@ fn length_wrapper(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
     Ok(len as usize)
 }
 
-fn as_mapping_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyMappingMethods {
-    PyMappingMethods {
-        length: then_some_closure!(
-            zelf.class().has_attr(identifier!(vm, __len__)),
-            |mapping, vm| { length_wrapper(mapping.obj.to_owned(), vm) }
-        ),
-        subscript: then_some_closure!(
-            zelf.class().has_attr(identifier!(vm, __getitem__)),
-            |mapping, needle, vm| {
-                vm.call_special_method(
-                    mapping.obj.to_owned(),
-                    identifier!(vm, __getitem__),
-                    (needle.to_owned(),),
-                )
-            }
-        ),
-        ass_subscript: then_some_closure!(
-            zelf.class().has_attr(identifier!(vm, __setitem__))
-                | zelf.class().has_attr(identifier!(vm, __delitem__)),
-            |mapping, needle, value, vm| match value {
-                Some(value) => vm
-                    .call_special_method(
-                        mapping.obj.to_owned(),
-                        identifier!(vm, __setitem__),
-                        (needle.to_owned(), value),
-                    )
-                    .map(|_| Ok(()))?,
-                None => vm
-                    .call_special_method(
-                        mapping.obj.to_owned(),
-                        identifier!(vm, __delitem__),
-                        (needle.to_owned(),)
-                    )
-                    .map(|_| Ok(()))?,
-            }
-        ),
+const fn bool_int(v: bool) -> usize {
+    if v {
+        1
+    } else {
+        0
     }
 }
 
-fn as_sequence_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> Cow<'static, PySequenceMethods> {
-    if !zelf.class().has_attr(identifier!(vm, __getitem__)) {
-        return Cow::Borrowed(PySequenceMethods::not_implemented());
+pub(crate) fn static_as_mapping_generic(
+    has_length: bool,
+    has_subscript: bool,
+    has_ass_subscript: bool,
+) -> &'static PyMappingMethods {
+    static METHODS: &[PyMappingMethods] = &[
+        new_generic(false, false, false),
+        new_generic(true, false, false),
+        new_generic(false, true, false),
+        new_generic(true, true, false),
+        new_generic(false, false, true),
+        new_generic(true, false, true),
+        new_generic(false, true, true),
+        new_generic(true, true, true),
+    ];
+
+    fn length(mapping: &PyMapping, vm: &VirtualMachine) -> PyResult<usize> {
+        length_wrapper(mapping.obj, vm)
+    }
+    fn subscript(mapping: &PyMapping, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
+        vm.call_special_method(
+            mapping.obj.to_owned(),
+            identifier!(vm, __getitem__),
+            (needle.to_owned(),),
+        )
+    }
+    fn ass_subscript(
+        mapping: &PyMapping,
+        needle: &PyObject,
+        value: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        match value {
+            Some(value) => vm
+                .call_special_method(
+                    mapping.obj.to_owned(),
+                    identifier!(vm, __setitem__),
+                    (needle.to_owned(), value),
+                )
+                .map(|_| Ok(()))?,
+            None => vm
+                .call_special_method(
+                    mapping.obj.to_owned(),
+                    identifier!(vm, __delitem__),
+                    (needle.to_owned(),),
+                )
+                .map(|_| Ok(()))?,
+        }
     }
 
-    Cow::Owned(PySequenceMethods {
-        length: then_some_closure!(
-            zelf.class().has_attr(identifier!(vm, __len__)),
-            |seq, vm| { length_wrapper(seq.obj.to_owned(), vm) }
-        ),
-        item: Some(|seq, i, vm| {
-            vm.call_special_method(
-                seq.obj.to_owned(),
-                identifier!(vm, __getitem__),
-                (i.to_pyobject(vm),),
-            )
-        }),
-        ass_item: then_some_closure!(
-            zelf.class().has_attr(identifier!(vm, __setitem__))
-                | zelf.class().has_attr(identifier!(vm, __delitem__)),
-            |seq, i, value, vm| match value {
-                Some(value) => vm
-                    .call_special_method(
-                        seq.obj.to_owned(),
-                        identifier!(vm, __setitem__),
-                        (i.to_pyobject(vm), value),
-                    )
-                    .map(|_| Ok(()))?,
-                None => vm
-                    .call_special_method(
-                        seq.obj.to_owned(),
-                        identifier!(vm, __delitem__),
-                        (i.to_pyobject(vm),)
-                    )
-                    .map(|_| Ok(()))?,
-            }
-        ),
-        ..Default::default()
-    })
+    const fn new_generic(
+        has_length: bool,
+        has_subscript: bool,
+        has_ass_subscript: bool,
+    ) -> PyMappingMethods {
+        PyMappingMethods {
+            length: if has_length { Some(length) } else { None },
+            subscript: if has_subscript { Some(subscript) } else { None },
+            ass_subscript: if has_ass_subscript {
+                Some(ass_subscript)
+            } else {
+                None
+            },
+        }
+    }
+
+    let key =
+        bool_int(has_length) | (bool_int(has_subscript) << 1) | (bool_int(has_ass_subscript) << 2);
+
+    &METHODS[key]
+}
+
+fn as_mapping_generic(zelf: &PyObject, vm: &VirtualMachine) -> &'static PyMappingMethods {
+    let (has_length, has_subscript, has_ass_subscript) = (
+        zelf.class().has_attr(identifier!(vm, __len__)),
+        zelf.class().has_attr(identifier!(vm, __getitem__)),
+        zelf.class().has_attr(identifier!(vm, __setitem__))
+            | zelf.class().has_attr(identifier!(vm, __delitem__)),
+    );
+    static_as_mapping_generic(has_length, has_subscript, has_ass_subscript)
+}
+
+pub(crate) fn static_as_sequence_generic(
+    has_length: bool,
+    has_ass_item: bool,
+) -> &'static PySequenceMethods {
+    static METHODS: &[PySequenceMethods] = &[
+        new_generic(false, false),
+        new_generic(true, false),
+        new_generic(false, true),
+        new_generic(true, true),
+    ];
+
+    fn length(seq: &PySequence, vm: &VirtualMachine) -> PyResult<usize> {
+        length_wrapper(seq.obj, vm)
+    }
+    fn item(seq: &PySequence, i: isize, vm: &VirtualMachine) -> PyResult {
+        vm.call_special_method(seq.obj.to_owned(), identifier!(vm, __getitem__), (i,))
+    }
+    fn ass_item(
+        seq: &PySequence,
+        i: isize,
+        value: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        match value {
+            Some(value) => vm
+                .call_special_method(
+                    seq.obj.to_owned(),
+                    identifier!(vm, __setitem__),
+                    (i.to_pyobject(vm), value),
+                )
+                .map(|_| Ok(()))?,
+            None => vm
+                .call_special_method(
+                    seq.obj.to_owned(),
+                    identifier!(vm, __delitem__),
+                    (i.to_pyobject(vm),),
+                )
+                .map(|_| Ok(()))?,
+        }
+    }
+
+    const fn new_generic(has_length: bool, has_ass_item: bool) -> PySequenceMethods {
+        PySequenceMethods {
+            length: if has_length { Some(length) } else { None },
+            item: Some(item),
+            ass_item: if has_ass_item { Some(ass_item) } else { None },
+            ..PySequenceMethods::NOT_IMPLEMENTED
+        }
+    }
+
+    let key = bool_int(has_length) | (bool_int(has_ass_item) << 1);
+
+    &METHODS[key]
+}
+
+fn as_sequence_generic(zelf: &PyObject, vm: &VirtualMachine) -> &'static PySequenceMethods {
+    if !zelf.class().has_attr(identifier!(vm, __getitem__)) {
+        return &PySequenceMethods::NOT_IMPLEMENTED;
+    }
+
+    let (has_length, has_ass_item) = (
+        zelf.class().has_attr(identifier!(vm, __len__)),
+        zelf.class().has_attr(identifier!(vm, __setitem__))
+            | zelf.class().has_attr(identifier!(vm, __delitem__)),
+    );
+
+    static_as_sequence_generic(has_length, has_ass_item)
 }
 
 fn hash_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyHash> {
@@ -384,8 +450,8 @@ impl PyType {
         }
         match name.as_str() {
             "__len__" | "__getitem__" | "__setitem__" | "__delitem__" => {
-                update_slot!(as_mapping, as_mapping_wrapper);
-                update_slot!(as_sequence, as_sequence_wrapper);
+                update_slot!(as_mapping, as_mapping_generic);
+                update_slot!(as_sequence, as_sequence_generic);
             }
             "__hash__" => {
                 update_slot!(hash, hash_wrapper);
@@ -896,15 +962,15 @@ pub trait AsBuffer: PyPayload {
 
 #[pyimpl]
 pub trait AsMapping: PyPayload {
+    const AS_MAPPING: PyMappingMethods;
+
     #[inline]
     #[pyslot]
-    fn slot_as_mapping(zelf: &PyObject, vm: &VirtualMachine) -> PyMappingMethods {
-        let zelf = unsafe { zelf.downcast_unchecked_ref::<Self>() };
-        Self::as_mapping(zelf, vm)
+    fn as_mapping(_zelf: &PyObject, _vm: &VirtualMachine) -> &'static PyMappingMethods {
+        &Self::AS_MAPPING
     }
 
-    fn as_mapping(zelf: &Py<Self>, vm: &VirtualMachine) -> PyMappingMethods;
-
+    #[inline]
     fn mapping_downcast<'a>(mapping: &'a PyMapping) -> &'a Py<Self> {
         unsafe { mapping.obj.downcast_unchecked_ref() }
     }
@@ -912,14 +978,13 @@ pub trait AsMapping: PyPayload {
 
 #[pyimpl]
 pub trait AsSequence: PyPayload {
+    const AS_SEQUENCE: PySequenceMethods;
+
     #[inline]
     #[pyslot]
-    fn slot_as_sequence(zelf: &PyObject, vm: &VirtualMachine) -> Cow<'static, PySequenceMethods> {
-        let zelf = unsafe { zelf.downcast_unchecked_ref::<Self>() };
-        Self::as_sequence(zelf, vm)
+    fn as_sequence(_zelf: &PyObject, _vm: &VirtualMachine) -> &'static PySequenceMethods {
+        &Self::AS_SEQUENCE
     }
-
-    fn as_sequence(zelf: &Py<Self>, vm: &VirtualMachine) -> Cow<'static, PySequenceMethods>;
 
     fn sequence_downcast<'a>(seq: &'a PySequence) -> &'a Py<Self> {
         unsafe { seq.obj.downcast_unchecked_ref() }

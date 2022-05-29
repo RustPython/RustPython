@@ -780,8 +780,10 @@ mod _sre {
         fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
             PyGenericAlias::new(cls, args, vm)
         }
+    }
 
-        const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
+    impl AsMapping for Match {
+        const AS_MAPPING: PyMappingMethods = PyMappingMethods {
             length: None,
             subscript: Some(|mapping, needle, vm| {
                 Self::mapping_downcast(mapping)
@@ -790,12 +792,6 @@ mod _sre {
             }),
             ass_subscript: None,
         };
-    }
-
-    impl AsMapping for Match {
-        fn as_mapping(_zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
-            Self::MAPPING_METHODS
-        }
     }
 
     #[pyattr]

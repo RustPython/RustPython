@@ -1301,13 +1301,7 @@ impl Iterable for PyStr {
 }
 
 impl AsMapping for PyStr {
-    fn as_mapping(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
-        Self::MAPPING_METHODS
-    }
-}
-
-impl PyStr {
-    const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
+    const AS_MAPPING: PyMappingMethods = PyMappingMethods {
         length: Some(|mapping, _vm| Ok(Self::mapping_downcast(mapping).len())),
         subscript: Some(|mapping, needle, vm| Self::mapping_downcast(mapping)._getitem(needle, vm)),
         ass_subscript: None,
@@ -1315,16 +1309,7 @@ impl PyStr {
 }
 
 impl AsSequence for PyStr {
-    fn as_sequence(
-        _zelf: &Py<Self>,
-        _vm: &VirtualMachine,
-    ) -> std::borrow::Cow<'static, PySequenceMethods> {
-        std::borrow::Cow::Borrowed(&Self::SEQUENCE_METHDOS)
-    }
-}
-
-impl PyStr {
-    const SEQUENCE_METHDOS: PySequenceMethods = PySequenceMethods {
+    const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
         length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
         concat: Some(|seq, other, vm| {
             let zelf = Self::sequence_downcast(seq);
@@ -1340,7 +1325,7 @@ impl PyStr {
                 .map(|x| zelf.new_substr(x.to_string()).into_ref(vm).into())
         }),
         contains: Some(|seq, needle, vm| Self::sequence_downcast(seq)._contains(needle, vm)),
-        ..*PySequenceMethods::not_implemented()
+        ..PySequenceMethods::NOT_IMPLEMENTED
     };
 }
 

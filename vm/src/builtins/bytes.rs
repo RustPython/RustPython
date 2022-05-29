@@ -25,7 +25,7 @@ use crate::{
     TryFromBorrowedObject, TryFromObject, VirtualMachine,
 };
 use bstr::ByteSlice;
-use std::{borrow::Cow, mem::size_of, ops::Deref};
+use std::{mem::size_of, ops::Deref};
 
 #[pyclass(module = false, name = "bytes")]
 #[derive(Clone, Debug)]
@@ -550,14 +550,6 @@ impl PyBytes {
     }
 }
 
-impl PyBytes {
-    const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
-        length: Some(|mapping, _vm| Ok(Self::mapping_downcast(mapping).len())),
-        subscript: Some(|mapping, needle, vm| Self::mapping_downcast(mapping)._getitem(needle, vm)),
-        ass_subscript: None,
-    };
-}
-
 static BUFFER_METHODS: BufferMethods = BufferMethods {
     obj_bytes: |buffer| buffer.obj_as::<PyBytes>().as_bytes().into(),
     obj_bytes_mut: |_| panic!(),
@@ -577,19 +569,15 @@ impl AsBuffer for PyBytes {
 }
 
 impl AsMapping for PyBytes {
-    fn as_mapping(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
-        Self::MAPPING_METHODS
-    }
+    const AS_MAPPING: PyMappingMethods = PyMappingMethods {
+        length: Some(|mapping, _vm| Ok(Self::mapping_downcast(mapping).len())),
+        subscript: Some(|mapping, needle, vm| Self::mapping_downcast(mapping)._getitem(needle, vm)),
+        ass_subscript: None,
+    };
 }
 
 impl AsSequence for PyBytes {
-    fn as_sequence(_zelf: &Py<Self>, _vm: &VirtualMachine) -> Cow<'static, PySequenceMethods> {
-        Cow::Borrowed(&Self::SEQUENCE_METHODS)
-    }
-}
-
-impl PyBytes {
-    const SEQUENCE_METHODS: PySequenceMethods = PySequenceMethods {
+    const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
         length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
         concat: Some(|seq, other, vm| {
             Self::sequence_downcast(seq)
@@ -614,7 +602,7 @@ impl PyBytes {
             let other = <Either<PyBytesInner, PyIntRef>>::try_from_object(vm, other.to_owned())?;
             Self::sequence_downcast(seq).contains(other, vm)
         }),
-        ..*PySequenceMethods::not_implemented()
+        ..PySequenceMethods::NOT_IMPLEMENTED
     };
 }
 

@@ -36,7 +36,7 @@ use crate::{
     TryFromBorrowedObject, TryFromObject, VirtualMachine,
 };
 use bstr::ByteSlice;
-use std::{borrow::Cow, mem::size_of};
+use std::mem::size_of;
 
 #[pyclass(module = false, name = "bytearray")]
 #[derive(Debug, Default)]
@@ -690,23 +690,6 @@ impl PyByteArray {
     }
 }
 
-impl PyByteArray {
-    const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
-        length: Some(|mapping, _vm| Ok(Self::mapping_downcast(mapping).len())),
-        subscript: Some(|mapping, needle, vm| {
-            Self::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
-        }),
-        ass_subscript: Some(|mapping, needle, value, vm| {
-            let zelf = Self::mapping_downcast(mapping);
-            if let Some(value) = value {
-                Self::setitem(zelf.to_owned(), needle.to_owned(), value, vm)
-            } else {
-                zelf.delitem(needle.to_owned(), vm)
-            }
-        }),
-    };
-}
-
 impl Constructor for PyByteArray {
     type Args = FuncArgs;
 
@@ -784,19 +767,24 @@ impl<'a> BufferResizeGuard<'a> for PyByteArray {
 }
 
 impl AsMapping for PyByteArray {
-    fn as_mapping(_zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
-        Self::MAPPING_METHODS
-    }
+    const AS_MAPPING: PyMappingMethods = PyMappingMethods {
+        length: Some(|mapping, _vm| Ok(Self::mapping_downcast(mapping).len())),
+        subscript: Some(|mapping, needle, vm| {
+            Self::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
+        }),
+        ass_subscript: Some(|mapping, needle, value, vm| {
+            let zelf = Self::mapping_downcast(mapping);
+            if let Some(value) = value {
+                Self::setitem(zelf.to_owned(), needle.to_owned(), value, vm)
+            } else {
+                zelf.delitem(needle.to_owned(), vm)
+            }
+        }),
+    };
 }
 
 impl AsSequence for PyByteArray {
-    fn as_sequence(_zelf: &Py<Self>, _vm: &VirtualMachine) -> Cow<'static, PySequenceMethods> {
-        Cow::Borrowed(&Self::SEQUENCE_METHODS)
-    }
-}
-
-impl PyByteArray {
-    const SEQUENCE_METHODS: PySequenceMethods = PySequenceMethods {
+    const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
         length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
         concat: Some(|seq, other, vm| {
             Self::sequence_downcast(seq)

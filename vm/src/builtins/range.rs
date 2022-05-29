@@ -16,7 +16,7 @@ use crossbeam_utils::atomic::AtomicCell;
 use num_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_traits::{One, Signed, ToPrimitive, Zero};
-use std::{borrow::Cow, cmp::max};
+use std::cmp::max;
 
 // Search flag passed to iter_search
 enum SearchType {
@@ -389,16 +389,20 @@ impl PyRange {
             .try_to_primitive::<isize>(vm)
             .map(|x| x as usize)
     }
+}
 
-    const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
+impl AsMapping for PyRange {
+    const AS_MAPPING: PyMappingMethods = PyMappingMethods {
         length: Some(|mapping, vm| Self::mapping_downcast(mapping).protocol_length(vm)),
         subscript: Some(|mapping, needle, vm| {
             Self::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
         }),
         ass_subscript: None,
     };
+}
 
-    const SEQUENCE_METHDOS: PySequenceMethods = PySequenceMethods {
+impl AsSequence for PyRange {
+    const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
         length: Some(|seq, vm| Self::sequence_downcast(seq).protocol_length(vm)),
         item: Some(|seq, i, vm| {
             Self::sequence_downcast(seq)
@@ -409,23 +413,8 @@ impl PyRange {
         contains: Some(|seq, needle, vm| {
             Ok(Self::sequence_downcast(seq).contains(needle.to_owned(), vm))
         }),
-        ..*PySequenceMethods::not_implemented()
+        ..PySequenceMethods::NOT_IMPLEMENTED
     };
-}
-
-impl AsMapping for PyRange {
-    fn as_mapping(_zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
-        Self::MAPPING_METHODS
-    }
-}
-
-impl AsSequence for PyRange {
-    fn as_sequence(
-        _zelf: &crate::Py<Self>,
-        _vm: &VirtualMachine,
-    ) -> Cow<'static, PySequenceMethods> {
-        Cow::Borrowed(&Self::SEQUENCE_METHDOS)
-    }
 }
 
 impl Hashable for PyRange {

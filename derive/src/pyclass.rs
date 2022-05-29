@@ -548,25 +548,28 @@ where
     Item: ItemLike + ToTokens + GetIdent,
 {
     fn gen_impl_item(&self, args: ImplItemArgs<'_, Item>) -> Result<()> {
-        let func = args
-            .item
-            .function_or_method()
-            .map_err(|_| self.new_syn_error(args.item.span(), "can only be on a method"))?;
-        let ident = &func.sig().ident;
+        let (ident, span) = if let Ok(c) = args.item.constant() {
+            (c.ident(), c.span())
+        } else if let Ok(f) = args.item.function_or_method() {
+            (&f.sig().ident, f.span())
+        } else {
+            return Err(self.new_syn_error(args.item.span(), "can only be on a method"));
+        };
 
         let item_attr = args.attrs.remove(self.index());
         let item_meta = SlotItemMeta::from_attr(ident.clone(), &item_attr)?;
 
         let slot_ident = item_meta.slot_name()?;
+        let slot_ident = Ident::new(&slot_ident.to_string().to_lowercase(), slot_ident.span());
         let slot_name = slot_ident.to_string();
         let tokens = {
             const NON_ATOMIC_SLOTS: &[&str] = &["as_buffer"];
             if NON_ATOMIC_SLOTS.contains(&slot_name.as_str()) {
-                quote_spanned! { func.span() =>
+                quote_spanned! { span =>
                     slots.#slot_ident = Some(Self::#ident as _);
                 }
             } else {
-                quote_spanned! { func.span() =>
+                quote_spanned! { span =>
                     slots.#slot_ident.store(Some(Self::#ident as _));
                 }
             }
@@ -599,11 +602,11 @@ where
             Ok(py_name)
         };
         let (ident, py_name, tokens) =
-            if args.item.function_or_method().is_ok() || args.item.is_const() {
+            if args.item.function_or_method().is_ok() || args.item.constant().is_ok() {
                 let ident = args.item.get_ident().unwrap();
                 let py_name = get_py_name(&attr, ident)?;
 
-                let value = if args.item.is_const() {
+                let value = if args.item.constant().is_ok() {
                     // TODO: ctx.new_value
                     quote_spanned!(ident.span() => ctx.new_int(Self::#ident).into())
                 } else {

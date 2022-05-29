@@ -17,7 +17,7 @@ use crate::{
     vm::VirtualMachine,
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
 };
-use std::{borrow::Cow, fmt, marker::PhantomData};
+use std::{fmt, marker::PhantomData};
 
 /// tuple() -> empty tuple
 /// tuple(iterable) -> tuple initialized from iterable's items
@@ -345,31 +345,16 @@ impl PyTuple {
     }
 }
 
-impl PyTuple {
-    const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
+impl AsMapping for PyTuple {
+    const AS_MAPPING: PyMappingMethods = PyMappingMethods {
         length: Some(|mapping, _vm| Ok(Self::mapping_downcast(mapping).len())),
         subscript: Some(|mapping, needle, vm| Self::mapping_downcast(mapping)._getitem(needle, vm)),
         ass_subscript: None,
     };
 }
 
-impl AsMapping for PyTuple {
-    fn as_mapping(_zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
-        Self::MAPPING_METHODS
-    }
-}
-
 impl AsSequence for PyTuple {
-    fn as_sequence(
-        _zelf: &crate::Py<Self>,
-        _vm: &VirtualMachine,
-    ) -> Cow<'static, PySequenceMethods> {
-        Cow::Borrowed(&Self::SEQUENCE_METHDOS)
-    }
-}
-
-impl PyTuple {
-    const SEQUENCE_METHDOS: PySequenceMethods = PySequenceMethods {
+    const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
         length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
         concat: Some(|seq, other, vm| {
             let zelf = Self::sequence_downcast(seq);
@@ -393,7 +378,7 @@ impl PyTuple {
             let zelf = Self::sequence_downcast(seq);
             zelf._contains(needle, vm)
         }),
-        ..*PySequenceMethods::not_implemented()
+        ..PySequenceMethods::NOT_IMPLEMENTED
     };
 }
 

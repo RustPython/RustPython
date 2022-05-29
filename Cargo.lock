@@ -1518,7 +1518,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
- "syn-ext",
+ "syn-ext 0.3.1",
 ]
 
 [[package]]
@@ -1645,7 +1645,7 @@ dependencies = [
  "rustpython-compiler",
  "rustpython-doc",
  "syn",
- "syn-ext",
+ "syn-ext 0.4.0",
  "textwrap 0.15.0",
 ]
 
@@ -2116,6 +2116,15 @@ name = "syn-ext"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fe0015195d694527a7c4f1479b2f3975644baefb40f0a79c974980b4f25d2b32"
+dependencies = [
+ "syn",
+]
+
+[[package]]
+name = "syn-ext"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9b86cb2b68c5b3c078cac02588bc23f3c04bb828c5d3aedd17980876ec6a7be6"
 dependencies = [
  "syn",
 ]

@@ -24,7 +24,7 @@ use crate::{
 };
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
-use std::{borrow::Cow, cmp::Ordering, fmt::Debug, mem::ManuallyDrop, ops::Range};
+use std::{cmp::Ordering, fmt::Debug, mem::ManuallyDrop, ops::Range};
 
 #[derive(FromArgs)]
 pub struct PyMemoryViewNewArgs {
@@ -957,8 +957,8 @@ impl Drop for PyMemoryView {
     }
 }
 
-impl PyMemoryView {
-    const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
+impl AsMapping for PyMemoryView {
+    const AS_MAPPING: PyMappingMethods = PyMappingMethods {
         length: Some(|mapping, vm| Self::mapping_downcast(mapping).len(vm)),
         subscript: Some(|mapping, needle, vm| {
             let zelf = Self::mapping_downcast(mapping);
@@ -975,20 +975,8 @@ impl PyMemoryView {
     };
 }
 
-impl AsMapping for PyMemoryView {
-    fn as_mapping(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
-        Self::MAPPING_METHODS
-    }
-}
-
 impl AsSequence for PyMemoryView {
-    fn as_sequence(_zelf: &Py<Self>, _vm: &VirtualMachine) -> Cow<'static, PySequenceMethods> {
-        Cow::Borrowed(&Self::SEQUENCE_METHODS)
-    }
-}
-
-impl PyMemoryView {
-    const SEQUENCE_METHODS: PySequenceMethods = PySequenceMethods {
+    const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
         length: Some(|seq, vm| {
             let zelf = Self::sequence_downcast(seq);
             zelf.try_not_released(vm)?;
@@ -999,7 +987,7 @@ impl PyMemoryView {
             zelf.try_not_released(vm)?;
             zelf.getitem_by_idx(i, vm)
         }),
-        ..*PySequenceMethods::not_implemented()
+        ..PySequenceMethods::NOT_IMPLEMENTED
     };
 }
 

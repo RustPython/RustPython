@@ -19,7 +19,7 @@ use crate::{
     vm::VirtualMachine,
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
 };
-use std::{borrow::Cow, fmt, ops::DerefMut};
+use std::{fmt, ops::DerefMut};
 
 /// Built-in mutable sequence.
 ///
@@ -139,7 +139,7 @@ impl PyList {
     }
 
     fn inplace_concat(zelf: &Py<Self>, other: &PyObject, vm: &VirtualMachine) -> PyObjectRef {
-        if let Ok(mut seq) = PySequence::from(other).extract_cloned(Ok, vm) {
+        if let Ok(mut seq) = extract_cloned(other, Ok, vm) {
             zelf.borrow_vec_mut().append(&mut seq);
             zelf.to_owned().into()
         } else {
@@ -149,7 +149,7 @@ impl PyList {
 
     #[pymethod(magic)]
     fn iadd(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        if let Ok(mut seq) = PySequence::from(other.as_ref()).extract_cloned(Ok, vm) {
+        if let Ok(mut seq) = extract_cloned(&*other, Ok, vm) {
             zelf.borrow_vec_mut().append(&mut seq);
             zelf.into()
         } else {
@@ -215,7 +215,7 @@ impl PyList {
         match SequenceIndex::try_from_borrowed_object(vm, needle)? {
             SequenceIndex::Int(index) => self.borrow_vec_mut().set_item_by_index(vm, index, value),
             SequenceIndex::Slice(slice) => {
-                let sec = PySequence::from(value.as_ref()).extract_cloned(Ok, vm)?;
+                let sec = extract_cloned(&*value, Ok, vm)?;
                 self.borrow_vec_mut().set_item_by_slice(vm, slice, &sec)
             }
         }
@@ -352,19 +352,29 @@ impl PyList {
     }
 }
 
-impl PyList {
-    const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
-        length: Some(|mapping, _vm| Ok(Self::mapping_downcast(mapping).len())),
-        subscript: Some(|mapping, needle, vm| Self::mapping_downcast(mapping)._getitem(needle, vm)),
-        ass_subscript: Some(|mapping, needle, value, vm| {
-            let zelf = Self::mapping_downcast(mapping);
-            if let Some(value) = value {
-                zelf._setitem(needle, value, vm)
-            } else {
-                zelf._delitem(needle, vm)
-            }
-        }),
-    };
+fn extract_cloned<F, R>(obj: &PyObject, mut f: F, vm: &VirtualMachine) -> PyResult<Vec<R>>
+where
+    F: FnMut(PyObjectRef) -> PyResult<R>,
+{
+    use crate::builtins::PyTuple;
+    if let Some(tuple) = obj.payload_if_exact::<PyTuple>(vm) {
+        tuple.iter().map(|x| f(x.clone())).collect()
+    } else if let Some(list) = obj.payload_if_exact::<PyList>(vm) {
+        list.borrow_vec().iter().map(|x| f(x.clone())).collect()
+    } else {
+        let iter = obj.to_owned().get_iter(vm)?;
+        let iter = iter.iter::<PyObjectRef>(vm)?;
+        let len = PySequence::new(obj, vm)
+            .and_then(|seq| seq.length_opt(vm))
+            .transpose()?
+            .unwrap_or(0);
+        let mut v = Vec::with_capacity(len);
+        for x in iter {
+            v.push(f(x?)?);
+        }
+        v.shrink_to_fit();
+        Ok(v)
+    }
 }
 
 impl<'a> MutObjectSequenceOp<'a> for PyList {
@@ -404,21 +414,22 @@ impl Initializer for PyList {
 }
 
 impl AsMapping for PyList {
-    fn as_mapping(_zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
-        Self::MAPPING_METHODS
-    }
+    const AS_MAPPING: PyMappingMethods = PyMappingMethods {
+        length: Some(|mapping, _vm| Ok(Self::mapping_downcast(mapping).len())),
+        subscript: Some(|mapping, needle, vm| Self::mapping_downcast(mapping)._getitem(needle, vm)),
+        ass_subscript: Some(|mapping, needle, value, vm| {
+            let zelf = Self::mapping_downcast(mapping);
+            if let Some(value) = value {
+                zelf._setitem(needle, value, vm)
+            } else {
+                zelf._delitem(needle, vm)
+            }
+        }),
+    };
 }
 
 impl AsSequence for PyList {
-    fn as_sequence(
-        _zelf: &crate::Py<Self>,
-        _vm: &VirtualMachine,
-    ) -> Cow<'static, PySequenceMethods> {
-        Cow::Borrowed(&Self::SEQUENCE_METHDOS)
-    }
-}
-impl PyList {
-    const SEQUENCE_METHDOS: PySequenceMethods = PySequenceMethods {
+    const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
         length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
         concat: Some(|seq, other, vm| {
             Self::sequence_downcast(seq)

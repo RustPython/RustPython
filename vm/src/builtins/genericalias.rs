@@ -306,20 +306,14 @@ pub fn subs_parameters<F: Fn(&VirtualMachine) -> PyResult<String>>(
     Ok(PyTuple::new_ref(new_args, &vm.ctx))
 }
 
-impl PyGenericAlias {
-    const MAPPING_METHODS: PyMappingMethods = PyMappingMethods {
+impl AsMapping for PyGenericAlias {
+    const AS_MAPPING: PyMappingMethods = PyMappingMethods {
         length: None,
         subscript: Some(|mapping, needle, vm| {
             Self::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
         }),
         ass_subscript: None,
     };
-}
-
-impl AsMapping for PyGenericAlias {
-    fn as_mapping(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyMappingMethods {
-        Self::MAPPING_METHODS
-    }
 }
 
 impl Callable for PyGenericAlias {

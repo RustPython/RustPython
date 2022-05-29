@@ -518,16 +518,7 @@ mod _collections {
     }
 
     impl AsSequence for PyDeque {
-        fn as_sequence(
-            _zelf: &crate::Py<Self>,
-            _vm: &VirtualMachine,
-        ) -> std::borrow::Cow<'static, PySequenceMethods> {
-            std::borrow::Cow::Borrowed(&Self::SEQUENCE_METHDOS)
-        }
-    }
-
-    impl PyDeque {
-        const SEQUENCE_METHDOS: PySequenceMethods = PySequenceMethods {
+        const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
             length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
             concat: Some(|seq, other, vm| {
                 Self::sequence_downcast(seq)
