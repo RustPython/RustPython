@@ -166,7 +166,7 @@ mod _browser {
         doc: web_sys::Document,
     }
 
-    #[pyimpl]
+    #[pyclass]
     impl Document {
         #[pymethod]
         fn query(&self, query: PyStrRef, vm: &VirtualMachine) -> PyResult {
@@ -198,7 +198,7 @@ mod _browser {
         elem: web_sys::Element,
     }
 
-    #[pyimpl]
+    #[pyclass]
     impl Element {
         #[pymethod]
         fn get_attr(

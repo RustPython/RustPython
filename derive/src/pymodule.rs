@@ -69,6 +69,10 @@ pub fn impl_pymodule(attr: AttributeArgs, module_item: Item) -> Result<TokenStre
 
     // collect to context
     for item in items.iter_mut() {
+        if matches!(item, Item::Impl(_) | Item::Trait(_)) {
+            // #[pyimpl] cases
+            continue;
+        }
         let r = item.try_split_attr_mut(|attrs, item| {
             let (pyitems, cfgs) = attrs_to_module_items(attrs, module_item_new)?;
             for pyitem in pyitems.iter().rev() {
@@ -170,13 +174,11 @@ where
     while let Some((_, attr)) = iter.peek() {
         // take all cfgs but no py items
         let attr = *attr;
-        if let Some(ident) = attr.get_ident() {
-            let attr_name = ident.to_string();
-            if attr_name == "cfg" {
-                cfgs.push(attr.clone());
-            } else if ALL_ALLOWED_NAMES.contains(&attr_name.as_str()) {
-                break;
-            }
+        let attr_path = attr.path_string();
+        if attr_path == "cfg" {
+            cfgs.push(attr.clone());
+        } else if attr_path.starts_with("py") {
+            break;
         }
         iter.next();
     }
@@ -185,17 +187,14 @@ where
     let mut pyattrs = Vec::new();
     for (i, attr) in iter {
         // take py items but no cfgs
-        let attr_name = if let Some(ident) = attr.get_ident() {
-            ident.to_string()
-        } else {
-            continue;
-        };
+        let attr_name = attr.path_string();
         if attr_name == "cfg" {
             return Err(syn::Error::new_spanned(
                 attr,
                 "#[py*] items must be placed under `cfgs`",
             ));
         }
+        let attr_name = attr_name.replace("::", "");
 
         let attr_name = match AttrName::from_str(attr_name.as_str()) {
             Ok(name) => name,

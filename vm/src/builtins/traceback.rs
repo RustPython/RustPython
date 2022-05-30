@@ -18,7 +18,7 @@ impl PyPayload for PyTraceback {
     }
 }
 
-#[pyimpl]
+#[pyclass]
 impl PyTraceback {
     pub fn new(next: Option<PyRef<Self>>, frame: FrameRef, lasti: u32, lineno: usize) -> Self {
         PyTraceback {

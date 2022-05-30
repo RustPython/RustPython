@@ -39,7 +39,7 @@ mod builtins {
     };
     use num_traits::{Signed, ToPrimitive, Zero};
 
-    #[pyfunction]
+    #[py::function]
     fn abs(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm._abs(&x)
     }

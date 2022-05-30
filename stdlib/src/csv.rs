@@ -165,7 +165,7 @@ mod _csv {
         }
     }
 
-    #[pyimpl(with(IterNext))]
+    #[pyclass(with(IterNext))]
     impl Reader {}
     impl IterNextIterable for Reader {}
     impl IterNext for Reader {
@@ -255,7 +255,7 @@ mod _csv {
         }
     }
 
-    #[pyimpl]
+    #[pyclass]
     impl Writer {
         #[pymethod]
         fn writerow(&self, row: PyObjectRef, vm: &VirtualMachine) -> PyResult {

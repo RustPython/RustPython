@@ -430,7 +430,7 @@ mod _operator {
         attrs: Vec<PyStrRef>,
     }
 
-    #[pyimpl(with(Callable, Constructor))]
+    #[pyclass(with(Callable, Constructor))]
     impl PyAttrGetter {
         #[pymethod(magic)]
         fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
@@ -526,7 +526,7 @@ mod _operator {
         items: Vec<PyObjectRef>,
     }
 
-    #[pyimpl(with(Callable, Constructor))]
+    #[pyclass(with(Callable, Constructor))]
     impl PyItemGetter {
         #[pymethod(magic)]
         fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
@@ -595,7 +595,7 @@ mod _operator {
         args: FuncArgs,
     }
 
-    #[pyimpl(with(Callable, Constructor))]
+    #[pyclass(with(Callable, Constructor))]
     impl PyMethodCaller {
         #[pymethod(magic)]
         fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {

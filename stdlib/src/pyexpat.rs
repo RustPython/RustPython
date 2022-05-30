@@ -62,7 +62,7 @@ mod _pyexpat {
         vm.invoke(&handler.read().clone(), args).ok();
     }
 
-    #[pyimpl]
+    #[pyclass]
     impl PyExpatLikeXmlParser {
         fn new(vm: &VirtualMachine) -> PyResult<PyExpatLikeXmlParserRef> {
             Ok(PyExpatLikeXmlParser {
@@ -75,7 +75,7 @@ mod _pyexpat {
             .into_ref(vm))
         }
 
-        #[extend_class]
+        #[py::extend_class]
         fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
             let mut attributes = class.attributes.write();
 

@@ -45,7 +45,11 @@ pub fn pyclass(
 ) -> proc_macro::TokenStream {
     let attr = parse_macro_input!(attr as AttributeArgs);
     let item = parse_macro_input!(item as Item);
-    result_to_tokens(pyclass::impl_pyclass(attr, item))
+    if matches!(item, syn::Item::Impl(_) | syn::Item::Trait(_)) {
+        result_to_tokens(pyclass::impl_pyimpl(attr, item))
+    } else {
+        result_to_tokens(pyclass::impl_pyclass(attr, item))
+    }
 }
 
 /// This macro serves a goal of generating multiple
@@ -74,16 +78,6 @@ pub fn pyexception(
     let attr = parse_macro_input!(attr as AttributeArgs);
     let item = parse_macro_input!(item as Item);
     result_to_tokens(pyclass::impl_pyexception(attr, item))
-}
-
-#[proc_macro_attribute]
-pub fn pyimpl(
-    attr: proc_macro::TokenStream,
-    item: proc_macro::TokenStream,
-) -> proc_macro::TokenStream {
-    let attr = parse_macro_input!(attr as AttributeArgs);
-    let item = parse_macro_input!(item as Item);
-    result_to_tokens(pyclass::impl_pyimpl(attr, item))
 }
 
 #[proc_macro_attribute]

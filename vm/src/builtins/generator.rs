@@ -25,7 +25,7 @@ impl PyPayload for PyGenerator {
     }
 }
 
-#[pyimpl(with(Constructor, IterNext))]
+#[pyclass(with(Constructor, IterNext))]
 impl PyGenerator {
     pub fn as_coro(&self) -> &Coro {
         &self.inner

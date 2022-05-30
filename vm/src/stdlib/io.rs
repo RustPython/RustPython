@@ -379,7 +379,7 @@ mod _io {
     #[derive(Debug, PyPayload)]
     struct _IOBase;
 
-    #[pyimpl(with(IterNext, Destructor), flags(BASETYPE, HAS_DICT))]
+    #[pyclass(with(IterNext, Destructor), flags(BASETYPE, HAS_DICT))]
     impl _IOBase {
         #[pymethod]
         fn seek(
@@ -587,7 +587,7 @@ mod _io {
     #[pyclass(name = "_RawIOBase", base = "_IOBase")]
     pub(super) struct _RawIOBase;
 
-    #[pyimpl(flags(BASETYPE, HAS_DICT))]
+    #[pyclass(flags(BASETYPE, HAS_DICT))]
     impl _RawIOBase {
         #[pymethod]
         fn read(instance: PyObjectRef, size: OptionalSize, vm: &VirtualMachine) -> PyResult {
@@ -645,7 +645,7 @@ mod _io {
     #[pyclass(name = "_BufferedIOBase", base = "_IOBase")]
     struct _BufferedIOBase;
 
-    #[pyimpl(flags(BASETYPE))]
+    #[pyclass(flags(BASETYPE))]
     impl _BufferedIOBase {
         #[pymethod]
         fn read(zelf: PyObjectRef, _size: OptionalArg, vm: &VirtualMachine) -> PyResult {
@@ -703,7 +703,7 @@ mod _io {
     #[pyclass(name = "_TextIOBase", base = "_IOBase")]
     struct _TextIOBase;
 
-    #[pyimpl(flags(BASETYPE))]
+    #[pyclass(flags(BASETYPE))]
     impl _TextIOBase {}
 
     #[derive(FromArgs, Clone)]
@@ -1365,7 +1365,7 @@ mod _io {
         }
     }
 
-    #[pyimpl]
+    #[pyclass]
     trait BufferedMixin: PyPayload {
         const CLASS_NAME: &'static str;
         const READABLE: bool;
@@ -1580,7 +1580,7 @@ mod _io {
         }
     }
 
-    #[pyimpl]
+    #[pyclass]
     trait BufferedReadable: PyPayload {
         type Reader: BufferedMixin;
         fn reader(&self) -> &Self::Reader;
@@ -1682,7 +1682,7 @@ mod _io {
         }
     }
 
-    #[pyimpl(
+    #[pyclass(
         with(DefaultConstructor, BufferedMixin, BufferedReadable),
         flags(BASETYPE, HAS_DICT)
     )]
@@ -1690,7 +1690,7 @@ mod _io {
 
     impl DefaultConstructor for BufferedReader {}
 
-    #[pyimpl]
+    #[pyclass]
     trait BufferedWritable: PyPayload {
         type Writer: BufferedMixin;
         fn writer(&self) -> &Self::Writer;
@@ -1732,7 +1732,7 @@ mod _io {
         }
     }
 
-    #[pyimpl(
+    #[pyclass(
         with(DefaultConstructor, BufferedMixin, BufferedWritable),
         flags(BASETYPE, HAS_DICT)
     )]
@@ -1768,7 +1768,7 @@ mod _io {
         }
     }
 
-    #[pyimpl(
+    #[pyclass(
         with(DefaultConstructor, BufferedMixin, BufferedReadable, BufferedWritable),
         flags(BASETYPE, HAS_DICT)
     )]
@@ -1812,7 +1812,7 @@ mod _io {
         }
     }
 
-    #[pyimpl(
+    #[pyclass(
         with(DefaultConstructor, Initializer, BufferedReadable, BufferedWritable),
         flags(BASETYPE, HAS_DICT)
     )]
@@ -2288,7 +2288,7 @@ mod _io {
         }
     }
 
-    #[pyimpl(with(DefaultConstructor, Initializer), flags(BASETYPE))]
+    #[pyclass(with(DefaultConstructor, Initializer), flags(BASETYPE))]
     impl TextIOWrapper {
         #[pymethod]
         fn seekable(&self, vm: &VirtualMachine) -> PyResult {
@@ -3088,7 +3088,7 @@ mod _io {
         }
     }
 
-    #[pyimpl(flags(BASETYPE, HAS_DICT), with(PyRef, Constructor))]
+    #[pyclass(flags(BASETYPE, HAS_DICT), with(PyRef, Constructor))]
     impl StringIO {
         fn buffer(&self, vm: &VirtualMachine) -> PyResult<PyRwLockWriteGuard<'_, BufferedIO>> {
             if !self.closed.load() {
@@ -3122,7 +3122,7 @@ mod _io {
         }
     }
 
-    #[pyimpl]
+    #[pyclass]
     impl StringIORef {
         //write string to underlying vector
         #[pymethod]
@@ -3224,7 +3224,7 @@ mod _io {
         }
     }
 
-    #[pyimpl(flags(BASETYPE, HAS_DICT), with(PyRef, Constructor))]
+    #[pyclass(flags(BASETYPE, HAS_DICT), with(PyRef, Constructor))]
     impl BytesIO {
         fn buffer(&self, vm: &VirtualMachine) -> PyResult<PyRwLockWriteGuard<'_, BufferedIO>> {
             if !self.closed.load() {
@@ -3248,7 +3248,7 @@ mod _io {
         }
     }
 
-    #[pyimpl]
+    #[pyclass]
     impl BytesIORef {
         #[pymethod]
         fn write(self, data: ArgBytesLike, vm: &VirtualMachine) -> PyResult<u64> {
@@ -3898,7 +3898,7 @@ mod fileio {
         }
     }
 
-    #[pyimpl(with(DefaultConstructor, Initializer), flags(BASETYPE, HAS_DICT))]
+    #[pyclass(with(DefaultConstructor, Initializer), flags(BASETYPE, HAS_DICT))]
     impl FileIO {
         #[pyproperty]
         fn closed(&self) -> bool {

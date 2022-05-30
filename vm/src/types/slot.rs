@@ -560,7 +560,7 @@ impl PyType {
     }
 }
 
-#[pyimpl]
+#[pyclass]
 pub trait Constructor: PyPayload {
     type Args: FromArgs;
 
@@ -574,7 +574,7 @@ pub trait Constructor: PyPayload {
     fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult;
 }
 
-#[pyimpl]
+#[pyclass]
 pub trait DefaultConstructor: PyPayload + Default {
     #[inline]
     #[pyslot]
@@ -597,7 +597,7 @@ where
     }
 }
 
-#[pyimpl]
+#[pyclass]
 pub trait Initializer: PyPayload {
     type Args: FromArgs;
 
@@ -618,7 +618,7 @@ pub trait Initializer: PyPayload {
     fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()>;
 }
 
-#[pyimpl]
+#[pyclass]
 pub trait Destructor: PyPayload {
     #[inline] // for __del__
     #[pyslot]
@@ -638,7 +638,7 @@ pub trait Destructor: PyPayload {
     fn del(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()>;
 }
 
-#[pyimpl]
+#[pyclass]
 pub trait Callable: PyPayload {
     type Args: FromArgs;
 
@@ -660,7 +660,7 @@ pub trait Callable: PyPayload {
     fn call(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult;
 }
 
-#[pyimpl]
+#[pyclass]
 pub trait GetDescriptor: PyPayload {
     #[pyslot]
     fn descr_get(
@@ -728,7 +728,7 @@ pub trait GetDescriptor: PyPayload {
     }
 }
 
-#[pyimpl]
+#[pyclass]
 pub trait Hashable: PyPayload {
     #[inline]
     #[pyslot]
@@ -765,7 +765,7 @@ where
     }
 }
 
-#[pyimpl]
+#[pyclass]
 pub trait Comparable: PyPayload {
     #[inline]
     #[pyslot]
@@ -949,7 +949,7 @@ impl PyComparisonOp {
     }
 }
 
-#[pyimpl]
+#[pyclass]
 pub trait GetAttr: PyPayload {
     #[pyslot]
     fn slot_getattro(obj: &PyObject, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
@@ -969,7 +969,7 @@ pub trait GetAttr: PyPayload {
     }
 }
 
-#[pyimpl]
+#[pyclass]
 pub trait SetAttr: PyPayload {
     #[pyslot]
     #[inline]
@@ -1011,7 +1011,7 @@ pub trait SetAttr: PyPayload {
     }
 }
 
-#[pyimpl]
+#[pyclass]
 pub trait AsBuffer: PyPayload {
     // TODO: `flags` parameter
     #[inline]
@@ -1026,7 +1026,7 @@ pub trait AsBuffer: PyPayload {
     fn as_buffer(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyBuffer>;
 }
 
-#[pyimpl]
+#[pyclass]
 pub trait AsMapping: PyPayload {
     const AS_MAPPING: PyMappingMethods;
 
@@ -1042,7 +1042,7 @@ pub trait AsMapping: PyPayload {
     }
 }
 
-#[pyimpl]
+#[pyclass]
 pub trait AsSequence: PyPayload {
     const AS_SEQUENCE: PySequenceMethods;
 
@@ -1057,7 +1057,7 @@ pub trait AsSequence: PyPayload {
     }
 }
 
-#[pyimpl]
+#[pyclass]
 pub trait AsNumber: PyPayload {
     const AS_NUMBER: PyNumberMethods;
 
@@ -1072,7 +1072,7 @@ pub trait AsNumber: PyPayload {
     }
 }
 
-#[pyimpl]
+#[pyclass]
 pub trait Iterable: PyPayload {
     #[pyslot]
     #[pymethod(name = "__iter__")]
@@ -1088,7 +1088,7 @@ pub trait Iterable: PyPayload {
 }
 
 // `Iterator` fits better, but to avoid confusion with rust std::iter::Iterator
-#[pyimpl(with(Iterable))]
+#[pyclass(with(Iterable))]
 pub trait IterNext: PyPayload + Iterable {
     #[pyslot]
     fn slot_iternext(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyIterReturn> {

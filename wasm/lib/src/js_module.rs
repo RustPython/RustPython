@@ -90,7 +90,7 @@ mod _js {
         }
     }
 
-    #[pyimpl]
+    #[pyclass]
     impl PyJsValue {
         #[inline]
         pub fn new(value: impl Into<JsValue>) -> PyJsValue {
@@ -301,7 +301,7 @@ mod _js {
         }
     }
 
-    #[pyimpl]
+    #[pyclass]
     impl JsClosure {
         fn new(obj: PyObjectRef, once: bool, vm: &VirtualMachine) -> PyResult<Self> {
             let wasm_vm = WASMVirtualMachine {
@@ -396,7 +396,7 @@ mod _js {
         PyRejected(PyBaseExceptionRef),
     }
 
-    #[pyimpl]
+    #[pyclass]
     impl PyPromise {
         pub fn new(value: Promise) -> PyPromise {
             PyPromise {
@@ -566,7 +566,7 @@ mod _js {
         }
     }
 
-    #[pyimpl(with(IterNext))]
+    #[pyclass(with(IterNext))]
     impl AwaitPromise {
         #[pymethod]
         fn send(&self, val: Option<PyObjectRef>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {

@@ -179,7 +179,7 @@ pub fn init(context: &Context) {
     PyRangeIterator::extend_class(context, context.types.range_iterator_type);
 }
 
-#[pyimpl(with(AsMapping, AsSequence, Hashable, Comparable, Iterable))]
+#[pyclass(with(AsMapping, AsSequence, Hashable, Comparable, Iterable))]
 impl PyRange {
     fn new(cls: PyTypeRef, stop: PyIntRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         PyRange {
@@ -523,7 +523,7 @@ impl PyPayload for PyLongRangeIterator {
     }
 }
 
-#[pyimpl(with(Constructor, IterNext))]
+#[pyclass(with(Constructor, IterNext))]
 impl PyLongRangeIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> BigInt {
@@ -588,7 +588,7 @@ impl PyPayload for PyRangeIterator {
     }
 }
 
-#[pyimpl(with(Constructor, IterNext))]
+#[pyclass(with(Constructor, IterNext))]
 impl PyRangeIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {

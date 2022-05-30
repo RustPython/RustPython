@@ -5,7 +5,7 @@ use crate::{
     AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
-#[pyimpl]
+#[pyclass]
 pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
     const FIELD_NAMES: &'static [&'static str];
 
@@ -72,7 +72,7 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
         vm.new_tuple((zelf.class().clone(), (vm.ctx.new_tuple(zelf.to_vec()),)))
     }
 
-    #[extend_class]
+    #[py::extend_class]
     fn extend_pyclass(ctx: &Context, class: &'static Py<PyType>) {
         for (i, &name) in Self::FIELD_NAMES.iter().enumerate() {
             // cast i to a u8 so there's less to store in the getter closure.

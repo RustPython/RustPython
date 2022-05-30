@@ -7,13 +7,13 @@ use crate::common::ascii;
 
 #[pyclass(module = "_ast", name = "mod", base = "AstNode")]
 struct NodeKindMod;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeKindMod {}
 #[pyclass(module = "_ast", name = "Module", base = "NodeKindMod")]
 struct NodeModule;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeModule {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -28,9 +28,9 @@ impl NodeModule {
 }
 #[pyclass(module = "_ast", name = "Interactive", base = "NodeKindMod")]
 struct NodeInteractive;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeInteractive {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -42,9 +42,9 @@ impl NodeInteractive {
 }
 #[pyclass(module = "_ast", name = "Expression", base = "NodeKindMod")]
 struct NodeExpression;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeExpression {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -56,9 +56,9 @@ impl NodeExpression {
 }
 #[pyclass(module = "_ast", name = "FunctionType", base = "NodeKindMod")]
 struct NodeFunctionType;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeFunctionType {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -73,13 +73,13 @@ impl NodeFunctionType {
 }
 #[pyclass(module = "_ast", name = "stmt", base = "AstNode")]
 struct NodeKindStmt;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeKindStmt {}
 #[pyclass(module = "_ast", name = "FunctionDef", base = "NodeKindStmt")]
 struct NodeFunctionDef;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeFunctionDef {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -107,9 +107,9 @@ impl NodeFunctionDef {
 }
 #[pyclass(module = "_ast", name = "AsyncFunctionDef", base = "NodeKindStmt")]
 struct NodeAsyncFunctionDef;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeAsyncFunctionDef {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -137,9 +137,9 @@ impl NodeAsyncFunctionDef {
 }
 #[pyclass(module = "_ast", name = "ClassDef", base = "NodeKindStmt")]
 struct NodeClassDef;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeClassDef {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -166,9 +166,9 @@ impl NodeClassDef {
 }
 #[pyclass(module = "_ast", name = "Return", base = "NodeKindStmt")]
 struct NodeReturn;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeReturn {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -189,9 +189,9 @@ impl NodeReturn {
 }
 #[pyclass(module = "_ast", name = "Delete", base = "NodeKindStmt")]
 struct NodeDelete;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeDelete {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -212,9 +212,9 @@ impl NodeDelete {
 }
 #[pyclass(module = "_ast", name = "Assign", base = "NodeKindStmt")]
 struct NodeAssign;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeAssign {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -239,9 +239,9 @@ impl NodeAssign {
 }
 #[pyclass(module = "_ast", name = "AugAssign", base = "NodeKindStmt")]
 struct NodeAugAssign;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeAugAssign {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -266,9 +266,9 @@ impl NodeAugAssign {
 }
 #[pyclass(module = "_ast", name = "AnnAssign", base = "NodeKindStmt")]
 struct NodeAnnAssign;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeAnnAssign {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -294,9 +294,9 @@ impl NodeAnnAssign {
 }
 #[pyclass(module = "_ast", name = "For", base = "NodeKindStmt")]
 struct NodeFor;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeFor {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -323,9 +323,9 @@ impl NodeFor {
 }
 #[pyclass(module = "_ast", name = "AsyncFor", base = "NodeKindStmt")]
 struct NodeAsyncFor;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeAsyncFor {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -352,9 +352,9 @@ impl NodeAsyncFor {
 }
 #[pyclass(module = "_ast", name = "While", base = "NodeKindStmt")]
 struct NodeWhile;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeWhile {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -379,9 +379,9 @@ impl NodeWhile {
 }
 #[pyclass(module = "_ast", name = "If", base = "NodeKindStmt")]
 struct NodeIf;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeIf {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -406,9 +406,9 @@ impl NodeIf {
 }
 #[pyclass(module = "_ast", name = "With", base = "NodeKindStmt")]
 struct NodeWith;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeWith {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -433,9 +433,9 @@ impl NodeWith {
 }
 #[pyclass(module = "_ast", name = "AsyncWith", base = "NodeKindStmt")]
 struct NodeAsyncWith;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeAsyncWith {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -460,9 +460,9 @@ impl NodeAsyncWith {
 }
 #[pyclass(module = "_ast", name = "Raise", base = "NodeKindStmt")]
 struct NodeRaise;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeRaise {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -486,9 +486,9 @@ impl NodeRaise {
 }
 #[pyclass(module = "_ast", name = "Try", base = "NodeKindStmt")]
 struct NodeTry;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeTry {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -514,9 +514,9 @@ impl NodeTry {
 }
 #[pyclass(module = "_ast", name = "Assert", base = "NodeKindStmt")]
 struct NodeAssert;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeAssert {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -540,9 +540,9 @@ impl NodeAssert {
 }
 #[pyclass(module = "_ast", name = "Import", base = "NodeKindStmt")]
 struct NodeImport;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeImport {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -563,9 +563,9 @@ impl NodeImport {
 }
 #[pyclass(module = "_ast", name = "ImportFrom", base = "NodeKindStmt")]
 struct NodeImportFrom;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeImportFrom {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -590,9 +590,9 @@ impl NodeImportFrom {
 }
 #[pyclass(module = "_ast", name = "Global", base = "NodeKindStmt")]
 struct NodeGlobal;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeGlobal {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -613,9 +613,9 @@ impl NodeGlobal {
 }
 #[pyclass(module = "_ast", name = "Nonlocal", base = "NodeKindStmt")]
 struct NodeNonlocal;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeNonlocal {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -636,9 +636,9 @@ impl NodeNonlocal {
 }
 #[pyclass(module = "_ast", name = "Expr", base = "NodeKindStmt")]
 struct NodeExpr;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeExpr {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -659,9 +659,9 @@ impl NodeExpr {
 }
 #[pyclass(module = "_ast", name = "Pass", base = "NodeKindStmt")]
 struct NodePass;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodePass {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
         class.set_attr(
@@ -678,9 +678,9 @@ impl NodePass {
 }
 #[pyclass(module = "_ast", name = "Break", base = "NodeKindStmt")]
 struct NodeBreak;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeBreak {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
         class.set_attr(
@@ -697,9 +697,9 @@ impl NodeBreak {
 }
 #[pyclass(module = "_ast", name = "Continue", base = "NodeKindStmt")]
 struct NodeContinue;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeContinue {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
         class.set_attr(
@@ -716,13 +716,13 @@ impl NodeContinue {
 }
 #[pyclass(module = "_ast", name = "expr", base = "AstNode")]
 struct NodeKindExpr;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeKindExpr {}
 #[pyclass(module = "_ast", name = "BoolOp", base = "NodeKindExpr")]
 struct NodeBoolOp;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeBoolOp {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -746,9 +746,9 @@ impl NodeBoolOp {
 }
 #[pyclass(module = "_ast", name = "NamedExpr", base = "NodeKindExpr")]
 struct NodeNamedExpr;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeNamedExpr {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -772,9 +772,9 @@ impl NodeNamedExpr {
 }
 #[pyclass(module = "_ast", name = "BinOp", base = "NodeKindExpr")]
 struct NodeBinOp;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeBinOp {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -799,9 +799,9 @@ impl NodeBinOp {
 }
 #[pyclass(module = "_ast", name = "UnaryOp", base = "NodeKindExpr")]
 struct NodeUnaryOp;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeUnaryOp {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -825,9 +825,9 @@ impl NodeUnaryOp {
 }
 #[pyclass(module = "_ast", name = "Lambda", base = "NodeKindExpr")]
 struct NodeLambda;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeLambda {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -851,9 +851,9 @@ impl NodeLambda {
 }
 #[pyclass(module = "_ast", name = "IfExp", base = "NodeKindExpr")]
 struct NodeIfExp;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeIfExp {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -878,9 +878,9 @@ impl NodeIfExp {
 }
 #[pyclass(module = "_ast", name = "Dict", base = "NodeKindExpr")]
 struct NodeDict;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeDict {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -904,9 +904,9 @@ impl NodeDict {
 }
 #[pyclass(module = "_ast", name = "Set", base = "NodeKindExpr")]
 struct NodeSet;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeSet {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -927,9 +927,9 @@ impl NodeSet {
 }
 #[pyclass(module = "_ast", name = "ListComp", base = "NodeKindExpr")]
 struct NodeListComp;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeListComp {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -953,9 +953,9 @@ impl NodeListComp {
 }
 #[pyclass(module = "_ast", name = "SetComp", base = "NodeKindExpr")]
 struct NodeSetComp;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeSetComp {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -979,9 +979,9 @@ impl NodeSetComp {
 }
 #[pyclass(module = "_ast", name = "DictComp", base = "NodeKindExpr")]
 struct NodeDictComp;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeDictComp {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -1006,9 +1006,9 @@ impl NodeDictComp {
 }
 #[pyclass(module = "_ast", name = "GeneratorExp", base = "NodeKindExpr")]
 struct NodeGeneratorExp;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeGeneratorExp {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -1032,9 +1032,9 @@ impl NodeGeneratorExp {
 }
 #[pyclass(module = "_ast", name = "Await", base = "NodeKindExpr")]
 struct NodeAwait;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeAwait {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -1055,9 +1055,9 @@ impl NodeAwait {
 }
 #[pyclass(module = "_ast", name = "Yield", base = "NodeKindExpr")]
 struct NodeYield;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeYield {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -1078,9 +1078,9 @@ impl NodeYield {
 }
 #[pyclass(module = "_ast", name = "YieldFrom", base = "NodeKindExpr")]
 struct NodeYieldFrom;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeYieldFrom {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -1101,9 +1101,9 @@ impl NodeYieldFrom {
 }
 #[pyclass(module = "_ast", name = "Compare", base = "NodeKindExpr")]
 struct NodeCompare;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeCompare {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -1128,9 +1128,9 @@ impl NodeCompare {
 }
 #[pyclass(module = "_ast", name = "Call", base = "NodeKindExpr")]
 struct NodeCall;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeCall {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -1155,9 +1155,9 @@ impl NodeCall {
 }
 #[pyclass(module = "_ast", name = "FormattedValue", base = "NodeKindExpr")]
 struct NodeFormattedValue;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeFormattedValue {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -1182,9 +1182,9 @@ impl NodeFormattedValue {
 }
 #[pyclass(module = "_ast", name = "JoinedStr", base = "NodeKindExpr")]
 struct NodeJoinedStr;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeJoinedStr {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -1205,9 +1205,9 @@ impl NodeJoinedStr {
 }
 #[pyclass(module = "_ast", name = "Constant", base = "NodeKindExpr")]
 struct NodeConstant;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeConstant {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -1231,9 +1231,9 @@ impl NodeConstant {
 }
 #[pyclass(module = "_ast", name = "Attribute", base = "NodeKindExpr")]
 struct NodeAttribute;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeAttribute {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -1258,9 +1258,9 @@ impl NodeAttribute {
 }
 #[pyclass(module = "_ast", name = "Subscript", base = "NodeKindExpr")]
 struct NodeSubscript;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeSubscript {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -1285,9 +1285,9 @@ impl NodeSubscript {
 }
 #[pyclass(module = "_ast", name = "Starred", base = "NodeKindExpr")]
 struct NodeStarred;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeStarred {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -1311,9 +1311,9 @@ impl NodeStarred {
 }
 #[pyclass(module = "_ast", name = "Name", base = "NodeKindExpr")]
 struct NodeName;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeName {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -1337,9 +1337,9 @@ impl NodeName {
 }
 #[pyclass(module = "_ast", name = "List", base = "NodeKindExpr")]
 struct NodeList;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeList {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -1363,9 +1363,9 @@ impl NodeList {
 }
 #[pyclass(module = "_ast", name = "Tuple", base = "NodeKindExpr")]
 struct NodeTuple;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeTuple {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -1389,9 +1389,9 @@ impl NodeTuple {
 }
 #[pyclass(module = "_ast", name = "Slice", base = "NodeKindExpr")]
 struct NodeSlice;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeSlice {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -1416,13 +1416,13 @@ impl NodeSlice {
 }
 #[pyclass(module = "_ast", name = "expr_context", base = "AstNode")]
 struct NodeKindExprContext;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeKindExprContext {}
 #[pyclass(module = "_ast", name = "Load", base = "NodeKindExprContext")]
 struct NodeLoad;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeLoad {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
@@ -1430,9 +1430,9 @@ impl NodeLoad {
 }
 #[pyclass(module = "_ast", name = "Store", base = "NodeKindExprContext")]
 struct NodeStore;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeStore {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
@@ -1440,9 +1440,9 @@ impl NodeStore {
 }
 #[pyclass(module = "_ast", name = "Del", base = "NodeKindExprContext")]
 struct NodeDel;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeDel {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
@@ -1450,13 +1450,13 @@ impl NodeDel {
 }
 #[pyclass(module = "_ast", name = "boolop", base = "AstNode")]
 struct NodeKindBoolop;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeKindBoolop {}
 #[pyclass(module = "_ast", name = "And", base = "NodeKindBoolop")]
 struct NodeAnd;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeAnd {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
@@ -1464,9 +1464,9 @@ impl NodeAnd {
 }
 #[pyclass(module = "_ast", name = "Or", base = "NodeKindBoolop")]
 struct NodeOr;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeOr {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
@@ -1474,13 +1474,13 @@ impl NodeOr {
 }
 #[pyclass(module = "_ast", name = "operator", base = "AstNode")]
 struct NodeKindOperator;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeKindOperator {}
 #[pyclass(module = "_ast", name = "Add", base = "NodeKindOperator")]
 struct NodeAdd;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeAdd {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
@@ -1488,9 +1488,9 @@ impl NodeAdd {
 }
 #[pyclass(module = "_ast", name = "Sub", base = "NodeKindOperator")]
 struct NodeSub;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeSub {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
@@ -1498,9 +1498,9 @@ impl NodeSub {
 }
 #[pyclass(module = "_ast", name = "Mult", base = "NodeKindOperator")]
 struct NodeMult;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeMult {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
@@ -1508,9 +1508,9 @@ impl NodeMult {
 }
 #[pyclass(module = "_ast", name = "MatMult", base = "NodeKindOperator")]
 struct NodeMatMult;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeMatMult {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
@@ -1518,9 +1518,9 @@ impl NodeMatMult {
 }
 #[pyclass(module = "_ast", name = "Div", base = "NodeKindOperator")]
 struct NodeDiv;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeDiv {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
@@ -1528,9 +1528,9 @@ impl NodeDiv {
 }
 #[pyclass(module = "_ast", name = "Mod", base = "NodeKindOperator")]
 struct NodeMod;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeMod {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
@@ -1538,9 +1538,9 @@ impl NodeMod {
 }
 #[pyclass(module = "_ast", name = "Pow", base = "NodeKindOperator")]
 struct NodePow;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodePow {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
@@ -1548,9 +1548,9 @@ impl NodePow {
 }
 #[pyclass(module = "_ast", name = "LShift", base = "NodeKindOperator")]
 struct NodeLShift;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeLShift {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
@@ -1558,9 +1558,9 @@ impl NodeLShift {
 }
 #[pyclass(module = "_ast", name = "RShift", base = "NodeKindOperator")]
 struct NodeRShift;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeRShift {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
@@ -1568,9 +1568,9 @@ impl NodeRShift {
 }
 #[pyclass(module = "_ast", name = "BitOr", base = "NodeKindOperator")]
 struct NodeBitOr;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeBitOr {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
@@ -1578,9 +1578,9 @@ impl NodeBitOr {
 }
 #[pyclass(module = "_ast", name = "BitXor", base = "NodeKindOperator")]
 struct NodeBitXor;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeBitXor {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
@@ -1588,9 +1588,9 @@ impl NodeBitXor {
 }
 #[pyclass(module = "_ast", name = "BitAnd", base = "NodeKindOperator")]
 struct NodeBitAnd;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeBitAnd {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
@@ -1598,9 +1598,9 @@ impl NodeBitAnd {
 }
 #[pyclass(module = "_ast", name = "FloorDiv", base = "NodeKindOperator")]
 struct NodeFloorDiv;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeFloorDiv {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
@@ -1608,13 +1608,13 @@ impl NodeFloorDiv {
 }
 #[pyclass(module = "_ast", name = "unaryop", base = "AstNode")]
 struct NodeKindUnaryop;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeKindUnaryop {}
 #[pyclass(module = "_ast", name = "Invert", base = "NodeKindUnaryop")]
 struct NodeInvert;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeInvert {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
@@ -1622,9 +1622,9 @@ impl NodeInvert {
 }
 #[pyclass(module = "_ast", name = "Not", base = "NodeKindUnaryop")]
 struct NodeNot;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeNot {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
@@ -1632,9 +1632,9 @@ impl NodeNot {
 }
 #[pyclass(module = "_ast", name = "UAdd", base = "NodeKindUnaryop")]
 struct NodeUAdd;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeUAdd {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
@@ -1642,9 +1642,9 @@ impl NodeUAdd {
 }
 #[pyclass(module = "_ast", name = "USub", base = "NodeKindUnaryop")]
 struct NodeUSub;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeUSub {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
@@ -1652,13 +1652,13 @@ impl NodeUSub {
 }
 #[pyclass(module = "_ast", name = "cmpop", base = "AstNode")]
 struct NodeKindCmpop;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeKindCmpop {}
 #[pyclass(module = "_ast", name = "Eq", base = "NodeKindCmpop")]
 struct NodeEq;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeEq {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
@@ -1666,9 +1666,9 @@ impl NodeEq {
 }
 #[pyclass(module = "_ast", name = "NotEq", base = "NodeKindCmpop")]
 struct NodeNotEq;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeNotEq {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
@@ -1676,9 +1676,9 @@ impl NodeNotEq {
 }
 #[pyclass(module = "_ast", name = "Lt", base = "NodeKindCmpop")]
 struct NodeLt;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeLt {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
@@ -1686,9 +1686,9 @@ impl NodeLt {
 }
 #[pyclass(module = "_ast", name = "LtE", base = "NodeKindCmpop")]
 struct NodeLtE;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeLtE {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
@@ -1696,9 +1696,9 @@ impl NodeLtE {
 }
 #[pyclass(module = "_ast", name = "Gt", base = "NodeKindCmpop")]
 struct NodeGt;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeGt {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
@@ -1706,9 +1706,9 @@ impl NodeGt {
 }
 #[pyclass(module = "_ast", name = "GtE", base = "NodeKindCmpop")]
 struct NodeGtE;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeGtE {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
@@ -1716,9 +1716,9 @@ impl NodeGtE {
 }
 #[pyclass(module = "_ast", name = "Is", base = "NodeKindCmpop")]
 struct NodeIs;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeIs {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
@@ -1726,9 +1726,9 @@ impl NodeIs {
 }
 #[pyclass(module = "_ast", name = "IsNot", base = "NodeKindCmpop")]
 struct NodeIsNot;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeIsNot {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
@@ -1736,9 +1736,9 @@ impl NodeIsNot {
 }
 #[pyclass(module = "_ast", name = "In", base = "NodeKindCmpop")]
 struct NodeIn;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeIn {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
@@ -1746,9 +1746,9 @@ impl NodeIn {
 }
 #[pyclass(module = "_ast", name = "NotIn", base = "NodeKindCmpop")]
 struct NodeNotIn;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeNotIn {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
@@ -1756,9 +1756,9 @@ impl NodeNotIn {
 }
 #[pyclass(module = "_ast", name = "comprehension", base = "AstNode")]
 struct Nodecomprehension;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl Nodecomprehension {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -1775,7 +1775,7 @@ impl Nodecomprehension {
 }
 #[pyclass(module = "_ast", name = "excepthandler", base = "AstNode")]
 struct NodeKindExcepthandler;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeKindExcepthandler {}
 #[pyclass(
     module = "_ast",
@@ -1783,9 +1783,9 @@ impl NodeKindExcepthandler {}
     base = "NodeKindExcepthandler"
 )]
 struct NodeExceptHandler;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeExceptHandler {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -1810,9 +1810,9 @@ impl NodeExceptHandler {
 }
 #[pyclass(module = "_ast", name = "arguments", base = "AstNode")]
 struct Nodearguments;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl Nodearguments {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -1832,9 +1832,9 @@ impl Nodearguments {
 }
 #[pyclass(module = "_ast", name = "arg", base = "AstNode")]
 struct Nodearg;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl Nodearg {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -1859,9 +1859,9 @@ impl Nodearg {
 }
 #[pyclass(module = "_ast", name = "keyword", base = "AstNode")]
 struct Nodekeyword;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl Nodekeyword {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -1885,9 +1885,9 @@ impl Nodekeyword {
 }
 #[pyclass(module = "_ast", name = "alias", base = "AstNode")]
 struct Nodealias;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl Nodealias {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -1902,9 +1902,9 @@ impl Nodealias {
 }
 #[pyclass(module = "_ast", name = "withitem", base = "AstNode")]
 struct Nodewithitem;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl Nodewithitem {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
@@ -1919,13 +1919,13 @@ impl Nodewithitem {
 }
 #[pyclass(module = "_ast", name = "type_ignore", base = "AstNode")]
 struct NodeKindTypeIgnore;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeKindTypeIgnore {}
 #[pyclass(module = "_ast", name = "TypeIgnore", base = "NodeKindTypeIgnore")]
 struct NodeTypeIgnore;
-#[pyimpl(flags(HAS_DICT, BASETYPE))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeTypeIgnore {
-    #[extend_class]
+    #[py::extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),

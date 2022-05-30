@@ -64,7 +64,7 @@ mod unicodedata {
         }
     }
 
-    #[pyimpl]
+    #[pyclass]
     impl Ucd {
         #[pymethod]
         fn category(&self, character: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {

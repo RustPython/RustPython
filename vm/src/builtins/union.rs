@@ -32,7 +32,7 @@ impl PyPayload for PyUnion {
     }
 }
 
-#[pyimpl(with(Hashable, Comparable, AsMapping), flags(BASETYPE))]
+#[pyclass(with(Hashable, Comparable, AsMapping), flags(BASETYPE))]
 impl PyUnion {
     pub fn new(args: PyTupleRef, vm: &VirtualMachine) -> Self {
         let parameters = make_parameters(&args, vm);

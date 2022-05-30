@@ -203,7 +203,7 @@ impl PyComplex {
     }
 }
 
-#[pyimpl(flags(BASETYPE), with(Comparable, Hashable, Constructor))]
+#[pyclass(flags(BASETYPE), with(Comparable, Hashable, Constructor))]
 impl PyComplex {
     #[pymethod(magic)]
     fn complex(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRef<PyComplex> {

@@ -97,7 +97,7 @@ impl Constructor for PySuper {
     }
 }
 
-#[pyimpl(with(GetAttr, GetDescriptor, Constructor))]
+#[pyclass(with(GetAttr, GetDescriptor, Constructor))]
 impl PySuper {
     fn new(typ: PyTypeRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
         let obj = if vm.is_none(&obj) {

@@ -666,7 +666,7 @@ mod array {
         }
     }
 
-    #[pyimpl(
+    #[pyclass(
         flags(BASETYPE),
         with(Comparable, AsBuffer, AsMapping, Iterable, Constructor)
     )]
@@ -1282,7 +1282,7 @@ mod array {
         array: PyArrayRef,
     }
 
-    #[pyimpl(with(IterNext))]
+    #[pyclass(with(IterNext))]
     impl PyArrayIter {}
 
     impl IterNextIterable for PyArrayIter {}

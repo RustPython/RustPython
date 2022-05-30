@@ -25,7 +25,7 @@ impl PyPayload for PySlice {
     }
 }
 
-#[pyimpl(with(Hashable, Comparable))]
+#[pyclass(with(Hashable, Comparable))]
 impl PySlice {
     #[pyproperty]
     fn start(&self, vm: &VirtualMachine) -> PyObjectRef {
@@ -278,7 +278,7 @@ impl Constructor for PyEllipsis {
     }
 }
 
-#[pyimpl(with(Constructor))]
+#[pyclass(with(Constructor))]
 impl PyEllipsis {
     #[pymethod(magic)]
     fn repr(&self) -> String {

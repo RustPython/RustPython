@@ -51,7 +51,7 @@ impl Constructor for PyEnumerate {
     }
 }
 
-#[pyimpl(with(IterNext, Constructor), flags(BASETYPE))]
+#[pyclass(with(IterNext, Constructor), flags(BASETYPE))]
 impl PyEnumerate {
     #[pyclassmethod(magic)]
     fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
@@ -92,7 +92,7 @@ impl PyPayload for PyReverseSequenceIterator {
     }
 }
 
-#[pyimpl(with(IterNext))]
+#[pyclass(with(IterNext))]
 impl PyReverseSequenceIterator {
     pub fn new(obj: PyObjectRef, len: usize) -> Self {
         let position = len.saturating_sub(1);

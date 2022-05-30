@@ -22,7 +22,7 @@ impl PyPayload for PyCoroutine {
     }
 }
 
-#[pyimpl(with(Constructor, IterNext))]
+#[pyclass(with(Constructor, IterNext))]
 impl PyCoroutine {
     pub fn as_coro(&self) -> &Coro {
         &self.inner
@@ -126,7 +126,7 @@ impl PyPayload for PyCoroutineWrapper {
     }
 }
 
-#[pyimpl(with(IterNext))]
+#[pyclass(with(IterNext))]
 impl PyCoroutineWrapper {
     #[pymethod]
     fn send(zelf: PyRef<Self>, val: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyIterReturn> {

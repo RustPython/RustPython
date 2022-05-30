@@ -36,7 +36,7 @@ impl Constructor for PyMap {
     }
 }
 
-#[pyimpl(with(IterNext, Constructor), flags(BASETYPE))]
+#[pyclass(with(IterNext, Constructor), flags(BASETYPE))]
 impl PyMap {
     #[pymethod(magic)]
     fn length_hint(&self, vm: &VirtualMachine) -> PyResult<usize> {

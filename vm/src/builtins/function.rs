@@ -327,7 +327,7 @@ impl PyPayload for PyFunction {
     }
 }
 
-#[pyimpl(with(GetDescriptor, Callable), flags(HAS_DICT, METHOD_DESCR))]
+#[pyclass(with(GetDescriptor, Callable), flags(HAS_DICT, METHOD_DESCR))]
 impl PyFunction {
     #[pyproperty(magic)]
     fn code(&self) -> PyRef<PyCode> {
@@ -505,7 +505,7 @@ impl PyBoundMethod {
     }
 }
 
-#[pyimpl(with(Callable, Comparable, GetAttr, Constructor), flags(HAS_DICT))]
+#[pyclass(with(Callable, Comparable, GetAttr, Constructor), flags(HAS_DICT))]
 impl PyBoundMethod {
     #[pymethod(magic)]
     fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
@@ -596,7 +596,7 @@ impl Constructor for PyCell {
     }
 }
 
-#[pyimpl(with(Constructor))]
+#[pyclass(with(Constructor))]
 impl PyCell {
     pub fn new(contents: Option<PyObjectRef>) -> Self {
         Self {

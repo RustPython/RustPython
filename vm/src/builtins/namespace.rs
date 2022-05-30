@@ -39,7 +39,7 @@ impl PyNamespace {
     }
 }
 
-#[pyimpl(flags(BASETYPE, HAS_DICT), with(Constructor, Initializer, Comparable))]
+#[pyclass(flags(BASETYPE, HAS_DICT), with(Constructor, Initializer, Comparable))]
 impl PyNamespace {
     #[pymethod(magic)]
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {

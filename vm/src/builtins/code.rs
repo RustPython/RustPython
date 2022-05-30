@@ -157,10 +157,10 @@ impl PyPayload for PyCode {
     }
 }
 
-#[pyimpl(with(PyRef))]
+#[pyclass(with(PyRef))]
 impl PyCode {}
 
-#[pyimpl]
+#[pyclass]
 impl PyRef<PyCode> {
     #[pyslot]
     fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {

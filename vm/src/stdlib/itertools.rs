@@ -30,7 +30,7 @@ mod decl {
         cached_iter: PyRwLock<Option<PyIter>>,
     }
 
-    #[pyimpl(with(IterNext))]
+    #[pyclass(with(IterNext))]
     impl PyItertoolsChain {
         #[pyslot]
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -129,7 +129,7 @@ mod decl {
         }
     }
 
-    #[pyimpl(with(IterNext, Constructor))]
+    #[pyclass(with(IterNext, Constructor))]
     impl PyItertoolsCompress {}
 
     impl IterNextIterable for PyItertoolsCompress {}
@@ -193,7 +193,7 @@ mod decl {
         }
     }
 
-    #[pyimpl(with(IterNext, Constructor))]
+    #[pyclass(with(IterNext, Constructor))]
     impl PyItertoolsCount {
         // TODO: Implement this
         // if (lz->cnt == PY_SSIZE_T_MAX)
@@ -236,7 +236,7 @@ mod decl {
         }
     }
 
-    #[pyimpl(with(IterNext, Constructor))]
+    #[pyclass(with(IterNext, Constructor))]
     impl PyItertoolsCycle {}
     impl IterNextIterable for PyItertoolsCycle {}
     impl IterNext for PyItertoolsCycle {
@@ -300,7 +300,7 @@ mod decl {
         }
     }
 
-    #[pyimpl(with(IterNext, Constructor), flags(BASETYPE))]
+    #[pyclass(with(IterNext, Constructor), flags(BASETYPE))]
     impl PyItertoolsRepeat {
         #[pymethod(magic)]
         fn length_hint(&self, vm: &VirtualMachine) -> PyResult<usize> {
@@ -376,7 +376,7 @@ mod decl {
         }
     }
 
-    #[pyimpl(with(IterNext, Constructor))]
+    #[pyclass(with(IterNext, Constructor))]
     impl PyItertoolsStarmap {}
     impl IterNextIterable for PyItertoolsStarmap {}
     impl IterNext for PyItertoolsStarmap {
@@ -431,7 +431,7 @@ mod decl {
         }
     }
 
-    #[pyimpl(with(IterNext, Constructor))]
+    #[pyclass(with(IterNext, Constructor))]
     impl PyItertoolsTakewhile {}
     impl IterNextIterable for PyItertoolsTakewhile {}
     impl IterNext for PyItertoolsTakewhile {
@@ -496,7 +496,7 @@ mod decl {
         }
     }
 
-    #[pyimpl(with(IterNext, Constructor))]
+    #[pyclass(with(IterNext, Constructor))]
     impl PyItertoolsDropwhile {}
     impl IterNextIterable for PyItertoolsDropwhile {}
     impl IterNext for PyItertoolsDropwhile {
@@ -599,7 +599,7 @@ mod decl {
         }
     }
 
-    #[pyimpl(with(IterNext, Constructor))]
+    #[pyclass(with(IterNext, Constructor))]
     impl PyItertoolsGroupBy {
         pub(super) fn advance(
             &self,
@@ -675,7 +675,7 @@ mod decl {
         groupby: PyRef<PyItertoolsGroupBy>,
     }
 
-    #[pyimpl(with(IterNext))]
+    #[pyclass(with(IterNext))]
     impl PyItertoolsGrouper {}
     impl IterNextIterable for PyItertoolsGrouper {}
     impl IterNext for PyItertoolsGrouper {
@@ -746,7 +746,7 @@ mod decl {
         )));
     }
 
-    #[pyimpl(with(IterNext))]
+    #[pyclass(with(IterNext))]
     impl PyItertoolsIslice {
         #[pyslot]
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -875,7 +875,7 @@ mod decl {
         }
     }
 
-    #[pyimpl(with(IterNext, Constructor))]
+    #[pyclass(with(IterNext, Constructor))]
     impl PyItertoolsFilterFalse {
         #[pymethod(magic)]
         fn reduce(zelf: PyRef<Self>) -> (PyTypeRef, (PyObjectRef, PyIter)) {
@@ -943,7 +943,7 @@ mod decl {
         }
     }
 
-    #[pyimpl(with(IterNext, Constructor))]
+    #[pyclass(with(IterNext, Constructor))]
     impl PyItertoolsAccumulate {}
 
     impl IterNextIterable for PyItertoolsAccumulate {}
@@ -1055,7 +1055,7 @@ mod decl {
         }
     }
 
-    #[pyimpl(with(IterNext, Constructor))]
+    #[pyclass(with(IterNext, Constructor))]
     impl PyItertoolsTee {
         fn from_iter(iterator: PyIter, vm: &VirtualMachine) -> PyResult {
             let class = PyItertoolsTee::class(vm);
@@ -1133,7 +1133,7 @@ mod decl {
         }
     }
 
-    #[pyimpl(with(IterNext, Constructor))]
+    #[pyclass(with(IterNext, Constructor))]
     impl PyItertoolsProduct {
         fn update_idxs(&self, mut idxs: PyRwLockWriteGuard<'_, Vec<usize>>) {
             if idxs.len() == 0 {
@@ -1236,7 +1236,7 @@ mod decl {
         }
     }
 
-    #[pyimpl(with(IterNext, Constructor))]
+    #[pyclass(with(IterNext, Constructor))]
     impl PyItertoolsCombinations {}
     impl IterNextIterable for PyItertoolsCombinations {}
     impl IterNext for PyItertoolsCombinations {
@@ -1327,7 +1327,7 @@ mod decl {
         }
     }
 
-    #[pyimpl(with(IterNext, Constructor))]
+    #[pyclass(with(IterNext, Constructor))]
     impl PyItertoolsCombinationsWithReplacement {}
 
     impl IterNextIterable for PyItertoolsCombinationsWithReplacement {}
@@ -1437,7 +1437,7 @@ mod decl {
         }
     }
 
-    #[pyimpl(with(IterNext, Constructor))]
+    #[pyclass(with(IterNext, Constructor))]
     impl PyItertoolsPermutations {}
     impl IterNextIterable for PyItertoolsPermutations {}
     impl IterNext for PyItertoolsPermutations {
@@ -1540,7 +1540,7 @@ mod decl {
         fillvalue: PyObjectRef,
     }
 
-    #[pyimpl(with(IterNext, Constructor))]
+    #[pyclass(with(IterNext, Constructor))]
     impl PyItertoolsZipLongest {}
     impl IterNextIterable for PyItertoolsZipLongest {}
     impl IterNext for PyItertoolsZipLongest {
@@ -1589,7 +1589,7 @@ mod decl {
         }
     }
 
-    #[pyimpl(with(IterNext, Constructor))]
+    #[pyclass(with(IterNext, Constructor))]
     impl PyItertoolsPairwise {}
     impl IterNextIterable for PyItertoolsPairwise {}
     impl IterNext for PyItertoolsPairwise {

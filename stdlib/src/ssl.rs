@@ -497,7 +497,7 @@ mod _ssl {
         }
     }
 
-    #[pyimpl(flags(BASETYPE), with(Constructor))]
+    #[pyclass(flags(BASETYPE), with(Constructor))]
     impl PySslContext {
         fn builder(&self) -> PyRwLockWriteGuard<'_, SslContextBuilder> {
             self.ctx.write()
@@ -903,7 +903,7 @@ mod _ssl {
         }
     }
 
-    #[pyimpl]
+    #[pyclass]
     impl PySslSocket {
         #[pyproperty]
         fn owner(&self) -> Option<PyObjectRef> {

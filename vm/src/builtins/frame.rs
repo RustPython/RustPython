@@ -14,11 +14,11 @@ pub fn init(context: &Context) {
     FrameRef::extend_class(context, context.types.frame_type);
 }
 
-#[pyimpl(with(Constructor, PyRef))]
+#[pyclass(with(Constructor, PyRef))]
 impl Frame {}
 impl Unconstructible for Frame {}
 
-#[pyimpl]
+#[pyclass]
 impl FrameRef {
     #[pymethod(magic)]
     fn repr(self) -> String {

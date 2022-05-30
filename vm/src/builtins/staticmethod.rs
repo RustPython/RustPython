@@ -66,7 +66,7 @@ impl PyStaticMethod {
     }
 }
 
-#[pyimpl(with(Callable, GetDescriptor, Constructor), flags(BASETYPE, HAS_DICT))]
+#[pyclass(with(Callable, GetDescriptor, Constructor), flags(BASETYPE, HAS_DICT))]
 impl PyStaticMethod {
     #[pyproperty(magic)]
     fn isabstractmethod(&self, vm: &VirtualMachine) -> PyObjectRef {

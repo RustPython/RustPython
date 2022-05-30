@@ -391,7 +391,7 @@ impl PySet {
     }
 }
 
-#[pyimpl(
+#[pyclass(
     with(Constructor, Initializer, AsSequence, Hashable, Comparable, Iterable),
     flags(BASETYPE)
 )]
@@ -728,7 +728,7 @@ impl Constructor for PyFrozenSet {
     }
 }
 
-#[pyimpl(
+#[pyclass(
     flags(BASETYPE),
     with(Constructor, AsSequence, Hashable, Comparable, Iterable)
 )]
@@ -967,7 +967,7 @@ impl PyPayload for PySetIterator {
     }
 }
 
-#[pyimpl(with(Constructor, IterNext))]
+#[pyclass(with(Constructor, IterNext))]
 impl PySetIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {

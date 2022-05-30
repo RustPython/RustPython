@@ -26,7 +26,7 @@ impl PyPayload for PyAsyncGen {
     }
 }
 
-#[pyimpl(with(Constructor))]
+#[pyclass(with(Constructor))]
 impl PyAsyncGen {
     pub fn as_coro(&self) -> &Coro {
         &self.inner
@@ -140,7 +140,7 @@ impl PyPayload for PyAsyncGenWrappedValue {
     }
 }
 
-#[pyimpl]
+#[pyclass]
 impl PyAsyncGenWrappedValue {}
 
 impl PyAsyncGenWrappedValue {
@@ -189,7 +189,7 @@ impl PyPayload for PyAsyncGenASend {
     }
 }
 
-#[pyimpl(with(IterNext))]
+#[pyclass(with(IterNext))]
 impl PyAsyncGenASend {
     #[pymethod(name = "__await__")]
     fn r#await(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
@@ -284,7 +284,7 @@ impl PyPayload for PyAsyncGenAThrow {
     }
 }
 
-#[pyimpl(with(IterNext))]
+#[pyclass(with(IterNext))]
 impl PyAsyncGenAThrow {
     #[pymethod(name = "__await__")]
     fn r#await(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {

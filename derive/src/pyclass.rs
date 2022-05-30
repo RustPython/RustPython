@@ -1,7 +1,8 @@
 use super::Diagnostic;
 use crate::util::{
-    path_eq, pyclass_ident_and_attrs, text_signature, ClassItemMeta, ContentItem, ContentItemInner,
-    ErrorVec, ItemMeta, ItemMetaInner, ItemNursery, SimpleItemMeta, ALL_ALLOWED_NAMES,
+    path_eq, pyclass_ident_and_attrs, text_signature, AttributeExt, ClassItemMeta, ContentItem,
+    ContentItemInner, ErrorVec, ItemMeta, ItemMetaInner, ItemNursery, SimpleItemMeta,
+    ALL_ALLOWED_NAMES,
 };
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, quote_spanned, ToTokens};
@@ -35,7 +36,7 @@ impl std::fmt::Display for AttrName {
             Self::GetSet => "pyproperty",
             Self::Slot => "pyslot",
             Self::Attr => "pyattr",
-            Self::ExtendClass => "extend_class",
+            Self::ExtendClass => "pyextend_class",
         };
         s.fmt(f)
     }
@@ -51,7 +52,7 @@ impl FromStr for AttrName {
             "pyproperty" => Self::GetSet,
             "pyslot" => Self::Slot,
             "pyattr" => Self::Attr,
-            "extend_class" => Self::ExtendClass,
+            "pyextend_class" => Self::ExtendClass,
             s => {
                 return Err(s.to_owned());
             }
@@ -373,7 +374,7 @@ pub(crate) fn impl_define_exception(exc_def: PyExceptionDef) -> Result<TokenStre
             }
         }
 
-        #[pyimpl(flags(BASETYPE, HAS_DICT))]
+        #[pyclass(flags(BASETYPE, HAS_DICT))]
         impl #class_name {
             #[pyslot]
             pub(crate) fn slot_new(
@@ -418,7 +419,7 @@ struct AttributeItem {
     inner: ContentItemInner<AttrName>,
 }
 
-/// #[extend_class]
+/// #[py::extend_class]
 struct ExtendClassItem {
     inner: ContentItemInner<AttrName>,
 }
@@ -954,7 +955,7 @@ fn extract_impl_attrs(attr: AttributeArgs, item: &Ident) -> Result<ExtractedImpl
                         let path = match meta {
                             NestedMeta::Meta(Meta::Path(path)) => path,
                             meta => {
-                                bail_span!(meta, "#[pyimpl(with(...))] arguments should be paths")
+                                bail_span!(meta, "#[pyclass(with(...))] arguments should be paths")
                             }
                         };
                         let (extend_class, extend_slots) = if path_eq(&path, "PyRef") {
@@ -988,12 +989,12 @@ fn extract_impl_attrs(attr: AttributeArgs, item: &Ident) -> Result<ExtractedImpl
                                 } else {
                                     bail_span!(
                                         path,
-                                        "#[pyimpl(flags(...))] arguments should be ident"
+                                        "#[pyclass(flags(...))] arguments should be ident"
                                     )
                                 }
                             }
                             meta => {
-                                bail_span!(meta, "#[pyimpl(flags(...))] arguments should be ident")
+                                bail_span!(meta, "#[pyclass(flags(...))] arguments should be ident")
                             }
                         }
                     }
@@ -1061,14 +1062,11 @@ where
     while let Some((_, attr)) = iter.peek() {
         // take all cfgs but no py items
         let attr = *attr;
-        let attr_name = if let Some(ident) = attr.get_ident() {
-            ident.to_string()
-        } else {
-            continue;
-        };
-        if attr_name == "cfg" {
+        let attr_path = attr.path_string();
+
+        if attr_path == "cfg" {
             cfgs.push(attr.clone());
-        } else if ALL_ALLOWED_NAMES.contains(&attr_name.as_str()) {
+        } else if attr_path.starts_with("py") {
             break;
         }
         iter.next();
@@ -1076,24 +1074,21 @@ where
 
     for (i, attr) in iter {
         // take py items but no cfgs
-        let attr_name = if let Some(ident) = attr.get_ident() {
-            ident.to_string()
-        } else {
-            continue;
-        };
-        if attr_name == "cfg" {
+        let attr_path = attr.path_string();
+        if attr_path == "cfg" {
             return Err(syn::Error::new_spanned(
                 attr,
                 "#[py*] items must be placed under `cfgs`",
             ));
         }
+        let attr_name = attr_path.replace("::", "");
         let attr_name = match AttrName::from_str(attr_name.as_str()) {
             Ok(name) => name,
             Err(wrong_name) => {
                 if ALL_ALLOWED_NAMES.contains(&attr_name.as_str()) {
                     return Err(syn::Error::new_spanned(
                         attr,
-                        format!("#[pyimpl] doesn't accept #[{}]", wrong_name),
+                        format!("#[pyclass] doesn't accept #[{}]", wrong_name),
                     ));
                 } else {
                     continue;

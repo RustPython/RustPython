@@ -82,7 +82,7 @@ mod resource {
         ru_nivcsw: libc::c_long,
     }
 
-    #[pyimpl(with(PyStructSequence))]
+    #[pyclass(with(PyStructSequence))]
     impl Rusage {}
 
     impl From<libc::rusage> for Rusage {

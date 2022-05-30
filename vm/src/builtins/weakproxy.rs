@@ -57,7 +57,7 @@ crate::common::static_cell! {
     static WEAK_SUBCLASS: PyTypeRef;
 }
 
-#[pyimpl(with(SetAttr, Constructor))]
+#[pyclass(with(SetAttr, Constructor))]
 impl PyWeakProxy {
     // TODO: callbacks
     #[pymethod(magic)]

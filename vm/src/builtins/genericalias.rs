@@ -55,7 +55,7 @@ impl Constructor for PyGenericAlias {
     }
 }
 
-#[pyimpl(
+#[pyclass(
     with(AsMapping, Callable, Comparable, Constructor, GetAttr, Hashable),
     flags(BASETYPE)
 )]

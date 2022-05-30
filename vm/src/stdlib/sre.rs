@@ -134,7 +134,7 @@ mod _sre {
         pub isbytes: bool,
     }
 
-    #[pyimpl(with(Hashable, Comparable))]
+    #[pyclass(with(Hashable, Comparable))]
     impl Pattern {
         fn with_str_drive<R, F: FnOnce(StrDrive) -> PyResult<R>>(
             &self,
@@ -551,7 +551,7 @@ mod _sre {
         regs: Vec<(isize, isize)>,
     }
 
-    #[pyimpl(with(AsMapping))]
+    #[pyclass(with(AsMapping))]
     impl Match {
         pub(crate) fn new(state: &State, pattern: PyRef<Pattern>, string: PyObjectRef) -> Self {
             let mut regs = vec![(state.start as isize, state.string_position as isize)];
@@ -805,7 +805,7 @@ mod _sre {
         must_advance: AtomicCell<bool>,
     }
 
-    #[pyimpl]
+    #[pyclass]
     impl SreScanner {
         #[pyproperty]
         fn pattern(&self) -> PyRef<Pattern> {

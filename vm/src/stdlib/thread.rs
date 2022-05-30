@@ -104,7 +104,7 @@ pub(crate) mod _thread {
         }
     }
 
-    #[pyimpl(with(Constructor))]
+    #[pyclass(with(Constructor))]
     impl Lock {
         #[pymethod]
         #[pymethod(name = "acquire_lock")]
@@ -159,7 +159,7 @@ pub(crate) mod _thread {
         }
     }
 
-    #[pyimpl]
+    #[pyclass]
     impl RLock {
         #[pyslot]
         fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -322,7 +322,7 @@ pub(crate) mod _thread {
         data: ThreadLocal<PyDictRef>,
     }
 
-    #[pyimpl(with(GetAttr, SetAttr), flags(BASETYPE))]
+    #[pyclass(with(GetAttr, SetAttr), flags(BASETYPE))]
     impl Local {
         fn ldict(&self, vm: &VirtualMachine) -> PyDictRef {
             self.data.get_or(|| vm.ctx.new_dict()).clone()

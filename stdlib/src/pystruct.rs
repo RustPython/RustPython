@@ -197,7 +197,7 @@ pub(crate) mod _struct {
         }
     }
 
-    #[pyimpl(with(IterNext))]
+    #[pyclass(with(IterNext))]
     impl UnpackIterator {
         #[pymethod(magic)]
         fn length_hint(&self) -> usize {
@@ -256,7 +256,7 @@ pub(crate) mod _struct {
         }
     }
 
-    #[pyimpl(with(Constructor))]
+    #[pyclass(with(Constructor))]
     impl PyStruct {
         #[pyproperty]
         fn format(&self) -> PyStrRef {
