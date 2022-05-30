@@ -26,7 +26,7 @@ pub struct ModuleInitArgs {
     doc: Option<PyStrRef>,
 }
 
-#[pyimpl(with(GetAttr, Initializer), flags(BASETYPE, HAS_DICT))]
+#[pyclass(with(GetAttr, Initializer), flags(BASETYPE, HAS_DICT))]
 impl PyModule {
     // pub(crate) fn new(d: PyDictRef) -> Self {
     //     PyModule { dict: d.into() }

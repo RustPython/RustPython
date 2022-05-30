@@ -608,7 +608,7 @@ mod sys {
         warn_default_encoding: u8,
     }
 
-    #[pyimpl(with(PyStructSequence))]
+    #[pyclass(with(PyStructSequence))]
     impl Flags {
         fn from_settings(settings: &Settings) -> Self {
             Self {
@@ -652,7 +652,7 @@ mod sys {
         radix: u32,
         rounds: i32,
     }
-    #[pyimpl(with(PyStructSequence))]
+    #[pyclass(with(PyStructSequence))]
     impl PyFloatInfo {
         const INFO: Self = PyFloatInfo {
             max: f64::MAX,
@@ -683,7 +683,7 @@ mod sys {
         cutoff: usize,
     }
 
-    #[pyimpl(with(PyStructSequence))]
+    #[pyclass(with(PyStructSequence))]
     impl PyHashInfo {
         const INFO: Self = {
             use rustpython_common::hash::*;
@@ -707,7 +707,7 @@ mod sys {
         bits_per_digit: usize,
         sizeof_digit: usize,
     }
-    #[pyimpl(with(PyStructSequence))]
+    #[pyclass(with(PyStructSequence))]
     impl PyIntInfo {
         const INFO: Self = PyIntInfo {
             bits_per_digit: 30, //?
@@ -725,7 +725,7 @@ mod sys {
         serial: usize,
     }
 
-    #[pyimpl(with(PyStructSequence))]
+    #[pyclass(with(PyStructSequence))]
     impl VersionInfo {
         pub const VERSION: VersionInfo = VersionInfo {
             major: version::MAJOR,
@@ -760,7 +760,7 @@ mod sys {
         platform_version: (u32, u32, u32),
     }
     #[cfg(windows)]
-    #[pyimpl(with(PyStructSequence))]
+    #[pyclass(with(PyStructSequence))]
     impl WindowsVersion {}
 
     #[pyclass(noattr, name = "UnraisableHookArgs")]
@@ -773,7 +773,7 @@ mod sys {
         pub object: PyObjectRef,
     }
 
-    #[pyimpl(with(PyStructSequence))]
+    #[pyclass(with(PyStructSequence))]
     impl UnraisableHookArgs {}
 }
 

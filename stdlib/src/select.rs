@@ -308,7 +308,7 @@ mod decl {
 
         const DEFAULT_EVENTS: i16 = libc::POLLIN | libc::POLLPRI | libc::POLLOUT;
 
-        #[pyimpl]
+        #[pyclass]
         impl PyPoll {
             #[pymethod]
             fn register(&self, Fildes(fd): Fildes, eventmask: OptionalArg<u16>) {

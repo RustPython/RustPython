@@ -302,7 +302,7 @@ impl PyGetSet {
     }
 }
 
-#[pyimpl(with(GetDescriptor, Constructor))]
+#[pyclass(with(GetDescriptor, Constructor))]
 impl PyGetSet {
     // Descriptor methods
 

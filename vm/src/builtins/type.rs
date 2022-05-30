@@ -229,7 +229,7 @@ impl PyTypeRef {
     }
 }
 
-#[pyimpl(with(GetAttr, SetAttr, Callable), flags(BASETYPE))]
+#[pyclass(with(GetAttr, SetAttr, Callable), flags(BASETYPE))]
 impl PyType {
     // bound method for every type
     pub(crate) fn __new__(zelf: PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {

@@ -30,7 +30,7 @@ mod _ast {
     #[derive(Debug, PyPayload)]
     pub(crate) struct AstNode;
 
-    #[pyimpl(flags(BASETYPE, HAS_DICT))]
+    #[pyclass(flags(BASETYPE, HAS_DICT))]
     impl AstNode {
         #[pyslot]
         #[pymethod(magic)]

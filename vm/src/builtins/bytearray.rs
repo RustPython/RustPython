@@ -92,7 +92,7 @@ pub(crate) fn init(context: &Context) {
     PyByteArrayIterator::extend_class(context, context.types.bytearray_iterator_type);
 }
 
-#[pyimpl(
+#[pyclass(
     flags(BASETYPE),
     with(
         Constructor,
@@ -854,7 +854,7 @@ impl PyPayload for PyByteArrayIterator {
     }
 }
 
-#[pyimpl(with(Constructor, IterNext))]
+#[pyclass(with(Constructor, IterNext))]
 impl PyByteArrayIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {

@@ -534,7 +534,7 @@ pub mod module {
         }
     }
 
-    #[pyimpl(with(Constructor))]
+    #[pyclass(with(Constructor))]
     impl SchedParam {
         #[pyproperty]
         fn sched_priority(&self, vm: &VirtualMachine) -> PyObjectRef {

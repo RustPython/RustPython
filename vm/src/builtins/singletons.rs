@@ -39,7 +39,7 @@ impl Constructor for PyNone {
     }
 }
 
-#[pyimpl(with(Constructor))]
+#[pyclass(with(Constructor))]
 impl PyNone {
     #[pymethod(magic)]
     fn repr(&self) -> String {
@@ -70,7 +70,7 @@ impl Constructor for PyNotImplemented {
     }
 }
 
-#[pyimpl(with(Constructor))]
+#[pyclass(with(Constructor))]
 impl PyNotImplemented {
     // TODO: As per https://bugs.python.org/issue35712, using NotImplemented
     // in boolean contexts will need to raise a DeprecationWarning in 3.9

@@ -54,7 +54,7 @@ mod _collections {
         }
     }
 
-    #[pyimpl(
+    #[pyclass(
         flags(BASETYPE),
         with(Constructor, Initializer, AsSequence, Comparable, Hashable, Iterable)
     )]
@@ -611,7 +611,7 @@ mod _collections {
         }
     }
 
-    #[pyimpl(with(IterNext, Constructor))]
+    #[pyclass(with(IterNext, Constructor))]
     impl PyDequeIterator {
         pub(crate) fn new(deque: PyDequeRef) -> Self {
             PyDequeIterator {
@@ -684,7 +684,7 @@ mod _collections {
         }
     }
 
-    #[pyimpl(with(IterNext, Constructor))]
+    #[pyclass(with(IterNext, Constructor))]
     impl PyReverseDequeIterator {
         #[pymethod(magic)]
         fn length_hint(&self) -> usize {

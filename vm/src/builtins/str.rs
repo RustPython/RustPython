@@ -247,7 +247,7 @@ impl PyPayload for PyStrIterator {
     }
 }
 
-#[pyimpl(with(Constructor, IterNext))]
+#[pyclass(with(Constructor, IterNext))]
 impl PyStrIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
@@ -394,7 +394,7 @@ impl PyStr {
     }
 }
 
-#[pyimpl(
+#[pyclass(
     flags(BASETYPE),
     with(AsMapping, AsSequence, Hashable, Comparable, Iterable, Constructor)
 )]

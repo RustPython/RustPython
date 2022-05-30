@@ -544,7 +544,7 @@ mod _socket {
         }
     }
 
-    #[pyimpl(with(DefaultConstructor, Initializer), flags(BASETYPE))]
+    #[pyclass(with(DefaultConstructor, Initializer), flags(BASETYPE))]
     impl PySocket {
         fn _init(
             zelf: PyRef<Self>,

@@ -23,7 +23,7 @@ mod pwd {
         pw_dir: String,
         pw_shell: String,
     }
-    #[pyimpl(with(PyStructSequence))]
+    #[pyclass(with(PyStructSequence))]
     impl Passwd {}
 
     impl From<User> for Passwd {

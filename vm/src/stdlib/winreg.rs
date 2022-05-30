@@ -78,7 +78,7 @@ mod winreg {
         }
     }
 
-    #[pyimpl]
+    #[pyclass]
     impl PyHkey {
         #[pymethod]
         fn Close(&self) {

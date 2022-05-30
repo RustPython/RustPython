@@ -64,7 +64,7 @@ mod _json {
         }
     }
 
-    #[pyimpl(with(Callable, Constructor))]
+    #[pyclass(with(Callable, Constructor))]
     impl JsonScanner {
         fn parse(
             &self,
