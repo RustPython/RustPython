@@ -349,7 +349,7 @@ impl PyInt {
     }
 }
 
-#[pyimpl(flags(BASETYPE), with(Comparable, Hashable, Constructor, AsNumber))]
+#[pyclass(flags(BASETYPE), with(Comparable, Hashable, Constructor, AsNumber))]
 impl PyInt {
     #[pymethod(name = "__radd__")]
     #[pymethod(magic)]

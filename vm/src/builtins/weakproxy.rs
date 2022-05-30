@@ -58,7 +58,7 @@ crate::common::static_cell! {
     static WEAK_SUBCLASS: PyTypeRef;
 }
 
-#[pyimpl(with(GetAttr, SetAttr, Constructor, Comparable, AsSequence, AsMapping))]
+#[pyclass(with(GetAttr, SetAttr, Constructor, Comparable, AsSequence, AsMapping))]
 impl PyWeakProxy {
     fn try_upgrade(&self, vm: &VirtualMachine) -> PyResult {
         self.weak.upgrade().ok_or_else(|| new_reference_error(vm))

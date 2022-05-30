@@ -21,7 +21,7 @@ mod grp {
         gr_gid: u32,
         gr_mem: PyListRef,
     }
-    #[pyimpl(with(PyStructSequence))]
+    #[pyclass(with(PyStructSequence))]
     impl Group {
         fn from_unistd_group(group: unistd::Group, vm: &VirtualMachine) -> Self {
             let cstr_lossy = |s: std::ffi::CString| {

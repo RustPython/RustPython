@@ -61,7 +61,7 @@ impl Constructor for PyMemoryView {
     }
 }
 
-#[pyimpl(with(Hashable, Comparable, AsBuffer, AsMapping, AsSequence, Constructor))]
+#[pyclass(with(Hashable, Comparable, AsBuffer, AsMapping, AsSequence, Constructor))]
 impl PyMemoryView {
     fn parse_format(format: &str, vm: &VirtualMachine) -> PyResult<FormatSpec> {
         FormatSpec::parse(format.as_bytes(), vm)

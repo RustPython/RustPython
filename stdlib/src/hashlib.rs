@@ -58,7 +58,7 @@ mod hashlib {
         }
     }
 
-    #[pyimpl]
+    #[pyclass]
     impl PyHasher {
         fn new(name: &str, d: HashWrapper) -> Self {
             PyHasher {

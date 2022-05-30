@@ -100,7 +100,7 @@ impl PyBytes {
     }
 }
 
-#[pyimpl(
+#[pyclass(
     flags(BASETYPE),
     with(
         AsMapping,
@@ -675,7 +675,7 @@ impl PyPayload for PyBytesIterator {
     }
 }
 
-#[pyimpl(with(Constructor, IterNext))]
+#[pyclass(with(Constructor, IterNext))]
 impl PyBytesIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {

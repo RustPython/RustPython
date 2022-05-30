@@ -25,7 +25,7 @@ impl PyPayload for PyBaseObject {
     }
 }
 
-#[pyimpl(flags(BASETYPE))]
+#[pyclass(flags(BASETYPE))]
 impl PyBaseObject {
     /// Create and return a new object.  See help(type) for accurate signature.
     #[pyslot]

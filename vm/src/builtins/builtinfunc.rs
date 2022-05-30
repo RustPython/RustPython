@@ -118,7 +118,7 @@ impl Callable for PyBuiltinFunction {
     }
 }
 
-#[pyimpl(with(Callable, Constructor), flags(HAS_DICT))]
+#[pyclass(with(Callable, Constructor), flags(HAS_DICT))]
 impl PyBuiltinFunction {
     #[pyproperty(magic)]
     fn module(&self, vm: &VirtualMachine) -> PyObjectRef {
@@ -229,7 +229,7 @@ impl PyBuiltinMethod {
     }
 }
 
-#[pyimpl(with(GetDescriptor, Callable, Constructor), flags(METHOD_DESCR))]
+#[pyclass(with(GetDescriptor, Callable, Constructor), flags(METHOD_DESCR))]
 impl PyBuiltinMethod {
     #[pyproperty(magic)]
     fn name(&self) -> PyStrRef {

@@ -50,7 +50,7 @@ mod symtable {
         }
     }
 
-    #[pyimpl]
+    #[pyclass]
     impl PySymbolTable {
         #[pymethod]
         fn get_name(&self) -> String {
@@ -163,7 +163,7 @@ mod symtable {
         }
     }
 
-    #[pyimpl]
+    #[pyclass]
     impl PySymbol {
         #[pymethod]
         fn get_name(&self) -> String {

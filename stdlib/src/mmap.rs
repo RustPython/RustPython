@@ -458,7 +458,7 @@ mod mmap {
         };
     }
 
-    #[pyimpl(with(Constructor, AsMapping, AsSequence, AsBuffer), flags(BASETYPE))]
+    #[pyclass(with(Constructor, AsMapping, AsSequence, AsBuffer), flags(BASETYPE))]
     impl PyMmap {
         fn as_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
             PyMutexGuard::map(self.mmap.lock(), |m| {

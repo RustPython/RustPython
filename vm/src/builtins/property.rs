@@ -87,7 +87,7 @@ impl GetDescriptor for PyProperty {
     }
 }
 
-#[pyimpl(with(Constructor, Initializer, GetDescriptor), flags(BASETYPE))]
+#[pyclass(with(Constructor, Initializer, GetDescriptor), flags(BASETYPE))]
 impl PyProperty {
     // Descriptor methods
 

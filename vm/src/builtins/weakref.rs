@@ -47,7 +47,7 @@ impl Constructor for PyWeak {
     }
 }
 
-#[pyimpl(with(Callable, Hashable, Comparable, Constructor), flags(BASETYPE))]
+#[pyclass(with(Callable, Hashable, Comparable, Constructor), flags(BASETYPE))]
 impl PyWeak {
     #[pymethod(magic)]
     fn repr(zelf: PyRef<Self>) -> String {

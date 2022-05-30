@@ -14,7 +14,7 @@ mod _contextvars {
     #[derive(Debug, PyPayload)]
     struct PyContext {} // not to confuse with vm::Context
 
-    #[pyimpl(with(Initializer))]
+    #[pyclass(with(Initializer))]
     impl PyContext {
         #[pymethod]
         fn run(
@@ -99,7 +99,7 @@ mod _contextvars {
         default: OptionalArg<PyObjectRef>,
     }
 
-    #[pyimpl(with(Initializer))]
+    #[pyclass(with(Initializer))]
     impl ContextVar {
         #[pyproperty]
         fn name(&self) -> String {
@@ -172,7 +172,7 @@ mod _contextvars {
         old_value: PyObjectRef,
     }
 
-    #[pyimpl(with(Initializer))]
+    #[pyclass(with(Initializer))]
     impl ContextToken {
         #[pyproperty]
         fn var(&self, _vm: &VirtualMachine) -> PyObjectRef {

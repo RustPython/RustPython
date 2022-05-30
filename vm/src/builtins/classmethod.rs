@@ -104,7 +104,7 @@ impl PyClassMethod {
     }
 }
 
-#[pyimpl(with(GetDescriptor, Constructor), flags(BASETYPE, HAS_DICT))]
+#[pyclass(with(GetDescriptor, Constructor), flags(BASETYPE, HAS_DICT))]
 impl PyClassMethod {
     #[pyproperty(magic)]
     fn func(&self) -> PyObjectRef {

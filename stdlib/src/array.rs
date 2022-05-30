@@ -673,7 +673,7 @@ mod array {
         }
     }
 
-    #[pyimpl(
+    #[pyclass(
         flags(BASETYPE),
         with(Comparable, AsBuffer, AsMapping, Iterable, Constructor)
     )]
@@ -1293,7 +1293,7 @@ mod array {
         internal: PyMutex<PositionIterInternal<PyArrayRef>>,
     }
 
-    #[pyimpl(with(IterNext), flags(HAS_DICT))]
+    #[pyclass(with(IterNext), flags(HAS_DICT))]
     impl PyArrayIter {
         #[pymethod(magic)]
         fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {

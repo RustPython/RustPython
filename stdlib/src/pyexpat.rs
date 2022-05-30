@@ -62,7 +62,7 @@ mod _pyexpat {
         vm.invoke(&handler.read().clone(), args).ok();
     }
 
-    #[pyimpl]
+    #[pyclass]
     impl PyExpatLikeXmlParser {
         fn new(vm: &VirtualMachine) -> PyResult<PyExpatLikeXmlParserRef> {
             Ok(PyExpatLikeXmlParser {
