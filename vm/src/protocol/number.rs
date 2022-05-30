@@ -92,6 +92,58 @@ impl PyNumberMethods {
         matrix_multiply: None,
         inplace_matrix_multiply: None,
     };
+
+    pub(crate) fn generic(
+        has_int: bool,
+        has_float: bool,
+        has_index: bool,
+    ) -> &'static PyNumberMethods {
+        static METHODS: &[PyNumberMethods] = &[
+            new_generic(false, false, false),
+            new_generic(true, false, false),
+            new_generic(false, true, false),
+            new_generic(true, true, false),
+            new_generic(false, false, true),
+            new_generic(true, false, true),
+            new_generic(false, true, true),
+            new_generic(true, true, true),
+        ];
+
+        fn int(num: &PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyInt>> {
+            let ret = vm.call_special_method(num.obj.to_owned(), identifier!(vm, __int__), ())?;
+            ret.downcast::<PyInt>().map_err(|obj| {
+                vm.new_type_error(format!("__int__ returned non-int (type {})", obj.class()))
+            })
+        }
+        fn float(num: &PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyFloat>> {
+            let ret = vm.call_special_method(num.obj.to_owned(), identifier!(vm, __float__), ())?;
+            ret.downcast::<PyFloat>().map_err(|obj| {
+                vm.new_type_error(format!(
+                    "__float__ returned non-float (type {})",
+                    obj.class()
+                ))
+            })
+        }
+        fn index(num: &PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyInt>> {
+            let ret = vm.call_special_method(num.obj.to_owned(), identifier!(vm, __index__), ())?;
+            ret.downcast::<PyInt>().map_err(|obj| {
+                vm.new_type_error(format!("__index__ returned non-int (type {})", obj.class()))
+            })
+        }
+
+        const fn new_generic(has_int: bool, has_float: bool, has_index: bool) -> PyNumberMethods {
+            PyNumberMethods {
+                int: if has_int { Some(int) } else { None },
+                float: if has_float { Some(float) } else { None },
+                index: if has_index { Some(index) } else { None },
+                ..PyNumberMethods::NOT_IMPLEMENTED
+            }
+        }
+
+        let key = (has_int as usize) | ((has_float as usize) << 1) | ((has_index as usize) << 2);
+
+        &METHODS[key]
+    }
 }
 
 pub struct PyNumber<'a> {

@@ -39,6 +39,58 @@ impl PySequenceMethods {
     pub fn check(&self) -> bool {
         self.item.is_some()
     }
+
+    pub(crate) fn generic(has_length: bool, has_ass_item: bool) -> &'static PySequenceMethods {
+        static METHODS: &[PySequenceMethods] = &[
+            new_generic(false, false),
+            new_generic(true, false),
+            new_generic(false, true),
+            new_generic(true, true),
+        ];
+
+        fn length(seq: &PySequence, vm: &VirtualMachine) -> PyResult<usize> {
+            crate::types::slot_length(seq.obj, vm)
+        }
+        fn item(seq: &PySequence, i: isize, vm: &VirtualMachine) -> PyResult {
+            vm.call_special_method(seq.obj.to_owned(), identifier!(vm, __getitem__), (i,))
+        }
+        fn ass_item(
+            seq: &PySequence,
+            i: isize,
+            value: Option<PyObjectRef>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            match value {
+                Some(value) => vm
+                    .call_special_method(
+                        seq.obj.to_owned(),
+                        identifier!(vm, __setitem__),
+                        (i.to_pyobject(vm), value),
+                    )
+                    .map(|_| Ok(()))?,
+                None => vm
+                    .call_special_method(
+                        seq.obj.to_owned(),
+                        identifier!(vm, __delitem__),
+                        (i.to_pyobject(vm),),
+                    )
+                    .map(|_| Ok(()))?,
+            }
+        }
+
+        const fn new_generic(has_length: bool, has_ass_item: bool) -> PySequenceMethods {
+            PySequenceMethods {
+                length: if has_length { Some(length) } else { None },
+                item: Some(item),
+                ass_item: if has_ass_item { Some(ass_item) } else { None },
+                ..PySequenceMethods::NOT_IMPLEMENTED
+            }
+        }
+
+        let key = (has_length as usize) | ((has_ass_item as usize) << 1);
+
+        &METHODS[key]
+    }
 }
 
 impl Debug for PySequenceMethods {
