@@ -1,8 +1,8 @@
 use crate::common::{hash::PyHash, lock::PyRwLock};
 use crate::{
-    builtins::{PyFloat, PyInt, PyStrInterned, PyStrRef, PyType, PyTypeRef},
+    builtins::{PyInt, PyStrInterned, PyStrRef, PyType, PyTypeRef},
     bytecode::ComparisonOperator,
-    convert::{ToPyObject, ToPyResult},
+    convert::ToPyResult,
     function::Either,
     function::{FromArgs, FuncArgs, OptionalArg, PyComparisonValue},
     identifier,
@@ -163,7 +163,8 @@ pub(crate) type InitFunc = fn(PyObjectRef, FuncArgs, &VirtualMachine) -> PyResul
 pub(crate) type DelFunc = fn(&PyObject, &VirtualMachine) -> PyResult<()>;
 pub(crate) type AsSequenceFunc = fn(&PyObject, &VirtualMachine) -> &'static PySequenceMethods;
 
-fn length_wrapper(obj: &PyObject, vm: &VirtualMachine) -> PyResult<usize> {
+// slot_sq_length
+pub(crate) fn slot_length(obj: &PyObject, vm: &VirtualMachine) -> PyResult<usize> {
     let ret = vm.call_special_method(obj.to_owned(), identifier!(vm, __len__), ())?;
     let len = ret.payload::<PyInt>().ok_or_else(|| {
         vm.new_type_error(format!(
@@ -181,152 +182,17 @@ fn length_wrapper(obj: &PyObject, vm: &VirtualMachine) -> PyResult<usize> {
     Ok(len as usize)
 }
 
-const fn bool_int(v: bool) -> usize {
-    if v {
-        1
-    } else {
-        0
-    }
-}
-
-pub(crate) fn static_as_mapping_generic(
-    has_length: bool,
-    has_subscript: bool,
-    has_ass_subscript: bool,
-) -> &'static PyMappingMethods {
-    static METHODS: &[PyMappingMethods] = &[
-        new_generic(false, false, false),
-        new_generic(true, false, false),
-        new_generic(false, true, false),
-        new_generic(true, true, false),
-        new_generic(false, false, true),
-        new_generic(true, false, true),
-        new_generic(false, true, true),
-        new_generic(true, true, true),
-    ];
-
-    fn length(mapping: &PyMapping, vm: &VirtualMachine) -> PyResult<usize> {
-        length_wrapper(mapping.obj, vm)
-    }
-    fn subscript(mapping: &PyMapping, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
-        vm.call_special_method(
-            mapping.obj.to_owned(),
-            identifier!(vm, __getitem__),
-            (needle.to_owned(),),
-        )
-    }
-    fn ass_subscript(
-        mapping: &PyMapping,
-        needle: &PyObject,
-        value: Option<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        match value {
-            Some(value) => vm
-                .call_special_method(
-                    mapping.obj.to_owned(),
-                    identifier!(vm, __setitem__),
-                    (needle.to_owned(), value),
-                )
-                .map(|_| Ok(()))?,
-            None => vm
-                .call_special_method(
-                    mapping.obj.to_owned(),
-                    identifier!(vm, __delitem__),
-                    (needle.to_owned(),),
-                )
-                .map(|_| Ok(()))?,
-        }
-    }
-
-    const fn new_generic(
-        has_length: bool,
-        has_subscript: bool,
-        has_ass_subscript: bool,
-    ) -> PyMappingMethods {
-        PyMappingMethods {
-            length: if has_length { Some(length) } else { None },
-            subscript: if has_subscript { Some(subscript) } else { None },
-            ass_subscript: if has_ass_subscript {
-                Some(ass_subscript)
-            } else {
-                None
-            },
-        }
-    }
-
-    let key =
-        bool_int(has_length) | (bool_int(has_subscript) << 1) | (bool_int(has_ass_subscript) << 2);
-
-    &METHODS[key]
-}
-
-fn as_mapping_generic(zelf: &PyObject, vm: &VirtualMachine) -> &'static PyMappingMethods {
+fn slot_as_mapping(zelf: &PyObject, vm: &VirtualMachine) -> &'static PyMappingMethods {
     let (has_length, has_subscript, has_ass_subscript) = (
         zelf.class().has_attr(identifier!(vm, __len__)),
         zelf.class().has_attr(identifier!(vm, __getitem__)),
         zelf.class().has_attr(identifier!(vm, __setitem__))
             | zelf.class().has_attr(identifier!(vm, __delitem__)),
     );
-    static_as_mapping_generic(has_length, has_subscript, has_ass_subscript)
+    PyMappingMethods::generic(has_length, has_subscript, has_ass_subscript)
 }
 
-pub(crate) fn static_as_sequence_generic(
-    has_length: bool,
-    has_ass_item: bool,
-) -> &'static PySequenceMethods {
-    static METHODS: &[PySequenceMethods] = &[
-        new_generic(false, false),
-        new_generic(true, false),
-        new_generic(false, true),
-        new_generic(true, true),
-    ];
-
-    fn length(seq: &PySequence, vm: &VirtualMachine) -> PyResult<usize> {
-        length_wrapper(seq.obj, vm)
-    }
-    fn item(seq: &PySequence, i: isize, vm: &VirtualMachine) -> PyResult {
-        vm.call_special_method(seq.obj.to_owned(), identifier!(vm, __getitem__), (i,))
-    }
-    fn ass_item(
-        seq: &PySequence,
-        i: isize,
-        value: Option<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        match value {
-            Some(value) => vm
-                .call_special_method(
-                    seq.obj.to_owned(),
-                    identifier!(vm, __setitem__),
-                    (i.to_pyobject(vm), value),
-                )
-                .map(|_| Ok(()))?,
-            None => vm
-                .call_special_method(
-                    seq.obj.to_owned(),
-                    identifier!(vm, __delitem__),
-                    (i.to_pyobject(vm),),
-                )
-                .map(|_| Ok(()))?,
-        }
-    }
-
-    const fn new_generic(has_length: bool, has_ass_item: bool) -> PySequenceMethods {
-        PySequenceMethods {
-            length: if has_length { Some(length) } else { None },
-            item: Some(item),
-            ass_item: if has_ass_item { Some(ass_item) } else { None },
-            ..PySequenceMethods::NOT_IMPLEMENTED
-        }
-    }
-
-    let key = bool_int(has_length) | (bool_int(has_ass_item) << 1);
-
-    &METHODS[key]
-}
-
-fn as_sequence_generic(zelf: &PyObject, vm: &VirtualMachine) -> &'static PySequenceMethods {
+fn slot_as_sequence(zelf: &PyObject, vm: &VirtualMachine) -> &'static PySequenceMethods {
     if !zelf.class().has_attr(identifier!(vm, __getitem__)) {
         return &PySequenceMethods::NOT_IMPLEMENTED;
     }
@@ -336,69 +202,16 @@ fn as_sequence_generic(zelf: &PyObject, vm: &VirtualMachine) -> &'static PySeque
         zelf.class().has_attr(identifier!(vm, __setitem__))
             | zelf.class().has_attr(identifier!(vm, __delitem__)),
     );
-
-    static_as_sequence_generic(has_length, has_ass_item)
+    PySequenceMethods::generic(has_length, has_ass_item)
 }
 
-pub(crate) fn static_as_number_generic(
-    has_int: bool,
-    has_float: bool,
-    has_index: bool,
-) -> &'static PyNumberMethods {
-    static METHODS: &[PyNumberMethods] = &[
-        new_generic(false, false, false),
-        new_generic(true, false, false),
-        new_generic(false, true, false),
-        new_generic(true, true, false),
-        new_generic(false, false, true),
-        new_generic(true, false, true),
-        new_generic(false, true, true),
-        new_generic(true, true, true),
-    ];
-
-    fn int(num: &PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyInt>> {
-        let ret = vm.call_special_method(num.obj.to_owned(), identifier!(vm, __int__), ())?;
-        ret.downcast::<PyInt>().map_err(|obj| {
-            vm.new_type_error(format!("__int__ returned non-int (type {})", obj.class()))
-        })
-    }
-    fn float(num: &PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyFloat>> {
-        let ret = vm.call_special_method(num.obj.to_owned(), identifier!(vm, __float__), ())?;
-        ret.downcast::<PyFloat>().map_err(|obj| {
-            vm.new_type_error(format!(
-                "__float__ returned non-float (type {})",
-                obj.class()
-            ))
-        })
-    }
-    fn index(num: &PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyInt>> {
-        let ret = vm.call_special_method(num.obj.to_owned(), identifier!(vm, __index__), ())?;
-        ret.downcast::<PyInt>().map_err(|obj| {
-            vm.new_type_error(format!("__index__ returned non-int (type {})", obj.class()))
-        })
-    }
-
-    const fn new_generic(has_int: bool, has_float: bool, has_index: bool) -> PyNumberMethods {
-        PyNumberMethods {
-            int: if has_int { Some(int) } else { None },
-            float: if has_float { Some(float) } else { None },
-            index: if has_index { Some(index) } else { None },
-            ..PyNumberMethods::NOT_IMPLEMENTED
-        }
-    }
-
-    let key = bool_int(has_int) | (bool_int(has_float) << 1) | (bool_int(has_index) << 2);
-
-    &METHODS[key]
-}
-
-fn as_number_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> &'static PyNumberMethods {
+fn slot_as_number(zelf: &PyObject, vm: &VirtualMachine) -> &'static PyNumberMethods {
     let (has_int, has_float, has_index) = (
         zelf.class().has_attr(identifier!(vm, __int__)),
         zelf.class().has_attr(identifier!(vm, __float__)),
         zelf.class().has_attr(identifier!(vm, __index__)),
     );
-    static_as_number_generic(has_int, has_float, has_index)
+    PyNumberMethods::generic(has_int, has_float, has_index)
 }
 
 fn hash_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyHash> {
@@ -521,8 +334,8 @@ impl PyType {
         }
         match name.as_str() {
             "__len__" | "__getitem__" | "__setitem__" | "__delitem__" => {
-                update_slot!(as_mapping, as_mapping_generic);
-                update_slot!(as_sequence, as_sequence_generic);
+                update_slot!(as_mapping, slot_as_mapping);
+                update_slot!(as_sequence, slot_as_sequence);
             }
             "__hash__" => {
                 update_slot!(hash, hash_wrapper);
@@ -561,7 +374,7 @@ impl PyType {
                 update_slot!(del, del_wrapper);
             }
             "__int__" | "__index__" | "__float__" => {
-                update_slot!(as_number, as_number_wrapper);
+                update_slot!(as_number, slot_as_number);
             }
             _ => {}
         }

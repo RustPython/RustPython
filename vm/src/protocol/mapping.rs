@@ -27,6 +27,79 @@ impl PyMappingMethods {
     fn check(&self) -> bool {
         self.subscript.is_some()
     }
+
+    pub(crate) fn generic(
+        has_length: bool,
+        has_subscript: bool,
+        has_ass_subscript: bool,
+    ) -> &'static Self {
+        static METHODS: &[PyMappingMethods] = &[
+            new_generic(false, false, false),
+            new_generic(true, false, false),
+            new_generic(false, true, false),
+            new_generic(true, true, false),
+            new_generic(false, false, true),
+            new_generic(true, false, true),
+            new_generic(false, true, true),
+            new_generic(true, true, true),
+        ];
+
+        fn length(mapping: &PyMapping, vm: &VirtualMachine) -> PyResult<usize> {
+            crate::types::slot_length(mapping.obj, vm)
+        }
+        fn subscript(mapping: &PyMapping, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
+            vm.call_special_method(
+                mapping.obj.to_owned(),
+                identifier!(vm, __getitem__),
+                (needle.to_owned(),),
+            )
+        }
+        fn ass_subscript(
+            mapping: &PyMapping,
+            needle: &PyObject,
+            value: Option<PyObjectRef>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            match value {
+                Some(value) => vm
+                    .call_special_method(
+                        mapping.obj.to_owned(),
+                        identifier!(vm, __setitem__),
+                        (needle.to_owned(), value),
+                    )
+                    .map(|_| Ok(()))?,
+                None => vm
+                    .call_special_method(
+                        mapping.obj.to_owned(),
+                        identifier!(vm, __delitem__),
+                        (needle.to_owned(),),
+                    )
+                    .map(|_| Ok(()))?,
+            }
+        }
+
+        const fn new_generic(
+            has_length: bool,
+            has_subscript: bool,
+            has_ass_subscript: bool,
+        ) -> PyMappingMethods {
+            PyMappingMethods {
+                length: if has_length { Some(length) } else { None },
+                subscript: if has_subscript { Some(subscript) } else { None },
+                ass_subscript: if has_ass_subscript {
+                    Some(ass_subscript)
+                } else {
+                    None
+                },
+            }
+        }
+
+        let key = (has_length as usize)
+            | ((has_subscript as usize) << 1)
+            | ((has_ass_subscript as usize) << 2);
+
+        &METHODS[key]
+    }
 }
 
 #[derive(Clone)]
