@@ -2,7 +2,7 @@ use super::{PyStrRef, PyType, PyTypeRef, PyWeak};
 use crate::{
     class::PyClassImpl,
     function::OptionalArg,
-    types::{Constructor, SetAttr},
+    types::{Constructor, GetAttr, SetAttr},
     Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
@@ -57,14 +57,8 @@ crate::common::static_cell! {
     static WEAK_SUBCLASS: PyTypeRef;
 }
 
-#[pyimpl(with(SetAttr, Constructor))]
+#[pyimpl(with(GetAttr, SetAttr, Constructor))]
 impl PyWeakProxy {
-    // TODO: callbacks
-    #[pymethod(magic)]
-    fn getattr(&self, attr_name: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        let obj = self.weak.upgrade().ok_or_else(|| new_reference_error(vm))?;
-        obj.get_attr(attr_name, vm)
-    }
     #[pymethod(magic)]
     fn str(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         match self.weak.upgrade() {
@@ -79,6 +73,14 @@ fn new_reference_error(vm: &VirtualMachine) -> PyRef<super::PyBaseException> {
         vm.ctx.exceptions.reference_error.to_owned(),
         "weakly-referenced object no longer exists".to_owned(),
     )
+}
+
+impl GetAttr for PyWeakProxy {
+    // TODO: callbacks
+    fn getattro(zelf: &Py<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
+        let obj = zelf.weak.upgrade().ok_or_else(|| new_reference_error(vm))?;
+        obj.get_attr(name, vm)
+    }
 }
 
 impl SetAttr for PyWeakProxy {

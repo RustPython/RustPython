@@ -233,9 +233,6 @@ impl PyObject {
                 }
                 None => Ok(Some(attr)),
             }
-        } else if let Some(getter) = obj_cls.get_attr(identifier!(vm, __getattr__)) {
-            drop(obj_cls);
-            vm.invoke(&getter, (self.to_owned(), name_str)).map(Some)
         } else {
             Ok(None)
         }

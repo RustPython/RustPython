@@ -414,7 +414,15 @@ fn call_wrapper(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResul
 }
 
 fn getattro_wrapper(zelf: &PyObject, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
-    vm.call_special_method(zelf.to_owned(), identifier!(vm, __getattribute__), (name,))
+    let __getattribute__ = identifier!(vm, __getattribute__);
+    let __getattr__ = identifier!(vm, __getattr__);
+    match vm.call_special_method(zelf.to_owned(), __getattribute__, (name.clone(),)) {
+        Ok(r) => Ok(r),
+        Err(_) if zelf.class().has_attr(__getattr__) => {
+            vm.call_special_method(zelf.to_owned(), __getattr__, (name,))
+        }
+        Err(e) => Err(e),
+    }
 }
 
 fn setattro_wrapper(
@@ -522,7 +530,7 @@ impl PyType {
             "__call__" => {
                 update_slot!(call, call_wrapper);
             }
-            "__getattribute__" => {
+            "__getattr__" | "__getattribute__" => {
                 update_slot!(getattro, getattro_wrapper);
             }
             "__setattr__" | "__delattr__" => {
