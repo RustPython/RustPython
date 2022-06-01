@@ -2,9 +2,11 @@ use super::{PyDict, PyDictRef, PyList, PyStr, PyStrRef, PyType, PyTypeRef};
 use crate::common::hash::PyHash;
 use crate::{
     class::PyClassImpl,
+    convert::ToPyException,
     function::Either,
     function::{FuncArgs, PyArithmeticValue, PyComparisonValue},
     types::PyComparisonOp,
+    object::PyToResult,
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 
@@ -292,13 +294,13 @@ impl PyBaseObject {
 
     /// Return getattr(self, name).
     #[pyslot]
-    pub(crate) fn getattro(obj: &PyObject, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
+    pub(crate) fn getattro(obj: &PyObject, name: PyStrRef, vm: &VirtualMachine) -> PyToResult {
         vm_trace!("object.__getattribute__({:?}, {:?})", obj, name);
-        obj.as_object().generic_getattr(name, vm)
+        obj.generic_getattr(name, vm).map_err(|e| -> Box<dyn ToPyException> {Box::new(e) })
     }
 
     #[pymethod(magic)]
-    fn getattribute(obj: PyObjectRef, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
+    fn getattribute(obj: PyObjectRef, name: PyStrRef, vm: &VirtualMachine) -> PyToResult {
         Self::getattro(&obj, name, vm)
     }
 

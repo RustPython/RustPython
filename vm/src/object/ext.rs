@@ -28,6 +28,7 @@ Basically reference counting, but then done by rust.
 /// Both the python object and the python exception are `PyObjectRef` types
 /// since exceptions are also python objects.
 pub type PyResult<T = PyObjectRef> = Result<T, PyBaseExceptionRef>; // A valid value, or an exception
+pub type PyToResult<T = PyObjectRef> = Result<T, Box<dyn ToPyException>>;
 
 // TODO: remove these 2 impls
 impl fmt::Display for PyObjectRef {
