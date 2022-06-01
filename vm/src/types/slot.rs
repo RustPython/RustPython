@@ -2,7 +2,8 @@ use crate::common::{hash::PyHash, lock::PyRwLock};
 use crate::{
     builtins::{PyInt, PyStrInterned, PyStrRef, PyType, PyTypeRef},
     bytecode::ComparisonOperator,
-    convert::ToPyResult,
+    convert::{ToPyException, ToPyResult},
+    exceptions::DeferredException,
     function::Either,
     function::{FromArgs, FuncArgs, OptionalArg, PyComparisonValue},
     identifier,
@@ -11,6 +12,7 @@ use crate::{
         PySequenceMethods,
     },
     vm::Context,
+    object::PyToResult,
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
@@ -142,7 +144,7 @@ pub(crate) type AsMappingFunc = fn(&PyObject, &VirtualMachine) -> &'static PyMap
 pub(crate) type AsNumberFunc = fn(&PyObject, &VirtualMachine) -> &'static PyNumberMethods;
 pub(crate) type HashFunc = fn(&PyObject, &VirtualMachine) -> PyResult<PyHash>;
 // CallFunc = GenericMethod
-pub(crate) type GetattroFunc = fn(&PyObject, PyStrRef, &VirtualMachine) -> PyResult;
+pub(crate) type GetattroFunc = fn(&PyObject, PyStrRef, &VirtualMachine) -> PyToResult;
 pub(crate) type SetattroFunc =
     fn(&PyObject, PyStrRef, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>;
 pub(crate) type AsBufferFunc = fn(&PyObject, &VirtualMachine) -> PyResult<PyBuffer>;
@@ -226,15 +228,15 @@ fn call_wrapper(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResul
     vm.call_special_method(zelf.to_owned(), identifier!(vm, __call__), args)
 }
 
-fn getattro_wrapper(zelf: &PyObject, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
+fn getattro_wrapper(zelf: &PyObject, name: PyStrRef, vm: &VirtualMachine) -> PyToResult {
     let __getattribute__ = identifier!(vm, __getattribute__);
     let __getattr__ = identifier!(vm, __getattr__);
     match vm.call_special_method(zelf.to_owned(), __getattribute__, (name.clone(),)) {
         Ok(r) => Ok(r),
         Err(_) if zelf.class().has_attr(__getattr__) => {
-            vm.call_special_method(zelf.to_owned(), __getattr__, (name,))
+            vm.call_special_method(zelf.to_owned(), __getattr__, (name,)).map_err(|e| -> Box<dyn ToPyException> { Box::new(e)})
         }
-        Err(e) => Err(e),
+        Err(e) => Err(Box::new(e)),
     }
 }
 
@@ -773,11 +775,13 @@ impl PyComparisonOp {
 #[pyimpl]
 pub trait GetAttr: PyPayload {
     #[pyslot]
-    fn slot_getattro(obj: &PyObject, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
+    fn slot_getattro(obj: &PyObject, name: PyStrRef, vm: &VirtualMachine) -> PyToResult {
         if let Some(zelf) = obj.downcast_ref::<Self>() {
-            Self::getattro(zelf, name, vm)
+            Self::getattro(zelf, name, vm).map_err(|e| -> Box<dyn ToPyException> {
+                Box::new(e)
+            })
         } else {
-            Err(vm.new_type_error("unexpected payload for __getattribute__".to_owned()))
+            Err(Box::new(vm.new_type_error("unexpected payload for __getattribute__".to_owned())))
         }
     }
 

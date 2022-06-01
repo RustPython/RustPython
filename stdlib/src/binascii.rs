@@ -6,6 +6,7 @@ pub(super) use decl::crc32;
 mod decl {
     use crate::vm::{
         builtins::{PyIntRef, PyTypeRef},
+        exceptions::SimpleException,
         function::{ArgAsciiBuffer, ArgBytesLike, OptionalArg},
         PyResult, VirtualMachine,
     };
@@ -57,10 +58,13 @@ mod decl {
 
     #[pyfunction(name = "a2b_hex")]
     #[pyfunction]
-    fn unhexlify(data: ArgAsciiBuffer, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+    fn unhexlify(data: ArgAsciiBuffer, vm: &VirtualMachine) -> Result<Vec<u8>, SimpleException> {
         data.with_ref(|hex_bytes| {
             if hex_bytes.len() % 2 != 0 {
-                return Err(vm.new_value_error("Odd-length string".to_owned()));
+                return Err(SimpleException::with_message(
+                    vm.ctx.exceptions.value_error,
+                    "Odd-length string",
+                ));
             }
 
             let mut unhex = Vec::<u8>::with_capacity(hex_bytes.len() / 2);
@@ -68,7 +72,10 @@ mod decl {
                 if let (Some(n1), Some(n2)) = (unhex_nibble(*n1), unhex_nibble(*n2)) {
                     unhex.push(n1 << 4 | n2);
                 } else {
-                    return Err(vm.new_value_error("Non-hexadecimal digit found".to_owned()));
+                    return Err(SimpleException::with_message(
+                        vm.ctx.exceptions.value_error,
+                        "Non-hexadecimal digit found",
+                    ));
                 }
             }
 

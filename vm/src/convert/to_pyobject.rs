@@ -14,5 +14,21 @@ pub trait ToPyResult {
 }
 
 pub trait ToPyException {
-    fn to_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef;
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef;
+}
+
+pub trait IntoPyException {
+    fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef;
+}
+
+// impl ToPyException for Box<dyn ToPyException> {
+//     fn to_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+//         self.as_ref().to_pyexception(vm)
+//     }
+// }
+
+impl<F> ToPyException for F where F: FnOnce(&VirtualMachine) -> PyBaseExceptionRef {
+    fn to_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        self(vm)
+    }
 }
