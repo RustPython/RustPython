@@ -2,7 +2,8 @@ use crate::common::{hash::PyHash, lock::PyRwLock};
 use crate::{
     builtins::{PyInt, PyStrInterned, PyStrRef, PyType, PyTypeRef},
     bytecode::ComparisonOperator,
-    convert::ToPyResult,
+    convert::{ToPyException, ToPyResult},
+    exceptions::DeferredException,
     function::Either,
     function::{FromArgs, FuncArgs, OptionalArg, PyComparisonValue},
     identifier,

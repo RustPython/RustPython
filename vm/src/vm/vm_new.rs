@@ -7,6 +7,7 @@ use crate::{
         PyBaseException, PyBaseExceptionRef, PyDictRef, PyModule, PyStrRef, PyType, PyTypeRef,
     },
     convert::ToPyObject,
+    exceptions::DeferredException,
     scope::Scope,
     vm::VirtualMachine,
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef,
@@ -94,6 +95,13 @@ impl VirtualMachine {
     pub fn new_attribute_error(&self, msg: String) -> PyBaseExceptionRef {
         let attribute_error = self.ctx.exceptions.attribute_error.to_owned();
         self.new_exception_msg(attribute_error, msg)
+    }
+
+    pub fn new_deferred_attribute_error(
+        &self,
+        msg: fn(&VirtualMachine) -> String,
+    ) -> DeferredException {
+        DeferredException::new(self.ctx.exceptions.attribute_error, msg)
     }
 
     pub fn new_type_error(&self, msg: String) -> PyBaseExceptionRef {

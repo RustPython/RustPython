@@ -308,18 +308,19 @@ impl ToPyException for SimpleException {
     }
 }
 
-pub struct DeferredException<M>
-where
-    M: FnOnce(&VirtualMachine) -> String,
-{
+pub struct DeferredException {
     typ: &'static Py<PyType>,
-    build_message: M,
+    build_message: fn(&VirtualMachine) -> String,
 }
 
-impl<M> ToPyException for DeferredException<M>
-where
-    M: FnOnce(&VirtualMachine) -> String,
-{
+impl DeferredException {
+    #[inline]
+    pub fn new(typ: &'static Py<PyType>, build_message: fn(&VirtualMachine) -> String) -> Self {
+        Self { typ, build_message }
+    }
+}
+
+impl ToPyException for DeferredException {
     fn to_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         let Self { typ, build_message } = self;
         vm.new_exception_msg(typ.to_owned(), build_message(vm))
