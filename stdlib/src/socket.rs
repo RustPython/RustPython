@@ -13,7 +13,7 @@ mod _socket {
     use crate::common::lock::{PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard};
     use crate::vm::{
         builtins::{PyBaseExceptionRef, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
-        convert::{ToPyException, ToPyObject, TryFromBorrowedObject, TryFromObject},
+        convert::{IntoPyException, ToPyObject, TryFromBorrowedObject, TryFromObject},
         function::{ArgBytesLike, ArgMemoryBuffer, Either, OptionalArg, OptionalOption},
         types::{DefaultConstructor, Initializer},
         utils::ToCString,
@@ -540,7 +540,7 @@ mod _socket {
         );
 
         fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-            Self::_init(zelf, args, vm).map_err(|e| e.to_pyexception(vm))
+            Self::_init(zelf, args, vm).map_err(|e| e.into_pyexception(vm))
         }
     }
 
@@ -577,7 +577,7 @@ mod _socket {
                 }
                 if socket_kind == -1 {
                     // TODO: when socket2 cuts a new release, type will be available on all os
-                    // socket_kind = sock.r#type().map_err(|e| e.to_pyexception(vm))?.into();
+                    // socket_kind = sock.r#type().map_err(|e| e.into_pyexception(vm))?.into();
                     let res = unsafe {
                         c::getsockopt(
                             sock_fileno(&sock) as _,
@@ -1213,13 +1213,13 @@ mod _socket {
             }
         }
     }
-    impl ToPyException for IoOrPyException {
+    impl IntoPyException for IoOrPyException {
         #[inline]
-        fn to_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
             match self {
                 Self::Timeout => timeout_error(vm),
                 Self::Py(exc) => exc,
-                Self::Io(err) => err.to_pyexception(vm),
+                Self::Io(err) => err.into_pyexception(vm),
             }
         }
     }
@@ -1521,7 +1521,7 @@ mod _socket {
     #[pyfunction]
     fn if_nametoindex(name: PyObjectRef, vm: &VirtualMachine) -> PyResult<IfIndex> {
         let name = crate::vm::stdlib::os::FsPath::try_from(name, true, vm)?;
-        let name = ffi::CString::new(name.as_bytes()).map_err(|err| err.to_pyexception(vm))?;
+        let name = ffi::CString::new(name.as_bytes()).map_err(|err| err.into_pyexception(vm))?;
 
         let ret = unsafe { c::if_nametoindex(name.as_ptr()) };
 
@@ -1561,7 +1561,7 @@ mod _socket {
         #[cfg(not(windows))]
         {
             let list = if_nameindex()
-                .map_err(|err| err.to_pyexception(vm))?
+                .map_err(|err| err.into_pyexception(vm))?
                 .to_slice()
                 .iter()
                 .map(|iface| {
@@ -1625,9 +1625,10 @@ mod _socket {
         {
             use std::ptr;
 
-            let table = MibTable::get_raw().map_err(|err| err.to_pyexception(vm))?;
+            let table = MibTable::get_raw().map_err(|err| err.into_pyexception(vm))?;
             let list = table.as_slice().iter().map(|entry| {
-                let name = get_name(&entry.InterfaceLuid).map_err(|err| err.to_pyexception(vm))?;
+                let name =
+                    get_name(&entry.InterfaceLuid).map_err(|err| err.into_pyexception(vm))?;
                 let tup = (entry.InterfaceIndex, name.to_string_lossy());
                 Ok(tup.to_pyobject(vm))
             });

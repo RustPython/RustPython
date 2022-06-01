@@ -11,19 +11,13 @@ cfg_if::cfg_if! {
 
 use crate::{
     builtins::PyBaseExceptionRef,
-    convert::{ToPyException, ToPyObject},
+    convert::{IntoPyException, ToPyException, ToPyObject},
     PyObjectRef, PyResult, TryFromObject, VirtualMachine,
 };
 pub use _io::io_open as open;
 
 impl ToPyException for std::io::Error {
-    fn to_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        (&self).to_pyexception(vm)
-    }
-}
-
-impl ToPyException for &'_ std::io::Error {
-    fn to_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         use std::io::ErrorKind;
 
         let excs = &vm.ctx.exceptions;
@@ -41,6 +35,12 @@ impl ToPyException for &'_ std::io::Error {
         let errno = self.raw_os_error().to_pyobject(vm);
         let msg = vm.ctx.new_str(self.to_string()).into();
         vm.new_exception(exc_type.to_owned(), vec![errno, msg])
+    }
+}
+
+impl IntoPyException for std::io::Error {
+    fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        self.to_pyexception(vm)
     }
 }
 

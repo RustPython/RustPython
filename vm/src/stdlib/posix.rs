@@ -30,7 +30,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 pub mod module {
     use crate::{
         builtins::{PyDictRef, PyInt, PyIntRef, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
-        convert::{ToPyException, ToPyObject, TryFromObject},
+        convert::{IntoPyException, ToPyObject, TryFromObject},
         function::{Either, OptionalArg},
         stdlib::os::{
             errno_err, DirFd, FollowSymlinks, PathOrFd, PyPathLike, SupportFunc, TargetIsDirectory,
@@ -242,7 +242,7 @@ pub mod module {
 
     #[pyfunction]
     fn getgroups(vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
-        let group_ids = getgroups_impl().map_err(|e| e.to_pyexception(vm))?;
+        let group_ids = getgroups_impl().map_err(|e| e.into_pyexception(vm))?;
         Ok(group_ids
             .into_iter()
             .map(|gid| vm.ctx.new_int(gid.as_raw()).into())
@@ -267,14 +267,14 @@ pub mod module {
             return Ok(metadata.is_ok());
         }
 
-        let metadata = metadata.map_err(|err| err.to_pyexception(vm))?;
+        let metadata = metadata.map_err(|err| err.into_pyexception(vm))?;
 
         let user_id = metadata.uid();
         let group_id = metadata.gid();
         let mode = metadata.mode();
 
         let perm = get_right_permission(mode, Uid::from_raw(user_id), Gid::from_raw(group_id))
-            .map_err(|err| err.to_pyexception(vm))?;
+            .map_err(|err| err.into_pyexception(vm))?;
 
         let r_ok = !flags.contains(AccessFlags::R_OK) || perm.is_readable;
         let w_ok = !flags.contains(AccessFlags::W_OK) || perm.is_writable;
@@ -314,7 +314,7 @@ pub mod module {
         #[cfg(not(target_os = "redox"))]
         {
             nix::unistd::symlinkat(&*src, args.dir_fd.get_opt(), &*dst)
-                .map_err(|err| err.to_pyexception(vm))
+                .map_err(|err| err.into_pyexception(vm))
         }
         #[cfg(target_os = "redox")]
         {
@@ -331,7 +331,7 @@ pub mod module {
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn fchdir(fd: RawFd, vm: &VirtualMachine) -> PyResult<()> {
-        nix::unistd::fchdir(fd).map_err(|err| err.to_pyexception(vm))
+        nix::unistd::fchdir(fd).map_err(|err| err.into_pyexception(vm))
     }
 
     #[cfg(not(target_os = "redox"))]
@@ -343,7 +343,7 @@ pub mod module {
             // Use `From<nix::Error> for io::Error` when it is available
             IOErrorBuilder::new(io::Error::from_raw_os_error(err as i32))
                 .filename(path)
-                .to_pyexception(vm)
+                .into_pyexception(vm)
         })
     }
 
@@ -391,7 +391,7 @@ pub mod module {
             // Use `From<nix::Error> for io::Error` when it is available
             IOErrorBuilder::new(io::Error::from_raw_os_error(err as i32))
                 .filename(path)
-                .to_pyexception(vm)
+                .into_pyexception(vm)
         })
     }
 
@@ -516,7 +516,7 @@ pub mod module {
 
     #[pyfunction]
     fn sched_yield(vm: &VirtualMachine) -> PyResult<()> {
-        nix::sched::sched_yield().map_err(|e| e.to_pyexception(vm))
+        nix::sched::sched_yield().map_err(|e| e.into_pyexception(vm))
     }
 
     #[pyattr]
@@ -691,13 +691,13 @@ pub mod module {
         let flags = fcntl::fcntl(fd, fcntl::FcntlArg::F_GETFD);
         match flags {
             Ok(ret) => Ok((ret & libc::FD_CLOEXEC) == 0),
-            Err(err) => Err(err.to_pyexception(vm)),
+            Err(err) => Err(err.into_pyexception(vm)),
         }
     }
 
     #[pyfunction]
     fn set_inheritable(fd: i32, inheritable: bool, vm: &VirtualMachine) -> PyResult<()> {
-        super::raw_set_inheritable(fd, inheritable).map_err(|err| err.to_pyexception(vm))
+        super::raw_set_inheritable(fd, inheritable).map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
@@ -705,7 +705,7 @@ pub mod module {
         let flags = fcntl::fcntl(fd, fcntl::FcntlArg::F_GETFL);
         match flags {
             Ok(ret) => Ok((ret & libc::O_NONBLOCK) == 0),
-            Err(err) => Err(err.to_pyexception(vm)),
+            Err(err) => Err(err.into_pyexception(vm)),
         }
     }
 
@@ -722,14 +722,14 @@ pub mod module {
             }
             Ok(())
         };
-        _set_flag().map_err(|err: nix::Error| err.to_pyexception(vm))
+        _set_flag().map_err(|err: nix::Error| err.into_pyexception(vm))
     }
 
     #[pyfunction]
     fn pipe(vm: &VirtualMachine) -> PyResult<(RawFd, RawFd)> {
         use nix::unistd::close;
         use nix::unistd::pipe;
-        let (rfd, wfd) = pipe().map_err(|err| err.to_pyexception(vm))?;
+        let (rfd, wfd) = pipe().map_err(|err| err.into_pyexception(vm))?;
         set_inheritable(rfd, false, vm)
             .and_then(|_| set_inheritable(wfd, false, vm))
             .map_err(|err| {
@@ -753,7 +753,7 @@ pub mod module {
     #[pyfunction]
     fn pipe2(flags: libc::c_int, vm: &VirtualMachine) -> PyResult<(RawFd, RawFd)> {
         let oflags = fcntl::OFlag::from_bits_truncate(flags);
-        nix::unistd::pipe2(oflags).map_err(|err| err.to_pyexception(vm))
+        nix::unistd::pipe2(oflags).map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
@@ -782,7 +782,7 @@ pub mod module {
         body().map_err(|err| {
             IOErrorBuilder::new(err)
                 .filename(err_path)
-                .to_pyexception(vm)
+                .into_pyexception(vm)
         })
     }
 
@@ -792,7 +792,7 @@ pub mod module {
             fd,
             nix::sys::stat::Mode::from_bits(mode as libc::mode_t).unwrap(),
         )
-        .map_err(|err| err.to_pyexception(vm))
+        .map_err(|err| err.into_pyexception(vm))
     }
 
     #[cfg(not(target_os = "redox"))]
@@ -858,7 +858,7 @@ pub mod module {
 
         unistd::execv(&path, &argv)
             .map(|_ok| ())
-            .map_err(|err| err.to_pyexception(vm))
+            .map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
@@ -901,13 +901,13 @@ pub mod module {
                 entry.push(b'=');
                 entry.extend_from_slice(&value);
 
-                CString::new(entry).map_err(|err| err.to_pyexception(vm))
+                CString::new(entry).map_err(|err| err.into_pyexception(vm))
             })
             .collect::<Result<Vec<_>, _>>()?;
 
         let env: Vec<&CStr> = env.iter().map(|entry| entry.as_c_str()).collect();
 
-        unistd::execve(&path, &argv, &env).map_err(|err| err.to_pyexception(vm))?;
+        unistd::execve(&path, &argv, &env).map_err(|err| err.into_pyexception(vm))?;
         Ok(())
     }
 
@@ -932,7 +932,7 @@ pub mod module {
     #[pyfunction]
     fn getpgid(pid: u32, vm: &VirtualMachine) -> PyResult {
         let pgid =
-            unistd::getpgid(Some(Pid::from_raw(pid as i32))).map_err(|e| e.to_pyexception(vm))?;
+            unistd::getpgid(Some(Pid::from_raw(pid as i32))).map_err(|e| e.into_pyexception(vm))?;
         Ok(vm.new_pyobj(pgid.as_raw()))
     }
 
@@ -945,7 +945,7 @@ pub mod module {
     #[pyfunction]
     fn getsid(pid: u32, vm: &VirtualMachine) -> PyResult {
         let sid =
-            unistd::getsid(Some(Pid::from_raw(pid as i32))).map_err(|e| e.to_pyexception(vm))?;
+            unistd::getsid(Some(Pid::from_raw(pid as i32))).map_err(|e| e.into_pyexception(vm))?;
         Ok(vm.new_pyobj(sid.as_raw()))
     }
 
@@ -964,20 +964,20 @@ pub mod module {
     #[pyfunction]
     fn setgid(gid: Option<Gid>, vm: &VirtualMachine) -> PyResult<()> {
         let gid = gid.ok_or_else(|| vm.new_os_error("Invalid argument".to_string()))?;
-        unistd::setgid(gid).map_err(|err| err.to_pyexception(vm))
+        unistd::setgid(gid).map_err(|err| err.into_pyexception(vm))
     }
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn setegid(egid: Option<Gid>, vm: &VirtualMachine) -> PyResult<()> {
         let egid = egid.ok_or_else(|| vm.new_os_error("Invalid argument".to_string()))?;
-        unistd::setegid(egid).map_err(|err| err.to_pyexception(vm))
+        unistd::setegid(egid).map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
     fn setpgid(pid: u32, pgid: u32, vm: &VirtualMachine) -> PyResult<()> {
         unistd::setpgid(Pid::from_raw(pid as i32), Pid::from_raw(pgid as i32))
-            .map_err(|err| err.to_pyexception(vm))
+            .map_err(|err| err.into_pyexception(vm))
     }
 
     #[cfg(not(target_os = "redox"))]
@@ -985,7 +985,7 @@ pub mod module {
     fn setsid(vm: &VirtualMachine) -> PyResult<()> {
         unistd::setsid()
             .map(|_ok| ())
-            .map_err(|err| err.to_pyexception(vm))
+            .map_err(|err| err.into_pyexception(vm))
     }
 
     fn try_from_id(vm: &VirtualMachine, obj: PyObjectRef, typ_name: &str) -> PyResult<Option<u32>> {
@@ -1025,24 +1025,24 @@ pub mod module {
     #[pyfunction]
     fn setuid(uid: Option<Uid>, vm: &VirtualMachine) -> PyResult<()> {
         let uid = uid.ok_or_else(|| vm.new_os_error("Invalid argument".to_string()))?;
-        unistd::setuid(uid).map_err(|err| err.to_pyexception(vm))
+        unistd::setuid(uid).map_err(|err| err.into_pyexception(vm))
     }
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn seteuid(euid: Option<Uid>, vm: &VirtualMachine) -> PyResult<()> {
         let euid = euid.ok_or_else(|| vm.new_os_error("Invalid argument".to_string()))?;
-        unistd::seteuid(euid).map_err(|err| err.to_pyexception(vm))
+        unistd::seteuid(euid).map_err(|err| err.into_pyexception(vm))
     }
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn setreuid(ruid: Option<Uid>, euid: Option<Uid>, vm: &VirtualMachine) -> PyResult<()> {
         if let Some(ruid) = ruid {
-            unistd::setuid(ruid).map_err(|err| err.to_pyexception(vm))?;
+            unistd::setuid(ruid).map_err(|err| err.into_pyexception(vm))?;
         }
         if let Some(euid) = euid {
-            unistd::seteuid(euid).map_err(|err| err.to_pyexception(vm))?;
+            unistd::seteuid(euid).map_err(|err| err.into_pyexception(vm))?;
         }
         Ok(())
     }
@@ -1068,15 +1068,15 @@ pub mod module {
             unwrap_or_unchanged(euid),
             unwrap_or_unchanged(suid),
         )
-        .map_err(|err| err.to_pyexception(vm))
+        .map_err(|err| err.into_pyexception(vm))
     }
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn openpty(vm: &VirtualMachine) -> PyResult<(i32, i32)> {
-        let r = nix::pty::openpty(None, None).map_err(|err| err.to_pyexception(vm))?;
+        let r = nix::pty::openpty(None, None).map_err(|err| err.into_pyexception(vm))?;
         for fd in &[r.master, r.slave] {
-            super::raw_set_inheritable(*fd, false).map_err(|e| e.to_pyexception(vm))?;
+            super::raw_set_inheritable(*fd, false).map_err(|e| e.into_pyexception(vm))?;
         }
         Ok((r.master, r.slave))
     }
@@ -1099,7 +1099,7 @@ pub mod module {
 
     #[pyfunction]
     fn uname(vm: &VirtualMachine) -> PyResult<_os::UnameResult> {
-        let info = uname::uname().map_err(|err| err.to_pyexception(vm))?;
+        let info = uname::uname().map_err(|err| err.into_pyexception(vm))?;
         Ok(_os::UnameResult {
             sysname: info.sysname,
             nodename: info.nodename,
@@ -1168,17 +1168,17 @@ pub mod module {
             unwrap_or_unchanged(egid),
             unwrap_or_unchanged(sgid),
         )
-        .map_err(|err| err.to_pyexception(vm))
+        .map_err(|err| err.into_pyexception(vm))
     }
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn setregid(rgid: Option<Gid>, egid: Option<Gid>, vm: &VirtualMachine) -> PyResult<()> {
         if let Some(rgid) = rgid {
-            unistd::setgid(rgid).map_err(|err| err.to_pyexception(vm))?;
+            unistd::setgid(rgid).map_err(|err| err.into_pyexception(vm))?;
         }
         if let Some(egid) = egid {
-            unistd::setegid(egid).map_err(|err| err.to_pyexception(vm))?;
+            unistd::setegid(egid).map_err(|err| err.into_pyexception(vm))?;
         }
         Ok(())
     }
@@ -1194,7 +1194,7 @@ pub mod module {
     fn initgroups(user_name: PyStrRef, gid: Option<Gid>, vm: &VirtualMachine) -> PyResult<()> {
         let user = CString::new(user_name.as_str()).unwrap();
         let gid = gid.ok_or_else(|| vm.new_os_error("Invalid argument".to_string()))?;
-        unistd::initgroups(&user, gid).map_err(|err| err.to_pyexception(vm))
+        unistd::initgroups(&user, gid).map_err(|err| err.into_pyexception(vm))
     }
 
     // cfg from nix
@@ -1209,7 +1209,7 @@ pub mod module {
             .collect::<Result<Option<Vec<_>>, _>>()?
             .ok_or_else(|| vm.new_os_error("Invalid argument".to_string()))?;
         let ret = unistd::setgroups(&gids);
-        ret.map_err(|err| err.to_pyexception(vm))
+        ret.map_err(|err| err.into_pyexception(vm))
     }
 
     #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
@@ -1344,7 +1344,7 @@ pub mod module {
                     if ret != 0 {
                         return Err(IOErrorBuilder::new(std::io::Error::from_raw_os_error(ret))
                             .filename(self.path)
-                            .to_pyexception(vm));
+                            .into_pyexception(vm));
                     }
                 }
             }
@@ -1418,7 +1418,7 @@ pub mod module {
             } else {
                 Err(IOErrorBuilder::new(std::io::Error::from_raw_os_error(ret))
                     .filename(self.path)
-                    .to_pyexception(vm))
+                    .into_pyexception(vm))
             }
         }
     }
@@ -1463,7 +1463,7 @@ pub mod module {
     fn waitpid(pid: libc::pid_t, opt: i32, vm: &VirtualMachine) -> PyResult<(libc::pid_t, i32)> {
         let mut status = 0;
         let pid = unsafe { libc::waitpid(pid, &mut status, opt) };
-        let pid = nix::Error::result(pid).map_err(|err| err.to_pyexception(vm))?;
+        let pid = nix::Error::result(pid).map_err(|err| err.into_pyexception(vm))?;
         Ok((pid, status))
     }
     #[pyfunction]
@@ -1497,7 +1497,7 @@ pub mod module {
                 ws_ypixel: 0,
             };
             unsafe { winsz(fd.unwrap_or(libc::STDOUT_FILENO), &mut w) }
-                .map_err(|err| err.to_pyexception(vm))?;
+                .map_err(|err| err.into_pyexception(vm))?;
             (w.ws_col.into(), w.ws_row.into())
         };
         Ok(_os::PyTerminalSize { columns, lines })
@@ -1528,12 +1528,12 @@ pub mod module {
 
     #[pyfunction]
     fn dup(fd: i32, vm: &VirtualMachine) -> PyResult<i32> {
-        let fd = nix::unistd::dup(fd).map_err(|e| e.to_pyexception(vm))?;
+        let fd = nix::unistd::dup(fd).map_err(|e| e.into_pyexception(vm))?;
         super::raw_set_inheritable(fd, false)
             .map(|()| fd)
             .map_err(|e| {
                 let _ = nix::unistd::close(fd);
-                e.to_pyexception(vm)
+                e.into_pyexception(vm)
             })
     }
 
@@ -1549,11 +1549,11 @@ pub mod module {
 
     #[pyfunction]
     fn dup2(args: Dup2Args, vm: &VirtualMachine) -> PyResult<i32> {
-        let fd = nix::unistd::dup2(args.fd, args.fd2).map_err(|e| e.to_pyexception(vm))?;
+        let fd = nix::unistd::dup2(args.fd, args.fd2).map_err(|e| e.into_pyexception(vm))?;
         if !args.inheritable {
             super::raw_set_inheritable(fd, false).map_err(|e| {
                 let _ = nix::unistd::close(fd);
-                e.to_pyexception(vm)
+                e.into_pyexception(vm)
             })?
         }
         Ok(fd)
@@ -1615,7 +1615,7 @@ pub mod module {
     fn getgrouplist(user: PyStrRef, group: u32, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         let user = CString::new(user.as_str()).unwrap();
         let gid = Gid::from_raw(group);
-        let group_ids = unistd::getgrouplist(&user, gid).map_err(|err| err.to_pyexception(vm))?;
+        let group_ids = unistd::getgrouplist(&user, gid).map_err(|err| err.into_pyexception(vm))?;
         Ok(group_ids
             .into_iter()
             .map(|gid| vm.new_pyobj(gid.as_raw()))
@@ -1879,7 +1879,7 @@ pub mod module {
             if errno::errno() == 0 {
                 Ok(None)
             } else {
-                Err(io::Error::from(Errno::last()).to_pyexception(vm))
+                Err(io::Error::from(Errno::last()).into_pyexception(vm))
             }
         } else {
             Ok(Some(raw))
@@ -1922,7 +1922,7 @@ pub mod module {
             Some(&mut file_offset),
             args.count as usize,
         )
-        .map_err(|err| err.to_pyexception(vm))?;
+        .map_err(|err| err.into_pyexception(vm))?;
         Ok(vm.ctx.new_int(res as u64).into())
     }
 
@@ -1975,7 +1975,7 @@ pub mod module {
             headers,
             trailers,
         );
-        res.map_err(|err| err.to_pyexception(vm))?;
+        res.map_err(|err| err.into_pyexception(vm))?;
         Ok(vm.ctx.new_int(written as u64).into())
     }
 

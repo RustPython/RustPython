@@ -5,7 +5,7 @@ use super::{
 use crate::common::lock::PyRwLockReadGuard;
 use crate::{
     builtins::{PyBaseExceptionRef, PyStrInterned, PyType},
-    convert::{ToPyException, ToPyObject, ToPyResult, TryFromObject},
+    convert::{IntoPyException, ToPyObject, ToPyResult, TryFromObject},
     VirtualMachine,
 };
 use std::{borrow::Borrow, fmt, ops::Deref};
@@ -369,18 +369,18 @@ where
 impl<T, E> ToPyResult for Result<T, E>
 where
     T: ToPyObject,
-    E: ToPyException,
+    E: IntoPyException,
 {
     #[inline(always)]
     fn to_pyresult(self, vm: &VirtualMachine) -> PyResult {
         self.map(|res| T::to_pyobject(res, vm))
-            .map_err(|e| E::to_pyexception(e, vm))
+            .map_err(|e| E::into_pyexception(e, vm))
     }
 }
 
-impl ToPyException for PyBaseExceptionRef {
+impl IntoPyException for PyBaseExceptionRef {
     #[inline(always)]
-    fn to_pyexception(self, _vm: &VirtualMachine) -> PyBaseExceptionRef {
+    fn into_pyexception(self, _vm: &VirtualMachine) -> PyBaseExceptionRef {
         self
     }
 }
