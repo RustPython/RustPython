@@ -1847,6 +1847,7 @@ dependencies = [
  "parking_lot",
  "rustpython-common",
  "rustpython-parser",
+ "rustpython-stdlib",
  "rustpython-vm",
  "serde",
  "serde-wasm-bindgen",
