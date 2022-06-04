@@ -335,22 +335,30 @@ impl ExecutingFrame<'_> {
                 }
                 // Instruction raised an exception
                 Err(exception) => {
-                    // 1. Extract traceback from exception's '__traceback__' attr.
-                    // 2. Add new entry with current execution position (filename, lineno, code_object) to traceback.
-                    // 3. Unwind block stack till appropriate handler is found.
+                    #[cold]
+                    fn handle_exception(
+                        frame: &mut ExecutingFrame,
+                        exception: PyBaseExceptionRef,
+                        idx: usize,
+                        vm: &VirtualMachine,
+                    ) -> FrameResult {
+                        // 1. Extract traceback from exception's '__traceback__' attr.
+                        // 2. Add new entry with current execution position (filename, lineno, code_object) to traceback.
+                        // 3. Unwind block stack till appropriate handler is found.
 
-                    let loc = self.code.locations[idx];
+                        let loc = frame.code.locations[idx];
+                        let next = exception.traceback();
+                        let new_traceback =
+                            PyTraceback::new(next, frame.object.clone(), frame.lasti(), loc.row());
+                        vm_trace!("Adding to traceback: {:?} {:?}", new_traceback, loc.row());
+                        exception.set_traceback(Some(new_traceback.into_ref(vm)));
 
-                    let next = exception.traceback();
+                        vm.contextualize_exception(&exception);
 
-                    let new_traceback =
-                        PyTraceback::new(next, self.object.clone(), self.lasti(), loc.row());
-                    vm_trace!("Adding to traceback: {:?} {:?}", new_traceback, loc.row());
-                    exception.set_traceback(Some(new_traceback.into_ref(vm)));
+                        frame.unwind_blocks(vm, UnwindReason::Raising { exception })
+                    }
 
-                    vm.contextualize_exception(&exception);
-
-                    match self.unwind_blocks(vm, UnwindReason::Raising { exception }) {
+                    match handle_exception(self, exception, idx, vm) {
                         Ok(None) => continue,
                         Ok(Some(result)) => {
                             break Ok(result);
@@ -465,6 +473,11 @@ impl ExecutingFrame<'_> {
             trace!("=======");
         }
 
+        #[cold]
+        fn name_error(name: &'static PyStrInterned, vm: &VirtualMachine) -> PyBaseExceptionRef {
+            vm.new_name_error(format!("name '{name}' is not defined"), name.to_owned())
+        }
+
         match instruction {
             bytecode::Instruction::LoadConst { idx } => {
                 self.push_value(self.code.constants[*idx as usize].clone().into());
@@ -481,16 +494,20 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::LoadFast(idx) => {
-                let idx = *idx as usize;
-                let x = self.fastlocals.lock()[idx].clone().ok_or_else(|| {
+                #[cold]
+                fn reference_error(
+                    varname: &'static PyStrInterned,
+                    vm: &VirtualMachine,
+                ) -> PyBaseExceptionRef {
                     vm.new_exception_msg(
                         vm.ctx.exceptions.unbound_local_error.to_owned(),
-                        format!(
-                            "local variable '{}' referenced before assignment",
-                            self.code.varnames[idx]
-                        ),
+                        format!("local variable '{varname}' referenced before assignment",),
                     )
-                })?;
+                }
+                let idx = *idx as usize;
+                let x = self.fastlocals.lock()[idx]
+                    .clone()
+                    .ok_or_else(|| reference_error(self.code.varnames[idx], vm))?;
                 self.push_value(x);
                 Ok(None)
             }
@@ -562,10 +579,7 @@ impl ExecutingFrame<'_> {
                 match res {
                     Ok(()) => {}
                     Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {
-                        return Err(vm.new_name_error(
-                            format!("name '{}' is not defined", name),
-                            name.to_owned(),
-                        ))
+                        return Err(name_error(name, vm))
                     }
                     Err(e) => return Err(e),
                 }
@@ -576,10 +590,7 @@ impl ExecutingFrame<'_> {
                 match self.globals.del_item(name, vm) {
                     Ok(()) => {}
                     Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {
-                        return Err(vm.new_name_error(
-                            format!("name '{}' is not defined", name),
-                            name.to_owned(),
-                        ))
+                        return Err(name_error(name, vm))
                     }
                     Err(e) => return Err(e),
                 }
@@ -610,10 +621,8 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::Duplicate2 => {
                 // Duplicate top 2 of stack
-                let top = self.pop_value();
-                let second_to_top = self.pop_value();
-                self.push_value(second_to_top.clone());
-                self.push_value(top.clone());
+                let top = self.last_value();
+                let second_to_top = self.nth_value(1).to_owned();
                 self.push_value(second_to_top);
                 self.push_value(top);
                 Ok(None)
@@ -724,30 +733,7 @@ impl ExecutingFrame<'_> {
                 Ok(Some(ExecutionResult::Yield(value)))
             }
             bytecode::Instruction::YieldFrom => self.execute_yield_from(vm),
-            bytecode::Instruction::SetupAnnotation => {
-                let __annotations__ = identifier!(vm, __annotations__);
-                // Try using locals as dict first, if not, fallback to generic method.
-                let has_annotations = match self
-                    .locals
-                    .clone()
-                    .into_object()
-                    .downcast_exact::<PyDict>(vm)
-                {
-                    Ok(d) => d.contains_key(__annotations__, vm),
-                    Err(o) => {
-                        let needle = __annotations__.to_object();
-                        self._in(vm, needle, o)?
-                    }
-                };
-                if !has_annotations {
-                    self.locals.as_object().set_item(
-                        __annotations__,
-                        vm.ctx.new_dict().into(),
-                        vm,
-                    )?;
-                }
-                Ok(None)
-            }
+            bytecode::Instruction::SetupAnnotation => self.setup_annotations(vm),
             bytecode::Instruction::SetupLoop { break_target } => {
                 self.push_block(BlockType::Loop {
                     break_target: *break_target,
@@ -1003,77 +989,16 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::Continue { target } => {
                 self.unwind_blocks(vm, UnwindReason::Continue { target: *target })
             }
-            bytecode::Instruction::PrintExpr => {
-                let expr = self.pop_value();
-
-                let displayhook = vm
-                    .sys_module
-                    .clone()
-                    .get_attr("displayhook", vm)
-                    .map_err(|_| vm.new_runtime_error("lost sys.displayhook".to_owned()))?;
-                vm.invoke(&displayhook, (expr,))?;
-
-                Ok(None)
-            }
+            bytecode::Instruction::PrintExpr => self.print_expr(vm),
             bytecode::Instruction::LoadBuildClass => {
                 self.push_value(vm.builtins.get_attr(identifier!(vm, __build_class__), vm)?);
                 Ok(None)
             }
-            bytecode::Instruction::UnpackSequence { size } => {
-                let value = self.pop_value();
-                let elements: Vec<_> = value.try_to_value(vm).map_err(|e| {
-                    if e.class().is(vm.ctx.exceptions.type_error) {
-                        vm.new_type_error(format!(
-                            "cannot unpack non-iterable {} object",
-                            value.class().name()
-                        ))
-                    } else {
-                        e
-                    }
-                })?;
-                let msg = match elements.len().cmp(&(*size as usize)) {
-                    std::cmp::Ordering::Equal => {
-                        self.state.stack.extend(elements.into_iter().rev());
-                        None
-                    }
-                    std::cmp::Ordering::Greater => {
-                        Some(format!("too many values to unpack (expected {})", size))
-                    }
-                    std::cmp::Ordering::Less => Some(format!(
-                        "not enough values to unpack (expected {}, got {})",
-                        size,
-                        elements.len()
-                    )),
-                };
-                if let Some(msg) = msg {
-                    Err(vm.new_value_error(msg))
-                } else {
-                    Ok(None)
-                }
-            }
+            bytecode::Instruction::UnpackSequence { size } => self.unpack_sequence(*size, vm),
             bytecode::Instruction::UnpackEx { before, after } => {
                 self.execute_unpack_ex(vm, *before, *after)
             }
-            bytecode::Instruction::FormatValue { conversion } => {
-                use bytecode::ConversionFlag;
-                let value = self.pop_value();
-                let value = match conversion {
-                    ConversionFlag::Str => value.str(vm)?.into(),
-                    ConversionFlag::Repr => value.repr(vm)?.into(),
-                    ConversionFlag::Ascii => vm.ctx.new_str(builtins::ascii(value, vm)?).into(),
-                    ConversionFlag::None => value,
-                };
-
-                let spec = self.pop_value();
-                let formatted = call_object_format(
-                    vm,
-                    value,
-                    None,
-                    spec.downcast_ref::<PyStr>().unwrap().as_str(),
-                )?;
-                self.push_value(formatted.into());
-                Ok(None)
-            }
+            bytecode::Instruction::FormatValue { conversion } => self.format_value(*conversion, vm),
             bytecode::Instruction::PopException {} => {
                 let block = self.pop_block();
                 if let BlockType::ExceptHandler { prev_exc } = block.typ {
@@ -1680,6 +1605,97 @@ impl ExecutingFrame<'_> {
             }
         };
         self.push_value(value);
+        Ok(None)
+    }
+
+    #[cold]
+    fn setup_annotations(&mut self, vm: &VirtualMachine) -> FrameResult {
+        let __annotations__ = identifier!(vm, __annotations__);
+        // Try using locals as dict first, if not, fallback to generic method.
+        let has_annotations = match self
+            .locals
+            .clone()
+            .into_object()
+            .downcast_exact::<PyDict>(vm)
+        {
+            Ok(d) => d.contains_key(__annotations__, vm),
+            Err(o) => {
+                let needle = __annotations__.to_object();
+                self._in(vm, needle, o)?
+            }
+        };
+        if !has_annotations {
+            self.locals
+                .as_object()
+                .set_item(__annotations__, vm.ctx.new_dict().into(), vm)?;
+        }
+        Ok(None)
+    }
+
+    fn print_expr(&mut self, vm: &VirtualMachine) -> FrameResult {
+        let expr = self.pop_value();
+
+        let displayhook = vm
+            .sys_module
+            .clone()
+            .get_attr("displayhook", vm)
+            .map_err(|_| vm.new_runtime_error("lost sys.displayhook".to_owned()))?;
+        vm.invoke(&displayhook, (expr,))?;
+
+        Ok(None)
+    }
+
+    fn unpack_sequence(&mut self, size: u32, vm: &VirtualMachine) -> FrameResult {
+        let value = self.pop_value();
+        let elements: Vec<_> = value.try_to_value(vm).map_err(|e| {
+            if e.class().is(vm.ctx.exceptions.type_error) {
+                vm.new_type_error(format!(
+                    "cannot unpack non-iterable {} object",
+                    value.class().name()
+                ))
+            } else {
+                e
+            }
+        })?;
+        let msg = match elements.len().cmp(&(size as usize)) {
+            std::cmp::Ordering::Equal => {
+                self.state.stack.extend(elements.into_iter().rev());
+                return Ok(None);
+            }
+            std::cmp::Ordering::Greater => {
+                format!("too many values to unpack (expected {})", size)
+            }
+            std::cmp::Ordering::Less => format!(
+                "not enough values to unpack (expected {}, got {})",
+                size,
+                elements.len()
+            ),
+        };
+        Err(vm.new_value_error(msg))
+    }
+
+    fn format_value(
+        &mut self,
+        conversion: bytecode::ConversionFlag,
+        vm: &VirtualMachine,
+    ) -> FrameResult {
+        use bytecode::ConversionFlag;
+        let value = self.pop_value();
+        let value = match conversion {
+            ConversionFlag::Str => value.str(vm)?.into(),
+            ConversionFlag::Repr => value.repr(vm)?.into(),
+            ConversionFlag::Ascii => vm.ctx.new_str(builtins::ascii(value, vm)?).into(),
+            ConversionFlag::None => value,
+        };
+
+        let spec = self.pop_value();
+        let formatted = call_object_format(
+            vm,
+            value,
+            None,
+            spec.downcast_ref::<PyStr>().unwrap().as_str(),
+        )?;
+        self.push_value(formatted.into());
         Ok(None)
     }
 
