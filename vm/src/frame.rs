@@ -335,22 +335,25 @@ impl ExecutingFrame<'_> {
                 }
                 // Instruction raised an exception
                 Err(exception) => {
-                    // 1. Extract traceback from exception's '__traceback__' attr.
-                    // 2. Add new entry with current execution position (filename, lineno, code_object) to traceback.
-                    // 3. Unwind block stack till appropriate handler is found.
+                    #[cold]
+                    fn handle_exception(frame: &mut ExecutingFrame, exception: PyBaseExceptionRef, idx: usize, vm: &VirtualMachine) -> FrameResult {
+                        // 1. Extract traceback from exception's '__traceback__' attr.
+                        // 2. Add new entry with current execution position (filename, lineno, code_object) to traceback.
+                        // 3. Unwind block stack till appropriate handler is found.
 
-                    let loc = self.code.locations[idx];
+                        let loc = frame.code.locations[idx];
+                        let next = exception.traceback();
+                        let new_traceback =
+                            PyTraceback::new(next, frame.object.clone(), frame.lasti(), loc.row());
+                        vm_trace!("Adding to traceback: {:?} {:?}", new_traceback, loc.row());
+                        exception.set_traceback(Some(new_traceback.into_ref(vm)));
 
-                    let next = exception.traceback();
+                        vm.contextualize_exception(&exception);
 
-                    let new_traceback =
-                        PyTraceback::new(next, self.object.clone(), self.lasti(), loc.row());
-                    vm_trace!("Adding to traceback: {:?} {:?}", new_traceback, loc.row());
-                    exception.set_traceback(Some(new_traceback.into_ref(vm)));
+                        frame.unwind_blocks(vm, UnwindReason::Raising { exception })
+                    }
 
-                    vm.contextualize_exception(&exception);
-
-                    match self.unwind_blocks(vm, UnwindReason::Raising { exception }) {
+                    match handle_exception(self, exception, idx, vm) {
                         Ok(None) => continue,
                         Ok(Some(result)) => {
                             break Ok(result);
