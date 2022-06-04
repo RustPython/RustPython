@@ -101,4 +101,4 @@ def main(n, ref='sun'):
     report_energy()
 
 
-main(int(500))
+main(int(5000))
