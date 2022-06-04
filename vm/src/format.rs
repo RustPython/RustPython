@@ -556,7 +556,7 @@ pub(crate) enum FormatParseError {
 }
 
 impl ToPyException for FormatParseError {
-    fn to_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         match self {
             FormatParseError::UnmatchedBracket => {
                 vm.new_value_error("expected '}' before end of string".to_owned())

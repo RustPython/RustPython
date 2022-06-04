@@ -986,14 +986,14 @@ pub fn cstring_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
 }
 
 impl ToPyException for std::ffi::NulError {
-    fn to_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         cstring_error(vm)
     }
 }
 
 #[cfg(windows)]
 impl<C: widestring::UChar> ToPyException for widestring::NulError<C> {
-    fn to_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         cstring_error(vm)
     }
 }

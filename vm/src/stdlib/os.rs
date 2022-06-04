@@ -1,7 +1,7 @@
 use crate::{
     builtins::{PyBaseExceptionRef, PyBytes, PyBytesRef, PyInt, PySet, PyStr, PyStrRef},
     common::crt_fd::Fd,
-    convert::{ToPyException, ToPyObject},
+    convert::{IntoPyException, ToPyObject},
     function::{ArgumentError, FromArgs, FuncArgs},
     identifier,
     protocol::PyBuffer,
@@ -75,12 +75,12 @@ impl PyPathLike {
 
     #[cfg(any(unix, target_os = "wasi"))]
     pub fn into_cstring(self, vm: &VirtualMachine) -> PyResult<ffi::CString> {
-        ffi::CString::new(self.into_bytes()).map_err(|err| err.to_pyexception(vm))
+        ffi::CString::new(self.into_bytes()).map_err(|err| err.into_pyexception(vm))
     }
 
     #[cfg(windows)]
     pub fn to_widecstring(&self, vm: &VirtualMachine) -> PyResult<widestring::WideCString> {
-        widestring::WideCString::from_os_str(&self.path).map_err(|err| err.to_pyexception(vm))
+        widestring::WideCString::from_os_str(&self.path).map_err(|err| err.into_pyexception(vm))
     }
 
     pub fn filename(&self, vm: &VirtualMachine) -> PyResult {
@@ -238,9 +238,9 @@ impl PathOrFd {
 }
 
 #[cfg(unix)]
-impl ToPyException for nix::Error {
-    fn to_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        io::Error::from(self).to_pyexception(vm)
+impl IntoPyException for nix::Error {
+    fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        io::Error::from(self).into_pyexception(vm)
     }
 }
 
@@ -269,9 +269,9 @@ impl IOErrorBuilder {
     }
 }
 
-impl ToPyException for IOErrorBuilder {
-    fn to_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        let excp = self.error.to_pyexception(vm);
+impl IntoPyException for IOErrorBuilder {
+    fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        let excp = self.error.into_pyexception(vm);
 
         if let Some(filename) = self.filename {
             excp.as_object()
@@ -290,7 +290,7 @@ impl ToPyException for IOErrorBuilder {
 /// Convert the error stored in the `errno` variable into an Exception
 #[inline]
 pub fn errno_err(vm: &VirtualMachine) -> PyBaseExceptionRef {
-    crate::common::os::errno().to_pyexception(vm)
+    crate::common::os::errno().into_pyexception(vm)
 }
 
 #[allow(dead_code)]
@@ -396,7 +396,7 @@ pub(super) mod _os {
         },
         common::crt_fd::{Fd, Offset},
         common::suppress_iph,
-        convert::{ToPyException, ToPyObject},
+        convert::{IntoPyException, ToPyObject},
         function::Either,
         function::{ArgBytesLike, FuncArgs, OptionalArg},
         protocol::PyIterReturn,
@@ -438,7 +438,7 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn close(fileno: i32, vm: &VirtualMachine) -> PyResult<()> {
-        Fd(fileno).close().map_err(|e| e.to_pyexception(vm))
+        Fd(fileno).close().map_err(|e| e.into_pyexception(vm))
     }
 
     #[pyfunction]
@@ -498,12 +498,12 @@ pub(super) mod _os {
             }
         };
         fd.map(|fd| fd.0)
-            .map_err(|e| IOErrorBuilder::new(e).filename(name).to_pyexception(vm))
+            .map_err(|e| IOErrorBuilder::new(e).filename(name).into_pyexception(vm))
     }
 
     #[pyfunction]
     fn fsync(fd: i32, vm: &VirtualMachine) -> PyResult<()> {
-        Fd(fd).fsync().map_err(|err| err.to_pyexception(vm))
+        Fd(fd).fsync().map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
@@ -512,7 +512,7 @@ pub(super) mod _os {
         let mut file = Fd(fd);
         let n = file
             .read(&mut buffer)
-            .map_err(|err| err.to_pyexception(vm))?;
+            .map_err(|err| err.into_pyexception(vm))?;
         buffer.truncate(n);
 
         Ok(vm.ctx.new_bytes(buffer))
@@ -523,7 +523,7 @@ pub(super) mod _os {
         let mut file = Fd(fd);
         let written = data
             .with_ref(|b| file.write(b))
-            .map_err(|err| err.to_pyexception(vm))?;
+            .map_err(|err| err.into_pyexception(vm))?;
 
         Ok(vm.ctx.new_int(written).into())
     }
@@ -540,7 +540,7 @@ pub(super) mod _os {
         } else {
             fs::remove_file(&path)
         };
-        res.map_err(|e| IOErrorBuilder::new(e).filename(path).to_pyexception(vm))
+        res.map_err(|e| IOErrorBuilder::new(e).filename(path).into_pyexception(vm))
     }
 
     #[cfg(not(windows))]
@@ -571,13 +571,14 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn mkdirs(path: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-        fs::create_dir_all(path.as_str()).map_err(|err| err.to_pyexception(vm))
+        fs::create_dir_all(path.as_str()).map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
     fn rmdir(path: PyPathLike, dir_fd: DirFd<0>, vm: &VirtualMachine) -> PyResult<()> {
         let [] = dir_fd.0;
-        fs::remove_dir(&path).map_err(|e| IOErrorBuilder::new(e).filename(path).to_pyexception(vm))
+        fs::remove_dir(&path)
+            .map_err(|e| IOErrorBuilder::new(e).filename(path).into_pyexception(vm))
     }
 
     const LISTDIR_FD: bool = cfg!(all(unix, not(target_os = "redox")));
@@ -587,13 +588,13 @@ pub(super) mod _os {
         let path = path.unwrap_or_else(|| PathOrFd::Path(PyPathLike::new_str(".")));
         let list = match path {
             PathOrFd::Path(path) => {
-                let dir_iter = fs::read_dir(&path).map_err(|err| err.to_pyexception(vm))?;
+                let dir_iter = fs::read_dir(&path).map_err(|err| err.into_pyexception(vm))?;
                 dir_iter
                     .map(|entry| match entry {
                         Ok(entry_path) => path.mode.process_path(entry_path.file_name(), vm),
                         Err(e) => Err(IOErrorBuilder::new(e)
                             .filename(path.clone())
-                            .to_pyexception(vm)),
+                            .into_pyexception(vm)),
                     })
                     .collect::<PyResult<_>>()?
             }
@@ -608,13 +609,13 @@ pub(super) mod _os {
                 #[cfg(all(unix, not(target_os = "redox")))]
                 {
                     use super::ffi_ext::OsStrExt;
-                    let new_fd = nix::unistd::dup(fno).map_err(|e| e.to_pyexception(vm))?;
+                    let new_fd = nix::unistd::dup(fno).map_err(|e| e.into_pyexception(vm))?;
                     let mut dir =
-                        nix::dir::Dir::from_fd(new_fd).map_err(|e| e.to_pyexception(vm))?;
+                        nix::dir::Dir::from_fd(new_fd).map_err(|e| e.into_pyexception(vm))?;
                     dir.iter()
                         .filter_map(|entry| {
                             entry
-                                .map_err(|e| e.to_pyexception(vm))
+                                .map_err(|e| e.into_pyexception(vm))
                                 .and_then(|entry| {
                                     let fname = entry.file_name().to_bytes();
                                     Ok(match fname {
@@ -684,7 +685,7 @@ pub(super) mod _os {
         let mode = path.mode;
         let [] = dir_fd.0;
         let path = fs::read_link(&path)
-            .map_err(|err| IOErrorBuilder::new(err).filename(path).to_pyexception(vm))?;
+            .map_err(|err| IOErrorBuilder::new(err).filename(path).into_pyexception(vm))?;
         mode.process_path(path, vm)
     }
 
@@ -725,7 +726,7 @@ pub(super) mod _os {
                     if e.kind() == io::ErrorKind::NotFound {
                         Ok(false)
                     } else {
-                        Err(e.to_pyexception(vm))
+                        Err(e.into_pyexception(vm))
                     }
                 }
             }
@@ -754,7 +755,7 @@ pub(super) mod _os {
             Ok(self
                 .entry
                 .file_type()
-                .map_err(|err| err.to_pyexception(vm))?
+                .map_err(|err| err.into_pyexception(vm))?
                 .is_symlink())
         }
 
@@ -806,7 +807,7 @@ pub(super) mod _os {
                         DirFd::default(),
                         FollowSymlinks(false),
                     )
-                    .map_err(|e| e.to_pyexception(vm))?
+                    .map_err(|e| e.into_pyexception(vm))?
                     .ok_or_else(|| crate::exceptions::cstring_error(vm))?;
                     // Err(T) means other thread set `ino` at the mean time which is safe to ignore
                     let _ = self.ino.compare_exchange(None, Some(stat.st_ino));
@@ -907,7 +908,7 @@ pub(super) mod _os {
                         .into_ref(vm)
                         .into(),
                     )),
-                    Err(err) => Err(err.to_pyexception(vm)),
+                    Err(err) => Err(err.into_pyexception(vm)),
                 },
                 None => {
                     zelf.exhausted.store(true);
@@ -920,7 +921,7 @@ pub(super) mod _os {
     #[pyfunction]
     fn scandir(path: OptionalArg<PyPathLike>, vm: &VirtualMachine) -> PyResult {
         let path = path.unwrap_or_else(|| PyPathLike::new_str("."));
-        let entries = fs::read_dir(path.path).map_err(|err| err.to_pyexception(vm))?;
+        let entries = fs::read_dir(path.path).map_err(|err| err.into_pyexception(vm))?;
         Ok(ScandirIterator {
             entries: PyRwLock::new(entries),
             exhausted: AtomicCell::new(false),
@@ -1173,7 +1174,7 @@ pub(super) mod _os {
         vm: &VirtualMachine,
     ) -> PyResult {
         let stat = stat_inner(file.clone(), dir_fd, follow_symlinks)
-            .map_err(|e| IOErrorBuilder::new(e).filename(file).to_pyexception(vm))?
+            .map_err(|e| IOErrorBuilder::new(e).filename(file).into_pyexception(vm))?
             .ok_or_else(|| crate::exceptions::cstring_error(vm))?;
         Ok(StatResult::from_stat(&stat, vm).to_pyobject(vm))
     }
@@ -1196,7 +1197,7 @@ pub(super) mod _os {
             env::current_dir()
         };
 
-        res.map_err(|err| err.to_pyexception(vm))
+        res.map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
@@ -1212,7 +1213,7 @@ pub(super) mod _os {
     #[pyfunction]
     fn chdir(path: PyPathLike, vm: &VirtualMachine) -> PyResult<()> {
         env::set_current_dir(&path.path)
-            .map_err(|err| IOErrorBuilder::new(err).filename(path).to_pyexception(vm))
+            .map_err(|err| IOErrorBuilder::new(err).filename(path).into_pyexception(vm))
     }
 
     #[pyfunction]
@@ -1227,7 +1228,7 @@ pub(super) mod _os {
             IOErrorBuilder::new(err)
                 .filename(src)
                 .filename2(dst)
-                .to_pyexception(vm)
+                .into_pyexception(vm)
         })
     }
 
@@ -1263,7 +1264,7 @@ pub(super) mod _os {
         }
         let mut buf = vec![0u8; size as usize];
         getrandom::getrandom(&mut buf).map_err(|e| match e.raw_os_error() {
-            Some(errno) => io::Error::from_raw_os_error(errno).to_pyexception(vm),
+            Some(errno) => io::Error::from_raw_os_error(errno).into_pyexception(vm),
             None => vm.new_os_error("Getting random failed".to_owned()),
         })?;
         Ok(buf)
@@ -1281,7 +1282,7 @@ pub(super) mod _os {
         #[cfg(windows)]
         let res = unsafe {
             use winapi::um::{fileapi, winnt};
-            let handle = Fd(fd).to_raw_handle().map_err(|e| e.to_pyexception(vm))?;
+            let handle = Fd(fd).to_raw_handle().map_err(|e| e.into_pyexception(vm))?;
             let mut li = winnt::LARGE_INTEGER::default();
             *li.QuadPart_mut() = position;
             let ret = fileapi::SetFilePointer(
@@ -1310,7 +1311,7 @@ pub(super) mod _os {
             IOErrorBuilder::new(err)
                 .filename(src)
                 .filename2(dst)
-                .to_pyexception(vm)
+                .into_pyexception(vm)
         })
     }
 
@@ -1431,7 +1432,7 @@ pub(super) mod _os {
                     tv_usec: d.as_micros() as _,
                 };
                 nix::sys::stat::utimes(path.as_ref(), &tv(acc).into(), &tv(modif).into())
-                    .map_err(|err| err.to_pyexception(vm))
+                    .map_err(|err| err.into_pyexception(vm))
             }
         }
         #[cfg(windows)]
@@ -1460,13 +1461,13 @@ pub(super) mod _os {
                 .write(true)
                 .custom_flags(winapi::um::winbase::FILE_FLAG_BACKUP_SEMANTICS)
                 .open(path)
-                .map_err(|err| err.to_pyexception(vm))?;
+                .map_err(|err| err.into_pyexception(vm))?;
 
             let ret =
                 unsafe { SetFileTime(f.as_raw_handle() as _, std::ptr::null(), &acc, &modif) };
 
             if ret == 0 {
-                Err(io::Error::last_os_error().to_pyexception(vm))
+                Err(io::Error::last_os_error().into_pyexception(vm))
             } else {
                 Ok(())
             }
@@ -1604,7 +1605,7 @@ pub(super) mod _os {
 
     #[pyfunction]
     pub fn ftruncate(fd: i32, length: Offset, vm: &VirtualMachine) -> PyResult<()> {
-        Fd(fd).ftruncate(length).map_err(|e| e.to_pyexception(vm))
+        Fd(fd).ftruncate(length).map_err(|e| e.into_pyexception(vm))
     }
 
     #[pyfunction]
@@ -1617,8 +1618,9 @@ pub(super) mod _os {
         let f = OpenOptions::new()
             .write(true)
             .open(&path)
-            .map_err(|e| e.to_pyexception(vm))?;
-        f.set_len(length as u64).map_err(|e| e.to_pyexception(vm))?;
+            .map_err(|e| e.into_pyexception(vm))?;
+        f.set_len(length as u64)
+            .map_err(|e| e.into_pyexception(vm))?;
         drop(f);
         Ok(())
     }

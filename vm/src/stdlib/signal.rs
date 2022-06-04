@@ -11,8 +11,8 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 #[pymodule]
 pub(crate) mod _signal {
     use crate::{
-        convert::ToPyException, convert::TryFromBorrowedObject, signal, PyObjectRef, PyResult,
-        VirtualMachine,
+        convert::{IntoPyException, TryFromBorrowedObject},
+        signal, PyObjectRef, PyResult, VirtualMachine,
     };
     use std::sync::atomic::{self, Ordering};
 
@@ -216,7 +216,7 @@ pub(crate) mod _signal {
                 let err = std::io::Error::last_os_error();
                 // if getsockopt failed for some other reason, throw
                 if err.raw_os_error() != Some(winsock2::WSAENOTSOCK) {
-                    return Err(err.to_pyexception(vm));
+                    return Err(err.into_pyexception(vm));
                 }
             }
             is_socket
@@ -226,7 +226,7 @@ pub(crate) mod _signal {
         #[cfg(not(windows))]
         if fd != INVALID_WAKEUP {
             use nix::fcntl;
-            let oflags = fcntl::fcntl(fd, fcntl::F_GETFL).map_err(|e| e.to_pyexception(vm))?;
+            let oflags = fcntl::fcntl(fd, fcntl::F_GETFL).map_err(|e| e.into_pyexception(vm))?;
             let nonblock =
                 fcntl::OFlag::from_bits_truncate(oflags).contains(fcntl::OFlag::O_NONBLOCK);
             if !nonblock {
