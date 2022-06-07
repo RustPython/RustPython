@@ -7,10 +7,6 @@ name = "Inflector"
 version = "0.11.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fe438c63458706e03479442743baae6c88256498e6431708f6dfc520a26515d3"
-dependencies = [
- "lazy_static 1.4.0",
- "regex",
-]
 
 [[package]]
 name = "abort_on_panic"
@@ -1500,25 +1496,24 @@ dependencies = [
 
 [[package]]
 name = "result-like"
-version = "0.4.2"
+version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e1f304c2e140605000124bb765715e68efd31a710c3a012da2f316122e25441"
+checksum = "f95d927de9fa384eaf3e5b10e86065dd0a8a272b61cede64ffe7e83d2827073c"
 dependencies = [
  "result-like-derive",
 ]
 
 [[package]]
 name = "result-like-derive"
-version = "0.4.2"
+version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a0ebbb466cf8f72ae15736143bd789fdabf9a071fcb17597d963d6aa6dea96aa"
+checksum = "6dac91550a14a4b4ec485260b40d83b25059130f564d7f598604e0c7b1a8b9e6"
 dependencies = [
- "Inflector",
  "pmutil",
  "proc-macro2",
  "quote",
  "syn",
- "syn-ext 0.3.1",
+ "syn-ext",
 ]
 
 [[package]]
@@ -1645,7 +1640,7 @@ dependencies = [
  "rustpython-compiler",
  "rustpython-doc",
  "syn",
- "syn-ext 0.4.0",
+ "syn-ext",
  "textwrap 0.15.0",
 ]
 
@@ -2110,15 +2105,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-xid",
-]
-
-[[package]]
-name = "syn-ext"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe0015195d694527a7c4f1479b2f3975644baefb40f0a79c974980b4f25d2b32"
-dependencies = [
- "syn",
 ]
 
 [[package]]
