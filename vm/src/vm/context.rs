@@ -6,9 +6,9 @@ use crate::{
         getset::{IntoPyGetterFunc, IntoPySetterFunc, PyGetSet},
         object, pystr,
         type_::PyAttributes,
-        PyBaseException, PyComplex, PyDict, PyDictRef, PyEllipsis, PyFloat, PyFrozenSet, PyInt,
-        PyIntRef, PyList, PyListRef, PyNone, PyNotImplemented, PyStr, PyStrInterned, PyTuple,
-        PyTupleRef, PyType, PyTypeRef,
+        PyBaseException, PyBytes, PyComplex, PyDict, PyDictRef, PyEllipsis, PyFloat, PyFrozenSet,
+        PyInt, PyIntRef, PyList, PyListRef, PyNone, PyNotImplemented, PyStr, PyStrInterned,
+        PyTuple, PyTupleRef, PyType, PyTypeRef,
     },
     class::{PyClassImpl, StaticType},
     common::rc::PyRc,
@@ -30,6 +30,7 @@ pub struct Context {
     pub empty_tuple: PyTupleRef,
     pub empty_frozenset: PyRef<PyFrozenSet>,
     pub empty_str: PyRef<PyStr>,
+    pub empty_bytes: PyRef<PyBytes>,
     pub ellipsis: PyRef<PyEllipsis>,
     pub not_implemented: PyRef<PyNotImplemented>,
 
@@ -273,7 +274,7 @@ impl Context {
         .into();
 
         let empty_str = unsafe { string_pool.intern("", types.str_type.to_owned()) }.to_owned();
-
+        let empty_bytes = create_object(PyBytes::from(Vec::new()), types.bytes_type);
         let context = Context {
             true_value,
             false_value,
@@ -281,6 +282,7 @@ impl Context {
             empty_tuple,
             empty_frozenset,
             empty_str,
+            empty_bytes,
 
             ellipsis,
             not_implemented,
