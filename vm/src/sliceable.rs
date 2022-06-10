@@ -308,14 +308,15 @@ impl SequenceIndexOp for isize {
     }
 
     fn wrapped_at(&self, len: usize) -> Option<usize> {
-        let neg = self.is_negative();
-        let p = self.unsigned_abs();
-        if neg {
-            len.checked_sub(p)
-        } else if p >= len {
+        let mut p = *self;
+        if p < 0 {
+            // casting to isize is ok because it is used by wrapping_add
+            p = p.wrapping_add(len as isize);
+        }
+        if p < 0 || (p as usize) >= len {
             None
         } else {
-            Some(p)
+            Some(p as usize)
         }
     }
 }
