@@ -74,6 +74,8 @@ impl Interpreter {
 
             atexit::_run_exitfuncs(vm);
 
+            vm.set_finalizing(true);
+
             flush_std(vm);
 
             exit_code
