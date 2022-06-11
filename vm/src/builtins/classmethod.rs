@@ -1,7 +1,8 @@
 use super::{PyBoundMethod, PyType, PyTypeRef};
 use crate::{
     class::PyClassImpl,
-    types::{Constructor, GetDescriptor},
+    common::lock::PyMutex,
+    types::{Constructor, GetDescriptor, Initializer},
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
@@ -26,14 +27,16 @@ use crate::{
 /// Class methods are different than C++ or Java static methods.
 /// If you want those, see the staticmethod builtin.
 #[pyclass(module = false, name = "classmethod")]
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct PyClassMethod {
-    callable: PyObjectRef,
+    callable: PyMutex<PyObjectRef>,
 }
 
 impl From<PyObjectRef> for PyClassMethod {
-    fn from(value: PyObjectRef) -> Self {
-        Self { callable: value }
+    fn from(callable: PyObjectRef) -> Self {
+        Self {
+            callable: PyMutex::new(callable),
+        }
     }
 }
 
@@ -52,7 +55,8 @@ impl GetDescriptor for PyClassMethod {
     ) -> PyResult {
         let (zelf, obj) = Self::_unwrap(zelf, obj, vm)?;
         let cls = cls.unwrap_or_else(|| obj.class().clone().into());
-        Ok(PyBoundMethod::new_ref(cls, zelf.callable.clone(), &vm.ctx).into())
+        let callable = zelf.callable.lock().clone();
+        Ok(PyBoundMethod::new_ref(cls, callable, &vm.ctx).into())
     }
 }
 
@@ -60,16 +64,29 @@ impl Constructor for PyClassMethod {
     type Args = PyObjectRef;
 
     fn py_new(cls: PyTypeRef, callable: Self::Args, vm: &VirtualMachine) -> PyResult {
-        PyClassMethod { callable }
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
+        PyClassMethod {
+            callable: PyMutex::new(callable),
+        }
+        .into_ref_with_type(vm, cls)
+        .map(Into::into)
+    }
+}
+
+impl Initializer for PyClassMethod {
+    type Args = PyObjectRef;
+
+    fn init(zelf: PyRef<Self>, callable: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+        *zelf.callable.lock() = callable;
+        Ok(())
     }
 }
 
 impl PyClassMethod {
     pub fn new_ref(callable: PyObjectRef, ctx: &Context) -> PyRef<Self> {
         PyRef::new_ref(
-            Self { callable },
+            Self {
+                callable: PyMutex::new(callable),
+            },
             ctx.types.classmethod_type.to_owned(),
             None,
         )
@@ -80,12 +97,12 @@ impl PyClassMethod {
 impl PyClassMethod {
     #[pyproperty(magic)]
     fn func(&self) -> PyObjectRef {
-        self.callable.clone()
+        self.callable.lock().clone()
     }
 
     #[pyproperty(magic)]
     fn isabstractmethod(&self, vm: &VirtualMachine) -> PyObjectRef {
-        match vm.get_attribute_opt(self.callable.clone(), "__isabstractmethod__") {
+        match vm.get_attribute_opt(self.callable.lock().clone(), "__isabstractmethod__") {
             Ok(Some(is_abstract)) => is_abstract,
             _ => vm.ctx.new_bool(false).into(),
         }
@@ -93,7 +110,9 @@ impl PyClassMethod {
 
     #[pyproperty(magic, setter)]
     fn set_isabstractmethod(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.callable.set_attr("__isabstractmethod__", value, vm)?;
+        self.callable
+            .lock()
+            .set_attr("__isabstractmethod__", value, vm)?;
         Ok(())
     }
 }
