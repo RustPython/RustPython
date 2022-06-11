@@ -26,6 +26,7 @@ use crate::{
 };
 use rustpython_common::lock::PyMutex;
 use std::fmt;
+use crate::sequence::ObjectSequenceOp;
 
 pub type DictContentType = dictdatatype::Dict;
 
@@ -998,7 +999,7 @@ trait ViewSetOps: DictView {
     ) -> PyResult<PyComparisonValue> {
         match_class!(match other {
             ref dictview @ Self => {
-                PyDict::inner_cmp(
+                return PyDict::inner_cmp(
                     zelf.dict(),
                     dictview.dict(),
                     op,
@@ -1009,12 +1010,22 @@ trait ViewSetOps: DictView {
             ref _set @ PySet => {
                 let inner = Self::to_set(zelf.to_owned(), vm)?;
                 let zelf_set = PySet { inner }.into_pyobject(vm);
-                PySet::cmp(zelf_set.downcast_ref().unwrap(), other, op, vm)
+                return PySet::cmp(zelf_set.downcast_ref().unwrap(), other, op, vm);
             }
+            ref _dictitems @ PyDictItems => { }
+            ref _dictkeys @ PyDictKeys => { }
             _ => {
-                Ok(NotImplemented)
+                return Ok(NotImplemented);
             }
-        })
+        });
+        let self_vec: Vec<PyObjectRef> = zelf.as_object().to_owned().try_into_value(vm)?;
+        let other_vec: Vec<PyObjectRef> = other.to_owned().try_into_value(vm)?;
+        let res = self_vec.eq(vm, &other_vec)?;
+        match op {
+            PyComparisonOp::Eq => Ok(Implemented(res)),
+            PyComparisonOp::Ne => Ok(Implemented(!res)),
+            _ => Ok(NotImplemented),
+        }
     }
 
     #[pymethod]
