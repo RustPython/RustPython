@@ -86,6 +86,7 @@ pub struct PyGlobalState {
     pub hash_secret: HashSecret,
     pub atexit_funcs: PyMutex<Vec<(PyObjectRef, FuncArgs)>>,
     pub codec_registry: CodecsRegistry,
+    pub finalizing: bool,
 }
 
 pub fn process_hash_secret_seed() -> u32 {
@@ -158,6 +159,7 @@ impl VirtualMachine {
                 hash_secret,
                 atexit_funcs: PyMutex::default(),
                 codec_registry,
+                finalizing: false,
             }),
             initialized: false,
             recursion_depth: Cell::new(0),
@@ -784,6 +786,10 @@ impl VirtualMachine {
         let run_module_as_main = runpy.get_attr("_run_module_as_main", self)?;
         self.invoke(&run_module_as_main, (module,))?;
         Ok(())
+    }
+
+    pub fn set_finalizing(&self, is_finalizing: bool) -> () {
+        self.state.finalizing = is_finalizing
     }
 }
 
