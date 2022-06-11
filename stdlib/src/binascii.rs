@@ -104,6 +104,9 @@ mod decl {
             } else {
                 b
             };
+            if b.len() % 4 != 0 {
+                return Err(base64::DecodeError::InvalidLength)
+            }
             base64::decode(b)
         })
         .map_err(|err| vm.new_value_error(format!("error decoding base64: {}", err)))
