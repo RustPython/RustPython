@@ -17,7 +17,7 @@ mod array {
                 PyListRef, PyStr, PyStrRef, PyTupleRef, PyTypeRef,
             },
             class_or_notimplemented,
-            convert::{ToPyObject, ToPyResult, TryFromBorrowedObject, TryFromObject},
+            convert::{ToPyObject, ToPyResult, TryFromObject},
             function::{ArgBytesLike, ArgIntoFloat, ArgIterable, OptionalArg, PyComparisonValue},
             protocol::{
                 BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
@@ -942,7 +942,7 @@ mod array {
         }
 
         fn _getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
-            match SequenceIndex::try_from_borrowed_object(vm, needle)? {
+            match SequenceIndex::try_from_borrowed_object(vm, needle, "array")? {
                 SequenceIndex::Int(i) => self.read().getitem_by_index(i, vm),
                 SequenceIndex::Slice(slice) => self.read().getitem_by_slice(slice, vm),
             }
@@ -959,7 +959,7 @@ mod array {
             value: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            match SequenceIndex::try_from_borrowed_object(vm, needle)? {
+            match SequenceIndex::try_from_borrowed_object(vm, needle, "array")? {
                 SequenceIndex::Int(i) => zelf.write().setitem_by_index(i, value, vm),
                 SequenceIndex::Slice(slice) => {
                     let cloned;
@@ -1001,7 +1001,7 @@ mod array {
         }
 
         fn _delitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
-            match SequenceIndex::try_from_borrowed_object(vm, needle)? {
+            match SequenceIndex::try_from_borrowed_object(vm, needle, "array")? {
                 SequenceIndex::Int(i) => self.try_resizable(vm)?.delitem_by_index(i, vm),
                 SequenceIndex::Slice(slice) => self.try_resizable(vm)?.delitem_by_slice(slice, vm),
             }

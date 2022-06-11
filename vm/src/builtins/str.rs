@@ -442,7 +442,7 @@ impl PyStr {
     }
 
     fn _getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
-        match SequenceIndex::try_from_borrowed_object(vm, needle)? {
+        match SequenceIndex::try_from_borrowed_object(vm, needle, "str")? {
             SequenceIndex::Int(i) => self.get_item_by_index(vm, i).map(|x| x.to_string()),
             SequenceIndex::Slice(slice) => self.get_item_by_slice(vm, slice),
         }

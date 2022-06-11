@@ -40,8 +40,6 @@ class CommonTest(seq_tests.CommonTest):
         with self.assertRaisesRegex(TypeError, msg):
             a['a']
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_setitem_error(self):
         a = []
         msg = "list indices must be integers or slices"

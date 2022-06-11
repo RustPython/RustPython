@@ -167,7 +167,7 @@ impl PyBytes {
     }
 
     fn _getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
-        match SequenceIndex::try_from_borrowed_object(vm, needle)? {
+        match SequenceIndex::try_from_borrowed_object(vm, needle, "bytes")? {
             SequenceIndex::Int(i) => self
                 .inner
                 .elements
