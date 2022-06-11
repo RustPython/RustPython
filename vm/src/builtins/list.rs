@@ -1,4 +1,4 @@
-use super::{PositionIterInternal, PyGenericAlias, PyTupleRef, PyType, PyTypeRef};
+use super::{PositionIterInternal, PyGenericAlias, PyIntRef, PyTupleRef, PyType, PyTypeRef};
 use crate::common::lock::{
     PyMappedRwLockReadGuard, PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
 };
@@ -10,7 +10,7 @@ use crate::{
     protocol::{PyIterReturn, PyMappingMethods, PySequence, PySequenceMethods},
     recursion::ReprGuard,
     sequence::{MutObjectSequenceOp, SequenceExt, SequenceMutExt},
-    sliceable::{saturate_index, SequenceIndex, SliceableSequenceMutOp, SliceableSequenceOp},
+    sliceable::{SequenceIndex, SliceableSequenceMutOp, SliceableSequenceOp},
     types::{
         AsMapping, AsSequence, Comparable, Constructor, Hashable, Initializer, IterNext,
         IterNextIterable, Iterable, PyComparisonOp, Unconstructible, Unhashable,
@@ -19,6 +19,7 @@ use crate::{
     vm::VirtualMachine,
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
 };
+use num_traits::Signed;
 use std::{fmt, ops::DerefMut};
 
 /// Built-in mutable sequence.
@@ -271,15 +272,61 @@ impl PyList {
     fn index(
         &self,
         needle: PyObjectRef,
-        start: OptionalArg<isize>,
-        stop: OptionalArg<isize>,
+        start: OptionalArg<PyObjectRef>,
+        stop: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
         let len = self.len();
-        let start = start.map(|i| saturate_index(i, len)).unwrap_or(0);
-        let stop = stop
-            .map(|i| saturate_index(i, len))
-            .unwrap_or(isize::MAX as usize);
+        let start: OptionalArg<PyIntRef> = match start {
+            OptionalArg::Missing => OptionalArg::Missing,
+            OptionalArg::Present(obj) => OptionalArg::Present(obj.try_into_value(vm)?),
+        };
+        let stop: OptionalArg<PyIntRef> = match stop {
+            OptionalArg::Missing => OptionalArg::Missing,
+            OptionalArg::Present(obj) => OptionalArg::Present(obj.try_into_value(vm)?),
+        };
+        let start: usize = match start {
+            OptionalArg::Missing => 0,
+            OptionalArg::Present(obj) => {
+                let bigint = obj.as_bigint();
+                if bigint.is_negative() {
+                    let idx: Result<usize, _> = bigint.abs().try_into();
+                    match idx {
+                        Ok(abs) => {
+                            if abs >= len {
+                                0
+                            } else {
+                                len - abs
+                            }
+                        }
+                        Err(_) => 0,
+                    }
+                } else {
+                    bigint.try_into().unwrap_or(len)
+                }
+            }
+        };
+        let stop: usize = match stop {
+            OptionalArg::Missing => len,
+            OptionalArg::Present(obj) => {
+                let bigint = obj.as_bigint();
+                if bigint.is_negative() {
+                    let idx: Result<usize, _> = bigint.abs().try_into();
+                    match idx {
+                        Ok(abs) => {
+                            if abs >= len {
+                                0
+                            } else {
+                                len - abs
+                            }
+                        }
+                        Err(_) => 0,
+                    }
+                } else {
+                    bigint.try_into().unwrap_or(len)
+                }
+            }
+        };
         let index = self.mut_index_range(vm, &needle, start..stop)?;
         if let Some(index) = index.into() {
             Ok(index)
