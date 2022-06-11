@@ -892,7 +892,7 @@ class SysModuleTest(unittest.TestCase):
         c = sys.getallocatedblocks()
         self.assertIn(c, range(b - 50, b + 50))
 
-    # TODO: RUSTPYTHON, AttributeError: module 'sys' has no attribute 'is_finalizing'
+    # TODO: RUSTPYTHON, AtExit.__del__ is not invoked because module destruction is missing.
     @unittest.expectedFailure
     def test_is_finalizing(self):
         self.assertIs(sys.is_finalizing(), False)
