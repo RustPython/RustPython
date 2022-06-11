@@ -34,6 +34,7 @@ use crate::{
     signal, stdlib, AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
 };
 use crossbeam_utils::atomic::AtomicCell;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::{
     borrow::Cow,
     cell::{Cell, Ref, RefCell},
@@ -86,7 +87,7 @@ pub struct PyGlobalState {
     pub hash_secret: HashSecret,
     pub atexit_funcs: PyMutex<Vec<(PyObjectRef, FuncArgs)>>,
     pub codec_registry: CodecsRegistry,
-    pub finalizing: bool,
+    pub finalizing: AtomicBool,
 }
 
 pub fn process_hash_secret_seed() -> u32 {
@@ -159,7 +160,7 @@ impl VirtualMachine {
                 hash_secret,
                 atexit_funcs: PyMutex::default(),
                 codec_registry,
-                finalizing: false,
+                finalizing: AtomicBool::new(false),
             }),
             initialized: false,
             recursion_depth: Cell::new(0),
@@ -789,7 +790,9 @@ impl VirtualMachine {
     }
 
     pub fn set_finalizing(&self, is_finalizing: bool) -> () {
-        self.state.finalizing = is_finalizing
+        self.state
+            .finalizing
+            .store(is_finalizing, Ordering::Release);
     }
 }
 
