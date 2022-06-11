@@ -60,7 +60,6 @@ class DictSetTest(unittest.TestCase):
         e["a"] = "def"
         self.assertNotEqual(d.items(), e.items())
 
-    # TODO: RUSTPYTHON
     def test_dict_mixed_keys_items(self):
         d = {(1, 1): 11, (2, 2): 22}
         e = {1: 1, 2: 2}
