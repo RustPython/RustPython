@@ -5,7 +5,7 @@ pub(super) use decl::crc32;
 #[pymodule(name = "binascii")]
 mod decl {
     use crate::vm::{
-        builtins::{PyIntRef, PyTypeRef},
+        builtins::{PyBaseExceptionRef, PyIntRef, PyTypeRef},
         function::{ArgAsciiBuffer, ArgBytesLike, OptionalArg},
         PyResult, VirtualMachine,
     };
@@ -93,6 +93,10 @@ mod decl {
         newline: bool,
     }
 
+    fn new_binascii_error(msg: String, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        vm.new_exception_msg(error_type(vm), msg)
+    }
+
     #[pyfunction]
     fn a2b_base64(s: ArgAsciiBuffer, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         s.with_ref(|b| {
@@ -104,9 +108,12 @@ mod decl {
             } else {
                 b
             };
+            if b.len() % 4 != 0 {
+                return Err(base64::DecodeError::InvalidLength);
+            }
             base64::decode(b)
         })
-        .map_err(|err| vm.new_value_error(format!("error decoding base64: {}", err)))
+        .map_err(|err| new_binascii_error(format!("error decoding base64: {}", err), vm))
     }
 
     #[pyfunction]
