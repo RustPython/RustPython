@@ -189,8 +189,6 @@ class BinASCIITest(unittest.TestCase):
         with self.assertRaises(TypeError):
             binascii.b2a_uu(b"", True)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_crc_hqx(self):
         crc = binascii.crc_hqx(self.type2test(b"Test the CRC-32 of"), 0)
         crc = binascii.crc_hqx(self.type2test(b" this string."), crc)
