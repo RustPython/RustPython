@@ -1,9 +1,9 @@
 use super::{PyBoundMethod, PyType, PyTypeRef};
 use crate::{
     class::PyClassImpl,
+    common::lock::PyMutex,
     types::{Constructor, GetDescriptor, Initializer},
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-    common::lock::PyMutex,
 };
 
 /// classmethod(function) -> method
@@ -34,7 +34,9 @@ pub struct PyClassMethod {
 
 impl From<PyObjectRef> for PyClassMethod {
     fn from(callable: PyObjectRef) -> Self {
-        Self { callable: PyMutex::new(callable) }
+        Self {
+            callable: PyMutex::new(callable),
+        }
     }
 }
 
@@ -62,20 +64,18 @@ impl Constructor for PyClassMethod {
     type Args = PyObjectRef;
 
     fn py_new(cls: PyTypeRef, callable: Self::Args, vm: &VirtualMachine) -> PyResult {
-        PyClassMethod { callable: PyMutex::new(callable) }
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
+        PyClassMethod {
+            callable: PyMutex::new(callable),
+        }
+        .into_ref_with_type(vm, cls)
+        .map(Into::into)
     }
 }
 
 impl Initializer for PyClassMethod {
     type Args = PyObjectRef;
 
-    fn init(
-        zelf: PyRef<Self>,
-        callable: Self::Args,
-        _vm: &VirtualMachine,
-    ) -> PyResult<()> {
+    fn init(zelf: PyRef<Self>, callable: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
         *zelf.callable.lock() = callable;
         Ok(())
     }
@@ -84,7 +84,9 @@ impl Initializer for PyClassMethod {
 impl PyClassMethod {
     pub fn new_ref(callable: PyObjectRef, ctx: &Context) -> PyRef<Self> {
         PyRef::new_ref(
-            Self { callable: PyMutex::new(callable) },
+            Self {
+                callable: PyMutex::new(callable),
+            },
             ctx.types.classmethod_type.to_owned(),
             None,
         )
@@ -108,7 +110,9 @@ impl PyClassMethod {
 
     #[pyproperty(magic, setter)]
     fn set_isabstractmethod(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.callable.lock().set_attr("__isabstractmethod__", value, vm)?;
+        self.callable
+            .lock()
+            .set_attr("__isabstractmethod__", value, vm)?;
         Ok(())
     }
 }
