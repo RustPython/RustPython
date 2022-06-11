@@ -3,6 +3,7 @@ use crate::{
     stdlib::{atexit, sys},
     PyResult,
 };
+use std::sync::atomic::Ordering;
 
 /// The general interface for the VM
 ///
@@ -73,6 +74,8 @@ impl Interpreter {
                 .unwrap_or_else(|code| code);
 
             atexit::_run_exitfuncs(vm);
+
+            vm.state.finalizing.store(true, Ordering::Release);
 
             flush_std(vm);
 

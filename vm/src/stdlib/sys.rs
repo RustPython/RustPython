@@ -19,6 +19,7 @@ mod sys {
         AsObject, PyObjectRef, PyRef, PyRefExact, PyResult,
     };
     use num_traits::ToPrimitive;
+    use std::sync::atomic::Ordering;
     use std::{env, mem, path};
 
     // not the same as CPython (e.g. rust's x86_x64-unknown-linux-gnu is just x86_64-linux-gnu)
@@ -519,6 +520,11 @@ mod sys {
     #[pyattr]
     fn int_info(vm: &VirtualMachine) -> PyTupleRef {
         PyIntInfo::INFO.into_struct_sequence(vm)
+    }
+
+    #[pyfunction]
+    fn is_finalizing(vm: &VirtualMachine) -> bool {
+        vm.state.finalizing.load(Ordering::Acquire)
     }
 
     #[pyfunction]
