@@ -34,7 +34,7 @@ use crate::{
     signal, stdlib, AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
 };
 use crossbeam_utils::atomic::AtomicCell;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::{
     borrow::Cow,
     cell::{Cell, Ref, RefCell},
@@ -787,12 +787,6 @@ impl VirtualMachine {
         let run_module_as_main = runpy.get_attr("_run_module_as_main", self)?;
         self.invoke(&run_module_as_main, (module,))?;
         Ok(())
-    }
-
-    pub fn set_finalizing(&self, is_finalizing: bool) -> () {
-        self.state
-            .finalizing
-            .store(is_finalizing, Ordering::Release);
     }
 }
 
