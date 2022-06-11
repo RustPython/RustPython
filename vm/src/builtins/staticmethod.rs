@@ -69,6 +69,11 @@ impl PyStaticMethod {
 #[pyimpl(with(Callable, GetDescriptor, Constructor), flags(BASETYPE, HAS_DICT))]
 impl PyStaticMethod {
     #[pyproperty(magic)]
+    fn func(&self) -> PyObjectRef {
+        self.callable.clone()
+    }
+
+    #[pyproperty(magic)]
     fn isabstractmethod(&self, vm: &VirtualMachine) -> PyObjectRef {
         match vm.get_attribute_opt(self.callable.clone(), "__isabstractmethod__") {
             Ok(Some(is_abstract)) => is_abstract,
