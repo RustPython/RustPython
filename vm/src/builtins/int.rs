@@ -252,28 +252,19 @@ impl Constructor for PyInt {
                     .ok_or_else(|| {
                         vm.new_value_error("int() base must be >= 2 and <= 36, or 0".to_owned())
                     })?;
-                try_int_radix(&val, base, vm)
+                try_int_radix(&val, base, vm)?
             } else {
-                let val = if cls.is(vm.ctx.types.int_type) {
-                    match val.downcast_exact::<PyInt>(vm) {
-                        Ok(i) => {
-                            return Ok(i.to_pyobject(vm));
-                        }
-                        Err(val) => val,
-                    }
-                } else {
-                    val
-                };
+                if cls.is(vm.ctx.types.int_type) && val.class().is(vm.ctx.types.int_type) {
+                    return Ok(val);
+                }
 
-                PyNumber::new(val.as_ref(), vm)
-                    .int(vm)
-                    .map(|x| x.as_bigint().clone())
+                PyNumber::new(val.as_ref(), vm).int(vm)?.as_bigint().clone()
             }
         } else if let OptionalArg::Present(_) = options.base {
-            Err(vm.new_type_error("int() missing string argument".to_owned()))
+            return Err(vm.new_type_error("int() missing string argument".to_owned()));
         } else {
-            Ok(Zero::zero())
-        }?;
+            Zero::zero()
+        };
 
         Self::with_value(cls, value, vm).to_pyresult(vm)
     }

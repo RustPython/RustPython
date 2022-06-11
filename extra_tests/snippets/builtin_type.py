@@ -1,3 +1,4 @@
+import unittest.mock
 from testutils import assert_raises
 
 
@@ -550,3 +551,12 @@ def my_repr_func():
     pass
 
 assert repr(my_repr_func).startswith('<function my_repr_func at 0x')
+
+class GenLike:
+    def __iter__(self): pass
+    def __next__(self): pass
+
+# gen = GenLike()
+gen = unittest.mock.MagicMock(GenLike)
+gen.__iter__ = lambda gen: gen
+assert gen is iter(gen)

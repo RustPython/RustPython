@@ -1,6 +1,10 @@
-use crate::common::{hash::PyHash, lock::PyRwLock};
+use crate::common::{
+    borrow::BorrowedValue,
+    hash::PyHash,
+    lock::{PyRwLock, PyRwLockReadGuard},
+};
 use crate::{
-    builtins::{PyInt, PyStrInterned, PyStrRef, PyType, PyTypeRef},
+    builtins::{PyFloat, PyInt, PyStrInterned, PyStrRef, PyType, PyTypeRef},
     bytecode::ComparisonOperator,
     convert::ToPyResult,
     function::Either,
@@ -139,7 +143,8 @@ impl Default for PyTypeFlags {
 
 pub(crate) type GenericMethod = fn(&PyObject, FuncArgs, &VirtualMachine) -> PyResult;
 pub(crate) type AsMappingFunc = fn(&PyObject, &VirtualMachine) -> &'static PyMappingMethods;
-pub(crate) type AsNumberFunc = fn(&PyObject, &VirtualMachine) -> &'static PyNumberMethods;
+pub(crate) type AsNumberFunc =
+    for<'a> fn(&'a PyObject, &VirtualMachine) -> BorrowedValue<'a, PyNumberMethods>;
 pub(crate) type HashFunc = fn(&PyObject, &VirtualMachine) -> PyResult<PyHash>;
 // CallFunc = GenericMethod
 pub(crate) type GetattroFunc = fn(&PyObject, PyStrRef, &VirtualMachine) -> PyResult;
@@ -205,13 +210,37 @@ fn slot_as_sequence(zelf: &PyObject, vm: &VirtualMachine) -> &'static PySequence
     PySequenceMethods::generic(has_length, has_ass_item)
 }
 
-fn slot_as_number(zelf: &PyObject, vm: &VirtualMachine) -> &'static PyNumberMethods {
-    let (has_int, has_float, has_index) = (
-        zelf.class().has_attr(identifier!(vm, __int__)),
-        zelf.class().has_attr(identifier!(vm, __float__)),
-        zelf.class().has_attr(identifier!(vm, __index__)),
-    );
-    PyNumberMethods::generic(has_int, has_float, has_index)
+fn slot_as_number<'a>(
+    zelf: &'a PyObject,
+    _vm: &VirtualMachine,
+) -> BorrowedValue<'a, PyNumberMethods> {
+    PyRwLockReadGuard::map(zelf.class_lock().read(), |cls| {
+        &cls.heaptype_ext.as_ref().unwrap().number_methods
+    })
+    .into()
+}
+
+fn int_wrapper(num: &PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyInt>> {
+    let ret = vm.call_special_method(num.obj.to_owned(), identifier!(vm, __int__), ())?;
+    ret.downcast::<PyInt>().map_err(|obj| {
+        vm.new_type_error(format!("__int__ returned non-int (type {})", obj.class()))
+    })
+}
+
+fn float_wrapper(num: &PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyFloat>> {
+    let ret = vm.call_special_method(num.obj.to_owned(), identifier!(vm, __float__), ())?;
+    ret.downcast::<PyFloat>().map_err(|obj| {
+        vm.new_type_error(format!(
+            "__float__ returned non-float (type {})",
+            obj.class()
+        ))
+    })
+}
+fn index_wrapper(num: &PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyInt>> {
+    let ret = vm.call_special_method(num.obj.to_owned(), identifier!(vm, __index__), ())?;
+    ret.downcast::<PyInt>().map_err(|obj| {
+        vm.new_type_error(format!("__index__ returned non-int (type {})", obj.class()))
+    })
 }
 
 fn hash_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyHash> {
@@ -323,60 +352,85 @@ fn del_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
 }
 
 impl PyType {
-    pub(crate) fn update_slot(&self, name: &'static PyStrInterned, add: bool) {
-        debug_assert!(name.as_str().starts_with("__"));
-        debug_assert!(name.as_str().ends_with("__"));
+    pub(crate) fn update_slots(&mut self) {
+        for attr_name in self.attributes.read().keys() {
+            if !(attr_name.as_str().starts_with("__") && attr_name.as_str().ends_with("__")) {
+                continue;
+            }
+            let add = true;
 
-        macro_rules! update_slot {
-            ($name:ident, $func:expr) => {{
-                self.slots.$name.store(if add { Some($func) } else { None });
-            }};
-        }
-        match name.as_str() {
-            "__len__" | "__getitem__" | "__setitem__" | "__delitem__" => {
-                update_slot!(as_mapping, slot_as_mapping);
-                update_slot!(as_sequence, slot_as_sequence);
+            macro_rules! update_slot {
+                ($name:ident, $func:expr) => {{
+                    self.slots.$name.store(if add { Some($func) } else { None });
+                }};
             }
-            "__hash__" => {
-                update_slot!(hash, hash_wrapper);
+
+            match attr_name.as_str() {
+                "__len__" | "__getitem__" | "__setitem__" | "__delitem__" => {
+                    update_slot!(as_mapping, slot_as_mapping);
+                    update_slot!(as_sequence, slot_as_sequence);
+                }
+                "__hash__" => {
+                    update_slot!(hash, hash_wrapper);
+                }
+                "__call__" => {
+                    update_slot!(call, call_wrapper);
+                }
+                "__getattr__" | "__getattribute__" => {
+                    update_slot!(getattro, getattro_wrapper);
+                }
+                "__setattr__" | "__delattr__" => {
+                    update_slot!(setattro, setattro_wrapper);
+                }
+                "__eq__" | "__ne__" | "__le__" | "__lt__" | "__ge__" | "__gt__" => {
+                    update_slot!(richcompare, richcompare_wrapper);
+                }
+                "__iter__" => {
+                    update_slot!(iter, iter_wrapper);
+                }
+                "__next__" => {
+                    update_slot!(iternext, iternext_wrapper);
+                }
+                "__get__" => {
+                    update_slot!(descr_get, descr_get_wrapper);
+                }
+                "__set__" | "__delete__" => {
+                    update_slot!(descr_set, descr_set_wrapper);
+                }
+                "__init__" => {
+                    update_slot!(init, init_wrapper);
+                }
+                "__new__" => {
+                    update_slot!(new, new_wrapper);
+                }
+                "__del__" => {
+                    update_slot!(del, del_wrapper);
+                }
+                "__int__" => {
+                    self.heaptype_ext.as_mut().unwrap().number_methods.int = Some(int_wrapper);
+                    update_slot!(as_number, slot_as_number);
+                }
+                "__float__" => {
+                    self.heaptype_ext.as_mut().unwrap().number_methods.float = Some(float_wrapper);
+                    update_slot!(as_number, slot_as_number);
+                }
+                "__index__" => {
+                    self.heaptype_ext.as_mut().unwrap().number_methods.index = Some(index_wrapper);
+                    update_slot!(as_number, slot_as_number);
+                }
+                "__add__" => {
+                    self.heaptype_ext.as_mut().unwrap().number_methods.add =
+                        Some(|num, other, vm| {
+                            vm.call_special_method(
+                                num.obj.to_owned(),
+                                identifier!(vm, __add__),
+                                (other,),
+                            )
+                        });
+                    update_slot!(as_number, slot_as_number);
+                }
+                _ => {}
             }
-            "__call__" => {
-                update_slot!(call, call_wrapper);
-            }
-            "__getattr__" | "__getattribute__" => {
-                update_slot!(getattro, getattro_wrapper);
-            }
-            "__setattr__" | "__delattr__" => {
-                update_slot!(setattro, setattro_wrapper);
-            }
-            "__eq__" | "__ne__" | "__le__" | "__lt__" | "__ge__" | "__gt__" => {
-                update_slot!(richcompare, richcompare_wrapper);
-            }
-            "__iter__" => {
-                update_slot!(iter, iter_wrapper);
-            }
-            "__next__" => {
-                update_slot!(iternext, iternext_wrapper);
-            }
-            "__get__" => {
-                update_slot!(descr_get, descr_get_wrapper);
-            }
-            "__set__" | "__delete__" => {
-                update_slot!(descr_set, descr_set_wrapper);
-            }
-            "__init__" => {
-                update_slot!(init, init_wrapper);
-            }
-            "__new__" => {
-                update_slot!(new, new_wrapper);
-            }
-            "__del__" => {
-                update_slot!(del, del_wrapper);
-            }
-            "__int__" | "__index__" | "__float__" => {
-                update_slot!(as_number, slot_as_number);
-            }
-            _ => {}
         }
     }
 }
@@ -884,8 +938,11 @@ pub trait AsNumber: PyPayload {
 
     #[inline]
     #[pyslot]
-    fn as_number(_zelf: &PyObject, _vm: &VirtualMachine) -> &'static PyNumberMethods {
-        &Self::AS_NUMBER
+    fn as_number<'a>(
+        _zelf: &'a PyObject,
+        _vm: &VirtualMachine,
+    ) -> BorrowedValue<'a, PyNumberMethods> {
+        BorrowedValue::Ref(&Self::AS_NUMBER)
     }
 
     fn number_downcast<'a>(number: &'a PyNumber) -> &'a Py<Self> {

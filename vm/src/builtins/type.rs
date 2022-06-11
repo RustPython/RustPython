@@ -2,16 +2,17 @@ use super::{
     mappingproxy::PyMappingProxy, object, union_, PyClassMethod, PyDictRef, PyList, PyStaticMethod,
     PyStr, PyStrInterned, PyStrRef, PyTuple, PyTupleRef, PyWeak,
 };
-use crate::common::{
-    ascii,
-    borrow::BorrowedValue,
-    lock::{PyRwLock, PyRwLockReadGuard},
-};
 use crate::{
     builtins::PyBaseExceptionRef,
     class::{PyClassImpl, StaticType},
+    common::{
+        ascii,
+        borrow::BorrowedValue,
+        lock::{PyRwLock, PyRwLockReadGuard},
+    },
     function::{FuncArgs, KwArgs, OptionalArg},
     identifier,
+    protocol::PyNumberMethods,
     types::{Callable, GetAttr, PyTypeFlags, PyTypeSlots, SetAttr},
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
@@ -30,9 +31,15 @@ pub struct PyType {
     pub subclasses: PyRwLock<Vec<PyRef<PyWeak>>>,
     pub attributes: PyRwLock<PyAttributes>,
     pub slots: PyTypeSlots,
+    pub heaptype_ext: Option<Box<HeapTypeExt>>,
 }
 
 pub type PyTypeRef = PyRef<PyType>;
+
+#[derive(Default)]
+pub struct HeapTypeExt {
+    pub number_methods: PyNumberMethods,
+}
 
 /// For attributes we do not use a dict, but an IndexMap, which is an Hash Table
 /// that maintains order and is compatible with the standard HashMap  This is probably
@@ -104,25 +111,27 @@ impl PyType {
 
         *slots.name.get_mut() = Some(String::from(name));
 
-        let new_type = PyRef::new_ref(
-            PyType {
-                base: Some(base),
-                bases,
-                mro,
-                subclasses: PyRwLock::default(),
-                attributes: PyRwLock::new(attrs),
-                slots,
-            },
-            metaclass,
-            None,
-        );
+        let mut new_type = PyType {
+            base: Some(base),
+            bases,
+            mro,
+            subclasses: PyRwLock::default(),
+            attributes: PyRwLock::new(attrs),
+            slots,
+            heaptype_ext: Some(Box::new(HeapTypeExt::default())),
+        };
+        //     metaclass,
+        //     None,
+        // );
 
-        for attr_name in new_type.attributes.read().keys() {
-            if attr_name.as_str().starts_with("__") && attr_name.as_str().ends_with("__") {
-                new_type.update_slot(attr_name, true);
-            }
-        }
+        new_type.update_slots();
+        // for attr_name in new_type.attributes.read().keys() {
+        //     if attr_name.as_str().starts_with("__") && attr_name.as_str().ends_with("__") {
+        //         new_type.update_slot(attr_name, true);
+        //     }
+        // }
         let weakref_type = super::PyWeak::static_type();
+        let new_type = PyRef::new_ref(new_type, metaclass, None);
         for base in &new_type.bases {
             base.subclasses.write().push(
                 new_type
@@ -727,9 +736,10 @@ impl SetAttr for PyType {
                 ));
             }
         }
-        if attr_name.as_str().starts_with("__") && attr_name.as_str().ends_with("__") {
-            zelf.update_slot(attr_name, assign);
-        }
+        // TODO
+        // if attr_name.as_str().starts_with("__") && attr_name.as_str().ends_with("__") {
+        //     zelf.update_slot(attr_name, assign);
+        // }
         Ok(())
     }
 }

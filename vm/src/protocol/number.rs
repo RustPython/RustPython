@@ -1,12 +1,13 @@
 use crate::{
     builtins::{int, PyByteArray, PyBytes, PyComplex, PyFloat, PyInt, PyIntRef, PyStr},
+    common::borrow::BorrowedValue,
     function::ArgBytesLike,
     stdlib::warnings,
     AsObject, PyObject, PyPayload, PyRef, PyResult, TryFromBorrowedObject, VirtualMachine,
 };
 
 #[allow(clippy::type_complexity)]
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub struct PyNumberMethods {
     /* Number implementations must check *both*
     arguments for proper type and implement the necessary conversions
@@ -92,64 +93,11 @@ impl PyNumberMethods {
         matrix_multiply: None,
         inplace_matrix_multiply: None,
     };
-
-    pub(crate) fn generic(
-        has_int: bool,
-        has_float: bool,
-        has_index: bool,
-    ) -> &'static PyNumberMethods {
-        static METHODS: &[PyNumberMethods] = &[
-            new_generic(false, false, false),
-            new_generic(true, false, false),
-            new_generic(false, true, false),
-            new_generic(true, true, false),
-            new_generic(false, false, true),
-            new_generic(true, false, true),
-            new_generic(false, true, true),
-            new_generic(true, true, true),
-        ];
-
-        fn int(num: &PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyInt>> {
-            let ret = vm.call_special_method(num.obj.to_owned(), identifier!(vm, __int__), ())?;
-            ret.downcast::<PyInt>().map_err(|obj| {
-                vm.new_type_error(format!("__int__ returned non-int (type {})", obj.class()))
-            })
-        }
-        fn float(num: &PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyFloat>> {
-            let ret = vm.call_special_method(num.obj.to_owned(), identifier!(vm, __float__), ())?;
-            ret.downcast::<PyFloat>().map_err(|obj| {
-                vm.new_type_error(format!(
-                    "__float__ returned non-float (type {})",
-                    obj.class()
-                ))
-            })
-        }
-        fn index(num: &PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyInt>> {
-            let ret = vm.call_special_method(num.obj.to_owned(), identifier!(vm, __index__), ())?;
-            ret.downcast::<PyInt>().map_err(|obj| {
-                vm.new_type_error(format!("__index__ returned non-int (type {})", obj.class()))
-            })
-        }
-
-        const fn new_generic(has_int: bool, has_float: bool, has_index: bool) -> PyNumberMethods {
-            PyNumberMethods {
-                int: if has_int { Some(int) } else { None },
-                float: if has_float { Some(float) } else { None },
-                index: if has_index { Some(index) } else { None },
-                ..PyNumberMethods::NOT_IMPLEMENTED
-            }
-        }
-
-        let key = (has_int as usize) | ((has_float as usize) << 1) | ((has_index as usize) << 2);
-
-        &METHODS[key]
-    }
 }
 
 pub struct PyNumber<'a> {
     pub obj: &'a PyObject,
-    // some fast path do not need methods, so we do lazy initialize
-    pub methods: Option<&'static PyNumberMethods>,
+    pub methods: BorrowedValue<'a, PyNumberMethods>,
 }
 
 impl<'a> PyNumber<'a> {
@@ -159,32 +107,31 @@ impl<'a> PyNumber<'a> {
             methods: Self::find_methods(obj, vm),
         }
     }
-}
 
-impl PyNumber<'_> {
-    pub fn find_methods(obj: &PyObject, vm: &VirtualMachine) -> Option<&'static PyNumberMethods> {
+    pub fn find_methods(
+        obj: &'a PyObject,
+        vm: &VirtualMachine,
+    ) -> BorrowedValue<'a, PyNumberMethods> {
         obj.class()
             .mro_find_map(|x| x.slots.as_number.load())
             .map(|f| f(obj, vm))
-    }
-
-    pub fn methods(&self) -> &'static PyNumberMethods {
-        self.methods.unwrap_or(&PyNumberMethods::NOT_IMPLEMENTED)
+            .unwrap_or(BorrowedValue::Ref(&PyNumberMethods::NOT_IMPLEMENTED))
     }
 
     // PyNumber_Check
-    pub fn check(obj: &PyObject, vm: &VirtualMachine) -> bool {
-        Self::find_methods(obj, vm).map_or(false, |methods| {
-            methods.int.is_some()
-                || methods.index.is_some()
-                || methods.float.is_some()
-                || obj.payload_is::<PyComplex>()
-        })
+    pub fn check(obj: &'a PyObject, vm: &VirtualMachine) -> bool {
+        let methods = Self::find_methods(obj, vm);
+        methods.int.is_some()
+            || methods.index.is_some()
+            || methods.float.is_some()
+            || obj.payload_is::<PyComplex>()
     }
+}
 
+impl PyNumber<'_> {
     // PyIndex_Check
     pub fn is_index(&self) -> bool {
-        self.methods().index.is_some()
+        self.methods.index.is_some()
     }
 
     pub fn int(&self, vm: &VirtualMachine) -> PyResult<PyIntRef> {
@@ -202,7 +149,7 @@ impl PyNumber<'_> {
 
         if let Some(i) = self.obj.downcast_ref_if_exact::<PyInt>(vm) {
             Ok(i.to_owned())
-        } else if let Some(f) = self.methods().int {
+        } else if let Some(f) = self.methods.int {
             let ret = f(self, vm)?;
             if !ret.class().is(PyInt::class(vm)) {
                 warnings::warn(
@@ -220,7 +167,7 @@ impl PyNumber<'_> {
             } else {
                 Ok(ret)
             }
-        } else if self.methods().index.is_some() {
+        } else if self.methods.index.is_some() {
             self.index(vm)
         } else if let Ok(Ok(f)) =
             vm.get_special_method(self.obj.to_owned(), identifier!(vm, __trunc__))
@@ -233,12 +180,13 @@ impl PyNumber<'_> {
             //     vm,
             // )?;
             let ret = f.invoke((), vm)?;
-            PyNumber::new(ret.as_ref(), vm).index(vm).map_err(|_| {
+            let ret = PyNumber::new(ret.as_ref(), vm).index(vm).map_err(|_| {
                 vm.new_type_error(format!(
                     "__trunc__ returned non-Integral (type {})",
                     ret.class()
                 ))
-            })
+            });
+            ret
         } else if let Some(s) = self.obj.payload::<PyStr>() {
             try_convert(self.obj, s.as_str().as_bytes(), vm)
         } else if let Some(bytes) = self.obj.payload::<PyBytes>() {
@@ -261,7 +209,7 @@ impl PyNumber<'_> {
             Ok(Some(i.to_owned()))
         } else if let Some(i) = self.obj.payload::<PyInt>() {
             Ok(Some(vm.ctx.new_bigint(i.as_bigint())))
-        } else if let Some(f) = self.methods().index {
+        } else if let Some(f) = self.methods.index {
             let ret = f(self, vm)?;
             if !ret.class().is(PyInt::class(vm)) {
                 warnings::warn(
@@ -296,7 +244,7 @@ impl PyNumber<'_> {
     pub fn float_opt(&self, vm: &VirtualMachine) -> PyResult<Option<PyRef<PyFloat>>> {
         if let Some(float) = self.obj.downcast_ref_if_exact::<PyFloat>(vm) {
             Ok(Some(float.to_owned()))
-        } else if let Some(f) = self.methods().float {
+        } else if let Some(f) = self.methods.float {
             let ret = f(self, vm)?;
             if !ret.class().is(PyFloat::class(vm)) {
                 warnings::warn(
@@ -314,7 +262,7 @@ impl PyNumber<'_> {
             } else {
                 Ok(Some(ret))
             }
-        } else if self.methods().index.is_some() {
+        } else if self.methods.index.is_some() {
             let i = self.index(vm)?;
             let value = int::try_to_float(i.as_bigint(), vm)?;
             Ok(Some(vm.ctx.new_float(value)))
@@ -330,4 +278,19 @@ impl PyNumber<'_> {
             vm.new_type_error(format!("must be real number, not {}", self.obj.class()))
         })
     }
+
+    // pub fn add(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult {
+    //     let slotv = self.methods.add;
+    //     if !other.class().is(&self.obj.class()) && other.class().fast_issubclass(&self.obj.class()) {
+    //         // fallback?
+    //         let other = PyNumber::new(other, vm);
+    //         let slotw = other.methods.add;
+    //         if let Some(slotw) = slotw {
+    //             let ret = slotw(self, other.obj, vm)?;
+    //             if !ret.is(&vm.ctx.not_implemented) {
+    //                 return Ok(ret);
+    //             }
+    //         }
+    //     }
+    // }
 }
