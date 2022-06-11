@@ -109,7 +109,7 @@ mod decl {
                 b
             };
             if b.len() % 4 != 0 {
-                return Err(base64::DecodeError::InvalidLength)
+                return Err(base64::DecodeError::InvalidLength);
             }
             base64::decode(b)
         })
