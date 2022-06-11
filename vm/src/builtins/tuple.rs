@@ -2,7 +2,7 @@ use super::{PositionIterInternal, PyGenericAlias, PyType, PyTypeRef};
 use crate::common::{hash::PyHash, lock::PyMutex};
 use crate::{
     class::PyClassImpl,
-    convert::{ToPyObject, TransmuteFromObject, TryFromBorrowedObject},
+    convert::{ToPyObject, TransmuteFromObject},
     function::{OptionalArg, PyArithmeticValue, PyComparisonValue},
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     recursion::ReprGuard,
@@ -262,7 +262,7 @@ impl PyTuple {
     }
 
     fn _getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
-        match SequenceIndex::try_from_borrowed_object(vm, needle)? {
+        match SequenceIndex::try_from_borrowed_object(vm, needle, "tuple")? {
             SequenceIndex::Int(i) => self.elements.get_item_by_index(vm, i),
             SequenceIndex::Slice(slice) => self
                 .elements

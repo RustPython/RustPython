@@ -2,7 +2,6 @@ use super::{PositionIterInternal, PyGenericAlias, PyTupleRef, PyType, PyTypeRef}
 use crate::common::lock::{
     PyMappedRwLockReadGuard, PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
 };
-use crate::TryFromBorrowedObject;
 use crate::{
     class::PyClassImpl,
     convert::ToPyObject,
@@ -197,7 +196,7 @@ impl PyList {
     }
 
     fn _getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
-        match SequenceIndex::try_from_borrowed_object(vm, needle)? {
+        match SequenceIndex::try_from_borrowed_object(vm, needle, "list")? {
             SequenceIndex::Int(i) => self.borrow_vec().get_item_by_index(vm, i),
             SequenceIndex::Slice(slice) => self
                 .borrow_vec()
@@ -212,7 +211,7 @@ impl PyList {
     }
 
     fn _setitem(&self, needle: &PyObject, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        match SequenceIndex::try_from_borrowed_object(vm, needle)? {
+        match SequenceIndex::try_from_borrowed_object(vm, needle, "list")? {
             SequenceIndex::Int(index) => self.borrow_vec_mut().set_item_by_index(vm, index, value),
             SequenceIndex::Slice(slice) => {
                 let sec = extract_cloned(&*value, Ok, vm)?;
@@ -318,7 +317,7 @@ impl PyList {
     }
 
     fn _delitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
-        match SequenceIndex::try_from_borrowed_object(vm, needle)? {
+        match SequenceIndex::try_from_borrowed_object(vm, needle, "list")? {
             SequenceIndex::Int(i) => self.borrow_vec_mut().del_item_by_index(vm, i),
             SequenceIndex::Slice(slice) => self.borrow_vec_mut().del_item_by_slice(vm, slice),
         }

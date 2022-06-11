@@ -1,7 +1,7 @@
 // export through slicable module, not slice.
 use crate::{
     builtins::{int::PyInt, slice::PySlice},
-    AsObject, PyObject, PyResult, TryFromBorrowedObject, VirtualMachine,
+    AsObject, PyObject, PyResult, VirtualMachine,
 };
 use num_traits::{Signed, ToPrimitive};
 use std::ops::Range;
@@ -259,8 +259,12 @@ pub enum SequenceIndex {
     Slice(SaturatedSlice),
 }
 
-impl TryFromBorrowedObject for SequenceIndex {
-    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
+impl SequenceIndex {
+    pub fn try_from_borrowed_object(
+        vm: &VirtualMachine,
+        obj: &PyObject,
+        type_name: &str,
+    ) -> PyResult<Self> {
         if let Some(i) = obj.payload::<PyInt>() {
             // TODO: number protocol
             i.try_to_primitive(vm)
@@ -279,7 +283,8 @@ impl TryFromBorrowedObject for SequenceIndex {
                 .map(Self::Int)
         } else {
             Err(vm.new_type_error(format!(
-                "indices must be integers or slices or classes that override __index__ operator, not '{}'",
+                "{} indices must be integers or slices or classes that override __index__ operator, not '{}'",
+                type_name,
                 obj.class()
             )))
         }

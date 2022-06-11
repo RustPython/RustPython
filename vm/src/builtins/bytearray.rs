@@ -32,8 +32,8 @@ use crate::{
         AsBuffer, AsMapping, AsSequence, Callable, Comparable, Constructor, Hashable, Initializer,
         IterNext, IterNextIterable, Iterable, PyComparisonOp, Unconstructible, Unhashable,
     },
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
-    TryFromBorrowedObject, TryFromObject, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+    VirtualMachine,
 };
 use bstr::ByteSlice;
 use std::mem::size_of;
@@ -169,7 +169,7 @@ impl PyByteArray {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        match SequenceIndex::try_from_borrowed_object(vm, needle)? {
+        match SequenceIndex::try_from_borrowed_object(vm, needle, "bytearray")? {
             SequenceIndex::Int(i) => zelf._setitem_by_index(i, value, vm),
             SequenceIndex::Slice(slice) => {
                 let items = if zelf.is(&value) {
@@ -206,7 +206,7 @@ impl PyByteArray {
     }
 
     fn _getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
-        match SequenceIndex::try_from_borrowed_object(vm, needle)? {
+        match SequenceIndex::try_from_borrowed_object(vm, needle, "bytearray")? {
             SequenceIndex::Int(i) => self
                 .borrow_buf()
                 .get_item_by_index(vm, i)
@@ -224,7 +224,7 @@ impl PyByteArray {
     }
 
     pub fn _delitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
-        match SequenceIndex::try_from_borrowed_object(vm, needle)? {
+        match SequenceIndex::try_from_borrowed_object(vm, needle, "bytearray")? {
             SequenceIndex::Int(i) => self.try_resizable(vm)?.elements.del_item_by_index(vm, i),
             SequenceIndex::Slice(slice) => {
                 // TODO: delete 0 elements don't need resizable
