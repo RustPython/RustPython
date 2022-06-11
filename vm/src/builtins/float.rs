@@ -208,16 +208,18 @@ impl PyFloat {
     fn getformat(&self, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
         if !matches!(spec.as_str(), "double" | "float") {
             return Err(vm.new_value_error(format!(
-                "__getformat__() argument 1 must be 'double' or 'float'")));
+                "__getformat__() argument 1 must be 'double' or 'float'"
+            )));
         }
 
-        const BIG_ENDIAN:bool = cfg!(target_endian = "big");
+        const BIG_ENDIAN: bool = cfg!(target_endian = "big");
 
         Ok(if BIG_ENDIAN {
-                "IEEE, big-endian"
-            }else{
-                "IEEE, little-endian"
-            }.to_owned())
+            "IEEE, big-endian"
+        } else {
+            "IEEE, little-endian"
+        }
+        .to_owned())
     }
 
     #[pymethod(magic)]
