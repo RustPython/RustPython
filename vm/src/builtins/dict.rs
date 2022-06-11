@@ -2,6 +2,7 @@ use super::{
     set::PySetInner, IterStatus, PositionIterInternal, PyBaseExceptionRef, PyGenericAlias, PySet,
     PyStrRef, PyTupleRef, PyType, PyTypeRef,
 };
+use crate::sequence::ObjectSequenceOp;
 use crate::{
     builtins::{
         iter::{builtins_iter, builtins_reversed},
@@ -26,7 +27,6 @@ use crate::{
 };
 use rustpython_common::lock::PyMutex;
 use std::fmt;
-use crate::sequence::ObjectSequenceOp;
 
 pub type DictContentType = dictdatatype::Dict;
 
@@ -1005,15 +1005,15 @@ trait ViewSetOps: DictView {
                     op,
                     !zelf.class().is(vm.ctx.types.dict_keys_type),
                     vm,
-                )
+                );
             }
             ref _set @ PySet => {
                 let inner = Self::to_set(zelf.to_owned(), vm)?;
                 let zelf_set = PySet { inner }.into_pyobject(vm);
                 return PySet::cmp(zelf_set.downcast_ref().unwrap(), other, op, vm);
             }
-            ref _dictitems @ PyDictItems => { }
-            ref _dictkeys @ PyDictKeys => { }
+            ref _dictitems @ PyDictItems => {}
+            ref _dictkeys @ PyDictKeys => {}
             _ => {
                 return Ok(NotImplemented);
             }
