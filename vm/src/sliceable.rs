@@ -260,7 +260,11 @@ pub enum SequenceIndex {
 }
 
 impl SequenceIndex {
-    pub fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject, type_name: &str) -> PyResult<Self> {
+    pub fn try_from_borrowed_object(
+        vm: &VirtualMachine,
+        obj: &PyObject,
+        type_name: &str,
+    ) -> PyResult<Self> {
         if let Some(i) = obj.payload::<PyInt>() {
             // TODO: number protocol
             i.try_to_primitive(vm)

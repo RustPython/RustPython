@@ -32,8 +32,8 @@ use crate::{
         AsBuffer, AsMapping, AsSequence, Callable, Comparable, Constructor, Hashable, Initializer,
         IterNext, IterNextIterable, Iterable, PyComparisonOp, Unconstructible, Unhashable,
     },
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
-    TryFromObject, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+    VirtualMachine,
 };
 use bstr::ByteSlice;
 use std::mem::size_of;
