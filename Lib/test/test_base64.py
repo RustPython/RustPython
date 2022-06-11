@@ -235,8 +235,6 @@ class BaseXYTestCase(unittest.TestCase):
                                b'\xd3V\xbeo\xf7\x1d')
         self.check_decode_type_errors(base64.urlsafe_b64decode)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_b64decode_padding_error(self):
         self.assertRaises(binascii.Error, base64.b64decode, b'abc')
         self.assertRaises(binascii.Error, base64.b64decode, 'abc')
