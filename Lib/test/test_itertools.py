@@ -195,8 +195,7 @@ class TestBasicOps(unittest.TestCase):
             self.assertRaises(TypeError, list, oper(chain(2, 3)))
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             self.pickletest(proto, chain('abc', 'def'), compare=list('abcdef'))
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+
     def test_chain_setstate(self):
         self.assertRaises(TypeError, chain().__setstate__, ())
         self.assertRaises(TypeError, chain().__setstate__, [])
@@ -209,6 +208,7 @@ class TestBasicOps(unittest.TestCase):
         it = chain()
         it.__setstate__((iter(['abc', 'def']), iter(['ghi'])))
         self.assertEqual(list(it), ['ghi', 'a', 'b', 'c', 'd', 'e', 'f'])
+
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_combinations(self):

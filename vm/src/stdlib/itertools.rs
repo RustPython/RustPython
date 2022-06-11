@@ -58,7 +58,36 @@ mod decl {
         fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
             PyGenericAlias::new(cls, args, vm)
         }
+
+        #[pymethod(magic)]
+        fn setstate(&self, state: PyTupleRef, vm: &VirtualMachine) -> PyResult<()> {
+            let args = state.as_slice();
+            if args.is_empty() {
+                let msg = String::from("function takes at leat 1 arguments (0 given)");
+                return Err(vm.new_type_error(msg));
+            }
+            if args.len() > 2 {
+                let msg = format!("function takes at most 2 arguments ({} given)", args.len());
+                return Err(vm.new_type_error(msg));
+            }
+            let source = &args[0];
+            let active = args.get(1);
+            if !PyIter::check(source.as_ref())
+                || !active.map_or(true, |active| PyIter::check(active.as_ref()))
+            {
+                return Err(vm.new_type_error(String::from("Arguments must be iterators.")));
+            }
+            *self.iterables.write() = source.try_to_value(vm)?;
+            self.cur_idx.store(0);
+            *self.cached_iter.write() = if let Some(active) = active {
+                Some(active.clone().get_iter(vm)?)
+            } else {
+                None
+            };
+            Ok(())
+        }
     }
+
     impl IterNextIterable for PyItertoolsChain {}
     impl IterNext for PyItertoolsChain {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
