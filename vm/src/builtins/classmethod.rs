@@ -101,6 +101,36 @@ impl PyClassMethod {
     }
 
     #[pyproperty(magic)]
+    fn wrapped(&self) -> PyObjectRef {
+        self.callable.clone()
+    }
+
+    #[pyproperty(magic)]
+    fn module(&self, vm: &VirtualMachine) -> PyResult {
+        self.callable.get_attr("__module__", vm)
+    }
+
+    #[pyproperty(magic)]
+    fn qualname(&self, vm: &VirtualMachine) -> PyResult {
+        self.callable.get_attr("__qualname__", vm)
+    }
+
+    #[pyproperty(magic)]
+    fn name(&self, vm: &VirtualMachine) -> PyResult {
+        self.callable.get_attr("__name__", vm)
+    }
+
+    #[pyproperty(magic)]
+    fn annotations(&self, vm: &VirtualMachine) -> PyResult {
+        self.callable.get_attr("__annotations__", vm)
+    }
+
+    #[pyproperty(magic)]
+    fn doc(&self, vm: &VirtualMachine) -> PyResult {
+        self.callable.get_attr("__doc__", vm)
+    }
+
+    #[pyproperty(magic)]
     fn isabstractmethod(&self, vm: &VirtualMachine) -> PyObjectRef {
         match vm.get_attribute_opt(self.callable.lock().clone(), "__isabstractmethod__") {
             Ok(Some(is_abstract)) => is_abstract,
