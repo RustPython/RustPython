@@ -41,9 +41,19 @@ impl Constructor for PyStaticMethod {
     type Args = PyObjectRef;
 
     fn py_new(cls: PyTypeRef, callable: Self::Args, vm: &VirtualMachine) -> PyResult {
-        PyStaticMethod { callable }
+        let _callable = callable.clone();
+        let result: PyResult<PyObjectRef> = PyStaticMethod { callable }
             .into_ref_with_type(vm, cls)
-            .map(Into::into)
+            .map(Into::into);
+
+        let doc: PyResult<PyObjectRef> = _callable.get_attr("__doc__", vm);
+        let doc = vm.unwrap_pyresult(doc);
+        let obj = vm.unwrap_pyresult(result.clone());
+
+        match obj.set_attr("__doc__", doc, vm) {
+            Err(e) => Err(e),
+            Ok(_) => result,
+        }
     }
 }
 
@@ -96,11 +106,6 @@ impl PyStaticMethod {
     #[pyproperty(magic)]
     fn annotations(&self, vm: &VirtualMachine) -> PyResult {
         self.callable.get_attr("__annotations__", vm)
-    }
-
-    #[pyproperty(magic)]
-    fn doc(&self, vm: &VirtualMachine) -> PyResult {
-        self.callable.get_attr("__doc__", vm)
     }
 
     #[pyproperty(magic)]

@@ -64,11 +64,21 @@ impl Constructor for PyClassMethod {
     type Args = PyObjectRef;
 
     fn py_new(cls: PyTypeRef, callable: Self::Args, vm: &VirtualMachine) -> PyResult {
-        PyClassMethod {
+        let _callable = callable.clone();
+        let result: PyResult<PyObjectRef> = PyClassMethod {
             callable: PyMutex::new(callable),
         }
         .into_ref_with_type(vm, cls)
-        .map(Into::into)
+        .map(Into::into);
+
+        let doc: PyResult<PyObjectRef> = _callable.get_attr("__doc__", vm);
+        let doc = vm.unwrap_pyresult(doc);
+        let obj = vm.unwrap_pyresult(result.clone());
+
+        match obj.set_attr("__doc__", doc, vm) {
+            Err(e) => Err(e),
+            Ok(_) => result,
+        }
     }
 }
 
@@ -102,32 +112,27 @@ impl PyClassMethod {
 
     #[pyproperty(magic)]
     fn wrapped(&self) -> PyObjectRef {
-        self.callable.clone()
+        self.callable.lock().clone()
     }
 
     #[pyproperty(magic)]
     fn module(&self, vm: &VirtualMachine) -> PyResult {
-        self.callable.get_attr("__module__", vm)
+        self.callable.lock().get_attr("__module__", vm)
     }
 
     #[pyproperty(magic)]
     fn qualname(&self, vm: &VirtualMachine) -> PyResult {
-        self.callable.get_attr("__qualname__", vm)
+        self.callable.lock().get_attr("__qualname__", vm)
     }
 
     #[pyproperty(magic)]
     fn name(&self, vm: &VirtualMachine) -> PyResult {
-        self.callable.get_attr("__name__", vm)
+        self.callable.lock().get_attr("__name__", vm)
     }
 
     #[pyproperty(magic)]
     fn annotations(&self, vm: &VirtualMachine) -> PyResult {
-        self.callable.get_attr("__annotations__", vm)
-    }
-
-    #[pyproperty(magic)]
-    fn doc(&self, vm: &VirtualMachine) -> PyResult {
-        self.callable.get_attr("__doc__", vm)
+        self.callable.lock().get_attr("__annotations__", vm)
     }
 
     #[pyproperty(magic)]
