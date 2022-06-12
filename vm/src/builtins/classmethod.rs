@@ -53,10 +53,13 @@ impl GetDescriptor for PyClassMethod {
         cls: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let (zelf, obj) = Self::_unwrap(zelf, obj, vm)?;
-        let cls = cls.unwrap_or_else(|| obj.class().clone().into());
-        let callable = zelf.callable.lock().clone();
-        Ok(PyBoundMethod::new_ref(cls, callable, &vm.ctx).into())
+        let (zelf, _obj) = Self::_unwrap(zelf, obj.clone(), vm)?;
+        let cls = cls.unwrap_or_else(|| _obj.class().clone().into());
+        let _descr_get: PyResult<PyObjectRef> = zelf.callable.lock().get_attr("__get__", vm);
+        match _descr_get {
+            Err(_) => Ok(PyBoundMethod::new_ref(cls, zelf.callable.lock().clone(), &vm.ctx).into()),
+            Ok(_descr_get) => vm.invoke(&_descr_get, (cls.clone(), cls)),
+        }
     }
 }
 
