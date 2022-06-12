@@ -94,16 +94,12 @@ class TestDecorators(unittest.TestCase):
         self.assertEqual(repr(wrapper), format_str.format(func))
         return wrapper
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_staticmethod(self):
         wrapper = self.check_wrapper_attrs(staticmethod, '<staticmethod({!r})>')
 
         # bpo-43682: Static methods are callable since Python 3.10
         self.assertEqual(wrapper(1), 1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_classmethod(self):
         wrapper = self.check_wrapper_attrs(classmethod, '<classmethod({!r})>')
 
@@ -297,8 +293,6 @@ class TestDecorators(unittest.TestCase):
         self.assertEqual(bar(), 42)
         self.assertEqual(actions, expected_actions)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_wrapped_descriptor_inside_classmethod(self):
         class BoundWrapper:
             def __init__(self, wrapped):
@@ -337,8 +331,6 @@ class TestDecorators(unittest.TestCase):
         self.assertEqual(Class().inner(), 'spam')
         self.assertEqual(Class().outer(), 'eggs')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_wrapped_classmethod_inside_classmethod(self):
         class MyClassMethod1:
             def __init__(self, func):
