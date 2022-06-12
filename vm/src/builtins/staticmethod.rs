@@ -108,6 +108,26 @@ impl PyStaticMethod {
         self.callable.get_attr("__annotations__", vm)
     }
 
+    #[pymethod(magic)]
+    fn repr(&self, vm: &VirtualMachine) -> Option<String> {
+        let callable = self.callable.repr(vm).unwrap();
+        let class = Self::class(vm);
+
+        match (
+            class
+                .qualname(vm)
+                .downcast_ref::<PyStr>()
+                .map(|n| n.as_str()),
+            class.module(vm).downcast_ref::<PyStr>().map(|m| m.as_str()),
+        ) {
+            (None, _) => None,
+            (Some(qualname), Some(module)) if module != "builtins" => {
+                Some(format!("<{}.{}({})>", module, qualname, callable))
+            }
+            _ => Some(format!("<{}({})>", class.slot_name(), callable)),
+        }
+    }
+
     #[pyproperty(magic)]
     fn isabstractmethod(&self, vm: &VirtualMachine) -> PyObjectRef {
         match vm.get_attribute_opt(self.callable.clone(), "__isabstractmethod__") {
