@@ -1,6 +1,6 @@
 // export through slicable module, not slice.
 use crate::{
-    builtins::{int::PyInt, slice::PySlice},
+    builtins::{int::PyInt, slice::PySlice, PyIntRef},
     AsObject, PyObject, PyResult, VirtualMachine,
 };
 use num_traits::{Signed, ToPrimitive};
@@ -318,6 +318,19 @@ pub fn saturate_index(p: isize, len: usize) -> usize {
         p = len;
     }
     p as usize
+}
+
+// Saturate p in range [0, len] inclusive
+pub fn pyint_saturate_index(p: PyIntRef, len: usize) -> usize {
+    let bigint = p.as_bigint();
+    if bigint.is_negative() {
+        bigint
+            .abs()
+            .try_into()
+            .map_or(0, |abs| len.saturating_sub(abs))
+    } else {
+        bigint.try_into().unwrap_or(len)
+    }
 }
 
 /// A saturated slice with values ranging in [isize::MIN, isize::MAX]. Used for
