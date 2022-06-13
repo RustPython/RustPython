@@ -11,7 +11,7 @@ use crate::{
     function::{ArgIterable, FuncArgs, OptionalArg, OptionalOption, PyComparisonValue},
     intern::PyInterned,
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
-    sequence::SequenceOp,
+    sequence::SequenceExt,
     sliceable::{SequenceIndex, SliceableSequenceOp},
     types::{
         AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable,

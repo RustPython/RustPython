@@ -7,9 +7,10 @@ use crate::{
     class::PyClassImpl,
     convert::ToPyObject,
     function::{FuncArgs, OptionalArg, PyComparisonValue},
+    iter::PyExactSizeIterator,
     protocol::{PyIterReturn, PyMappingMethods, PySequence, PySequenceMethods},
     recursion::ReprGuard,
-    sequence::{MutObjectSequenceOp, ObjectSequenceOp, SequenceMutOp, SequenceOp},
+    sequence::{MutObjectSequenceOp, SequenceExt, SequenceMutExt},
     sliceable::{saturate_index, SequenceIndex, SliceableSequenceMutOp, SliceableSequenceOp},
     types::{
         AsMapping, AsSequence, Comparable, Constructor, Hashable, Initializer, IterNext,
@@ -492,7 +493,9 @@ impl Comparable for PyList {
         let other = class_or_notimplemented!(Self, other);
         let a = &*zelf.borrow_vec();
         let b = &*other.borrow_vec();
-        a.cmp(vm, b, op).map(PyComparisonValue::Implemented)
+        a.iter()
+            .richcompare(b.iter(), op, vm)
+            .map(PyComparisonValue::Implemented)
     }
 }
 
