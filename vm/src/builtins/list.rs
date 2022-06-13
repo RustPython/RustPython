@@ -276,20 +276,12 @@ impl PyList {
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
         let len = self.len();
-        let start: usize = match start {
-            OptionalArg::Missing => 0,
-            OptionalArg::Present(obj) => {
-                let int: PyIntRef = obj.try_into_value(vm)?;
-                pyint_saturate_index(int, len)
-            }
+        let saturate = |obj: PyObjectRef, len| -> PyResult<_> {
+            obj.try_into_value(vm)
+                .map(|int: PyIntRef| pyint_saturate_index(int, len))
         };
-        let stop: usize = match stop {
-            OptionalArg::Missing => len,
-            OptionalArg::Present(obj) => {
-                let int: PyIntRef = obj.try_into_value(vm)?;
-                pyint_saturate_index(int, len)
-            }
-        };
+        let start = start.map_or(Ok(0), |obj| saturate(obj, len))?;
+        let stop = stop.map_or(Ok(len), |obj| saturate(obj, len))?;
         let index = self.mut_index_range(vm, &needle, start..stop)?;
         if let Some(index) = index.into() {
             Ok(index)
