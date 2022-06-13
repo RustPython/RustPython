@@ -204,10 +204,10 @@ mod decl {
         }
 
         #[pymethod(magic)]
-        fn repr(&self, _vm: &VirtualMachine) -> PyResult<String> {
-            let fmt = &self.cur.read().to_string();
+        fn repr(&self) -> PyResult<String> {
+            let cur = self.cur.read();
 
-            Ok(format!("count({})", fmt))
+            Ok(format!("count({})", cur))
         }
     }
     impl IterNextIterable for PyItertoolsCount {}
