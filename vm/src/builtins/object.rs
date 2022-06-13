@@ -4,7 +4,7 @@ use crate::{
     class::PyClassImpl,
     function::Either,
     function::{FuncArgs, PyArithmeticValue, PyComparisonValue},
-    types::PyComparisonOp,
+    types::{PyComparisonOp, SizeOf},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 
@@ -25,7 +25,7 @@ impl PyPayload for PyBaseObject {
     }
 }
 
-#[pyimpl(flags(BASETYPE))]
+#[pyimpl(flags(BASETYPE), with(SizeOf))]
 impl PyBaseObject {
     /// Create and return a new object.  See help(type) for accurate signature.
     #[pyslot]
@@ -331,10 +331,11 @@ impl PyBaseObject {
     fn hash(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyHash> {
         Self::slot_hash(&zelf, vm)
     }
+}
 
-    #[pymethod(magic)]
-    fn sizeof(zelf: PyObjectRef) -> usize {
-        zelf.class().slots.basicsize
+impl SizeOf for PyBaseObject {
+    fn sizeof(zelf: &Py<Self>) -> PyResult<usize> {
+        Ok(zelf.class().slots.basicsize)
     }
 }
 

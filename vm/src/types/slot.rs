@@ -52,6 +52,8 @@ pub struct PyTypeSlots {
     pub iter: AtomicCell<Option<IterFunc>>,
     pub iternext: AtomicCell<Option<IterNextFunc>>,
 
+    pub sizeof: AtomicCell<Option<SizeOfFunc>>,
+
     // Flags to define presence of optional/expanded features
     pub flags: PyTypeFlags,
 
@@ -162,6 +164,7 @@ pub(crate) type NewFunc = fn(PyTypeRef, FuncArgs, &VirtualMachine) -> PyResult;
 pub(crate) type InitFunc = fn(PyObjectRef, FuncArgs, &VirtualMachine) -> PyResult<()>;
 pub(crate) type DelFunc = fn(&PyObject, &VirtualMachine) -> PyResult<()>;
 pub(crate) type AsSequenceFunc = fn(&PyObject, &VirtualMachine) -> &'static PySequenceMethods;
+pub(crate) type SizeOfFunc = fn(&PyObject, &VirtualMachine) -> PyResult<usize>;
 
 // slot_sq_length
 pub(crate) fn slot_length(obj: &PyObject, vm: &VirtualMachine) -> PyResult<usize> {
@@ -943,5 +946,25 @@ where
     #[cold]
     fn iter(_zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyResult {
         unreachable!("slot_iter is implemented");
+    }
+}
+
+#[pyimpl]
+pub trait SizeOf: PyPayload {
+    #[pyslot]
+    fn slot_sizeof(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<usize> {
+        if let Some(zelf) = zelf.downcast_ref() {
+            Self::sizeof(zelf)
+        } else {
+            Err(vm.new_type_error("unexpected payload for __sizeof__".to_owned()))
+        }
+    }
+
+    fn sizeof(zelf: &Py<Self>) -> PyResult<usize>;
+
+    #[inline]
+    #[pymethod]
+    fn __sizeof__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Self::slot_sizeof(&zelf, vm).to_pyresult(vm)
     }
 }
