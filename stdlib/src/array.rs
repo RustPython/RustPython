@@ -23,7 +23,7 @@ mod array {
                 BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
                 PyMappingMethods,
             },
-            sequence::{SequenceMutOp, SequenceOp},
+            sequence::{SequenceExt, SequenceMutExt},
             sliceable::{
                 SaturatedSlice, SequenceIndex, SliceableSequenceMutOp, SliceableSequenceOp,
             },

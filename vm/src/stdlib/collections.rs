@@ -9,9 +9,10 @@ mod _collections {
         },
         common::lock::{PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
         function::{FuncArgs, KwArgs, OptionalArg, PyComparisonValue},
+        iter::PyExactSizeIterator,
         protocol::{PyIterReturn, PySequenceMethods},
         recursion::ReprGuard,
-        sequence::{MutObjectSequenceOp, ObjectSequenceOp},
+        sequence::MutObjectSequenceOp,
         sliceable,
         sliceable::saturate_index,
         types::{
@@ -565,7 +566,9 @@ mod _collections {
             let other = class_or_notimplemented!(Self, other);
             let lhs = zelf.borrow_deque();
             let rhs = other.borrow_deque();
-            lhs.cmp(vm, &rhs, op).map(PyComparisonValue::Implemented)
+            lhs.iter()
+                .richcompare(rhs.iter(), op, vm)
+                .map(PyComparisonValue::Implemented)
         }
     }
 

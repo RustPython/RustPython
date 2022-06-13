@@ -57,6 +57,7 @@ mod frozen;
 pub mod function;
 pub mod import;
 mod intern;
+pub mod iter;
 pub mod object;
 pub mod prelude;
 pub mod protocol;

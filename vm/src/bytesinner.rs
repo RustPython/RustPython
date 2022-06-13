@@ -7,7 +7,7 @@ use crate::{
     function::{ArgIterable, Either, OptionalArg, OptionalOption, PyComparisonValue},
     identifier,
     protocol::PyBuffer,
-    sequence::{SequenceMutOp, SequenceOp},
+    sequence::{SequenceExt, SequenceMutExt},
     types::PyComparisonOp,
     AsObject, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject, VirtualMachine,
 };

@@ -4,70 +4,8 @@ use crate::{
     vm::VirtualMachine,
     AsObject, PyObject, PyObjectRef, PyResult,
 };
-use itertools::Itertools;
 use optional::Optioned;
-use std::{collections::VecDeque, ops::Range};
-
-pub trait ObjectSequenceOp<'a> {
-    type Iter: ExactSizeIterator<Item = &'a PyObjectRef>;
-
-    fn iter(&'a self) -> Self::Iter;
-
-    fn eq(&'a self, vm: &VirtualMachine, other: &'a Self) -> PyResult<bool> {
-        let lhs = self.iter();
-        let rhs = other.iter();
-        if lhs.len() != rhs.len() {
-            return Ok(false);
-        }
-        for (a, b) in lhs.zip_eq(rhs) {
-            if !vm.identical_or_equal(a, b)? {
-                return Ok(false);
-            }
-        }
-        Ok(true)
-    }
-
-    fn cmp(&'a self, vm: &VirtualMachine, other: &'a Self, op: PyComparisonOp) -> PyResult<bool> {
-        let less = match op {
-            PyComparisonOp::Eq => return self.eq(vm, other),
-            PyComparisonOp::Ne => return self.eq(vm, other).map(|eq| !eq),
-            PyComparisonOp::Lt | PyComparisonOp::Le => true,
-            PyComparisonOp::Gt | PyComparisonOp::Ge => false,
-        };
-
-        let lhs = self.iter();
-        let rhs = other.iter();
-        let lhs_len = lhs.len();
-        let rhs_len = rhs.len();
-        for (a, b) in lhs.zip(rhs) {
-            let ret = if less {
-                vm.bool_seq_lt(a, b)?
-            } else {
-                vm.bool_seq_gt(a, b)?
-            };
-            if let Some(v) = ret {
-                return Ok(v);
-            }
-        }
-        Ok(op.eval_ord(lhs_len.cmp(&rhs_len)))
-    }
-}
-
-impl<'a> ObjectSequenceOp<'a> for [PyObjectRef] {
-    type Iter = core::slice::Iter<'a, PyObjectRef>;
-
-    fn iter(&'a self) -> Self::Iter {
-        self.iter()
-    }
-}
-
-impl<'a> ObjectSequenceOp<'a> for VecDeque<PyObjectRef> {
-    type Iter = std::collections::vec_deque::Iter<'a, PyObjectRef>;
-
-    fn iter(&'a self) -> Self::Iter {
-        self.iter()
-    }
-}
+use std::ops::Range;
 
 pub trait MutObjectSequenceOp<'a> {
     type Guard;
@@ -242,7 +180,7 @@ pub trait MutObjectSequenceOp<'a> {
     }
 }
 
-pub trait SequenceOp<T: Clone>
+pub trait SequenceExt<T: Clone>
 where
     Self: AsRef<[T]>,
 {
@@ -256,9 +194,9 @@ where
     }
 }
 
-impl<T: Clone> SequenceOp<T> for [T] {}
+impl<T: Clone> SequenceExt<T> for [T] {}
 
-pub trait SequenceMutOp<T: Clone>
+pub trait SequenceMutExt<T: Clone>
 where
     Self: AsRef<[T]>,
 {
@@ -282,7 +220,7 @@ where
     }
 }
 
-impl<T: Clone> SequenceMutOp<T> for Vec<T> {
+impl<T: Clone> SequenceMutExt<T> for Vec<T> {
     fn as_vec_mut(&mut self) -> &mut Vec<T> {
         self
     }

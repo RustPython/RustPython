@@ -4,9 +4,10 @@ use crate::{
     class::PyClassImpl,
     convert::{ToPyObject, TransmuteFromObject},
     function::{OptionalArg, PyArithmeticValue, PyComparisonValue},
+    iter::PyExactSizeIterator,
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     recursion::ReprGuard,
-    sequence::{ObjectSequenceOp, SequenceOp},
+    sequence::SequenceExt,
     sliceable::{SequenceIndex, SliceableSequenceOp},
     stdlib::sys,
     types::{
@@ -400,7 +401,9 @@ impl Comparable for PyTuple {
             return Ok(res.into());
         }
         let other = class_or_notimplemented!(Self, other);
-        zelf.cmp(vm, other, op).map(PyComparisonValue::Implemented)
+        zelf.iter()
+            .richcompare(other.iter(), op, vm)
+            .map(PyComparisonValue::Implemented)
     }
 }
 
