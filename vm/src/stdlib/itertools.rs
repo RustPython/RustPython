@@ -202,6 +202,13 @@ mod decl {
         fn reduce(zelf: PyRef<Self>) -> (PyTypeRef, (BigInt,)) {
             (zelf.class().clone(), (zelf.cur.read().clone(),))
         }
+
+        #[pymethod(magic)]
+        fn repr(&self) -> PyResult<String> {
+            let cur = self.cur.read();
+
+            Ok(format!("count({})", cur))
+        }
     }
     impl IterNextIterable for PyItertoolsCount {}
     impl IterNext for PyItertoolsCount {
