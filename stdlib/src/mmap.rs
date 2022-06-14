@@ -3,14 +3,20 @@ pub(crate) use mmap::make_module;
 
 #[pymodule]
 mod mmap {
-    use crate::common::lock::{PyMutex, PyMutexGuard};
+    use crate::common::{
+        borrow::{BorrowedValue, BorrowedValueMut},
+        lock::{MapImmutable, PyMutex, PyMutexGuard},
+    };
     use crate::vm::{
         builtins::{PyBytes, PyBytesRef, PyInt, PyIntRef, PyTypeRef},
-        byte::value_from_object,
+        byte::{bytes_from_object, value_from_object},
         function::{ArgBytesLike, FuncArgs, OptionalArg},
-        sliceable::saturate_index,
-        types::Constructor,
-        AsObject, FromArgs, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
+        protocol::{
+            BufferDescriptor, BufferMethods, PyBuffer, PyMappingMethods, PySequenceMethods,
+        },
+        sliceable::{saturate_index, wrap_index, SaturatedSlice, SequenceIndex},
+        types::{AsBuffer, AsMapping, AsSequence, Constructor},
+        AsObject, FromArgs, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
         TryFromBorrowedObject, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
@@ -335,8 +341,87 @@ mod mmap {
         }
     }
 
-    #[pyimpl(with(Constructor), flags(BASETYPE))]
+    static BUFFER_METHODS: BufferMethods = BufferMethods {
+        obj_bytes: |buffer| buffer.obj_as::<PyMmap>().as_bytes(),
+        obj_bytes_mut: |buffer| buffer.obj_as::<PyMmap>().as_bytes_mut(),
+        release: |buffer| {
+            buffer.obj_as::<PyMmap>().exports.fetch_sub(1);
+        },
+        retain: |buffer| {
+            buffer.obj_as::<PyMmap>().exports.fetch_add(1);
+        },
+    };
+
+    impl AsBuffer for PyMmap {
+        fn as_buffer(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
+            let buf = PyBuffer::new(
+                zelf.to_owned().into(),
+                BufferDescriptor::simple(zelf.len(), true),
+                &BUFFER_METHODS,
+            );
+
+            Ok(buf)
+        }
+    }
+
+    impl AsMapping for PyMmap {
+        const AS_MAPPING: PyMappingMethods = PyMappingMethods {
+            length: Some(|mapping, _vm| Ok(Self::mapping_downcast(mapping).len())),
+            subscript: Some(|mapping, needle, vm| {
+                Self::mapping_downcast(mapping)._getitem(needle, vm)
+            }),
+            ass_subscript: Some(|mapping, needle, value, vm| {
+                let zelf = Self::mapping_downcast(mapping);
+                if let Some(value) = value {
+                    Self::_setitem(zelf.to_owned(), needle, value, vm)
+                } else {
+                    Err(vm.new_type_error("mmap object doesn't support item deletion".to_owned()))
+                }
+            }),
+        };
+    }
+
+    impl AsSequence for PyMmap {
+        const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
+            length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
+            item: Some(|seq, i, vm| {
+                let zelf = Self::sequence_downcast(seq);
+                zelf.get_item_by_index(i, vm)
+            }),
+            ass_item: Some(|seq, i, value, vm| {
+                let zelf = Self::sequence_downcast(seq);
+                if let Some(value) = value {
+                    Self::setitem_by_index(zelf.to_owned(), i, value, vm)
+                } else {
+                    Err(vm.new_type_error("mmap object doesn't support item deletion".to_owned()))
+                }
+            }),
+            ..PySequenceMethods::NOT_IMPLEMENTED
+        };
+    }
+
+    #[pyimpl(with(Constructor, AsMapping, AsSequence, AsBuffer), flags(BASETYPE))]
     impl PyMmap {
+        fn as_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
+            PyMutexGuard::map(self.mmap.lock(), |m| {
+                match m.as_mut().expect("mmap closed or invalid") {
+                    MmapObj::Read(_) => panic!("mmap can't modify a readonly memory map."),
+                    MmapObj::Write(mmap) => &mut mmap[..],
+                }
+            })
+            .into()
+        }
+
+        fn as_bytes(&self) -> BorrowedValue<[u8]> {
+            PyMutexGuard::map_immutable(self.mmap.lock(), |m| {
+                match m.as_ref().expect("mmap closed or invalid") {
+                    MmapObj::Read(ref mmap) => &mmap[..],
+                    MmapObj::Write(ref mmap) => &mmap[..],
+                }
+            })
+            .into()
+        }
+
         #[pymethod(magic)]
         pub(crate) fn len(&self) -> usize {
             self.inner_size() as usize
@@ -787,6 +872,155 @@ mod mmap {
             self.advance_pos(1);
 
             Ok(())
+        }
+
+        fn get_item_by_index(&self, i: isize, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+            let i = wrap_index(i, self.len())
+                .ok_or_else(|| vm.new_index_error("mmap index out of range".to_owned()))?;
+
+            let b = match self.check_valid(vm)?.deref().as_ref().unwrap() {
+                MmapObj::Read(mmap) => mmap[i as usize],
+                MmapObj::Write(mmap) => mmap[i as usize],
+            };
+
+            Ok(PyInt::from(b).into_ref(vm).into())
+        }
+
+        fn getitem_by_slice(
+            &self,
+            slice: &SaturatedSlice,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyObjectRef> {
+            let (range, step, slicelen) = slice.adjust_indices(self.len());
+
+            let mmap = self.check_valid(vm)?;
+
+            if slicelen == 0 {
+                return Ok(PyBytes::from(vec![]).into_ref(vm).into());
+            } else if step == 1 {
+                let bytes = match mmap.deref().as_ref().unwrap() {
+                    MmapObj::Read(mmap) => &mmap[range],
+                    MmapObj::Write(mmap) => &mmap[range],
+                };
+                return Ok(PyBytes::from(bytes.to_vec()).into_ref(vm).into());
+            }
+
+            let mut result_buf = Vec::with_capacity(slicelen);
+            if step.is_negative() {
+                for i in range.rev().step_by(step.unsigned_abs()) {
+                    let b = match mmap.deref().as_ref().unwrap() {
+                        MmapObj::Read(mmap) => mmap[i],
+                        MmapObj::Write(mmap) => mmap[i],
+                    };
+                    result_buf.push(b);
+                }
+            } else {
+                for i in range.step_by(step.unsigned_abs()) {
+                    let b = match mmap.deref().as_ref().unwrap() {
+                        MmapObj::Read(mmap) => mmap[i],
+                        MmapObj::Write(mmap) => mmap[i],
+                    };
+                    result_buf.push(b);
+                }
+            }
+            Ok(PyBytes::from(result_buf).into_ref(vm).into())
+        }
+
+        fn _getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+            match SequenceIndex::try_from_borrowed_object(vm, needle, "mmap")? {
+                SequenceIndex::Int(i) => self.get_item_by_index(i, vm),
+                SequenceIndex::Slice(slice) => self.getitem_by_slice(&slice, vm),
+            }
+        }
+
+        #[pymethod(magic)]
+        fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+            self._getitem(&needle, vm)
+        }
+
+        fn _setitem(
+            zelf: PyRef<Self>,
+            needle: &PyObject,
+            value: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            match SequenceIndex::try_from_borrowed_object(vm, needle, "mmap")? {
+                SequenceIndex::Int(i) => Self::setitem_by_index(zelf, i, value, vm),
+                SequenceIndex::Slice(slice) => Self::setitem_by_slice(zelf, &slice, value, vm),
+            }
+        }
+
+        fn setitem_by_index(
+            zelf: PyRef<Self>,
+            i: isize,
+            value: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let i = wrap_index(i, zelf.len())
+                .ok_or_else(|| vm.new_index_error("mmap index out of range".to_owned()))?;
+
+            let b = value_from_object(vm, &value)?;
+
+            zelf.try_writable(vm, |mmap| {
+                mmap[i as usize] = b;
+            })?;
+
+            Ok(())
+        }
+
+        fn setitem_by_slice(
+            zelf: PyRef<Self>,
+            slice: &SaturatedSlice,
+            value: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let (range, step, slicelen) = slice.adjust_indices(zelf.len());
+
+            let bytes = bytes_from_object(vm, &value)?;
+
+            if bytes.len() != slicelen {
+                return Err(vm.new_index_error("mmap slice assignment is wrong size".to_owned()));
+            }
+
+            if slicelen == 0 {
+                // do nothing
+                Ok(())
+            } else if step == 1 {
+                zelf.try_writable(vm, |mmap| {
+                    (&mut mmap[range])
+                        .write(&bytes)
+                        .map_err(|e| vm.new_os_error(e.to_string()))?;
+                    Ok(())
+                })?
+            } else {
+                let mut bi = 0; // bytes index
+                if step.is_negative() {
+                    for i in range.rev().step_by(step.unsigned_abs()) {
+                        zelf.try_writable(vm, |mmap| {
+                            mmap[i] = bytes[bi];
+                        })?;
+                        bi += 1;
+                    }
+                } else {
+                    for i in range.step_by(step.unsigned_abs()) {
+                        zelf.try_writable(vm, |mmap| {
+                            mmap[i] = bytes[bi];
+                        })?;
+                        bi += 1;
+                    }
+                }
+                Ok(())
+            }
+        }
+
+        #[pymethod(magic)]
+        fn setitem(
+            zelf: PyRef<Self>,
+            needle: PyObjectRef,
+            value: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            Self::_setitem(zelf, &needle, value, vm)
         }
 
         #[pymethod(magic)]
