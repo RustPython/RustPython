@@ -12,12 +12,45 @@ mod mmap {
         FromArgs, PyObject, PyPayload, PyRef, PyResult, TryFromBorrowedObject, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
-    use memmap2::{Mmap, MmapMut, MmapOptions};
+    use memmap2::{Advice, Mmap, MmapMut, MmapOptions};
     use nix::unistd;
     use std::fs::File;
     use std::ops::Deref;
     #[cfg(all(unix, not(target_os = "redox")))]
     use std::os::unix::io::{FromRawFd, IntoRawFd, RawFd};
+
+    fn advice_try_from_i32(vm: &VirtualMachine, i: i32) -> PyResult<Advice> {
+        Ok(match i {
+            libc::MADV_NORMAL => Advice::Normal,
+            libc::MADV_RANDOM => Advice::Random,
+            libc::MADV_SEQUENTIAL => Advice::Sequential,
+            libc::MADV_WILLNEED => Advice::WillNeed,
+            libc::MADV_DONTNEED => Advice::DontNeed,
+            #[cfg(any(target_os = "linux", target_os = "macos", target_os = "ios"))]
+            libc::MADV_FREE => Advice::Free,
+            #[cfg(target_os = "linux")]
+            libc::MADV_DONTFORK => Advice::DontFork,
+            #[cfg(target_os = "linux")]
+            libc::MADV_DOFORK => Advice::DoFork,
+            #[cfg(target_os = "linux")]
+            libc::MADV_MERGEABLE => Advice::Mergeable,
+            #[cfg(target_os = "linux")]
+            libc::MADV_UNMERGEABLE => Advice::Unmergeable,
+            #[cfg(target_os = "linux")]
+            libc::MADV_HUGEPAGE => Advice::HugePage,
+            #[cfg(target_os = "linux")]
+            libc::MADV_NOHUGEPAGE => Advice::NoHugePage,
+            #[cfg(target_os = "linux")]
+            libc::MADV_REMOVE => Advice::Remove,
+            #[cfg(target_os = "linux")]
+            libc::MADV_DONTDUMP => Advice::DontDump,
+            #[cfg(target_os = "linux")]
+            libc::MADV_DODUMP => Advice::DoDump,
+            #[cfg(target_os = "linux")]
+            libc::MADV_HWPOISON => Advice::HwPoison,
+            _ => return Err(vm.new_value_error("Not a valid Advice value".to_owned())),
+        })
+    }
 
     #[repr(C)]
     #[derive(PartialEq, Eq, Debug)]
@@ -51,12 +84,24 @@ mod mmap {
     #[pyattr]
     use libc::{MADV_FREE_REUSABLE, MADV_FREE_REUSE};
 
+    #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "fuchsia",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_vendor = "apple"
+    ))]
+    #[pyattr]
+    use libc::MADV_FREE;
+
     #[cfg(target_os = "linux")]
     #[pyattr]
     use libc::{
-        MADV_DODUMP, MADV_DOFORK, MADV_DONTDUMP, MADV_DONTFORK, MADV_FREE, MADV_HUGEPAGE,
-        MADV_HWPOISON, MADV_MERGEABLE, MADV_NOHUGEPAGE, MADV_REMOVE, MADV_SOFT_OFFLINE,
-        MADV_UNMERGEABLE,
+        MADV_DODUMP, MADV_DOFORK, MADV_DONTDUMP, MADV_DONTFORK, MADV_HUGEPAGE, MADV_HWPOISON,
+        MADV_MERGEABLE, MADV_NOHUGEPAGE, MADV_REMOVE, MADV_SOFT_OFFLINE, MADV_UNMERGEABLE,
     };
 
     #[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "gnu"))]
@@ -433,6 +478,39 @@ mod mmap {
                         .map_err(|e| vm.new_os_error(e.to_string()))?;
                 }
             }
+
+            Ok(())
+        }
+
+        #[allow(unused_assignments)]
+        #[pymethod]
+        fn madvise(&self, options: AdviseOptions, vm: &VirtualMachine) -> PyResult<()> {
+            let start = options.start.unwrap_or(0);
+            let mut length = options.length.unwrap_or_else(|| self.inner_size());
+
+            if start < 0 || start >= self.inner_size() {
+                return Err(vm.new_value_error("madvise start out of bounds".to_owned()));
+            }
+            if length < 0 {
+                return Err(vm.new_value_error("madvise length invalid".to_owned()));
+            }
+
+            if isize::MAX - start < length {
+                return Err(vm.new_overflow_error("madvise length too large".to_owned()));
+            }
+
+            if start + length > self.inner_size() {
+                length = self.inner_size() - start;
+            }
+
+            let advice = advice_try_from_i32(vm, options.option)?;
+
+            //TODO: memmap2 doesn't support madvise range right now.
+            match self.check_valid(vm)?.deref().as_ref().unwrap() {
+                MmapObj::Read(mmap) => mmap.advise(advice),
+                MmapObj::Write(mmap) => mmap.advise(advice),
+            }
+            .map_err(|e| vm.new_os_error(e.to_string()))?;
 
             Ok(())
         }
