@@ -5,10 +5,10 @@ use super::{
 };
 use crate::{
     anystr::{self, AnyStr},
+    byte::{bytes_from_object, value_from_object},
     bytesinner::{
-        bytes_decode, bytes_from_object, value_from_object, ByteInnerFindOptions,
-        ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerSplitOptions,
-        ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
+        bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
+        ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
     },
     class::PyClassImpl,
     common::{

@@ -292,7 +292,7 @@ impl SequenceIndex {
 }
 
 // Use PySliceableSequence::wrap_index for implementors
-pub(crate) fn wrap_index(p: isize, len: usize) -> Option<usize> {
+pub fn wrap_index(p: isize, len: usize) -> Option<usize> {
     let neg = p.is_negative();
     let p = p.wrapping_abs() as usize;
     if neg {

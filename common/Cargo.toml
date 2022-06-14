@@ -21,7 +21,7 @@ siphasher = "0.3"
 rand = "0.8"
 volatile = "0.3"
 radium = "0.7"
-libc = "0.2.101"
+libc = "0.2.126"
 ascii = "1.0"
 unic-ucd-category = "0.9"
 

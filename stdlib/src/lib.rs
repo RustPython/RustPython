@@ -16,6 +16,8 @@ mod gc;
 mod hashlib;
 mod json;
 mod math;
+#[cfg(unix)]
+mod mmap;
 mod platform;
 mod pyexpat;
 mod pystruct;
@@ -125,6 +127,7 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
         {
             "_posixsubprocess" => posixsubprocess::make_module,
             "syslog" => syslog::make_module,
+            "mmap" => mmap::make_module,
         }
         #[cfg(target_os = "macos")]
         {

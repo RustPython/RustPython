@@ -151,6 +151,11 @@ impl VirtualMachine {
         self.new_exception_msg(os_error, msg)
     }
 
+    pub fn new_system_error(&self, msg: String) -> PyBaseExceptionRef {
+        let sys_error = self.ctx.exceptions.system_error.to_owned();
+        self.new_exception_msg(sys_error, msg)
+    }
+
     pub fn new_unicode_decode_error(&self, msg: String) -> PyBaseExceptionRef {
         let unicode_decode_error = self.ctx.exceptions.unicode_decode_error.to_owned();
         self.new_exception_msg(unicode_decode_error, msg)
