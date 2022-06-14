@@ -41,6 +41,7 @@ pub(crate) mod macros;
 mod anystr;
 pub mod buffer;
 pub mod builtins;
+pub mod byte;
 mod bytesinner;
 pub mod cformat;
 pub mod class;
