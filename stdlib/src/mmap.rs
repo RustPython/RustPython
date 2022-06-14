@@ -22,6 +22,7 @@ mod mmap {
     use crossbeam_utils::atomic::AtomicCell;
     use memmap2::{Advice, Mmap, MmapMut, MmapOptions};
     use nix::unistd;
+    use num_traits::Signed;
     use std::fs::File;
     use std::io::Write;
     use std::ops::{Deref, DerefMut};
@@ -156,9 +157,9 @@ mod mmap {
         closed: AtomicCell<bool>,
         mmap: PyMutex<Option<MmapObj>>,
         fd: RawFd,
-        offset: isize,
-        size: AtomicCell<isize>,
-        pos: AtomicCell<isize>, // relative to offset
+        offset: libc::off_t,
+        size: AtomicCell<usize>,
+        pos: AtomicCell<usize>, // relative to offset
         exports: AtomicCell<usize>,
         access: AccessMode,
     }
@@ -176,7 +177,7 @@ mod mmap {
         #[pyarg(any, default = "AccessMode::Default")]
         access: AccessMode,
         #[pyarg(any, default = "0")]
-        offset: isize,
+        offset: libc::off_t,
     }
 
     #[derive(FromArgs)]
@@ -185,6 +186,31 @@ mod mmap {
         offset: Option<isize>,
         #[pyarg(positional, default)]
         size: Option<isize>,
+    }
+
+    impl FlushOptions {
+        fn values(self, len: usize) -> Option<(usize, usize)> {
+            let offset = if let Some(offset) = self.offset {
+                if offset < 0 {
+                    return None;
+                }
+                offset as usize
+            } else {
+                0
+            };
+            let size = if let Some(size) = self.size {
+                if size < 0 {
+                    return None;
+                }
+                size as usize
+            } else {
+                len
+            };
+            if len.checked_sub(offset)? < size {
+                return None;
+            }
+            Some((offset, size))
+        }
     }
 
     #[derive(FromArgs, Clone)]
@@ -202,9 +228,44 @@ mod mmap {
         #[pyarg(positional)]
         option: libc::c_int,
         #[pyarg(positional, default)]
-        start: Option<isize>,
+        start: Option<PyIntRef>,
         #[pyarg(positional, default)]
-        length: Option<isize>,
+        length: Option<PyIntRef>,
+    }
+
+    impl AdviseOptions {
+        fn values(self, len: usize, vm: &VirtualMachine) -> PyResult<(libc::c_int, usize, usize)> {
+            let start = self
+                .start
+                .map(|s| {
+                    s.try_to_primitive::<usize>(vm)
+                        .ok()
+                        .filter(|s| *s < len)
+                        .ok_or_else(|| vm.new_value_error("madvise start out of bounds".to_owned()))
+                })
+                .transpose()?
+                .unwrap_or(0);
+            let length = self
+                .length
+                .map(|s| {
+                    s.try_to_primitive::<usize>(vm)
+                        .map_err(|_| vm.new_value_error("madvise length invalid".to_owned()))
+                })
+                .transpose()?
+                .unwrap_or(len);
+
+            if isize::MAX as usize - start < length {
+                return Err(vm.new_overflow_error("madvise length too large".to_owned()));
+            }
+
+            let length = if start + length > len {
+                len - start
+            } else {
+                length
+            };
+
+            Ok((self.option, start, length))
+        }
     }
 
     impl Constructor for PyMmap {
@@ -224,12 +285,13 @@ mod mmap {
             }: Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult {
-            let mut map_size = length;
+            let map_size = length;
             if map_size < 0 {
                 return Err(
                     vm.new_overflow_error("memory mapped length must be positive".to_owned())
                 );
             }
+            let mut map_size = map_size as usize;
 
             if offset < 0 {
                 return Err(
@@ -264,10 +326,10 @@ mod mmap {
 
             if fd != -1 {
                 let file = unsafe { File::from_raw_fd(fd) };
-                let file_len = match file.metadata() {
-                    Ok(m) => m.len().try_into().expect("file size overflow"),
-                    Err(e) => return Err(vm.new_os_error(e.to_string())),
-                };
+                let metadata = file
+                    .metadata()
+                    .map_err(|e| vm.new_os_error(e.to_string()))?;
+                let file_len: libc::off_t = metadata.len().try_into().expect("file size overflow");
                 // File::from_raw_fd will consume the fd, so we
                 // have to  get it again.
                 fd = file.into_raw_fd();
@@ -282,12 +344,10 @@ mod mmap {
                         );
                     }
 
-                    //if file_len - offset > isize::MAX {
-                    //    return Err(vm.new_value_error("mmap length is too large".to_owned()));
-                    //}
-
-                    map_size = file_len - offset;
-                } else if offset > file_len || file_len - offset < map_size {
+                    map_size = (file_len - offset)
+                        .try_into()
+                        .map_err(|_| vm.new_value_error("mmap length is too large".to_owned()))?;
+                } else if offset > file_len || file_len - offset < map_size as libc::off_t {
                     return Err(
                         vm.new_value_error("mmap length is greater than file size".to_owned())
                     );
@@ -295,9 +355,7 @@ mod mmap {
             }
 
             let mut mmap_opt = MmapOptions::new();
-            let mmap_opt = mmap_opt
-                .offset(offset.try_into().unwrap())
-                .len(map_size.try_into().unwrap());
+            let mmap_opt = mmap_opt.offset(offset.try_into().unwrap()).len(map_size);
 
             let (fd, mmap) = if fd == -1 {
                 (
@@ -423,23 +481,18 @@ mod mmap {
         }
 
         #[pymethod(magic)]
-        pub(crate) fn len(&self) -> usize {
-            self.inner_size() as usize
-        }
-
-        #[inline]
-        fn inner_size(&self) -> isize {
+        fn len(&self) -> usize {
             self.size.load()
         }
 
         #[inline]
-        fn inner_pos(&self) -> isize {
+        fn pos(&self) -> usize {
             self.pos.load()
         }
 
         #[inline]
-        fn advance_pos(&self, step: isize) {
-            self.pos.store(self.inner_pos() + step);
+        fn advance_pos(&self, step: usize) {
+            self.pos.store(self.pos() + step);
         }
 
         #[inline]
@@ -512,7 +565,7 @@ mod mmap {
                 "<mmap.mmap closed=False, access={}, length={}, pos={}, offset={}>",
                 access_str,
                 zelf.len(),
-                zelf.inner_pos(),
+                zelf.pos(),
                 zelf.offset
             );
 
@@ -536,13 +589,16 @@ mod mmap {
         }
 
         fn get_find_range(&self, options: FindOptions) -> (usize, usize) {
-            let pos = self.inner_pos();
-            let size = self.inner_size();
-            let start = options.start.unwrap_or(pos);
-            let end = options.end.unwrap_or(size);
-
-            let size = size.try_into().unwrap();
-            (saturate_index(start, size), saturate_index(end, size))
+            let size = self.len();
+            let start = options
+                .start
+                .map(|start| saturate_index(start, size))
+                .unwrap_or_else(|| self.pos());
+            let end = options
+                .end
+                .map(|end| saturate_index(end, size))
+                .unwrap_or(size);
+            (start, end)
         }
 
         #[pymethod]
@@ -586,15 +642,9 @@ mod mmap {
 
         #[pymethod]
         fn flush(&self, options: FlushOptions, vm: &VirtualMachine) -> PyResult<()> {
-            let offset = options.offset.unwrap_or(0);
-            let size = options.size.unwrap_or_else(|| self.inner_size());
-
-            if size < 0 || offset < 0 || self.inner_size() - offset < size {
-                return Err(vm.new_value_error("flush values out of range".to_owned()));
-            }
-
-            let size = size as usize;
-            let offset = offset as usize;
+            let (offset, size) = options
+                .values(self.len())
+                .ok_or_else(|| vm.new_value_error("flush values out of range".to_owned()))?;
 
             if self.access == AccessMode::Read || self.access == AccessMode::Copy {
                 return Ok(());
@@ -614,25 +664,8 @@ mod mmap {
         #[allow(unused_assignments)]
         #[pymethod]
         fn madvise(&self, options: AdviseOptions, vm: &VirtualMachine) -> PyResult<()> {
-            let start = options.start.unwrap_or(0);
-            let mut length = options.length.unwrap_or_else(|| self.inner_size());
-
-            if start < 0 || start >= self.inner_size() {
-                return Err(vm.new_value_error("madvise start out of bounds".to_owned()));
-            }
-            if length < 0 {
-                return Err(vm.new_value_error("madvise length invalid".to_owned()));
-            }
-
-            if isize::MAX - start < length {
-                return Err(vm.new_overflow_error("madvise length too large".to_owned()));
-            }
-
-            if start + length > self.inner_size() {
-                length = self.inner_size() - start;
-            }
-
-            let advice = advice_try_from_i32(vm, options.option)?;
+            let (option, _start, _length) = options.values(self.len(), vm)?;
+            let advice = advice_try_from_i32(vm, option)?;
 
             //TODO: memmap2 doesn't support madvise range right now.
             match self.check_valid(vm)?.deref().as_ref().unwrap() {
@@ -645,18 +678,41 @@ mod mmap {
         }
 
         #[pymethod(name = "move")]
-        fn move_(&self, dest: isize, src: isize, cnt: isize, vm: &VirtualMachine) -> PyResult<()> {
-            let size = self.inner_size();
-            if dest < 0 || src < 0 || cnt < 0 || size - dest < cnt || size - src < cnt {
-                return Err(
-                    vm.new_value_error("source, destination, or count out of range".to_owned())
-                );
+        fn move_(
+            &self,
+            dest: PyIntRef,
+            src: PyIntRef,
+            cnt: PyIntRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            fn args(
+                dest: PyIntRef,
+                src: PyIntRef,
+                cnt: PyIntRef,
+                size: usize,
+                vm: &VirtualMachine,
+            ) -> Option<(usize, usize, usize)> {
+                if dest.as_bigint().is_negative()
+                    || src.as_bigint().is_negative()
+                    || cnt.as_bigint().is_negative()
+                {
+                    return None;
+                }
+                let dest = dest.try_to_primitive(vm).ok()?;
+                let src = src.try_to_primitive(vm).ok()?;
+                let cnt = cnt.try_to_primitive(vm).ok()?;
+                if size - dest < cnt || size - src < cnt {
+                    return None;
+                }
+                Some((dest, src, cnt))
             }
 
-            let dest: usize = dest.try_into().unwrap();
-            let cnt: usize = cnt.try_into().unwrap();
+            let size = self.len();
+            let (dest, src, cnt) = args(dest, src, cnt, size, vm).ok_or_else(|| {
+                vm.new_value_error("source, destination, or count out of range".to_owned())
+            })?;
+
             let dest_end = dest + cnt;
-            let src: usize = src.try_into().unwrap();
             let src_end = src + cnt;
 
             self.try_writable(vm, |mmap| {
@@ -670,7 +726,7 @@ mod mmap {
 
         #[pymethod]
         fn read(&self, n: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
-            let mut num_bytes = n
+            let num_bytes = n
                 .map(|obj| {
                     let name = obj.class().name().to_string();
                     obj.try_into_value::<Option<isize>>(vm).map_err(|_| {
@@ -681,20 +737,14 @@ mod mmap {
                     })
                 })
                 .transpose()?
-                .flatten()
-                .unwrap_or(isize::MAX);
+                .flatten();
             let mmap = self.check_valid(vm)?;
-            let pos = self.inner_pos();
-
-            let remaining = if pos < self.inner_size() {
-                self.inner_size() - pos
-            } else {
-                0
-            };
-
-            if num_bytes < 0 || num_bytes > remaining {
-                num_bytes = remaining;
-            }
+            let pos = self.pos();
+            let remaining = self.len().saturating_sub(pos);
+            let num_bytes = num_bytes
+                .filter(|&n| n >= 0 && (n as usize) <= remaining)
+                .map(|n| n as usize)
+                .unwrap_or(remaining);
 
             let end_pos = (pos + num_bytes) as usize;
             let bytes = match mmap.deref().as_ref().unwrap() {
@@ -711,8 +761,8 @@ mod mmap {
 
         #[pymethod]
         fn read_byte(&self, vm: &VirtualMachine) -> PyResult<PyIntRef> {
-            let pos = self.inner_pos();
-            if pos >= self.inner_size() {
+            let pos = self.pos();
+            if pos >= self.len() {
                 return Err(vm.new_value_error("read byte out of range".to_owned()));
             }
 
@@ -728,30 +778,25 @@ mod mmap {
 
         #[pymethod]
         fn readline(&self, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
-            let pos = self.inner_pos();
+            let pos = self.pos();
             let mmap = self.check_valid(vm)?;
 
-            let remaining = if pos < self.inner_size() {
-                self.inner_size() - pos
-            } else {
-                0
-            };
-
+            let remaining = self.len().saturating_sub(pos);
             if remaining == 0 {
                 return Ok(PyBytes::from(vec![]).into_ref(vm));
             }
 
             let eof = match mmap.as_ref().unwrap() {
-                MmapObj::Read(mmap) => &mmap[pos as usize..],
-                MmapObj::Write(mmap) => &mmap[pos as usize..],
+                MmapObj::Read(mmap) => &mmap[pos..],
+                MmapObj::Write(mmap) => &mmap[pos..],
             }
             .iter()
             .position(|&x| x == b'\n');
 
             let end_pos = if let Some(i) = eof {
-                pos as usize + i + 1
+                pos + i + 1
             } else {
-                self.inner_size() as usize
+                self.len()
             };
 
             let bytes = match mmap.deref().as_ref().unwrap() {
@@ -761,7 +806,7 @@ mod mmap {
 
             let result = PyBytes::from(bytes).into_ref(vm);
 
-            self.advance_pos(end_pos as isize - pos);
+            self.advance_pos(end_pos - pos);
 
             Ok(result)
         }
@@ -776,40 +821,38 @@ mod mmap {
         #[pymethod]
         fn seek(
             &self,
-            pos: isize,
+            dist: isize,
             whence: OptionalArg<libc::c_int>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let dist = pos;
-
             let how = whence.unwrap_or(0);
-            let size = self.inner_size();
+            let size = self.len();
 
             let new_pos = match how {
                 0 => dist, // relative to start
                 1 => {
                     // relative to current position
-                    let pos = self.inner_pos();
-                    if isize::MAX - pos < dist {
+                    let pos = self.pos();
+                    if (((isize::MAX as usize) - pos) as isize) < dist {
                         return Err(vm.new_value_error("seek out of range".to_owned()));
                     }
-                    pos + dist
+                    pos as isize + dist
                 }
                 2 => {
                     // relative to end
-                    if isize::MAX - size < dist {
+                    if (((isize::MAX as usize) - size) as isize) < dist {
                         return Err(vm.new_value_error("seek out of range".to_owned()));
                     }
-                    size + dist
+                    size as isize + dist
                 }
                 _ => return Err(vm.new_value_error("unknown seek type".to_owned())),
             };
 
-            if new_pos > size || new_pos < 0 {
+            if new_pos < 0 || (new_pos as usize) > size {
                 return Err(vm.new_value_error("seek out of range".to_owned()));
             }
 
-            self.pos.store(new_pos);
+            self.pos.store(new_pos as usize);
 
             Ok(())
         }
@@ -827,18 +870,18 @@ mod mmap {
         }
 
         #[pymethod]
-        fn tell(&self) -> PyResult<isize> {
-            Ok(self.inner_pos())
+        fn tell(&self) -> PyResult<usize> {
+            Ok(self.pos())
         }
 
         #[pymethod]
         fn write(&self, bytes: ArgBytesLike, vm: &VirtualMachine) -> PyResult<PyIntRef> {
-            let pos = self.inner_pos();
-            let size = self.inner_size();
+            let pos = self.pos();
+            let size = self.len();
 
             let data = bytes.borrow_buf();
 
-            if pos > size || size - pos < data.len() as isize {
+            if pos > size || size - pos < data.len() {
                 return Err(vm.new_value_error("data out of range".to_owned()));
             }
 
@@ -849,7 +892,7 @@ mod mmap {
                 Ok(data.len())
             })??;
 
-            self.advance_pos(len as isize);
+            self.advance_pos(len);
 
             Ok(PyInt::from(len).into_ref(vm))
         }
@@ -858,8 +901,8 @@ mod mmap {
         fn write_byte(&self, byte: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             let b = value_from_object(vm, &byte)?;
 
-            let pos = self.inner_pos();
-            let size = self.inner_size();
+            let pos = self.pos();
+            let size = self.len();
 
             if pos >= size {
                 return Err(vm.new_value_error("write byte out of range".to_owned()));
