@@ -63,42 +63,40 @@ mod decl {
     impl IterNextIterable for PyItertoolsChain {}
     impl IterNext for PyItertoolsChain {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            let next = || {
-                let source = zelf.source.read().clone();
-                match source {
-                    None => {
-                        return Ok(PyIterReturn::StopIteration(None));
-                    }
-                    Some(source) => loop {
-                        let active = zelf.active.read().clone();
-                        match active {
-                            None => match source.next(vm) {
-                                Ok(PyIterReturn::Return(ok)) => {
-                                    *zelf.active.write() = Some(ok.get_iter(vm)?);
-                                }
-                                Ok(PyIterReturn::StopIteration(_)) => {
-                                    return Ok(PyIterReturn::StopIteration(None));
-                                }
-                                Err(err) => {
-                                    return Err(err);
-                                }
-                            },
-                            Some(active) => match active.next(vm) {
-                                Ok(PyIterReturn::Return(ok)) => {
-                                    return Ok(PyIterReturn::Return(ok));
-                                }
-                                Ok(PyIterReturn::StopIteration(_)) => {
-                                    *zelf.active.write() = None;
-                                }
-                                Err(err) => {
-                                    return Err(err);
-                                }
-                            },
+            let source = if let Some(source) = zelf.source.read().clone() {
+                source
+            } else {
+                return Ok(PyIterReturn::StopIteration(None));
+            };
+            let next = loop {
+                let option_active = zelf.active.read().clone();
+                if let Some(active) = option_active {
+                    match active.next(vm) {
+                        Ok(PyIterReturn::Return(ok)) => {
+                            break Ok(PyIterReturn::Return(ok));
                         }
-                    },
+                        Ok(PyIterReturn::StopIteration(_)) => {
+                            *zelf.active.write() = None;
+                        }
+                        Err(err) => {
+                            break Err(err);
+                        }
+                    }
+                } else {
+                    match source.next(vm) {
+                        Ok(PyIterReturn::Return(ok)) => {
+                            *zelf.active.write() = Some(ok.get_iter(vm)?);
+                        }
+                        Ok(PyIterReturn::StopIteration(_)) => {
+                            break Ok(PyIterReturn::StopIteration(None));
+                        }
+                        Err(err) => {
+                            break Err(err);
+                        }
+                    }
                 }
             };
-            next().map_err(|err| {
+            next.map_err(|err| {
                 *zelf.source.write() = None;
                 err
             })
