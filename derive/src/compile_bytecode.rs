@@ -143,7 +143,11 @@ impl CompilationSource {
             if path.is_dir() {
                 code_map.extend(self.compile_dir(
                     &path,
-                    format!("{}{}", parent, file_name),
+                    if parent.is_empty() {
+                        file_name.to_string()
+                    } else {
+                        format!("{}.{}", parent, file_name)
+                    },
                     mode,
                 )?);
             } else if file_name.ends_with(".py") {
