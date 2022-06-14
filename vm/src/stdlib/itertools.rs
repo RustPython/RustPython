@@ -96,10 +96,13 @@ mod decl {
                     }
                 }
             };
-            next.map_err(|err| {
-                *zelf.source.write() = None;
-                err
-            })
+            match next {
+                Err(_) | Ok(PyIterReturn::StopIteration(_)) => {
+                    *zelf.source.write() = None;
+                }
+                _ => {}
+            };
+            next
         }
     }
 
