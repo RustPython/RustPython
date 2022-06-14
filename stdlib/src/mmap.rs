@@ -6,7 +6,8 @@ mod mmap {
     use crate::common::lock::{PyMutex, PyMutexGuard};
     use crate::vm::{
         builtins::{PyBytes, PyBytesRef, PyInt, PyIntRef, PyTypeRef},
-        function::{FuncArgs, OptionalArg},
+        byte::value_from_object,
+        function::{ArgBytesLike, FuncArgs, OptionalArg},
         sliceable::saturate_index,
         types::Constructor,
         AsObject, FromArgs, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
@@ -16,7 +17,8 @@ mod mmap {
     use memmap2::{Advice, Mmap, MmapMut, MmapOptions};
     use nix::unistd;
     use std::fs::File;
-    use std::ops::Deref;
+    use std::io::Write;
+    use std::ops::{Deref, DerefMut};
     #[cfg(all(unix, not(target_os = "redox")))]
     use std::os::unix::io::{FromRawFd, IntoRawFd, RawFd};
 
@@ -355,6 +357,24 @@ mod mmap {
             self.pos.store(self.inner_pos() + step);
         }
 
+        #[inline]
+        fn try_writable<R>(
+            &self,
+            vm: &VirtualMachine,
+            f: impl FnOnce(&mut MmapMut) -> R,
+        ) -> PyResult<R> {
+            if matches!(self.access, AccessMode::Read) {
+                return Err(
+                    vm.new_type_error("mmap can't modify a readonly memory map.".to_owned())
+                );
+            }
+
+            match self.check_valid(vm)?.deref_mut().as_mut().unwrap() {
+                MmapObj::Write(mmap) => Ok(f(mmap)),
+                _ => unreachable!("already check"),
+            }
+        }
+
         fn check_valid(&self, vm: &VirtualMachine) -> PyResult<PyMutexGuard<Option<MmapObj>>> {
             let m = self.mmap.lock();
 
@@ -363,6 +383,24 @@ mod mmap {
             }
 
             Ok(m)
+        }
+
+        /// TODO: impl resize
+        #[allow(dead_code)]
+        fn check_resizeable(&self, vm: &VirtualMachine) -> PyResult<()> {
+            if self.exports.load() > 0 {
+                return Err(vm.new_buffer_error(
+                    "mmap can't resize with extant buffers exported.".to_owned(),
+                ));
+            }
+
+            if self.access == AccessMode::Write || self.access == AccessMode::Default {
+                return Ok(());
+            }
+
+            Err(vm.new_type_error(
+                "mmap can't resize a readonly or copy-on-write memory map.".to_owned(),
+            ))
         }
 
         #[pyproperty]
@@ -521,6 +559,30 @@ mod mmap {
             Ok(())
         }
 
+        #[pymethod(name = "move")]
+        fn move_(&self, dest: isize, src: isize, cnt: isize, vm: &VirtualMachine) -> PyResult<()> {
+            let size = self.inner_size();
+            if dest < 0 || src < 0 || cnt < 0 || size - dest < cnt || size - src < cnt {
+                return Err(
+                    vm.new_value_error("source, destination, or count out of range".to_owned())
+                );
+            }
+
+            let dest: usize = dest.try_into().unwrap();
+            let cnt: usize = cnt.try_into().unwrap();
+            let dest_end = dest + cnt;
+            let src: usize = src.try_into().unwrap();
+            let src_end = src + cnt;
+
+            self.try_writable(vm, |mmap| {
+                let src_buf = mmap[src..src_end].to_vec();
+                (&mut mmap[dest..dest_end])
+                    .write(&src_buf)
+                    .map_err(|e| vm.new_os_error(e.to_string()))?;
+                Ok(())
+            })?
+        }
+
         #[pymethod]
         fn read(&self, n: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
             let mut num_bytes = n
@@ -619,6 +681,54 @@ mod mmap {
             Ok(result)
         }
 
+        //TODO: supports resize
+        #[pymethod]
+        fn resize(&self, _newsize: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
+            self.check_resizeable(vm)?;
+            Err(vm.new_system_error("mmap: resizing not available--no mremap()".to_owned()))
+        }
+
+        #[pymethod]
+        fn seek(
+            &self,
+            pos: isize,
+            whence: OptionalArg<libc::c_int>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let dist = pos;
+
+            let how = whence.unwrap_or(0);
+            let size = self.inner_size();
+
+            let new_pos = match how {
+                0 => dist, // relative to start
+                1 => {
+                    // relative to current position
+                    let pos = self.inner_pos();
+                    if isize::MAX - pos < dist {
+                        return Err(vm.new_value_error("seek out of range".to_owned()));
+                    }
+                    pos + dist
+                }
+                2 => {
+                    // relative to end
+                    if isize::MAX - size < dist {
+                        return Err(vm.new_value_error("seek out of range".to_owned()));
+                    }
+                    size + dist
+                }
+                _ => return Err(vm.new_value_error("unknown seek type".to_owned())),
+            };
+
+            if new_pos > size || new_pos < 0 {
+                return Err(vm.new_value_error("seek out of range".to_owned()));
+            }
+
+            self.pos.store(new_pos);
+
+            Ok(())
+        }
+
         #[pymethod]
         fn size(&self, vm: &VirtualMachine) -> PyResult<PyIntRef> {
             let new_fd = unistd::dup(self.fd).map_err(|e| vm.new_os_error(e.to_string()))?;
@@ -634,6 +744,49 @@ mod mmap {
         #[pymethod]
         fn tell(&self) -> PyResult<isize> {
             Ok(self.inner_pos())
+        }
+
+        #[pymethod]
+        fn write(&self, bytes: ArgBytesLike, vm: &VirtualMachine) -> PyResult<PyIntRef> {
+            let pos = self.inner_pos();
+            let size = self.inner_size();
+
+            let data = bytes.borrow_buf();
+
+            if pos > size || size - pos < data.len() as isize {
+                return Err(vm.new_value_error("data out of range".to_owned()));
+            }
+
+            let len = self.try_writable(vm, |mmap| {
+                (&mut mmap[pos as usize..(pos as usize + data.len())])
+                    .write(&data)
+                    .map_err(|e| vm.new_os_error(e.to_string()))?;
+                Ok(data.len())
+            })??;
+
+            self.advance_pos(len as isize);
+
+            Ok(PyInt::from(len).into_ref(vm))
+        }
+
+        #[pymethod]
+        fn write_byte(&self, byte: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            let b = value_from_object(vm, &byte)?;
+
+            let pos = self.inner_pos();
+            let size = self.inner_size();
+
+            if pos >= size {
+                return Err(vm.new_value_error("write byte out of range".to_owned()));
+            }
+
+            self.try_writable(vm, |mmap| {
+                mmap[pos as usize] = b;
+            })?;
+
+            self.advance_pos(1);
+
+            Ok(())
         }
 
         #[pymethod(magic)]
