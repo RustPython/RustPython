@@ -69,8 +69,8 @@ mod decl {
                 return Ok(PyIterReturn::StopIteration(None));
             };
             let next = loop {
-                let option_active = zelf.active.read().clone();
-                if let Some(active) = option_active {
+                let maybe_active = zelf.active.read().clone();
+                if let Some(active) = maybe_active {
                     match active.next(vm) {
                         Ok(PyIterReturn::Return(ok)) => {
                             break Ok(PyIterReturn::Return(ok));
@@ -84,9 +84,14 @@ mod decl {
                     }
                 } else {
                     match source.next(vm) {
-                        Ok(PyIterReturn::Return(ok)) => {
-                            *zelf.active.write() = Some(ok.get_iter(vm)?);
-                        }
+                        Ok(PyIterReturn::Return(ok)) => match ok.get_iter(vm) {
+                            Ok(iter) => {
+                                *zelf.active.write() = Some(iter);
+                            }
+                            Err(err) => {
+                                break Err(err);
+                            }
+                        },
                         Ok(PyIterReturn::StopIteration(_)) => {
                             break Ok(PyIterReturn::StopIteration(None));
                         }
