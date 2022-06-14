@@ -5,11 +5,12 @@ pub(crate) use mmap::make_module;
 mod mmap {
     use crate::common::lock::{PyMutex, PyMutexGuard};
     use crate::vm::{
-        builtins::{PyInt, PyIntRef, PyTypeRef},
-        function::FuncArgs,
+        builtins::{PyBytes, PyBytesRef, PyInt, PyIntRef, PyTypeRef},
+        function::{FuncArgs, OptionalArg},
         sliceable::saturate_index,
         types::Constructor,
-        FromArgs, PyObject, PyPayload, PyRef, PyResult, TryFromBorrowedObject, VirtualMachine,
+        AsObject, FromArgs, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
+        TryFromBorrowedObject, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use memmap2::{Advice, Mmap, MmapMut, MmapOptions};
@@ -349,6 +350,11 @@ mod mmap {
             self.pos.load()
         }
 
+        #[inline]
+        fn advance_pos(&self, step: isize) {
+            self.pos.store(self.inner_pos() + step);
+        }
+
         fn check_valid(&self, vm: &VirtualMachine) -> PyResult<PyMutexGuard<Option<MmapObj>>> {
             let m = self.mmap.lock();
 
@@ -513,6 +519,104 @@ mod mmap {
             .map_err(|e| vm.new_os_error(e.to_string()))?;
 
             Ok(())
+        }
+
+        #[pymethod]
+        fn read(&self, n: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
+            let mut num_bytes = n
+                .map(|obj| {
+                    let name = obj.class().name().to_string();
+                    obj.try_into_value::<Option<isize>>(vm).map_err(|_| {
+                        vm.new_type_error(format!(
+                            "read argument must be int or None, not {}",
+                            name,
+                        ))
+                    })
+                })
+                .transpose()?
+                .flatten()
+                .unwrap_or(isize::MAX);
+            let mmap = self.check_valid(vm)?;
+            let pos = self.inner_pos();
+
+            let remaining = if pos < self.inner_size() {
+                self.inner_size() - pos
+            } else {
+                0
+            };
+
+            if num_bytes < 0 || num_bytes > remaining {
+                num_bytes = remaining;
+            }
+
+            let end_pos = (pos + num_bytes) as usize;
+            let bytes = match mmap.deref().as_ref().unwrap() {
+                MmapObj::Read(mmap) => mmap[pos as usize..end_pos].to_vec(),
+                MmapObj::Write(mmap) => mmap[pos as usize..end_pos].to_vec(),
+            };
+
+            let result = PyBytes::from(bytes).into_ref(vm);
+
+            self.advance_pos(num_bytes);
+
+            Ok(result)
+        }
+
+        #[pymethod]
+        fn read_byte(&self, vm: &VirtualMachine) -> PyResult<PyIntRef> {
+            let pos = self.inner_pos();
+            if pos >= self.inner_size() {
+                return Err(vm.new_value_error("read byte out of range".to_owned()));
+            }
+
+            let b = match self.check_valid(vm)?.deref().as_ref().unwrap() {
+                MmapObj::Read(mmap) => mmap[pos as usize],
+                MmapObj::Write(mmap) => mmap[pos as usize],
+            };
+
+            self.advance_pos(1);
+
+            Ok(PyInt::from(b).into_ref(vm))
+        }
+
+        #[pymethod]
+        fn readline(&self, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
+            let pos = self.inner_pos();
+            let mmap = self.check_valid(vm)?;
+
+            let remaining = if pos < self.inner_size() {
+                self.inner_size() - pos
+            } else {
+                0
+            };
+
+            if remaining == 0 {
+                return Ok(PyBytes::from(vec![]).into_ref(vm));
+            }
+
+            let eof = match mmap.as_ref().unwrap() {
+                MmapObj::Read(mmap) => &mmap[pos as usize..],
+                MmapObj::Write(mmap) => &mmap[pos as usize..],
+            }
+            .iter()
+            .position(|&x| x == b'\n');
+
+            let end_pos = if let Some(i) = eof {
+                pos as usize + i + 1
+            } else {
+                self.inner_size() as usize
+            };
+
+            let bytes = match mmap.deref().as_ref().unwrap() {
+                MmapObj::Read(mmap) => mmap[pos as usize..end_pos].to_vec(),
+                MmapObj::Write(mmap) => mmap[pos as usize..end_pos].to_vec(),
+            };
+
+            let result = PyBytes::from(bytes).into_ref(vm);
+
+            self.advance_pos(end_pos as isize - pos);
+
+            Ok(result)
         }
 
         #[pymethod]
