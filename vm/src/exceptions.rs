@@ -798,6 +798,8 @@ impl ExceptionZoo {
             "lineno" => ctx.none(),
             "offset" => ctx.none(),
             "text" => ctx.none(),
+            "end_lineno" => ctx.none(),
+            "end_offset" => ctx.none(),
         });
         extend_exception!(PyIndentationError, ctx, excs.indentation_error);
         extend_exception!(PyTabError, ctx, excs.tab_error);
