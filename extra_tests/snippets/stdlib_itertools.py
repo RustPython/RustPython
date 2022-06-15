@@ -50,6 +50,18 @@ assert next(x) == 'b'
 with assert_raises(TypeError):
     next(x)
 
+# iterables are lazily evaluted
+x = chain.from_iterable(itertools.repeat(range(2)))
+assert next(x) == 0
+assert next(x) == 1
+assert next(x) == 0
+assert next(x) == 1
+
+x = chain(1, [2])
+with assert_raises(TypeError):
+    next(x)
+with assert_raises(StopIteration):
+    next(x)
 
 # itertools.count tests
 
