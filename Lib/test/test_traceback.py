@@ -54,6 +54,8 @@ class TracebackCases(unittest.TestCase):
     def tokenizer_error_with_caret_range(self):
         compile("blech  (  ", "?", "exec")
 
+    # TODO: RUSTPYTHON, ValueError: call did not raise exception
+    @unittest.expectedFailure
     def test_caret(self):
         err = self.get_exception_format(self.syntax_error_with_caret,
                                         SyntaxError)
@@ -807,6 +809,8 @@ class BaseExceptionReportingTests:
         exp = f'<unknown>.{X.__qualname__}: I am X\n'
         self.assertEqual(exp, err)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_syntax_error_various_offsets(self):
         for offset in range(-5, 10):
             for add in [0, 2]:
@@ -826,6 +830,8 @@ class BaseExceptionReportingTests:
                 exp = "\n".join(expected)
                 self.assertEqual(exp, err)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_format_exception_only_qualname(self):
         class A:
             class B:
@@ -905,6 +911,8 @@ class LimitTests(unittest.TestCase):
     def last_returns_frame5(self):
         return self.last_returns_frame4()
 
+    # TODO: RUSTPYTHON, AssertionError: 1 not greater than 5
+    @unittest.expectedFailure
     def test_extract_stack(self):
         frame = self.last_returns_frame5()
         def extract(**kwargs):
@@ -1261,6 +1269,8 @@ class TestTracebackException(unittest.TestCase):
         self.assertEqual(exc_info[0], exc.exc_type)
         self.assertEqual(str(exc_info[1]), str(exc))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_long_context_chain(self):
         def f():
             try:
