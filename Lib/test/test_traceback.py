@@ -760,8 +760,6 @@ class BaseExceptionReportingTests:
         msg = self.get_report(e).splitlines()
         self.assertEqual(msg[-2], '               ^')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_syntax_error_no_lineno(self):
         # See #34463.
 
@@ -907,8 +905,6 @@ class LimitTests(unittest.TestCase):
     def last_returns_frame5(self):
         return self.last_returns_frame4()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_extract_stack(self):
         frame = self.last_returns_frame5()
         def extract(**kwargs):
@@ -1025,8 +1021,6 @@ class MiscTracebackCases(unittest.TestCase):
         # Local variable dict should now be empty.
         self.assertEqual(len(inner_frame.f_locals), 0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_extract_stack(self):
         def extract():
             return traceback.extract_stack()
@@ -1079,8 +1073,6 @@ class TestFrame(unittest.TestCase):
         f = traceback.FrameSummary("f", 1, "dummy", line="line")
         self.assertEqual("line", f.line)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_len(self):
         f = traceback.FrameSummary("f", 1, "dummy", line="line")
         self.assertEqual(len(f), 4)
@@ -1156,8 +1148,6 @@ class TestStack(unittest.TestCase):
             ['  File "foo.py", line 1, in fred\n    line\n'],
             s.format())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_locals(self):
         linecache.updatecache('/foo.py', globals())
         c = test_code('/foo.py', 'method')
@@ -1165,8 +1155,6 @@ class TestStack(unittest.TestCase):
         s = traceback.StackSummary.extract(iter([(f, 6)]), capture_locals=True)
         self.assertEqual(s[0].locals, {'something': '1'})
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_no_locals(self):
         linecache.updatecache('/foo.py', globals())
         c = test_code('/foo.py', 'method')
@@ -1338,8 +1326,6 @@ class TestTracebackException(unittest.TestCase):
         self.assertEqual(exc_info[0], exc.exc_type)
         self.assertEqual(str(exc_info[1]), str(exc))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_no_refs_to_exception_and_traceback_objects(self):
         try:
             1/0
@@ -1403,8 +1389,6 @@ class TestTracebackException(unittest.TestCase):
         exc7 = traceback.TracebackException(*exc_info, limit=-2, capture_locals=True)
         self.assertNotEqual(exc6, exc7)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_comparison_equivalent_exceptions_are_equal(self):
         excs = []
         for _ in range(2):
@@ -1462,8 +1446,6 @@ class TestTracebackException(unittest.TestCase):
         linecache.updatecache('/foo.py', globals())
         self.assertEqual(exc.stack[0].line, "import sys")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_locals(self):
         linecache.updatecache('/foo.py', globals())
         e = Exception("uh oh")
@@ -1475,8 +1457,6 @@ class TestTracebackException(unittest.TestCase):
         self.assertEqual(
             exc.stack[0].locals, {'something': '1', 'other': "'string'"})
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_no_locals(self):
         linecache.updatecache('/foo.py', globals())
         e = Exception("uh oh")
