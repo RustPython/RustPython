@@ -15,6 +15,7 @@ use crate::{
     function::{
         ArgIterable, FuncArgs, KwArgs, OptionalArg, PyArithmeticValue::*, PyComparisonValue,
     },
+    iter::PyExactSizeIterator,
     protocol::{PyIterIter, PyIterReturn, PyMappingMethods, PySequenceMethods},
     recursion::ReprGuard,
     types::{
@@ -998,23 +999,30 @@ trait ViewSetOps: DictView {
     ) -> PyResult<PyComparisonValue> {
         match_class!(match other {
             ref dictview @ Self => {
-                PyDict::inner_cmp(
+                return PyDict::inner_cmp(
                     zelf.dict(),
                     dictview.dict(),
                     op,
                     !zelf.class().is(vm.ctx.types.dict_keys_type),
                     vm,
-                )
+                );
             }
             ref _set @ PySet => {
                 let inner = Self::to_set(zelf.to_owned(), vm)?;
                 let zelf_set = PySet { inner }.into_pyobject(vm);
-                PySet::cmp(zelf_set.downcast_ref().unwrap(), other, op, vm)
+                return PySet::cmp(zelf_set.downcast_ref().unwrap(), other, op, vm);
             }
+            ref _dictitems @ PyDictItems => {}
+            ref _dictkeys @ PyDictKeys => {}
             _ => {
-                Ok(NotImplemented)
+                return Ok(NotImplemented);
             }
-        })
+        });
+        let lhs: Vec<PyObjectRef> = zelf.as_object().to_owned().try_into_value(vm)?;
+        let rhs: Vec<PyObjectRef> = other.to_owned().try_into_value(vm)?;
+        lhs.iter()
+            .richcompare(rhs.iter(), op, vm)
+            .map(PyComparisonValue::Implemented)
     }
 
     #[pymethod]
