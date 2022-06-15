@@ -2,7 +2,6 @@ use super::{
     set::PySetInner, IterStatus, PositionIterInternal, PyBaseExceptionRef, PyGenericAlias, PySet,
     PyStrRef, PyTupleRef, PyType, PyTypeRef,
 };
-use crate::sequence::ObjectSequenceOp;
 use crate::{
     builtins::{
         iter::{builtins_iter, builtins_reversed},
@@ -16,6 +15,7 @@ use crate::{
     function::{
         ArgIterable, FuncArgs, KwArgs, OptionalArg, PyArithmeticValue::*, PyComparisonValue,
     },
+    iter::PyExactSizeIterator,
     protocol::{PyIterIter, PyIterReturn, PyMappingMethods, PySequenceMethods},
     recursion::ReprGuard,
     types::{
@@ -1018,14 +1018,11 @@ trait ViewSetOps: DictView {
                 return Ok(NotImplemented);
             }
         });
-        let self_vec: Vec<PyObjectRef> = zelf.as_object().to_owned().try_into_value(vm)?;
-        let other_vec: Vec<PyObjectRef> = other.to_owned().try_into_value(vm)?;
-        let res = self_vec.eq(vm, &other_vec)?;
-        match op {
-            PyComparisonOp::Eq => Ok(Implemented(res)),
-            PyComparisonOp::Ne => Ok(Implemented(!res)),
-            _ => Ok(NotImplemented),
-        }
+        let lhs: Vec<PyObjectRef> = zelf.as_object().to_owned().try_into_value(vm)?;
+        let rhs: Vec<PyObjectRef> = other.to_owned().try_into_value(vm)?;
+        lhs.iter()
+            .richcompare(rhs.iter(), op, vm)
+            .map(PyComparisonValue::Implemented)
     }
 
     #[pymethod]
