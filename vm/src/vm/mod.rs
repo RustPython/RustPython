@@ -823,3 +823,30 @@ impl AsRef<Context> for VirtualMachine {
         &self.ctx
     }
 }
+
+#[test]
+fn test_nested_frozen() {
+    use rustpython_vm as vm;
+
+    vm::Interpreter::with_init(Default::default(), |vm| {
+        // vm.add_native_modules(rustpython_stdlib::get_module_inits());
+        vm.add_frozen(rustpython_vm::py_freeze!(dir = "../extra_tests/snippets"));
+    })
+    .enter(|vm| {
+        let scope = vm.new_scope_with_builtins();
+
+        let code_obj = vm
+            .compile(
+                "from dir_module.dir_module_inner import value2",
+                vm::compile::Mode::Exec,
+                "<embedded>".to_owned(),
+            )
+            .map_err(|err| vm.new_syntax_error(&err))
+            .unwrap();
+
+        if let Err(e) = vm.run_code_obj(code_obj, scope.clone()) {
+            vm.print_exception(e.clone());
+            assert!(false);
+        }
+    })
+}
