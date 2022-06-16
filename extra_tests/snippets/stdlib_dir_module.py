@@ -26,3 +26,6 @@ except AttributeError as e:
     assert 'dir_module' not in str(e)
 else:
     assert False
+
+from dir_module import dir_module_inner
+assert dir_module_inner.__name__ == 'dir_module.dir_module_inner'
