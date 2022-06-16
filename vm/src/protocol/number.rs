@@ -163,9 +163,8 @@ impl<'a> PyNumber<'a> {
 
 impl PyNumber<'_> {
     pub fn find_methods(obj: &PyObject, vm: &VirtualMachine) -> Option<&'static PyNumberMethods> {
-        obj.class()
-            .mro_find_map(|x| x.slots.as_number.load())
-            .map(|f| f(obj, vm))
+        let as_number = obj.class().mro_find_map(|x| x.slots.as_number.load());
+        as_number.map(|f| f(obj, vm))
     }
 
     pub fn methods(&self) -> &'static PyNumberMethods {

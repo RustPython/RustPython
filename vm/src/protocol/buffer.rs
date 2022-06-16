@@ -140,7 +140,8 @@ impl PyBuffer {
 impl TryFromBorrowedObject for PyBuffer {
     fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
         let cls = obj.class();
-        if let Some(f) = cls.mro_find_map(|cls| cls.slots.as_buffer) {
+        let as_buffer = cls.mro_find_map(|cls| cls.slots.as_buffer);
+        if let Some(f) = as_buffer {
             return f(obj, vm);
         }
         Err(vm.new_type_error(format!(

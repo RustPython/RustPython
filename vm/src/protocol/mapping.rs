@@ -146,11 +146,8 @@ impl PyMapping<'_> {
     }
 
     pub fn find_methods(obj: &PyObject, vm: &VirtualMachine) -> Option<&'static PyMappingMethods> {
-        if let Some(f) = obj.class().mro_find_map(|cls| cls.slots.as_mapping.load()) {
-            Some(f(obj, vm))
-        } else {
-            None
-        }
+        let as_mapping = obj.class().mro_find_map(|cls| cls.slots.as_mapping.load());
+        as_mapping.map(|f| f(obj, vm))
     }
 
     pub fn length_opt(&self, vm: &VirtualMachine) -> Option<PyResult<usize>> {

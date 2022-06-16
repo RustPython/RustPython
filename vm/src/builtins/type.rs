@@ -667,11 +667,12 @@ impl GetAttr for PyType {
 
         if let Some(ref attr) = mcl_attr {
             let attr_class = attr.class();
-            if attr_class
+            let has_descr_set = attr_class
                 .mro_find_map(|cls| cls.slots.descr_set.load())
-                .is_some()
-            {
-                if let Some(descr_get) = attr_class.mro_find_map(|cls| cls.slots.descr_get.load()) {
+                .is_some();
+            if has_descr_set {
+                let descr_get = attr_class.mro_find_map(|cls| cls.slots.descr_get.load());
+                if let Some(descr_get) = descr_get {
                     let mcl = mcl.into_owned().into();
                     return descr_get(attr.clone(), Some(zelf.to_owned().into()), Some(mcl), vm);
                 }
@@ -681,7 +682,8 @@ impl GetAttr for PyType {
         let zelf_attr = zelf.get_attr(name);
 
         if let Some(ref attr) = zelf_attr {
-            if let Some(descr_get) = attr.class().mro_find_map(|cls| cls.slots.descr_get.load()) {
+            let descr_get = attr.class().mro_find_map(|cls| cls.slots.descr_get.load());
+            if let Some(descr_get) = descr_get {
                 drop(mcl);
                 return descr_get(attr.clone(), None, Some(zelf.to_owned().into()), vm);
             }
@@ -745,7 +747,8 @@ impl Callable for PyType {
             return Ok(obj);
         }
 
-        if let Some(init_method) = obj.class().mro_find_map(|cls| cls.slots.init.load()) {
+        let init = obj.class().mro_find_map(|cls| cls.slots.init.load());
+        if let Some(init_method) = init {
             init_method(obj.clone(), args, vm)?;
         }
         Ok(obj)
