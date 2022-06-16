@@ -145,7 +145,10 @@ mod decl {
     impl PyItertoolsCompress {
         #[pymethod(magic)]
         fn reduce(zelf: PyRef<Self>) -> (PyTypeRef, (PyIter, PyIter)) {
-            (zelf.class().clone(), (zelf.data.clone(), zelf.selectors.clone()))
+            (
+                zelf.class().clone(),
+                (zelf.data.clone(), zelf.selectors.clone()),
+            )
         }
     }
 
