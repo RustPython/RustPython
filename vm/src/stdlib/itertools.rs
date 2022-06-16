@@ -116,15 +116,15 @@ mod decl {
     #[derive(Debug, PyPayload)]
     struct PyItertoolsCompress {
         data: PyIter,
-        selector: PyIter,
+        selectors: PyIter,
     }
 
     #[derive(FromArgs)]
     struct CompressNewArgs {
-        #[pyarg(positional)]
+        #[pyarg(any)]
         data: PyIter,
-        #[pyarg(positional)]
-        selector: PyIter,
+        #[pyarg(any)]
+        selectors: PyIter,
     }
 
     impl Constructor for PyItertoolsCompress {
@@ -132,10 +132,10 @@ mod decl {
 
         fn py_new(
             cls: PyTypeRef,
-            Self::Args { data, selector }: Self::Args,
+            Self::Args { data, selectors }: Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult {
-            PyItertoolsCompress { data, selector }
+            PyItertoolsCompress { data, selectors }
                 .into_ref_with_type(vm, cls)
                 .map(Into::into)
         }
@@ -148,7 +148,7 @@ mod decl {
     impl IterNext for PyItertoolsCompress {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             loop {
-                let sel_obj = match zelf.selector.next(vm)? {
+                let sel_obj = match zelf.selectors.next(vm)? {
                     PyIterReturn::Return(obj) => obj,
                     PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
                 };
