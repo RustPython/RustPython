@@ -500,8 +500,6 @@ class TestBasicOps(unittest.TestCase):
                 self.assertEqual(comb, list(filter(set(perm).__contains__, cwr)))     # comb: cwr that is a perm
                 self.assertEqual(comb, sorted(set(cwr) & set(perm)))            # comb: both a cwr and a perm
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_compress(self):
         self.assertEqual(list(compress(data='ABCDEF', selectors=[1,0,1,0,1,1])), list('ACEF'))
         self.assertEqual(list(compress('ABCDEF', [1,0,1,0,1,1])), list('ACEF'))
