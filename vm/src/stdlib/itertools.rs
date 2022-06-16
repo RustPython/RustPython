@@ -142,7 +142,12 @@ mod decl {
     }
 
     #[pyimpl(with(IterNext, Constructor))]
-    impl PyItertoolsCompress {}
+    impl PyItertoolsCompress {
+        #[pymethod(magic)]
+        fn reduce(zelf: PyRef<Self>) -> (PyTypeRef, (PyIter, PyIter)) {
+            (zelf.class().clone(), (zelf.data.clone(), zelf.selectors.clone()))
+        }
+    }
 
     impl IterNextIterable for PyItertoolsCompress {}
     impl IterNext for PyItertoolsCompress {
