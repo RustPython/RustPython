@@ -762,7 +762,8 @@ impl PyObject {
         }
 
         // CPython-compatible drop implementation
-        if let Some(slot_del) = self.class().mro_find_map(|cls| cls.slots.del.load()) {
+        let del = self.class().mro_find_map(|cls| cls.slots.del.load());
+        if let Some(slot_del) = del {
             call_slot_del(self, slot_del)?;
         }
         if let Some(wrl) = self.weak_ref_list() {

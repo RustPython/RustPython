@@ -145,7 +145,8 @@ impl PySequence<'_> {
     pub fn find_methods(obj: &PyObject, vm: &VirtualMachine) -> Option<&'static PySequenceMethods> {
         let cls = obj.class();
         if !cls.is(vm.ctx.types.dict_type) {
-            if let Some(f) = cls.mro_find_map(|x| x.slots.as_sequence.load()) {
+            let as_sequence = cls.mro_find_map(|x| x.slots.as_sequence.load());
+            if let Some(f) = as_sequence {
                 return Some(f(obj, vm));
             }
         }
