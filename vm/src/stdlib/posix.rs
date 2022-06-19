@@ -556,6 +556,7 @@ pub mod module {
             target_os = "freebsd",
             target_os = "android"
         ))]
+        #[cfg(not(target_env = "musl"))]
         fn try_to_libc(&self, vm: &VirtualMachine) -> PyResult<libc::sched_param> {
             use crate::AsObject;
             let priority_class = self.sched_priority.class();
@@ -625,6 +626,7 @@ pub mod module {
         target_os = "freebsd",
         target_os = "android"
     ))]
+    #[cfg(not(target_env = "musl"))]
     #[pyfunction]
     fn sched_setscheduler(args: SchedSetschedulerArgs, vm: &VirtualMachine) -> PyResult<i32> {
         let libc_sched_param = args.sched_param_obj.try_to_libc(vm)?;
@@ -675,6 +677,7 @@ pub mod module {
         target_os = "freebsd",
         target_os = "android"
     ))]
+    #[cfg(not(target_env = "musl"))]
     #[pyfunction]
     fn sched_setparam(args: SchedSetParamArgs, vm: &VirtualMachine) -> PyResult<i32> {
         let libc_sched_param = args.sched_param_obj.try_to_libc(vm)?;
