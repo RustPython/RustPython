@@ -24,7 +24,7 @@ where
     where
         I: Iterator<Item = usize>;
 
-    fn set_item_by_index(
+    fn setitem_by_index(
         &mut self,
         vm: &VirtualMachine,
         index: isize,
@@ -38,7 +38,7 @@ where
         Ok(())
     }
 
-    fn set_item_by_slice_no_resize(
+    fn setitem_by_slice_no_resize(
         &mut self,
         vm: &VirtualMachine,
         slice: SaturatedSlice,
@@ -60,7 +60,7 @@ where
         }
     }
 
-    fn set_item_by_slice(
+    fn setitem_by_slice(
         &mut self,
         vm: &VirtualMachine,
         slice: SaturatedSlice,
@@ -182,7 +182,7 @@ pub trait SliceableSequenceOp {
         saturate_index(p, self.len())
     }
 
-    fn get_item_by_slice(
+    fn getitem_by_slice(
         &self,
         _vm: &VirtualMachine,
         slice: SaturatedSlice,
@@ -204,7 +204,7 @@ pub trait SliceableSequenceOp {
         Ok(sliced)
     }
 
-    fn get_item_by_index(&self, vm: &VirtualMachine, index: isize) -> PyResult<Self::Item> {
+    fn getitem_by_index(&self, vm: &VirtualMachine, index: isize) -> PyResult<Self::Item> {
         let pos = self
             .wrap_index(index)
             .ok_or_else(|| vm.new_index_error("index out of range".to_owned()))?;

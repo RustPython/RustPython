@@ -264,10 +264,10 @@ impl PyTuple {
 
     fn _getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
         match SequenceIndex::try_from_borrowed_object(vm, needle, "tuple")? {
-            SequenceIndex::Int(i) => self.elements.get_item_by_index(vm, i),
+            SequenceIndex::Int(i) => self.elements.getitem_by_index(vm, i),
             SequenceIndex::Slice(slice) => self
                 .elements
-                .get_item_by_slice(vm, slice)
+                .getitem_by_slice(vm, slice)
                 .map(|x| vm.ctx.new_tuple(x).into()),
         }
     }
@@ -373,7 +373,7 @@ impl AsSequence for PyTuple {
         }),
         item: Some(|seq, i, vm| {
             let zelf = Self::sequence_downcast(seq);
-            zelf.elements.get_item_by_index(vm, i)
+            zelf.elements.getitem_by_index(vm, i)
         }),
         contains: Some(|seq, needle, vm| {
             let zelf = Self::sequence_downcast(seq);

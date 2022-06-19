@@ -171,12 +171,12 @@ impl PyBytes {
             SequenceIndex::Int(i) => self
                 .inner
                 .elements
-                .get_item_by_index(vm, i)
+                .getitem_by_index(vm, i)
                 .map(|x| vm.ctx.new_int(x).into()),
             SequenceIndex::Slice(slice) => self
                 .inner
                 .elements
-                .get_item_by_slice(vm, slice)
+                .getitem_by_slice(vm, slice)
                 .map(|x| vm.ctx.new_bytes(x).into()),
         }
     }
@@ -595,7 +595,7 @@ impl AsSequence for PyBytes {
             Self::sequence_downcast(seq)
                 .inner
                 .elements
-                .get_item_by_index(vm, i)
+                .getitem_by_index(vm, i)
                 .map(|x| vm.ctx.new_bytes(vec![x]).into())
         }),
         contains: Some(|seq, other, vm| {

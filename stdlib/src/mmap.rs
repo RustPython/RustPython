@@ -444,7 +444,7 @@ mod mmap {
             length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
             item: Some(|seq, i, vm| {
                 let zelf = Self::sequence_downcast(seq);
-                zelf.get_item_by_index(i, vm)
+                zelf.getitem_by_index(i, vm)
             }),
             ass_item: Some(|seq, i, value, vm| {
                 let zelf = Self::sequence_downcast(seq);
@@ -917,7 +917,7 @@ mod mmap {
             Ok(())
         }
 
-        fn get_item_by_index(&self, i: isize, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        fn getitem_by_index(&self, i: isize, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
             let i = wrap_index(i, self.len())
                 .ok_or_else(|| vm.new_index_error("mmap index out of range".to_owned()))?;
 
@@ -971,7 +971,7 @@ mod mmap {
 
         fn _getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
             match SequenceIndex::try_from_borrowed_object(vm, needle, "mmap")? {
-                SequenceIndex::Int(i) => self.get_item_by_index(i, vm),
+                SequenceIndex::Int(i) => self.getitem_by_index(i, vm),
                 SequenceIndex::Slice(slice) => self.getitem_by_slice(&slice, vm),
             }
         }

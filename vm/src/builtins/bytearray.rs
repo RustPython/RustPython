@@ -160,7 +160,7 @@ impl PyByteArray {
 
     fn _setitem_by_index(&self, i: isize, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let value = value_from_object(vm, &value)?;
-        self.borrow_buf_mut().set_item_by_index(vm, i, value)
+        self.borrow_buf_mut().setitem_by_index(vm, i, value)
     }
 
     fn _setitem(
@@ -178,10 +178,10 @@ impl PyByteArray {
                     bytes_from_object(vm, &value)?
                 };
                 if let Some(mut w) = zelf.try_resizable_opt() {
-                    w.elements.set_item_by_slice(vm, slice, &items)
+                    w.elements.setitem_by_slice(vm, slice, &items)
                 } else {
                     zelf.borrow_buf_mut()
-                        .set_item_by_slice_no_resize(vm, slice, &items)
+                        .setitem_by_slice_no_resize(vm, slice, &items)
                 }
             }
         }
@@ -209,11 +209,11 @@ impl PyByteArray {
         match SequenceIndex::try_from_borrowed_object(vm, needle, "bytearray")? {
             SequenceIndex::Int(i) => self
                 .borrow_buf()
-                .get_item_by_index(vm, i)
+                .getitem_by_index(vm, i)
                 .map(|x| vm.ctx.new_int(x).into()),
             SequenceIndex::Slice(slice) => self
                 .borrow_buf()
-                .get_item_by_slice(vm, slice)
+                .getitem_by_slice(vm, slice)
                 .map(|x| Self::new_ref(x, &vm.ctx).into()),
         }
     }
@@ -800,7 +800,7 @@ impl AsSequence for PyByteArray {
         item: Some(|seq, i, vm| {
             Self::sequence_downcast(seq)
                 .borrow_buf()
-                .get_item_by_index(vm, i)
+                .getitem_by_index(vm, i)
                 .map(|x| vm.ctx.new_bytes(vec![x]).into())
         }),
         ass_item: Some(|seq, i, value, vm| {

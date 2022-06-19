@@ -263,7 +263,7 @@ mod array {
                 fn getitem_by_index(&self, i: isize, vm: &VirtualMachine) -> PyResult {
                     match self {
                         $(ArrayContentType::$n(v) => {
-                            v.get_item_by_index(vm, i).map(|x| x.to_pyresult(vm))?
+                            v.getitem_by_index(vm, i).map(|x| x.to_pyresult(vm))?
                         })*
                     }
                 }
@@ -271,7 +271,7 @@ mod array {
                 fn getitem_by_slice(&self, slice: SaturatedSlice, vm: &VirtualMachine) -> PyResult {
                     match self {
                         $(ArrayContentType::$n(v) => {
-                            let r = v.get_item_by_slice(vm, slice)?;
+                            let r = v.getitem_by_slice(vm, slice)?;
                             let array = PyArray::from(ArrayContentType::$n(r));
                             array.to_pyresult(vm)
                         })*
@@ -287,7 +287,7 @@ mod array {
                     match self {
                         $(ArrayContentType::$n(v) => {
                             let value = <$t>::try_into_from_object(vm, value)?;
-                            v.set_item_by_index(vm, i, value)
+                            v.setitem_by_index(vm, i, value)
                         })*
                     }
                 }
@@ -300,7 +300,7 @@ mod array {
                 ) -> PyResult<()> {
                     match self {
                         $(Self::$n(elements) => if let ArrayContentType::$n(items) = items {
-                            elements.set_item_by_slice(vm, slice, items)
+                            elements.setitem_by_slice(vm, slice, items)
                         } else {
                             Err(vm.new_type_error(
                                 "bad argument type for built-in operation".to_owned()
@@ -317,7 +317,7 @@ mod array {
                 ) -> PyResult<()> {
                     match self {
                         $(Self::$n(elements) => if let ArrayContentType::$n(items) = items {
-                            elements.set_item_by_slice_no_resize(vm, slice, items)
+                            elements.setitem_by_slice_no_resize(vm, slice, items)
                         } else {
                             Err(vm.new_type_error(
                                 "bad argument type for built-in operation".to_owned()
