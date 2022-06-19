@@ -300,7 +300,10 @@ where
                 value_text.push_str(&self.radix_run(10));
             }
 
-            let value = f64::from_str(&value_text).unwrap();
+            let value = f64::from_str(&value_text).map_err(|_| LexicalError {
+                error: LexicalErrorType::OtherError("Invalid decimal literal".to_owned()),
+                location: self.get_pos(),
+            })?;
             // Parse trailing 'j':
             if self.chr0 == Some('j') || self.chr0 == Some('J') {
                 self.next_char();
