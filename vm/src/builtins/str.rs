@@ -443,8 +443,8 @@ impl PyStr {
 
     fn _getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
         match SequenceIndex::try_from_borrowed_object(vm, needle, "str")? {
-            SequenceIndex::Int(i) => self.get_item_by_index(vm, i).map(|x| x.to_string()),
-            SequenceIndex::Slice(slice) => self.get_item_by_slice(vm, slice),
+            SequenceIndex::Int(i) => self.getitem_by_index(vm, i).map(|x| x.to_string()),
+            SequenceIndex::Slice(slice) => self.getitem_by_slice(vm, slice),
         }
         .map(|x| self.new_substr(x).into_ref(vm).into())
     }
@@ -1321,7 +1321,7 @@ impl AsSequence for PyStr {
         }),
         item: Some(|seq, i, vm| {
             let zelf = Self::sequence_downcast(seq);
-            zelf.get_item_by_index(vm, i)
+            zelf.getitem_by_index(vm, i)
                 .map(|x| zelf.new_substr(x.to_string()).into_ref(vm).into())
         }),
         contains: Some(|seq, needle, vm| Self::sequence_downcast(seq)._contains(needle, vm)),

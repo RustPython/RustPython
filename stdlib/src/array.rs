@@ -263,7 +263,7 @@ mod array {
                 fn getitem_by_index(&self, i: isize, vm: &VirtualMachine) -> PyResult {
                     match self {
                         $(ArrayContentType::$n(v) => {
-                            v.get_item_by_index(vm, i).map(|x| x.to_pyresult(vm))?
+                            v.getitem_by_index(vm, i).map(|x| x.to_pyresult(vm))?
                         })*
                     }
                 }
@@ -271,7 +271,7 @@ mod array {
                 fn getitem_by_slice(&self, slice: SaturatedSlice, vm: &VirtualMachine) -> PyResult {
                     match self {
                         $(ArrayContentType::$n(v) => {
-                            let r = v.get_item_by_slice(vm, slice)?;
+                            let r = v.getitem_by_slice(vm, slice)?;
                             let array = PyArray::from(ArrayContentType::$n(r));
                             array.to_pyresult(vm)
                         })*

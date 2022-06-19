@@ -209,11 +209,11 @@ impl PyByteArray {
         match SequenceIndex::try_from_borrowed_object(vm, needle, "bytearray")? {
             SequenceIndex::Int(i) => self
                 .borrow_buf()
-                .get_item_by_index(vm, i)
+                .getitem_by_index(vm, i)
                 .map(|x| vm.ctx.new_int(x).into()),
             SequenceIndex::Slice(slice) => self
                 .borrow_buf()
-                .get_item_by_slice(vm, slice)
+                .getitem_by_slice(vm, slice)
                 .map(|x| Self::new_ref(x, &vm.ctx).into()),
         }
     }
@@ -800,7 +800,7 @@ impl AsSequence for PyByteArray {
         item: Some(|seq, i, vm| {
             Self::sequence_downcast(seq)
                 .borrow_buf()
-                .get_item_by_index(vm, i)
+                .getitem_by_index(vm, i)
                 .map(|x| vm.ctx.new_bytes(vec![x]).into())
         }),
         ass_item: Some(|seq, i, value, vm| {
