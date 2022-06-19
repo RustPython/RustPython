@@ -12,6 +12,7 @@ use crate::{
     class::{PyClassImpl, StaticType},
     function::{FuncArgs, KwArgs, OptionalArg},
     identifier,
+    protocol::PyNumberMethods,
     types::{Callable, GetAttr, PyTypeFlags, PyTypeSlots, SetAttr},
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
@@ -22,6 +23,7 @@ use std::{borrow::Borrow, collections::HashSet, fmt, ops::Deref};
 /// type(object_or_name, bases, dict)
 /// type(object) -> the object's type
 /// type(name, bases, dict) -> a new type
+#[repr(C)]
 #[pyclass(module = false, name = "type")]
 pub struct PyType {
     pub base: Option<PyTypeRef>,
@@ -30,6 +32,28 @@ pub struct PyType {
     pub subclasses: PyRwLock<Vec<PyRef<PyWeak>>>,
     pub attributes: PyRwLock<PyAttributes>,
     pub slots: PyTypeSlots,
+}
+
+#[repr(C)]
+pub struct PyHeapType {
+    pub typ: PyType,
+    pub number_methods: PyRwLock<PyNumberMethods>,
+}
+
+impl From<PyHeapType> for PyType {
+    fn from(heaptype: PyHeapType) -> Self {
+        //TODO: SAFYTY
+        unsafe { std::mem::transmute(heaptype) }
+    }
+}
+
+impl Drop for PyType {
+    fn drop(&mut self) {
+        // TODO: is this right?
+        if self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
+            return unsafe { drop(std::mem::transmute::<_, PyHeapType>(self)) };
+        }
+    }
 }
 
 pub type PyTypeRef = PyRef<PyType>;
@@ -104,15 +128,19 @@ impl PyType {
 
         *slots.name.get_mut() = Some(String::from(name));
 
-        let new_type = PyRef::new_ref(
-            PyType {
-                base: Some(base),
-                bases,
-                mro,
-                subclasses: PyRwLock::default(),
-                attributes: PyRwLock::new(attrs),
-                slots,
-            },
+        let new_type: PyTypeRef = PyRef::new_ref(
+            PyHeapType {
+                typ: PyType {
+                    base: Some(base),
+                    bases,
+                    mro,
+                    subclasses: PyRwLock::default(),
+                    attributes: PyRwLock::new(attrs),
+                    slots,
+                },
+                number_methods: PyRwLock::default(),
+            }
+            .into(),
             metaclass,
             None,
         );

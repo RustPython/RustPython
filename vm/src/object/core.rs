@@ -18,7 +18,7 @@ use super::{
 use crate::common::{
     atomic::{OncePtr, PyAtomic, Radium},
     linked_list::{Link, LinkedList, Pointers},
-    lock::{PyMutex, PyMutexGuard, PyRwLock},
+    lock::{OnceCell, PyMutex, PyMutexGuard, PyRwLock},
     refcount::RefCount,
 };
 use crate::{
@@ -110,7 +110,9 @@ struct PyInner<T> {
     typeid: TypeId,
     vtable: &'static PyObjVTable,
 
-    typ: PyRwLock<PyTypeRef>, // __class__ member
+    typ: PyTypeRef,
+    type_override: OnceCell<PyRwLock<PyTypeRef>>,
+
     dict: Option<InstanceDict>,
     weak_list: WeakRefList,
 
@@ -430,7 +432,8 @@ impl<T: PyObjectPayload> PyInner<T> {
             ref_count: RefCount::new(),
             typeid: TypeId::of::<T>(),
             vtable: PyObjVTable::of::<T>(),
-            typ: PyRwLock::new(typ),
+            typ,
+            type_override: Default::default(),
             dict: dict.map(InstanceDict::new),
             weak_list: WeakRefList::new(),
             payload,
@@ -640,9 +643,29 @@ impl PyObject {
         }
     }
 
-    #[inline(always)]
-    pub(crate) fn class_lock(&self) -> &PyRwLock<PyTypeRef> {
-        &self.0.typ
+    pub(crate) fn get_class(&self) -> PyTypeRef {
+        if let Some(lock) = self.0.type_override.get() {
+            lock.read().to_owned()
+        } else {
+            self.0.typ.to_owned()
+        }
+    }
+
+    pub(crate) fn with_class<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&PyTypeRef) -> R,
+    {
+        if let Some(lock) = self.0.type_override.get() {
+            f(&lock.read())
+        } else {
+            f(&self.0.typ)
+        }
+    }
+
+    pub(crate) fn set_class(&self, cls: PyTypeRef) {
+        if let Err((inner, new)) = self.0.type_override.try_insert(PyRwLock::new(cls)) {
+            *inner.write() = new.into_inner()
+        }
     }
 
     #[inline(always)]
@@ -1091,7 +1114,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
     // to produce this circular dependency, we need an unsafe block.
     // (and yes, this will never get dropped. TODO?)
     let (type_type, object_type) = {
-        type UninitRef<T> = PyRwLock<NonNull<PyInner<T>>>;
+        type UninitRef<T> = NonNull<PyInner<T>>;
 
         // We cast between these 2 types, so make sure (at compile time) that there's no change in
         // layout when we wrap PyInner<PyTypeObj> in MaybeUninit<>
@@ -1122,6 +1145,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
                 dict: None,
                 weak_list: WeakRefList::new(),
                 payload: type_payload,
+                type_override: Default::default(),
             },
             Uninit { typ }
         )));
@@ -1133,6 +1157,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
                 dict: None,
                 weak_list: WeakRefList::new(),
                 payload: object_payload,
+                type_override: Default::default(),
             },
             Uninit { typ },
         )));
@@ -1145,13 +1170,13 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
         unsafe {
             (*type_type_ptr).ref_count.inc();
             ptr::write(
-                &mut (*object_type_ptr).typ as *mut PyRwLock<PyTypeRef> as *mut UninitRef<PyType>,
-                PyRwLock::new(NonNull::new_unchecked(type_type_ptr)),
+                &mut (*object_type_ptr).typ as *mut PyTypeRef as *mut UninitRef<PyType>,
+                NonNull::new_unchecked(type_type_ptr),
             );
             (*type_type_ptr).ref_count.inc();
             ptr::write(
-                &mut (*type_type_ptr).typ as *mut PyRwLock<PyTypeRef> as *mut UninitRef<PyType>,
-                PyRwLock::new(NonNull::new_unchecked(type_type_ptr)),
+                &mut (*type_type_ptr).typ as *mut PyTypeRef as *mut UninitRef<PyType>,
+                NonNull::new_unchecked(type_type_ptr),
             );
 
             let object_type = PyTypeRef::from_raw(object_type_ptr.cast());

@@ -6,7 +6,7 @@ use crate::{
 };
 
 #[allow(clippy::type_complexity)]
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct PyNumberMethods {
     /* Number implementations must check *both*
     arguments for proper type and implement the necessary conversions
