@@ -24,7 +24,7 @@ where
     where
         I: Iterator<Item = usize>;
 
-    fn set_item_by_index(
+    fn setitem_by_index(
         &mut self,
         vm: &VirtualMachine,
         index: isize,
@@ -38,7 +38,7 @@ where
         Ok(())
     }
 
-    fn set_item_by_slice_no_resize(
+    fn setitem_by_slice_no_resize(
         &mut self,
         vm: &VirtualMachine,
         slice: SaturatedSlice,
@@ -60,7 +60,7 @@ where
         }
     }
 
-    fn set_item_by_slice(
+    fn setitem_by_slice(
         &mut self,
         vm: &VirtualMachine,
         slice: SaturatedSlice,

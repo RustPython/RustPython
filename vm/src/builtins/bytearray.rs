@@ -160,7 +160,7 @@ impl PyByteArray {
 
     fn _setitem_by_index(&self, i: isize, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let value = value_from_object(vm, &value)?;
-        self.borrow_buf_mut().set_item_by_index(vm, i, value)
+        self.borrow_buf_mut().setitem_by_index(vm, i, value)
     }
 
     fn _setitem(
@@ -178,10 +178,10 @@ impl PyByteArray {
                     bytes_from_object(vm, &value)?
                 };
                 if let Some(mut w) = zelf.try_resizable_opt() {
-                    w.elements.set_item_by_slice(vm, slice, &items)
+                    w.elements.setitem_by_slice(vm, slice, &items)
                 } else {
                     zelf.borrow_buf_mut()
-                        .set_item_by_slice_no_resize(vm, slice, &items)
+                        .setitem_by_slice_no_resize(vm, slice, &items)
                 }
             }
         }

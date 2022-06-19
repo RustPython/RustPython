@@ -213,10 +213,10 @@ impl PyList {
 
     fn _setitem(&self, needle: &PyObject, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         match SequenceIndex::try_from_borrowed_object(vm, needle, "list")? {
-            SequenceIndex::Int(index) => self.borrow_vec_mut().set_item_by_index(vm, index, value),
+            SequenceIndex::Int(index) => self.borrow_vec_mut().setitem_by_index(vm, index, value),
             SequenceIndex::Slice(slice) => {
                 let sec = extract_cloned(&*value, Ok, vm)?;
-                self.borrow_vec_mut().set_item_by_slice(vm, slice, &sec)
+                self.borrow_vec_mut().setitem_by_slice(vm, slice, &sec)
             }
         }
     }
@@ -451,7 +451,7 @@ impl AsSequence for PyList {
         ass_item: Some(|seq, i, value, vm| {
             let zelf = Self::sequence_downcast(seq);
             if let Some(value) = value {
-                zelf.borrow_vec_mut().set_item_by_index(vm, i, value)
+                zelf.borrow_vec_mut().setitem_by_index(vm, i, value)
             } else {
                 zelf.borrow_vec_mut().del_item_by_index(vm, i)
             }

@@ -287,7 +287,7 @@ mod array {
                     match self {
                         $(ArrayContentType::$n(v) => {
                             let value = <$t>::try_into_from_object(vm, value)?;
-                            v.set_item_by_index(vm, i, value)
+                            v.setitem_by_index(vm, i, value)
                         })*
                     }
                 }
@@ -300,7 +300,7 @@ mod array {
                 ) -> PyResult<()> {
                     match self {
                         $(Self::$n(elements) => if let ArrayContentType::$n(items) = items {
-                            elements.set_item_by_slice(vm, slice, items)
+                            elements.setitem_by_slice(vm, slice, items)
                         } else {
                             Err(vm.new_type_error(
                                 "bad argument type for built-in operation".to_owned()
@@ -317,7 +317,7 @@ mod array {
                 ) -> PyResult<()> {
                     match self {
                         $(Self::$n(elements) => if let ArrayContentType::$n(items) = items {
-                            elements.set_item_by_slice_no_resize(vm, slice, items)
+                            elements.setitem_by_slice_no_resize(vm, slice, items)
                         } else {
                             Err(vm.new_type_error(
                                 "bad argument type for built-in operation".to_owned()
