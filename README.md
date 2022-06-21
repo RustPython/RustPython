@@ -20,7 +20,7 @@ A Python-3 (CPython >= 3.10.0) Interpreter written in Rust :snake: :scream:
 
 #### Check out our [online demo](https://rustpython.github.io/demo/) running on WebAssembly.
 
-RustPython requires Rust latest stable version (e.g 1.43.0 at May 24th 2020). 
+RustPython requires Rust latest stable version (e.g 1.43.0 at May 24th 2020).
 To check Rust version: `rustc --version` If you wish to update,
 `rustup update stable`.
 
@@ -29,6 +29,8 @@ To build RustPython locally, do the following:
     $ git clone https://github.com/RustPython/RustPython
     $ cd RustPython
       # --release is needed (at least on windows) to prevent stack overflow
+
+    $ curl https://sh.rustup.rs -sSf | sh -s -- -y
     $ cargo run --release demo.py
     Hello, RustPython!
 
@@ -38,7 +40,7 @@ Or use the interactive shell:
     Welcome to rustpython
     >>>>> 2+2
     4
-    
+
 NOTE: For windows users, please set `RUSTPYTHONPATH` environment variable as `Lib` path in project directory.
 (e.g. When RustPython directory is `C:\RustPython`, set `RUSTPYTHONPATH` as `C:\RustPython\Lib`)
 
@@ -69,22 +71,24 @@ this isn't officially supported and may be out of date:
     $ conda install rustpython -c conda-forge
     $ rustpython
 
-
 ### WASI
 
 You can compile RustPython to a standalone WebAssembly WASI module so it can run anywhere.
 
 Build
+
 ```shell
 $ cargo build --target wasm32-wasi --no-default-features --features freeze-stdlib,stdlib --release
 ```
 
 Run by wasmer
+
 ```shell
 $ wasmer run --dir . target/wasm32-wasi/release/rustpython.wasm extra_tests/snippets/stdlib_random.py
 ```
 
 Run by wapm
+
 ```shell
 $ wapm install rustpython
 $ wapm run rustpython
@@ -104,17 +108,17 @@ cargo build --release --target wasm32-wasi --features="freeze-stdlib"
 
 ### JIT (Just in time) compiler
 
-RustPython has an **very** experimental JIT compiler that compile python functions into native code. 
+RustPython has an **very** experimental JIT compiler that compile python functions into native code.
 
 #### Building
 
 By default the JIT compiler isn't enabled, it's enabled with the `jit` cargo feature.
 
     $ cargo run --features jit
-    
+
 This requires autoconf, automake, libtool, and clang to be installed.
 
-#### Using 
+#### Using
 
 To compile a function, call `__jit__()` on it.
 
