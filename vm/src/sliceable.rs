@@ -1,4 +1,4 @@
-// export through slicable module, not slice.
+// export through sliceable module, not slice.
 use crate::{
     builtins::{int::PyInt, slice::PySlice},
     AsObject, PyObject, PyResult, VirtualMachine,
@@ -13,7 +13,7 @@ where
 {
     type Item: Clone;
     fn do_set(&mut self, index: usize, value: Self::Item);
-    fn do_delele(&mut self, index: usize);
+    fn do_delete(&mut self, index: usize);
     /// as CPython, length of range and items could be different, function must act like Vec::splice()
     fn do_set_range(&mut self, range: Range<usize>, items: &[Self::Item]);
     fn do_delete_range(&mut self, range: Range<usize>);
@@ -34,7 +34,7 @@ where
         let pos = self
             .as_ref()
             .wrap_index(index)
-            .ok_or_else(|| vm.new_index_error("assigment index out of range".to_owned()))?;
+            .ok_or_else(|| vm.new_index_error("assignment index out of range".to_owned()))?;
         self.do_set(pos, value);
         Ok(())
     }
@@ -90,8 +90,8 @@ where
         let pos = self
             .as_ref()
             .wrap_index(index)
-            .ok_or_else(|| vm.new_index_error("assigment index out of range".to_owned()))?;
-        self.do_delele(pos);
+            .ok_or_else(|| vm.new_index_error("assignment index out of range".to_owned()))?;
+        self.do_delete(pos);
         Ok(())
     }
 
@@ -119,7 +119,7 @@ impl<T: Clone> SliceableSequenceMutOp for Vec<T> {
         self[index] = value;
     }
 
-    fn do_delele(&mut self, index: usize) {
+    fn do_delete(&mut self, index: usize) {
         self.remove(index);
     }
 
@@ -276,7 +276,7 @@ impl SequenceIndex {
         } else if let Some(slice) = obj.payload::<PySlice>() {
             slice.to_saturated(vm).map(Self::Slice)
         } else if let Some(i) = vm.to_index_opt(obj.to_owned()) {
-            // TODO: __index__ for indice is no more supported?
+            // TODO: __index__ for indices is no more supported?
             i?.try_to_primitive(vm)
                 .map_err(|_| {
                     vm.new_index_error("cannot fit 'int' into an index-sized integer".to_owned())
@@ -338,7 +338,7 @@ impl SequenceIndexOp for BigInt {
 }
 
 /// A saturated slice with values ranging in [isize::MIN, isize::MAX]. Used for
-/// slicable sequences that require indices in the aforementioned range.
+/// sliceable sequences that require indices in the aforementioned range.
 ///
 /// Invokes `__index__` on the PySliceRef during construction so as to separate the
 /// transformation from PyObject into isize and the adjusting of the slice to a given

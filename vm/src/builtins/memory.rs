@@ -318,7 +318,7 @@ impl PyMemoryView {
         if zelf.is(&src) {
             return if !is_equiv_structure(&zelf.desc, &dest.desc) {
                 Err(vm.new_value_error(
-                    "memoryview assigment: lvalue and rvalue have different structures".to_owned(),
+                    "memoryview assignment: lvalue and rvalue have different structures".to_owned(),
                 ))
             } else {
                 // assign self[:] to self
@@ -338,7 +338,7 @@ impl PyMemoryView {
 
         if !is_equiv_structure(&src.desc, &dest.desc) {
             return Err(vm.new_value_error(
-                "memoryview assigment: lvalue and rvalue have different structures".to_owned(),
+                "memoryview assignment: lvalue and rvalue have different structures".to_owned(),
             ));
         }
 
