@@ -934,11 +934,11 @@ mod mmap {
             slice: &SaturatedSlice,
             vm: &VirtualMachine,
         ) -> PyResult<PyObjectRef> {
-            let (range, step, slicelen) = slice.adjust_indices(self.len());
+            let (range, step, slice_len) = slice.adjust_indices(self.len());
 
             let mmap = self.check_valid(vm)?;
 
-            if slicelen == 0 {
+            if slice_len == 0 {
                 return Ok(PyBytes::from(vec![]).into_ref(vm).into());
             } else if step == 1 {
                 let bytes = match mmap.deref().as_ref().unwrap() {
@@ -948,7 +948,7 @@ mod mmap {
                 return Ok(PyBytes::from(bytes.to_vec()).into_ref(vm).into());
             }
 
-            let mut result_buf = Vec::with_capacity(slicelen);
+            let mut result_buf = Vec::with_capacity(slice_len);
             if step.is_negative() {
                 for i in range.rev().step_by(step.unsigned_abs()) {
                     let b = match mmap.deref().as_ref().unwrap() {
@@ -1017,15 +1017,15 @@ mod mmap {
             value: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let (range, step, slicelen) = slice.adjust_indices(zelf.len());
+            let (range, step, slice_len) = slice.adjust_indices(zelf.len());
 
             let bytes = bytes_from_object(vm, &value)?;
 
-            if bytes.len() != slicelen {
+            if bytes.len() != slice_len {
                 return Err(vm.new_index_error("mmap slice assignment is wrong size".to_owned()));
             }
 
-            if slicelen == 0 {
+            if slice_len == 0 {
                 // do nothing
                 Ok(())
             } else if step == 1 {

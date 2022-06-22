@@ -44,8 +44,8 @@ where
         slice: SaturatedSlice,
         items: &[Self::Item],
     ) -> PyResult<()> {
-        let (range, step, slicelen) = slice.adjust_indices(self.as_ref().len());
-        if slicelen != items.len() {
+        let (range, step, slice_len) = slice.adjust_indices(self.as_ref().len());
+        if slice_len != items.len() {
             Err(vm
                 .new_buffer_error("Existing exports of data: object cannot be re-sized".to_owned()))
         } else if step == 1 {
@@ -53,7 +53,7 @@ where
             Ok(())
         } else {
             self.do_set_indexes(
-                SaturatedSliceIter::from_adjust_indices(range, step, slicelen),
+                SaturatedSliceIter::from_adjust_indices(range, step, slice_len),
                 items,
             );
             Ok(())
@@ -66,13 +66,13 @@ where
         slice: SaturatedSlice,
         items: &[Self::Item],
     ) -> PyResult<()> {
-        let (range, step, slicelen) = slice.adjust_indices(self.as_ref().len());
+        let (range, step, slice_len) = slice.adjust_indices(self.as_ref().len());
         if step == 1 {
             self.do_set_range(range, items);
             Ok(())
-        } else if slicelen == items.len() {
+        } else if slice_len == items.len() {
             self.do_set_indexes(
-                SaturatedSliceIter::from_adjust_indices(range, step, slicelen),
+                SaturatedSliceIter::from_adjust_indices(range, step, slice_len),
                 items,
             );
             Ok(())
@@ -80,7 +80,7 @@ where
             Err(vm.new_value_error(format!(
                 "attempt to assign sequence of size {} to extended slice of size {}",
                 items.len(),
-                slicelen
+                slice_len
             )))
         }
     }
@@ -95,8 +95,8 @@ where
     }
 
     fn del_item_by_slice(&mut self, _vm: &VirtualMachine, slice: SaturatedSlice) -> PyResult<()> {
-        let (range, step, slicelen) = slice.adjust_indices(self.as_ref().len());
-        if slicelen == 0 {
+        let (range, step, slice_len) = slice.adjust_indices(self.as_ref().len());
+        if slice_len == 0 {
             Ok(())
         } else if step == 1 {
             self.do_set_range(range, &[]);
@@ -104,7 +104,7 @@ where
         } else {
             self.do_delete_indexes(
                 range.clone(),
-                SaturatedSliceIter::from_adjust_indices(range, step, slicelen).positive_order(),
+                SaturatedSliceIter::from_adjust_indices(range, step, slice_len).positive_order(),
             );
             Ok(())
         }
@@ -187,8 +187,8 @@ pub trait SliceableSequenceOp {
         _vm: &VirtualMachine,
         slice: SaturatedSlice,
     ) -> PyResult<Self::Sliced> {
-        let (range, step, slicelen) = slice.adjust_indices(self.len());
-        let sliced = if slicelen == 0 {
+        let (range, step, slice_len) = slice.adjust_indices(self.len());
+        let sliced = if slice_len == 0 {
             Self::empty()
         } else if step == 1 {
             if step.is_negative() {
@@ -395,13 +395,13 @@ impl SaturatedSlice {
             saturate_index(self.start, len)..saturate_index(self.stop, len)
         };
 
-        let (range, slicelen) = if range.start >= range.end {
+        let (range, slice_len) = if range.start >= range.end {
             (range.start..range.start, 0)
         } else {
-            let slicelen = (range.end - range.start - 1) / self.step.unsigned_abs() + 1;
-            (range, slicelen)
+            let slice_len = (range.end - range.start - 1) / self.step.unsigned_abs() + 1;
+            (range, slice_len)
         };
-        (range, self.step, slicelen)
+        (range, self.step, slice_len)
     }
 
     pub fn iter(&self, len: usize) -> SaturatedSliceIter {

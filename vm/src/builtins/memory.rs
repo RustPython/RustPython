@@ -479,7 +479,7 @@ impl PyMemoryView {
     fn init_slice(&mut self, slice: &PySlice, dim: usize, vm: &VirtualMachine) -> PyResult<()> {
         let (shape, stride, _) = self.desc.dim_desc[dim];
         let slice = slice.to_saturated(vm)?;
-        let (range, step, slicelen) = slice.adjust_indices(shape);
+        let (range, step, slice_len) = slice.adjust_indices(shape);
 
         let mut is_adjusted_suboffset = false;
         for (_, _, suboffset) in self.desc.dim_desc.iter_mut().rev() {
@@ -498,7 +498,7 @@ impl PyMemoryView {
                     range.start
                 };
         }
-        self.desc.dim_desc[dim].0 = slicelen;
+        self.desc.dim_desc[dim].0 = slice_len;
         self.desc.dim_desc[dim].1 *= step;
 
         Ok(())
