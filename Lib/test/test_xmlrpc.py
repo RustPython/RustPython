@@ -394,11 +394,6 @@ class SimpleXMLRPCDispatcherTestCase(unittest.TestCase):
         self.assertIsNone(exc_ctx.exception.__cause__)
         self.assertIsNone(exc_ctx.exception.__context__)
 
-    # TODO: RUSTPYTHON
-    import os
-    if os.getenv("CI"):
-        test_call_registered_func = unittest.expectedFailure(test_call_registered_func)
-
     def test_call_instance_func(self):
         """Calls a registered instance attribute as a function"""
         # Makes sure any exception raised inside the function has no other
@@ -417,11 +412,6 @@ class SimpleXMLRPCDispatcherTestCase(unittest.TestCase):
         self.assertEqual(exc_ctx.exception.args, (exp_params,))
         self.assertIsNone(exc_ctx.exception.__cause__)
         self.assertIsNone(exc_ctx.exception.__context__)
-
-    # TODO: RUSTPYTHON
-    import os
-    if os.getenv("CI"):
-        test_call_instance_func = unittest.expectedFailure(test_call_instance_func)
 
     def test_call_dispatch_func(self):
         """Calls the registered instance's `_dispatch` function"""
@@ -443,11 +433,6 @@ class SimpleXMLRPCDispatcherTestCase(unittest.TestCase):
         self.assertEqual(exc_ctx.exception.args, (exp_method, exp_params))
         self.assertIsNone(exc_ctx.exception.__cause__)
         self.assertIsNone(exc_ctx.exception.__context__)
-
-    # TODO: RUSTPYTHON
-    import os
-    if os.getenv("CI"):
-        test_call_dispatch_func = unittest.expectedFailure(test_call_dispatch_func)
 
     def test_registered_func_is_none(self):
         """Calls explicitly registered function which is None"""

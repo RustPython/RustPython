@@ -298,11 +298,6 @@ class TestPEP380Operation(unittest.TestCase):
             "Finishing g1",
         ])
 
-    # TODO: RUSTPYTHON
-    import os
-    if os.getenv("CI"):
-        test_handing_exception_while_delegating_close = unittest.expectedFailure(test_handing_exception_while_delegating_close)
-
     def test_delegating_throw(self):
         """
         Test delegating 'throw'
@@ -888,11 +883,6 @@ class TestPEP380Operation(unittest.TestCase):
             "Enter g",
             "Enter f",
         ])
-
-    # TODO: RUSTPYTHON
-    import os
-    if os.getenv("CI"):
-        test_throwing_GeneratorExit_into_subgen_that_raises = unittest.expectedFailure(test_throwing_GeneratorExit_into_subgen_that_raises)
 
     def test_yield_from_empty(self):
         def g():
