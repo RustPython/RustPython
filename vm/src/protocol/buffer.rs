@@ -7,7 +7,7 @@ use crate::{
         lock::{MapImmutable, PyMutex, PyMutexGuard},
     },
     object::PyObjectPayload,
-    sliceable::wrap_index,
+    sliceable::SequenceIndexOp,
     types::{Constructor, Unconstructible},
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject,
     VirtualMachine,
@@ -255,7 +255,7 @@ impl BufferDescriptor {
             .cloned()
             .zip_eq(self.dim_desc.iter().cloned())
         {
-            let i = wrap_index(i, shape).ok_or_else(|| {
+            let i = i.wrapped_at(shape).ok_or_else(|| {
                 vm.new_index_error(format!("index out of bounds on dimension {}", i))
             })?;
             pos += i as isize * stride + suboffset;

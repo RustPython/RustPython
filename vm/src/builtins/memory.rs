@@ -17,7 +17,7 @@ use crate::{
     protocol::{
         BufferDescriptor, BufferMethods, PyBuffer, PyMappingMethods, PySequenceMethods, VecBuffer,
     },
-    sliceable::wrap_index,
+    sliceable::SequenceIndexOp,
     types::{AsBuffer, AsMapping, AsSequence, Comparable, Constructor, Hashable, PyComparisonOp},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, TryFromObject, VirtualMachine,
@@ -243,7 +243,8 @@ impl PyMemoryView {
             ));
         }
         let (shape, stride, suboffset) = self.desc.dim_desc[0];
-        let index = wrap_index(i, shape)
+        let index = i
+            .wrapped_at(shape)
             .ok_or_else(|| vm.new_index_error("index out of range".to_owned()))?;
         let index = index as isize * stride + suboffset;
         let pos = (index + self.start as isize) as usize;
@@ -292,7 +293,8 @@ impl PyMemoryView {
             return Err(vm.new_not_implemented_error("sub-views are not implemented".to_owned()));
         }
         let (shape, stride, suboffset) = self.desc.dim_desc[0];
-        let index = wrap_index(i, shape)
+        let index = i
+            .wrapped_at(shape)
             .ok_or_else(|| vm.new_index_error("index out of range".to_owned()))?;
         let index = index as isize * stride + suboffset;
         let pos = (index + self.start as isize) as usize;

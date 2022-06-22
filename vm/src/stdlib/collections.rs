@@ -13,7 +13,7 @@ mod _collections {
         protocol::{PyIterReturn, PySequenceMethods},
         recursion::ReprGuard,
         sequence::MutObjectSequenceOp,
-        sliceable::{self, SequenceIndexOp},
+        sliceable::SequenceIndexOp,
         types::{
             AsSequence, Comparable, Constructor, Hashable, Initializer, IterNext, IterNextIterable,
             Iterable, PyComparisonOp, Unhashable,
@@ -279,7 +279,7 @@ mod _collections {
         #[pymethod(magic)]
         fn getitem(&self, idx: isize, vm: &VirtualMachine) -> PyResult {
             let deque = self.borrow_deque();
-            sliceable::wrap_index(idx, deque.len())
+            idx.wrapped_at(deque.len())
                 .and_then(|i| deque.get(i).cloned())
                 .ok_or_else(|| vm.new_index_error("deque index out of range".to_owned()))
         }
@@ -287,7 +287,7 @@ mod _collections {
         #[pymethod(magic)]
         fn setitem(&self, idx: isize, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             let mut deque = self.borrow_deque_mut();
-            sliceable::wrap_index(idx, deque.len())
+            idx.wrapped_at(deque.len())
                 .and_then(|i| deque.get_mut(i))
                 .map(|x| *x = value)
                 .ok_or_else(|| vm.new_index_error("deque index out of range".to_owned()))
@@ -296,7 +296,7 @@ mod _collections {
         #[pymethod(magic)]
         fn delitem(&self, idx: isize, vm: &VirtualMachine) -> PyResult<()> {
             let mut deque = self.borrow_deque_mut();
-            sliceable::wrap_index(idx, deque.len())
+            idx.wrapped_at(deque.len())
                 .and_then(|i| deque.remove(i).map(drop))
                 .ok_or_else(|| vm.new_index_error("deque index out of range".to_owned()))
         }

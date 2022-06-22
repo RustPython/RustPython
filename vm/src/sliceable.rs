@@ -176,7 +176,7 @@ pub trait SliceableSequenceOp {
     fn len(&self) -> usize;
 
     fn wrap_index(&self, p: isize) -> Option<usize> {
-        wrap_index(p, self.len())
+        p.wrapped_at(self.len())
     }
 
     fn saturate_index(&self, p: isize) -> usize {
@@ -292,28 +292,33 @@ impl SequenceIndex {
     }
 }
 
-// Use PySliceableSequence::wrap_index for implementors
-pub fn wrap_index(p: isize, len: usize) -> Option<usize> {
-    let neg = p.is_negative();
-    let p = p.wrapping_abs() as usize;
-    if neg {
-        len.checked_sub(p)
-    } else if p >= len {
-        None
-    } else {
-        Some(p)
-    }
-}
-
 pub trait SequenceIndexOp {
     // Saturate p in range [0, len] inclusive
     fn saturated_at(&self, len: usize) -> usize;
+    // Use PySliceableSequence::wrap_index for implementors
+    fn wrapped_at(&self, len: usize) -> Option<usize>;
 }
 
 impl SequenceIndexOp for isize {
     fn saturated_at(&self, len: usize) -> usize {
         let len = len.to_isize().unwrap_or(Self::MAX);
-        *self.clamp(&0, &len) as usize
+        let mut p = *self;
+        if p < 0 {
+            p += len;
+        }
+        p.clamp(0, len) as usize
+    }
+
+    fn wrapped_at(&self, len: usize) -> Option<usize> {
+        let neg = self.is_negative();
+        let p = self.unsigned_abs();
+        if neg {
+            len.checked_sub(p)
+        } else if p >= len {
+            None
+        } else {
+            Some(p)
+        }
     }
 }
 
@@ -326,6 +331,9 @@ impl SequenceIndexOp for BigInt {
         } else {
             self.try_into().unwrap_or(len)
         }
+    }
+    fn wrapped_at(&self, _len: usize) -> Option<usize> {
+        unimplemented!("please add one once we need it")
     }
 }
 
