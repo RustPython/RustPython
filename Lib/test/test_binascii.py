@@ -220,8 +220,6 @@ class BinASCIITest(unittest.TestCase):
         res = binascii.rledecode_hqx(b)
         self.assertEqual(res, self.rawdata)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_rle(self):
         # test repetition with a repetition longer than the limit of 255
         data = (b'a' * 100 + b'b' + b'c' * 300)
