@@ -200,7 +200,7 @@ mod decl {
                 } else {
                     let mut inend = idx + 1;
                     while inend < len && buffer[inend] == ch && inend < idx + 255 {
-                        inend = inend + 1;
+                        inend += 1;
                     }
                     if inend - idx > 3 {
                         out_data.push(ch);
@@ -211,7 +211,7 @@ mod decl {
                         out_data.push(ch);
                     }
                 }
-                idx = idx + 1;
+                idx += 1;
             }
             Ok(out_data)
         })
@@ -230,7 +230,7 @@ mod decl {
             } else {
                 out_data.push(buffer[idx]);
             }
-            idx = idx + 1;
+            idx += 1;
 
             while idx < len {
                 if buffer[idx] == runchar {
@@ -239,7 +239,7 @@ mod decl {
                     } else {
                         let ch = buffer[idx - 1];
                         let range = buffer[idx + 1];
-                        idx = idx + 1;
+                        idx += 1;
                         for _ in 1..range {
                             out_data.push(ch);
                         }
@@ -247,7 +247,7 @@ mod decl {
                 } else {
                     out_data.push(buffer[idx]);
                 }
-                idx = idx + 1;
+                idx += 1;
             }
             Ok(out_data)
         })
