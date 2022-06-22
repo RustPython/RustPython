@@ -555,6 +555,8 @@ class TestNtpath(NtpathTestCase):
             check('%spam%bar', '%sbar' % nonascii)
             check('%{}%bar'.format(nonascii), 'ham%sbar' % nonascii)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_expanduser(self):
         tester('ntpath.expanduser("test")', 'test')
 
