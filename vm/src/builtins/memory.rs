@@ -36,7 +36,7 @@ pub struct PyMemoryViewNewArgs {
 pub struct PyMemoryView {
     // avoid double release when memoryview had released the buffer before drop
     buffer: ManuallyDrop<PyBuffer>,
-    // the released memoryview does not mean the buffer is destoryed
+    // the released memoryview does not mean the buffer is destroyed
     // because the possible another memeoryview is viewing from it
     released: AtomicCell<bool>,
     // start does NOT mean the bytes before start will not be visited,
@@ -67,7 +67,7 @@ impl PyMemoryView {
         FormatSpec::parse(format.as_bytes(), vm)
     }
 
-    /// this should be the main entrence to create the memoryview
+    /// this should be the main entrance to create the memoryview
     /// to avoid the chained memoryview
     pub fn from_object(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Self> {
         if let Some(other) = obj.payload::<Self>() {
@@ -78,7 +78,7 @@ impl PyMemoryView {
         }
     }
 
-    /// don't use this function to create the memeoryview if the buffer is exporting
+    /// don't use this function to create the memoryview if the buffer is exporting
     /// via another memoryview, use PyMemoryView::new_view() or PyMemoryView::from_object
     /// to reduce the chain
     pub fn from_buffer(buffer: PyBuffer, vm: &VirtualMachine) -> PyResult<Self> {
@@ -113,7 +113,7 @@ impl PyMemoryView {
         Ok(zelf)
     }
 
-    /// this should be the only way to create a memroyview from another memoryview
+    /// this should be the only way to create a memoryview from another memoryview
     pub fn new_view(&self) -> Self {
         let zelf = PyMemoryView {
             buffer: self.buffer.clone(),
