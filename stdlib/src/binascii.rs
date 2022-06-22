@@ -183,6 +183,77 @@ mod decl {
     }
 
     #[pyfunction]
+    fn rlecode_hqx(s: ArgAsciiBuffer) -> PyResult<Vec<u8>> {
+        let runchar = 0x90; //RUNCHAR = b"\x90"
+        s.with_ref(|buffer| {
+            let len = buffer.len();
+            let mut out_data = Vec::<u8>::with_capacity((len * 2) + 2);
+
+            let mut idx = 0;
+            while idx < len {
+                let ch = buffer[idx];
+
+                if ch == runchar {
+                    out_data.push(runchar);
+                    out_data.push(0);
+                    return Ok(out_data);
+                } else {
+                    let mut inend = idx + 1;
+                    while inend < len && buffer[inend] == ch && inend < idx + 255 {
+                        inend = inend + 1;
+                    }
+                    if inend - idx > 3 {
+                        out_data.push(ch);
+                        out_data.push(runchar);
+                        out_data.push(((inend - idx) % 256) as u8);
+                        idx = inend - 1;
+                    } else {
+                        out_data.push(ch);
+                    }
+                }
+                idx = idx + 1;
+            }
+            Ok(out_data)
+        })
+    }
+
+    #[pyfunction]
+    fn rledecode_hqx(s: ArgAsciiBuffer) -> PyResult<Vec<u8>> {
+        let runchar = 0x90; //RUNCHAR = b"\x90"
+        s.with_ref(|buffer| {
+            let len = buffer.len();
+            let mut out_data = Vec::<u8>::with_capacity(len);
+            let mut idx = 0;
+
+            if buffer[idx] == runchar {
+                out_data.push(runchar);
+            } else {
+                out_data.push(buffer[idx]);
+            }
+            idx = idx + 1;
+
+            while idx < len {
+                if buffer[idx] == runchar {
+                    if buffer[idx + 1] == 0 {
+                        out_data.push(runchar);
+                    } else {
+                        let ch = buffer[idx - 1];
+                        let range = buffer[idx + 1];
+                        idx = idx + 1;
+                        for _ in 1..range {
+                            out_data.push(ch);
+                        }
+                    }
+                } else {
+                    out_data.push(buffer[idx]);
+                }
+                idx = idx + 1;
+            }
+            Ok(out_data)
+        })
+    }
+
+    #[pyfunction]
     fn a2b_uu(s: ArgAsciiBuffer, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         s.with_ref(|b| {
             // First byte: binary data length (in bytes)
