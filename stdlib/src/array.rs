@@ -25,7 +25,8 @@ mod array {
             },
             sequence::{SequenceExt, SequenceMutExt},
             sliceable::{
-                SaturatedSlice, SequenceIndex, SliceableSequenceMutOp, SliceableSequenceOp,
+                SaturatedSlice, SequenceIndex, SequenceIndexOp, SliceableSequenceMutOp,
+                SliceableSequenceOp,
             },
             types::{
                 AsBuffer, AsMapping, Comparable, Constructor, IterNext, IterNextIterable, Iterable,
@@ -128,7 +129,7 @@ mod array {
                     match self {
                         $(ArrayContentType::$n(v) => {
                             let val = <$t>::try_into_from_object(vm, obj)?;
-                            v.insert(v.saturate_index(i), val);
+                            v.insert(i.saturated_at(v.len()), val);
                         })*
                     }
                     Ok(())

@@ -8,7 +8,7 @@ use crate::{
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     recursion::ReprGuard,
     sequence::SequenceExt,
-    sliceable::pyint_saturate_index,
+    sliceable::SequenceIndexOp,
     sliceable::{SequenceIndex, SliceableSequenceOp},
     types::{
         AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable,
@@ -288,7 +288,7 @@ impl PyTuple {
         let len = self.len();
         let saturate = |obj: PyObjectRef, len| -> PyResult<_> {
             obj.try_into_value(vm)
-                .map(|int: PyIntRef| pyint_saturate_index(int, len))
+                .map(|int: PyIntRef| int.as_bigint().saturated_at(len))
         };
         let start = start.map_or(Ok(0), |i| saturate(i, len))?;
         let stop = stop.map_or(Ok(len), |i| saturate(i, len))?;

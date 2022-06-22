@@ -14,7 +14,7 @@ mod mmap {
         protocol::{
             BufferDescriptor, BufferMethods, PyBuffer, PyMappingMethods, PySequenceMethods,
         },
-        sliceable::{saturate_index, wrap_index, SaturatedSlice, SequenceIndex},
+        sliceable::{wrap_index, SaturatedSlice, SequenceIndex, SequenceIndexOp},
         types::{AsBuffer, AsMapping, AsSequence, Constructor},
         AsObject, FromArgs, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
         TryFromBorrowedObject, VirtualMachine,
@@ -592,11 +592,11 @@ mod mmap {
             let size = self.len();
             let start = options
                 .start
-                .map(|start| saturate_index(start, size))
+                .map(|start| start.saturated_at(size))
                 .unwrap_or_else(|| self.pos());
             let end = options
                 .end
-                .map(|end| saturate_index(end, size))
+                .map(|end| end.saturated_at(size))
                 .unwrap_or(size);
             (start, end)
         }

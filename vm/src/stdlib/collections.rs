@@ -13,8 +13,7 @@ mod _collections {
         protocol::{PyIterReturn, PySequenceMethods},
         recursion::ReprGuard,
         sequence::MutObjectSequenceOp,
-        sliceable,
-        sliceable::pyint_saturate_index,
+        sliceable::{self, SequenceIndexOp},
         types::{
             AsSequence, Comparable, Constructor, Hashable, Initializer, IterNext, IterNextIterable,
             Iterable, PyComparisonOp, Unhashable,
@@ -167,7 +166,7 @@ mod _collections {
             let len = self.len();
             let saturate = |obj: PyObjectRef, len| -> PyResult<_> {
                 obj.try_into_value(vm)
-                    .map(|int: PyIntRef| pyint_saturate_index(int, len))
+                    .map(|int: PyIntRef| int.as_bigint().saturated_at(len))
             };
             let start = start.map_or(Ok(0), |i| saturate(i, len))?;
             let stop = stop.map_or(Ok(len), |i| saturate(i, len))?;

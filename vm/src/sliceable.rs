@@ -1,8 +1,9 @@
 // export through slicable module, not slice.
 use crate::{
-    builtins::{int::PyInt, slice::PySlice, PyIntRef},
+    builtins::{int::PyInt, slice::PySlice},
     AsObject, PyObject, PyResult, VirtualMachine,
 };
+use num_bigint::BigInt;
 use num_traits::{Signed, ToPrimitive};
 use std::ops::Range;
 
@@ -179,7 +180,7 @@ pub trait SliceableSequenceOp {
     }
 
     fn saturate_index(&self, p: isize) -> usize {
-        saturate_index(p, self.len())
+        p.saturated_at(self.len())
     }
 
     fn getitem_by_slice(
@@ -304,32 +305,27 @@ pub fn wrap_index(p: isize, len: usize) -> Option<usize> {
     }
 }
 
-// Saturate p in range [0, len] inclusive
-pub fn saturate_index(p: isize, len: usize) -> usize {
-    let len = len.to_isize().unwrap_or(isize::MAX);
-    let mut p = p;
-    if p < 0 {
-        p += len;
-        if p < 0 {
-            p = 0;
-        }
-    }
-    if p > len {
-        p = len;
-    }
-    p as usize
+pub trait SequenceIndexOp {
+    // Saturate p in range [0, len] inclusive
+    fn saturated_at(&self, len: usize) -> usize;
 }
 
-// Saturate p in range [0, len] inclusive
-pub fn pyint_saturate_index(p: PyIntRef, len: usize) -> usize {
-    let bigint = p.as_bigint();
-    if bigint.is_negative() {
-        bigint
-            .abs()
-            .try_into()
-            .map_or(0, |abs| len.saturating_sub(abs))
-    } else {
-        bigint.try_into().unwrap_or(len)
+impl SequenceIndexOp for isize {
+    fn saturated_at(&self, len: usize) -> usize {
+        let len = len.to_isize().unwrap_or(Self::MAX);
+        *self.clamp(&0, &len) as usize
+    }
+}
+
+impl SequenceIndexOp for BigInt {
+    fn saturated_at(&self, len: usize) -> usize {
+        if self.is_negative() {
+            self.abs()
+                .try_into()
+                .map_or(0, |abs| len.saturating_sub(abs))
+        } else {
+            self.try_into().unwrap_or(len)
+        }
     }
 }
 
@@ -383,16 +379,16 @@ impl SaturatedSlice {
             let stop = if self.stop == -1 {
                 len
             } else {
-                saturate_index(self.stop.saturating_add(1), len)
+                self.stop.saturating_add(1).saturated_at(len)
             };
             let start = if self.start == -1 {
                 len
             } else {
-                saturate_index(self.start.saturating_add(1), len)
+                self.start.saturating_add(1).saturated_at(len)
             };
             stop..start
         } else {
-            saturate_index(self.start, len)..saturate_index(self.stop, len)
+            self.start.saturated_at(len)..self.stop.saturated_at(len)
         };
 
         let (range, slice_len) = if range.start >= range.end {
