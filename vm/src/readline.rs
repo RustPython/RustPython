@@ -47,7 +47,8 @@ mod basic_readline {
                 return ReadlineResult::Io(e);
             }
 
-            match io::stdin().lock().lines().next() {
+            let next_line = io::stdin().lock().lines().next();
+            match next_line {
                 Some(Ok(line)) => ReadlineResult::Line(line),
                 None => ReadlineResult::Eof,
                 Some(Err(e)) => match e.kind() {

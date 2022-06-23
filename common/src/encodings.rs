@@ -73,7 +73,7 @@ where
     }
     // we need to coerce the lifetime to that of the function body rather than the
     // anonymous input lifetime, so that we can assign it data borrowed from data_from_err
-    let mut data = &*data;
+    let mut data = data;
     let mut data_from_err: E::BytesBuf;
     let mut out = String::with_capacity(data.len());
     let mut remaining_index = 0;

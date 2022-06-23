@@ -95,7 +95,7 @@ impl TryFromObject for ArgIntoFloat {
 /// By default an object is considered true unless its class defines either a
 /// `__bool__()` method that returns False or a `__len__()` method that returns
 /// zero, when called with the object.
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub struct ArgIntoBool {
     value: bool,
 }
