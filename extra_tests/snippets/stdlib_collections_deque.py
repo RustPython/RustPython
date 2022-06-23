@@ -1,3 +1,4 @@
+from testutils import assert_raises
 from collections import deque
 from typing import Deque
 
@@ -93,3 +94,6 @@ class D(deque):
 
 assert repr(D()) == "D([])"
 assert repr(D([1, 2, 3])) == "D([1, 2, 3])"
+
+
+assert_raises(ValueError, lambda: deque().index(10,0,10000000000000000000000000))
