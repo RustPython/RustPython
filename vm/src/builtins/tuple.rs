@@ -8,8 +8,8 @@ use crate::{
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     recursion::ReprGuard,
     sequence::SequenceExt,
-    sliceable::{SequenceIndex, SliceableSequenceOp},
     sliceable::pyint_saturate_index,
+    sliceable::{SequenceIndex, SliceableSequenceOp},
     types::{
         AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable,
         Iterable, PyComparisonOp, Unconstructible,
