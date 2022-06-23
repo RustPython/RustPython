@@ -5,8 +5,7 @@ mod _collections {
     use crate::{
         builtins::{
             IterStatus::{Active, Exhausted},
-            PositionIterInternal, PyGenericAlias, PyInt, PyTypeRef,
-            PyIntRef,
+            PositionIterInternal, PyGenericAlias, PyInt, PyIntRef, PyTypeRef,
         },
         common::lock::{PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
         function::{FuncArgs, KwArgs, OptionalArg, PyComparisonValue},
@@ -179,7 +178,8 @@ mod _collections {
                 Ok(index)
             } else {
                 Err(vm.new_value_error(
-                    needle.repr(vm)
+                    needle
+                        .repr(vm)
                         .map(|repr| format!("{} is not in deque", repr))
                         .unwrap_or_else(|_| String::new()),
                 ))
