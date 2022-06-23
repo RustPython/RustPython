@@ -1,4 +1,4 @@
-use super::{PositionIterInternal, PyGenericAlias, PyType, PyTypeRef};
+use super::{PositionIterInternal, PyGenericAlias, PyIntRef, PyType, PyTypeRef};
 use crate::common::{hash::PyHash, lock::PyMutex};
 use crate::{
     class::PyClassImpl,
@@ -8,8 +8,8 @@ use crate::{
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     recursion::ReprGuard,
     sequence::SequenceExt,
+    sliceable::pyint_saturate_index,
     sliceable::{SequenceIndex, SliceableSequenceOp},
-    stdlib::sys,
     types::{
         AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable,
         Iterable, PyComparisonOp, Unconstructible,
@@ -281,24 +281,17 @@ impl PyTuple {
     fn index(
         &self,
         needle: PyObjectRef,
-        start: OptionalArg<isize>,
-        stop: OptionalArg<isize>,
+        start: OptionalArg<PyObjectRef>,
+        stop: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
-        let mut start = start.into_option().unwrap_or(0);
-        if start < 0 {
-            start += self.len() as isize;
-            if start < 0 {
-                start = 0;
-            }
-        }
-        let mut stop = stop.into_option().unwrap_or(sys::MAXSIZE);
-        if stop < 0 {
-            stop += self.len() as isize;
-            if stop < 0 {
-                stop = 0;
-            }
-        }
+        let len = self.len();
+        let saturate = |obj: PyObjectRef, len| -> PyResult<_> {
+            obj.try_into_value(vm)
+                .map(|int: PyIntRef| pyint_saturate_index(int, len))
+        };
+        let start = start.map_or(Ok(0), |i| saturate(i, len))?;
+        let stop = stop.map_or(Ok(len), |i| saturate(i, len))?;
         for (index, element) in self
             .elements
             .iter()
