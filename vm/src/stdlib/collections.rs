@@ -6,6 +6,7 @@ mod _collections {
         builtins::{
             IterStatus::{Active, Exhausted},
             PositionIterInternal, PyGenericAlias, PyInt, PyTypeRef,
+            PyIntRef,
         },
         common::lock::{PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
         function::{FuncArgs, KwArgs, OptionalArg, PyComparisonValue},
@@ -14,7 +15,7 @@ mod _collections {
         recursion::ReprGuard,
         sequence::MutObjectSequenceOp,
         sliceable,
-        sliceable::saturate_index,
+        sliceable::pyint_saturate_index,
         types::{
             AsSequence, Comparable, Constructor, Hashable, Initializer, IterNext, IterNextIterable,
             Iterable, PyComparisonOp, Unhashable,
@@ -158,17 +159,19 @@ mod _collections {
         fn index(
             &self,
             obj: PyObjectRef,
-            start: OptionalArg<isize>,
-            stop: OptionalArg<isize>,
+            start: OptionalArg<PyObjectRef>,
+            stop: OptionalArg<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<usize> {
             let start_state = self.state.load();
 
             let len = self.len();
-            let start = start.map(|i| saturate_index(i, len)).unwrap_or(0);
-            let stop = stop
-                .map(|i| saturate_index(i, len))
-                .unwrap_or(isize::MAX as usize);
+            let saturate = |obj: PyObjectRef, len| -> PyResult<_> {
+                obj.try_into_value(vm)
+                    .map(|int: PyIntRef| pyint_saturate_index(int, len))
+            };
+            let start = start.map_or(Ok(0), |obj| saturate(obj, len))?;
+            let stop = stop.map_or(Ok(len), |obj| saturate(obj, len))?;
             let index = self.mut_index_range(vm, &obj, start..stop)?;
             if start_state != self.state.load() {
                 Err(vm.new_runtime_error("deque mutated during iteration".to_owned()))
