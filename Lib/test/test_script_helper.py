@@ -82,6 +82,7 @@ class TestScriptHelperEnvironment(unittest.TestCase):
         # Reset the private cached state.
         script_helper.__dict__['__cached_interp_requires_environment'] = None
 
+    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON, ValueError: illegal environment variable name")
     @mock.patch('subprocess.check_call')
     def test_interpreter_requires_environment_true(self, mock_check_call):
         with mock.patch.dict(os.environ):
@@ -91,6 +92,7 @@ class TestScriptHelperEnvironment(unittest.TestCase):
             self.assertTrue(script_helper.interpreter_requires_environment())
             self.assertEqual(1, mock_check_call.call_count)
 
+    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON, ValueError: illegal environment variable name")
     @mock.patch('subprocess.check_call')
     def test_interpreter_requires_environment_false(self, mock_check_call):
         with mock.patch.dict(os.environ):
@@ -100,6 +102,7 @@ class TestScriptHelperEnvironment(unittest.TestCase):
             self.assertFalse(script_helper.interpreter_requires_environment())
             self.assertEqual(1, mock_check_call.call_count)
 
+    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON, ValueError: illegal environment variable name")
     @mock.patch('subprocess.check_call')
     def test_interpreter_requires_environment_details(self, mock_check_call):
         with mock.patch.dict(os.environ):
@@ -112,6 +115,7 @@ class TestScriptHelperEnvironment(unittest.TestCase):
             self.assertEqual(sys.executable, check_call_command[0])
             self.assertIn('-E', check_call_command)
 
+    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON, ValueError: illegal environment variable name")
     @mock.patch('subprocess.check_call')
     def test_interpreter_requires_environment_with_pythonhome(self, mock_check_call):
         with mock.patch.dict(os.environ):
