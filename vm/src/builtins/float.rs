@@ -16,6 +16,7 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, TryFromObject, VirtualMachine,
 };
+use crossbeam_utils::atomic::AtomicCell;
 use num_bigint::{BigInt, ToBigInt};
 use num_complex::Complex64;
 use num_rational::Ratio;
@@ -552,34 +553,57 @@ impl Hashable for PyFloat {
     }
 }
 
+macro_rules! atomic_func {
+    ($x:expr) => {
+        AtomicCell::new(Some($x))
+    };
+}
+
 impl AsNumber for PyFloat {
     const AS_NUMBER: PyNumberMethods = PyNumberMethods {
-        add: Some(|number, other, vm| Self::number_float_op(number, other, |a, b| a + b, vm)),
-        subtract: Some(|number, other, vm| Self::number_float_op(number, other, |a, b| a - b, vm)),
-        multiply: Some(|number, other, vm| Self::number_float_op(number, other, |a, b| a * b, vm)),
-        remainder: Some(|number, other, vm| Self::number_general_op(number, other, inner_mod, vm)),
-        divmod: Some(|number, other, vm| Self::number_general_op(number, other, inner_divmod, vm)),
-        power: Some(|number, other, vm| Self::number_general_op(number, other, float_pow, vm)),
-        negative: Some(|number, vm| {
-            let value = Self::number_downcast(number).value;
+        add: atomic_func!(|num, other, vm| Self::number_float_op(num, other, |a, b| a + b, vm)),
+        subtract: atomic_func!(|num, other, vm| Self::number_float_op(
+            num,
+            other,
+            |a, b| a - b,
+            vm
+        )),
+        multiply: atomic_func!(|num, other, vm| Self::number_float_op(
+            num,
+            other,
+            |a, b| a * b,
+            vm
+        )),
+        remainder: atomic_func!(|num, other, vm| Self::number_general_op(
+            num, other, inner_mod, vm
+        )),
+        divmod: atomic_func!(|num, other, vm| Self::number_general_op(
+            num,
+            other,
+            inner_divmod,
+            vm
+        )),
+        power: atomic_func!(|num, other, vm| Self::number_general_op(num, other, float_pow, vm)),
+        negative: atomic_func!(|num, vm| {
+            let value = Self::number_downcast(num).value;
             (-value).to_pyresult(vm)
         }),
-        positive: Some(|number, vm| Self::number_float(number, vm).to_pyresult(vm)),
-        absolute: Some(|number, vm| {
-            let value = Self::number_downcast(number).value;
+        positive: atomic_func!(|num, vm| Self::number_float(num, vm).to_pyresult(vm)),
+        absolute: atomic_func!(|num, vm| {
+            let value = Self::number_downcast(num).value;
             value.abs().to_pyresult(vm)
         }),
-        boolean: Some(|number, _vm| Ok(Self::number_downcast(number).value.is_zero())),
-        int: Some(|number, vm| {
-            let value = Self::number_downcast(number).value;
+        boolean: atomic_func!(|num, _vm| Ok(Self::number_downcast(num).value.is_zero())),
+        int: atomic_func!(|num, vm| {
+            let value = Self::number_downcast(num).value;
             try_to_bigint(value, vm).map(|x| vm.ctx.new_int(x))
         }),
-        float: Some(|number, vm| Ok(Self::number_float(number, vm))),
-        floor_divide: Some(|number, other, vm| {
-            Self::number_general_op(number, other, inner_floordiv, vm)
+        float: atomic_func!(|num, vm| Ok(Self::number_float(num, vm))),
+        floor_divide: atomic_func!(|num, other, vm| {
+            Self::number_general_op(num, other, inner_floordiv, vm)
         }),
-        true_divide: Some(|number, other, vm| {
-            Self::number_general_op(number, other, inner_div, vm)
+        true_divide: atomic_func!(|num, other, vm| {
+            Self::number_general_op(num, other, inner_div, vm)
         }),
         ..PyNumberMethods::NOT_IMPLEMENTED
     };

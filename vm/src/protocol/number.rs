@@ -1,148 +1,123 @@
+use crossbeam_utils::atomic::AtomicCell;
+
 use crate::{
     builtins::{int, PyByteArray, PyBytes, PyComplex, PyFloat, PyInt, PyIntRef, PyStr},
     function::ArgBytesLike,
     stdlib::warnings,
-    AsObject, PyObject, PyPayload, PyRef, PyResult, TryFromBorrowedObject, VirtualMachine,
+    AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject,
+    VirtualMachine,
 };
 
-#[allow(clippy::type_complexity)]
-#[derive(Clone)]
+type UnaryFunc<R = PyObjectRef> = AtomicCell<Option<fn(&PyNumber, &VirtualMachine) -> PyResult<R>>>;
+type BinaryFunc<R = PyObjectRef> =
+    AtomicCell<Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult<R>>>;
+
 pub struct PyNumberMethods {
     /* Number implementations must check *both*
     arguments for proper type and implement the necessary conversions
     in the slot functions themselves. */
-    pub add: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
-    pub subtract: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
-    pub multiply: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
-    pub remainder: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
-    pub divmod: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
-    pub power: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
-    pub negative: Option<fn(&PyNumber, &VirtualMachine) -> PyResult>,
-    pub positive: Option<fn(&PyNumber, &VirtualMachine) -> PyResult>,
-    pub absolute: Option<fn(&PyNumber, &VirtualMachine) -> PyResult>,
-    pub boolean: Option<fn(&PyNumber, &VirtualMachine) -> PyResult<bool>>,
-    pub invert: Option<fn(&PyNumber, &VirtualMachine) -> PyResult>,
-    pub lshift: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
-    pub rshift: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
-    pub and: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
-    pub xor: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
-    pub or: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
-    pub int: Option<fn(&PyNumber, &VirtualMachine) -> PyResult<PyIntRef>>,
-    pub float: Option<fn(&PyNumber, &VirtualMachine) -> PyResult<PyRef<PyFloat>>>,
+    pub add: BinaryFunc,
+    pub subtract: BinaryFunc,
+    pub multiply: BinaryFunc,
+    pub remainder: BinaryFunc,
+    pub divmod: BinaryFunc,
+    pub power: BinaryFunc,
+    pub negative: UnaryFunc,
+    pub positive: UnaryFunc,
+    pub absolute: UnaryFunc,
+    pub boolean: UnaryFunc<bool>,
+    pub invert: UnaryFunc,
+    pub lshift: BinaryFunc,
+    pub rshift: BinaryFunc,
+    pub and: BinaryFunc,
+    pub xor: BinaryFunc,
+    pub or: BinaryFunc,
+    pub int: UnaryFunc<PyRef<PyInt>>,
+    pub float: UnaryFunc<PyRef<PyFloat>>,
 
-    pub inplace_add: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
-    pub inplace_subtract: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
-    pub inplace_multiply: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
-    pub inplace_remainder: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
-    pub inplace_divmod: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
-    pub inplace_power: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
-    pub inplace_lshift: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
-    pub inplace_rshift: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
-    pub inplace_and: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
-    pub inplace_xor: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
-    pub inplace_or: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
+    pub inplace_add: BinaryFunc,
+    pub inplace_subtract: BinaryFunc,
+    pub inplace_multiply: BinaryFunc,
+    pub inplace_remainder: BinaryFunc,
+    pub inplace_divmod: BinaryFunc,
+    pub inplace_power: BinaryFunc,
+    pub inplace_lshift: BinaryFunc,
+    pub inplace_rshift: BinaryFunc,
+    pub inplace_and: BinaryFunc,
+    pub inplace_xor: BinaryFunc,
+    pub inplace_or: BinaryFunc,
 
-    pub floor_divide: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
-    pub true_divide: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
-    pub inplace_floor_divide: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
-    pub inplace_true_divide: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
+    pub floor_divide: BinaryFunc,
+    pub true_divide: BinaryFunc,
+    pub inplace_floor_divide: BinaryFunc,
+    pub inplace_true_divide: BinaryFunc,
 
-    pub index: Option<fn(&PyNumber, &VirtualMachine) -> PyResult<PyIntRef>>,
+    pub index: UnaryFunc<PyRef<PyInt>>,
 
-    pub matrix_multiply: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
-    pub inplace_matrix_multiply: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>,
+    pub matrix_multiply: BinaryFunc,
+    pub inplace_matrix_multiply: BinaryFunc,
 }
 
 impl PyNumberMethods {
     pub const NOT_IMPLEMENTED: PyNumberMethods = PyNumberMethods {
-        add: None,
-        subtract: None,
-        multiply: None,
-        remainder: None,
-        divmod: None,
-        power: None,
-        negative: None,
-        positive: None,
-        absolute: None,
-        boolean: None,
-        invert: None,
-        lshift: None,
-        rshift: None,
-        and: None,
-        xor: None,
-        or: None,
-        int: None,
-        float: None,
-        inplace_add: None,
-        inplace_subtract: None,
-        inplace_multiply: None,
-        inplace_remainder: None,
-        inplace_divmod: None,
-        inplace_power: None,
-        inplace_lshift: None,
-        inplace_rshift: None,
-        inplace_and: None,
-        inplace_xor: None,
-        inplace_or: None,
-        floor_divide: None,
-        true_divide: None,
-        inplace_floor_divide: None,
-        inplace_true_divide: None,
-        index: None,
-        matrix_multiply: None,
-        inplace_matrix_multiply: None,
+        add: AtomicCell::new(None),
+        subtract: AtomicCell::new(None),
+        multiply: AtomicCell::new(None),
+        remainder: AtomicCell::new(None),
+        divmod: AtomicCell::new(None),
+        power: AtomicCell::new(None),
+        negative: AtomicCell::new(None),
+        positive: AtomicCell::new(None),
+        absolute: AtomicCell::new(None),
+        boolean: AtomicCell::new(None),
+        invert: AtomicCell::new(None),
+        lshift: AtomicCell::new(None),
+        rshift: AtomicCell::new(None),
+        and: AtomicCell::new(None),
+        xor: AtomicCell::new(None),
+        or: AtomicCell::new(None),
+        int: AtomicCell::new(None),
+        float: AtomicCell::new(None),
+        inplace_add: AtomicCell::new(None),
+        inplace_subtract: AtomicCell::new(None),
+        inplace_multiply: AtomicCell::new(None),
+        inplace_remainder: AtomicCell::new(None),
+        inplace_divmod: AtomicCell::new(None),
+        inplace_power: AtomicCell::new(None),
+        inplace_lshift: AtomicCell::new(None),
+        inplace_rshift: AtomicCell::new(None),
+        inplace_and: AtomicCell::new(None),
+        inplace_xor: AtomicCell::new(None),
+        inplace_or: AtomicCell::new(None),
+        floor_divide: AtomicCell::new(None),
+        true_divide: AtomicCell::new(None),
+        inplace_floor_divide: AtomicCell::new(None),
+        inplace_true_divide: AtomicCell::new(None),
+        index: AtomicCell::new(None),
+        matrix_multiply: AtomicCell::new(None),
+        inplace_matrix_multiply: AtomicCell::new(None),
     };
 
-    pub(crate) fn generic(
-        has_int: bool,
-        has_float: bool,
-        has_index: bool,
-    ) -> &'static PyNumberMethods {
-        static METHODS: &[PyNumberMethods] = &[
-            new_generic(false, false, false),
-            new_generic(true, false, false),
-            new_generic(false, true, false),
-            new_generic(true, true, false),
-            new_generic(false, false, true),
-            new_generic(true, false, true),
-            new_generic(false, true, true),
-            new_generic(true, true, true),
-        ];
-
-        fn int(num: &PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyInt>> {
-            let ret = vm.call_special_method(num.obj.to_owned(), identifier!(vm, __int__), ())?;
-            ret.downcast::<PyInt>().map_err(|obj| {
-                vm.new_type_error(format!("__int__ returned non-int (type {})", obj.class()))
-            })
-        }
-        fn float(num: &PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyFloat>> {
-            let ret = vm.call_special_method(num.obj.to_owned(), identifier!(vm, __float__), ())?;
-            ret.downcast::<PyFloat>().map_err(|obj| {
-                vm.new_type_error(format!(
-                    "__float__ returned non-float (type {})",
-                    obj.class()
-                ))
-            })
-        }
-        fn index(num: &PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyInt>> {
-            let ret = vm.call_special_method(num.obj.to_owned(), identifier!(vm, __index__), ())?;
-            ret.downcast::<PyInt>().map_err(|obj| {
-                vm.new_type_error(format!("__index__ returned non-int (type {})", obj.class()))
-            })
-        }
-
-        const fn new_generic(has_int: bool, has_float: bool, has_index: bool) -> PyNumberMethods {
-            PyNumberMethods {
-                int: if has_int { Some(int) } else { None },
-                float: if has_float { Some(float) } else { None },
-                index: if has_index { Some(index) } else { None },
-                ..PyNumberMethods::NOT_IMPLEMENTED
-            }
-        }
-
-        let key = (has_int as usize) | ((has_float as usize) << 1) | ((has_index as usize) << 2);
-
-        &METHODS[key]
+    fn int(num: &PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyInt>> {
+        let ret = vm.call_special_method(num.obj.to_owned(), identifier!(vm, __int__), ())?;
+        ret.downcast::<PyInt>().map_err(|obj| {
+            vm.new_type_error(format!("__int__ returned non-int (type {})", obj.class()))
+        })
+    }
+    fn float(num: &PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyFloat>> {
+        let ret = vm.call_special_method(num.obj.to_owned(), identifier!(vm, __float__), ())?;
+        ret.downcast::<PyFloat>().map_err(|obj| {
+            vm.new_type_error(format!(
+                "__float__ returned non-float (type {})",
+                obj.class()
+            ))
+        })
+    }
+    fn index(num: &PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyInt>> {
+        let ret = vm.call_special_method(num.obj.to_owned(), identifier!(vm, __index__), ())?;
+        ret.downcast::<PyInt>().map_err(|obj| {
+            vm.new_type_error(format!("__index__ returned non-int (type {})", obj.class()))
+        })
     }
 }
 
@@ -174,16 +149,16 @@ impl PyNumber<'_> {
     // PyNumber_Check
     pub fn check(obj: &PyObject, vm: &VirtualMachine) -> bool {
         Self::find_methods(obj, vm).map_or(false, |methods| {
-            methods.int.is_some()
-                || methods.index.is_some()
-                || methods.float.is_some()
+            methods.int.load().is_some()
+                || methods.index.load().is_some()
+                || methods.float.load().is_some()
                 || obj.payload_is::<PyComplex>()
         })
     }
 
     // PyIndex_Check
     pub fn is_index(&self) -> bool {
-        self.methods().index.is_some()
+        self.methods().index.load().is_some()
     }
 
     pub fn int(&self, vm: &VirtualMachine) -> PyResult<PyIntRef> {
@@ -201,7 +176,7 @@ impl PyNumber<'_> {
 
         if let Some(i) = self.obj.downcast_ref_if_exact::<PyInt>(vm) {
             Ok(i.to_owned())
-        } else if let Some(f) = self.methods().int {
+        } else if let Some(f) = self.methods().int.load() {
             let ret = f(self, vm)?;
             if !ret.class().is(PyInt::class(vm)) {
                 warnings::warn(
@@ -219,7 +194,7 @@ impl PyNumber<'_> {
             } else {
                 Ok(ret)
             }
-        } else if self.methods().index.is_some() {
+        } else if self.methods().index.load().is_some() {
             self.index(vm)
         } else if let Ok(Ok(f)) =
             vm.get_special_method(self.obj.to_owned(), identifier!(vm, __trunc__))
@@ -260,7 +235,7 @@ impl PyNumber<'_> {
             Ok(Some(i.to_owned()))
         } else if let Some(i) = self.obj.payload::<PyInt>() {
             Ok(Some(vm.ctx.new_bigint(i.as_bigint())))
-        } else if let Some(f) = self.methods().index {
+        } else if let Some(f) = self.methods().index.load() {
             let ret = f(self, vm)?;
             if !ret.class().is(PyInt::class(vm)) {
                 warnings::warn(
@@ -295,7 +270,7 @@ impl PyNumber<'_> {
     pub fn float_opt(&self, vm: &VirtualMachine) -> PyResult<Option<PyRef<PyFloat>>> {
         if let Some(float) = self.obj.downcast_ref_if_exact::<PyFloat>(vm) {
             Ok(Some(float.to_owned()))
-        } else if let Some(f) = self.methods().float {
+        } else if let Some(f) = self.methods().float.load() {
             let ret = f(self, vm)?;
             if !ret.class().is(PyFloat::class(vm)) {
                 warnings::warn(
@@ -313,7 +288,7 @@ impl PyNumber<'_> {
             } else {
                 Ok(Some(ret))
             }
-        } else if self.methods().index.is_some() {
+        } else if self.methods().index.load().is_some() {
             let i = self.index(vm)?;
             let value = int::try_to_float(i.as_bigint(), vm)?;
             Ok(Some(vm.ctx.new_float(value)))
