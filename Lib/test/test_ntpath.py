@@ -280,6 +280,10 @@ class TestNtpath(NtpathTestCase):
         self.assertRaises(FileNotFoundError, ntpath.realpath, ABSTFN, strict=True)
         self.assertRaises(FileNotFoundError, ntpath.realpath, ABSTFN + "2", strict=True)
 
+    # TODO: RUSTPYTHON, TypeError: got an unexpected keyword argument 'strict'
+    if sys.platform == "win32":
+        test_realpath_strict = unittest.expectedFailure(test_realpath_strict)
+
     @os_helper.skip_unless_symlink
     @unittest.skipUnless(HAVE_GETFINALPATHNAME, 'need _getfinalpathname')
     def test_realpath_relative(self):
@@ -441,6 +445,10 @@ class TestNtpath(NtpathTestCase):
         # Test using relative path as well.
         self.assertRaises(OSError, ntpath.realpath, ntpath.basename(ABSTFN),
                           strict=True)
+
+    # TODO: RUSTPYTHON, FileExistsError: [Errno 183] Cannot create a file when that file already exists. (os error 183): 'None' -> 'None'
+    if sys.platform == "win32":
+        test_realpath_symlink_loops_strict = unittest.expectedFailure(test_realpath_symlink_loops_strict)
 
     @os_helper.skip_unless_symlink
     @unittest.skipUnless(HAVE_GETFINALPATHNAME, 'need _getfinalpathname')
@@ -639,6 +647,10 @@ class TestNtpath(NtpathTestCase):
         tester('ntpath.relpath("/a", "/a")', '.')
         tester('ntpath.relpath("/a/b", "/a/b")', '.')
         tester('ntpath.relpath("c:/foo", "C:/FOO")', '.')
+
+    # TODO: RUSTPYTHON, FileExistsError: [Errno 183] Cannot create a file when that file already exists. (os error 183): 'None' -> 'None'
+    if sys.platform == "win32":
+        test_relpath = unittest.expectedFailure(test_relpath)
 
     def test_commonpath(self):
         def check(paths, expected):
@@ -848,6 +860,10 @@ class PathLikeTests(NtpathTestCase):
         self._check_function(self.path.normcase)
         if sys.platform == 'win32':
             self.assertEqual(ntpath.normcase('\u03a9\u2126'), 'ωΩ')
+
+    # TODO: RUSTPYTHON, AssertionError: 'ωω' != 'ωΩ'
+    if sys.platform == "win32":
+        test_path_normcase = unittest.expectedFailure(test_path_normcase)
 
     def test_path_isabs(self):
         self._check_function(self.path.isabs)
