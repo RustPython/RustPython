@@ -225,11 +225,11 @@ mod decl {
             let mut out_data = Vec::<u8>::with_capacity(len);
             let mut idx = 0;
 
-            if buffer[idx] == runchar {
-                out_data.push(runchar);
+            out_data.push(if buffer[idx] == runchar {
+                runchar
             } else {
-                out_data.push(buffer[idx]);
-            }
+                buffer[idx]
+            });
             idx += 1;
 
             while idx < len {
