@@ -193,8 +193,8 @@ mod decl {
             while idx < len {
                 let ch = buffer[idx];
 
-                if ch == runchar {
-                    out_data.push(runchar);
+                if ch == RUNCHAR {
+                    out_data.push(RUNCHAR);
                     out_data.push(0);
                     return Ok(out_data);
                 } else {
@@ -204,7 +204,7 @@ mod decl {
                     }
                     if inend - idx > 3 {
                         out_data.push(ch);
-                        out_data.push(runchar);
+                        out_data.push(RUNCHAR);
                         out_data.push(((inend - idx) % 256) as u8);
                         idx = inend - 1;
                     } else {
@@ -219,7 +219,7 @@ mod decl {
 
     #[pyfunction]
     fn rledecode_hqx(s: ArgAsciiBuffer) -> PyResult<Vec<u8>> {
-        let runchar = 0x90; //RUNCHAR = b"\x90"
+        const RUNCHAR: u8 = 0x90;  //b'\x90'
         s.with_ref(|buffer| {
             let len = buffer.len();
             let mut out_data = Vec::<u8>::with_capacity(len);
@@ -229,9 +229,9 @@ mod decl {
             idx += 1;
 
             while idx < len {
-                if buffer[idx] == runchar {
+                if buffer[idx] == RUNCHAR {
                     if buffer[idx + 1] == 0 {
-                        out_data.push(runchar);
+                        out_data.push(RUNCHAR);
                     } else {
                         let ch = buffer[idx - 1];
                         let range = buffer[idx + 1];
