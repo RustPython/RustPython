@@ -181,6 +181,299 @@ mod decl {
         }
         Ok((*c - 0x20) & 0x3f)
     }
+    #[derive(FromArgs)]
+    struct A2bQpArgs {
+        #[pyarg(any)]
+        data: ArgAsciiBuffer,
+        #[pyarg(named, default = "false")]
+        header: bool,
+    }
+    #[pyfunction]
+    fn a2b_qp(args: A2bQpArgs) -> PyResult<Vec<u8>> {
+        let s = args.data;
+        let header = args.header;
+        s.with_ref(|buffer| {
+            let len = buffer.len();
+            let mut out_data = Vec::<u8>::with_capacity(len);
+
+            let mut idx = 0;
+
+            while idx < len {
+                if buffer[idx] == 0x3d {
+                    idx += 1;
+                    if idx >= len {
+                        break;
+                    }
+                    /* Soft line breaks */
+                    if (buffer[idx] == 0x0a) || (buffer[idx] == 0x0d) {
+                        if buffer[idx] != 0x0a {
+                            while idx < len && buffer[idx] != 0x0a {
+                                idx += 1;
+                            }
+                        }
+                        if idx < len {
+                            idx += 1;
+                        }
+                    } else if buffer[idx] == 0x3d {
+                        out_data.push(0x3d);
+                        idx += 1;
+                    } else if idx + 1 < len
+                        && ((buffer[idx] >= 0x41 && buffer[idx] <= 0x46)
+                            || (buffer[idx] >= 0x61 && buffer[idx] <= 0x66)
+                            || (buffer[idx] >= 0x30 && buffer[idx] <= 0x39))
+                        && ((buffer[idx + 1] >= 0x41 && buffer[idx + 1] <= 0x46)
+                            || (buffer[idx + 1] >= 0x61 && buffer[idx + 1] <= 0x66)
+                            || (buffer[idx + 1] >= 0x30 && buffer[idx + 1] <= 0x39))
+                    {
+                        if let (Some(ch1), Some(ch2)) =
+                            (unhex_nibble(buffer[idx]), unhex_nibble(buffer[idx + 1]))
+                        {
+                            out_data.push(ch1 << 4 | ch2);
+                        }
+                        idx += 2;
+                    } else {
+                        out_data.push(0x3d);
+                    }
+                } else if header && buffer[idx] == 0x5f {
+                    out_data.push(0x20);
+                    idx += 1;
+                } else {
+                    out_data.push(buffer[idx]);
+                    idx += 1;
+                }
+            }
+
+            Ok(out_data)
+        })
+    }
+
+    #[derive(FromArgs)]
+    struct B2aQpArgs {
+        #[pyarg(any)]
+        data: ArgAsciiBuffer,
+        #[pyarg(named, default = "false")]
+        quotetabs: bool,
+        #[pyarg(named, default = "true")]
+        istext: bool,
+        #[pyarg(named, default = "false")]
+        header: bool,
+    }
+
+    #[pyfunction]
+    fn b2a_qp(args: B2aQpArgs) -> PyResult<Vec<u8>> {
+        let s = args.data;
+        let quotetabs = args.quotetabs;
+        let istext = args.istext;
+        let header = args.header;
+        s.with_ref(|buf| {
+            let buflen = buf.len();
+            let mut linelen = 0;
+            let mut odatalen = 0;
+            let mut crlf = false;
+            let mut ch;
+
+            let mut inidx;
+            let mut outidx;
+
+            inidx = 0;
+            while inidx < buflen {
+                if buf[inidx] == 0x0a {
+                    break;
+                }
+                inidx += 1;
+            }
+            if buflen > 0 && inidx < buflen && buf[inidx - 1] == 0x0d {
+                crlf = true;
+            }
+
+            inidx = 0;
+            while inidx < buflen {
+                let mut delta = 0;
+                if (buf[inidx] > 126)
+                    || (buf[inidx] == 0x3d)
+                    || (header && buf[inidx] == 0x5f)
+                    || (buf[inidx] == 0x2e
+                        && linelen == 0
+                        && (inidx + 1 == buflen
+                            || buf[inidx + 1] == 0x0a
+                            || buf[inidx + 1] == 0x0d
+                            || buf[inidx + 1] == 0))
+                    || (!istext && ((buf[inidx] == 0x0d) || (buf[inidx] == 0x0a)))
+                    || ((buf[inidx] == 0x09 || buf[inidx] == 0x20) && (inidx + 1 == buflen))
+                    || ((buf[inidx] < 33)
+                        && (buf[inidx] != 0x0d)
+                        && (buf[inidx] != 0x0a)
+                        && (quotetabs || ((buf[inidx] != 0x09) && (buf[inidx] != 0x20))))
+                {
+                    if (linelen + 3) >= 76 {
+                        // MAXLINESIZE = 76
+                        linelen = 0;
+                        if crlf {
+                            delta += 3;
+                        } else {
+                            delta += 2;
+                        }
+                    }
+                    linelen += 3;
+                    delta += 3;
+                    inidx += 1;
+                } else {
+                    if istext
+                        && ((buf[inidx] == 0x0a)
+                            || ((inidx + 1 < buflen)
+                                && (buf[inidx] == 0x0d)
+                                && (buf[inidx + 1] == 0x0a)))
+                    {
+                        linelen = 0;
+                        if (inidx != 0) && ((buf[inidx - 1] == 0x20) || (buf[inidx - 1] == 0x09)) {
+                            delta += 2;
+                        }
+                        if crlf {
+                            delta += 2;
+                        } else {
+                            delta += 2;
+                        }
+                        if buf[inidx] == 0x0d {
+                            inidx += 2;
+                        } else {
+                            inidx += 1;
+                        }
+                    } else {
+                        if (inidx + 1 != buflen) && (buf[inidx + 1] != 0x0a) && (linelen + 1) >= 76
+                        {
+                            // MAXLINESIZE
+                            linelen = 0;
+                            if crlf {
+                                delta += 3;
+                            } else {
+                                delta += 2;
+                            }
+                        }
+                        linelen += 1;
+                        delta += 1;
+                        inidx += 1;
+                    }
+                }
+                odatalen += delta;
+            }
+
+            let mut out_data = Vec::<u8>::with_capacity(odatalen);
+            inidx = 0;
+            outidx = 0;
+            linelen = 0;
+
+            while inidx < buflen {
+                if (buf[inidx] > 126)
+                    || (buf[inidx] == 0x3d)
+                    || (header && buf[inidx] == 0x5f)
+                    || ((buf[inidx] == 0x2e)
+                        && (linelen == 0)
+                        && (inidx + 1 == buflen
+                            || buf[inidx + 1] == 0x0a
+                            || buf[inidx + 1] == 0x0d
+                            || buf[inidx + 1] == 0))
+                    || (!istext && ((buf[inidx] == 0x0d) || (buf[inidx] == 0x0a)))
+                    || ((buf[inidx] == 0x09 || buf[inidx] == 0x20) && (inidx + 1 == buflen))
+                    || ((buf[inidx] < 33)
+                        && (buf[inidx] != 0x0d)
+                        && (buf[inidx] != 0x0a)
+                        && (quotetabs || ((buf[inidx] != 0x09) && (buf[inidx] != 0x20))))
+                {
+                    if (linelen + 3) >= 76 {
+                        // MAXLINESIZE = 76
+                        out_data.push(0x3d);
+                        outidx += 1;
+                        if crlf {
+                            out_data.push(0x0d);
+                            outidx += 1;
+                        }
+                        out_data.push(0x0a);
+                        outidx += 1;
+                        linelen = 0;
+                    }
+                    out_data.push(0x3d);
+                    outidx += 1;
+
+                    ch = hex_nibble(buf[inidx] >> 4);
+                    if ch >= 0x61 && ch <= 0x66 {
+                        ch -= 0x20;
+                    }
+                    out_data.push(ch);
+                    ch = hex_nibble(buf[inidx] & 0xf);
+                    if ch >= 0x61 && ch <= 0x66 {
+                        ch -= 0x20;
+                    }
+                    out_data.push(ch);
+
+                    outidx += 2;
+                    inidx += 1;
+                    linelen += 3;
+                } else {
+                    if istext
+                        && ((buf[inidx] == 0x0a)
+                            || ((inidx + 1 < buflen)
+                                && (buf[inidx] == 0x0d)
+                                && (buf[inidx + 1] == 0x0a)))
+                    {
+                        linelen = 0;
+                        if (outidx != 0)
+                            && ((out_data[outidx - 1] == 0x20) || (out_data[outidx - 1] == 0x09))
+                        {
+                            ch = hex_nibble(out_data[outidx - 1] >> 4);
+                            if ch >= 0x61 && ch <= 0x66 {
+                                ch -= 0x20;
+                            }
+                            out_data.push(ch);
+                            ch = hex_nibble(out_data[outidx - 1] & 0xf);
+                            if ch >= 0x61 && ch <= 0x66 {
+                                ch -= 0x20;
+                            }
+                            out_data.push(ch);
+                            out_data[outidx - 1] = 0x3d;
+                            outidx += 2;
+                        }
+
+                        if crlf {
+                            out_data.push(0x0d);
+                            outidx += 1;
+                        }
+                        out_data.push(0x0a);
+                        outidx += 1;
+                        if buf[inidx] == 0x0d {
+                            inidx += 2;
+                        } else {
+                            inidx += 1;
+                        }
+                    } else {
+                        if (inidx + 1 != buflen) && (buf[inidx + 1] != 0x0a) && (linelen + 1) >= 76
+                        {
+                            // MAXLINESIZE = 76
+                            out_data.push(0x3d);
+                            outidx += 1;
+                            if crlf {
+                                out_data.push(0x0d);
+                                outidx += 1;
+                            }
+                            out_data.push(0x0a);
+                            outidx += 1;
+                            linelen = 0;
+                        }
+                        linelen += 1;
+                        if header && buf[inidx] == 0x20 {
+                            out_data.push(0x5f);
+                            outidx += 1;
+                            inidx += 1;
+                        } else {
+                            out_data.push(buf[inidx]);
+                            outidx += 1;
+                            inidx += 1;
+                        }
+                    }
+                }
+            }
+            Ok(out_data)
+        })
+    }
 
     #[pyfunction]
     fn rlecode_hqx(s: ArgAsciiBuffer) -> PyResult<Vec<u8>> {
