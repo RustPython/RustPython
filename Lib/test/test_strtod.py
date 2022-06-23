@@ -219,7 +219,8 @@ class StrtodTests(unittest.TestCase):
                 s = '{}e{}'.format(digits, exponent)
                 self.check_strtod(s)
 
-    # TODO: RUSTPYTHON
+    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON, possibly flaky test on Windows?")
+    # TODO: RUSTPYTHON, Incorrectly rounded str->float conversion for -07e-321
     @unittest.expectedFailure
     def test_parsing(self):
         # make '0' more likely to be chosen than other digits

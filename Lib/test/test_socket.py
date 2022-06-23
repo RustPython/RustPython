@@ -1487,8 +1487,6 @@ class GeneralModuleTests(unittest.TestCase):
 
     @unittest.skipUnless(support.is_resource_enabled('network'),
                          'network is not enabled')
-    # TODO: RUSTPYTHON, socket.gethostbyname_ex
-    @unittest.expectedFailure
     def test_idna(self):
         # Check for internet access before running test
         # (issue #12804, issue #25138).
@@ -1503,6 +1501,10 @@ class GeneralModuleTests(unittest.TestCase):
         # this may not work if the forward lookup chooses the IPv6 address, as that doesn't
         # have a reverse entry yet
         # socket.gethostbyaddr('испытание.python.org')
+
+    # TODO: RUSTPYTHON, socket.gethostbyname_ex
+    if sys.platform != "darwin":
+        test_idna = unittest.expectedFailure(test_idna)
 
     def check_sendall_interrupted(self, with_timeout):
         # socketpair() is not strictly required, but it makes things easier.

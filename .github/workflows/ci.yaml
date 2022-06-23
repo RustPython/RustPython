@@ -191,14 +191,14 @@ jobs:
       - if: runner.os == 'Linux'
         name: run cpython platform-independent tests
         run:
-          target/release/rustpython -m test -v ${{ env.PLATFORM_INDEPENDENT_TESTS }}
+          target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed -v ${{ env.PLATFORM_INDEPENDENT_TESTS }}
       - if: runner.os != 'Windows'
         name: run cpython platform-dependent tests
-        run: target/release/rustpython -m test -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }}
+        run: target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }}
       - if: runner.os == 'Windows'
         name: run cpython platform-dependent tests (windows partial - fixme)
         run:
-          target/release/rustpython -m test -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }}
+          target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }}
             test_bool
             test_cgi
             test_exception_hierarchy
