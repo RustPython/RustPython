@@ -138,23 +138,21 @@ impl PyList {
         self.concat(&other, vm)
     }
 
-    fn inplace_concat(zelf: &Py<Self>, other: &PyObject, vm: &VirtualMachine) -> PyObjectRef {
-        if let Ok(mut seq) = extract_cloned(other, Ok, vm) {
-            zelf.borrow_vec_mut().append(&mut seq);
-            zelf.to_owned().into()
-        } else {
-            vm.ctx.not_implemented()
-        }
+    fn inplace_concat(
+        zelf: &Py<Self>,
+        other: &PyObject,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef> {
+        let mut seq = extract_cloned(other, Ok, vm)?;
+        zelf.borrow_vec_mut().append(&mut seq);
+        Ok(zelf.to_owned().into())
     }
 
     #[pymethod(magic)]
-    fn iadd(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        if let Ok(mut seq) = extract_cloned(&*other, Ok, vm) {
-            zelf.borrow_vec_mut().append(&mut seq);
-            zelf.into()
-        } else {
-            vm.ctx.not_implemented()
-        }
+    fn iadd(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        let mut seq = extract_cloned(&*other, Ok, vm)?;
+        zelf.borrow_vec_mut().append(&mut seq);
+        Ok(zelf)
     }
 
     #[pymethod(magic)]
@@ -462,7 +460,7 @@ impl AsSequence for PyList {
         }),
         inplace_concat: Some(|seq, other, vm| {
             let zelf = Self::sequence_downcast(seq);
-            Ok(Self::inplace_concat(zelf, other, vm))
+            Self::inplace_concat(zelf, other, vm)
         }),
         inplace_repeat: Some(|seq, n, vm| {
             let zelf = Self::sequence_downcast(seq);

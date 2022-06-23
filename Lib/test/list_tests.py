@@ -486,8 +486,6 @@ class CommonTest(seq_tests.CommonTest):
         u[:2] = "h"
         self.assertEqual(u, list("ham"))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_iadd(self):
         super().test_iadd()
         u = self.type2test([0, 1])
