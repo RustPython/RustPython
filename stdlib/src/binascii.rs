@@ -184,7 +184,7 @@ mod decl {
 
     #[pyfunction]
     fn rlecode_hqx(s: ArgAsciiBuffer) -> PyResult<Vec<u8>> {
-        let runchar = 0x90; //RUNCHAR = b"\x90"
+        const RUNCHAR: u8 = 0x90; // b'\x90'
         s.with_ref(|buffer| {
             let len = buffer.len();
             let mut out_data = Vec::<u8>::with_capacity((len * 2) + 2);
