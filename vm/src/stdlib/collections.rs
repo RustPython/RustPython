@@ -158,7 +158,7 @@ mod _collections {
         #[pymethod]
         fn index(
             &self,
-            obj: PyObjectRef,
+            needle: PyObjectRef,
             start: OptionalArg<PyObjectRef>,
             stop: OptionalArg<PyObjectRef>,
             vm: &VirtualMachine,
@@ -166,20 +166,20 @@ mod _collections {
             let start_state = self.state.load();
 
             let len = self.len();
-            let saturate = |i: PyObjectRef, len| -> PyResult<_> {
-                i.try_into_value(vm)
+            let saturate = |obj: PyObjectRef, len| -> PyResult<_> {
+                obj.try_into_value(vm)
                     .map(|int: PyIntRef| pyint_saturate_index(int, len))
             };
             let start = start.map_or(Ok(0), |i| saturate(i, len))?;
             let stop = stop.map_or(Ok(len), |i| saturate(i, len))?;
-            let index = self.mut_index_range(vm, &obj, start..stop)?;
+            let index = self.mut_index_range(vm, &needle, start..stop)?;
             if start_state != self.state.load() {
                 Err(vm.new_runtime_error("deque mutated during iteration".to_owned()))
             } else if let Some(index) = index.into() {
                 Ok(index)
             } else {
                 Err(vm.new_value_error(
-                    obj.repr(vm)
+                    needle.repr(vm)
                         .map(|repr| format!("{} is not in deque", repr))
                         .unwrap_or_else(|_| String::new()),
                 ))
