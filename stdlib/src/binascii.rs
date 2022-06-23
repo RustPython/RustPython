@@ -219,7 +219,7 @@ mod decl {
 
     #[pyfunction]
     fn rledecode_hqx(s: ArgAsciiBuffer) -> PyResult<Vec<u8>> {
-        const RUNCHAR: u8 = 0x90;  //b'\x90'
+        const RUNCHAR: u8 = 0x90; //b'\x90'
         s.with_ref(|buffer| {
             let len = buffer.len();
             let mut out_data = Vec::<u8>::with_capacity(len);
