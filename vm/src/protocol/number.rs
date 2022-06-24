@@ -1,4 +1,7 @@
+use std::ptr::NonNull;
+
 use crossbeam_utils::atomic::AtomicCell;
+use once_cell::sync::OnceCell;
 
 use crate::{
     builtins::{int, PyByteArray, PyBytes, PyComplex, PyFloat, PyInt, PyIntRef, PyStr},
@@ -12,6 +15,7 @@ type UnaryFunc<R = PyObjectRef> = AtomicCell<Option<fn(&PyNumber, &VirtualMachin
 type BinaryFunc<R = PyObjectRef> =
     AtomicCell<Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult<R>>>;
 
+#[derive(Default)]
 pub struct PyNumberMethods {
     /* Number implementations must check *both*
     arguments for proper type and implement the necessary conversions
@@ -124,36 +128,38 @@ impl PyNumberMethods {
 pub struct PyNumber<'a> {
     pub obj: &'a PyObject,
     // some fast path do not need methods, so we do lazy initialize
-    pub methods: Option<&'static PyNumberMethods>,
+    methods: OnceCell<NonNull<PyNumberMethods>>,
 }
 
-impl<'a> PyNumber<'a> {
-    pub fn new(obj: &'a PyObject, vm: &VirtualMachine) -> Self {
+impl<'a> From<&'a PyObject> for PyNumber<'a> {
+    fn from(obj: &'a PyObject) -> Self {
         Self {
             obj,
-            methods: Self::find_methods(obj, vm),
+            methods: OnceCell::new(),
         }
     }
 }
 
 impl PyNumber<'_> {
-    pub fn find_methods(obj: &PyObject, vm: &VirtualMachine) -> Option<&'static PyNumberMethods> {
-        let as_number = obj.class().mro_find_map(|x| x.slots.as_number.load());
-        as_number.map(|f| f(obj, vm))
+    pub fn methods(&self) -> &PyNumberMethods {
+        let as_number = self.methods.get_or_init(|| {
+            Self::find_methods(self.obj).unwrap_or(NonNull::from(&PyNumberMethods::NOT_IMPLEMENTED))
+        });
+        unsafe { as_number.as_ref() }
     }
 
-    pub fn methods(&self) -> &'static PyNumberMethods {
-        self.methods.unwrap_or(&PyNumberMethods::NOT_IMPLEMENTED)
+    fn find_methods<'a>(obj: &'a PyObject) -> Option<NonNull<PyNumberMethods>> {
+        obj.class().mro_find_map(|x| x.slots.as_number.load())
     }
 
     // PyNumber_Check
-    pub fn check(obj: &PyObject, vm: &VirtualMachine) -> bool {
-        Self::find_methods(obj, vm).map_or(false, |methods| {
-            methods.int.load().is_some()
-                || methods.index.load().is_some()
-                || methods.float.load().is_some()
-                || obj.payload_is::<PyComplex>()
-        })
+    pub fn check<'a>(obj: &'a PyObject, vm: &VirtualMachine) -> bool {
+        let num = PyNumber::from(obj);
+        let methods = num.methods();
+        methods.int.load().is_some()
+            || methods.index.load().is_some()
+            || methods.float.load().is_some()
+            || obj.payload_is::<PyComplex>()
     }
 
     // PyIndex_Check
@@ -207,7 +213,7 @@ impl PyNumber<'_> {
             //     vm,
             // )?;
             let ret = f.invoke((), vm)?;
-            PyNumber::new(ret.as_ref(), vm).index(vm).map_err(|_| {
+            PyNumber::from(ret.as_ref()).index(vm).map_err(|_| {
                 vm.new_type_error(format!(
                     "__trunc__ returned non-Integral (type {})",
                     ret.class()

@@ -2,11 +2,6 @@ use super::{
     mappingproxy::PyMappingProxy, object, union_, PyClassMethod, PyDictRef, PyList, PyStaticMethod,
     PyStr, PyStrInterned, PyStrRef, PyTuple, PyTupleRef, PyWeak,
 };
-use crate::common::{
-    ascii,
-    borrow::BorrowedValue,
-    lock::{PyRwLock, PyRwLockReadGuard},
-};
 use crate::{
     builtins::PyBaseExceptionRef,
     class::{PyClassImpl, StaticType},
@@ -15,9 +10,17 @@ use crate::{
     types::{Callable, GetAttr, PyTypeFlags, PyTypeSlots, SetAttr},
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
+use crate::{
+    common::{
+        ascii,
+        borrow::BorrowedValue,
+        lock::{PyRwLock, PyRwLockReadGuard},
+    },
+    protocol::PyNumberMethods,
+};
 use indexmap::{map::Entry, IndexMap};
 use itertools::Itertools;
-use std::{borrow::Borrow, collections::HashSet, fmt, ops::Deref};
+use std::{borrow::Borrow, collections::HashSet, fmt, ops::Deref, pin::Pin};
 
 /// type(object_or_name, bases, dict)
 /// type(object) -> the object's type
@@ -30,9 +33,22 @@ pub struct PyType {
     pub subclasses: PyRwLock<Vec<PyRef<PyWeak>>>,
     pub attributes: PyRwLock<PyAttributes>,
     pub slots: PyTypeSlots,
+    pub heaptype_ext: Option<Pin<Box<HeapTypeExt>>>,
+}
+
+#[derive(Default)]
+pub struct HeapTypeExt {
+    pub number_methods: PyNumberMethods,
 }
 
 pub type PyTypeRef = PyRef<PyType>;
+
+cfg_if::cfg_if! {
+    if #[cfg(feature = "threading")] {
+        unsafe impl Send for PyType {}
+        unsafe impl Sync for PyType {}
+    }
+}
 
 /// For attributes we do not use a dict, but an IndexMap, which is an Hash Table
 /// that maintains order and is compatible with the standard HashMap  This is probably
@@ -112,6 +128,7 @@ impl PyType {
                 subclasses: PyRwLock::default(),
                 attributes: PyRwLock::new(attrs),
                 slots,
+                heaptype_ext: Some(Pin::new(Box::new(HeapTypeExt::default()))),
             },
             metaclass,
             None,

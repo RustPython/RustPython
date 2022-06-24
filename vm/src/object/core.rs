@@ -1105,6 +1105,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
             subclasses: PyRwLock::default(),
             attributes: PyRwLock::new(Default::default()),
             slots: PyType::make_slots(),
+            heaptype_ext: None,
         };
         let object_payload = PyType {
             base: None,
@@ -1113,6 +1114,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
             subclasses: PyRwLock::default(),
             attributes: PyRwLock::new(Default::default()),
             slots: object::PyBaseObject::make_slots(),
+            heaptype_ext: None,
         };
         let type_type_ptr = Box::into_raw(Box::new(partially_init!(
             PyInner::<PyType> {
@@ -1173,6 +1175,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
         subclasses: PyRwLock::default(),
         attributes: PyRwLock::default(),
         slots: PyWeak::make_slots(),
+        heaptype_ext: None,
     };
     let weakref_type = PyRef::new_ref(weakref_type, type_type.clone(), None);
 

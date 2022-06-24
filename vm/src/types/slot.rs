@@ -15,6 +15,7 @@ use crate::{
 };
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::{Signed, ToPrimitive};
+use std::ptr::NonNull;
 use std::{borrow::Borrow, cmp::Ordering};
 
 // The corresponding field in CPython is `tp_` prefixed.
@@ -30,7 +31,7 @@ pub struct PyTypeSlots {
     // Methods to implement standard operations
 
     // Method suites for standard classes
-    pub as_number: AtomicCell<Option<AsNumberFunc>>,
+    pub as_number: AtomicCell<Option<NonNull<PyNumberMethods>>>,
     pub as_sequence: AtomicCell<Option<AsSequenceFunc>>,
     pub as_mapping: AtomicCell<Option<AsMappingFunc>>,
 
@@ -139,7 +140,6 @@ impl Default for PyTypeFlags {
 
 pub(crate) type GenericMethod = fn(&PyObject, FuncArgs, &VirtualMachine) -> PyResult;
 pub(crate) type AsMappingFunc = fn(&PyObject, &VirtualMachine) -> &'static PyMappingMethods;
-pub(crate) type AsNumberFunc = fn(&PyObject, &VirtualMachine) -> &'static PyNumberMethods;
 pub(crate) type HashFunc = fn(&PyObject, &VirtualMachine) -> PyResult<PyHash>;
 // CallFunc = GenericMethod
 pub(crate) type GetattroFunc = fn(&PyObject, PyStrRef, &VirtualMachine) -> PyResult;
@@ -203,15 +203,6 @@ fn slot_as_sequence(zelf: &PyObject, vm: &VirtualMachine) -> &'static PySequence
             | zelf.class().has_attr(identifier!(vm, __delitem__)),
     );
     PySequenceMethods::generic(has_length, has_ass_item)
-}
-
-fn slot_as_number(zelf: &PyObject, vm: &VirtualMachine) -> &'static PyNumberMethods {
-    let (has_int, has_float, has_index) = (
-        zelf.class().has_attr(identifier!(vm, __int__)),
-        zelf.class().has_attr(identifier!(vm, __float__)),
-        zelf.class().has_attr(identifier!(vm, __index__)),
-    );
-    PyNumberMethods::generic(has_int, has_float, has_index)
 }
 
 fn hash_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyHash> {
@@ -374,7 +365,7 @@ impl PyType {
                 update_slot!(del, del_wrapper);
             }
             "__int__" | "__index__" | "__float__" => {
-                update_slot!(as_number, slot_as_number);
+                // update_slot!(as_number, slot_as_number);
             }
             _ => {}
         }
@@ -884,7 +875,7 @@ pub trait AsNumber: PyPayload {
 
     #[inline]
     #[pyslot]
-    fn as_number(_zelf: &PyObject, _vm: &VirtualMachine) -> &'static PyNumberMethods {
+    fn as_number() -> &'static PyNumberMethods {
         &Self::AS_NUMBER
     }
 
