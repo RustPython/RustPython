@@ -163,7 +163,7 @@ impl JitSig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum JitType {
     Int,

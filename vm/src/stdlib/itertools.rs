@@ -767,10 +767,10 @@ mod decl {
             }
         }
         // We don't have an int or value was < 0 or > sys.maxsize
-        return Err(vm.new_value_error(format!(
+        Err(vm.new_value_error(format!(
             "{} argument for islice() must be None or an integer: 0 <= x <= sys.maxsize.",
             name
-        )));
+        )))
     }
 
     #[pyimpl(with(IterNext))]

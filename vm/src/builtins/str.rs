@@ -1611,7 +1611,7 @@ mod tests {
 impl<'s> AnyStrWrapper<'s> for PyStrRef {
     type Str = str;
     fn as_ref(&self) -> &str {
-        &*self.as_str()
+        self.as_str()
     }
 }
 

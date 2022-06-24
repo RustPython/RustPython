@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use std::{collections::BTreeSet, fmt, hash};
 
 /// Sourcecode location.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Location {
     row: u32,
     column: u32,
@@ -158,7 +158,7 @@ impl fmt::Display for Label {
 }
 
 /// Transforms a value prior to formatting it.
-#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ConversionFlag {
     /// No conversion
     None,
@@ -171,7 +171,7 @@ pub enum ConversionFlag {
 }
 
 /// The kind of Raise that occurred.
-#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RaiseKind {
     Reraise,
     Raise,
@@ -181,7 +181,7 @@ pub enum RaiseKind {
 pub type NameIdx = u32;
 
 /// A Single bytecode instruction.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Instruction {
     /// Importing by name
     ImportName {
@@ -582,7 +582,7 @@ pub enum TestOperator {
 /// use rustpython_bytecode::BinaryOperator::Add;
 /// let op = BinaryOperation {op: Add};
 /// ```
-#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BinaryOperator {
     Power,
     Multiply,
@@ -600,7 +600,7 @@ pub enum BinaryOperator {
 }
 
 /// The possible unary operators
-#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum UnaryOperator {
     Not,
     Invert,

@@ -62,7 +62,7 @@ impl SymbolTable {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SymbolTableType {
     Module,
     Class,
@@ -83,7 +83,7 @@ impl fmt::Display for SymbolTableType {
 
 /// Indicator for a single symbol what the scope of this symbol is.
 /// The scope can be unknown, which is unfortunate, but not impossible.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SymbolScope {
     Unknown,
     Local,
