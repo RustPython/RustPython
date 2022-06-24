@@ -17,7 +17,7 @@ use crate::{
     protocol::{
         BufferDescriptor, BufferMethods, PyBuffer, PyMappingMethods, PySequenceMethods, VecBuffer,
     },
-    sliceable::wrap_index,
+    sliceable::SequenceIndexOp,
     types::{AsBuffer, AsMapping, AsSequence, Comparable, Constructor, Hashable, PyComparisonOp},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, TryFromObject, VirtualMachine,
@@ -243,7 +243,8 @@ impl PyMemoryView {
             ));
         }
         let (shape, stride, suboffset) = self.desc.dim_desc[0];
-        let index = wrap_index(i, shape)
+        let index = i
+            .wrapped_at(shape)
             .ok_or_else(|| vm.new_index_error("index out of range".to_owned()))?;
         let index = index as isize * stride + suboffset;
         let pos = (index + self.start as isize) as usize;
@@ -292,7 +293,8 @@ impl PyMemoryView {
             return Err(vm.new_not_implemented_error("sub-views are not implemented".to_owned()));
         }
         let (shape, stride, suboffset) = self.desc.dim_desc[0];
-        let index = wrap_index(i, shape)
+        let index = i
+            .wrapped_at(shape)
             .ok_or_else(|| vm.new_index_error("index out of range".to_owned()))?;
         let index = index as isize * stride + suboffset;
         let pos = (index + self.start as isize) as usize;
@@ -316,7 +318,7 @@ impl PyMemoryView {
         if zelf.is(&src) {
             return if !is_equiv_structure(&zelf.desc, &dest.desc) {
                 Err(vm.new_value_error(
-                    "memoryview assigment: lvalue and rvalue have different structures".to_owned(),
+                    "memoryview assignment: lvalue and rvalue have different structures".to_owned(),
                 ))
             } else {
                 // assign self[:] to self
@@ -336,7 +338,7 @@ impl PyMemoryView {
 
         if !is_equiv_structure(&src.desc, &dest.desc) {
             return Err(vm.new_value_error(
-                "memoryview assigment: lvalue and rvalue have different structures".to_owned(),
+                "memoryview assignment: lvalue and rvalue have different structures".to_owned(),
             ));
         }
 

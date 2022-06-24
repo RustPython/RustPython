@@ -10,7 +10,7 @@ use crate::{
     protocol::{PyIterReturn, PyMappingMethods, PySequence, PySequenceMethods},
     recursion::ReprGuard,
     sequence::{MutObjectSequenceOp, SequenceExt, SequenceMutExt},
-    sliceable::{pyint_saturate_index, SequenceIndex, SliceableSequenceMutOp, SliceableSequenceOp},
+    sliceable::{SequenceIndex, SequenceIndexOp, SliceableSequenceMutOp, SliceableSequenceOp},
     types::{
         AsMapping, AsSequence, Comparable, Constructor, Hashable, Initializer, IterNext,
         IterNextIterable, Iterable, PyComparisonOp, Unconstructible, Unhashable,
@@ -276,7 +276,7 @@ impl PyList {
         let len = self.len();
         let saturate = |obj: PyObjectRef, len| -> PyResult<_> {
             obj.try_into_value(vm)
-                .map(|int: PyIntRef| pyint_saturate_index(int, len))
+                .map(|int: PyIntRef| int.as_bigint().saturated_at(len))
         };
         let start = start.map_or(Ok(0), |obj| saturate(obj, len))?;
         let stop = stop.map_or(Ok(len), |obj| saturate(obj, len))?;

@@ -13,8 +13,7 @@ mod _collections {
         protocol::{PyIterReturn, PySequenceMethods},
         recursion::ReprGuard,
         sequence::MutObjectSequenceOp,
-        sliceable,
-        sliceable::pyint_saturate_index,
+        sliceable::SequenceIndexOp,
         types::{
             AsSequence, Comparable, Constructor, Hashable, Initializer, IterNext, IterNextIterable,
             Iterable, PyComparisonOp, Unhashable,
@@ -167,7 +166,7 @@ mod _collections {
             let len = self.len();
             let saturate = |obj: PyObjectRef, len| -> PyResult<_> {
                 obj.try_into_value(vm)
-                    .map(|int: PyIntRef| pyint_saturate_index(int, len))
+                    .map(|int: PyIntRef| int.as_bigint().saturated_at(len))
             };
             let start = start.map_or(Ok(0), |i| saturate(i, len))?;
             let stop = stop.map_or(Ok(len), |i| saturate(i, len))?;
@@ -280,7 +279,7 @@ mod _collections {
         #[pymethod(magic)]
         fn getitem(&self, idx: isize, vm: &VirtualMachine) -> PyResult {
             let deque = self.borrow_deque();
-            sliceable::wrap_index(idx, deque.len())
+            idx.wrapped_at(deque.len())
                 .and_then(|i| deque.get(i).cloned())
                 .ok_or_else(|| vm.new_index_error("deque index out of range".to_owned()))
         }
@@ -288,7 +287,7 @@ mod _collections {
         #[pymethod(magic)]
         fn setitem(&self, idx: isize, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             let mut deque = self.borrow_deque_mut();
-            sliceable::wrap_index(idx, deque.len())
+            idx.wrapped_at(deque.len())
                 .and_then(|i| deque.get_mut(i))
                 .map(|x| *x = value)
                 .ok_or_else(|| vm.new_index_error("deque index out of range".to_owned()))
@@ -297,7 +296,7 @@ mod _collections {
         #[pymethod(magic)]
         fn delitem(&self, idx: isize, vm: &VirtualMachine) -> PyResult<()> {
             let mut deque = self.borrow_deque_mut();
-            sliceable::wrap_index(idx, deque.len())
+            idx.wrapped_at(deque.len())
                 .and_then(|i| deque.remove(i).map(drop))
                 .ok_or_else(|| vm.new_index_error("deque index out of range".to_owned()))
         }

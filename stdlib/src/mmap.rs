@@ -14,7 +14,7 @@ mod mmap {
         protocol::{
             BufferDescriptor, BufferMethods, PyBuffer, PyMappingMethods, PySequenceMethods,
         },
-        sliceable::{saturate_index, wrap_index, SaturatedSlice, SequenceIndex},
+        sliceable::{SaturatedSlice, SequenceIndex, SequenceIndexOp},
         types::{AsBuffer, AsMapping, AsSequence, Constructor},
         AsObject, FromArgs, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
         TryFromBorrowedObject, VirtualMachine,
@@ -592,11 +592,11 @@ mod mmap {
             let size = self.len();
             let start = options
                 .start
-                .map(|start| saturate_index(start, size))
+                .map(|start| start.saturated_at(size))
                 .unwrap_or_else(|| self.pos());
             let end = options
                 .end
-                .map(|end| saturate_index(end, size))
+                .map(|end| end.saturated_at(size))
                 .unwrap_or(size);
             (start, end)
         }
@@ -918,7 +918,8 @@ mod mmap {
         }
 
         fn getitem_by_index(&self, i: isize, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-            let i = wrap_index(i, self.len())
+            let i = i
+                .wrapped_at(self.len())
                 .ok_or_else(|| vm.new_index_error("mmap index out of range".to_owned()))?;
 
             let b = match self.check_valid(vm)?.deref().as_ref().unwrap() {
@@ -999,7 +1000,8 @@ mod mmap {
             value: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let i = wrap_index(i, zelf.len())
+            let i = i
+                .wrapped_at(zelf.len())
                 .ok_or_else(|| vm.new_index_error("mmap index out of range".to_owned()))?;
 
             let b = value_from_object(vm, &value)?;

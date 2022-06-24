@@ -1,8 +1,9 @@
-// export through slicable module, not slice.
+// export through sliceable module, not slice.
 use crate::{
-    builtins::{int::PyInt, slice::PySlice, PyIntRef},
+    builtins::{int::PyInt, slice::PySlice},
     AsObject, PyObject, PyResult, VirtualMachine,
 };
+use num_bigint::BigInt;
 use num_traits::{Signed, ToPrimitive};
 use std::ops::Range;
 
@@ -12,7 +13,7 @@ where
 {
     type Item: Clone;
     fn do_set(&mut self, index: usize, value: Self::Item);
-    fn do_delele(&mut self, index: usize);
+    fn do_delete(&mut self, index: usize);
     /// as CPython, length of range and items could be different, function must act like Vec::splice()
     fn do_set_range(&mut self, range: Range<usize>, items: &[Self::Item]);
     fn do_delete_range(&mut self, range: Range<usize>);
@@ -33,7 +34,7 @@ where
         let pos = self
             .as_ref()
             .wrap_index(index)
-            .ok_or_else(|| vm.new_index_error("assigment index out of range".to_owned()))?;
+            .ok_or_else(|| vm.new_index_error("assignment index out of range".to_owned()))?;
         self.do_set(pos, value);
         Ok(())
     }
@@ -89,8 +90,8 @@ where
         let pos = self
             .as_ref()
             .wrap_index(index)
-            .ok_or_else(|| vm.new_index_error("assigment index out of range".to_owned()))?;
-        self.do_delele(pos);
+            .ok_or_else(|| vm.new_index_error("assignment index out of range".to_owned()))?;
+        self.do_delete(pos);
         Ok(())
     }
 
@@ -118,7 +119,7 @@ impl<T: Clone> SliceableSequenceMutOp for Vec<T> {
         self[index] = value;
     }
 
-    fn do_delele(&mut self, index: usize) {
+    fn do_delete(&mut self, index: usize) {
         self.remove(index);
     }
 
@@ -175,11 +176,11 @@ pub trait SliceableSequenceOp {
     fn len(&self) -> usize;
 
     fn wrap_index(&self, p: isize) -> Option<usize> {
-        wrap_index(p, self.len())
+        p.wrapped_at(self.len())
     }
 
     fn saturate_index(&self, p: isize) -> usize {
-        saturate_index(p, self.len())
+        p.saturated_at(self.len())
     }
 
     fn getitem_by_slice(
@@ -275,7 +276,7 @@ impl SequenceIndex {
         } else if let Some(slice) = obj.payload::<PySlice>() {
             slice.to_saturated(vm).map(Self::Slice)
         } else if let Some(i) = vm.to_index_opt(obj.to_owned()) {
-            // TODO: __index__ for indice is no more supported?
+            // TODO: __index__ for indices is no more supported?
             i?.try_to_primitive(vm)
                 .map_err(|_| {
                     vm.new_index_error("cannot fit 'int' into an index-sized integer".to_owned())
@@ -291,50 +292,53 @@ impl SequenceIndex {
     }
 }
 
-// Use PySliceableSequence::wrap_index for implementors
-pub fn wrap_index(p: isize, len: usize) -> Option<usize> {
-    let neg = p.is_negative();
-    let p = p.wrapping_abs() as usize;
-    if neg {
-        len.checked_sub(p)
-    } else if p >= len {
-        None
-    } else {
-        Some(p)
-    }
+pub trait SequenceIndexOp {
+    // Saturate p in range [0, len] inclusive
+    fn saturated_at(&self, len: usize) -> usize;
+    // Use PySliceableSequence::wrap_index for implementors
+    fn wrapped_at(&self, len: usize) -> Option<usize>;
 }
 
-// Saturate p in range [0, len] inclusive
-pub fn saturate_index(p: isize, len: usize) -> usize {
-    let len = len.to_isize().unwrap_or(isize::MAX);
-    let mut p = p;
-    if p < 0 {
-        p += len;
+impl SequenceIndexOp for isize {
+    fn saturated_at(&self, len: usize) -> usize {
+        let len = len.to_isize().unwrap_or(Self::MAX);
+        let mut p = *self;
         if p < 0 {
-            p = 0;
+            p += len;
+        }
+        p.clamp(0, len) as usize
+    }
+
+    fn wrapped_at(&self, len: usize) -> Option<usize> {
+        let neg = self.is_negative();
+        let p = self.unsigned_abs();
+        if neg {
+            len.checked_sub(p)
+        } else if p >= len {
+            None
+        } else {
+            Some(p)
         }
     }
-    if p > len {
-        p = len;
-    }
-    p as usize
 }
 
-// Saturate p in range [0, len] inclusive
-pub fn pyint_saturate_index(p: PyIntRef, len: usize) -> usize {
-    let bigint = p.as_bigint();
-    if bigint.is_negative() {
-        bigint
-            .abs()
-            .try_into()
-            .map_or(0, |abs| len.saturating_sub(abs))
-    } else {
-        bigint.try_into().unwrap_or(len)
+impl SequenceIndexOp for BigInt {
+    fn saturated_at(&self, len: usize) -> usize {
+        if self.is_negative() {
+            self.abs()
+                .try_into()
+                .map_or(0, |abs| len.saturating_sub(abs))
+        } else {
+            self.try_into().unwrap_or(len)
+        }
+    }
+    fn wrapped_at(&self, _len: usize) -> Option<usize> {
+        unimplemented!("please add one once we need it")
     }
 }
 
 /// A saturated slice with values ranging in [isize::MIN, isize::MAX]. Used for
-/// slicable sequences that require indices in the aforementioned range.
+/// sliceable sequences that require indices in the aforementioned range.
 ///
 /// Invokes `__index__` on the PySliceRef during construction so as to separate the
 /// transformation from PyObject into isize and the adjusting of the slice to a given
@@ -383,16 +387,16 @@ impl SaturatedSlice {
             let stop = if self.stop == -1 {
                 len
             } else {
-                saturate_index(self.stop.saturating_add(1), len)
+                self.stop.saturating_add(1).saturated_at(len)
             };
             let start = if self.start == -1 {
                 len
             } else {
-                saturate_index(self.start.saturating_add(1), len)
+                self.start.saturating_add(1).saturated_at(len)
             };
             stop..start
         } else {
-            saturate_index(self.start, len)..saturate_index(self.stop, len)
+            self.start.saturated_at(len)..self.stop.saturated_at(len)
         };
 
         let (range, slice_len) = if range.start >= range.end {
