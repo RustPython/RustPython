@@ -28,12 +28,8 @@ mod _sre {
     #[pyattr]
     pub use sre_engine::{constants::SRE_MAGIC as MAGIC, CODESIZE, MAXGROUPS, MAXREPEAT};
 
-    #[pyattr]
-    fn copyright(_vm: &VirtualMachine) -> &str {
-        let copy_right = " SRE 2.2.2 Copyright (c) 1997-2002 by Secret Labs AB ";
-        copy_right
-    }
-
+    #[pyattr(name = "copyright")]
+    const COPYRIGHT : &str = " SRE 2.2.2 Copyright (c) 1997-2002 by Secret Labs AB ";
     #[pyfunction]
     fn getcodesize() -> usize {
         CODESIZE
