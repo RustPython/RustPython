@@ -63,6 +63,9 @@ pub struct PyNumberMethods {
 }
 
 impl PyNumberMethods {
+    /// this is NOT a global variable
+    // TODO: weak order read for performance
+    #[allow(clippy::declare_interior_mutable_const)]
     pub const NOT_IMPLEMENTED: PyNumberMethods = PyNumberMethods {
         add: AtomicCell::new(None),
         subtract: AtomicCell::new(None),
@@ -101,28 +104,6 @@ impl PyNumberMethods {
         matrix_multiply: AtomicCell::new(None),
         inplace_matrix_multiply: AtomicCell::new(None),
     };
-
-    fn int(num: &PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyInt>> {
-        let ret = vm.call_special_method(num.obj.to_owned(), identifier!(vm, __int__), ())?;
-        ret.downcast::<PyInt>().map_err(|obj| {
-            vm.new_type_error(format!("__int__ returned non-int (type {})", obj.class()))
-        })
-    }
-    fn float(num: &PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyFloat>> {
-        let ret = vm.call_special_method(num.obj.to_owned(), identifier!(vm, __float__), ())?;
-        ret.downcast::<PyFloat>().map_err(|obj| {
-            vm.new_type_error(format!(
-                "__float__ returned non-float (type {})",
-                obj.class()
-            ))
-        })
-    }
-    fn index(num: &PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyInt>> {
-        let ret = vm.call_special_method(num.obj.to_owned(), identifier!(vm, __index__), ())?;
-        ret.downcast::<PyInt>().map_err(|obj| {
-            vm.new_type_error(format!("__index__ returned non-int (type {})", obj.class()))
-        })
-    }
 }
 
 pub struct PyNumber<'a> {
@@ -142,18 +123,19 @@ impl<'a> From<&'a PyObject> for PyNumber<'a> {
 
 impl PyNumber<'_> {
     pub fn methods(&self) -> &PyNumberMethods {
+        static GLOBAL_NOT_IMPLEMENTED: PyNumberMethods = PyNumberMethods::NOT_IMPLEMENTED;
         let as_number = self.methods.get_or_init(|| {
-            Self::find_methods(self.obj).unwrap_or(NonNull::from(&PyNumberMethods::NOT_IMPLEMENTED))
+            Self::find_methods(self.obj).unwrap_or_else(|| NonNull::from(&GLOBAL_NOT_IMPLEMENTED))
         });
         unsafe { as_number.as_ref() }
     }
 
-    fn find_methods<'a>(obj: &'a PyObject) -> Option<NonNull<PyNumberMethods>> {
+    fn find_methods(obj: &PyObject) -> Option<NonNull<PyNumberMethods>> {
         obj.class().mro_find_map(|x| x.slots.as_number.load())
     }
 
     // PyNumber_Check
-    pub fn check<'a>(obj: &'a PyObject, vm: &VirtualMachine) -> bool {
+    pub fn check(obj: &PyObject) -> bool {
         let num = PyNumber::from(obj);
         let methods = num.methods();
         methods.int.load().is_some()
