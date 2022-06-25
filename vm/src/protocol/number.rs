@@ -1,10 +1,10 @@
-use std::ptr::NonNull;
-
 use crossbeam_utils::atomic::AtomicCell;
 use once_cell::sync::OnceCell;
 
 use crate::{
-    builtins::{int, PyByteArray, PyBytes, PyComplex, PyFloat, PyInt, PyIntRef, PyStr},
+    builtins::{
+        int, type_::PointerSlot, PyByteArray, PyBytes, PyComplex, PyFloat, PyInt, PyIntRef, PyStr,
+    },
     function::ArgBytesLike,
     stdlib::warnings,
     AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject,
@@ -109,7 +109,7 @@ impl PyNumberMethods {
 pub struct PyNumber<'a> {
     pub obj: &'a PyObject,
     // some fast path do not need methods, so we do lazy initialize
-    methods: OnceCell<NonNull<PyNumberMethods>>,
+    methods: OnceCell<PointerSlot<PyNumberMethods>>,
 }
 
 impl<'a> From<&'a PyObject> for PyNumber<'a> {
@@ -124,13 +124,16 @@ impl<'a> From<&'a PyObject> for PyNumber<'a> {
 impl PyNumber<'_> {
     pub fn methods(&self) -> &PyNumberMethods {
         static GLOBAL_NOT_IMPLEMENTED: PyNumberMethods = PyNumberMethods::NOT_IMPLEMENTED;
-        let as_number = self.methods.get_or_init(|| {
-            Self::find_methods(self.obj).unwrap_or_else(|| NonNull::from(&GLOBAL_NOT_IMPLEMENTED))
-        });
-        unsafe { as_number.as_ref() }
+
+        self.methods
+            .get_or_init(|| {
+                Self::find_methods(self.obj)
+                    .unwrap_or_else(|| PointerSlot::from(&GLOBAL_NOT_IMPLEMENTED))
+            })
+            .as_ref()
     }
 
-    fn find_methods(obj: &PyObject) -> Option<NonNull<PyNumberMethods>> {
+    fn find_methods(obj: &PyObject) -> Option<PointerSlot<PyNumberMethods>> {
         obj.class().mro_find_map(|x| x.slots.as_number.load())
     }
 

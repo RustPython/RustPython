@@ -1,6 +1,6 @@
 use crate::common::{hash::PyHash, lock::PyRwLock};
 use crate::{
-    builtins::{PyFloat, PyInt, PyStrInterned, PyStrRef, PyType, PyTypeRef},
+    builtins::{type_::PointerSlot, PyFloat, PyInt, PyStrInterned, PyStrRef, PyType, PyTypeRef},
     bytecode::ComparisonOperator,
     convert::ToPyResult,
     function::Either,
@@ -15,7 +15,6 @@ use crate::{
 };
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::{Signed, ToPrimitive};
-use std::ptr::NonNull;
 use std::{borrow::Borrow, cmp::Ordering};
 
 // The corresponding field in CPython is `tp_` prefixed.
@@ -31,7 +30,7 @@ pub struct PyTypeSlots {
     // Methods to implement standard operations
 
     // Method suites for standard classes
-    pub as_number: AtomicCell<Option<NonNull<PyNumberMethods>>>,
+    pub as_number: AtomicCell<Option<PointerSlot<PyNumberMethods>>>,
     pub as_sequence: AtomicCell<Option<AsSequenceFunc>>,
     pub as_mapping: AtomicCell<Option<AsMappingFunc>>,
 
@@ -356,11 +355,9 @@ impl PyType {
 
         macro_rules! update_pointer_slot {
             ($name:ident, $pointed:ident) => {{
-                self.slots.$name.store(
-                    self.heaptype_ext
-                        .as_ref()
-                        .map(|ext| NonNull::from(&ext.$pointed)),
-                );
+                self.slots
+                    .$name
+                    .store(unsafe { PointerSlot::from_heaptype(self, |ext| &ext.$pointed) });
             }};
         }
         match name.as_str() {

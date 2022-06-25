@@ -20,7 +20,7 @@ use crate::{
 };
 use indexmap::{map::Entry, IndexMap};
 use itertools::Itertools;
-use std::{borrow::Borrow, collections::HashSet, fmt, ops::Deref, pin::Pin};
+use std::{borrow::Borrow, collections::HashSet, fmt, ops::Deref, pin::Pin, ptr::NonNull};
 
 /// type(object_or_name, bases, dict)
 /// type(object) -> the object's type
@@ -39,6 +39,39 @@ pub struct PyType {
 #[derive(Default)]
 pub struct HeapTypeExt {
     pub number_methods: PyNumberMethods,
+}
+
+pub struct PointerSlot<T>(NonNull<T>);
+
+impl<T> Clone for PointerSlot<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T> Copy for PointerSlot<T> {}
+
+impl<T> From<&'static T> for PointerSlot<T> {
+    fn from(x: &'static T) -> Self {
+        Self(NonNull::from(x))
+    }
+}
+
+impl<T> AsRef<T> for PointerSlot<T> {
+    fn as_ref(&self) -> &T {
+        unsafe { self.0.as_ref() }
+    }
+}
+
+impl<T> PointerSlot<T> {
+    pub unsafe fn from_heaptype<F>(typ: &PyType, f: F) -> Option<Self>
+    where
+        F: FnOnce(&HeapTypeExt) -> &T,
+    {
+        typ.heaptype_ext
+            .as_ref()
+            .map(|ext| Self(NonNull::from(f(ext))))
+    }
 }
 
 pub type PyTypeRef = PyRef<PyType>;

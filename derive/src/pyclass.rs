@@ -571,7 +571,7 @@ where
                 }
             } else if POINTER_SLOTS.contains(&slot_name.as_str()) {
                 quote_spanned! { span =>
-                    slots.#slot_ident.store(Some(NonNull::from(Self::#ident())));
+                    slots.#slot_ident.store(Some(PointerSlot::from(Self::#ident())));
                 }
             } else {
                 quote_spanned! { span =>
