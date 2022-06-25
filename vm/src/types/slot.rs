@@ -871,13 +871,15 @@ pub trait AsSequence: PyPayload {
 
 #[pyimpl]
 pub trait AsNumber: PyPayload {
-    const AS_NUMBER: PyNumberMethods;
+    // const AS_NUMBER: PyNumberMethods;
 
-    #[inline]
     #[pyslot]
-    fn as_number() -> &'static PyNumberMethods {
-        &Self::AS_NUMBER
-    }
+    fn as_number() -> &'static PyNumberMethods;
+    // #[inline]
+    // #[pyslot]
+    // fn as_number() -> &'static PyNumberMethods {
+    //     &Self::AS_NUMBER
+    // }
 
     fn number_downcast<'a>(number: &'a PyNumber) -> &'a Py<Self> {
         unsafe { number.obj.downcast_unchecked_ref() }
