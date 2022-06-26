@@ -11,14 +11,14 @@ mod decl {
         convert::ToPyObject,
         function::{ArgCallable, FuncArgs, OptionalArg, OptionalOption, PosArgs},
         identifier,
-        protocol::{PyIter, PyIterReturn},
+        protocol::{PyIter, PyIterReturn, PyNumber},
         stdlib::sys,
         types::{Constructor, IterNext, IterNextIterable},
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, PyWeakRef, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
-    use num_bigint::BigInt;
-    use num_traits::{One, Signed, ToPrimitive, Zero};
+    // use num_bigint::BigInt;
+    use num_traits::{Signed, ToPrimitive};
     use std::fmt;
 
     #[pyattr]
@@ -174,14 +174,13 @@ mod decl {
     #[pyclass(name = "count")]
     #[derive(Debug, PyPayload)]
     struct PyItertoolsCount {
-        cur: PyRwLock<BigInt>,
-        step: BigInt,
+        cur: PyRwLock<PyObjectRef>,
+        step: Option<PyIntRef>,
     }
 
     #[derive(FromArgs)]
     struct CountNewArgs {
-        #[pyarg(positional, optional)]
-        start: OptionalArg<PyIntRef>,
+        start: PyObjectRef,
 
         #[pyarg(positional, optional)]
         step: OptionalArg<PyIntRef>,
@@ -195,14 +194,17 @@ mod decl {
             Self::Args { start, step }: Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult {
-            let start = match start.into_option() {
-                Some(int) => int.as_bigint().clone(),
-                None => BigInt::zero(),
-            };
+            let start = start.clone();
             let step = match step.into_option() {
-                Some(int) => int.as_bigint().clone(),
-                None => BigInt::one(),
+                Some(int) => {
+                    let val: isize = int.try_to_primitive(vm)?;
+                    Some(vm.new_pyref(val.to_usize().unwrap_or(0)))
+                }
+                None => None,
             };
+            if PyNumber::check(&start, vm) == false {
+                return Err(vm.new_value_error("a number is require".to_owned()));
+            }
 
             PyItertoolsCount {
                 cur: PyRwLock::new(start),
@@ -219,7 +221,7 @@ mod decl {
         // if (lz->cnt == PY_SSIZE_T_MAX)
         //      return Py_BuildValue("0(00)", Py_TYPE(lz), lz->long_cnt, lz->long_step);
         #[pymethod(magic)]
-        fn reduce(zelf: PyRef<Self>) -> (PyTypeRef, (BigInt,)) {
+        fn reduce(zelf: PyRef<Self>) -> (PyTypeRef, (PyObjectRef,)) {
             (zelf.class().clone(), (zelf.cur.read().clone(),))
         }
 
@@ -235,7 +237,9 @@ mod decl {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let mut cur = zelf.cur.write();
             let result = cur.clone();
-            *cur += &zelf.step;
+            if let Some(step) = &zelf.step {
+                *cur = vm._iadd(&*cur, step.as_object())?;
+            }
             Ok(PyIterReturn::Return(result.to_pyobject(vm)))
         }
     }
