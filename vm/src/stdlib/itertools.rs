@@ -196,7 +196,7 @@ mod decl {
             vm: &VirtualMachine,
         ) -> PyResult {
             let start = match start.into_option() {
-                Some(num) => vm.new_pyobj(num.clone()),
+                Some(num) => vm.new_pyobj(num),
                 None => vm.new_pyobj(0),
             };
             let step = match step.into_option() {
@@ -206,7 +206,7 @@ mod decl {
                 }
                 None => None,
             };
-            if PyNumber::check(&start, vm) == false {
+            if !PyNumber::check(&start, vm) {
                 return Err(vm.new_value_error("a number is require".to_owned()));
             }
 
