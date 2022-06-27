@@ -229,9 +229,10 @@ mod decl {
     impl IterNextIterable for PyItertoolsCount {}
     impl IterNext for PyItertoolsCount {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            let cur = zelf.cur.write();
+            let mut cur = zelf.cur.write();
+            let step = zelf.step.clone();
             let result = cur.clone();
-            vm._iadd(&*cur, &zelf.step.as_object())?;
+            *cur = vm._iadd(&*cur, &step.as_object())?;
             Ok(PyIterReturn::Return(result.to_pyobject(vm)))
         }
     }
