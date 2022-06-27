@@ -194,17 +194,8 @@ mod decl {
             Self::Args { start, step }: Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult {
-            let start = match start.into_option() {
-                Some(num) => vm.new_pyobj(num),
-                None => vm.new_pyobj(0),
-            };
-            let step = match step.into_option() {
-                Some(int) => {
-                    let val: isize = int.try_to_primitive(vm)?;
-                    vm.new_pyref(val.to_usize().unwrap_or(0))
-                }
-                None => vm.new_pyref(1),
-            };
+            let start: PyObjectRef = start.into_option().unwrap_or_else(|| vm.new_pyobj(0));
+            let step: PyIntRef = step.into_option().unwrap_or_else(|| vm.new_pyref(1));
             if !PyNumber::check(&start, vm) {
                 return Err(vm.new_value_error("a number is require".to_owned()));
             }
