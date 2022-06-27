@@ -180,7 +180,8 @@ mod decl {
 
     #[derive(FromArgs)]
     struct CountNewArgs {
-        start: PyObjectRef,
+        #[pyarg(positional, optional)]
+        start: OptionalArg<PyObjectRef>,
 
         #[pyarg(positional, optional)]
         step: OptionalArg<PyIntRef>,
@@ -194,7 +195,10 @@ mod decl {
             Self::Args { start, step }: Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult {
-            let start = start.clone();
+            let start = match start.into_option() {
+                Some(num) => vm.new_pyobj(num.clone()),
+                None => vm.new_pyobj(0),
+            };
             let step = match step.into_option() {
                 Some(int) => {
                     let val: isize = int.try_to_primitive(vm)?;
@@ -239,6 +243,9 @@ mod decl {
             let result = cur.clone();
             if let Some(step) = &zelf.step {
                 *cur = vm._iadd(&*cur, step.as_object())?;
+            } else {
+                let one = vm.new_pyobj(1);
+                *cur = vm._add(&*cur, &one)?;
             }
             Ok(PyIterReturn::Return(result.to_pyobject(vm)))
         }
