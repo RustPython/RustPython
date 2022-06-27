@@ -174,7 +174,7 @@ mod decl {
     #[derive(Debug, PyPayload)]
     struct PyItertoolsCount {
         cur: PyRwLock<PyObjectRef>,
-        step: Option<PyIntRef>,
+        step: PyIntRef,
     }
 
     #[derive(FromArgs)]
@@ -201,9 +201,9 @@ mod decl {
             let step = match step.into_option() {
                 Some(int) => {
                     let val: isize = int.try_to_primitive(vm)?;
-                    Some(vm.new_pyref(val.to_usize().unwrap_or(0)))
+                    vm.new_pyref(val.to_usize().unwrap_or(0))
                 }
-                None => None,
+                None => vm.new_pyref(1),
             };
             if !PyNumber::check(&start, vm) {
                 return Err(vm.new_value_error("a number is require".to_owned()));
@@ -238,14 +238,9 @@ mod decl {
     impl IterNextIterable for PyItertoolsCount {}
     impl IterNext for PyItertoolsCount {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            let mut cur = zelf.cur.write();
+            let cur = zelf.cur.write();
             let result = cur.clone();
-            if let Some(step) = &zelf.step {
-                *cur = vm._iadd(&*cur, step.as_object())?;
-            } else {
-                let one = vm.new_pyobj(1);
-                *cur = vm._add(&*cur, &one)?;
-            }
+            vm._iadd(&*cur, &zelf.step.as_object())?;
             Ok(PyIterReturn::Return(result.to_pyobject(vm)))
         }
     }
