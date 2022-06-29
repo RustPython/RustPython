@@ -174,7 +174,7 @@ mod decl {
     #[derive(Debug, PyPayload)]
     struct PyItertoolsCount {
         cur: PyRwLock<PyObjectRef>,
-        step: Option<PyIntRef>,
+        step: PyIntRef,
     }
 
     #[derive(FromArgs)]
@@ -195,13 +195,7 @@ mod decl {
             vm: &VirtualMachine,
         ) -> PyResult {
             let start: PyObjectRef = start.into_option().unwrap_or_else(|| vm.new_pyobj(0));
-            let step = match step.into_option() {
-                Some(int) => {
-                    let val: isize = int.try_to_primitive(vm)?;
-                    Some(vm.new_pyref(val.to_usize().unwrap_or(0)))
-                }
-                None => None,
-            };
+            let step: PyIntRef = step.into_option().unwrap_or_else(|| vm.new_pyref(1));
             if !PyNumber::check(&start, vm) {
                 return Err(vm.new_value_error("a number is require".to_owned()));
             }
@@ -228,8 +222,8 @@ mod decl {
         #[pymethod(magic)]
         fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
             let mut cur = format!("{}", self.cur.read().clone().repr(vm)?);
-            let step = self.step.clone();
-            if let Some(ref step) = step {
+            let step = format!("{}", self.step.clone());
+            if step != "1" {
                 cur.push_str(", ");
                 cur.push_str(&step.to_string());
             }
@@ -240,10 +234,9 @@ mod decl {
     impl IterNext for PyItertoolsCount {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let mut cur = zelf.cur.write();
+            let step = zelf.step.clone();
             let result = cur.clone();
-            if let Some(step) = &zelf.step {
-                *cur = vm._iadd(&*cur, step.as_object())?;
-            }
+            *cur = vm._iadd(&*cur, step.as_object())?;
             Ok(PyIterReturn::Return(result.to_pyobject(vm)))
         }
     }
