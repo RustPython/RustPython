@@ -225,7 +225,7 @@ mod decl {
             let step = format!("{}", self.step.clone());
             if step != "1" {
                 cur.push_str(", ");
-                cur.push_str(&step.to_string());
+                cur.push_str(&step);
             }
             Ok(format!("count({})", cur))
         }
