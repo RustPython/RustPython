@@ -221,13 +221,12 @@ mod decl {
 
         #[pymethod(magic)]
         fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
-            let mut cur = format!("{}", self.cur.read().clone().repr(vm)?);
-            let step = format!("{}", self.step.clone());
-            if step != "1" {
-                cur.push_str(", ");
-                cur.push_str(&step);
+            let cur = format!("{}", self.cur.read().clone().repr(vm)?);
+            let step = self.step.as_u32_mask().clone();
+            if step == 1 {
+                return Ok(format!("count({})", cur));
             }
-            Ok(format!("count({})", cur))
+            Ok(format!("count({}, {})", cur, step.to_string()))
         }
     }
     impl IterNextIterable for PyItertoolsCount {}
