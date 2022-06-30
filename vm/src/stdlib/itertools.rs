@@ -17,7 +17,7 @@ mod decl {
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, PyWeakRef, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
-    use num_traits::{Signed, ToPrimitive};
+    use num_traits::{Signed, ToPrimitive, One};
     use std::fmt;
 
     #[pyattr]
@@ -222,8 +222,8 @@ mod decl {
         #[pymethod(magic)]
         fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
             let cur = format!("{}", self.cur.read().clone().repr(vm)?);
-            let step = self.step.as_u32_mask().clone();
-            if step == 1 {
+            let step = self.step.as_bigint();
+            if step.is_one() {
                 return Ok(format!("count({})", cur));
             }
             Ok(format!("count({}, {})", cur, step.to_string()))
