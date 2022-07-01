@@ -17,7 +17,7 @@ mod decl {
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, PyWeakRef, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
-    use num_traits::{Signed, ToPrimitive, One};
+    use num_traits::{One, Signed, ToPrimitive};
     use std::fmt;
 
     #[pyattr]
@@ -226,7 +226,7 @@ mod decl {
             if step.is_one() {
                 return Ok(format!("count({})", cur));
             }
-            Ok(format!("count({}, {})", cur, step.to_string()))
+            Ok(format!("count({}, {})", cur, step))
         }
     }
     impl IterNextIterable for PyItertoolsCount {}
