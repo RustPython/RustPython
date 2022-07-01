@@ -17,7 +17,7 @@ mod decl {
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, PyWeakRef, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
-    use num_traits::{Signed, ToPrimitive, One};
+    use num_traits::{One, Signed, ToPrimitive};
     use std::fmt;
 
     #[pyattr]
