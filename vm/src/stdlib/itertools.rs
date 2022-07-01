@@ -226,7 +226,7 @@ mod decl {
             if step.is_one() {
                 return Ok(format!("count({})", cur));
             }
-            Ok(format!("count({}, {})", cur, step.to_string()))
+            Ok(format!("count({}, {})", cur, step))
         }
     }
     impl IterNextIterable for PyItertoolsCount {}
