@@ -17,7 +17,7 @@ mod decl {
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, PyWeakRef, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
-    use num_traits::{One, Signed, ToPrimitive};
+    use num_traits::{Signed, ToPrimitive};
     use std::fmt;
 
     #[pyattr]
@@ -174,7 +174,7 @@ mod decl {
     #[derive(Debug, PyPayload)]
     struct PyItertoolsCount {
         cur: PyRwLock<PyObjectRef>,
-        step: PyIntRef,
+        step: PyObjectRef,
     }
 
     #[derive(FromArgs)]
@@ -183,7 +183,7 @@ mod decl {
         start: OptionalArg<PyObjectRef>,
 
         #[pyarg(positional, optional)]
-        step: OptionalArg<PyIntRef>,
+        step: OptionalArg<PyObjectRef>,
     }
 
     impl Constructor for PyItertoolsCount {
@@ -194,9 +194,9 @@ mod decl {
             Self::Args { start, step }: Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult {
-            let start: PyObjectRef = start.into_option().unwrap_or_else(|| vm.new_pyobj(0));
-            let step: PyIntRef = step.into_option().unwrap_or_else(|| vm.new_pyref(1));
-            if !PyNumber::check(&start, vm) {
+            let start = start.into_option().unwrap_or_else(|| vm.new_pyobj(0));
+            let step = step.into_option().unwrap_or_else(|| vm.new_pyobj(1));
+            if !PyNumber::check(&start, vm) || !PyNumber::check(&step, vm) {
                 return Err(vm.new_value_error("a number is require".to_owned()));
             }
 
@@ -222,11 +222,11 @@ mod decl {
         #[pymethod(magic)]
         fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
             let cur = format!("{}", self.cur.read().clone().repr(vm)?);
-            let step = self.step.as_bigint();
-            if step.is_one() {
+            let step = &self.step;
+            if vm.bool_eq(step, vm.ctx.new_int(1).as_object())? {
                 return Ok(format!("count({})", cur));
             }
-            Ok(format!("count({}, {})", cur, step))
+            Ok(format!("count({}, {})", cur, step.repr(vm)?))
         }
     }
     impl IterNextIterable for PyItertoolsCount {}
