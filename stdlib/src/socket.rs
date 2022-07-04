@@ -40,9 +40,10 @@ mod _socket {
         pub use winapi::shared::ws2def::*;
         pub use winapi::shared::ws2ipdef::*;
         pub use winapi::um::winsock2::{
-            SD_BOTH as SHUT_RDWR, SD_RECEIVE as SHUT_RD, SD_SEND as SHUT_WR, SOCK_DGRAM, SOCK_RAW,
-            SOCK_RDM, SOCK_SEQPACKET, SOCK_STREAM, SOL_SOCKET, SO_BROADCAST, SO_ERROR, SO_LINGER,
-            SO_OOBINLINE, SO_REUSEADDR, SO_TYPE, *,
+            IPPORT_RESERVED, SD_BOTH as SHUT_RDWR, SD_RECEIVE as SHUT_RD, SD_SEND as SHUT_WR,
+            SOCK_DGRAM, SOCK_RAW, SOCK_RDM, SOCK_SEQPACKET, SOCK_STREAM, SOL_SOCKET, SO_BROADCAST,
+            SO_ERROR, SO_EXCLUSIVEADDRUSE, SO_LINGER, SO_OOBINLINE, SO_REUSEADDR, SO_TYPE,
+            SO_USELOOPBACK, *,
         };
         pub use winapi::um::ws2tcpip::*;
     }
