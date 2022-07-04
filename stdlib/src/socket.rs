@@ -39,12 +39,12 @@ mod _socket {
         pub use winapi::shared::netioapi::{if_indextoname, if_nametoindex};
         pub use winapi::shared::ws2def::*;
         pub use winapi::shared::ws2ipdef::*;
-        pub use winapi::shared::ws2tcpip::*;
         pub use winapi::um::winsock2::{
             SD_BOTH as SHUT_RDWR, SD_RECEIVE as SHUT_RD, SD_SEND as SHUT_WR, SOCK_DGRAM, SOCK_RAW,
             SOCK_RDM, SOCK_SEQPACKET, SOCK_STREAM, SOL_SOCKET, SO_BROADCAST, SO_ERROR, SO_LINGER,
             SO_OOBINLINE, SO_REUSEADDR, SO_TYPE, *,
         };
+        pub use winapi::um::ws2tcpip::*;
     }
     // constants
     #[pyattr(name = "has_ipv6")]
@@ -537,12 +537,25 @@ mod _socket {
         target_os = "linux",
         target_os = "netbsd",
         target_os = "openbsd",
+        target_os = "redox"
+    ))]
+    #[pyattr]
+    use c::{SOCK_CLOEXEC, SOCK_NONBLOCK};
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "fuchsia",
+        target_os = "linux",
+        target_os = "netbsd",
+        target_os = "openbsd",
         target_vendor = "apple"
     ))]
     #[pyattr]
     use c::{
         AF_ROUTE, AF_SNA, EAI_OVERFLOW, IPPROTO_GRE, IPPROTO_RSVP, IPPROTO_TP, IPV6_RECVPKTINFO,
-        MSG_DONTWAIT, SCM_RIGHTS, SOCK_CLOEXEC, SOCK_NONBLOCK, TCP_MAXSEG,
+        MSG_DONTWAIT, SCM_RIGHTS, TCP_MAXSEG,
     };
 
     #[cfg(any(
