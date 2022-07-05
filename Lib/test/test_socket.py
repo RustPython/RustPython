@@ -1719,8 +1719,6 @@ class GeneralModuleTests(unittest.TestCase):
             self.assertEqual(str(s.family), 'AddressFamily.AF_INET')
             self.assertEqual(str(s.type), 'SocketKind.SOCK_STREAM')
 
-    # TODO: RUSTPYTHON, AssertionError: 526337 != <SocketKind.SOCK_STREAM: 1>
-    @unittest.expectedFailure
     def test_socket_consistent_sock_type(self):
         SOCK_NONBLOCK = getattr(socket, 'SOCK_NONBLOCK', 0)
         SOCK_CLOEXEC = getattr(socket, 'SOCK_CLOEXEC', 0)
@@ -1736,6 +1734,10 @@ class GeneralModuleTests(unittest.TestCase):
             self.assertEqual(s.type, socket.SOCK_STREAM)
             s.setblocking(False)
             self.assertEqual(s.type, socket.SOCK_STREAM)
+
+    # TODO: RUSTPYTHON, AssertionError: 526337 != <SocketKind.SOCK_STREAM: 1>
+    if sys.platform == "linux":
+        test_socket_consistent_sock_type = unittest.expectedFailure(test_socket_consistent_sock_type)
 
     def test_unknown_socket_family_repr(self):
         # Test that when created with a family that's not one of the known
