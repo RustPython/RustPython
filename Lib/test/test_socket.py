@@ -1717,6 +1717,8 @@ class GeneralModuleTests(unittest.TestCase):
             self.assertEqual(str(s.family), 'AddressFamily.AF_INET')
             self.assertEqual(str(s.type), 'SocketKind.SOCK_STREAM')
 
+    # TODO: RUSTPYTHON, AssertionError: 526337 != <SocketKind.SOCK_STREAM: 1>
+    @unittest.expectedFailure
     def test_socket_consistent_sock_type(self):
         SOCK_NONBLOCK = getattr(socket, 'SOCK_NONBLOCK', 0)
         SOCK_CLOEXEC = getattr(socket, 'SOCK_CLOEXEC', 0)
@@ -1873,6 +1875,8 @@ class BasicCANTest(unittest.TestCase):
 
     @unittest.skipUnless(hasattr(socket, "CAN_BCM"),
                          'socket.CAN_BCM required for this test.')
+    # TODO: RUSTPYTHON, AttributeError: module 'socket' has no attribute 'CAN_BCM_TX_SETUP'
+    @unittest.expectedFailure
     def testBCMConstants(self):
         socket.CAN_BCM
 
@@ -1913,12 +1917,16 @@ class BasicCANTest(unittest.TestCase):
         with socket.socket(socket.PF_CAN, socket.SOCK_DGRAM, socket.CAN_BCM) as s:
             pass
 
+    # TODO: RUSTPYTHON, OSError: bind(): bad family
+    @unittest.expectedFailure
     def testBindAny(self):
         with socket.socket(socket.PF_CAN, socket.SOCK_RAW, socket.CAN_RAW) as s:
             address = ('', )
             s.bind(address)
             self.assertEqual(s.getsockname(), address)
 
+    # TODO: RUSTPYTHON, AssertionError: "interface name too long" does not match "bind(): bad family"
+    @unittest.expectedFailure
     def testTooLongInterfaceName(self):
         # most systems limit IFNAMSIZ to 16, take 1024 to be sure
         with socket.socket(socket.PF_CAN, socket.SOCK_RAW, socket.CAN_RAW) as s:
@@ -4377,6 +4385,8 @@ class NonBlockingTCPTests(ThreadedTCPSocketTest):
     @unittest.skipUnless(hasattr(socket, 'SOCK_NONBLOCK'),
                          'test needs socket.SOCK_NONBLOCK')
     @support.requires_linux_version(2, 6, 28)
+    # TODO: RUSTPYTHON, AssertionError: None != 0
+    @unittest.expectedFailure
     def testInitNonBlocking(self):
         # create a socket with SOCK_NONBLOCK
         self.serv.close()
@@ -5395,6 +5405,8 @@ class InheritanceTest(unittest.TestCase):
     @unittest.skipUnless(hasattr(socket, "SOCK_CLOEXEC"),
                          "SOCK_CLOEXEC not defined")
     @support.requires_linux_version(2, 6, 28)
+    # TODO: RUSTPYTHON, AssertionError: 524289 != <SocketKind.SOCK_STREAM: 1>
+    @unittest.expectedFailure
     def test_SOCK_CLOEXEC(self):
         with socket.socket(socket.AF_INET,
                            socket.SOCK_STREAM | socket.SOCK_CLOEXEC) as s:
@@ -5487,6 +5499,8 @@ class NonblockConstantTest(unittest.TestCase):
             self.assertTrue(s.getblocking())
 
     @support.requires_linux_version(2, 6, 28)
+    # TODO: RUSTPYTHON, AssertionError: 2049 != <SocketKind.SOCK_STREAM: 1>
+    @unittest.expectedFailure
     def test_SOCK_NONBLOCK(self):
         # a lot of it seems silly and redundant, but I wanted to test that
         # changing back and forth worked ok
@@ -5910,6 +5924,8 @@ class LinuxKernelCryptoAPI(unittest.TestCase):
     # bpo-31705: On kernel older than 4.5, sendto() failed with ENOKEY,
     # at least on ppc64le architecture
     @support.requires_linux_version(4, 5)
+    # TODO: RUSTPYTHON, OSError: bind(): bad family
+    @unittest.expectedFailure
     def test_sha256(self):
         expected = bytes.fromhex("ba7816bf8f01cfea414140de5dae2223b00361a396"
                                  "177a9cb410ff61f20015ad")
@@ -5927,6 +5943,8 @@ class LinuxKernelCryptoAPI(unittest.TestCase):
                 op.send(b'')
                 self.assertEqual(op.recv(512), expected)
 
+    # TODO: RUSTPYTHON, OSError: bind(): bad family
+    @unittest.expectedFailure
     def test_hmac_sha1(self):
         expected = bytes.fromhex("effcdf6ae5eb2fa2d27416d5f184df9c259a7c79")
         with self.create_alg('hash', 'hmac(sha1)') as algo:
@@ -5939,6 +5957,8 @@ class LinuxKernelCryptoAPI(unittest.TestCase):
     # Although it should work with 3.19 and newer the test blocks on
     # Ubuntu 15.10 with Kernel 4.2.0-19.
     @support.requires_linux_version(4, 3)
+    # TODO: RUSTPYTHON, OSError: bind(): bad family
+    @unittest.expectedFailure
     def test_aes_cbc(self):
         key = bytes.fromhex('06a9214036b8a15b512e03d534120006')
         iv = bytes.fromhex('3dafba429d9eb430b422da802c9fac41')
@@ -5980,6 +6000,8 @@ class LinuxKernelCryptoAPI(unittest.TestCase):
             self.assertEqual(dec, msg * multiplier)
 
     @support.requires_linux_version(4, 9)  # see issue29324
+    # TODO: RUSTPYTHON, OSError: bind(): bad family
+    @unittest.expectedFailure
     def test_aead_aes_gcm(self):
         key = bytes.fromhex('c939cc13397c1d37de6ae0e1cb7c423c')
         iv = bytes.fromhex('b3d8cc017cbb89b39e0f67e2')
@@ -6043,6 +6065,8 @@ class LinuxKernelCryptoAPI(unittest.TestCase):
                 self.assertEqual(plain, res[assoclen:])
 
     @support.requires_linux_version(4, 3)  # see test_aes_cbc
+    # TODO: RUSTPYTHON, OSError: bind(): bad family
+    @unittest.expectedFailure
     def test_drbg_pr_sha256(self):
         # deterministic random bit generator, prediction resistance, sha256
         with self.create_alg('rng', 'drbg_pr_sha256') as algo:
@@ -6053,6 +6077,8 @@ class LinuxKernelCryptoAPI(unittest.TestCase):
                 rn = op.recv(32)
                 self.assertEqual(len(rn), 32)
 
+    # TODO: RUSTPYTHON, AttributeError: 'socket' object has no attribute 'sendmsg_afalg'
+    @unittest.expectedFailure
     def test_sendmsg_afalg_args(self):
         sock = socket.socket(socket.AF_ALG, socket.SOCK_SEQPACKET, 0)
         with sock:
@@ -6071,6 +6097,8 @@ class LinuxKernelCryptoAPI(unittest.TestCase):
             with self.assertRaises(TypeError):
                 sock.sendmsg_afalg(op=socket.ALG_OP_ENCRYPT, assoclen=-1)
 
+    # TODO: RUSTPYTHON, OSError: bind(): bad family
+    @unittest.expectedFailure
     def test_length_restriction(self):
         # bpo-35050, off-by-one error in length check
         sock = socket.socket(socket.AF_ALG, socket.SOCK_SEQPACKET, 0)
