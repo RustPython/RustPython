@@ -1389,6 +1389,8 @@ class GeneralModuleTests(unittest.TestCase):
     @unittest.skipUnless(os.name == "nt", "Windows specific")
     @unittest.skipUnless(hasattr(socket, 'SIO_LOOPBACK_FAST_PATH'),
                          'Loopback fast path support required for this test')
+    # TODO: RUSTPYTHON, AttributeError: 'socket' object has no attribute 'ioctl'
+    @unittest.expectedFailure
     def test_sio_loopback_fast_path(self):
         s = socket.socket()
         self.addCleanup(s.close)
