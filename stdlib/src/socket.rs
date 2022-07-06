@@ -35,13 +35,17 @@ mod _socket {
     #[cfg(windows)]
     mod c {
         pub use winapi::shared::ifdef::IF_MAX_STRING_SIZE as IF_NAMESIZE;
+        pub use winapi::shared::mstcpip::*;
         pub use winapi::shared::netioapi::{if_indextoname, if_nametoindex};
         pub use winapi::shared::ws2def::*;
+        pub use winapi::shared::ws2ipdef::*;
         pub use winapi::um::winsock2::{
-            SD_BOTH as SHUT_RDWR, SD_RECEIVE as SHUT_RD, SD_SEND as SHUT_WR, SOCK_DGRAM, SOCK_RAW,
-            SOCK_RDM, SOCK_SEQPACKET, SOCK_STREAM, SOL_SOCKET, SO_BROADCAST, SO_ERROR, SO_LINGER,
-            SO_OOBINLINE, SO_REUSEADDR, SO_TYPE, *,
+            IPPORT_RESERVED, SD_BOTH as SHUT_RDWR, SD_RECEIVE as SHUT_RD, SD_SEND as SHUT_WR,
+            SOCK_DGRAM, SOCK_RAW, SOCK_RDM, SOCK_SEQPACKET, SOCK_STREAM, SOL_SOCKET, SO_BROADCAST,
+            SO_ERROR, SO_EXCLUSIVEADDRUSE, SO_LINGER, SO_OOBINLINE, SO_REUSEADDR, SO_TYPE,
+            SO_USELOOPBACK, *,
         };
+        pub use winapi::um::ws2tcpip::*;
     }
     // constants
     #[pyattr(name = "has_ipv6")]
@@ -70,6 +74,580 @@ mod _socket {
     #[cfg(not(target_os = "redox"))]
     #[pyattr]
     use c::{SOCK_RAW, SOCK_RDM, SOCK_SEQPACKET};
+
+    #[cfg(target_os = "android")]
+    #[pyattr]
+    use c::{SOL_ATALK, SOL_AX25, SOL_IPX, SOL_NETROM, SOL_ROSE};
+
+    #[cfg(target_os = "freebsd")]
+    #[pyattr]
+    use c::SO_SETFIB;
+
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    use c::{
+        CAN_BCM, CAN_EFF_FLAG, CAN_EFF_MASK, CAN_ERR_FLAG, CAN_ERR_MASK, CAN_ISOTP, CAN_J1939,
+        CAN_RAW, CAN_RAW_ERR_FILTER, CAN_RAW_FD_FRAMES, CAN_RAW_FILTER, CAN_RAW_JOIN_FILTERS,
+        CAN_RAW_LOOPBACK, CAN_RAW_RECV_OWN_MSGS, CAN_RTR_FLAG, CAN_SFF_MASK, IPPROTO_MPTCP,
+        J1939_IDLE_ADDR, J1939_MAX_UNICAST_ADDR, J1939_NLA_BYTES_ACKED, J1939_NLA_PAD,
+        J1939_NO_ADDR, J1939_NO_NAME, J1939_NO_PGN, J1939_PGN_ADDRESS_CLAIMED,
+        J1939_PGN_ADDRESS_COMMANDED, J1939_PGN_MAX, J1939_PGN_PDU1_MAX, J1939_PGN_REQUEST,
+        SCM_J1939_DEST_ADDR, SCM_J1939_DEST_NAME, SCM_J1939_ERRQUEUE, SCM_J1939_PRIO, SOL_CAN_BASE,
+        SOL_CAN_RAW, SO_J1939_ERRQUEUE, SO_J1939_FILTER, SO_J1939_PROMISC, SO_J1939_SEND_PRIO,
+    };
+
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    #[pyattr]
+    use c::SOL_RDS;
+
+    #[cfg(target_os = "netbsd")]
+    #[pyattr]
+    use c::IPPROTO_VRRP;
+
+    #[cfg(target_vendor = "apple")]
+    #[pyattr]
+    use c::{AF_SYSTEM, PF_SYSTEM, SYSPROTO_CONTROL, TCP_KEEPALIVE};
+
+    #[cfg(windows)]
+    #[pyattr]
+    use c::{
+        IPPORT_RESERVED, IPPROTO_IPV4, RCVALL_IPLEVEL, RCVALL_OFF, RCVALL_ON,
+        RCVALL_SOCKETLEVELONLY, SIO_KEEPALIVE_VALS, SIO_LOOPBACK_FAST_PATH, SIO_RCVALL,
+        SO_EXCLUSIVEADDRUSE,
+    };
+
+    #[cfg(not(windows))]
+    #[pyattr]
+    const IPPORT_RESERVED: i32 = 1024;
+
+    #[pyattr]
+    const IPPORT_USERRESERVED: i32 = 5000;
+
+    #[cfg(any(unix, target_os = "android"))]
+    #[pyattr]
+    use c::{
+        EAI_SYSTEM, MSG_EOR, SO_ACCEPTCONN, SO_DEBUG, SO_DONTROUTE, SO_KEEPALIVE, SO_RCVBUF,
+        SO_RCVLOWAT, SO_RCVTIMEO, SO_SNDBUF, SO_SNDLOWAT, SO_SNDTIMEO,
+    };
+
+    #[cfg(any(target_os = "android", target_os = "linux"))]
+    #[pyattr]
+    use c::{
+        ALG_OP_DECRYPT, ALG_OP_ENCRYPT, ALG_SET_AEAD_ASSOCLEN, ALG_SET_AEAD_AUTHSIZE, ALG_SET_IV,
+        ALG_SET_KEY, ALG_SET_OP, IPV6_DSTOPTS, IPV6_NEXTHOP, IPV6_PATHMTU, IPV6_RECVDSTOPTS,
+        IPV6_RECVHOPLIMIT, IPV6_RECVHOPOPTS, IPV6_RECVPATHMTU, IPV6_RTHDRDSTOPTS,
+        IP_DEFAULT_MULTICAST_LOOP, IP_RECVOPTS, IP_RETOPTS, NETLINK_CRYPTO, NETLINK_DNRTMSG,
+        NETLINK_FIREWALL, NETLINK_IP6_FW, NETLINK_NFLOG, NETLINK_ROUTE, NETLINK_USERSOCK,
+        NETLINK_XFRM, SOL_ALG, SO_PASSSEC, SO_PEERSEC,
+    };
+
+    #[cfg(any(target_os = "android", target_vendor = "apple"))]
+    #[pyattr]
+    use c::{AI_DEFAULT, AI_MASK, AI_V4MAPPED_CFG};
+
+    #[cfg(any(target_os = "freebsd", target_os = "netbsd"))]
+    #[pyattr]
+    use c::MSG_NOTIFICATION;
+
+    #[cfg(any(target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    use c::TCP_USER_TIMEOUT;
+
+    #[cfg(any(unix, target_os = "android", windows))]
+    #[pyattr]
+    use c::{
+        INADDR_BROADCAST, IPV6_MULTICAST_HOPS, IPV6_MULTICAST_IF, IPV6_MULTICAST_LOOP,
+        IPV6_UNICAST_HOPS, IPV6_V6ONLY, IP_ADD_MEMBERSHIP, IP_DROP_MEMBERSHIP, IP_MULTICAST_IF,
+        IP_MULTICAST_LOOP, IP_MULTICAST_TTL, IP_TTL,
+    };
+
+    #[cfg(any(unix, target_os = "android", windows))]
+    #[pyattr]
+    const INADDR_UNSPEC_GROUP: u32 = 0xe0000000;
+
+    #[cfg(any(unix, target_os = "android", windows))]
+    #[pyattr]
+    const INADDR_ALLHOSTS_GROUP: u32 = 0xe0000001;
+
+    #[cfg(any(unix, target_os = "android", windows))]
+    #[pyattr]
+    const INADDR_MAX_LOCAL_GROUP: u32 = 0xe00000ff;
+
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    use c::{
+        AF_ALG, AF_ASH, AF_ATMPVC, AF_ATMSVC, AF_AX25, AF_BRIDGE, AF_CAN, AF_ECONET, AF_IRDA,
+        AF_LLC, AF_NETBEUI, AF_NETLINK, AF_NETROM, AF_PACKET, AF_PPPOX, AF_RDS, AF_SECURITY,
+        AF_TIPC, AF_VSOCK, AF_WANPIPE, AF_X25, IP_TRANSPARENT, MSG_CONFIRM, MSG_ERRQUEUE,
+        MSG_FASTOPEN, MSG_MORE, PF_CAN, PF_PACKET, PF_RDS, SCM_CREDENTIALS, SOL_IP, SOL_TIPC,
+        SOL_UDP, SO_BINDTODEVICE, SO_MARK, TCP_CORK, TCP_DEFER_ACCEPT, TCP_LINGER2, TCP_QUICKACK,
+        TCP_SYNCNT, TCP_WINDOW_CLAMP,
+    };
+
+    // gated on presence of AF_VSOCK:
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const SO_VM_SOCKETS_BUFFER_SIZE: u32 = 0;
+
+    // gated on presence of AF_VSOCK:
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const SO_VM_SOCKETS_BUFFER_MIN_SIZE: u32 = 1;
+
+    // gated on presence of AF_VSOCK:
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const SO_VM_SOCKETS_BUFFER_MAX_SIZE: u32 = 2;
+
+    // gated on presence of AF_VSOCK:
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const VMADDR_CID_ANY: u32 = 0xffffffff; // 0xffffffff
+
+    // gated on presence of AF_VSOCK:
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const VMADDR_PORT_ANY: u32 = 0xffffffff; // 0xffffffff
+
+    // gated on presence of AF_VSOCK:
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const VMADDR_CID_HOST: u32 = 2;
+
+    // gated on presence of AF_VSOCK:
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const VM_SOCKETS_INVALID_VERSION: u32 = 0xffffffff; // 0xffffffff
+
+    // TODO: gated on https://github.com/rust-lang/libc/pull/1662
+    // // gated on presence of AF_VSOCK:
+    // #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    // #[pyattr(name = "IOCTL_VM_SOCKETS_GET_LOCAL_CID", once)]
+    // fn ioctl_vm_sockets_get_local_cid(_vm: &VirtualMachine) -> i32 {
+    //     c::_IO(7, 0xb9)
+    // }
+
+    #[cfg(not(any(target_os = "android", target_os = "fuchsia", target_os = "linux")))]
+    #[pyattr]
+    const SOL_IP: i32 = 0;
+
+    #[cfg(not(any(target_os = "android", target_os = "fuchsia", target_os = "linux")))]
+    #[pyattr]
+    const SOL_UDP: i32 = 17;
+
+    #[cfg(any(target_os = "android", target_os = "linux", windows))]
+    #[pyattr]
+    use c::{IPV6_HOPOPTS, IPV6_RECVRTHDR, IPV6_RTHDR, IP_OPTIONS};
+
+    #[cfg(any(
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_vendor = "apple"
+    ))]
+    #[pyattr]
+    use c::{IPPROTO_HELLO, IPPROTO_XTP, LOCAL_PEERCRED, MSG_EOF};
+
+    #[cfg(any(target_os = "netbsd", target_os = "openbsd", windows))]
+    #[pyattr]
+    use c::{MSG_BCAST, MSG_MCAST};
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "fuchsia",
+        target_os = "freebsd",
+        target_os = "linux"
+    ))]
+    #[pyattr]
+    use c::{IPPROTO_UDPLITE, TCP_CONGESTION};
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "fuchsia",
+        target_os = "freebsd",
+        target_os = "linux"
+    ))]
+    #[pyattr]
+    const UDPLITE_SEND_CSCOV: i32 = 10;
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "fuchsia",
+        target_os = "freebsd",
+        target_os = "linux"
+    ))]
+    #[pyattr]
+    const UDPLITE_RECV_CSCOV: i32 = 11;
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "fuchsia",
+        target_os = "linux",
+        target_os = "openbsd"
+    ))]
+    #[pyattr]
+    use c::AF_KEY;
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "fuchsia",
+        target_os = "linux",
+        target_os = "redox"
+    ))]
+    #[pyattr]
+    use c::SO_DOMAIN;
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "fuchsia",
+        all(
+            target_os = "linux",
+            any(
+                target_arch = "aarch64",
+                target_arch = "i686",
+                target_arch = "mips",
+                target_arch = "powerpc",
+                target_arch = "powerpc64",
+                target_arch = "powerpc64le",
+                target_arch = "riscv64gc",
+                target_arch = "s390x",
+                target_arch = "x86_64"
+            )
+        ),
+        target_os = "redox"
+    ))]
+    #[pyattr]
+    use c::SO_PRIORITY;
+
+    #[cfg(any(
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    ))]
+    #[pyattr]
+    use c::IPPROTO_MOBILE;
+
+    #[cfg(any(
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_vendor = "apple"
+    ))]
+    #[pyattr]
+    use c::SCM_CREDS;
+
+    #[cfg(any(
+        target_os = "freebsd",
+        target_os = "fuchsia",
+        target_os = "linux",
+        target_vendor = "apple"
+    ))]
+    #[pyattr]
+    use c::TCP_FASTOPEN;
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "fuchsia",
+        all(
+            target_os = "linux",
+            any(
+                target_arch = "aarch64",
+                target_arch = "i686",
+                target_arch = "mips",
+                target_arch = "powerpc",
+                target_arch = "powerpc64",
+                target_arch = "powerpc64le",
+                target_arch = "riscv64gc",
+                target_arch = "s390x",
+                target_arch = "x86_64"
+            )
+        ),
+        target_os = "redox"
+    ))]
+    #[pyattr]
+    use c::SO_PROTOCOL;
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+        windows
+    ))]
+    #[pyattr]
+    use c::IPV6_DONTFRAG;
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "fuchsia",
+        target_os = "linux",
+        target_os = "redox"
+    ))]
+    #[pyattr]
+    use c::{SO_PASSCRED, SO_PEERCRED};
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "fuchsia",
+        target_os = "linux",
+        target_os = "netbsd"
+    ))]
+    #[pyattr]
+    use c::TCP_INFO;
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "fuchsia",
+        target_os = "linux",
+        target_vendor = "apple"
+    ))]
+    #[pyattr]
+    use c::IP_RECVTOS;
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "netbsd",
+        target_os = "redox",
+        target_vendor = "apple",
+        windows
+    ))]
+    #[pyattr]
+    use c::NI_MAXSERV;
+
+    #[cfg(any(
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_vendor = "apple"
+    ))]
+    #[pyattr]
+    use c::{IPPROTO_EON, IPPROTO_IPCOMP};
+
+    #[cfg(any(
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_vendor = "apple",
+        windows
+    ))]
+    #[pyattr]
+    use c::IPPROTO_ND;
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_vendor = "apple",
+        windows
+    ))]
+    #[pyattr]
+    use c::{IPV6_CHECKSUM, IPV6_HOPLIMIT};
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "fuchsia",
+        target_os = "linux",
+        target_os = "netbsd"
+    ))]
+    #[pyattr]
+    use c::IPPROTO_SCTP; // also in windows
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "fuchsia",
+        target_os = "linux",
+        target_vendor = "apple",
+        windows
+    ))]
+    #[pyattr]
+    use c::{AI_ALL, AI_V4MAPPED};
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "linux",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_vendor = "apple",
+        windows
+    ))]
+    #[pyattr]
+    use c::EAI_NODATA;
+
+    #[cfg(any(
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_vendor = "apple",
+        windows
+    ))]
+    #[pyattr]
+    use c::{
+        AF_LINK, IPPROTO_GGP, IPV6_JOIN_GROUP, IPV6_LEAVE_GROUP, IP_RECVDSTADDR, SO_USELOOPBACK,
+    };
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "fuchsia",
+        target_os = "linux",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    ))]
+    #[pyattr]
+    use c::{MSG_CMSG_CLOEXEC, MSG_NOSIGNAL};
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "fuchsia",
+        target_os = "linux",
+        target_os = "netbsd",
+        target_os = "redox"
+    ))]
+    #[pyattr]
+    use c::TCP_KEEPIDLE;
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "fuchsia",
+        target_os = "linux",
+        target_os = "netbsd",
+        target_vendor = "apple"
+    ))]
+    #[pyattr]
+    use c::{TCP_KEEPCNT, TCP_KEEPINTVL};
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "fuchsia",
+        target_os = "linux",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "redox"
+    ))]
+    #[pyattr]
+    use c::{SOCK_CLOEXEC, SOCK_NONBLOCK};
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "fuchsia",
+        target_os = "linux",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_vendor = "apple"
+    ))]
+    #[pyattr]
+    use c::{
+        AF_ROUTE, AF_SNA, EAI_OVERFLOW, IPPROTO_GRE, IPPROTO_RSVP, IPPROTO_TP, IPV6_RECVPKTINFO,
+        MSG_DONTWAIT, SCM_RIGHTS, TCP_MAXSEG,
+    };
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_vendor = "apple",
+        windows
+    ))]
+    #[pyattr]
+    use c::IPV6_PKTINFO;
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "fuchsia",
+        target_os = "linux",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_vendor = "apple",
+        windows
+    ))]
+    #[pyattr]
+    use c::AI_CANONNAME;
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "fuchsia",
+        target_os = "linux",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_vendor = "apple",
+        windows
+    ))]
+    #[pyattr]
+    use c::{
+        EAI_AGAIN, EAI_BADFLAGS, EAI_FAIL, EAI_FAMILY, EAI_MEMORY, EAI_NONAME, EAI_SERVICE,
+        EAI_SOCKTYPE, IPV6_RECVTCLASS, IPV6_TCLASS, IP_HDRINCL, IP_TOS, SOMAXCONN,
+    };
+
+    #[cfg(not(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "fuchsia",
+        target_os = "linux",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_vendor = "apple",
+        windows
+    )))]
+    #[pyattr]
+    const SOMAXCONN: i32 = 5; // Common value
+
+    // HERE IS WHERE THE BLUETOOTH CONSTANTS START
+    // TODO: there should be a more intelligent way of detecting bluetooth on a platform.
+    //       CPython uses header-detection, but blocks NetBSD and DragonFly BSD
+    #[cfg(any(
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "fuchsia",
+        target_os = "linux",
+        target_os = "openbsd"
+    ))]
+    #[pyattr]
+    use c::AF_BLUETOOTH;
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "fuchsia",
+        target_os = "linux",
+        target_os = "openbsd"
+    ))]
+    #[pyattr]
+    const BDADDR_ANY: &str = "00:00:00:00:00:00";
+    #[cfg(any(
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "fuchsia",
+        target_os = "linux",
+        target_os = "openbsd"
+    ))]
+    #[pyattr]
+    const BDADDR_LOCAL: &str = "00:00:00:FF:FF:FF";
+    // HERE IS WHERE THE BLUETOOTH CONSTANTS END
 
     #[cfg(windows)]
     #[pyattr]
