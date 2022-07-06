@@ -126,6 +126,16 @@ jobs:
 
       - uses: actions-rs/toolchain@v1
         with:
+          target: x86_64-unknown-freebsd
+
+      - name: Check compilation for freebsd
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: --target x86_64-unknown-freebsd
+
+      - uses: actions-rs/toolchain@v1
+        with:
           target: wasm32-unknown-unknown
 
       - name: Check compilation for wasm32
