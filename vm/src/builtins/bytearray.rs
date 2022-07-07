@@ -762,7 +762,7 @@ impl<'a> BufferResizeGuard<'a> for PyByteArray {
 
     fn try_resizable_opt(&'a self) -> Option<Self::Resizable> {
         let w = self.inner.write();
-        (self.exports.load(Ordering::SeqCst) == 0).then(|| w)
+        (self.exports.load(Ordering::SeqCst) == 0).then_some(w)
     }
 }
 
