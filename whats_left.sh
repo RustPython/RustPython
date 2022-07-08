@@ -24,6 +24,6 @@ fi
 
 # show the building first, so people aren't confused why it's taking so long to
 # run whats_left
-cargo build --release
+cargo build --release --features=ssl
 
-cargo run --release -q -- extra_tests/not_impl.py
+cargo run --release --features=ssl -q -- extra_tests/not_impl.py
