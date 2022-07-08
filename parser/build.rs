@@ -18,7 +18,7 @@ fn check_lalrpop(source: &str, generated: &str) {
         .lines()
         .find_map(|line| {
             let line = line.unwrap();
-            line.starts_with(sha_prefix).then(|| line)
+            line.starts_with(sha_prefix).then_some(line)
         })
         .expect("no sha3 line?");
     let expected_sha3_str = sha3_line.strip_prefix(sha_prefix).unwrap();

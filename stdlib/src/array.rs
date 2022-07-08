@@ -1271,7 +1271,7 @@ mod array {
 
         fn try_resizable_opt(&'a self) -> Option<Self::Resizable> {
             let w = self.write();
-            (self.exports.load(atomic::Ordering::SeqCst) == 0).then(|| w)
+            (self.exports.load(atomic::Ordering::SeqCst) == 0).then_some(w)
         }
     }
 

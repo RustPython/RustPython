@@ -251,7 +251,7 @@ impl WeakRefList {
                 })
             }
             inner.ref_count -= 1;
-            (inner.ref_count == 0).then(|| ptr)
+            (inner.ref_count == 0).then_some(ptr)
         };
         if let Some(ptr) = to_dealloc {
             unsafe { WeakRefList::dealloc(ptr) }

@@ -3374,7 +3374,7 @@ mod _io {
 
         fn try_resizable_opt(&'a self) -> Option<Self::Resizable> {
             let w = self.buffer.write();
-            (self.exports.load() == 0).then(|| w)
+            (self.exports.load() == 0).then_some(w)
         }
     }
 
