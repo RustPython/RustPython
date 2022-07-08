@@ -18,10 +18,8 @@ mod builtins {
             int::PyIntRef,
             iter::PyCallableIterator,
             list::{PyList, SortOptions},
-            PyByteArray, PyBytes, PyBytesRef, PyCode, PyDictRef, PyStr, PyStrRef, PyTuple,
-            PyTupleRef, PyType,
+            PyByteArray, PyBytes, PyDictRef, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType,
         },
-        class::PyClassImpl,
         common::{hash::PyHash, str::to_ascii},
         format::call_object_format,
         function::Either,
@@ -32,12 +30,11 @@ mod builtins {
         protocol::{PyIter, PyIterReturn},
         py_io,
         readline::{Readline, ReadlineResult},
-        scope::Scope,
         stdlib::sys,
         types::PyComparisonOp,
         AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     };
-    use num_traits::{Signed, ToPrimitive, Zero};
+    use num_traits::{Signed, ToPrimitive};
 
     #[pyfunction]
     fn abs(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -123,7 +120,7 @@ mod builtins {
         }
         #[cfg(feature = "rustpython-ast")]
         {
-            use crate::stdlib::ast;
+            use crate::{class::PyClassImpl, stdlib::ast};
 
             let mode_str = args.mode.as_str();
 
@@ -152,6 +149,8 @@ mod builtins {
             }
             #[cfg(feature = "rustpython-parser")]
             {
+                use crate::builtins::PyBytesRef;
+                use num_traits::Zero;
                 use rustpython_parser::parser;
 
                 let source = Either::<PyStrRef, PyBytesRef>::try_from_object(vm, args.source)?;
@@ -215,7 +214,7 @@ mod builtins {
 
     #[cfg(feature = "rustpython-compiler")]
     impl ScopeArgs {
-        fn make_scope(self, vm: &VirtualMachine) -> PyResult<Scope> {
+        fn make_scope(self, vm: &VirtualMachine) -> PyResult<crate::scope::Scope> {
             let (globals, locals) = match self.globals {
                 Some(globals) => {
                     if !globals.contains_key(identifier!(vm, __builtins__), vm) {
@@ -239,7 +238,7 @@ mod builtins {
                 ),
             };
 
-            let scope = Scope::with_builtins(Some(locals), globals, vm);
+            let scope = crate::scope::Scope::with_builtins(Some(locals), globals, vm);
             Ok(scope)
         }
     }
@@ -249,7 +248,7 @@ mod builtins {
     #[cfg(feature = "rustpython-compiler")]
     #[pyfunction]
     fn eval(
-        source: Either<PyStrRef, PyRef<PyCode>>,
+        source: Either<PyStrRef, PyRef<crate::builtins::PyCode>>,
         scope: ScopeArgs,
         vm: &VirtualMachine,
     ) -> PyResult {
@@ -261,7 +260,7 @@ mod builtins {
     #[cfg(feature = "rustpython-compiler")]
     #[pyfunction]
     fn exec(
-        source: Either<PyStrRef, PyRef<PyCode>>,
+        source: Either<PyStrRef, PyRef<crate::builtins::PyCode>>,
         scope: ScopeArgs,
         vm: &VirtualMachine,
     ) -> PyResult {
@@ -271,7 +270,7 @@ mod builtins {
     #[cfg(feature = "rustpython-compiler")]
     fn run_code(
         vm: &VirtualMachine,
-        source: Either<PyStrRef, PyRef<PyCode>>,
+        source: Either<PyStrRef, PyRef<crate::builtins::PyCode>>,
         scope: ScopeArgs,
         mode: compile::Mode,
         func: &str,
