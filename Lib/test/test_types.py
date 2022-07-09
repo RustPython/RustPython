@@ -728,7 +728,7 @@ class UnionTests(unittest.TestCase):
         self.assertIsInstance({}, x)
         self.assertTrue(issubclass(dict, x))
 
-    TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_bad_instancecheck(self):
         class BadMeta(type):
@@ -738,7 +738,7 @@ class UnionTests(unittest.TestCase):
         self.assertTrue(isinstance(1, x))
         self.assertRaises(ZeroDivisionError, isinstance, [], x)
 
-    TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_bad_subclasscheck(self):
         class BadMeta(type):
