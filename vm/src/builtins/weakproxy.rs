@@ -2,7 +2,8 @@ use super::{PyStrRef, PyType, PyTypeRef, PyWeak};
 use crate::{
     class::PyClassImpl,
     function::OptionalArg,
-    types::{Constructor, GetAttr, SetAttr},
+    protocol::{PySequence, PySequenceMethods},
+    types::{AsSequence, Constructor, GetAttr, SetAttr},
     Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
@@ -57,12 +58,26 @@ crate::common::static_cell! {
     static WEAK_SUBCLASS: PyTypeRef;
 }
 
-#[pyimpl(with(GetAttr, SetAttr, Constructor))]
+#[pyimpl(with(GetAttr, SetAttr, Constructor, AsSequence))]
 impl PyWeakProxy {
     #[pymethod(magic)]
     fn str(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         match self.weak.upgrade() {
             Some(obj) => obj.str(vm),
+            None => Err(new_reference_error(vm)),
+        }
+    }
+
+    fn len(&self, vm: &VirtualMachine) -> PyResult<usize> {
+        match self.weak.upgrade() {
+            Some(obj) => obj.length(vm),
+            None => Err(new_reference_error(vm)),
+        }
+    }
+
+    fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        match self.weak.upgrade() {
+            Some(obj) => PySequence::contains(&obj, &needle, vm),
             None => Err(new_reference_error(vm)),
         }
     }
@@ -98,6 +113,16 @@ impl SetAttr for PyWeakProxy {
             )),
         }
     }
+}
+
+impl AsSequence for PyWeakProxy {
+    const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
+        length: Some(|seq, vm| Self::sequence_downcast(seq).len(vm)),
+        contains: Some(|seq, needle, vm| {
+            Self::sequence_downcast(seq).contains(needle.to_owned(), vm)
+        }),
+        ..PySequenceMethods::NOT_IMPLEMENTED
+    };
 }
 
 pub fn init(context: &Context) {
