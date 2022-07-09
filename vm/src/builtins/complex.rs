@@ -429,8 +429,6 @@ impl AsNumber for PyComplex {
         multiply: Some(|number, other, vm| {
             Self::number_complex_op(number, other, |a, b| a * b, vm)
         }),
-        remainder: None,
-        divmod: None,
         power: Some(|number, other, vm| Self::number_general_op(number, other, inner_pow, vm)),
         negative: Some(|number, vm| {
             let value = Self::number_downcast(number).value;
@@ -442,34 +440,10 @@ impl AsNumber for PyComplex {
             value.norm().to_pyresult(vm)
         }),
         boolean: Some(|number, _vm| Ok(Self::number_downcast(number).value.is_zero())),
-        invert: None,
-        lshift: None,
-        rshift: None,
-        and: None,
-        xor: None,
-        or: None,
-        int: None,
-        float: None,
-        inplace_add: None,
-        inplace_subtract: None,
-        inplace_multiply: None,
-        inplace_remainder: None,
-        inplace_divmod: None,
-        inplace_power: None,
-        inplace_lshift: None,
-        inplace_rshift: None,
-        inplace_and: None,
-        inplace_xor: None,
-        inplace_or: None,
-        floor_divide: None,
         true_divide: Some(|number, other, vm| {
             Self::number_general_op(number, other, inner_div, vm)
         }),
-        inplace_floor_divide: None,
-        inplace_true_divide: None,
-        index: None,
-        matrix_multiply: None,
-        inplace_matrix_multiply: None,
+        ..PyNumberMethods::NOT_IMPLEMENTED
     };
 }
 
