@@ -868,8 +868,6 @@ class UnionTests(unittest.TestCase):
         assert typing.get_args(typing.get_type_hints(forward_after)['x']) == (int, Forward)
         assert typing.get_args(typing.get_type_hints(forward_before)['x']) == (int, Forward)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_or_type_operator_with_Protocol(self):
         class Proto(typing.Protocol):
             def meth(self) -> int:
@@ -884,8 +882,6 @@ class UnionTests(unittest.TestCase):
         NT=namedtuple('A', ['B', 'C', 'D'])
         assert NT | str == typing.Union[NT,str]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_or_type_operator_with_TypedDict(self):
         class Point2D(typing.TypedDict):
             x: int
