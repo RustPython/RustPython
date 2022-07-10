@@ -533,8 +533,6 @@ class TestBasicOps(unittest.TestCase):
                     next(testIntermediate)
                     self.assertEqual(list(op(testIntermediate)), list(result2))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_count(self):
         self.assertEqual(lzip('abc',count()), [('a', 0), ('b', 1), ('c', 2)])
         self.assertEqual(lzip('abc',count(3)), [('a', 3), ('b', 4), ('c', 5)])
