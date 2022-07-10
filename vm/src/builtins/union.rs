@@ -79,6 +79,23 @@ impl PyUnion {
             .join(" | "))
     }
 
+    // TODO: Add 'or' method(__or__, __ror__)
+    // #[pymethod(name = "__ror__")]
+    // #[pymethod(magic)]
+    // fn or(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+
+    // }
+    #[pymethod(name = "__ror__")]
+    #[pymethod(magic)]
+    pub fn or(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        if !is_unionable(zelf.clone(), vm) || !is_unionable(other.clone(), vm) {
+            return vm.ctx.not_implemented();
+        }
+
+        let tuple = PyTuple::new_ref(vec![zelf, other], &vm.ctx);
+        make_union(tuple, vm)
+    }
+
     #[pyproperty(magic)]
     fn parameters(&self) -> PyObjectRef {
         self.parameters.clone().into()
