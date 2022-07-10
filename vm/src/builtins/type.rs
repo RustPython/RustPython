@@ -403,7 +403,16 @@ impl PyType {
         zelf.iter_mro().map(|cls| cls.clone().into()).collect()
     }
 
-    #[pymethod(name = "__ror__")]
+    #[pymethod(magic)]
+    pub fn ror(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        if !union_::is_unionable(zelf.clone(), vm) || !union_::is_unionable(other.clone(), vm) {
+            return vm.ctx.not_implemented();
+        }
+
+        let tuple = PyTuple::new_ref(vec![other, zelf], &vm.ctx);
+        union_::make_union(tuple, vm)
+    }
+
     #[pymethod(magic)]
     pub fn or(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if !union_::is_unionable(zelf.clone(), vm) || !union_::is_unionable(other.clone(), vm) {
