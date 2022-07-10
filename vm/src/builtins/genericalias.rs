@@ -1,3 +1,4 @@
+use super::union_;
 use crate::{
     builtins::{PyList, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef},
     class::PyClassImpl,
@@ -187,6 +188,17 @@ impl PyGenericAlias {
     fn subclasscheck(_zelf: PyRef<Self>, _obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         Err(vm
             .new_type_error("issubclass() argument 2 cannot be a parameterized generic".to_owned()))
+    }
+
+    #[pymethod(name = "__ror__")]
+    #[pymethod(magic)]
+    fn or(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        if !union_::is_unionable(zelf.clone(), vm) || !union_::is_unionable(other.clone(), vm) {
+            return vm.ctx.not_implemented();
+        }
+
+        let tuple = PyTuple::new_ref(vec![zelf, other], &vm.ctx);
+        union_::make_union(tuple, vm)
     }
 }
 

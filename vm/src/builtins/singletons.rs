@@ -1,5 +1,6 @@
-use super::{PyType, PyTypeRef};
+use super::{PyType, PyTypeRef, union_};
 use crate::{
+    builtins::PyTuple,
     class::PyClassImpl, convert::ToPyObject, types::Constructor, Context, Py, PyObjectRef,
     PyPayload, PyResult, VirtualMachine,
 };
@@ -46,9 +47,29 @@ impl PyNone {
         "None".to_owned()
     }
 
+    // NoneType has no __args__ function,
+    // so it fails that an union type includes 'None'
+    // in "test_types::UnionTests::test_union_args".
+
+    // #[pyproperty(magic)]
+    // fn args(&self) -> PyObjectRef {
+    //     self.args.clone().into()
+    // }
+
     #[pymethod(magic)]
     fn bool(&self) -> bool {
         false
+    }
+
+    #[pymethod(name = "__ror__")]
+    #[pymethod(magic)]
+    fn or(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        if !union_::is_unionable(zelf.clone(), vm) || !union_::is_unionable(other.clone(), vm) {
+            return vm.ctx.not_implemented();
+        }
+
+        let tuple = PyTuple::new_ref(vec![zelf, other], &vm.ctx);
+        union_::make_union(tuple, vm)
     }
 }
 

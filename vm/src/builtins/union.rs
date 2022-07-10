@@ -100,6 +100,17 @@ impl PyUnion {
         Err(vm
             .new_type_error("issubclass() argument 2 cannot be a parameterized generic".to_owned()))
     }
+
+    #[pymethod(name = "__ror__")]
+    #[pymethod(magic)]
+    fn or(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        if !is_unionable(zelf.clone(), vm) || !is_unionable(other.clone(), vm) {
+            return vm.ctx.not_implemented();
+        }
+
+        let tuple = PyTuple::new_ref(vec![zelf, other], &vm.ctx);
+        make_union(tuple, vm)
+    }
 }
 
 pub fn is_unionable(obj: PyObjectRef, vm: &VirtualMachine) -> bool {
