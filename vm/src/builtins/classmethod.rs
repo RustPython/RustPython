@@ -67,21 +67,18 @@ impl Constructor for PyClassMethod {
     type Args = PyObjectRef;
 
     fn py_new(cls: PyTypeRef, callable: Self::Args, vm: &VirtualMachine) -> PyResult {
-        let _callable = callable.clone();
         let result: PyResult<PyObjectRef> = PyClassMethod {
-            callable: PyMutex::new(callable),
+            callable: PyMutex::new(callable.clone()),
         }
         .into_ref_with_type(vm, cls)
         .map(Into::into);
 
-        let doc: PyResult<PyObjectRef> = _callable.get_attr("__doc__", vm);
+        let doc: PyResult<PyObjectRef> = callable.get_attr("__doc__", vm);
         let doc = vm.unwrap_pyresult(doc);
         let obj = vm.unwrap_pyresult(result.clone());
 
-        match obj.set_attr("__doc__", doc, vm) {
-            Err(e) => Err(e),
-            Ok(_) => result,
-        }
+        obj.set_attr("__doc__", doc, vm)?;
+        result
     }
 }
 
