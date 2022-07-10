@@ -1,6 +1,6 @@
 import unittest
 
-# import gc
+import gc
 import sys
 import weakref
 from unittest.test.support import LoggingResult, TestEquality
