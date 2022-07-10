@@ -208,7 +208,7 @@ where
 
 fn inner_truediv(i1: &BigInt, i2: &BigInt, vm: &VirtualMachine) -> PyResult {
     if i2.is_zero() {
-        return Err(vm.new_zero_division_error("integer division by zero".to_owned()));
+        return Err(vm.new_zero_division_error("division by zero".to_owned()));
     }
 
     let value = if let (Some(f1), Some(f2)) = (i2f(i1), i2f(i2)) {
