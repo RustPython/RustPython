@@ -6,15 +6,15 @@ mod array {
         common::{
             atomic::{self, AtomicUsize},
             lock::{
-                PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyRwLock, PyRwLockReadGuard,
-                PyRwLockWriteGuard,
+                PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyMutex, PyRwLock,
+                PyRwLockReadGuard, PyRwLockWriteGuard,
             },
             str::wchar_t,
         },
         vm::{
             builtins::{
-                PyByteArray, PyBytes, PyBytesRef, PyDictRef, PyFloat, PyInt, PyIntRef, PyList,
-                PyListRef, PyStr, PyStrRef, PyTupleRef, PyTypeRef,
+                PositionIterInternal, PyByteArray, PyBytes, PyBytesRef, PyDictRef, PyFloat, PyInt,
+                PyIntRef, PyList, PyListRef, PyStr, PyStrRef, PyTupleRef, PyTypeRef,
             },
             class_or_notimplemented,
             convert::{ToPyObject, ToPyResult, TryFromObject},
@@ -1260,7 +1260,8 @@ mod array {
         fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             Ok(PyArrayIterator {
                 position: AtomicUsize::new(0),
-                array: zelf,
+                array: zelf.clone(),
+                internal: PyMutex::new(PositionIterInternal::new(zelf.clone(), 0)),
             }
             .into_pyobject(vm))
         }
@@ -1281,10 +1282,19 @@ mod array {
     pub struct PyArrayIterator {
         position: AtomicUsize,
         array: PyArrayRef,
+        internal: PyMutex<PositionIterInternal<PyArrayRef>>,
     }
 
     #[pyimpl(with(IterNext))]
-    impl PyArrayIterator {}
+
+    impl PyArrayIterator {
+        #[pymethod(magic)]
+        fn reduce(&self, vm: &VirtualMachine) -> PyTupleRef {
+            self.internal
+                .lock()
+                .builtins_iter_reduce(|x| x.clone().into(), vm)
+        }
+    }
 
     impl IterNextIterable for PyArrayIterator {}
     impl IterNext for PyArrayIterator {
