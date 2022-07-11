@@ -14,7 +14,7 @@ pub struct State<'a> {
     pub string: StrDrive<'a>,
     pub start: usize,
     pub end: usize,
-    flags: SreFlag,
+    _flags: SreFlag,
     pattern_codes: &'a [u32],
     pub marks: Vec<Option<usize>>,
     pub lastindex: isize,
@@ -42,7 +42,7 @@ impl<'a> State<'a> {
             string,
             start,
             end,
-            flags,
+            _flags: flags,
             pattern_codes,
             lastindex: -1,
             marks_stack: Vec::new(),
@@ -1380,16 +1380,18 @@ impl OpcodeExecutor for OpMinUntil {
                 None
             }
             2 => {
+                // restore repeat before return
+                drive.state.repeat_stack.push(self.save_repeat.unwrap());
+
                 let child_ctx = drive.state.popped_context.unwrap();
                 if child_ctx.has_matched == Some(true) {
                     drive.ctx_mut().has_matched = Some(true);
                     return None;
                 }
-                drive.state.repeat_stack.push(self.save_repeat.unwrap());
                 drive.state.string_position = drive.ctx().string_position;
                 drive.state.marks_pop();
 
-                // match more unital tail matches
+                // match more until tail matches
                 let RepeatContext {
                     count: _,
                     code_position,
