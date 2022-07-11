@@ -796,7 +796,9 @@ impl ExceptionZoo {
             // TODO: members
             "filename" => ctx.none(),
             "lineno" => ctx.none(),
+            "end_lineno" => ctx.none(),
             "offset" => ctx.none(),
+            "end_offset" => ctx.none(),
             "text" => ctx.none(),
         });
         extend_exception!(PyIndentationError, ctx, excs.indentation_error);
