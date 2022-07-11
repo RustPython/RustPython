@@ -219,6 +219,8 @@ class ExceptionTests(unittest.TestCase):
                 line = src.split('\n')[lineno-1]
                 self.assertIn(line, cm.exception.text)
     
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_error_offset_continuation_characters(self):
         check = self.check
         check('"\\\n"(1 for c in I,\\\n\\', 2, 2)
@@ -672,6 +674,8 @@ class ExceptionTests(unittest.TestCase):
         self.assertTrue(str(Exception('a')))
         self.assertTrue(str(Exception('a', 'b')))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_exception_cleanup_names(self):
         # Make sure the local variable bound to the exception instance by
         # an "except" statement is only visible inside the except block.
@@ -1063,6 +1067,9 @@ class ExceptionTests(unittest.TestCase):
         self.assertIs(c.__context__, b)
         self.assertIsNone(b.__context__)
 
+
+    # TODO: RUSTPYTHON
+    @unittest.skip("Infinite loop")
     def test_no_hang_on_context_chain_cycle1(self):
         # See issue 25782. Cycle in context chain.
 
@@ -1119,6 +1126,8 @@ class ExceptionTests(unittest.TestCase):
         self.assertIs(b.__context__, a)
         self.assertIs(a.__context__, c)
 
+    # TODO: RUSTPYTHON
+    @unittest.skip("Infinite loop")
     def test_no_hang_on_context_chain_cycle3(self):
         # See issue 25782. Longer context chain with cycle.
 
@@ -1520,8 +1529,6 @@ class ExceptionTests(unittest.TestCase):
             os.listdir(__file__)
         self.assertEqual(cm.exception.errno, errno.ENOTDIR, cm.exception)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_unraisable(self):
         # Issue #22836: PyErr_WriteUnraisable() should give sensible reports
         class BrokenDel:
@@ -1634,6 +1641,8 @@ class ExceptionTests(unittest.TestCase):
                 next(i)
                 next(i)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(__debug__, "Won't work if __debug__ is False")
     def test_assert_shadowing(self):
         # Shadowing AssertionError would cause the assert statement to
@@ -1955,36 +1964,38 @@ class NameErrorTests(unittest.TestCase):
 
         self.assertNotIn("something", err.getvalue())
 
-    def test_issue45826(self):
-        # regression test for bpo-45826
-        def f():
-            with self.assertRaisesRegex(NameError, 'aaa'):
-                aab
+    # TODO: RUSTPYTHON
+    # def test_issue45826(self):
+    #     # regression test for bpo-45826
+    #     def f():
+    #         with self.assertRaisesRegex(NameError, 'aaa'):
+    #             aab
 
-        try:
-            f()
-        except self.failureException:
-            with support.captured_stderr() as err:
-                sys.__excepthook__(*sys.exc_info())
+    #     try:
+    #         f()
+    #     except self.failureException:
+    #         with support.captured_stderr() as err:
+    #             sys.__excepthook__(*sys.exc_info())
 
-        self.assertIn("aab", err.getvalue())
+    #     self.assertIn("aab", err.getvalue())
 
-    def test_issue45826_focused(self):
-        def f():
-            try:
-                nonsense
-            except BaseException as E:
-                E.with_traceback(None)
-                raise ZeroDivisionError()
+    # TODO: RUSTPYTHON
+    # def test_issue45826_focused(self):
+    #     def f():
+    #         try:
+    #             nonsense
+    #         except BaseException as E:
+    #             E.with_traceback(None)
+    #             raise ZeroDivisionError()
 
-        try:
-            f()
-        except ZeroDivisionError:
-            with support.captured_stderr() as err:
-                sys.__excepthook__(*sys.exc_info())
+    #     try:
+    #         f()
+    #     except ZeroDivisionError:
+    #         with support.captured_stderr() as err:
+    #             sys.__excepthook__(*sys.exc_info())
 
-        self.assertIn("nonsense", err.getvalue())
-        self.assertIn("ZeroDivisionError", err.getvalue())
+    #     self.assertIn("nonsense", err.getvalue())
+    #     self.assertIn("ZeroDivisionError", err.getvalue())
 
 
 class AttributeErrorTests(unittest.TestCase):
@@ -2240,6 +2251,8 @@ class AttributeErrorTests(unittest.TestCase):
 
         self.assertNotIn("?", err.getvalue())
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_attribute_error_inside_nested_getattr(self):
         class A:
             bluch = 1
@@ -2339,6 +2352,8 @@ class ImportErrorTests(unittest.TestCase):
                 self.assertEqual(exc.path, orig.path)
 
 class SyntaxErrorTests(unittest.TestCase):
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_range_of_offsets(self):
         cases = [
             # Basic range from 2->7
@@ -2429,6 +2444,8 @@ class SyntaxErrorTests(unittest.TestCase):
                     self.assertIn(expected, err.getvalue())
                     the_exception = exc
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_encodings(self):
         source = (
             '# -*- coding: cp437 -*-\n'
@@ -2458,6 +2475,8 @@ class SyntaxErrorTests(unittest.TestCase):
         finally:
             unlink(TESTFN)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_non_utf8(self):
         # Check non utf-8 characters
         try:
@@ -2470,6 +2489,8 @@ class SyntaxErrorTests(unittest.TestCase):
         finally:
             unlink(TESTFN)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_attributes_new_constructor(self):
         args = ("bad.py", 1, 2, "abcdefg", 1, 100)
         the_exception = SyntaxError("bad bad", args)
@@ -2482,6 +2503,8 @@ class SyntaxErrorTests(unittest.TestCase):
         self.assertEqual(error, the_exception.text)
         self.assertEqual("bad bad", the_exception.msg)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_attributes_old_constructor(self):
         args = ("bad.py", 1, 2, "abcdefg")
         the_exception = SyntaxError("bad bad", args)
@@ -2494,6 +2517,8 @@ class SyntaxErrorTests(unittest.TestCase):
         self.assertEqual(error, the_exception.text)
         self.assertEqual("bad bad", the_exception.msg)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_incorrect_constructor(self):
         args = ("bad.py", 1, 2)
         self.assertRaises(TypeError, SyntaxError, "bad bad", args)
@@ -2540,6 +2565,8 @@ class PEP626Tests(unittest.TestCase):
                 pass
         self.lineno_after_raise(in_except, 4)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_lineno_after_other_except(self):
         def other_except():
             try:
@@ -2557,6 +2584,8 @@ class PEP626Tests(unittest.TestCase):
                 pass
         self.lineno_after_raise(in_named_except, 4)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_lineno_in_try(self):
         def in_try():
             try:
@@ -2583,6 +2612,8 @@ class PEP626Tests(unittest.TestCase):
                 pass
         self.lineno_after_raise(in_finally_except, 4)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_lineno_after_with(self):
         class Noop:
             def __enter__(self):
@@ -2595,6 +2626,8 @@ class PEP626Tests(unittest.TestCase):
                 pass
         self.lineno_after_raise(after_with, 2)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_missing_lineno_shows_as_none(self):
         def f():
             1/0
@@ -2602,6 +2635,8 @@ class PEP626Tests(unittest.TestCase):
         f.__code__ = f.__code__.replace(co_linetable=b'\x04\x80\xff\x80')
         self.lineno_after_raise(f, None)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_lineno_after_raise_in_with_exit(self):
         class ExitFails:
             def __enter__(self):
