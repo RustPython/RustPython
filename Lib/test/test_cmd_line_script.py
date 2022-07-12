@@ -14,10 +14,11 @@ import io
 
 import textwrap
 from test import support
+from test.support import import_helper
+from test.support import os_helper
 from test.support.script_helper import (
     make_pkg, make_script, make_zip_pkg, make_zip_script,
     assert_python_ok, assert_python_failure, spawn_python, kill_python)
-from test.support import os_helper, import_helper
 
 verbose = support.verbose
 
@@ -229,6 +230,19 @@ class CmdLineTest(unittest.TestCase):
             script_name = _make_test_script(script_dir, 'script')
             self._check_script(script_name, script_name, script_name,
                                script_dir, None,
+                               importlib.machinery.SourceFileLoader,
+                               expected_cwd=script_dir)
+
+    def test_script_abspath(self):
+        # pass the script using the relative path, expect the absolute path
+        # in __file__
+        with os_helper.temp_cwd() as script_dir:
+            self.assertTrue(os.path.isabs(script_dir), script_dir)
+
+            script_name = _make_test_script(script_dir, 'script')
+            relative_name = os.path.basename(script_name)
+            self._check_script(relative_name, script_name, relative_name,
+                               script_dir, None,
                                importlib.machinery.SourceFileLoader)
 
     # TODO: RUSTPYTHON
@@ -399,14 +413,12 @@ class CmdLineTest(unittest.TestCase):
                                    script_name, script_name, script_dir, 'test_pkg',
                                    importlib.machinery.SourceFileLoader)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_issue8202_dash_c_file_ignored(self):
         # Make sure a "-c" file in the current directory
         # does not alter the value of sys.path[0]
         with os_helper.temp_dir() as script_dir:
             with os_helper.change_cwd(path=script_dir):
-                with open("-c", "w") as f:
+                with open("-c", "w", encoding="utf-8") as f:
                     f.write("data")
                     rc, out, err = assert_python_ok('-c',
                         'import sys; print("sys.path[0]==%r" % sys.path[0])',
@@ -422,7 +434,7 @@ class CmdLineTest(unittest.TestCase):
         with os_helper.temp_dir() as script_dir:
             script_name = _make_test_script(script_dir, 'other')
             with os_helper.change_cwd(path=script_dir):
-                with open("-m", "w") as f:
+                with open("-m", "w", encoding="utf-8") as f:
                     f.write("data")
                     rc, out, err = assert_python_ok('-m', 'other', *example_args,
                                                     __isolated=False)
@@ -435,7 +447,7 @@ class CmdLineTest(unittest.TestCase):
         # will be failed.
         with os_helper.temp_dir() as script_dir:
             script_name = os.path.join(script_dir, "issue20884.py")
-            with open(script_name, "w", newline='\n') as f:
+            with open(script_name, "w", encoding="latin1", newline='\n') as f:
                 f.write("#coding: iso-8859-1\n")
                 f.write('"""\n')
                 for _ in range(30):
@@ -507,6 +519,16 @@ class CmdLineTest(unittest.TestCase):
             self.assertNotIn(b'is a package', err)
             self.assertNotIn(b'Traceback', err)
 
+    def test_hint_when_triying_to_import_a_py_file(self):
+        with os_helper.temp_dir() as script_dir, \
+                os_helper.change_cwd(path=script_dir):
+            # Create invalid *.pyc as empty file
+            with open('asyncio.py', 'wb'):
+                pass
+            err = self.check_dash_m_failure('asyncio.py')
+            self.assertIn(b"Try using 'asyncio' instead "
+                          b"of 'asyncio.py' as the module name", err)
+
     def test_dash_m_init_traceback(self):
         # These were wrapped in an ImportError and tracebacks were
         # suppressed; see Issue 14285
@@ -546,7 +568,7 @@ class CmdLineTest(unittest.TestCase):
             script_name = _make_test_script(script_dir, 'script', script)
             exitcode, stdout, stderr = assert_python_failure(script_name)
             text = stderr.decode('ascii').split('\n')
-            self.assertEqual(len(text), 4)
+            self.assertEqual(len(text), 5)
             self.assertTrue(text[0].startswith('Traceback'))
             self.assertTrue(text[1].startswith('  File '))
             self.assertTrue(text[3].startswith('NameError'))
@@ -565,7 +587,7 @@ class CmdLineTest(unittest.TestCase):
 
         # Issue #16218
         source = 'print(ascii(__file__))\n'
-        script_name = _make_test_script(os.curdir, name, source)
+        script_name = _make_test_script(os.getcwd(), name, source)
         self.addCleanup(os_helper.unlink, script_name)
         rc, stdout, stderr = assert_python_ok(script_name)
         self.assertEqual(
@@ -573,10 +595,6 @@ class CmdLineTest(unittest.TestCase):
             stdout.rstrip().decode('ascii'),
             'stdout=%r stderr=%r' % (stdout, stderr))
         self.assertEqual(0, rc)
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "linux":
-        test_non_ascii = unittest.expectedFailure(test_non_ascii)
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
@@ -596,7 +614,7 @@ class CmdLineTest(unittest.TestCase):
             script_name = _make_test_script(script_dir, 'script', script)
             exitcode, stdout, stderr = assert_python_failure(script_name)
             text = stderr.decode('ascii')
-            self.assertEqual(text, "some text")
+            self.assertEqual(text.rstrip(), "some text")
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
@@ -606,8 +624,8 @@ class CmdLineTest(unittest.TestCase):
             script_name = _make_test_script(script_dir, 'script', script)
             exitcode, stdout, stderr = assert_python_failure(script_name)
             text = io.TextIOWrapper(io.BytesIO(stderr), 'ascii').read()
-            # Confirm that the caret is located under the first 1 character
-            self.assertIn("\n    1 + 1 = 2\n    ^", text)
+            # Confirm that the caret is located under the '=' sign
+            self.assertIn("\n    ^^^^^\n", text)
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
@@ -620,8 +638,8 @@ class CmdLineTest(unittest.TestCase):
             script_name = _make_test_script(script_dir, 'script', script)
             exitcode, stdout, stderr = assert_python_failure(script_name)
             text = io.TextIOWrapper(io.BytesIO(stderr), 'ascii').read()
-            # Confirm that the caret is located under the first 1 character
-            self.assertIn("\n    1 + 1 = 2\n    ^", text)
+            # Confirm that the caret starts under the first 1 character
+            self.assertIn("\n    1 + 1 = 2\n    ^^^^^\n", text)
 
             # Try the same with a form feed at the start of the indented line
             script = (
@@ -632,7 +650,7 @@ class CmdLineTest(unittest.TestCase):
             exitcode, stdout, stderr = assert_python_failure(script_name)
             text = io.TextIOWrapper(io.BytesIO(stderr), "ascii").read()
             self.assertNotIn("\f", text)
-            self.assertIn("\n    1 + 1 = 2\n    ^", text)
+            self.assertIn("\n    1 + 1 = 2\n    ^^^^^\n", text)
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
@@ -644,7 +662,7 @@ class CmdLineTest(unittest.TestCase):
             self.assertEqual(
                 stderr.splitlines()[-3:],
                 [
-                    b'    foo = f"""{}',
+                    b'    foo"""',
                     b'          ^',
                     b'SyntaxError: f-string: empty expression not allowed',
                 ],
@@ -653,7 +671,7 @@ class CmdLineTest(unittest.TestCase):
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_syntaxerror_invalid_escape_sequence_multi_line(self):
-        script = 'foo = """\\q\n"""\n'
+        script = 'foo = """\\q"""\n'
         with os_helper.temp_dir() as script_dir:
             script_name = _make_test_script(script_dir, 'script', script)
             exitcode, stdout, stderr = assert_python_failure(
@@ -661,10 +679,9 @@ class CmdLineTest(unittest.TestCase):
             )
             self.assertEqual(
                 stderr.splitlines()[-3:],
-                [
-                    b'    foo = """\\q',
-                    b'          ^',
-                    b'SyntaxError: invalid escape sequence \\q',
+                [   b'    foo = """\\q"""',
+                    b'          ^^^^^^^^',
+                    b'SyntaxError: invalid escape sequence \'\\q\''
                 ],
             )
 
@@ -743,7 +760,7 @@ class CmdLineTest(unittest.TestCase):
     def test_nonexisting_script(self):
         # bpo-34783: "./python script.py" must not crash
         # if the script file doesn't exist.
-        # (Skip test for macOS framework builds because sys.excutable name
+        # (Skip test for macOS framework builds because sys.executable name
         #  is not the actual Python executable file name.
         script = 'nonexistingscript.py'
         self.assertFalse(os.path.exists(script))
@@ -755,10 +772,10 @@ class CmdLineTest(unittest.TestCase):
         self.assertIn(": can't open file ", err)
         self.assertNotEqual(proc.returncode, 0)
 
-
-def test_main():
-    support.run_unittest(CmdLineTest)
+def tearDownModule():
     support.reap_children()
 
+
 if __name__ == '__main__':
-    test_main()
+    unittest.main()
+
