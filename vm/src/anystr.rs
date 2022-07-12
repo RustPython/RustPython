@@ -2,7 +2,6 @@ use crate::{
     builtins::{PyIntRef, PyTupleRef},
     cformat::CFormatString,
     function::OptionalOption,
-    protocol::PyIterIter,
     AsObject, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
 };
 use num_traits::{cast::ToPrimitive, sign::Signed};
