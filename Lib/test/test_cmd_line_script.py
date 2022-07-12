@@ -233,6 +233,8 @@ class CmdLineTest(unittest.TestCase):
                                importlib.machinery.SourceFileLoader,
                                expected_cwd=script_dir)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_script_abspath(self):
         # pass the script using the relative path, expect the absolute path
         # in __file__
@@ -413,6 +415,8 @@ class CmdLineTest(unittest.TestCase):
                                    script_name, script_name, script_dir, 'test_pkg',
                                    importlib.machinery.SourceFileLoader)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_issue8202_dash_c_file_ignored(self):
         # Make sure a "-c" file in the current directory
         # does not alter the value of sys.path[0]
@@ -519,6 +523,8 @@ class CmdLineTest(unittest.TestCase):
             self.assertNotIn(b'is a package', err)
             self.assertNotIn(b'Traceback', err)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_hint_when_triying_to_import_a_py_file(self):
         with os_helper.temp_dir() as script_dir, \
                 os_helper.change_cwd(path=script_dir):
@@ -596,8 +602,6 @@ class CmdLineTest(unittest.TestCase):
             'stdout=%r stderr=%r' % (stdout, stderr))
         self.assertEqual(0, rc)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_issue20500_exit_with_exception_value(self):
         script = textwrap.dedent("""\
             import sys
@@ -772,10 +776,14 @@ class CmdLineTest(unittest.TestCase):
         self.assertIn(": can't open file ", err)
         self.assertNotEqual(proc.returncode, 0)
 
-def tearDownModule():
+# TODO: RUSTPYTHON
+# def tearDownModule():
+def test_main():
+    support.run_unittest(CmdLineTest)
     support.reap_children()
 
 
 if __name__ == '__main__':
-    unittest.main()
-
+    # TODO: RUSTPYTHON
+    # unittest.main()
+    test_main()
