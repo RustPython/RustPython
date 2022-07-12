@@ -1,4 +1,4 @@
-use super::union_;
+use super::type_;
 use crate::{
     builtins::{PyList, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef},
     class::PyClassImpl,
@@ -192,22 +192,12 @@ impl PyGenericAlias {
 
     #[pymethod(magic)]
     fn ror(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        if !union_::is_unionable(zelf.clone(), vm) || !union_::is_unionable(other.clone(), vm) {
-            return vm.ctx.not_implemented();
-        }
-
-        let tuple = PyTuple::new_ref(vec![other, zelf], &vm.ctx);
-        union_::make_union(tuple, vm)
+        type_::_or(other, zelf, vm)
     }
-
+    
     #[pymethod(magic)]
     fn or(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        if !union_::is_unionable(zelf.clone(), vm) || !union_::is_unionable(other.clone(), vm) {
-            return vm.ctx.not_implemented();
-        }
-
-        let tuple = PyTuple::new_ref(vec![zelf, other], &vm.ctx);
-        union_::make_union(tuple, vm)
+        type_::_or(zelf, other, vm)
     }
 }
 

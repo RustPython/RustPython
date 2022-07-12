@@ -405,22 +405,12 @@ impl PyType {
 
     #[pymethod(magic)]
     pub fn ror(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        if !union_::is_unionable(zelf.clone(), vm) || !union_::is_unionable(other.clone(), vm) {
-            return vm.ctx.not_implemented();
-        }
-
-        let tuple = PyTuple::new_ref(vec![other, zelf], &vm.ctx);
-        union_::make_union(tuple, vm)
+        _or(other, zelf, vm)
     }
 
     #[pymethod(magic)]
     pub fn or(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        if !union_::is_unionable(zelf.clone(), vm) || !union_::is_unionable(other.clone(), vm) {
-            return vm.ctx.not_implemented();
-        }
-
-        let tuple = PyTuple::new_ref(vec![zelf, other], &vm.ctx);
-        union_::make_union(tuple, vm)
+        _or(zelf, other, vm)
     }
 
     #[pyslot]
@@ -834,6 +824,16 @@ pub(crate) fn call_slot_new(
     }
     unreachable!("Should be able to find a new slot somewhere in the mro")
 }
+
+pub(super) fn _or(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    if !union_::is_unionable(zelf.clone(), vm) || !union_::is_unionable(other.clone(), vm) {
+        return vm.ctx.not_implemented();
+    }
+
+    let tuple = PyTuple::new_ref(vec![zelf, other], &vm.ctx);
+    union_::make_union(tuple, vm)
+}
+
 
 fn take_next_base(bases: &mut [Vec<PyTypeRef>]) -> Option<PyTypeRef> {
     for base in bases.iter() {
