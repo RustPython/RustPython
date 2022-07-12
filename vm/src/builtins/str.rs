@@ -929,11 +929,11 @@ impl PyStr {
 
     #[pymethod]
     fn join(&self, iterable: ArgIterable<PyStrRef>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        let mut iter = iterable.iter(vm)?;
+        let iter = iterable.iter(vm)?;
 
-        match iter.size_hint().0 {
-          1 => Ok(iter.next().unwrap().unwrap()),
-          _ => Ok(vm.ctx.new_str(self.as_str().py_join(iter).unwrap()))
+        match iter.exactly_one() {
+            Ok(first) => first,
+            Err(iter) => Ok(vm.ctx.new_str(self.as_str().py_join(iter).unwrap())),
         }
     }
 
