@@ -167,7 +167,7 @@ fn flatten_args(args: PyTupleRef, vm: &VirtualMachine) -> PyTupleRef {
     for arg in &args {
         if let Some(pyref) = arg.downcast_ref::<PyUnion>() {
             flattened_args.extend(pyref.args.iter().cloned());
-        } else if arg.payload_if_subclass::<PyNone>(vm).is_some() {
+        } else if vm.is_none(arg) {
             flattened_args.push(vm.ctx.types.none_type.as_ref().to_pyobject(vm).clone());
         } else {
             flattened_args.push(arg.clone());
