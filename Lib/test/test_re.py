@@ -1,5 +1,6 @@
 from test.support import (gc_collect, bigmemtest, _2G,
-                          cpython_only, captured_stdout)
+                          cpython_only, captured_stdout,
+                          check_disallow_instantiation)
 import locale
 import re
 import sre_compile
@@ -53,8 +54,6 @@ class ReTests(unittest.TestCase):
             if pos is not None:
                 self.assertEqual(err.pos, pos)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_keep_buffer(self):
         # See bug 14212
         b = bytearray(b'x')
@@ -219,6 +218,16 @@ class ReTests(unittest.TestCase):
         re.compile(r'(?P<a>x)(?P=a)(?(a)y)')
         re.compile(r'(?P<a1>x)(?P=a1)(?(a1)y)')
         re.compile(r'(?P<a1>x)\1(?(1)y)')
+        re.compile(b'(?P<a1>x)(?P=a1)(?(a1)y)')
+        # New valid identifiers in Python 3
+        re.compile('(?P<µ>x)(?P=µ)(?(µ)y)')
+        re.compile('(?P<𝔘𝔫𝔦𝔠𝔬𝔡𝔢>x)(?P=𝔘𝔫𝔦𝔠𝔬𝔡𝔢)(?(𝔘𝔫𝔦𝔠𝔬𝔡𝔢)y)')
+        # Support > 100 groups.
+        pat = '|'.join('x(?P<a%d>%x)y' % (i, i) for i in range(1, 200 + 1))
+        pat = '(?:%s)(?(200)z|t)' % pat
+        self.assertEqual(re.match(pat, 'xc8yz').span(), (0, 5))
+
+    def test_symbolic_groups_errors(self):
         self.checkPatternError(r'(?P<a>)(?P<a>)',
                                "redefinition of group name 'a' as group 2; "
                                "was group 1")
@@ -244,16 +253,22 @@ class ReTests(unittest.TestCase):
         self.checkPatternError(r'(?(-1))', "bad character in group name '-1'", 3)
         self.checkPatternError(r'(?(1a))', "bad character in group name '1a'", 3)
         self.checkPatternError(r'(?(a.))', "bad character in group name 'a.'", 3)
-        # New valid/invalid identifiers in Python 3
-        re.compile('(?P<µ>x)(?P=µ)(?(µ)y)')
-        re.compile('(?P<𝔘𝔫𝔦𝔠𝔬𝔡𝔢>x)(?P=𝔘𝔫𝔦𝔠𝔬𝔡𝔢)(?(𝔘𝔫𝔦𝔠𝔬𝔡𝔢)y)')
         self.checkPatternError('(?P<©>x)', "bad character in group name '©'", 4)
-        # Support > 100 groups.
-        pat = '|'.join('x(?P<a%d>%x)y' % (i, i) for i in range(1, 200 + 1))
-        pat = '(?:%s)(?(200)z|t)' % pat
-        self.assertEqual(re.match(pat, 'xc8yz').span(), (0, 5))
+        self.checkPatternError('(?P=©)', "bad character in group name '©'", 4)
+        self.checkPatternError('(?(©)y)', "bad character in group name '©'", 3)
 
     def test_symbolic_refs(self):
+        self.assertEqual(re.sub('(?P<a>x)|(?P<b>y)', r'\g<b>', 'xx'), '')
+        self.assertEqual(re.sub('(?P<a>x)|(?P<b>y)', r'\2', 'xx'), '')
+        self.assertEqual(re.sub(b'(?P<a1>x)', br'\g<a1>', b'xx'), b'xx')
+        # New valid identifiers in Python 3
+        self.assertEqual(re.sub('(?P<µ>x)', r'\g<µ>', 'xx'), 'xx')
+        self.assertEqual(re.sub('(?P<𝔘𝔫𝔦𝔠𝔬𝔡𝔢>x)', r'\g<𝔘𝔫𝔦𝔠𝔬𝔡𝔢>', 'xx'), 'xx')
+        # Support > 100 groups.
+        pat = '|'.join('x(?P<a%d>%x)y' % (i, i) for i in range(1, 200 + 1))
+        self.assertEqual(re.sub(pat, r'\g<200>', 'xc8yzxc8y'), 'c8zc8')
+
+    def test_symbolic_refs_errors(self):
         self.checkTemplateError('(?P<a>x)', r'\g<a', 'xx',
                                 'missing >, unterminated name', 3)
         self.checkTemplateError('(?P<a>x)', r'\g<', 'xx',
@@ -271,18 +286,14 @@ class ReTests(unittest.TestCase):
                                 'invalid group reference 2', 1)
         with self.assertRaisesRegex(IndexError, "unknown group name 'ab'"):
             re.sub('(?P<a>x)', r'\g<ab>', 'xx')
-        self.assertEqual(re.sub('(?P<a>x)|(?P<b>y)', r'\g<b>', 'xx'), '')
-        self.assertEqual(re.sub('(?P<a>x)|(?P<b>y)', r'\2', 'xx'), '')
         self.checkTemplateError('(?P<a>x)', r'\g<-1>', 'xx',
                                 "bad character in group name '-1'", 3)
-        # New valid/invalid identifiers in Python 3
-        self.assertEqual(re.sub('(?P<µ>x)', r'\g<µ>', 'xx'), 'xx')
-        self.assertEqual(re.sub('(?P<𝔘𝔫𝔦𝔠𝔬𝔡𝔢>x)', r'\g<𝔘𝔫𝔦𝔠𝔬𝔡𝔢>', 'xx'), 'xx')
         self.checkTemplateError('(?P<a>x)', r'\g<©>', 'xx',
                                 "bad character in group name '©'", 3)
-        # Support > 100 groups.
-        pat = '|'.join('x(?P<a%d>%x)y' % (i, i) for i in range(1, 200 + 1))
-        self.assertEqual(re.sub(pat, r'\g<200>', 'xc8yzxc8y'), 'c8zc8')
+        self.checkTemplateError('(?P<a>x)', r'\g<㊀>', 'xx',
+                                "bad character in group name '㊀'", 3)
+        self.checkTemplateError('(?P<a>x)', r'\g<¹>', 'xx',
+                                "bad character in group name '¹'", 3)
 
     def test_re_subn(self):
         self.assertEqual(re.subn("(?i)b+", "x", "bbbb BBBB"), ('x x', 2))
@@ -544,12 +555,28 @@ class ReTests(unittest.TestCase):
         pat = '(?:%s)(?(200)z)' % pat
         self.assertEqual(re.match(pat, 'xc8yz').span(), (0, 5))
 
-        self.checkPatternError(r'(?P<a>)(?(0))', 'bad group number', 10)
+    def test_re_groupref_exists_errors(self):
+        self.checkPatternError(r'(?P<a>)(?(0)a|b)', 'bad group number', 10)
+        self.checkPatternError(r'()(?(-1)a|b)',
+                               "bad character in group name '-1'", 5)
+        self.checkPatternError(r'()(?(㊀)a|b)',
+                               "bad character in group name '㊀'", 5)
+        self.checkPatternError(r'()(?(¹)a|b)',
+                               "bad character in group name '¹'", 5)
+        self.checkPatternError(r'()(?(1',
+                               "missing ), unterminated name", 5)
+        self.checkPatternError(r'()(?(1)a',
+                               "missing ), unterminated subpattern", 2)
         self.checkPatternError(r'()(?(1)a|b',
                                'missing ), unterminated subpattern', 2)
+        self.checkPatternError(r'()(?(1)a|b|c',
+                               'conditional backref with more than '
+                               'two branches', 10)
         self.checkPatternError(r'()(?(1)a|b|c)',
                                'conditional backref with more than '
                                'two branches', 10)
+        self.checkPatternError(r'()(?(2)a)',
+                               "invalid group reference 2", 5)
 
     def test_re_groupref_overflow(self):
         from sre_constants import MAXGROUPS
@@ -623,8 +650,6 @@ class ReTests(unittest.TestCase):
         self.checkPatternError(r'x{2,1}',
                                'min repeat greater than max repeat', 2)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_getattr(self):
         self.assertEqual(re.compile("(?i)(a)(b)").pattern, "(?i)(a)(b)")
         self.assertEqual(re.compile("(?i)(a)(b)").flags, re.I | re.U)
@@ -698,8 +723,6 @@ class ReTests(unittest.TestCase):
             with self.subTest(c):
                 self.assertRaises(re.error, re.compile, '[\\%c]' % c)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_named_unicode_escapes(self):
         # test individual Unicode named escapes
         self.assertTrue(re.match(r'\N{LESS-THAN SIGN}', '<'))
@@ -733,6 +756,10 @@ class ReTests(unittest.TestCase):
                                "undefined character name 'SPAM'", 0)
         self.checkPatternError(r'[\N{SPAM}]',
                                "undefined character name 'SPAM'", 1)
+        self.checkPatternError(r'\N{KEYCAP NUMBER SIGN}',
+                            "undefined character name 'KEYCAP NUMBER SIGN'", 0)
+        self.checkPatternError(r'[\N{KEYCAP NUMBER SIGN}]',
+                            "undefined character name 'KEYCAP NUMBER SIGN'", 1)
         self.checkPatternError(br'\N{LESS-THAN SIGN}', r'bad escape \N', 0)
         self.checkPatternError(br'[\N{LESS-THAN SIGN}]', r'bad escape \N', 1)
 
@@ -762,8 +789,6 @@ class ReTests(unittest.TestCase):
         # Can match around the whitespace.
         self.assertEqual(len(re.findall(r"\B", " ")), 2)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bigcharset(self):
         self.assertEqual(re.match("([\u2222\u2223])",
                                   "\u2222").group(1), "\u2222")
@@ -848,16 +873,30 @@ class ReTests(unittest.TestCase):
         self.assertEqual(re.match(r"((a)\s(abc|a))", "a a", re.I).group(1), "a a")
         self.assertEqual(re.match(r"((a)\s(abc|a)*)", "a aa", re.I).group(1), "a aa")
 
-        assert '\u212a'.lower() == 'k' # 'K'
+        # Two different characters have the same lowercase.
+        assert 'K'.lower() == '\u212a'.lower() == 'k' # 'K'
         self.assertTrue(re.match(r'K', '\u212a', re.I))
         self.assertTrue(re.match(r'k', '\u212a', re.I))
         self.assertTrue(re.match(r'\u212a', 'K', re.I))
         self.assertTrue(re.match(r'\u212a', 'k', re.I))
-        assert '\u017f'.upper() == 'S' # 'ſ'
+
+        # Two different characters have the same uppercase.
+        assert 's'.upper() == '\u017f'.upper() == 'S' # 'ſ'
         self.assertTrue(re.match(r'S', '\u017f', re.I))
         self.assertTrue(re.match(r's', '\u017f', re.I))
         self.assertTrue(re.match(r'\u017f', 'S', re.I))
         self.assertTrue(re.match(r'\u017f', 's', re.I))
+
+        # Two different characters have the same uppercase. Unicode 9.0+.
+        assert '\u0432'.upper() == '\u1c80'.upper() == '\u0412' # 'в', 'ᲀ', 'В'
+        self.assertTrue(re.match(r'\u0412', '\u0432', re.I))
+        self.assertTrue(re.match(r'\u0412', '\u1c80', re.I))
+        self.assertTrue(re.match(r'\u0432', '\u0412', re.I))
+        self.assertTrue(re.match(r'\u0432', '\u1c80', re.I))
+        self.assertTrue(re.match(r'\u1c80', '\u0412', re.I))
+        self.assertTrue(re.match(r'\u1c80', '\u0432', re.I))
+
+        # Two different characters have the same multicharacter uppercase.
         assert '\ufb05'.upper() == '\ufb06'.upper() == 'ST' # 'ﬅ', 'ﬆ'
         self.assertTrue(re.match(r'\ufb05', '\ufb06', re.I))
         self.assertTrue(re.match(r'\ufb06', '\ufb05', re.I))
@@ -871,16 +910,31 @@ class ReTests(unittest.TestCase):
         self.assertTrue(re.match(br'[19a]', b'a', re.I))
         self.assertTrue(re.match(br'[19a]', b'A', re.I))
         self.assertTrue(re.match(br'[19A]', b'a', re.I))
-        assert '\u212a'.lower() == 'k' # 'K'
+
+        # Two different characters have the same lowercase.
+        assert 'K'.lower() == '\u212a'.lower() == 'k' # 'K'
         self.assertTrue(re.match(r'[19K]', '\u212a', re.I))
         self.assertTrue(re.match(r'[19k]', '\u212a', re.I))
         self.assertTrue(re.match(r'[19\u212a]', 'K', re.I))
         self.assertTrue(re.match(r'[19\u212a]', 'k', re.I))
-        assert '\u017f'.upper() == 'S' # 'ſ'
+
+        # Two different characters have the same uppercase.
+        assert 's'.upper() == '\u017f'.upper() == 'S' # 'ſ'
         self.assertTrue(re.match(r'[19S]', '\u017f', re.I))
         self.assertTrue(re.match(r'[19s]', '\u017f', re.I))
         self.assertTrue(re.match(r'[19\u017f]', 'S', re.I))
         self.assertTrue(re.match(r'[19\u017f]', 's', re.I))
+
+        # Two different characters have the same uppercase. Unicode 9.0+.
+        assert '\u0432'.upper() == '\u1c80'.upper() == '\u0412' # 'в', 'ᲀ', 'В'
+        self.assertTrue(re.match(r'[19\u0412]', '\u0432', re.I))
+        self.assertTrue(re.match(r'[19\u0412]', '\u1c80', re.I))
+        self.assertTrue(re.match(r'[19\u0432]', '\u0412', re.I))
+        self.assertTrue(re.match(r'[19\u0432]', '\u1c80', re.I))
+        self.assertTrue(re.match(r'[19\u1c80]', '\u0412', re.I))
+        self.assertTrue(re.match(r'[19\u1c80]', '\u0432', re.I))
+
+        # Two different characters have the same multicharacter uppercase.
         assert '\ufb05'.upper() == '\ufb06'.upper() == 'ST' # 'ﬅ', 'ﬆ'
         self.assertTrue(re.match(r'[19\ufb05]', '\ufb06', re.I))
         self.assertTrue(re.match(r'[19\ufb06]', '\ufb05', re.I))
@@ -904,16 +958,30 @@ class ReTests(unittest.TestCase):
         self.assertTrue(re.match(r'[\U00010400-\U00010427]', '\U00010428', re.I))
         self.assertTrue(re.match(r'[\U00010400-\U00010427]', '\U00010400', re.I))
 
-        assert '\u212a'.lower() == 'k' # 'K'
+        # Two different characters have the same lowercase.
+        assert 'K'.lower() == '\u212a'.lower() == 'k' # 'K'
         self.assertTrue(re.match(r'[J-M]', '\u212a', re.I))
         self.assertTrue(re.match(r'[j-m]', '\u212a', re.I))
         self.assertTrue(re.match(r'[\u2129-\u212b]', 'K', re.I))
         self.assertTrue(re.match(r'[\u2129-\u212b]', 'k', re.I))
-        assert '\u017f'.upper() == 'S' # 'ſ'
+
+        # Two different characters have the same uppercase.
+        assert 's'.upper() == '\u017f'.upper() == 'S' # 'ſ'
         self.assertTrue(re.match(r'[R-T]', '\u017f', re.I))
         self.assertTrue(re.match(r'[r-t]', '\u017f', re.I))
         self.assertTrue(re.match(r'[\u017e-\u0180]', 'S', re.I))
         self.assertTrue(re.match(r'[\u017e-\u0180]', 's', re.I))
+
+        # Two different characters have the same uppercase. Unicode 9.0+.
+        assert '\u0432'.upper() == '\u1c80'.upper() == '\u0412' # 'в', 'ᲀ', 'В'
+        self.assertTrue(re.match(r'[\u0411-\u0413]', '\u0432', re.I))
+        self.assertTrue(re.match(r'[\u0411-\u0413]', '\u1c80', re.I))
+        self.assertTrue(re.match(r'[\u0431-\u0433]', '\u0412', re.I))
+        self.assertTrue(re.match(r'[\u0431-\u0433]', '\u1c80', re.I))
+        self.assertTrue(re.match(r'[\u1c80-\u1c82]', '\u0412', re.I))
+        self.assertTrue(re.match(r'[\u1c80-\u1c82]', '\u0432', re.I))
+
+        # Two different characters have the same multicharacter uppercase.
         assert '\ufb05'.upper() == '\ufb06'.upper() == 'ST' # 'ﬅ', 'ﬆ'
         self.assertTrue(re.match(r'[\ufb04-\ufb05]', '\ufb06', re.I))
         self.assertTrue(re.match(r'[\ufb06-\ufb07]', '\ufb05', re.I))
@@ -921,6 +989,7 @@ class ReTests(unittest.TestCase):
     def test_category(self):
         self.assertEqual(re.match(r"(\s)", " ").group(1), " ")
 
+    @cpython_only
     def test_case_helpers(self):
         import _sre
         for i in range(128):
@@ -1068,8 +1137,6 @@ class ReTests(unittest.TestCase):
         # current pickle expects the _compile() reconstructor in re module
         from re import _compile
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_copying(self):
         import copy
         p = re.compile(r'(?P<int>\d+)(?:\.(?P<frac>\d*))?')
@@ -1375,8 +1442,6 @@ class ReTests(unittest.TestCase):
         self.assertEqual(next(iter).span(), (4, 4))
         self.assertRaises(StopIteration, next, iter)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bug_6561(self):
         # '\d' should match characters in Unicode category 'Nd'
         # (Number, Decimal Digit), but not those in 'Nl' (Number,
@@ -1454,7 +1519,8 @@ class ReTests(unittest.TestCase):
             self.assertTrue(re.match(p, lower_char))
         self.assertEqual(
             str(warns.warnings[0].message),
-            'Flags not at the start of the expression %r' % p
+            'Flags not at the start of the expression %r'
+            ' but at position 1' % p
         )
         self.assertEqual(warns.warnings[0].filename, __file__)
 
@@ -1463,7 +1529,8 @@ class ReTests(unittest.TestCase):
             self.assertTrue(re.match(p, lower_char))
         self.assertEqual(
             str(warns.warnings[0].message),
-            'Flags not at the start of the expression %r (truncated)' % p[:20]
+            'Flags not at the start of the expression %r (truncated)'
+            ' but at position 1' % p[:20]
         )
         self.assertEqual(warns.warnings[0].filename, __file__)
 
@@ -1475,7 +1542,8 @@ class ReTests(unittest.TestCase):
                 self.assertTrue(re.match(p, b'a'))
             self.assertEqual(
                 str(warns.warnings[0].message),
-                'Flags not at the start of the expression %r' % p
+                'Flags not at the start of the expression %r'
+                ' but at position 1' % p
             )
             self.assertEqual(warns.warnings[0].filename, __file__)
 
@@ -1615,11 +1683,6 @@ class ReTests(unittest.TestCase):
         self.assertIsNone(re.match(r'(?i:(?-i:a)b)', 'Ab'))
         self.assertTrue(re.match(r'(?i:(?-i:a)b)', 'aB'))
 
-        self.assertTrue(re.match(r'(?x: a) b', 'a b'))
-        self.assertIsNone(re.match(r'(?x: a) b', ' a b'))
-        self.assertTrue(re.match(r'(?-x: a) b', ' ab', re.VERBOSE))
-        self.assertIsNone(re.match(r'(?-x: a) b', 'ab', re.VERBOSE))
-
         self.assertTrue(re.match(r'\w(?a:\W)\w', '\xe0\xe0\xe0'))
         self.assertTrue(re.match(r'(?a:\W(?u:\w)\W)', '\xe0\xe0\xe0'))
         self.assertTrue(re.match(r'\W(?u:\w)\W', '\xe0\xe0\xe0', re.ASCII))
@@ -1645,6 +1708,33 @@ class ReTests(unittest.TestCase):
         self.checkPatternError(r'(?i+', 'missing -, : or )', 3)
         self.checkPatternError(r'(?iz', 'unknown flag', 3)
 
+    def test_ignore_spaces(self):
+        for space in " \t\n\r\v\f":
+            self.assertTrue(re.fullmatch(space + 'a', 'a', re.VERBOSE))
+        for space in b" ", b"\t", b"\n", b"\r", b"\v", b"\f":
+            self.assertTrue(re.fullmatch(space + b'a', b'a', re.VERBOSE))
+        self.assertTrue(re.fullmatch('(?x) a', 'a'))
+        self.assertTrue(re.fullmatch(' (?x) a', 'a', re.VERBOSE))
+        self.assertTrue(re.fullmatch('(?x) (?x) a', 'a'))
+        self.assertTrue(re.fullmatch(' a(?x: b) c', ' ab c'))
+        self.assertTrue(re.fullmatch(' a(?-x: b) c', 'a bc', re.VERBOSE))
+        self.assertTrue(re.fullmatch('(?x) a(?-x: b) c', 'a bc'))
+        self.assertTrue(re.fullmatch('(?x) a| b', 'a'))
+        self.assertTrue(re.fullmatch('(?x) a| b', 'b'))
+
+    def test_comments(self):
+        self.assertTrue(re.fullmatch('#x\na', 'a', re.VERBOSE))
+        self.assertTrue(re.fullmatch(b'#x\na', b'a', re.VERBOSE))
+        self.assertTrue(re.fullmatch('(?x)#x\na', 'a'))
+        self.assertTrue(re.fullmatch('#x\n(?x)#y\na', 'a', re.VERBOSE))
+        self.assertTrue(re.fullmatch('(?x)#x\n(?x)#y\na', 'a'))
+        self.assertTrue(re.fullmatch('#x\na(?x:#y\nb)#z\nc', '#x\nab#z\nc'))
+        self.assertTrue(re.fullmatch('#x\na(?-x:#y\nb)#z\nc', 'a#y\nbc',
+                                     re.VERBOSE))
+        self.assertTrue(re.fullmatch('(?x)#x\na(?-x:#y\nb)#z\nc', 'a#y\nbc'))
+        self.assertTrue(re.fullmatch('(?x)#x\na|#y\nb', 'a'))
+        self.assertTrue(re.fullmatch('(?x)#x\na|#y\nb', 'b'))
+
     def test_bug_6509(self):
         # Replacement strings of both types must parse properly.
         # all strings
@@ -1663,10 +1753,6 @@ class ReTests(unittest.TestCase):
         pat = re.compile(b'..')
         self.assertEqual(pat.sub(lambda m: b'bytes', b'a5'), b'bytes')
 
-    # RUSTPYTHON: here in rustpython, we borrow the string only at the
-    # time of matching, so we will not check the string type when creating
-    # SRE_Scanner, expect this, other tests has passed
-    @cpython_only
     def test_dealloc(self):
         # issue 3299: check for segfault in debug build
         import _sre
@@ -1738,6 +1824,7 @@ class ReTests(unittest.TestCase):
         self.assertRaises(OverflowError, re.compile, r".{%d,}?" % 2**128)
         self.assertRaises(OverflowError, re.compile, r".{%d,%d}" % (2**129, 2**128))
 
+    @cpython_only
     def test_repeat_minmax_overflow_maxrepeat(self):
         try:
             from _sre import MAXREPEAT
@@ -1772,8 +1859,6 @@ class ReTests(unittest.TestCase):
                 self.assertEqual(re.compile(pattern, re.S).findall(b'xyz'),
                                  [b'xyz'], msg=pattern)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_match_repr(self):
         for string in '[abracadabra]', S('[abracadabra]'):
             m = re.search(r'(.+)(.*?)\1', string)
@@ -1820,8 +1905,6 @@ class ReTests(unittest.TestCase):
         self.assertEqual([m.span() for m in re.finditer(r"\b|\w+", "a::bc")],
                          [(0, 0), (0, 1), (1, 1), (3, 3), (3, 5), (5, 5)])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bug_2537(self):
         # issue 2537: empty submatches
         for outer_op in ('{0,}', '*', '+', '{1,187}'):
@@ -1832,6 +1915,7 @@ class ReTests(unittest.TestCase):
                 self.assertEqual(m.group(1), "")
                 self.assertEqual(m.group(2), "y")
 
+    @cpython_only
     def test_debug_flag(self):
         pat = r'(\.)(?:[ch]|py)(?(1)$|: )'
         with captured_stdout() as out:
@@ -2153,8 +2237,6 @@ class PatternReprTests(unittest.TestCase):
         self.check('(?i)pattern',
                    "re.compile('(?i)pattern', re.IGNORECASE)")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_unknown_flags(self):
         self.check_flags('random pattern', 0x123000,
                          "re.compile('random pattern', 0x123000)")
@@ -2207,6 +2289,18 @@ class ImplementationTest(unittest.TestCase):
     Test implementation details of the re module.
     """
 
+    @cpython_only
+    def test_immutable(self):
+        # bpo-43908: check that re types are immutable
+        with self.assertRaises(TypeError):
+            re.Match.foo = 1
+        with self.assertRaises(TypeError):
+            re.Pattern.foo = 1
+        with self.assertRaises(TypeError):
+            pat = re.compile("")
+            tp = type(pat.scanner(""))
+            tp.foo = 1
+
     def test_overlap_table(self):
         f = sre_compile._generate_overlap_table
         self.assertEqual(f(""), [])
@@ -2215,6 +2309,18 @@ class ImplementationTest(unittest.TestCase):
         self.assertEqual(f("aaaa"), [0, 1, 2, 3])
         self.assertEqual(f("ababba"), [0, 0, 1, 2, 0, 1])
         self.assertEqual(f("abcabdac"), [0, 0, 0, 1, 2, 0, 1, 0])
+
+    def test_signedness(self):
+        self.assertGreaterEqual(sre_compile.MAXREPEAT, 0)
+        self.assertGreaterEqual(sre_compile.MAXGROUPS, 0)
+
+    @cpython_only
+    def test_disallow_instantiation(self):
+        # Ensure that the type disallows instantiation (bpo-43916)
+        check_disallow_instantiation(self, re.Match)
+        check_disallow_instantiation(self, re.Pattern)
+        pat = re.compile("")
+        check_disallow_instantiation(self, type(pat.scanner("")))
 
 
 class ExternalTests(unittest.TestCase):
@@ -2236,7 +2342,7 @@ class ExternalTests(unittest.TestCase):
 
     def test_re_tests(self):
         're_tests test suite'
-        from test.re_tests import tests, SUCCEED, FAIL, SYNTAX_ERROR
+        from test.re_tests import tests, FAIL, SYNTAX_ERROR
         for t in tests:
             pattern = s = outcome = repl = expected = None
             if len(t) == 5:
