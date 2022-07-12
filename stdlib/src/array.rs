@@ -1290,9 +1290,13 @@ mod array {
     impl PyArrayIterator {
         #[pymethod(magic)]
         fn reduce(&self, vm: &VirtualMachine) -> PyTupleRef {
-            self.internal
+            let tuple = self.internal
                 .lock()
-                .builtins_iter_reduce(|x| x.clone().into(), vm)
+                .builtins_iter_reduce(|x| x.clone().into(), vm);
+            let func = tuple[0].clone();
+            let obj = tuple[1].clone();
+            let pos = self.position.load(atomic::Ordering::SeqCst);
+            vm.new_tuple((func, obj, pos,))
         }
     }
 
