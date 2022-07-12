@@ -194,7 +194,7 @@ impl PyGenericAlias {
     fn ror(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         type_::_or(other, zelf, vm)
     }
-    
+
     #[pymethod(magic)]
     fn or(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         type_::_or(zelf, other, vm)

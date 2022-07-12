@@ -834,7 +834,6 @@ pub(super) fn _or(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) ->
     union_::make_union(tuple, vm)
 }
 
-
 fn take_next_base(bases: &mut [Vec<PyTypeRef>]) -> Option<PyTypeRef> {
     for base in bases.iter() {
         let head = base[0].clone();
