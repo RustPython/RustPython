@@ -1315,6 +1315,8 @@ class SyntaxTestCase(unittest.TestCase):
         else:
             self.fail("compile() did not raise SyntaxError")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_expression_with_assignment(self):
         self._check_error(
             "print(end1 + end2 = ' ')",
@@ -1328,6 +1330,8 @@ class SyntaxTestCase(unittest.TestCase):
     def test_assign_call(self):
         self._check_error("f() = 1", "assign")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_assign_del(self):
         self._check_error("del (,)", "invalid syntax")
         self._check_error("del 1", "cannot delete literal")
@@ -1458,11 +1462,15 @@ class SyntaxTestCase(unittest.TestCase):
                           "iterable argument unpacking follows "
                           "keyword argument unpacking")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_generator_in_function_call(self):
         self._check_error("foo(x,    y for y in range(3) for z in range(2) if z    , p)",
                           "Generator expression must be parenthesized",
                           lineno=1, end_lineno=1, offset=11, end_offset=53)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_empty_line_after_linecont(self):
         # See issue-40847
         s = r"""\
@@ -1516,6 +1524,8 @@ if x:
         code += f"{' '*4*12}pass"
         self._check_error(code, "too many statically nested blocks")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_barry_as_flufl_with_syntax_errors(self):
         # The "barry_as_flufl" rule can produce some "bugs-at-a-distance" if
         # is reading the wrong token in the presence of syntax errors later
@@ -1544,6 +1554,7 @@ def func2():
                           "unexpected character after line continuation character",
                           lineno=3, offset=4)
 
+    
     def test_invalid_line_continuation_left_recursive(self):
         # Check bpo-42218: SyntaxErrors following left-recursive rules
         # (t_primary_raw in this case) need to be tested explicitly
@@ -1552,6 +1563,8 @@ def func2():
         self._check_error("A.\u03bc\\\n",
                           "unexpected EOF while parsing")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_error_parenthesis(self):
         for paren in "([{":
             self._check_error(paren + "1 + 2", f"\\{paren}' was never closed")
