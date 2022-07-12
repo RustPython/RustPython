@@ -933,7 +933,7 @@ impl PyStr {
 
         match iter.exactly_one() {
             Ok(first) => first,
-            Err(iter) => Ok(vm.ctx.new_str(self.as_str().py_join(iter).unwrap())),
+            Err(iter) => Ok(vm.ctx.new_str(self.as_str().py_join(iter)?)),
         }
     }
 
