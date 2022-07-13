@@ -1258,7 +1258,7 @@ mod array {
 
     impl Iterable for PyArray {
         fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-            Ok(PyArrayIter {
+            Ok(PyArrayIterator {
                 position: AtomicUsize::new(0),
                 array: zelf,
             }
@@ -1278,16 +1278,16 @@ mod array {
     #[pyattr]
     #[pyclass(name = "arrayiterator")]
     #[derive(Debug, PyPayload)]
-    pub struct PyArrayIter {
+    pub struct PyArrayIterator {
         position: AtomicUsize,
         array: PyArrayRef,
     }
 
     #[pyimpl(with(IterNext))]
-    impl PyArrayIter {}
+    impl PyArrayIterator {}
 
-    impl IterNextIterable for PyArrayIter {}
-    impl IterNext for PyArrayIter {
+    impl IterNextIterable for PyArrayIterator {}
+    impl IterNext for PyArrayIterator {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let pos = zelf.position.fetch_add(1, atomic::Ordering::SeqCst);
             let r = if let Some(item) = zelf.array.read().get(pos, vm) {
