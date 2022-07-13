@@ -40,13 +40,13 @@ pub enum CompileErrorType {
 impl fmt::Display for CompileErrorType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            CompileErrorType::Assign(target) => write!(f, "can't assign to {}", target),
-            CompileErrorType::Delete(target) => write!(f, "can't delete {}", target),
+            CompileErrorType::Assign(target) => write!(f, "cannot assign to {}", target),
+            CompileErrorType::Delete(target) => write!(f, "cannot delete {}", target),
             CompileErrorType::SyntaxError(err) => write!(f, "{}", err.as_str()),
             CompileErrorType::MultipleStarArgs => {
                 write!(f, "two starred expressions in assignment")
             }
-            CompileErrorType::InvalidStarExpr => write!(f, "can't use starred expression here"),
+            CompileErrorType::InvalidStarExpr => write!(f, "cannot use starred expression here"),
             CompileErrorType::InvalidBreak => write!(f, "'break' outside loop"),
             CompileErrorType::InvalidContinue => write!(f, "'continue' outside loop"),
             CompileErrorType::InvalidReturn => write!(f, "'return' outside function"),
