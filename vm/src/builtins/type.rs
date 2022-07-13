@@ -403,15 +403,14 @@ impl PyType {
         zelf.iter_mro().map(|cls| cls.clone().into()).collect()
     }
 
-    #[pymethod(name = "__ror__")]
+    #[pymethod(magic)]
+    pub fn ror(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        or_(other, zelf, vm)
+    }
+
     #[pymethod(magic)]
     pub fn or(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        if !union_::is_unionable(zelf.clone(), vm) || !union_::is_unionable(other.clone(), vm) {
-            return vm.ctx.not_implemented();
-        }
-
-        let tuple = PyTuple::new_ref(vec![zelf, other], &vm.ctx);
-        union_::make_union(tuple, vm)
+        or_(zelf, other, vm)
     }
 
     #[pyslot]
@@ -824,6 +823,15 @@ pub(crate) fn call_slot_new(
         }
     }
     unreachable!("Should be able to find a new slot somewhere in the mro")
+}
+
+pub(super) fn or_(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    if !union_::is_unionable(zelf.clone(), vm) || !union_::is_unionable(other.clone(), vm) {
+        return vm.ctx.not_implemented();
+    }
+
+    let tuple = PyTuple::new_ref(vec![zelf, other], &vm.ctx);
+    union_::make_union(tuple, vm)
 }
 
 fn take_next_base(bases: &mut [Vec<PyTypeRef>]) -> Option<PyTypeRef> {

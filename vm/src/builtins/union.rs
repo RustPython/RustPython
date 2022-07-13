@@ -1,4 +1,4 @@
-use super::genericalias;
+use super::{genericalias, type_};
 use crate::{
     builtins::{PyFrozenSet, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef},
     class::PyClassImpl,
@@ -100,6 +100,12 @@ impl PyUnion {
         Err(vm
             .new_type_error("issubclass() argument 2 cannot be a parameterized generic".to_owned()))
     }
+
+    #[pymethod(name = "__ror__")]
+    #[pymethod(magic)]
+    fn or(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        type_::or_(zelf, other, vm)
+    }
 }
 
 pub fn is_unionable(obj: PyObjectRef, vm: &VirtualMachine) -> bool {
@@ -156,6 +162,8 @@ fn flatten_args(args: PyTupleRef, vm: &VirtualMachine) -> PyTupleRef {
     for arg in &args {
         if let Some(pyref) = arg.downcast_ref::<PyUnion>() {
             flattened_args.extend(pyref.args.iter().cloned());
+        } else if vm.is_none(arg) {
+            flattened_args.push(vm.ctx.types.none_type.to_owned().into());
         } else {
             flattened_args.push(arg.clone());
         };

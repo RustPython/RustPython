@@ -1,3 +1,4 @@
+use super::type_;
 use crate::{
     builtins::{PyList, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef},
     class::PyClassImpl,
@@ -187,6 +188,16 @@ impl PyGenericAlias {
     fn subclasscheck(_zelf: PyRef<Self>, _obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         Err(vm
             .new_type_error("issubclass() argument 2 cannot be a parameterized generic".to_owned()))
+    }
+
+    #[pymethod(magic)]
+    fn ror(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        type_::or_(other, zelf, vm)
+    }
+
+    #[pymethod(magic)]
+    fn or(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        type_::or_(zelf, other, vm)
     }
 }
 
