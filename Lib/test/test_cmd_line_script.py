@@ -579,8 +579,6 @@ class CmdLineTest(unittest.TestCase):
             self.assertTrue(text[1].startswith('  File '))
             self.assertTrue(text[3].startswith('NameError'))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_non_ascii(self):
         # Mac OS X denies the creation of a file with an invalid UTF-8 name.
         # Windows allows creating a name with an arbitrary bytes name, but
@@ -603,6 +601,10 @@ class CmdLineTest(unittest.TestCase):
             stdout.rstrip().decode('ascii'),
             'stdout=%r stderr=%r' % (stdout, stderr))
         self.assertEqual(0, rc)
+
+    # TODO: RUSTPYTHON
+    if sys.platform == "linux":
+        test_non_ascii = unittest.expectedFailure(test_non_ascii)
 
     def test_issue20500_exit_with_exception_value(self):
         script = textwrap.dedent("""\
