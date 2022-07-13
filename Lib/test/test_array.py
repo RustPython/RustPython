@@ -1028,8 +1028,6 @@ class BaseTest:
         self.assertRaises(BufferError, operator.delitem, a, slice(0, 1))
         self.assertEqual(m.tobytes(), expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_weakref(self):
         s = array.array(self.typecode, self.example)
         p = weakref.proxy(s)

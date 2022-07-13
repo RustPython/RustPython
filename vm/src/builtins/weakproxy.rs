@@ -2,8 +2,8 @@ use super::{PyStrRef, PyType, PyTypeRef, PyWeak};
 use crate::{
     class::PyClassImpl,
     function::OptionalArg,
-    protocol::{PySequence, PySequenceMethods},
-    types::{AsSequence, Constructor, GetAttr, SetAttr},
+    protocol::{PyMappingMethods, PySequence, PySequenceMethods},
+    types::{AsMapping, AsSequence, Constructor, GetAttr, SetAttr},
     Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
@@ -58,7 +58,7 @@ crate::common::static_cell! {
     static WEAK_SUBCLASS: PyTypeRef;
 }
 
-#[pyimpl(with(GetAttr, SetAttr, Constructor, AsSequence))]
+#[pyimpl(with(GetAttr, SetAttr, Constructor, AsSequence, AsMapping))]
 impl PyWeakProxy {
     #[pymethod(magic)]
     fn str(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
@@ -78,6 +78,32 @@ impl PyWeakProxy {
     fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         match self.weak.upgrade() {
             Some(obj) => PySequence::contains(&obj, &needle, vm),
+            None => Err(new_reference_error(vm)),
+        }
+    }
+
+    fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        match self.weak.upgrade() {
+            Some(obj) => obj.get_item(&*needle, vm),
+            None => Err(new_reference_error(vm)),
+        }
+    }
+
+    fn setitem(
+        &self,
+        needle: PyObjectRef,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        match self.weak.upgrade() {
+            Some(obj) => obj.set_item(&*needle, value, vm),
+            None => Err(new_reference_error(vm)),
+        }
+    }
+
+    fn delitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        match self.weak.upgrade() {
+            Some(obj) => obj.del_item(&*needle, vm),
             None => Err(new_reference_error(vm)),
         }
     }
@@ -122,6 +148,23 @@ impl AsSequence for PyWeakProxy {
             Self::sequence_downcast(seq).contains(needle.to_owned(), vm)
         }),
         ..PySequenceMethods::NOT_IMPLEMENTED
+    };
+}
+
+impl AsMapping for PyWeakProxy {
+    const AS_MAPPING: PyMappingMethods = PyMappingMethods {
+        length: Some(|mapping, vm| Self::mapping_downcast(mapping).len(vm)),
+        subscript: Some(|mapping, needle, vm| {
+            Self::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
+        }),
+        ass_subscript: Some(|mapping, needle, value, vm| {
+            let zelf = Self::mapping_downcast(mapping);
+            if let Some(value) = value {
+                zelf.setitem(needle.to_owned(), value, vm)
+            } else {
+                zelf.delitem(needle.to_owned(), vm)
+            }
+        }),
     };
 }
 
