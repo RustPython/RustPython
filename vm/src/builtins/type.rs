@@ -405,12 +405,12 @@ impl PyType {
 
     #[pymethod(magic)]
     pub fn ror(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        _or(other, zelf, vm)
+        or_(other, zelf, vm)
     }
 
     #[pymethod(magic)]
     pub fn or(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        _or(zelf, other, vm)
+        or_(zelf, other, vm)
     }
 
     #[pyslot]
@@ -825,7 +825,7 @@ pub(crate) fn call_slot_new(
     unreachable!("Should be able to find a new slot somewhere in the mro")
 }
 
-pub(super) fn _or(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+pub(super) fn or_(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
     if !union_::is_unionable(zelf.clone(), vm) || !union_::is_unionable(other.clone(), vm) {
         return vm.ctx.not_implemented();
     }

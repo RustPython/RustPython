@@ -104,7 +104,7 @@ impl PyUnion {
     #[pymethod(name = "__ror__")]
     #[pymethod(magic)]
     fn or(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        type_::_or(zelf, other, vm)
+        type_::or_(zelf, other, vm)
     }
 }
 
