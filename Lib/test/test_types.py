@@ -755,8 +755,6 @@ class UnionTests(unittest.TestCase):
         self.assertIs((int | TV)[int], int)
         self.assertIs((TV | int)[int], int)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_union_args(self):
         def check(arg, expected):
             clear_typing_caches()
