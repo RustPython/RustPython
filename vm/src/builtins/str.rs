@@ -928,9 +928,13 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn join(&self, iterable: ArgIterable<PyStrRef>, vm: &VirtualMachine) -> PyResult<String> {
+    fn join(&self, iterable: ArgIterable<PyStrRef>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         let iter = iterable.iter(vm)?;
-        self.as_str().py_join(iter)
+
+        match iter.exactly_one() {
+            Ok(first) => first,
+            Err(iter) => Ok(vm.ctx.new_str(self.as_str().py_join(iter)?)),
+        }
     }
 
     // FIXME: two traversals of str is expensive

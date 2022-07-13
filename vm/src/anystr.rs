@@ -2,7 +2,6 @@ use crate::{
     builtins::{PyIntRef, PyTupleRef},
     cformat::CFormatString,
     function::OptionalOption,
-    protocol::PyIterIter,
     AsObject, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
 };
 use num_traits::{cast::ToPrimitive, sign::Signed};
@@ -312,7 +311,9 @@ pub trait AnyStr<'s>: 's {
 
     fn py_join<'a>(
         &self,
-        mut iter: PyIterIter<'a, impl AnyStrWrapper<'s, Str = Self> + TryFromObject>,
+        mut iter: impl std::iter::Iterator<
+            Item = PyResult<impl AnyStrWrapper<'s, Str = Self> + TryFromObject>,
+        >,
     ) -> PyResult<Self::Container> {
         let mut joined = if let Some(elem) = iter.next() {
             elem?.as_ref().to_container()
