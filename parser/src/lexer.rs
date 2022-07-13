@@ -568,7 +568,7 @@ where
                     } else {
                         if (c == '\n' && !triple_quoted) || (is_bytes && !c.is_ascii()) {
                             return Err(LexicalError {
-                                error: LexicalErrorType::StringError,
+                                error: LexicalErrorType::Eof,
                                 location: self.get_pos(),
                             });
                         }
@@ -784,7 +784,7 @@ where
             // First of all, we need all nestings to be finished.
             if self.nesting > 0 {
                 return Err(LexicalError {
-                    error: LexicalErrorType::NestingError,
+                    error: LexicalErrorType::Eof,
                     location: tok_pos,
                 });
             }
