@@ -576,10 +576,16 @@ where
                     }
                 }
                 None => {
-                    return Err(LexicalError {
-                        error: LexicalErrorType::StringError,
-                        location: self.get_pos(),
-                    });
+                    return match triple_quoted {
+                        true => Err(LexicalError {
+                            error: LexicalErrorType::Eof,
+                            location: self.get_pos(),
+                        }),
+                        false => Err(LexicalError {
+                            error: LexicalErrorType::StringError,
+                            location: self.get_pos(),
+                        }),
+                    }
                 }
             }
         }
