@@ -338,8 +338,6 @@ class TestPEP380Operation(unittest.TestCase):
             "Finishing g1",
         ])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_value_attribute_of_StopIteration_exception(self):
         """
         Test 'value' attribute of StopIteration exception

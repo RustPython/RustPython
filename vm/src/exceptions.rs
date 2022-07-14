@@ -712,7 +712,7 @@ impl ExceptionZoo {
         extend_exception!(PyException, ctx, excs.exception_type);
 
         extend_exception!(PyStopIteration, ctx, excs.stop_iteration, {
-            "value" => ctx.new_readonly_getset("value", excs.stop_iteration, make_arg_getter(0)),
+            "value" => ctx.none(),
         });
         extend_exception!(PyStopAsyncIteration, ctx, excs.stop_async_iteration);
 
@@ -1098,8 +1098,15 @@ pub(super) mod types {
         PyStopIteration,
         PyException,
         stop_iteration,
-        "Signal the end from iterator.__next__()."
+        "Signal the end from iterator.__next__().",
+        base_exception_new,
+        stop_iteration_init
     }
+    fn stop_iteration_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        zelf.set_attr("value", vm.unwrap_or_none(args.args.get(0).cloned()), vm)?;
+        Ok(())
+    }
+
     define_exception! {
         PyStopAsyncIteration,
         PyException,
