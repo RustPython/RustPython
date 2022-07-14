@@ -40,16 +40,6 @@ class OptimizedPickleTests(AbstractPickleTests, unittest.TestCase):
     def test_nested_names(self): # TODO: RUSTPYTHON, remove when this passes
         super().test_nested_names()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_newobj_generic(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_newobj_generic()
-
-    # TODO: RUSTPYTHON, TypeError: cannot pickle 'weakproxy' object
-    @unittest.expectedFailure
-    def test_newobj_proxies(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_newobj_proxies()
-
     def test_notimplemented(self): # TODO: RUSTPYTHON, remove when this passes
         super().test_notimplemented()
 

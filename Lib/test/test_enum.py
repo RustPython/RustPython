@@ -1002,8 +1002,6 @@ class TestEnum(unittest.TestCase):
             self.assertIn(e, SummerMonth)
             self.assertIs(type(e), SummerMonth)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_subclassing(self):
         if isinstance(Name, Exception):
             raise Name

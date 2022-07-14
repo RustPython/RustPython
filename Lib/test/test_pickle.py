@@ -118,16 +118,6 @@ class PyPicklerTests(AbstractPickleTests, unittest.TestCase):
     def test_nested_names(self): # TODO: RUSTPYTHON, remove when this passes
         super().test_nested_names() # TODO: RUSTPYTHON, remove when this passes
 
-    # TODO: RUSTPYTHON, AssertionError
-    @unittest.expectedFailure
-    def test_newobj_generic(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_newobj_generic() # TODO: RUSTPYTHON, remove when this passes
-
-    # TODO: RUSTPYTHON, TypeError: cannot pickle 'weakproxy' object
-    @unittest.expectedFailure
-    def test_newobj_proxies(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_newobj_proxies() # TODO: RUSTPYTHON, remove when this passes
-
     def test_notimplemented(self): # TODO: RUSTPYTHON, remove when this passes
         super().test_notimplemented() # TODO: RUSTPYTHON, remove when this passes
 
@@ -232,16 +222,6 @@ class InMemoryPickleTests(AbstractPickleTests, AbstractUnpickleTests,
     @unittest.expectedFailure
     def test_nested_names(self): # TODO: RUSTPYTHON, remove when this passes
         super().test_nested_names() # TODO: RUSTPYTHON, remove when this passes
-
-    # TODO: RUSTPYTHON, AssertionError: 'hello' != '' : 'hello' is not a copy of ''
-    @unittest.expectedFailure
-    def test_newobj_generic(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_newobj_generic() # TODO: RUSTPYTHON, remove when this passes
-
-    # TODO: RUSTPYTHON, TypeError: cannot pickle 'weakproxy' object
-    @unittest.expectedFailure
-    def test_newobj_proxies(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_newobj_proxies() # TODO: RUSTPYTHON, remove when this passes
 
     def test_notimplemented(self): # TODO: RUSTPYTHON, remove when this passes
         super().test_notimplemented() # TODO: RUSTPYTHON, remove when this passes

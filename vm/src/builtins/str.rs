@@ -1258,6 +1258,11 @@ impl PyStr {
     fn encode(zelf: PyRef<Self>, args: EncodeArgs, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
         encode_string(zelf, args.encoding, args.errors, vm)
     }
+
+    #[pymethod(magic)]
+    fn getnewargs(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyObjectRef {
+        (zelf.as_str(),).to_pyobject(vm)
+    }
 }
 
 impl PyStrRef {
