@@ -60,33 +60,27 @@ crate::common::static_cell! {
 
 #[pyimpl(with(GetAttr, SetAttr, Constructor, AsSequence, AsMapping))]
 impl PyWeakProxy {
+    fn try_upgrade(&self, vm: &VirtualMachine) -> PyResult {
+        self.weak.upgrade().ok_or_else(|| new_reference_error(vm))
+    }
+
     #[pymethod(magic)]
     fn str(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        match self.weak.upgrade() {
-            Some(obj) => obj.str(vm),
-            None => Err(new_reference_error(vm)),
-        }
+        self.try_upgrade(vm)?.str(vm)
     }
 
     fn len(&self, vm: &VirtualMachine) -> PyResult<usize> {
-        match self.weak.upgrade() {
-            Some(obj) => obj.length(vm),
-            None => Err(new_reference_error(vm)),
-        }
+        self.try_upgrade(vm)?.length(vm)
     }
 
     fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        match self.weak.upgrade() {
-            Some(obj) => PySequence::contains(&obj, &needle, vm),
-            None => Err(new_reference_error(vm)),
-        }
+        let obj = self.try_upgrade(vm)?;
+        PySequence::contains(&obj, &needle, vm)
     }
 
     fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match self.weak.upgrade() {
-            Some(obj) => obj.get_item(&*needle, vm),
-            None => Err(new_reference_error(vm)),
-        }
+        let obj = self.try_upgrade(vm)?;
+        obj.get_item(&*needle, vm)
     }
 
     fn setitem(
@@ -95,17 +89,13 @@ impl PyWeakProxy {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        match self.weak.upgrade() {
-            Some(obj) => obj.set_item(&*needle, value, vm),
-            None => Err(new_reference_error(vm)),
-        }
+        let obj = self.try_upgrade(vm)?;
+        obj.set_item(&*needle, value, vm)
     }
 
     fn delitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        match self.weak.upgrade() {
-            Some(obj) => obj.del_item(&*needle, vm),
-            None => Err(new_reference_error(vm)),
-        }
+        let obj = self.try_upgrade(vm)?;
+        obj.del_item(&*needle, vm)
     }
 }
 
@@ -119,7 +109,7 @@ fn new_reference_error(vm: &VirtualMachine) -> PyRef<super::PyBaseException> {
 impl GetAttr for PyWeakProxy {
     // TODO: callbacks
     fn getattro(zelf: &Py<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        let obj = zelf.weak.upgrade().ok_or_else(|| new_reference_error(vm))?;
+        let obj = zelf.try_upgrade(vm)?;
         obj.get_attr(name, vm)
     }
 }
@@ -131,13 +121,8 @@ impl SetAttr for PyWeakProxy {
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        match zelf.weak.upgrade() {
-            Some(obj) => obj.call_set_attr(vm, attr_name, value),
-            None => Err(vm.new_exception_msg(
-                vm.ctx.exceptions.reference_error.to_owned(),
-                "weakly-referenced object no longer exists".to_owned(),
-            )),
-        }
+        let obj = zelf.try_upgrade(vm)?;
+        obj.call_set_attr(vm, attr_name, value)
     }
 }
 
