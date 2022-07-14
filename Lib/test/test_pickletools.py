@@ -40,12 +40,6 @@ class OptimizedPickleTests(AbstractPickleTests, unittest.TestCase):
     def test_nested_names(self): # TODO: RUSTPYTHON, remove when this passes
         super().test_nested_names()
 
-    def test_newobj_generic(self):
-        super().test_newobj_generic()
-
-    def test_newobj_proxies(self):
-        super().test_newobj_proxies()
-
     def test_notimplemented(self): # TODO: RUSTPYTHON, remove when this passes
         super().test_notimplemented()
 
