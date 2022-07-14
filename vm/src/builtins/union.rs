@@ -6,7 +6,7 @@ use crate::{
     convert::ToPyObject,
     function::PyComparisonValue,
     protocol::PyMappingMethods,
-    types::{AsMapping, Comparable, GetAttr, Hashable, Iterable, PyComparisonOp},
+    types::{AsMapping, Comparable, GetAttr, Hashable, PyComparisonOp},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine,
 };
@@ -264,8 +264,7 @@ impl Comparable for PyUnion {
 impl Hashable for PyUnion {
     #[inline]
     fn hash(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<hash::PyHash> {
-        let it = PyTuple::iter(zelf.args.clone(), vm);
-        let set = PyFrozenSet::from_iter(vm, it)?;
+        let set = PyFrozenSet::from_iter(vm, zelf.args.into_iter().cloned())?;
         PyFrozenSet::hash(&set.into_ref(vm), vm)
     }
 }
