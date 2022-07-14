@@ -52,7 +52,7 @@ jobs:
       fail-fast: false
     steps:
       - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
       - name: Set up the Windows environment
         shell: bash
         run: |
@@ -75,7 +75,7 @@ jobs:
           args: ${{ env.CARGO_ARGS }} --no-default-features
 
       - name: prepare AppleSilicon build
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
           target: aarch64-apple-darwin
         if: runner.os == 'macOS'
@@ -92,7 +92,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
           target: i686-unknown-linux-gnu
 
@@ -104,7 +104,7 @@ jobs:
           command: check
           args: --target i686-unknown-linux-gnu
 
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
           target: aarch64-linux-android
 
@@ -114,7 +114,7 @@ jobs:
           command: check
           args: --target aarch64-linux-android
 
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
           target: i686-unknown-linux-musl
 
@@ -124,7 +124,7 @@ jobs:
           command: check
           args: --target i686-unknown-linux-musl
 
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
           target: x86_64-unknown-freebsd
 
@@ -134,7 +134,7 @@ jobs:
           command: check
           args: --target x86_64-unknown-freebsd
 
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
           target: wasm32-unknown-unknown
 
@@ -144,7 +144,7 @@ jobs:
           command: check
           args: --target wasm32-unknown-unknown --no-default-features
 
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
           target: x86_64-unknown-freebsd
 
@@ -173,7 +173,7 @@ jobs:
       fail-fast: false
     steps:
       - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-python@v2
         with:
           python-version: "3.10"
@@ -244,11 +244,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
-            profile: minimal
             components: rustfmt, clippy
-            override: true
       - name: run rustfmt
         uses: actions-rs/cargo@v1
         with:
@@ -281,12 +279,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@master
         with:
-            profile: minimal
             toolchain: nightly
             components: miri
-            override: true
       - uses: Swatinem/rust-cache@v1
       - name: Run tests under miri
         # miri-ignore-leaks because the type-object circular reference means that there will always be
@@ -299,7 +295,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
       - name: Cache cargo dependencies
         uses: actions/cache@v2
         with:
@@ -355,11 +351,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
           target: wasm32-wasi
-          override: true
       - name: Setup Wasmer
         uses: wasmerio/setup-wasmer@v1
       - name: Install clang
