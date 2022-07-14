@@ -847,7 +847,7 @@ impl Compiler {
                 self.compile_expression(slice)?;
                 self.emit(Instruction::DeleteSubscript);
             }
-            ast::ExprKind::Tuple { elts, .. } => {
+            ast::ExprKind::Tuple { elts, .. } | ast::ExprKind::List { elts, .. } => {
                 for element in elts {
                     self.compile_delete(element)?;
                 }
