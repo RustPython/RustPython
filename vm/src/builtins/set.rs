@@ -66,7 +66,8 @@ impl fmt::Debug for PySet {
 impl fmt::Debug for PyFrozenSet {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // TODO: implement more detailed, non-recursive Debug formatter
-        f.write_str("frozenset")
+        f.write_str("PyFrozenSet ")?;
+        f.debug_set().entries(self.elements().iter()).finish()
     }
 }
 
