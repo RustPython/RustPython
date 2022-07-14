@@ -265,14 +265,21 @@ impl VirtualMachine {
     }
 
     pub fn new_stop_iteration(&self, value: Option<PyObjectRef>) -> PyBaseExceptionRef {
+        let dict = self.ctx.new_dict();
         let args = if let Some(value) = value {
+            // manually set `value` attribute like StopIteration.__init__
+            dict.set_item("value", value.clone(), self)
+                .expect("dict.__setitem__ never fails");
             vec![value]
         } else {
             Vec::new()
         };
-        let exc = self.new_exception(self.ctx.exceptions.stop_iteration.to_owned(), args.clone());
-        // To initialize the `value` attribute to first argument
-        self.set_exception_attr(exc, "value", args.get(0).cloned())
+
+        PyRef::new_ref(
+            PyBaseException::new(args, self),
+            self.ctx.exceptions.stop_iteration.to_owned(),
+            Some(dict),
+        )
     }
 
     fn new_downcast_error(
@@ -313,20 +320,5 @@ impl VirtualMachine {
             class,
             obj.as_object(),
         )
-    }
-
-    fn set_exception_attr(
-        &self,
-        exc: PyBaseExceptionRef,
-        attr_name: &str,
-        attr_value: Option<PyObjectRef>,
-    ) -> PyBaseExceptionRef {
-        match exc
-            .as_object()
-            .set_attr(attr_name, self.unwrap_or_none(attr_value), self)
-        {
-            Ok(_) => exc,
-            Err(e) => e,
-        }
     }
 }
