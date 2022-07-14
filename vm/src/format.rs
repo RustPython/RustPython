@@ -428,7 +428,7 @@ impl FormatSpec {
     }
 
     #[inline]
-    fn format_int_internal(&self, magnitude: BigInt, radix: u32) -> Result<String, &'static str> {
+    fn format_int_radix(&self, magnitude: BigInt, radix: u32) -> Result<String, &'static str> {
         match self.precision {
             Some(_) => Err("Precision not allowed in integer format specifier"),
             None => Ok(magnitude.to_str_radix(radix)),
@@ -449,10 +449,10 @@ impl FormatSpec {
             ""
         };
         let raw_magnitude_string_result: Result<String, &'static str> = match self.format_type {
-            Some(FormatType::Binary) => self.format_int_internal(magnitude, 2),
-            Some(FormatType::Decimal) => self.format_int_internal(magnitude, 10),
-            Some(FormatType::Octal) => self.format_int_internal(magnitude, 8),
-            Some(FormatType::HexLower) => self.format_int_internal(magnitude, 16),
+            Some(FormatType::Binary) => self.format_int_radix(magnitude, 2),
+            Some(FormatType::Decimal) => self.format_int_radix(magnitude, 10),
+            Some(FormatType::Octal) => self.format_int_radix(magnitude, 8),
+            Some(FormatType::HexLower) => self.format_int_radix(magnitude, 16),
             Some(FormatType::HexUpper) => match self.precision {
                 Some(_) => Err("Precision not allowed in integer format specifier"),
                 None => {
@@ -461,7 +461,7 @@ impl FormatSpec {
                     Ok(result)
                 }
             },
-            Some(FormatType::Number) => self.format_int_internal(magnitude, 10),
+            Some(FormatType::Number) => self.format_int_radix(magnitude, 10),
             Some(FormatType::String) => Err("Unknown format code 's' for object of type 'int'"),
             Some(FormatType::Character) => Err("Unknown format code 'c' for object of type 'int'"),
             Some(FormatType::GeneralFormatUpper) => {
@@ -478,7 +478,7 @@ impl FormatSpec {
                 Some(float) => return self.format_float(float),
                 _ => Err("Unable to convert int to float"),
             },
-            None => self.format_int_internal(magnitude, 10),
+            None => self.format_int_radix(magnitude, 10),
         };
         let magnitude_string = format!(
             "{}{}",
