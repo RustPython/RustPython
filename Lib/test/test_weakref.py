@@ -394,8 +394,6 @@ class ReferencesTestCase(TestBase):
         self.assertFalse(hasattr(o, 'foo'),
                      "object does not reflect attribute removal via proxy")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_proxy_deletion(self):
         # Test clearing of SF bug #762891
         class Foo:
