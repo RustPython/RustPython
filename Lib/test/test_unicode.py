@@ -2392,8 +2392,6 @@ class UnicodeTest(string_tests.CommonTest,
         s += "4"
         self.assertEqual(s, "3")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_getnewargs(self):
         text = 'abc'
         args = text.__getnewargs__()
