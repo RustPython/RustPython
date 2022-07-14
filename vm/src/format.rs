@@ -427,6 +427,14 @@ impl FormatSpec {
         self.format_sign_and_align(&magnitude_string, sign_str)
     }
 
+    #[inline]
+    fn format_int_radix(&self, magnitude: BigInt, radix: u32) -> Result<String, &'static str> {
+        match self.precision {
+            Some(_) => Err("Precision not allowed in integer format specifier"),
+            None => Ok(magnitude.to_str_radix(radix)),
+        }
+    }
+
     pub(crate) fn format_int(&self, num: &BigInt) -> Result<String, &'static str> {
         let magnitude = num.abs();
         let prefix = if self.alternate_form {
@@ -441,16 +449,19 @@ impl FormatSpec {
             ""
         };
         let raw_magnitude_string_result: Result<String, &'static str> = match self.format_type {
-            Some(FormatType::Binary) => Ok(magnitude.to_str_radix(2)),
-            Some(FormatType::Decimal) => Ok(magnitude.to_str_radix(10)),
-            Some(FormatType::Octal) => Ok(magnitude.to_str_radix(8)),
-            Some(FormatType::HexLower) => Ok(magnitude.to_str_radix(16)),
-            Some(FormatType::HexUpper) => {
-                let mut result = magnitude.to_str_radix(16);
-                result.make_ascii_uppercase();
-                Ok(result)
-            }
-            Some(FormatType::Number) => Ok(magnitude.to_str_radix(10)),
+            Some(FormatType::Binary) => self.format_int_radix(magnitude, 2),
+            Some(FormatType::Decimal) => self.format_int_radix(magnitude, 10),
+            Some(FormatType::Octal) => self.format_int_radix(magnitude, 8),
+            Some(FormatType::HexLower) => self.format_int_radix(magnitude, 16),
+            Some(FormatType::HexUpper) => match self.precision {
+                Some(_) => Err("Precision not allowed in integer format specifier"),
+                None => {
+                    let mut result = magnitude.to_str_radix(16);
+                    result.make_ascii_uppercase();
+                    Ok(result)
+                }
+            },
+            Some(FormatType::Number) => self.format_int_radix(magnitude, 10),
             Some(FormatType::String) => Err("Unknown format code 's' for object of type 'int'"),
             Some(FormatType::Character) => Err("Unknown format code 'c' for object of type 'int'"),
             Some(FormatType::GeneralFormatUpper) => {
@@ -467,7 +478,7 @@ impl FormatSpec {
                 Some(float) => return self.format_float(float),
                 _ => Err("Unable to convert int to float"),
             },
-            None => Ok(magnitude.to_str_radix(10)),
+            None => self.format_int_radix(magnitude, 10),
         };
         let magnitude_string = format!(
             "{}{}",
