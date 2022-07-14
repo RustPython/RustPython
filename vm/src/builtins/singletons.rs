@@ -1,7 +1,7 @@
 use super::{PyType, PyTypeRef};
 use crate::{
-    class::PyClassImpl, convert::ToPyObject, types::Constructor, Context, Py, PyObjectRef,
-    PyPayload, PyResult, VirtualMachine,
+    class::PyClassImpl, convert::ToPyObject, protocol::PyNumberMethods, types::AsNumber,
+    types::Constructor, Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "NoneType")]
@@ -39,7 +39,7 @@ impl Constructor for PyNone {
     }
 }
 
-#[pyimpl(with(Constructor))]
+#[pyimpl(with(Constructor, AsNumber))]
 impl PyNone {
     #[pymethod(magic)]
     fn repr(&self) -> String {
@@ -50,6 +50,13 @@ impl PyNone {
     fn bool(&self) -> bool {
         false
     }
+}
+
+impl AsNumber for PyNone {
+    const AS_NUMBER: PyNumberMethods = PyNumberMethods {
+        boolean: Some(|number, _vm| Ok(false)),
+        ..PyNumberMethods::NOT_IMPLEMENTED
+    };
 }
 
 #[pyclass(module = false, name = "NotImplementedType")]
