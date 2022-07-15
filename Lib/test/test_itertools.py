@@ -2268,8 +2268,6 @@ class RegressionTests(unittest.TestCase):
 
 
 class SubclassWithKwargsTest(unittest.TestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_keywords_in_subclass(self):
         # count is not subclassable...
         for cls in (repeat, zip, filter, filterfalse, chain, map,

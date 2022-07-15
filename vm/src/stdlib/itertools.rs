@@ -28,7 +28,7 @@ mod decl {
         active: PyRwLock<Option<PyIter>>,
     }
 
-    #[pyimpl(with(IterNext))]
+    #[pyimpl(with(IterNext), flags(BASETYPE))]
     impl PyItertoolsChain {
         #[pyslot]
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -140,7 +140,7 @@ mod decl {
         }
     }
 
-    #[pyimpl(with(IterNext, Constructor))]
+    #[pyimpl(with(IterNext, Constructor), flags(BASETYPE))]
     impl PyItertoolsCompress {
         #[pymethod(magic)]
         fn reduce(zelf: PyRef<Self>) -> (PyTypeRef, (PyIter, PyIter)) {
@@ -263,7 +263,7 @@ mod decl {
         }
     }
 
-    #[pyimpl(with(IterNext, Constructor))]
+    #[pyimpl(with(IterNext, Constructor), flags(BASETYPE))]
     impl PyItertoolsCycle {}
     impl IterNextIterable for PyItertoolsCycle {}
     impl IterNext for PyItertoolsCycle {
@@ -403,7 +403,7 @@ mod decl {
         }
     }
 
-    #[pyimpl(with(IterNext, Constructor))]
+    #[pyimpl(with(IterNext, Constructor), flags(BASETYPE))]
     impl PyItertoolsStarmap {}
     impl IterNextIterable for PyItertoolsStarmap {}
     impl IterNext for PyItertoolsStarmap {
@@ -458,7 +458,7 @@ mod decl {
         }
     }
 
-    #[pyimpl(with(IterNext, Constructor))]
+    #[pyimpl(with(IterNext, Constructor), flags(BASETYPE))]
     impl PyItertoolsTakewhile {}
     impl IterNextIterable for PyItertoolsTakewhile {}
     impl IterNext for PyItertoolsTakewhile {
@@ -523,7 +523,7 @@ mod decl {
         }
     }
 
-    #[pyimpl(with(IterNext, Constructor))]
+    #[pyimpl(with(IterNext, Constructor), flags(BASETYPE))]
     impl PyItertoolsDropwhile {}
     impl IterNextIterable for PyItertoolsDropwhile {}
     impl IterNext for PyItertoolsDropwhile {
@@ -773,7 +773,7 @@ mod decl {
         )))
     }
 
-    #[pyimpl(with(IterNext))]
+    #[pyimpl(with(IterNext), flags(BASETYPE))]
     impl PyItertoolsIslice {
         #[pyslot]
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -902,7 +902,7 @@ mod decl {
         }
     }
 
-    #[pyimpl(with(IterNext, Constructor))]
+    #[pyimpl(with(IterNext, Constructor), flags(BASETYPE))]
     impl PyItertoolsFilterFalse {
         #[pymethod(magic)]
         fn reduce(zelf: PyRef<Self>) -> (PyTypeRef, (PyObjectRef, PyIter)) {
