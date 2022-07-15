@@ -145,6 +145,9 @@ where
     }
 }
 
+/// unicode_name2 does not expose `MAX_NAME_LENGTH`, so we replicate that constant here, fix #3798
+const MAX_UNICODE_NAME: usize = 88;
+
 impl<T> Lexer<T>
 where
     T: Iterator<Item = char>,
@@ -466,6 +469,14 @@ where
                 }
             }
         }
+
+        if name.len() > MAX_UNICODE_NAME {
+            return Err(LexicalError {
+                error: LexicalErrorType::UnicodeError,
+                location: self.get_pos(),
+            });
+        }
+
         unicode_names2::character(&name).ok_or(LexicalError {
             error: LexicalErrorType::UnicodeError,
             location: start_pos,
