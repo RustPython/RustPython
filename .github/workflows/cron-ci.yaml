@@ -18,10 +18,7 @@ jobs:
         with:
           components: llvm-tools-preview
       - run: sudo apt-get update && sudo apt-get -y install lcov
-      - uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --release --verbose ${{ env.CARGO_ARGS }}
+      - run: cargo build --release --verbose ${{ env.CARGO_ARGS }}
         env:
           RUSTC_WRAPPER: './scripts/codecoverage-rustc-wrapper.sh'
       - uses: actions/setup-python@v2
@@ -60,10 +57,7 @@ jobs:
       - uses: actions/checkout@v2
       - uses: dtolnay/rust-toolchain@stable
       - name: build rustpython
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --release --verbose
+        run: cargo build --release --verbose
       - name: collect tests data
         run: cargo run --release extra_tests/jsontests.py
         env:
@@ -91,10 +85,7 @@ jobs:
       - uses: actions/checkout@v2
       - uses: dtolnay/rust-toolchain@stable
       - name: build rustpython
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --release --verbose
+        run: cargo build --release --verbose
       - name: Collect what is left data
         run: |
           chmod +x ./whats_left.sh
