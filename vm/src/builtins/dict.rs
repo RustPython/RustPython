@@ -1,6 +1,6 @@
 use super::{
     set::PySetInner, IterStatus, PositionIterInternal, PyBaseExceptionRef, PyGenericAlias, PySet,
-    PyStrRef, PyTupleRef, PyType, PyTypeRef,
+    PyStrRef, PyTupleRef, PyType, PyTypeRef, PyMappingProxy,
 };
 use crate::{
     builtins::{
@@ -1040,6 +1040,11 @@ impl PyDictKeys {
     #[pymethod(magic)]
     fn contains(zelf: PyRef<Self>, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         zelf.dict().contains(key, vm)
+    }
+
+    #[pyproperty]
+    fn mapping(zelf: PyRef<Self>) -> PyMappingProxy {
+        PyMappingProxy::from(zelf.dict().clone())
     }
 }
 impl Unconstructible for PyDictKeys {}
