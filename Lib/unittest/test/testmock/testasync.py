@@ -672,6 +672,8 @@ class AsyncIteratorTest(unittest.TestCase):
 
         async def __anext__(self): pass
 
+    # TODO: RUSTPYTHON; async for
+    """
     def test_aiter_set_return_value(self):
         mock_iter = AsyncMock(name="tester")
         mock_iter.__aiter__.return_value = [1, 2, 3]
@@ -679,6 +681,7 @@ class AsyncIteratorTest(unittest.TestCase):
             return [i async for i in mock_iter]
         result = run(main())
         self.assertEqual(result, [1, 2, 3])
+    """
 
     def test_mock_aiter_and_anext_asyncmock(self):
         def inner_test(mock_type):
@@ -697,6 +700,8 @@ class AsyncIteratorTest(unittest.TestCase):
                 inner_test(mock_type)
 
 
+    # TODO: RUSTPYTHON; async for
+    """
     def test_mock_async_for(self):
         async def iterate(iterator):
             accumulator = []
@@ -730,7 +735,7 @@ class AsyncIteratorTest(unittest.TestCase):
 
             with self.subTest(f"set return_value iterator with {mock_type}"):
                 test_set_return_value_iter(mock_type)
-
+    """
 
 class AsyncMockAssert(unittest.TestCase):
     def setUp(self):

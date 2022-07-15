@@ -11,6 +11,7 @@ def tearDownModule():
     asyncio.set_event_loop_policy(None)
 
 
+@unittest.skip("TODO: RUSTPYTHON; requires sys.get_coroutine_origin_tracking_depth()")
 class TestAsyncCase(unittest.TestCase):
     maxDiff = None
 

@@ -220,6 +220,8 @@ class Test_TestResult(unittest.TestCase):
         self.assertIs(test_case, test)
         self.assertIsInstance(formatted_exc, str)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_addFailure_filter_traceback_frames(self):
         class Foo(unittest.TestCase):
             def test_1(self):
@@ -246,6 +248,8 @@ class Test_TestResult(unittest.TestCase):
         self.assertEqual(len(dropped), 1)
         self.assertIn("raise self.failureException(msg)", dropped[0])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_addFailure_filter_traceback_frames_context(self):
         class Foo(unittest.TestCase):
             def test_1(self):
