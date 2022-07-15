@@ -577,7 +577,11 @@ where
                 }
                 None => {
                     return Err(LexicalError {
-                        error: LexicalErrorType::StringError,
+                        error: if triple_quoted {
+                            LexicalErrorType::Eof
+                        } else {
+                            LexicalErrorType::StringError
+                        },
                         location: self.get_pos(),
                     });
                 }
