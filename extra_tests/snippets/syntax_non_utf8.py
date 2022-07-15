@@ -1,4 +1,7 @@
 import os
+
+from testutils import assert_raises
+
 dir_path = os.path.dirname(os.path.realpath(__file__))
 
 # TODO: RUSTPYTHON, RustPython raises a SyntaxError here
