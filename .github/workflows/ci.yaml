@@ -14,7 +14,7 @@ concurrency:
 
 env:
   CARGO_ARGS: --features ssl,jit
-  NON_WASM_PACKAGES: >
+  NON_WASM_PACKAGES: >-
     -p rustpython-bytecode
     -p rustpython-common
     -p rustpython-compiler
@@ -52,7 +52,7 @@ jobs:
       fail-fast: false
     steps:
       - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
       - name: Set up the Windows environment
         shell: bash
         run: |
@@ -64,26 +64,17 @@ jobs:
         if: runner.os == 'macOS'
       - uses: Swatinem/rust-cache@v1
       - name: run rust tests
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --workspace --exclude rustpython_wasm --verbose ${{ env.CARGO_ARGS }} ${{ env.NON_WASM_PACKAGES }}
+        run: cargo test --workspace --exclude rustpython_wasm --verbose ${{ env.CARGO_ARGS }} ${{ env.NON_WASM_PACKAGES }}
       - name: check compilation without threading
-        uses: actions-rs/cargo@v1
-        with:
-          command: check
-          args: ${{ env.CARGO_ARGS }} --no-default-features
+        run: cargo check ${{ env.CARGO_ARGS }} --no-default-features
 
       - name: prepare AppleSilicon build
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
           target: aarch64-apple-darwin
         if: runner.os == 'macOS'
       - name: Check compilation for Apple Silicon
-        uses: actions-rs/cargo@v1
-        with:
-          command: check
-          args: --target aarch64-apple-darwin
+        run: cargo check --target aarch64-apple-darwin
         if: runner.os == 'macOS'
 
   exotic_targets:
@@ -92,67 +83,49 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
           target: i686-unknown-linux-gnu
 
       - name: Install gcc-multilib and musl-tools
         run: sudo apt-get update && sudo apt-get install gcc-multilib musl-tools
       - name: Check compilation for x86 32bit
-        uses: actions-rs/cargo@v1
-        with:
-          command: check
-          args: --target i686-unknown-linux-gnu
+        run: cargo check --target i686-unknown-linux-gnu
 
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
           target: aarch64-linux-android
 
       - name: Check compilation for android
-        uses: actions-rs/cargo@v1
-        with:
-          command: check
-          args: --target aarch64-linux-android
+        run: cargo check --target aarch64-linux-android
 
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
           target: i686-unknown-linux-musl
 
       - name: Check compilation for musl
-        uses: actions-rs/cargo@v1
-        with:
-          command: check
-          args: --target i686-unknown-linux-musl
+        run: cargo check --target i686-unknown-linux-musl
 
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
           target: x86_64-unknown-freebsd
 
       - name: Check compilation for freebsd
-        uses: actions-rs/cargo@v1
-        with:
-          command: check
-          args: --target x86_64-unknown-freebsd
+        run: cargo check --target x86_64-unknown-freebsd
 
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
           target: wasm32-unknown-unknown
 
       - name: Check compilation for wasm32
-        uses: actions-rs/cargo@v1
-        with:
-          command: check
-          args: --target wasm32-unknown-unknown --no-default-features
+        run: cargo check --target wasm32-unknown-unknown --no-default-features
 
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
           target: x86_64-unknown-freebsd
 
       - name: Check compilation for freeBSD
-        uses: actions-rs/cargo@v1
-        with:
-          command: check
-          args: --target x86_64-unknown-freebsd
+        run: cargo check --target x86_64-unknown-freebsd
 
       - name: Prepare repository for redox compilation
         run: bash scripts/redox/uncomment-cargo.sh
@@ -173,7 +146,7 @@ jobs:
       fail-fast: false
     steps:
       - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-python@v2
         with:
           python-version: "3.10"
@@ -188,10 +161,7 @@ jobs:
         if: runner.os == 'macOS'
       - uses: Swatinem/rust-cache@v1
       - name: build rustpython
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --release --verbose ${{ env.CARGO_ARGS }}
+        run: cargo build --release --verbose ${{ env.CARGO_ARGS }}
       - uses: actions/setup-python@v2
         with:
           python-version: "3.10"
@@ -244,26 +214,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
-            profile: minimal
             components: rustfmt, clippy
-            override: true
       - name: run rustfmt
-        uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --all -- --check
+        run: cargo fmt --all -- --check
       - name: run clippy
-        uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-          args: ${{ env.CARGO_ARGS }} ${{ env.NON_WASM_PACKAGES }} -- -Dwarnings
+        run: cargo clippy ${{ env.CARGO_ARGS }} ${{ env.NON_WASM_PACKAGES }} -- -Dwarnings
       - name: run clippy on wasm
-        uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-          args: --manifest-path=wasm/lib/Cargo.toml -- -Dwarnings
+        run: cargo clippy --manifest-path=wasm/lib/Cargo.toml -- -Dwarnings
       - uses: actions/setup-python@v2
         with:
           python-version: "3.10"
@@ -281,12 +240,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@master
         with:
-            profile: minimal
             toolchain: nightly
             components: miri
-            override: true
       - uses: Swatinem/rust-cache@v1
       - name: Run tests under miri
         # miri-ignore-leaks because the type-object circular reference means that there will always be
@@ -299,7 +256,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
       - name: Cache cargo dependencies
         uses: actions/cache@v2
         with:
@@ -355,11 +312,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
           target: wasm32-wasi
-          override: true
       - name: Setup Wasmer
         uses: wasmerio/setup-wasmer@v1
       - name: Install clang
@@ -375,9 +330,6 @@ jobs:
           restore-keys: |
                ${{ runner.os }}-debug_opt3-${{ hashFiles('**/Cargo.lock') }}
       - name: build rustpython
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --release --target wasm32-wasi --features freeze-stdlib,stdlib --verbose
+        run: cargo build --release --target wasm32-wasi --features freeze-stdlib,stdlib --verbose
       - name: run snippets
         run: wasmer run --dir . target/wasm32-wasi/release/rustpython.wasm -- extra_tests/snippets/stdlib_random.py
