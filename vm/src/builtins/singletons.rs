@@ -54,7 +54,7 @@ impl PyNone {
 
 impl AsNumber for PyNone {
     const AS_NUMBER: PyNumberMethods = PyNumberMethods {
-        boolean: Some(|number, _vm| Ok(false)),
+        boolean: Some(|_number, _vm| Ok(false)),
         ..PyNumberMethods::NOT_IMPLEMENTED
     };
 }
