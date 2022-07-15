@@ -54,6 +54,8 @@ class TracebackCases(unittest.TestCase):
     def tokenizer_error_with_caret_range(self):
         compile("blech  (  ", "?", "exec")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_caret(self):
         err = self.get_exception_format(self.syntax_error_with_caret,
                                         SyntaxError)
@@ -761,8 +763,6 @@ class BaseExceptionReportingTests:
         msg = self.get_report(e).splitlines()
         self.assertEqual(msg[-2], '               ^')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_syntax_error_no_lineno(self):
         # See #34463.
 
@@ -810,6 +810,8 @@ class BaseExceptionReportingTests:
         exp = f'<unknown>.{X.__qualname__}: I am X\n'
         self.assertEqual(exp, err)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_syntax_error_various_offsets(self):
         for offset in range(-5, 10):
             for add in [0, 2]:
@@ -1026,8 +1028,6 @@ class MiscTracebackCases(unittest.TestCase):
         # Local variable dict should now be empty.
         self.assertEqual(len(inner_frame.f_locals), 0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_extract_stack(self):
         def extract():
             return traceback.extract_stack()
@@ -1080,8 +1080,6 @@ class TestFrame(unittest.TestCase):
         f = traceback.FrameSummary("f", 1, "dummy", line="line")
         self.assertEqual("line", f.line)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_len(self):
         f = traceback.FrameSummary("f", 1, "dummy", line="line")
         self.assertEqual(len(f), 4)
@@ -1274,6 +1272,8 @@ class TestTracebackException(unittest.TestCase):
         self.assertEqual(exc_info[0], exc.exc_type)
         self.assertEqual(str(exc_info[1]), str(exc))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_long_context_chain(self):
         def f():
             try:
@@ -1339,8 +1339,6 @@ class TestTracebackException(unittest.TestCase):
         self.assertEqual(exc_info[0], exc.exc_type)
         self.assertEqual(str(exc_info[1]), str(exc))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_no_refs_to_exception_and_traceback_objects(self):
         try:
             1/0
@@ -1404,8 +1402,6 @@ class TestTracebackException(unittest.TestCase):
         exc7 = traceback.TracebackException(*exc_info, limit=-2, capture_locals=True)
         self.assertNotEqual(exc6, exc7)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_comparison_equivalent_exceptions_are_equal(self):
         excs = []
         for _ in range(2):
