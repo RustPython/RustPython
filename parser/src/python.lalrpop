@@ -1082,7 +1082,7 @@ ExpressionList: ast::Expr = {
 };
 
 ExpressionList2: Vec<ast::Expr> = {
-    <elements:OneOrMore<Expression>> ","? => elements,
+    <elements:OneOrMore<ExpressionOrStarExpression>> ","? => elements,
 };
 
 // A test list is one of:
