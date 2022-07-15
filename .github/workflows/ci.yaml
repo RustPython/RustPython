@@ -14,7 +14,7 @@ concurrency:
 
 env:
   CARGO_ARGS: --features ssl,jit
-  NON_WASM_PACKAGES: >
+  NON_WASM_PACKAGES: >-
     -p rustpython-bytecode
     -p rustpython-common
     -p rustpython-compiler
