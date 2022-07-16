@@ -419,6 +419,8 @@ class TestSupport(unittest.TestCase):
                 self.OtherClass, self.RefClass, ignore=ignore)
         self.assertEqual(set(), missing_items)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_check__all__(self):
         extra = {'tempdir'}
         not_exported = {'template'}
@@ -441,6 +443,8 @@ class TestSupport(unittest.TestCase):
 
         self.assertRaises(AssertionError, support.check__all__, self, unittest)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(os, 'waitpid') and hasattr(os, 'WNOHANG'),
                          'need os.waitpid() and os.WNOHANG')
     def test_reap_children(self):
