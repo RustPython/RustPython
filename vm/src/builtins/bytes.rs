@@ -610,13 +610,10 @@ impl AsSequence for PyBytes {
 impl AsNumber for PyBytes {
     const AS_NUMBER: PyNumberMethods = PyNumberMethods {
         remainder: Some(|number, other, vm| {
-            let formatted = number
-                .obj
-                .downcast_ref::<PyBytes>()
-                .unwrap()
+            Ok(Self::number_downcast(number)
                 .inner
-                .cformat(other.to_owned(), vm)?;
-            Ok(formatted.to_pyobject(vm))
+                .cformat(other.to_pyobject(vm), vm)?
+                .to_pyobject(vm))
         }),
         ..PyNumberMethods::NOT_IMPLEMENTED
     };
