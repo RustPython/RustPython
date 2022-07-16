@@ -1258,9 +1258,7 @@ mod array {
 
     impl Iterable for PyArray {
         fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-            Ok(PyArrayIterator {
-                position: AtomicUsize::new(0),
-                array: zelf.clone(),
+            Ok(PyArrayIter {
                 internal: PyMutex::new(PositionIterInternal::new(zelf.clone(), 0)),
             }
             .into_pyobject(vm))
@@ -1279,37 +1277,31 @@ mod array {
     #[pyattr]
     #[pyclass(name = "arrayiterator")]
     #[derive(Debug, PyPayload)]
-    pub struct PyArrayIterator {
-        position: AtomicUsize,
-        array: PyArrayRef,
+    pub struct PyArrayIter {
         internal: PyMutex<PositionIterInternal<PyArrayRef>>,
     }
 
-    #[pyimpl(with(IterNext))]
-
-    impl PyArrayIterator {
+    #[pyimpl(with(IterNext), flags(HAS_DICT))]
+    impl PyArrayIter {
         #[pymethod(magic)]
         fn reduce(&self, vm: &VirtualMachine) -> PyTupleRef {
-            let tuple = self.internal
+            self.internal
                 .lock()
-                .builtins_iter_reduce(|x| x.clone().into(), vm);
-            let func = tuple[0].clone();
-            let obj = tuple[1].clone();
-            let pos = self.position.load(atomic::Ordering::SeqCst);
-            vm.new_tuple((func, obj, pos,))
+                .builtins_iter_reduce(|x| x.clone().into(), vm)
         }
     }
 
-    impl IterNextIterable for PyArrayIterator {}
-    impl IterNext for PyArrayIterator {
+    impl IterNextIterable for PyArrayIter {}
+    impl IterNext for PyArrayIter {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            let pos = zelf.position.fetch_add(1, atomic::Ordering::SeqCst);
-            let r = if let Some(item) = zelf.array.read().get(pos, vm) {
-                PyIterReturn::Return(item?)
-            } else {
-                PyIterReturn::StopIteration(None)
-            };
-            Ok(r)
+			zelf.internal.lock().next(|array, pos| {
+            	let r = if let Some(item) = array.read().get(pos, vm) {
+                	PyIterReturn::Return(item?)
+            	} else {
+                	PyIterReturn::StopIteration(None)
+            	};
+            	Ok(r)
+        	})
         }
     }
 
