@@ -1295,12 +1295,10 @@ mod array {
     impl IterNext for PyArrayIter {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
 			zelf.internal.lock().next(|array, pos| {
-            	let r = if let Some(item) = array.read().get(pos, vm) {
-                	PyIterReturn::Return(item?)
-            	} else {
-                	PyIterReturn::StopIteration(None)
-            	};
-            	Ok(r)
+            	Ok(match array.read().get(pos, vm) {
+                    Some(item) => PyIterReturn::Return(item?),
+                    None => PyIterReturn::StopIteration(None),
+                })
         	})
         }
     }
