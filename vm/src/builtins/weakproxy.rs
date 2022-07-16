@@ -78,6 +78,11 @@ impl PyWeakProxy {
         self.try_upgrade(vm)?.is_true(vm)
     }
 
+    #[pymethod(magic)]
+    fn bytes(&self, vm: &VirtualMachine) -> PyResult {
+        self.try_upgrade(vm)?.bytes(vm)
+    }
+
     fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         let obj = self.try_upgrade(vm)?;
         PySequence::contains(&obj, &needle, vm)

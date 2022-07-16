@@ -258,8 +258,6 @@ class ReferencesTestCase(TestBase):
         self.assertEqual(L3[:5], p3[:5])
         self.assertEqual(L3[2:5], p3[2:5])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_proxy_unicode(self):
         # See bug 5037
         class C(object):
