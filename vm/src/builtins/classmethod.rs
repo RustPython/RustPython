@@ -1,4 +1,4 @@
-use super::{PyBoundMethod, PyType, PyTypeRef};
+use super::{PyBoundMethod, PyStr, PyType, PyTypeRef};
 use crate::{
     class::PyClassImpl,
     common::lock::PyMutex,
@@ -53,10 +53,13 @@ impl GetDescriptor for PyClassMethod {
         cls: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let (zelf, obj) = Self::_unwrap(zelf, obj, vm)?;
-        let cls = cls.unwrap_or_else(|| obj.class().clone().into());
-        let callable = zelf.callable.lock().clone();
-        Ok(PyBoundMethod::new_ref(cls, callable, &vm.ctx).into())
+        let (zelf, _obj) = Self::_unwrap(zelf, obj, vm)?;
+        let cls = cls.unwrap_or_else(|| _obj.class().clone().into());
+        let call_descr_get: PyResult<PyObjectRef> = zelf.callable.lock().get_attr("__get__", vm);
+        match call_descr_get {
+            Err(_) => Ok(PyBoundMethod::new_ref(cls, zelf.callable.lock().clone(), &vm.ctx).into()),
+            Ok(call_descr_get) => vm.invoke(&call_descr_get, (cls.clone(), cls)),
+        }
     }
 }
 
@@ -64,11 +67,19 @@ impl Constructor for PyClassMethod {
     type Args = PyObjectRef;
 
     fn py_new(cls: PyTypeRef, callable: Self::Args, vm: &VirtualMachine) -> PyResult {
-        PyClassMethod {
+        let doc = callable.get_attr("__doc__", vm);
+
+        let result = PyClassMethod {
             callable: PyMutex::new(callable),
         }
-        .into_ref_with_type(vm, cls)
-        .map(Into::into)
+        .into_ref_with_type(vm, cls)?;
+        let obj = PyObjectRef::from(result);
+
+        if let Ok(doc) = doc {
+            obj.set_attr("__doc__", doc, vm)?;
+        }
+
+        Ok(obj)
     }
 }
 
@@ -98,6 +109,51 @@ impl PyClassMethod {
     #[pyproperty(magic)]
     fn func(&self) -> PyObjectRef {
         self.callable.lock().clone()
+    }
+
+    #[pyproperty(magic)]
+    fn wrapped(&self) -> PyObjectRef {
+        self.callable.lock().clone()
+    }
+
+    #[pyproperty(magic)]
+    fn module(&self, vm: &VirtualMachine) -> PyResult {
+        self.callable.lock().get_attr("__module__", vm)
+    }
+
+    #[pyproperty(magic)]
+    fn qualname(&self, vm: &VirtualMachine) -> PyResult {
+        self.callable.lock().get_attr("__qualname__", vm)
+    }
+
+    #[pyproperty(magic)]
+    fn name(&self, vm: &VirtualMachine) -> PyResult {
+        self.callable.lock().get_attr("__name__", vm)
+    }
+
+    #[pyproperty(magic)]
+    fn annotations(&self, vm: &VirtualMachine) -> PyResult {
+        self.callable.lock().get_attr("__annotations__", vm)
+    }
+
+    #[pymethod(magic)]
+    fn repr(&self, vm: &VirtualMachine) -> Option<String> {
+        let callable = self.callable.lock().repr(vm).unwrap();
+        let class = Self::class(vm);
+
+        match (
+            class
+                .qualname(vm)
+                .downcast_ref::<PyStr>()
+                .map(|n| n.as_str()),
+            class.module(vm).downcast_ref::<PyStr>().map(|m| m.as_str()),
+        ) {
+            (None, _) => None,
+            (Some(qualname), Some(module)) if module != "builtins" => {
+                Some(format!("<{}.{}({})>", module, qualname, callable))
+            }
+            _ => Some(format!("<{}({})>", class.slot_name(), callable)),
+        }
     }
 
     #[pyproperty(magic)]

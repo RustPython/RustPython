@@ -41,9 +41,16 @@ impl Constructor for PyStaticMethod {
     type Args = PyObjectRef;
 
     fn py_new(cls: PyTypeRef, callable: Self::Args, vm: &VirtualMachine) -> PyResult {
-        PyStaticMethod { callable }
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
+        let doc = callable.get_attr("__doc__", vm);
+
+        let result = PyStaticMethod { callable }.into_ref_with_type(vm, cls)?;
+        let obj = PyObjectRef::from(result);
+
+        if let Ok(doc) = doc {
+            obj.set_attr("__doc__", doc, vm)?;
+        }
+
+        Ok(obj)
     }
 }
 
@@ -68,6 +75,56 @@ impl PyStaticMethod {
 
 #[pyimpl(with(Callable, GetDescriptor, Constructor), flags(BASETYPE, HAS_DICT))]
 impl PyStaticMethod {
+    #[pyproperty(magic)]
+    fn func(&self) -> PyObjectRef {
+        self.callable.clone()
+    }
+
+    #[pyproperty(magic)]
+    fn wrapped(&self) -> PyObjectRef {
+        self.callable.clone()
+    }
+
+    #[pyproperty(magic)]
+    fn module(&self, vm: &VirtualMachine) -> PyResult {
+        self.callable.get_attr("__module__", vm)
+    }
+
+    #[pyproperty(magic)]
+    fn qualname(&self, vm: &VirtualMachine) -> PyResult {
+        self.callable.get_attr("__qualname__", vm)
+    }
+
+    #[pyproperty(magic)]
+    fn name(&self, vm: &VirtualMachine) -> PyResult {
+        self.callable.get_attr("__name__", vm)
+    }
+
+    #[pyproperty(magic)]
+    fn annotations(&self, vm: &VirtualMachine) -> PyResult {
+        self.callable.get_attr("__annotations__", vm)
+    }
+
+    #[pymethod(magic)]
+    fn repr(&self, vm: &VirtualMachine) -> Option<String> {
+        let callable = self.callable.repr(vm).unwrap();
+        let class = Self::class(vm);
+
+        match (
+            class
+                .qualname(vm)
+                .downcast_ref::<PyStr>()
+                .map(|n| n.as_str()),
+            class.module(vm).downcast_ref::<PyStr>().map(|m| m.as_str()),
+        ) {
+            (None, _) => None,
+            (Some(qualname), Some(module)) if module != "builtins" => {
+                Some(format!("<{}.{}({})>", module, qualname, callable))
+            }
+            _ => Some(format!("<{}({})>", class.slot_name(), callable)),
+        }
+    }
+
     #[pyproperty(magic)]
     fn isabstractmethod(&self, vm: &VirtualMachine) -> PyObjectRef {
         match vm.get_attribute_opt(self.callable.clone(), "__isabstractmethod__") {

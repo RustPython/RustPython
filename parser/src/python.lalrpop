@@ -634,7 +634,7 @@ ClassDef: ast::Stmt = {
 
 // Decorators:
 Decorator: ast::Expr = {
-    <location:@L>"@" <p:Test> "\n" => {
+    <location:@L>"@" <p:NamedExpressionTest> "\n" => {
         p
     },
 };
