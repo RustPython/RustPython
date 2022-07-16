@@ -788,9 +788,10 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::BeforeAsyncWith => {
                 let mgr = self.pop_value();
+                let aenter_res =
+                    vm.call_special_method(mgr.clone(), identifier!(vm, __aenter__), ())?;
                 let aexit = mgr.get_attr(identifier!(vm, __aexit__), vm)?;
                 self.push_value(aexit);
-                let aenter_res = vm.call_special_method(mgr, identifier!(vm, __aenter__), ())?;
                 self.push_value(aenter_res);
 
                 Ok(None)
