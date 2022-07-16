@@ -1301,12 +1301,12 @@ mod array {
     impl IterNextIterable for PyArrayIter {}
     impl IterNext for PyArrayIter {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-			zelf.internal.lock().next(|array, pos| {
-            	Ok(match array.read().get(pos, vm) {
+            zelf.internal.lock().next(|array, pos| {
+                Ok(match array.read().get(pos, vm) {
                     Some(item) => PyIterReturn::Return(item?),
                     None => PyIterReturn::StopIteration(None),
                 })
-        	})
+            })
         }
     }
 
