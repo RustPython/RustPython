@@ -26,14 +26,6 @@ impl PyPayload for PyMappingProxy {
     }
 }
 
-impl PyMappingProxy {
-    pub fn new(class: PyTypeRef) -> Self {
-        Self {
-            mapping: MappingProxyInner::Class(class),
-        }
-    }
-}
-
 impl From<PyTypeRef> for PyMappingProxy {
     fn from(dict: PyTypeRef) -> Self {
         Self {

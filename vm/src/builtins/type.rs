@@ -577,7 +577,7 @@ impl PyType {
 
     #[pyproperty(magic)]
     fn dict(zelf: PyRef<Self>) -> PyMappingProxy {
-        PyMappingProxy::new(zelf)
+        PyMappingProxy::from(zelf)
     }
 
     #[pyproperty(magic, setter)]
