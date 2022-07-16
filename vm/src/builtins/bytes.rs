@@ -14,17 +14,18 @@ use crate::{
     function::{ArgBytesLike, ArgIterable, OptionalArg, OptionalOption, PyComparisonValue},
     protocol::{
         BufferDescriptor, BufferMethods, PyBuffer, PyIterReturn, PyMappingMethods,
-        PySequenceMethods,
+        PySequenceMethods, PyNumber, PyNumberMethods,
     },
     sliceable::{SequenceIndex, SliceableSequenceOp},
     types::{
         AsBuffer, AsMapping, AsSequence, Callable, Comparable, Constructor, Hashable, IterNext,
-        IterNextIterable, Iterable, PyComparisonOp, Unconstructible,
+        IterNextIterable, Iterable, PyComparisonOp, Unconstructible, AsNumber
     },
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, TryFromObject, VirtualMachine,
 };
 use bstr::ByteSlice;
+use core::num;
 use std::{mem::size_of, ops::Deref};
 
 #[pyclass(module = false, name = "bytes")]
@@ -108,7 +109,8 @@ impl PyBytes {
         Comparable,
         AsBuffer,
         Iterable,
-        Constructor
+        Constructor,
+        AsNumber
     )
 )]
 impl PyBytes {
@@ -603,6 +605,19 @@ impl AsSequence for PyBytes {
             Self::sequence_downcast(seq).contains(other, vm)
         }),
         ..PySequenceMethods::NOT_IMPLEMENTED
+    };
+}
+
+impl AsNumber for PyBytes {
+    const AS_NUMBER: PyNumberMethods = PyNumberMethods {
+        remainder: Some(|number, other, vm| {
+            let formatted = number.obj.downcast_ref::<PyBytes>()
+                                               .unwrap()
+                                               .inner
+                                               .cformat(other.to_owned(), vm)?;
+            Ok(formatted.to_pyobject(vm))
+        }),
+        ..PyNumberMethods::NOT_IMPLEMENTED
     };
 }
 
