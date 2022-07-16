@@ -1173,6 +1173,8 @@ class MappingProxyTests(unittest.TestCase):
         self.assertEqual(view['key1'], 70)
         self.assertEqual(copy['key1'], 27)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_union(self):
         mapping = {'a': 0, 'b': 1, 'c': 2}
         view = self.mappingproxy(mapping)
@@ -1185,8 +1187,7 @@ class MappingProxyTests(unittest.TestCase):
         other = {'c': 3, 'p': 0}
         self.assertDictEqual(view | other, {'a': 0, 'b': 1, 'c': 3, 'p': 0})
         self.assertDictEqual(other | view, {'c': 2, 'p': 0, 'a': 0, 'b': 1})
-        # Should be test after implementing MappingProxy's Comparable trait
-        # self.assertEqual(view, {'a': 0, 'b': 1, 'c': 2})
+        self.assertEqual(view, {'a': 0, 'b': 1, 'c': 2})
         self.assertDictEqual(mapping, {'a': 0, 'b': 1, 'c': 2})
         self.assertDictEqual(other, {'c': 3, 'p': 0})
 
