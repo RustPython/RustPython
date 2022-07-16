@@ -1259,7 +1259,7 @@ mod array {
     impl Iterable for PyArray {
         fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             Ok(PyArrayIter {
-                internal: PyMutex::new(PositionIterInternal::new(zelf.clone(), 0)),
+                internal: PyMutex::new(PositionIterInternal::new(zelf, 0)),
             }
             .into_pyobject(vm))
         }
