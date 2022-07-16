@@ -199,13 +199,12 @@ class TestDecorators(unittest.TestCase):
             code = compile(codestr, "test", "exec")
             self.assertRaises(exc, eval, code, context)
 
-    # TODO: RUSTPYTHON; := operator is invalid syntax
-    # def test_expressions(self):
-    #     for expr in (
-    #         "(x,)", "(x, y)", "x := y", "(x := y)", "x @y", "(x @ y)", "x[0]",
-    #         "w[x].y.z", "w + x - (y + z)", "x(y)()(z)", "[w, x, y][z]", "x.y",
-    #     ):
-    #         compile(f"@{expr}\ndef f(): pass", "test", "exec")
+    def test_expressions(self):
+        for expr in (
+            "(x,)", "(x, y)", "x := y", "(x := y)", "x @y", "(x @ y)", "x[0]",
+            "w[x].y.z", "w + x - (y + z)", "x(y)()(z)", "[w, x, y][z]", "x.y",
+        ):
+            compile(f"@{expr}\ndef f(): pass", "test", "exec")
 
     def test_double(self):
         class C(object):
