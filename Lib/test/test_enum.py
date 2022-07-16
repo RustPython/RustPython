@@ -1533,8 +1533,6 @@ class TestEnum(unittest.TestCase):
         globals()['SomeTuple'] = SomeTuple
         test_pickle_dump_load(self.assertIs, SomeTuple.first)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_duplicate_values_give_unique_enum_items(self):
         class AutoNumber(Enum):
             first = ()
@@ -1555,8 +1553,6 @@ class TestEnum(unittest.TestCase):
         self.assertEqual(AutoNumber.third.value, 3)
         self.assertIs(AutoNumber(1), AutoNumber.first)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_inherited_new_from_enhanced_enum(self):
         class AutoNumber(Enum):
             def __new__(cls):
@@ -1573,8 +1569,6 @@ class TestEnum(unittest.TestCase):
         self.assertEqual(list(Color), [Color.red, Color.green, Color.blue])
         self.assertEqual(list(map(int, Color)), [1, 2, 3])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_inherited_new_from_mixed_enum(self):
         class AutoNumber(IntEnum):
             def __new__(cls):
@@ -1745,8 +1739,6 @@ class TestEnum(unittest.TestCase):
         self.assertTrue(Period.month_1 is Period.day_30)
         self.assertTrue(Period.week_4 is Period.day_28)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_nonhash_value(self):
         class AutoNumberInAList(Enum):
             def __new__(cls):
