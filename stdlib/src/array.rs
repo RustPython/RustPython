@@ -1284,6 +1284,13 @@ mod array {
     #[pyimpl(with(IterNext), flags(HAS_DICT))]
     impl PyArrayIter {
         #[pymethod(magic)]
+        fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            self.internal
+                .lock()
+                .set_state(state, |obj, pos| pos.min(obj.len()), vm)
+        }
+
+        #[pymethod(magic)]
         fn reduce(&self, vm: &VirtualMachine) -> PyTupleRef {
             self.internal
                 .lock()
