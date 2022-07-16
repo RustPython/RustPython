@@ -221,7 +221,7 @@ impl std::fmt::Debug for PyGetSet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "PyGetSet {{ name: {}, getter: {}, setter: {} }}",
+            "PyGetSet {{ name: {}, getter: {}, setter: {}, deleter: {} }}",
             self.name,
             if self.getter.is_some() {
                 "Some"
@@ -229,6 +229,11 @@ impl std::fmt::Debug for PyGetSet {
                 "None"
             },
             if self.setter.is_some() {
+                "Some"
+            } else {
+                "None"
+            },
+            if self.deleter.is_some() {
                 "Some"
             } else {
                 "None"
