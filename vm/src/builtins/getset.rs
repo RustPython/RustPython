@@ -14,7 +14,6 @@ use crate::{
 pub type PyGetterFunc = Box<py_dyn_fn!(dyn Fn(&VirtualMachine, PyObjectRef) -> PyResult)>;
 pub type PySetterFunc =
     Box<py_dyn_fn!(dyn Fn(&VirtualMachine, PyObjectRef, PyObjectRef) -> PyResult<()>)>;
-pub type PyDeleterFunc = Box<py_dyn_fn!(dyn Fn(&VirtualMachine, PyObjectRef) -> PyResult<()>)>;
 
 pub trait IntoPyGetterFunc<T>: PyThreadingConstraint + Sized + 'static {
     fn get(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult;
@@ -152,68 +151,12 @@ where
     }
 }
 
-pub trait IntoPyDeleterFunc<T>: PyThreadingConstraint + Sized + 'static {
-    fn delete(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()>;
-    fn into_deleter(self) -> PyDeleterFunc {
-        Box::new(move |vm, obj| self.delete(obj, vm))
-    }
-}
-
-impl<F, T, R> IntoPyDeleterFunc<(OwnedParam<T>, R, VirtualMachine)> for F
-where
-    F: Fn(T, &VirtualMachine) -> R + 'static + Send + Sync,
-    T: TryFromObject,
-    R: IntoPyNoResult,
-{
-    fn delete(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let obj = T::try_from_object(vm, obj)?;
-        (self)(obj, vm).into_noresult()
-    }
-}
-
-impl<F, S, R> IntoPyDeleterFunc<(RefParam<S>, R, VirtualMachine)> for F
-where
-    F: Fn(&S, &VirtualMachine) -> R + 'static + Send + Sync,
-    S: PyPayload,
-    R: IntoPyNoResult,
-{
-    fn delete(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let zelf = PyRef::<S>::try_from_object(vm, obj)?;
-        (self)(&zelf, vm).into_noresult()
-    }
-}
-
-impl<F, T, R> IntoPyDeleterFunc<(OwnedParam<T>, R)> for F
-where
-    F: Fn(T) -> R + 'static + Send + Sync,
-    T: TryFromObject,
-    R: IntoPyNoResult,
-{
-    fn delete(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let obj = T::try_from_object(vm, obj)?;
-        (self)(obj).into_noresult()
-    }
-}
-
-impl<F, S, R> IntoPyDeleterFunc<(RefParam<S>, R)> for F
-where
-    F: Fn(&S) -> R + 'static + Send + Sync,
-    S: PyPayload,
-    R: IntoPyNoResult,
-{
-    fn delete(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let zelf = PyRef::<S>::try_from_object(vm, obj)?;
-        (self)(&zelf).into_noresult()
-    }
-}
-
 #[pyclass(module = false, name = "getset_descriptor")]
 pub struct PyGetSet {
     name: String,
     class: &'static Py<PyType>,
     getter: Option<PyGetterFunc>,
     setter: Option<PySetterFunc>,
-    deleter: Option<PyDeleterFunc>,
     // doc: Option<String>,
 }
 
@@ -273,7 +216,6 @@ impl PyGetSet {
             class,
             getter: None,
             setter: None,
-            deleter: None,
         }
     }
 
@@ -292,14 +234,6 @@ impl PyGetSet {
         self.setter = Some(setter.into_setter());
         self
     }
-
-    pub fn with_delete<S, X>(mut self, setter: S) -> Self
-    where
-        S: IntoPyDeleterFunc<X>,
-    {
-        self.deleter = Some(setter.into_deleter());
-        self
-    }
 }
 
 #[pyimpl(with(GetDescriptor, Constructor))]
@@ -314,29 +248,14 @@ impl PyGetSet {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let zelf = PyRef::<Self>::try_from_object(vm, zelf)?;
-        match value {
-            Some(value) => {
-                if let Some(ref f) = zelf.setter {
-                    f(vm, obj, value)
-                } else {
-                    Err(vm.new_attribute_error(format!(
-                        "attribute '{}' of '{}' objects is not writable",
-                        zelf.name,
-                        obj.class().name()
-                    )))
-                }
-            }
-            None => {
-                if let Some(ref f) = zelf.deleter {
-                    f(vm, obj)
-                } else {
-                    Err(vm.new_attribute_error(format!(
-                        "attribute '{}' of '{}' objects is not writable",
-                        zelf.name,
-                        obj.class().name()
-                    )))
-                }
-            }
+        if let Some(ref f) = zelf.setter {
+            f(vm, obj, value.unwrap_or_else(|| vm.ctx.none()))
+        } else {
+            Err(vm.new_attribute_error(format!(
+                "attribute '{}' of '{}' objects is not writable",
+                zelf.name,
+                obj.class().name()
+            )))
         }
     }
     #[pymethod]
