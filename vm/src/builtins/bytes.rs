@@ -13,8 +13,8 @@ use crate::{
     function::Either,
     function::{ArgBytesLike, ArgIterable, OptionalArg, OptionalOption, PyComparisonValue},
     protocol::{
-        BufferDescriptor, BufferMethods, PyBuffer, PyIterReturn, PyMappingMethods, PyNumber,
-        PyNumberMethods, PySequenceMethods,
+        BufferDescriptor, BufferMethods, PyBuffer, PyIterReturn, PyMappingMethods, PyNumberMethods,
+        PySequenceMethods,
     },
     sliceable::{SequenceIndex, SliceableSequenceOp},
     types::{
@@ -25,7 +25,6 @@ use crate::{
     TryFromBorrowedObject, TryFromObject, VirtualMachine,
 };
 use bstr::ByteSlice;
-use core::num;
 use std::{mem::size_of, ops::Deref};
 
 #[pyclass(module = false, name = "bytes")]
