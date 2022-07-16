@@ -1,4 +1,4 @@
-use super::{PyDict, PyGenericAlias, PyList, PyTuple, PyType, PyTypeRef};
+use super::{PyDict, PyDictRef, PyGenericAlias, PyList, PyTuple, PyType, PyTypeRef};
 use crate::{
     class::PyClassImpl,
     convert::ToPyObject,
@@ -26,10 +26,18 @@ impl PyPayload for PyMappingProxy {
     }
 }
 
-impl PyMappingProxy {
-    pub fn new(class: PyTypeRef) -> Self {
+impl From<PyTypeRef> for PyMappingProxy {
+    fn from(dict: PyTypeRef) -> Self {
         Self {
-            mapping: MappingProxyInner::Class(class),
+            mapping: MappingProxyInner::Class(dict),
+        }
+    }
+}
+
+impl From<PyDictRef> for PyMappingProxy {
+    fn from(dict: PyDictRef) -> Self {
+        Self {
+            mapping: MappingProxyInner::Mapping(ArgMapping::from_dict_exact(dict)),
         }
     }
 }
