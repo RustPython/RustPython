@@ -143,11 +143,41 @@ impl PyMappingProxy {
     fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
         PyGenericAlias::new(cls, args, vm)
     }
+
+    #[pymethod(magic)]
+    pub fn len(&self, vm: &VirtualMachine) -> PyResult<usize> {
+        let obj = self.to_object(vm)?;
+        obj.length(vm)
+    }
+
+    #[pymethod(magic)]
+    pub fn reversed(&self, vm: &VirtualMachine) -> PyResult {
+        let obj = self.to_object(vm)?;
+        let reversed_method = vm
+            .get_method(obj.clone(), identifier!(vm, __reversed__))
+            .unwrap();
+        vm.invoke(&reversed_method?, ())
+    }
+
+    #[pymethod(magic)]
+    fn ior(&self, _args: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Err(vm.new_type_error("\"'|=' is not supported by %s; use '|' instead\"".to_owned()))
+    }
+
+    #[pymethod(magic)]
+    fn or(&self, args: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        vm._or(self.copy(vm)?.as_ref(), args.as_ref())
+    }
+
+    #[pymethod(magic)]
+    fn ror(&self, args: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        vm._or(args.as_ref(), self.copy(vm)?.as_ref())
+    }
 }
 
 impl AsMapping for PyMappingProxy {
     const AS_MAPPING: PyMappingMethods = PyMappingMethods {
-        length: None,
+        length: Some(|mapping, vm| Self::mapping_downcast(mapping).len(vm)),
         subscript: Some(|mapping, needle, vm| {
             Self::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
         }),
@@ -158,6 +188,7 @@ impl AsMapping for PyMappingProxy {
 impl AsSequence for PyMappingProxy {
     const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
         contains: Some(|seq, target, vm| Self::sequence_downcast(seq)._contains(target, vm)),
+        length: Some(|seq, vm| Self::sequence_downcast(seq).len(vm)),
         ..PySequenceMethods::NOT_IMPLEMENTED
     };
 }
