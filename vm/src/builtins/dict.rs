@@ -1,6 +1,6 @@
 use super::{
-    set::PySetInner, IterStatus, PositionIterInternal, PyBaseExceptionRef, PyGenericAlias, PySet,
-    PyStrRef, PyTupleRef, PyType, PyTypeRef, PyMappingProxy,
+    set::PySetInner, IterStatus, PositionIterInternal, PyBaseExceptionRef, PyGenericAlias,
+    PyMappingProxy, PySet, PyStrRef, PyTupleRef, PyType, PyTypeRef,
 };
 use crate::{
     builtins::{
@@ -1095,6 +1095,10 @@ impl PyDictItems {
         let found = PyDict::getitem(zelf.dict().clone(), key, vm)?;
         vm.identical_or_equal(&found, &value)
     }
+    #[pyproperty]
+    fn mapping(zelf: PyRef<Self>) -> PyMappingProxy {
+        PyMappingProxy::from(zelf.dict().clone())
+    }
 }
 impl Unconstructible for PyDictItems {}
 
@@ -1123,7 +1127,12 @@ impl AsSequence for PyDictItems {
 }
 
 #[pyimpl(with(DictView, Constructor, Iterable, AsSequence))]
-impl PyDictValues {}
+impl PyDictValues {
+    #[pyproperty]
+    fn mapping(zelf: PyRef<Self>) -> PyMappingProxy {
+        PyMappingProxy::from(zelf.dict().clone())
+    }
+}
 impl Unconstructible for PyDictValues {}
 
 impl AsSequence for PyDictValues {

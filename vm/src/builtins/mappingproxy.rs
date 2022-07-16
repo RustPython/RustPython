@@ -1,4 +1,4 @@
-use super::{PyDict, PyGenericAlias, PyList, PyTuple, PyType, PyTypeRef, PyDictRef};
+use super::{PyDict, PyDictRef, PyGenericAlias, PyList, PyTuple, PyType, PyTypeRef};
 use crate::{
     class::PyClassImpl,
     convert::ToPyObject,
@@ -44,7 +44,7 @@ impl From<PyTypeRef> for PyMappingProxy {
 
 impl From<PyDictRef> for PyMappingProxy {
     fn from(dict: PyDictRef) -> Self {
-        Self { 
+        Self {
             mapping: MappingProxyInner::Mapping(ArgMapping::from_dict_exact(dict)),
         }
     }
