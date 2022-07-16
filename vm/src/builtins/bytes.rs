@@ -13,13 +13,13 @@ use crate::{
     function::Either,
     function::{ArgBytesLike, ArgIterable, OptionalArg, OptionalOption, PyComparisonValue},
     protocol::{
-        BufferDescriptor, BufferMethods, PyBuffer, PyIterReturn, PyMappingMethods,
-        PySequenceMethods, PyNumber, PyNumberMethods,
+        BufferDescriptor, BufferMethods, PyBuffer, PyIterReturn, PyMappingMethods, PyNumber,
+        PyNumberMethods, PySequenceMethods,
     },
     sliceable::{SequenceIndex, SliceableSequenceOp},
     types::{
-        AsBuffer, AsMapping, AsSequence, Callable, Comparable, Constructor, Hashable, IterNext,
-        IterNextIterable, Iterable, PyComparisonOp, Unconstructible, AsNumber
+        AsBuffer, AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, Hashable,
+        IterNext, IterNextIterable, Iterable, PyComparisonOp, Unconstructible,
     },
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, TryFromObject, VirtualMachine,
@@ -611,10 +611,12 @@ impl AsSequence for PyBytes {
 impl AsNumber for PyBytes {
     const AS_NUMBER: PyNumberMethods = PyNumberMethods {
         remainder: Some(|number, other, vm| {
-            let formatted = number.obj.downcast_ref::<PyBytes>()
-                                               .unwrap()
-                                               .inner
-                                               .cformat(other.to_owned(), vm)?;
+            let formatted = number
+                .obj
+                .downcast_ref::<PyBytes>()
+                .unwrap()
+                .inner
+                .cformat(other.to_owned(), vm)?;
             Ok(formatted.to_pyobject(vm))
         }),
         ..PyNumberMethods::NOT_IMPLEMENTED
