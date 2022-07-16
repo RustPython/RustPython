@@ -46,10 +46,9 @@ impl Constructor for PyStaticMethod {
         let result = PyStaticMethod { callable }.into_ref_with_type(vm, cls)?;
         let obj = PyObjectRef::from(result);
 
-        match doc {
-            Err(_) => None,
-            Ok(doc) => Some(obj.set_attr("__doc__", doc, vm)),
-        };
+        if let Ok(doc) = doc {
+            obj.set_attr("__doc__", doc, vm)?;
+        }
 
         Ok(obj)
     }
