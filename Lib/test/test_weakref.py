@@ -162,8 +162,6 @@ class ReferencesTestCase(TestBase):
         c = C()
         self.assertRaises(TypeError, weakref.ref, c, callback=None)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_proxy_ref(self):
         o = C()
         o.bar = 1
@@ -405,8 +403,6 @@ class ReferencesTestCase(TestBase):
         del f[0]
         self.assertEqual(f.result, 0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_proxy_bool(self):
         # Test clearing of SF bug #1170766
         class List(list): pass
