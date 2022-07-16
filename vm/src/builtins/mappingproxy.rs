@@ -145,17 +145,15 @@ impl PyMappingProxy {
     }
 
     #[pymethod(magic)]
-    pub fn len(&self, vm: &VirtualMachine) -> PyResult<usize> {
+    fn len(&self, vm: &VirtualMachine) -> PyResult<usize> {
         let obj = self.to_object(vm)?;
         obj.length(vm)
     }
 
     #[pymethod(magic)]
-    pub fn reversed(&self, vm: &VirtualMachine) -> PyResult {
+    fn reversed(&self, vm: &VirtualMachine) -> PyResult {
         let obj = self.to_object(vm)?;
-        let reversed_method = vm
-            .get_method(obj.clone(), identifier!(vm, __reversed__))
-            .unwrap();
+        let reversed_method = vm.get_method(obj, identifier!(vm, __reversed__)).unwrap();
         vm.invoke(&reversed_method?, ())
     }
 
