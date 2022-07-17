@@ -404,7 +404,7 @@ struct MethodItem {
 }
 
 /// #[pyproperty]
-struct PropertyItem {
+struct GetSetItem {
     inner: ContentItemInner<AttrName>,
 }
 
@@ -429,7 +429,7 @@ impl ContentItem for MethodItem {
         &self.inner
     }
 }
-impl ContentItem for PropertyItem {
+impl ContentItem for GetSetItem {
     type AttrName = AttrName;
     fn inner(&self) -> &ContentItemInner<AttrName> {
         &self.inner
@@ -521,7 +521,7 @@ where
     }
 }
 
-impl<Item> ImplItem<Item> for PropertyItem
+impl<Item> ImplItem<Item> for GetSetItem
 where
     Item: ItemLike + ToTokens + GetIdent,
 {
@@ -533,9 +533,9 @@ where
         let ident = &func.sig().ident;
 
         let item_attr = args.attrs.remove(self.index());
-        let item_meta = PropertyItemMeta::from_attr(ident.clone(), &item_attr)?;
+        let item_meta = GetSetItemMeta::from_attr(ident.clone(), &item_attr)?;
 
-        let (py_name, kind) = item_meta.property_name()?;
+        let (py_name, kind) = item_meta.getset_name()?;
         args.context
             .getset_items
             .add_item(py_name, args.cfgs.to_vec(), kind, ident.clone())?;
@@ -706,7 +706,7 @@ impl GetSetNursery {
             if getter.is_none() {
                 errors.push(syn::Error::new_spanned(
                     setter.as_ref().or(deleter.as_ref()).unwrap(),
-                    format!("Property '{}' is missing a getter", name),
+                    format!("GetSet '{}' is missing a getter", name),
                 ));
             };
         }
@@ -781,9 +781,9 @@ impl MethodItemMeta {
     }
 }
 
-struct PropertyItemMeta(ItemMetaInner);
+struct GetSetItemMeta(ItemMetaInner);
 
-impl ItemMeta for PropertyItemMeta {
+impl ItemMeta for GetSetItemMeta {
     const ALLOWED_NAMES: &'static [&'static str] = &["name", "magic", "setter", "deleter"];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
@@ -794,8 +794,8 @@ impl ItemMeta for PropertyItemMeta {
     }
 }
 
-impl PropertyItemMeta {
-    fn property_name(&self) -> Result<(String, GetSetItemKind)> {
+impl GetSetItemMeta {
+    fn getset_name(&self) -> Result<(String, GetSetItemKind)> {
         let inner = self.inner();
         let magic = inner._bool("magic")?;
         let kind = match (inner._bool("setter")?, inner._bool("deleter")?) {
@@ -1032,7 +1032,7 @@ where
                 inner: ContentItemInner { index, attr_name },
             })
         }
-        GetSet => Box::new(PropertyItem {
+        GetSet => Box::new(GetSetItem {
             inner: ContentItemInner { index, attr_name },
         }),
         Slot => Box::new(SlotItem {
