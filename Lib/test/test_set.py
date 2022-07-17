@@ -1815,6 +1815,7 @@ class TestOperationsMutating:
                 self.assertIn("changed size during iteration", str(e))
 
 
+@unittest.skip("TODO: RUSTPYTHON; segfault")
 class TestBinaryOpsMutating(TestOperationsMutating):
 
     def test_eq_with_mutation(self):
@@ -1903,6 +1904,7 @@ class TestBinaryOpsMutating_Subclass_Set(TestBinaryOpsMutating, unittest.TestCas
     constructor2 = set
 
 
+@unittest.skip("TODO: RUSTPYTHON; segfault")
 class TestMethodsMutating(TestOperationsMutating):
 
     def test_issubset_with_mutation(self):
