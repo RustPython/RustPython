@@ -5,8 +5,8 @@ import sys
 import unittest
 import warnings
 from unicodedata import normalize
-from test import support
 from test.support import os_helper
+
 
 filenames = [
     '1_abc',
@@ -151,7 +151,8 @@ class UnicodeFileTests(unittest.TestCase):
         sf0 = set(self.files)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", DeprecationWarning)
-            f1 = os.listdir(os_helper.TESTFN.encode(sys.getfilesystemencoding()))
+            f1 = os.listdir(os_helper.TESTFN.encode(
+                            sys.getfilesystemencoding()))
         f2 = os.listdir(os_helper.TESTFN)
         sf2 = set(os.path.join(os_helper.TESTFN, f) for f in f2)
         self.assertEqual(sf0, sf2, "%a != %a" % (sf0, sf2))
@@ -163,7 +164,8 @@ class UnicodeFileTests(unittest.TestCase):
             os.rename("tmp", name)
 
     def test_directory(self):
-        dirname = os.path.join(os_helper.TESTFN, 'Gr\xfc\xdf-\u66e8\u66e9\u66eb')
+        dirname = os.path.join(os_helper.TESTFN,
+                               'Gr\xfc\xdf-\u66e8\u66e9\u66eb')
         filename = '\xdf-\u66e8\u66e9\u66eb'
         with os_helper.temp_cwd(dirname):
             with open(filename, 'wb') as f:
@@ -188,15 +190,5 @@ class UnicodeNFKDFileTests(UnicodeFileTests):
     normal_form = 'NFKD'
 
 
-def test_main():
-    support.run_unittest(
-        UnicodeFileTests,
-        UnicodeNFCFileTests,
-        UnicodeNFDFileTests,
-        UnicodeNFKCFileTests,
-        UnicodeNFKDFileTests,
-    )
-
-
 if __name__ == "__main__":
-    test_main()
+    unittest.main()
