@@ -27,7 +27,7 @@
         "dev": "webpack-dev-server -d",
         "build": "webpack",
         "dist": "webpack --mode production",
-        "test": "webpack --mode production && cd ../tests && pipenv run pytest"
+        "test": "webpack --mode production && cd ../tests && pytest"
     },
     "repository": {
         "type": "git",
