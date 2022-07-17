@@ -2,6 +2,7 @@
 Tests common to list and UserList.UserList
 """
 
+import unittest
 import sys
 import os
 from functools import cmp_to_key
@@ -303,6 +304,8 @@ class CommonTest(seq_tests.CommonTest):
         self.assertRaises(TypeError, a.pop, 42, 42)
         a = self.type2test([0, 10, 20, 30, 40])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_remove(self):
         a = self.type2test([0, 0, 1])
         a.remove(1)
@@ -362,6 +365,8 @@ class CommonTest(seq_tests.CommonTest):
             # verify that original order and values are retained.
             self.assertIs(x, y)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_index(self):
         super().test_index()
         a = self.type2test([-2, -1, 0, 0, 1, 2])

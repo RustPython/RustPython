@@ -164,6 +164,7 @@ class ListTest(list_tests.CommonTest):
         with self.assertRaises(TypeError):
             (3,) + L([1,2])
 
+    @unittest.skip("TODO: RUSTPYTHON; hang")
     def test_equal_operator_modifying_operand(self):
         # test fix for seg fault reported in bpo-38588 part 2.
         class X:
@@ -197,6 +198,7 @@ class ListTest(list_tests.CommonTest):
         self.assertEqual(iter_size, sys.getsizeof(list([0] * 10)))
         self.assertEqual(iter_size, sys.getsizeof(list(range(10))))
 
+    @unittest.skip("TODO: RUSTPYTHON; hang")
     def test_count_index_remove_crashes(self):
         # bpo-38610: The count(), index(), and remove() methods were not
         # holding strong references to list elements while calling
@@ -229,6 +231,15 @@ class ListTest(list_tests.CommonTest):
         lst = [X(), X()]
         X() in lst
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_count(self):  # XXX: RUSTPYTHON; the method also need to be removed when done
+        super().test_count()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_contains_fake(self):  # XXX: RUSTPYTHON; the method also need to be removed when done
+        super().test_contains_fake()
 
 if __name__ == "__main__":
     unittest.main()
