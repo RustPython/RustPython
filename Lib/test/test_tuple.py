@@ -1,7 +1,7 @@
 from test import support, seq_tests
 import unittest
 
-# import gc
+import gc
 import pickle
 
 # For tuple hashes, we normally only run a test to ensure that we get
