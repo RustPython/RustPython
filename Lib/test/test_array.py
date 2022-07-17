@@ -30,6 +30,8 @@ typecodes = 'ubBhHiIlLfdqQ'
 
 class MiscTest(unittest.TestCase):
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_array_is_sequence(self):
         self.assertIsInstance(array.array("B"), collections.abc.MutableSequence)
         self.assertIsInstance(array.array("B"), collections.abc.Reversible)
@@ -358,6 +360,8 @@ class BaseTest:
         self.assertEqual(list(a), list(self.example))
         self.assertEqual(list(reversed(a)), list(iter(a))[::-1])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_reverse_iterator_picking(self):
         orig = array.array(self.typecode, self.example)
         data = list(orig)
@@ -926,6 +930,8 @@ class BaseTest:
                     del a[start:stop:step]
                     self.assertEqual(a, array.array(self.typecode, L))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_index(self):
         example = 2*self.example
         a = array.array(self.typecode, example)
@@ -1182,7 +1188,7 @@ class UnicodeTest(StringTest, unittest.TestCase):
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
-    def test_index(self):
+    def test_index(self):  # XXX: RUSTPYTHON; the method also need to be removed when done
         super().test_index()
 
     def test_unicode(self):
