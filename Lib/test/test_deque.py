@@ -929,6 +929,21 @@ class TestSequence(seq_tests.CommonTest):
         # For now, bypass tests that require slicing
         self.skipTest("Exhausted deque iterator doesn't free a deque")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_contains_fake(self):  # XXX: RUSTPYTHON; the method also need to be removed when done
+        super().test_contains_fake()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_count(self):  # XXX: RUSTPYTHON; the method also need to be removed when done
+        super().test_count()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_index(self):  # XXX: RUSTPYTHON; the method also need to be removed when done
+        super().test_index()
+
 #==============================================================================
 
 libreftest = """
