@@ -6,14 +6,15 @@
 
 import unittest
 import test.support
-from test.support import import_helper
 import sys
-# import gc  # XXX: RUSTPYTHON
+import gc
 import weakref
 import array
 import io
 import copy
 import pickle
+
+from test.support import import_helper
 
 
 class AbstractMemoryTests:
@@ -418,9 +419,11 @@ class BaseArrayMemoryTests(AbstractMemoryTests):
     itemsize = array.array('i').itemsize
     format = 'i'
 
+    @unittest.skip('XXX test should be adapted for non-byte buffers')
     def test_getbuffer(self):
         pass
 
+    @unittest.skip('XXX NotImplementedError: tolist() only supports byte views')
     def test_tolist(self):
         pass
 
