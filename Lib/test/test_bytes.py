@@ -16,9 +16,11 @@ import textwrap
 import unittest
 
 import test.support
+from test.support import import_helper
+from test.support import warnings_helper
 import test.string_tests
 import test.list_tests
-from test.support import bigaddrspacetest, MAX_Py_ssize_t, import_helper, warnings_helper
+from test.support import bigaddrspacetest, MAX_Py_ssize_t
 from test.support.script_helper import assert_python_failure
 
 
@@ -1177,6 +1179,28 @@ class BytesTest(BaseBytesTest, unittest.TestCase):
         self.assertEqual(bytes(ba), b'ab')
         self.assertRaises(TypeError, bytes, bb)
 
+    def test_repeat_id_preserving(self):
+        a = b'123abc1@'
+        b = b'456zyx-+'
+        self.assertEqual(id(a), id(a))
+        self.assertNotEqual(id(a), id(b))
+        self.assertNotEqual(id(a), id(a * -4))
+        self.assertNotEqual(id(a), id(a * 0))
+        self.assertEqual(id(a), id(a * 1))
+        self.assertEqual(id(a), id(1 * a))
+        self.assertNotEqual(id(a), id(a * 2))
+
+        class SubBytes(bytes):
+            pass
+
+        s = SubBytes(b'qwerty()')
+        self.assertEqual(id(s), id(s))
+        self.assertNotEqual(id(s), id(s * -4))
+        self.assertNotEqual(id(s), id(s * 0))
+        self.assertNotEqual(id(s), id(s * 1))
+        self.assertNotEqual(id(s), id(1 * s))
+        self.assertNotEqual(id(s), id(s * 2))
+
 
 class ByteArrayTest(BaseBytesTest, unittest.TestCase):
     type2test = bytearray
@@ -1799,7 +1823,7 @@ class AssortedBytesTest(unittest.TestCase):
                          "BytesWarning is needed for this test: use -bb option")
     def test_compare(self):
         def bytes_warning():
-            return test.warnings_helper.check_warningswarnings(('', BytesWarning))
+            return warnings_helper.check_warnings(('', BytesWarning))
         with bytes_warning():
             b'' == ''
         with bytes_warning():
