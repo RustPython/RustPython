@@ -62,6 +62,8 @@ class TestEncode(CTest):
         with self.assertRaises(ZeroDivisionError):
             enc('spam', 4)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_bad_markers_argument_to_encoder(self):
         # https://bugs.python.org/issue45269
         with self.assertRaisesRegex(
