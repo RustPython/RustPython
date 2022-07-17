@@ -220,9 +220,6 @@ class MiscTest(unittest.TestCase):
         for func in (do, operator.not_):
             self.assertRaises(Exc, func, Bad())
 
-    # TODO: RUSTPYTHON
-    import sys
-    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON, thread 'main' has overflowed its stack")
     @support.no_tracing
     def test_recursion(self):
         # Check that comparison for recursive objects fails gracefully
