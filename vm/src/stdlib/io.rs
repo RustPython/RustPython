@@ -2312,9 +2312,15 @@ mod _io {
         }
 
         #[pyproperty(setter, name = "_CHUNK_SIZE")]
-        fn set_chunksize(&self, chunk_size: usize, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_chunksize(&self, chunk_size: Option<usize>, vm: &VirtualMachine) -> PyResult<()> {
             let mut textio = self.lock(vm)?;
-            textio.chunk_size = chunk_size;
+            match chunk_size {
+                Some(chunk_size) => textio.chunk_size = chunk_size,
+                None => Err(vm.new_attribute_error("cannot delete attribute".to_owned()))?,
+            };
+            // TODO: RUSTPYTHON
+            // Change chunk_size type, validate it manually and throws ValueError if invalid.
+            // https://github.com/python/cpython/blob/2e9da8e3522764d09f1d6054a2be567e91a30812/Modules/_io/textio.c#L3124-L3143
             Ok(())
         }
 

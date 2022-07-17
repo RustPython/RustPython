@@ -620,10 +620,6 @@ impl PyCell {
     fn set_cell_contents(&self, x: PyObjectRef) {
         self.set(Some(x))
     }
-    #[pyproperty(deleter)]
-    fn del_cell_contents(&self) {
-        self.set(None)
-    }
 }
 
 pub fn init(context: &Context) {
