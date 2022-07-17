@@ -153,6 +153,8 @@ class BuiltinTest(unittest.TestCase):
         it = pickle.loads(d)
         self.assertEqual(list(it), seq[1:])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_import(self):
         __import__('sys')
         __import__('time')
@@ -376,6 +378,8 @@ class BuiltinTest(unittest.TestCase):
                 rv = ns['f']()
                 self.assertEqual(rv, tuple(expected))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_compile_top_level_await_no_coro(self):
         """Make sure top level non-await codes get the correct coroutine flags"""
         modes = ('single', 'exec')
@@ -397,6 +401,8 @@ class BuiltinTest(unittest.TestCase):
                                 msg=f"source={source} mode={mode}")
 
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_compile_top_level_await(self):
         """Test whether code some top level await can be compiled.
 
@@ -455,6 +461,8 @@ class BuiltinTest(unittest.TestCase):
         finally:
             asyncio.set_event_loop_policy(policy)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_compile_top_level_await_invalid_cases(self):
          # helper function just to check we can run top=level async-for
         async def arange(n):
@@ -493,6 +501,8 @@ class BuiltinTest(unittest.TestCase):
             asyncio.set_event_loop_policy(policy)
 
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_compile_async_generator(self):
         """
         With the PyCF_ALLOW_TOP_LEVEL_AWAIT flag added in 3.8, we want to
@@ -1017,6 +1027,8 @@ class BuiltinTest(unittest.TestCase):
             m2 = map(map_char, "Is this the real life?")
             self.check_iter_pickle(m1, list(m2), proto)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_max(self):
         self.assertEqual(max('123123'), '3')
         self.assertEqual(max(1, 2, 3), 3)
@@ -1076,6 +1088,8 @@ class BuiltinTest(unittest.TestCase):
         self.assertEqual(max(data, key=f),
                          sorted(reversed(data), key=f)[-1])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_min(self):
         self.assertEqual(min('123123'), '1')
         self.assertEqual(min(1, 2, 3), 1)
@@ -1218,6 +1232,7 @@ class BuiltinTest(unittest.TestCase):
             os.environ.clear()
             os.environ.update(old_environ)
 
+    @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON Windows')
     def test_open_non_inheritable(self):
         fileobj = open(__file__, encoding="utf-8")
         with fileobj:
@@ -1868,6 +1883,8 @@ class BuiltinTest(unittest.TestCase):
             self.assertRaises(TypeError, tp, 1, 2)
             self.assertRaises(TypeError, tp, a=1, b=2)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_warning_notimplemented(self):
         # Issue #35712: NotImplemented is a sentinel value that should never
         # be evaluated in a boolean context (virtually all such use cases

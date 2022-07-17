@@ -1853,6 +1853,8 @@ class UsabilityTest(unittest.TestCase):
             x = 1100 ** 1248
             self.assertEqual(hashit(Decimal(x)), hashit(x))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_hash_method_nan(self):
         Decimal = self.decimal.Decimal
         self.assertRaises(TypeError, hash, Decimal('sNaN'))

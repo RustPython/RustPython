@@ -91,6 +91,8 @@ class RangeTest(unittest.TestCase):
         r = range(-sys.maxsize, sys.maxsize, 2)
         self.assertEqual(len(r), sys.maxsize)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_range_constructor_error_messages(self):
         with self.assertRaisesRegex(
                 TypeError,
@@ -373,6 +375,8 @@ class RangeTest(unittest.TestCase):
                     self.assertEqual(list(pickle.loads(pickle.dumps(r, proto))),
                                      list(r))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_iterator_pickling(self):
         testcases = [(13,), (0, 11), (-22, 10), (20, 3, -1), (13, 21, 3),
                      (-2, 2, 2)]
@@ -660,6 +664,8 @@ class RangeTest(unittest.TestCase):
             range(0) >= range(0)
 
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_attributes(self):
         # test the start, stop and step attributes of range objects
         self.assert_attrs(range(0), 0, 0, 1)
