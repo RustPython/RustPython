@@ -119,8 +119,6 @@ class FailureTestCase(unittest.TestCase):
             with foo: pass
         self.assertRaisesRegex(AttributeError, '__enter__', fooLacksEnter)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testEnterAttributeError2(self):
         class LacksEnterAndExit(object):
             pass

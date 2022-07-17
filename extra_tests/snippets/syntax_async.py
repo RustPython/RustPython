@@ -1,5 +1,5 @@
 import asyncio
-
+import unittest
 
 class ContextManager:
     async def __aenter__(self):
@@ -70,3 +70,44 @@ assert ls == [
     "hello3",
     "hello4",
 ]
+
+
+class TestAsyncWith(unittest.TestCase):
+    def testAenterAttributeError1(self):
+        class LacksAenter(object):
+            async def __aexit__(self, *exc):
+                pass
+
+        async def foo():
+            async with LacksAenter():
+                pass
+        
+        with self.assertRaisesRegex(AttributeError, '__aenter__'):
+            foo().send(None)
+
+    def testAenterAttributeError2(self):
+        class LacksAenterAndAexit(object):
+            pass
+
+        async def foo():
+            async with LacksAenterAndAexit():
+                pass
+
+        with self.assertRaisesRegex(AttributeError, '__aenter__'):
+            foo().send(None)
+
+    def testAexitAttributeError(self):
+        class LacksAexit(object):
+            async def __aenter__(self):
+                pass
+
+        async def foo():
+            async with LacksAexit():
+                pass
+            
+        with self.assertRaisesRegex(AttributeError, '__aexit__'):
+            foo().send(None)
+
+
+if __name__ == "__main__":
+    unittest.main()
