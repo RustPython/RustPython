@@ -1,10 +1,10 @@
 use super::{PyStrRef, PyType, PyTypeRef, PyWeak};
 use crate::{
     class::PyClassImpl,
-    function::OptionalArg,
+    function::{OptionalArg, PyComparisonValue},
     protocol::{PyMappingMethods, PySequence, PySequenceMethods},
-    types::{AsMapping, AsSequence, Constructor, GetAttr, SetAttr},
-    Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    types::{AsMapping, AsSequence, Comparable, Constructor, GetAttr, PyComparisonOp, SetAttr},
+    Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "weakproxy")]
@@ -83,6 +83,11 @@ impl PyWeakProxy {
         self.try_upgrade(vm)?.bytes(vm)
     }
 
+    #[pymethod(magic)]
+    fn repr(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        self.try_upgrade(vm)?.repr(vm)
+    }
+
     fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         let obj = self.try_upgrade(vm)?;
         PySequence::contains(&obj, &needle, vm)
@@ -133,6 +138,20 @@ impl SetAttr for PyWeakProxy {
     ) -> PyResult<()> {
         let obj = zelf.try_upgrade(vm)?;
         obj.call_set_attr(vm, attr_name, value)
+    }
+}
+
+impl Comparable for PyWeakProxy {
+    fn cmp(
+        zelf: &crate::Py<Self>,
+        other: &PyObject,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        let obj = zelf.try_upgrade(vm)?;
+        Ok(PyComparisonValue::Implemented(
+            obj.rich_compare_bool(other, op, vm)?,
+        ))
     }
 }
 
