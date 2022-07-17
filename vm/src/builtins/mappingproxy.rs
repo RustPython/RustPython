@@ -83,9 +83,12 @@ impl PyMappingProxy {
         default: OptionalArg,
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
-        let default = default.into_option();
-        let value = self.get_inner(key, vm)?.or(default);
-        Ok(value)
+        let obj = self.to_object(vm)?;
+        Ok(Some(vm.call_method(
+            &obj,
+            "get",
+            (key, default.unwrap_or_none(vm)),
+        )?))
     }
 
     #[pymethod(magic)]

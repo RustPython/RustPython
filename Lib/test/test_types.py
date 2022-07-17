@@ -1029,8 +1029,6 @@ class MappingProxyTests(unittest.TestCase):
         self.assertIsNone(view.get('xxx'))
         self.assertEqual(view.get('xxx', 42), 42)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_missing(self):
         class dictmissing(dict):
             def __missing__(self, key):
