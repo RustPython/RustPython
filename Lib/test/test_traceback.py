@@ -208,7 +208,6 @@ class TracebackCases(unittest.TestCase):
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
-    @support.requires_type_collecting
     def test_print_traceback_at_exit(self):
         # Issue #22599: Ensure that it is possible to use the traceback module
         # to display an exception at Python exit

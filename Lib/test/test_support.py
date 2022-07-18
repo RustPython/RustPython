@@ -44,6 +44,8 @@ class TestSupport(unittest.TestCase):
         )
         assert len(warnings.filters) == orig_filter_len - 2
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_ignored_deprecations_are_silent(self):
         """Test support.ignore_deprecations_from() silences warnings"""
         with warnings.catch_warnings(record=True) as warning_objs:
@@ -661,7 +663,6 @@ class TestSupport(unittest.TestCase):
             self.assertTrue(support.match_test(test_chdir))
 
     @unittest.skipIf(sys.platform.startswith("win"), "TODO: RUSTPYTHON; os.dup on windows")
-    @unittest.skipIf(sys.platform == 'darwin', "TODO: RUSTPYTHON; spurious fd_count() failures on macos?")
     def test_fd_count(self):
         # We cannot test the absolute value of fd_count(): on old Linux
         # kernel or glibc versions, os.urandom() keeps a FD open on
