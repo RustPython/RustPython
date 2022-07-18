@@ -611,7 +611,7 @@ impl AsNumber for PyBytes {
     const AS_NUMBER: PyNumberMethods = PyNumberMethods {
         remainder: Some(|number, other, vm| {
             Self::number_downcast(number)
-                .mod_(other.to_pyobject(vm), vm)
+                .mod_(other.to_owned(), vm)
                 .to_pyresult(vm)
         }),
         ..PyNumberMethods::NOT_IMPLEMENTED
