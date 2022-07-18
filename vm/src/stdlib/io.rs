@@ -704,7 +704,12 @@ mod _io {
     struct _TextIOBase;
 
     #[pyimpl(flags(BASETYPE))]
-    impl _TextIOBase {}
+    impl _TextIOBase {
+        #[pyattr]
+        fn encoding(vm: &VirtualMachine) -> PyObjectRef {
+            vm.ctx.none()
+        }
+    }
 
     #[derive(FromArgs, Clone)]
     struct BufferSize {
