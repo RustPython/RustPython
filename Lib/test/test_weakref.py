@@ -228,8 +228,6 @@ class ReferencesTestCase(TestBase):
         self.assertIs(proxy1, proxy2,
                      "proxy object w/out callback should have been re-used")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_basic_proxy(self):
         o = C()
         self.check_proxy(o, weakref.proxy(o))

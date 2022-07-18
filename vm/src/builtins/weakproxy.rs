@@ -58,7 +58,7 @@ crate::common::static_cell! {
     static WEAK_SUBCLASS: PyTypeRef;
 }
 
-#[pyimpl(with(GetAttr, SetAttr, Constructor, AsSequence, AsMapping))]
+#[pyimpl(with(GetAttr, SetAttr, Constructor, Comparable, AsSequence, AsMapping))]
 impl PyWeakProxy {
     fn try_upgrade(&self, vm: &VirtualMachine) -> PyResult {
         self.weak.upgrade().ok_or_else(|| new_reference_error(vm))
@@ -88,6 +88,7 @@ impl PyWeakProxy {
         self.try_upgrade(vm)?.repr(vm)
     }
 
+    #[pymethod(magic)]
     fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         let obj = self.try_upgrade(vm)?;
         PySequence::contains(&obj, &needle, vm)
