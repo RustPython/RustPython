@@ -3,8 +3,8 @@ use crate::{
     class::PyClassImpl,
     convert::ToPyObject,
     function::{ArgMapping, OptionalArg},
-    protocol::{PyMapping, PyMappingMethods, PySequence, PySequenceMethods},
-    types::{AsMapping, AsSequence, Constructor, Iterable},
+    protocol::{PyMapping, PyMappingMethods, PyNumberMethods, PySequence, PySequenceMethods},
+    types::{AsMapping, AsNumber, AsSequence, Constructor, Iterable},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
@@ -154,11 +154,40 @@ impl PyMappingProxy {
     fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
         PyGenericAlias::new(cls, args, vm)
     }
+
+    #[pymethod(magic)]
+    fn len(&self, vm: &VirtualMachine) -> PyResult<usize> {
+        let obj = self.to_object(vm)?;
+        obj.length(vm)
+    }
+
+    #[pymethod(magic)]
+    fn reversed(&self, vm: &VirtualMachine) -> PyResult {
+        vm.call_method(
+            self.to_object(vm)?.as_object(),
+            identifier!(vm, __reversed__).as_str(),
+            (),
+        )
+    }
+
+    #[pymethod(magic)]
+    fn ior(&self, _args: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Err(vm.new_type_error(format!(
+            "\"'|=' is not supported by {}; use '|' instead\"",
+            Self::class(vm)
+        )))
+    }
+
+    #[pymethod(name = "__ror__")]
+    #[pymethod(magic)]
+    fn or(&self, args: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        vm._or(self.copy(vm)?.as_ref(), args.as_ref())
+    }
 }
 
 impl AsMapping for PyMappingProxy {
     const AS_MAPPING: PyMappingMethods = PyMappingMethods {
-        length: None,
+        length: Some(|mapping, vm| Self::mapping_downcast(mapping).len(vm)),
         subscript: Some(|mapping, needle, vm| {
             Self::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
         }),
@@ -170,6 +199,14 @@ impl AsSequence for PyMappingProxy {
     const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
         contains: Some(|seq, target, vm| Self::sequence_downcast(seq)._contains(target, vm)),
         ..PySequenceMethods::NOT_IMPLEMENTED
+    };
+}
+
+impl AsNumber for PyMappingProxy {
+    const AS_NUMBER: PyNumberMethods = PyNumberMethods {
+        or: Some(|num, args, vm| Self::number_downcast(num).or(args.to_pyobject(vm), vm)),
+        inplace_or: Some(|num, args, vm| Self::number_downcast(num).ior(args.to_pyobject(vm), vm)),
+        ..PyNumberMethods::NOT_IMPLEMENTED
     };
 }
 

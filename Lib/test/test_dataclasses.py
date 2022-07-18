@@ -1769,8 +1769,6 @@ class TestCase(unittest.TestCase):
 
         self.assertEqual(C.from_file('filename').x, 20)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_field_metadata_default(self):
         # Make sure the default metadata is read-only and of
         #  zero length.
@@ -1784,8 +1782,6 @@ class TestCase(unittest.TestCase):
                                     'does not support item assignment'):
             fields(C)[0].metadata['test'] = 3
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_field_metadata_mapping(self):
         # Make sure only a mapping can be passed as metadata
         #  zero length.
