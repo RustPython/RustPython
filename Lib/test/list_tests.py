@@ -2,13 +2,13 @@
 Tests common to list and UserList.UserList
 """
 
+import unittest
 import sys
 import os
-import unittest
 from functools import cmp_to_key
 
 from test import support, seq_tests
-from test.support import os_helper
+from test.support import ALWAYS_EQ, NEVER_EQ
 
 
 class CommonTest(seq_tests.CommonTest):
@@ -66,20 +66,6 @@ class CommonTest(seq_tests.CommonTest):
         for i in range(sys.getrecursionlimit() + 100):
             a = self.type2test([a])
         self.assertRaises(RecursionError, repr, a)
-
-    def test_print(self):
-        d = self.type2test(range(200))
-        d.append(d)
-        d.extend(range(200,400))
-        d.append(d)
-        d.append(400)
-        try:
-            with open(os_helper.TESTFN, "w") as fo:
-                fo.write(str(d))
-            with open(os_helper.TESTFN, "r") as fo:
-                self.assertEqual(fo.read(), repr(d))
-        finally:
-            os.remove(os_helper.TESTFN)
 
     def test_set_subscript(self):
         a = self.type2test(range(20))
@@ -318,6 +304,8 @@ class CommonTest(seq_tests.CommonTest):
         self.assertRaises(TypeError, a.pop, 42, 42)
         a = self.type2test([0, 10, 20, 30, 40])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_remove(self):
         a = self.type2test([0, 0, 1])
         a.remove(1)
@@ -330,6 +318,20 @@ class CommonTest(seq_tests.CommonTest):
         self.assertRaises(ValueError, a.remove, 0)
 
         self.assertRaises(TypeError, a.remove)
+
+        a = self.type2test([1, 2])
+        self.assertRaises(ValueError, a.remove, NEVER_EQ)
+        self.assertEqual(a, [1, 2])
+        a.remove(ALWAYS_EQ)
+        self.assertEqual(a, [2])
+        a = self.type2test([ALWAYS_EQ])
+        a.remove(1)
+        self.assertEqual(a, [])
+        a = self.type2test([ALWAYS_EQ])
+        a.remove(NEVER_EQ)
+        self.assertEqual(a, [])
+        a = self.type2test([NEVER_EQ])
+        self.assertRaises(ValueError, a.remove, ALWAYS_EQ)
 
         class BadExc(Exception):
             pass
@@ -363,6 +365,8 @@ class CommonTest(seq_tests.CommonTest):
             # verify that original order and values are retained.
             self.assertIs(x, y)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_index(self):
         super().test_index()
         a = self.type2test([-2, -1, 0, 0, 1, 2])

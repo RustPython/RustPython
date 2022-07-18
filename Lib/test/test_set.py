@@ -1,7 +1,7 @@
 import unittest
 from test import support
-from test.support import os_helper, warnings_helper
-# import gc
+from test.support import warnings_helper
+import gc
 import weakref
 import operator
 import copy
@@ -318,20 +318,6 @@ class TestJointOps:
             name = repr(s).partition('(')[0]    # strip class name
             self.assertEqual(repr(s), '%s({%s(...)})' % (name, name))
 
-    def test_cyclical_print(self):
-        w = ReprWrapper()
-        s = self.thetype([w])
-        w.value = s
-        fo = open(os_helper.TESTFN, "w")
-        try:
-            fo.write(str(s))
-            fo.close()
-            fo = open(os_helper.TESTFN, "r")
-            self.assertEqual(fo.read(), repr(s))
-        finally:
-            fo.close()
-            os_helper.unlink(os_helper.TESTFN)
-
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_do_not_rehash_dict_keys(self):
@@ -376,17 +362,14 @@ class TestSet(TestJointOps, unittest.TestCase):
     thetype = set
     basetype = set
 
-    def test_contains(self):
-        super().test_contains()
-
     def test_init(self):
         s = self.thetype()
         s.__init__(self.word)
         self.assertEqual(s, set(self.word))
         s.__init__(self.otherword)
         self.assertEqual(s, set(self.otherword))
-        self.assertRaises(TypeError, s.__init__, s, 2);
-        self.assertRaises(TypeError, s.__init__, 1);
+        self.assertRaises(TypeError, s.__init__, s, 2)
+        self.assertRaises(TypeError, s.__init__, 1)
 
     def test_constructor_identity(self):
         s = self.thetype(range(3))
@@ -618,6 +601,7 @@ class TestSet(TestJointOps, unittest.TestCase):
         p = weakref.proxy(s)
         self.assertEqual(str(p), str(s))
         s = None
+        support.gc_collect()  # For PyPy or other GCs.
         self.assertRaises(ReferenceError, str, p)
 
     def test_rich_compare(self):
@@ -668,17 +652,12 @@ class TestSetSubclass(TestSet):
     thetype = SetSubclass
     basetype = set
 
-    def test_pickling(self):
-        super().test_pickling()
-
-    def test_cyclical_repr(self):
-        super().test_cyclical_repr()
-
 class SetSubclassWithKeywordArgs(set):
     def __init__(self, iterable=[], newarg=None):
         set.__init__(self, iterable)
 
 class TestSetSubclassWithKeywordArgs(TestSet):
+
     def test_keywords_in_subclass(self):
         'SF bug #1486663 -- this used to erroneously raise a TypeError'
         SetSubclassWithKeywordArgs(newarg=1)
@@ -691,15 +670,6 @@ class TestFrozenSet(TestJointOps, unittest.TestCase):
         s = self.thetype(self.word)
         s.__init__(self.otherword)
         self.assertEqual(s, set(self.word))
-
-    def test_singleton_empty_frozenset(self):
-        f = frozenset()
-        efs = [frozenset(), frozenset([]), frozenset(()), frozenset(''),
-               frozenset(), frozenset([]), frozenset(()), frozenset(''),
-               frozenset(range(0)), frozenset(frozenset()),
-               frozenset(f), f]
-        # All of the empty frozensets should have just one id()
-        self.assertEqual(len(set(map(id, efs))), 1)
 
     def test_constructor_identity(self):
         s = self.thetype(range(3))
@@ -774,9 +744,6 @@ class TestFrozenSetSubclass(TestFrozenSet):
     thetype = FrozenSetSubclass
     basetype = frozenset
 
-    def test_pickling(self):
-        super().test_pickling()
-
     def test_constructor_identity(self):
         s = self.thetype(range(3))
         t = self.thetype(s)
@@ -824,17 +791,6 @@ class TestBasicOps:
         sorted_repr_values = [repr(value) for value in self.values]
         sorted_repr_values.sort()
         self.assertEqual(result, sorted_repr_values)
-
-    def test_print(self):
-        try:
-            fo = open(os_helper.TESTFN, "w")
-            fo.write(str(self.set))
-            fo.close()
-            fo = open(os_helper.TESTFN, "r")
-            self.assertEqual(fo.read(), repr(self.set))
-        finally:
-            fo.close()
-            os_helper.unlink(os_helper.TESTFN)
 
     def test_length(self):
         self.assertEqual(len(self.set), self.length)
@@ -916,6 +872,12 @@ class TestBasicOps:
             copy = pickle.loads(p)
             self.assertEqual(self.set, copy,
                              "%s != %s" % (self.set, copy))
+
+    def test_issue_37219(self):
+        with self.assertRaises(TypeError):
+            set().difference(123)
+        with self.assertRaises(TypeError):
+            set().difference_update(123)
 
 #------------------------------------------------------------------------------
 
@@ -1576,17 +1538,11 @@ class TestCopyingSingleton(TestCopying, unittest.TestCase):
     def setUp(self):
         self.set = set(["hello"])
 
-    def test_deep_copy(self):
-        super().test_deep_copy()
-
 #------------------------------------------------------------------------------
 
 class TestCopyingTriple(TestCopying, unittest.TestCase):
     def setUp(self):
         self.set = set(["zero", 0, None])
-
-    def test_deep_copy(self):
-        super().test_deep_copy()
 
 #------------------------------------------------------------------------------
 
@@ -1594,17 +1550,11 @@ class TestCopyingTuple(TestCopying, unittest.TestCase):
     def setUp(self):
         self.set = set([(1, 2)])
 
-    def test_deep_copy(self):
-        super().test_deep_copy()
-
 #------------------------------------------------------------------------------
 
 class TestCopyingNested(TestCopying, unittest.TestCase):
     def setUp(self):
         self.set = set([((1, 2), (3, 4))])
-
-    def test_deep_copy(self):
-        super().test_deep_copy()
 
 #==============================================================================
 
@@ -1827,6 +1777,194 @@ class TestWeirdBugs(unittest.TestCase):
         other = {X() for i in range(10)}
         s = {0}
         s.update(other)
+
+
+class TestOperationsMutating:
+    """Regression test for bpo-46615"""
+
+    constructor1 = None
+    constructor2 = None
+
+    def make_sets_of_bad_objects(self):
+        class Bad:
+            def __eq__(self, other):
+                if not enabled:
+                    return False
+                if randrange(20) == 0:
+                    set1.clear()
+                if randrange(20) == 0:
+                    set2.clear()
+                return bool(randrange(2))
+            def __hash__(self):
+                return randrange(2)
+        # Don't behave poorly during construction.
+        enabled = False
+        set1 = self.constructor1(Bad() for _ in range(randrange(50)))
+        set2 = self.constructor2(Bad() for _ in range(randrange(50)))
+        # Now start behaving poorly
+        enabled = True
+        return set1, set2
+
+    def check_set_op_does_not_crash(self, function):
+        for _ in range(100):
+            set1, set2 = self.make_sets_of_bad_objects()
+            try:
+                function(set1, set2)
+            except RuntimeError as e:
+                # Just make sure we don't crash here.
+                self.assertIn("changed size during iteration", str(e))
+
+
+@unittest.skip("TODO: RUSTPYTHON; segfault")
+class TestBinaryOpsMutating(TestOperationsMutating):
+
+    def test_eq_with_mutation(self):
+        self.check_set_op_does_not_crash(lambda a, b: a == b)
+
+    def test_ne_with_mutation(self):
+        self.check_set_op_does_not_crash(lambda a, b: a != b)
+
+    def test_lt_with_mutation(self):
+        self.check_set_op_does_not_crash(lambda a, b: a < b)
+
+    def test_le_with_mutation(self):
+        self.check_set_op_does_not_crash(lambda a, b: a <= b)
+
+    def test_gt_with_mutation(self):
+        self.check_set_op_does_not_crash(lambda a, b: a > b)
+
+    def test_ge_with_mutation(self):
+        self.check_set_op_does_not_crash(lambda a, b: a >= b)
+
+    def test_and_with_mutation(self):
+        self.check_set_op_does_not_crash(lambda a, b: a & b)
+
+    def test_or_with_mutation(self):
+        self.check_set_op_does_not_crash(lambda a, b: a | b)
+
+    def test_sub_with_mutation(self):
+        self.check_set_op_does_not_crash(lambda a, b: a - b)
+
+    def test_xor_with_mutation(self):
+        self.check_set_op_does_not_crash(lambda a, b: a ^ b)
+
+    def test_iadd_with_mutation(self):
+        def f(a, b):
+            a &= b
+        self.check_set_op_does_not_crash(f)
+
+    def test_ior_with_mutation(self):
+        def f(a, b):
+            a |= b
+        self.check_set_op_does_not_crash(f)
+
+    def test_isub_with_mutation(self):
+        def f(a, b):
+            a -= b
+        self.check_set_op_does_not_crash(f)
+
+    def test_ixor_with_mutation(self):
+        def f(a, b):
+            a ^= b
+        self.check_set_op_does_not_crash(f)
+
+    def test_iteration_with_mutation(self):
+        def f1(a, b):
+            for x in a:
+                pass
+            for y in b:
+                pass
+        def f2(a, b):
+            for y in b:
+                pass
+            for x in a:
+                pass
+        def f3(a, b):
+            for x, y in zip(a, b):
+                pass
+        self.check_set_op_does_not_crash(f1)
+        self.check_set_op_does_not_crash(f2)
+        self.check_set_op_does_not_crash(f3)
+
+
+class TestBinaryOpsMutating_Set_Set(TestBinaryOpsMutating, unittest.TestCase):
+    constructor1 = set
+    constructor2 = set
+
+class TestBinaryOpsMutating_Subclass_Subclass(TestBinaryOpsMutating, unittest.TestCase):
+    constructor1 = SetSubclass
+    constructor2 = SetSubclass
+
+class TestBinaryOpsMutating_Set_Subclass(TestBinaryOpsMutating, unittest.TestCase):
+    constructor1 = set
+    constructor2 = SetSubclass
+
+class TestBinaryOpsMutating_Subclass_Set(TestBinaryOpsMutating, unittest.TestCase):
+    constructor1 = SetSubclass
+    constructor2 = set
+
+
+@unittest.skip("TODO: RUSTPYTHON; segfault")
+class TestMethodsMutating(TestOperationsMutating):
+
+    def test_issubset_with_mutation(self):
+        self.check_set_op_does_not_crash(set.issubset)
+
+    def test_issuperset_with_mutation(self):
+        self.check_set_op_does_not_crash(set.issuperset)
+
+    def test_intersection_with_mutation(self):
+        self.check_set_op_does_not_crash(set.intersection)
+
+    def test_union_with_mutation(self):
+        self.check_set_op_does_not_crash(set.union)
+
+    def test_difference_with_mutation(self):
+        self.check_set_op_does_not_crash(set.difference)
+
+    def test_symmetric_difference_with_mutation(self):
+        self.check_set_op_does_not_crash(set.symmetric_difference)
+
+    def test_isdisjoint_with_mutation(self):
+        self.check_set_op_does_not_crash(set.isdisjoint)
+
+    def test_difference_update_with_mutation(self):
+        self.check_set_op_does_not_crash(set.difference_update)
+
+    def test_intersection_update_with_mutation(self):
+        self.check_set_op_does_not_crash(set.intersection_update)
+
+    def test_symmetric_difference_update_with_mutation(self):
+        self.check_set_op_does_not_crash(set.symmetric_difference_update)
+
+    def test_update_with_mutation(self):
+        self.check_set_op_does_not_crash(set.update)
+
+
+class TestMethodsMutating_Set_Set(TestMethodsMutating, unittest.TestCase):
+    constructor1 = set
+    constructor2 = set
+
+class TestMethodsMutating_Subclass_Subclass(TestMethodsMutating, unittest.TestCase):
+    constructor1 = SetSubclass
+    constructor2 = SetSubclass
+
+class TestMethodsMutating_Set_Subclass(TestMethodsMutating, unittest.TestCase):
+    constructor1 = set
+    constructor2 = SetSubclass
+
+class TestMethodsMutating_Subclass_Set(TestMethodsMutating, unittest.TestCase):
+    constructor1 = SetSubclass
+    constructor2 = set
+
+class TestMethodsMutating_Set_Dict(TestMethodsMutating, unittest.TestCase):
+    constructor1 = set
+    constructor2 = dict.fromkeys
+
+class TestMethodsMutating_Set_List(TestMethodsMutating, unittest.TestCase):
+    constructor1 = set
+    constructor2 = list
+
 
 # Application tests (based on David Eppstein's graph recipes ====================================
 

@@ -533,6 +533,7 @@ class TestBasicOps(unittest.TestCase):
                     next(testIntermediate)
                     self.assertEqual(list(op(testIntermediate)), list(result2))
 
+
     def test_count(self):
         self.assertEqual(lzip('abc',count()), [('a', 0), ('b', 1), ('c', 2)])
         self.assertEqual(lzip('abc',count(3)), [('a', 3), ('b', 4), ('c', 5)])
@@ -1477,6 +1478,7 @@ class TestBasicOps(unittest.TestCase):
         p = weakref.proxy(a)
         self.assertEqual(getattr(p, '__class__'), type(b))
         del a
+        support.gc_collect()  # For PyPy or other GCs.
         self.assertRaises(ReferenceError, getattr, p, '__class__')
 
         ans = list('abc')
@@ -2435,10 +2437,37 @@ Samuele
 ...     else:
 ...         return starmap(func, repeat(args, times))
 
->>> def grouper(n, iterable, fillvalue=None):
-...     "grouper(3, 'ABCDEFG', 'x') --> ABC DEF Gxx"
+>>> def grouper(iterable, n, *, incomplete='fill', fillvalue=None):
+...     "Collect data into non-overlapping fixed-length chunks or blocks"
+...     # grouper('ABCDEFG', 3, fillvalue='x') --> ABC DEF Gxx
+...     # grouper('ABCDEFG', 3, incomplete='strict') --> ABC DEF ValueError
+...     # grouper('ABCDEFG', 3, incomplete='ignore') --> ABC DEF
 ...     args = [iter(iterable)] * n
-...     return zip_longest(*args, fillvalue=fillvalue)
+...     if incomplete == 'fill':
+...         return zip_longest(*args, fillvalue=fillvalue)
+...     if incomplete == 'strict':
+...         return zip(*args, strict=True)
+...     if incomplete == 'ignore':
+...         return zip(*args)
+...     else:
+...         raise ValueError('Expected fill, strict, or ignore')
+
+>>> def triplewise(iterable):
+...     "Return overlapping triplets from an iterable"
+...     # pairwise('ABCDEFG') -> ABC BCD CDE DEF EFG
+...     for (a, _), (b, c) in pairwise(pairwise(iterable)):
+...         yield a, b, c
+
+>>> import collections
+>>> def sliding_window(iterable, n):
+...     # sliding_window('ABCDEFG', 4) -> ABCD BCDE CDEF DEFG
+...     it = iter(iterable)
+...     window = collections.deque(islice(it, n), maxlen=n)
+...     if len(window) == n:
+...         yield tuple(window)
+...     for x in it:
+...         window.append(x)
+...         yield tuple(window)
 
 >>> def roundrobin(*iterables):
 ...     "roundrobin('ABC', 'D', 'EF') --> A D E B F C"
@@ -2452,6 +2481,40 @@ Samuele
 ...         except StopIteration:
 ...             pending -= 1
 ...             nexts = cycle(islice(nexts, pending))
+
+>>> def partition(pred, iterable):
+...     "Use a predicate to partition entries into false entries and true entries"
+...     # partition(is_odd, range(10)) --> 0 2 4 6 8   and  1 3 5 7 9
+...     t1, t2 = tee(iterable)
+...     return filterfalse(pred, t1), filter(pred, t2)
+
+>>> def before_and_after(predicate, it):
+...     ''' Variant of takewhile() that allows complete
+...         access to the remainder of the iterator.
+...
+...         >>> all_upper, remainder = before_and_after(str.isupper, 'ABCdEfGhI')
+...         >>> str.join('', all_upper)
+...         'ABC'
+...         >>> str.join('', remainder)
+...         'dEfGhI'
+...
+...         Note that the first iterator must be fully
+...         consumed before the second iterator can
+...         generate valid results.
+...     '''
+...     it = iter(it)
+...     transition = []
+...     def true_iterator():
+...         for elem in it:
+...             if predicate(elem):
+...                 yield elem
+...             else:
+...                 transition.append(elem)
+...                 return
+...     def remainder_iterator():
+...         yield from transition
+...         yield from it
+...     return true_iterator(), remainder_iterator()
 
 >>> def powerset(iterable):
 ...     "powerset([1,2,3]) --> () (1,) (2,) (3,) (1,2) (1,3) (2,3) (1,2,3)"
@@ -2574,11 +2637,46 @@ True
 >>> dotproduct([1,2,3], [4,5,6])
 32
 
->>> list(grouper(3, 'abcdefg', 'x'))
+>>> list(grouper('abcdefg', 3, fillvalue='x'))
 [('a', 'b', 'c'), ('d', 'e', 'f'), ('g', 'x', 'x')]
+
+>>> it = grouper('abcdefg', 3, incomplete='strict')
+>>> next(it)
+('a', 'b', 'c')
+>>> next(it)
+('d', 'e', 'f')
+>>> next(it)
+Traceback (most recent call last):
+  ...
+ValueError: zip() argument 2 is shorter than argument 1
+
+>>> list(grouper('abcdefg', n=3, incomplete='ignore'))
+[('a', 'b', 'c'), ('d', 'e', 'f')]
+
+>>> list(triplewise('ABCDEFG'))
+[('A', 'B', 'C'), ('B', 'C', 'D'), ('C', 'D', 'E'), ('D', 'E', 'F'), ('E', 'F', 'G')]
+
+>>> list(sliding_window('ABCDEFG', 4))
+[('A', 'B', 'C', 'D'), ('B', 'C', 'D', 'E'), ('C', 'D', 'E', 'F'), ('D', 'E', 'F', 'G')]
 
 >>> list(roundrobin('abc', 'd', 'ef'))
 ['a', 'd', 'e', 'b', 'f', 'c']
+
+>>> def is_odd(x):
+...     return x % 2 == 1
+
+>>> evens, odds = partition(is_odd, range(10))
+>>> list(evens)
+[0, 2, 4, 6, 8]
+>>> list(odds)
+[1, 3, 5, 7, 9]
+
+>>> it = iter('ABCdEfGhI')
+>>> all_upper, remainder = before_and_after(str.isupper, it)
+>>> ''.join(all_upper)
+'ABC'
+>>> ''.join(remainder)
+'dEfGhI'
 
 >>> list(powerset([1,2,3]))
 [(), (1,), (2,), (3,), (1, 2), (1, 3), (2, 3), (1, 2, 3)]
@@ -2635,6 +2733,7 @@ def test_main(verbose=None):
             counts[i] = sys.gettotalrefcount()
         print(counts)
 
+    # doctest the examples in the library reference
     support.run_doctest(sys.modules[__name__], verbose)
 
 if __name__ == "__main__":

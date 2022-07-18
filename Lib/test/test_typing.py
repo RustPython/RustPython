@@ -691,11 +691,6 @@ class TypingCallableTests(BaseCallableTests, BaseTestCase):
 class CollectionsCallableTests(BaseCallableTests, BaseTestCase):
     Callable = collections.abc.Callable
 
-    # TODO: RUSTPYTHON, pickle.PicklingError: Can't pickle <class 'collections.abc._CallableGenericAlias'>: it's not found as collections.abc._CallableGenericAlias
-    @unittest.expectedFailure
-    def test_pickle(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_pickle() # TODO: RUSTPYTHON, remove when this passes
-
     # TODO: RUSTPYTHON, AssertionError: 'collections.abc.Callable[__main__.ParamSpec, typing.TypeVar]' != 'collections.abc.Callable[~P, ~T]'
     @unittest.expectedFailure
     def test_paramspec(self): # TODO: RUSTPYTHON, remove when this passes
@@ -5423,7 +5418,6 @@ class AllTests(BaseTestCase):
         self.assertIn('SupportsComplex', a)
 
     def test_all_exported_names(self):
-
         actual_all = set(typing.__all__)
         computed_all = {
             k for k, v in vars(typing).items()
