@@ -304,8 +304,6 @@ class BaseTest:
             self.assertEqual(a.x, b.x)
             self.assertEqual(type(a), type(b))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_iterator_pickle(self):
         orig = array.array(self.typecode, self.example)
         data = list(orig)
