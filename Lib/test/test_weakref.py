@@ -2138,12 +2138,12 @@ __test__ = {'libreftest' : libreftest}
 def test_main():
     support.run_unittest(
         ReferencesTestCase,
-        # WeakMethodTestCase,
-        # MappingTestCase,
-        # WeakValueDictionaryTestCase,
-        # WeakKeyDictionaryTestCase,
-        # SubclassableWeakrefTestCase,
-        # FinalizeTestCase,
+        WeakMethodTestCase,
+        MappingTestCase,
+        WeakValueDictionaryTestCase,
+        WeakKeyDictionaryTestCase,
+        SubclassableWeakrefTestCase,
+        FinalizeTestCase,
         )
     # TODO: RUSTPYTHON
     # support.run_doctest(sys.modules[__name__])
