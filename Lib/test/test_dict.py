@@ -105,8 +105,6 @@ class DictTest(unittest.TestCase):
         self.assertRaises(TypeError, d.items, None)
         self.assertEqual(repr(dict(a=1).items()), "dict_items([('a', 1)])")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_views_mapping(self):
         mappingproxy = type(type.__dict__)
         class Dict(dict):
