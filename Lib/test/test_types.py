@@ -982,8 +982,6 @@ class UnionTests(unittest.TestCase):
 class MappingProxyTests(unittest.TestCase):
     mappingproxy = types.MappingProxyType
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_constructor(self):
         class userdict(dict):
             pass
