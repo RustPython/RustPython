@@ -4,7 +4,7 @@ from doctest import DocTestSuite
 from test import support
 from test.support import threading_helper
 import weakref
-# import gc
+import gc
 
 # Modules under test
 import _thread
@@ -38,7 +38,7 @@ class BaseLocalTest:
             t.join()
         del t
 
-        # gc.collect()
+        support.gc_collect()  # For PyPy or other GCs.
         self.assertEqual(len(weaklist), n)
 
         # XXX _threading_local keeps the local of the last stopped thread alive.
@@ -47,7 +47,7 @@ class BaseLocalTest:
 
         # Assignment to the same thread local frees it sometimes (!)
         local.someothervar = None
-        # gc.collect()
+        support.gc_collect()  # For PyPy or other GCs.
         deadlist = [weak for weak in weaklist if weak() is None]
         self.assertIn(len(deadlist), (n-1, n), (n, len(deadlist)))
 
@@ -90,7 +90,7 @@ class BaseLocalTest:
             # 2) GC the cycle (triggers threadmodule.c::local_clear
             # before local_dealloc)
             del cycle
-            # gc.collect()
+            support.gc_collect()  # For PyPy or other GCs.
             e1.set()
             e2.wait()
 
@@ -195,7 +195,7 @@ class BaseLocalTest:
         x.local.x = x
         wr = weakref.ref(x)
         del x
-        # gc.collect()
+        support.gc_collect()  # For PyPy or other GCs.
         self.assertIsNone(wr())
 
 
@@ -210,7 +210,7 @@ def test_main():
     suite = unittest.TestSuite()
     suite.addTest(DocTestSuite('_threading_local'))
     suite.addTest(unittest.makeSuite(ThreadLocalTest))
-    # suite.addTest(unittest.makeSuite(PyThreadingLocalTest))
+    suite.addTest(unittest.makeSuite(PyThreadingLocalTest))
 
     local_orig = _threading_local.local
     def setUp(test):

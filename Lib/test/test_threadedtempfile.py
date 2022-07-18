@@ -19,7 +19,6 @@ from test.support import threading_helper
 import unittest
 import io
 import threading
-import sys
 from traceback import print_exc
 
 
