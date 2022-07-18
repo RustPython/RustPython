@@ -62,6 +62,17 @@ class TestEncode(CTest):
         with self.assertRaises(ZeroDivisionError):
             enc('spam', 4)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_bad_markers_argument_to_encoder(self):
+        # https://bugs.python.org/issue45269
+        with self.assertRaisesRegex(
+            TypeError,
+            r'make_encoder\(\) argument 1 must be dict or None, not int',
+        ):
+            self.json.encoder.c_make_encoder(1, None, None, None, ': ', ', ',
+                                             False, False, False)
+
     # TODO: RUSTPYTHON, translate the encoder to Rust
     @unittest.expectedFailure
     def test_bad_bool_args(self):
