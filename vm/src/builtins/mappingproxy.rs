@@ -2,9 +2,9 @@ use super::{PyDict, PyDictRef, PyGenericAlias, PyList, PyTuple, PyType, PyTypeRe
 use crate::{
     class::PyClassImpl,
     convert::ToPyObject,
-    function::{ArgMapping, OptionalArg},
+    function::{ArgMapping, OptionalArg, PyComparisonValue},
     protocol::{PyMapping, PyMappingMethods, PyNumberMethods, PySequence, PySequenceMethods},
-    types::{AsMapping, AsNumber, AsSequence, Constructor, Iterable},
+    types::{AsMapping, AsNumber, AsSequence, Comparable, Constructor, Iterable, PyComparisonOp},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
@@ -64,7 +64,7 @@ impl Constructor for PyMappingProxy {
     }
 }
 
-#[pyimpl(with(AsMapping, Iterable, Constructor, AsSequence))]
+#[pyimpl(with(AsMapping, Iterable, Constructor, AsSequence, Comparable))]
 impl PyMappingProxy {
     fn get_inner(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
         let opt = match &self.mapping {
@@ -182,6 +182,20 @@ impl PyMappingProxy {
     #[pymethod(magic)]
     fn or(&self, args: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm._or(self.copy(vm)?.as_ref(), args.as_ref())
+    }
+}
+
+impl Comparable for PyMappingProxy {
+    fn cmp(
+        zelf: &crate::Py<Self>,
+        other: &PyObject,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        let obj = zelf.to_object(vm)?;
+        Ok(PyComparisonValue::Implemented(
+            obj.rich_compare_bool(other, op, vm)?,
+        ))
     }
 }
 
