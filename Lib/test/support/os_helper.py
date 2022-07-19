@@ -49,20 +49,19 @@ if os.name == 'nt':
                   'encoding (%s). Unicode filename tests may not be effective'
                   % (TESTFN_UNENCODABLE, sys.getfilesystemencoding()))
             TESTFN_UNENCODABLE = None
-# TODO: RUSTPYTHON comment out before
-# # Mac OS X denies unencodable filenames (invalid utf-8)
-# elif sys.platform != 'darwin':
-#     try:
-#         # ascii and utf-8 cannot encode the byte 0xff
-#         b'\xff'.decode(sys.getfilesystemencoding())
-#     except UnicodeDecodeError:
-#         # 0xff will be encoded using the surrogate character u+DCFF
-#         TESTFN_UNENCODABLE = TESTFN_ASCII \
-#             + b'-\xff'.decode(sys.getfilesystemencoding(), 'surrogateescape')
-#     else:
-#         # File system encoding (eg. ISO-8859-* encodings) can encode
-#         # the byte 0xff. Skip some unicode filename tests.
-#         pass
+# Mac OS X denies unencodable filenames (invalid utf-8)
+elif sys.platform != 'darwin':
+    try:
+        # ascii and utf-8 cannot encode the byte 0xff
+        b'\xff'.decode(sys.getfilesystemencoding())
+    except UnicodeDecodeError:
+        # 0xff will be encoded using the surrogate character u+DCFF
+        TESTFN_UNENCODABLE = TESTFN_ASCII \
+            + b'-\xff'.decode(sys.getfilesystemencoding(), 'surrogateescape')
+    else:
+        # File system encoding (eg. ISO-8859-* encodings) can encode
+        # the byte 0xff. Skip some unicode filename tests.
+        pass
 
 # FS_NONASCII: non-ASCII character encodable by os.fsencode(),
 # or an empty string if there is no such character.
@@ -276,24 +275,12 @@ if sys.platform.startswith("win"):
                       RuntimeWarning, stacklevel=4)
 
     def _unlink(filename):
-        # XXX RUSTPYTHON: on ci, unlink() raises PermissionError when target doesn't exist.
-        # Might also happen locally, but not sure
-        if not os.path.exists(filename):
-            return
         _waitfor(os.unlink, filename)
 
     def _rmdir(dirname):
-        # XXX RUSTPYTHON: on ci, rmdir() raises PermissionError when target doesn't exist.
-        # Might also happen locally, but not sure
-        if not os.path.exists(dirname):
-            return
         _waitfor(os.rmdir, dirname)
 
     def _rmtree(path):
-        # XXX RUSTPYTHON: on ci, rmdir() raises PermissionError when target doesn't exist.
-        # Might also happen locally, but not sure
-        if not os.path.exists(path):
-            return
         from test.support import _force_run
 
         def _rmtree_inner(path):
@@ -411,18 +398,7 @@ def temp_dir(path=None, quiet=False):
         # In case the process forks, let only the parent remove the
         # directory. The child has a different process id. (bpo-30028)
         if dir_created and pid == os.getpid():
-            try:
-                rmtree(path)
-            except OSError as exc:
-                # XXX RUSTPYTHON: something something async file removal?
-                #                 also part of the thing with rmtree()
-                #                 throwing PermissionError, I think
-                if os.path.exists(path):
-                    if not quiet:
-                        raise
-                    warnings.warn(f'unable to remove temporary'
-                                  f'directory {path!r}: {exc}',
-                                  RuntimeWarning, stacklevel=3)
+            rmtree(path)
 
 
 @contextlib.contextmanager
