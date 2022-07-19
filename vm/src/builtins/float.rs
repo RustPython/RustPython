@@ -204,8 +204,8 @@ impl PyFloat {
         }
     }
 
-    #[pymethod(magic)]
-    fn getformat(&self, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
+    #[pystaticmethod(magic)]
+    fn getformat(spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
         if !matches!(spec.as_str(), "double" | "float") {
             return Err(vm.new_value_error(
                 "__getformat__() argument 1 must be 'double' or 'float'".to_owned(),
