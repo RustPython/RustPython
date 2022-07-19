@@ -13,13 +13,13 @@ use crate::{
     function::Either,
     function::{ArgBytesLike, ArgIterable, OptionalArg, OptionalOption, PyComparisonValue},
     protocol::{
-        BufferDescriptor, BufferMethods, PyBuffer, PyIterReturn, PyMappingMethods,
+        BufferDescriptor, BufferMethods, PyBuffer, PyIterReturn, PyMappingMethods, PyNumberMethods,
         PySequenceMethods,
     },
     sliceable::{SequenceIndex, SliceableSequenceOp},
     types::{
-        AsBuffer, AsMapping, AsSequence, Callable, Comparable, Constructor, Hashable, IterNext,
-        IterNextIterable, Iterable, PyComparisonOp, Unconstructible,
+        AsBuffer, AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, Hashable,
+        IterNext, IterNextIterable, Iterable, PyComparisonOp, Unconstructible,
     },
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, TryFromObject, VirtualMachine,
@@ -108,7 +108,8 @@ impl PyBytes {
         Comparable,
         AsBuffer,
         Iterable,
-        Constructor
+        Constructor,
+        AsNumber
     )
 )]
 impl PyBytes {
@@ -603,6 +604,17 @@ impl AsSequence for PyBytes {
             Self::sequence_downcast(seq).contains(other, vm)
         }),
         ..PySequenceMethods::NOT_IMPLEMENTED
+    };
+}
+
+impl AsNumber for PyBytes {
+    const AS_NUMBER: PyNumberMethods = PyNumberMethods {
+        remainder: Some(|number, other, vm| {
+            Self::number_downcast(number)
+                .mod_(other.to_owned(), vm)
+                .to_pyresult(vm)
+        }),
+        ..PyNumberMethods::NOT_IMPLEMENTED
     };
 }
 
