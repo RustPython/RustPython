@@ -271,7 +271,7 @@ impl PyList {
     ) -> PyResult<usize> {
         let (start, stop) = range.saturate(self.len(), vm)?;
         let index = self.mut_index_range(vm, &needle, start..stop)?;
-        if let Some(index) = index.into() {
+        if let Some(index) = index {
             Ok(index)
         } else {
             Err(vm.new_value_error(format!("'{}' is not in list", needle.str(vm)?)))
@@ -298,7 +298,7 @@ impl PyList {
     fn remove(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let index = self.mut_index(vm, &needle)?;
 
-        if let Some(index) = index.into() {
+        if let Some(index) = index {
             // defer delete out of borrow
             let is_inside_range = index < self.borrow_vec().len();
             Ok(is_inside_range.then(|| self.borrow_vec_mut().remove(index)))

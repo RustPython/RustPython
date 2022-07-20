@@ -5,17 +5,18 @@ use crate::{
 use optional::Optioned;
 use std::ops::Range;
 
-pub trait MutObjectSequenceOp<'a> {
-    type Guard;
+pub trait MutObjectSequenceOp<'a>: Sized {
+    type Guard: Sized;
 
     fn do_get(index: usize, guard: &Self::Guard) -> Option<&PyObjectRef>;
     fn do_lock(&'a self) -> Self::Guard;
 
     fn mut_count(&'a self, vm: &VirtualMachine, needle: &PyObject) -> PyResult<usize> {
+        let mut find_iter = self._mut_find(vm, needle, 0..isize::MAX as usize);
         let mut count = 0;
-        self._mut_iter_equal_skeleton::<_, false>(vm, needle, 0..isize::MAX as usize, || {
-            count += 1
-        })?;
+        while (find_iter.next().transpose()?).is_some() {
+            count += 1;
+        }
         Ok(count)
     }
 
@@ -24,11 +25,11 @@ pub trait MutObjectSequenceOp<'a> {
         vm: &VirtualMachine,
         needle: &PyObject,
         range: Range<usize>,
-    ) -> PyResult<Optioned<usize>> {
-        self._mut_iter_equal_skeleton::<_, true>(vm, needle, range, || {})
+    ) -> PyResult<Option<usize>> {
+        self._mut_find(vm, needle, range).next().transpose()
     }
 
-    fn mut_index(&'a self, vm: &VirtualMachine, needle: &PyObject) -> PyResult<Optioned<usize>> {
+    fn mut_index(&'a self, vm: &VirtualMachine, needle: &PyObject) -> PyResult<Option<usize>> {
         self.mut_index_range(vm, needle, 0..isize::MAX as usize)
     }
 
@@ -36,56 +37,78 @@ pub trait MutObjectSequenceOp<'a> {
         self.mut_index(vm, needle).map(|x| x.is_some())
     }
 
-    fn _mut_iter_equal_skeleton<F, const SHORT: bool>(
+    fn _mut_find<'b, 'vm>(
         &'a self,
-        vm: &VirtualMachine,
-        needle: &PyObject,
+        vm: &'vm VirtualMachine,
+        needle: &'b PyObject,
         range: Range<usize>,
-        mut f: F,
-    ) -> PyResult<Optioned<usize>>
-    where
-        F: FnMut(),
-    {
-        let mut borrower = None;
-        let mut i = range.start;
+    ) -> MutObjectSequenceFindIter<'a, 'b, 'vm, Self> {
+        MutObjectSequenceFindIter {
+            seq: self,
+            needle,
+            pos: range.start,
+            end: range.end,
+            guard: None,
+            vm,
+        }
+    }
+}
 
-        let index = loop {
-            if i >= range.end {
-                break Optioned::<usize>::none();
+pub struct MutObjectSequenceFindIter<'a, 'b, 'vm, S: MutObjectSequenceOp<'a>> {
+    // mutable fields
+    pos: usize,
+    guard: Option<S::Guard>,
+    // immutable fields
+    seq: &'a S,
+    needle: &'b PyObject,
+    end: usize,
+    vm: &'vm VirtualMachine,
+}
+
+impl<'a, 'b, 'vm, S: MutObjectSequenceOp<'a>> MutObjectSequenceFindIter<'a, 'b, 'vm, S> {
+    #[inline]
+    fn next_impl(&mut self) -> PyResult<Optioned<usize>> {
+        loop {
+            if self.pos >= self.end {
+                return Ok(Optioned::none());
             }
-            let guard = if let Some(x) = borrower.take() {
+            let guard = self.guard.take().unwrap_or_else(|| self.seq.do_lock());
+            let elem = if let Some(x) = S::do_get(self.pos, &guard) {
                 x
             } else {
-                self.do_lock()
+                return Ok(Optioned::none());
             };
 
-            let elem = if let Some(x) = Self::do_get(i, &guard) {
-                x
-            } else {
-                break Optioned::<usize>::none();
-            };
-
-            if elem.is(needle) {
-                f();
-                if SHORT {
-                    break Optioned::<usize>::some(i);
-                }
-                borrower = Some(guard);
+            let is_equal = if elem.is(self.needle) {
+                self.guard = Some(guard);
+                true
             } else {
                 let elem = elem.clone();
                 drop(guard);
+                elem.rich_compare_bool(self.needle, PyComparisonOp::Eq, self.vm)?
+            };
 
-                if elem.rich_compare_bool(needle, PyComparisonOp::Eq, vm)? {
-                    f();
-                    if SHORT {
-                        break Optioned::<usize>::some(i);
-                    }
-                }
+            if is_equal {
+                break;
             }
-            i += 1;
-        };
 
-        Ok(index)
+            self.pos += 1;
+        }
+
+        let i = self.pos;
+        self.pos += 1;
+        Ok(Optioned::some(i))
+    }
+}
+
+impl<'a, 'b, 'vm, S: MutObjectSequenceOp<'a>> Iterator
+    for MutObjectSequenceFindIter<'a, 'b, 'vm, S>
+{
+    type Item = PyResult<usize>;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        self.next_impl().map(Into::into).transpose()
     }
 }
 
