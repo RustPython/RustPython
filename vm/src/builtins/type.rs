@@ -990,7 +990,7 @@ mod tests {
             vec![object.clone()],
             PyAttributes::default(),
             Default::default(),
-            type_type.clone(),
+            type_type,
         )
         .unwrap();
 
@@ -1006,7 +1006,7 @@ mod tests {
                 vec![a.clone(), object.clone()],
                 vec![b.clone(), object.clone()],
             ])),
-            map_ids(Ok(vec![a.clone(), b.clone(), object.clone()]))
+            map_ids(Ok(vec![a, b, object]))
         );
     }
 }

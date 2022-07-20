@@ -478,40 +478,32 @@ fn test_to_hex() {
 
 #[test]
 fn test_remove_trailing_zeros() {
-    assert!(remove_trailing_zeros(String::from("100")) == String::from("1"));
-    assert!(remove_trailing_zeros(String::from("100.00")) == String::from("100."));
+    assert!(remove_trailing_zeros(String::from("100")) == *"1");
+    assert!(remove_trailing_zeros(String::from("100.00")) == *"100.");
 
     // leave leading zeros untouched
-    assert!(remove_trailing_zeros(String::from("001")) == String::from("001"));
+    assert!(remove_trailing_zeros(String::from("001")) == *"001");
 
     // leave strings untouched if they don't end with 0
-    assert!(remove_trailing_zeros(String::from("101")) == String::from("101"));
+    assert!(remove_trailing_zeros(String::from("101")) == *"101");
 }
 
 #[test]
 fn test_remove_trailing_decimal_point() {
-    assert!(remove_trailing_decimal_point(String::from("100.")) == String::from("100"));
-    assert!(remove_trailing_decimal_point(String::from("1.")) == String::from("1"));
+    assert!(remove_trailing_decimal_point(String::from("100.")) == *"100");
+    assert!(remove_trailing_decimal_point(String::from("1.")) == *"1");
 
     // leave leading decimal points untouched
-    assert!(remove_trailing_decimal_point(String::from(".5")) == String::from(".5"));
+    assert!(remove_trailing_decimal_point(String::from(".5")) == *".5");
 }
 
 #[test]
 fn test_maybe_remove_trailing_redundant_chars() {
-    assert!(
-        maybe_remove_trailing_redundant_chars(String::from("100."), true) == String::from("100.")
-    );
-    assert!(
-        maybe_remove_trailing_redundant_chars(String::from("100."), false) == String::from("100")
-    );
-    assert!(maybe_remove_trailing_redundant_chars(String::from("1."), false) == String::from("1"));
-    assert!(
-        maybe_remove_trailing_redundant_chars(String::from("10.0"), false) == String::from("10")
-    );
+    assert!(maybe_remove_trailing_redundant_chars(String::from("100."), true) == *"100.");
+    assert!(maybe_remove_trailing_redundant_chars(String::from("100."), false) == *"100");
+    assert!(maybe_remove_trailing_redundant_chars(String::from("1."), false) == *"1");
+    assert!(maybe_remove_trailing_redundant_chars(String::from("10.0"), false) == *"10");
 
     // don't truncate integers
-    assert!(
-        maybe_remove_trailing_redundant_chars(String::from("1000"), false) == String::from("1000")
-    );
+    assert!(maybe_remove_trailing_redundant_chars(String::from("1000"), false) == *"1000");
 }

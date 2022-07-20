@@ -122,7 +122,7 @@ mod tests {
     #[test]
     fn test_parse_lambda() {
         let source = "lambda x, y: x * y"; // lambda(x, y): x * y";
-        let parse_ast = parse_program(&source).unwrap();
+        let parse_ast = parse_program(source).unwrap();
         insta::assert_debug_snapshot!(parse_ast);
     }
 
@@ -130,7 +130,7 @@ mod tests {
     fn test_parse_tuples() {
         let source = "a, b = 4, 5";
 
-        insta::assert_debug_snapshot!(parse_program(&source).unwrap());
+        insta::assert_debug_snapshot!(parse_program(source).unwrap());
     }
 
     #[test]
@@ -141,7 +141,7 @@ class Foo(A, B):
   pass
  def method_with_default(self, arg='default'):
   pass";
-        insta::assert_debug_snapshot!(parse_program(&source).unwrap());
+        insta::assert_debug_snapshot!(parse_program(source).unwrap());
     }
 
     #[test]

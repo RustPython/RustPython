@@ -760,8 +760,8 @@ fn test_nested_frozen() {
             .map_err(|err| vm.new_syntax_error(&err))
             .unwrap();
 
-        if let Err(e) = vm.run_code_obj(code_obj, scope.clone()) {
-            vm.print_exception(e.clone());
+        if let Err(e) = vm.run_code_obj(code_obj, scope) {
+            vm.print_exception(e);
             assert!(false);
         }
     })
