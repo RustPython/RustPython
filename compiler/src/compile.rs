@@ -852,6 +852,9 @@ impl Compiler {
                     self.compile_delete(element)?;
                 }
             }
+            ast::ExprKind::BinOp { .. } | ast::ExprKind::UnaryOp { .. } => {
+                return Err(self.error(CompileErrorType::Delete("expression")))
+            }
             _ => return Err(self.error(CompileErrorType::Delete(expression.node.name()))),
         }
         Ok(())

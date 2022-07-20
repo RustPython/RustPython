@@ -1330,8 +1330,6 @@ class SyntaxTestCase(unittest.TestCase):
     def test_assign_call(self):
         self._check_error("f() = 1", "assign")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_assign_del(self):
         self._check_error("del (,)", "invalid syntax")
         self._check_error("del 1", "cannot delete literal")
