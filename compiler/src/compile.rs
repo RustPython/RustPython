@@ -847,10 +847,13 @@ impl Compiler {
                 self.compile_expression(slice)?;
                 self.emit(Instruction::DeleteSubscript);
             }
-            ast::ExprKind::Tuple { elts, .. } => {
+            ast::ExprKind::Tuple { elts, .. } | ast::ExprKind::List { elts, .. } => {
                 for element in elts {
                     self.compile_delete(element)?;
                 }
+            }
+            ast::ExprKind::BinOp { .. } | ast::ExprKind::UnaryOp { .. } => {
+                return Err(self.error(CompileErrorType::Delete("expression")))
             }
             _ => return Err(self.error(CompileErrorType::Delete(expression.node.name()))),
         }

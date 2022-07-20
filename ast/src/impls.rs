@@ -20,7 +20,14 @@ impl<U> ExprKind<U> {
                 | Constant::Complex { .. }
                 | Constant::Bytes(_) => "literal",
                 Constant::Tuple(_) => "tuple",
-                Constant::Bool(_) | Constant::None => "keyword",
+                Constant::Bool(b) => {
+                    if *b {
+                        "True"
+                    } else {
+                        "False"
+                    }
+                }
+                Constant::None => "None",
                 Constant::Ellipsis => "ellipsis",
             },
             ExprKind::List { .. } => "list",
