@@ -1592,23 +1592,19 @@ mod tests {
         Interpreter::without_stdlib(Default::default()).enter(|vm| {
             let table = vm.ctx.new_dict();
             table
-                .set_item("a", vm.ctx.new_str("🎅").into(), &vm)
+                .set_item("a", vm.ctx.new_str("🎅").into(), vm)
                 .unwrap();
-            table.set_item("b", vm.ctx.none(), &vm).unwrap();
+            table.set_item("b", vm.ctx.none(), vm).unwrap();
             table
-                .set_item("c", vm.ctx.new_str(ascii!("xda")).into(), &vm)
+                .set_item("c", vm.ctx.new_str(ascii!("xda")).into(), vm)
                 .unwrap();
-            let translated = PyStr::maketrans(
-                table.into(),
-                OptionalArg::Missing,
-                OptionalArg::Missing,
-                &vm,
-            )
-            .unwrap();
+            let translated =
+                PyStr::maketrans(table.into(), OptionalArg::Missing, OptionalArg::Missing, vm)
+                    .unwrap();
             let text = PyStr::from("abc");
-            let translated = text.translate(translated, &vm).unwrap();
+            let translated = text.translate(translated, vm).unwrap();
             assert_eq!(translated, "🎅xda".to_owned());
-            let translated = text.translate(vm.ctx.new_int(3).into(), &vm);
+            let translated = text.translate(vm.ctx.new_int(3).into(), vm);
             assert_eq!(
                 translated.unwrap_err().class().name().deref(),
                 "TypeError".to_owned()

@@ -23,7 +23,7 @@ mod tests {
         Interpreter::without_stdlib(Default::default()).enter(|vm| {
             let source = String::from("print('Hello world')");
             let vars = vm.new_scope_with_builtins();
-            let result = eval(&vm, &source, vars, "<unittest>").expect("this should pass");
+            let result = eval(vm, &source, vars, "<unittest>").expect("this should pass");
             assert!(vm.is_none(&result));
         })
     }

@@ -306,7 +306,7 @@ mod tests {
     #[test]
     fn test_parse_fstring() {
         let source = "{a}{ b }{{foo}}";
-        let parse_ast = parse_fstring(&source).unwrap();
+        let parse_ast = parse_fstring(source).unwrap();
 
         insta::assert_debug_snapshot!(parse_ast);
     }
@@ -314,7 +314,7 @@ mod tests {
     #[test]
     fn test_parse_fstring_nested_spec() {
         let source = "{foo:{spec}}";
-        let parse_ast = parse_fstring(&source).unwrap();
+        let parse_ast = parse_fstring(source).unwrap();
 
         insta::assert_debug_snapshot!(parse_ast);
     }
@@ -322,7 +322,7 @@ mod tests {
     #[test]
     fn test_parse_fstring_not_nested_spec() {
         let source = "{foo:spec}";
-        let parse_ast = parse_fstring(&source).unwrap();
+        let parse_ast = parse_fstring(source).unwrap();
 
         insta::assert_debug_snapshot!(parse_ast);
     }
@@ -335,7 +335,7 @@ mod tests {
     #[test]
     fn test_fstring_parse_selfdocumenting_base() {
         let src = "{user=}";
-        let parse_ast = parse_fstring(&src).unwrap();
+        let parse_ast = parse_fstring(src).unwrap();
 
         insta::assert_debug_snapshot!(parse_ast);
     }
@@ -343,7 +343,7 @@ mod tests {
     #[test]
     fn test_fstring_parse_selfdocumenting_base_more() {
         let src = "mix {user=} with text and {second=}";
-        let parse_ast = parse_fstring(&src).unwrap();
+        let parse_ast = parse_fstring(src).unwrap();
 
         insta::assert_debug_snapshot!(parse_ast);
     }
@@ -351,7 +351,7 @@ mod tests {
     #[test]
     fn test_fstring_parse_selfdocumenting_format() {
         let src = "{user=:>10}";
-        let parse_ast = parse_fstring(&src).unwrap();
+        let parse_ast = parse_fstring(src).unwrap();
 
         insta::assert_debug_snapshot!(parse_ast);
     }
@@ -384,35 +384,35 @@ mod tests {
     #[test]
     fn test_parse_fstring_not_equals() {
         let source = "{1 != 2}";
-        let parse_ast = parse_fstring(&source).unwrap();
+        let parse_ast = parse_fstring(source).unwrap();
         insta::assert_debug_snapshot!(parse_ast);
     }
 
     #[test]
     fn test_parse_fstring_equals() {
         let source = "{42 == 42}";
-        let parse_ast = parse_fstring(&source).unwrap();
+        let parse_ast = parse_fstring(source).unwrap();
         insta::assert_debug_snapshot!(parse_ast);
     }
 
     #[test]
     fn test_parse_fstring_selfdoc_prec_space() {
         let source = "{x   =}";
-        let parse_ast = parse_fstring(&source).unwrap();
+        let parse_ast = parse_fstring(source).unwrap();
         insta::assert_debug_snapshot!(parse_ast);
     }
 
     #[test]
     fn test_parse_fstring_selfdoc_trailing_space() {
         let source = "{x=   }";
-        let parse_ast = parse_fstring(&source).unwrap();
+        let parse_ast = parse_fstring(source).unwrap();
         insta::assert_debug_snapshot!(parse_ast);
     }
 
     #[test]
     fn test_parse_fstring_yield_expr() {
         let source = "{yield}";
-        let parse_ast = parse_fstring(&source).unwrap();
+        let parse_ast = parse_fstring(source).unwrap();
         insta::assert_debug_snapshot!(parse_ast);
     }
 }

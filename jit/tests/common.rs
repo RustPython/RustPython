@@ -141,7 +141,7 @@ impl StackMachine {
                 instruction
             ),
         }
-        return false;
+        false
     }
 
     pub fn get_function(&self, name: &str) -> Function {
