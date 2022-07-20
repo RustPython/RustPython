@@ -6,7 +6,7 @@
 use crate::ast;
 use crate::fstring::parse_located_fstring;
 use crate::function::{ArgumentList, parse_args, parse_params};
-use crate::error::LexicalError;
+use crate::error::{LexicalError, LexicalErrorType};
 use crate::lexer;
 use crate::token::StringKind;
 
@@ -999,12 +999,29 @@ Atom: ast::Expr = {
             node: ast::ExprKind::ListComp { elt: Box::new(elt), generators }
         }
     },
-    <location:@L> "(" <elements:TestOrStarNamedExprList?> ")" => {
-        elements.unwrap_or(ast::Expr {
-             location,
-             custom: (),
-             node: ast::ExprKind::Tuple { elts: Vec::new(), ctx: ast::ExprContext::Load }
-        })
+    <location:@L> "(" <elements:TestOrStarNamedExprList?> ")" =>? {
+        match elements {
+            Some(elt) => {
+                match elt.node {
+                    ast::ExprKind::Starred { .. } => {
+                        Err(LexicalError{
+                            error : LexicalErrorType::OtherError("cannot use starred expression here".to_string()),
+                            location,
+                        }.into())
+                    },
+                    _ => {
+                        Ok(elt)
+                    }
+                }
+            },
+            None => {
+                Ok(ast::Expr {
+                     location,
+                     custom: (),
+                     node: ast::ExprKind::Tuple { elts: Vec::new(), ctx: ast::ExprContext::Load }
+                })
+            }
+        }
     },
     "(" <e:YieldExpr> ")" => e,
     <location:@L> "(" <elt:Test> <generators:CompFor> ")" => {
@@ -1013,6 +1030,12 @@ Atom: ast::Expr = {
             custom: (),
             node: ast::ExprKind::GeneratorExp { elt: Box::new(elt), generators }
         }
+    },
+    "(" <location:@L> "**" <e:Expression> ")" =>? {
+        Err(LexicalError{
+            error : LexicalErrorType::OtherError("cannot use double starred expression here".to_string()),
+            location,
+        }.into())
     },
     <location:@L> "{" <e:DictLiteralValues?> "}" => {
         let (keys, values) = e.unwrap_or_default();
