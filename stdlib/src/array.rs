@@ -230,12 +230,18 @@ mod array {
                     }
                 }
 
-                fn index(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+                fn index(
+                    &self,
+                    obj: PyObjectRef,
+                    start: usize,
+                    stop: usize,
+                    vm: &VirtualMachine
+                ) -> PyResult<usize> {
                     match self {
                         $(ArrayContentType::$n(v) => {
                             if let Ok(val) = <$t>::try_into_from_object(vm, obj) {
-                                if let Some(pos) = v.iter().position(|&a| a == val) {
-                                    return Ok(pos);
+                                if let Some(pos) = v.iter().take(stop as _).skip(start as _).position(|&elem| elem == val) {
+                                    return Ok(pos + start);
                                 }
                             }
                             Err(vm.new_value_error("array.index(x): x not in array".to_owned()))
@@ -858,8 +864,21 @@ mod array {
         }
 
         #[pymethod]
-        fn index(&self, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-            self.read().index(x, vm)
+        fn index(
+            &self,
+            x: PyObjectRef,
+            start: OptionalArg<PyObjectRef>,
+            stop: OptionalArg<PyObjectRef>,
+            vm: &VirtualMachine,
+        ) -> PyResult<usize> {
+            let len = self.len();
+            let saturate = |obj: PyObjectRef, len| -> PyResult<_> {
+                obj.try_into_value(vm)
+                    .map(|int: PyIntRef| int.as_bigint().saturated_at(len))
+            };
+            let start = start.map_or(Ok(0), |obj| saturate(obj, len))?;
+            let stop = stop.map_or(Ok(len), |obj| saturate(obj, len))?;
+            self.read().index(x, start, stop, vm)
         }
 
         #[pymethod]
