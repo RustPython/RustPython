@@ -1188,30 +1188,34 @@ ArgumentList: ArgumentList = {
     }
 };
 
-FunctionArgument: (Option<(ast::Location, Option<String>)>, ast::Expr) = {
+FunctionArgument: (Option<(ast::Location, Option<String>)>, ast::Expr, bool) = {
     <e:NamedExpressionTest> <c:CompFor?> => {
+        let mut parenthesized = true;
         let expr = match c {
-            Some(c) => ast::Expr {
-                location: e.location,
-                custom: (),
-                node: ast::ExprKind::GeneratorExp {
-                    elt: Box::new(e),
-                    generators: c,
+            Some(c) => {
+                parenthesized = false;
+                ast::Expr {
+                    location: e.location,
+                    custom: (),
+                    node: ast::ExprKind::GeneratorExp {
+                        elt: Box::new(e),
+                        generators: c,
+                    }
                 }
             },
             None => e,
         };
-        (None, expr)
+        (None, expr, parenthesized)
     },
-    <location:@L> <i:Identifier> "=" <e:Test> => (Some((location, Some(i))), e),
+    <location:@L> <i:Identifier> "=" <e:Test> => (Some((location, Some(i))), e, false),
     <location:@L> "*" <e:Test> => {
         let expr = ast::Expr::new(
             location,
             ast::ExprKind::Starred { value: Box::new(e), ctx: ast::ExprContext::Load },
         );
-        (None, expr)
+        (None, expr, false)
     },
-    <location:@L> "**" <e:Test> => (Some((location, None)), e),
+    <location:@L> "**" <e:Test> => (Some((location, None)), e, false),
 };
 
 #[inline]
