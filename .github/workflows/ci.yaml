@@ -152,7 +152,7 @@ jobs:
           target: aarch64-apple-darwin
         if: runner.os == 'macOS'
       - name: Check compilation for Apple Silicon
-        run: cargo check --target aarch64-apple-darwin
+        run: cargo check --target aarch64-apple-darwin --features=ssl-vendor
         if: runner.os == 'macOS'
       - name: prepare iOS build
         uses: dtolnay/rust-toolchain@stable
@@ -183,7 +183,7 @@ jobs:
       - name: Install gcc-multilib and musl-tools
         run: sudo apt-get update && sudo apt-get install gcc-multilib musl-tools
       - name: Check compilation for x86 32bit
-        run: cargo check --target i686-unknown-linux-gnu
+        run: cargo check --target i686-unknown-linux-gnu --features=ssl-vendor
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -197,7 +197,7 @@ jobs:
           target: i686-unknown-linux-musl
 
       - name: Check compilation for musl
-        run: cargo check --target i686-unknown-linux-musl
+        run: cargo check --target i686-unknown-linux-musl --features=ssl-vendor
 
       - uses: dtolnay/rust-toolchain@stable
         with:

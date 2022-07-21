@@ -113,7 +113,6 @@ fn setup_main_module(vm: &VirtualMachine) -> PyResult<Scope> {
     Ok(scope)
 }
 
-#[cfg(feature = "ssl")]
 fn get_pip(scope: Scope, vm: &VirtualMachine) -> PyResult<()> {
     let get_getpip = rustpython_vm::py_compile!(
         source = r#"\
@@ -133,26 +132,23 @@ __import__("io").TextIOWrapper(
     Ok(())
 }
 
-#[cfg(feature = "ssl")]
 fn ensurepip(_: Scope, vm: &VirtualMachine) -> PyResult<()> {
     vm.run_module("ensurepip")
 }
 
 fn install_pip(_installer: &str, _scope: Scope, vm: &VirtualMachine) -> PyResult<()> {
-    #[cfg(feature = "ssl")]
-    {
+    if vm.state.module_inits.contains_key("_ssl") {
         match _installer {
             "ensurepip" => ensurepip(_scope, vm),
             "get-pip" => get_pip(_scope, vm),
             _ => unreachable!(),
         }
+    } else {
+        Err(vm.new_exception_msg(
+            vm.ctx.exceptions.system_error.to_owned(),
+            "install-pip requires rustpython be build with '--features=ssl'".to_owned(),
+        ))
     }
-
-    #[cfg(not(feature = "ssl"))]
-    Err(vm.new_exception_msg(
-        vm.ctx.exceptions.system_error.to_owned(),
-        "install-pip requires rustpython be build with '--features=ssl'".to_owned(),
-    ))
 }
 
 fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode, quiet: bool) -> PyResult<()> {
