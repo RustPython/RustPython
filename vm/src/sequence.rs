@@ -1,5 +1,7 @@
 use crate::{
-    function::{Either, PyComparisonValue},
+    builtins::PyIntRef,
+    function::{Either, OptionalArg, PyComparisonValue},
+    sliceable::SequenceIndexOp,
     types::{richcompare_wrapper, PyComparisonOp, RichCompareFunc},
     vm::VirtualMachine,
     AsObject, PyObject, PyObjectRef, PyResult,
@@ -223,5 +225,25 @@ where
 impl<T: Clone> SequenceMutExt<T> for Vec<T> {
     fn as_vec_mut(&mut self) -> &mut Vec<T> {
         self
+    }
+}
+
+#[derive(FromArgs)]
+pub struct OptionalRangeArgs {
+    #[pyarg(positional, optional)]
+    start: OptionalArg<PyObjectRef>,
+    #[pyarg(positional, optional)]
+    stop: OptionalArg<PyObjectRef>,
+}
+
+impl OptionalRangeArgs {
+    pub fn saturate(self, len: usize, vm: &VirtualMachine) -> PyResult<(usize, usize)> {
+        let saturate = |obj: PyObjectRef, len| -> PyResult<_> {
+            obj.try_into_value(vm)
+                .map(|int: PyIntRef| int.as_bigint().saturated_at(len))
+        };
+        let start = self.start.map_or(Ok(0), |obj| saturate(obj, len))?;
+        let stop = self.stop.map_or(Ok(len), |obj| saturate(obj, len))?;
+        Ok((start, stop))
     }
 }
