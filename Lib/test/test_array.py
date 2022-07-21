@@ -928,8 +928,6 @@ class BaseTest:
                     del a[start:stop:step]
                     self.assertEqual(a, array.array(self.typecode, L))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_index(self):
         example = 2*self.example
         a = array.array(self.typecode, example)
@@ -1183,11 +1181,6 @@ class UnicodeTest(StringTest, unittest.TestCase):
     biggerexample = '\x01\u263a\x01\ufeff'
     outside = str('\x33')
     minitemsize = 2
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_index(self):  # XXX: RUSTPYTHON; the method also need to be removed when done
-        super().test_index()
 
     def test_unicode(self):
         self.assertRaises(TypeError, array.array, 'b', 'foo')
