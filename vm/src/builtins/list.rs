@@ -1,5 +1,3 @@
-use optional::Optioned;
-
 use super::{PositionIterInternal, PyGenericAlias, PyIntRef, PyTupleRef, PyType, PyTypeRef};
 use crate::common::lock::{
     PyMappedRwLockReadGuard, PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
@@ -21,6 +19,7 @@ use crate::{
     vm::VirtualMachine,
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
 };
+use optional::Optioned;
 use std::{fmt, ops::DerefMut};
 
 /// Built-in mutable sequence.
