@@ -41,7 +41,7 @@ class defaultdict(dict):
 
     def __or__(self, other):
         if not isinstance(other, dict):
-            raise TypeError(f'unsupported operand type(s) for |: \'collections.{self.__class__.__qualname__}\' and \'{type(other).__qualname__}\'')
+            return NotImplemented
 
         new = defaultdict(self.default_factory, self)
         new.update(other)
@@ -49,14 +49,10 @@ class defaultdict(dict):
 
     def __ror__(self, other):
         if not isinstance(other, dict):
-            raise TypeError(f'unsupported operand type(s) for |: \'collections.{self.__class__.__qualname__}\' and \'{type(other).__qualname__}\'')
+            return NotImplemented
 
         new = defaultdict(self.default_factory, other)
         new.update(self)
         return new
-
-    def __ior__(self, other):
-        self.update(other)
-        return self
 
 defaultdict.__module__ = 'collections'
