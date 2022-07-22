@@ -1,3 +1,5 @@
+use optional::Optioned;
+
 use super::{PositionIterInternal, PyGenericAlias, PyIntRef, PyTupleRef, PyType, PyTypeRef};
 use crate::common::lock::{
     PyMappedRwLockReadGuard, PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
@@ -306,7 +308,13 @@ impl PyList {
 
     #[pymethod]
     fn remove(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let index = self.mut_index(vm, &needle)?;
+        let index = match self.borrow_vec_mut().iter().position(|elem| {
+            elem.rich_compare_bool(&needle, PyComparisonOp::Eq, vm)
+                .unwrap()
+        }) {
+            Some(i) => Optioned::<usize>::some(i),
+            None => Optioned::<usize>::none(),
+        };
 
         if let Some(index) = index.into() {
             // defer delete out of borrow
