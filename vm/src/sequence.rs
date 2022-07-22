@@ -238,12 +238,12 @@ pub struct OptionalRangeArgs {
 
 impl OptionalRangeArgs {
     pub fn saturate(self, len: usize, vm: &VirtualMachine) -> PyResult<(usize, usize)> {
-        let saturate = |obj: PyObjectRef, len| -> PyResult<_> {
+        let saturate = |obj: PyObjectRef| -> PyResult<_> {
             obj.try_into_value(vm)
                 .map(|int: PyIntRef| int.as_bigint().saturated_at(len))
         };
-        let start = self.start.map_or(Ok(0), |obj| saturate(obj, len))?;
-        let stop = self.stop.map_or(Ok(len), |obj| saturate(obj, len))?;
+        let start = self.start.map_or(Ok(0), saturate)?;
+        let stop = self.stop.map_or(Ok(len), saturate)?;
         Ok((start, stop))
     }
 }
