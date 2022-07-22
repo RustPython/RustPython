@@ -150,8 +150,6 @@ class TestDefaultDict(unittest.TestCase):
             o = pickle.loads(s)
             self.assertEqual(d, o)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_union(self):
         i = defaultdict(int, {1: 1, 2: 2})
         s = defaultdict(str, {0: "zero", 1: "one"})

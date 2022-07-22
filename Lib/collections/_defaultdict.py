@@ -39,4 +39,20 @@ class defaultdict(dict):
             args = ()
         return type(self), args, None, None, iter(self.items())
 
+    def __or__(self, other):
+        if not isinstance(other, dict):
+            return NotImplemented
+
+        new = defaultdict(self.default_factory, self)
+        new.update(other)
+        return new
+
+    def __ror__(self, other):
+        if not isinstance(other, dict):
+            return NotImplemented
+
+        new = defaultdict(self.default_factory, other)
+        new.update(self)
+        return new
+
 defaultdict.__module__ = 'collections'
