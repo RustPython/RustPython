@@ -568,3 +568,6 @@ class CommonTest(seq_tests.CommonTest):
         self.assertEqual(list(exhit), [])
         self.assertEqual(list(empit), [9])
         self.assertEqual(a, self.type2test([1, 2, 3, 9]))
+
+if __name__ == "__main__":
+    unittest.main()
