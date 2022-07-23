@@ -476,9 +476,12 @@ impl Iterable for PyRange {
             zelf.step.as_bigint(),
             zelf.len(),
         );
-        if let (Some(start), Some(step), Some(_)) =
-            (start.to_isize(), step.to_isize(), stop.to_isize())
-        {
+        if let (Some(start), Some(step), Some(_), Some(_)) = (
+            start.to_isize(),
+            step.to_isize(),
+            stop.to_isize(),
+            (start + step).to_isize(),
+        ) {
             Ok(PyRangeIterator {
                 index: AtomicCell::new(0),
                 start,
