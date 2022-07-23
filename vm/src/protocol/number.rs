@@ -41,6 +41,62 @@ impl PyObject {
             ))
         })
     }
+
+    pub fn try_int(&self, vm: &VirtualMachine) -> PyResult<PyIntRef> {
+        fn try_convert(obj: &PyObject, lit: &[u8], vm: &VirtualMachine) -> PyResult<PyIntRef> {
+            let base = 10;
+            match int::bytes_to_int(lit, base) {
+                Some(i) => Ok(PyInt::from(i).into_ref(vm)),
+                None => Err(vm.new_value_error(format!(
+                    "invalid literal for int() with base {}: {}",
+                    base,
+                    obj.repr(vm)?,
+                ))),
+            }
+        }
+
+        if let Some(i) = self.downcast_ref_if_exact::<PyInt>(vm) {
+            Ok(i.to_owned())
+        } else {
+            let number = self.to_number();
+            if let Some(i) = number.int(vm)? {
+                Ok(i)
+            } else if let Some(i) = self.try_index_opt(vm) {
+                i
+            } else if let Ok(Ok(f)) =
+                vm.get_special_method(self.to_owned(), identifier!(vm, __trunc__))
+            {
+                // TODO: Deprecate in 3.11
+                // warnings::warn(
+                //     vm.ctx.exceptions.deprecation_warning.clone(),
+                //     "The delegation of int() to __trunc__ is deprecated.".to_owned(),
+                //     1,
+                //     vm,
+                // )?;
+                let ret = f.invoke((), vm)?;
+                ret.try_index(vm).map_err(|_| {
+                    vm.new_type_error(format!(
+                        "__trunc__ returned non-Integral (type {})",
+                        ret.class()
+                    ))
+                })
+            } else if let Some(s) = self.payload::<PyStr>() {
+                try_convert(self, s.as_str().as_bytes(), vm)
+            } else if let Some(bytes) = self.payload::<PyBytes>() {
+                try_convert(self, bytes, vm)
+            } else if let Some(bytearray) = self.payload::<PyByteArray>() {
+                try_convert(self, &bytearray.borrow_buf(), vm)
+            } else if let Ok(buffer) = ArgBytesLike::try_from_borrowed_object(vm, self) {
+                // TODO: replace to PyBuffer
+                try_convert(self, &buffer.borrow_buf(), vm)
+            } else {
+                Err(vm.new_type_error(format!(
+                    "int() argument must be a string, a bytes-like object or a real number, not '{}'",
+                    self.class()
+                )))
+            }
+        }
+    }
 }
 
 #[derive(Default)]
@@ -178,24 +234,11 @@ impl PyNumber<'_> {
         self.methods().index.load().is_some()
     }
 
-    pub fn int(&self, vm: &VirtualMachine) -> PyResult<PyIntRef> {
-        fn try_convert(obj: &PyObject, lit: &[u8], vm: &VirtualMachine) -> PyResult<PyIntRef> {
-            let base = 10;
-            match int::bytes_to_int(lit, base) {
-                Some(i) => Ok(PyInt::from(i).into_ref(vm)),
-                None => Err(vm.new_value_error(format!(
-                    "invalid literal for int() with base {}: {}",
-                    base,
-                    obj.repr(vm)?,
-                ))),
-            }
-        }
-
-        if let Some(i) = self.obj.downcast_ref_if_exact::<PyInt>(vm) {
-            Ok(i.to_owned())
-        } else if let Some(f) = self.methods().int.load() {
+    #[inline]
+    pub fn int(&self, vm: &VirtualMachine) -> PyResult<Option<PyIntRef>> {
+        Ok(if let Some(f) = self.methods().int.load() {
             let ret = f(self, vm)?;
-            if !ret.class().is(PyInt::class(vm)) {
+            Some(if !ret.class().is(PyInt::class(vm)) {
                 warnings::warn(
                     vm.ctx.exceptions.deprecation_warning,
                     format!(
@@ -207,44 +250,13 @@ impl PyNumber<'_> {
                     1,
                     vm,
                 )?;
-                Ok(vm.ctx.new_bigint(ret.as_bigint()))
+                vm.ctx.new_bigint(ret.as_bigint())
             } else {
-                Ok(ret)
-            }
-        } else if self.methods().index.load().is_some() {
-            self.obj.try_index(vm)
-        } else if let Ok(Ok(f)) =
-            vm.get_special_method(self.obj.to_owned(), identifier!(vm, __trunc__))
-        {
-            // TODO: Deprecate in 3.11
-            // warnings::warn(
-            //     vm.ctx.exceptions.deprecation_warning.clone(),
-            //     "The delegation of int() to __trunc__ is deprecated.".to_owned(),
-            //     1,
-            //     vm,
-            // )?;
-            let ret = f.invoke((), vm)?;
-            ret.try_index(vm).map_err(|_| {
-                vm.new_type_error(format!(
-                    "__trunc__ returned non-Integral (type {})",
-                    ret.class()
-                ))
+                ret
             })
-        } else if let Some(s) = self.obj.payload::<PyStr>() {
-            try_convert(self.obj, s.as_str().as_bytes(), vm)
-        } else if let Some(bytes) = self.obj.payload::<PyBytes>() {
-            try_convert(self.obj, bytes, vm)
-        } else if let Some(bytearray) = self.obj.payload::<PyByteArray>() {
-            try_convert(self.obj, &bytearray.borrow_buf(), vm)
-        } else if let Ok(buffer) = ArgBytesLike::try_from_borrowed_object(vm, self.obj) {
-            // TODO: replace to PyBuffer
-            try_convert(self.obj, &buffer.borrow_buf(), vm)
         } else {
-            Err(vm.new_type_error(format!(
-                "int() argument must be a string, a bytes-like object or a real number, not '{}'",
-                self.obj.class()
-            )))
-        }
+            None
+        })
     }
 
     #[inline]
