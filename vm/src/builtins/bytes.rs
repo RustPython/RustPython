@@ -3,6 +3,7 @@ use super::{
 };
 use crate::{
     anystr::{self, AnyStr},
+    atomic_func,
     bytesinner::{
         bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
         ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
@@ -608,14 +609,17 @@ impl AsSequence for PyBytes {
 }
 
 impl AsNumber for PyBytes {
-    const AS_NUMBER: PyNumberMethods = PyNumberMethods {
-        remainder: Some(|number, other, vm| {
-            Self::number_downcast(number)
-                .mod_(other.to_owned(), vm)
-                .to_pyresult(vm)
-        }),
-        ..PyNumberMethods::NOT_IMPLEMENTED
-    };
+    fn as_number() -> &'static PyNumberMethods {
+        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+            remainder: atomic_func!(|number, other, vm| {
+                PyBytes::number_downcast(number)
+                    .mod_(other.to_owned(), vm)
+                    .to_pyresult(vm)
+            }),
+            ..PyNumberMethods::NOT_IMPLEMENTED
+        };
+        &AS_NUMBER
+    }
 }
 
 impl Hashable for PyBytes {

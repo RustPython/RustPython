@@ -1,6 +1,3 @@
-use crossbeam_utils::atomic::AtomicCell;
-use once_cell::sync::OnceCell;
-
 use crate::{
     builtins::{
         int, type_::PointerSlot, PyByteArray, PyBytes, PyComplex, PyFloat, PyInt, PyIntRef, PyStr,
@@ -10,6 +7,8 @@ use crate::{
     AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject,
     VirtualMachine,
 };
+use crossbeam_utils::atomic::AtomicCell;
+use once_cell::sync::OnceCell;
 
 type UnaryFunc<R = PyObjectRef> = AtomicCell<Option<fn(&PyNumber, &VirtualMachine) -> PyResult<R>>>;
 type BinaryFunc<R = PyObjectRef> =

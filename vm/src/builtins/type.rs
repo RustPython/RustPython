@@ -2,21 +2,19 @@ use super::{
     mappingproxy::PyMappingProxy, object, union_, PyClassMethod, PyDictRef, PyList, PyStaticMethod,
     PyStr, PyStrInterned, PyStrRef, PyTuple, PyTupleRef, PyWeak,
 };
+use crate::common::{
+    ascii,
+    borrow::BorrowedValue,
+    lock::{PyRwLock, PyRwLockReadGuard},
+};
 use crate::{
     builtins::PyBaseExceptionRef,
     class::{PyClassImpl, StaticType},
     function::{FuncArgs, KwArgs, OptionalArg},
     identifier,
+    protocol::PyNumberMethods,
     types::{Callable, GetAttr, PyTypeFlags, PyTypeSlots, SetAttr},
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-};
-use crate::{
-    common::{
-        ascii,
-        borrow::BorrowedValue,
-        lock::{PyRwLock, PyRwLockReadGuard},
-    },
-    protocol::PyNumberMethods,
 };
 use indexmap::{map::Entry, IndexMap};
 use itertools::Itertools;

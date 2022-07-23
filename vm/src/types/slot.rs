@@ -17,6 +17,13 @@ use crossbeam_utils::atomic::AtomicCell;
 use num_traits::{Signed, ToPrimitive};
 use std::{borrow::Borrow, cmp::Ordering};
 
+#[macro_export]
+macro_rules! atomic_func {
+    ($x:expr) => {
+        crossbeam_utils::atomic::AtomicCell::new(Some($x))
+    };
+}
+
 // The corresponding field in CPython is `tp_` prefixed.
 // e.g. name -> tp_name
 #[derive(Default)]
