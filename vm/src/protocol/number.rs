@@ -97,6 +97,32 @@ impl PyObject {
             }
         }
     }
+
+    pub fn try_float_opt(&self, vm: &VirtualMachine) -> PyResult<Option<PyRef<PyFloat>>> {
+        let value = if let Some(float) = self.downcast_ref_if_exact::<PyFloat>(vm) {
+            Some(float.to_owned())
+        } else {
+            let number = self.to_number();
+            #[allow(clippy::manual_map)]
+            if let Some(f) = number.float(vm)? {
+                Some(f)
+            } else if let Some(i) = self.try_index_opt(vm) {
+                let value = int::try_to_float(i?.as_bigint(), vm)?;
+                Some(vm.ctx.new_float(value))
+            } else if let Some(value) = self.downcast_ref::<PyFloat>() {
+                Some(vm.ctx.new_float(value.to_f64()))
+            } else {
+                None
+            }
+        };
+        Ok(value)
+    }
+
+    #[inline]
+    pub fn try_float(&self, vm: &VirtualMachine) -> PyResult<PyRef<PyFloat>> {
+        self.try_float_opt(vm)?
+            .ok_or_else(|| vm.new_type_error(format!("must be real number, not {}", self.class())))
+    }
 }
 
 #[derive(Default)]
@@ -284,12 +310,11 @@ impl PyNumber<'_> {
         }
     }
 
-    pub fn float_opt(&self, vm: &VirtualMachine) -> PyResult<Option<PyRef<PyFloat>>> {
-        if let Some(float) = self.obj.downcast_ref_if_exact::<PyFloat>(vm) {
-            Ok(Some(float.to_owned()))
-        } else if let Some(f) = self.methods().float.load() {
+    #[inline]
+    pub fn float(&self, vm: &VirtualMachine) -> PyResult<Option<PyRef<PyFloat>>> {
+        Ok(if let Some(f) = self.methods().float.load() {
             let ret = f(self, vm)?;
-            if !ret.class().is(PyFloat::class(vm)) {
+            Some(if !ret.class().is(PyFloat::class(vm)) {
                 warnings::warn(
                     vm.ctx.exceptions.deprecation_warning,
                     format!(
@@ -301,24 +326,12 @@ impl PyNumber<'_> {
                     1,
                     vm,
                 )?;
-                Ok(Some(vm.ctx.new_float(ret.to_f64())))
+                vm.ctx.new_float(ret.to_f64())
             } else {
-                Ok(Some(ret))
-            }
-        } else if self.methods().index.load().is_some() {
-            let i = self.obj.try_index(vm)?;
-            let value = int::try_to_float(i.as_bigint(), vm)?;
-            Ok(Some(vm.ctx.new_float(value)))
-        } else if let Some(value) = self.obj.downcast_ref::<PyFloat>() {
-            Ok(Some(vm.ctx.new_float(value.to_f64())))
+                ret
+            })
         } else {
-            Ok(None)
-        }
-    }
-
-    pub fn float(&self, vm: &VirtualMachine) -> PyResult<PyRef<PyFloat>> {
-        self.float_opt(vm)?.ok_or_else(|| {
-            vm.new_type_error(format!("must be real number, not {}", self.obj.class()))
+            None
         })
     }
 }

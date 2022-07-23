@@ -82,7 +82,7 @@ impl Deref for ArgIntoFloat {
 impl TryFromObject for ArgIntoFloat {
     // Equivalent to PyFloat_AsDouble.
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        let value = obj.to_number().float(vm)?.to_f64();
+        let value = obj.try_float(vm)?.to_f64();
         Ok(ArgIntoFloat { value })
     }
 }

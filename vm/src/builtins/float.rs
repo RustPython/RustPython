@@ -142,7 +142,7 @@ impl Constructor for PyFloat {
         let float_val = match arg {
             OptionalArg::Missing => 0.0,
             OptionalArg::Present(val) => {
-                if let Some(f) = val.to_number().float_opt(vm)? {
+                if let Some(f) = val.try_float_opt(vm)? {
                     f.value
                 } else {
                     float_from_string(val, vm)?
