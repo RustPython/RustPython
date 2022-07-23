@@ -1,4 +1,4 @@
-use super::{PositionIterInternal, PyGenericAlias, PyIntRef, PyTupleRef, PyType, PyTypeRef};
+use super::{PositionIterInternal, PyGenericAlias, PyTupleRef, PyType, PyTypeRef};
 use crate::common::lock::{
     PyMappedRwLockReadGuard, PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
 };
@@ -9,8 +9,8 @@ use crate::{
     iter::PyExactSizeIterator,
     protocol::{PyIterReturn, PyMappingMethods, PySequence, PySequenceMethods},
     recursion::ReprGuard,
-    sequence::{MutObjectSequenceOp, SequenceExt, SequenceMutExt},
-    sliceable::{SequenceIndex, SequenceIndexOp, SliceableSequenceMutOp, SliceableSequenceOp},
+    sequence::{MutObjectSequenceOp, OptionalRangeArgs, SequenceExt, SequenceMutExt},
+    sliceable::{SequenceIndex, SliceableSequenceMutOp, SliceableSequenceOp},
     types::{
         AsMapping, AsSequence, Comparable, Constructor, Hashable, Initializer, IterNext,
         IterNextIterable, Iterable, PyComparisonOp, Unconstructible, Unhashable,
@@ -269,17 +269,10 @@ impl PyList {
     fn index(
         &self,
         needle: PyObjectRef,
-        start: OptionalArg<PyObjectRef>,
-        stop: OptionalArg<PyObjectRef>,
+        range: OptionalRangeArgs,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
-        let len = self.len();
-        let saturate = |obj: PyObjectRef, len| -> PyResult<_> {
-            obj.try_into_value(vm)
-                .map(|int: PyIntRef| int.as_bigint().saturated_at(len))
-        };
-        let start = start.map_or(Ok(0), |obj| saturate(obj, len))?;
-        let stop = stop.map_or(Ok(len), |obj| saturate(obj, len))?;
+        let (start, stop) = range.saturate(self.len(), vm)?;
         let index = self.mut_index_range(vm, &needle, start..stop)?;
         if let Some(index) = index.into() {
             Ok(index)
