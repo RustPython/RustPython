@@ -13,7 +13,6 @@ type UnaryFunc<R = PyObjectRef> = AtomicCell<Option<fn(&PyNumber, &VirtualMachin
 type BinaryFunc<R = PyObjectRef> =
     AtomicCell<Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult<R>>>;
 
-
 impl PyObject {
     #[inline]
     pub fn to_number(&self) -> PyNumber<'_> {
@@ -21,29 +20,29 @@ impl PyObject {
     }
 
     pub fn try_index_opt(&self, vm: &VirtualMachine) -> Option<PyResult<PyIntRef>> {
-        self.to_number().index_opt(vm).transpose()
-        // Some(if let Some(i) = self.downcast_ref_if_exact::<PyInt>(vm) {
-        //     Ok(i.to_owned())
-        // } else if let Some(i) = self.payload::<PyInt>() {
-        //     Ok(vm.ctx.new_bigint(i.as_bigint()))
-        // } else if let Some(result) = self.to_number().index(vm).transpose() {
-        //     result
-        // } else {
-        //     return None;
-        // })
+        #[allow(clippy::question_mark)]
+        Some(if let Some(i) = self.downcast_ref_if_exact::<PyInt>(vm) {
+            Ok(i.to_owned())
+        } else if let Some(i) = self.payload::<PyInt>() {
+            Ok(vm.ctx.new_bigint(i.as_bigint()))
+        } else if let Some(i) = self.to_number().index(vm).transpose() {
+            i
+        } else {
+            return None;
+        })
     }
 
+    #[inline]
     pub fn try_index(&self, vm: &VirtualMachine) -> PyResult<PyIntRef> {
-        self.to_number().index(vm)
-        // self.try_index_opt(vm).transpose()?.ok_or_else(|| {
-        //     vm.new_type_error(format!(
-        //         "'{}' object cannot be interpreted as an integer",
-        //         self.class()
-        //     ))
-        // })
+        self.try_index_opt(vm).transpose()?.ok_or_else(|| {
+            vm.new_type_error(format!(
+                "'{}' object cannot be interpreted as an integer",
+                self.class()
+            ))
+        })
     }
 }
-    
+
 #[derive(Default)]
 pub struct PyNumberMethods {
     /* Number implementations must check *both*
@@ -213,7 +212,7 @@ impl PyNumber<'_> {
                 Ok(ret)
             }
         } else if self.methods().index.load().is_some() {
-            self.index(vm)
+            self.obj.try_index(vm)
         } else if let Ok(Ok(f)) =
             vm.get_special_method(self.obj.to_owned(), identifier!(vm, __trunc__))
         {
@@ -225,7 +224,7 @@ impl PyNumber<'_> {
             //     vm,
             // )?;
             let ret = f.invoke((), vm)?;
-            ret.to_number().index(vm).map_err(|_| {
+            ret.try_index(vm).map_err(|_| {
                 vm.new_type_error(format!(
                     "__trunc__ returned non-Integral (type {})",
                     ret.class()
@@ -248,12 +247,9 @@ impl PyNumber<'_> {
         }
     }
 
-    pub fn index_opt(&self, vm: &VirtualMachine) -> PyResult<Option<PyIntRef>> {
-        if let Some(i) = self.obj.downcast_ref_if_exact::<PyInt>(vm) {
-            Ok(Some(i.to_owned()))
-        } else if let Some(i) = self.obj.payload::<PyInt>() {
-            Ok(Some(vm.ctx.new_bigint(i.as_bigint())))
-        } else if let Some(f) = self.methods().index.load() {
+    #[inline]
+    pub fn index(&self, vm: &VirtualMachine) -> PyResult<Option<PyIntRef>> {
+        if let Some(f) = self.methods().index.load() {
             let ret = f(self, vm)?;
             if !ret.class().is(PyInt::class(vm)) {
                 warnings::warn(
@@ -274,15 +270,6 @@ impl PyNumber<'_> {
         } else {
             Ok(None)
         }
-    }
-
-    pub fn index(&self, vm: &VirtualMachine) -> PyResult<PyIntRef> {
-        self.index_opt(vm)?.ok_or_else(|| {
-            vm.new_type_error(format!(
-                "'{}' object cannot be interpreted as an integer",
-                self.obj.class()
-            ))
-        })
     }
 
     pub fn float_opt(&self, vm: &VirtualMachine) -> PyResult<Option<PyRef<PyFloat>>> {
@@ -307,7 +294,7 @@ impl PyNumber<'_> {
                 Ok(Some(ret))
             }
         } else if self.methods().index.load().is_some() {
-            let i = self.index(vm)?;
+            let i = self.obj.try_index(vm)?;
             let value = int::try_to_float(i.as_bigint(), vm)?;
             Ok(Some(vm.ctx.new_float(value)))
         } else if let Some(value) = self.obj.downcast_ref::<PyFloat>() {

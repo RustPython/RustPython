@@ -266,9 +266,7 @@ impl Constructor for PyInt {
                     val
                 };
 
-                val.to_number()
-                    .int(vm)
-                    .map(|x| x.as_bigint().clone())
+                val.to_number().int(vm).map(|x| x.as_bigint().clone())
             }
         } else if let OptionalArg::Present(_) = options.base {
             Err(vm.new_type_error("int() missing string argument".to_owned()))
