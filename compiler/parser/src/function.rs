@@ -45,15 +45,14 @@ pub fn parse_params(
     Ok((posonly, names, defaults))
 }
 
-type FunctionArgument = (Option<(ast::Location, Option<String>)>, ast::Expr, bool);
+type FunctionArgument = (Option<(ast::Location, Option<String>)>, ast::Expr);
 
 pub fn parse_args(func_args: Vec<FunctionArgument>) -> Result<ArgumentList, LexicalError> {
     let mut args = vec![];
     let mut keywords = vec![];
-    let len = func_args.len();
 
     let mut keyword_names = HashSet::with_capacity_and_hasher(func_args.len(), RandomState::new());
-    for (name, value, parenthesized) in func_args {
+    for (name, value) in func_args {
         match name {
             Some((location, name)) => {
                 if let Some(keyword_name) = &name {
@@ -82,17 +81,6 @@ pub fn parse_args(func_args: Vec<FunctionArgument>) -> Result<ArgumentList, Lexi
                         error: LexicalErrorType::PositionalArgumentError,
                         location: value.location,
                     });
-                }
-
-                if let ast::ExprKind::GeneratorExp { elt: e, .. } = &value.node {
-                    if len != 1 && !parenthesized {
-                        return Err(LexicalError {
-                            error: LexicalErrorType::OtherError(
-                                "Generator expression must be parenthesized".to_string(),
-                            ),
-                            location: e.location,
-                        });
-                    }
                 }
 
                 args.push(value);

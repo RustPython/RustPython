@@ -1,5 +1,5 @@
 // auto-generated: "lalrpop 0.19.8"
-// sha3: 80206e0c0d67d10a4792b5d3e1c75000465747e3bc9c4d5139512cee49dda2ea
+// sha3: 5ecb51ffcdef2e4d2d0bcfb2905af5336c25a69dccc882341e8255b8cb59a638
 use crate::ast;
 use crate::fstring::parse_located_fstring;
 use crate::function::{ArgumentList, parse_args, parse_params};
@@ -68,8 +68,8 @@ mod __parse__Top {
         Variant30(core::option::Option<(lexer::Tok, String)>),
         Variant31((lexer::Tok, lexer::Tok, ast::Suite)),
         Variant32(core::option::Option<(lexer::Tok, lexer::Tok, ast::Suite)>),
-        Variant33((Option<(ast::Location, Option<String>)>, ast::Expr, bool)),
-        Variant34(alloc::vec::Vec<(Option<(ast::Location, Option<String>)>, ast::Expr, bool)>),
+        Variant33((Option<(ast::Location, Option<String>)>, ast::Expr)),
+        Variant34(alloc::vec::Vec<(Option<(ast::Location, Option<String>)>, ast::Expr)>),
         Variant35((ast::Location, lexer::Tok, ast::Expr)),
         Variant36(core::option::Option<(ast::Location, lexer::Tok, ast::Expr)>),
         Variant37((ast::Location, lexer::Tok, ast::Expr, lexer::Tok, ast::Suite)),
@@ -92,7 +92,7 @@ mod __parse__Top {
         Variant54(ast::Stmt),
         Variant55(alloc::vec::Vec<ast::Expr>),
         Variant56(core::option::Option<ast::Expr>),
-        Variant57(Vec<(Option<(ast::Location, Option<String>)>, ast::Expr, bool)>),
+        Variant57(Vec<(Option<(ast::Location, Option<String>)>, ast::Expr)>),
         Variant58(Vec<ast::Comprehension>),
         Variant59(core::option::Option<Vec<ast::Comprehension>>),
         Variant60(ast::Cmpop),
@@ -106,7 +106,7 @@ mod __parse__Top {
         Variant68(Vec<ast::Expr>),
         Variant69(ast::Suite),
         Variant70(alloc::vec::Vec<ast::Suite>),
-        Variant71(core::option::Option<(Option<(ast::Location, Option<String>)>, ast::Expr, bool)>),
+        Variant71(core::option::Option<(Option<(ast::Location, Option<String>)>, ast::Expr)>),
         Variant72(ast::Alias),
         Variant73(Vec<ast::Alias>),
         Variant74(usize),
@@ -11166,7 +11166,7 @@ mod __parse__Top {
     fn __pop_Variant33<
     >(
         __symbols: &mut alloc::vec::Vec<(ast::Location,__Symbol<>,ast::Location)>
-    ) -> (ast::Location, (Option<(ast::Location, Option<String>)>, ast::Expr, bool), ast::Location)
+    ) -> (ast::Location, (Option<(ast::Location, Option<String>)>, ast::Expr), ast::Location)
      {
         match __symbols.pop() {
             Some((__l, __Symbol::Variant33(__v), __r)) => (__l, __v, __r),
@@ -11496,7 +11496,7 @@ mod __parse__Top {
     fn __pop_Variant57<
     >(
         __symbols: &mut alloc::vec::Vec<(ast::Location,__Symbol<>,ast::Location)>
-    ) -> (ast::Location, Vec<(Option<(ast::Location, Option<String>)>, ast::Expr, bool)>, ast::Location)
+    ) -> (ast::Location, Vec<(Option<(ast::Location, Option<String>)>, ast::Expr)>, ast::Location)
      {
         match __symbols.pop() {
             Some((__l, __Symbol::Variant57(__v), __r)) => (__l, __v, __r),
@@ -11586,7 +11586,7 @@ mod __parse__Top {
     fn __pop_Variant34<
     >(
         __symbols: &mut alloc::vec::Vec<(ast::Location,__Symbol<>,ast::Location)>
-    ) -> (ast::Location, alloc::vec::Vec<(Option<(ast::Location, Option<String>)>, ast::Expr, bool)>, ast::Location)
+    ) -> (ast::Location, alloc::vec::Vec<(Option<(ast::Location, Option<String>)>, ast::Expr)>, ast::Location)
      {
         match __symbols.pop() {
             Some((__l, __Symbol::Variant34(__v), __r)) => (__l, __v, __r),
@@ -11916,7 +11916,7 @@ mod __parse__Top {
     fn __pop_Variant71<
     >(
         __symbols: &mut alloc::vec::Vec<(ast::Location,__Symbol<>,ast::Location)>
-    ) -> (ast::Location, core::option::Option<(Option<(ast::Location, Option<String>)>, ast::Expr, bool)>, ast::Location)
+    ) -> (ast::Location, core::option::Option<(Option<(ast::Location, Option<String>)>, ast::Expr)>, ast::Location)
      {
         match __symbols.pop() {
             Some((__l, __Symbol::Variant71(__v), __r)) => (__l, __v, __r),
@@ -25054,7 +25054,7 @@ fn __action180<
 
 fn __action181<
 >(
-    (_, e, _): (ast::Location, Vec<(Option<(ast::Location, Option<String>)>, ast::Expr, bool)>, ast::Location),
+    (_, e, _): (ast::Location, Vec<(Option<(ast::Location, Option<String>)>, ast::Expr)>, ast::Location),
 ) -> Result<ArgumentList,__lalrpop_util::ParseError<ast::Location,lexer::Tok,LexicalError>>
 {
     {
@@ -25067,25 +25067,21 @@ fn __action182<
 >(
     (_, e, _): (ast::Location, ast::Expr, ast::Location),
     (_, c, _): (ast::Location, core::option::Option<Vec<ast::Comprehension>>, ast::Location),
-) -> (Option<(ast::Location, Option<String>)>, ast::Expr, bool)
+) -> (Option<(ast::Location, Option<String>)>, ast::Expr)
 {
     {
-        let mut parenthesized = true;
         let expr = match c {
-            Some(c) => {
-                parenthesized = false;
-                ast::Expr {
-                    location: e.location,
-                    custom: (),
-                    node: ast::ExprKind::GeneratorExp {
-                        elt: Box::new(e),
-                        generators: c,
-                    }
+            Some(c) => ast::Expr {
+                location: e.location,
+                custom: (),
+                node: ast::ExprKind::GeneratorExp {
+                    elt: Box::new(e),
+                    generators: c,
                 }
             },
             None => e,
         };
-        (None, expr, parenthesized)
+        (None, expr)
     }
 }
 
@@ -25095,9 +25091,9 @@ fn __action183<
     (_, i, _): (ast::Location, String, ast::Location),
     (_, _, _): (ast::Location, lexer::Tok, ast::Location),
     (_, e, _): (ast::Location, ast::Expr, ast::Location),
-) -> (Option<(ast::Location, Option<String>)>, ast::Expr, bool)
+) -> (Option<(ast::Location, Option<String>)>, ast::Expr)
 {
-    (Some((location, Some(i))), e, false)
+    (Some((location, Some(i))), e)
 }
 
 fn __action184<
@@ -25105,14 +25101,14 @@ fn __action184<
     (_, location, _): (ast::Location, ast::Location, ast::Location),
     (_, _, _): (ast::Location, lexer::Tok, ast::Location),
     (_, e, _): (ast::Location, ast::Expr, ast::Location),
-) -> (Option<(ast::Location, Option<String>)>, ast::Expr, bool)
+) -> (Option<(ast::Location, Option<String>)>, ast::Expr)
 {
     {
         let expr = ast::Expr::new(
             location,
             ast::ExprKind::Starred { value: Box::new(e), ctx: ast::ExprContext::Load },
         );
-        (None, expr, false)
+        (None, expr)
     }
 }
 
@@ -25121,9 +25117,9 @@ fn __action185<
     (_, location, _): (ast::Location, ast::Location, ast::Location),
     (_, _, _): (ast::Location, lexer::Tok, ast::Location),
     (_, e, _): (ast::Location, ast::Expr, ast::Location),
-) -> (Option<(ast::Location, Option<String>)>, ast::Expr, bool)
+) -> (Option<(ast::Location, Option<String>)>, ast::Expr)
 {
-    (Some((location, None)), e, false)
+    (Some((location, None)), e)
 }
 
 fn __action186<
@@ -25212,9 +25208,9 @@ fn __action195<
 
 fn __action196<
 >(
-    (_, items, _): (ast::Location, alloc::vec::Vec<(Option<(ast::Location, Option<String>)>, ast::Expr, bool)>, ast::Location),
-    (_, last, _): (ast::Location, core::option::Option<(Option<(ast::Location, Option<String>)>, ast::Expr, bool)>, ast::Location),
-) -> Vec<(Option<(ast::Location, Option<String>)>, ast::Expr, bool)>
+    (_, items, _): (ast::Location, alloc::vec::Vec<(Option<(ast::Location, Option<String>)>, ast::Expr)>, ast::Location),
+    (_, last, _): (ast::Location, core::option::Option<(Option<(ast::Location, Option<String>)>, ast::Expr)>, ast::Location),
+) -> Vec<(Option<(ast::Location, Option<String>)>, ast::Expr)>
 {
     {
         let mut items = items;
@@ -27085,8 +27081,8 @@ fn __action384<
 
 fn __action385<
 >(
-    (_, __0, _): (ast::Location, (Option<(ast::Location, Option<String>)>, ast::Expr, bool), ast::Location),
-) -> core::option::Option<(Option<(ast::Location, Option<String>)>, ast::Expr, bool)>
+    (_, __0, _): (ast::Location, (Option<(ast::Location, Option<String>)>, ast::Expr), ast::Location),
+) -> core::option::Option<(Option<(ast::Location, Option<String>)>, ast::Expr)>
 {
     Some(__0)
 }
@@ -27095,7 +27091,7 @@ fn __action386<
 >(
     __lookbehind: &ast::Location,
     __lookahead: &ast::Location,
-) -> core::option::Option<(Option<(ast::Location, Option<String>)>, ast::Expr, bool)>
+) -> core::option::Option<(Option<(ast::Location, Option<String>)>, ast::Expr)>
 {
     None
 }
@@ -27104,41 +27100,41 @@ fn __action387<
 >(
     __lookbehind: &ast::Location,
     __lookahead: &ast::Location,
-) -> alloc::vec::Vec<(Option<(ast::Location, Option<String>)>, ast::Expr, bool)>
+) -> alloc::vec::Vec<(Option<(ast::Location, Option<String>)>, ast::Expr)>
 {
     alloc::vec![]
 }
 
 fn __action388<
 >(
-    (_, v, _): (ast::Location, alloc::vec::Vec<(Option<(ast::Location, Option<String>)>, ast::Expr, bool)>, ast::Location),
-) -> alloc::vec::Vec<(Option<(ast::Location, Option<String>)>, ast::Expr, bool)>
+    (_, v, _): (ast::Location, alloc::vec::Vec<(Option<(ast::Location, Option<String>)>, ast::Expr)>, ast::Location),
+) -> alloc::vec::Vec<(Option<(ast::Location, Option<String>)>, ast::Expr)>
 {
     v
 }
 
 fn __action389<
 >(
-    (_, __0, _): (ast::Location, (Option<(ast::Location, Option<String>)>, ast::Expr, bool), ast::Location),
+    (_, __0, _): (ast::Location, (Option<(ast::Location, Option<String>)>, ast::Expr), ast::Location),
     (_, _, _): (ast::Location, lexer::Tok, ast::Location),
-) -> (Option<(ast::Location, Option<String>)>, ast::Expr, bool)
+) -> (Option<(ast::Location, Option<String>)>, ast::Expr)
 {
     __0
 }
 
 fn __action390<
 >(
-    (_, __0, _): (ast::Location, (Option<(ast::Location, Option<String>)>, ast::Expr, bool), ast::Location),
-) -> alloc::vec::Vec<(Option<(ast::Location, Option<String>)>, ast::Expr, bool)>
+    (_, __0, _): (ast::Location, (Option<(ast::Location, Option<String>)>, ast::Expr), ast::Location),
+) -> alloc::vec::Vec<(Option<(ast::Location, Option<String>)>, ast::Expr)>
 {
     alloc::vec![__0]
 }
 
 fn __action391<
 >(
-    (_, v, _): (ast::Location, alloc::vec::Vec<(Option<(ast::Location, Option<String>)>, ast::Expr, bool)>, ast::Location),
-    (_, e, _): (ast::Location, (Option<(ast::Location, Option<String>)>, ast::Expr, bool), ast::Location),
-) -> alloc::vec::Vec<(Option<(ast::Location, Option<String>)>, ast::Expr, bool)>
+    (_, v, _): (ast::Location, alloc::vec::Vec<(Option<(ast::Location, Option<String>)>, ast::Expr)>, ast::Location),
+    (_, e, _): (ast::Location, (Option<(ast::Location, Option<String>)>, ast::Expr), ast::Location),
+) -> alloc::vec::Vec<(Option<(ast::Location, Option<String>)>, ast::Expr)>
 {
     { let mut v = v; v.push(e); v }
 }
@@ -34291,9 +34287,9 @@ fn __action746<
 
 fn __action747<
 >(
-    __0: (ast::Location, (Option<(ast::Location, Option<String>)>, ast::Expr, bool), ast::Location),
+    __0: (ast::Location, (Option<(ast::Location, Option<String>)>, ast::Expr), ast::Location),
     __1: (ast::Location, lexer::Tok, ast::Location),
-) -> alloc::vec::Vec<(Option<(ast::Location, Option<String>)>, ast::Expr, bool)>
+) -> alloc::vec::Vec<(Option<(ast::Location, Option<String>)>, ast::Expr)>
 {
     let __start0 = __0.0.clone();
     let __end0 = __1.2.clone();
@@ -34309,10 +34305,10 @@ fn __action747<
 
 fn __action748<
 >(
-    __0: (ast::Location, alloc::vec::Vec<(Option<(ast::Location, Option<String>)>, ast::Expr, bool)>, ast::Location),
-    __1: (ast::Location, (Option<(ast::Location, Option<String>)>, ast::Expr, bool), ast::Location),
+    __0: (ast::Location, alloc::vec::Vec<(Option<(ast::Location, Option<String>)>, ast::Expr)>, ast::Location),
+    __1: (ast::Location, (Option<(ast::Location, Option<String>)>, ast::Expr), ast::Location),
     __2: (ast::Location, lexer::Tok, ast::Location),
-) -> alloc::vec::Vec<(Option<(ast::Location, Option<String>)>, ast::Expr, bool)>
+) -> alloc::vec::Vec<(Option<(ast::Location, Option<String>)>, ast::Expr)>
 {
     let __start0 = __1.0.clone();
     let __end0 = __2.2.clone();
@@ -34329,8 +34325,8 @@ fn __action748<
 
 fn __action749<
 >(
-    __0: (ast::Location, core::option::Option<(Option<(ast::Location, Option<String>)>, ast::Expr, bool)>, ast::Location),
-) -> Vec<(Option<(ast::Location, Option<String>)>, ast::Expr, bool)>
+    __0: (ast::Location, core::option::Option<(Option<(ast::Location, Option<String>)>, ast::Expr)>, ast::Location),
+) -> Vec<(Option<(ast::Location, Option<String>)>, ast::Expr)>
 {
     let __start0 = __0.0.clone();
     let __end0 = __0.0.clone();
@@ -34347,9 +34343,9 @@ fn __action749<
 
 fn __action750<
 >(
-    __0: (ast::Location, alloc::vec::Vec<(Option<(ast::Location, Option<String>)>, ast::Expr, bool)>, ast::Location),
-    __1: (ast::Location, core::option::Option<(Option<(ast::Location, Option<String>)>, ast::Expr, bool)>, ast::Location),
-) -> Vec<(Option<(ast::Location, Option<String>)>, ast::Expr, bool)>
+    __0: (ast::Location, alloc::vec::Vec<(Option<(ast::Location, Option<String>)>, ast::Expr)>, ast::Location),
+    __1: (ast::Location, core::option::Option<(Option<(ast::Location, Option<String>)>, ast::Expr)>, ast::Location),
+) -> Vec<(Option<(ast::Location, Option<String>)>, ast::Expr)>
 {
     let __start0 = __0.0.clone();
     let __end0 = __0.2.clone();
@@ -35624,7 +35620,7 @@ fn __action806<
     __0: (ast::Location, String, ast::Location),
     __1: (ast::Location, lexer::Tok, ast::Location),
     __2: (ast::Location, ast::Expr, ast::Location),
-) -> (Option<(ast::Location, Option<String>)>, ast::Expr, bool)
+) -> (Option<(ast::Location, Option<String>)>, ast::Expr)
 {
     let __start0 = __0.0.clone();
     let __end0 = __0.0.clone();
@@ -35645,7 +35641,7 @@ fn __action807<
 >(
     __0: (ast::Location, lexer::Tok, ast::Location),
     __1: (ast::Location, ast::Expr, ast::Location),
-) -> (Option<(ast::Location, Option<String>)>, ast::Expr, bool)
+) -> (Option<(ast::Location, Option<String>)>, ast::Expr)
 {
     let __start0 = __0.0.clone();
     let __end0 = __0.0.clone();
@@ -35665,7 +35661,7 @@ fn __action808<
 >(
     __0: (ast::Location, lexer::Tok, ast::Location),
     __1: (ast::Location, ast::Expr, ast::Location),
-) -> (Option<(ast::Location, Option<String>)>, ast::Expr, bool)
+) -> (Option<(ast::Location, Option<String>)>, ast::Expr)
 {
     let __start0 = __0.0.clone();
     let __end0 = __0.0.clone();
@@ -37301,8 +37297,8 @@ fn __action882<
 
 fn __action883<
 >(
-    __0: (ast::Location, (Option<(ast::Location, Option<String>)>, ast::Expr, bool), ast::Location),
-) -> Vec<(Option<(ast::Location, Option<String>)>, ast::Expr, bool)>
+    __0: (ast::Location, (Option<(ast::Location, Option<String>)>, ast::Expr), ast::Location),
+) -> Vec<(Option<(ast::Location, Option<String>)>, ast::Expr)>
 {
     let __start0 = __0.0.clone();
     let __end0 = __0.2.clone();
@@ -37319,7 +37315,7 @@ fn __action884<
 >(
     __lookbehind: &ast::Location,
     __lookahead: &ast::Location,
-) -> Vec<(Option<(ast::Location, Option<String>)>, ast::Expr, bool)>
+) -> Vec<(Option<(ast::Location, Option<String>)>, ast::Expr)>
 {
     let __start0 = __lookbehind.clone();
     let __end0 = __lookahead.clone();
@@ -37335,9 +37331,9 @@ fn __action884<
 
 fn __action885<
 >(
-    __0: (ast::Location, alloc::vec::Vec<(Option<(ast::Location, Option<String>)>, ast::Expr, bool)>, ast::Location),
-    __1: (ast::Location, (Option<(ast::Location, Option<String>)>, ast::Expr, bool), ast::Location),
-) -> Vec<(Option<(ast::Location, Option<String>)>, ast::Expr, bool)>
+    __0: (ast::Location, alloc::vec::Vec<(Option<(ast::Location, Option<String>)>, ast::Expr)>, ast::Location),
+    __1: (ast::Location, (Option<(ast::Location, Option<String>)>, ast::Expr), ast::Location),
+) -> Vec<(Option<(ast::Location, Option<String>)>, ast::Expr)>
 {
     let __start0 = __1.0.clone();
     let __end0 = __1.2.clone();
@@ -37353,8 +37349,8 @@ fn __action885<
 
 fn __action886<
 >(
-    __0: (ast::Location, alloc::vec::Vec<(Option<(ast::Location, Option<String>)>, ast::Expr, bool)>, ast::Location),
-) -> Vec<(Option<(ast::Location, Option<String>)>, ast::Expr, bool)>
+    __0: (ast::Location, alloc::vec::Vec<(Option<(ast::Location, Option<String>)>, ast::Expr)>, ast::Location),
+) -> Vec<(Option<(ast::Location, Option<String>)>, ast::Expr)>
 {
     let __start0 = __0.2.clone();
     let __end0 = __0.2.clone();
@@ -37371,7 +37367,7 @@ fn __action886<
 
 fn __action887<
 >(
-    __0: (ast::Location, (Option<(ast::Location, Option<String>)>, ast::Expr, bool), ast::Location),
+    __0: (ast::Location, (Option<(ast::Location, Option<String>)>, ast::Expr), ast::Location),
 ) -> Result<ArgumentList,__lalrpop_util::ParseError<ast::Location,lexer::Tok,LexicalError>>
 {
     let __start0 = __0.0.clone();
@@ -37405,8 +37401,8 @@ fn __action888<
 
 fn __action889<
 >(
-    __0: (ast::Location, alloc::vec::Vec<(Option<(ast::Location, Option<String>)>, ast::Expr, bool)>, ast::Location),
-    __1: (ast::Location, (Option<(ast::Location, Option<String>)>, ast::Expr, bool), ast::Location),
+    __0: (ast::Location, alloc::vec::Vec<(Option<(ast::Location, Option<String>)>, ast::Expr)>, ast::Location),
+    __1: (ast::Location, (Option<(ast::Location, Option<String>)>, ast::Expr), ast::Location),
 ) -> Result<ArgumentList,__lalrpop_util::ParseError<ast::Location,lexer::Tok,LexicalError>>
 {
     let __start0 = __0.0.clone();
@@ -37423,7 +37419,7 @@ fn __action889<
 
 fn __action890<
 >(
-    __0: (ast::Location, alloc::vec::Vec<(Option<(ast::Location, Option<String>)>, ast::Expr, bool)>, ast::Location),
+    __0: (ast::Location, alloc::vec::Vec<(Option<(ast::Location, Option<String>)>, ast::Expr)>, ast::Location),
 ) -> Result<ArgumentList,__lalrpop_util::ParseError<ast::Location,lexer::Tok,LexicalError>>
 {
     let __start0 = __0.0.clone();
@@ -37441,7 +37437,7 @@ fn __action891<
 >(
     __0: (ast::Location, ast::Expr, ast::Location),
     __1: (ast::Location, Vec<ast::Comprehension>, ast::Location),
-) -> (Option<(ast::Location, Option<String>)>, ast::Expr, bool)
+) -> (Option<(ast::Location, Option<String>)>, ast::Expr)
 {
     let __start0 = __1.0.clone();
     let __end0 = __1.2.clone();
@@ -37458,7 +37454,7 @@ fn __action891<
 fn __action892<
 >(
     __0: (ast::Location, ast::Expr, ast::Location),
-) -> (Option<(ast::Location, Option<String>)>, ast::Expr, bool)
+) -> (Option<(ast::Location, Option<String>)>, ast::Expr)
 {
     let __start0 = __0.2.clone();
     let __end0 = __0.2.clone();
