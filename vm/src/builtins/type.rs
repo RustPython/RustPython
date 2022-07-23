@@ -41,6 +41,12 @@ pub struct HeapTypeExt {
 
 pub struct PointerSlot<T>(NonNull<T>);
 
+impl<T> PointerSlot<T> {
+    pub unsafe fn borrow_static(&self) -> &'static T {
+        self.0.as_ref()
+    }
+}
+
 impl<T> Clone for PointerSlot<T> {
     fn clone(&self) -> Self {
         *self

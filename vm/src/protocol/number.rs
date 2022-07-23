@@ -8,12 +8,19 @@ use crate::{
     VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
-use once_cell::sync::OnceCell;
 
 type UnaryFunc<R = PyObjectRef> = AtomicCell<Option<fn(&PyNumber, &VirtualMachine) -> PyResult<R>>>;
 type BinaryFunc<R = PyObjectRef> =
     AtomicCell<Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult<R>>>;
 
+
+impl PyObject {
+    #[inline]
+    pub fn to_number(&self) -> PyNumber<'_> {
+        PyNumber::from(self)
+    }
+}
+    
 #[derive(Default)]
 pub struct PyNumberMethods {
     /* Number implementations must check *both*
@@ -107,39 +114,36 @@ impl PyNumberMethods {
 
 pub struct PyNumber<'a> {
     pub obj: &'a PyObject,
-    // some fast path do not need methods, so we do lazy initialize
-    methods: OnceCell<PointerSlot<PyNumberMethods>>,
+    methods: &'a PyNumberMethods,
 }
 
 impl<'a> From<&'a PyObject> for PyNumber<'a> {
     fn from(obj: &'a PyObject) -> Self {
+        static GLOBAL_NOT_IMPLEMENTED: PyNumberMethods = PyNumberMethods::NOT_IMPLEMENTED;
         Self {
             obj,
-            methods: OnceCell::new(),
+            methods: Self::find_methods(obj).map_or(&GLOBAL_NOT_IMPLEMENTED, |m| unsafe { m.borrow_static() }),
         }
     }
 }
 
 impl PyNumber<'_> {
-    pub fn methods(&self) -> &PyNumberMethods {
-        static GLOBAL_NOT_IMPLEMENTED: PyNumberMethods = PyNumberMethods::NOT_IMPLEMENTED;
-
-        self.methods
-            .get_or_init(|| {
-                Self::find_methods(self.obj)
-                    .unwrap_or_else(|| PointerSlot::from(&GLOBAL_NOT_IMPLEMENTED))
-            })
-            .as_ref()
-    }
-
     fn find_methods(obj: &PyObject) -> Option<PointerSlot<PyNumberMethods>> {
         obj.class().mro_find_map(|x| x.slots.as_number.load())
     }
 
+    pub fn methods(&self) -> &PyNumberMethods {
+        self.methods
+    }
+
     // PyNumber_Check
     pub fn check(obj: &PyObject) -> bool {
-        let num = PyNumber::from(obj);
-        let methods = num.methods();
+        let methods = if let Some(m) = Self::find_methods(obj) {
+            m
+        } else {
+            return false;
+        };
+        let methods = methods.as_ref();
         methods.int.load().is_some()
             || methods.index.load().is_some()
             || methods.float.load().is_some()
@@ -197,7 +201,7 @@ impl PyNumber<'_> {
             //     vm,
             // )?;
             let ret = f.invoke((), vm)?;
-            PyNumber::from(ret.as_ref()).index(vm).map_err(|_| {
+            ret.to_number().index(vm).map_err(|_| {
                 vm.new_type_error(format!(
                     "__trunc__ returned non-Integral (type {})",
                     ret.class()

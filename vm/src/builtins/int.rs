@@ -266,7 +266,7 @@ impl Constructor for PyInt {
                     val
                 };
 
-                PyNumber::from(val.as_ref())
+                val.to_number()
                     .int(vm)
                     .map(|x| x.as_bigint().clone())
             }

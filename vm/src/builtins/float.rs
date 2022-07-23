@@ -58,16 +58,6 @@ impl From<f64> for PyFloat {
     }
 }
 
-impl PyObject {
-    pub fn try_float_opt(&self, vm: &VirtualMachine) -> PyResult<Option<PyRef<PyFloat>>> {
-        PyNumber::from(self).float_opt(vm)
-    }
-
-    pub fn try_float(&self, vm: &VirtualMachine) -> PyResult<PyRef<PyFloat>> {
-        PyNumber::from(self).float(vm)
-    }
-}
-
 pub(crate) fn to_op_float(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Option<f64>> {
     let v = if let Some(float) = obj.payload_if_subclass::<PyFloat>(vm) {
         Some(float.value)
@@ -152,7 +142,7 @@ impl Constructor for PyFloat {
         let float_val = match arg {
             OptionalArg::Missing => 0.0,
             OptionalArg::Present(val) => {
-                if let Some(f) = val.try_float_opt(vm)? {
+                if let Some(f) = val.to_number().float_opt(vm)? {
                     f.value
                 } else {
                     float_from_string(val, vm)?
