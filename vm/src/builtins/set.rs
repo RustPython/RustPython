@@ -2,8 +2,8 @@
  * Builtin set type with a sequence of unique items.
  */
 use super::{
-    builtins_iter, IterStatus, PositionIterInternal, PyDictRef, PyGenericAlias, PyTupleRef, PyType,
-    PyTypeRef,
+    builtins_iter, IterStatus, PositionIterInternal, PyDict, PyDictRef, PyGenericAlias, PyTupleRef,
+    PyType, PyTypeRef,
 };
 use crate::common::{ascii, hash::PyHash, lock::PyMutex, rc::PyRc};
 use crate::{
@@ -353,6 +353,36 @@ impl PySetInner {
         Ok(())
     }
 
+    fn update_internal(&self, iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        // check AnySet
+        if let Ok(any_set) = AnySet::try_from_object(vm, iterable.to_owned()) {
+            self.merge_set(any_set, vm)
+        // check Dict
+        } else if let Ok(dict) = iterable.to_owned().downcast_exact::<PyDict>(vm) {
+            self.merge_dict(dict, vm)
+        } else {
+            // add iterable that is not AnySet or Dict
+            for item in iterable.try_into_value::<ArgIterable>(vm)?.iter(vm)? {
+                self.add(item?, vm)?;
+            }
+            Ok(())
+        }
+    }
+
+    fn merge_set(&self, any_set: AnySet, vm: &VirtualMachine) -> PyResult<()> {
+        for item in any_set.as_inner().elements() {
+            self.add(item, vm)?;
+        }
+        Ok(())
+    }
+
+    fn merge_dict(&self, dict: PyDictRef, vm: &VirtualMachine) -> PyResult<()> {
+        for (key, _value) in dict {
+            self.add(key, vm)?;
+        }
+        Ok(())
+    }
+
     fn intersection_update(
         &self,
         others: impl std::iter::Iterator<Item = ArgIterable>,
@@ -642,8 +672,10 @@ impl PySet {
     }
 
     #[pymethod]
-    fn update(&self, others: PosArgs<ArgIterable>, vm: &VirtualMachine) -> PyResult<()> {
-        self.inner.update(others.into_iter(), vm)?;
+    fn update(&self, others: PosArgs<PyObjectRef>, vm: &VirtualMachine) -> PyResult<()> {
+        for iterable in others {
+            self.inner.update_internal(iterable, vm)?;
+        }
         Ok(())
     }
 
@@ -718,7 +750,7 @@ impl Constructor for PySet {
 }
 
 impl Initializer for PySet {
-    type Args = OptionalArg<ArgIterable>;
+    type Args = OptionalArg<PyObjectRef>;
 
     fn init(zelf: PyRef<Self>, iterable: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         if zelf.len() > 0 {
@@ -996,6 +1028,14 @@ impl AnySet {
         vm: &VirtualMachine,
     ) -> PyResult<impl std::iter::Iterator<Item = ArgIterable>> {
         Ok(std::iter::once(self.into_iterable(vm)?))
+    }
+
+    fn as_inner(&self) -> &PySetInner {
+        match_class!(match self.object.as_object() {
+            ref set @ PySet => &set.inner,
+            ref frozen @ PyFrozenSet => &frozen.inner,
+            _ => unreachable!("AnySet is always PySet or PyFrozenSet"), // should not be called.
+        })
     }
 }
 
