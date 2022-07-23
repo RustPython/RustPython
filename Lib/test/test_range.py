@@ -375,8 +375,6 @@ class RangeTest(unittest.TestCase):
                     self.assertEqual(list(pickle.loads(pickle.dumps(r, proto))),
                                      list(r))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_iterator_pickling(self):
         testcases = [(13,), (0, 11), (-22, 10), (20, 3, -1), (13, 21, 3),
                      (-2, 2, 2)]
