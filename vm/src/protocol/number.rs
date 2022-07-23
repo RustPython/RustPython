@@ -19,6 +19,29 @@ impl PyObject {
     pub fn to_number(&self) -> PyNumber<'_> {
         PyNumber::from(self)
     }
+
+    pub fn try_index_opt(&self, vm: &VirtualMachine) -> Option<PyResult<PyIntRef>> {
+        self.to_number().index_opt(vm).transpose()
+        // Some(if let Some(i) = self.downcast_ref_if_exact::<PyInt>(vm) {
+        //     Ok(i.to_owned())
+        // } else if let Some(i) = self.payload::<PyInt>() {
+        //     Ok(vm.ctx.new_bigint(i.as_bigint()))
+        // } else if let Some(result) = self.to_number().index(vm).transpose() {
+        //     result
+        // } else {
+        //     return None;
+        // })
+    }
+
+    pub fn try_index(&self, vm: &VirtualMachine) -> PyResult<PyIntRef> {
+        self.to_number().index(vm)
+        // self.try_index_opt(vm).transpose()?.ok_or_else(|| {
+        //     vm.new_type_error(format!(
+        //         "'{}' object cannot be interpreted as an integer",
+        //         self.class()
+        //     ))
+        // })
+    }
 }
     
 #[derive(Default)]
@@ -122,7 +145,8 @@ impl<'a> From<&'a PyObject> for PyNumber<'a> {
         static GLOBAL_NOT_IMPLEMENTED: PyNumberMethods = PyNumberMethods::NOT_IMPLEMENTED;
         Self {
             obj,
-            methods: Self::find_methods(obj).map_or(&GLOBAL_NOT_IMPLEMENTED, |m| unsafe { m.borrow_static() }),
+            methods: Self::find_methods(obj)
+                .map_or(&GLOBAL_NOT_IMPLEMENTED, |m| unsafe { m.borrow_static() }),
         }
     }
 }

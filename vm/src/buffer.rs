@@ -491,15 +491,15 @@ fn get_int_or_index<T>(vm: &VirtualMachine, arg: PyObjectRef) -> PyResult<T>
 where
     T: PrimInt + for<'a> TryFrom<&'a BigInt>,
 {
-    match vm.to_index_opt(arg) {
-        Some(index) => index?
-            .try_to_primitive(vm)
-            .map_err(|_| new_struct_error(vm, "argument out of range".to_owned())),
-        None => Err(new_struct_error(
+    let index = arg.try_index_opt(vm).unwrap_or_else(|| {
+        Err(new_struct_error(
             vm,
             "required argument is not an integer".to_owned(),
-        )),
-    }
+        ))
+    })?;
+    index
+        .try_to_primitive(vm)
+        .map_err(|_| new_struct_error(vm, "argument out of range".to_owned()))
 }
 
 make_pack_primint!(i8);

@@ -199,7 +199,7 @@ mod math {
 
     #[pyfunction]
     fn isqrt(x: PyObjectRef, vm: &VirtualMachine) -> PyResult<BigInt> {
-        let index = vm.to_index(&x)?;
+        let index = x.try_index(vm)?;
         let value = index.as_bigint();
 
         if value.is_negative() {

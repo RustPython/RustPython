@@ -69,7 +69,7 @@ impl PyPayload for PyInt {
     }
 
     fn special_retrieve(vm: &VirtualMachine, obj: &PyObject) -> Option<PyResult<PyRef<Self>>> {
-        Some(vm.to_index(obj))
+        Some(obj.try_index(vm))
     }
 }
 
@@ -245,8 +245,8 @@ impl Constructor for PyInt {
     fn py_new(cls: PyTypeRef, options: Self::Args, vm: &VirtualMachine) -> PyResult {
         let value = if let OptionalArg::Present(val) = options.val_options {
             if let OptionalArg::Present(base) = options.base {
-                let base = vm
-                    .to_index(&base)?
+                let base = base
+                    .try_index(vm)?
                     .as_bigint()
                     .to_u32()
                     .filter(|&v| v == 0 || (2..=36).contains(&v))

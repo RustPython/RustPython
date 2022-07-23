@@ -110,7 +110,7 @@ mod _operator {
     /// Return a converted to an integer. Equivalent to a.__index__().
     #[pyfunction]
     fn index(a: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyIntRef> {
-        vm.to_index(&a)
+        a.try_index(vm)
     }
 
     /// Return the bitwise inverse of the number obj. This is equivalent to ~obj.

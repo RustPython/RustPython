@@ -347,7 +347,7 @@ mod decl {
                     Some(ms) => {
                         let ms = if let Some(float) = ms.payload::<PyFloat>() {
                             float.to_f64().to_i32()
-                        } else if let Some(int) = vm.to_index_opt(ms.clone()) {
+                        } else if let Some(int) = ms.try_index_opt(vm) {
                             int?.as_bigint().to_i32()
                         } else {
                             return Err(vm.new_type_error(format!(
