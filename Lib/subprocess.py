@@ -207,7 +207,8 @@ if _mswindows:
         def __repr__(self):
             return "%s(%d)" % (self.__class__.__name__, int(self))
 
-        __del__ = Close
+        # XXX: RustPython; OSError('The handle is invalid. (os error 6)')
+        # __del__ = Close
 else:
     # When select or poll has indicated that the file is writable,
     # we can write up to _PIPE_BUF bytes without risk of blocking.
