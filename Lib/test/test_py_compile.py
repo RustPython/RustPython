@@ -89,6 +89,10 @@ class PyCompileTestsBase:
             with self.assertRaises(FileExistsError):
                 py_compile.compile(self.source_path, self.pyc_path)
 
+    # TODO: RUSTPYTHON
+    if sys.platform == 'win32':
+        test_do_not_overwrite_symlinks = unittest.expectedFailure(test_do_not_overwrite_symlinks)
+
     @unittest.skipIf(not os.path.exists(os.devnull) or os.path.isfile(os.devnull),
                      'requires os.devnull and for it to be a non-regular file')
     def test_do_not_overwrite_nonregular_files(self):
