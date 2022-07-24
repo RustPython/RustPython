@@ -28,17 +28,73 @@ env:
     test_argparse
     test_array
     test_asyncgen
+    test_binop
+    test_bisect
+    test_bool
     test_bytes
-    test_calendar
+    test_call
+    test_class
+    test_cmath
+    test_collections
     test_complex
+    test_contains
+    test_copy
+    test_dataclasses
     test_decimal
+    test_decorators
+    test_defaultdict
+    test_deque
+    test_dict
+    test_dictcomps
+    test_dictviews
     test_dis
+    test_enumerate
+    test_exception_variations
+    test_exceptions
+    test_float
+    test_format
+    test_fractions
+    test_genericalias
+    test_genericclass
+    test_grammar
+    test_range
+    test_index
+    test_int
+    test_int_literal
+    test_isinstance
+    test_iter
+    test_iterlen
+    test_itertools
     test_json
+    test_keyword
+    test_keywordonlyarg
     test_list
     test_long
+    test_longexp
+    test_math
+    test_operator
+    test_ordered_dict
+    test_pow
+    test_raise
+    test_richcmp
+    test_scope
     test_set
+    test_slice
+    test_sort
+    test_string
+    test_string_literals
+    test_strtod
+    test_structseq
+    test_subclassinit
+    test_super
+    test_syntax
+    test_tuple
+    test_types
+    test_unary
     test_unicode
+    test_unpack
     test_weakref
+    test_yield_from
 
 jobs:
   rust_tests:
