@@ -549,7 +549,7 @@ fn get_standard_encoding(encoding: &str) -> (usize, StandardEncoding) {
     (0, StandardEncoding::Unknown)
 }
 
-fn surrogatepass_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(String, usize)> {
+fn surrogatepass_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(PyObjectRef, usize)> {
     if err.fast_isinstance(vm.ctx.exceptions.unicode_encode_error) {
         let range = extract_unicode_error_range(&err, vm)?;
         let s = PyStrRef::try_from_object(vm, err.get_attr("object", vm)?)?;
@@ -562,7 +562,7 @@ fn surrogatepass_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(Stri
         let s_after_start =
             crate::common::str::try_get_chars(s.as_str(), range.start..).unwrap_or("");
         let num_chars = range.len();
-        let mut out = String::with_capacity(num_chars * 4);
+        let mut out: Vec<u8> = Vec::with_capacity(num_chars * 4);
         for c in s_after_start.chars().take(num_chars).map(|x| x as u32) {
             if !(0xd800..=0xdfff).contains(&c) {
                 // Not a surrogate, fail with original exception
@@ -570,39 +570,39 @@ fn surrogatepass_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(Stri
             }
             match standard_encoding {
                 StandardEncoding::Utf8 => {
-                    write!(out, "\\x{:x?}", (0xe0 | (c >> 12))).unwrap();
-                    write!(out, "\\x{:x?}", (0x80 | ((c >> 6) & 0x3f))).unwrap();
-                    write!(out, "\\x{:x?}", (0x80 | (c & 0x3f))).unwrap();
+                    out.push((0xe0 | (c >> 12)) as u8);
+                    out.push((0x80 | ((c >> 6) & 0x3f)) as u8);
+                    out.push((0x80 | (c & 0x3f)) as u8);
                 }
                 StandardEncoding::Utf16Le => {
-                    write!(out, "\\x{:x?}", c).unwrap();
-                    write!(out, "\\x{:x?}", (c >> 8)).unwrap();
+                    out.push(c as u8);
+                    out.push((c >> 8) as u8);
                 }
                 StandardEncoding::Utf16Be => {
-                    write!(out, "\\x{:x?}", (c >> 8)).unwrap();
-                    write!(out, "\\x{:x?}", c).unwrap();
+                    out.push((c >> 8) as u8);
+                    out.push(c as u8);
                 }
                 StandardEncoding::Utf32Le => {
-                    write!(out, "\\x{:x?}", c).unwrap();
-                    write!(out, "\\x{:x?}", (c >> 8)).unwrap();
-                    write!(out, "\\x{:x?}", (c >> 16)).unwrap();
-                    write!(out, "\\x{:x?}", (c >> 24)).unwrap();
+                    out.push(c as u8);
+                    out.push((c >> 8) as u8);
+                    out.push((c >> 16) as u8);
+                    out.push((c >> 24) as u8);
                 }
                 StandardEncoding::Utf32Be => {
-                    write!(out, "\\x{:x?}", (c >> 24)).unwrap();
-                    write!(out, "\\x{:x?}", (c >> 16)).unwrap();
-                    write!(out, "\\x{:x?}", (c >> 8)).unwrap();
-                    write!(out, "\\x{:x?}", c).unwrap();
+                    out.push((c >> 24) as u8);
+                    out.push((c >> 16) as u8);
+                    out.push((c >> 8) as u8);
+                    out.push(c as u8);
                 }
                 StandardEncoding::Unknown => {
                     unreachable!("NOTE: RUSTPYTHON, should've bailed out earlier")
                 }
             }
         }
-        Ok((out, range.end))
+        Ok((vm.ctx.new_bytes(out).into(), range.end))
     } else if is_decode_err(&err, vm) {
         let range = extract_unicode_error_range(&err, vm)?;
-        let s = PyStrRef::try_from_object(vm, err.get_attr("object", vm)?)?;
+        let s = PyBytesRef::try_from_object(vm, err.get_attr("object", vm)?)?;
         let s_encoding = PyStrRef::try_from_object(vm, err.get_attr("encoding", vm)?)?;
         let (byte_length, standard_encoding) = get_standard_encoding(s_encoding.as_str());
         if let StandardEncoding::Unknown = standard_encoding {
@@ -612,50 +612,53 @@ fn surrogatepass_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(Stri
         let mut c: u32 = 0;
         // Try decoding a single surrogate character. If there are more,
         // let the codec call us again.
-        let s_after_start = crate::common::str::try_get_chars(s.as_str(), range.start..)
-            .unwrap_or("")
-            .as_bytes();
-        if s_after_start.len() - range.start >= byte_length {
+        let p = &s.as_bytes()[range.start..];
+        if p.len() - range.start >= byte_length {
             match standard_encoding {
                 StandardEncoding::Utf8 => {
-                    if (s_after_start[0] as u32 & 0xf0) == 0xe0
-                        && (s_after_start[1] as u32 & 0xc0) == 0x80
-                        && (s_after_start[2] as u32 & 0xc0) == 0x80
+                    if (p[0] as u32 & 0xf0) == 0xe0
+                        && (p[1] as u32 & 0xc0) == 0x80
+                        && (p[2] as u32 & 0xc0) == 0x80
                     {
                         // it's a three-byte code
-                        c = ((s_after_start[0] as u32 & 0x0f) << 12)
-                            + ((s_after_start[1] as u32 & 0x3f) << 6)
-                            + (s_after_start[2] as u32 & 0x3f);
+                        c = ((p[0] as u32 & 0x0f) << 12)
+                            + ((p[1] as u32 & 0x3f) << 6)
+                            + (p[2] as u32 & 0x3f);
                     }
                 }
                 StandardEncoding::Utf16Le => {
-                    c = (s_after_start[1] as u32) << 8 | s_after_start[0] as u32;
+                    c = (p[1] as u32) << 8 | p[0] as u32;
                 }
                 StandardEncoding::Utf16Be => {
-                    c = (s_after_start[0] as u32) << 8 | s_after_start[1] as u32;
+                    c = (p[0] as u32) << 8 | p[1] as u32;
                 }
                 StandardEncoding::Utf32Le => {
-                    c = ((s_after_start[3] as u32) << 24)
-                        | ((s_after_start[2] as u32) << 16)
-                        | ((s_after_start[1] as u32) << 8)
-                        | s_after_start[0] as u32;
+                    c = ((p[3] as u32) << 24)
+                        | ((p[2] as u32) << 16)
+                        | ((p[1] as u32) << 8)
+                        | p[0] as u32;
                 }
                 StandardEncoding::Utf32Be => {
-                    c = ((s_after_start[0] as u32) << 24)
-                        | ((s_after_start[1] as u32) << 16)
-                        | ((s_after_start[2] as u32) << 8)
-                        | s_after_start[3] as u32;
+                    c = ((p[0] as u32) << 24)
+                        | ((p[1] as u32) << 16)
+                        | ((p[2] as u32) << 8)
+                        | p[3] as u32;
                 }
                 StandardEncoding::Unknown => {
                     unreachable!("NOTE: RUSTPYTHON, should've bailed out earlier")
                 }
             }
         }
+        // !Py_UNICODE_IS_SURROGATE
         if !(0xd800..=0xdfff).contains(&c) {
             // Not a surrogate, fail with original exception
             return Err(err.downcast().unwrap());
         }
-        Ok((format!("\\x{:x?}", c), range.start + byte_length))
+
+        Ok((
+            vm.new_pyobj(format!("\\x{c:x?}")),
+            range.start + byte_length,
+        ))
     } else {
         Err(bad_err_type(err, vm))
     }
