@@ -417,7 +417,12 @@ impl Comparable for PyComplex {
 impl Hashable for PyComplex {
     #[inline]
     fn hash(zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyResult<hash::PyHash> {
-        Ok(hash::hash_complex(&zelf.value))
+        match hash::hash_complex(&zelf.value) {
+            Some(value) => Ok(value),
+            None => Ok(hash::hash_pointer(
+                zelf as *const _ as *const std::ffi::c_void,
+            )),
+        }
     }
 }
 

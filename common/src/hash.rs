@@ -140,11 +140,11 @@ pub fn hash_float(value: f64) -> Option<PyHash> {
     Some(fix_sentinel(x as PyHash * value.signum() as PyHash))
 }
 
-pub fn hash_complex(value: &Complex64) -> PyHash {
-    let re_hash = hash_float(value.re).unwrap();
-    let im_hash = hash_float(value.im).unwrap();
+pub fn hash_complex(value: &Complex64) -> Option<PyHash> {
+    let re_hash = hash_float(value.re)?;
+    let im_hash = hash_float(value.im)?;
     let Wrapping(ret) = Wrapping(re_hash) + Wrapping(im_hash) * Wrapping(IMAG);
-    fix_sentinel(ret)
+    Some(fix_sentinel(ret))
 }
 
 pub fn hash_iter_unordered<'a, T: 'a, I, F, E>(iter: I, hashf: F) -> Result<PyHash, E>
