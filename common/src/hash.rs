@@ -140,6 +140,7 @@ pub fn hash_float(value: f64) -> Option<PyHash> {
     Some(fix_sentinel(x as PyHash * value.signum() as PyHash))
 }
 
+#[inline]
 pub fn hash_complex(value: &Complex64) -> Option<PyHash> {
     let re_hash = hash_float(value.re)?;
     let im_hash = hash_float(value.im)?;
