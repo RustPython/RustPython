@@ -44,8 +44,6 @@ class TestSupport(unittest.TestCase):
         )
         assert len(warnings.filters) == orig_filter_len - 2
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_ignored_deprecations_are_silent(self):
         """Test support.ignore_deprecations_from() silences warnings"""
         with warnings.catch_warnings(record=True) as warning_objs:

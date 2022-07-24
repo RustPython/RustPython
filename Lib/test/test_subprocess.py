@@ -220,10 +220,6 @@ class ProcessTestCase(BaseTestCase):
                 input=None, text=True)
         self.assertNotIn('XX', output)
 
-    # TODO: RUSTPYTHON
-    if sys.platform != "win32":
-        test_check_output_input_none_text = unittest.expectedFailure(test_check_output_input_none_text)
-
     def test_check_output_input_none_universal_newlines(self):
         output = subprocess.check_output(
                 [sys.executable, "-c",
@@ -876,8 +872,6 @@ class ProcessTestCase(BaseTestCase):
         self.assertEqual(stdout, b"banana")
         self.assertEqual(stderr, b"pineapple")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_communicate_timeout(self):
         p = subprocess.Popen([sys.executable, "-c",
                               'import sys,os,time;'
@@ -1946,6 +1940,8 @@ class POSIXProcessTestCase(BaseTestCase):
             child_sid = int(output)
             self.assertNotEqual(parent_sid, child_sid)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(os, 'setreuid'), 'no setreuid on platform')
     def test_user(self):
         # For code coverage of the user parameter.  We don't care if we get an
@@ -2104,6 +2100,8 @@ class POSIXProcessTestCase(BaseTestCase):
         with self.assertRaises(ValueError):
             subprocess.check_call(ZERO_RETURN_CMD, extra_groups=[])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipIf(mswindows or not hasattr(os, 'umask'),
                      'POSIX umask() is not available.')
     def test_umask(self):

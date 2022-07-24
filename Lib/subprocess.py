@@ -853,7 +853,9 @@ class Popen:
         # This will be changed to encoding = io.text_encoding(encoding)
         # in the future.
         if self.text_mode and encoding is None:
-            self.encoding = encoding = "locale"
+            # TODO: RUSTPYTHON; encoding `locale` is not supported yet
+            pass
+            # self.encoding = encoding = "locale"
 
         # How long to resume waiting on a child after the first ^C.
         # There is no right value for this.  The purpose is to be polite
