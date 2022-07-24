@@ -194,7 +194,7 @@ pub fn lcg_urandom(mut x: u32, buf: &mut [u8]) {
     }
 }
 
-pub fn hash_pointer_raw(p: *const libc::c_void) -> PyHash {
+pub fn hash_pointer_raw(p: *const std::ffi::c_void) -> PyHash {
     // TODO: Use commented logic when below issue resolved.
     // Ref: https://github.com/RustPython/RustPython/pull/3951#issuecomment-1193108966
 
@@ -206,6 +206,6 @@ pub fn hash_pointer_raw(p: *const libc::c_void) -> PyHash {
     p as PyHash
 }
 
-pub fn hash_pointer(p: *const libc::c_void) -> PyHash {
+pub fn hash_pointer(p: *const std::ffi::c_void) -> PyHash {
     fix_sentinel(hash_pointer_raw(p))
 }
