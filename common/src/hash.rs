@@ -141,11 +141,21 @@ pub fn hash_float(value: f64) -> Option<PyHash> {
 }
 
 #[inline]
-pub fn hash_complex(value: &Complex64) -> Option<PyHash> {
-    let re_hash = hash_float(value.re)?;
-    let im_hash = hash_float(value.im)?;
+pub fn hash_complex(value: &Complex64) -> PyHash {
+    let re_hash = (match hash_float(value.re) {
+        Some(value) => Some(value),
+        None => Some(hash_pointer(value as *const _ as *const std::ffi::c_void)),
+    })
+    .unwrap();
+
+    let im_hash = (match hash_float(value.im) {
+        Some(value) => Some(value),
+        None => Some(hash_pointer(value as *const _ as *const std::ffi::c_void)),
+    })
+    .unwrap();
+
     let Wrapping(ret) = Wrapping(re_hash) + Wrapping(im_hash) * Wrapping(IMAG);
-    Some(fix_sentinel(ret))
+    fix_sentinel(ret)
 }
 
 pub fn hash_iter_unordered<'a, T: 'a, I, F, E>(iter: I, hashf: F) -> Result<PyHash, E>
