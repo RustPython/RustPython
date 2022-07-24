@@ -93,10 +93,10 @@ def escape_encode( obj, errors='strict'):
         v = v.replace(b"'", b"\\'").replace(b'\\"', b'"')
     return v, len(obj)
 
-def raw_unicode_escape_decode( data, errors='strict'):
+def raw_unicode_escape_decode( data, errors='strict', final=False):
     """None
     """
-    res = PyUnicode_DecodeRawUnicodeEscape(data, len(data), errors)
+    res = PyUnicode_DecodeRawUnicodeEscape(data, len(data), errors, final)
     res = ''.join(res)
     return res, len(data)
 
@@ -131,10 +131,10 @@ def utf_16_decode( data, errors='strict', final=False):
     res = ''.join(res)
     return res, consumed
 
-def unicode_escape_decode( data, errors='strict'):
+def unicode_escape_decode( data, errors='strict', final=False):
     """None
     """
-    res = PyUnicode_DecodeUnicodeEscape(data, len(data), errors)
+    res = PyUnicode_DecodeUnicodeEscape(data, len(data), errors, final)
     res = ''.join(res)
     return res, len(data)
 
@@ -948,7 +948,7 @@ def hexescape(s, pos, digits, message, errors):
     res = p
     return res, pos
 
-def PyUnicode_DecodeUnicodeEscape(s, size, errors):
+def PyUnicode_DecodeUnicodeEscape(s, size, errors, final):
 
     if (size == 0):
         return ''
@@ -1159,7 +1159,7 @@ def PyUnicode_DecodeCharmap(s, size, mapping, errors):
         inpos += 1
     return p
 
-def PyUnicode_DecodeRawUnicodeEscape(s, size, errors):
+def PyUnicode_DecodeRawUnicodeEscape(s, size, errors, final):
 
     if (size == 0):
         return ''
