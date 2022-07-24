@@ -1,4 +1,5 @@
 use rustpython_vm as vm;
+use std::process::ExitCode;
 use vm::{builtins::PyStrRef, Interpreter};
 
 fn py_main(interp: &Interpreter) -> vm::PyResult<PyStrRef> {
@@ -13,7 +14,7 @@ fn py_main(interp: &Interpreter) -> vm::PyResult<PyStrRef> {
     })
 }
 
-fn main() -> vm::PyResult<()> {
+fn main() -> ExitCode {
     let interp = vm::Interpreter::with_init(Default::default(), |vm| {
         vm.add_native_modules(rustpython_stdlib::get_module_inits());
     });
@@ -22,6 +23,6 @@ fn main() -> vm::PyResult<()> {
         println!("name: {}", result);
         Ok(())
     });
-    let exit_code = interp.run(|_vm| result);
-    std::process::exit(exit_code);
+    let exit_code = interp.run(|_vm| result).to_be_bytes()[0];
+    ExitCode::from(exit_code)
 }

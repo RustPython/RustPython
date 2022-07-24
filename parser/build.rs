@@ -2,15 +2,19 @@ use std::fmt::Write as _;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, BufWriter, Write};
 use std::path::PathBuf;
-use std::process::{self, Command};
+use std::process::{Command, ExitCode};
 use tiny_keccak::{Hasher, Sha3};
 
-fn main() {
-    check_lalrpop("src/python.lalrpop", "src/python.rs");
+fn main() -> ExitCode {
+    let result = check_lalrpop("src/python.lalrpop", "src/python.rs");
+    if let Some(result) = result {
+        return result;
+    }
     gen_phf();
+    ExitCode::SUCCESS
 }
 
-fn check_lalrpop(source: &str, generated: &str) {
+fn check_lalrpop(source: &str, generated: &str) -> Option<ExitCode> {
     println!("cargo:rerun-if-changed={source}");
 
     let sha_prefix = "// sha3: ";
@@ -44,20 +48,22 @@ fn check_lalrpop(source: &str, generated: &str) {
     };
 
     if sha_equal(expected_sha3_str, &actual_sha3) {
-        return;
+        return None;
     }
     match Command::new("lalrpop").arg(source).status() {
-        Ok(stat) if stat.success() => {}
+        Ok(stat) if stat.success() => None,
         Ok(stat) => {
             eprintln!("failed to execute lalrpop; exited with {stat}");
-            process::exit(stat.code().unwrap_or(1));
+            //process::exit(stat.code().unwrap_or(1));// FIXME
+            Some(ExitCode::from(stat.code().unwrap_or(1).to_be_bytes()[0]))
         }
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
             eprintln!(
                 "the lalrpop executable is not installed and parser/{source} has been changed"
             );
             eprintln!("please install lalrpop with `cargo install lalrpop`");
-            process::exit(1);
+            //process::exit(1);// FIXME
+            Some(ExitCode::FAILURE)
         }
         Err(e) => panic!("io error {e:#}"),
     }

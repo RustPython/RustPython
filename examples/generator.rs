@@ -1,4 +1,5 @@
 use rustpython_vm as vm;
+use std::process::ExitCode;
 use vm::{
     builtins::PyIntRef,
     protocol::{PyIter, PyIterReturn},
@@ -40,10 +41,10 @@ gen()
     Ok(())
 }
 
-fn main() {
+fn main() -> ExitCode {
     let interp = vm::Interpreter::with_init(Default::default(), |vm| {
         vm.add_native_modules(rustpython_stdlib::get_module_inits());
     });
     let result = py_main(&interp);
-    std::process::exit(interp.run(|_vm| result));
+    ExitCode::from(interp.run(|_vm| result).to_be_bytes()[0])
 }
