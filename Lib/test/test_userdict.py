@@ -213,13 +213,6 @@ class UserDictTest(mapping_tests.TestHashMappingProtocol):
         else:
             self.fail("g[42] didn't raise KeyError")
 
-    # TODO: RUSTPYTHON
-    import sys
-    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON, thread 'main' has overflowed its stack")
-    def test_repr_deep(self):
-        super().test_repr_deep()
-
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -569,7 +569,6 @@ class TracebackFormatTests(unittest.TestCase):
         actual = stderr_g.getvalue().splitlines()
         self.assertEqual(actual, expected)
 
-    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON,  thread 'main' has overflowed its stack")
     def test_recursive_traceback_python(self):
         self._check_recursive_traceback_display(traceback.print_exc)
 

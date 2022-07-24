@@ -331,7 +331,6 @@ class TestPartial:
         self.assertEqual(r, ((1, 2), {}))
         self.assertIs(type(r[0]), tuple)
 
-    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON, thread 'main' has overflowed its stack on Windows")
     def test_recursive_pickle(self):
         with self.AllowPickle():
             f = self.partial(capture)

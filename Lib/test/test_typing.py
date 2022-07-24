@@ -2837,7 +2837,6 @@ class ForwardRefTests(BaseTestCase):
         self.assertEqual(get_type_hints(foo, globals(), locals()),
                          {'a': List[int]})
 
-    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON, thread 'main' has overflowed its stack")
     def test_forward_recursion_actually(self):
         def namespace1():
             a = typing.ForwardRef('A')

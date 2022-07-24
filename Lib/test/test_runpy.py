@@ -737,7 +737,6 @@ class RunPathTestCase(unittest.TestCase, CodeExecutionMixin):
             msg = "can't find '__main__' module in %r" % zip_name
             self._check_import_error(zip_name, msg)
 
-    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON,  thread 'main' has overflowed its stack")
     @no_tracing
     def test_main_recursion_error(self):
         with temp_dir() as script_dir, temp_dir() as dummy_dir:
