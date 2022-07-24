@@ -235,22 +235,13 @@ jobs:
         name: run cpython platform-dependent tests (windows partial - fixme)
         run:
           target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }}
-            test_bool
-            test_cgi
-            test_exception_hierarchy
-            test_glob
             test_importlib
             test_io
             test_iter
             test_os
             test_pathlib
-            test_pwd
-            test_py_compile
             test_shutil
-            test_sys
-            test_unittest
             test_venv
-            test_zipimport
       - # if: runner.os == 'Linux'
         if: false  # FIXME: pip is vendoring dependencies that we are incompatible with
         name: check that --install-pip succeeds
