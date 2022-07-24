@@ -1763,8 +1763,6 @@ class TestWeirdBugs(unittest.TestCase):
         s.update(range(100))
         list(si)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_merge_and_mutate(self):
         class X:
             def __hash__(self):
