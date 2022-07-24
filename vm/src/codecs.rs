@@ -661,34 +661,34 @@ fn surrogatepass_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(Stri
     }
 }
 
-fn surrogateescape_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(String, usize)> {
+fn surrogateescape_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(PyObjectRef, usize)> {
     if err.fast_isinstance(vm.ctx.exceptions.unicode_encode_error) {
         let range = extract_unicode_error_range(&err, vm)?;
-        let s = PyStrRef::try_from_object(vm, err.get_attr("object", vm)?)?;
+        let object = PyStrRef::try_from_object(vm, err.get_attr("object", vm)?)?;
         let s_after_start =
-            crate::common::str::try_get_chars(s.as_str(), range.start..).unwrap_or("");
-        let num_chars = range.len();
-        let mut out = String::with_capacity(num_chars * 4);
-        for c in s_after_start.chars().take(num_chars).map(|x| x as u32) {
-            if !(0xd800..=0xdfff).contains(&c) {
+            crate::common::str::try_get_chars(object.as_str(), range.start..).unwrap_or("");
+        let mut out: Vec<u8> = Vec::with_capacity(range.len());
+        for ch in s_after_start.chars().take(range.len()) {
+            let ch = ch as u32;
+            if !(0xdc80..=0xdcff).contains(&ch) {
                 // Not a UTF-8b surrogate, fail with original exception
                 return Err(err.downcast().unwrap());
             }
-            write!(out, "#{}", c - 0xdc00).unwrap();
+            out.push((ch - 0xdc00) as u8);
         }
-        Ok((out, range.end))
+        let out = vm.ctx.new_bytes(out);
+        Ok((out.into(), range.end))
     } else if is_decode_err(&err, vm) {
         let range = extract_unicode_error_range(&err, vm)?;
-        let s = PyStrRef::try_from_object(vm, err.get_attr("object", vm)?)?;
-        let s_after_start = crate::common::str::try_get_chars(s.as_str(), range.start..)
-            .unwrap_or("")
-            .as_bytes();
+        let object = err.get_attr("object", vm)?;
+        let object = PyBytesRef::try_from_object(vm, object)?;
+        let p = &object.as_bytes()[range.clone()];
         let mut consumed = 0;
         let mut replace = String::with_capacity(4 * range.len());
         while consumed < 4 && consumed < range.len() {
-            let c = s_after_start[consumed] as u32;
+            let c = p[consumed] as u32;
+            // Refuse to escape ASCII bytes
             if c < 128 {
-                // Refuse to escape ASCII bytes
                 break;
             }
             write!(replace, "#{}", 0xdc00 + c).unwrap();
@@ -697,7 +697,7 @@ fn surrogateescape_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(St
         if consumed == 0 {
             return Err(err.downcast().unwrap());
         }
-        Ok((replace, range.start + consumed))
+        Ok((vm.new_pyobj(replace), range.start + consumed))
     } else {
         Err(bad_err_type(err, vm))
     }
