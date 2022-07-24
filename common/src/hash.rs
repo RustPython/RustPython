@@ -94,17 +94,18 @@ impl HashSecret {
     }
 }
 
-pub fn hash_float(value: f64) -> PyHash {
+#[inline]
+pub fn hash_float(value: f64) -> Option<PyHash> {
     // cpython _Py_HashDouble
     if !value.is_finite() {
         return if value.is_infinite() {
             if value > 0.0 {
-                INF
+                Some(INF)
             } else {
-                -INF
+                Some(-INF)
             }
         } else {
-            NAN
+            None
         };
     }
 
@@ -136,12 +137,12 @@ pub fn hash_float(value: f64) -> PyHash {
     };
     x = ((x << e) & MODULUS) | x >> (BITS32 - e);
 
-    fix_sentinel(x as PyHash * value.signum() as PyHash)
+    Some(fix_sentinel(x as PyHash * value.signum() as PyHash))
 }
 
 pub fn hash_complex(value: &Complex64) -> PyHash {
-    let re_hash = hash_float(value.re);
-    let im_hash = hash_float(value.im);
+    let re_hash = hash_float(value.re).unwrap();
+    let im_hash = hash_float(value.im).unwrap();
     let Wrapping(ret) = Wrapping(re_hash) + Wrapping(im_hash) * Wrapping(IMAG);
     fix_sentinel(ret)
 }
@@ -191,4 +192,20 @@ pub fn lcg_urandom(mut x: u32, buf: &mut [u8]) {
         x = x.wrapping_add(2531011);
         *b = ((x >> 16) & 0xff) as u8;
     }
+}
+
+pub fn hash_pointer_raw(p: *const libc::c_void) -> PyHash {
+    // TODO: Use commented logic when below issue resolved.
+    // Ref: https://github.com/RustPython/RustPython/pull/3951#issuecomment-1193108966
+
+    // let mut y = p as usize;
+    // /* bottom 3 or 4 bits are likely to be 0; rotate y by 4 to avoid
+    //    excessive hash collisions for dicts and sets */
+    // y = (y >> 4) | (y << (8 * std::mem::size_of::<usize>() - 4));
+    // y as PyHash
+    p as PyHash
+}
+
+pub fn hash_pointer(p: *const libc::c_void) -> PyHash {
+    fix_sentinel(hash_pointer_raw(p))
 }

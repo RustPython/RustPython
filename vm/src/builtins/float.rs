@@ -539,10 +539,9 @@ impl Comparable for PyFloat {
 impl Hashable for PyFloat {
     #[inline]
     fn hash(zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyResult<hash::PyHash> {
-        if zelf.to_f64().is_nan() {
-            Ok(zelf.get_id() as hash::PyHash)
-        } else {
-            Ok(hash::hash_float(zelf.to_f64()))
+        match hash::hash_float(zelf.to_f64()) {
+            Some(value) => Ok(value),
+            None => Ok(hash::hash_pointer(zelf as *const _ as *const libc::c_void)),
         }
     }
 }
