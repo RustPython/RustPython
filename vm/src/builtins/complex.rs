@@ -1,5 +1,6 @@
 use super::{float, PyStr, PyType, PyTypeRef};
 use crate::{
+    atomic_func,
     class::PyClassImpl,
     convert::{ToPyObject, ToPyResult},
     function::{
@@ -421,30 +422,44 @@ impl Hashable for PyComplex {
 }
 
 impl AsNumber for PyComplex {
-    const AS_NUMBER: PyNumberMethods = PyNumberMethods {
-        add: Some(|number, other, vm| Self::number_complex_op(number, other, |a, b| a + b, vm)),
-        subtract: Some(|number, other, vm| {
-            Self::number_complex_op(number, other, |a, b| a - b, vm)
-        }),
-        multiply: Some(|number, other, vm| {
-            Self::number_complex_op(number, other, |a, b| a * b, vm)
-        }),
-        power: Some(|number, other, vm| Self::number_general_op(number, other, inner_pow, vm)),
-        negative: Some(|number, vm| {
-            let value = Self::number_downcast(number).value;
-            (-value).to_pyresult(vm)
-        }),
-        positive: Some(|number, vm| Self::number_complex(number, vm).to_pyresult(vm)),
-        absolute: Some(|number, vm| {
-            let value = Self::number_downcast(number).value;
-            value.norm().to_pyresult(vm)
-        }),
-        boolean: Some(|number, _vm| Ok(Self::number_downcast(number).value.is_zero())),
-        true_divide: Some(|number, other, vm| {
-            Self::number_general_op(number, other, inner_div, vm)
-        }),
-        ..PyNumberMethods::NOT_IMPLEMENTED
-    };
+    fn as_number() -> &'static PyNumberMethods {
+        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+            add: atomic_func!(|number, other, vm| PyComplex::number_complex_op(
+                number,
+                other,
+                |a, b| a + b,
+                vm
+            )),
+            subtract: atomic_func!(|number, other, vm| {
+                PyComplex::number_complex_op(number, other, |a, b| a - b, vm)
+            }),
+            multiply: atomic_func!(|number, other, vm| {
+                PyComplex::number_complex_op(number, other, |a, b| a * b, vm)
+            }),
+            power: atomic_func!(|number, other, vm| PyComplex::number_general_op(
+                number, other, inner_pow, vm
+            )),
+            negative: atomic_func!(|number, vm| {
+                let value = PyComplex::number_downcast(number).value;
+                (-value).to_pyresult(vm)
+            }),
+            positive: atomic_func!(
+                |number, vm| PyComplex::number_complex(number, vm).to_pyresult(vm)
+            ),
+            absolute: atomic_func!(|number, vm| {
+                let value = PyComplex::number_downcast(number).value;
+                value.norm().to_pyresult(vm)
+            }),
+            boolean: atomic_func!(|number, _vm| Ok(PyComplex::number_downcast(number)
+                .value
+                .is_zero())),
+            true_divide: atomic_func!(|number, other, vm| {
+                PyComplex::number_general_op(number, other, inner_div, vm)
+            }),
+            ..PyNumberMethods::NOT_IMPLEMENTED
+        };
+        &AS_NUMBER
+    }
 }
 
 impl PyComplex {

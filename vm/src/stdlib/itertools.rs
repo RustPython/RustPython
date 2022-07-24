@@ -196,7 +196,7 @@ mod decl {
         ) -> PyResult {
             let start = start.into_option().unwrap_or_else(|| vm.new_pyobj(0));
             let step = step.into_option().unwrap_or_else(|| vm.new_pyobj(1));
-            if !PyNumber::check(&start, vm) || !PyNumber::check(&step, vm) {
+            if !PyNumber::check(&start) || !PyNumber::check(&step) {
                 return Err(vm.new_type_error("a number is required".to_owned()));
             }
 

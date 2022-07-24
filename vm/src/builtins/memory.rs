@@ -904,7 +904,7 @@ impl TryFromObject for SubscriptNeedle {
             Ok(Self::Index(i.try_to_primitive(vm)?))
         } else if obj.payload_is::<PySlice>() {
             Ok(Self::Slice(unsafe { obj.downcast_unchecked::<PySlice>() }))
-        } else if let Ok(i) = vm.to_index(&obj) {
+        } else if let Ok(i) = obj.try_index(vm) {
             Ok(Self::Index(i.try_to_primitive(vm)?))
         } else {
             if let Some(tuple) = obj.payload::<PyTuple>() {

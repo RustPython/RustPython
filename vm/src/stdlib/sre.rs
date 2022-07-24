@@ -745,7 +745,7 @@ mod _sre {
         }
 
         fn get_index(&self, group: PyObjectRef, vm: &VirtualMachine) -> Option<usize> {
-            let i = if let Ok(i) = vm.to_index(&group) {
+            let i = if let Ok(i) = group.try_index(vm) {
                 i
             } else {
                 self.pattern

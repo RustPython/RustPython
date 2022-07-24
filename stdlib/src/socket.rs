@@ -734,8 +734,8 @@ mod _socket {
         if obj.fast_isinstance(vm.ctx.types.float_type) {
             return Err(vm.new_type_error("integer argument expected, got float".to_owned()));
         }
-        let int = vm
-            .to_index_opt(obj)
+        let int = obj
+            .try_index_opt(vm)
             .unwrap_or_else(|| Err(vm.new_type_error("an integer is required".to_owned())))?;
         int.try_to_primitive::<CastFrom>(vm)
             .map(|sock| sock as RawSocket)
@@ -1382,7 +1382,7 @@ mod _socket {
             let (flags, address) = match arg3 {
                 OptionalArg::Present(arg3) => {
                     // should just be i32::try_from_obj but tests check for error message
-                    let int = vm.to_index_opt(arg2).unwrap_or_else(|| {
+                    let int = arg2.try_index_opt(vm).unwrap_or_else(|| {
                         Err(vm.new_type_error("an integer is required".to_owned()))
                     })?;
                     let flags = int.try_to_primitive::<i32>(vm)?;

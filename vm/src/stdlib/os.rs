@@ -349,7 +349,7 @@ impl<const AVAILABLE: usize> FromArgs for DirFd<AVAILABLE> {
             Some(o) if vm.is_none(&o) => DEFAULT_DIR_FD,
             None => DEFAULT_DIR_FD,
             Some(o) => {
-                let fd = vm.to_index_opt(o.clone()).unwrap_or_else(|| {
+                let fd = o.try_index_opt(vm).unwrap_or_else(|| {
                     Err(vm.new_type_error(format!(
                         "argument should be integer or None, not {}",
                         o.class().name()
@@ -1364,8 +1364,8 @@ pub(super) mod _os {
                                     divmod.class().name()
                                 ))
                             })?;
-                    let secs = vm.to_index(&div)?.try_to_primitive(vm)?;
-                    let ns = vm.to_index(&rem)?.try_to_primitive(vm)?;
+                    let secs = div.try_index(vm)?.try_to_primitive(vm)?;
+                    let ns = rem.try_index(vm)?.try_to_primitive(vm)?;
                     Ok(Duration::new(secs, ns))
                 };
                 // TODO: do validation to make sure this doesn't.. underflow?

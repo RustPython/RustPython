@@ -25,7 +25,7 @@ mod _bisect {
         vm: &VirtualMachine,
     ) -> PyResult<Option<isize>> {
         arg.into_option()
-            .map(|v| vm.to_index(&v)?.try_to_primitive(vm))
+            .map(|v| v.try_index(vm)?.try_to_primitive(vm))
             .transpose()
     }
 

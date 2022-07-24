@@ -1336,7 +1336,7 @@ mod _io {
     }
 
     pub fn get_offset(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Offset> {
-        let int = vm.to_index(&obj)?;
+        let int = obj.try_index(vm)?;
         int.as_bigint().try_into().map_err(|_| {
             vm.new_value_error(format!(
                 "cannot fit '{}' into an offset-sized integer",
