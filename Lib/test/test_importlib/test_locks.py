@@ -137,10 +137,10 @@ class LifetimeTests:
         self.assertEqual(0, len(self.bootstrap._module_locks),
                          self.bootstrap._module_locks)
 
-
-(Frozen_LifetimeTests,
- Source_LifetimeTests
- ) = test_util.test_both(LifetimeTests, init=init)
+# TODO: RUSTPYTHON
+# (Frozen_LifetimeTests,
+#  Source_LifetimeTests
+#  ) = test_util.test_both(LifetimeTests, init=init)
 
 
 def setUpModule():

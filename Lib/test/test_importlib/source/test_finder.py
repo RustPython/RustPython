@@ -186,6 +186,10 @@ class FinderTests(abc.FinderTests):
             found = self._find(finder, 'doesnotexist')
             self.assertEqual(found, self.NOT_FOUND)
 
+    # TODO: RUSTPYTHON
+    if sys.platform == 'win32':
+        test_ignore_file = unittest.expectedFailure(test_ignore_file)
+
 
 class FinderTestsPEP451(FinderTests):
 

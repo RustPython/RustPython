@@ -45,6 +45,7 @@ class APITests(
         assert isinstance(pkg_version, str)
         assert re.match(self.version_pattern, pkg_version)
 
+    # TODO: RUSTPYTHON
     def test_for_name_does_not_exist(self):
         with self.assertRaises(PackageNotFoundError):
             distribution('does-not-exist')
@@ -172,6 +173,8 @@ class APITests(
             entry_points().get('entries', 'default') == entry_points()['entries']
             entry_points().get('missing', ()) == ()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_entry_points_allows_no_attributes(self):
         ep = entry_points().select(group='entries', name='main')
         with self.assertRaises(AttributeError):

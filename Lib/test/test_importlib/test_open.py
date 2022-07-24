@@ -68,6 +68,12 @@ class OpenDiskNamespaceTests(OpenTests, unittest.TestCase):
 
         self.data = namespacedata01
 
+    # TODO: RUSTPYTHON
+    import sys
+    if sys.platform == 'win32':
+        @unittest.expectedFailure
+        def test_open_text_default_encoding(self):
+            super().test_open_text_default_encoding()
 
 class OpenZipTests(OpenTests, util.ZipSetup, unittest.TestCase):
     pass

@@ -829,9 +829,10 @@ class FactoryTests:
         self.assertEqual(spec.cached, self.cached)
         self.assertTrue(spec.has_location)
 
-(Frozen_FactoryTests,
- Source_FactoryTests
- ) = test_util.test_both(FactoryTests, util=util, machinery=machinery)
+# TODO: RUSTPYTHON
+# (Frozen_FactoryTests,
+#  Source_FactoryTests
+#  ) = test_util.test_both(FactoryTests, util=util, machinery=machinery)
 
 
 if __name__ == '__main__':

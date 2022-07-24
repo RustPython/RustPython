@@ -55,6 +55,12 @@ class PackageNotFoundError(ModuleNotFoundError):
         (name,) = self.args
         return name
 
+    # TODO: RUSTPYTHON; the entire setter is added to avoid errors
+    @name.setter
+    def name(self, value):
+        import sys
+        sys.stderr.write("set value to PackageNotFoundError ignored\n")
+
 
 class Sectioned:
     """
