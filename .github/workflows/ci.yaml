@@ -242,8 +242,7 @@ jobs:
             test_pathlib
             test_shutil
             test_venv
-      - # if: runner.os == 'Linux'
-        if: false  # FIXME: pip is vendoring dependencies that we are incompatible with
+      - if: runner.os != 'Windows'
         name: check that --install-pip succeeds
         run: |
           mkdir site-packages
