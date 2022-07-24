@@ -187,6 +187,10 @@ class SysModuleTest(unittest.TestCase):
         #     r'import sys; sys.exit("h\xe9")',
         #     b"h\xe9", PYTHONIOENCODING='latin-1')
 
+    # TODO: RUSTPYTHON
+    if sys.platform == 'win32':
+        test_exit = unittest.expectedFailure(test_exit)
+
     def test_getdefaultencoding(self):
         self.assertRaises(TypeError, sys.getdefaultencoding, 42)
         # can't check more than the type, as the user might have changed it
@@ -275,6 +279,8 @@ class SysModuleTest(unittest.TestCase):
         finally:
             sys.setrecursionlimit(oldlimit)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_getwindowsversion(self):
         # Raise SkipTest if sys doesn't have getwindowsversion attribute
         test.support.get_attribute(sys, "getwindowsversion")
@@ -637,6 +643,8 @@ class SysModuleTest(unittest.TestCase):
     def test_sys_version_info_no_instantiation(self):
         self.assert_raise_on_new_sys_type(sys.version_info)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_sys_getwindowsversion_no_instantiation(self):
         # Skip if not being run on Windows.
         test.support.get_attribute(sys, "getwindowsversion")
@@ -948,6 +956,10 @@ class SysModuleTest(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(stdout.rstrip(), b"")
         self.assertEqual(stderr.rstrip(), b"")
+
+    # TODO: RUSTPYTHON
+    if sys.platform == 'win32':
+        test_sys_ignores_cleaning_up_user_data = unittest.expectedFailure(test_sys_ignores_cleaning_up_user_data)
 
     @unittest.skipUnless(hasattr(sys, 'getandroidapilevel'),
                          'need sys.getandroidapilevel()')

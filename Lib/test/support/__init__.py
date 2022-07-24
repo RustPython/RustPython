@@ -429,11 +429,10 @@ PIPE_MAX_SIZE = 4 * 1024 * 1024 + 1
 # for a discussion of this number.
 SOCK_MAX_SIZE = 16 * 1024 * 1024 + 1
 
-# # decorator for skipping tests on non-IEEE 754 platforms
-# requires_IEEE_754 = unittest.skipUnless(
-#     float.__getformat__("double").startswith("IEEE"),
-#     "test requires IEEE 754 doubles")
-requires_IEEE_754 = unittest.skipIf(False, "RustPython always has IEEE 754 floating point numbers")
+# decorator for skipping tests on non-IEEE 754 platforms
+requires_IEEE_754 = unittest.skipUnless(
+    float.__getformat__("double").startswith("IEEE"),
+    "test requires IEEE 754 doubles")
 
 def requires_zlib(reason='requires zlib'):
     try:
@@ -713,10 +712,7 @@ _TPFLAGS_HAVE_GC = 1<<14
 _TPFLAGS_HEAPTYPE = 1<<9
 
 def check_sizeof(test, o, size):
-    try:
-        import _testinternalcapi
-    except ImportError:
-        raise unittest.SkipTest("_testinternalcapi required")
+    import _testinternalcapi
     result = sys.getsizeof(o)
     # add GC header size
     if ((type(o) == type) and (o.__flags__ & _TPFLAGS_HEAPTYPE) or\
@@ -1306,21 +1302,6 @@ def swap_item(obj, item, new_val):
             if item in obj:
                 del obj[item]
 
-# TODO: removed in  3.9.0a2
-def strip_python_stderr(stderr):
-    """Strip the stderr of a Python process from potential debug output
-    emitted by the interpreter.
-
-    This will typically be run on the result of the communicate() method
-    of a subprocess.Popen object.
-    """
-    # XXX RustPython TODO: bytes regexes
-    # stderr = re.sub(br"\[\d+ refs, \d+ blocks\]\r?\n?", b"", stderr).strip()
-    return stderr
-
-requires_type_collecting = unittest.skipIf(hasattr(sys, 'getcounts'),
-                        'types are immortal if COUNT_ALLOCS is defined')
-
 def args_from_interpreter_flags():
     """Return a list of command-line arguments reproducing the current
     settings in sys.flags and sys.warnoptions."""
@@ -1624,7 +1605,7 @@ class SuppressCrashReport:
                 try:
                     self.old_value = self.resource.getrlimit(self.resource.RLIMIT_CORE)
                     self.resource.setrlimit(self.resource.RLIMIT_CORE,
-                                       (0, self.old_value[1]))
+                                            (0, self.old_value[1]))
                 except (ValueError, OSError):
                     pass
 

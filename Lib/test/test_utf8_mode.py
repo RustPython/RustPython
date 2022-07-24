@@ -222,8 +222,6 @@ class UTF8ModeTests(unittest.TestCase):
                 out = self.get_output('-X', 'utf8', '-c', code, LC_ALL=loc)
                 self.assertEqual(out, 'UTF-8 UTF-8')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipIf(MS_WINDOWS, 'test specific to Unix')
     def test_cmd_line(self):
         arg = 'h\xe9\u20ac'.encode('utf-8')
@@ -250,6 +248,10 @@ class UTF8ModeTests(unittest.TestCase):
         for loc in POSIX_LOCALES:
             with self.subTest(LC_ALL=loc):
                 check('utf8=0', [c_arg], LC_ALL=loc)
+
+    # TODO: RUSTPYTHON
+    if sys.platform == "linux":
+        test_cmd_line = unittest.expectedFailure(test_cmd_line)
 
     def test_optim_level(self):
         # CPython: check that Py_Main() doesn't increment Py_OptimizeFlag

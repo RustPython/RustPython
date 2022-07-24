@@ -350,8 +350,6 @@ class TestBytes(unittest.TestCase):
                 line, bytes,
                 "all lines of diff should be bytes, but got: %r" % line)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_byte_content(self):
         # if we receive byte strings, we return byte strings
         a = [b'hello', b'andr\xe9']     # iso-8859-1 bytes

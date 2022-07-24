@@ -1194,6 +1194,10 @@ class Test_TextTestRunner(unittest.TestCase):
         for msg in [ae_msg, at_msg]:
             self.assertEqual(out.count(msg), 1)
 
+    # TODO: RUSTPYTHON
+    if sys.platform == 'win32':
+        test_warnings = unittest.expectedFailure(test_warnings)
+
     def testStdErrLookedUpAtInstantiationTime(self):
         # see issue 10786
         old_stderr = sys.stderr
