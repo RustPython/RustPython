@@ -303,6 +303,8 @@ a = A(destroyed)"""
             melon = Descr()
         self.assertRaises(RuntimeError, getattr, M("mymod"), "melon")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_lazy_create_annotations(self):
         # module objects lazy create their __annotations__ dict on demand.
         # the annotations dict is stored in module.__dict__.
@@ -333,6 +335,8 @@ a = A(destroyed)"""
             else:
                 del foo.__dict__['__annotations__']
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_annotations_getset_raises(self):
         # module has no dict, all operations fail
         foo = ModuleType.__new__(ModuleType)
@@ -350,6 +354,8 @@ a = A(destroyed)"""
         with self.assertRaises(AttributeError):
             del foo.__annotations__
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_annotations_are_created_correctly(self):
         ann_module4 = import_helper.import_fresh_module('test.ann_module4')
         self.assertTrue("__annotations__" in ann_module4.__dict__)
