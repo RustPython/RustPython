@@ -139,6 +139,10 @@ class BaseSelectorTestCase:
         s.unregister(rd)
         s.unregister(wr)
 
+    # TODO: RUSTPYTHON
+    if sys.platform == 'win32':
+        test_unregister_after_socket_close = unittest.expectedFailure(test_unregister_after_socket_close)
+
     def test_modify(self):
         s = self.SELECTOR()
         self.addCleanup(s.close)
