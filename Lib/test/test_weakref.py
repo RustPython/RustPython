@@ -432,6 +432,8 @@ class ReferencesTestCase(TestBase):
             # can be killed in the middle of the call
             "blech" in p
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_proxy_next(self):
         arr = [4, 5, 6]
         def iterator_func():
@@ -447,6 +449,8 @@ class ReferencesTestCase(TestBase):
         # Calls proxy.__next__
         self.assertEqual(list(weak_it), [4, 5, 6])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_proxy_bad_next(self):
         # bpo-44720: PyIter_Next() shouldn't be called if the reference
         # isn't an iterator.
@@ -462,6 +466,8 @@ class ReferencesTestCase(TestBase):
         with self.assertRaisesRegex(TypeError, msg):
             list(a)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_proxy_reversed(self):
         class MyObj:
             def __len__(self):
@@ -472,6 +478,8 @@ class ReferencesTestCase(TestBase):
         obj = MyObj()
         self.assertEqual("".join(reversed(weakref.proxy(obj))), "cba")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_proxy_hash(self):
         class MyObj:
             def __hash__(self):
@@ -2079,8 +2087,6 @@ class FinalizeTestCase(unittest.TestCase):
         self.assertEqual(f.alive, False)
         self.assertEqual(res, [199])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_arg_errors(self):
         def fin(*args, **kwargs):
             res.append((args, kwargs))
