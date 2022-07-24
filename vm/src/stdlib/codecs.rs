@@ -173,7 +173,8 @@ mod _codecs {
                     vm.ctx.new_str(reason).into(),
                 ],
             );
-            let res = vm.invoke(self.handler_func()?, (decode_exc.clone(),))?;
+            let handler = self.handler_func()?;
+            let res = vm.invoke(handler, (decode_exc.clone(),))?;
             let new_data = decode_exc
                 .get_arg(1)
                 .ok_or_else(|| vm.new_type_error("object attribute not set".to_owned()))?;

@@ -602,10 +602,6 @@ class CmdLineTest(unittest.TestCase):
             'stdout=%r stderr=%r' % (stdout, stderr))
         self.assertEqual(0, rc)
 
-    # TODO: RUSTPYTHON
-    if sys.platform == "linux":
-        test_non_ascii = unittest.expectedFailure(test_non_ascii)
-
     def test_issue20500_exit_with_exception_value(self):
         script = textwrap.dedent("""\
             import sys
