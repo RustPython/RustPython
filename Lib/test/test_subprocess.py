@@ -3599,18 +3599,12 @@ class Win32ProcessTestCase(BaseTestCase):
     def test_terminate(self):
         self._kill_process('terminate')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_send_signal_dead(self):
         self._kill_dead_process('send_signal', signal.SIGTERM)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_kill_dead(self):
         self._kill_dead_process('kill')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_terminate_dead(self):
         self._kill_dead_process('terminate')
 
@@ -3712,14 +3706,6 @@ class MiscTests(unittest.TestCase):
                 continue
             possible_exports.add(name)
         self.assertEqual(exported, possible_exports - intentionally_excluded)
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_call_keyboardinterrupt_no_kill = unittest.expectedFailure(test_call_keyboardinterrupt_no_kill)
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_run_keyboardinterrupt_no_kill = unittest.expectedFailure(test_run_keyboardinterrupt_no_kill)
 
     # TODO: RUSTPYTHON
     if sys.platform == "win32":
