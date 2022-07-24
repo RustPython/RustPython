@@ -3823,8 +3823,6 @@ class CodecNameNormalizationTest(unittest.TestCase):
         self.assertEqual(NOT_FOUND, codecs.lookup('BBB.8'))
         self.assertEqual(NOT_FOUND, codecs.lookup('a\xe9\u20ac-8'))
 
-    # TODO: RUSTPYTHON, AssertionError
-    @unittest.expectedFailure
     def test_encodings_normalize_encoding(self):
         # encodings.normalize_encoding() ignores non-ASCII characters.
         normalize = encodings.normalize_encoding

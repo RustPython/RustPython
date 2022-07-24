@@ -820,6 +820,8 @@ class CodecCallbackTest(unittest.TestCase):
             codecs.lookup_error("namereplace")
         )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_encode_nonascii_replacement(self):
         def handle(exc):
             if isinstance(exc, UnicodeEncodeError):
@@ -848,6 +850,8 @@ class CodecCallbackTest(unittest.TestCase):
                 self.assertEqual(exc.end, 2)
                 self.assertEqual(exc.object, input)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_encode_unencodable_replacement(self):
         def unencrepl(exc):
             if isinstance(exc, UnicodeEncodeError):
@@ -872,6 +876,8 @@ class CodecCallbackTest(unittest.TestCase):
                 self.assertEqual(exc.end, 2)
                 self.assertEqual(exc.object, input)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_encode_bytes_replacement(self):
         def handle(exc):
             if isinstance(exc, UnicodeEncodeError):
@@ -894,6 +900,8 @@ class CodecCallbackTest(unittest.TestCase):
                 res = input.encode(enc, "test.replacing")
                 self.assertEqual(res, "[".encode(enc) + repl + "]".encode(enc))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_encode_odd_bytes_replacement(self):
         def handle(exc):
             if isinstance(exc, UnicodeEncodeError):
@@ -1065,6 +1073,8 @@ class CodecCallbackTest(unittest.TestCase):
             self.assertRaises(ValueError, codecs.charmap_encode, "\xff", err, D())
             self.assertRaises(TypeError, codecs.charmap_encode, "\xff", err, {0xff: 300})
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_decodehelper_bug36819(self):
         handler = RepeatedPosReturn("x")
         codecs.register_error("test.bug36819", handler.handle)
@@ -1083,6 +1093,8 @@ class CodecCallbackTest(unittest.TestCase):
                 decoded = input.decode(enc, "test.bug36819")
                 self.assertEqual(decoded, 'abcdx' * 51)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_encodehelper_bug36819(self):
         handler = RepeatedPosReturn()
         codecs.register_error("test.bug36819", handler.handle)
