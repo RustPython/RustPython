@@ -95,11 +95,7 @@ pub fn hash_float(value: f64) -> Option<PyHash> {
     // cpython _Py_HashDouble
     if !value.is_finite() {
         return if value.is_infinite() {
-            if value > 0.0 {
-                Some(INF)
-            } else {
-                Some(-INF)
-            }
+            Some(if value > 0.0 { INF } else { -INF })
         } else {
             None
         };
