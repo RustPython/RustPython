@@ -1,10 +1,8 @@
 use num_bigint::BigInt;
-use num_complex::Complex64;
 use num_traits::ToPrimitive;
 use siphasher::sip::SipHasher24;
 use std::{
     hash::{BuildHasher, Hash, Hasher},
-    num::Wrapping,
 };
 
 pub type PyHash = i64;
@@ -138,24 +136,6 @@ pub fn hash_float(value: f64) -> Option<PyHash> {
     x = ((x << e) & MODULUS) | x >> (BITS32 - e);
 
     Some(fix_sentinel(x as PyHash * value.signum() as PyHash))
-}
-
-#[inline]
-pub fn hash_complex(value: &Complex64) -> PyHash {
-    let re_hash = (match hash_float(value.re) {
-        Some(value) => Some(value),
-        None => Some(hash_pointer(value as *const _ as *const std::ffi::c_void)),
-    })
-    .unwrap();
-
-    let im_hash = (match hash_float(value.im) {
-        Some(value) => Some(value),
-        None => Some(hash_pointer(value as *const _ as *const std::ffi::c_void)),
-    })
-    .unwrap();
-
-    let Wrapping(ret) = Wrapping(re_hash) + Wrapping(im_hash) * Wrapping(IMAG);
-    fix_sentinel(ret)
 }
 
 pub fn hash_iter_unordered<'a, T: 'a, I, F, E>(iter: I, hashf: F) -> Result<PyHash, E>

@@ -13,6 +13,7 @@ use crate::{
     types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
+use std::num::Wrapping;
 use num_complex::Complex64;
 use num_traits::Zero;
 use rustpython_common::{float_ops, hash};
@@ -417,7 +418,26 @@ impl Comparable for PyComplex {
 impl Hashable for PyComplex {
     #[inline]
     fn hash(zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyResult<hash::PyHash> {
-        Ok(hash::hash_complex(&zelf.value))
+        let value = zelf.value;
+
+        let re_hash = (match hash::hash_float(value.re) {
+            Some(value) => Some(value),
+            None => Some(hash::hash_pointer(
+                zelf as *const _ as *const std::ffi::c_void,
+            )),
+        })
+        .unwrap();
+
+        let im_hash = (match hash::hash_float(value.im) {
+            Some(value) => Some(value),
+            None => Some(hash::hash_pointer(
+                zelf as *const _ as *const std::ffi::c_void,
+            )),
+        })
+        .unwrap();
+
+        let Wrapping(ret) = Wrapping(re_hash) + Wrapping(im_hash) * Wrapping(hash::IMAG);
+        Ok(hash::fix_sentinel(ret))
     }
 }
 
