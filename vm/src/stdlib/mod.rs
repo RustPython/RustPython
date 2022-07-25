@@ -40,6 +40,8 @@ pub mod posix;
 pub(crate) mod msvcrt;
 #[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
 mod pwd;
+#[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
+mod grp;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) mod signal;
 pub mod sys;
@@ -118,6 +120,7 @@ pub fn get_module_inits() -> StdlibMap {
         #[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
         {
             "pwd" => pwd::make_module,
+            "grp" => grp::make_module,
         }
         // Windows-only
         #[cfg(windows)]
