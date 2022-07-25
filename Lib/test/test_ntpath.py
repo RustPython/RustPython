@@ -650,10 +650,6 @@ class TestNtpath(NtpathTestCase):
         tester('ntpath.relpath("/a/b", "/a/b")', '.')
         tester('ntpath.relpath("c:/foo", "C:/FOO")', '.')
 
-    # TODO: RUSTPYTHON, FileExistsError: [Errno 183] Cannot create a file when that file already exists. (os error 183): 'None' -> 'None'
-    if sys.platform == "win32":
-        test_relpath = unittest.expectedFailure(test_relpath)
-
     def test_commonpath(self):
         def check(paths, expected):
             tester(('ntpath.commonpath(%r)' % paths).replace('\\\\', '\\'),

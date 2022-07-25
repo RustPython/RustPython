@@ -187,10 +187,6 @@ class SysModuleTest(unittest.TestCase):
         #     r'import sys; sys.exit("h\xe9")',
         #     b"h\xe9", PYTHONIOENCODING='latin-1')
 
-    # TODO: RUSTPYTHON
-    if sys.platform == 'win32':
-        test_exit = unittest.expectedFailure(test_exit)
-
     def test_getdefaultencoding(self):
         self.assertRaises(TypeError, sys.getdefaultencoding, 42)
         # can't check more than the type, as the user might have changed it
@@ -956,10 +952,6 @@ class SysModuleTest(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(stdout.rstrip(), b"")
         self.assertEqual(stderr.rstrip(), b"")
-
-    # TODO: RUSTPYTHON
-    if sys.platform == 'win32':
-        test_sys_ignores_cleaning_up_user_data = unittest.expectedFailure(test_sys_ignores_cleaning_up_user_data)
 
     @unittest.skipUnless(hasattr(sys, 'getandroidapilevel'),
                          'need sys.getandroidapilevel()')

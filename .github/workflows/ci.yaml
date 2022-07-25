@@ -235,11 +235,13 @@ jobs:
         name: run cpython platform-dependent tests (windows partial - fixme)
         run:
           target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }}
+            test_glob
             test_importlib
             test_io
             test_iter
             test_os
             test_pathlib
+            test_posixpath
             test_shutil
             test_venv
       - if: runner.os != 'Windows'
