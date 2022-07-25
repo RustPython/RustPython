@@ -13,10 +13,10 @@ use crate::{
     types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
-use std::num::Wrapping;
 use num_complex::Complex64;
 use num_traits::Zero;
 use rustpython_common::{float_ops, hash};
+use std::num::Wrapping;
 
 /// Create a complex number from a real part and an optional imaginary part.
 ///
