@@ -420,21 +420,11 @@ impl Hashable for PyComplex {
     fn hash(zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyResult<hash::PyHash> {
         let value = zelf.value;
 
-        let re_hash = (match hash::hash_float(value.re) {
-            Some(value) => Some(value),
-            None => Some(hash::hash_pointer(
-                zelf as *const _ as *const std::ffi::c_void,
-            )),
-        })
-        .unwrap();
+        let re_hash = hash::hash_float(value.re)
+            .unwrap_or_else(|| hash::hash_pointer(zelf as *const _ as *const std::ffi::c_void));
 
-        let im_hash = (match hash::hash_float(value.im) {
-            Some(value) => Some(value),
-            None => Some(hash::hash_pointer(
-                zelf as *const _ as *const std::ffi::c_void,
-            )),
-        })
-        .unwrap();
+        let im_hash = hash::hash_float(value.im)
+            .unwrap_or_else(|| hash::hash_pointer(zelf as *const _ as *const std::ffi::c_void));
 
         let Wrapping(ret) = Wrapping(re_hash) + Wrapping(im_hash) * Wrapping(hash::IMAG);
         Ok(hash::fix_sentinel(ret))

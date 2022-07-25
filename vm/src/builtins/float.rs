@@ -539,12 +539,8 @@ impl Comparable for PyFloat {
 impl Hashable for PyFloat {
     #[inline]
     fn hash(zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyResult<hash::PyHash> {
-        match hash::hash_float(zelf.to_f64()) {
-            Some(value) => Ok(value),
-            None => Ok(hash::hash_pointer(
-                zelf as *const _ as *const std::ffi::c_void,
-            )),
-        }
+        Ok(hash::hash_float(zelf.to_f64())
+            .unwrap_or_else(|| hash::hash_pointer(zelf as *const _ as *const libc::c_void)))
     }
 }
 
