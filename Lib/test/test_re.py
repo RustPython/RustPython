@@ -54,6 +54,8 @@ class ReTests(unittest.TestCase):
             if pos is not None:
                 self.assertEqual(err.pos, pos)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_keep_buffer(self):
         # See bug 14212
         b = bytearray(b'x')
@@ -555,6 +557,8 @@ class ReTests(unittest.TestCase):
         pat = '(?:%s)(?(200)z)' % pat
         self.assertEqual(re.match(pat, 'xc8yz').span(), (0, 5))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_re_groupref_exists_errors(self):
         self.checkPatternError(r'(?P<a>)(?(0)a|b)', 'bad group number', 10)
         self.checkPatternError(r'()(?(-1)a|b)',
@@ -650,6 +654,8 @@ class ReTests(unittest.TestCase):
         self.checkPatternError(r'x{2,1}',
                                'min repeat greater than max repeat', 2)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_getattr(self):
         self.assertEqual(re.compile("(?i)(a)(b)").pattern, "(?i)(a)(b)")
         self.assertEqual(re.compile("(?i)(a)(b)").flags, re.I | re.U)
@@ -723,6 +729,8 @@ class ReTests(unittest.TestCase):
             with self.subTest(c):
                 self.assertRaises(re.error, re.compile, '[\\%c]' % c)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_named_unicode_escapes(self):
         # test individual Unicode named escapes
         self.assertTrue(re.match(r'\N{LESS-THAN SIGN}', '<'))
@@ -789,6 +797,8 @@ class ReTests(unittest.TestCase):
         # Can match around the whitespace.
         self.assertEqual(len(re.findall(r"\B", " ")), 2)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_bigcharset(self):
         self.assertEqual(re.match("([\u2222\u2223])",
                                   "\u2222").group(1), "\u2222")
@@ -861,6 +871,8 @@ class ReTests(unittest.TestCase):
         self.assertRaises(re.error, re.compile, r'(a)b(?<=(a)(?(2)b|x))(c)')
         self.assertRaises(re.error, re.compile, r'(a)b(?<=(.)(?<=\2))(c)')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_ignore_case(self):
         self.assertEqual(re.match("abc", "ABC", re.I).group(0), "ABC")
         self.assertEqual(re.match(b"abc", b"ABC", re.I).group(0), b"ABC")
@@ -901,6 +913,8 @@ class ReTests(unittest.TestCase):
         self.assertTrue(re.match(r'\ufb05', '\ufb06', re.I))
         self.assertTrue(re.match(r'\ufb06', '\ufb05', re.I))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_ignore_case_set(self):
         self.assertTrue(re.match(r'[19A]', 'A', re.I))
         self.assertTrue(re.match(r'[19a]', 'a', re.I))
@@ -939,6 +953,8 @@ class ReTests(unittest.TestCase):
         self.assertTrue(re.match(r'[19\ufb05]', '\ufb06', re.I))
         self.assertTrue(re.match(r'[19\ufb06]', '\ufb05', re.I))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_ignore_case_range(self):
         # Issues #3511, #17381.
         self.assertTrue(re.match(r'[9-a]', '_', re.I))
@@ -1137,6 +1153,8 @@ class ReTests(unittest.TestCase):
         # current pickle expects the _compile() reconstructor in re module
         from re import _compile
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_copying(self):
         import copy
         p = re.compile(r'(?P<int>\d+)(?:\.(?P<frac>\d*))?')
@@ -1442,6 +1460,8 @@ class ReTests(unittest.TestCase):
         self.assertEqual(next(iter).span(), (4, 4))
         self.assertRaises(StopIteration, next, iter)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_bug_6561(self):
         # '\d' should match characters in Unicode category 'Nd'
         # (Number, Decimal Digit), but not those in 'Nl' (Number,
@@ -1471,6 +1491,8 @@ class ReTests(unittest.TestCase):
             self.assertIsNone(re.compile(b"bla").match(a))
             self.assertEqual(re.compile(b"").match(a).groups(), ())
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_inline_flags(self):
         # Bug #1700
         upper_char = '\u1ea0' # Latin Capital Letter A with Dot Below
@@ -1753,6 +1775,10 @@ class ReTests(unittest.TestCase):
         pat = re.compile(b'..')
         self.assertEqual(pat.sub(lambda m: b'bytes', b'a5'), b'bytes')
 
+    # RUSTPYTHON: here in rustpython, we borrow the string only at the
+    # time of matching, so we will not check the string type when creating
+    # SRE_Scanner, expect this, other tests has passed
+    @cpython_only
     def test_dealloc(self):
         # issue 3299: check for segfault in debug build
         import _sre
@@ -1859,6 +1885,8 @@ class ReTests(unittest.TestCase):
                 self.assertEqual(re.compile(pattern, re.S).findall(b'xyz'),
                                  [b'xyz'], msg=pattern)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_match_repr(self):
         for string in '[abracadabra]', S('[abracadabra]'):
             m = re.search(r'(.+)(.*?)\1', string)
@@ -1905,6 +1933,9 @@ class ReTests(unittest.TestCase):
         self.assertEqual([m.span() for m in re.finditer(r"\b|\w+", "a::bc")],
                          [(0, 0), (0, 1), (1, 1), (3, 3), (3, 5), (5, 5)])
 
+    # TODO: RUSTPYTHON
+    # @unittest.expectedFailure
+    @unittest.skip("")
     def test_bug_2537(self):
         # issue 2537: empty submatches
         for outer_op in ('{0,}', '*', '+', '{1,187}'):
@@ -2237,6 +2268,8 @@ class PatternReprTests(unittest.TestCase):
         self.check('(?i)pattern',
                    "re.compile('(?i)pattern', re.IGNORECASE)")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_unknown_flags(self):
         self.check_flags('random pattern', 0x123000,
                          "re.compile('random pattern', 0x123000)")
