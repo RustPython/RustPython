@@ -179,11 +179,11 @@ pub fn lcg_urandom(mut x: u32, buf: &mut [u8]) {
     }
 }
 
-pub fn hash_pointer_raw(p: *const std::ffi::c_void) -> PyHash {
+pub fn hash_object_id_raw(p: usize) -> PyHash {
     // TODO: Use commented logic when below issue resolved.
     // Ref: https://github.com/RustPython/RustPython/pull/3951#issuecomment-1193108966
 
-    // let mut y = p as usize;
+    // let mut y = p;
     // /* bottom 3 or 4 bits are likely to be 0; rotate y by 4 to avoid
     //    excessive hash collisions for dicts and sets */
     // y = (y >> 4) | (y << (8 * std::mem::size_of::<usize>() - 4));
@@ -191,6 +191,6 @@ pub fn hash_pointer_raw(p: *const std::ffi::c_void) -> PyHash {
     p as PyHash
 }
 
-pub fn hash_pointer(p: *const std::ffi::c_void) -> PyHash {
-    fix_sentinel(hash_pointer_raw(p))
+pub fn hash_object_id(p: usize) -> PyHash {
+    fix_sentinel(hash_object_id_raw(p))
 }
