@@ -12,20 +12,18 @@ mod _uuid {
         Uuid,
     };
 
-    static NODE_ID: OnceCell<[u8; 6]> = OnceCell::new();
-
-    fn get_node_id() -> &'static [u8; 6] {
+    fn get_node_id() -> [u8; 6] {
         match get_mac_address() {
             Ok(Some(_ma)) => {
-                let node_id = NODE_ID.get_or_init(|| get_mac_address().unwrap().unwrap().bytes());
+                let node_id = get_mac_address().unwrap().unwrap().bytes();
                 node_id
             }
             Ok(None) => {
-                let node_id = NODE_ID.get_or_init(|| rand::thread_rng().gen::<[u8; 6]>());
+                let node_id = rand::thread_rng().gen::<[u8; 6]>();
                 node_id
             }
             Err(_e) => {
-                let node_id = NODE_ID.get_or_init(|| rand::thread_rng().gen::<[u8; 6]>());
+                let node_id = rand::thread_rng().gen::<[u8; 6]>();
                 node_id
             }
         }
@@ -47,6 +45,11 @@ mod _uuid {
 
         let node_id = get_node_id();
 
-        (Uuid::new_v1(ts, &node_id).as_bytes().to_vec(), PyNone)
+        static NODE_ID: OnceCell<[u8; 6]> = OnceCell::new();
+        let unique_node_id = NODE_ID.get_or_init(|| {
+            node_id
+        });
+
+        (Uuid::new_v1(ts, &unique_node_id).as_bytes().to_vec(), PyNone)
     }
 }
