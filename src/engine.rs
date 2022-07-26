@@ -2,7 +2,6 @@
 
 use super::constants::{SreAtCode, SreCatCode, SreFlag, SreOpcode};
 use super::MAXREPEAT;
-use std::collections::BTreeMap;
 use std::convert::TryFrom;
 
 const fn is_py_ascii_whitespace(b: u8) -> bool {
@@ -20,7 +19,7 @@ pub struct State<'a> {
     pub lastindex: isize,
     marks_stack: Vec<(Vec<Option<usize>>, isize)>,
     context_stack: Vec<MatchContext>,
-    repeat_stack: Vec<RepeatContext>,
+    _stacks: Option<Box<Stacks>>,
     pub string_position: usize,
     popped_context: Option<MatchContext>,
     pub has_matched: bool,
@@ -44,11 +43,11 @@ impl<'a> State<'a> {
             end,
             _flags: flags,
             pattern_codes,
+            marks: Vec::new(),
             lastindex: -1,
             marks_stack: Vec::new(),
             context_stack: Vec::new(),
-            repeat_stack: Vec::new(),
-            marks: Vec::new(),
+            _stacks: Default::default(),
             string_position: start,
             popped_context: None,
             has_matched: false,
@@ -59,10 +58,12 @@ impl<'a> State<'a> {
 
     pub fn reset(&mut self) {
         self.lastindex = -1;
+        self.marks.clear();
         self.marks_stack.clear();
         self.context_stack.clear();
-        self.repeat_stack.clear();
-        self.marks.clear();
+        if let Some(x) = self._stacks.as_mut() {
+            x.clear()
+        };
         self.string_position = self.start;
         self.popped_context = None;
         self.has_matched = false;
@@ -102,50 +103,70 @@ impl<'a> State<'a> {
         self.marks_stack.pop();
     }
 
-    fn _match(mut self, dispatcher: &mut OpcodeDispatcher) -> Self {
-        let mut has_matched = None;
+    fn _match(mut self, stacks: &mut Stacks) -> Self {
+        while let Some(ctx) = self.context_stack.pop() {
+            let mut drive = StateContext {
+                state: self,
+                ctx,
+                next_ctx: None,
+            };
 
-        loop {
-            if self.context_stack.is_empty() {
-                break;
+            if let Some(handler) = drive.ctx.handler {
+                handler(&mut drive, stacks);
+            } else if drive.remaining_codes() > 0 {
+                let code = drive.peek_code(0);
+                let code = SreOpcode::try_from(code).unwrap();
+                dispatch(code, &mut drive, stacks);
+            } else {
+                drive.failure();
             }
-            let ctx_id = self.context_stack.len() - 1;
-            let mut drive = StackDrive::drive(ctx_id, self);
 
-            has_matched = dispatcher.pymatch(&mut drive);
-            self = drive.take();
-            if has_matched.is_some() {
-                self.popped_context = self.context_stack.pop();
+            let StateContext {
+                mut state,
+                ctx,
+                next_ctx,
+            } = drive;
+
+            if ctx.has_matched.is_some() {
+                state.popped_context = Some(ctx);
+            } else {
+                state.context_stack.push(ctx);
+                if let Some(next_ctx) = next_ctx {
+                    state.context_stack.push(next_ctx);
+                }
             }
+            self = state
         }
-
-        self.has_matched = has_matched == Some(true);
+        self.has_matched = self.popped_context.unwrap().has_matched == Some(true);
         self
     }
 
     pub fn pymatch(mut self) -> Self {
+        let mut stacks = self._stacks.take().unwrap_or_default();
+
         let ctx = MatchContext {
             string_position: self.start,
             string_offset: self.string.offset(0, self.start),
             code_position: 0,
             has_matched: None,
             toplevel: true,
+            handler: None,
+            repeat_ctx_id: usize::MAX,
         };
         self.context_stack.push(ctx);
 
-        let mut dispatcher = OpcodeDispatcher::new();
-
-        self._match(&mut dispatcher)
+        self = self._match(&mut stacks);
+        self._stacks = Some(stacks);
+        self
     }
 
     pub fn search(mut self) -> Self {
+        let mut stacks = self._stacks.take().unwrap_or_default();
         // TODO: optimize by op info and skip prefix
 
         if self.start > self.end {
             return self;
         }
-
-        let mut dispatcher = OpcodeDispatcher::new();
 
         let mut start_offset = self.string.offset(0, self.start);
 
@@ -155,28 +176,661 @@ impl<'a> State<'a> {
             code_position: 0,
             has_matched: None,
             toplevel: true,
+            handler: None,
+            repeat_ctx_id: usize::MAX,
         };
         self.context_stack.push(ctx);
-        self = self._match(&mut dispatcher);
+        self = self._match(&mut stacks);
 
         self.must_advance = false;
         while !self.has_matched && self.start < self.end {
             self.start += 1;
             start_offset = self.string.offset(start_offset, 1);
             self.reset();
-            dispatcher.clear();
+            stacks.clear();
+
             let ctx = MatchContext {
                 string_position: self.start,
                 string_offset: start_offset,
                 code_position: 0,
                 has_matched: None,
                 toplevel: false,
+                handler: None,
+                repeat_ctx_id: usize::MAX,
             };
             self.context_stack.push(ctx);
-            self = self._match(&mut dispatcher);
+            self = self._match(&mut stacks);
         }
 
+        self._stacks = Some(stacks);
         self
+    }
+}
+
+fn dispatch(opcode: SreOpcode, drive: &mut StateContext, stacks: &mut Stacks) {
+    match opcode {
+        SreOpcode::FAILURE => {
+            drive.failure();
+        }
+        SreOpcode::SUCCESS => {
+            drive.ctx.has_matched = Some(drive.can_success());
+            if drive.ctx.has_matched == Some(true) {
+                drive.state.string_position = drive.ctx.string_position;
+            }
+        }
+        SreOpcode::ANY => {
+            if drive.at_end() || drive.at_linebreak() {
+                drive.failure();
+            } else {
+                drive.skip_code(1);
+                drive.skip_char(1);
+            }
+        }
+        SreOpcode::ANY_ALL => {
+            if drive.at_end() {
+                drive.failure();
+            } else {
+                drive.skip_code(1);
+                drive.skip_char(1);
+            }
+        }
+        SreOpcode::ASSERT => op_assert(drive),
+        SreOpcode::ASSERT_NOT => op_assert_not(drive),
+        SreOpcode::AT => {
+            let atcode = SreAtCode::try_from(drive.peek_code(1)).unwrap();
+            if at(drive, atcode) {
+                drive.skip_code(2);
+            } else {
+                drive.failure();
+            }
+        }
+        SreOpcode::BRANCH => op_branch(drive, stacks),
+        SreOpcode::CATEGORY => {
+            let catcode = SreCatCode::try_from(drive.peek_code(1)).unwrap();
+            if drive.at_end() || !category(catcode, drive.peek_char()) {
+                drive.failure();
+            } else {
+                drive.skip_code(2);
+                drive.skip_char(1);
+            }
+        }
+        SreOpcode::IN => general_op_in(drive, charset),
+        SreOpcode::IN_IGNORE => general_op_in(drive, |set, c| charset(set, lower_ascii(c))),
+        SreOpcode::IN_UNI_IGNORE => general_op_in(drive, |set, c| charset(set, lower_unicode(c))),
+        SreOpcode::IN_LOC_IGNORE => general_op_in(drive, charset_loc_ignore),
+        SreOpcode::INFO | SreOpcode::JUMP => drive.skip_code_from(1),
+        SreOpcode::LITERAL => general_op_literal(drive, |code, c| code == c),
+        SreOpcode::NOT_LITERAL => general_op_literal(drive, |code, c| code != c),
+        SreOpcode::LITERAL_IGNORE => general_op_literal(drive, |code, c| code == lower_ascii(c)),
+        SreOpcode::NOT_LITERAL_IGNORE => {
+            general_op_literal(drive, |code, c| code != lower_ascii(c))
+        }
+        SreOpcode::LITERAL_UNI_IGNORE => {
+            general_op_literal(drive, |code, c| code == lower_unicode(c))
+        }
+        SreOpcode::NOT_LITERAL_UNI_IGNORE => {
+            general_op_literal(drive, |code, c| code != lower_unicode(c))
+        }
+        SreOpcode::LITERAL_LOC_IGNORE => general_op_literal(drive, char_loc_ignore),
+        SreOpcode::NOT_LITERAL_LOC_IGNORE => {
+            general_op_literal(drive, |code, c| !char_loc_ignore(code, c))
+        }
+        SreOpcode::MARK => {
+            drive
+                .state
+                .set_mark(drive.peek_code(1) as usize, drive.ctx.string_position);
+            drive.skip_code(2);
+        }
+        SreOpcode::MAX_UNTIL => op_max_until(drive, stacks),
+        SreOpcode::MIN_UNTIL => op_min_until(drive, stacks),
+        SreOpcode::REPEAT => op_repeat(drive, stacks),
+        SreOpcode::REPEAT_ONE => op_repeat_one(drive, stacks),
+        SreOpcode::MIN_REPEAT_ONE => op_min_repeat_one(drive, stacks),
+        SreOpcode::GROUPREF => general_op_groupref(drive, |x| x),
+        SreOpcode::GROUPREF_IGNORE => general_op_groupref(drive, lower_ascii),
+        SreOpcode::GROUPREF_LOC_IGNORE => general_op_groupref(drive, lower_locate),
+        SreOpcode::GROUPREF_UNI_IGNORE => general_op_groupref(drive, lower_unicode),
+        SreOpcode::GROUPREF_EXISTS => {
+            let (group_start, group_end) = drive.state.get_marks(drive.peek_code(1) as usize);
+            match (group_start, group_end) {
+                (Some(start), Some(end)) if start <= end => {
+                    drive.skip_code(3);
+                }
+                _ => drive.skip_code_from(2),
+            }
+        }
+        _ => unreachable!("unexpected opcode"),
+    }
+}
+
+/* assert subpattern */
+/* <ASSERT> <skip> <back> <pattern> */
+fn op_assert(drive: &mut StateContext) {
+    let back = drive.peek_code(2) as usize;
+
+    if drive.ctx.string_position < back {
+        return drive.failure();
+    }
+
+    let offset = drive
+        .state
+        .string
+        .back_offset(drive.ctx.string_offset, back);
+    let position = drive.ctx.string_position - back;
+
+    drive.state.string_position = position;
+
+    let next_ctx = drive.next_ctx(3, |drive, _| {
+        if drive.popped_ctx().has_matched == Some(true) {
+            drive.ctx.handler = None;
+            drive.skip_code_from(1);
+        } else {
+            drive.failure();
+        }
+    });
+    next_ctx.string_position = position;
+    next_ctx.string_offset = offset;
+    next_ctx.toplevel = false;
+}
+
+/* assert not subpattern */
+/* <ASSERT_NOT> <skip> <back> <pattern> */
+fn op_assert_not(drive: &mut StateContext) {
+    let back = drive.peek_code(2) as usize;
+
+    if drive.ctx.string_position < back {
+        return drive.skip_code_from(1);
+    }
+
+    let offset = drive
+        .state
+        .string
+        .back_offset(drive.ctx.string_offset, back);
+    let position = drive.ctx.string_position - back;
+
+    drive.state.string_position = position;
+
+    let next_ctx = drive.next_ctx(3, |drive, _| {
+        if drive.popped_ctx().has_matched == Some(true) {
+            drive.failure();
+        } else {
+            drive.ctx.handler = None;
+            drive.skip_code_from(1);
+        }
+    });
+    next_ctx.string_position = position;
+    next_ctx.string_offset = offset;
+    next_ctx.toplevel = false;
+}
+
+#[derive(Debug)]
+struct BranchContext {
+    branch_offset: usize,
+}
+
+// alternation
+// <BRANCH> <0=skip> code <JUMP> ... <NULL>
+fn op_branch(drive: &mut StateContext, stacks: &mut Stacks) {
+    drive.state.marks_push();
+    stacks.branch.push(BranchContext { branch_offset: 1 });
+    create_context(drive, stacks);
+
+    fn create_context(drive: &mut StateContext, stacks: &mut Stacks) {
+        let branch_offset = stacks.branch_last().branch_offset;
+        let next_length = drive.peek_code(branch_offset) as usize;
+        if next_length == 0 {
+            drive.state.marks_pop_discard();
+            stacks.branch.pop();
+            return drive.failure();
+        }
+
+        drive.sync_string_position();
+
+        stacks.branch_last().branch_offset += next_length;
+        drive.next_ctx(branch_offset + 1, callback);
+    }
+
+    fn callback(drive: &mut StateContext, stacks: &mut Stacks) {
+        if drive.popped_ctx().has_matched == Some(true) {
+            stacks.branch.pop();
+            return drive.success();
+        }
+        drive.state.marks_pop_keep();
+        drive.ctx.handler = Some(create_context)
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+struct MinRepeatOneContext {
+    count: usize,
+    max_count: usize,
+}
+
+/* <MIN_REPEAT_ONE> <skip> <1=min> <2=max> item <SUCCESS> tail */
+fn op_min_repeat_one(drive: &mut StateContext, stacks: &mut Stacks) {
+    let min_count = drive.peek_code(2) as usize;
+    let max_count = drive.peek_code(3) as usize;
+
+    if drive.remaining_chars() < min_count {
+        return drive.failure();
+    }
+
+    drive.sync_string_position();
+
+    let count = if min_count == 0 {
+        0
+    } else {
+        let count = count(drive, stacks, min_count);
+        if count < min_count {
+            return drive.failure();
+        }
+        drive.skip_char(count);
+        count
+    };
+
+    let next_code = drive.peek_code(drive.peek_code(1) as usize + 1);
+    if next_code == SreOpcode::SUCCESS as u32 && drive.can_success() {
+        // tail is empty. we're finished
+        drive.sync_string_position();
+        return drive.success();
+    }
+
+    drive.state.marks_push();
+    stacks
+        .min_repeat_one
+        .push(MinRepeatOneContext { count, max_count });
+    create_context(drive, stacks);
+
+    fn create_context(drive: &mut StateContext, stacks: &mut Stacks) {
+        let MinRepeatOneContext { count, max_count } = *stacks.min_repeat_one_last();
+
+        if max_count == MAXREPEAT || count <= max_count {
+            drive.sync_string_position();
+            drive.next_ctx_from(1, callback);
+        } else {
+            drive.state.marks_pop_discard();
+            stacks.min_repeat_one.pop();
+            drive.failure();
+        }
+    }
+
+    fn callback(drive: &mut StateContext, stacks: &mut Stacks) {
+        if drive.popped_ctx().has_matched == Some(true) {
+            stacks.min_repeat_one.pop();
+            return drive.success();
+        }
+
+        drive.sync_string_position();
+
+        if crate::engine::count(drive, stacks, 1) == 0 {
+            drive.state.marks_pop_discard();
+            stacks.min_repeat_one.pop();
+            return drive.failure();
+        }
+
+        drive.skip_char(1);
+        stacks.min_repeat_one_last().count += 1;
+        drive.state.marks_pop_keep();
+        create_context(drive, stacks);
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+struct RepeatOneContext {
+    count: usize,
+    min_count: usize,
+    following_literal: Option<u32>,
+}
+
+/* match repeated sequence (maximizing regexp) */
+
+/* this operator only works if the repeated item is
+exactly one character wide, and we're not already
+collecting backtracking points.  for other cases,
+use the MAX_REPEAT operator */
+
+/* <REPEAT_ONE> <skip> <1=min> <2=max> item <SUCCESS> tail */
+fn op_repeat_one(drive: &mut StateContext, stacks: &mut Stacks) {
+    let min_count = drive.peek_code(2) as usize;
+    let max_count = drive.peek_code(3) as usize;
+
+    if drive.remaining_chars() < min_count {
+        return drive.failure();
+    }
+
+    drive.sync_string_position();
+
+    let count = count(drive, stacks, max_count);
+    drive.skip_char(count);
+    if count < min_count {
+        return drive.failure();
+    }
+
+    let next_code = drive.peek_code(drive.peek_code(1) as usize + 1);
+    if next_code == SreOpcode::SUCCESS as u32 && drive.can_success() {
+        // tail is empty. we're finished
+        drive.sync_string_position();
+        return drive.success();
+    }
+
+    // Special case: Tail starts with a literal. Skip positions where
+    // the rest of the pattern cannot possibly match.
+    let following_literal = (next_code == SreOpcode::LITERAL as u32)
+        .then(|| drive.peek_code(drive.peek_code(1) as usize + 2));
+
+    drive.state.marks_push();
+    stacks.repeat_one.push(RepeatOneContext {
+        count,
+        min_count,
+        following_literal,
+    });
+    create_context(drive, stacks);
+
+    fn create_context(drive: &mut StateContext, stacks: &mut Stacks) {
+        let RepeatOneContext {
+            mut count,
+            min_count,
+            following_literal,
+        } = *stacks.repeat_one_last();
+
+        if let Some(c) = following_literal {
+            while drive.at_end() || drive.peek_char() != c {
+                if count <= min_count {
+                    drive.state.marks_pop_discard();
+                    stacks.repeat_one.pop();
+                    return drive.failure();
+                }
+                drive.back_skip_char(1);
+                count -= 1;
+            }
+        }
+        stacks.repeat_one_last().count = count;
+
+        drive.sync_string_position();
+
+        // General case: backtracking
+        drive.next_ctx_from(1, callback);
+    }
+
+    fn callback(drive: &mut StateContext, stacks: &mut Stacks) {
+        if drive.popped_ctx().has_matched == Some(true) {
+            stacks.repeat_one.pop();
+            return drive.success();
+        }
+
+        let RepeatOneContext {
+            count,
+            min_count,
+            following_literal: _,
+        } = stacks.repeat_one_last();
+
+        if count <= min_count {
+            drive.state.marks_pop_discard();
+            stacks.repeat_one.pop();
+            return drive.failure();
+        }
+
+        drive.back_skip_char(1);
+        *count -= 1;
+
+        drive.state.marks_pop_keep();
+        create_context(drive, stacks);
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RepeatContext {
+    count: isize,
+    min_count: usize,
+    max_count: usize,
+    code_position: usize,
+    last_position: usize,
+    prev_id: usize,
+}
+
+/* create repeat context.  all the hard work is done
+by the UNTIL operator (MAX_UNTIL, MIN_UNTIL) */
+/* <REPEAT> <skip> <1=min> <2=max> item <UNTIL> tail */
+fn op_repeat(drive: &mut StateContext, stacks: &mut Stacks) {
+    let repeat_ctx = RepeatContext {
+        count: -1,
+        min_count: drive.peek_code(2) as usize,
+        max_count: drive.peek_code(3) as usize,
+        code_position: drive.ctx.code_position,
+        last_position: std::usize::MAX,
+        prev_id: drive.ctx.repeat_ctx_id,
+    };
+
+    stacks.repeat.push(repeat_ctx);
+
+    drive.sync_string_position();
+
+    let next_ctx = drive.next_ctx_from(1, |drive, stacks| {
+        drive.ctx.has_matched = drive.popped_ctx().has_matched;
+        stacks.repeat.pop();
+    });
+    next_ctx.repeat_ctx_id = stacks.repeat.len() - 1;
+}
+
+#[derive(Debug, Clone, Copy)]
+struct MinUntilContext {
+    count: isize,
+    save_repeat_ctx: Option<RepeatContext>,
+    save_last_position: usize,
+}
+
+/* minimizing repeat */
+fn op_min_until(drive: &mut StateContext, stacks: &mut Stacks) {
+    let repeat_ctx = stacks.repeat.last_mut().unwrap();
+
+    drive.sync_string_position();
+
+    let count = repeat_ctx.count + 1;
+
+    stacks.min_until.push(MinUntilContext {
+        count,
+        save_repeat_ctx: None,
+        save_last_position: repeat_ctx.last_position,
+    });
+
+    if (count as usize) < repeat_ctx.min_count {
+        // not enough matches
+        repeat_ctx.count = count;
+        drive.next_ctx_at(repeat_ctx.code_position + 4, |drive, stacks| {
+            if drive.popped_ctx().has_matched == Some(true) {
+                stacks.min_until.pop();
+                return drive.success();
+            }
+
+            stacks.repeat_last().count = stacks.min_until_last().count - 1;
+            drive.sync_string_position();
+            stacks.min_until.pop();
+            drive.failure();
+        });
+        return;
+    }
+
+    drive.state.marks_push();
+
+    // see if the tail matches
+    stacks.min_until_last().save_repeat_ctx = stacks.repeat.pop();
+
+    drive.next_ctx(1, |drive, stacks| {
+        let MinUntilContext {
+            count,
+            save_repeat_ctx,
+            save_last_position,
+        } = stacks.min_until_last();
+        let count = *count;
+
+        let mut repeat_ctx = save_repeat_ctx.take().unwrap();
+
+        if drive.popped_ctx().has_matched == Some(true) {
+            stacks.min_until.pop();
+            // restore repeat before return
+            stacks.repeat.push(repeat_ctx);
+            return drive.success();
+        }
+
+        drive.sync_string_position();
+
+        drive.state.marks_pop();
+
+        // match more until tail matches
+
+        if count as usize >= repeat_ctx.max_count && repeat_ctx.max_count != MAXREPEAT
+            || drive.state.string_position == repeat_ctx.last_position
+        {
+            stacks.min_until.pop();
+            // restore repeat before return
+            stacks.repeat.push(repeat_ctx);
+            return drive.failure();
+        }
+
+        repeat_ctx.count = count;
+        /* zero-width match protection */
+        *save_last_position = repeat_ctx.last_position;
+        repeat_ctx.last_position = drive.state.string_position;
+
+        stacks.repeat.push(repeat_ctx);
+
+        drive.next_ctx_at(repeat_ctx.code_position + 4, |drive, stacks| {
+            if drive.popped_ctx().has_matched == Some(true) {
+                stacks.min_until.pop();
+                drive.success();
+            } else {
+                stacks.repeat_last().count = stacks.min_until_last().count - 1;
+                drive.sync_string_position();
+                stacks.min_until.pop();
+                drive.failure();
+            }
+        });
+    });
+}
+
+#[derive(Debug, Clone, Copy)]
+struct MaxUntilContext {
+    save_last_position: usize,
+}
+
+/* maximizing repeat */
+fn op_max_until(drive: &mut StateContext, stacks: &mut Stacks) {
+    // let repeat_ctx = stacks.repeat.last_mut().unwrap();
+    let repeat_ctx = &mut stacks.repeat[drive.ctx.repeat_ctx_id];
+
+    drive.sync_string_position();
+
+    repeat_ctx.count += 1;
+
+    // let count = repeat_ctx.count + 1;
+
+    if (repeat_ctx.count as usize) < repeat_ctx.min_count {
+        // not enough matches
+        // repeat_ctx.count = count;
+        drive.next_ctx_at(repeat_ctx.code_position + 4, |drive, stacks| {
+            if drive.popped_ctx().has_matched == Some(true) {
+                // stacks.max_until.pop();
+                drive.success();
+            } else {
+                // let count = stacks.max_until_last().count;
+                // stacks.repeat_last().count -= 1;
+                stacks.repeat[drive.ctx.repeat_ctx_id].count -= 1;
+                drive.sync_string_position();
+                // stacks.max_until.pop();
+                drive.failure();
+            }
+        });
+        return;
+    }
+
+    stacks.max_until.push(MaxUntilContext {
+        save_last_position: repeat_ctx.last_position,
+    });
+
+    if ((repeat_ctx.count as usize) < repeat_ctx.max_count || repeat_ctx.max_count == MAXREPEAT)
+        && drive.state.string_position != repeat_ctx.last_position
+    {
+        /* we may have enough matches, but if we can
+        match another item, do so */
+        repeat_ctx.last_position = drive.state.string_position;
+
+        drive.state.marks_push();
+
+        drive.next_ctx_at(repeat_ctx.code_position + 4, |drive, stacks| {
+            let save_last_position = stacks.max_until_last().save_last_position;
+            let repeat_ctx = &mut stacks.repeat[drive.ctx.repeat_ctx_id];
+            repeat_ctx.last_position = save_last_position;
+            if drive.popped_ctx().has_matched == Some(true) {
+                drive.state.marks_pop_discard();
+                stacks.max_until.pop();
+                return drive.success();
+            }
+            drive.state.marks_pop();
+            repeat_ctx.count -= 1;
+            drive.sync_string_position();
+
+            /* cannot match more repeated items here.  make sure the
+            tail matches */
+            let next_ctx = drive.next_ctx(1, tail_callback);
+            next_ctx.repeat_ctx_id = repeat_ctx.prev_id;
+        });
+        return;
+    }
+
+    /* cannot match more repeated items here.  make sure the
+    tail matches */
+    let next_ctx = drive.next_ctx(1, tail_callback);
+    next_ctx.repeat_ctx_id = repeat_ctx.prev_id;
+
+    fn tail_callback(drive: &mut StateContext, stacks: &mut Stacks) {
+        stacks.max_until.pop();
+
+        if drive.popped_ctx().has_matched == Some(true) {
+            drive.success();
+        } else {
+            drive.sync_string_position();
+            drive.failure();
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct Stacks {
+    branch: Vec<BranchContext>,
+    min_repeat_one: Vec<MinRepeatOneContext>,
+    repeat_one: Vec<RepeatOneContext>,
+    repeat: Vec<RepeatContext>,
+    min_until: Vec<MinUntilContext>,
+    max_until: Vec<MaxUntilContext>,
+}
+
+impl Stacks {
+    fn clear(&mut self) {
+        self.branch.clear();
+        self.min_repeat_one.clear();
+        self.repeat_one.clear();
+        self.repeat.clear();
+        self.min_until.clear();
+        self.max_until.clear();
+    }
+
+    fn branch_last(&mut self) -> &mut BranchContext {
+        self.branch.last_mut().unwrap()
+    }
+    fn min_repeat_one_last(&mut self) -> &mut MinRepeatOneContext {
+        self.min_repeat_one.last_mut().unwrap()
+    }
+    fn repeat_one_last(&mut self) -> &mut RepeatOneContext {
+        self.repeat_one.last_mut().unwrap()
+    }
+    fn repeat_last(&mut self) -> &mut RepeatContext {
+        self.repeat.last_mut().unwrap()
+    }
+    fn min_until_last(&mut self) -> &mut MinUntilContext {
+        self.min_until.last_mut().unwrap()
+    }
+    fn max_until_last(&mut self) -> &mut MaxUntilContext {
+        self.max_until.last_mut().unwrap()
     }
 }
 
@@ -203,7 +857,7 @@ impl<'a> StrDrive<'a> {
             StrDrive::Str(s) => s
                 .get(offset..)
                 .and_then(|s| s.char_indices().nth(skip).map(|x| x.0 + offset))
-                .unwrap_or_else(|| s.len()),
+                .unwrap_or(s.len()),
             StrDrive::Bytes(_) => offset + skip,
         }
     }
@@ -264,31 +918,63 @@ impl<'a> StrDrive<'a> {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+type OpcodeHandler = fn(&mut StateContext, &mut Stacks);
+
+#[derive(Clone, Copy)]
 struct MatchContext {
     string_position: usize,
     string_offset: usize,
     code_position: usize,
     has_matched: Option<bool>,
     toplevel: bool,
+    handler: Option<OpcodeHandler>,
+    repeat_ctx_id: usize,
 }
 
-trait MatchContextDrive {
-    fn ctx_mut(&mut self) -> &mut MatchContext;
-    fn ctx(&self) -> &MatchContext;
-    fn state(&self) -> &State;
-    fn repeat_ctx(&self) -> &RepeatContext {
-        self.state().repeat_stack.last().unwrap()
+impl std::fmt::Debug for MatchContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MatchContext")
+            .field("string_position", &self.string_position)
+            .field("string_offset", &self.string_offset)
+            .field("code_position", &self.code_position)
+            .field("has_matched", &self.has_matched)
+            .field("toplevel", &self.toplevel)
+            .field("handler", &self.handler.map(|x| x as usize))
+            .finish()
     }
+}
+
+trait ContextDrive {
+    fn ctx(&self) -> &MatchContext;
+    fn ctx_mut(&mut self) -> &mut MatchContext;
+    fn state(&self) -> &State;
+
+    fn popped_ctx(&self) -> &MatchContext {
+        self.state().popped_context.as_ref().unwrap()
+    }
+
     fn pattern(&self) -> &[u32] {
         &self.state().pattern_codes[self.ctx().code_position..]
     }
+
     fn peek_char(&self) -> u32 {
         self.state().string.peek(self.ctx().string_offset)
     }
     fn peek_code(&self, peek: usize) -> u32 {
         self.state().pattern_codes[self.ctx().code_position + peek]
     }
+
+    fn back_peek_char(&self) -> u32 {
+        self.state().string.back_peek(self.ctx().string_offset)
+    }
+    fn back_skip_char(&mut self, skip_count: usize) {
+        self.ctx_mut().string_position -= skip_count;
+        self.ctx_mut().string_offset = self
+            .state()
+            .string
+            .back_offset(self.ctx().string_offset, skip_count);
+    }
+
     fn skip_char(&mut self, skip_count: usize) {
         self.ctx_mut().string_offset = self
             .state()
@@ -299,12 +985,17 @@ trait MatchContextDrive {
     fn skip_code(&mut self, skip_count: usize) {
         self.ctx_mut().code_position += skip_count;
     }
+    fn skip_code_from(&mut self, peek: usize) {
+        self.skip_code(self.peek_code(peek) as usize + 1);
+    }
+
     fn remaining_chars(&self) -> usize {
         self.state().end - self.ctx().string_position
     }
     fn remaining_codes(&self) -> usize {
         self.state().pattern_codes.len() - self.ctx().code_position
     }
+
     fn at_beginning(&self) -> bool {
         // self.ctx().string_position == self.state().start
         self.ctx().string_position == 0
@@ -331,16 +1022,7 @@ trait MatchContextDrive {
         let this = !self.at_end() && word_checker(self.peek_char());
         this == that
     }
-    fn back_peek_char(&self) -> u32 {
-        self.state().string.back_peek(self.ctx().string_offset)
-    }
-    fn back_skip_char(&mut self, skip_count: usize) {
-        self.ctx_mut().string_position -= skip_count;
-        self.ctx_mut().string_offset = self
-            .state()
-            .string
-            .back_offset(self.ctx().string_offset, skip_count);
-    }
+
     fn can_success(&self) -> bool {
         if !self.ctx().toplevel {
             return true;
@@ -353,389 +1035,71 @@ trait MatchContextDrive {
         }
         true
     }
+
+    fn success(&mut self) {
+        self.ctx_mut().has_matched = Some(true);
+    }
+
+    fn failure(&mut self) {
+        self.ctx_mut().has_matched = Some(false);
+    }
 }
 
-struct StackDrive<'a> {
+struct StateContext<'a> {
     state: State<'a>,
-    ctx_id: usize,
+    ctx: MatchContext,
+    next_ctx: Option<MatchContext>,
 }
-impl<'a> StackDrive<'a> {
-    fn id(&self) -> usize {
-        self.ctx_id
-    }
-    fn drive(ctx_id: usize, state: State<'a>) -> Self {
-        Self { state, ctx_id }
-    }
-    fn take(self) -> State<'a> {
-        self.state
-    }
-    fn push_new_context(&mut self, pattern_offset: usize) {
-        self.push_new_context_at(self.ctx().code_position + pattern_offset);
-    }
-    fn push_new_context_at(&mut self, code_position: usize) {
-        let mut child_ctx = MatchContext { ..*self.ctx() };
-        child_ctx.code_position = code_position;
-        self.state.context_stack.push(child_ctx);
-    }
-    fn repeat_ctx_mut(&mut self) -> &mut RepeatContext {
-        self.state.repeat_stack.last_mut().unwrap()
-    }
-}
-impl MatchContextDrive for StackDrive<'_> {
-    fn ctx_mut(&mut self) -> &mut MatchContext {
-        &mut self.state.context_stack[self.ctx_id]
-    }
+
+impl ContextDrive for StateContext<'_> {
     fn ctx(&self) -> &MatchContext {
-        &self.state.context_stack[self.ctx_id]
+        &self.ctx
+    }
+    fn ctx_mut(&mut self) -> &mut MatchContext {
+        &mut self.ctx
     }
     fn state(&self) -> &State {
         &self.state
     }
 }
 
-struct WrapDrive<'a> {
-    stack_drive: &'a StackDrive<'a>,
+impl StateContext<'_> {
+    fn next_ctx_from(&mut self, peek: usize, handler: OpcodeHandler) -> &mut MatchContext {
+        self.next_ctx(self.peek_code(peek) as usize + 1, handler)
+    }
+    fn next_ctx(&mut self, offset: usize, handler: OpcodeHandler) -> &mut MatchContext {
+        self.next_ctx_at(self.ctx.code_position + offset, handler)
+    }
+    fn next_ctx_at(&mut self, code_position: usize, handler: OpcodeHandler) -> &mut MatchContext {
+        self.next_ctx = Some(MatchContext {
+            code_position,
+            has_matched: None,
+            handler: None,
+            ..self.ctx
+        });
+        self.ctx.handler = Some(handler);
+        self.next_ctx.as_mut().unwrap()
+    }
+
+    fn sync_string_position(&mut self) {
+        self.state.string_position = self.ctx.string_position;
+    }
+}
+
+struct StateRefContext<'a> {
+    entity: &'a StateContext<'a>,
     ctx: MatchContext,
 }
-impl<'a> WrapDrive<'a> {
-    fn drive(ctx: MatchContext, stack_drive: &'a StackDrive<'a>) -> Self {
-        Self { stack_drive, ctx }
-    }
-}
-impl MatchContextDrive for WrapDrive<'_> {
-    fn ctx_mut(&mut self) -> &mut MatchContext {
-        &mut self.ctx
-    }
+
+impl ContextDrive for StateRefContext<'_> {
     fn ctx(&self) -> &MatchContext {
         &self.ctx
     }
+    fn ctx_mut(&mut self) -> &mut MatchContext {
+        &mut self.ctx
+    }
     fn state(&self) -> &State {
-        self.stack_drive.state()
-    }
-}
-
-trait OpcodeExecutor {
-    fn next(&mut self, drive: &mut StackDrive) -> Option<()>;
-}
-
-struct OpTwice<F1, F2> {
-    f1: Option<F1>,
-    f2: Option<F2>,
-}
-impl<F1, F2> OpcodeExecutor for OpTwice<F1, F2>
-where
-    F1: FnOnce(&mut StackDrive) -> Option<()>,
-    F2: FnOnce(&mut StackDrive),
-{
-    fn next(&mut self, drive: &mut StackDrive) -> Option<()> {
-        if let Some(f1) = self.f1.take() {
-            f1(drive)
-        } else if let Some(f2) = self.f2.take() {
-            f2(drive);
-            None
-        } else {
-            unreachable!()
-        }
-    }
-}
-fn twice<F1, F2>(f1: F1, f2: F2) -> Box<OpTwice<F1, F2>>
-where
-    F1: FnOnce(&mut StackDrive) -> Option<()>,
-    F2: FnOnce(&mut StackDrive),
-{
-    Box::new(OpTwice {
-        f1: Some(f1),
-        f2: Some(f2),
-    })
-}
-
-struct OpcodeDispatcher {
-    executing_contexts: BTreeMap<usize, Box<dyn OpcodeExecutor>>,
-}
-impl OpcodeDispatcher {
-    fn new() -> Self {
-        Self {
-            executing_contexts: BTreeMap::new(),
-        }
-    }
-    fn clear(&mut self) {
-        self.executing_contexts.clear();
-    }
-    // Returns True if the current context matches, False if it doesn't and
-    // None if matching is not finished, ie must be resumed after child
-    // contexts have been matched.
-    fn pymatch(&mut self, drive: &mut StackDrive) -> Option<bool> {
-        while drive.remaining_codes() > 0 && drive.ctx().has_matched.is_none() {
-            let code = drive.peek_code(0);
-            let opcode = SreOpcode::try_from(code).unwrap();
-            if !self.dispatch(opcode, drive) {
-                return None;
-            }
-        }
-        match drive.ctx().has_matched {
-            Some(matched) => Some(matched),
-            None => {
-                drive.ctx_mut().has_matched = Some(false);
-                Some(false)
-            }
-        }
-    }
-
-    // Dispatches a context on a given opcode. Returns True if the context
-    // is done matching, False if it must be resumed when next encountered.
-    fn dispatch(&mut self, opcode: SreOpcode, drive: &mut StackDrive) -> bool {
-        let executor = self
-            .executing_contexts
-            .remove(&drive.id())
-            .or_else(|| self.dispatch_table(opcode, drive));
-        if let Some(mut executor) = executor {
-            if let Some(()) = executor.next(drive) {
-                self.executing_contexts.insert(drive.id(), executor);
-                return false;
-            }
-        }
-        true
-    }
-
-    fn dispatch_table(
-        &mut self,
-        opcode: SreOpcode,
-        drive: &mut StackDrive,
-    ) -> Option<Box<dyn OpcodeExecutor>> {
-        match opcode {
-            SreOpcode::FAILURE => {
-                drive.ctx_mut().has_matched = Some(false);
-                None
-            }
-            SreOpcode::SUCCESS => {
-                drive.ctx_mut().has_matched = Some(drive.can_success());
-                if drive.ctx().has_matched == Some(true) {
-                    drive.state.string_position = drive.ctx().string_position;
-                }
-                None
-            }
-            SreOpcode::ANY => {
-                if drive.at_end() || drive.at_linebreak() {
-                    drive.ctx_mut().has_matched = Some(false);
-                } else {
-                    drive.skip_code(1);
-                    drive.skip_char(1);
-                }
-                None
-            }
-            SreOpcode::ANY_ALL => {
-                if drive.at_end() {
-                    drive.ctx_mut().has_matched = Some(false);
-                } else {
-                    drive.skip_code(1);
-                    drive.skip_char(1);
-                }
-                None
-            }
-            /* assert subpattern */
-            /* <ASSERT> <skip> <back> <pattern> */
-            SreOpcode::ASSERT => Some(twice(
-                |drive| {
-                    let back = drive.peek_code(2) as usize;
-                    let passed = drive.ctx().string_position;
-                    if passed < back {
-                        drive.ctx_mut().has_matched = Some(false);
-                        return None;
-                    }
-                    let back_offset = drive
-                        .state
-                        .string
-                        .back_offset(drive.ctx().string_offset, back);
-
-                    drive.state.string_position = drive.ctx().string_position - back;
-
-                    drive.push_new_context(3);
-                    let child_ctx = drive.state.context_stack.last_mut().unwrap();
-                    child_ctx.toplevel = false;
-                    child_ctx.string_position -= back;
-                    child_ctx.string_offset = back_offset;
-
-                    Some(())
-                },
-                |drive| {
-                    let child_ctx = drive.state.popped_context.unwrap();
-                    if child_ctx.has_matched == Some(true) {
-                        drive.skip_code(drive.peek_code(1) as usize + 1);
-                    } else {
-                        drive.ctx_mut().has_matched = Some(false);
-                    }
-                },
-            )),
-            SreOpcode::ASSERT_NOT => Some(twice(
-                |drive| {
-                    let back = drive.peek_code(2) as usize;
-                    let passed = drive.ctx().string_position;
-                    if passed < back {
-                        drive.skip_code(drive.peek_code(1) as usize + 1);
-                        return None;
-                    }
-                    let back_offset = drive
-                        .state
-                        .string
-                        .back_offset(drive.ctx().string_offset, back);
-
-                    drive.state.string_position = drive.ctx().string_position - back;
-
-                    drive.push_new_context(3);
-                    let child_ctx = drive.state.context_stack.last_mut().unwrap();
-                    child_ctx.toplevel = false;
-                    child_ctx.string_position -= back;
-                    child_ctx.string_offset = back_offset;
-
-                    Some(())
-                },
-                |drive| {
-                    let child_ctx = drive.state.popped_context.unwrap();
-                    if child_ctx.has_matched == Some(true) {
-                        drive.ctx_mut().has_matched = Some(false);
-                    } else {
-                        drive.skip_code(drive.peek_code(1) as usize + 1);
-                    }
-                },
-            )),
-            SreOpcode::AT => {
-                let atcode = SreAtCode::try_from(drive.peek_code(1)).unwrap();
-                if !at(drive, atcode) {
-                    drive.ctx_mut().has_matched = Some(false);
-                } else {
-                    drive.skip_code(2);
-                }
-                None
-            }
-            SreOpcode::BRANCH => Some(Box::new(OpBranch::default())),
-            SreOpcode::CATEGORY => {
-                let catcode = SreCatCode::try_from(drive.peek_code(1)).unwrap();
-                if drive.at_end() || !category(catcode, drive.peek_char()) {
-                    drive.ctx_mut().has_matched = Some(false);
-                } else {
-                    drive.skip_code(2);
-                    drive.skip_char(1);
-                }
-                None
-            }
-            SreOpcode::IN => {
-                general_op_in(drive, |set, c| charset(set, c));
-                None
-            }
-            SreOpcode::IN_IGNORE => {
-                general_op_in(drive, |set, c| charset(set, lower_ascii(c)));
-                None
-            }
-            SreOpcode::IN_UNI_IGNORE => {
-                general_op_in(drive, |set, c| charset(set, lower_unicode(c)));
-                None
-            }
-            SreOpcode::IN_LOC_IGNORE => {
-                general_op_in(drive, |set, c| charset_loc_ignore(set, c));
-                None
-            }
-            SreOpcode::INFO | SreOpcode::JUMP => {
-                drive.skip_code(drive.peek_code(1) as usize + 1);
-                None
-            }
-            SreOpcode::LITERAL => {
-                general_op_literal(drive, |code, c| code == c);
-                None
-            }
-            SreOpcode::NOT_LITERAL => {
-                general_op_literal(drive, |code, c| code != c);
-                None
-            }
-            SreOpcode::LITERAL_IGNORE => {
-                general_op_literal(drive, |code, c| code == lower_ascii(c));
-                None
-            }
-            SreOpcode::NOT_LITERAL_IGNORE => {
-                general_op_literal(drive, |code, c| code != lower_ascii(c));
-                None
-            }
-            SreOpcode::LITERAL_UNI_IGNORE => {
-                general_op_literal(drive, |code, c| code == lower_unicode(c));
-                None
-            }
-            SreOpcode::NOT_LITERAL_UNI_IGNORE => {
-                general_op_literal(drive, |code, c| code != lower_unicode(c));
-                None
-            }
-            SreOpcode::LITERAL_LOC_IGNORE => {
-                general_op_literal(drive, char_loc_ignore);
-                None
-            }
-            SreOpcode::NOT_LITERAL_LOC_IGNORE => {
-                general_op_literal(drive, |code, c| !char_loc_ignore(code, c));
-                None
-            }
-            SreOpcode::MARK => {
-                drive
-                    .state
-                    .set_mark(drive.peek_code(1) as usize, drive.ctx().string_position);
-                drive.skip_code(2);
-                None
-            }
-            SreOpcode::REPEAT => Some(twice(
-                // create repeat context.  all the hard work is done by the UNTIL
-                // operator (MAX_UNTIL, MIN_UNTIL)
-                // <REPEAT> <skip> <1=min> <2=max> item <UNTIL> tail
-                |drive| {
-                    let repeat = RepeatContext {
-                        count: -1,
-                        code_position: drive.ctx().code_position,
-                        last_position: std::usize::MAX,
-                        mincount: drive.peek_code(2) as usize,
-                        maxcount: drive.peek_code(3) as usize,
-                    };
-                    drive.state.repeat_stack.push(repeat);
-                    drive.state.string_position = drive.ctx().string_position;
-                    // execute UNTIL operator
-                    drive.push_new_context(drive.peek_code(1) as usize + 1);
-                    Some(())
-                },
-                |drive| {
-                    drive.state.repeat_stack.pop();
-                    let child_ctx = drive.state.popped_context.unwrap();
-                    drive.ctx_mut().has_matched = child_ctx.has_matched;
-                },
-            )),
-            SreOpcode::MAX_UNTIL => Some(Box::new(OpMaxUntil::default())),
-            SreOpcode::MIN_UNTIL => Some(Box::new(OpMinUntil::default())),
-            SreOpcode::REPEAT_ONE => Some(Box::new(OpRepeatOne::default())),
-            SreOpcode::MIN_REPEAT_ONE => Some(Box::new(OpMinRepeatOne::default())),
-            SreOpcode::GROUPREF => {
-                general_op_groupref(drive, |x| x);
-                None
-            }
-            SreOpcode::GROUPREF_IGNORE => {
-                general_op_groupref(drive, lower_ascii);
-                None
-            }
-            SreOpcode::GROUPREF_LOC_IGNORE => {
-                general_op_groupref(drive, lower_locate);
-                None
-            }
-            SreOpcode::GROUPREF_UNI_IGNORE => {
-                general_op_groupref(drive, lower_unicode);
-                None
-            }
-            SreOpcode::GROUPREF_EXISTS => {
-                let (group_start, group_end) = drive.state.get_marks(drive.peek_code(1) as usize);
-                match (group_start, group_end) {
-                    (Some(start), Some(end)) if start <= end => {
-                        drive.skip_code(3);
-                    }
-                    _ => drive.skip_code(drive.peek_code(2) as usize + 1),
-                }
-                None
-            }
-            _ => {
-                // TODO python expcetion?
-                unreachable!("unexpected opcode")
-            }
-        }
+        &self.entity.state
     }
 }
 
@@ -752,60 +1116,63 @@ fn charset_loc_ignore(set: &[u32], c: u32) -> bool {
     up != lo && charset(set, up)
 }
 
-fn general_op_groupref<F: FnMut(u32) -> u32>(drive: &mut StackDrive, mut f: F) {
+fn general_op_groupref<F: FnMut(u32) -> u32>(drive: &mut StateContext, mut f: F) {
     let (group_start, group_end) = drive.state.get_marks(drive.peek_code(1) as usize);
     let (group_start, group_end) = match (group_start, group_end) {
         (Some(start), Some(end)) if start <= end => (start, end),
         _ => {
-            drive.ctx_mut().has_matched = Some(false);
-            return;
+            return drive.failure();
         }
     };
-    let mut wdrive = WrapDrive::drive(*drive.ctx(), &drive);
-    let mut gdrive = WrapDrive::drive(
-        MatchContext {
+
+    let mut wdrive = StateRefContext {
+        entity: drive,
+        ctx: drive.ctx,
+    };
+    let mut gdrive = StateRefContext {
+        entity: drive,
+        ctx: MatchContext {
             string_position: group_start,
             // TODO: cache the offset
             string_offset: drive.state.string.offset(0, group_start),
-            ..*drive.ctx()
+            ..drive.ctx
         },
-        &drive,
-    );
+    };
+
     for _ in group_start..group_end {
         if wdrive.at_end() || f(wdrive.peek_char()) != f(gdrive.peek_char()) {
-            drive.ctx_mut().has_matched = Some(false);
-            return;
+            return drive.failure();
         }
         wdrive.skip_char(1);
         gdrive.skip_char(1);
     }
-    let position = wdrive.ctx().string_position;
-    let offset = wdrive.ctx().string_offset;
+
+    let position = wdrive.ctx.string_position;
+    let offset = wdrive.ctx.string_offset;
     drive.skip_code(2);
-    drive.ctx_mut().string_position = position;
-    drive.ctx_mut().string_offset = offset;
+    drive.ctx.string_position = position;
+    drive.ctx.string_offset = offset;
 }
 
-fn general_op_literal<F: FnOnce(u32, u32) -> bool>(drive: &mut StackDrive, f: F) {
+fn general_op_literal<F: FnOnce(u32, u32) -> bool>(drive: &mut StateContext, f: F) {
     if drive.at_end() || !f(drive.peek_code(1), drive.peek_char()) {
-        drive.ctx_mut().has_matched = Some(false);
+        drive.failure();
     } else {
         drive.skip_code(2);
         drive.skip_char(1);
     }
 }
 
-fn general_op_in<F: FnOnce(&[u32], u32) -> bool>(drive: &mut StackDrive, f: F) {
-    let skip = drive.peek_code(1) as usize;
+fn general_op_in<F: FnOnce(&[u32], u32) -> bool>(drive: &mut StateContext, f: F) {
     if drive.at_end() || !f(&drive.pattern()[2..], drive.peek_char()) {
-        drive.ctx_mut().has_matched = Some(false);
+        drive.failure();
     } else {
-        drive.skip_code(skip + 1);
+        drive.skip_code_from(1);
         drive.skip_char(1);
     }
 }
 
-fn at(drive: &StackDrive, atcode: SreAtCode) -> bool {
+fn at(drive: &StateContext, atcode: SreAtCode) -> bool {
     match atcode {
         SreAtCode::BEGINNING | SreAtCode::BEGINNING_STRING => drive.at_beginning(),
         SreAtCode::BEGINNING_LINE => drive.at_beginning() || is_linebreak(drive.back_peek_char()),
@@ -938,84 +1305,91 @@ fn charset(set: &[u32], ch: u32) -> bool {
 }
 
 /* General case */
-fn general_count(drive: &mut StackDrive, maxcount: usize) -> usize {
+fn general_count(drive: &mut StateContext, stacks: &mut Stacks, max_count: usize) -> usize {
     let mut count = 0;
-    let maxcount = std::cmp::min(maxcount, drive.remaining_chars());
+    let max_count = std::cmp::min(max_count, drive.remaining_chars());
 
-    let save_ctx = *drive.ctx();
+    let save_ctx = drive.ctx;
     drive.skip_code(4);
-    let reset_position = drive.ctx().code_position;
+    let reset_position = drive.ctx.code_position;
 
-    let mut dispatcher = OpcodeDispatcher::new();
-    while count < maxcount {
-        drive.ctx_mut().code_position = reset_position;
-        dispatcher.dispatch(SreOpcode::try_from(drive.peek_code(0)).unwrap(), drive);
-        if drive.ctx().has_matched == Some(false) {
+    while count < max_count {
+        drive.ctx.code_position = reset_position;
+        let code = drive.peek_code(0);
+        let code = SreOpcode::try_from(code).unwrap();
+        dispatch(code, drive, stacks);
+        if drive.ctx.has_matched == Some(false) {
             break;
         }
         count += 1;
     }
-    *drive.ctx_mut() = save_ctx;
+    drive.ctx = save_ctx;
     count
 }
 
-fn count(stack_drive: &mut StackDrive, maxcount: usize) -> usize {
-    let mut drive = WrapDrive::drive(*stack_drive.ctx(), stack_drive);
-    let maxcount = std::cmp::min(maxcount, drive.remaining_chars());
-    let end = drive.ctx().string_position + maxcount;
+fn count(drive: &mut StateContext, stacks: &mut Stacks, max_count: usize) -> usize {
+    let save_ctx = drive.ctx;
+    let max_count = std::cmp::min(max_count, drive.remaining_chars());
+    let end = drive.ctx.string_position + max_count;
     let opcode = SreOpcode::try_from(drive.peek_code(0)).unwrap();
 
     match opcode {
         SreOpcode::ANY => {
-            while !drive.ctx().string_position < end && !drive.at_linebreak() {
+            while !drive.ctx.string_position < end && !drive.at_linebreak() {
                 drive.skip_char(1);
             }
         }
         SreOpcode::ANY_ALL => {
-            drive.skip_char(maxcount);
+            drive.skip_char(max_count);
         }
         SreOpcode::IN => {
-            while !drive.ctx().string_position < end
+            while !drive.ctx.string_position < end
                 && charset(&drive.pattern()[2..], drive.peek_char())
             {
                 drive.skip_char(1);
             }
         }
         SreOpcode::LITERAL => {
-            general_count_literal(&mut drive, end, |code, c| code == c as u32);
+            general_count_literal(drive, end, |code, c| code == c as u32);
         }
         SreOpcode::NOT_LITERAL => {
-            general_count_literal(&mut drive, end, |code, c| code != c as u32);
+            general_count_literal(drive, end, |code, c| code != c as u32);
         }
         SreOpcode::LITERAL_IGNORE => {
-            general_count_literal(&mut drive, end, |code, c| code == lower_ascii(c) as u32);
+            general_count_literal(drive, end, |code, c| code == lower_ascii(c) as u32);
         }
         SreOpcode::NOT_LITERAL_IGNORE => {
-            general_count_literal(&mut drive, end, |code, c| code != lower_ascii(c) as u32);
+            general_count_literal(drive, end, |code, c| code != lower_ascii(c) as u32);
         }
         SreOpcode::LITERAL_LOC_IGNORE => {
-            general_count_literal(&mut drive, end, char_loc_ignore);
+            general_count_literal(drive, end, char_loc_ignore);
         }
         SreOpcode::NOT_LITERAL_LOC_IGNORE => {
-            general_count_literal(&mut drive, end, |code, c| !char_loc_ignore(code, c));
+            general_count_literal(drive, end, |code, c| !char_loc_ignore(code, c));
         }
         SreOpcode::LITERAL_UNI_IGNORE => {
-            general_count_literal(&mut drive, end, |code, c| code == lower_unicode(c) as u32);
+            general_count_literal(drive, end, |code, c| code == lower_unicode(c) as u32);
         }
         SreOpcode::NOT_LITERAL_UNI_IGNORE => {
-            general_count_literal(&mut drive, end, |code, c| code != lower_unicode(c) as u32);
+            general_count_literal(drive, end, |code, c| code != lower_unicode(c) as u32);
         }
         _ => {
-            return general_count(stack_drive, maxcount);
+            return general_count(drive, stacks, max_count);
         }
     }
 
-    drive.ctx().string_position - drive.state().string_position
+    let count = drive.ctx.string_position - drive.state.string_position;
+    drive.ctx = save_ctx;
+    count
 }
 
-fn general_count_literal<F: FnMut(u32, u32) -> bool>(drive: &mut WrapDrive, end: usize, mut f: F) {
+fn general_count_literal<F: FnMut(u32, u32) -> bool>(
+    drive: &mut StateContext,
+    end: usize,
+    mut f: F,
+) {
     let ch = drive.peek_code(1);
-    while !drive.ctx().string_position < end && f(ch, drive.peek_char()) {
+    while !drive.ctx.string_position < end && f(ch, drive.peek_char()) {
         drive.skip_char(1);
     }
 }
@@ -1065,7 +1439,9 @@ fn upper_locate(ch: u32) -> u32 {
 }
 fn is_uni_digit(ch: u32) -> bool {
     // TODO: check with cpython
-    char::try_from(ch).map(|x| x.is_digit(10)).unwrap_or(false)
+    char::try_from(ch)
+        .map(|x| x.is_ascii_digit())
+        .unwrap_or(false)
 }
 fn is_uni_space(ch: u32) -> bool {
     // TODO: check with cpython
@@ -1154,414 +1530,4 @@ fn utf8_back_peek_offset(bytes: &[u8], offset: usize) -> usize {
         }
     }
     offset
-}
-
-#[derive(Debug, Copy, Clone)]
-struct RepeatContext {
-    count: isize,
-    code_position: usize,
-    // zero-width match protection
-    last_position: usize,
-    mincount: usize,
-    maxcount: usize,
-}
-
-#[derive(Default)]
-struct OpMinRepeatOne {
-    jump_id: usize,
-    mincount: usize,
-    maxcount: usize,
-    count: usize,
-}
-impl OpcodeExecutor for OpMinRepeatOne {
-    /* <MIN_REPEAT_ONE> <skip> <1=min> <2=max> item <SUCCESS> tail */
-    fn next(&mut self, drive: &mut StackDrive) -> Option<()> {
-        match self.jump_id {
-            0 => {
-                self.mincount = drive.peek_code(2) as usize;
-                self.maxcount = drive.peek_code(3) as usize;
-
-                if drive.remaining_chars() < self.mincount {
-                    drive.ctx_mut().has_matched = Some(false);
-                    return None;
-                }
-
-                drive.state.string_position = drive.ctx().string_position;
-
-                self.count = if self.mincount == 0 {
-                    0
-                } else {
-                    let count = count(drive, self.mincount);
-                    if count < self.mincount {
-                        drive.ctx_mut().has_matched = Some(false);
-                        return None;
-                    }
-                    drive.skip_char(count);
-                    count
-                };
-
-                let next_code = drive.peek_code(drive.peek_code(1) as usize + 1);
-                if next_code == SreOpcode::SUCCESS as u32 && drive.can_success() {
-                    // tail is empty.  we're finished
-                    drive.state.string_position = drive.ctx().string_position;
-                    drive.ctx_mut().has_matched = Some(true);
-                    return None;
-                }
-
-                drive.state.marks_push();
-                self.jump_id = 1;
-                self.next(drive)
-            }
-            1 => {
-                if self.maxcount == MAXREPEAT || self.count <= self.maxcount {
-                    drive.state.string_position = drive.ctx().string_position;
-                    drive.push_new_context(drive.peek_code(1) as usize + 1);
-                    self.jump_id = 2;
-                    return Some(());
-                }
-
-                drive.state.marks_pop_discard();
-                drive.ctx_mut().has_matched = Some(false);
-                None
-            }
-            2 => {
-                let child_ctx = drive.state.popped_context.unwrap();
-                if child_ctx.has_matched == Some(true) {
-                    drive.ctx_mut().has_matched = Some(true);
-                    return None;
-                }
-                drive.state.string_position = drive.ctx().string_position;
-                if count(drive, 1) == 0 {
-                    drive.ctx_mut().has_matched = Some(false);
-                    return None;
-                }
-                drive.skip_char(1);
-                self.count += 1;
-                drive.state.marks_pop_keep();
-                self.jump_id = 1;
-                self.next(drive)
-            }
-            _ => unreachable!(),
-        }
-    }
-}
-
-#[derive(Default)]
-struct OpMaxUntil {
-    jump_id: usize,
-    count: isize,
-    save_last_position: usize,
-}
-impl OpcodeExecutor for OpMaxUntil {
-    fn next(&mut self, drive: &mut StackDrive) -> Option<()> {
-        match self.jump_id {
-            0 => {
-                let RepeatContext {
-                    count,
-                    code_position,
-                    last_position,
-                    mincount,
-                    maxcount,
-                } = *drive.repeat_ctx();
-
-                drive.state.string_position = drive.ctx().string_position;
-                self.count = count + 1;
-
-                if (self.count as usize) < mincount {
-                    // not enough matches
-                    drive.repeat_ctx_mut().count = self.count;
-                    drive.push_new_context_at(code_position + 4);
-                    self.jump_id = 1;
-                    return Some(());
-                }
-
-                if ((self.count as usize) < maxcount || maxcount == MAXREPEAT)
-                    && drive.state.string_position != last_position
-                {
-                    // we may have enough matches, if we can match another item, do so
-                    drive.repeat_ctx_mut().count = self.count;
-                    drive.state.marks_push();
-                    self.save_last_position = last_position;
-                    drive.repeat_ctx_mut().last_position = drive.state.string_position;
-                    drive.push_new_context_at(code_position + 4);
-                    self.jump_id = 2;
-                    return Some(());
-                }
-
-                self.jump_id = 3;
-                self.next(drive)
-            }
-            1 => {
-                let child_ctx = drive.state.popped_context.unwrap();
-                drive.ctx_mut().has_matched = child_ctx.has_matched;
-                if drive.ctx().has_matched != Some(true) {
-                    drive.repeat_ctx_mut().count = self.count - 1;
-                    drive.state.string_position = drive.ctx().string_position;
-                }
-                None
-            }
-            2 => {
-                drive.repeat_ctx_mut().last_position = self.save_last_position;
-                let child_ctx = drive.state.popped_context.unwrap();
-                if child_ctx.has_matched == Some(true) {
-                    drive.state.marks_pop_discard();
-                    drive.ctx_mut().has_matched = Some(true);
-                    return None;
-                }
-                drive.state.marks_pop();
-                drive.repeat_ctx_mut().count = self.count - 1;
-                drive.state.string_position = drive.ctx().string_position;
-                self.jump_id = 3;
-                self.next(drive)
-            }
-            3 => {
-                // cannot match more repeated items here.  make sure the tail matches
-                drive.push_new_context(1);
-                self.jump_id = 4;
-                Some(())
-            }
-            4 => {
-                let child_ctx = drive.state.popped_context.unwrap();
-                drive.ctx_mut().has_matched = child_ctx.has_matched;
-                if drive.ctx().has_matched != Some(true) {
-                    drive.state.string_position = drive.ctx().string_position;
-                }
-                None
-            }
-            _ => unreachable!(),
-        }
-    }
-}
-
-#[derive(Default)]
-struct OpMinUntil {
-    jump_id: usize,
-    count: isize,
-    save_repeat: Option<RepeatContext>,
-    save_last_position: usize,
-}
-impl OpcodeExecutor for OpMinUntil {
-    fn next(&mut self, drive: &mut StackDrive) -> Option<()> {
-        match self.jump_id {
-            0 => {
-                let RepeatContext {
-                    count,
-                    code_position,
-                    last_position: _,
-                    mincount,
-                    maxcount: _,
-                } = *drive.repeat_ctx();
-                drive.state.string_position = drive.ctx().string_position;
-                self.count = count + 1;
-
-                if (self.count as usize) < mincount {
-                    // not enough matches
-                    drive.repeat_ctx_mut().count = self.count;
-                    drive.push_new_context_at(code_position + 4);
-                    self.jump_id = 1;
-                    return Some(());
-                }
-
-                // see if the tail matches
-                drive.state.marks_push();
-                self.save_repeat = drive.state.repeat_stack.pop();
-                drive.push_new_context(1);
-                self.jump_id = 2;
-                Some(())
-            }
-            1 => {
-                let child_ctx = drive.state.popped_context.unwrap();
-                drive.ctx_mut().has_matched = child_ctx.has_matched;
-                if drive.ctx().has_matched != Some(true) {
-                    drive.repeat_ctx_mut().count = self.count - 1;
-                    drive.repeat_ctx_mut().last_position = self.save_last_position;
-                    drive.state.string_position = drive.ctx().string_position;
-                }
-                None
-            }
-            2 => {
-                // restore repeat before return
-                drive.state.repeat_stack.push(self.save_repeat.unwrap());
-
-                let child_ctx = drive.state.popped_context.unwrap();
-                if child_ctx.has_matched == Some(true) {
-                    drive.ctx_mut().has_matched = Some(true);
-                    return None;
-                }
-                drive.state.string_position = drive.ctx().string_position;
-                drive.state.marks_pop();
-
-                // match more until tail matches
-                let RepeatContext {
-                    count: _,
-                    code_position,
-                    last_position,
-                    mincount: _,
-                    maxcount,
-                } = *drive.repeat_ctx();
-
-                if self.count as usize >= maxcount && maxcount != MAXREPEAT
-                    || drive.state.string_position == last_position
-                {
-                    drive.ctx_mut().has_matched = Some(false);
-                    return None;
-                }
-                drive.repeat_ctx_mut().count = self.count;
-
-                /* zero-width match protection */
-                self.save_last_position = last_position;
-                drive.repeat_ctx_mut().last_position = drive.state.string_position;
-
-                drive.push_new_context_at(code_position + 4);
-                self.jump_id = 1;
-                Some(())
-            }
-            _ => unreachable!(),
-        }
-    }
-}
-
-#[derive(Default)]
-struct OpBranch {
-    jump_id: usize,
-    branch_offset: usize,
-}
-impl OpcodeExecutor for OpBranch {
-    // alternation
-    // <BRANCH> <0=skip> code <JUMP> ... <NULL>
-    fn next(&mut self, drive: &mut StackDrive) -> Option<()> {
-        match self.jump_id {
-            0 => {
-                drive.state.marks_push();
-                // jump out the head
-                self.branch_offset = 1;
-                self.jump_id = 1;
-                self.next(drive)
-            }
-            1 => {
-                let next_branch_length = drive.peek_code(self.branch_offset) as usize;
-                if next_branch_length == 0 {
-                    drive.state.marks_pop_discard();
-                    drive.ctx_mut().has_matched = Some(false);
-                    return None;
-                }
-                drive.state.string_position = drive.ctx().string_position;
-                drive.push_new_context(self.branch_offset + 1);
-                self.branch_offset += next_branch_length;
-                self.jump_id = 2;
-                Some(())
-            }
-            2 => {
-                let child_ctx = drive.state.popped_context.unwrap();
-                if child_ctx.has_matched == Some(true) {
-                    drive.ctx_mut().has_matched = Some(true);
-                    return None;
-                }
-                drive.state.marks_pop_keep();
-                self.jump_id = 1;
-                Some(())
-            }
-            _ => unreachable!(),
-        }
-    }
-}
-
-#[derive(Default)]
-struct OpRepeatOne {
-    jump_id: usize,
-    mincount: usize,
-    maxcount: usize,
-    count: usize,
-    following_literal: Option<u32>,
-}
-impl OpcodeExecutor for OpRepeatOne {
-    /* match repeated sequence (maximizing regexp) */
-
-    /* this operator only works if the repeated item is
-    exactly one character wide, and we're not already
-    collecting backtracking points.  for other cases,
-    use the MAX_REPEAT operator */
-
-    /* <REPEAT_ONE> <skip> <1=min> <2=max> item <SUCCESS> tail */
-    fn next(&mut self, drive: &mut StackDrive) -> Option<()> {
-        match self.jump_id {
-            0 => {
-                self.mincount = drive.peek_code(2) as usize;
-                self.maxcount = drive.peek_code(3) as usize;
-
-                if drive.remaining_chars() < self.mincount {
-                    drive.ctx_mut().has_matched = Some(false);
-                    return None;
-                }
-
-                drive.state.string_position = drive.ctx().string_position;
-
-                self.count = count(drive, self.maxcount);
-                drive.skip_char(self.count);
-                if self.count < self.mincount {
-                    drive.ctx_mut().has_matched = Some(false);
-                    return None;
-                }
-
-                let next_code = drive.peek_code(drive.peek_code(1) as usize + 1);
-                if next_code == SreOpcode::SUCCESS as u32 && drive.can_success() {
-                    // tail is empty.  we're finished
-                    drive.state.string_position = drive.ctx().string_position;
-                    drive.ctx_mut().has_matched = Some(true);
-                    return None;
-                }
-
-                drive.state.marks_push();
-
-                // Special case: Tail starts with a literal. Skip positions where
-                // the rest of the pattern cannot possibly match.
-                if next_code == SreOpcode::LITERAL as u32 {
-                    self.following_literal = Some(drive.peek_code(drive.peek_code(1) as usize + 2))
-                }
-
-                self.jump_id = 1;
-                self.next(drive)
-            }
-            1 => {
-                if let Some(c) = self.following_literal {
-                    while drive.at_end() || drive.peek_char() != c {
-                        if self.count <= self.mincount {
-                            drive.state.marks_pop_discard();
-                            drive.ctx_mut().has_matched = Some(false);
-                            return None;
-                        }
-                        drive.back_skip_char(1);
-                        self.count -= 1;
-                    }
-                }
-
-                // General case: backtracking
-                drive.state.string_position = drive.ctx().string_position;
-                drive.push_new_context(drive.peek_code(1) as usize + 1);
-                self.jump_id = 2;
-                Some(())
-            }
-            2 => {
-                let child_ctx = drive.state.popped_context.unwrap();
-                if child_ctx.has_matched == Some(true) {
-                    drive.ctx_mut().has_matched = Some(true);
-                    return None;
-                }
-                if self.count <= self.mincount {
-                    drive.state.marks_pop_discard();
-                    drive.ctx_mut().has_matched = Some(false);
-                    return None;
-                }
-
-                drive.back_skip_char(1);
-                self.count -= 1;
-
-                drive.state.marks_pop_keep();
-
-                self.jump_id = 1;
-                self.next(drive)
-            }
-            _ => unreachable!(),
-        }
-    }
 }
