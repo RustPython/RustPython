@@ -34,10 +34,8 @@ mod _uuid {
         let now = now_unix_duration();
         let ts = Timestamp::from_unix(&CONTEXT, now.as_secs(), now.subsec_nanos());
 
-        let node_id = get_node_id();
-
         static NODE_ID: OnceCell<[u8; 6]> = OnceCell::new();
-        let unique_node_id = NODE_ID.get_or_init(|| node_id);
+        let unique_node_id = NODE_ID.get_or_init(|| get_node_id());
 
         (
             Uuid::new_v1(ts, &unique_node_id).as_bytes().to_vec(),
