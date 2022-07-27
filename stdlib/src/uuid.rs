@@ -47,16 +47,16 @@ mod _uuid {
         let node_id = get_node_id();
 
         static NODE_ID: OnceCell<[u8; 6]> = OnceCell::new();
-        let unique_node_id = NODE_ID.get_or_init(|| {
-            node_id
-        });
+        let unique_node_id = NODE_ID.get_or_init(|| node_id);
 
-        (Uuid::new_v1(ts, &unique_node_id).as_bytes().to_vec(), PyNone)
+        (
+            Uuid::new_v1(ts, &unique_node_id).as_bytes().to_vec(),
+            PyNone,
+        )
     }
 
     #[pyattr]
     fn has_uuid_generate_time_safe(_vm: &VirtualMachine) -> PyInt {
         PyInt::from(0)
     }
-
 }
