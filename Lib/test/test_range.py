@@ -661,9 +661,6 @@ class RangeTest(unittest.TestCase):
         with self.assertRaises(TypeError):
             range(0) >= range(0)
 
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_attributes(self):
         # test the start, stop and step attributes of range objects
         self.assert_attrs(range(0), 0, 0, 1)
