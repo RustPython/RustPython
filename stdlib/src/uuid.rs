@@ -15,18 +15,9 @@ mod _uuid {
 
     fn get_node_id() -> [u8; 6] {
         match get_mac_address() {
-            Ok(Some(_ma)) => {
-                let node_id = get_mac_address().unwrap().unwrap().bytes();
-                node_id
-            }
-            Ok(None) => {
-                let node_id = rand::thread_rng().gen::<[u8; 6]>();
-                node_id
-            }
-            Err(_e) => {
-                let node_id = rand::thread_rng().gen::<[u8; 6]>();
-                node_id
-            }
+            Ok(Some(_ma)) => get_mac_address().unwrap().unwrap().bytes(),
+            Ok(None) => rand::thread_rng().gen::<[u8; 6]>(),
+            Err(_e) => rand::thread_rng().gen::<[u8; 6]>(),
         }
     }
 
