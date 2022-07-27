@@ -420,7 +420,7 @@ fn op_min_repeat_one(drive: &mut StateContext, stacks: &mut Stacks) {
     let count = if min_count == 0 {
         0
     } else {
-        let count = count(drive, stacks, min_count);
+        let count = _count(drive, stacks, min_count);
         if count < min_count {
             return drive.failure();
         }
@@ -462,7 +462,7 @@ fn op_min_repeat_one(drive: &mut StateContext, stacks: &mut Stacks) {
 
         drive.sync_string_position();
 
-        if crate::engine::count(drive, stacks, 1) == 0 {
+        if _count(drive, stacks, 1) == 0 {
             drive.state.marks_pop_discard();
             stacks.min_repeat_one.pop();
             return drive.failure();
@@ -500,7 +500,7 @@ fn op_repeat_one(drive: &mut StateContext, stacks: &mut Stacks) {
 
     drive.sync_string_position();
 
-    let count = count(drive, stacks, max_count);
+    let count = _count(drive, stacks, max_count);
     drive.skip_char(count);
     if count < min_count {
         return drive.failure();
@@ -614,9 +614,7 @@ fn op_repeat(drive: &mut StateContext, stacks: &mut Stacks) {
 
 #[derive(Debug, Clone, Copy)]
 struct MinUntilContext {
-    count: isize,
-    save_repeat_ctx: Option<RepeatContext>,
-    save_last_position: usize,
+    save_repeat_ctx_id: usize,
 }
 
 /* minimizing repeat */
@@ -625,50 +623,35 @@ fn op_min_until(drive: &mut StateContext, stacks: &mut Stacks) {
 
     drive.sync_string_position();
 
-    let count = repeat_ctx.count + 1;
+    repeat_ctx.count += 1;
 
-    stacks.min_until.push(MinUntilContext {
-        count,
-        save_repeat_ctx: None,
-        save_last_position: repeat_ctx.last_position,
-    });
-
-    if (count as usize) < repeat_ctx.min_count {
+    if (repeat_ctx.count as usize) < repeat_ctx.min_count {
         // not enough matches
-        repeat_ctx.count = count;
         drive.next_ctx_at(repeat_ctx.code_position + 4, |drive, stacks| {
             if drive.popped_ctx().has_matched == Some(true) {
-                stacks.min_until.pop();
-                return drive.success();
+                drive.success();
+            } else {
+                stacks.repeat[drive.ctx.repeat_ctx_id].count -= 1;
+                drive.sync_string_position();
+                drive.failure();
             }
-
-            stacks.repeat_last().count = stacks.min_until_last().count - 1;
-            drive.sync_string_position();
-            stacks.min_until.pop();
-            drive.failure();
         });
         return;
     }
 
     drive.state.marks_push();
 
+    stacks.min_until.push(MinUntilContext {
+        save_repeat_ctx_id: drive.ctx.repeat_ctx_id,
+    });
+
     // see if the tail matches
-    stacks.min_until_last().save_repeat_ctx = stacks.repeat.pop();
+    let next_ctx = drive.next_ctx(1, |drive, stacks| {
+        drive.ctx.repeat_ctx_id = stacks.min_until.pop().unwrap().save_repeat_ctx_id;
 
-    drive.next_ctx(1, |drive, stacks| {
-        let MinUntilContext {
-            count,
-            save_repeat_ctx,
-            save_last_position,
-        } = stacks.min_until_last();
-        let count = *count;
-
-        let mut repeat_ctx = save_repeat_ctx.take().unwrap();
+        let repeat_ctx = &mut stacks.repeat[drive.ctx.repeat_ctx_id];
 
         if drive.popped_ctx().has_matched == Some(true) {
-            stacks.min_until.pop();
-            // restore repeat before return
-            stacks.repeat.push(repeat_ctx);
             return drive.success();
         }
 
@@ -678,34 +661,27 @@ fn op_min_until(drive: &mut StateContext, stacks: &mut Stacks) {
 
         // match more until tail matches
 
-        if count as usize >= repeat_ctx.max_count && repeat_ctx.max_count != MAXREPEAT
+        if repeat_ctx.count as usize >= repeat_ctx.max_count && repeat_ctx.max_count != MAXREPEAT
             || drive.state.string_position == repeat_ctx.last_position
         {
-            stacks.min_until.pop();
-            // restore repeat before return
-            stacks.repeat.push(repeat_ctx);
+            repeat_ctx.count -= 1;
             return drive.failure();
         }
 
-        repeat_ctx.count = count;
         /* zero-width match protection */
-        *save_last_position = repeat_ctx.last_position;
         repeat_ctx.last_position = drive.state.string_position;
-
-        stacks.repeat.push(repeat_ctx);
 
         drive.next_ctx_at(repeat_ctx.code_position + 4, |drive, stacks| {
             if drive.popped_ctx().has_matched == Some(true) {
-                stacks.min_until.pop();
                 drive.success();
             } else {
-                stacks.repeat_last().count = stacks.min_until_last().count - 1;
+                stacks.repeat[drive.ctx.repeat_ctx_id].count -= 1;
                 drive.sync_string_position();
-                stacks.min_until.pop();
                 drive.failure();
             }
         });
     });
+    next_ctx.repeat_ctx_id = repeat_ctx.prev_id;
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -715,28 +691,20 @@ struct MaxUntilContext {
 
 /* maximizing repeat */
 fn op_max_until(drive: &mut StateContext, stacks: &mut Stacks) {
-    // let repeat_ctx = stacks.repeat.last_mut().unwrap();
     let repeat_ctx = &mut stacks.repeat[drive.ctx.repeat_ctx_id];
 
     drive.sync_string_position();
 
     repeat_ctx.count += 1;
 
-    // let count = repeat_ctx.count + 1;
-
     if (repeat_ctx.count as usize) < repeat_ctx.min_count {
         // not enough matches
-        // repeat_ctx.count = count;
         drive.next_ctx_at(repeat_ctx.code_position + 4, |drive, stacks| {
             if drive.popped_ctx().has_matched == Some(true) {
-                // stacks.max_until.pop();
                 drive.success();
             } else {
-                // let count = stacks.max_until_last().count;
-                // stacks.repeat_last().count -= 1;
                 stacks.repeat[drive.ctx.repeat_ctx_id].count -= 1;
                 drive.sync_string_position();
-                // stacks.max_until.pop();
                 drive.failure();
             }
         });
@@ -757,14 +725,15 @@ fn op_max_until(drive: &mut StateContext, stacks: &mut Stacks) {
         drive.state.marks_push();
 
         drive.next_ctx_at(repeat_ctx.code_position + 4, |drive, stacks| {
-            let save_last_position = stacks.max_until_last().save_last_position;
+            let save_last_position = stacks.max_until.pop().unwrap().save_last_position;
             let repeat_ctx = &mut stacks.repeat[drive.ctx.repeat_ctx_id];
             repeat_ctx.last_position = save_last_position;
+
             if drive.popped_ctx().has_matched == Some(true) {
                 drive.state.marks_pop_discard();
-                stacks.max_until.pop();
                 return drive.success();
             }
+
             drive.state.marks_pop();
             repeat_ctx.count -= 1;
             drive.sync_string_position();
@@ -782,9 +751,7 @@ fn op_max_until(drive: &mut StateContext, stacks: &mut Stacks) {
     let next_ctx = drive.next_ctx(1, tail_callback);
     next_ctx.repeat_ctx_id = repeat_ctx.prev_id;
 
-    fn tail_callback(drive: &mut StateContext, stacks: &mut Stacks) {
-        stacks.max_until.pop();
-
+    fn tail_callback(drive: &mut StateContext, _stacks: &mut Stacks) {
         if drive.popped_ctx().has_matched == Some(true) {
             drive.success();
         } else {
@@ -822,15 +789,6 @@ impl Stacks {
     }
     fn repeat_one_last(&mut self) -> &mut RepeatOneContext {
         self.repeat_one.last_mut().unwrap()
-    }
-    fn repeat_last(&mut self) -> &mut RepeatContext {
-        self.repeat.last_mut().unwrap()
-    }
-    fn min_until_last(&mut self) -> &mut MinUntilContext {
-        self.min_until.last_mut().unwrap()
-    }
-    fn max_until_last(&mut self) -> &mut MaxUntilContext {
-        self.max_until.last_mut().unwrap()
     }
 }
 
@@ -1327,7 +1285,7 @@ fn general_count(drive: &mut StateContext, stacks: &mut Stacks, max_count: usize
     count
 }
 
-fn count(drive: &mut StateContext, stacks: &mut Stacks, max_count: usize) -> usize {
+fn _count(drive: &mut StateContext, stacks: &mut Stacks, max_count: usize) -> usize {
     let save_ctx = drive.ctx;
     let max_count = std::cmp::min(max_count, drive.remaining_chars());
     let end = drive.ctx.string_position + max_count;
