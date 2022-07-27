@@ -539,7 +539,7 @@ impl Comparable for PyFloat {
 impl Hashable for PyFloat {
     #[inline]
     fn hash(zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyResult<hash::PyHash> {
-        Ok(hash::hash_float(zelf.to_f64()))
+        Ok(hash::hash_float(zelf.to_f64()).unwrap_or_else(|| hash::hash_object_id(zelf.get_id())))
     }
 }
 

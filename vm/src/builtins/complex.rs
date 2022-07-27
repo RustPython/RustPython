@@ -16,6 +16,7 @@ use crate::{
 use num_complex::Complex64;
 use num_traits::Zero;
 use rustpython_common::{float_ops, hash};
+use std::num::Wrapping;
 
 /// Create a complex number from a real part and an optional imaginary part.
 ///
@@ -417,7 +418,16 @@ impl Comparable for PyComplex {
 impl Hashable for PyComplex {
     #[inline]
     fn hash(zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyResult<hash::PyHash> {
-        Ok(hash::hash_complex(&zelf.value))
+        let value = zelf.value;
+
+        let re_hash =
+            hash::hash_float(value.re).unwrap_or_else(|| hash::hash_object_id(zelf.get_id()));
+
+        let im_hash =
+            hash::hash_float(value.im).unwrap_or_else(|| hash::hash_object_id(zelf.get_id()));
+
+        let Wrapping(ret) = Wrapping(re_hash) + Wrapping(im_hash) * Wrapping(hash::IMAG);
+        Ok(hash::fix_sentinel(ret))
     }
 }
 
