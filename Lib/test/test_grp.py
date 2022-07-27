@@ -5,7 +5,7 @@ from test.support import import_helper
 
 
 grp = import_helper.import_module('grp')
-
+@unittest.skipUnless(hasattr(grp, 'getgrall'), 'Does not have getgrall()')
 class GroupDatabaseTestCase(unittest.TestCase):
 
     def check_value(self, value):

@@ -6,8 +6,9 @@ mod grp {
 
     use crate::{
         builtins::{PyIntRef, PyStrRef, PyTupleRef},
-        PyResult, VirtualMachine, PyObjectRef, convert::{IntoPyException, ToPyObject}, AsObject,
+        convert::{IntoPyException, ToPyObject},
         types::PyStructSequence,
+        AsObject, PyObjectRef, PyResult, VirtualMachine,
     };
     use nix::unistd;
 
@@ -31,7 +32,9 @@ mod grp {
                 gr_name: group.name.to_string(),
                 gr_passwd: cstr_lossy(group.passwd),
                 gr_gid: group.gid.as_raw(),
-                gr_mem: vm.ctx.new_tuple(group.mem.iter().map(|s| s.to_pyobject(vm)).collect()),
+                gr_mem: vm
+                    .ctx
+                    .new_tuple(group.mem.iter().map(|s| s.to_pyobject(vm)).collect()),
             }
         }
     }
@@ -88,18 +91,18 @@ mod grp {
 
     #[pyfunction]
     fn getgrall(vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
-        // setpwent, getpwent, etc are not thread safe. Could use fgetpwent_r, but this is easier
+        // setgrent, getgrent, etc are not thread safe. Could use fgetgrent_r, but this is easier
         static GETGRALL: parking_lot::Mutex<()> = parking_lot::const_mutex(());
         let _guard = GETGRALL.lock();
         let mut list = Vec::new();
 
-        unsafe { libc::setpwent() };
+        unsafe { libc::setgrent() };
         while let Some(ptr) = NonNull::new(unsafe { libc::getgrent() }) {
-            let group = unistd::Group::from(unsafe { ptr.as_ref() });
-            let group = Group::from_unistd_group(group, vm).to_pyobject(vm);
+            let _group = unistd::Group::from(unsafe { ptr.as_ref() });
+            let group = Group::from_unistd_group(_group, vm).to_pyobject(vm);
             list.push(group);
         }
-        unsafe { libc::endpwent() };
+        unsafe { libc::endgrent() };
 
         Ok(list)
     }
