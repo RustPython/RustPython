@@ -217,7 +217,7 @@ fn close_fds(above: i32, keep: &[i32]) -> nix::Result<()> {
     target_os = "freebsd",
     target_os = "netbsd",
     target_os = "openbsd",
-    target_os = "macos",
+    target_vendor = "apple",
 ))]
 const FD_DIR_NAME: &[u8] = b"/dev/fd\0";
 

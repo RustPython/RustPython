@@ -226,7 +226,7 @@ mod time {
 
     #[cfg(not(any(
         windows,
-        target_os = "macos",
+        target_vendor = "apple",
         target_os = "android",
         target_os = "dragonfly",
         target_os = "freebsd",
@@ -460,6 +460,7 @@ mod unix {
     }
 
     #[cfg(not(target_os = "redox"))]
+    #[cfg(any(not(target_vendor = "apple"), target_os = "macos"))]
     fn set_clock_time(
         clk_id: PyIntRef,
         timespec: libc::timespec,
@@ -473,6 +474,7 @@ mod unix {
     }
 
     #[cfg(not(target_os = "redox"))]
+    #[cfg(any(not(target_vendor = "apple"), target_os = "macos"))]
     #[pyfunction]
     fn clock_settime(
         clk_id: PyIntRef,
@@ -492,6 +494,7 @@ mod unix {
     }
 
     #[cfg(not(target_os = "redox"))]
+    #[cfg(any(not(target_vendor = "apple"), target_os = "macos"))]
     #[pyfunction]
     fn clock_settime_ns(clk_id: PyIntRef, time: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
         let time: libc::time_t = time.try_to_primitive(vm)?;
