@@ -993,7 +993,7 @@ Atom: ast::Expr = {
                 match elt.node {
                     ast::ExprKind::Starred { .. } => {
                         Err(LexicalError{
-                            error : LexicalErrorType::OtherError("cannot use starred expression here".to_string()),
+                            error : LexicalErrorType::StarredExpressionError,
                             location,
                         }.into())
                     },
@@ -1021,7 +1021,7 @@ Atom: ast::Expr = {
     },
     "(" <location:@L> "**" <e:Expression> ")" =>? {
         Err(LexicalError{
-            error : LexicalErrorType::OtherError("cannot use double starred expression here".to_string()),
+            error : LexicalErrorType::DoubleStarredExpressionError,
             location,
         }.into())
     },

@@ -1,5 +1,5 @@
 // auto-generated: "lalrpop 0.19.8"
-// sha3: 5ecb51ffcdef2e4d2d0bcfb2905af5336c25a69dccc882341e8255b8cb59a638
+// sha3: 4776b7e65b9475d3785bbe2da35880d24aecdc16a221c29d5e239b1a935f0d8b
 use crate::ast;
 use crate::fstring::parse_located_fstring;
 use crate::function::{ArgumentList, parse_args, parse_params};
@@ -24722,7 +24722,7 @@ fn __action153<
                 match elt.node {
                     ast::ExprKind::Starred { .. } => {
                         Err(LexicalError{
-                            error : LexicalErrorType::OtherError("cannot use starred expression here".to_string()),
+                            error : LexicalErrorType::StarredExpressionError,
                             location,
                         }.into())
                     },
@@ -24781,7 +24781,7 @@ fn __action156<
 {
     {
         Err(LexicalError{
-            error : LexicalErrorType::OtherError("cannot use double starred expression here".to_string()),
+            error : LexicalErrorType::DoubleStarredExpressionError,
             location,
         }.into())
     }
