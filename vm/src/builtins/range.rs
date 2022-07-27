@@ -181,10 +181,10 @@ pub fn init(context: &Context) {
 
 #[pyimpl(with(AsMapping, AsSequence, Hashable, Comparable, Iterable))]
 impl PyRange {
-    fn new(cls: PyTypeRef, stop: PyIntRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+    fn new(cls: PyTypeRef, stop: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         PyRange {
             start: vm.new_pyref(0),
-            stop,
+            stop: stop.try_index(vm)?,
             step: vm.new_pyref(1),
         }
         .into_ref_with_type(vm, cls)
@@ -192,16 +192,21 @@ impl PyRange {
 
     fn new_from(
         cls: PyTypeRef,
-        start: PyIntRef,
-        stop: PyIntRef,
-        step: OptionalArg<PyIntRef>,
+        start: PyObjectRef,
+        stop: PyObjectRef,
+        step: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        let step = step.unwrap_or_else(|| vm.new_pyref(1));
+        let step = step.unwrap_or_else(|| vm.new_pyobj(1)).try_index(vm)?;
         if step.as_bigint().is_zero() {
             return Err(vm.new_value_error("range() arg 3 must not be zero".to_owned()));
         }
-        PyRange { start, stop, step }.into_ref_with_type(vm, cls)
+        PyRange {
+            start: start.try_index(vm)?,
+            stop: stop.try_index(vm)?,
+            step,
+        }
+        .into_ref_with_type(vm, cls)
     }
 
     #[pyproperty]
