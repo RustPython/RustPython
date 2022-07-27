@@ -5,8 +5,9 @@ mod grp {
     use std::ptr::NonNull;
 
     use crate::{
-        builtins::{PyIntRef, PyStrRef},
+        builtins::{PyIntRef, PyStrRef, PyTupleRef},
         PyResult, VirtualMachine, PyObjectRef, convert::{IntoPyException, ToPyObject}, AsObject,
+        types::PyStructSequence,
     };
     use nix::unistd;
 
@@ -17,26 +18,39 @@ mod grp {
         gr_name: String,
         gr_passwd: String,
         gr_gid: u32,
-        gr_mem: Vec<String>,
+        gr_mem: PyTupleRef,
     }
     #[pyimpl(with(PyStructSequence))]
-    impl Group {}
-
-    impl From<unistd::Group> for Group {
-        fn from(group: unistd::Group) -> Self {
-            // this is just a pain...
+    impl Group {
+        fn from_unistd_group(group: unistd::Group, vm: &VirtualMachine) -> Self {
             let cstr_lossy = |s: std::ffi::CString| {
                 s.into_string()
                     .unwrap_or_else(|e| e.into_cstring().to_string_lossy().into_owned())
             };
             Group {
-                gr_name: group.name,
+                gr_name: group.name.to_string(),
                 gr_passwd: cstr_lossy(group.passwd),
                 gr_gid: group.gid.as_raw(),
-                gr_mem: group.mem,
+                gr_mem: vm.ctx.new_tuple(group.mem.iter().map(|s| s.to_pyobject(vm)).collect()),
             }
         }
     }
+
+    // impl From<unistd::Group> for Group {
+    //     fn from(group: unistd::Group) -> Self {
+    //         // this is just a pain...
+    //         let cstr_lossy = |s: std::ffi::CString| {
+    //             s.into_string()
+    //                 .unwrap_or_else(|e| e.into_cstring().to_string_lossy().into_owned())
+    //         };
+    //         Group {
+    //             gr_name: group.name,
+    //             gr_passwd: cstr_lossy(group.passwd),
+    //             gr_gid: group.gid.as_raw(),
+    //             gr_mem: group.mem,
+    //         }
+    //     }
+    // }
 
     #[pyfunction]
     fn getgrgid(gid: PyIntRef, vm: &VirtualMachine) -> PyResult<Group> {
@@ -46,7 +60,7 @@ mod grp {
             Err(_) => None,
         };
         match group {
-            Some(group) => Ok(Group::from(group)),
+            Some(group) => Ok(Group::from_unistd_group(group, vm)),
             None => {
                 let message = vm
                     .ctx
@@ -60,7 +74,7 @@ mod grp {
     #[pyfunction]
     fn getgrnam(name: PyStrRef, vm: &VirtualMachine) -> PyResult<Group> {
         match unistd::Group::from_name(name.as_str()).map_err(|err| err.into_pyexception(vm))? {
-            Some(group) => Ok(Group::from(group)),
+            Some(group) => Ok(Group::from_unistd_group(group, vm)),
             None => {
                 let name_repr = name.as_object().repr(vm)?;
                 let message = vm
@@ -82,7 +96,7 @@ mod grp {
         unsafe { libc::setpwent() };
         while let Some(ptr) = NonNull::new(unsafe { libc::getgrent() }) {
             let group = unistd::Group::from(unsafe { ptr.as_ref() });
-            let group = Group::from(group).to_pyobject(vm);
+            let group = Group::from_unistd_group(group, vm).to_pyobject(vm);
             list.push(group);
         }
         unsafe { libc::endpwent() };
