@@ -30,7 +30,7 @@ mod _uuid {
     }
 
     #[pyfunction]
-    fn generate_time_safe(_vm: &VirtualMachine) -> (Vec<u8>, PyNone) {
+    fn generate_time_safe() -> (Vec<u8>, PyNone) {
         let now = now_unix_duration();
         static CONTEXT: Context = Context::new(0);
         let ts = Timestamp::from_unix(&CONTEXT, now.as_secs(), now.subsec_nanos());
