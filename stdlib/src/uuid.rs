@@ -31,8 +31,8 @@ mod _uuid {
 
     #[pyfunction]
     fn generate_time_safe() -> (Vec<u8>, PyNone) {
-        let now = now_unix_duration();
         static CONTEXT: Context = Context::new(0);
+        let now = now_unix_duration();
         let ts = Timestamp::from_unix(&CONTEXT, now.as_secs(), now.subsec_nanos());
 
         let node_id = get_node_id();
