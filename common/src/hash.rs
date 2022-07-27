@@ -185,7 +185,7 @@ pub fn hash_object_id_raw(p: usize) -> PyHash {
     // Ref: https://github.com/RustPython/RustPython/pull/3951#issuecomment-1193108966
 
     /* bottom 3 or 4 bits are likely to be 0; rotate y by 4 to avoid
-       excessive hash collisions for dicts and sets */
+    excessive hash collisions for dicts and sets */
     // p.rotate_right(4) as PyHash
     p as PyHash
 }
