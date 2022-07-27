@@ -1,10 +1,6 @@
 use crate::{
-    builtins::PyIntRef,
-    function::{Either, OptionalArg, PyComparisonValue},
-    sliceable::SequenceIndexOp,
-    types::{richcompare_wrapper, PyComparisonOp, RichCompareFunc},
-    vm::VirtualMachine,
-    AsObject, PyObject, PyObjectRef, PyResult,
+    builtins::PyIntRef, function::OptionalArg, sliceable::SequenceIndexOp, types::PyComparisonOp,
+    vm::VirtualMachine, AsObject, PyObject, PyObjectRef, PyResult,
 };
 use optional::Optioned;
 use std::ops::Range;
@@ -50,11 +46,6 @@ pub trait MutObjectSequenceOp<'a> {
     where
         F: FnMut(),
     {
-        let needle_cls = needle.class();
-        let needle_cmp = needle_cls
-            .mro_find_map(|cls| cls.slots.richcompare.load())
-            .unwrap();
-
         let mut borrower = None;
         let mut i = range.start;
 
@@ -81,94 +72,10 @@ pub trait MutObjectSequenceOp<'a> {
                 }
                 borrower = Some(guard);
             } else {
-                let elem_cls = elem.class();
-                let reverse_first =
-                    !elem_cls.is(&needle_cls) && elem_cls.fast_issubclass(&needle_cls);
+                let elem = elem.clone();
+                drop(guard);
 
-                let eq = if reverse_first {
-                    let elem_cmp = elem_cls
-                        .mro_find_map(|cls| cls.slots.richcompare.load())
-                        .unwrap();
-                    drop(elem_cls);
-
-                    fn cmp(
-                        elem: &PyObject,
-                        needle: &PyObject,
-                        elem_cmp: RichCompareFunc,
-                        needle_cmp: RichCompareFunc,
-                        vm: &VirtualMachine,
-                    ) -> PyResult<bool> {
-                        match elem_cmp(elem, needle, PyComparisonOp::Eq, vm)? {
-                            Either::B(PyComparisonValue::Implemented(value)) => Ok(value),
-                            Either::A(obj) if !obj.is(&vm.ctx.not_implemented) => {
-                                obj.try_to_bool(vm)
-                            }
-                            _ => match needle_cmp(needle, elem, PyComparisonOp::Eq, vm)? {
-                                Either::B(PyComparisonValue::Implemented(value)) => Ok(value),
-                                Either::A(obj) if !obj.is(&vm.ctx.not_implemented) => {
-                                    obj.try_to_bool(vm)
-                                }
-                                _ => Ok(false),
-                            },
-                        }
-                    }
-
-                    if elem_cmp as usize == richcompare_wrapper as usize {
-                        let elem = elem.clone();
-                        drop(guard);
-                        cmp(&elem, needle, elem_cmp, needle_cmp, vm)?
-                    } else {
-                        let eq = cmp(elem, needle, elem_cmp, needle_cmp, vm)?;
-                        borrower = Some(guard);
-                        eq
-                    }
-                } else {
-                    match needle_cmp(needle, elem, PyComparisonOp::Eq, vm)? {
-                        Either::B(PyComparisonValue::Implemented(value)) => {
-                            drop(elem_cls);
-                            borrower = Some(guard);
-                            value
-                        }
-                        Either::A(obj) if !obj.is(&vm.ctx.not_implemented) => {
-                            drop(elem_cls);
-                            borrower = Some(guard);
-                            obj.try_to_bool(vm)?
-                        }
-                        _ => {
-                            let elem_cmp = elem_cls
-                                .mro_find_map(|cls| cls.slots.richcompare.load())
-                                .unwrap();
-                            drop(elem_cls);
-
-                            fn cmp(
-                                elem: &PyObject,
-                                needle: &PyObject,
-                                elem_cmp: RichCompareFunc,
-                                vm: &VirtualMachine,
-                            ) -> PyResult<bool> {
-                                match elem_cmp(elem, needle, PyComparisonOp::Eq, vm)? {
-                                    Either::B(PyComparisonValue::Implemented(value)) => Ok(value),
-                                    Either::A(obj) if !obj.is(&vm.ctx.not_implemented) => {
-                                        obj.try_to_bool(vm)
-                                    }
-                                    _ => Ok(false),
-                                }
-                            }
-
-                            if elem_cmp as usize == richcompare_wrapper as usize {
-                                let elem = elem.clone();
-                                drop(guard);
-                                cmp(&elem, needle, elem_cmp, vm)?
-                            } else {
-                                let eq = cmp(elem, needle, elem_cmp, vm)?;
-                                borrower = Some(guard);
-                                eq
-                            }
-                        }
-                    }
-                };
-
-                if eq {
+                if elem.rich_compare_bool(needle, PyComparisonOp::Eq, vm)? {
                     f();
                     if SHORT {
                         break Optioned::<usize>::some(i);
