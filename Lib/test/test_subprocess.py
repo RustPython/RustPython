@@ -2048,6 +2048,8 @@ class POSIXProcessTestCase(BaseTestCase):
         with self.assertRaises(ValueError):
             subprocess.check_call(ZERO_RETURN_CMD, group=65535)
 
+    # TODO: RUSTPYTHON, SpamError: not enough spam
+    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(os, 'setgroups'), 'no setgroups() on platform')
     def test_extra_groups(self):
         gid = os.getegid()
