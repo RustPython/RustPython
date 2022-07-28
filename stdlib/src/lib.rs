@@ -51,6 +51,7 @@ mod select;
 mod ssl;
 #[cfg(all(unix, not(target_os = "redox")))]
 mod termios;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 mod uuid;
 
 use rustpython_common as common;
@@ -97,7 +98,6 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
             "unicodedata" => unicodedata::make_module,
             "zlib" => zlib::make_module,
             "_statistics" => statistics::make_module,
-            "_uuid" => uuid::make_module,
             // crate::vm::sysmodule::sysconfigdata_name() => sysconfigdata::make_module,
         }
         // parser related modules:
@@ -134,6 +134,10 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
         #[cfg(target_os = "macos")]
         {
             "_scproxy" => scproxy::make_module,
+        }
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        {
+            "_uuid" => uuid::make_module,
         }
     }
 }
