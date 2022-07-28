@@ -6,7 +6,6 @@ mod _uuid {
     use mac_address::get_mac_address;
     use once_cell::sync::OnceCell;
     use rand::Rng;
-    use rustpython_vm::builtins::PyInt;
     use std::time::{Duration, SystemTime};
     use uuid::{
         v1::{Context, Timestamp},
@@ -44,7 +43,7 @@ mod _uuid {
     }
 
     #[pyattr]
-    fn has_uuid_generate_time_safe(_vm: &VirtualMachine) -> PyInt {
-        PyInt::from(0)
+    fn has_uuid_generate_time_safe(_vm: &VirtualMachine) -> u32 {
+        0
     }
 }
