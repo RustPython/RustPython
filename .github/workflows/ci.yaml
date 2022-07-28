@@ -132,6 +132,14 @@ jobs:
       - name: Check compilation for Apple Silicon
         run: cargo check --target aarch64-apple-darwin
         if: runner.os == 'macOS'
+      - name: prepare iOS build
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          target: aarch64-apple-ios
+        if: runner.os == 'macOS'
+      - name: Check compilation for iOS
+        run: cargo check --target aarch64-apple-ios
+        if: runner.os == 'macOS'
 
   exotic_targets:
     name: Ensure compilation on various targets

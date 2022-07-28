@@ -69,7 +69,7 @@ ascii = "1.0.0"
 memmap2 = "0.5.4"
 page_size = "0.4"
 
-[target.'cfg(all(unix, not(target_os = "redox")))'.dependencies]
+[target.'cfg(all(unix, not(target_os = "redox"), not(target_os = "ios")))'.dependencies]
 termios = "0.3.3"
 
 [features]
