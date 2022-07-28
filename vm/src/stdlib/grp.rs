@@ -8,7 +8,7 @@ mod grp {
         builtins::{PyIntRef, PyStrRef, PyListRef},
         convert::{IntoPyException, ToPyObject},
         types::PyStructSequence,
-        AsObject, PyObjectRef, PyResult, VirtualMachine,
+        AsObject, PyObjectRef, PyResult, VirtualMachine, exceptions,
     };
     use nix::unistd;
 
@@ -76,6 +76,9 @@ mod grp {
 
     #[pyfunction]
     fn getgrnam(name: PyStrRef, vm: &VirtualMachine) -> PyResult<Group> {
+        if name.as_str().contains('\0') {
+            return Err(exceptions::cstring_error(vm));
+        }
         match unistd::Group::from_name(name.as_str()).map_err(|err| err.into_pyexception(vm))? {
             Some(group) => Ok(Group::from_unistd_group(group, vm)),
             None => {
