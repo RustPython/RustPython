@@ -5,10 +5,11 @@ mod grp {
     use std::ptr::NonNull;
 
     use crate::{
-        builtins::{PyIntRef, PyStrRef, PyListRef},
+        builtins::{PyIntRef, PyListRef, PyStrRef},
         convert::{IntoPyException, ToPyObject},
+        exceptions,
         types::PyStructSequence,
-        AsObject, PyObjectRef, PyResult, VirtualMachine, exceptions,
+        AsObject, PyObjectRef, PyResult, VirtualMachine,
     };
     use nix::unistd;
 
