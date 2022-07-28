@@ -1999,6 +1999,7 @@ class POSIXProcessTestCase(BaseTestCase):
         with self.assertRaises(ValueError):
             subprocess.check_call(ZERO_RETURN_CMD, user=65535)
 
+    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(os, 'setregid'), 'no setregid() on platform')
     def test_group(self):
         gid = os.getegid()
