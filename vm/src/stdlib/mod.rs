@@ -36,12 +36,12 @@ pub mod posix;
 #[path = "posix_compat.rs"]
 pub mod posix;
 
+#[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
+mod grp;
 #[cfg(windows)]
 pub(crate) mod msvcrt;
 #[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
 mod pwd;
-#[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
-mod grp;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) mod signal;
 pub mod sys;

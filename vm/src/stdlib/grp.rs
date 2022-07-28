@@ -5,7 +5,7 @@ mod grp {
     use std::ptr::NonNull;
 
     use crate::{
-        builtins::{PyIntRef, PyStrRef, PyTupleRef},
+        builtins::{PyIntRef, PyStrRef, PyListRef},
         convert::{IntoPyException, ToPyObject},
         types::PyStructSequence,
         AsObject, PyObjectRef, PyResult, VirtualMachine,
@@ -19,7 +19,7 @@ mod grp {
         gr_name: String,
         gr_passwd: String,
         gr_gid: u32,
-        gr_mem: PyTupleRef,
+        gr_mem: PyListRef,
     }
     #[pyimpl(with(PyStructSequence))]
     impl Group {
@@ -29,12 +29,12 @@ mod grp {
                     .unwrap_or_else(|e| e.into_cstring().to_string_lossy().into_owned())
             };
             Group {
-                gr_name: group.name.to_string(),
+                gr_name: group.name,
                 gr_passwd: cstr_lossy(group.passwd),
                 gr_gid: group.gid.as_raw(),
                 gr_mem: vm
                     .ctx
-                    .new_tuple(group.mem.iter().map(|s| s.to_pyobject(vm)).collect()),
+                    .new_list(group.mem.iter().map(|s| s.to_pyobject(vm)).collect()),
             }
         }
     }
