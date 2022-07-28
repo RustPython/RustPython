@@ -1999,7 +1999,7 @@ class POSIXProcessTestCase(BaseTestCase):
         with self.assertRaises(ValueError):
             subprocess.check_call(ZERO_RETURN_CMD, user=65535)
 
-    # TODO: RUSTPYTHON, SpamError: not enough spam
+    # TODO: RUSTPYTHON, observed gids do not match expected gids
     @unittest.expectedFailure
     @unittest.skipUnless(hasattr(os, 'setregid'), 'no setregid() on platform')
     def test_group(self):
