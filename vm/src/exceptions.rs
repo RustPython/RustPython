@@ -731,6 +731,7 @@ impl ExceptionZoo {
 
         extend_exception!(PyImportError, ctx, excs.import_error, {
             "msg" => ctx.new_readonly_getset("msg", excs.import_error, make_arg_getter(0)),
+            "__str__" => ctx.new_method("__str__", excs.import_error, import_error_str)
         });
         extend_exception!(PyModuleNotFoundError, ctx, excs.module_not_found_error);
 
@@ -852,6 +853,16 @@ fn none_getter(_obj: PyObjectRef, vm: &VirtualMachine) -> PyRef<PyNone> {
 
 fn make_arg_getter(idx: usize) -> impl Fn(PyBaseExceptionRef) -> Option<PyObjectRef> {
     move |exc| exc.get_arg(idx)
+}
+
+fn import_error_str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyStrRef {
+    let obj = exc.as_object().to_owned();
+    if let Ok(msg) = obj.get_attr("msg", vm) {
+        if let Ok(s) = msg.str(vm) {
+            return s;
+        }
+    }
+    exc.str(vm)
 }
 
 fn key_error_str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyStrRef {
