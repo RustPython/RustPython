@@ -47,16 +47,10 @@ mod grp {
             Ok(gid) => unistd::Group::from_gid(gid).map_err(|err| err.into_pyexception(vm))?,
             Err(_) => None,
         };
-        match group {
-            Some(group) => Ok(Group::from_unistd_group(group, vm)),
-            None => {
-                let message = vm
-                    .ctx
-                    .new_str(format!("getgrgid: group id {} not found", gid.as_bigint()))
-                    .into();
-                Err(vm.new_key_error(message))
-            }
-        }
+        let group = group.ok_or_else(|| {
+            vm.new_key_error(format!("getgrgid: group id {} not found", gid.as_bigint()))
+        })?;
+        Group::from_unistd_group(group, vm)
     }
 
     #[pyfunction]
