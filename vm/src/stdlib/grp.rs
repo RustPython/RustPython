@@ -80,7 +80,7 @@ mod grp {
 
         unsafe { libc::setgrent() };
         while let Some(ptr) = NonNull::new(unsafe { libc::getgrent() }) {
-            let _group = unistd::Group::from(unsafe { ptr.as_ref() });
+            let group = unistd::Group::from(unsafe { ptr.as_ref() });
             let group = Group::from_unistd_group(_group, vm).to_pyobject(vm);
             list.push(group);
         }
