@@ -231,15 +231,5 @@ class ListTest(list_tests.CommonTest):
         lst = [X(), X()]
         X() in lst
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_count(self):  # XXX: RUSTPYTHON; the method also need to be removed when done
-        super().test_count()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_contains_fake(self):  # XXX: RUSTPYTHON; the method also need to be removed when done
-        super().test_contains_fake()
-
 if __name__ == "__main__":
     unittest.main()
