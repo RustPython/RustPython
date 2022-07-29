@@ -42,11 +42,8 @@ mod grp {
 
     #[pyfunction]
     fn getgrgid(gid: PyIntRef, vm: &VirtualMachine) -> PyResult<Group> {
-        let gid_t = libc::gid_t::try_from(gid.as_bigint()).map(unistd::Gid::from_raw);
-        let group = match gid_t {
-            Ok(gid) => unistd::Group::from_gid(gid).map_err(|err| err.into_pyexception(vm))?,
-            Err(_) => None,
-        };
+        let gid = libc::gid_t::try_from(gid.as_bigint()).map(unistd::Gid::from_raw);
+        let group = gid.ok().map(|gid| unistd::Group::from_gid(gid)).transpose()?;
         let group = group.ok_or_else(|| {
             vm.new_key_error(format!("getgrgid: group id {} not found", gid.as_bigint()))
         })?;
