@@ -398,7 +398,7 @@ impl PyObject {
             })
             .and(self.check_cls(cls, vm, || {
                 format!(
-                    "issubclass() arg 2 must be a class or tuple of classes, not {}",
+                    "issubclass() arg 2 must be a class, a tuple of classes, or a union, not {}",
                     cls.class()
                 )
             }))

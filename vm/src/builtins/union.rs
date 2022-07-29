@@ -90,15 +90,33 @@ impl PyUnion {
     }
 
     #[pymethod(magic)]
-    fn instancecheck(_zelf: PyRef<Self>, _obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Err(vm
-            .new_type_error("isinstance() argument 2 cannot be a parameterized generic".to_owned()))
+    fn instancecheck(zelf: PyRef<Self>, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        if zelf
+            .args
+            .iter()
+            .any(|x| x.class().is(vm.ctx.types.generic_alias_type))
+        {
+            Err(vm.new_type_error(
+                "isinstance() argument 2 cannot be a parameterized generic".to_owned(),
+            ))
+        } else {
+            obj.is_instance(zelf.args().as_object(), vm)
+        }
     }
 
     #[pymethod(magic)]
-    fn subclasscheck(_zelf: PyRef<Self>, _obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Err(vm
-            .new_type_error("issubclass() argument 2 cannot be a parameterized generic".to_owned()))
+    fn subclasscheck(zelf: PyRef<Self>, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        if zelf
+            .args
+            .iter()
+            .any(|x| x.class().is(vm.ctx.types.generic_alias_type))
+        {
+            Err(vm.new_type_error(
+                "issubclass() argument 2 cannot be a parameterized generic".to_owned(),
+            ))
+        } else {
+            obj.is_subclass(zelf.args().as_object(), vm)
+        }
     }
 
     #[pymethod(name = "__ror__")]
