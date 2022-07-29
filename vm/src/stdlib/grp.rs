@@ -40,22 +40,6 @@ mod grp {
         }
     }
 
-    // impl From<unistd::Group> for Group {
-    //     fn from(group: unistd::Group) -> Self {
-    //         // this is just a pain...
-    //         let cstr_lossy = |s: std::ffi::CString| {
-    //             s.into_string()
-    //                 .unwrap_or_else(|e| e.into_cstring().to_string_lossy().into_owned())
-    //         };
-    //         Group {
-    //             gr_name: group.name,
-    //             gr_passwd: cstr_lossy(group.passwd),
-    //             gr_gid: group.gid.as_raw(),
-    //             gr_mem: group.mem,
-    //         }
-    //     }
-    // }
-
     #[pyfunction]
     fn getgrgid(gid: PyIntRef, vm: &VirtualMachine) -> PyResult<Group> {
         let gid_t = libc::gid_t::try_from(gid.as_bigint()).map(unistd::Gid::from_raw);
