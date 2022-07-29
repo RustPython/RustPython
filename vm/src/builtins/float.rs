@@ -142,9 +142,14 @@ impl Constructor for PyFloat {
         let float_val = match arg {
             OptionalArg::Missing => 0.0,
             OptionalArg::Present(val) => {
-                if val.payload_if_exact::<PyFloat>(vm).is_some() {
-                    return Ok(val);
-                } else if let Some(f) = val.try_float_opt(vm)? {
+                if cls.is(vm.ctx.types.float_type) {
+                    return match val.downcast_exact::<PyFloat>(vm) {
+                        Ok(f) => Ok(f.to_pyobject(vm)),
+                        Err(val) => Ok(val),
+                    };
+                }
+
+                if let Some(f) = val.try_float_opt(vm)? {
                     f.value
                 } else {
                     float_from_string(val, vm)?
