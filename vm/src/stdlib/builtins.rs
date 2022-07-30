@@ -913,7 +913,25 @@ mod builtins {
         )?;
 
         if let Some(ref classcell) = classcell {
-            classcell.set(Some(class.clone()));
+            let classcell = classcell.get();
+
+            match classcell {
+                Some(classcell) => {
+                    if !classcell.is(&class) {
+                        return Err(vm.new_type_error(format!(
+                            "__class__ set to {} defining {} as {}",
+                            classcell, meta_name, class
+                        )));
+                    }
+                }
+                None => {
+                    return Err(vm.new_type_error(format!(
+                        "__class__ not set defining {} as {}. 
+                        Was __classcell__ propagated to type.__new__?",
+                        meta_name, class
+                    )));
+                }
+            }
         }
 
         Ok(class)
