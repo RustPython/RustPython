@@ -142,8 +142,7 @@ impl Constructor for PyFloat {
         let float_val = match arg {
             OptionalArg::Missing => 0.0,
             OptionalArg::Present(val) => {
-                if cls.is(vm.ctx.types.float_type) && val.payload_if_exact::<PyFloat>(vm).is_some()
-                {
+                if cls.is(vm.ctx.types.float_type) && val.class().is(vm.ctx.types.float_type) {
                     return Ok(val);
                 }
 
