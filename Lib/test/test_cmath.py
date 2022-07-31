@@ -173,8 +173,6 @@ class CMathTests(unittest.TestCase):
         self.assertEqual(repr(cmath.nan), "nan")
         self.assertEqual(repr(cmath.nanj), "nanj")
 
-    # TODO: RUSTPYTHON see TODO in cmath_log.
-    @unittest.expectedFailure
     def test_user_object(self):
         # Test automatic calling of __complex__ and __float__ by cmath
         # functions
@@ -536,9 +534,6 @@ class CMathTests(unittest.TestCase):
         self.assertEqual(abs(complex(INF, NAN)), INF)
         self.assertTrue(math.isnan(abs(complex(NAN, NAN))))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    @requires_IEEE_754
     def test_abs_overflows(self):
         # result overflows
         self.assertRaises(OverflowError, abs, complex(1.4e308, 1.4e308))
