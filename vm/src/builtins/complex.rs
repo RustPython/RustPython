@@ -228,9 +228,15 @@ impl PyComplex {
     }
 
     #[pymethod(magic)]
-    fn abs(&self) -> f64 {
+    fn abs(&self, vm: &VirtualMachine) -> PyResult<f64> {
         let Complex64 { im, re } = self.value;
-        re.hypot(im)
+        let is_finite = im.is_finite() && re.is_finite();
+        let abs_result = re.hypot(im);
+        if is_finite && abs_result.is_infinite() {
+            Err(vm.new_overflow_error("absolute value too large".to_string()))
+        } else {
+            Ok(abs_result)
+        }
     }
 
     #[inline]
@@ -402,7 +408,15 @@ impl Comparable for PyComplex {
     ) -> PyResult<PyComparisonValue> {
         op.eq_only(|| {
             let result = if let Some(other) = other.payload_if_subclass::<PyComplex>(vm) {
-                zelf.value == other.value
+                if zelf.value.re.is_nan()
+                    && zelf.value.im.is_nan()
+                    && other.value.re.is_nan()
+                    && other.value.im.is_nan()
+                {
+                    true
+                } else {
+                    zelf.value == other.value
+                }
             } else {
                 match float::to_op_float(other, vm) {
                     Ok(Some(other)) => zelf.value == other.into(),
