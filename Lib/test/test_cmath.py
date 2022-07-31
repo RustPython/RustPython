@@ -534,6 +534,7 @@ class CMathTests(unittest.TestCase):
         self.assertEqual(abs(complex(INF, NAN)), INF)
         self.assertTrue(math.isnan(abs(complex(NAN, NAN))))
 
+    @requires_IEEE_754
     def test_abs_overflows(self):
         # result overflows
         self.assertRaises(OverflowError, abs, complex(1.4e308, 1.4e308))
