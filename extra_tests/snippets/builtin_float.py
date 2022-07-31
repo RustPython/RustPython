@@ -441,6 +441,8 @@ assert float('inf').hex() == 'inf'
 assert float('-inf').hex() == '-inf'
 assert float('nan').hex() == 'nan'
 
+assert float(math.nan) is float(math.nan)
+
 # Test float exponent:
 assert 1 if 1else 0 == 1
 
