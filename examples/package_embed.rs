@@ -23,6 +23,5 @@ fn main() -> ExitCode {
         println!("name: {}", result);
         Ok(())
     });
-    let exit_code = interp.run(|_vm| result).to_be_bytes()[0];
-    ExitCode::from(exit_code)
+    ExitCode::from(interp.run(|_vm| result))
 }

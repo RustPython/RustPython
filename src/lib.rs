@@ -83,9 +83,7 @@ where
         init(vm);
     });
 
-    let exitcode = interp
-        .run(move |vm| run_rustpython(vm, matches))
-        .to_be_bytes()[0];
+    let exitcode = interp.run(move |vm| run_rustpython(vm, matches));
 
     #[cfg(feature = "flame-it")]
     {

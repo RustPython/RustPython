@@ -54,15 +54,14 @@ fn check_lalrpop(source: &str, generated: &str) -> Option<ExitCode> {
         Ok(stat) if stat.success() => None,
         Ok(stat) => {
             eprintln!("failed to execute lalrpop; exited with {stat}");
-            //process::exit(stat.code().unwrap_or(1));// FIXME
-            Some(ExitCode::from(stat.code().unwrap_or(1).to_be_bytes()[0]))
+            let exit_code = stat.code().and_then(|v| Some((v % 256) as u8)).unwrap_or(1);
+            Some(ExitCode::from(exit_code))
         }
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
             eprintln!(
                 "the lalrpop executable is not installed and parser/{source} has been changed"
             );
             eprintln!("please install lalrpop with `cargo install lalrpop`");
-            //process::exit(1);// FIXME
             Some(ExitCode::FAILURE)
         }
         Err(e) => panic!("io error {e:#}"),
