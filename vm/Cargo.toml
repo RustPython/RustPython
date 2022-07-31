@@ -72,8 +72,9 @@ memoffset = "0.6.5"
 optional = "0.5.0"
 
 # RustPython crates implementing functionality based on CPython
-sre-engine = "0.2.0"
-# to work on sre-engine locally
+sre-engine = "0.2.1"
+# to work on sre-engine locally or git version
+# sre-engine = { git = "https://github.com/RustPython/sre-engine", rev = "refs/pull/11/head" }
 # sre-engine = { path = "../../sre-engine" }
 
 ## unicode stuff
