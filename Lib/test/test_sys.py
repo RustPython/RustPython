@@ -275,6 +275,8 @@ class SysModuleTest(unittest.TestCase):
         finally:
             sys.setrecursionlimit(oldlimit)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_getwindowsversion(self):
         # Raise SkipTest if sys doesn't have getwindowsversion attribute
         test.support.get_attribute(sys, "getwindowsversion")
@@ -637,6 +639,8 @@ class SysModuleTest(unittest.TestCase):
     def test_sys_version_info_no_instantiation(self):
         self.assert_raise_on_new_sys_type(sys.version_info)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_sys_getwindowsversion_no_instantiation(self):
         # Skip if not being run on Windows.
         test.support.get_attribute(sys, "getwindowsversion")

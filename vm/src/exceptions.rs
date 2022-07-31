@@ -807,21 +807,15 @@ impl ExceptionZoo {
         extend_exception!(PySystemError, ctx, excs.system_error);
         extend_exception!(PyTypeError, ctx, excs.type_error);
         extend_exception!(PyValueError, ctx, excs.value_error);
-        extend_exception!(PyUnicodeError, ctx, excs.unicode_error);
-        extend_exception!(PyUnicodeDecodeError, ctx, excs.unicode_decode_error, {
-            "encoding" => ctx.new_readonly_getset("encoding", excs.unicode_decode_error, make_arg_getter(0)),
-            "object" => ctx.new_readonly_getset("object", excs.unicode_decode_error, make_arg_getter(1)),
-            "start" => ctx.new_readonly_getset("start", excs.unicode_decode_error, make_arg_getter(2)),
-            "end" => ctx.new_readonly_getset("end", excs.unicode_decode_error, make_arg_getter(3)),
-            "reason" => ctx.new_readonly_getset("reason", excs.unicode_decode_error, make_arg_getter(4)),
+        extend_exception!(PyUnicodeError, ctx, excs.unicode_error, {
+            "encoding" => ctx.new_readonly_getset("encoding", excs.unicode_error, make_arg_getter(0)),
+            "object" => ctx.new_readonly_getset("object", excs.unicode_error, make_arg_getter(1)),
+            "start" => ctx.new_readonly_getset("start", excs.unicode_error, make_arg_getter(2)),
+            "end" => ctx.new_readonly_getset("end", excs.unicode_error, make_arg_getter(3)),
+            "reason" => ctx.new_readonly_getset("reason", excs.unicode_error, make_arg_getter(4)),
         });
-        extend_exception!(PyUnicodeEncodeError, ctx, excs.unicode_encode_error, {
-            "encoding" => ctx.new_readonly_getset("encoding", excs.unicode_encode_error, make_arg_getter(0)),
-            "object" => ctx.new_readonly_getset("object", excs.unicode_encode_error, make_arg_getter(1)),
-            "start" => ctx.new_readonly_getset("start", excs.unicode_encode_error, make_arg_getter(2), ),
-            "end" => ctx.new_readonly_getset("end", excs.unicode_encode_error, make_arg_getter(3)),
-            "reason" => ctx.new_readonly_getset("reason", excs.unicode_encode_error, make_arg_getter(4)),
-        });
+        extend_exception!(PyUnicodeDecodeError, ctx, excs.unicode_decode_error);
+        extend_exception!(PyUnicodeEncodeError, ctx, excs.unicode_encode_error);
         extend_exception!(PyUnicodeTranslateError, ctx, excs.unicode_translate_error, {
             "encoding" => ctx.new_readonly_getset("encoding", excs.unicode_translate_error, none_getter),
             "object" => ctx.new_readonly_getset("object", excs.unicode_translate_error, make_arg_getter(0)),

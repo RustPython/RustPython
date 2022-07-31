@@ -717,7 +717,7 @@ impl DictKey for PyObject {
     }
     #[inline]
     fn key_as_isize(&self, vm: &VirtualMachine) -> PyResult<isize> {
-        vm.to_index(self)?.try_to_primitive(vm)
+        self.try_index(vm)?.try_to_primitive(vm)
     }
 }
 

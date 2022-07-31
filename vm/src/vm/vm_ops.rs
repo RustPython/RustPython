@@ -3,22 +3,12 @@ use crate::{
     builtins::{PyInt, PyIntRef, PyStrInterned},
     function::PyArithmeticValue,
     object::{AsObject, PyObject, PyObjectRef, PyResult},
-    protocol::{PyIterReturn, PyNumber},
+    protocol::PyIterReturn,
     types::PyComparisonOp,
 };
 
 /// Collection of operators
 impl VirtualMachine {
-    pub fn to_index_opt(&self, obj: PyObjectRef) -> Option<PyResult<PyIntRef>> {
-        PyNumber::new(obj.as_ref(), self)
-            .index_opt(self)
-            .transpose()
-    }
-
-    pub fn to_index(&self, obj: &PyObject) -> PyResult<PyIntRef> {
-        PyNumber::new(obj, self).index(self)
-    }
-
     #[inline]
     pub fn bool_eq(&self, a: &PyObject, b: &PyObject) -> PyResult<bool> {
         a.rich_compare_bool(b, PyComparisonOp::Eq, self)

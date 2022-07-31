@@ -387,8 +387,6 @@ class SimpleHTTPServerTestCase(BaseTestCase):
         reader.close()
         return body
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipIf(sys.platform == 'darwin',
                      'undecodable name cannot always be decoded on macOS')
     @unittest.skipIf(sys.platform == 'win32',

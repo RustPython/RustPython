@@ -198,7 +198,7 @@ To enhance CPython compatibility, try to increase unittest coverage by checking 
 Another approach is to checkout the source code: builtin functions and object
 methods are often the simplest and easiest way to contribute.
 
-You can also simply run `./whats_left.sh` to assist in finding any unimplemented
+You can also simply run `./whats_left.py` to assist in finding any unimplemented
 method.
 
 ## Compiling to WebAssembly

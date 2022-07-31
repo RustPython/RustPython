@@ -2724,7 +2724,6 @@ class BadElementTest(ElementTestCase, unittest.TestCase):
         e.extend([ET.Element('bar')])
         self.assertRaises(ValueError, e.remove, X('baz'))
 
-    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON,  thread 'main' has overflowed its stack")
     def test_recursive_repr(self):
         # Issue #25455
         e = ET.Element('foo')

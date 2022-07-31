@@ -719,7 +719,7 @@ mod builtins {
             })?;
         match ndigits.flatten() {
             Some(obj) => {
-                let ndigits = vm.to_index(&obj)?;
+                let ndigits = obj.try_index(vm)?;
                 meth.invoke((ndigits,), vm)
             }
             None => {

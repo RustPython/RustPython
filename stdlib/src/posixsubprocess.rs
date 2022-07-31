@@ -1,4 +1,5 @@
 use crate::vm::{
+    builtins::PyListRef,
     function::ArgSequence,
     stdlib::{os::PyPathLike, posix},
     {PyObjectRef, PyResult, TryFromObject, VirtualMachine},
@@ -13,6 +14,7 @@ use std::{
     ffi::CString,
     io::{self, prelude::*},
 };
+use unistd::{Gid, Uid};
 
 pub(crate) use _posixsubprocess::make_module;
 
@@ -69,7 +71,9 @@ gen_args! {
     cwd: Option<CStrPathLike>, env_list: Option<ArgSequence<CStrPathLike>>,
     p2cread: i32, p2cwrite: i32, c2pread: i32, c2pwrite: i32,
     errread: i32, errwrite: i32, errpipe_read: i32, errpipe_write: i32,
-    restore_signals: bool, call_setsid: bool, preexec_fn: Option<PyObjectRef>,
+    restore_signals: bool, call_setsid: bool,
+    gid: Option<Option<Gid>>, groups_list: Option<PyListRef>, uid: Option<Option<Uid>>, child_umask: i32,
+    preexec_fn: Option<PyObjectRef>,
 }
 
 // can't reallocate inside of exec(), so we reallocate prior to fork() and pass this along
@@ -138,6 +142,10 @@ fn exec_inner(args: &ForkExecArgs, procargs: ProcArgs) -> nix::Result<Never> {
         unistd::chdir(cwd.s.as_c_str())?
     }
 
+    if args.child_umask >= 0 {
+        // TODO: umask(child_umask);
+    }
+
     if args.restore_signals {
         // TODO: restore signals SIGPIPE, SIGXFZ, SIGXFSZ to SIG_DFL
     }
@@ -145,6 +153,21 @@ fn exec_inner(args: &ForkExecArgs, procargs: ProcArgs) -> nix::Result<Never> {
     if args.call_setsid {
         #[cfg(not(target_os = "redox"))]
         unistd::setsid()?;
+    }
+
+    if let Some(_groups_list) = args.groups_list.as_ref() {
+        // TODO: setgroups
+        // unistd::setgroups(groups_size, groups);
+    }
+
+    if let Some(_gid) = args.gid.as_ref() {
+        // TODO: setgid
+        // unistd::setregid(gid, gid)?;
+    }
+
+    if let Some(_uid) = args.uid.as_ref() {
+        // TODO: setuid
+        // unistd::setreuid(uid, uid)?;
     }
 
     if args.close_fds {
@@ -194,7 +217,7 @@ fn close_fds(above: i32, keep: &[i32]) -> nix::Result<()> {
     target_os = "freebsd",
     target_os = "netbsd",
     target_os = "openbsd",
-    target_os = "macos",
+    target_vendor = "apple",
 ))]
 const FD_DIR_NAME: &[u8] = b"/dev/fd\0";
 

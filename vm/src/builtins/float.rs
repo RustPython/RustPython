@@ -2,6 +2,7 @@ use super::{
     try_bigint_to_f64, PyByteArray, PyBytes, PyInt, PyIntRef, PyStr, PyStrRef, PyType, PyTypeRef,
 };
 use crate::{
+    atomic_func,
     class::PyClassImpl,
     common::{float_ops, hash},
     convert::{ToPyObject, ToPyResult},
@@ -54,16 +55,6 @@ impl ToPyObject for f32 {
 impl From<f64> for PyFloat {
     fn from(value: f64) -> Self {
         PyFloat { value }
-    }
-}
-
-impl PyObject {
-    pub fn try_float_opt(&self, vm: &VirtualMachine) -> PyResult<Option<PyRef<PyFloat>>> {
-        PyNumber::new(self, vm).float_opt(vm)
-    }
-
-    pub fn try_float(&self, vm: &VirtualMachine) -> PyResult<PyRef<PyFloat>> {
-        PyNumber::new(self, vm).float(vm)
     }
 }
 
@@ -548,41 +539,68 @@ impl Comparable for PyFloat {
 impl Hashable for PyFloat {
     #[inline]
     fn hash(zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyResult<hash::PyHash> {
-        Ok(hash::hash_float(zelf.to_f64()))
+        Ok(hash::hash_float(zelf.to_f64()).unwrap_or_else(|| hash::hash_object_id(zelf.get_id())))
     }
 }
 
 impl AsNumber for PyFloat {
-    const AS_NUMBER: PyNumberMethods = PyNumberMethods {
-        add: Some(|number, other, vm| Self::number_float_op(number, other, |a, b| a + b, vm)),
-        subtract: Some(|number, other, vm| Self::number_float_op(number, other, |a, b| a - b, vm)),
-        multiply: Some(|number, other, vm| Self::number_float_op(number, other, |a, b| a * b, vm)),
-        remainder: Some(|number, other, vm| Self::number_general_op(number, other, inner_mod, vm)),
-        divmod: Some(|number, other, vm| Self::number_general_op(number, other, inner_divmod, vm)),
-        power: Some(|number, other, vm| Self::number_general_op(number, other, float_pow, vm)),
-        negative: Some(|number, vm| {
-            let value = Self::number_downcast(number).value;
-            (-value).to_pyresult(vm)
-        }),
-        positive: Some(|number, vm| Self::number_float(number, vm).to_pyresult(vm)),
-        absolute: Some(|number, vm| {
-            let value = Self::number_downcast(number).value;
-            value.abs().to_pyresult(vm)
-        }),
-        boolean: Some(|number, _vm| Ok(Self::number_downcast(number).value.is_zero())),
-        int: Some(|number, vm| {
-            let value = Self::number_downcast(number).value;
-            try_to_bigint(value, vm).map(|x| vm.ctx.new_int(x))
-        }),
-        float: Some(|number, vm| Ok(Self::number_float(number, vm))),
-        floor_divide: Some(|number, other, vm| {
-            Self::number_general_op(number, other, inner_floordiv, vm)
-        }),
-        true_divide: Some(|number, other, vm| {
-            Self::number_general_op(number, other, inner_div, vm)
-        }),
-        ..PyNumberMethods::NOT_IMPLEMENTED
-    };
+    fn as_number() -> &'static PyNumberMethods {
+        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+            add: atomic_func!(|num, other, vm| PyFloat::number_float_op(
+                num,
+                other,
+                |a, b| a + b,
+                vm
+            )),
+            subtract: atomic_func!(|num, other, vm| PyFloat::number_float_op(
+                num,
+                other,
+                |a, b| a - b,
+                vm
+            )),
+            multiply: atomic_func!(|num, other, vm| PyFloat::number_float_op(
+                num,
+                other,
+                |a, b| a * b,
+                vm
+            )),
+            remainder: atomic_func!(|num, other, vm| PyFloat::number_general_op(
+                num, other, inner_mod, vm
+            )),
+            divmod: atomic_func!(|num, other, vm| PyFloat::number_general_op(
+                num,
+                other,
+                inner_divmod,
+                vm
+            )),
+            power: atomic_func!(|num, other, vm| PyFloat::number_general_op(
+                num, other, float_pow, vm
+            )),
+            negative: atomic_func!(|num, vm| {
+                let value = PyFloat::number_downcast(num).value;
+                (-value).to_pyresult(vm)
+            }),
+            positive: atomic_func!(|num, vm| PyFloat::number_float(num, vm).to_pyresult(vm)),
+            absolute: atomic_func!(|num, vm| {
+                let value = PyFloat::number_downcast(num).value;
+                value.abs().to_pyresult(vm)
+            }),
+            boolean: atomic_func!(|num, _vm| Ok(PyFloat::number_downcast(num).value.is_zero())),
+            int: atomic_func!(|num, vm| {
+                let value = PyFloat::number_downcast(num).value;
+                try_to_bigint(value, vm).map(|x| vm.ctx.new_int(x))
+            }),
+            float: atomic_func!(|num, vm| Ok(PyFloat::number_float(num, vm))),
+            floor_divide: atomic_func!(|num, other, vm| {
+                PyFloat::number_general_op(num, other, inner_floordiv, vm)
+            }),
+            true_divide: atomic_func!(|num, other, vm| {
+                PyFloat::number_general_op(num, other, inner_div, vm)
+            }),
+            ..PyNumberMethods::NOT_IMPLEMENTED
+        };
+        &AS_NUMBER
+    }
 }
 
 impl PyFloat {

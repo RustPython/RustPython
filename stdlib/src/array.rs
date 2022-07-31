@@ -23,7 +23,7 @@ mod array {
                 BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
                 PyMappingMethods,
             },
-            sequence::{SequenceExt, SequenceMutExt},
+            sequence::{OptionalRangeArgs, SequenceExt, SequenceMutExt},
             sliceable::{
                 SaturatedSlice, SequenceIndex, SequenceIndexOp, SliceableSequenceMutOp,
                 SliceableSequenceOp,
@@ -867,17 +867,10 @@ mod array {
         fn index(
             &self,
             x: PyObjectRef,
-            start: OptionalArg<PyObjectRef>,
-            stop: OptionalArg<PyObjectRef>,
+            range: OptionalRangeArgs,
             vm: &VirtualMachine,
         ) -> PyResult<usize> {
-            let len = self.len();
-            let saturate = |obj: PyObjectRef, len| -> PyResult<_> {
-                obj.try_into_value(vm)
-                    .map(|int: PyIntRef| int.as_bigint().saturated_at(len))
-            };
-            let start = start.map_or(Ok(0), |obj| saturate(obj, len))?;
-            let stop = stop.map_or(Ok(len), |obj| saturate(obj, len))?;
+            let (start, stop) = range.saturate(self.len(), vm)?;
             self.read().index(x, start, stop, vm)
         }
 

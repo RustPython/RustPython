@@ -701,10 +701,16 @@ mod _io {
     // TextIO Base has no public constructor
     #[pyattr]
     #[pyclass(name = "_TextIOBase", base = "_IOBase")]
+    #[derive(Debug, PyPayload)]
     struct _TextIOBase;
 
     #[pyimpl(flags(BASETYPE))]
-    impl _TextIOBase {}
+    impl _TextIOBase {
+        #[pyproperty]
+        fn encoding(&self, vm: &VirtualMachine) -> PyObjectRef {
+            vm.ctx.none()
+        }
+    }
 
     #[derive(FromArgs, Clone)]
     struct BufferSize {
@@ -1330,7 +1336,7 @@ mod _io {
     }
 
     pub fn get_offset(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Offset> {
-        let int = vm.to_index(&obj)?;
+        let int = obj.try_index(vm)?;
         int.as_bigint().try_into().map_err(|_| {
             vm.new_value_error(format!(
                 "cannot fit '{}' into an offset-sized integer",

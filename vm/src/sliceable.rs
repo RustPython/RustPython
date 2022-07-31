@@ -275,7 +275,7 @@ impl SequenceIndex {
                 .map(Self::Int)
         } else if let Some(slice) = obj.payload::<PySlice>() {
             slice.to_saturated(vm).map(Self::Slice)
-        } else if let Some(i) = vm.to_index_opt(obj.to_owned()) {
+        } else if let Some(i) = obj.try_index_opt(vm) {
             // TODO: __index__ for indices is no more supported?
             i?.try_to_primitive(vm)
                 .map_err(|_| {
@@ -465,7 +465,7 @@ fn to_isize_index(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Option<isize>
     if vm.is_none(obj) {
         return Ok(None);
     }
-    let result = vm.to_index_opt(obj.to_owned()).unwrap_or_else(|| {
+    let result = obj.try_index_opt(vm).unwrap_or_else(|| {
         Err(vm.new_type_error(
             "slice indices must be integers or None or have an __index__ method".to_owned(),
         ))

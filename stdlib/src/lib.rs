@@ -49,7 +49,7 @@ mod scproxy;
 mod select;
 #[cfg(all(not(target_arch = "wasm32"), feature = "ssl"))]
 mod ssl;
-#[cfg(all(unix, not(target_os = "redox")))]
+#[cfg(all(unix, not(target_os = "redox"), not(target_os = "ios")))]
 mod termios;
 
 use rustpython_common as common;
@@ -118,9 +118,12 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
         {
             "_ssl" => ssl::make_module,
         }
-        #[cfg(all(unix, not(target_os = "redox")))]
+        #[cfg(all(unix, not(target_os = "redox"), not(target_os = "ios")))]
         {
             "termios" => termios::make_module,
+        }
+        #[cfg(all(unix, not(target_os = "redox")))]
+        {
             "resource" => resource::make_module,
         }
         #[cfg(unix)]

@@ -1,6 +1,6 @@
 use crate::common::{hash::PyHash, lock::PyRwLock};
 use crate::{
-    builtins::{PyInt, PyStrInterned, PyStrRef, PyType, PyTypeRef},
+    builtins::{type_::PointerSlot, PyFloat, PyInt, PyStrInterned, PyStrRef, PyType, PyTypeRef},
     bytecode::ComparisonOperator,
     convert::ToPyResult,
     function::Either,
@@ -17,6 +17,13 @@ use crossbeam_utils::atomic::AtomicCell;
 use num_traits::{Signed, ToPrimitive};
 use std::{borrow::Borrow, cmp::Ordering};
 
+#[macro_export]
+macro_rules! atomic_func {
+    ($x:expr) => {
+        crossbeam_utils::atomic::AtomicCell::new(Some($x))
+    };
+}
+
 // The corresponding field in CPython is `tp_` prefixed.
 // e.g. name -> tp_name
 #[derive(Default)]
@@ -30,7 +37,7 @@ pub struct PyTypeSlots {
     // Methods to implement standard operations
 
     // Method suites for standard classes
-    pub as_number: AtomicCell<Option<AsNumberFunc>>,
+    pub as_number: AtomicCell<Option<PointerSlot<PyNumberMethods>>>,
     pub as_sequence: AtomicCell<Option<AsSequenceFunc>>,
     pub as_mapping: AtomicCell<Option<AsMappingFunc>>,
 
@@ -139,7 +146,6 @@ impl Default for PyTypeFlags {
 
 pub(crate) type GenericMethod = fn(&PyObject, FuncArgs, &VirtualMachine) -> PyResult;
 pub(crate) type AsMappingFunc = fn(&PyObject, &VirtualMachine) -> &'static PyMappingMethods;
-pub(crate) type AsNumberFunc = fn(&PyObject, &VirtualMachine) -> &'static PyNumberMethods;
 pub(crate) type HashFunc = fn(&PyObject, &VirtualMachine) -> PyResult<PyHash>;
 // CallFunc = GenericMethod
 pub(crate) type GetattroFunc = fn(&PyObject, PyStrRef, &VirtualMachine) -> PyResult;
@@ -205,13 +211,28 @@ fn slot_as_sequence(zelf: &PyObject, vm: &VirtualMachine) -> &'static PySequence
     PySequenceMethods::generic(has_length, has_ass_item)
 }
 
-fn slot_as_number(zelf: &PyObject, vm: &VirtualMachine) -> &'static PyNumberMethods {
-    let (has_int, has_float, has_index) = (
-        zelf.class().has_attr(identifier!(vm, __int__)),
-        zelf.class().has_attr(identifier!(vm, __float__)),
-        zelf.class().has_attr(identifier!(vm, __index__)),
-    );
-    PyNumberMethods::generic(has_int, has_float, has_index)
+fn int_wrapper(num: &PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyInt>> {
+    let ret = vm.call_special_method(num.obj.to_owned(), identifier!(vm, __int__), ())?;
+    ret.downcast::<PyInt>().map_err(|obj| {
+        vm.new_type_error(format!("__int__ returned non-int (type {})", obj.class()))
+    })
+}
+
+fn index_wrapper(num: &PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyInt>> {
+    let ret = vm.call_special_method(num.obj.to_owned(), identifier!(vm, __index__), ())?;
+    ret.downcast::<PyInt>().map_err(|obj| {
+        vm.new_type_error(format!("__index__ returned non-int (type {})", obj.class()))
+    })
+}
+
+fn float_wrapper(num: &PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyFloat>> {
+    let ret = vm.call_special_method(num.obj.to_owned(), identifier!(vm, __float__), ())?;
+    ret.downcast::<PyFloat>().map_err(|obj| {
+        vm.new_type_error(format!(
+            "__float__ returned non-float (type {})",
+            obj.class()
+        ))
+    })
 }
 
 fn hash_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyHash> {
@@ -327,9 +348,23 @@ impl PyType {
         debug_assert!(name.as_str().starts_with("__"));
         debug_assert!(name.as_str().ends_with("__"));
 
-        macro_rules! update_slot {
+        macro_rules! toggle_slot {
             ($name:ident, $func:expr) => {{
                 self.slots.$name.store(if add { Some($func) } else { None });
+            }};
+        }
+
+        macro_rules! update_slot {
+            ($name:ident, $func:expr) => {{
+                self.slots.$name.store(Some($func));
+            }};
+        }
+
+        macro_rules! update_pointer_slot {
+            ($name:ident, $pointed:ident) => {{
+                self.slots
+                    .$name
+                    .store(unsafe { PointerSlot::from_heaptype(self, |ext| &ext.$pointed) });
             }};
         }
         match name.as_str() {
@@ -338,10 +373,10 @@ impl PyType {
                 update_slot!(as_sequence, slot_as_sequence);
             }
             "__hash__" => {
-                update_slot!(hash, hash_wrapper);
+                toggle_slot!(hash, hash_wrapper);
             }
             "__call__" => {
-                update_slot!(call, call_wrapper);
+                toggle_slot!(call, call_wrapper);
             }
             "__getattr__" | "__getattribute__" => {
                 update_slot!(getattro, getattro_wrapper);
@@ -353,28 +388,52 @@ impl PyType {
                 update_slot!(richcompare, richcompare_wrapper);
             }
             "__iter__" => {
-                update_slot!(iter, iter_wrapper);
+                toggle_slot!(iter, iter_wrapper);
             }
             "__next__" => {
-                update_slot!(iternext, iternext_wrapper);
+                toggle_slot!(iternext, iternext_wrapper);
             }
             "__get__" => {
-                update_slot!(descr_get, descr_get_wrapper);
+                toggle_slot!(descr_get, descr_get_wrapper);
             }
             "__set__" | "__delete__" => {
                 update_slot!(descr_set, descr_set_wrapper);
             }
             "__init__" => {
-                update_slot!(init, init_wrapper);
+                toggle_slot!(init, init_wrapper);
             }
             "__new__" => {
-                update_slot!(new, new_wrapper);
+                toggle_slot!(new, new_wrapper);
             }
             "__del__" => {
-                update_slot!(del, del_wrapper);
+                toggle_slot!(del, del_wrapper);
             }
-            "__int__" | "__index__" | "__float__" => {
-                update_slot!(as_number, slot_as_number);
+            "__int__" => {
+                self.heaptype_ext
+                    .as_ref()
+                    .unwrap()
+                    .number_methods
+                    .int
+                    .store(Some(int_wrapper));
+                update_pointer_slot!(as_number, number_methods);
+            }
+            "__index__" => {
+                self.heaptype_ext
+                    .as_ref()
+                    .unwrap()
+                    .number_methods
+                    .index
+                    .store(Some(index_wrapper));
+                update_pointer_slot!(as_number, number_methods);
+            }
+            "__float__" => {
+                self.heaptype_ext
+                    .as_ref()
+                    .unwrap()
+                    .number_methods
+                    .float
+                    .store(Some(float_wrapper));
+                update_pointer_slot!(as_number, number_methods);
             }
             _ => {}
         }
@@ -880,13 +939,8 @@ pub trait AsSequence: PyPayload {
 
 #[pyimpl]
 pub trait AsNumber: PyPayload {
-    const AS_NUMBER: PyNumberMethods;
-
-    #[inline]
     #[pyslot]
-    fn as_number(_zelf: &PyObject, _vm: &VirtualMachine) -> &'static PyNumberMethods {
-        &Self::AS_NUMBER
-    }
+    fn as_number() -> &'static PyNumberMethods;
 
     fn number_downcast<'a>(number: &'a PyNumber) -> &'a Py<Self> {
         unsafe { number.obj.downcast_unchecked_ref() }

@@ -19,8 +19,18 @@ mod _winapi {
 
     #[pyattr]
     use winapi::{
-        shared::winerror::WAIT_TIMEOUT,
+        shared::winerror::{
+            ERROR_ALREADY_EXISTS, ERROR_BROKEN_PIPE, ERROR_IO_PENDING, ERROR_MORE_DATA,
+            ERROR_NETNAME_DELETED, ERROR_NO_DATA, ERROR_NO_SYSTEM_RESOURCES,
+            ERROR_OPERATION_ABORTED, ERROR_PIPE_BUSY, ERROR_PIPE_CONNECTED, ERROR_SEM_TIMEOUT,
+            WAIT_TIMEOUT,
+        },
         um::{
+            fileapi::OPEN_EXISTING,
+            memoryapi::{
+                FILE_MAP_ALL_ACCESS, FILE_MAP_COPY, FILE_MAP_EXECUTE, FILE_MAP_READ, FILE_MAP_WRITE,
+            },
+            minwinbase::STILL_ACTIVE,
             winbase::{
                 ABOVE_NORMAL_PRIORITY_CLASS, BELOW_NORMAL_PRIORITY_CLASS,
                 CREATE_BREAKAWAY_FROM_JOB, CREATE_DEFAULT_ERROR_MODE, CREATE_NEW_CONSOLE,

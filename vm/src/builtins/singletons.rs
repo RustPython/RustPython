@@ -1,5 +1,6 @@
 use super::{PyType, PyTypeRef};
 use crate::{
+    atomic_func,
     class::PyClassImpl,
     convert::ToPyObject,
     protocol::PyNumberMethods,
@@ -56,10 +57,13 @@ impl PyNone {
 }
 
 impl AsNumber for PyNone {
-    const AS_NUMBER: PyNumberMethods = PyNumberMethods {
-        boolean: Some(|_number, _vm| Ok(false)),
-        ..PyNumberMethods::NOT_IMPLEMENTED
-    };
+    fn as_number() -> &'static PyNumberMethods {
+        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+            boolean: atomic_func!(|_number, _vm| Ok(false)),
+            ..PyNumberMethods::NOT_IMPLEMENTED
+        };
+        &AS_NUMBER
+    }
 }
 
 #[pyclass(module = false, name = "NotImplementedType")]

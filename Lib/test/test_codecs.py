@@ -32,7 +32,7 @@ def coding_checker(self, coder):
 # On small versions of Windows like Windows IoT or Windows Nano Server not all codepages are present
 def is_code_page_present(cp):
     from ctypes import POINTER, WINFUNCTYPE, WinDLL
-    from ctypes.wintypes import BOOL, UINT, BYTE, WCHAR, UINT, DWORD
+    from ctypes.wintypes import BOOL, BYTE, WCHAR, UINT, DWORD
 
     MAX_LEADBYTES = 12  # 5 ranges, 2 bytes ea., 0 term.
     MAX_DEFAULTCHAR = 2 # single or double byte
@@ -3823,8 +3823,6 @@ class CodecNameNormalizationTest(unittest.TestCase):
         self.assertEqual(NOT_FOUND, codecs.lookup('BBB.8'))
         self.assertEqual(NOT_FOUND, codecs.lookup('a\xe9\u20ac-8'))
 
-    # TODO: RUSTPYTHON, AssertionError
-    @unittest.expectedFailure
     def test_encodings_normalize_encoding(self):
         # encodings.normalize_encoding() ignores non-ASCII characters.
         normalize = encodings.normalize_encoding

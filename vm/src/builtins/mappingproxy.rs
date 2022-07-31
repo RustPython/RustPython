@@ -1,5 +1,6 @@
 use super::{PyDict, PyDictRef, PyGenericAlias, PyList, PyTuple, PyType, PyTypeRef};
 use crate::{
+    atomic_func,
     class::PyClassImpl,
     convert::ToPyObject,
     function::{ArgMapping, OptionalArg, PyComparisonValue},
@@ -217,11 +218,18 @@ impl AsSequence for PyMappingProxy {
 }
 
 impl AsNumber for PyMappingProxy {
-    const AS_NUMBER: PyNumberMethods = PyNumberMethods {
-        or: Some(|num, args, vm| Self::number_downcast(num).or(args.to_pyobject(vm), vm)),
-        inplace_or: Some(|num, args, vm| Self::number_downcast(num).ior(args.to_pyobject(vm), vm)),
-        ..PyNumberMethods::NOT_IMPLEMENTED
-    };
+    fn as_number() -> &'static PyNumberMethods {
+        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+            or: atomic_func!(|num, args, vm| {
+                PyMappingProxy::number_downcast(num).or(args.to_pyobject(vm), vm)
+            }),
+            inplace_or: atomic_func!(|num, args, vm| {
+                PyMappingProxy::number_downcast(num).ior(args.to_pyobject(vm), vm)
+            }),
+            ..PyNumberMethods::NOT_IMPLEMENTED
+        };
+        &AS_NUMBER
+    }
 }
 
 impl Iterable for PyMappingProxy {

@@ -112,8 +112,6 @@ class HTMLParserTestCase(TestCaseBase):
             ("pi", "processing instruction ?"),
             ])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_simple_html(self):
         self._run_check("""
 <!DOCTYPE html PUBLIC 'foo'>
@@ -258,8 +256,6 @@ text
             ("endtag", "p"),
             ])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_get_starttag_text(self):
         s = """<foo:bar   \n   one="1"\ttwo=2   >"""
         self._run_check_extra(s, [
@@ -345,8 +341,6 @@ text
                     ('comment', '[if lte IE 7]>pretty?<![endif]')]
         self._run_check(html, expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_convert_charrefs(self):
         # default value for convert_charrefs is now True
         collector = lambda: EventCollectorCharrefs()
@@ -420,8 +414,6 @@ text
         self._run_check("<a$b  >", [('starttag', 'a$b', [])])
         self._run_check("<a$b  />", [('startendtag', 'a$b', [])])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_slashes_in_starttag(self):
         self._run_check('<a foo="var"/>', [('startendtag', 'a', [('foo', 'var')])])
         html = ('<img width=902 height=250px '
@@ -498,8 +490,6 @@ text
                     ('data', '"> confuses the parser')]
         self._run_check(html, expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_correct_detection_of_start_tags(self):
         # see #13273
         html = ('<div style=""    ><b>The <a href="some_url">rain</a> '
@@ -618,8 +608,6 @@ text
 
 class AttributesTestCase(TestCaseBase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_attr_syntax(self):
         output = [
           ("starttag", "a", [("b", "v"), ("c", "v"), ("d", "v"), ("e", None)])
@@ -629,8 +617,6 @@ class AttributesTestCase(TestCaseBase):
         self._run_check("""<a\nb\n=\n'v'\nc\n=\n"v"\nd\n=\nv\ne>""", output)
         self._run_check("""<a\tb\t=\t'v'\tc\t=\t"v"\td\t=\tv\te>""", output)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_attr_values(self):
         self._run_check("""<a b='xxx\n\txxx' c="yyy\t\nyyy" d='\txyz\n'>""",
                         [("starttag", "a", [("b", "xxx\n\txxx"),
@@ -646,8 +632,6 @@ class AttributesTestCase(TestCaseBase):
             "<a href=mailto:xyz@example.com>",
             [("starttag", "a", [("href", "mailto:xyz@example.com")])])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_attr_nonascii(self):
         # see issue 7311
         self._run_check(
@@ -668,8 +652,6 @@ class AttributesTestCase(TestCaseBase):
             "<a b='&amp;&gt;&lt;&quot;&apos;'>",
             [("starttag", "a", [("b", "&><\"'")])])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_attr_funky_names(self):
         self._run_check(
             "<a a.b='v' c:d=v e-f=v>",
@@ -718,8 +700,6 @@ class AttributesTestCase(TestCaseBase):
         ]
         self._run_check(html, expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_malformed_adjacent_attributes(self):
         # see #12629
         self._run_check('<x><y z=""o"" /></x>',
@@ -732,8 +712,6 @@ class AttributesTestCase(TestCaseBase):
                             ('endtag', 'x')])
 
     # see #755670 for the following 3 tests
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_adjacent_attributes(self):
         self._run_check('<a width="100%"cellspacing=0>',
                         [("starttag", "a",
@@ -759,8 +737,6 @@ class AttributesTestCase(TestCaseBase):
                           [("href", "http://www.example.org/\">;")]),
                          ("data", "spam"), ("endtag", "a")])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_with_unquoted_attributes(self):
         # see #12008
         html = ("<html><body bgcolor=d0ca90 text='181008'>"

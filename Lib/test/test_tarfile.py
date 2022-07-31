@@ -488,8 +488,6 @@ class MiscReadTestBase(CommonReadTest):
         with self.assertRaisesRegex(ValueError, 'mode must be '):
             tar = self.taropen(tmpname, '')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_fileobj_with_offset(self):
         # Skip the first member and store values from the second member
         # of the testtar.
@@ -676,8 +674,6 @@ class MiscReadTestBase(CommonReadTest):
         finally:
             os_helper.unlink(empty)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_parallel_iteration(self):
         # Issue #16601: Restarting iteration over tarfile continued
         # from where it left off.
@@ -1266,10 +1262,6 @@ class WriteTest(WriteTestBase, unittest.TestCase):
         finally:
             os_helper.unlink(path)
 
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_symlink_size = unittest.expectedFailure(test_symlink_size)
-
     def test_add_self(self):
         # Test for #1257255.
         dstname = os.path.abspath(tmpname)
@@ -1427,10 +1419,6 @@ class WriteTest(WriteTestBase, unittest.TestCase):
                         self.assertTrue(t.name.startswith("./"), t.name)
             finally:
                 tar.close()
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_cwd = unittest.expectedFailure(test_cwd)
 
     def test_open_nonwritable_fileobj(self):
         for exctype in OSError, EOFError, RuntimeError:
@@ -2339,16 +2327,12 @@ class CommandLineTest(unittest.TestCase):
         self.assertEqual(out, b'')
         self.assertNotEqual(err.strip(), b'')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_test_command(self):
         for tar_name in testtarnames:
             for opt in '-t', '--test':
                 out = self.tarfilecmd(opt, tar_name)
                 self.assertEqual(out, b'')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_test_command_verbose(self):
         for tar_name in testtarnames:
             for opt in '-v', '--verbose':

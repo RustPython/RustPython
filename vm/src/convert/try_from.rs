@@ -108,7 +108,7 @@ impl TryFromObject for std::time::Duration {
         use std::time::Duration;
         if let Some(float) = obj.payload::<PyFloat>() {
             Ok(Duration::from_secs_f64(float.to_f64()))
-        } else if let Some(int) = vm.to_index_opt(obj.clone()) {
+        } else if let Some(int) = obj.try_index_opt(vm) {
             let sec = int?
                 .as_bigint()
                 .to_u64()

@@ -5,6 +5,7 @@ mod pwd {
     use crate::{
         builtins::{PyIntRef, PyStrRef},
         convert::{IntoPyException, ToPyObject},
+        exceptions,
         types::PyStructSequence,
         AsObject, PyObjectRef, PyResult, VirtualMachine,
     };
@@ -52,6 +53,9 @@ mod pwd {
 
     #[pyfunction]
     fn getpwnam(name: PyStrRef, vm: &VirtualMachine) -> PyResult<Passwd> {
+        if name.as_str().contains('\0') {
+            return Err(exceptions::cstring_error(vm));
+        }
         match User::from_name(name.as_str()).map_err(|err| err.into_pyexception(vm))? {
             Some(user) => Ok(Passwd::from(user)),
             None => {

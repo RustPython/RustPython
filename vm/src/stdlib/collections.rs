@@ -5,14 +5,14 @@ mod _collections {
     use crate::{
         builtins::{
             IterStatus::{Active, Exhausted},
-            PositionIterInternal, PyGenericAlias, PyInt, PyIntRef, PyTypeRef,
+            PositionIterInternal, PyGenericAlias, PyInt, PyTypeRef,
         },
         common::lock::{PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
         function::{FuncArgs, KwArgs, OptionalArg, PyComparisonValue},
         iter::PyExactSizeIterator,
         protocol::{PyIterReturn, PySequenceMethods},
         recursion::ReprGuard,
-        sequence::MutObjectSequenceOp,
+        sequence::{MutObjectSequenceOp, OptionalRangeArgs},
         sliceable::SequenceIndexOp,
         types::{
             AsSequence, Comparable, Constructor, Hashable, Initializer, IterNext, IterNextIterable,
@@ -157,19 +157,12 @@ mod _collections {
         fn index(
             &self,
             needle: PyObjectRef,
-            start: OptionalArg<PyObjectRef>,
-            stop: OptionalArg<PyObjectRef>,
+            range: OptionalRangeArgs,
             vm: &VirtualMachine,
         ) -> PyResult<usize> {
             let start_state = self.state.load();
 
-            let len = self.len();
-            let saturate = |obj: PyObjectRef, len| -> PyResult<_> {
-                obj.try_into_value(vm)
-                    .map(|int: PyIntRef| int.as_bigint().saturated_at(len))
-            };
-            let start = start.map_or(Ok(0), |i| saturate(i, len))?;
-            let stop = stop.map_or(Ok(len), |i| saturate(i, len))?;
+            let (start, stop) = range.saturate(self.len(), vm)?;
             let index = self.mut_index_range(vm, &needle, start..stop)?;
             if start_state != self.state.load() {
                 Err(vm.new_runtime_error("deque mutated during iteration".to_owned()))

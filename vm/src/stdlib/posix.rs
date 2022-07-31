@@ -444,7 +444,7 @@ pub mod module {
                 )
             })
         }
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(target_vendor = "apple"))]
         fn mknod(self, vm: &VirtualMachine) -> PyResult<()> {
             let ret = match self.dir_fd.get_opt() {
                 None => self._mknod(vm)?,
@@ -463,7 +463,7 @@ pub mod module {
                 Ok(())
             }
         }
-        #[cfg(target_os = "macos")]
+        #[cfg(target_vendor = "apple")]
         fn mknod(self, vm: &VirtualMachine) -> PyResult<()> {
             let ret = self._mknod(vm)?;
             if ret != 0 {
