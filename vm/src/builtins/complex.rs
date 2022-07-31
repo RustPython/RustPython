@@ -230,8 +230,9 @@ impl PyComplex {
     #[pymethod(magic)]
     fn abs(&self, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<f64>> {
         let Complex64 { im, re } = self.value;
+        let is_finite = im.is_finite() && re.is_finite();
         let abs_result = re.hypot(im);
-        if abs_result.is_infinite() {
+        if is_finite && abs_result.is_infinite() {
             Err(vm.new_overflow_error("absolute value too large".to_string()))
         } else {
             Ok(PyArithmeticValue::Implemented(abs_result))
