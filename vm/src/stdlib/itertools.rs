@@ -404,7 +404,15 @@ mod decl {
     }
 
     #[pyimpl(with(IterNext, Constructor), flags(BASETYPE))]
-    impl PyItertoolsStarmap {}
+    impl PyItertoolsStarmap {
+        #[pymethod(magic)]
+        fn reduce(zelf: PyRef<Self>) -> (PyTypeRef, (PyObjectRef, PyIter)) {
+            (
+                zelf.class().clone(),
+                (zelf.function.clone(), zelf.iterable.clone()),
+            )
+        }
+    }
     impl IterNextIterable for PyItertoolsStarmap {}
     impl IterNext for PyItertoolsStarmap {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
