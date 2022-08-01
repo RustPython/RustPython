@@ -47,7 +47,7 @@ mod grp {
             .map(unistd::Gid::from_raw)
             .ok();
         let group = gid
-            .map(|gid| unistd::Group::from_gid(gid))
+            .map(unistd::Group::from_gid)
             .transpose()
             .map_err(|err| err.into_pyexception(vm))?
             .flatten();
