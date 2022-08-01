@@ -9,7 +9,7 @@ mod grp {
         convert::{IntoPyException, ToPyObject},
         exceptions,
         types::PyStructSequence,
-        AsObject, PyObjectRef, PyResult, VirtualMachine,
+        PyObjectRef, PyResult, VirtualMachine,
     };
     use nix::unistd;
 
@@ -48,10 +48,11 @@ mod grp {
             Err(_) => None,
         };
         let group = group.ok_or_else(|| {
-            vm.new_key_error(vm
-                    .ctx
+            vm.new_key_error(
+                vm.ctx
                     .new_str(format!("getgrgid: group id {} not found", gid.as_bigint()))
-                    .into())
+                    .into(),
+            )
         })?;
         Ok(Group::from_unistd_group(group, vm))
     }
@@ -61,12 +62,14 @@ mod grp {
         if name.as_str().contains('\0') {
             return Err(exceptions::cstring_error(vm));
         }
-        let group = unistd::Group::from_name(name.as_str()).map_err(|err| err.into_pyexception(vm))?
+        let group = unistd::Group::from_name(name.as_str())
+            .map_err(|err| err.into_pyexception(vm))?
             .ok_or_else(|| {
-                vm.new_key_error(vm
-                        .ctx
+                vm.new_key_error(
+                    vm.ctx
                         .new_str(format!("getgrnam: group name {} not found", name.as_str()))
-                        .into())
+                        .into(),
+                )
             })?;
         Ok(Group::from_unistd_group(group, vm))
     }
