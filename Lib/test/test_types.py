@@ -637,8 +637,6 @@ class TypesTests(unittest.TestCase):
 
 class UnionTests(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_or_types_operator(self):
         self.assertEqual(int | str, typing.Union[int, str])
         self.assertNotEqual(int | list, typing.Union[int, str])
