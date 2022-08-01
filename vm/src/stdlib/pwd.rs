@@ -56,36 +56,36 @@ mod pwd {
         if name.as_str().contains('\0') {
             return Err(exceptions::cstring_error(vm));
         }
-        match User::from_name(name.as_str()).map_err(|err| err.into_pyexception(vm))? {
-            Some(user) => Ok(Passwd::from(user)),
-            None => {
-                let name_repr = name.as_object().repr(vm)?;
-                let message = vm
-                    .ctx
+        let user = User::from_name(name.as_str()).map_err(|err| err.into_pyexception(vm))?;
+        let user = user.ok_or_else(|| {
+            let name_repr = name.as_object().repr(vm)?;
+            vm.new_key_error(
+                vm.ctx
                     .new_str(format!("getpwnam(): name not found: {}", name_repr))
-                    .into();
-                Err(vm.new_key_error(message))
-            }
-        }
+                    .into(),
+            )
+        })?;
+        Ok(Passwd::from(user))
     }
 
     #[pyfunction]
     fn getpwuid(uid: PyIntRef, vm: &VirtualMachine) -> PyResult<Passwd> {
-        let uid_t = libc::uid_t::try_from(uid.as_bigint()).map(unistd::Uid::from_raw);
-        let user = match uid_t {
-            Ok(uid) => User::from_uid(uid).map_err(|err| err.into_pyexception(vm))?,
-            Err(_) => None,
-        };
-        match user {
-            Some(user) => Ok(Passwd::from(user)),
-            None => {
-                let message = vm
-                    .ctx
+        let uid_t = libc::uid_t::try_from(uid.as_bigint())
+            .map(unistd::Uid::from_raw)
+            .ok();
+        let user = uid_t
+            .map(User::from_uid)
+            .transpose()
+            .map_err(|err| err.into_pyexception(vm))?
+            .flatten();
+        let user = user.ok_or_else(|| {
+            vm.new_key_error(
+                vm.ctx
                     .new_str(format!("getpwuid(): uid not found: {}", uid.as_bigint()))
-                    .into();
-                Err(vm.new_key_error(message))
-            }
-        }
+                    .into(),
+            )
+        })?;
+        Ok(Passwd::from(user))
     }
 
     // TODO: maybe merge this functionality into nix?
