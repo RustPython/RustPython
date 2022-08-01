@@ -271,9 +271,14 @@ impl Comparable for PyUnion {
     ) -> PyResult<PyComparisonValue> {
         op.eq_only(|| {
             let other = class_or_notimplemented!(Self, other);
+            let a = PyFrozenSet::from_iter(vm, zelf.args.into_iter().cloned())?;
+            let b = PyFrozenSet::from_iter(vm, other.args.into_iter().cloned())?;
             Ok(PyComparisonValue::Implemented(
-                zelf.args()
-                    .rich_compare_bool(other.args().as_ref(), PyComparisonOp::Eq, vm)?,
+                a.into_pyobject(vm).as_object().rich_compare_bool(
+                    b.into_pyobject(vm).as_object(),
+                    PyComparisonOp::Eq,
+                    vm,
+                )?,
             ))
         })
     }
