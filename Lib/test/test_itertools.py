@@ -1226,8 +1226,6 @@ class TestBasicOps(unittest.TestCase):
             c = map(tupleize, 'abc', count())
             self.pickletest(proto, c)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_starmap(self):
         self.assertEqual(list(starmap(operator.pow, zip(range(3), range(1,7)))),
                          [0**1, 1**2, 2**3])
