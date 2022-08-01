@@ -42,12 +42,18 @@ mod grp {
 
     #[pyfunction]
     fn getgrgid(gid: PyIntRef, vm: &VirtualMachine) -> PyResult<Group> {
-        let gid = libc::gid_t::try_from(gid.as_bigint()).map(unistd::Gid::from_raw);
-        let group = gid.ok().map(|gid| unistd::Group::from_gid(gid)).transpose()?;
+        let gid_t = libc::gid_t::try_from(gid.as_bigint()).map(unistd::Gid::from_raw);
+        let group = match gid_t {
+            Ok(gid) => unistd::Group::from_gid(gid).map_err(|err| err.into_pyexception(vm))?,
+            Err(_) => None,
+        };
         let group = group.ok_or_else(|| {
-            vm.new_key_error(format!("getgrgid: group id {} not found", gid.as_bigint()))
+            vm.new_key_error(vm
+                    .ctx
+                    .new_str(format!("getgrgid: group id {} not found", gid.as_bigint()))
+                    .into())
         })?;
-        Group::from_unistd_group(group, vm)
+        Ok(Group::from_unistd_group(group, vm))
     }
 
     #[pyfunction]
@@ -55,17 +61,14 @@ mod grp {
         if name.as_str().contains('\0') {
             return Err(exceptions::cstring_error(vm));
         }
-        match unistd::Group::from_name(name.as_str()).map_err(|err| err.into_pyexception(vm))? {
-            Some(group) => Ok(Group::from_unistd_group(group, vm)),
-            None => {
-                let name_repr = name.as_object().repr(vm)?;
-                let message = vm
-                    .ctx
-                    .new_str(format!("getgrnam(): name not found: {}", name_repr))
-                    .into();
-                Err(vm.new_key_error(message))
-            }
-        }
+        let group = unistd::Group::from_name(name.as_str()).map_err(|err| err.into_pyexception(vm))?
+            .ok_or_else(|| {
+                vm.new_key_error(vm
+                        .ctx
+                        .new_str(format!("getgrnam: group name {} not found", name.as_str()))
+                        .into())
+            })?;
+        Ok(Group::from_unistd_group(group, vm))
     }
 
     #[pyfunction]
@@ -78,7 +81,7 @@ mod grp {
         unsafe { libc::setgrent() };
         while let Some(ptr) = NonNull::new(unsafe { libc::getgrent() }) {
             let group = unistd::Group::from(unsafe { ptr.as_ref() });
-            let group = Group::from_unistd_group(_group, vm).to_pyobject(vm);
+            let group = Group::from_unistd_group(group, vm).to_pyobject(vm);
             list.push(group);
         }
         unsafe { libc::endgrent() };
