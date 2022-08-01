@@ -42,15 +42,19 @@ mod grp {
 
     #[pyfunction]
     fn getgrgid(gid: PyIntRef, vm: &VirtualMachine) -> PyResult<Group> {
-        let gid_t = libc::gid_t::try_from(gid.as_bigint()).map(unistd::Gid::from_raw);
-        let group = match gid_t {
-            Ok(gid) => unistd::Group::from_gid(gid).map_err(|err| err.into_pyexception(vm))?,
-            Err(_) => None,
-        };
+        let gr_gid = gid.as_bigint();
+        let gid = libc::gid_t::try_from(gr_gid)
+            .map(unistd::Gid::from_raw)
+            .ok();
+        let group = gid
+            .map(|gid| unistd::Group::from_gid(gid))
+            .transpose()
+            .map_err(|err| err.into_pyexception(vm))?
+            .flatten();
         let group = group.ok_or_else(|| {
             vm.new_key_error(
                 vm.ctx
-                    .new_str(format!("getgrgid: group id {} not found", gid.as_bigint()))
+                    .new_str(format!("getgrgid: group id {} not found", gr_gid))
                     .into(),
             )
         })?;
@@ -59,18 +63,18 @@ mod grp {
 
     #[pyfunction]
     fn getgrnam(name: PyStrRef, vm: &VirtualMachine) -> PyResult<Group> {
-        if name.as_str().contains('\0') {
+        let gr_name = name.as_str();
+        if gr_name.contains('\0') {
             return Err(exceptions::cstring_error(vm));
         }
-        let group = unistd::Group::from_name(name.as_str())
-            .map_err(|err| err.into_pyexception(vm))?
-            .ok_or_else(|| {
-                vm.new_key_error(
-                    vm.ctx
-                        .new_str(format!("getgrnam: group name {} not found", name.as_str()))
-                        .into(),
-                )
-            })?;
+        let group = unistd::Group::from_name(gr_name).map_err(|err| err.into_pyexception(vm))?;
+        let group = group.ok_or_else(|| {
+            vm.new_key_error(
+                vm.ctx
+                    .new_str(format!("getgrnam: group name {} not found", gr_name))
+                    .into(),
+            )
+        })?;
         Ok(Group::from_unistd_group(group, vm))
     }
 
