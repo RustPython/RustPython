@@ -7,12 +7,12 @@ struct Pattern {
 }
 
 impl Pattern {
-    fn state<'a>(
+    fn state<'a, S: engine::StrDrive>(
         &self,
-        string: impl Into<engine::StrDrive<'a>>,
+        string: S,
         range: std::ops::Range<usize>,
-    ) -> engine::State<'a> {
-        engine::State::new(string.into(), range.start, range.end, self.flags, self.code)
+    ) -> engine::State<'a, S> {
+        engine::State::new(string, range.start, range.end, self.flags, self.code)
     }
 }
 
@@ -23,7 +23,7 @@ fn test_2427() {
     #[rustfmt::skip] let lookbehind = Pattern { code: &[15, 4, 0, 1, 1, 5, 5, 1, 17, 46, 1, 17, 120, 6, 10, 1], flags: SreFlag::from_bits_truncate(32) };
     // END GENERATED
     let mut state = lookbehind.state("x", 0..usize::MAX);
-    state = state.pymatch();
+    state.pymatch();
     assert!(state.has_matched);
 }
 
@@ -34,7 +34,7 @@ fn test_assert() {
     #[rustfmt::skip] let positive_lookbehind = Pattern { code: &[15, 4, 0, 3, 3, 4, 9, 3, 17, 97, 17, 98, 17, 99, 1, 17, 100, 17, 101, 17, 102, 1], flags: SreFlag::from_bits_truncate(32) };
     // END GENERATED
     let mut state = positive_lookbehind.state("abcdef", 0..usize::MAX);
-    state = state.search();
+    state.search();
     assert!(state.has_matched);
 }
 
@@ -45,7 +45,7 @@ fn test_string_boundaries() {
     #[rustfmt::skip] let big_b = Pattern { code: &[15, 4, 0, 0, 0, 6, 11, 1], flags: SreFlag::from_bits_truncate(32) };
     // END GENERATED
     let mut state = big_b.state("", 0..usize::MAX);
-    state = state.search();
+    state.search();
     assert!(!state.has_matched);
 }
 
@@ -57,7 +57,7 @@ fn test_zerowidth() {
     // END GENERATED
     let mut state = p.state("a:", 0..usize::MAX);
     state.must_advance = true;
-    state = state.search();
+    state.search();
     assert!(state.string_position == 1);
 }
 
@@ -68,7 +68,7 @@ fn test_repeat_context_panic() {
     #[rustfmt::skip] let p = Pattern { code: &[15, 4, 0, 0, 4294967295, 24, 25, 0, 4294967295, 27, 6, 0, 4294967295, 17, 97, 1, 24, 11, 0, 1, 18, 0, 17, 120, 17, 120, 18, 1, 20, 17, 122, 19, 1], flags: SreFlag::from_bits_truncate(32) };
     // END GENERATED
     let mut state = p.state("axxzaz", 0..usize::MAX);
-    state = state.pymatch();
+    state.pymatch();
     assert!(state.marks == vec![Some(1), Some(3)]);
 }
 
@@ -79,6 +79,6 @@ fn test_double_max_until() {
     #[rustfmt::skip] let p = Pattern { code: &[15, 4, 0, 0, 4294967295, 24, 18, 0, 4294967295, 18, 0, 24, 9, 0, 1, 18, 2, 17, 49, 18, 3, 19, 18, 1, 19, 1], flags: SreFlag::from_bits_truncate(32) };
     // END GENERATED
     let mut state = p.state("1111", 0..usize::MAX);
-    state = state.pymatch();
+    state.pymatch();
     assert!(state.string_position == 4);
 }

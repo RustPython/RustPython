@@ -11,12 +11,12 @@ pub struct Pattern {
 }
 
 impl Pattern {
-    pub fn state<'a>(
+    pub fn state<'a, S: engine::StrDrive>(
         &self,
-        string: impl Into<engine::StrDrive<'a>>,
+        string: S,
         range: std::ops::Range<usize>,
-    ) -> engine::State<'a> {
-        engine::State::new(string.into(), range.start, range.end, self.flags, self.code)
+    ) -> engine::State<'a, S> {
+        engine::State::new(string, range.start, range.end, self.flags, self.code)
     }
 }
 #[bench]
@@ -84,28 +84,28 @@ fn benchmarks(b: &mut Bencher) {
     b.iter(move || {
         for (p, s) in &tests {
             let mut state = p.state(s.clone(), 0..usize::MAX);
-            state = state.search();
+            state.search();
             assert!(state.has_matched);
             state = p.state(s.clone(), 0..usize::MAX);
-            state = state.pymatch();
+            state.pymatch();
             assert!(state.has_matched);
             state = p.state(s.clone(), 0..usize::MAX);
             state.match_all = true;
-            state = state.pymatch();
+            state.pymatch();
             assert!(state.has_matched);
             let s2 = format!("{}{}{}", " ".repeat(10000), s, " ".repeat(10000));
             state = p.state(s2.as_str(), 0..usize::MAX);
-            state = state.search();
+            state.search();
             assert!(state.has_matched);
             state = p.state(s2.as_str(), 10000..usize::MAX);
-            state = state.pymatch();
+            state.pymatch();
             assert!(state.has_matched);
             state = p.state(s2.as_str(), 10000..10000 + s.len());
-            state = state.pymatch();
+            state.pymatch();
             assert!(state.has_matched);
             state = p.state(s2.as_str(), 10000..10000 + s.len());
             state.match_all = true;
-            state = state.pymatch();
+            state.pymatch();
             assert!(state.has_matched);
         }
     })
