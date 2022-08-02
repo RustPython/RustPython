@@ -703,8 +703,6 @@ class UnionTests(unittest.TestCase):
         y.__args__ = [str, int]
         self.assertEqual(x, y)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_hash(self):
         self.assertEqual(hash(int | str), hash(str | int))
         self.assertEqual(hash(int | str), hash(typing.Union[int, str]))
