@@ -57,8 +57,8 @@ mod pwd {
             return Err(exceptions::cstring_error(vm));
         }
         let user = User::from_name(name.as_str()).map_err(|err| err.into_pyexception(vm))?;
+        let name_repr = name.as_object().repr(vm)?;
         let user = user.ok_or_else(|| {
-            let name_repr = name.as_object().repr(vm)?;
             vm.new_key_error(
                 vm.ctx
                     .new_str(format!("getpwnam(): name not found: {}", name_repr))
