@@ -33,7 +33,7 @@ macro_rules! next_ctx {
         next_ctx!(position $ctx.code_position + $offset, $state, $ctx, $handler)
     };
     (from $peek:expr, $state:expr, $ctx:expr, $handler:expr) => {
-        next_ctx!(position $ctx.peek_code($state, $peek) as usize + 1, $state, $ctx, $handler)
+        next_ctx!(offset $ctx.peek_code($state, $peek) as usize + 1, $state, $ctx, $handler)
     };
     (position $position:expr, $state:expr, $ctx:expr, $handler:expr) => {{
         $ctx.handler = Some($handler);
