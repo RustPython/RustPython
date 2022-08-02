@@ -2,7 +2,6 @@ pub(crate) use grp::make_module;
 
 #[pymodule]
 mod grp {
-    use std::ptr::NonNull;
     use crate::vm::{
         builtins::{PyIntRef, PyListRef, PyStrRef},
         convert::{IntoPyException, ToPyObject},
@@ -11,6 +10,7 @@ mod grp {
         PyObjectRef, PyResult, VirtualMachine,
     };
     use nix::unistd;
+    use std::ptr::NonNull;
 
     #[pyattr]
     #[pyclass(module = "grp", name = "struct_group")]

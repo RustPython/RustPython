@@ -41,6 +41,8 @@ mod multiprocessing;
 #[cfg(unix)]
 mod posixsubprocess;
 // libc is missing constants on redox
+#[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
+mod grp;
 #[cfg(all(unix, not(target_os = "redox")))]
 mod resource;
 #[cfg(target_os = "macos")]
@@ -51,8 +53,6 @@ mod select;
 mod ssl;
 #[cfg(all(unix, not(target_os = "redox"), not(target_os = "ios")))]
 mod termios;
-#[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
-mod grp;
 
 use rustpython_common as common;
 use rustpython_vm as vm;
