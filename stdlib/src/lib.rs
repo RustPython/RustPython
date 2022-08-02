@@ -51,6 +51,8 @@ mod select;
 mod ssl;
 #[cfg(all(unix, not(target_os = "redox"), not(target_os = "ios")))]
 mod termios;
+#[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
+mod grp;
 
 use rustpython_common as common;
 use rustpython_vm as vm;
@@ -118,7 +120,14 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
         {
             "_ssl" => ssl::make_module,
         }
-        #[cfg(all(unix, not(target_os = "redox"), not(target_os = "ios")))]
+        // Unix-only
+        #[cfg(unix)]
+        {
+            "_posixsubprocess" => posixsubprocess::make_module,
+            "syslog" => syslog::make_module,
+            "mmap" => mmap::make_module,
+        }
+        #[cfg(all(unix, not(target_os = "redox")))]
         {
             "termios" => termios::make_module,
         }
@@ -126,11 +135,9 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
         {
             "resource" => resource::make_module,
         }
-        #[cfg(unix)]
+        #[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
         {
-            "_posixsubprocess" => posixsubprocess::make_module,
-            "syslog" => syslog::make_module,
-            "mmap" => mmap::make_module,
+            "grp" => grp::make_module,
         }
         #[cfg(target_os = "macos")]
         {

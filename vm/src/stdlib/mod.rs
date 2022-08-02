@@ -36,8 +36,6 @@ pub mod posix;
 #[path = "posix_compat.rs"]
 pub mod posix;
 
-#[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
-mod grp;
 #[cfg(windows)]
 pub(crate) mod msvcrt;
 #[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
@@ -120,7 +118,6 @@ pub fn get_module_inits() -> StdlibMap {
         #[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
         {
             "pwd" => pwd::make_module,
-            "grp" => grp::make_module,
         }
         // Windows-only
         #[cfg(windows)]

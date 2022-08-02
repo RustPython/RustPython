@@ -63,6 +63,7 @@ ahash = "0.7.6"
 libz-sys = { version = "1.1.5", optional = true }
 num_enum = "0.5.7"
 ascii = "1.0.0"
+parking_lot = "0.12.0"
 
 # mmap
 [target.'cfg(all(unix, not(target_arch = "wasm32")))'.dependencies]

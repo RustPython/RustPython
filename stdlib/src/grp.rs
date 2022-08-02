@@ -3,8 +3,7 @@ pub(crate) use grp::make_module;
 #[pymodule]
 mod grp {
     use std::ptr::NonNull;
-
-    use crate::{
+    use crate::vm::{
         builtins::{PyIntRef, PyListRef, PyStrRef},
         convert::{IntoPyException, ToPyObject},
         exceptions,
