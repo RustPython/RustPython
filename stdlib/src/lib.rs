@@ -129,11 +129,11 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
         }
         #[cfg(all(unix, not(target_os = "redox")))]
         {
-            "termios" => termios::make_module,
-        }
-        #[cfg(all(unix, not(target_os = "redox")))]
-        {
             "resource" => resource::make_module,
+        }
+        #[cfg(all(unix, not(any(target_os = "ios", target_os = "redox"))))]
+        {
+            "termios" => termios::make_module,
         }
         #[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
         {
