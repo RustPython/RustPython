@@ -35,14 +35,16 @@ macro_rules! next_ctx {
     (from $peek:expr, $state:expr, $ctx:expr, $handler:expr) => {
         next_ctx!(position $ctx.peek_code($state, $peek) as usize + 1, $state, $ctx, $handler)
     };
-    (position $position:expr, $state:expr, $ctx:expr, $handler:expr) => {
-        {$state.next_context.insert(MatchContext {
+    (position $position:expr, $state:expr, $ctx:expr, $handler:expr) => {{
+        $ctx.handler = Some($handler);
+        $state.next_context.insert(MatchContext {
             code_position: $position,
             has_matched: None,
-            handler: Some($handler),
+            handler: None,
+            count: -1,
             ..*$ctx
-        })}
-    };
+        })
+    }};
 }
 
 macro_rules! mark {
@@ -678,7 +680,7 @@ fn op_max_until<'a, S: StrDrive>(state: &mut State<'a, S>, ctx: &mut MatchContex
                 return ctx.success();
             }
 
-        mark!(pop, state);
+            mark!(pop, state);
             repeat_ctx.count -= 1;
 
             state.string_position = ctx.string_position;
