@@ -92,7 +92,6 @@ fn exec(args: &ForkExecArgs, procargs: ProcArgs) -> ! {
             let _ = write!(cur, "OSError:{}:", e as i32);
             let pos = cur.position();
             let _ = unistd::write(args.errpipe_write, &buf[..pos as usize]);
-            // TODO: Need to change to ExitCode or Termination
             std::process::exit(255)
         }
     }
