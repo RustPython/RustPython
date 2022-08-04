@@ -5,7 +5,7 @@ import threading
 from . import process
 from . import reduction
 
-__all__ = []            # things are copied from here to __init__.py
+__all__ = ()
 
 #
 # Exceptions
@@ -24,7 +24,7 @@ class AuthenticationError(ProcessError):
     pass
 
 #
-# Base type for contexts
+# Base type for contexts. Bound methods of an instance of this type are included in __all__ of __init__.py
 #
 
 class BaseContext(object):
@@ -35,6 +35,7 @@ class BaseContext(object):
     AuthenticationError = AuthenticationError
 
     current_process = staticmethod(process.current_process)
+    parent_process = staticmethod(process.parent_process)
     active_children = staticmethod(process.active_children)
 
     def cpu_count(self):
@@ -189,14 +190,14 @@ class BaseContext(object):
         try:
             ctx = _concrete_contexts[method]
         except KeyError:
-            raise ValueError('cannot find context for %r' % method)
+            raise ValueError('cannot find context for %r' % method) from None
         ctx._check_available()
         return ctx
 
     def get_start_method(self, allow_none=False):
         return self._name
 
-    def set_start_method(self, method=None):
+    def set_start_method(self, method, force=False):
         raise ValueError('cannot set start method of concrete context')
 
     @property
@@ -256,12 +257,11 @@ class DefaultContext(BaseContext):
         if sys.platform == 'win32':
             return ['spawn']
         else:
+            methods = ['spawn', 'fork'] if sys.platform == 'darwin' else ['fork', 'spawn']
             if reduction.HAVE_SEND_HANDLE:
-                return ['fork', 'spawn', 'forkserver']
-            else:
-                return ['fork', 'spawn']
+                methods.append('forkserver')
+            return methods
 
-DefaultContext.__all__ = list(x for x in dir(DefaultContext) if x[0] != '_')
 
 #
 # Context types for fixed start method
@@ -310,7 +310,12 @@ if sys.platform != 'win32':
         'spawn': SpawnContext(),
         'forkserver': ForkServerContext(),
     }
-    _default_context = DefaultContext(_concrete_contexts['fork'])
+    if sys.platform == 'darwin':
+        # bpo-33725: running arbitrary code after fork() is no longer reliable
+        # on macOS since macOS 10.14 (Mojave). Use spawn by default instead.
+        _default_context = DefaultContext(_concrete_contexts['spawn'])
+    else:
+        _default_context = DefaultContext(_concrete_contexts['fork'])
 
 else:
 
