@@ -41,6 +41,8 @@ mod multiprocessing;
 #[cfg(unix)]
 mod posixsubprocess;
 // libc is missing constants on redox
+#[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
+mod grp;
 #[cfg(all(unix, not(target_os = "redox")))]
 mod resource;
 #[cfg(target_os = "macos")]
@@ -118,19 +120,24 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
         {
             "_ssl" => ssl::make_module,
         }
-        #[cfg(all(unix, not(target_os = "redox"), not(target_os = "ios")))]
-        {
-            "termios" => termios::make_module,
-        }
-        #[cfg(all(unix, not(target_os = "redox")))]
-        {
-            "resource" => resource::make_module,
-        }
+        // Unix-only
         #[cfg(unix)]
         {
             "_posixsubprocess" => posixsubprocess::make_module,
             "syslog" => syslog::make_module,
             "mmap" => mmap::make_module,
+        }
+        #[cfg(all(unix, not(target_os = "redox")))]
+        {
+            "resource" => resource::make_module,
+        }
+        #[cfg(all(unix, not(any(target_os = "ios", target_os = "redox"))))]
+        {
+            "termios" => termios::make_module,
+        }
+        #[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
+        {
+            "grp" => grp::make_module,
         }
         #[cfg(target_os = "macos")]
         {

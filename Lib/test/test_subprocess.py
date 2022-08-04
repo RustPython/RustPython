@@ -1999,6 +1999,8 @@ class POSIXProcessTestCase(BaseTestCase):
         with self.assertRaises(ValueError):
             subprocess.check_call(ZERO_RETURN_CMD, user=65535)
 
+    # TODO: RUSTPYTHON, observed gids do not match expected gids
+    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(os, 'setregid'), 'no setregid() on platform')
     def test_group(self):
         gid = os.getegid()
@@ -2046,6 +2048,8 @@ class POSIXProcessTestCase(BaseTestCase):
         with self.assertRaises(ValueError):
             subprocess.check_call(ZERO_RETURN_CMD, group=65535)
 
+    # TODO: RUSTPYTHON, observed gids do not match expected gids
+    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(os, 'setgroups'), 'no setgroups() on platform')
     def test_extra_groups(self):
         gid = os.getegid()
