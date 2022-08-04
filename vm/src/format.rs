@@ -379,6 +379,7 @@ impl FormatSpec {
                     magnitude,
                     float_ops::Case::Upper,
                     false,
+                    false,
                 ))
             }
             Some(FormatType::GeneralFormatLower) => {
@@ -387,6 +388,7 @@ impl FormatSpec {
                     precision,
                     magnitude,
                     float_ops::Case::Lower,
+                    false,
                     false,
                 ))
             }
@@ -408,7 +410,19 @@ impl FormatSpec {
             None => match magnitude {
                 magnitude if magnitude.is_nan() => Ok("nan".to_owned()),
                 magnitude if magnitude.is_infinite() => Ok("inf".to_owned()),
-                _ => Ok(float_ops::to_string(magnitude)),
+                _ => match self.precision {
+                    Some(_) => {
+                        let precision = self.precision.unwrap_or(magnitude.to_string().len() - 1);
+                        Ok(float_ops::format_general(
+                            precision,
+                            magnitude,
+                            float_ops::Case::Lower,
+                            false,
+                            true,
+                        ))
+                    }
+                    None => Ok(float_ops::to_string(magnitude)),
+                },
             },
         };
 
