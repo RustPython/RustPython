@@ -76,9 +76,12 @@ opt-level = 3
 # lto = "thin"
 
 [profile.bench]
-lto = true
+lto = "thin"
 codegen-units = 1
 opt-level = 3
+
+[profile.release]
+lto = "thin"
 
 [patch.crates-io]
 # REDOX START, Uncommment when you want to compile/check with redoxer
