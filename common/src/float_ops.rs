@@ -188,6 +188,7 @@ pub fn format_general(
     magnitude: f64,
     case: Case,
     alternate_form: bool,
+    always_shows_fract: bool,
 ) -> String {
     match magnitude {
         magnitude if magnitude.is_finite() => {
@@ -195,7 +196,7 @@ pub fn format_general(
             let mut parts = r_exp.splitn(2, 'e');
             let base = parts.next().unwrap();
             let exponent = parts.next().unwrap().parse::<i64>().unwrap();
-            if exponent < -4 || exponent >= (precision as i64) {
+            if exponent < -4 || exponent + (always_shows_fract as i64) >= (precision as i64) {
                 let e = match case {
                     Case::Lower => 'e',
                     Case::Upper => 'E',

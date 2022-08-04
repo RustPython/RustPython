@@ -777,8 +777,6 @@ class FormatTestCase(unittest.TestCase):
                 self.assertEqual(fmt % float(arg), rhs)
                 self.assertEqual(fmt % -float(arg), '-' + rhs)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_issue5864(self):
         self.assertEqual(format(123.456, '.4'), '123.5')
         self.assertEqual(format(1234.56, '.4'), '1.235e+03')

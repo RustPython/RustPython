@@ -379,6 +379,7 @@ impl FormatSpec {
                     magnitude,
                     float_ops::Case::Upper,
                     false,
+                    false,
                 ))
             }
             Some(FormatType::GeneralFormatLower) => {
@@ -387,6 +388,7 @@ impl FormatSpec {
                     precision,
                     magnitude,
                     float_ops::Case::Lower,
+                    false,
                     false,
                 ))
             }
@@ -416,6 +418,7 @@ impl FormatSpec {
                             magnitude,
                             float_ops::Case::Lower,
                             false,
+                            true,
                         ))
                     }
                     None => Ok(float_ops::to_string(magnitude)),

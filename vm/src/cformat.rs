@@ -348,6 +348,7 @@ impl CFormatSpec {
                     magnitude,
                     case,
                     self.flags.contains(CConversionFlags::ALTERNATE_FORM),
+                    false,
                 )
             }
             _ => unreachable!(),
