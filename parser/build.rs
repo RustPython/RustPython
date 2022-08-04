@@ -7,7 +7,7 @@ use tiny_keccak::{Hasher, Sha3};
 
 fn main() -> ExitCode {
     if let Err(exit_code) = check_lalrpop("src/python.lalrpop", "src/python.rs") {
-      return exit_code;
+        return exit_code;
     }
     gen_phf();
     ExitCode::SUCCESS
