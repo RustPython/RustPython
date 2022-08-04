@@ -678,7 +678,7 @@ impl VirtualMachine {
         }
     }
 
-    pub fn handle_exit_exception(&self, exc: PyBaseExceptionRef) -> i32 {
+    pub fn handle_exit_exception(&self, exc: PyBaseExceptionRef) -> u8 {
         if exc.fast_isinstance(self.ctx.exceptions.system_exit) {
             let args = exc.args();
             let msg = match args.as_slice() {
@@ -686,7 +686,7 @@ impl VirtualMachine {
                 [arg] => match_class!(match arg {
                     ref i @ PyInt => {
                         use num_traits::cast::ToPrimitive;
-                        return i.as_bigint().to_i32().unwrap_or(0);
+                        return i.as_bigint().to_u8().unwrap_or(0);
                     }
                     arg => {
                         if self.is_none(arg) {

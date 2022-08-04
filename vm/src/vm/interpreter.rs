@@ -59,7 +59,7 @@ impl Interpreter {
         thread::enter_vm(&self.vm, || f(&self.vm))
     }
 
-    pub fn run<F, R>(self, f: F) -> i32
+    pub fn run<F, R>(self, f: F) -> u8
     where
         F: FnOnce(&VirtualMachine) -> PyResult<R>,
     {

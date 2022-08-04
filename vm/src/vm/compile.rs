@@ -59,6 +59,7 @@ impl VirtualMachine {
             }
             Err(err) => {
                 error!("Failed reading file '{}': {}", path, err);
+                // TODO: Need to change to ExitCode or Termination
                 std::process::exit(1);
             }
         }

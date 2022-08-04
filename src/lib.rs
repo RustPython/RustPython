@@ -47,13 +47,13 @@ mod shell;
 
 use clap::{App, AppSettings, Arg, ArgMatches};
 use rustpython_vm::{scope::Scope, Interpreter, PyResult, Settings, VirtualMachine};
-use std::{env, process, str::FromStr};
+use std::{env, process::ExitCode, str::FromStr};
 
 pub use rustpython_vm as vm;
 
-/// The main cli of the `rustpython` interpreter. This function will exit with `process::exit()`
+/// The main cli of the `rustpython` interpreter. This function will return with `std::process::ExitCode`
 /// based on the return code of the python code ran through the cli.
-pub fn run<F>(init: F) -> !
+pub fn run<F>(init: F) -> ExitCode
 where
     F: FnOnce(&mut VirtualMachine),
 {
@@ -92,8 +92,7 @@ where
             error!("Error writing profile information: {}", e);
         }
     }
-
-    process::exit(exitcode)
+    ExitCode::from(exitcode)
 }
 
 fn parse_arguments<'a>(app: App<'a, '_>) -> ArgMatches<'a> {
@@ -385,7 +384,8 @@ fn create_settings(matches: &ArgMatches) -> Settings {
     };
     settings.hash_seed = hash_seed.unwrap_or_else(|| {
         error!("Fatal Python init error: PYTHONHASHSEED must be \"random\" or an integer in range [0; 4294967295]");
-        process::exit(1)
+        // TODO: Need to change to ExitCode or Termination
+        std::process::exit(1)
     });
 
     settings.argv = argv;
@@ -449,7 +449,8 @@ fn write_profile(matches: &ArgMatches) -> Result<(), Box<dyn std::error::Error>>
         Some("speedscope") | None => ProfileFormat::Speedscope,
         Some(other) => {
             error!("Unknown profile format {}", other);
-            process::exit(1);
+            // TODO: Need to change to ExitCode or Termination
+            std::process::exit(1);
         }
     };
 
