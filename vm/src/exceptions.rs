@@ -412,7 +412,7 @@ macro_rules! extend_exception {
     };
 }
 
-#[pyimpl(flags(BASETYPE, HAS_DICT))]
+#[pyclass(flags(BASETYPE, HAS_DICT))]
 impl PyBaseException {
     pub(crate) fn new(args: Vec<PyObjectRef>, vm: &VirtualMachine) -> PyBaseException {
         PyBaseException {

@@ -317,7 +317,7 @@ mod re {
     #[pyfunction]
     fn purge(_vm: &VirtualMachine) {}
 
-    #[pyimpl]
+    #[pyclass]
     impl PyPattern {
         #[pymethod(name = "match")]
         fn match_(&self, text: PyStrRef) -> Option<PyMatch> {
@@ -364,7 +364,7 @@ mod re {
         }
     }
 
-    #[pyimpl]
+    #[pyclass]
     impl PyMatch {
         #[pymethod]
         fn start(&self, group: OptionalArg, vm: &VirtualMachine) -> PyResult {

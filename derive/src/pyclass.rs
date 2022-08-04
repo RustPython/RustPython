@@ -373,7 +373,7 @@ pub(crate) fn impl_define_exception(exc_def: PyExceptionDef) -> Result<TokenStre
             }
         }
 
-        #[pyimpl(flags(BASETYPE, HAS_DICT))]
+        #[pyclass(flags(BASETYPE, HAS_DICT))]
         impl #class_name {
             #[pyslot]
             pub(crate) fn slot_new(
@@ -959,7 +959,7 @@ fn extract_impl_attrs(attr: AttributeArgs, item: &Ident) -> Result<ExtractedImpl
                         let path = match meta {
                             NestedMeta::Meta(Meta::Path(path)) => path,
                             meta => {
-                                bail_span!(meta, "#[pyimpl(with(...))] arguments should be paths")
+                                bail_span!(meta, "#[pyclass(with(...))] arguments should be paths")
                             }
                         };
                         let (extend_class, extend_slots) = if path_eq(&path, "PyRef") {
@@ -993,12 +993,12 @@ fn extract_impl_attrs(attr: AttributeArgs, item: &Ident) -> Result<ExtractedImpl
                                 } else {
                                     bail_span!(
                                         path,
-                                        "#[pyimpl(flags(...))] arguments should be ident"
+                                        "#[pyclass(flags(...))] arguments should be ident"
                                     )
                                 }
                             }
                             meta => {
-                                bail_span!(meta, "#[pyimpl(flags(...))] arguments should be ident")
+                                bail_span!(meta, "#[pyclass(flags(...))] arguments should be ident")
                             }
                         }
                     }
@@ -1098,7 +1098,7 @@ where
                 if ALL_ALLOWED_NAMES.contains(&attr_name.as_str()) {
                     return Err(syn::Error::new_spanned(
                         attr,
-                        format!("#[pyimpl] doesn't accept #[{}]", wrong_name),
+                        format!("#[pyclass] doesn't accept #[{}]", wrong_name),
                     ));
                 } else {
                     continue;

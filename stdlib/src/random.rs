@@ -78,7 +78,7 @@ mod _random {
         }
     }
 
-    #[pyimpl(flags(BASETYPE), with(Constructor))]
+    #[pyclass(flags(BASETYPE), with(Constructor))]
     impl PyRandom {
         #[pymethod]
         fn random(&self) -> f64 {

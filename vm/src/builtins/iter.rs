@@ -172,7 +172,7 @@ impl PyPayload for PySequenceIterator {
     }
 }
 
-#[pyimpl(with(IterNext))]
+#[pyclass(with(IterNext))]
 impl PySequenceIterator {
     pub fn new(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
         let seq = PySequence::try_protocol(obj.as_ref(), vm)?;
@@ -229,7 +229,7 @@ impl PyPayload for PyCallableIterator {
     }
 }
 
-#[pyimpl(with(IterNext))]
+#[pyclass(with(IterNext))]
 impl PyCallableIterator {
     pub fn new(callable: ArgCallable, sentinel: PyObjectRef) -> Self {
         Self {

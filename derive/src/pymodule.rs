@@ -69,6 +69,10 @@ pub fn impl_pymodule(attr: AttributeArgs, module_item: Item) -> Result<TokenStre
 
     // collect to context
     for item in items.iter_mut() {
+        if matches!(item, Item::Impl(_) | Item::Trait(_)) {
+            // #[pyclass] implementations
+            continue;
+        }
         let r = item.try_split_attr_mut(|attrs, item| {
             let (pyitems, cfgs) = attrs_to_module_items(attrs, module_item_new)?;
             for pyitem in pyitems.iter().rev() {

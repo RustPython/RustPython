@@ -65,7 +65,7 @@ impl Constructor for PyMappingProxy {
     }
 }
 
-#[pyimpl(with(AsMapping, Iterable, Constructor, AsSequence, Comparable))]
+#[pyclass(with(AsMapping, Iterable, Constructor, AsSequence, Comparable))]
 impl PyMappingProxy {
     fn get_inner(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
         let opt = match &self.mapping {

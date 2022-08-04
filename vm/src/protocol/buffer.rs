@@ -401,7 +401,7 @@ pub struct VecBuffer {
     data: PyMutex<Vec<u8>>,
 }
 
-#[pyimpl(flags(BASETYPE), with(Constructor))]
+#[pyclass(flags(BASETYPE), with(Constructor))]
 impl VecBuffer {
     pub fn take(&self) -> Vec<u8> {
         std::mem::take(&mut self.data.lock())

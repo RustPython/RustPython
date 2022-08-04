@@ -701,7 +701,7 @@ pub(super) mod _os {
         ino: AtomicCell<Option<u64>>,
     }
 
-    #[pyimpl]
+    #[pyclass]
     impl DirEntry {
         #[pyproperty]
         fn name(&self, vm: &VirtualMachine) -> PyResult {
@@ -870,7 +870,7 @@ pub(super) mod _os {
         mode: OutputMode,
     }
 
-    #[pyimpl(with(IterNext))]
+    #[pyclass(with(IterNext))]
     impl ScandirIterator {
         #[pymethod]
         fn close(&self) {
@@ -963,7 +963,7 @@ pub(super) mod _os {
         pub st_ctime_ns: i128,
     }
 
-    #[pyimpl(with(PyStructSequence))]
+    #[pyclass(with(PyStructSequence))]
     impl StatResult {
         fn from_stat(stat: &StatStruct, vm: &VirtualMachine) -> Self {
             let (atime, mtime, ctime);
@@ -1487,7 +1487,7 @@ pub(super) mod _os {
     }
 
     #[cfg(all(any(unix, windows), not(target_os = "redox")))]
-    #[pyimpl(with(PyStructSequence))]
+    #[pyclass(with(PyStructSequence))]
     impl TimesResult {}
 
     #[cfg(all(any(unix, windows), not(target_os = "redox")))]
@@ -1706,7 +1706,7 @@ pub(super) mod _os {
         pub columns: usize,
         pub lines: usize,
     }
-    #[pyimpl(with(PyStructSequence))]
+    #[pyclass(with(PyStructSequence))]
     impl PyTerminalSize {}
 
     #[pyattr]
@@ -1720,7 +1720,7 @@ pub(super) mod _os {
         pub machine: String,
     }
 
-    #[pyimpl(with(PyStructSequence))]
+    #[pyclass(with(PyStructSequence))]
     impl UnameResult {}
 
     pub(super) fn support_funcs() -> Vec<SupportFunc> {

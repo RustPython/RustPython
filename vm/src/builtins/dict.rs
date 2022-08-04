@@ -217,7 +217,7 @@ impl PyDict {
 
 // Python dict methods:
 #[allow(clippy::len_without_is_empty)]
-#[pyimpl(
+#[pyclass(
     with(
         Constructor,
         Initializer,
@@ -669,7 +669,7 @@ impl Iterator for DictIter {
     }
 }
 
-#[pyimpl]
+#[pyclass]
 trait DictView: PyPayload + PyClassDef + Iterable
 where
     Self::ReverseIter: PyPayload,
@@ -758,7 +758,7 @@ macro_rules! dict_view {
             }
         }
 
-        #[pyimpl(with(Constructor, IterNext))]
+        #[pyclass(with(Constructor, IterNext))]
         impl $iter_name {
             fn new(dict: PyDictRef) -> Self {
                 $iter_name {
@@ -831,7 +831,7 @@ macro_rules! dict_view {
             }
         }
 
-        #[pyimpl(with(Constructor, IterNext))]
+        #[pyclass(with(Constructor, IterNext))]
         impl $reverse_iter_name {
             fn new(dict: PyDictRef) -> Self {
                 let size = dict.size();
@@ -943,7 +943,7 @@ dict_view! {
 }
 
 // Set operations defined on set-like views of the dictionary.
-#[pyimpl]
+#[pyclass]
 trait ViewSetOps: DictView {
     fn to_set(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PySetInner> {
         let len = zelf.dict().len();
@@ -1035,7 +1035,7 @@ trait ViewSetOps: DictView {
 }
 
 impl ViewSetOps for PyDictKeys {}
-#[pyimpl(with(DictView, Constructor, Comparable, Iterable, ViewSetOps, AsSequence))]
+#[pyclass(with(DictView, Constructor, Comparable, Iterable, ViewSetOps, AsSequence))]
 impl PyDictKeys {
     #[pymethod(magic)]
     fn contains(zelf: PyRef<Self>, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
@@ -1074,7 +1074,7 @@ impl AsSequence for PyDictKeys {
 }
 
 impl ViewSetOps for PyDictItems {}
-#[pyimpl(with(DictView, Constructor, Comparable, Iterable, ViewSetOps, AsSequence))]
+#[pyclass(with(DictView, Constructor, Comparable, Iterable, ViewSetOps, AsSequence))]
 impl PyDictItems {
     #[pymethod(magic)]
     fn contains(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
@@ -1126,7 +1126,7 @@ impl AsSequence for PyDictItems {
     };
 }
 
-#[pyimpl(with(DictView, Constructor, Iterable, AsSequence))]
+#[pyclass(with(DictView, Constructor, Iterable, AsSequence))]
 impl PyDictValues {
     #[pyproperty]
     fn mapping(zelf: PyRef<Self>) -> PyMappingProxy {

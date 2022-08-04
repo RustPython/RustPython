@@ -335,7 +335,7 @@ mod time {
         }
     }
 
-    #[pyimpl(with(PyStructSequence))]
+    #[pyclass(with(PyStructSequence))]
     impl PyStructTime {
         fn new(vm: &VirtualMachine, tm: NaiveDateTime, isdst: i32) -> Self {
             PyStructTime {

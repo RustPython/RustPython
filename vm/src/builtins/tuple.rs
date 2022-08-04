@@ -172,7 +172,7 @@ impl PyTuple {
     }
 }
 
-#[pyimpl(
+#[pyclass(
     flags(BASETYPE),
     with(AsMapping, AsSequence, Hashable, Comparable, Iterable, Constructor)
 )]
@@ -413,7 +413,7 @@ impl PyPayload for PyTupleIterator {
     }
 }
 
-#[pyimpl(with(Constructor, IterNext))]
+#[pyclass(with(Constructor, IterNext))]
 impl PyTupleIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
