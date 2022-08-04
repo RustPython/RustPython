@@ -25,6 +25,8 @@ mod random;
 mod statistics;
 // TODO: maybe make this an extension module, if we ever get those
 // mod re;
+#[cfg(feature = "bz2")]
+mod bz2;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod socket;
 #[cfg(unix)]
@@ -119,6 +121,10 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
         #[cfg(feature = "ssl")]
         {
             "_ssl" => ssl::make_module,
+        }
+        #[cfg(feature = "bz2")]
+        {
+            "_bz2" => bz2::make_module,
         }
         // Unix-only
         #[cfg(unix)]
