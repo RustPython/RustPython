@@ -279,7 +279,15 @@ fn dispatch<'a, S: StrDrive>(
             general_op_in(state, ctx, |set, c| charset(set, lower_unicode(c)))
         }
         SreOpcode::IN_LOC_IGNORE => general_op_in(state, ctx, charset_loc_ignore),
-        SreOpcode::INFO | SreOpcode::JUMP => ctx.skip_code_from(state, 1),
+        SreOpcode::INFO => {
+            let min = ctx.peek_code(state, 3) as usize;
+            if ctx.remaining_chars(state) < min {
+                ctx.failure();
+            } else {
+                ctx.skip_code_from(state, 1);
+            }
+        }
+        SreOpcode::JUMP => ctx.skip_code_from(state, 1),
         SreOpcode::LITERAL => general_op_literal(state, ctx, |code, c| code == c),
         SreOpcode::NOT_LITERAL => general_op_literal(state, ctx, |code, c| code != c),
         SreOpcode::LITERAL_IGNORE => {
