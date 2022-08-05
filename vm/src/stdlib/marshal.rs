@@ -18,8 +18,7 @@ mod decl {
     /// PyBytes: Currently getting recursion error with match_class!
     use ascii::AsciiStr;
     use num_bigint::{BigInt, Sign};
-    use std::ops::Deref;
-    use std::slice::Iter;
+    use std::{ops::Deref, slice::Iter};
 
     const STR_BYTE: u8 = b's';
     const INT_BYTE: u8 = b'i';
@@ -49,7 +48,8 @@ mod decl {
         let mut byte_list = size_to_bytes(pyobjs.len(), vm)?.to_vec();
         // For each element, dump into binary, then add its length and value.
         for element in pyobjs {
-            let element_bytes: Vec<u8> = _dumps(element.clone(), vm)?;
+            let mut element_bytes = Vec::new();
+            _dumps(&mut element_bytes, element.clone(), vm)?;
             byte_list.extend(size_to_bytes(element_bytes.len(), vm)?);
             byte_list.extend(element_bytes)
         }
@@ -57,7 +57,7 @@ mod decl {
     }
 
     /// Dumping helper function to turn a value into bytes.
-    fn _dumps(value: PyObjectRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+    fn _dumps(buf: &mut Vec<u8>, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         let r = match_class!(match value {
             pyint @ PyInt => {
                 if pyint.class().is(vm.ctx.types.bool_type) {
@@ -138,12 +138,15 @@ mod decl {
                 ));
             }
         });
+        buf.extend(r.as_slice());
         Ok(r)
     }
 
     #[pyfunction]
     fn dumps(value: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyBytes> {
-        Ok(PyBytes::from(_dumps(value, vm)?))
+        let mut buf = Vec::new();
+        _dumps(&mut buf, value, vm)?;
+        Ok(PyBytes::from(buf))
     }
 
     #[pyfunction]
