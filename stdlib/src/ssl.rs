@@ -26,7 +26,7 @@ mod _ssl {
     use crate::{
         common::{
             ascii,
-            lock::{PyRwLock, PyRwLockWriteGuard},
+            lock::{PyMutex, PyRwLock, PyRwLockWriteGuard},
         },
         socket::{self, PySocket},
         vm::{
@@ -423,6 +423,7 @@ mod _ssl {
         ctx: PyRwLock<SslContextBuilder>,
         check_hostname: AtomicCell<bool>,
         protocol: SslVersion,
+        post_handshake_auth: PyMutex<bool>,
     }
 
     impl fmt::Debug for PySslContext {
@@ -491,6 +492,7 @@ mod _ssl {
                 ctx: PyRwLock::new(builder),
                 check_hostname: AtomicCell::new(check_hostname),
                 protocol: proto,
+                post_handshake_auth: PyMutex::new(false),
             }
             .into_ref_with_type(vm, cls)
             .map(Into::into)
@@ -508,6 +510,22 @@ mod _ssl {
         {
             let c = self.ctx.read();
             func(builder_as_ctx(&c))
+        }
+
+        #[pyproperty]
+        fn post_handshake_auth(&self) -> bool {
+            *self.post_handshake_auth.lock()
+        }
+        #[pyproperty(setter)]
+        fn set_post_handshake_auth(
+            &self,
+            value: Option<PyObjectRef>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let value = value
+                .ok_or_else(|| vm.new_attribute_error("cannot delete attribute".to_owned()))?;
+            *self.post_handshake_auth.lock() = value.is_true(vm)?;
+            Ok(())
         }
 
         #[pymethod]
