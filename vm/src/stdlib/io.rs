@@ -307,8 +307,8 @@ mod _io {
                 }
             };
             let buf = match available.find_byte(byte) {
-                Some(i) => (available[..=i].to_vec()),
-                _ => (available.to_vec()),
+                Some(i) => available[..=i].to_vec(),
+                _ => available.to_vec(),
             };
             self.cursor.consume(buf.len());
             Ok(buf)
