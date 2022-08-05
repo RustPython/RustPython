@@ -716,7 +716,7 @@ pub trait StrDrive: Copy {
     fn back_offset(&self, offset: usize, skip: usize) -> usize;
 }
 
-impl<'a> StrDrive for &'a str {
+impl StrDrive for &str {
     fn offset(&self, offset: usize, skip: usize) -> usize {
         self.get(offset..)
             .and_then(|s| s.char_indices().nth(skip).map(|x| x.0 + offset))
