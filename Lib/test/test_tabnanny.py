@@ -14,6 +14,8 @@ from test.support import (captured_stderr, captured_stdout, script_helper,
                           findfile)
 from test.support.os_helper import unlink
 
+import unittest  # XXX: RUSTPYTHON
+
 
 SOURCE_CODES = {
     "incomplete_expression": (
@@ -197,6 +199,8 @@ class TestCheck(TestCase):
             with TemporaryPyFile(SOURCE_CODES["error_free"], directory=tmp_dir):
                 self.verify_tabnanny_check(tmp_dir)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_when_wrong_indented(self):
         """A python source code file eligible for raising `IndentationError`."""
         with TemporaryPyFile(SOURCE_CODES["wrong_indented"]) as file_path:
@@ -231,6 +235,8 @@ class TestCheck(TestCase):
             out = f"{file_path} 3 '\\tprint(\"world\")\\n'\n"
             self.verify_tabnanny_check(file_path, out=out)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_when_no_file(self):
         """A python file which does not exist actually in system."""
         path = 'no_file.py'
@@ -238,6 +244,8 @@ class TestCheck(TestCase):
               f"{os.strerror(errno.ENOENT)}: {path!r}\n")
         self.verify_tabnanny_check(path, err=err)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_errored_directory(self):
         """Directory containing wrongly indented python source code files."""
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -304,6 +312,8 @@ class TestCommandLine(TestCase):
             self.assertListEqual(out.splitlines(), stdout.splitlines())
             self.assertListEqual(err.splitlines(), stderr.splitlines())
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_with_errored_file(self):
         """Should displays error when errored python file is given."""
         with TemporaryPyFile(SOURCE_CODES["wrong_indented"]) as file_path:
