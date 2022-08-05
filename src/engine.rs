@@ -253,8 +253,6 @@ fn dispatch<'a, S: StrDrive>(
                 ctx.skip_char(state, 1);
             }
         }
-        /* assert subpattern */
-        /* <ASSERT> <skip> <back> <pattern> */
         SreOpcode::ASSERT => op_assert(state, ctx),
         SreOpcode::ASSERT_NOT => op_assert_not(state, ctx),
         SreOpcode::AT => {
@@ -334,7 +332,6 @@ fn op_assert<'a, S: StrDrive>(state: &mut State<'a, S>, ctx: &mut MatchContext<'
         return ctx.failure();
     }
 
-    // let next_ctx = state.next_ctx(ctx, 3, |state, ctx| {
     let next_ctx = next_ctx!(offset 3, state, ctx, |state, ctx| {
         if state.popped_has_matched {
             ctx.skip_code_from(state, 1);
@@ -371,7 +368,6 @@ fn op_assert_not<'a, S: StrDrive>(state: &mut State<'a, S>, ctx: &mut MatchConte
 // alternation
 // <BRANCH> <0=skip> code <JUMP> ... <NULL>
 fn op_branch<'a, S: StrDrive>(state: &mut State<'a, S>, ctx: &mut MatchContext<'a, S>) {
-    // state.marks_push();
     mark!(push, state);
 
     ctx.count = 1;
@@ -403,7 +399,6 @@ fn op_branch<'a, S: StrDrive>(state: &mut State<'a, S>, ctx: &mut MatchContext<'
 /* <MIN_REPEAT_ONE> <skip> <1=min> <2=max> item <SUCCESS> tail */
 fn op_min_repeat_one<'a, S: StrDrive>(state: &mut State<'a, S>, ctx: &mut MatchContext<'a, S>) {
     let min_count = ctx.peek_code(state, 2) as usize;
-    // let max_count = ctx.peek_code(state, 3) as usize;
 
     if ctx.remaining_chars(state) < min_count {
         return ctx.failure();
