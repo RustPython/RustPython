@@ -101,8 +101,6 @@ class StringTestCase(unittest.TestCase, HelperMixin):
         for s in ["", "Andr\xe8 Previn", "abc", " "*10000]:
             self.helper(s)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bytes(self):
         for s in [b"", b"Andr\xe8 Previn", b"abc", b" "*10000]:
             self.helper(s)
@@ -337,8 +335,6 @@ class BugsTestCase(unittest.TestCase):
             self.assertRaises(ValueError, marshal.load,
                               BadReader(marshal.dumps(value)))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_eof(self):
         data = marshal.dumps(("hello", "dolly", None))
         for i in range(len(data)):
