@@ -238,17 +238,14 @@ impl<T: PyObjectPayload> Deref for PyAtomicRef<T> {
 }
 
 impl<T: PyObjectPayload> PyAtomicRef<T> {
-    unsafe fn swap(&self, pyref: PyRef<T>) -> PyRef<T> {
+    /// # Safety
+    /// The caller is responsible to keep the returned PyRef alive
+    /// until no more reference can be used via PyAtomicRef::deref()
+    #[must_use]
+    pub unsafe fn swap(&self, pyref: PyRef<T>) -> PyRef<T> {
         let py = PyRef::leak(pyref);
         let old = self.0.swap(NonNull::from(py));
         PyRef::from_raw(old.as_ptr())
-    }
-
-    pub fn swap_to_frame(&self, pyref: PyRef<T>, vm: &VirtualMachine) {
-        let old = unsafe { self.swap(pyref) };
-        if let Some(frame) = vm.current_frame() {
-            frame.temperary_refs.lock().push(old.into());
-        }
     }
 }
 
