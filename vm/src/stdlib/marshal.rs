@@ -36,11 +36,11 @@ mod decl {
         List = b'[',
         Dict = b'{',
         Code = b'c',
-        Str = b'u', // = TYPE_UNICODE
+        Unicode = b'u',
         // Unknown = b'?',
         Set = b'<',
         FrozenSet = b'>',
-        // Ascii = b'a',
+        Ascii = b'a',
         // AsciiInterned = b'A',
         // SmallTuple = b')',
         // ShortAscii = b'z',
@@ -70,11 +70,11 @@ mod decl {
                 b'[' => List,
                 b'{' => Dict,
                 b'c' => Code,
-                b'u' => Str,
+                b'u' => Unicode,
                 // b'?' => Unknown,
                 b'<' => Set,
                 b'>' => FrozenSet,
-                // b'a' => Ascii,
+                b'a' => Ascii,
                 // b'A' => AsciiInterned,
                 // b')' => SmallTuple,
                 // b'z' => ShortAscii,
@@ -137,7 +137,11 @@ mod decl {
                     buf.extend(pyfloat.to_f64().to_le_bytes());
                 }
                 pystr @ PyStr => {
-                    buf.push(Type::Str as u8);
+                    buf.push(if pystr.is_ascii() {
+                        Type::Ascii
+                    } else {
+                        Type::Unicode
+                    } as u8);
                     write_size(buf, pystr.as_str().len(), vm)?;
                     buf.extend(pystr.as_str().as_bytes());
                 }
@@ -288,7 +292,17 @@ mod decl {
                 let number = f64::from_le_bytes(bytes.try_into().unwrap());
                 (vm.ctx.new_float(number).into(), buf)
             }
-            Type::Str => {
+            Type::Ascii => {
+                let (len, buf) = read_size(buf, vm)?;
+                if buf.len() < len {
+                    return Err(too_short_error(vm));
+                }
+                let (bytes, buf) = buf.split_at(len);
+                let s = String::from_utf8(bytes.to_vec())
+                    .map_err(|_| vm.new_value_error("invalid utf8 data".to_owned()))?;
+                (s.to_pyobject(vm), buf)
+            }
+            Type::Unicode => {
                 let (len, buf) = read_size(buf, vm)?;
                 if buf.len() < len {
                     return Err(too_short_error(vm));
