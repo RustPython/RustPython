@@ -266,8 +266,6 @@ class BinASCIITest(unittest.TestCase):
         expected1 = s.hex(':').encode('ascii')
         self.assertEqual(binascii.b2a_hex(self.type2test(s), ':'), expected1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_qp(self):
         type2test = self.type2test
         a2b_qp = binascii.a2b_qp

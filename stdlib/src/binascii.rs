@@ -11,6 +11,8 @@ mod decl {
     };
     use itertools::Itertools;
 
+    const MAXLINESIZE: usize = 76;
+
     #[pyattr(name = "Error", once)]
     fn error_type(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.new_exception_type(
@@ -176,13 +178,285 @@ mod decl {
         // The 64 instead of the expected 63 is because
         // there are a few uuencodes out there that use
         // '`' as zero instead of space.
-        if !(0x20..=0x60).contains(c) {
+        if !(b' '..=(b' ' + 64)).contains(c) {
             if [b'\r', b'\n'].contains(c) {
                 return Ok(0);
             }
             return Err(vm.new_value_error("Illegal char".to_string()));
         }
-        Ok((*c - 0x20) & 0x3f)
+        Ok((*c - b' ') & 0x3f)
+    }
+
+    #[derive(FromArgs)]
+    struct A2bQpArgs {
+        #[pyarg(any)]
+        data: ArgAsciiBuffer,
+        #[pyarg(named, default = "false")]
+        header: bool,
+    }
+    #[pyfunction]
+    fn a2b_qp(args: A2bQpArgs) -> PyResult<Vec<u8>> {
+        let s = args.data;
+        let header = args.header;
+        s.with_ref(|buffer| {
+            let len = buffer.len();
+            let mut out_data = Vec::with_capacity(len);
+
+            let mut idx = 0;
+
+            while idx < len {
+                if buffer[idx] == b'=' {
+                    idx += 1;
+                    if idx >= len {
+                        break;
+                    }
+                    // Soft line breaks
+                    if (buffer[idx] == b'\n') || (buffer[idx] == b'\r') {
+                        if buffer[idx] != b'\n' {
+                            while idx < len && buffer[idx] != b'\n' {
+                                idx += 1;
+                            }
+                        }
+                        if idx < len {
+                            idx += 1;
+                        }
+                    } else if buffer[idx] == b'=' {
+                        // roken case from broken python qp
+                        out_data.push(b'=');
+                        idx += 1;
+                    } else if idx + 1 < len
+                        && ((buffer[idx] >= b'A' && buffer[idx] <= b'F')
+                            || (buffer[idx] >= b'a' && buffer[idx] <= b'f')
+                            || (buffer[idx] >= b'0' && buffer[idx] <= b'9'))
+                        && ((buffer[idx + 1] >= b'A' && buffer[idx + 1] <= b'F')
+                            || (buffer[idx + 1] >= b'a' && buffer[idx + 1] <= b'f')
+                            || (buffer[idx + 1] >= b'0' && buffer[idx + 1] <= b'9'))
+                    {
+                        // hexval
+                        if let (Some(ch1), Some(ch2)) =
+                            (unhex_nibble(buffer[idx]), unhex_nibble(buffer[idx + 1]))
+                        {
+                            out_data.push(ch1 << 4 | ch2);
+                        }
+                        idx += 2;
+                    } else {
+                        out_data.push(b'=');
+                    }
+                } else if header && buffer[idx] == b'_' {
+                    out_data.push(b' ');
+                    idx += 1;
+                } else {
+                    out_data.push(buffer[idx]);
+                    idx += 1;
+                }
+            }
+
+            Ok(out_data)
+        })
+    }
+
+    #[derive(FromArgs)]
+    struct B2aQpArgs {
+        #[pyarg(any)]
+        data: ArgAsciiBuffer,
+        #[pyarg(named, default = "false")]
+        quotetabs: bool,
+        #[pyarg(named, default = "true")]
+        istext: bool,
+        #[pyarg(named, default = "false")]
+        header: bool,
+    }
+
+    #[pyfunction]
+    fn b2a_qp(args: B2aQpArgs) -> PyResult<Vec<u8>> {
+        let s = args.data;
+        let quotetabs = args.quotetabs;
+        let istext = args.istext;
+        let header = args.header;
+        s.with_ref(|buf| {
+            let buflen = buf.len();
+            let mut linelen = 0;
+            let mut odatalen = 0;
+            let mut crlf = false;
+            let mut ch;
+
+            let mut inidx;
+            let mut outidx;
+
+            inidx = 0;
+            while inidx < buflen {
+                if buf[inidx] == b'\n' {
+                    break;
+                }
+                inidx += 1;
+            }
+            if buflen > 0 && inidx < buflen && buf[inidx - 1] == b'\r' {
+                crlf = true;
+            }
+
+            inidx = 0;
+            while inidx < buflen {
+                let mut delta = 0;
+                if (buf[inidx] > 126)
+                    || (buf[inidx] == b'=')
+                    || (header && buf[inidx] == b'_')
+                    || (buf[inidx] == b'.'
+                        && linelen == 0
+                        && (inidx + 1 == buflen
+                            || buf[inidx + 1] == b'\n'
+                            || buf[inidx + 1] == b'\r'
+                            || buf[inidx + 1] == 0))
+                    || (!istext && ((buf[inidx] == b'\r') || (buf[inidx] == b'\n')))
+                    || ((buf[inidx] == b'\t' || buf[inidx] == b' ') && (inidx + 1 == buflen))
+                    || ((buf[inidx] < 33)
+                        && (buf[inidx] != b'\r')
+                        && (buf[inidx] != b'\n')
+                        && (quotetabs || ((buf[inidx] != b'\t') && (buf[inidx] != b' '))))
+                {
+                    if (linelen + 3) >= MAXLINESIZE {
+                        linelen = 0;
+                        delta += if crlf { 3 } else { 2 };
+                    }
+                    linelen += 3;
+                    delta += 3;
+                    inidx += 1;
+                } else if istext
+                    && ((buf[inidx] == b'\n')
+                        || ((inidx + 1 < buflen)
+                            && (buf[inidx] == b'\r')
+                            && (buf[inidx + 1] == b'\n')))
+                {
+                    linelen = 0;
+                    // Protect against whitespace on end of line
+                    if (inidx != 0) && ((buf[inidx - 1] == b' ') || (buf[inidx - 1] == b'\t')) {
+                        delta += 2;
+                    }
+                    delta += if crlf { 2 } else { 1 };
+                    inidx += if buf[inidx] == b'\r' { 2 } else { 1 };
+                } else {
+                    if (inidx + 1 != buflen)
+                        && (buf[inidx + 1] != b'\n')
+                        && (linelen + 1) >= MAXLINESIZE
+                    {
+                        linelen = 0;
+                        delta += if crlf { 3 } else { 2 };
+                    }
+                    linelen += 1;
+                    delta += 1;
+                    inidx += 1;
+                }
+                odatalen += delta;
+            }
+
+            let mut out_data = Vec::with_capacity(odatalen);
+            inidx = 0;
+            outidx = 0;
+            linelen = 0;
+
+            while inidx < buflen {
+                if (buf[inidx] > 126)
+                    || (buf[inidx] == b'=')
+                    || (header && buf[inidx] == b'_')
+                    || ((buf[inidx] == b'.')
+                        && (linelen == 0)
+                        && (inidx + 1 == buflen
+                            || buf[inidx + 1] == b'\n'
+                            || buf[inidx + 1] == b'\r'
+                            || buf[inidx + 1] == 0))
+                    || (!istext && ((buf[inidx] == b'\r') || (buf[inidx] == b'\n')))
+                    || ((buf[inidx] == b'\t' || buf[inidx] == b' ') && (inidx + 1 == buflen))
+                    || ((buf[inidx] < 33)
+                        && (buf[inidx] != b'\r')
+                        && (buf[inidx] != b'\n')
+                        && (quotetabs || ((buf[inidx] != b'\t') && (buf[inidx] != b' '))))
+                {
+                    if (linelen + 3) >= MAXLINESIZE {
+                        // MAXLINESIZE = 76
+                        out_data.push(b'=');
+                        outidx += 1;
+                        if crlf {
+                            out_data.push(b'\r');
+                            outidx += 1;
+                        }
+                        out_data.push(b'\n');
+                        outidx += 1;
+                        linelen = 0;
+                    }
+                    out_data.push(b'=');
+                    outidx += 1;
+
+                    ch = hex_nibble(buf[inidx] >> 4);
+                    if (b'a'..=b'f').contains(&ch) {
+                        ch -= b' ';
+                    }
+                    out_data.push(ch);
+                    ch = hex_nibble(buf[inidx] & 0xf);
+                    if (b'a'..=b'f').contains(&ch) {
+                        ch -= b' ';
+                    }
+                    out_data.push(ch);
+
+                    outidx += 2;
+                    inidx += 1;
+                    linelen += 3;
+                } else if istext
+                    && ((buf[inidx] == b'\n')
+                        || ((inidx + 1 < buflen)
+                            && (buf[inidx] == b'\r')
+                            && (buf[inidx + 1] == b'\n')))
+                {
+                    linelen = 0;
+                    if (outidx != 0)
+                        && ((out_data[outidx - 1] == b' ') || (out_data[outidx - 1] == b'\t'))
+                    {
+                        ch = hex_nibble(out_data[outidx - 1] >> 4);
+                        if (b'a'..=b'f').contains(&ch) {
+                            ch -= b' ';
+                        }
+                        out_data.push(ch);
+                        ch = hex_nibble(out_data[outidx - 1] & 0xf);
+                        if (b'a'..=b'f').contains(&ch) {
+                            ch -= b' ';
+                        }
+                        out_data.push(ch);
+                        out_data[outidx - 1] = b'=';
+                        outidx += 2;
+                    }
+
+                    if crlf {
+                        out_data.push(b'\r');
+                        outidx += 1;
+                    }
+                    out_data.push(b'\n');
+                    outidx += 1;
+                    inidx += if buf[inidx] == b'\r' { 2 } else { 1 };
+                } else {
+                    if (inidx + 1 != buflen) && (buf[inidx + 1] != b'\n') && (linelen + 1) >= 76 {
+                        // MAXLINESIZE = 76
+                        out_data.push(b'=');
+                        outidx += 1;
+                        if crlf {
+                            out_data.push(b'\r');
+                            outidx += 1;
+                        }
+                        out_data.push(b'\n');
+                        outidx += 1;
+                        linelen = 0;
+                    }
+                    linelen += 1;
+                    if header && buf[inidx] == b' ' {
+                        out_data.push(b'_');
+                        outidx += 1;
+                        inidx += 1;
+                    } else {
+                        out_data.push(buf[inidx]);
+                        outidx += 1;
+                        inidx += 1;
+                    }
+                }
+            }
+            Ok(out_data)
+        })
     }
 
     #[pyfunction]
@@ -259,7 +533,7 @@ mod decl {
             let length = if b.is_empty() {
                 ((-0x20i32) & 0x3fi32) as usize
             } else {
-                ((b[0] - 0x20) & 0x3f) as usize
+                ((b[0] - b' ') & 0x3f) as usize
             };
 
             // Allocate the buffer
@@ -316,7 +590,7 @@ mod decl {
             if backtick && num != 0 {
                 0x60
             } else {
-                0x20 + num
+                b' ' + num
             }
         }
 
