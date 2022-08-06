@@ -93,14 +93,10 @@ class FloatTestCase(unittest.TestCase, HelperMixin):
             n *= 123.4567
 
 class StringTestCase(unittest.TestCase, HelperMixin):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_unicode(self):
         for s in ["", "Andr\xe8 Previn", "abc", " "*10000]:
             self.helper(marshal.loads(marshal.dumps(s)))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_string(self):
         for s in ["", "Andr\xe8 Previn", "abc", " "*10000]:
             self.helper(s)
@@ -159,13 +155,9 @@ class ContainerTestCase(unittest.TestCase, HelperMixin):
          'aunicode': "Andr\xe8 Previn"
          }
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_dict(self):
         self.helper(self.d)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_list(self):
         self.helper(list(self.d.items()))
 
@@ -178,8 +170,6 @@ class ContainerTestCase(unittest.TestCase, HelperMixin):
 
 
 class BufferTestCase(unittest.TestCase, HelperMixin):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bytearray(self):
         b = bytearray(b"abc")
         self.helper(b)
@@ -298,8 +288,6 @@ class BugsTestCase(unittest.TestCase):
         testString = 'abc' * size
         marshal.dumps(testString)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_invalid_longs(self):
         # Issue #7019: marshal.loads shouldn't produce unnormalized PyLongs
         invalid_string = b'l\x02\x00\x00\x00\x00\x00\x00\x00'
