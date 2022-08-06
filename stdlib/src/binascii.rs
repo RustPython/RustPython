@@ -60,7 +60,7 @@ mod decl {
     fn unhexlify(data: ArgAsciiBuffer, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         data.with_ref(|hex_bytes| {
             if hex_bytes.len() % 2 != 0 {
-                return Err(vm.new_value_error("Odd-length string".to_owned()));
+                return Err(new_binascii_error("Odd-length string".to_string(), vm));
             }
 
             let mut unhex = Vec::<u8>::with_capacity(hex_bytes.len() / 2);
@@ -68,7 +68,10 @@ mod decl {
                 if let (Some(n1), Some(n2)) = (unhex_nibble(*n1), unhex_nibble(*n2)) {
                     unhex.push(n1 << 4 | n2);
                 } else {
-                    return Err(vm.new_value_error("Non-hexadecimal digit found".to_owned()));
+                    return Err(new_binascii_error(
+                        "Non-hexadecimal digit found".to_string(),
+                        vm,
+                    ));
                 }
             }
 
