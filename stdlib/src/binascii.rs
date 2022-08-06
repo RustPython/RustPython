@@ -181,6 +181,7 @@ mod decl {
         }
         Ok((*c - 0x20) & 0x3f)
     }
+
     #[derive(FromArgs)]
     struct A2bQpArgs {
         #[pyarg(any)]
@@ -194,7 +195,7 @@ mod decl {
         let header = args.header;
         s.with_ref(|buffer| {
             let len = buffer.len();
-            let mut out_data = Vec::<u8>::with_capacity(len);
+            let mut out_data = Vec::with_capacity(len);
 
             let mut idx = 0;
 
@@ -308,56 +309,37 @@ mod decl {
                     if (linelen + 3) >= 76 {
                         // MAXLINESIZE = 76
                         linelen = 0;
-                        if crlf {
-                            delta += 3;
-                        } else {
-                            delta += 2;
-                        }
+                        delta += if crlf { 3 } else { 2 };
                     }
                     linelen += 3;
                     delta += 3;
                     inidx += 1;
-                } else {
-                    if istext
-                        && ((buf[inidx] == 0x0a)
-                            || ((inidx + 1 < buflen)
-                                && (buf[inidx] == 0x0d)
-                                && (buf[inidx + 1] == 0x0a)))
-                    {
-                        linelen = 0;
-                        if (inidx != 0) && ((buf[inidx - 1] == 0x20) || (buf[inidx - 1] == 0x09)) {
-                            delta += 2;
-                        }
-                        if crlf {
-                            delta += 2;
-                        } else {
-                            delta += 2;
-                        }
-                        if buf[inidx] == 0x0d {
-                            inidx += 2;
-                        } else {
-                            inidx += 1;
-                        }
-                    } else {
-                        if (inidx + 1 != buflen) && (buf[inidx + 1] != 0x0a) && (linelen + 1) >= 76
-                        {
-                            // MAXLINESIZE
-                            linelen = 0;
-                            if crlf {
-                                delta += 3;
-                            } else {
-                                delta += 2;
-                            }
-                        }
-                        linelen += 1;
-                        delta += 1;
-                        inidx += 1;
+                } else if istext
+                    && ((buf[inidx] == 0x0a)
+                        || ((inidx + 1 < buflen)
+                            && (buf[inidx] == 0x0d)
+                            && (buf[inidx + 1] == 0x0a)))
+                {
+                    linelen = 0;
+                    if (inidx != 0) && ((buf[inidx - 1] == 0x20) || (buf[inidx - 1] == 0x09)) {
+                        delta += 2;
                     }
+                    delta += if crlf { 2 } else { 1 };
+                    inidx += if buf[inidx] == 0x0d { 2 } else { 1 };
+                } else {
+                    if (inidx + 1 != buflen) && (buf[inidx + 1] != 0x0a) && (linelen + 1) >= 76 {
+                        // MAXLINESIZE
+                        linelen = 0;
+                        delta += if crlf { 3 } else { 2 };
+                    }
+                    linelen += 1;
+                    delta += 1;
+                    inidx += 1;
                 }
                 odatalen += delta;
             }
 
-            let mut out_data = Vec::<u8>::with_capacity(odatalen);
+            let mut out_data = Vec::with_capacity(odatalen);
             inidx = 0;
             outidx = 0;
             linelen = 0;
@@ -395,12 +377,12 @@ mod decl {
                     outidx += 1;
 
                     ch = hex_nibble(buf[inidx] >> 4);
-                    if ch >= 0x61 && ch <= 0x66 {
+                    if (0x61..=0x66).contains(&ch) {
                         ch -= 0x20;
                     }
                     out_data.push(ch);
                     ch = hex_nibble(buf[inidx] & 0xf);
-                    if ch >= 0x61 && ch <= 0x66 {
+                    if (0x61..=0x66).contains(&ch) {
                         ch -= 0x20;
                     }
                     out_data.push(ch);
@@ -408,66 +390,59 @@ mod decl {
                     outidx += 2;
                     inidx += 1;
                     linelen += 3;
-                } else {
-                    if istext
-                        && ((buf[inidx] == 0x0a)
-                            || ((inidx + 1 < buflen)
-                                && (buf[inidx] == 0x0d)
-                                && (buf[inidx + 1] == 0x0a)))
+                } else if istext
+                    && ((buf[inidx] == 0x0a)
+                        || ((inidx + 1 < buflen)
+                            && (buf[inidx] == 0x0d)
+                            && (buf[inidx + 1] == 0x0a)))
+                {
+                    linelen = 0;
+                    if (outidx != 0)
+                        && ((out_data[outidx - 1] == 0x20) || (out_data[outidx - 1] == 0x09))
                     {
-                        linelen = 0;
-                        if (outidx != 0)
-                            && ((out_data[outidx - 1] == 0x20) || (out_data[outidx - 1] == 0x09))
-                        {
-                            ch = hex_nibble(out_data[outidx - 1] >> 4);
-                            if ch >= 0x61 && ch <= 0x66 {
-                                ch -= 0x20;
-                            }
-                            out_data.push(ch);
-                            ch = hex_nibble(out_data[outidx - 1] & 0xf);
-                            if ch >= 0x61 && ch <= 0x66 {
-                                ch -= 0x20;
-                            }
-                            out_data.push(ch);
-                            out_data[outidx - 1] = 0x3d;
-                            outidx += 2;
+                        ch = hex_nibble(out_data[outidx - 1] >> 4);
+                        if (0x61..=0x66).contains(&ch) {
+                            ch -= 0x20;
                         }
+                        out_data.push(ch);
+                        ch = hex_nibble(out_data[outidx - 1] & 0xf);
+                        if (0x61..=0x66).contains(&ch) {
+                            ch -= 0x20;
+                        }
+                        out_data.push(ch);
+                        out_data[outidx - 1] = 0x3d;
+                        outidx += 2;
+                    }
 
+                    if crlf {
+                        out_data.push(0x0d);
+                        outidx += 1;
+                    }
+                    out_data.push(0x0a);
+                    outidx += 1;
+                    inidx += if buf[inidx] == 0x0d { 2 } else { 1 };
+                } else {
+                    if (inidx + 1 != buflen) && (buf[inidx + 1] != 0x0a) && (linelen + 1) >= 76 {
+                        // MAXLINESIZE = 76
+                        out_data.push(0x3d);
+                        outidx += 1;
                         if crlf {
                             out_data.push(0x0d);
                             outidx += 1;
                         }
                         out_data.push(0x0a);
                         outidx += 1;
-                        if buf[inidx] == 0x0d {
-                            inidx += 2;
-                        } else {
-                            inidx += 1;
-                        }
+                        linelen = 0;
+                    }
+                    linelen += 1;
+                    if header && buf[inidx] == 0x20 {
+                        out_data.push(0x5f);
+                        outidx += 1;
+                        inidx += 1;
                     } else {
-                        if (inidx + 1 != buflen) && (buf[inidx + 1] != 0x0a) && (linelen + 1) >= 76
-                        {
-                            // MAXLINESIZE = 76
-                            out_data.push(0x3d);
-                            outidx += 1;
-                            if crlf {
-                                out_data.push(0x0d);
-                                outidx += 1;
-                            }
-                            out_data.push(0x0a);
-                            outidx += 1;
-                            linelen = 0;
-                        }
-                        linelen += 1;
-                        if header && buf[inidx] == 0x20 {
-                            out_data.push(0x5f);
-                            outidx += 1;
-                            inidx += 1;
-                        } else {
-                            out_data.push(buf[inidx]);
-                            outidx += 1;
-                            inidx += 1;
-                        }
+                        out_data.push(buf[inidx]);
+                        outidx += 1;
+                        inidx += 1;
                     }
                 }
             }
