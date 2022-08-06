@@ -32,7 +32,6 @@ pub mod module {
         builtins::{PyDictRef, PyInt, PyIntRef, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
         convert::{IntoPyException, ToPyObject, TryFromObject},
         function::{ArgStrOrBytesLike, Either, FromArgs, OptionalArg},
-        protocol::PyMapping,
         stdlib::os::{
             errno_err, DirFd, FollowSymlinks, PathOrFd, PyPathLike, SupportFunc, TargetIsDirectory,
             _os, fs_metadata, IOErrorBuilder,
@@ -940,10 +939,9 @@ pub mod module {
     fn execve(
         path: PyPathLike,
         argv: Either<PyListRef, PyTupleRef>,
-        env: PyObjectRef,
+        env: crate::function::ArgMapping,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let env = PyMapping::new(&env, vm);
         let path = path.into_cstring(vm)?;
 
         let argv = vm.extract_elements_with(argv.as_ref(), |obj| {
@@ -961,9 +959,22 @@ pub mod module {
             );
         }
 
-        let env = env
-            .into_dict()
+        let env = env.mapping();
+        let keys = env.keys(vm)?;
+        let values = env.values(vm)?;
+
+        let keys = PyListRef::try_from_object(vm, keys)
+            .map_err(|_| vm.new_type_error("env.keys() is not a list".to_owned()))?
+            .borrow_vec()
+            .to_vec();
+        let values = PyListRef::try_from_object(vm, values)
+            .map_err(|_| vm.new_type_error("env.values() is not a list".to_owned()))?
+            .borrow_vec()
+            .to_vec();
+
+        let env = keys
             .into_iter()
+            .zip(values.into_iter())
             .map(|(k, v)| -> PyResult<_> {
                 let (key, value) = (
                     PyPathLike::try_from_object(vm, k)?.into_bytes(),
@@ -1294,8 +1305,9 @@ pub mod module {
         env: crate::function::ArgMapping,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<CString>> {
-        let keys = env.mapping().keys(vm)?;
-        let values = env.mapping().values(vm)?;
+        let env = env.mapping();
+        let keys = env.keys(vm)?;
+        let values = env.values(vm)?;
 
         let keys = PyListRef::try_from_object(vm, keys)
             .map_err(|_| vm.new_type_error("env.keys() is not a list".to_owned()))?
