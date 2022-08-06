@@ -70,10 +70,6 @@ impl PyDict {
         &self.entries
     }
 
-    pub(crate) fn from_entries(entries: DictContentType) -> Self {
-        Self { entries }
-    }
-
     // Used in update and ior.
     fn merge_object(
         dict: &DictContentType,
