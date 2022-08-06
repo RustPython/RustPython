@@ -68,6 +68,8 @@ pub(crate) fn init_importlib_package(
         if magic.len() != 4 {
             magic = rand::thread_rng().gen::<[u8; 4]>().to_vec();
         }
+        magic.push(b'\r');
+        magic.push(b'\n');
         let magic: PyObjectRef = vm.ctx.new_bytes(magic).into();
         importlib_external.set_attr("MAGIC_NUMBER", magic, vm)?;
         let zipimport_res = (|| -> PyResult<()> {
