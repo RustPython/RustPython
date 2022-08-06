@@ -19,18 +19,72 @@ mod decl {
     use num_bigint::{BigInt, Sign};
     use num_traits::Zero;
 
-    const STR_BYTE: u8 = b's';
-    const INT_BYTE: u8 = b'i';
-    const FLOAT_BYTE: u8 = b'f';
-    const TRUE_BYTE: u8 = b'T';
-    const FALSE_BYTE: u8 = b'F';
-    const LIST_BYTE: u8 = b'[';
-    const TUPLE_BYTE: u8 = b'(';
-    const DICT_BYTE: u8 = b',';
-    const SET_BYTE: u8 = b'~';
-    const FROZEN_SET_BYTE: u8 = b'<';
-    const BYTE_ARRAY: u8 = b'>';
-    const TYPE_CODE: u8 = b'c';
+    #[repr(u8)]
+    enum Type {
+        // Null = b'0',
+        // None = b'N',
+        False = b'F',
+        True = b'T',
+        // StopIter = b'S',
+        // Ellipsis = b'.',
+        Int = b'i',
+        Float = b'g',
+        // Complex = b'y',
+        // Long = b'l',  // i32
+        Bytes = b's', // = TYPE_STRING
+        // Interned = b't',
+        // Ref = b'r',
+        Tuple = b'(',
+        List = b'[',
+        Dict = b'{',
+        Code = b'c',
+        Str = b'u', // = TYPE_UNICODE
+        // Unknown = b'?',
+        Set = b'<',
+        FrozenSet = b'>',
+        // Ascii = b'a',
+        // AsciiInterned = b'A',
+        // SmallTuple = b')',
+        // ShortAscii = b'z',
+        // ShortAsciiInterned = b'Z',
+    }
+    // const FLAG_REF: u8 = b'\x80';
+
+    impl TryFrom<u8> for Type {
+        type Error = u8;
+        fn try_from(value: u8) -> Result<Self, u8> {
+            use Type::*;
+            Ok(match value {
+                // b'0' => Null,
+                // b'N' => None,
+                b'F' => False,
+                b'T' => True,
+                // b'S' => StopIter,
+                // b'.' => Ellipsis,
+                b'i' => Int,
+                b'g' => Float,
+                // b'y' => Complex,
+                // b'l' => Long,
+                b's' => Bytes,
+                // b't' => Interned,
+                // b'r' => Ref,
+                b'(' => Tuple,
+                b'[' => List,
+                b'{' => Dict,
+                b'c' => Code,
+                b'u' => Str,
+                // b'?' => Unknown,
+                b'<' => Set,
+                b'>' => FrozenSet,
+                // b'a' => Ascii,
+                // b'A' => AsciiInterned,
+                // b')' => SmallTuple,
+                // b'z' => ShortAscii,
+                // b'Z' => ShortAsciiInterned,
+                c => return Err(c),
+            })
+        }
+    }
 
     fn too_short_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
         vm.new_exception_msg(
@@ -59,13 +113,13 @@ mod decl {
             pyint @ PyInt => {
                 if pyint.class().is(vm.ctx.types.bool_type) {
                     let typ = if pyint.as_bigint().is_zero() {
-                        FALSE_BYTE
+                        Type::False
                     } else {
-                        TRUE_BYTE
+                        Type::True
                     };
-                    buf.push(typ);
+                    buf.push(typ as u8);
                 } else {
-                    buf.push(INT_BYTE);
+                    buf.push(Type::Int as u8);
                     let (sign, int_bytes) = pyint.as_bigint().to_bytes_le();
                     let mut len = int_bytes.len() as i32;
                     if sign == Sign::Minus {
@@ -76,35 +130,35 @@ mod decl {
                 }
             }
             pyfloat @ PyFloat => {
-                buf.push(FLOAT_BYTE);
+                buf.push(Type::Float as u8);
                 buf.extend(pyfloat.to_f64().to_le_bytes());
             }
             pystr @ PyStr => {
-                buf.push(STR_BYTE);
+                buf.push(Type::Str as u8);
                 write_size(buf, pystr.as_str().len(), vm)?;
                 buf.extend(pystr.as_str().as_bytes());
             }
             pylist @ PyList => {
-                buf.push(LIST_BYTE);
+                buf.push(Type::List as u8);
                 let pylist_items = pylist.borrow_vec();
                 dump_seq(buf, pylist_items.iter(), vm)?;
             }
             pyset @ PySet => {
-                buf.push(SET_BYTE);
+                buf.push(Type::Set as u8);
                 let elements = pyset.elements();
                 dump_seq(buf, elements.iter(), vm)?;
             }
             pyfrozen @ PyFrozenSet => {
-                buf.push(FROZEN_SET_BYTE);
+                buf.push(Type::FrozenSet as u8);
                 let elements = pyfrozen.elements();
                 dump_seq(buf, elements.iter(), vm)?;
             }
             pytuple @ PyTuple => {
-                buf.push(TUPLE_BYTE);
+                buf.push(Type::Tuple as u8);
                 dump_seq(buf, pytuple.iter(), vm)?;
             }
             pydict @ PyDict => {
-                buf.push(DICT_BYTE);
+                buf.push(Type::Dict as u8);
                 write_size(buf, pydict.len(), vm)?;
                 for (key, value) in pydict {
                     dump_obj(buf, key, vm)?;
@@ -112,13 +166,13 @@ mod decl {
                 }
             }
             bytes @ PyByteArray => {
-                buf.push(BYTE_ARRAY);
+                buf.push(Type::Bytes as u8);
                 let data = bytes.borrow_buf();
                 write_size(buf, data.len(), vm)?;
                 buf.extend(&*data);
             }
             co @ PyCode => {
-                buf.push(TYPE_CODE);
+                buf.push(Type::Code as u8);
                 let bytes = co.code.map_clone_bag(&bytecode::BasicBag).to_bytes();
                 write_size(buf, bytes.len(), vm)?;
                 buf.extend(bytes);
@@ -191,10 +245,12 @@ mod decl {
 
     fn load_obj<'b>(buf: &'b [u8], vm: &VirtualMachine) -> PyResult<(PyObjectRef, &'b [u8])> {
         let (type_indicator, buf) = buf.split_first().ok_or_else(|| too_short_error(vm))?;
-        let (obj, buf) = match *type_indicator {
-            TRUE_BYTE => ((true).to_pyobject(vm), buf),
-            FALSE_BYTE => ((false).to_pyobject(vm), buf),
-            INT_BYTE => {
+        let typ = Type::try_from(*type_indicator)
+            .map_err(|_| vm.new_value_error("bad marshal data (unknown type code)".to_owned()))?;
+        let (obj, buf) = match typ {
+            Type::True => ((true).to_pyobject(vm), buf),
+            Type::False => ((false).to_pyobject(vm), buf),
+            Type::Int => {
                 if buf.len() < 4 {
                     return Err(too_short_error(vm));
                 }
@@ -212,7 +268,7 @@ mod decl {
                 let int = BigInt::from_bytes_le(sign, bytes);
                 (int.to_pyobject(vm), buf)
             }
-            FLOAT_BYTE => {
+            Type::Float => {
                 if buf.len() < 8 {
                     return Err(too_short_error(vm));
                 }
@@ -220,7 +276,7 @@ mod decl {
                 let number = f64::from_le_bytes(bytes.try_into().unwrap());
                 (vm.ctx.new_float(number).into(), buf)
             }
-            STR_BYTE => {
+            Type::Str => {
                 let (len, buf) = read_size(buf, vm)?;
                 if buf.len() < len {
                     return Err(too_short_error(vm));
@@ -230,11 +286,11 @@ mod decl {
                     .map_err(|_| vm.new_value_error("invalid utf8 data".to_owned()))?;
                 (s.to_pyobject(vm), buf)
             }
-            LIST_BYTE => {
+            Type::List => {
                 let (elements, buf) = load_seq(buf, vm)?;
                 (vm.ctx.new_list(elements).into(), buf)
             }
-            SET_BYTE => {
+            Type::Set => {
                 let (elements, buf) = load_seq(buf, vm)?;
                 let set = PySet::new_ref(&vm.ctx);
                 for element in elements {
@@ -242,16 +298,16 @@ mod decl {
                 }
                 (set.to_pyobject(vm), buf)
             }
-            FROZEN_SET_BYTE => {
+            Type::FrozenSet => {
                 let (elements, buf) = load_seq(buf, vm)?;
                 let set = PyFrozenSet::from_iter(vm, elements.into_iter())?;
                 (set.to_pyobject(vm), buf)
             }
-            TUPLE_BYTE => {
+            Type::Tuple => {
                 let (elements, buf) = load_seq(buf, vm)?;
                 (vm.ctx.new_tuple(elements).into(), buf)
             }
-            DICT_BYTE => {
+            Type::Dict => {
                 let (len, mut buf) = read_size(buf, vm)?;
                 let dict = vm.ctx.new_dict();
                 for _ in 0..len {
@@ -262,7 +318,7 @@ mod decl {
                 }
                 (dict.into(), buf)
             }
-            BYTE_ARRAY => {
+            Type::Bytes => {
                 // Following CPython, after marshaling, byte arrays are converted into bytes.
                 let (len, buf) = read_size(buf, vm)?;
                 if buf.len() < len {
@@ -271,7 +327,7 @@ mod decl {
                 let (bytes, buf) = buf.split_at(len);
                 (vm.ctx.new_bytes(bytes.to_vec()).into(), buf)
             }
-            TYPE_CODE => {
+            Type::Code => {
                 // If prefix is not identifiable, assume CodeObject, error out if it doesn't match.
                 let (len, buf) = read_size(buf, vm)?;
                 if buf.len() < len {
@@ -287,7 +343,6 @@ mod decl {
                 })?;
                 (vm.ctx.new_code(code).into(), buf)
             }
-            _ => return Err(vm.new_value_error("bad marshal data (unknown type code)".to_owned())),
         };
         Ok((obj, buf))
     }
