@@ -136,7 +136,6 @@ impl<T: PyPayload> TryFromObject for PyRefExact<T> {
         let target_cls = T::class(vm);
         let cls = obj.class();
         if cls.is(target_cls) {
-            drop(cls);
             let obj = obj
                 .downcast()
                 .map_err(|obj| vm.new_downcast_runtime_error(target_cls, &obj))?;
@@ -245,7 +244,7 @@ impl<T: PyObjectPayload> PyAtomicRef<T> {
         PyRef::from_raw(old.as_ptr())
     }
 
-    fn swap_to_frame(&self, pyref: PyRef<T>, vm: &VirtualMachine) {
+    pub fn swap_to_frame(&self, pyref: PyRef<T>, vm: &VirtualMachine) {
         let old = unsafe { self.swap(pyref) };
         if let Some(frame) = vm.current_frame() {
             frame.temperary_refs.lock().push(old.into());
@@ -276,8 +275,8 @@ where
     }
 
     #[inline(always)]
-    fn class(&self) -> PyLease<'_, PyType> {
-        self.as_object().lease_class()
+    fn class(&self) -> &Py<PyType> {
+        self.as_object().class()
     }
 
     fn get_class_attr(&self, attr_name: &'static PyStrInterned) -> Option<PyObjectRef> {
@@ -298,13 +297,6 @@ impl PyObject {
     #[inline(always)]
     fn unique_id(&self) -> usize {
         self as *const PyObject as usize
-    }
-
-    #[inline]
-    fn lease_class(&self) -> PyLease<'_, PyType> {
-        PyLease {
-            inner: self.class_lock().read(),
-        }
     }
 }
 

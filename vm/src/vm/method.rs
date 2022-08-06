@@ -23,7 +23,6 @@ impl PyMethod {
         let cls = obj.class();
         let getattro = cls.mro_find_map(|cls| cls.slots.getattro.load()).unwrap();
         if getattro as usize != PyBaseObject::getattro as usize {
-            drop(cls);
             return obj.get_attr(name, vm).map(Self::Attribute);
         }
 
@@ -43,14 +42,12 @@ impl PyMethod {
                             .mro_find_map(|cls| cls.slots.descr_set.load())
                             .is_some()
                         {
-                            drop(descr_cls);
-                            let cls = cls.into_owned().into();
+                            let cls = cls.to_owned().into();
                             return descr_get(descr, Some(obj), Some(cls), vm).map(Self::Attribute);
                         }
                     }
                     descr_get
                 };
-                drop(descr_cls);
                 Some((descr, descr_get))
             }
             None => None,
@@ -65,20 +62,18 @@ impl PyMethod {
         if let Some((attr, descr_get)) = cls_attr {
             match descr_get {
                 None if is_method => {
-                    drop(cls);
                     Ok(Self::Function {
                         target: obj,
                         func: attr,
                     })
                 }
                 Some(descr_get) => {
-                    let cls = cls.into_owned().into();
+                    let cls = cls.to_owned().into();
                     descr_get(attr, Some(obj), Some(cls), vm).map(Self::Attribute)
                 }
                 None => Ok(Self::Attribute(attr)),
             }
         } else if let Some(getter) = cls.get_attr(identifier!(vm, __getattr__)) {
-            drop(cls);
             vm.invoke(&getter, (obj, name)).map(Self::Attribute)
         } else {
             let exc = vm.new_attribute_error(format!(
@@ -100,7 +95,6 @@ impl PyMethod {
         let func = match obj_cls.get_attr(name) {
             Some(f) => f,
             None => {
-                drop(obj_cls);
                 return Ok(Err(obj));
             }
         };
@@ -110,10 +104,9 @@ impl PyMethod {
             .flags
             .has_feature(PyTypeFlags::METHOD_DESCR)
         {
-            drop(obj_cls);
             Self::Function { target: obj, func }
         } else {
-            let obj_cls = obj_cls.into_owned().into();
+            let obj_cls = obj_cls.to_owned().into();
             let attr = vm
                 .call_get_descriptor_specific(func, Some(obj), Some(obj_cls))
                 .unwrap_or_else(Ok)?;

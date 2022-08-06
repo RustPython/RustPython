@@ -14,15 +14,16 @@
 use super::{
     ext::{AsObject, PyResult},
     payload::PyObjectPayload,
-};
-use crate::common::{
-    atomic::{OncePtr, PyAtomic, Radium},
-    linked_list::{Link, LinkedList, Pointers},
-    lock::{PyMutex, PyMutexGuard, PyRwLock},
-    refcount::RefCount,
+    PyAtomicRef,
 };
 use crate::{
-    builtins::{PyDictRef, PyTypeRef},
+    builtins::{PyDictRef, PyType, PyTypeRef},
+    common::{
+        atomic::{OncePtr, PyAtomic, Radium},
+        linked_list::{Link, LinkedList, Pointers},
+        lock::{PyMutex, PyMutexGuard, PyRwLock},
+        refcount::RefCount,
+    },
     vm::VirtualMachine,
 };
 use itertools::Itertools;
@@ -112,7 +113,7 @@ struct PyInner<T> {
     typeid: TypeId,
     vtable: &'static PyObjVTable,
 
-    typ: PyRwLock<PyTypeRef>, // __class__ member
+    typ: PyAtomicRef<PyType>, // __class__ member
     dict: Option<InstanceDict>,
     weak_list: WeakRefList,
     slots: Box<[PyRwLock<Option<PyObjectRef>>]>,
@@ -434,7 +435,7 @@ impl<T: PyObjectPayload> PyInner<T> {
             ref_count: RefCount::new(),
             typeid: TypeId::of::<T>(),
             vtable: PyObjVTable::of::<T>(),
-            typ: PyRwLock::new(typ),
+            typ: PyAtomicRef::from(typ),
             dict: dict.map(InstanceDict::new),
             weak_list: WeakRefList::new(),
             payload,
@@ -650,8 +651,12 @@ impl PyObject {
     }
 
     #[inline(always)]
-    pub(crate) fn class_lock(&self) -> &PyRwLock<PyTypeRef> {
-        &self.0.typ
+    pub fn class(&self) -> &Py<PyType> {
+        self.0.typ.deref()
+    }
+
+    pub fn set_class(&self, typ: PyTypeRef, vm: &VirtualMachine) {
+        self.0.typ.swap_to_frame(typ, vm);
     }
 
     #[inline(always)]
@@ -963,7 +968,7 @@ impl<T: PyObjectPayload> Clone for PyRef<T> {
 
 impl<T: PyObjectPayload> PyRef<T> {
     #[inline(always)]
-    pub unsafe fn from_raw(raw: *const Py<T>) -> Self {
+    pub(crate) unsafe fn from_raw(raw: *const Py<T>) -> Self {
         Self {
             ptr: NonNull::new_unchecked(raw as *mut _),
         }
@@ -1097,10 +1102,7 @@ macro_rules! partially_init {
 }
 
 pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
-    use crate::{
-        builtins::{object, PyType},
-        class::PyClassImpl,
-    };
+    use crate::{builtins::object, class::PyClassImpl};
     use std::mem::MaybeUninit;
 
     // `type` inherits from `object`
@@ -1108,8 +1110,6 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
     // to produce this circular dependency, we need an unsafe block.
     // (and yes, this will never get dropped. TODO?)
     let (type_type, object_type) = {
-        type UninitRef<T> = PyRwLock<NonNull<PyInner<T>>>;
-
         // We cast between these 2 types, so make sure (at compile time) that there's no change in
         // layout when we wrap PyInner<PyTypeObj> in MaybeUninit<>
         static_assertions::assert_eq_size!(MaybeUninit<PyInner<PyType>>, PyInner<PyType>);
@@ -1165,15 +1165,11 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
 
         unsafe {
             (*type_type_ptr).ref_count.inc();
-            ptr::write(
-                &mut (*object_type_ptr).typ as *mut PyRwLock<PyTypeRef> as *mut UninitRef<PyType>,
-                PyRwLock::new(NonNull::new_unchecked(type_type_ptr)),
-            );
+            let type_type = PyTypeRef::from_raw(type_type_ptr.cast());
+            ptr::write(&mut (*object_type_ptr).typ, PyAtomicRef::from(type_type));
             (*type_type_ptr).ref_count.inc();
-            ptr::write(
-                &mut (*type_type_ptr).typ as *mut PyRwLock<PyTypeRef> as *mut UninitRef<PyType>,
-                PyRwLock::new(NonNull::new_unchecked(type_type_ptr)),
-            );
+            let type_type = PyTypeRef::from_raw(type_type_ptr.cast());
+            ptr::write(&mut (*type_type_ptr).typ, PyAtomicRef::from(type_type));
 
             let object_type = PyTypeRef::from_raw(object_type_ptr.cast());
 

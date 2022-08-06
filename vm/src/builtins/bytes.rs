@@ -545,7 +545,7 @@ impl PyBytes {
     ) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
         let bytes = PyBytes::from(zelf.inner.elements.clone()).to_pyobject(vm);
         (
-            zelf.class().clone(),
+            zelf.class().to_owned(),
             PyTuple::new_ref(vec![bytes], &vm.ctx),
             zelf.as_object().dict(),
         )

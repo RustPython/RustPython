@@ -146,7 +146,7 @@ impl VirtualMachine {
         reflection: &'static PyStrInterned,
         unsupported: fn(&VirtualMachine, &PyObject, &PyObject) -> PyResult,
     ) -> PyResult {
-        if rhs.fast_isinstance(&lhs.class()) {
+        if rhs.fast_isinstance(lhs.class()) {
             let lop = lhs.get_class_attr(reflection);
             let rop = rhs.get_class_attr(reflection);
             if let Some((lop, rop)) = lop.zip(rop) {
@@ -163,7 +163,7 @@ impl VirtualMachine {
         self.call_or_unsupported(lhs, rhs, default, move |vm, lhs, rhs| {
             // Try to call the reflection method
             // don't call reflection method if operands are of the same type
-            if !lhs.class().is(&rhs.class()) {
+            if !lhs.class().is(rhs.class()) {
                 vm.call_or_unsupported(rhs, lhs, reflection, |_, rhs, lhs| {
                     // switch them around again
                     unsupported(vm, lhs, rhs)

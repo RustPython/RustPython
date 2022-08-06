@@ -183,7 +183,7 @@ impl VirtualMachine {
         exc: PyBaseExceptionRef,
     ) -> (PyObjectRef, PyObjectRef, PyObjectRef) {
         let tb = exc.traceback().to_pyobject(self);
-        let class = exc.class().clone();
+        let class = exc.class().to_owned();
         (class.into(), exc.into(), tb)
     }
 
@@ -524,9 +524,9 @@ impl PyBaseException {
     #[pymethod(magic)]
     fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyTupleRef {
         if let Some(dict) = zelf.as_object().dict().filter(|x| !x.is_empty()) {
-            return vm.new_tuple((zelf.class().clone(), zelf.args(), dict));
+            return vm.new_tuple((zelf.class().to_owned(), zelf.args(), dict));
         } else {
-            return vm.new_tuple((zelf.class().clone(), zelf.args()));
+            return vm.new_tuple((zelf.class().to_owned(), zelf.args()));
         }
     }
 }

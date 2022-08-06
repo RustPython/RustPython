@@ -168,7 +168,7 @@ impl PyProperty {
             deleter: PyRwLock::new(zelf.fdel()),
             doc: PyRwLock::new(None),
         }
-        .into_ref_with_type(vm, zelf.class().clone())
+        .into_ref_with_type(vm, zelf.class().to_owned())
     }
 
     #[pymethod]
@@ -183,7 +183,7 @@ impl PyProperty {
             deleter: PyRwLock::new(zelf.fdel()),
             doc: PyRwLock::new(None),
         }
-        .into_ref_with_type(vm, zelf.class().clone())
+        .into_ref_with_type(vm, zelf.class().to_owned())
     }
 
     #[pymethod]
@@ -198,7 +198,7 @@ impl PyProperty {
             deleter: PyRwLock::new(deleter.or_else(|| zelf.fdel())),
             doc: PyRwLock::new(None),
         }
-        .into_ref_with_type(vm, zelf.class().clone())
+        .into_ref_with_type(vm, zelf.class().to_owned())
     }
 
     #[pygetset(magic)]
