@@ -353,7 +353,7 @@ impl PyType {
     }
 }
 
-impl PyTypeRef {
+impl Py<PyType> {
     /// Determines if `subclass` is actually a subclass of `cls`, this doesn't call __subclasscheck__,
     /// so only use this if `cls` is known to have not overridden the base __subclasscheck__ magic
     /// method.
@@ -361,12 +361,12 @@ impl PyTypeRef {
         self.as_object().is(cls.borrow()) || self.mro.iter().any(|c| c.is(cls.borrow()))
     }
 
-    pub fn iter_mro(&self) -> impl Iterator<Item = &PyTypeRef> + DoubleEndedIterator {
-        std::iter::once(self).chain(self.mro.iter())
+    pub fn iter_mro(&self) -> impl Iterator<Item = &Py<PyType>> + DoubleEndedIterator {
+        std::iter::once(self).chain(self.mro.iter().map(|x| x.deref()))
     }
 
-    pub fn iter_base_chain(&self) -> impl Iterator<Item = &PyTypeRef> {
-        std::iter::successors(Some(self), |cls| cls.base.as_ref())
+    pub fn iter_base_chain(&self) -> impl Iterator<Item = &Py<PyType>> {
+        std::iter::successors(Some(self), |cls| cls.base.as_deref())
     }
 }
 
@@ -569,7 +569,7 @@ impl PyType {
 
     #[pymethod]
     fn mro(zelf: PyRef<Self>) -> Vec<PyObjectRef> {
-        zelf.iter_mro().map(|cls| cls.clone().into()).collect()
+        zelf.iter_mro().map(|cls| cls.to_owned().into()).collect()
     }
 
     #[pymethod(magic)]

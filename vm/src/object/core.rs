@@ -963,7 +963,7 @@ impl<T: PyObjectPayload> Clone for PyRef<T> {
 
 impl<T: PyObjectPayload> PyRef<T> {
     #[inline(always)]
-    unsafe fn from_raw(raw: *const Py<T>) -> Self {
+    pub unsafe fn from_raw(raw: *const Py<T>) -> Self {
         Self {
             ptr: NonNull::new_unchecked(raw as *mut _),
         }
