@@ -64,8 +64,6 @@ class IntTestCase(unittest.TestCase, HelperMixin):
             self.helper(b)
 
 class FloatTestCase(unittest.TestCase, HelperMixin):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_floats(self):
         # Test a few floats
         small = 1e-25
@@ -200,14 +198,11 @@ class BugsTestCase(unittest.TestCase):
         self.assertRaises(Exception, marshal.loads, b'f')
         self.assertRaises(Exception, marshal.loads, marshal.dumps(2**65)[:-1])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_version_argument(self):
         # Python 2.4.0 crashes for any call to marshal.dumps(x, y)
         self.assertEqual(marshal.loads(marshal.dumps(5, 0)), 5)
         self.assertEqual(marshal.loads(marshal.dumps(5, 1)), 5)
 
-    @unittest.skip("TODO: RUSTPYTHON; panic")
     def test_fuzz(self):
         # simple test that it's at least not *totally* trivial to
         # crash from bad marshal data
@@ -505,8 +500,7 @@ class InstancingTestCase(unittest.TestCase, HelperMixin):
         self.helper(code)
         self.helper3(code)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skip("TODO: RUSTPYTHON")
     def testRecursion(self):
         obj = 1.2345
         d = {"hello": obj, "goodbye": obj, obj: "hello"}
@@ -525,23 +519,15 @@ class CompatibilityTestCase(unittest.TestCase):
         data = marshal.dumps(code, version)
         marshal.loads(data)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test0To3(self):
         self._test(0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test1To3(self):
         self._test(1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test2To3(self):
         self._test(2)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test3To3(self):
         self._test(3)
 
@@ -558,8 +544,6 @@ class InterningTestCase(unittest.TestCase, HelperMixin):
         s2 = sys.intern(s)
         self.assertEqual(id(s2), id(s))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testNoIntern(self):
         s = marshal.loads(marshal.dumps(self.strobj, 2))
         self.assertEqual(s, self.strobj)

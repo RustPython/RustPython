@@ -9,7 +9,7 @@ mod decl {
         },
         bytecode,
         convert::ToPyObject,
-        function::ArgBytesLike,
+        function::{ArgBytesLike, OptionalArg},
         object::AsObject,
         protocol::PyBuffer,
         PyObjectRef, PyResult, TryFromObject, VirtualMachine,
@@ -83,6 +83,9 @@ mod decl {
             })
         }
     }
+
+    #[pyattr(name = "version")]
+    const VERSION: u32 = 4;
 
     fn too_short_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
         vm.new_exception_msg(
@@ -201,15 +204,24 @@ mod decl {
     }
 
     #[pyfunction]
-    fn dumps(value: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyBytes> {
+    fn dumps(
+        value: PyObjectRef,
+        _version: OptionalArg<i32>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyBytes> {
         let mut buf = Vec::new();
         dump_obj(&mut buf, value, vm)?;
         Ok(PyBytes::from(buf))
     }
 
     #[pyfunction]
-    fn dump(value: PyObjectRef, f: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let dumped = dumps(value, vm)?;
+    fn dump(
+        value: PyObjectRef,
+        f: PyObjectRef,
+        version: OptionalArg<i32>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let dumped = dumps(value, version, vm)?;
         vm.call_method(&f, "write", (dumped,))?;
         Ok(())
     }
