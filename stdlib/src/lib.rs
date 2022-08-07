@@ -51,7 +51,7 @@ mod select;
 mod ssl;
 #[cfg(all(unix, not(target_os = "redox")))]
 mod termios;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))]
 mod uuid;
 
 use rustpython_common as common;
@@ -135,7 +135,7 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
         {
             "_scproxy" => scproxy::make_module,
         }
-        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        #[cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))]
         {
             "_uuid" => uuid::make_module,
         }
