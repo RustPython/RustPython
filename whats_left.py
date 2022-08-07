@@ -30,7 +30,7 @@ if not sys.flags.isolated:
     print("python -I whats_left.py")
     exit(1)
 
-GENERATED_FILE = "extra_tests/snippets/not_impl.py"
+GENERATED_FILE = "extra_tests/not_impl.py"
 
 implementation = platform.python_implementation()
 if implementation != "CPython":
