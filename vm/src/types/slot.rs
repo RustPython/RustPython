@@ -3,8 +3,7 @@ use crate::{
     builtins::{type_::PointerSlot, PyFloat, PyInt, PyStrInterned, PyStrRef, PyType, PyTypeRef},
     bytecode::ComparisonOperator,
     convert::ToPyResult,
-    function::Either,
-    function::{FromArgs, FuncArgs, OptionalArg, PyComparisonValue},
+    function::{Either, FromArgs, FuncArgs, OptionalArg, PyComparisonValue, PySetterValue},
     identifier,
     protocol::{
         PyBuffer, PyIterReturn, PyMapping, PyMappingMethods, PyNumber, PyNumberMethods, PySequence,
@@ -150,7 +149,7 @@ pub(crate) type HashFunc = fn(&PyObject, &VirtualMachine) -> PyResult<PyHash>;
 // CallFunc = GenericMethod
 pub(crate) type GetattroFunc = fn(&PyObject, PyStrRef, &VirtualMachine) -> PyResult;
 pub(crate) type SetattroFunc =
-    fn(&PyObject, PyStrRef, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>;
+    fn(&PyObject, PyStrRef, PySetterValue, &VirtualMachine) -> PyResult<()>;
 pub(crate) type AsBufferFunc = fn(&PyObject, &VirtualMachine) -> PyResult<PyBuffer>;
 pub(crate) type RichCompareFunc = fn(
     &PyObject,
@@ -163,7 +162,7 @@ pub(crate) type IterNextFunc = fn(&PyObject, &VirtualMachine) -> PyResult<PyIter
 pub(crate) type DescrGetFunc =
     fn(PyObjectRef, Option<PyObjectRef>, Option<PyObjectRef>, &VirtualMachine) -> PyResult;
 pub(crate) type DescrSetFunc =
-    fn(PyObjectRef, PyObjectRef, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>;
+    fn(PyObjectRef, PyObjectRef, PySetterValue, &VirtualMachine) -> PyResult<()>;
 pub(crate) type NewFunc = fn(PyTypeRef, FuncArgs, &VirtualMachine) -> PyResult;
 pub(crate) type InitFunc = fn(PyObjectRef, FuncArgs, &VirtualMachine) -> PyResult<()>;
 pub(crate) type DelFunc = fn(&PyObject, &VirtualMachine) -> PyResult<()>;
@@ -262,15 +261,15 @@ fn getattro_wrapper(zelf: &PyObject, name: PyStrRef, vm: &VirtualMachine) -> PyR
 fn setattro_wrapper(
     zelf: &PyObject,
     name: PyStrRef,
-    value: Option<PyObjectRef>,
+    value: PySetterValue,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     let zelf = zelf.to_owned();
     match value {
-        Some(value) => {
+        PySetterValue::Assign(value) => {
             vm.call_special_method(zelf, identifier!(vm, __setattr__), (name, value))?;
         }
-        None => {
+        PySetterValue::Delete => {
             vm.call_special_method(zelf, identifier!(vm, __delattr__), (name,))?;
         }
     };
@@ -314,12 +313,14 @@ fn descr_get_wrapper(
 fn descr_set_wrapper(
     zelf: PyObjectRef,
     obj: PyObjectRef,
-    value: Option<PyObjectRef>,
+    value: PySetterValue,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     match value {
-        Some(val) => vm.call_special_method(zelf, identifier!(vm, __set__), (obj, val)),
-        None => vm.call_special_method(zelf, identifier!(vm, __delete__), (obj,)),
+        PySetterValue::Assign(val) => {
+            vm.call_special_method(zelf, identifier!(vm, __set__), (obj, val))
+        }
+        PySetterValue::Delete => vm.call_special_method(zelf, identifier!(vm, __delete__), (obj,)),
     }
     .map(drop)
 }
@@ -856,7 +857,7 @@ pub trait SetAttr: PyPayload {
     fn slot_setattro(
         obj: &PyObject,
         name: PyStrRef,
-        value: Option<PyObjectRef>,
+        value: PySetterValue,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         if let Some(zelf) = obj.downcast_ref::<Self>() {
@@ -869,7 +870,7 @@ pub trait SetAttr: PyPayload {
     fn setattro(
         zelf: &Py<Self>,
         name: PyStrRef,
-        value: Option<PyObjectRef>,
+        value: PySetterValue,
         vm: &VirtualMachine,
     ) -> PyResult<()>;
 
@@ -881,13 +882,13 @@ pub trait SetAttr: PyPayload {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        Self::setattro(&zelf, name, Some(value), vm)
+        Self::setattro(&zelf, name, PySetterValue::Assign(value), vm)
     }
 
     #[inline]
     #[pymethod(magic)]
     fn delattr(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-        Self::setattro(&zelf, name, None, vm)
+        Self::setattro(&zelf, name, PySetterValue::Delete, vm)
     }
 }
 

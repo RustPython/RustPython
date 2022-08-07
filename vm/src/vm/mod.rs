@@ -27,7 +27,7 @@ use crate::{
     convert::ToPyObject,
     frame::{ExecutionResult, Frame, FrameRef},
     frozen,
-    function::{ArgMapping, FuncArgs},
+    function::{ArgMapping, FuncArgs, PySetterValue},
     import,
     protocol::PyIterIter,
     scope::Scope,
@@ -717,7 +717,11 @@ impl VirtualMachine {
         attr_value: impl Into<PyObjectRef>,
     ) -> PyResult<()> {
         let val = attr_value.into();
-        module.generic_setattr(attr_name.into_pystr_ref(self), Some(val), self)
+        module.generic_setattr(
+            attr_name.into_pystr_ref(self),
+            PySetterValue::Assign(val),
+            self,
+        )
     }
 
     pub fn insert_sys_path(&self, obj: PyObjectRef) -> PyResult<()> {

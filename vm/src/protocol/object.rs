@@ -10,8 +10,7 @@ use crate::{
     common::{hash::PyHash, str::to_ascii},
     convert::{ToPyObject, ToPyResult},
     dictdatatype::DictKey,
-    function::Either,
-    function::{OptionalArg, PyArithmeticValue},
+    function::{Either, OptionalArg, PyArithmeticValue, PySetterValue},
     protocol::{PyIter, PyMapping, PySequence},
     types::{Constructor, PyComparisonOp},
     AsObject, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
@@ -104,19 +103,22 @@ impl PyObject {
         &self,
         vm: &VirtualMachine,
         attr_name: PyStrRef,
-        attr_value: Option<PyObjectRef>,
+        attr_value: PySetterValue,
     ) -> PyResult<()> {
         let setattro = {
             let cls = self.class();
             cls.mro_find_map(|cls| cls.slots.setattro.load())
                 .ok_or_else(|| {
-                    let assign = attr_value.is_some();
                     let has_getattr = cls.mro_find_map(|cls| cls.slots.getattro.load()).is_some();
                     vm.new_type_error(format!(
                         "'{}' object has {} attributes ({} {})",
                         cls.name(),
                         if has_getattr { "only read-only" } else { "no" },
-                        if assign { "assign to" } else { "del" },
+                        if attr_value.is_assign() {
+                            "assign to"
+                        } else {
+                            "del"
+                        },
                         attr_name
                     ))
                 })?
@@ -131,7 +133,7 @@ impl PyObject {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let attr_name = attr_name.into_pystr_ref(vm);
-        self.call_set_attr(vm, attr_name, Some(attr_value.into()))
+        self.call_set_attr(vm, attr_name, PySetterValue::Assign(attr_value.into()))
     }
 
     // int PyObject_GenericSetAttr(PyObject *o, PyObject *name, PyObject *value)
@@ -139,7 +141,7 @@ impl PyObject {
     pub fn generic_setattr(
         &self,
         attr_name: PyStrRef, // TODO: Py<PyStr>
-        value: Option<PyObjectRef>,
+        value: PySetterValue,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         vm_trace!("object.__setattr__({:?}, {}, {:?})", obj, attr_name, value);
@@ -155,7 +157,7 @@ impl PyObject {
         }
 
         if let Some(dict) = self.dict() {
-            if let Some(value) = value {
+            if let PySetterValue::Assign(value) = value {
                 dict.set_item(&*attr_name, value, vm)?;
             } else {
                 dict.del_item(&*attr_name, vm).map_err(|e| {
@@ -240,7 +242,7 @@ impl PyObject {
 
     pub fn del_attr(&self, attr_name: impl IntoPyStrRef, vm: &VirtualMachine) -> PyResult<()> {
         let attr_name = attr_name.into_pystr_ref(vm);
-        self.call_set_attr(vm, attr_name, None)
+        self.call_set_attr(vm, attr_name, PySetterValue::Delete)
     }
 
     // Perform a comparison, raising TypeError when the requested comparison

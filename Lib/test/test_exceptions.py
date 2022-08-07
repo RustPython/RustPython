@@ -586,8 +586,6 @@ class ExceptionTests(unittest.TestCase):
         else:
             self.fail("No exception raised")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testInvalidAttrs(self):
         self.assertRaises(TypeError, setattr, Exception(), '__cause__', 1)
         self.assertRaises(TypeError, delattr, Exception(), '__cause__')

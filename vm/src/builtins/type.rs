@@ -10,7 +10,7 @@ use crate::common::{
 use crate::{
     builtins::PyBaseExceptionRef,
     class::{PyClassImpl, StaticType},
-    function::{FuncArgs, KwArgs, OptionalArg},
+    function::{FuncArgs, KwArgs, OptionalArg, PySetterValue},
     identifier,
     protocol::PyNumberMethods,
     types::{Callable, GetAttr, PyTypeFlags, PyTypeSlots, SetAttr},
@@ -757,7 +757,7 @@ impl SetAttr for PyType {
     fn setattro(
         zelf: &crate::Py<Self>,
         attr_name: PyStrRef,
-        value: Option<PyObjectRef>,
+        value: PySetterValue,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         // TODO: pass PyRefExact instead of &str
@@ -768,10 +768,10 @@ impl SetAttr for PyType {
                 return descriptor(attr, zelf.to_owned().into(), value, vm);
             }
         }
-        let assign = value.is_some();
+        let assign = value.is_assign();
 
         let mut attributes = zelf.attributes.write();
-        if let Some(value) = value {
+        if let PySetterValue::Assign(value) = value {
             attributes.insert(attr_name, value);
         } else {
             let prev_value = attributes.remove(attr_name);
@@ -848,7 +848,7 @@ fn subtype_set_dict(obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -
                         cls.name()
                     ))
                 })?;
-            descr_set(descr, obj, Some(value), vm)
+            descr_set(descr, obj, PySetterValue::Assign(value), vm)
         }
         None => {
             object::object_set_dict(obj, value.try_into_value(vm)?, vm)?;

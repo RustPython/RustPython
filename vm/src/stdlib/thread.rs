@@ -7,9 +7,9 @@ pub(crate) mod _thread {
     use crate::{
         builtins::{PyDictRef, PyStrRef, PyTupleRef, PyTypeRef},
         convert::ToPyException,
-        function::{ArgCallable, Either, FuncArgs, KwArgs, OptionalArg},
+        function::{ArgCallable, Either, FuncArgs, KwArgs, OptionalArg, PySetterValue},
         types::{Constructor, GetAttr, SetAttr},
-        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+        AsObject, Py, PyPayload, PyRef, PyResult, VirtualMachine,
     };
     use parking_lot::{
         lock_api::{RawMutex as RawMutexT, RawMutexTimed, RawReentrantMutex},
@@ -361,7 +361,7 @@ pub(crate) mod _thread {
         fn setattro(
             zelf: &crate::Py<Self>,
             attr: PyStrRef,
-            value: Option<PyObjectRef>,
+            value: PySetterValue,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             if attr.as_str() == "__dict__" {
@@ -371,7 +371,7 @@ pub(crate) mod _thread {
                 )))
             } else {
                 let dict = zelf.ldict(vm);
-                if let Some(value) = value {
+                if let PySetterValue::Assign(value) = value {
                     dict.set_item(&*attr, value, vm)?;
                 } else {
                     dict.del_item(&*attr, vm)?;
