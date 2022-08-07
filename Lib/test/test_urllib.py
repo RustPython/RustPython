@@ -9,7 +9,8 @@ import io
 import unittest
 from unittest.mock import patch
 from test import support
-from test.support import os_helper, warnings_helper
+from test.support import os_helper
+from test.support import warnings_helper
 import os
 try:
     import ssl
