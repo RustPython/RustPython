@@ -51,7 +51,12 @@ mod select;
 mod ssl;
 #[cfg(all(unix, not(target_os = "redox")))]
 mod termios;
-#[cfg(not(any(target_os = "android", target_os = "ios", target_os = "windows", target_arch = "wasm32")))]
+#[cfg(not(any(
+    target_os = "android",
+    target_os = "ios",
+    target_os = "windows",
+    target_arch = "wasm32"
+)))]
 mod uuid;
 
 use rustpython_common as common;
