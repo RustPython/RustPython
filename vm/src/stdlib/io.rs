@@ -707,7 +707,7 @@ mod _io {
     #[pyclass(flags(BASETYPE))]
     impl _TextIOBase {
         #[pyproperty]
-        fn encoding(&self, vm: &VirtualMachine) -> PyObjectRef {
+        fn encoding(_zelf: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
             vm.ctx.none()
         }
     }
