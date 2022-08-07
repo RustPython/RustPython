@@ -754,8 +754,6 @@ class AttributesTestCase(TestCaseBase):
         ]
         self._run_check(html, expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_comma_between_attributes(self):
         # see bpo 41478
         # HTMLParser preserves duplicate attributes, leaving the task of
