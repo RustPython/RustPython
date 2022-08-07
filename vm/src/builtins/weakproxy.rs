@@ -1,7 +1,7 @@
 use super::{PyStrRef, PyType, PyTypeRef, PyWeak};
 use crate::{
     class::PyClassImpl,
-    function::{OptionalArg, PyComparisonValue},
+    function::{OptionalArg, PyComparisonValue, PySetterValue},
     protocol::{PyMappingMethods, PySequence, PySequenceMethods},
     types::{AsMapping, AsSequence, Comparable, Constructor, GetAttr, PyComparisonOp, SetAttr},
     Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
@@ -134,7 +134,7 @@ impl SetAttr for PyWeakProxy {
     fn setattro(
         zelf: &crate::Py<Self>,
         attr_name: PyStrRef,
-        value: Option<PyObjectRef>,
+        value: PySetterValue,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let obj = zelf.try_upgrade(vm)?;

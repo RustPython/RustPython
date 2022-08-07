@@ -1555,18 +1555,18 @@ dependencies = [
 
 [[package]]
 name = "result-like"
-version = "0.4.4"
+version = "0.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2115a2e3e63aa66da84615e23c1f7a60c493a123ebc4ee2e52e1a100e051b2ed"
+checksum = "7b80fe0296795a96913be20558326b797a187bb3986ce84ed82dee0fb7414428"
 dependencies = [
  "result-like-derive",
 ]
 
 [[package]]
 name = "result-like-derive"
-version = "0.4.4"
+version = "0.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "665b5fa20942b94435fb1052432370c442462a8e92e4e8d725691d31ef773305"
+checksum = "2a29c8a4ac7839f1dcb8b899263b501e0d6932f210300c8a0d271323727b35c1"
 dependencies = [
  "pmutil",
  "proc-macro2",

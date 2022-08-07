@@ -4,7 +4,7 @@
 use super::PyType;
 use crate::{
     class::PyClassImpl,
-    function::{IntoPyGetterFunc, IntoPySetterFunc, PyGetterFunc, PySetterFunc},
+    function::{IntoPyGetterFunc, IntoPySetterFunc, PyGetterFunc, PySetterFunc, PySetterValue},
     types::{Constructor, GetDescriptor, Unconstructible},
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
@@ -102,12 +102,12 @@ impl PyGetSet {
     fn descr_set(
         zelf: PyObjectRef,
         obj: PyObjectRef,
-        value: Option<PyObjectRef>,
+        value: PySetterValue<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let zelf = PyRef::<Self>::try_from_object(vm, zelf)?;
         if let Some(ref f) = zelf.setter {
-            f(vm, obj, value.into())
+            f(vm, obj, value)
         } else {
             Err(vm.new_attribute_error(format!(
                 "attribute '{}' of '{}' objects is not writable",
@@ -123,11 +123,11 @@ impl PyGetSet {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        Self::descr_set(zelf, obj, Some(value), vm)
+        Self::descr_set(zelf, obj, PySetterValue::Assign(value), vm)
     }
     #[pymethod]
     fn __delete__(zelf: PyObjectRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        Self::descr_set(zelf, obj, None, vm)
+        Self::descr_set(zelf, obj, PySetterValue::Delete, vm)
     }
 
     #[pyproperty(magic)]

@@ -5,7 +5,7 @@ use super::{PyType, PyTypeRef};
 use crate::common::lock::PyRwLock;
 use crate::{
     class::PyClassImpl,
-    function::FuncArgs,
+    function::{FuncArgs, PySetterValue},
     types::{Constructor, GetDescriptor, Initializer},
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
@@ -95,19 +95,19 @@ impl PyProperty {
     fn descr_set(
         zelf: PyObjectRef,
         obj: PyObjectRef,
-        value: Option<PyObjectRef>,
+        value: PySetterValue,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let zelf = PyRef::<Self>::try_from_object(vm, zelf)?;
         match value {
-            Some(value) => {
+            PySetterValue::Assign(value) => {
                 if let Some(setter) = zelf.setter.read().as_ref() {
                     vm.invoke(setter, (obj, value)).map(drop)
                 } else {
                     Err(vm.new_attribute_error("can't set attribute".to_owned()))
                 }
             }
-            None => {
+            PySetterValue::Delete => {
                 if let Some(deleter) = zelf.deleter.read().as_ref() {
                     vm.invoke(deleter, (obj,)).map(drop)
                 } else {
@@ -123,11 +123,11 @@ impl PyProperty {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        Self::descr_set(zelf, obj, Some(value), vm)
+        Self::descr_set(zelf, obj, PySetterValue::Assign(value), vm)
     }
     #[pymethod]
     fn __delete__(zelf: PyObjectRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        Self::descr_set(zelf, obj, None, vm)
+        Self::descr_set(zelf, obj, PySetterValue::Delete, vm)
     }
 
     // Access functions

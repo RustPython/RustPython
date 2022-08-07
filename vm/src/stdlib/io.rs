@@ -111,9 +111,9 @@ mod _io {
             PyThreadMutex, PyThreadMutexGuard,
         },
         convert::ToPyObject,
-        function::Either,
         function::{
-            ArgBytesLike, ArgIterable, ArgMemoryBuffer, FuncArgs, OptionalArg, OptionalOption,
+            ArgBytesLike, ArgIterable, ArgMemoryBuffer, Either, FuncArgs, OptionalArg,
+            OptionalOption, PySetterValue,
         },
         protocol::{
             BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn, VecBuffer,
@@ -2318,11 +2318,17 @@ mod _io {
         }
 
         #[pyproperty(setter, name = "_CHUNK_SIZE")]
-        fn set_chunksize(&self, chunk_size: Option<usize>, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_chunksize(
+            &self,
+            chunk_size: PySetterValue<usize>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
             let mut textio = self.lock(vm)?;
             match chunk_size {
-                Some(chunk_size) => textio.chunk_size = chunk_size,
-                None => Err(vm.new_attribute_error("cannot delete attribute".to_owned()))?,
+                PySetterValue::Assign(chunk_size) => textio.chunk_size = chunk_size,
+                PySetterValue::Delete => {
+                    Err(vm.new_attribute_error("cannot delete attribute".to_owned()))?
+                }
             };
             // TODO: RUSTPYTHON
             // Change chunk_size type, validate it manually and throws ValueError if invalid.

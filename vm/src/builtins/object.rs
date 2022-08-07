@@ -2,8 +2,7 @@ use super::{PyDict, PyDictRef, PyList, PyStr, PyStrRef, PyType, PyTypeRef};
 use crate::common::hash::PyHash;
 use crate::{
     class::PyClassImpl,
-    function::Either,
-    function::{FuncArgs, PyArithmeticValue, PyComparisonValue},
+    function::{Either, FuncArgs, PyArithmeticValue, PyComparisonValue, PySetterValue},
     types::PyComparisonOp,
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
@@ -162,20 +161,20 @@ impl PyBaseObject {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        obj.generic_setattr(name, Some(value), vm)
+        obj.generic_setattr(name, PySetterValue::Assign(value), vm)
     }
 
     /// Implement delattr(self, name).
     #[pymethod]
     fn __delattr__(obj: PyObjectRef, name: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-        obj.generic_setattr(name, None, vm)
+        obj.generic_setattr(name, PySetterValue::Delete, vm)
     }
 
     #[pyslot]
     fn slot_setattro(
         obj: &PyObject,
         attr_name: PyStrRef,
-        value: Option<PyObjectRef>,
+        value: PySetterValue,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         obj.generic_setattr(attr_name, value, vm)

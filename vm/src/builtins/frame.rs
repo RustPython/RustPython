@@ -2,10 +2,11 @@
 
 */
 
-use super::{PyCode, PyDictRef, PyStrRef};
+use super::{PyCode, PyDictRef};
 use crate::{
     class::PyClassImpl,
     frame::{Frame, FrameRef},
+    function::PySetterValue,
     types::{Constructor, Unconstructible},
     AsObject, Context, PyObjectRef, PyRef, PyResult, VirtualMachine,
 };
@@ -23,15 +24,6 @@ impl FrameRef {
     #[pymethod(magic)]
     fn repr(self) -> String {
         "<frame object at .. >".to_owned()
-    }
-
-    #[pymethod(magic)]
-    fn delattr(self, value: PyStrRef, vm: &VirtualMachine) {
-        // CPython' Frame.f_trace is set to None when deleted.
-        // The strange behavior is mimicked here make bdb.py happy about it.
-        if value.to_string() == "f_trace" {
-            self.set_f_trace(vm.ctx.none());
-        };
     }
 
     #[pymethod]
@@ -86,8 +78,8 @@ impl FrameRef {
     }
 
     #[pyproperty(setter)]
-    fn set_f_trace(self, value: PyObjectRef) {
+    fn set_f_trace(self, value: PySetterValue, vm: &VirtualMachine) {
         let mut storage = self.trace.lock();
-        *storage = value;
+        *storage = value.unwrap_or_none(vm);
     }
 }

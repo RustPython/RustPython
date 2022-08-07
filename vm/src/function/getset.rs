@@ -8,10 +8,19 @@ use crate::{
     PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 
-#[derive(result_like::OptionLike)]
+#[derive(result_like::OptionLike, is_macro::Is)]
 pub enum PySetterValue<T = PyObjectRef> {
     Assign(T),
     Delete,
+}
+
+impl PySetterValue {
+    pub fn unwrap_or_none(self, vm: &VirtualMachine) -> PyObjectRef {
+        match self {
+            Self::Assign(value) => value,
+            Self::Delete => vm.ctx.none(),
+        }
+    }
 }
 
 trait FromPySetterValue
@@ -25,6 +34,7 @@ impl<T> FromPySetterValue for T
 where
     T: Sized + TryFromObject,
 {
+    #[inline]
     fn from_setter_value(vm: &VirtualMachine, obj: PySetterValue) -> PyResult<Self> {
         let obj = obj.ok_or_else(|| vm.new_type_error("can't delete attribute".to_owned()))?;
         T::try_from_object(vm, obj)
@@ -35,8 +45,9 @@ impl<T> FromPySetterValue for PySetterValue<T>
 where
     T: Sized + TryFromObject,
 {
+    #[inline]
     fn from_setter_value(vm: &VirtualMachine, obj: PySetterValue) -> PyResult<Self> {
-        Ok(obj.map(|obj| T::try_from_object(vm, obj)).transpose()?)
+        obj.map(|obj| T::try_from_object(vm, obj)).transpose()
     }
 }
 
