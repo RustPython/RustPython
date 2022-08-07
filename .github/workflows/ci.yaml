@@ -100,6 +100,7 @@ jobs:
   rust_tests:
     env:
       RUST_BACKTRACE: full
+      CARGO_PROFILE_RELEASE_LTO: "false"
     name: Run rust tests
     runs-on:  ${{ matrix.os }}
     strategy:
@@ -202,6 +203,7 @@ jobs:
   snippets_cpython:
     env:
       RUST_BACKTRACE: full
+      CARGO_PROFILE_RELEASE_LTO: "false"
     name: Run snippets and cpython tests
     runs-on:  ${{ matrix.os }}
     strategy:
