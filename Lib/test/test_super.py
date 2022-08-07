@@ -143,8 +143,6 @@ class TestSuper(unittest.TestCase):
                 return __class__
         self.assertIs(X.f(), X)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test___class___new(self):
         # See issue #23722
         # Ensure zero-arg super() works as soon as type.__new__() is completed
@@ -263,8 +261,6 @@ class TestSuper(unittest.TestCase):
                 def f(self):
                     return __class__
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test___classcell___overwrite(self):
         # See issue #23722
         # Overwriting __classcell__ with nonsense is explicitly prohibited
@@ -279,8 +275,6 @@ class TestSuper(unittest.TestCase):
                     class A(metaclass=Meta, cell=bad_cell):
                         pass
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test___classcell___wrong_cell(self):
         # See issue #23722
         # Pointing the cell reference at the wrong class is also prohibited
