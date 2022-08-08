@@ -734,6 +734,8 @@ class TestPlistlib(unittest.TestCase):
                 data = plistlib.dumps(pl, fmt=fmt)
                 self.assertEqual(plistlib.loads(data), pl)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_lone_surrogates(self):
         for fmt in ALL_FORMATS:
             with self.subTest(fmt=fmt):
@@ -752,6 +754,8 @@ class TestPlistlib(unittest.TestCase):
                 self.assertEqual(test1, result1)
                 self.assertEqual(test2, result2)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_invalidarray(self):
         for i in ["<key>key inside an array</key>",
                   "<key>key inside an array2</key><real>3</real>",
@@ -759,6 +763,8 @@ class TestPlistlib(unittest.TestCase):
             self.assertRaises(ValueError, plistlib.loads,
                               ("<plist><array>%s</array></plist>"%i).encode())
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_invaliddict(self):
         for i in ["<key><true/>k</key><string>compound key</string>",
                   "<key>single key</key>",
@@ -770,10 +776,14 @@ class TestPlistlib(unittest.TestCase):
             self.assertRaises(ValueError, plistlib.loads,
                               ("<plist><array><dict>%s</dict></array></plist>"%i).encode())
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_invalidinteger(self):
         self.assertRaises(ValueError, plistlib.loads,
                           b"<plist><integer>not integer</integer></plist>")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_invalidreal(self):
         self.assertRaises(ValueError, plistlib.loads,
                           b"<plist><integer>not real</integer></plist>")
@@ -791,6 +801,8 @@ class TestPlistlib(unittest.TestCase):
         value = plistlib.loads(pl)
         self.assertEqual(value, 123)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_xml_encodings(self):
         base = TESTDATA[plistlib.FMT_XML]
 
@@ -830,6 +842,8 @@ class TestPlistlib(unittest.TestCase):
         with self.assertRaises(OverflowError):
             plistlib.dumps(huge_uid, fmt=plistlib.FMT_BINARY)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_xml_plist_with_entity_decl(self):
         with self.assertRaisesRegex(plistlib.InvalidFileException,
                                     "XML entity declarations are not supported"):
