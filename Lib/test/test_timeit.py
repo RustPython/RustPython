@@ -91,6 +91,8 @@ class TestTimeit(unittest.TestCase):
         self.assertRaises(SyntaxError, timeit.Timer, setup='from timeit import *')
         self.assertRaises(SyntaxError, timeit.Timer, setup='  pass')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_timer_empty_stmt(self):
         timeit.Timer(stmt='')
         timeit.Timer(stmt=' \n\t\f')
