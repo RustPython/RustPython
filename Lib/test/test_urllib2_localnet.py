@@ -634,6 +634,7 @@ class TestUrlopen(unittest.TestCase):
             pass
         self.assertEqual(handler.headers_received["Range"], "bytes=20-39")
 
+    @unittest.skipIf(os.name == "nt", "TODO: RUSTPYTHON, ValueError: illegal environment variable name")
     def test_sending_headers_camel(self):
         handler = self.start_server()
         req = urllib.request.Request("http://localhost:%s/" % handler.port,
@@ -694,6 +695,7 @@ class TestUrlopen(unittest.TestCase):
                              (index, len(lines[index]), len(line)))
         self.assertEqual(index + 1, len(lines))
 
+    @unittest.skipIf(os.name == "nt", "TODO: RUSTPYTHON, ValueError: illegal environment variable name")
     def test_issue16464(self):
         # See https://bugs.python.org/issue16464
         # and https://bugs.python.org/issue46648
