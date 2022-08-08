@@ -156,6 +156,8 @@ class SymtableTest(unittest.TestCase):
 
         self.assertRaises(KeyError, self.top.lookup, "not_here")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_namespaces(self):
         self.assertTrue(self.top.lookup("Mine").is_namespace())
         self.assertTrue(self.Mine.lookup("a_method").is_namespace())
@@ -260,6 +262,8 @@ class SymtableTest(unittest.TestCase):
         top = symtable.symtable(code, "?", "exec")
         self.assertIsNotNone(find_block(top, "\u017d"))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_symtable_repr(self):
         self.assertEqual(str(self.top), "<SymbolTable for module ?>")
         self.assertEqual(str(self.spam), "<Function SymbolTable for spam in ?>")
