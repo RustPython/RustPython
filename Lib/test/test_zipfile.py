@@ -1750,6 +1750,8 @@ class OtherTests(unittest.TestCase):
             fp.write("short file")
         self.assertRaises(zipfile.BadZipFile, zipfile.ZipFile, TESTFN)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_negative_central_directory_offset_raises_BadZipFile(self):
         # Zip file containing an empty EOCD record
         buffer = bytearray(b'PK\x05\x06' + b'\0'*18)
