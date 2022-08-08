@@ -82,7 +82,7 @@ def resolve_bases(bases):
     updated = False
     shift = 0
     for i, base in enumerate(bases):
-        if isinstance(base, type):
+        if isinstance(base, type) and not isinstance(base, GenericAlias):
             continue
         if not hasattr(base, "__mro_entries__"):
             continue
@@ -282,9 +282,7 @@ def coroutine(func):
     @functools.wraps(func)
     def wrapped(*args, **kwargs):
         coro = func(*args, **kwargs)
-        if (# XXX RUSTPYTHON TODO: iterable coroutine
-            False and
-            coro.__class__ is CoroutineType or
+        if (coro.__class__ is CoroutineType or
             coro.__class__ is GeneratorType and coro.gi_code.co_flags & 0x100):
             # 'coro' is a native coroutine object or an iterable coroutine
             return coro
