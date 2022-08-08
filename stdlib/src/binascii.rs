@@ -145,19 +145,44 @@ mod decl {
 
     #[pyfunction]
     fn a2b_base64(s: ArgAsciiBuffer, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        #[rustfmt::skip]
+        const BASE64_TABLE: [i8; 256] = [
+            -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1,
+            -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1,
+            -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,62, -1,-1,-1,63,
+            52,53,54,55, 56,57,58,59, 60,61,-1,-1, -1, 0,-1,-1, /* Note PAD->0 */
+            -1, 0, 1, 2,  3, 4, 5, 6,  7, 8, 9,10, 11,12,13,14,
+            15,16,17,18, 19,20,21,22, 23,24,25,-1, -1,-1,-1,-1,
+            -1,26,27,28, 29,30,31,32, 33,34,35,36, 37,38,39,40,
+            41,42,43,44, 45,46,47,48, 49,50,51,-1, -1,-1,-1,-1,
+
+            -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1,
+            -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1,
+            -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1,
+            -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1,
+            -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1,
+            -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1,
+            -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1,
+            -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1,
+        ];
+
         s.with_ref(|b| {
-            let mut buf;
-            let b = if memchr::memchr(b'\n', b).is_some() {
-                buf = b.to_vec();
-                buf.retain(|c| *c != b'\n');
-                &buf
+            let decoded = if b.len() % 4 == 0 {
+                base64::decode(b)
             } else {
-                b
+                Err(base64::DecodeError::InvalidLength)
             };
-            if b.len() % 4 != 0 {
-                return Err(base64::DecodeError::InvalidLength);
-            }
-            base64::decode(b)
+            decoded.or_else(|_| {
+                let buf: Vec<_> = b
+                    .iter()
+                    .copied()
+                    .filter(|&c| BASE64_TABLE[c as usize] != -1)
+                    .collect();
+                if buf.len() % 4 != 0 {
+                    return Err(base64::DecodeError::InvalidLength);
+                }
+                base64::decode(&buf)
+            })
         })
         .map_err(|err| new_binascii_error(format!("error decoding base64: {}", err), vm))
     }
