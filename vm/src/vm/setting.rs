@@ -93,7 +93,7 @@ impl Default for Settings {
             argv: vec![],
             hash_seed: None,
             stdio_unbuffered: false,
-            allow_external_library: true,
+            allow_external_library: cfg!(feature = "importlib"),
         }
     }
 }
