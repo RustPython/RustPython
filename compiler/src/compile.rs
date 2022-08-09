@@ -2468,11 +2468,6 @@ impl Compiler {
             let loop_block = self.new_block();
             let after_block = self.new_block();
 
-            // Setup for loop:
-            self.emit(Instruction::SetupLoop {
-                break_target: after_block,
-            });
-
             if loop_labels.is_empty() {
                 // Load iterator onto stack (passed as first argument):
                 self.emit(Instruction::LoadFast(arg0));
@@ -2507,7 +2502,6 @@ impl Compiler {
 
             // End of for loop:
             self.switch_to_block(after_block);
-            self.emit(Instruction::PopBlock);
         }
 
         if return_none {
