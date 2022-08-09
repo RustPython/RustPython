@@ -210,14 +210,25 @@ impl CodecsRegistry {
         Ok(())
     }
 
+    #[cfg(not(feature = "encodings"))]
+    pub(crate) fn register_manual(&self, name: &str, codec: PyCodec) -> PyResult<()> {
+        self.inner
+            .write()
+            .search_cache
+            .insert(name.to_owned(), codec);
+        Ok(())
+    }
+
     pub fn lookup(&self, encoding: &str, vm: &VirtualMachine) -> PyResult<PyCodec> {
         let encoding = normalize_encoding_name(encoding);
-        let inner = self.inner.read();
-        if let Some(codec) = inner.search_cache.get(encoding.as_ref()) {
-            return Ok(codec.clone());
-        }
-        let search_path = inner.search_path.clone();
-        drop(inner); // don't want to deadlock
+        let search_path = {
+            let inner = self.inner.read();
+            if let Some(codec) = inner.search_cache.get(encoding.as_ref()) {
+                // hit cache
+                return Ok(codec.clone());
+            }
+            inner.search_path.clone()
+        };
         let encoding = PyStr::from(encoding.into_owned()).into_ref(vm);
         for func in search_path {
             let res = vm.invoke(&func, (encoding.clone(),))?;

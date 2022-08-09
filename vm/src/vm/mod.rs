@@ -187,6 +187,36 @@ impl VirtualMachine {
         vm
     }
 
+    /// set up the encodings search function
+    /// init_importlib must be called before this call
+    #[cfg(feature = "encodings")]
+    fn import_encodings(&mut self) -> PyResult<()> {
+        self.import("encodings", None, 0).map_err(|import_err| {
+            let err = self.new_runtime_error(
+                "Could not import encodings. Is your RUSTPYTHONPATH set? If you don't have \
+                    access to a consistent external environment (e.g. if you're embedding \
+                    rustpython in another application), try enabling the freeze-stdlib feature"
+                    .to_owned(),
+            );
+            err.set_cause(Some(import_err));
+            err
+        })?;
+        Ok(())
+    }
+
+    /// init only utf-8 encoding
+    #[cfg(not(feature = "encodings"))]
+    fn import_encodings(&mut self) -> PyResult<()> {
+        import::import_frozen(self, "codecs")?;
+        let encoding_module = import::import_frozen(self, "encodings_utf_8")?;
+        let getregentry = encoding_module.get_attr("getregentry", self)?;
+        let codec_info = self.invoke(&getregentry, ())?;
+        self.state
+            .codec_registry
+            .register_manual("utf-8", codec_info.try_into_value(self)?)?;
+        Ok(())
+    }
+
     fn initialize(&mut self) {
         flame_guard!("init VirtualMachine");
 
@@ -202,17 +232,7 @@ impl VirtualMachine {
             import::import_builtin(self, "_signal")?;
             import::init_importlib(self, self.state.settings.allow_external_library)?;
 
-            // set up the encodings search function
-            self.import("encodings", None, 0).map_err(|import_err| {
-                let err = self.new_runtime_error(
-                    "Could not import encodings. Is your RUSTPYTHONPATH set? If you don't have \
-                     access to a consistent external environment (e.g. if you're embedding \
-                     rustpython in another application), try enabling the freeze-stdlib feature"
-                        .to_owned(),
-                );
-                err.set_cause(Some(import_err));
-                err
-            })?;
+            self.import_encodings()?;
 
             #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
             {

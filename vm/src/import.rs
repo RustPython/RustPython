@@ -153,7 +153,8 @@ pub fn import_codeobj(
     sys_modules.set_item(module_name, module.clone(), vm)?;
 
     // Execute main code in module:
-    vm.run_code_obj(code_obj, Scope::with_builtins(None, attrs, vm))?;
+    let scope = Scope::with_builtins(None, attrs, vm);
+    vm.run_code_obj(code_obj, scope)?;
     Ok(module)
 }
 
