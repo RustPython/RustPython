@@ -1,6 +1,6 @@
 // good luck to those that follow; here be dragons
 
-use super::constants::{SreAtCode, SreCatCode, SreInfo, SreOpcode};
+use super::constants::{SreAtCode, SreCatCode, SreOpcode};
 use super::MAXREPEAT;
 use optional::Optioned;
 use std::convert::TryFrom;
@@ -40,19 +40,6 @@ impl<'a, S: StrDrive> Request<'a, S> {
         }
     }
 }
-
-// macro_rules! mark {
-//     (push, $state:expr) => {
-//         $state
-//             .marks_stack
-//             .push(($state.marks.clone(), $state.lastindex))
-//     };
-//     (pop, $state:expr) => {
-//         let (marks, lastindex) = $state.marks_stack.pop().unwrap();
-//         $state.marks = marks;
-//         $state.lastindex = lastindex;
-//     };
-// }
 
 #[derive(Debug)]
 pub struct Marks {
@@ -135,6 +122,7 @@ pub struct State<S: StrDrive> {
     pub marks: Marks,
     context_stack: Vec<MatchContext<S>>,
     repeat_stack: Vec<RepeatContext>,
+    pub start: usize,
     pub string_position: usize,
     next_context: Option<MatchContext<S>>,
     popped_has_matched: bool,
@@ -144,61 +132,29 @@ pub struct State<S: StrDrive> {
 impl<S: StrDrive> Default for State<S> {
     fn default() -> Self {
         Self {
-            marks: Default::default(),
-            context_stack: Default::default(),
-            repeat_stack: Default::default(),
-            string_position: Default::default(),
-            next_context: Default::default(),
-            popped_has_matched: Default::default(),
-            has_matched: Default::default(),
+            marks: Marks::default(),
+            context_stack: Vec::new(),
+            repeat_stack: Vec::new(),
+            start: 0,
+            string_position: 0,
+            next_context: None,
+            popped_has_matched: false,
+            has_matched: false,
         }
     }
 }
 
 impl<S: StrDrive> State<S> {
-    pub fn reset(&mut self, string_position: usize) {
+    pub fn reset(&mut self, start: usize) {
         self.marks.clear();
         self.context_stack.clear();
         self.repeat_stack.clear();
-        self.string_position = string_position;
+        self.start = start;
+        self.string_position = start;
         self.next_context = None;
         self.popped_has_matched = false;
         self.has_matched = false;
     }
-
-    // fn set_mark(&mut self, mark_nr: usize, position: usize) {
-    //     if mark_nr & 1 != 0 {
-    //         self.lastindex = mark_nr as isize / 2 + 1;
-    //     }
-    //     if mark_nr >= self.marks.len() {
-    //         self.marks.resize(mark_nr + 1, None);
-    //     }
-    //     self.marks[mark_nr] = Some(position);
-    // }
-    // fn get_marks(&self, group_index: usize) -> (Option<usize>, Option<usize>) {
-    //     let marks_index = 2 * group_index;
-    //     if marks_index + 1 < self.marks.len() {
-    //         (self.marks[marks_index], self.marks[marks_index + 1])
-    //     } else {
-    //         (None, None)
-    //     }
-    // }
-    // fn marks_push(&mut self) {
-    //     self.marks_stack.push((self.marks.clone(), self.lastindex));
-    // }
-    // fn marks_pop(&mut self) {
-    //     let (marks, lastindex) = self.marks_stack.pop().unwrap();
-    //     self.marks = marks;
-    //     self.lastindex = lastindex;
-    // }
-    // fn marks_pop_keep(&mut self) {
-    //     let (marks, lastindex) = self.marks_stack.last().unwrap().clone();
-    //     self.marks = marks;
-    //     self.lastindex = lastindex;
-    // }
-    // fn marks_pop_discard(&mut self) {
-    //     self.marks_stack.pop();
-    // }
 
     fn _match(&mut self, req: &mut Request<S>) {
         while let Some(mut ctx) = self.context_stack.pop() {
@@ -225,6 +181,7 @@ impl<S: StrDrive> State<S> {
     }
 
     pub fn pymatch(&mut self, req: &mut Request<S>) {
+        self.start = req.start;
         self.string_position = req.start;
 
         let ctx = MatchContext {
@@ -243,6 +200,7 @@ impl<S: StrDrive> State<S> {
     }
 
     pub fn search(&mut self, req: &mut Request<S>) {
+        self.start = req.start;
         self.string_position = req.start;
 
         // TODO: optimize by op info and skip prefix
@@ -479,7 +437,6 @@ fn op_assert<S: StrDrive>(req: &Request<S>, state: &mut State<S>, ctx: &mut Matc
         return ctx.failure();
     }
 
-    // let next_ctx = next_ctx!(offset 3, state, ctx, |req, state, ctx| {
     let next_ctx = ctx.next_offset(3, state, |req, state, ctx| {
         if state.popped_has_matched {
             ctx.skip_code_from(req, 1);
@@ -592,7 +549,6 @@ fn op_min_repeat_one<S: StrDrive>(
 
         if max_count == MAXREPEAT || ctx.count as usize <= max_count {
             state.string_position = ctx.string_position;
-            // next_ctx!(from 1, state, ctx, callback);
             ctx.next_from(1, req, state, callback);
         } else {
             state.marks.pop_discard();
@@ -676,7 +632,6 @@ fn op_repeat_one<S: StrDrive>(req: &Request<S>, state: &mut State<S>, ctx: &mut 
         state.string_position = ctx.string_position;
 
         // General case: backtracking
-        // next_ctx!(from 1, state, ctx, callback);
         ctx.next_from(1, req, state, callback);
     }
 
@@ -861,7 +816,6 @@ fn op_max_until<S: StrDrive>(state: &mut State<S>, ctx: &mut MatchContext<S>) {
 
     /* cannot match more repeated items here.  make sure the
     tail matches */
-    // let next_ctx = next_ctx!(offset 1, state, ctx, tail_callback);
     let repeat_ctx_prev_id = repeat_ctx.prev_id;
     let next_ctx = ctx.next_offset(1, state, tail_callback);
     next_ctx.repeat_ctx_id = repeat_ctx_prev_id;
@@ -965,7 +919,7 @@ struct MatchContext<S: StrDrive> {
     count: isize,
 }
 
-impl<'a, S: StrDrive> std::fmt::Debug for MatchContext<S> {
+impl<S: StrDrive> std::fmt::Debug for MatchContext<S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MatchContext")
             .field("string_position", &self.string_position)
