@@ -2460,18 +2460,17 @@ impl Compiler {
         }
 
         let mut loop_labels = vec![];
+        let mut is_async = false;
         for generator in generators {
-            if generator.is_async {
-                unimplemented!("async for comprehensions");
-            }
-
             let loop_block = self.new_block();
             let after_block = self.new_block();
 
             // Setup for loop:
-            self.emit(Instruction::SetupLoop {
-                break_target: after_block,
-            });
+            if !generator.is_async {
+                self.emit(Instruction::SetupLoop {
+                    break_target: after_block,
+                });
+            }
 
             if loop_labels.is_empty() {
                 // Load iterator onto stack (passed as first argument):
@@ -2479,18 +2478,30 @@ impl Compiler {
             } else {
                 // Evaluate iterated item:
                 self.compile_expression(&generator.iter)?;
-
-                // Get iterator / turn item into an iterator
-                self.emit(Instruction::GetIter);
+                if generator.is_async {
+                    self.emit(Instruction::GetAIter);
+                } else {
+                    // Get iterator / turn item into an iterator
+                    self.emit(Instruction::GetIter);
+                }
             }
 
             loop_labels.push((loop_block, after_block));
-
             self.switch_to_block(loop_block);
-            self.emit(Instruction::ForIter {
-                target: after_block,
-            });
-
+            if generator.is_async {
+                is_async = true;
+                self.emit(Instruction::SetupFinally {
+                    handler: after_block,
+                });
+                self.emit(Instruction::GetANext);
+                self.emit_constant(ConstantData::None);
+                self.emit(Instruction::YieldFrom);
+                self.emit(Instruction::PopBlock);
+            } else {
+                self.emit(Instruction::ForIter {
+                    target: after_block,
+                });
+            }
             self.compile_store(&generator.target)?;
 
             // Now evaluate the ifs:
@@ -2507,7 +2518,11 @@ impl Compiler {
 
             // End of for loop:
             self.switch_to_block(after_block);
-            self.emit(Instruction::PopBlock);
+            if is_async {
+                self.emit(Instruction::EndAsyncFor);
+            } else {
+                self.emit(Instruction::PopBlock);
+            }
         }
 
         if return_none {
@@ -2544,10 +2559,19 @@ impl Compiler {
         self.compile_expression(&generators[0].iter)?;
 
         // Get iterator / turn item into an iterator
-        self.emit(Instruction::GetIter);
+        if is_async {
+            self.emit(Instruction::GetAIter);
+        } else {
+            self.emit(Instruction::GetIter);
+        }
 
         // Call just created <listcomp> function:
         self.emit(Instruction::CallFunctionPositional { nargs: 1 });
+        if is_async {
+            self.emit(Instruction::GetAwaitable);
+            self.emit_constant(ConstantData::None);
+            self.emit(Instruction::YieldFrom);
+        }
         Ok(())
     }
 
@@ -2563,7 +2587,9 @@ impl Compiler {
                 // "generator_stop" => {}
                 "annotations" => self.future_annotations = true,
                 other => {
-                    return Err(self.error(CompileErrorType::InvalidFutureFeature(other.to_owned())))
+                    return Err(
+                        self.error(CompileErrorType::InvalidFutureFeature(other.to_owned()))
+                    );
                 }
             }
         }
