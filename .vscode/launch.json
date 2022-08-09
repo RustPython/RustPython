@@ -8,6 +8,12 @@
             "type": "lldb",
             "request": "launch",
             "name": "Debug executable 'rustpython'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--package=rustpython"
+                ],
+            },
             "preLaunchTask": "Build RustPython Debug",
             "program": "target/debug/rustpython",
             "args": [],
