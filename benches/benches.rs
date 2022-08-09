@@ -23,7 +23,7 @@ impl Pattern {
         range: std::ops::Range<usize>,
     ) -> (engine::Request<'a, S>, engine::State<S>) {
         let req = engine::Request::new(string, range.start, range.end, self.code, false);
-        let state = engine::State::new();
+        let state = engine::State::default();
         (req, state)
     }
 }

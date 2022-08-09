@@ -2,7 +2,9 @@
 
 use super::constants::{SreAtCode, SreCatCode, SreInfo, SreOpcode};
 use super::MAXREPEAT;
+use optional::Optioned;
 use std::convert::TryFrom;
+use std::ops::Deref;
 
 const fn is_py_ascii_whitespace(b: u8) -> bool {
     matches!(b, b'\t' | b'\n' | b'\x0C' | b'\r' | b' ' | b'\x0B')
@@ -39,24 +41,98 @@ impl<'a, S: StrDrive> Request<'a, S> {
     }
 }
 
-macro_rules! mark {
-    (push, $state:expr) => {
-        $state
-            .marks_stack
-            .push(($state.marks.clone(), $state.lastindex))
-    };
-    (pop, $state:expr) => {
-        let (marks, lastindex) = $state.marks_stack.pop().unwrap();
-        $state.marks = marks;
-        $state.lastindex = lastindex;
-    };
+// macro_rules! mark {
+//     (push, $state:expr) => {
+//         $state
+//             .marks_stack
+//             .push(($state.marks.clone(), $state.lastindex))
+//     };
+//     (pop, $state:expr) => {
+//         let (marks, lastindex) = $state.marks_stack.pop().unwrap();
+//         $state.marks = marks;
+//         $state.lastindex = lastindex;
+//     };
+// }
+
+#[derive(Debug)]
+pub struct Marks {
+    last_index: isize,
+    marks: Vec<Optioned<usize>>,
+    marks_stack: Vec<(Vec<Optioned<usize>>, isize)>,
+}
+
+impl Default for Marks {
+    fn default() -> Self {
+        Self {
+            last_index: -1,
+            marks: Vec::new(),
+            marks_stack: Vec::new(),
+        }
+    }
+}
+
+impl Deref for Marks {
+    type Target = Vec<Optioned<usize>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.marks
+    }
+}
+
+impl Marks {
+    pub fn get(&self, group_index: usize) -> (Optioned<usize>, Optioned<usize>) {
+        let marks_index = 2 * group_index;
+        if marks_index + 1 < self.marks.len() {
+            (self.marks[marks_index], self.marks[marks_index + 1])
+        } else {
+            (Optioned::none(), Optioned::none())
+        }
+    }
+
+    pub fn last_index(&self) -> isize {
+        self.last_index
+    }
+
+    fn set(&mut self, mark_nr: usize, position: usize) {
+        if mark_nr & 1 != 0 {
+            self.last_index = mark_nr as isize / 2 + 1;
+        }
+        if mark_nr >= self.marks.len() {
+            self.marks.resize(mark_nr + 1, Optioned::none());
+        }
+        self.marks[mark_nr] = Optioned::some(position);
+    }
+
+    fn push(&mut self) {
+        self.marks_stack.push((self.marks.clone(), self.last_index));
+    }
+
+    fn pop(&mut self) {
+        let (marks, last_index) = self.marks_stack.pop().unwrap();
+        self.marks = marks;
+        self.last_index = last_index;
+    }
+
+    fn pop_keep(&mut self) {
+        let (marks, last_index) = self.marks_stack.last().unwrap().clone();
+        self.marks = marks;
+        self.last_index = last_index;
+    }
+
+    fn pop_discard(&mut self) {
+        self.marks_stack.pop();
+    }
+
+    fn clear(&mut self) {
+        self.last_index = -1;
+        self.marks.clear();
+        self.marks_stack.clear();
+    }
 }
 
 #[derive(Debug)]
 pub struct State<S: StrDrive> {
-    pub marks: Vec<Option<usize>>,
-    pub lastindex: isize,
-    marks_stack: Vec<(Vec<Option<usize>>, isize)>,
+    pub marks: Marks,
     context_stack: Vec<MatchContext<S>>,
     repeat_stack: Vec<RepeatContext>,
     pub string_position: usize,
@@ -65,25 +141,23 @@ pub struct State<S: StrDrive> {
     pub has_matched: bool,
 }
 
-impl<S: StrDrive> State<S> {
-    pub fn new() -> Self {
+impl<S: StrDrive> Default for State<S> {
+    fn default() -> Self {
         Self {
-            marks: Vec::new(),
-            lastindex: -1,
-            marks_stack: Vec::new(),
-            context_stack: Vec::new(),
-            repeat_stack: Vec::new(),
-            string_position: 0,
-            next_context: None,
-            popped_has_matched: false,
-            has_matched: false,
+            marks: Default::default(),
+            context_stack: Default::default(),
+            repeat_stack: Default::default(),
+            string_position: Default::default(),
+            next_context: Default::default(),
+            popped_has_matched: Default::default(),
+            has_matched: Default::default(),
         }
     }
+}
 
+impl<S: StrDrive> State<S> {
     pub fn reset(&mut self, string_position: usize) {
-        self.lastindex = -1;
         self.marks.clear();
-        self.marks_stack.clear();
         self.context_stack.clear();
         self.repeat_stack.clear();
         self.string_position = string_position;
@@ -92,23 +166,23 @@ impl<S: StrDrive> State<S> {
         self.has_matched = false;
     }
 
-    fn set_mark(&mut self, mark_nr: usize, position: usize) {
-        if mark_nr & 1 != 0 {
-            self.lastindex = mark_nr as isize / 2 + 1;
-        }
-        if mark_nr >= self.marks.len() {
-            self.marks.resize(mark_nr + 1, None);
-        }
-        self.marks[mark_nr] = Some(position);
-    }
-    fn get_marks(&self, group_index: usize) -> (Option<usize>, Option<usize>) {
-        let marks_index = 2 * group_index;
-        if marks_index + 1 < self.marks.len() {
-            (self.marks[marks_index], self.marks[marks_index + 1])
-        } else {
-            (None, None)
-        }
-    }
+    // fn set_mark(&mut self, mark_nr: usize, position: usize) {
+    //     if mark_nr & 1 != 0 {
+    //         self.lastindex = mark_nr as isize / 2 + 1;
+    //     }
+    //     if mark_nr >= self.marks.len() {
+    //         self.marks.resize(mark_nr + 1, None);
+    //     }
+    //     self.marks[mark_nr] = Some(position);
+    // }
+    // fn get_marks(&self, group_index: usize) -> (Option<usize>, Option<usize>) {
+    //     let marks_index = 2 * group_index;
+    //     if marks_index + 1 < self.marks.len() {
+    //         (self.marks[marks_index], self.marks[marks_index + 1])
+    //     } else {
+    //         (None, None)
+    //     }
+    // }
     // fn marks_push(&mut self) {
     //     self.marks_stack.push((self.marks.clone(), self.lastindex));
     // }
@@ -117,14 +191,14 @@ impl<S: StrDrive> State<S> {
     //     self.marks = marks;
     //     self.lastindex = lastindex;
     // }
-    fn marks_pop_keep(&mut self) {
-        let (marks, lastindex) = self.marks_stack.last().unwrap().clone();
-        self.marks = marks;
-        self.lastindex = lastindex;
-    }
-    fn marks_pop_discard(&mut self) {
-        self.marks_stack.pop();
-    }
+    // fn marks_pop_keep(&mut self) {
+    //     let (marks, lastindex) = self.marks_stack.last().unwrap().clone();
+    //     self.marks = marks;
+    //     self.lastindex = lastindex;
+    // }
+    // fn marks_pop_discard(&mut self) {
+    //     self.marks_stack.pop();
+    // }
 
     fn _match(&mut self, req: &mut Request<S>) {
         while let Some(mut ctx) = self.context_stack.pop() {
@@ -311,7 +385,9 @@ fn dispatch<S: StrDrive>(
             general_op_literal(req, ctx, |code, c| !char_loc_ignore(code, c))
         }
         SreOpcode::MARK => {
-            state.set_mark(ctx.peek_code(req, 1) as usize, ctx.string_position);
+            state
+                .marks
+                .set(ctx.peek_code(req, 1) as usize, ctx.string_position);
             ctx.skip_code(2);
         }
         SreOpcode::MAX_UNTIL => op_max_until(state, ctx),
@@ -324,12 +400,14 @@ fn dispatch<S: StrDrive>(
         SreOpcode::GROUPREF_LOC_IGNORE => general_op_groupref(req, state, ctx, lower_locate),
         SreOpcode::GROUPREF_UNI_IGNORE => general_op_groupref(req, state, ctx, lower_unicode),
         SreOpcode::GROUPREF_EXISTS => {
-            let (group_start, group_end) = state.get_marks(ctx.peek_code(req, 1) as usize);
-            match (group_start, group_end) {
-                (Some(start), Some(end)) if start <= end => {
-                    ctx.skip_code(3);
-                }
-                _ => ctx.skip_code_from(req, 2),
+            let (group_start, group_end) = state.marks.get(ctx.peek_code(req, 1) as usize);
+            if group_start.is_some()
+                && group_end.is_some()
+                && group_start.unpack() <= group_end.unpack()
+            {
+                ctx.skip_code(3);
+            } else {
+                ctx.skip_code_from(req, 2)
             }
         }
         _ => unreachable!("unexpected opcode"),
@@ -438,7 +516,7 @@ fn op_assert_not<S: StrDrive>(req: &Request<S>, state: &mut State<S>, ctx: &mut 
 // alternation
 // <BRANCH> <0=skip> code <JUMP> ... <NULL>
 fn op_branch<S: StrDrive>(req: &Request<S>, state: &mut State<S>, ctx: &mut MatchContext<S>) {
-    mark!(push, state);
+    state.marks.push();
 
     ctx.count = 1;
     create_context(req, state, ctx);
@@ -451,7 +529,7 @@ fn op_branch<S: StrDrive>(req: &Request<S>, state: &mut State<S>, ctx: &mut Matc
         let branch_offset = ctx.count as usize;
         let next_length = ctx.peek_code(req, branch_offset) as isize;
         if next_length == 0 {
-            state.marks_pop_discard();
+            state.marks.pop_discard();
             return ctx.failure();
         }
 
@@ -465,7 +543,7 @@ fn op_branch<S: StrDrive>(req: &Request<S>, state: &mut State<S>, ctx: &mut Matc
         if state.popped_has_matched {
             return ctx.success();
         }
-        state.marks_pop_keep();
+        state.marks.pop_keep();
         create_context(req, state, ctx);
     }
 }
@@ -502,7 +580,7 @@ fn op_min_repeat_one<S: StrDrive>(
         return ctx.success();
     }
 
-    mark!(push, state);
+    state.marks.push();
     create_context(req, state, ctx);
 
     fn create_context<S: StrDrive>(
@@ -517,7 +595,7 @@ fn op_min_repeat_one<S: StrDrive>(
             // next_ctx!(from 1, state, ctx, callback);
             ctx.next_from(1, req, state, callback);
         } else {
-            state.marks_pop_discard();
+            state.marks.pop_discard();
             ctx.failure();
         }
     }
@@ -530,13 +608,13 @@ fn op_min_repeat_one<S: StrDrive>(
         state.string_position = ctx.string_position;
 
         if _count(req, state, ctx, 1) == 0 {
-            state.marks_pop_discard();
+            state.marks.pop_discard();
             return ctx.failure();
         }
 
         ctx.skip_char(req, 1);
         ctx.count += 1;
-        state.marks_pop_keep();
+        state.marks.pop_keep();
         create_context(req, state, ctx);
     }
 }
@@ -570,7 +648,7 @@ fn op_repeat_one<S: StrDrive>(req: &Request<S>, state: &mut State<S>, ctx: &mut 
         return ctx.success();
     }
 
-    mark!(push, state);
+    state.marks.push();
     ctx.count = count as isize;
     create_context(req, state, ctx);
 
@@ -587,7 +665,7 @@ fn op_repeat_one<S: StrDrive>(req: &Request<S>, state: &mut State<S>, ctx: &mut 
             let c = ctx.peek_code(req, ctx.peek_code(req, 1) as usize + 2);
             while ctx.at_end(req) || ctx.peek_char(req) != c {
                 if ctx.count <= min_count {
-                    state.marks_pop_discard();
+                    state.marks.pop_discard();
                     return ctx.failure();
                 }
                 ctx.back_skip_char(req, 1);
@@ -610,14 +688,14 @@ fn op_repeat_one<S: StrDrive>(req: &Request<S>, state: &mut State<S>, ctx: &mut 
         let min_count = ctx.peek_code(req, 2) as isize;
 
         if ctx.count <= min_count {
-            state.marks_pop_discard();
+            state.marks.pop_discard();
             return ctx.failure();
         }
 
         ctx.back_skip_char(req, 1);
         ctx.count -= 1;
 
-        state.marks_pop_keep();
+        state.marks.pop_keep();
         create_context(req, state, ctx);
     }
 }
@@ -680,7 +758,7 @@ fn op_min_until<S: StrDrive>(state: &mut State<S>, ctx: &mut MatchContext<S>) {
         return;
     }
 
-    mark!(push, state);
+    state.marks.push();
 
     ctx.count = ctx.repeat_ctx_id as isize;
 
@@ -698,7 +776,7 @@ fn op_min_until<S: StrDrive>(state: &mut State<S>, ctx: &mut MatchContext<S>) {
 
         state.string_position = ctx.string_position;
 
-        mark!(pop, state);
+        state.marks.pop();
 
         // match more until tail matches
 
@@ -752,7 +830,7 @@ fn op_max_until<S: StrDrive>(state: &mut State<S>, ctx: &mut MatchContext<S>) {
     {
         /* we may have enough matches, but if we can
         match another item, do so */
-        mark!(push, state);
+        state.marks.push();
 
         ctx.count = repeat_ctx.last_position as isize;
         repeat_ctx.last_position = state.string_position;
@@ -763,11 +841,11 @@ fn op_max_until<S: StrDrive>(state: &mut State<S>, ctx: &mut MatchContext<S>) {
             repeat_ctx.last_position = save_last_position;
 
             if state.popped_has_matched {
-                state.marks_pop_discard();
+                state.marks.pop_discard();
                 return ctx.success();
             }
 
-            mark!(pop, state);
+            state.marks.pop();
             repeat_ctx.count -= 1;
 
             state.string_position = ctx.string_position;
@@ -1087,12 +1165,14 @@ fn general_op_groupref<S: StrDrive, F: FnMut(u32) -> u32>(
     ctx: &mut MatchContext<S>,
     mut f: F,
 ) {
-    let (group_start, group_end) = state.get_marks(ctx.peek_code(req, 1) as usize);
-    let (group_start, group_end) = match (group_start, group_end) {
-        (Some(start), Some(end)) if start <= end => (start, end),
-        _ => {
-            return ctx.failure();
-        }
+    let (group_start, group_end) = state.marks.get(ctx.peek_code(req, 1) as usize);
+    let (group_start, group_end) = if group_start.is_some()
+        && group_end.is_some()
+        && group_start.unpack() <= group_end.unpack()
+    {
+        (group_start.unpack(), group_end.unpack())
+    } else {
+        return ctx.failure();
     };
 
     let mut gctx = MatchContext {

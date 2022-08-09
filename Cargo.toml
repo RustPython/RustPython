@@ -12,3 +12,4 @@ include = ["LICENSE", "src/**/*.rs"]
 [dependencies]
 num_enum = "0.5"
 bitflags = "1.2"
+optional = "0.5"
