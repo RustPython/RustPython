@@ -81,7 +81,7 @@ pub struct State<'a, S: StrDrive> {
     pub string_position: usize,
     next_context: Option<MatchContext<'a, S>>,
     popped_has_matched: bool,
-    has_matched: bool,
+    pub has_matched: bool,
 }
 
 impl<'a, S: StrDrive> State<'a, S> {
@@ -696,7 +696,7 @@ fn op_repeat<'a, S: StrDrive>(
 
     state.string_position = ctx.string_position;
 
-    let repeat_ctx_id = state.repeat_stack.len();
+    let repeat_ctx_id = state.repeat_stack.len() - 1;
 
     // let next_ctx = next_ctx!(from 1, state, ctx, |state, ctx| {
     let next_ctx = ctx.next_from(1, req, state, |req, state, ctx| {
