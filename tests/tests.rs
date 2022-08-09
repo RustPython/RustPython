@@ -8,9 +8,9 @@ impl Pattern {
     fn state<'a, S: engine::StrDrive>(
         &self,
         string: S,
-    ) -> (engine::Request<'a, S>, engine::State<'a, S>) {
+    ) -> (engine::Request<'a, S>, engine::State<S>) {
         let req = engine::Request::new(string, 0, usize::MAX, self.code, false);
-        let state = engine::State::new(0);
+        let state = engine::State::new();
         (req, state)
     }
 }

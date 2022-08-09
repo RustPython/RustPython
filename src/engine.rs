@@ -39,25 +39,6 @@ impl<'a, S: StrDrive> Request<'a, S> {
     }
 }
 
-macro_rules! next_ctx {
-    (offset $offset:expr, $state:expr, $ctx:expr, $handler:expr) => {
-        next_ctx!(position $ctx.code_position + $offset, $state, $ctx, $handler)
-    };
-    (from $peek:expr, $state:expr, $ctx:expr, $handler:expr) => {
-        next_ctx!(offset $ctx.peek_code($state, $peek) as usize + 1, $state, $ctx, $handler)
-    };
-    (position $position:expr, $state:expr, $ctx:expr, $handler:expr) => {{
-        $ctx.handler = Some($handler);
-        $state.next_context.insert(MatchContext {
-            code_position: $position,
-            has_matched: None,
-            handler: None,
-            count: -1,
-            ..*$ctx
-        })
-    }};
-}
-
 macro_rules! mark {
     (push, $state:expr) => {
         $state
@@ -72,27 +53,27 @@ macro_rules! mark {
 }
 
 #[derive(Debug)]
-pub struct State<'a, S: StrDrive> {
+pub struct State<S: StrDrive> {
     pub marks: Vec<Option<usize>>,
     pub lastindex: isize,
     marks_stack: Vec<(Vec<Option<usize>>, isize)>,
-    context_stack: Vec<MatchContext<'a, S>>,
+    context_stack: Vec<MatchContext<S>>,
     repeat_stack: Vec<RepeatContext>,
     pub string_position: usize,
-    next_context: Option<MatchContext<'a, S>>,
+    next_context: Option<MatchContext<S>>,
     popped_has_matched: bool,
     pub has_matched: bool,
 }
 
-impl<'a, S: StrDrive> State<'a, S> {
-    pub fn new(string_position: usize) -> Self {
+impl<S: StrDrive> State<S> {
+    pub fn new() -> Self {
         Self {
             marks: Vec::new(),
             lastindex: -1,
             marks_stack: Vec::new(),
             context_stack: Vec::new(),
             repeat_stack: Vec::new(),
-            string_position,
+            string_position: 0,
             next_context: None,
             popped_has_matched: false,
             has_matched: false,
@@ -145,7 +126,7 @@ impl<'a, S: StrDrive> State<'a, S> {
         self.marks_stack.pop();
     }
 
-    fn _match(&mut self, req: &mut Request<'a, S>) {
+    fn _match(&mut self, req: &mut Request<S>) {
         while let Some(mut ctx) = self.context_stack.pop() {
             if let Some(handler) = ctx.handler.take() {
                 handler(req, self, &mut ctx);
@@ -169,7 +150,9 @@ impl<'a, S: StrDrive> State<'a, S> {
         self.has_matched = self.popped_has_matched;
     }
 
-    pub fn pymatch(&mut self, req: &mut Request<'a, S>) {
+    pub fn pymatch(&mut self, req: &mut Request<S>) {
+        self.string_position = req.start;
+
         let ctx = MatchContext {
             string_position: req.start,
             string_offset: req.string.offset(0, req.start),
@@ -185,7 +168,9 @@ impl<'a, S: StrDrive> State<'a, S> {
         self._match(req);
     }
 
-    pub fn search(&mut self, req: &mut Request<'a, S>) {
+    pub fn search(&mut self, req: &mut Request<S>) {
+        self.string_position = req.start;
+
         // TODO: optimize by op info and skip prefix
         if req.start > req.end {
             return;
@@ -196,7 +181,7 @@ impl<'a, S: StrDrive> State<'a, S> {
 
         let mut start_offset = req.string.offset(0, req.start);
 
-        let mut ctx = MatchContext {
+        let ctx = MatchContext {
             string_position: req.start,
             string_offset: start_offset,
             code_position: 0,
@@ -240,10 +225,10 @@ impl<'a, S: StrDrive> State<'a, S> {
     }
 }
 
-fn dispatch<'a, S: StrDrive>(
-    req: &Request<'a, S>,
-    state: &mut State<'a, S>,
-    ctx: &mut MatchContext<'a, S>,
+fn dispatch<S: StrDrive>(
+    req: &Request<S>,
+    state: &mut State<S>,
+    ctx: &mut MatchContext<S>,
     opcode: SreOpcode,
 ) {
     match opcode {
@@ -410,11 +395,7 @@ fn dispatch<'a, S: StrDrive>(
 
 /* assert subpattern */
 /* <ASSERT> <skip> <back> <pattern> */
-fn op_assert<'a, S: StrDrive>(
-    req: &Request<'a, S>,
-    state: &mut State<'a, S>,
-    ctx: &mut MatchContext<'a, S>,
-) {
+fn op_assert<S: StrDrive>(req: &Request<S>, state: &mut State<S>, ctx: &mut MatchContext<S>) {
     let back = ctx.peek_code(req, 2) as usize;
     if ctx.string_position < back {
         return ctx.failure();
@@ -435,18 +416,14 @@ fn op_assert<'a, S: StrDrive>(
 
 /* assert not subpattern */
 /* <ASSERT_NOT> <skip> <back> <pattern> */
-fn op_assert_not<'a, S: StrDrive>(
-    req: &Request<'a, S>,
-    state: &mut State<'a, S>,
-    ctx: &mut MatchContext<'a, S>,
-) {
+fn op_assert_not<S: StrDrive>(req: &Request<S>, state: &mut State<S>, ctx: &mut MatchContext<S>) {
     let back = ctx.peek_code(req, 2) as usize;
 
     if ctx.string_position < back {
         return ctx.skip_code_from(req, 1);
     }
 
-    let next_ctx = next_ctx!(offset 3, state, ctx, |req, state, ctx| {
+    let next_ctx = ctx.next_offset(3, state, |req, state, ctx| {
         if state.popped_has_matched {
             ctx.failure();
         } else {
@@ -460,20 +437,16 @@ fn op_assert_not<'a, S: StrDrive>(
 
 // alternation
 // <BRANCH> <0=skip> code <JUMP> ... <NULL>
-fn op_branch<'a, S: StrDrive>(
-    req: &Request<'a, S>,
-    state: &mut State<'a, S>,
-    ctx: &mut MatchContext<'a, S>,
-) {
+fn op_branch<S: StrDrive>(req: &Request<S>, state: &mut State<S>, ctx: &mut MatchContext<S>) {
     mark!(push, state);
 
     ctx.count = 1;
     create_context(req, state, ctx);
 
-    fn create_context<'a, S: StrDrive>(
-        req: &Request<'a, S>,
-        state: &mut State<'a, S>,
-        ctx: &mut MatchContext<'a, S>,
+    fn create_context<S: StrDrive>(
+        req: &Request<S>,
+        state: &mut State<S>,
+        ctx: &mut MatchContext<S>,
     ) {
         let branch_offset = ctx.count as usize;
         let next_length = ctx.peek_code(req, branch_offset) as isize;
@@ -485,14 +458,10 @@ fn op_branch<'a, S: StrDrive>(
         state.string_position = ctx.string_position;
 
         ctx.count += next_length;
-        next_ctx!(offset branch_offset + 1, state, ctx, callback);
+        ctx.next_offset(branch_offset + 1, state, callback);
     }
 
-    fn callback<'a, S: StrDrive>(
-        req: &Request<'a, S>,
-        state: &mut State<'a, S>,
-        ctx: &mut MatchContext<'a, S>,
-    ) {
+    fn callback<S: StrDrive>(req: &Request<S>, state: &mut State<S>, ctx: &mut MatchContext<S>) {
         if state.popped_has_matched {
             return ctx.success();
         }
@@ -502,10 +471,10 @@ fn op_branch<'a, S: StrDrive>(
 }
 
 /* <MIN_REPEAT_ONE> <skip> <1=min> <2=max> item <SUCCESS> tail */
-fn op_min_repeat_one<'a, S: StrDrive>(
-    req: &Request<'a, S>,
-    state: &mut State<'a, S>,
-    ctx: &mut MatchContext<'a, S>,
+fn op_min_repeat_one<S: StrDrive>(
+    req: &Request<S>,
+    state: &mut State<S>,
+    ctx: &mut MatchContext<S>,
 ) {
     let min_count = ctx.peek_code(req, 2) as usize;
 
@@ -536,10 +505,10 @@ fn op_min_repeat_one<'a, S: StrDrive>(
     mark!(push, state);
     create_context(req, state, ctx);
 
-    fn create_context<'a, S: StrDrive>(
-        req: &Request<'a, S>,
-        state: &mut State<'a, S>,
-        ctx: &mut MatchContext<'a, S>,
+    fn create_context<S: StrDrive>(
+        req: &Request<S>,
+        state: &mut State<S>,
+        ctx: &mut MatchContext<S>,
     ) {
         let max_count = ctx.peek_code(req, 3) as usize;
 
@@ -553,11 +522,7 @@ fn op_min_repeat_one<'a, S: StrDrive>(
         }
     }
 
-    fn callback<'a, S: StrDrive>(
-        req: &Request<'a, S>,
-        state: &mut State<'a, S>,
-        ctx: &mut MatchContext<'a, S>,
-    ) {
+    fn callback<S: StrDrive>(req: &Request<S>, state: &mut State<S>, ctx: &mut MatchContext<S>) {
         if state.popped_has_matched {
             return ctx.success();
         }
@@ -582,11 +547,7 @@ exactly one character wide, and we're not already
 collecting backtracking points.  for other cases,
 use the MAX_REPEAT operator */
 /* <REPEAT_ONE> <skip> <1=min> <2=max> item <SUCCESS> tail */
-fn op_repeat_one<'a, S: StrDrive>(
-    req: &Request<'a, S>,
-    state: &mut State<'a, S>,
-    ctx: &mut MatchContext<'a, S>,
-) {
+fn op_repeat_one<S: StrDrive>(req: &Request<S>, state: &mut State<S>, ctx: &mut MatchContext<S>) {
     let min_count = ctx.peek_code(req, 2) as usize;
     let max_count = ctx.peek_code(req, 3) as usize;
 
@@ -613,10 +574,10 @@ fn op_repeat_one<'a, S: StrDrive>(
     ctx.count = count as isize;
     create_context(req, state, ctx);
 
-    fn create_context<'a, S: StrDrive>(
-        req: &Request<'a, S>,
-        state: &mut State<'a, S>,
-        ctx: &mut MatchContext<'a, S>,
+    fn create_context<S: StrDrive>(
+        req: &Request<S>,
+        state: &mut State<S>,
+        ctx: &mut MatchContext<S>,
     ) {
         let min_count = ctx.peek_code(req, 2) as isize;
         let next_code = ctx.peek_code(req, ctx.peek_code(req, 1) as usize + 1);
@@ -641,11 +602,7 @@ fn op_repeat_one<'a, S: StrDrive>(
         ctx.next_from(1, req, state, callback);
     }
 
-    fn callback<'a, S: StrDrive>(
-        req: &Request<'a, S>,
-        state: &mut State<'a, S>,
-        ctx: &mut MatchContext<'a, S>,
-    ) {
+    fn callback<S: StrDrive>(req: &Request<S>, state: &mut State<S>, ctx: &mut MatchContext<S>) {
         if state.popped_has_matched {
             return ctx.success();
         }
@@ -678,11 +635,7 @@ struct RepeatContext {
 /* create repeat context.  all the hard work is done
 by the UNTIL operator (MAX_UNTIL, MIN_UNTIL) */
 /* <REPEAT> <skip> <1=min> <2=max> item <UNTIL> tail */
-fn op_repeat<'a, S: StrDrive>(
-    req: &Request<'a, S>,
-    state: &mut State<'a, S>,
-    ctx: &mut MatchContext<'a, S>,
-) {
+fn op_repeat<S: StrDrive>(req: &Request<S>, state: &mut State<S>, ctx: &mut MatchContext<S>) {
     let repeat_ctx = RepeatContext {
         count: -1,
         min_count: ctx.peek_code(req, 2) as usize,
@@ -698,8 +651,7 @@ fn op_repeat<'a, S: StrDrive>(
 
     let repeat_ctx_id = state.repeat_stack.len() - 1;
 
-    // let next_ctx = next_ctx!(from 1, state, ctx, |state, ctx| {
-    let next_ctx = ctx.next_from(1, req, state, |req, state, ctx| {
+    let next_ctx = ctx.next_from(1, req, state, |_, state, ctx| {
         ctx.has_matched = Some(state.popped_has_matched);
         state.repeat_stack.pop();
     });
@@ -707,7 +659,7 @@ fn op_repeat<'a, S: StrDrive>(
 }
 
 /* minimizing repeat */
-fn op_min_until<'a, S: StrDrive>(state: &mut State<'a, S>, ctx: &mut MatchContext<'a, S>) {
+fn op_min_until<S: StrDrive>(state: &mut State<S>, ctx: &mut MatchContext<S>) {
     let repeat_ctx = state.repeat_stack.last_mut().unwrap();
 
     state.string_position = ctx.string_position;
@@ -716,8 +668,7 @@ fn op_min_until<'a, S: StrDrive>(state: &mut State<'a, S>, ctx: &mut MatchContex
 
     if (repeat_ctx.count as usize) < repeat_ctx.min_count {
         // not enough matches
-        // next_ctx!(position repeat_ctx.code_position + 4, state, ctx, |state, ctx| {
-        ctx.next_at(repeat_ctx.code_position + 4, state, |req, state, ctx| {
+        ctx.next_at(repeat_ctx.code_position + 4, state, |_, state, ctx| {
             if state.popped_has_matched {
                 ctx.success();
             } else {
@@ -736,8 +687,7 @@ fn op_min_until<'a, S: StrDrive>(state: &mut State<'a, S>, ctx: &mut MatchContex
     let repeat_ctx_prev_id = repeat_ctx.prev_id;
 
     // see if the tail matches
-    // let next_ctx = next_ctx!(offset 1, state, ctx, |state, ctx| {
-    let next_ctx = ctx.next_offset(1, state, |req, state, ctx| {
+    let next_ctx = ctx.next_offset(1, state, |_, state, ctx| {
         if state.popped_has_matched {
             return ctx.success();
         }
@@ -762,8 +712,7 @@ fn op_min_until<'a, S: StrDrive>(state: &mut State<'a, S>, ctx: &mut MatchContex
         /* zero-width match protection */
         repeat_ctx.last_position = state.string_position;
 
-        // next_ctx!(position repeat_ctx.code_position + 4, state, ctx, |state, ctx| {
-        ctx.next_at(repeat_ctx.code_position + 4, state, |req, state, ctx| {
+        ctx.next_at(repeat_ctx.code_position + 4, state, |_, state, ctx| {
             if state.popped_has_matched {
                 ctx.success();
             } else {
@@ -777,7 +726,7 @@ fn op_min_until<'a, S: StrDrive>(state: &mut State<'a, S>, ctx: &mut MatchContex
 }
 
 /* maximizing repeat */
-fn op_max_until<'a, S: StrDrive>(state: &mut State<'a, S>, ctx: &mut MatchContext<'a, S>) {
+fn op_max_until<S: StrDrive>(state: &mut State<S>, ctx: &mut MatchContext<S>) {
     let repeat_ctx = &mut state.repeat_stack[ctx.repeat_ctx_id];
 
     state.string_position = ctx.string_position;
@@ -786,8 +735,7 @@ fn op_max_until<'a, S: StrDrive>(state: &mut State<'a, S>, ctx: &mut MatchContex
 
     if (repeat_ctx.count as usize) < repeat_ctx.min_count {
         // not enough matches
-        // next_ctx!(position repeat_ctx.code_position + 4, state, ctx, |state, ctx| {
-        ctx.next_at(repeat_ctx.code_position + 4, state, |req, state, ctx| {
+        ctx.next_at(repeat_ctx.code_position + 4, state, |_, state, ctx| {
             if state.popped_has_matched {
                 ctx.success();
             } else {
@@ -809,7 +757,7 @@ fn op_max_until<'a, S: StrDrive>(state: &mut State<'a, S>, ctx: &mut MatchContex
         ctx.count = repeat_ctx.last_position as isize;
         repeat_ctx.last_position = state.string_position;
 
-        ctx.next_at(repeat_ctx.code_position + 4, state, |req, state, ctx| {
+        ctx.next_at(repeat_ctx.code_position + 4, state, |_, state, ctx| {
             let save_last_position = ctx.count as usize;
             let repeat_ctx = &mut state.repeat_stack[ctx.repeat_ctx_id];
             repeat_ctx.last_position = save_last_position;
@@ -826,22 +774,21 @@ fn op_max_until<'a, S: StrDrive>(state: &mut State<'a, S>, ctx: &mut MatchContex
 
             /* cannot match more repeated items here.  make sure the
             tail matches */
-            let next_ctx = next_ctx!(offset 1, state, ctx, tail_callback);
-            next_ctx.repeat_ctx_id = repeat_ctx.prev_id;
+            let repeat_ctx_prev_id = repeat_ctx.prev_id;
+            let next_ctx = ctx.next_offset(1, state, tail_callback);
+            next_ctx.repeat_ctx_id = repeat_ctx_prev_id;
         });
         return;
     }
 
     /* cannot match more repeated items here.  make sure the
     tail matches */
-    let next_ctx = next_ctx!(offset 1, state, ctx, tail_callback);
-    next_ctx.repeat_ctx_id = repeat_ctx.prev_id;
+    // let next_ctx = next_ctx!(offset 1, state, ctx, tail_callback);
+    let repeat_ctx_prev_id = repeat_ctx.prev_id;
+    let next_ctx = ctx.next_offset(1, state, tail_callback);
+    next_ctx.repeat_ctx_id = repeat_ctx_prev_id;
 
-    fn tail_callback<'a, S: StrDrive>(
-        req: &Request<'a, S>,
-        state: &mut State<'a, S>,
-        ctx: &mut MatchContext<'a, S>,
-    ) {
+    fn tail_callback<S: StrDrive>(_: &Request<S>, state: &mut State<S>, ctx: &mut MatchContext<S>) {
         if state.popped_has_matched {
             ctx.success();
         } else {
@@ -926,19 +873,21 @@ impl<'a> StrDrive for &'a [u8] {
     }
 }
 
+type OpFunc<S> = for<'a> fn(&Request<'a, S>, &mut State<S>, &mut MatchContext<S>);
+
 #[derive(Clone, Copy)]
-struct MatchContext<'a, S: StrDrive> {
+struct MatchContext<S: StrDrive> {
     string_position: usize,
     string_offset: usize,
     code_position: usize,
     has_matched: Option<bool>,
     toplevel: bool,
-    handler: Option<fn(&Request<'a, S>, &mut State<'a, S>, &mut Self)>,
+    handler: Option<OpFunc<S>>,
     repeat_ctx_id: usize,
     count: isize,
 }
 
-impl<'a, S: StrDrive> std::fmt::Debug for MatchContext<'a, S> {
+impl<'a, S: StrDrive> std::fmt::Debug for MatchContext<S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MatchContext")
             .field("string_position", &self.string_position)
@@ -953,38 +902,38 @@ impl<'a, S: StrDrive> std::fmt::Debug for MatchContext<'a, S> {
     }
 }
 
-impl<'a, S: StrDrive> MatchContext<'a, S> {
-    fn pattern(&self, req: &Request<'a, S>) -> &'a [u32] {
+impl<S: StrDrive> MatchContext<S> {
+    fn pattern<'a>(&self, req: &Request<'a, S>) -> &'a [u32] {
         &req.pattern_codes[self.code_position..]
     }
 
-    fn remaining_codes(&self, req: &Request<'a, S>) -> usize {
+    fn remaining_codes(&self, req: &Request<S>) -> usize {
         req.pattern_codes.len() - self.code_position
     }
 
-    fn remaining_chars(&self, req: &Request<'a, S>) -> usize {
+    fn remaining_chars(&self, req: &Request<S>) -> usize {
         req.end - self.string_position
     }
 
-    fn peek_char(&self, req: &Request<'a, S>) -> u32 {
+    fn peek_char(&self, req: &Request<S>) -> u32 {
         req.string.peek(self.string_offset)
     }
 
-    fn skip_char(&mut self, req: &Request<'a, S>, skip: usize) {
+    fn skip_char(&mut self, req: &Request<S>, skip: usize) {
         self.string_position += skip;
         self.string_offset = req.string.offset(self.string_offset, skip);
     }
 
-    fn back_peek_char(&self, req: &Request<'a, S>) -> u32 {
+    fn back_peek_char(&self, req: &Request<S>) -> u32 {
         req.string.back_peek(self.string_offset)
     }
 
-    fn back_skip_char(&mut self, req: &Request<'a, S>, skip: usize) {
+    fn back_skip_char(&mut self, req: &Request<S>, skip: usize) {
         self.string_position -= skip;
         self.string_offset = req.string.back_offset(self.string_offset, skip);
     }
 
-    fn peek_code(&self, req: &Request<'a, S>, peek: usize) -> u32 {
+    fn peek_code(&self, req: &Request<S>, peek: usize) -> u32 {
         req.pattern_codes[self.code_position + peek]
     }
 
@@ -992,7 +941,7 @@ impl<'a, S: StrDrive> MatchContext<'a, S> {
         self.code_position += skip;
     }
 
-    fn skip_code_from(&mut self, req: &Request<'a, S>, peek: usize) {
+    fn skip_code_from(&mut self, req: &Request<S>, peek: usize) {
         self.skip_code(self.peek_code(req, peek) as usize + 1);
     }
 
@@ -1001,19 +950,15 @@ impl<'a, S: StrDrive> MatchContext<'a, S> {
         self.string_position == 0
     }
 
-    fn at_end(&self, req: &Request<'a, S>) -> bool {
+    fn at_end(&self, req: &Request<S>) -> bool {
         self.string_position == req.end
     }
 
-    fn at_linebreak(&self, req: &Request<'a, S>) -> bool {
+    fn at_linebreak(&self, req: &Request<S>) -> bool {
         !self.at_end(req) && is_linebreak(self.peek_char(req))
     }
 
-    fn at_boundary<F: FnMut(u32) -> bool>(
-        &self,
-        req: &Request<'a, S>,
-        mut word_checker: F,
-    ) -> bool {
+    fn at_boundary<F: FnMut(u32) -> bool>(&self, req: &Request<S>, mut word_checker: F) -> bool {
         if self.at_beginning() && self.at_end(req) {
             return false;
         }
@@ -1024,7 +969,7 @@ impl<'a, S: StrDrive> MatchContext<'a, S> {
 
     fn at_non_boundary<F: FnMut(u32) -> bool>(
         &self,
-        req: &Request<'a, S>,
+        req: &Request<S>,
         mut word_checker: F,
     ) -> bool {
         if self.at_beginning() && self.at_end(req) {
@@ -1035,7 +980,7 @@ impl<'a, S: StrDrive> MatchContext<'a, S> {
         this == that
     }
 
-    fn can_success(&self, req: &Request<'a, S>) -> bool {
+    fn can_success(&self, req: &Request<S>) -> bool {
         if !self.toplevel {
             return true;
         }
@@ -1059,9 +1004,9 @@ impl<'a, S: StrDrive> MatchContext<'a, S> {
     fn next_from<'b>(
         &mut self,
         peek: usize,
-        req: &Request<'a, S>,
-        state: &'b mut State<'a, S>,
-        f: fn(&Request<'a, S>, &mut State<'a, S>, &mut Self),
+        req: &Request<S>,
+        state: &'b mut State<S>,
+        f: OpFunc<S>,
     ) -> &'b mut Self {
         self.next_offset(self.peek_code(req, peek) as usize + 1, state, f)
     }
@@ -1069,8 +1014,8 @@ impl<'a, S: StrDrive> MatchContext<'a, S> {
     fn next_offset<'b>(
         &mut self,
         offset: usize,
-        state: &'b mut State<'a, S>,
-        f: fn(&Request<'a, S>, &mut State<'a, S>, &mut Self),
+        state: &'b mut State<S>,
+        f: OpFunc<S>,
     ) -> &'b mut Self {
         self.next_at(self.code_position + offset, state, f)
     }
@@ -1078,8 +1023,8 @@ impl<'a, S: StrDrive> MatchContext<'a, S> {
     fn next_at<'b>(
         &mut self,
         code_position: usize,
-        state: &'b mut State<'a, S>,
-        f: fn(&Request<'a, S>, &mut State<'a, S>, &mut Self),
+        state: &'b mut State<S>,
+        f: OpFunc<S>,
     ) -> &'b mut Self {
         self.handler = Some(f);
         state.next_context.insert(MatchContext {
@@ -1092,7 +1037,7 @@ impl<'a, S: StrDrive> MatchContext<'a, S> {
     }
 }
 
-fn at<'a, S: StrDrive>(req: &Request<'a, S>, ctx: &MatchContext<'a, S>, atcode: SreAtCode) -> bool {
+fn at<S: StrDrive>(req: &Request<S>, ctx: &MatchContext<S>, atcode: SreAtCode) -> bool {
     match atcode {
         SreAtCode::BEGINNING | SreAtCode::BEGINNING_STRING => ctx.at_beginning(),
         SreAtCode::BEGINNING_LINE => ctx.at_beginning() || is_linebreak(ctx.back_peek_char(req)),
@@ -1110,9 +1055,9 @@ fn at<'a, S: StrDrive>(req: &Request<'a, S>, ctx: &MatchContext<'a, S>, atcode: 
     }
 }
 
-fn general_op_literal<'a, S: StrDrive, F: FnOnce(u32, u32) -> bool>(
-    req: &Request<'a, S>,
-    ctx: &mut MatchContext<'a, S>,
+fn general_op_literal<S: StrDrive, F: FnOnce(u32, u32) -> bool>(
+    req: &Request<S>,
+    ctx: &mut MatchContext<S>,
     f: F,
 ) {
     if ctx.at_end(req) || !f(ctx.peek_code(req, 1), ctx.peek_char(req)) {
@@ -1123,9 +1068,9 @@ fn general_op_literal<'a, S: StrDrive, F: FnOnce(u32, u32) -> bool>(
     }
 }
 
-fn general_op_in<'a, S: StrDrive, F: FnOnce(&[u32], u32) -> bool>(
-    req: &Request<'a, S>,
-    ctx: &mut MatchContext<'a, S>,
+fn general_op_in<S: StrDrive, F: FnOnce(&[u32], u32) -> bool>(
+    req: &Request<S>,
+    ctx: &mut MatchContext<S>,
     f: F,
 ) {
     if ctx.at_end(req) || !f(&ctx.pattern(req)[2..], ctx.peek_char(req)) {
@@ -1136,10 +1081,10 @@ fn general_op_in<'a, S: StrDrive, F: FnOnce(&[u32], u32) -> bool>(
     }
 }
 
-fn general_op_groupref<'a, S: StrDrive, F: FnMut(u32) -> u32>(
-    req: &Request<'a, S>,
-    state: &State<'a, S>,
-    ctx: &mut MatchContext<'a, S>,
+fn general_op_groupref<S: StrDrive, F: FnMut(u32) -> u32>(
+    req: &Request<S>,
+    state: &State<S>,
+    ctx: &mut MatchContext<S>,
     mut f: F,
 ) {
     let (group_start, group_end) = state.get_marks(ctx.peek_code(req, 1) as usize);
@@ -1296,10 +1241,10 @@ fn charset(set: &[u32], ch: u32) -> bool {
     false
 }
 
-fn _count<'a, S: StrDrive>(
-    req: &Request<'a, S>,
-    state: &mut State<'a, S>,
-    ctx: &MatchContext<'a, S>,
+fn _count<S: StrDrive>(
+    req: &Request<S>,
+    state: &mut State<S>,
+    ctx: &MatchContext<S>,
     max_count: usize,
 ) -> usize {
     let mut ctx = *ctx;
@@ -1375,9 +1320,9 @@ fn _count<'a, S: StrDrive>(
     ctx.string_position - state.string_position
 }
 
-fn general_count_literal<'a, S: StrDrive, F: FnMut(u32, u32) -> bool>(
-    req: &Request<'a, S>,
-    ctx: &mut MatchContext<'a, S>,
+fn general_count_literal<S: StrDrive, F: FnMut(u32, u32) -> bool>(
+    req: &Request<S>,
+    ctx: &mut MatchContext<S>,
     end: usize,
     mut f: F,
 ) {
