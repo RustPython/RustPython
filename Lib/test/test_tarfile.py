@@ -1375,10 +1375,6 @@ class WriteTest(WriteTestBase, unittest.TestCase):
             os_helper.unlink(temparchive)
             os_helper.rmtree(tempdir)
 
-    # TODO: RUSTPYTHON
-    if sys.platform != "win32":
-        test_extractall_symlinks = unittest.expectedFailure(test_extractall_symlinks)
-
     def test_pathnames(self):
         self._test_pathname("foo")
         self._test_pathname(os.path.join("foo", ".", "bar"))
@@ -1505,8 +1501,6 @@ class StreamWriteTest(WriteTestBase, unittest.TestCase):
 
 
 class GzipStreamWriteTest(GzipTest, StreamWriteTest):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_source_directory_not_leaked(self):
         """
         Ensure the source directory is not included in the tar header
