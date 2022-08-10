@@ -4,8 +4,8 @@ use crate::{
         asyncgenerator::PyAsyncGenWrappedValue,
         function::{PyCell, PyCellRef, PyFunction},
         tuple::{PyTuple, PyTupleTyped},
-        PyBaseExceptionRef, PyCode, PyCoroutine, PyDict, PyDictRef, PyGenerator, PyList, PySet,
-        PySlice, PyStr, PyStrInterned, PyStrRef, PyTraceback, PyType,
+        PyBaseException, PyBaseExceptionRef, PyCode, PyCoroutine, PyDict, PyDictRef, PyGenerator,
+        PyInt, PyList, PySet, PySlice, PyStr, PyStrInterned, PyStrRef, PyTraceback, PyType,
     },
     bytecode,
     convert::{IntoObject, ToPyResult},
@@ -42,6 +42,9 @@ enum BlockType {
         handler: bytecode::Label,
     },
     Finally {
+        handler: bytecode::Label,
+    },
+    With {
         handler: bytecode::Label,
     },
 
@@ -627,6 +630,11 @@ impl ExecutingFrame<'_> {
                 self.push_value(top);
                 Ok(None)
             }
+            bytecode::Instruction::Copy { nth } => {
+                let obj = self.nth_value(*nth).to_owned();
+                self.push_value(obj);
+                Ok(None)
+            }
             // splitting the instructions like this offloads the cost of "dynamic" dispatch (on the
             // amount to rotate) to the opcode dispatcher, and generates optimized code for the
             // concrete cases we actually have
@@ -773,6 +781,23 @@ impl ExecutingFrame<'_> {
                     );
                 }
             }
+            bytecode::Instruction::PushExcInfo => {
+                let value = self.pop_value();
+
+                let exc_val = vm
+                    .pop_exception()
+                    .map_or_else(|| vm.ctx.none(), |e| e.into());
+                self.push_value(exc_val);
+
+                self.push_value(value.clone());
+                // assert(PyExceptionInstance_Check(value));
+                vm.push_exception(Some(
+                    value
+                        .downcast::<PyBaseException>()
+                        .expect("value must be exception"),
+                ));
+                Ok(None)
+            }
             bytecode::Instruction::SetupWith { end } => {
                 let context_manager = self.pop_value();
                 let enter_res = vm.call_special_method(
@@ -782,7 +807,7 @@ impl ExecutingFrame<'_> {
                 )?;
                 let exit = context_manager.get_attr(identifier!(vm, __exit__), vm)?;
                 self.push_value(exit);
-                self.push_block(BlockType::Finally { handler: *end });
+                self.push_block(BlockType::With { handler: *end });
                 self.push_value(enter_res);
                 Ok(None)
             }
@@ -800,6 +825,30 @@ impl ExecutingFrame<'_> {
                 let enter_res = self.pop_value();
                 self.push_block(BlockType::Finally { handler: *end });
                 self.push_value(enter_res);
+                Ok(None)
+            }
+            bytecode::Instruction::WithExceptStart => {
+                // At the top of the stack are 4 values:
+                // - TOP = exc_info()
+                // - SECOND = previous exception
+                // - THIRD: lasti of exception in exc_info()
+                // - FOURTH: the context.__exit__ bound method
+                // We call FOURTH(type(TOP), TOP, GetTraceback(TOP)).
+                // Then we push the __exit__ return value.
+
+                let val = self.top_value();
+                assert!(self.peek(3).payload_is::<PyInt>());
+                let exit_func = self.peek(4);
+
+                let (exc, val, tb) = vm.split_exception(
+                    val.to_owned()
+                        .downcast::<PyBaseException>()
+                        .expect("top value must be exception"),
+                );
+
+                let res = vm.invoke(exit_func, (exc, val, tb))?;
+                self.push_value(res);
+
                 Ok(None)
             }
             bytecode::Instruction::WithCleanupStart => {
@@ -1158,6 +1207,24 @@ impl ExecutingFrame<'_> {
                         vm.set_exception(Some(exception.clone()));
                         self.push_value(exception.into());
                         self.jump(handler);
+                        return Ok(None);
+                    }
+                }
+                BlockType::With { handler } => {
+                    self.pop_block();
+                    if let UnwindReason::Raising { exception } = &reason {
+                        let exit_func = self.pop_value();
+
+                        let prev_exc = vm.current_exception();
+                        vm.set_exception(Some(exception.clone()));
+                        self.push_block(BlockType::FinallyHandler {
+                            reason: Some(reason),
+                            prev_exc,
+                        });
+                        vm.invoke(&exit_func, (vm.ctx.none(), vm.ctx.none(), vm.ctx.none()))?;
+
+                        self.jump(handler);
+
                         return Ok(None);
                     }
                 }
@@ -1810,6 +1877,14 @@ impl ExecutingFrame<'_> {
         }
     }
 
+    #[inline]
+    fn top_value(&self) -> &PyObjectRef {
+        match self.state.stack.last() {
+            Some(x) => x,
+            None => self.fatal("tried to get top value but there was nothing on the stack"),
+        }
+    }
+
     fn pop_multiple(&mut self, count: usize) -> crate::common::boxvec::Drain<PyObjectRef> {
         let stack_len = self.state.stack.len();
         self.state.stack.drain(stack_len - count..)
@@ -1828,10 +1903,18 @@ impl ExecutingFrame<'_> {
         }
     }
 
+    // deprecate this in favor of `peek`
     #[inline]
     fn nth_value(&self, depth: u32) -> &PyObject {
         let stack = &self.state.stack;
         &stack[stack.len() - depth as usize - 1]
+    }
+
+    /// depth starts with 1
+    #[inline]
+    fn peek(&self, depth: u32) -> &PyObject {
+        let stack = &self.state.stack;
+        &stack[stack.len() - depth as usize]
     }
 
     #[cold]

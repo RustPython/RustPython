@@ -73,7 +73,7 @@ impl Constant for ConstantData {
 }
 
 /// A Constant Bag
-pub trait ConstantBag: Sized + Copy {
+pub trait ConstantBag: Sized + std::marker::Copy {
     type Constant: Constant;
     fn make_constant<C: Constant>(&self, constant: BorrowedConstant<C>) -> Self::Constant;
     fn make_name(&self, name: &str) -> <Self::Constant as Constant>::Name;
@@ -245,6 +245,9 @@ pub enum Instruction {
     Rotate3,
     Duplicate,
     Duplicate2,
+    Copy {
+        nth: u32,
+    },
     GetIter,
     Continue {
         target: Label,
@@ -331,8 +334,10 @@ pub enum Instruction {
     SetupWith {
         end: Label,
     },
+    WithExceptStart,
     WithCleanupStart,
     WithCleanupFinish,
+    PushExcInfo,
     PopBlock,
     Raise {
         kind: RaiseKind,
@@ -973,6 +978,7 @@ impl Instruction {
             Rotate2 | Rotate3 => 0,
             Duplicate => 1,
             Duplicate2 => 2,
+            Copy { .. } => 1,
             GetIter => 0,
             Continue { .. } => 0,
             Break { .. } => 0,
@@ -1022,14 +1028,12 @@ impl Instruction {
                 }
             }
             SetupWith { .. } => {
-                if jump {
-                    0
-                } else {
-                    1
-                }
+                1
             }
+            WithExceptStart => 1,
             WithCleanupStart => 0,
             WithCleanupFinish => -1,
+            PushExcInfo => 1,
             PopBlock => 0,
             Raise { kind } => -(*kind as u8 as i32),
             BuildString { size }
@@ -1160,6 +1164,7 @@ impl Instruction {
             Rotate3 => w!(Rotate3),
             Duplicate => w!(Duplicate),
             Duplicate2 => w!(Duplicate2),
+            Copy { nth } => w!(Copy, nth),
             GetIter => w!(GetIter),
             Continue { target } => w!(Continue, target),
             Break { target } => w!(Break, target),
@@ -1187,8 +1192,10 @@ impl Instruction {
             EnterFinally => w!(EnterFinally),
             EndFinally => w!(EndFinally),
             SetupWith { end } => w!(SetupWith, end),
+            WithExceptStart => w!(WithExceptStart),
             WithCleanupStart => w!(WithCleanupStart),
             WithCleanupFinish => w!(WithCleanupFinish),
+            PushExcInfo => w!(PushExcInfo),
             BeforeAsyncWith => w!(BeforeAsyncWith),
             SetupAsyncWith { end } => w!(SetupAsyncWith, end),
             PopBlock => w!(PopBlock),

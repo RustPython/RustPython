@@ -1387,6 +1387,43 @@ impl Compiler {
         Ok(())
     }
 
+    fn compile_call_exit_with_nones(&mut self) {
+        for _ in 0..3 {
+            self.emit_constant(ConstantData::None);
+        }
+        self.emit(Instruction::CallFunctionPositional { nargs: 3 });
+    }
+
+    fn compile_pop_except_and_reraise(&mut self) {
+        // Stack contents
+        // [exc_info, last_i, exc]            COPY        3
+        // [exc_info, last_i, exc, exc_info]  POP_EXCEPT
+        // [exc_info, last_i, exc]            RERAISE      1
+        // (exception_unwind clears the stack)
+
+        self.emit(Instruction::Copy { nth: 3 });
+        self.emit(Instruction::PopException);
+        self.emit(Instruction::Raise {
+            kind: bytecode::RaiseKind::Reraise,
+        });
+    }
+
+    fn compile_with_except_finish(&mut self, cleanup: bytecode::Label) {
+        let exit = self.new_block();
+        self.emit(Instruction::JumpIfTrue { target: exit });
+        self.emit(Instruction::Raise {
+            kind: bytecode::RaiseKind::Reraise,
+        });
+        self.switch_to_block(cleanup);
+        self.compile_pop_except_and_reraise();
+        self.switch_to_block(exit);
+        self.emit(Instruction::Pop);
+        self.emit(Instruction::PopBlock);
+        self.emit(Instruction::PopException);
+        self.emit(Instruction::Pop);
+        self.emit(Instruction::Pop);
+    }
+
     fn compile_with(
         &mut self,
         items: &[ast::Withitem],
@@ -1401,6 +1438,7 @@ impl Compiler {
             return Err(self.error(CompileErrorType::EmptyWithItems));
         };
 
+        let block = self.new_block();
         let final_block = {
             let final_block = self.new_block();
             self.compile_expression(&item.context_expr)?;
@@ -1416,6 +1454,7 @@ impl Compiler {
                 self.emit(Instruction::SetupWith { end: final_block });
             }
 
+            self.switch_to_block(block);
             match &item.optional_vars {
                 Some(var) => {
                     self.set_source_location(var.location);
@@ -1443,10 +1482,20 @@ impl Compiler {
         self.set_source_location(with_location);
         self.emit(Instruction::PopBlock);
 
-        self.emit(Instruction::EnterFinally);
+        // End of body; start the cleanup.
+
+        let exit_block = self.new_block();
+
+        self.compile_call_exit_with_nones();
+        self.emit(Instruction::Pop);
+        self.emit(Instruction::Jump { target: exit_block });
 
         self.switch_to_block(final_block);
-        self.emit(Instruction::WithCleanupStart);
+
+        let cleanup_block = self.new_block();
+        // self.emit(Instruction::SetupCleanup { target: cleanup_block });
+        self.emit(Instruction::PushExcInfo);
+        self.emit(Instruction::WithExceptStart);
 
         if is_async {
             self.emit(Instruction::GetAwaitable);
@@ -1454,7 +1503,8 @@ impl Compiler {
             self.emit(Instruction::YieldFrom);
         }
 
-        self.emit(Instruction::WithCleanupFinish);
+        self.compile_with_except_finish(cleanup_block);
+        self.switch_to_block(exit_block);
 
         Ok(())
     }
