@@ -2283,10 +2283,6 @@ class NamedTupleMeta(type):
             if key in _prohibited:
                 raise AttributeError("Cannot overwrite NamedTuple attribute " + key)
             elif key not in _special and key not in nm_tpl._fields:
-                # TODO: RUSTPYTHON
-                # Special handling for __qualname__ not to trigger RustPython bug
-                if key == '__qualname__':
-                    continue
                 setattr(nm_tpl, key, ns[key])
         return nm_tpl
 

@@ -405,6 +405,34 @@ impl PyType {
             .unwrap_or_else(|| vm.ctx.new_str(self.name().deref()).into())
     }
 
+    #[pyproperty(magic, setter)]
+    fn set_qualname(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        // TODO: we should replace heaptype flag check to immutable flag check
+        if !self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
+            return Err(vm.new_type_error(format!(
+                "cannot set '__qualname__' attribute of immutable type '{}'",
+                self.name()
+            )));
+        };
+        let value = value.ok_or_else(|| {
+            vm.new_type_error(format!(
+                "cannot delete '__qualname__' attribute of immutable type '{}'",
+                self.name()
+            ))
+        })?;
+        if !value.class().fast_issubclass(vm.ctx.types.str_type) {
+            return Err(vm.new_type_error(format!(
+                "can only assign string to {}.__qualname__, not '{}'",
+                self.name(),
+                value.class().name()
+            )));
+        }
+        self.attributes
+            .write()
+            .insert(identifier!(vm, __qualname__), value);
+        Ok(())
+    }
+
     #[pyproperty(magic)]
     pub fn module(&self, vm: &VirtualMachine) -> PyObjectRef {
         self.attributes

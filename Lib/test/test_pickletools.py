@@ -68,8 +68,6 @@ class OptimizedPickleTests(AbstractPickleTests, unittest.TestCase):
     def test_py_methods(self): # TODO: RUSTPYTHON, remove when this passes
         super().test_py_methods()
 
-    # TODO: RUSTPYTHON, AttributeError: attribute '__qualname__' of 'type' objects is not writable
-    @unittest.expectedFailure
     def test_recursive_nested_names(self): # TODO: RUSTPYTHON, remove when this passes
         super().test_recursive_nested_names()
 
