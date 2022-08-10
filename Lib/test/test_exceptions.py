@@ -2633,8 +2633,6 @@ class PEP626Tests(unittest.TestCase):
         f.__code__ = f.__code__.replace(co_linetable=b'\x04\x80\xff\x80')
         self.lineno_after_raise(f, None)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_lineno_after_raise_in_with_exit(self):
         class ExitFails:
             def __enter__(self):
