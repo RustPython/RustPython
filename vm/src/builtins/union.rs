@@ -1,6 +1,6 @@
 use super::{genericalias, type_};
 use crate::{
-    builtins::{PyFrozenSet, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef},
+    builtins::{PyFrozenSet, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType},
     class::PyClassImpl,
     common::hash,
     convert::ToPyObject,
@@ -163,7 +163,7 @@ fn make_parameters(args: &PyTupleRef, vm: &VirtualMachine) -> PyTupleRef {
     }
     parameters.shrink_to_fit();
 
-    PyTuple::new_ref(parameters, &vm.ctx)
+    dedup_and_flatten_args(PyTuple::new_ref(parameters, &vm.ctx), vm)
 }
 
 fn flatten_args(args: PyTupleRef, vm: &VirtualMachine) -> PyTupleRef {
@@ -196,21 +196,10 @@ fn dedup_and_flatten_args(args: PyTupleRef, vm: &VirtualMachine) -> PyTupleRef {
     let mut new_args: Vec<PyObjectRef> = Vec::with_capacity(args.len());
     for arg in &args {
         if !new_args.iter().any(|param| {
-            match (
-                PyTypeRef::try_from_object(vm, param.clone()),
-                PyTypeRef::try_from_object(vm, arg.clone()),
-            ) {
-                (Ok(a), Ok(b))
-                    if a.is(vm.ctx.types.generic_alias_type)
-                        && b.is(vm.ctx.types.generic_alias_type) =>
-                {
-                    param
-                        .rich_compare_bool(arg, PyComparisonOp::Eq, vm)
-                        .ok()
-                        .unwrap()
-                }
-                _ => param.is(arg),
-            }
+            param
+                .rich_compare_bool(arg, PyComparisonOp::Eq, vm)
+                .ok()
+                .unwrap()
         }) {
             new_args.push(arg.clone());
         }
