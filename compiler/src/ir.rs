@@ -45,7 +45,7 @@ pub struct CodeInfo {
 }
 impl CodeInfo {
     pub fn finalize_code(mut self, optimize: u8) -> CodeObject {
-        let max_stacksize = self.max_stacksize();
+        let max_stackdepth = self.max_stackdepth();
         let cell2arg = self.cell2arg();
 
         if optimize > 0 {
@@ -101,7 +101,7 @@ impl CodeInfo {
             first_line_number,
             obj_name,
 
-            max_stacksize,
+            max_stackdepth,
             instructions: instructions.into_boxed_slice(),
             locations: locations.into_boxed_slice(),
             constants: constants.into_iter().collect(),
@@ -161,25 +161,28 @@ impl CodeInfo {
         }
     }
 
-    fn max_stacksize(&self) -> u32 {
+    fn max_stackdepth(&self) -> u32 {
         let mut maxdepth = 0u32;
         let mut stack = Vec::with_capacity(self.blocks.len());
         let mut startdepths = vec![u32::MAX; self.blocks.len()];
         startdepths[0] = 0;
         stack.push(Label(0));
-        let debug = false;
+        const DEBUG: bool = false;
         'process_blocks: while let Some(block) = stack.pop() {
             let mut depth = startdepths[block.0 as usize];
-            if debug {
+            if DEBUG {
                 eprintln!("===BLOCK {}===", block.0);
             }
             let block = &self.blocks[block.0 as usize];
             for i in &block.instructions {
                 let instr = &i.instr;
                 let effect = instr.stack_effect(false);
+                if DEBUG {
+                    eprint!("{instr:?}: {depth} {effect:+} => ");
+                }
                 let new_depth = add_ui(depth, effect);
-                if debug {
-                    eprintln!("{:?}: {:+}, {:+} = {}", instr, effect, depth, new_depth);
+                if DEBUG {
+                    eprintln!("{new_depth}");
                 }
                 if new_depth > maxdepth {
                     maxdepth = new_depth
@@ -204,6 +207,9 @@ impl CodeInfo {
                 }
             }
             stackdepth_push(&mut stack, &mut startdepths, block.next, depth);
+        }
+        if DEBUG {
+            eprintln!("DONE: {maxdepth}");
         }
         maxdepth
     }

@@ -142,7 +142,7 @@ impl Frame {
             .collect();
 
         let state = FrameState {
-            stack: BoxVec::new(code.max_stacksize as usize),
+            stack: BoxVec::new(code.max_stackdepth as usize),
             blocks: Vec::new(),
             #[cfg(feature = "threading")]
             lasti: 0,
@@ -1798,7 +1798,7 @@ impl ExecutingFrame<'_> {
     fn push_value(&mut self, obj: PyObjectRef) {
         match self.state.stack.try_push(obj) {
             Ok(()) => {}
-            Err(_e) => self.fatal("tried to push value onto stack but overflowed max_stacksize"),
+            Err(_e) => self.fatal("tried to push value onto stack but overflowed max_stackdepth"),
         }
     }
 
