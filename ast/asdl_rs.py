@@ -369,7 +369,7 @@ class ClassDefVisitor(EmitVisitor):
         structname = "NodeKind" + get_rust_type(name)
         self.emit(f'#[pyclass(module = "_ast", name = {json.dumps(name)}, base = "AstNode")]', depth)
         self.emit(f'struct {structname};', depth)
-        self.emit( '#[pyimpl(flags(HAS_DICT, BASETYPE))]', depth)
+        self.emit( '#[pyclass(flags(HAS_DICT, BASETYPE))]', depth)
         self.emit(f'impl {structname} {{}}', depth)
         for cons in sum.types:
             self.visit(cons, sum.attributes, structname, depth)
@@ -384,7 +384,7 @@ class ClassDefVisitor(EmitVisitor):
         structname = "Node" + name
         self.emit(f'#[pyclass(module = "_ast", name = {json.dumps(name)}, base = {json.dumps(base)})]', depth)
         self.emit(f"struct {structname};", depth)
-        self.emit("#[pyimpl(flags(HAS_DICT, BASETYPE))]", depth)
+        self.emit("#[pyclass(flags(HAS_DICT, BASETYPE))]", depth)
         self.emit(f"impl {structname} {{", depth)
         self.emit(f"#[extend_class]", depth + 1)
         self.emit("fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {", depth + 1)
