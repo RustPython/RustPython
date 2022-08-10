@@ -1395,56 +1395,66 @@ impl Compiler {
     ) -> CompileResult<()> {
         let with_location = self.current_source_location;
 
-        let end_blocks = items
-            .iter()
-            .map(|item| {
-                let end_block = self.new_block();
-                self.compile_expression(&item.context_expr)?;
+        let (item, items) = if let Some(parts) = items.split_first() {
+            parts
+        } else {
+            return Err(self.error(CompileErrorType::EmptyWithItems));
+        };
 
-                self.set_source_location(with_location);
-                if is_async {
-                    self.emit(Instruction::BeforeAsyncWith);
-                    self.emit(Instruction::GetAwaitable);
-                    self.emit_constant(ConstantData::None);
-                    self.emit(Instruction::YieldFrom);
-                    self.emit(Instruction::SetupAsyncWith { end: end_block });
-                } else {
-                    self.emit(Instruction::SetupWith { end: end_block });
+        let final_block = {
+            let final_block = self.new_block();
+            self.compile_expression(&item.context_expr)?;
+
+            self.set_source_location(with_location);
+            if is_async {
+                self.emit(Instruction::BeforeAsyncWith);
+                self.emit(Instruction::GetAwaitable);
+                self.emit_constant(ConstantData::None);
+                self.emit(Instruction::YieldFrom);
+                self.emit(Instruction::SetupAsyncWith { end: final_block });
+            } else {
+                self.emit(Instruction::SetupWith { end: final_block });
+            }
+
+            match &item.optional_vars {
+                Some(var) => {
+                    self.set_source_location(var.location);
+                    self.compile_store(var)?;
                 }
-
-                match &item.optional_vars {
-                    Some(var) => {
-                        self.set_source_location(var.location);
-                        self.compile_store(var)?;
-                    }
-                    None => {
-                        self.emit(Instruction::Pop);
-                    }
+                None => {
+                    self.emit(Instruction::Pop);
                 }
-                Ok(end_block)
-            })
-            .collect::<CompileResult<Vec<_>>>()?;
+            }
+            final_block
+        };
 
-        self.compile_statements(body)?;
+        if items.is_empty() {
+            if body.is_empty() {
+                return Err(self.error(CompileErrorType::EmptyWithBody));
+            }
+            self.compile_statements(body)?;
+        } else {
+            self.set_source_location(with_location);
+            self.compile_with(items, body, is_async)?;
+        }
 
         // sort of "stack up" the layers of with blocks:
         // with a, b: body -> start_with(a) start_with(b) body() end_with(b) end_with(a)
         self.set_source_location(with_location);
-        for end_block in end_blocks.into_iter().rev() {
-            self.emit(Instruction::PopBlock);
-            self.emit(Instruction::EnterFinally);
+        self.emit(Instruction::PopBlock);
 
-            self.switch_to_block(end_block);
-            self.emit(Instruction::WithCleanupStart);
+        self.emit(Instruction::EnterFinally);
 
-            if is_async {
-                self.emit(Instruction::GetAwaitable);
-                self.emit_constant(ConstantData::None);
-                self.emit(Instruction::YieldFrom);
-            }
+        self.switch_to_block(final_block);
+        self.emit(Instruction::WithCleanupStart);
 
-            self.emit(Instruction::WithCleanupFinish);
+        if is_async {
+            self.emit(Instruction::GetAwaitable);
+            self.emit_constant(ConstantData::None);
+            self.emit(Instruction::YieldFrom);
         }
+
+        self.emit(Instruction::WithCleanupFinish);
 
         Ok(())
     }
