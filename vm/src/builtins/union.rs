@@ -198,7 +198,6 @@ fn dedup_and_flatten_args(args: PyTupleRef, vm: &VirtualMachine) -> PyTupleRef {
         if !new_args.iter().any(|param| {
             param
                 .rich_compare_bool(arg, PyComparisonOp::Eq, vm)
-                .ok()
                 .unwrap()
         }) {
             new_args.push(arg.clone());
