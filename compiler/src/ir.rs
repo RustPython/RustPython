@@ -45,7 +45,7 @@ pub struct CodeInfo {
 }
 impl CodeInfo {
     pub fn finalize_code(mut self, optimize: u8) -> CodeObject {
-        let max_stacksize = self.max_stacksize();
+        let max_stackdepth = self.max_stackdepth();
         let cell2arg = self.cell2arg();
 
         if optimize > 0 {
@@ -101,7 +101,7 @@ impl CodeInfo {
             first_line_number,
             obj_name,
 
-            max_stacksize,
+            max_stackdepth,
             instructions: instructions.into_boxed_slice(),
             locations: locations.into_boxed_slice(),
             constants: constants.into_iter().collect(),
@@ -161,7 +161,7 @@ impl CodeInfo {
         }
     }
 
-    fn max_stacksize(&self) -> u32 {
+    fn max_stackdepth(&self) -> u32 {
         let mut maxdepth = 0u32;
         let mut stack = Vec::with_capacity(self.blocks.len());
         let mut startdepths = vec![u32::MAX; self.blocks.len()];

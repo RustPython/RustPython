@@ -105,7 +105,7 @@ pub struct CodeObject<C: Constant = ConstantData> {
     pub kwonlyarg_count: usize,
     pub source_path: C::Name,
     pub first_line_number: usize,
-    pub max_stacksize: u32,
+    pub max_stackdepth: u32,
     pub obj_name: C::Name,
     // Name of the object that created this code object
     pub cell2arg: Option<Box<[isize]>>,
@@ -761,7 +761,7 @@ impl<C: Constant> CodeObject<C> {
             arg_count: self.arg_count,
             kwonlyarg_count: self.kwonlyarg_count,
             first_line_number: self.first_line_number,
-            max_stacksize: self.max_stacksize,
+            max_stackdepth: self.max_stackdepth,
             cell2arg: self.cell2arg,
         }
     }
@@ -790,7 +790,7 @@ impl<C: Constant> CodeObject<C> {
             arg_count: self.arg_count,
             kwonlyarg_count: self.kwonlyarg_count,
             first_line_number: self.first_line_number,
-            max_stacksize: self.max_stacksize,
+            max_stackdepth: self.max_stackdepth,
             cell2arg: self.cell2arg.clone(),
         }
     }
