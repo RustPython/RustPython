@@ -35,9 +35,6 @@ struct Block {
 
 #[derive(Clone, Debug)]
 enum BlockType {
-    Loop {
-        break_target: bytecode::Label,
-    },
     TryExcept {
         handler: bytecode::Label,
     },
@@ -68,13 +65,6 @@ enum UnwindReason {
     /// We hit an exception, so unwind any try-except and finally blocks. The exception should be
     /// on top of the vm exception stack.
     Raising { exception: PyBaseExceptionRef },
-
-    // NoWorries,
-    /// We are unwinding blocks, since we hit break
-    Break,
-
-    /// We are unwinding blocks since we hit a continue statements.
-    Continue { target: bytecode::Label },
 }
 
 #[derive(Debug)]
@@ -734,12 +724,6 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::YieldFrom => self.execute_yield_from(vm),
             bytecode::Instruction::SetupAnnotation => self.setup_annotations(vm),
-            bytecode::Instruction::SetupLoop { break_target } => {
-                self.push_block(BlockType::Loop {
-                    break_target: *break_target,
-                });
-                Ok(None)
-            }
             bytecode::Instruction::SetupExcept { handler } => {
                 self.push_block(BlockType::TryExcept { handler: *handler });
                 Ok(None)
@@ -987,13 +971,6 @@ impl ExecutingFrame<'_> {
             }
 
             bytecode::Instruction::Raise { kind } => self.execute_raise(vm, *kind),
-
-            bytecode::Instruction::Break { target: _ } => {
-                self.unwind_blocks(vm, UnwindReason::Break)
-            }
-            bytecode::Instruction::Continue { target } => {
-                self.unwind_blocks(vm, UnwindReason::Continue { target: *target })
-            }
             bytecode::Instruction::PrintExpr => self.print_expr(vm),
             bytecode::Instruction::LoadBuildClass => {
                 self.push_value(vm.builtins.get_attr(identifier!(vm, __build_class__), vm)?);
@@ -1121,20 +1098,6 @@ impl ExecutingFrame<'_> {
         // First unwind all existing blocks on the block stack:
         while let Some(block) = self.current_block() {
             match block.typ {
-                BlockType::Loop { break_target } => match reason {
-                    UnwindReason::Break => {
-                        self.pop_block();
-                        self.jump(break_target);
-                        return Ok(None);
-                    }
-                    UnwindReason::Continue { target } => {
-                        self.jump(target);
-                        return Ok(None);
-                    }
-                    _ => {
-                        self.pop_block();
-                    }
-                },
                 BlockType::Finally { handler } => {
                     self.pop_block();
                     let prev_exc = vm.current_exception();
@@ -1173,9 +1136,6 @@ impl ExecutingFrame<'_> {
         match reason {
             UnwindReason::Raising { exception } => Err(exception),
             UnwindReason::Returning { value } => Ok(Some(ExecutionResult::Return(value))),
-            UnwindReason::Break { .. } | UnwindReason::Continue { .. } => {
-                self.fatal("break or continue must occur within a loop block.")
-            } // UnwindReason::NoWorries => Ok(None),
         }
     }
 

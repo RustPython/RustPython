@@ -1,4 +1,5 @@
 use crate::IndexSet;
+use optional::Optioned;
 use rustpython_bytecode::{CodeFlags, CodeObject, ConstantData, Instruction, Label, Location};
 
 pub type BlockIdx = Label;
@@ -16,6 +17,13 @@ pub struct InstructionInfo {
 pub struct Block {
     pub instructions: Vec<InstructionInfo>,
     pub next: BlockIdx,
+    // has_return: bool,
+    // precedessors
+    // is_nofallthrough: bool,
+    // has_exit: bool,
+    // is_visited: bool,
+    // startdepth: i32,
+    // offset: usize,
 }
 impl Default for Block {
     fn default() -> Self {
@@ -162,72 +170,75 @@ impl CodeInfo {
     }
 
     fn max_stackdepth(&self) -> u32 {
-        let mut maxdepth = 0u32;
+        let mut maxdepth = 0i32;
         let mut stack = Vec::with_capacity(self.blocks.len());
-        let mut startdepths = vec![u32::MAX; self.blocks.len()];
-        startdepths[0] = 0;
-        stack.push(Label(0));
+        let mut startdepths = vec![Optioned::<i32>::none(); self.blocks.len()];
+        stackdepth_push(&mut stack, &mut startdepths, Label(0), 1);
         const DEBUG: bool = false;
         'process_blocks: while let Some(block) = stack.pop() {
-            let mut depth = startdepths[block.0 as usize];
+            let block_idx = block.0 as usize;
+            let mut depth = startdepths[block_idx].expect("must be set");
             if DEBUG {
                 eprintln!("===BLOCK {}===", block.0);
             }
-            let block = &self.blocks[block.0 as usize];
+            let block = &self.blocks[block_idx];
             for i in &block.instructions {
                 let instr = &i.instr;
+                println!("instr: {instr:?}");
                 let effect = instr.stack_effect(false);
                 if DEBUG {
                     eprint!("{instr:?}: {depth} {effect:+} => ");
                 }
-                let new_depth = add_ui(depth, effect);
+                let new_depth = depth + effect;
                 if DEBUG {
                     eprintln!("{new_depth}");
                 }
                 if new_depth > maxdepth {
                     maxdepth = new_depth
                 }
-                // we don't want to worry about Continue, it uses unwinding to jump to
-                // its targets and as such the stack size is taken care of in frame.rs by setting
-                // it back to the level it was at when SetupLoop was run
-                let jump_label = instr
-                    .label_arg()
-                    .filter(|_| !matches!(instr, Instruction::Continue { .. }));
+                assert!(depth >= 0);
+                let jump_label = instr.jump_target();
                 if let Some(&target_block) = jump_label {
                     let effect = instr.stack_effect(true);
-                    let target_depth = add_ui(depth, effect);
+                    let target_depth = depth + effect;
                     if target_depth > maxdepth {
                         maxdepth = target_depth
                     }
+                    assert!(target_depth >= 0);
                     stackdepth_push(&mut stack, &mut startdepths, target_block, target_depth);
                 }
                 depth = new_depth;
-                if instr.unconditional_branch() {
+                let unconditional = instr.unconditional_branch();
+                if unconditional {
+                    // next = null / break
                     continue 'process_blocks;
                 }
             }
+            // assert!(block.nofallthrough);
             stackdepth_push(&mut stack, &mut startdepths, block.next, depth);
         }
         if DEBUG {
             eprintln!("DONE: {maxdepth}");
         }
-        maxdepth
+        maxdepth as u32
     }
 }
 
-fn stackdepth_push(stack: &mut Vec<Label>, startdepths: &mut [u32], target: Label, depth: u32) {
+fn stackdepth_push(
+    stack: &mut Vec<Label>,
+    startdepths: &mut [Optioned<i32>],
+    target: Label,
+    depth: i32,
+) {
     let block_depth = &mut startdepths[target.0 as usize];
-    if *block_depth == u32::MAX || depth > *block_depth {
-        *block_depth = depth;
-        stack.push(target);
+    if !block_depth.map_or(true, |d| d == depth) {
+        println!("here!");
     }
-}
-
-fn add_ui(a: u32, b: i32) -> u32 {
-    if b < 0 {
-        a - b.wrapping_abs() as u32
-    } else {
-        a + b as u32
+    assert!(block_depth.map_or(true, |d| d == depth));
+    if block_depth.map_or(true, |d| d < std::cmp::min(depth, 100)) {
+        assert!(block_depth.is_none());
+        *block_depth = Optioned::some(depth);
+        stack.push(target);
     }
 }
 

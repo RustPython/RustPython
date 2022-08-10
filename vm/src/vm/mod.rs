@@ -227,6 +227,13 @@ impl VirtualMachine {
         stdlib::builtins::make_module(self, self.builtins.clone().into());
         stdlib::sys::init_module(self, self.sys_module.as_ref(), self.builtins.as_ref());
 
+        self.compile(
+            include_str!("../../../f9.py"),
+            rustpython_compiler_core::compile::Mode::Exec,
+            "_frozen_importlib".to_owned(),
+        )
+        .unwrap();
+
         let mut inner_init = || -> PyResult<()> {
             #[cfg(not(target_arch = "wasm32"))]
             import::import_builtin(self, "_signal")?;

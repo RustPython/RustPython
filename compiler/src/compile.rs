@@ -763,7 +763,8 @@ impl Compiler {
             }
             Break => match self.ctx.loop_data {
                 Some((_, end)) => {
-                    self.emit(Instruction::Break { target: end });
+                    self.emit(Instruction::Pop);
+                    self.emit(Instruction::Jump { target: end });
                 }
                 None => {
                     return Err(self.error_loc(CompileErrorType::InvalidBreak, statement.location));
@@ -771,7 +772,7 @@ impl Compiler {
             },
             Continue => match self.ctx.loop_data {
                 Some((start, _)) => {
-                    self.emit(Instruction::Continue { target: start });
+                    self.emit(Instruction::Jump { target: start });
                 }
                 None => {
                     return Err(
@@ -1367,9 +1368,6 @@ impl Compiler {
         let else_block = self.new_block();
         let after_block = self.new_block();
 
-        self.emit(Instruction::SetupLoop {
-            break_target: after_block,
-        });
         self.switch_to_block(while_block);
 
         self.compile_jump_if(test, false, else_block)?;
@@ -1381,7 +1379,6 @@ impl Compiler {
             target: while_block,
         });
         self.switch_to_block(else_block);
-        self.emit(Instruction::PopBlock);
         self.compile_statements(orelse)?;
         self.switch_to_block(after_block);
         Ok(())
@@ -1472,10 +1469,6 @@ impl Compiler {
         let else_block = self.new_block();
         let after_block = self.new_block();
 
-        self.emit(Instruction::SetupLoop {
-            break_target: after_block,
-        });
-
         // The thing iterated:
         self.compile_expression(iter)?;
 
@@ -1511,7 +1504,6 @@ impl Compiler {
         if is_async {
             self.emit(Instruction::EndAsyncFor);
         }
-        self.emit(Instruction::PopBlock);
         self.compile_statements(orelse)?;
 
         self.switch_to_block(after_block);
