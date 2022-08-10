@@ -815,8 +815,6 @@ class UnionTests(unittest.TestCase):
                 check(x | None, (x, type(None)))
                 check(None | x, (type(None), x))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_union_parameter_chaining(self):
         T = typing.TypeVar("T")
         S = typing.TypeVar("S")
