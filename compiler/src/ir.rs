@@ -167,19 +167,22 @@ impl CodeInfo {
         let mut startdepths = vec![u32::MAX; self.blocks.len()];
         startdepths[0] = 0;
         stack.push(Label(0));
-        let debug = false;
+        const DEBUG: bool = false;
         'process_blocks: while let Some(block) = stack.pop() {
             let mut depth = startdepths[block.0 as usize];
-            if debug {
+            if DEBUG {
                 eprintln!("===BLOCK {}===", block.0);
             }
             let block = &self.blocks[block.0 as usize];
             for i in &block.instructions {
                 let instr = &i.instr;
                 let effect = instr.stack_effect(false);
+                if DEBUG {
+                    eprint!("{instr:?}: {depth} {effect:+} => ");
+                }
                 let new_depth = add_ui(depth, effect);
-                if debug {
-                    eprintln!("{:?}: {:+}, {:+} = {}", instr, effect, depth, new_depth);
+                if DEBUG {
+                    eprintln!("{new_depth}");
                 }
                 if new_depth > maxdepth {
                     maxdepth = new_depth
@@ -204,6 +207,9 @@ impl CodeInfo {
                 }
             }
             stackdepth_push(&mut stack, &mut startdepths, block.next, depth);
+        }
+        if DEBUG {
+            eprintln!("DONE: {maxdepth}");
         }
         maxdepth
     }
