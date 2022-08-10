@@ -10,6 +10,8 @@ include = ["src/**/*.rs", "Cargo.toml", "build.rs", "Lib/**/*.py"]
 
 [features]
 default = ["compile-parse", "pylib"]
+importlib = []
+encodings = ["importlib"]
 vm-tracing-logging = []
 flame-it = ["flame", "flamer"]
 pylib = ["rustpython-pylib"]

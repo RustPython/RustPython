@@ -19,7 +19,7 @@ no-start-func = []
 rustpython-parser = { path = "../../parser" }
 rustpython-common = { path = "../../common" }
 # make sure no threading! otherwise wasm build will fail
-rustpython-vm = { path = "../../vm", default-features = false, features = ["compile-parse"]  }
+rustpython-vm = { path = "../../vm", default-features = false, features = ["compile-parse", "encodings"] }
 rustpython-stdlib = { path = "../../stdlib", default-features = false, features = ["compile-parse"], optional = true }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"

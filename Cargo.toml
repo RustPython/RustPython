@@ -19,7 +19,9 @@ members = [
 ]
 
 [features]
-default = ["threading", "pylib", "stdlib", "zlib"]
+default = ["threading", "pylib", "stdlib", "zlib", "importlib", "encodings"]
+importlib = ["rustpython-vm/importlib"]
+encodings = ["rustpython-vm/encodings"]
 stdlib = ["rustpython-stdlib"]
 flame-it = ["rustpython-vm/flame-it", "flame", "flamescope"]
 freeze-stdlib = ["rustpython-vm/freeze-stdlib"]
