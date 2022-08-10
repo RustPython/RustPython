@@ -249,7 +249,9 @@ pub enum Instruction {
     Continue {
         target: Label,
     },
-    Break,
+    Break {
+        target: Label,
+    },
     Jump {
         target: Label,
     },
@@ -908,7 +910,7 @@ impl Instruction {
     pub fn unconditional_branch(&self) -> bool {
         matches!(
             self,
-            Jump { .. } | Continue { .. } | Break | ReturnValue | Raise { .. }
+            Jump { .. } | Continue { .. } | Break { .. } | ReturnValue | Raise { .. }
         )
     }
 
@@ -951,7 +953,7 @@ impl Instruction {
             Duplicate2 => 2,
             GetIter => 0,
             Continue { .. } => 0,
-            Break => 0,
+            Break { .. } => 0,
             Jump { .. } => 0,
             JumpIfTrue { .. } | JumpIfFalse { .. } => -1,
             JumpIfTrueOrPop { .. } | JumpIfFalseOrPop { .. } => {
@@ -1138,7 +1140,7 @@ impl Instruction {
             Duplicate2 => w!(Duplicate2),
             GetIter => w!(GetIter),
             Continue { target } => w!(Continue, target),
-            Break => w!(Break),
+            Break { target } => w!(Break, target),
             Jump { target } => w!(Jump, target),
             JumpIfTrue { target } => w!(JumpIfTrue, target),
             JumpIfFalse { target } => w!(JumpIfFalse, target),

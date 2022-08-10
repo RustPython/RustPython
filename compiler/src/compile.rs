@@ -761,13 +761,14 @@ impl Compiler {
                     self.switch_to_block(after_block);
                 }
             }
-            Break => {
-                if self.ctx.loop_data.is_some() {
-                    self.emit(Instruction::Break);
-                } else {
+            Break => match self.ctx.loop_data {
+                Some((_, end)) => {
+                    self.emit(Instruction::Break { target: end });
+                }
+                None => {
                     return Err(self.error_loc(CompileErrorType::InvalidBreak, statement.location));
                 }
-            }
+            },
             Continue => match self.ctx.loop_data {
                 Some((start, _)) => {
                     self.emit(Instruction::Continue { target: start });
@@ -1373,8 +1374,7 @@ impl Compiler {
 
         self.compile_jump_if(test, false, else_block)?;
 
-        let was_in_loop = self.ctx.loop_data;
-        self.ctx.loop_data = Some((while_block, after_block));
+        let was_in_loop = self.ctx.loop_data.replace((while_block, after_block));
         self.compile_statements(body)?;
         self.ctx.loop_data = was_in_loop;
         self.emit(Instruction::Jump {
@@ -1487,8 +1487,7 @@ impl Compiler {
             self.compile_store(target)?;
         };
 
-        let was_in_loop = self.ctx.loop_data;
-        self.ctx.loop_data = Some((for_block, after_block));
+        let was_in_loop = self.ctx.loop_data.replace((for_block, after_block));
         self.compile_statements(body)?;
         self.ctx.loop_data = was_in_loop;
         self.emit(Instruction::Jump { target: for_block });

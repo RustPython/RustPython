@@ -988,7 +988,9 @@ impl ExecutingFrame<'_> {
 
             bytecode::Instruction::Raise { kind } => self.execute_raise(vm, *kind),
 
-            bytecode::Instruction::Break => self.unwind_blocks(vm, UnwindReason::Break),
+            bytecode::Instruction::Break { target: _ } => {
+                self.unwind_blocks(vm, UnwindReason::Break)
+            }
             bytecode::Instruction::Continue { target } => {
                 self.unwind_blocks(vm, UnwindReason::Continue { target: *target })
             }
