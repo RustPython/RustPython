@@ -624,21 +624,15 @@ impl PyType {
         let typ = Self::new_verbose_ref(name.as_str(), base, bases, attributes, slots, metatype)
             .map_err(|e| vm.new_type_error(e))?;
 
-        typ.attributes
-            .write()
-            .get(identifier!(vm, __classcell__))
-            .map(|cell| {
-                if let Ok(cell) = PyCellRef::try_from_object(vm, cell.clone()) {
-                    cell.set(Some(typ.clone().to_pyobject(vm)));
-                    Ok(())
-                } else {
-                    Err(vm.new_type_error(format!(
-                        "__classcell__ must be a nonlocal cell, not {}",
-                        cell.class()
-                    )))
-                }
-            })
-            .transpose()?;
+        if let Some(cell) = typ.attributes.write().get(identifier!(vm, __classcell__)) {
+            let cell = PyCellRef::try_from_object(vm, cell.clone()).map_err(|_| {
+                vm.new_type_error(format!(
+                    "__classcell__ must be a nonlocal cell, not {}",
+                    cell.class().name()
+                ))
+            })?;
+            cell.set(Some(typ.clone().to_pyobject(vm)));
+        };
 
         // avoid deadlock
         let attributes = typ
