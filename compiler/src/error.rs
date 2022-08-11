@@ -35,6 +35,8 @@ pub enum CompileErrorType {
     InvalidFutureFeature(String),
     FunctionImportStar,
     TooManyStarUnpack,
+    EmptyWithItems,
+    EmptyWithBody,
 }
 
 impl fmt::Display for CompileErrorType {
@@ -69,6 +71,12 @@ impl fmt::Display for CompileErrorType {
             }
             CompileErrorType::TooManyStarUnpack => {
                 write!(f, "too many expressions in star-unpacking assignment")
+            }
+            CompileErrorType::EmptyWithItems => {
+                write!(f, "empty items on With")
+            }
+            CompileErrorType::EmptyWithBody => {
+                write!(f, "empty body on With")
             }
         }
     }

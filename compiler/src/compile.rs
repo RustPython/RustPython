@@ -1393,53 +1393,68 @@ impl Compiler {
         body: &[ast::Stmt],
         is_async: bool,
     ) -> CompileResult<()> {
-        let end_blocks = items
-            .iter()
-            .map(|item| {
-                let end_block = self.new_block();
-                self.compile_expression(&item.context_expr)?;
+        let with_location = self.current_source_location;
 
-                if is_async {
-                    self.emit(Instruction::BeforeAsyncWith);
-                    self.emit(Instruction::GetAwaitable);
-                    self.emit_constant(ConstantData::None);
-                    self.emit(Instruction::YieldFrom);
-                    self.emit(Instruction::SetupAsyncWith { end: end_block });
-                } else {
-                    self.emit(Instruction::SetupWith { end: end_block });
-                }
+        let (item, items) = if let Some(parts) = items.split_first() {
+            parts
+        } else {
+            return Err(self.error(CompileErrorType::EmptyWithItems));
+        };
 
-                match &item.optional_vars {
-                    Some(var) => {
-                        self.compile_store(var)?;
-                    }
-                    None => {
-                        self.emit(Instruction::Pop);
-                    }
-                }
-                Ok(end_block)
-            })
-            .collect::<CompileResult<Vec<_>>>()?;
+        let final_block = {
+            let final_block = self.new_block();
+            self.compile_expression(&item.context_expr)?;
 
-        self.compile_statements(body)?;
-
-        // sort of "stack up" the layers of with blocks:
-        // with a, b: body -> start_with(a) start_with(b) body() end_with(b) end_with(a)
-        for end_block in end_blocks.into_iter().rev() {
-            self.emit(Instruction::PopBlock);
-            self.emit(Instruction::EnterFinally);
-
-            self.switch_to_block(end_block);
-            self.emit(Instruction::WithCleanupStart);
-
+            self.set_source_location(with_location);
             if is_async {
+                self.emit(Instruction::BeforeAsyncWith);
                 self.emit(Instruction::GetAwaitable);
                 self.emit_constant(ConstantData::None);
                 self.emit(Instruction::YieldFrom);
+                self.emit(Instruction::SetupAsyncWith { end: final_block });
+            } else {
+                self.emit(Instruction::SetupWith { end: final_block });
             }
 
-            self.emit(Instruction::WithCleanupFinish);
+            match &item.optional_vars {
+                Some(var) => {
+                    self.set_source_location(var.location);
+                    self.compile_store(var)?;
+                }
+                None => {
+                    self.emit(Instruction::Pop);
+                }
+            }
+            final_block
+        };
+
+        if items.is_empty() {
+            if body.is_empty() {
+                return Err(self.error(CompileErrorType::EmptyWithBody));
+            }
+            self.compile_statements(body)?;
+        } else {
+            self.set_source_location(with_location);
+            self.compile_with(items, body, is_async)?;
         }
+
+        // sort of "stack up" the layers of with blocks:
+        // with a, b: body -> start_with(a) start_with(b) body() end_with(b) end_with(a)
+        self.set_source_location(with_location);
+        self.emit(Instruction::PopBlock);
+
+        self.emit(Instruction::EnterFinally);
+
+        self.switch_to_block(final_block);
+        self.emit(Instruction::WithCleanupStart);
+
+        if is_async {
+            self.emit(Instruction::GetAwaitable);
+            self.emit_constant(ConstantData::None);
+            self.emit(Instruction::YieldFrom);
+        }
+
+        self.emit(Instruction::WithCleanupFinish);
 
         Ok(())
     }
