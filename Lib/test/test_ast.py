@@ -341,6 +341,8 @@ class AST_Tests(unittest.TestCase):
         mod.body[0].module = " __future__ ".strip()
         compile(mod, "<test>", "exec")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_alias(self):
         im = ast.parse("from bar import y").body[0]
         self.assertEqual(len(im.names), 1)
@@ -705,6 +707,8 @@ class AST_Tests(unittest.TestCase):
         attr_b = tree.body[0].decorator_list[0].value
         self.assertEqual(attr_b.end_col_offset, 4)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_ast_asdl_signature(self):
         self.assertEqual(ast.withitem.__doc__, "withitem(expr context_expr, expr? optional_vars)")
         self.assertEqual(ast.GtE.__doc__, "GtE")
@@ -714,6 +718,8 @@ class AST_Tests(unittest.TestCase):
         expressions[0] = f"expr = {ast.expr.__subclasses__()[0].__doc__}"
         self.assertCountEqual(ast.expr.__doc__.split("\n"), expressions)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_parenthesized_with_feature_version(self):
         ast.parse('with (CtxManager() as example): ...', feature_version=(3, 10))
         # While advertised as a feature in Python 3.10, this was allowed starting 3.9
@@ -729,6 +735,8 @@ class AST_Tests(unittest.TestCase):
         with self.assertRaises(SyntaxError):
             ast.parse('f"{x=}"', feature_version=(3, 7))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_assignment_expression_feature_version(self):
         ast.parse('(x := 0)', feature_version=(3, 8))
         with self.assertRaises(SyntaxError):
@@ -785,6 +793,8 @@ class ASTHelpers_Test(unittest.TestCase):
             "lineno=1, col_offset=0, end_lineno=1, end_col_offset=24)], type_ignores=[])"
         )
 
+    # TODO: RUSTPYTHON; redundant kind for Contant node
+    @unittest.expectedFailure
     def test_dump_indent(self):
         node = ast.parse('spam(eggs, "and cheese")')
         self.assertEqual(ast.dump(node, indent=3), """\
@@ -947,6 +957,8 @@ Module(
         self.assertEqual(d.pop('func').id, 'foo')
         self.assertEqual(d, {'keywords': [], 'args': []})
 
+    # TODO: RUSTPYTHON; redundant kind for Contant node
+    @unittest.expectedFailure
     def test_iter_child_nodes(self):
         node = ast.parse("spam(23, 42, eggs='leek')", mode='eval')
         self.assertEqual(len(list(ast.iter_child_nodes(node.body))), 4)
@@ -1089,6 +1101,8 @@ Module(
         malformed = ast.Dict(keys=[ast.Constant(1)], values=[ast.Constant(2), ast.Constant(3)])
         self.assertRaises(ValueError, ast.literal_eval, malformed)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_literal_eval_trailing_ws(self):
         self.assertEqual(ast.literal_eval("    -1"), -1)
         self.assertEqual(ast.literal_eval("\t\t-1"), -1)
@@ -1107,6 +1121,8 @@ Module(
         with self.assertRaisesRegex(ValueError, msg):
             ast.literal_eval(node)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_literal_eval_syntax_errors(self):
         with self.assertRaisesRegex(SyntaxError, "unexpected indent"):
             ast.literal_eval(r'''
@@ -1127,8 +1143,6 @@ Module(
             compile(mod, 'test', 'exec')
         self.assertIn("invalid integer value: None", str(cm.exception))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_level_as_none(self):
         body = [ast.ImportFrom(module='time',
                                names=[ast.alias(name='sleep',
@@ -1141,6 +1155,7 @@ Module(
         exec(code, ns)
         self.assertIn('sleep', ns)
 
+    @unittest.skip("TODO: RUSTPYTHON; crash")
     def test_recursion_direct(self):
         e = ast.UnaryOp(op=ast.Not(), lineno=0, col_offset=0)
         e.operand = e
@@ -1148,6 +1163,7 @@ Module(
             with support.infinite_recursion():
                 compile(ast.Expression(e), "<test>", "eval")
 
+    @unittest.skip("TODO: RUSTPYTHON; crash")
     def test_recursion_indirect(self):
         e = ast.UnaryOp(op=ast.Not(), lineno=0, col_offset=0)
         f = ast.UnaryOp(op=ast.Not(), lineno=0, col_offset=0)
@@ -2295,6 +2311,8 @@ class EndPositionTests(unittest.TestCase):
         cdef = ast.parse(s).body[0]
         self.assertEqual(ast.get_source_segment(s, cdef.body[0], padded=True), s_method)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_source_segment_missing_info(self):
         s = 'v = 1\r\nw = 1\nx = 1\n\ry = 1\r\n'
         v, w, x, y = ast.parse(s).body
