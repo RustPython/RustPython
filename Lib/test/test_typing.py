@@ -4283,8 +4283,6 @@ class NamedTupleTests(BaseTestCase):
         with self.assertRaises(TypeError):
             NamedTuple('Emp', fields=[('name', str), ('id', int)])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_copy_and_pickle(self):
         global Emp  # pickle wants to reference the class by name
         Emp = NamedTuple('Emp', [('name', str), ('cool', int)])

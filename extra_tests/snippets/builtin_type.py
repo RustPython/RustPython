@@ -99,6 +99,16 @@ assert C.__qualname__ == 'C'
 assert D.__module__ == 'd'
 assert D.__qualname__ == 'DD'
 
+A.__qualname__ = 'AA'
+B.__qualname__ = 'b'
+assert A.__qualname__ == 'AA'
+assert B.__qualname__ == 'b'
+with assert_raises(TypeError):
+    del D.__qualname__
+with assert_raises(TypeError):
+    C.__qualname__ = 123
+with assert_raises(TypeError):
+    del int.__qualname__
 
 from testutils import assert_raises
 
