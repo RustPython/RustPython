@@ -416,7 +416,7 @@ impl VirtualMachine {
             .unwrap_or_else(|_| panic!("unable to import {}", module));
         let class = module
             .get_attr(class, self)
-            .unwrap_or_else(|_| panic!("module {} has no class {}", module, class));
+            .unwrap_or_else(|_| panic!("module {:?} has no class {}", module, class));
         class.downcast().expect("not a class")
     }
 

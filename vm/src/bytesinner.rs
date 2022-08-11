@@ -190,7 +190,8 @@ impl ByteInnerPaddingOptions {
                 .ok_or_else(|| {
                     vm.new_type_error(format!(
                         "{}() argument 2 must be a byte string of length 1, not {}",
-                        fn_name, &v
+                        fn_name,
+                        v.class().name()
                     ))
                 })?
         } else {

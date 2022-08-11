@@ -184,7 +184,13 @@ impl PyObject {
 
     pub fn generic_getattr(&self, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
         self.generic_getattr_opt(name.clone(), None, vm)?
-            .ok_or_else(|| vm.new_attribute_error(format!("{} has no attribute '{}'", self, name)))
+            .ok_or_else(|| {
+                vm.new_attribute_error(format!(
+                    "'{}' object has no attribute '{}'",
+                    self.class().name(),
+                    name
+                ))
+            })
     }
 
     /// CPython _PyObject_GenericGetAttrWithDict
@@ -527,8 +533,12 @@ impl PyObject {
     }
 
     pub fn length(&self, vm: &VirtualMachine) -> PyResult<usize> {
-        self.length_opt(vm)
-            .ok_or_else(|| vm.new_type_error(format!("object of type '{}' has no len()", &self)))?
+        self.length_opt(vm).ok_or_else(|| {
+            vm.new_type_error(format!(
+                "object of type '{}' has no len()",
+                self.class().name()
+            ))
+        })?
     }
 
     pub fn get_item<K: DictKey + ?Sized>(&self, needle: &K, vm: &VirtualMachine) -> PyResult {
