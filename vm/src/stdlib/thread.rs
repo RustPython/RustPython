@@ -18,6 +18,21 @@ pub(crate) mod _thread {
     use std::{cell::RefCell, fmt, thread, time::Duration};
     use thread_local::ThreadLocal;
 
+    // PYTHREAD_NAME: show current thread name
+    pub const PYTHREAD_NAME: Option<&str> = {
+        cfg_if::cfg_if! {
+            if #[cfg(windows)] {
+                Some("nt")
+            } else if #[cfg(unix)] {
+                Some("pthread")
+            } else if #[cfg(any(target_os = "solaris", target_os = "illumos"))] {
+                Some("solaris")
+            } else {
+                None
+            }
+        }
+    };
+
     // TIMEOUT_MAX_IN_MICROSECONDS is a value in microseconds
     #[cfg(not(target_os = "windows"))]
     const TIMEOUT_MAX_IN_MICROSECONDS: i64 = i64::MAX / 1_000;
