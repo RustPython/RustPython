@@ -109,6 +109,8 @@ mod builtins {
         dont_inherit: OptionalArg<bool>,
         #[pyarg(any, optional)]
         optimize: OptionalArg<PyIntRef>,
+        #[pyarg(any, optional)]
+        _feature_version: OptionalArg<i32>,
     }
 
     #[cfg(feature = "rustpython-compiler")]
@@ -121,6 +123,10 @@ mod builtins {
         #[cfg(feature = "rustpython-ast")]
         {
             use crate::{class::PyClassImpl, stdlib::ast};
+
+            if args._feature_version.is_present() {
+                eprintln!("TODO: compile() got `_feature_version` but ignored");
+            }
 
             let mode_str = args.mode.as_str();
 

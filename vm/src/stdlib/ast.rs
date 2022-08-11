@@ -239,7 +239,11 @@ impl Node for ast::Constant {
             }
             builtins::singletons::PyNone => ast::Constant::None,
             builtins::slice::PyEllipsis => ast::Constant::Ellipsis,
-            _ => return Err(vm.new_type_error("unsupported type for constant".to_owned())),
+            obj =>
+                return Err(vm.new_type_error(format!(
+                    "invalid type in Constant: type '{}'",
+                    obj.class().name()
+                ))),
         });
         Ok(constant)
     }
