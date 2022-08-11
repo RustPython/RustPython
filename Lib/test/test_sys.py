@@ -573,8 +573,6 @@ class SysModuleTest(unittest.TestCase):
         if not sys.platform.startswith('win'):
             self.assertIsInstance(sys.abiflags, str)
 
-    # TODO: RUSTPYTHON, AttributeError: module 'sys' has no attribute 'thread_info'
-    @unittest.expectedFailure
     def test_thread_info(self):
         info = sys.thread_info
         self.assertEqual(len(info), 3)
