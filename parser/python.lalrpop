@@ -131,7 +131,7 @@ ExpressionStatement: ast::Stmt = {
                 target: Box::new(target),
                 annotation: Box::new(annotation),
                 value: rhs.map(Box::new),
-                simple,
+                simple: if simple { 1 } else { 0 },
             },
         }
     },
@@ -253,12 +253,12 @@ ImportStatement: ast::Stmt = {
     },
 };
 
-ImportFromLocation: (usize, Option<String>) = {
+ImportFromLocation: (Option<usize>, Option<String>) = {
     <dots: ImportDots*> <name:DottedName> => {
-        (dots.iter().sum(), Some(name))
+        (Some(dots.iter().sum()), Some(name))
     },
     <dots: ImportDots+> => {
-        (dots.iter().sum(), None)
+        (Some(dots.iter().sum()), None)
     },
 };
 
@@ -272,7 +272,7 @@ ImportAsNames: Vec<ast::Alias> = {
     "(" <i:OneOrMore<ImportAsAlias<Identifier>>> ","? ")" => i,
     "*" => {
         // Star import all
-        vec![ast::Alias { name: "*".to_string(), asname: None }]
+        vec![ast::Alias(ast::AliasData { name: "*".to_string(), asname: None })]
     },
 };
 

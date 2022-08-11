@@ -1094,7 +1094,7 @@ impl SymbolTableBuilder {
     ) -> SymbolTableResult {
         // Evaluate eventual default parameters:
         self.scan_expressions(&args.defaults, ExpressionContext::Load)?;
-        for expression in args.kw_defaults.iter().flatten() {
+        for expression in args.kw_defaults.iter() {
             self.scan_expression(expression, ExpressionContext::Load)?;
         }
 

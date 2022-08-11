@@ -30,7 +30,7 @@ impl<'a> FStringParser<'a> {
         let mut expression = String::new();
         let mut spec = None;
         let mut delims = Vec::new();
-        let mut conversion = None;
+        let mut conversion = ConversionFlag::Str;
         let mut pred_expression_text = String::new();
         let mut trailing_seq = String::new();
 
@@ -63,7 +63,7 @@ impl<'a> FStringParser<'a> {
                         return Err(EmptyExpression);
                     }
 
-                    conversion = Some(match self.chars.next() {
+                    conversion = match self.chars.next() {
                         Some('s') => ConversionFlag::Str,
                         Some('a') => ConversionFlag::Ascii,
                         Some('r') => ConversionFlag::Repr,
@@ -73,7 +73,7 @@ impl<'a> FStringParser<'a> {
                         None => {
                             return Err(ExpectedRbrace);
                         }
-                    });
+                    };
 
                     if let Some(&peek) = self.chars.peek() {
                         if peek != '}' && peek != ':' {
@@ -115,7 +115,7 @@ impl<'a> FStringParser<'a> {
                                                 )
                                                 .parse()?,
                                             ),
-                                            conversion: None,
+                                            conversion: b's' as usize,
                                             format_spec: None,
                                         }),
                                     );
@@ -187,7 +187,7 @@ impl<'a> FStringParser<'a> {
                                 parse_fstring_expr(&expression)
                                     .map_err(|e| InvalidExpression(Box::new(e.error)))?,
                             ),
-                            conversion,
+                            conversion: conversion as usize,
                             format_spec: spec,
                         })]
                     } else {
@@ -205,7 +205,7 @@ impl<'a> FStringParser<'a> {
                                     parse_fstring_expr(&expression)
                                         .map_err(|e| InvalidExpression(Box::new(e.error)))?,
                                 ),
-                                conversion,
+                                conversion: conversion as usize,
                                 format_spec: spec,
                             }),
                         ]

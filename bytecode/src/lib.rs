@@ -357,6 +357,7 @@ pub enum Instruction {
         for_call: bool,
         size: u32,
     },
+    DictUpdate,
     BuildSlice {
         /// whether build a slice with a third step argument
         step: bool,
@@ -1040,6 +1041,7 @@ impl Instruction {
                 let nargs = if *unpack { *size } else { *size * 2 };
                 -(nargs as i32) + 1
             }
+            DictUpdate => -1,
             BuildSlice { step } => -2 - (*step as i32) + 1,
             ListAppend { .. } | SetAdd { .. } => -1,
             MapAdd { .. } => -2,
@@ -1202,6 +1204,7 @@ impl Instruction {
                 unpack,
                 for_call,
             } => w!(BuildMap, size, unpack, for_call),
+            DictUpdate => w!(DictUpdate),
             BuildSlice { step } => w!(BuildSlice, step),
             ListAppend { i } => w!(ListAppend, i),
             SetAdd { i } => w!(SetAdd, i),

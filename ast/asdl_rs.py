@@ -18,8 +18,6 @@ builtin_type_mapping = {
     'string': 'String',
     'int': 'usize',
     'constant': 'Constant',
-    'bool': 'bool',
-    'conversion_flag': 'ConversionFlag',
 }
 assert builtin_type_mapping.keys() == asdl.builtin_types
 
@@ -31,8 +29,10 @@ def get_rust_type(name):
     """
     if name in asdl.builtin_types:
         return builtin_type_mapping[name]
-    else:
+    elif name.islower():
         return "".join(part.capitalize() for part in name.split("_"))
+    else:
+        return name
 
 
 def is_simple(sum):
@@ -252,12 +252,19 @@ class StructVisitor(TypeInfoEmitVisitor):
         if product.attributes:
             dataname = rustname + "Data"
         self.emit_attrs(depth)
-        self.emit(f"pub struct {dataname}{generics} {{", depth)
+        has_expr = any(f.type != "identifier" for f in product.fields)
+        if has_expr:
+            datadef = f'{dataname}{generics}'
+        else:
+            datadef = dataname
+        self.emit(f"pub struct {datadef} {{", depth)
         for f in product.fields:
             self.visit(f, typeinfo, "pub ", depth + 1)
         self.emit("}", depth)
         if product.attributes:
             # attributes should just be location info
+            if not has_expr:
+                generics_applied = ""
             self.emit(f"pub type {rustname}<U = ()> = Located<{dataname}{generics_applied}, U>;", depth);
         self.emit("", depth)
 
@@ -422,7 +429,7 @@ class ClassDefVisitor(EmitVisitor):
         self.gen_classdef(name, product.fields, product.attributes, depth)
 
     def gen_classdef(self, name, fields, attrs, depth, base="AstNode"):
-        structname = "Node" + name
+        structname = "Node" + get_rust_type(name)
         self.emit(f'#[pyclass(module = "_ast", name = {json.dumps(name)}, base = {json.dumps(base)})]', depth)
         self.emit(f"struct {structname};", depth)
         self.emit("#[pyclass(flags(HAS_DICT, BASETYPE))]", depth)
@@ -467,7 +474,8 @@ class ExtendModuleVisitor(EmitVisitor):
         self.visit(type.value, type.name, depth)
 
     def visitSum(self, sum, name, depth):
-        self.emit(f"{json.dumps(name)} => NodeKind{get_rust_type(name)}::make_class(&vm.ctx),", depth)
+        rust_name = get_rust_type(name)
+        self.emit(f"{json.dumps(name)} => NodeKind{rust_name}::make_class(&vm.ctx),", depth)
         for cons in sum.types:
             self.visit(cons, depth)
 
@@ -478,7 +486,8 @@ class ExtendModuleVisitor(EmitVisitor):
         self.gen_extension(name, depth)
 
     def gen_extension(self, name, depth):
-        self.emit(f"{json.dumps(name)} => Node{name}::make_class(&vm.ctx),", depth)
+        rust_name = get_rust_type(name)
+        self.emit(f"{json.dumps(name)} => Node{rust_name}::make_class(&vm.ctx),", depth)
 
 
 class TraitImplVisitor(EmitVisitor):
@@ -493,7 +502,6 @@ class TraitImplVisitor(EmitVisitor):
         enumname = get_rust_type(name)
         if sum.attributes:
             enumname += "Kind"
-
 
         self.emit(f"impl NamedNode for ast::{enumname} {{", depth)
         self.emit(f"const NAME: &'static str = {json.dumps(name)};", depth + 1)
@@ -546,8 +554,8 @@ class TraitImplVisitor(EmitVisitor):
         self.emit("}", depth)
 
     def make_node(self, variant, fields, depth):
-        lines = []
-        self.emit(f"let _node = AstNode.into_ref_with_type(_vm, Node{variant}::static_type().to_owned()).unwrap();", depth)
+        rust_variant = get_rust_type(variant)
+        self.emit(f"let _node = AstNode.into_ref_with_type(_vm, Node{rust_variant}::static_type().to_owned()).unwrap();", depth)
         if fields:
             self.emit("let _dict = _node.as_object().dict().unwrap();", depth)
         for f in fields:

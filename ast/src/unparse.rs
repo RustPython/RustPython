@@ -149,13 +149,13 @@ impl<'a> Unparser<'a> {
             ExprKind::Dict { keys, values } => {
                 self.p("{")?;
                 let mut first = true;
-                for (k, v) in keys.iter().zip(values) {
+                let (packed, unpacked) = values.split_at(keys.len());
+                for (k, v) in keys.iter().zip(packed) {
                     self.p_delim(&mut first, ", ")?;
-                    if let Some(k) = k {
-                        write!(self, "{}: {}", **k, *v)?;
-                    } else {
-                        write!(self, "**{}", *v)?;
-                    }
+                    write!(self, "{}: {}", *k, *v)?;
+                }
+                for d in unpacked {
+                    write!(self, "**{}", *d)?;
                 }
                 self.p("}")?;
             }
@@ -281,7 +281,7 @@ impl<'a> Unparser<'a> {
                 value,
                 conversion,
                 format_spec,
-            } => self.unparse_formatted(value, *conversion, format_spec.as_deref())?,
+            } => self.unparse_formatted(value, (*conversion).into(), format_spec.as_deref())?,
             ExprKind::JoinedStr { values } => self.unparse_joinedstr(values, false)?,
             ExprKind::Constant { value, kind } => {
                 if let Some(kind) = kind {
@@ -397,7 +397,7 @@ impl<'a> Unparser<'a> {
             self.unparse_arg(kwarg)?;
             if let Some(default) = i
                 .checked_sub(defaults_start)
-                .and_then(|i| args.kw_defaults[i].as_deref())
+                .and_then(|i| args.kw_defaults.get(i))
             {
                 write!(self, "={}", default)?;
             }
@@ -419,7 +419,7 @@ impl<'a> Unparser<'a> {
 
     fn unparse_comp<U>(&mut self, generators: &[Comprehension<U>]) -> fmt::Result {
         for comp in generators {
-            self.p(if comp.is_async {
+            self.p(if comp.is_async > 0 {
                 " async for "
             } else {
                 " for "
@@ -445,7 +445,7 @@ impl<'a> Unparser<'a> {
     fn unparse_formatted<U>(
         &mut self,
         val: &Expr<U>,
-        conversion: Option<ConversionFlag>,
+        conversion: ConversionFlag,
         spec: Option<&Expr<U>>,
     ) -> fmt::Result {
         let buffered = to_string_fmt(|f| Unparser::new(f).unparse_expr(val, precedence::TEST + 1));
@@ -459,14 +459,12 @@ impl<'a> Unparser<'a> {
         self.p(&buffered)?;
         drop(buffered);
 
-        if let Some(conv) = conversion {
-            let flag = match conv {
-                ConversionFlag::Str => "!s",
-                ConversionFlag::Ascii => "!a",
-                ConversionFlag::Repr => "!r",
-            };
-            self.p(flag)?;
-        }
+        let flag = match conversion {
+            ConversionFlag::Str => "!s",
+            ConversionFlag::Ascii => "!a",
+            ConversionFlag::Repr => "!r",
+        };
+        self.p(flag)?;
 
         if let Some(spec) = spec {
             self.p(":")?;
@@ -492,7 +490,7 @@ impl<'a> Unparser<'a> {
                 value,
                 conversion,
                 format_spec,
-            } => self.unparse_formatted(value, *conversion, format_spec.as_deref()),
+            } => self.unparse_formatted(value, (*conversion).into(), format_spec.as_deref()),
             _ => unreachable!(),
         }
     }

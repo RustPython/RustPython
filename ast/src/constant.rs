@@ -72,24 +72,30 @@ impl std::fmt::Display for Constant {
 
 /// Transforms a value prior to formatting it.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-#[repr(u8)]
+#[repr(usize)]
 pub enum ConversionFlag {
     /// Converts by calling `str(<value>)`.
-    Str = b's',
+    Str = b's' as usize,
     /// Converts by calling `ascii(<value>)`.
-    Ascii = b'a',
+    Ascii = b'a' as usize,
     /// Converts by calling `repr(<value>)`.
-    Repr = b'r',
+    Repr = b'r' as usize,
 }
 
 impl ConversionFlag {
-    pub fn try_from_byte(b: u8) -> Option<Self> {
-        match b {
+    pub fn try_from_u32(b: usize) -> Option<Self> {
+        match b.try_into().ok()? {
             b's' => Some(Self::Str),
             b'a' => Some(Self::Ascii),
             b'r' => Some(Self::Repr),
             _ => None,
         }
+    }
+}
+
+impl From<usize> for ConversionFlag {
+    fn from(b: usize) -> Self {
+        Self::try_from_u32(b).unwrap()
     }
 }
 

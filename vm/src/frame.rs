@@ -677,6 +677,13 @@ impl ExecutingFrame<'_> {
                 unpack,
                 for_call,
             } => self.execute_build_map(vm, *size, *unpack, *for_call),
+            bytecode::Instruction::DictUpdate => {
+                let other = self.pop_value();
+                let dict = self.pop_value();
+                let updated = vm.call_method(&dict, "update", (other,))?;
+                self.push_value(updated);
+                Ok(None)
+            }
             bytecode::Instruction::BuildSlice { step } => self.execute_build_slice(vm, *step),
             bytecode::Instruction::ListAppend { i } => {
                 let item = self.pop_value();
