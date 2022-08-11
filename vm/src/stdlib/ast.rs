@@ -252,8 +252,8 @@ impl Node for ast::ConversionFlag {
 
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
         i32::try_from_object(vm, object)?
-            .to_u8()
-            .and_then(ast::ConversionFlag::try_from_byte)
+            .to_usize()
+            .and_then(|f| f.try_into().ok())
             .ok_or_else(|| vm.new_value_error("invalid conversion flag".to_owned()))
     }
 }

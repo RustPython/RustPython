@@ -1,4 +1,5 @@
 use num_bigint::BigInt;
+pub use rustpython_bytecode::ConversionFlag;
 
 #[derive(Debug, PartialEq)]
 pub enum Constant {
@@ -67,35 +68,6 @@ impl std::fmt::Display for Constant {
             }
             Constant::Ellipsis => f.pad("..."),
         }
-    }
-}
-
-/// Transforms a value prior to formatting it.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-#[repr(usize)]
-pub enum ConversionFlag {
-    /// Converts by calling `str(<value>)`.
-    Str = b's' as usize,
-    /// Converts by calling `ascii(<value>)`.
-    Ascii = b'a' as usize,
-    /// Converts by calling `repr(<value>)`.
-    Repr = b'r' as usize,
-}
-
-impl ConversionFlag {
-    pub fn try_from_u32(b: usize) -> Option<Self> {
-        match b.try_into().ok()? {
-            b's' => Some(Self::Str),
-            b'a' => Some(Self::Ascii),
-            b'r' => Some(Self::Repr),
-            _ => None,
-        }
-    }
-}
-
-impl From<usize> for ConversionFlag {
-    fn from(b: usize) -> Self {
-        Self::try_from_u32(b).unwrap()
     }
 }
 

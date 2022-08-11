@@ -159,15 +159,30 @@ impl fmt::Display for Label {
 
 /// Transforms a value prior to formatting it.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[repr(u8)]
 pub enum ConversionFlag {
     /// No conversion
-    None,
+    None = 0,
     /// Converts by calling `str(<value>)`.
-    Str,
+    Str = b's',
     /// Converts by calling `ascii(<value>)`.
-    Ascii,
+    Ascii = b'a',
     /// Converts by calling `repr(<value>)`.
-    Repr,
+    Repr = b'r',
+}
+
+impl TryFrom<usize> for ConversionFlag {
+    type Error = usize;
+    fn try_from(b: usize) -> Result<Self, Self::Error> {
+        let b = b.try_into().map_err(|_| b)?;
+        match b {
+            0 => Ok(Self::None),
+            b's' => Ok(Self::Str),
+            b'a' => Ok(Self::Ascii),
+            b'r' => Ok(Self::Repr),
+            b => Err(b as usize),
+        }
+    }
 }
 
 /// The kind of Raise that occurred.

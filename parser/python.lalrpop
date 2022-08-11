@@ -268,19 +268,19 @@ ImportDots: usize = {
 };
 
 ImportAsNames: Vec<ast::Alias> = {
-    <i:OneOrMore<ImportAsAlias<Identifier>>> => i,
-    "(" <i:OneOrMore<ImportAsAlias<Identifier>>> ","? ")" => i,
-    "*" => {
+    <location:@L> <i:OneOrMore<ImportAsAlias<Identifier>>> => i,
+    <location:@L> "(" <i:OneOrMore<ImportAsAlias<Identifier>>> ","? ")" => i,
+    <location:@L> "*" => {
         // Star import all
-        vec![ast::Alias(ast::AliasData { name: "*".to_string(), asname: None })]
+        vec![ast::Alias::new(location, ast::AliasData { name: "*".to_string(), asname: None })]
     },
 };
 
 
 #[inline]
 ImportAsAlias<I>: ast::Alias = {
-    <name:I> <a: ("as" Identifier)?> => ast::Alias { name, asname: a.map(|a| a.1) },
-};
+    <location:@L> <name:I> <a: ("as" Identifier)?> => ast::Alias::new(location, ast::AliasData { name, asname: a.map(|a| a.1) }),
+}
 
 // A name like abc or abc.def.ghi
 DottedName: String = {
@@ -590,20 +590,26 @@ TypedParameter: ast::Arg = {
 // Use inline here to make sure the "," is not creating an ambiguity.
 // TODO: figure out another grammar that makes this inline no longer required.
 #[inline]
-ParameterListStarArgs<ArgType>: (Option<Box<ast::Arg>>, Vec<ast::Arg>, Vec<Option<Box<ast::Expr>>>, Option<Box<ast::Arg>>) = {
+ParameterListStarArgs<ArgType>: (Option<Box<ast::Arg>>, Vec<ast::Arg>, Vec<ast::Expr>, Option<Box<ast::Arg>>) = {
     "*" <va:ArgType?> <kw:("," ParameterDef<ArgType>)*> <kwarg:("," KwargParameter<ArgType>)?> => {
         // Extract keyword arguments:
-        let mut kwonlyargs = vec![];
-        let mut kw_defaults = vec![];
+        let mut kwonlyargs = Vec::new();
+        let mut kw_defaults = Vec::new();
+        let mut kwargs = Vec::new();
         for (name, value) in kw.into_iter().map(|x| x.1) {
-            kwonlyargs.push(name);
-            kw_defaults.push(value.map(Box::new));
+            if let Some(value) = value {
+                kwonlyargs.push(name);
+                kw_defaults.push(value);
+            } else {
+                kwargs.push(name);
+            }
         }
+        kwargs.extend(kwonlyargs.into_iter());
 
         let kwarg = kwarg.map(|n| n.1).flatten();
         let va = va.map(Box::new);
 
-        (va, kwonlyargs, kw_defaults, kwarg)
+        (va, kwargs, kw_defaults, kwarg)
     }
 };
 
@@ -1039,7 +1045,42 @@ Atom: ast::Expr = {
         }.into())
     },
     <location:@L> "{" <e:DictLiteralValues?> "}" => {
-        let (keys, values) = e.unwrap_or_default();
+        let pairs = e.unwrap_or_default();
+
+        let (keys, values) = match pairs.iter().position(|(k,_)| k.is_none()) {
+            Some(unpack_idx) => {
+                let mut pairs = pairs;
+                let (keys, mut values): (_, Vec<_>) = pairs.drain(..unpack_idx).map(|(k, v)| (*k.unwrap(), v)).unzip();
+
+                fn build_map(items: &mut Vec<(ast::Expr, ast::Expr)>) -> ast::Expr {
+                    let location = items[0].0.location;
+                    let (keys, values) = items.drain(..).unzip();
+                    ast::Expr {
+                        location,
+                        custom: (),
+                        node: ast::ExprKind::Dict { keys, values }
+                    }
+                }
+
+                let mut items = Vec::new();
+                for (key, value) in pairs.into_iter() {
+                    if let Some(key) = key {
+                        items.push((*key, value));
+                        continue;
+                    }
+                    if !items.is_empty() {
+                        values.push(build_map(&mut items));
+                    }
+                    values.push(value);
+                }
+                if !items.is_empty() {
+                    values.push(build_map(&mut items));
+                }
+                (keys, values)
+            },
+            None => pairs.into_iter().map(|(k, v)| (*k.unwrap(), v)).unzip()
+        };
+
         ast::Expr {
             location,
             custom: (),
@@ -1079,8 +1120,8 @@ ListLiteralValues: Vec<ast::Expr> = {
     <e:OneOrMore<TestOrStarNamedExpr>> ","? => e,
 };
 
-DictLiteralValues: (Vec<Option<Box<ast::Expr>>>, Vec<ast::Expr>) = {
-    <elements:OneOrMore<DictElement>> ","? => elements.into_iter().unzip(),
+DictLiteralValues: Vec<(Option<Box<ast::Expr>>, ast::Expr)> = {
+    <elements:OneOrMore<DictElement>> ","? => elements,
 };
 
 DictEntry: (ast::Expr, ast::Expr) = {
@@ -1151,7 +1192,7 @@ SingleForComprehension: ast::Comprehension = {
             target: Box::new(target),
             iter: Box::new(iter),
             ifs,
-            is_async
+            is_async: if is_async { 1 } else { 0 },
         }
     }
 };

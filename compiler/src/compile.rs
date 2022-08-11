@@ -680,6 +680,7 @@ impl Compiler {
                 orelse,
                 ..
             } => self.compile_for(target, iter, body, orelse, true)?,
+            Match { subject, cases } => self.compile_match(subject, cases)?,
             Raise { exc, cause } => {
                 let kind = match exc {
                     Some(value) => {
@@ -881,17 +882,19 @@ impl Compiler {
             });
         }
 
-        let mut num_kw_only_defaults = 0;
-        for (kw, default) in args.kwonlyargs.iter().zip(&args.kw_defaults) {
-            self.emit_constant(ConstantData::Str {
-                value: kw.node.arg.clone(),
-            });
-            self.compile_expression(default)?;
-            num_kw_only_defaults += 1;
-        }
-        if num_kw_only_defaults > 0 {
+        if !args.kw_defaults.is_empty() {
+            let required_kw_count = args.kwonlyargs.len().saturating_sub(args.kw_defaults.len());
+            for (kw, default) in args.kwonlyargs[required_kw_count..]
+                .iter()
+                .zip(&args.kw_defaults)
+            {
+                self.emit_constant(ConstantData::Str {
+                    value: kw.node.arg.clone(),
+                });
+                self.compile_expression(default)?;
+            }
             self.emit(Instruction::BuildMap {
-                size: num_kw_only_defaults,
+                size: args.kw_defaults.len() as u32,
                 unpack: false,
                 for_call: false,
             });
@@ -901,7 +904,7 @@ impl Compiler {
         if have_defaults {
             funcflags |= bytecode::MakeFunctionFlags::DEFAULTS;
         }
-        if num_kw_only_defaults > 0 {
+        if !args.kw_defaults.is_empty() {
             funcflags |= bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS;
         }
 
@@ -1519,6 +1522,16 @@ impl Compiler {
         Ok(())
     }
 
+    fn compile_match(
+        &mut self,
+        subject: &ast::Expr,
+        cases: &[ast::MatchCase],
+    ) -> CompileResult<()> {
+        eprintln!("match subject: {subject:?}");
+        eprintln!("match cases: {cases:?}");
+        Err(self.error(CompileErrorType::NotImplementedYet))
+    }
+
     fn compile_chained_comparison(
         &mut self,
         left: &ast::Expr,
@@ -1928,11 +1941,7 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_dict(
-        &mut self,
-        keys: &[ast::Expr],
-        values: &[ast::Expr],
-    ) -> CompileResult<()> {
+    fn compile_dict(&mut self, keys: &[ast::Expr], values: &[ast::Expr]) -> CompileResult<()> {
         let mut size = 0;
 
         let (packed_values, unpacked_values) = values.split_at(keys.len());
@@ -2099,7 +2108,7 @@ impl Compiler {
                 };
                 self.compile_expression(value)?;
                 self.emit(Instruction::FormatValue {
-                    conversion: compile_conversion_flag(*conversion),
+                    conversion: (*conversion).try_into().expect("invalid conversion flag"),
                 });
             }
             Name { id, .. } => self.load_name(id)?,
@@ -2454,7 +2463,7 @@ impl Compiler {
 
         let mut loop_labels = vec![];
         for generator in generators {
-            if generator.is_async {
+            if generator.is_async > 0 {
                 unimplemented!("async for comprehensions");
             }
 
@@ -2543,7 +2552,7 @@ impl Compiler {
             return Err(self.error(CompileErrorType::InvalidFuturePlacement));
         }
         for feature in features {
-            match &*feature.name {
+            match &*feature.node.name {
                 // Python 3 features; we've already implemented them by default
                 "nested_scopes" | "generators" | "division" | "absolute_import"
                 | "with_statement" | "print_function" | "unicode_literals" => {}
@@ -2665,17 +2674,6 @@ fn try_get_constant_string(values: &[ast::Expr]) -> Option<String> {
 
 fn compile_location(location: &ast::Location) -> bytecode::Location {
     bytecode::Location::new(location.row(), location.column())
-}
-
-fn compile_conversion_flag(
-    conversion_flag: Option<ast::ConversionFlag>,
-) -> bytecode::ConversionFlag {
-    match conversion_flag {
-        None => bytecode::ConversionFlag::None,
-        Some(ast::ConversionFlag::Ascii) => bytecode::ConversionFlag::Ascii,
-        Some(ast::ConversionFlag::Repr) => bytecode::ConversionFlag::Repr,
-        Some(ast::ConversionFlag::Str) => bytecode::ConversionFlag::Str,
-    }
 }
 
 fn compile_constant(value: &ast::Constant) -> ConstantData {

@@ -679,9 +679,11 @@ impl ExecutingFrame<'_> {
             } => self.execute_build_map(vm, *size, *unpack, *for_call),
             bytecode::Instruction::DictUpdate => {
                 let other = self.pop_value();
-                let dict = self.pop_value();
-                let updated = vm.call_method(&dict, "update", (other,))?;
-                self.push_value(updated);
+                let dict = self
+                    .last_value_ref()
+                    .downcast_ref::<PyDict>()
+                    .expect("exact dict expected");
+                dict.merge_object(other, vm)?;
                 Ok(None)
             }
             bytecode::Instruction::BuildSlice { step } => self.execute_build_slice(vm, *step),

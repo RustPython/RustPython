@@ -37,6 +37,7 @@ pub enum CompileErrorType {
     TooManyStarUnpack,
     EmptyWithItems,
     EmptyWithBody,
+    NotImplementedYet, // RustPython marker for unimplemented features
 }
 
 impl fmt::Display for CompileErrorType {
@@ -77,6 +78,9 @@ impl fmt::Display for CompileErrorType {
             }
             CompileErrorType::EmptyWithBody => {
                 write!(f, "empty body on With")
+            }
+            CompileErrorType::NotImplementedYet => {
+                write!(f, "RustPython does not implement this feature yet")
             }
         }
     }

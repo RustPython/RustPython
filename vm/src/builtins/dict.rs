@@ -71,15 +71,12 @@ impl PyDict {
     }
 
     // Used in update and ior.
-    fn merge_object(
-        dict: &DictContentType,
-        other: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
+    pub(crate) fn merge_object(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let other = match other.downcast_exact(vm) {
-            Ok(dict_other) => return Self::merge_dict(dict, dict_other, vm),
+            Ok(dict_other) => return self.merge_dict(dict_other, vm),
             Err(other) => other,
         };
+        let dict = &self.entries;
         if let Some(keys) = vm.get_method(other.clone(), vm.ctx.intern_str("keys")) {
             let keys = vm.invoke(&keys?, ())?.get_iter(vm)?;
             while let PyIterReturn::Return(key) = keys.next(vm)? {
@@ -108,11 +105,8 @@ impl PyDict {
         Ok(())
     }
 
-    fn merge_dict(
-        dict: &DictContentType,
-        dict_other: PyDictRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
+    fn merge_dict(&self, dict_other: PyDictRef, vm: &VirtualMachine) -> PyResult<()> {
+        let dict = &self.entries;
         let dict_size = &dict_other.size();
         for (key, value) in &dict_other {
             dict.insert(vm, &*key, value)?;
@@ -363,7 +357,7 @@ impl PyDict {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         if let OptionalArg::Present(dict_obj) = dict_obj {
-            Self::merge_object(&self.entries, dict_obj, vm)?;
+            self.merge_object(dict_obj, vm)?;
         }
         for (key, value) in kwargs.into_iter() {
             self.entries.insert(vm, &key, value)?;
@@ -373,7 +367,7 @@ impl PyDict {
 
     #[pymethod(magic)]
     fn ior(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        PyDict::merge_object(&zelf.entries, other, vm)?;
+        zelf.merge_object(other, vm)?;
         Ok(zelf)
     }
 
@@ -382,7 +376,7 @@ impl PyDict {
         let dicted: Result<PyDictRef, _> = other.downcast();
         if let Ok(other) = dicted {
             let other_cp = other.copy();
-            PyDict::merge_dict(&other_cp.entries, zelf, vm)?;
+            other_cp.merge_dict(zelf, vm)?;
             return Ok(other_cp.into_pyobject(vm));
         }
         Ok(vm.ctx.not_implemented())
@@ -393,7 +387,7 @@ impl PyDict {
         let dicted: Result<PyDictRef, _> = other.downcast();
         if let Ok(other) = dicted {
             let self_cp = self.copy();
-            PyDict::merge_dict(&self_cp.entries, other, vm)?;
+            self_cp.merge_dict(other, vm)?;
             return Ok(self_cp.into_pyobject(vm));
         }
         Ok(vm.ctx.not_implemented())

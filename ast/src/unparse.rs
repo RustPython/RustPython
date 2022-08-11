@@ -155,6 +155,7 @@ impl<'a> Unparser<'a> {
                     write!(self, "{}: {}", *k, *v)?;
                 }
                 for d in unpacked {
+                    self.p_delim(&mut first, ", ")?;
                     write!(self, "**{}", *d)?;
                 }
                 self.p("}")?;
@@ -281,7 +282,7 @@ impl<'a> Unparser<'a> {
                 value,
                 conversion,
                 format_spec,
-            } => self.unparse_formatted(value, (*conversion).into(), format_spec.as_deref())?,
+            } => self.unparse_formatted(value, *conversion, format_spec.as_deref())?,
             ExprKind::JoinedStr { values } => self.unparse_joinedstr(values, false)?,
             ExprKind::Constant { value, kind } => {
                 if let Some(kind) = kind {
@@ -445,7 +446,7 @@ impl<'a> Unparser<'a> {
     fn unparse_formatted<U>(
         &mut self,
         val: &Expr<U>,
-        conversion: ConversionFlag,
+        conversion: usize,
         spec: Option<&Expr<U>>,
     ) -> fmt::Result {
         let buffered = to_string_fmt(|f| Unparser::new(f).unparse_expr(val, precedence::TEST + 1));
@@ -459,12 +460,12 @@ impl<'a> Unparser<'a> {
         self.p(&buffered)?;
         drop(buffered);
 
-        let flag = match conversion {
-            ConversionFlag::Str => "!s",
-            ConversionFlag::Ascii => "!a",
-            ConversionFlag::Repr => "!r",
-        };
-        self.p(flag)?;
+        if conversion != ConversionFlag::None as usize {
+            self.p("!")?;
+            let buf = &[conversion as u8];
+            let c = std::str::from_utf8(buf).unwrap();
+            self.p(c)?;
+        }
 
         if let Some(spec) = spec {
             self.p(":")?;
@@ -490,7 +491,7 @@ impl<'a> Unparser<'a> {
                 value,
                 conversion,
                 format_spec,
-            } => self.unparse_formatted(value, (*conversion).into(), format_spec.as_deref()),
+            } => self.unparse_formatted(value, *conversion, format_spec.as_deref()),
             _ => unreachable!(),
         }
     }

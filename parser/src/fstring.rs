@@ -30,7 +30,7 @@ impl<'a> FStringParser<'a> {
         let mut expression = String::new();
         let mut spec = None;
         let mut delims = Vec::new();
-        let mut conversion = ConversionFlag::Str;
+        let mut conversion = ConversionFlag::None;
         let mut pred_expression_text = String::new();
         let mut trailing_seq = String::new();
 
@@ -115,7 +115,7 @@ impl<'a> FStringParser<'a> {
                                                 )
                                                 .parse()?,
                                             ),
-                                            conversion: b's' as usize,
+                                            conversion: ConversionFlag::None as _,
                                             format_spec: None,
                                         }),
                                     );
@@ -187,7 +187,7 @@ impl<'a> FStringParser<'a> {
                                 parse_fstring_expr(&expression)
                                     .map_err(|e| InvalidExpression(Box::new(e.error)))?,
                             ),
-                            conversion: conversion as usize,
+                            conversion: conversion as _,
                             format_spec: spec,
                         })]
                     } else {
@@ -205,7 +205,7 @@ impl<'a> FStringParser<'a> {
                                     parse_fstring_expr(&expression)
                                         .map_err(|e| InvalidExpression(Box::new(e.error)))?,
                                 ),
-                                conversion: conversion as usize,
+                                conversion: conversion as _,
                                 format_spec: spec,
                             }),
                         ]
