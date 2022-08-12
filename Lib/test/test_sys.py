@@ -484,8 +484,6 @@ class SysModuleTest(unittest.TestCase):
         leave_g.set()
         t.join()
 
-    # TODO: RUSTPYTHON, AttributeError: module 'sys' has no attribute 'orig_argv'
-    @unittest.expectedFailure
     def test_attributes(self):
         self.assertIsInstance(sys.api_version, int)
         self.assertIsInstance(sys.argv, list)
