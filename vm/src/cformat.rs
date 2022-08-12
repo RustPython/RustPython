@@ -354,7 +354,7 @@ impl CFormatSpec {
             _ => unreachable!(),
         };
 
-        let formatted = if self.flags.contains(CConversionFlags::ZERO_PAD) {
+        if self.flags.contains(CConversionFlags::ZERO_PAD) {
             let fill_char = if !self.flags.contains(CConversionFlags::LEFT_ADJUST) {
                 '0'
             } else {
@@ -377,9 +377,7 @@ impl CFormatSpec {
                 None,
                 false,
             )
-        };
-
-        formatted
+        }
     }
 
     fn bytes_format(&self, vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Vec<u8>> {
