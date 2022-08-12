@@ -566,10 +566,16 @@ mod decl {
             let trailing_garbage_error = || Err(vm.new_value_error("Trailing garbage".to_string()));
 
             for chunk in b.get(1..).unwrap_or_default().chunks(4) {
-                let char_a = chunk.get(0).map_or(Ok(0), |x| uu_a2b_read(x, vm))?;
-                let char_b = chunk.get(1).map_or(Ok(0), |x| uu_a2b_read(x, vm))?;
-                let char_c = chunk.get(2).map_or(Ok(0), |x| uu_a2b_read(x, vm))?;
-                let char_d = chunk.get(3).map_or(Ok(0), |x| uu_a2b_read(x, vm))?;
+                let (char_a, char_b, char_c, char_d) = {
+                    let mut chunk = chunk
+                        .iter()
+                        .map(|x| uu_a2b_read(x, vm))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    while chunk.len() < 4 {
+                        chunk.push(0);
+                    }
+                    (chunk[0], chunk[1], chunk[2], chunk[3])
+                };
 
                 if res.len() < length {
                     res.push(char_a << 2 | char_b >> 4);
@@ -628,7 +634,7 @@ mod decl {
             res.push(uu_b2a(length as u8, backtick));
 
             for chunk in b.chunks(3) {
-                let char_a = *chunk.get(0).unwrap_or(&0);
+                let char_a = *chunk.first().unwrap();
                 let char_b = *chunk.get(1).unwrap_or(&0);
                 let char_c = *chunk.get(2).unwrap_or(&0);
 

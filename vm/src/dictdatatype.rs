@@ -99,7 +99,7 @@ struct DictEntry<T> {
 }
 static_assertions::assert_eq_size!(DictEntry<PyObjectRef>, Option<DictEntry<PyObjectRef>>);
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct DictSize {
     indices_size: usize,
     pub entries_size: usize,

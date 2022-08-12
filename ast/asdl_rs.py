@@ -23,6 +23,7 @@ builtin_type_mapping = {
 }
 assert builtin_type_mapping.keys() == asdl.builtin_types
 
+
 def get_rust_type(name):
     """Return a string for the C name of the type.
 
@@ -32,6 +33,7 @@ def get_rust_type(name):
         return builtin_type_mapping[name]
     else:
         return "".join(part.capitalize() for part in name.split("_"))
+
 
 def is_simple(sum):
     """Return True if a sum is a simple.
@@ -44,6 +46,7 @@ def is_simple(sum):
             return False
     return True
 
+
 def asdl_of(name, obj):
     if isinstance(obj, asdl.Product) or isinstance(obj, asdl.Constructor):
         fields = ", ".join(map(str, obj.fields))
@@ -55,10 +58,9 @@ def asdl_of(name, obj):
             types = " | ".join(type.name for type in obj.types)
         else:
             sep = "\n{}| ".format(" " * (len(name) + 1))
-            types = sep.join(
-                asdl_of(type.name, type) for type in obj.types
-            )
+            types = sep.join(asdl_of(type.name, type) for type in obj.types)
         return "{} = {}".format(name, types)
+
 
 class EmitVisitor(asdl.VisitorBase):
     """Visit that emits lines"""
@@ -79,6 +81,7 @@ class EmitVisitor(asdl.VisitorBase):
         if line:
             line = (" " * TABSIZE * depth) + line
         self.file.write(line + "\n")
+
 
 class TypeInfo:
     def __init__(self, name):
@@ -104,6 +107,7 @@ class TypeInfo:
 
         stack.remove(self.name)
         return self.has_userdata
+
 
 class FindUserdataTypesVisitor(asdl.VisitorBase):
     def __init__(self, typeinfo):
@@ -146,11 +150,13 @@ class FindUserdataTypesVisitor(asdl.VisitorBase):
     def add_children(self, name, fields):
         self.typeinfo[name].children.update((field.type, field.seq) for field in fields)
 
+
 def rust_field(field_name):
-    if field_name == 'type':
-        return 'type_'
+    if field_name == "type":
+        return "type_"
     else:
         return field_name
+
 
 class TypeInfoEmitVisitor(EmitVisitor):
     def __init__(self, file, typeinfo):
@@ -165,6 +171,7 @@ class TypeInfoEmitVisitor(EmitVisitor):
             return [f"<{g}>" for g in generics]
         else:
             return ["" for g in generics]
+
 
 class StructVisitor(TypeInfoEmitVisitor):
     """Visitor to generate typedefs for AST."""
@@ -208,7 +215,10 @@ class StructVisitor(TypeInfoEmitVisitor):
             self.visit(t, typeinfo, depth + 1)
         self.emit("}", depth)
         if sum.attributes:
-            self.emit(f"pub type {rustname}<U = ()> = Located<{enumname}{generics_applied}, U>;", depth)
+            self.emit(
+                f"pub type {rustname}<U = ()> = Located<{enumname}{generics_applied}, U>;",
+                depth,
+            )
         self.emit("", depth)
 
     def visitConstructor(self, cons, parent, depth):
@@ -257,7 +267,10 @@ class FoldTraitDefVisitor(TypeInfoEmitVisitor):
         self.emit("pub trait Fold<U> {", depth)
         self.emit("type TargetU;", depth + 1)
         self.emit("type Error;", depth + 1)
-        self.emit("fn map_user(&mut self, user: U) -> Result<Self::TargetU, Self::Error>;", depth + 2)
+        self.emit(
+            "fn map_user(&mut self, user: U) -> Result<Self::TargetU, Self::Error>;",
+            depth + 2,
+        )
         for dfn in mod.dfns:
             self.visit(dfn, depth + 2)
         self.emit("}", depth)
@@ -266,15 +279,24 @@ class FoldTraitDefVisitor(TypeInfoEmitVisitor):
         name = type.name
         apply_u, apply_target_u = self.get_generics(name, "U", "Self::TargetU")
         enumname = get_rust_type(name)
-        self.emit(f"fn fold_{name}(&mut self, node: {enumname}{apply_u}) -> Result<{enumname}{apply_target_u}, Self::Error> {{", depth)
+        self.emit(
+            f"fn fold_{name}(&mut self, node: {enumname}{apply_u}) -> Result<{enumname}{apply_target_u}, Self::Error> {{",
+            depth,
+        )
         self.emit(f"fold_{name}(self, node)", depth + 1)
         self.emit("}", depth)
 
 
 class FoldImplVisitor(TypeInfoEmitVisitor):
     def visitModule(self, mod, depth):
-        self.emit("fn fold_located<U, F: Fold<U> + ?Sized, T, MT>(folder: &mut F, node: Located<T, U>, f: impl FnOnce(&mut F, T) -> Result<MT, F::Error>) -> Result<Located<MT, F::TargetU>, F::Error> {", depth)
-        self.emit("Ok(Located { custom: folder.map_user(node.custom)?, location: node.location, node: f(folder, node.node)? })", depth + 1)
+        self.emit(
+            "fn fold_located<U, F: Fold<U> + ?Sized, T, MT>(folder: &mut F, node: Located<T, U>, f: impl FnOnce(&mut F, T) -> Result<MT, F::Error>) -> Result<Located<MT, F::TargetU>, F::Error> {",
+            depth,
+        )
+        self.emit(
+            "Ok(Located { custom: folder.map_user(node.custom)?, location: node.location, node: f(folder, node.node)? })",
+            depth + 1,
+        )
         self.emit("}", depth)
         for dfn in mod.dfns:
             self.visit(dfn, depth)
@@ -283,25 +305,35 @@ class FoldImplVisitor(TypeInfoEmitVisitor):
         self.visit(type.value, type.name, depth)
 
     def visitSum(self, sum, name, depth):
-        apply_t, apply_u, apply_target_u = self.get_generics(name, "T", "U", "F::TargetU")
+        apply_t, apply_u, apply_target_u = self.get_generics(
+            name, "T", "U", "F::TargetU"
+        )
         enumname = get_rust_type(name)
         is_located = bool(sum.attributes)
 
         self.emit(f"impl<T, U> Foldable<T, U> for {enumname}{apply_t} {{", depth)
         self.emit(f"type Mapped = {enumname}{apply_u};", depth + 1)
-        self.emit("fn fold<F: Fold<T, TargetU = U> + ?Sized>(self, folder: &mut F) -> Result<Self::Mapped, F::Error> {", depth + 1)
+        self.emit(
+            "fn fold<F: Fold<T, TargetU = U> + ?Sized>(self, folder: &mut F) -> Result<Self::Mapped, F::Error> {",
+            depth + 1,
+        )
         self.emit(f"folder.fold_{name}(self)", depth + 2)
         self.emit("}", depth + 1)
         self.emit("}", depth)
 
-        self.emit(f"pub fn fold_{name}<U, F: Fold<U> + ?Sized>(#[allow(unused)] folder: &mut F, node: {enumname}{apply_u}) -> Result<{enumname}{apply_target_u}, F::Error> {{", depth)
+        self.emit(
+            f"pub fn fold_{name}<U, F: Fold<U> + ?Sized>(#[allow(unused)] folder: &mut F, node: {enumname}{apply_u}) -> Result<{enumname}{apply_target_u}, F::Error> {{",
+            depth,
+        )
         if is_located:
             self.emit("fold_located(folder, node, |folder, node| {", depth)
             enumname += "Kind"
         self.emit("match node {", depth + 1)
         for cons in sum.types:
             fields_pattern = self.make_pattern(cons.fields)
-            self.emit(f"{enumname}::{cons.name} {{ {fields_pattern} }} => {{", depth + 2)
+            self.emit(
+                f"{enumname}::{cons.name} {{ {fields_pattern} }} => {{", depth + 2
+            )
             self.gen_construction(f"{enumname}::{cons.name}", cons.fields, depth + 3)
             self.emit("}", depth + 2)
         self.emit("}", depth + 1)
@@ -309,20 +341,27 @@ class FoldImplVisitor(TypeInfoEmitVisitor):
             self.emit("})", depth)
         self.emit("}", depth)
 
-
     def visitProduct(self, product, name, depth):
-        apply_t, apply_u, apply_target_u = self.get_generics(name, "T", "U", "F::TargetU")
+        apply_t, apply_u, apply_target_u = self.get_generics(
+            name, "T", "U", "F::TargetU"
+        )
         structname = get_rust_type(name)
         is_located = bool(product.attributes)
 
         self.emit(f"impl<T, U> Foldable<T, U> for {structname}{apply_t} {{", depth)
         self.emit(f"type Mapped = {structname}{apply_u};", depth + 1)
-        self.emit("fn fold<F: Fold<T, TargetU = U> + ?Sized>(self, folder: &mut F) -> Result<Self::Mapped, F::Error> {", depth + 1)
+        self.emit(
+            "fn fold<F: Fold<T, TargetU = U> + ?Sized>(self, folder: &mut F) -> Result<Self::Mapped, F::Error> {",
+            depth + 1,
+        )
         self.emit(f"folder.fold_{name}(self)", depth + 2)
         self.emit("}", depth + 1)
         self.emit("}", depth)
 
-        self.emit(f"pub fn fold_{name}<U, F: Fold<U> + ?Sized>(#[allow(unused)] folder: &mut F, node: {structname}{apply_u}) -> Result<{structname}{apply_target_u}, F::Error> {{", depth)
+        self.emit(
+            f"pub fn fold_{name}<U, F: Fold<U> + ?Sized>(#[allow(unused)] folder: &mut F, node: {structname}{apply_u}) -> Result<{structname}{apply_target_u}, F::Error> {{",
+            depth,
+        )
         if is_located:
             self.emit("fold_located(folder, node, |folder, node| {", depth)
             structname += "Data"
@@ -357,7 +396,6 @@ class FoldModuleVisitor(TypeInfoEmitVisitor):
 
 
 class ClassDefVisitor(EmitVisitor):
-
     def visitModule(self, mod):
         for dfn in mod.dfns:
             self.visit(dfn)
@@ -367,10 +405,13 @@ class ClassDefVisitor(EmitVisitor):
 
     def visitSum(self, sum, name, depth):
         structname = "NodeKind" + get_rust_type(name)
-        self.emit(f'#[pyclass(module = "_ast", name = {json.dumps(name)}, base = "AstNode")]', depth)
-        self.emit(f'struct {structname};', depth)
-        self.emit( '#[pyimpl(flags(HAS_DICT, BASETYPE))]', depth)
-        self.emit(f'impl {structname} {{}}', depth)
+        self.emit(
+            f'#[pyclass(module = "_ast", name = {json.dumps(name)}, base = "AstNode")]',
+            depth,
+        )
+        self.emit(f"struct {structname};", depth)
+        self.emit("#[pyclass(flags(HAS_DICT, BASETYPE))]", depth)
+        self.emit(f"impl {structname} {{}}", depth)
         for cons in sum.types:
             self.visit(cons, sum.attributes, structname, depth)
 
@@ -384,22 +425,38 @@ class ClassDefVisitor(EmitVisitor):
         structname = "Node" + name
         self.emit(f'#[pyclass(module = "_ast", name = {json.dumps(name)}, base = {json.dumps(base)})]', depth)
         self.emit(f"struct {structname};", depth)
-        self.emit("#[pyimpl(flags(HAS_DICT, BASETYPE))]", depth)
+        self.emit("#[pyclass(flags(HAS_DICT, BASETYPE))]", depth)
         self.emit(f"impl {structname} {{", depth)
         self.emit(f"#[extend_class]", depth + 1)
-        self.emit("fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {", depth + 1)
-        fields = ",".join(f"ctx.new_str(ascii!({json.dumps(f.name)})).into()" for f in fields)
-        self.emit(f'class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![{fields}]).into());', depth + 2)
-        attrs = ",".join(f"ctx.new_str(ascii!({json.dumps(attr.name)})).into()" for attr in attrs)
-        self.emit(f'class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![{attrs}]).into());', depth + 2)
+        self.emit(
+            "fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {",
+            depth + 1,
+        )
+        fields = ",".join(
+            f"ctx.new_str(ascii!({json.dumps(f.name)})).into()" for f in fields
+        )
+        self.emit(
+            f"class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![{fields}]).into());",
+            depth + 2,
+        )
+        attrs = ",".join(
+            f"ctx.new_str(ascii!({json.dumps(attr.name)})).into()" for attr in attrs
+        )
+        self.emit(
+            f"class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![{attrs}]).into());",
+            depth + 2,
+        )
         self.emit("}", depth + 1)
         self.emit("}", depth)
 
-class ExtendModuleVisitor(EmitVisitor):
 
+class ExtendModuleVisitor(EmitVisitor):
     def visitModule(self, mod):
         depth = 0
-        self.emit("pub fn extend_module_nodes(vm: &VirtualMachine, module: &PyObject) {", depth)
+        self.emit(
+            "pub fn extend_module_nodes(vm: &VirtualMachine, module: &PyObject) {",
+            depth,
+        )
         self.emit("extend_module!(vm, module, {", depth + 1)
         for dfn in mod.dfns:
             self.visit(dfn, depth + 2)
@@ -425,7 +482,6 @@ class ExtendModuleVisitor(EmitVisitor):
 
 
 class TraitImplVisitor(EmitVisitor):
-
     def visitModule(self, mod):
         for dfn in mod.dfns:
             self.visit(dfn)
@@ -443,13 +499,18 @@ class TraitImplVisitor(EmitVisitor):
         self.emit(f"const NAME: &'static str = {json.dumps(name)};", depth + 1)
         self.emit("}", depth)
         self.emit(f"impl Node for ast::{enumname} {{", depth)
-        self.emit("fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {", depth + 1)
+        self.emit(
+            "fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {", depth + 1
+        )
         self.emit("match self {", depth + 2)
         for variant in sum.types:
             self.constructor_to_object(variant, enumname, depth + 3)
         self.emit("}", depth + 2)
         self.emit("}", depth + 1)
-        self.emit("fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {", depth + 1)
+        self.emit(
+            "fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {",
+            depth + 1,
+        )
         self.gen_sum_fromobj(sum, name, enumname, depth + 2)
         self.emit("}", depth + 1)
         self.emit("}", depth)
@@ -469,12 +530,17 @@ class TraitImplVisitor(EmitVisitor):
         self.emit(f"const NAME: &'static str = {json.dumps(name)};", depth + 1)
         self.emit("}", depth)
         self.emit(f"impl Node for ast::{structname} {{", depth)
-        self.emit("fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {", depth + 1)
+        self.emit(
+            "fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {", depth + 1
+        )
         fields_pattern = self.make_pattern(product.fields)
         self.emit(f"let ast::{structname} {{ {fields_pattern} }} = self;", depth + 2)
         self.make_node(name, product.fields, depth + 2)
         self.emit("}", depth + 1)
-        self.emit("fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {", depth + 1)
+        self.emit(
+            "fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {",
+            depth + 1,
+        )
         self.gen_product_fromobj(product, name, structname, depth + 2)
         self.emit("}", depth + 1)
         self.emit("}", depth)
@@ -485,7 +551,10 @@ class TraitImplVisitor(EmitVisitor):
         if fields:
             self.emit("let _dict = _node.as_object().dict().unwrap();", depth)
         for f in fields:
-            self.emit(f"_dict.set_item({json.dumps(f.name)}, {rust_field(f.name)}.ast_to_object(_vm), _vm).unwrap();", depth)
+            self.emit(
+                f"_dict.set_item({json.dumps(f.name)}, {rust_field(f.name)}.ast_to_object(_vm), _vm).unwrap();",
+                depth,
+            )
         self.emit("_node.into()", depth)
 
     def make_pattern(self, fields):
@@ -518,12 +587,15 @@ class TraitImplVisitor(EmitVisitor):
     def gen_construction(self, cons_path, cons, name, depth):
         self.emit(f"ast::{cons_path} {{", depth)
         for field in cons.fields:
-            self.emit(f"{rust_field(field.name)}: {self.decode_field(field, name)},", depth + 1)
+            self.emit(
+                f"{rust_field(field.name)}: {self.decode_field(field, name)},",
+                depth + 1,
+            )
         self.emit("}", depth)
 
     def extract_location(self, typename, depth):
-        row = self.decode_field(asdl.Field('int', 'lineno'), typename)
-        column = self.decode_field(asdl.Field('int', 'col_offset'), typename)
+        row = self.decode_field(asdl.Field("int", "lineno"), typename)
+        column = self.decode_field(asdl.Field("int", "col_offset"), typename)
         self.emit(f"let _location = ast::Location::new({row}, {column});", depth)
 
     def wrap_located_node(self, depth):
@@ -536,6 +608,7 @@ class TraitImplVisitor(EmitVisitor):
         else:
             return f"Node::ast_from_object(_vm, get_node_field(_vm, &_object, {name}, {json.dumps(typename)})?)?"
 
+
 class ChainOfVisitors:
     def __init__(self, *visitors):
         self.visitors = visitors
@@ -547,49 +620,65 @@ class ChainOfVisitors:
 
 
 def write_ast_def(mod, typeinfo, f):
-    f.write('pub use crate::constant::*;\n')
-    f.write('pub use crate::location::Location;\n')
-    f.write('\n')
-    f.write('type Ident = String;\n')
-    f.write('\n')
-    StructVisitor(f, typeinfo).emit_attrs(0)
-    f.write('pub struct Located<T, U = ()> {\n')
-    f.write('    pub location: Location,\n')
-    f.write('    pub custom: U,\n')
-    f.write('    pub node: T,\n')
-    f.write('}\n')
-    f.write('\n')
-    f.write('impl<T> Located<T> {\n')
-    f.write('    pub fn new(location: Location, node: T) -> Self {\n')
-    f.write('        Self { location, custom: (), node }\n')
-    f.write('    }\n')
-    f.write('}\n')
-    f.write('\n')
+    f.write(
+        textwrap.dedent(
+            """
+        #![allow(clippy::derive_partial_eq_without_eq)]
+        
+        pub use crate::constant::*;
+        pub use crate::location::Location;
 
-    c = ChainOfVisitors(StructVisitor(f, typeinfo),
-                        FoldModuleVisitor(f, typeinfo))
+        type Ident = String;
+        \n
+    """
+        )
+    )
+    StructVisitor(f, typeinfo).emit_attrs(0)
+    f.write(
+        textwrap.dedent(
+            """
+        pub struct Located<T, U = ()> {
+            pub location: Location,
+            pub custom: U,
+            pub node: T,
+        }
+    
+        impl<T> Located<T> {
+            pub fn new(location: Location, node: T) -> Self {
+                Self { location, custom: (), node }
+            }
+        }
+        \n
+    """.lstrip()
+        )
+    )
+
+    c = ChainOfVisitors(StructVisitor(f, typeinfo), FoldModuleVisitor(f, typeinfo))
     c.visit(mod)
 
 
 def write_ast_mod(mod, f):
-    f.write(textwrap.dedent("""
+    f.write(
+        textwrap.dedent(
+            """
         #![allow(clippy::all)]
 
         use super::*;
         use crate::common::ascii;
 
-    """))
+    """
+        )
+    )
 
-    c = ChainOfVisitors(ClassDefVisitor(f),
-                        TraitImplVisitor(f),
-                        ExtendModuleVisitor(f))
+    c = ChainOfVisitors(ClassDefVisitor(f), TraitImplVisitor(f), ExtendModuleVisitor(f))
     c.visit(mod)
+
 
 def main(input_filename, ast_mod_filename, ast_def_filename, dump_module=False):
     auto_gen_msg = AUTOGEN_MESSAGE.format("/".join(Path(__file__).parts[-2:]))
     mod = asdl.parse(input_filename)
     if dump_module:
-        print('Parsed Module:')
+        print("Parsed Module:")
         print(mod)
     if not asdl.check(mod):
         sys.exit(1)
@@ -597,8 +686,7 @@ def main(input_filename, ast_mod_filename, ast_def_filename, dump_module=False):
     typeinfo = {}
     FindUserdataTypesVisitor(typeinfo).visit(mod)
 
-    with ast_def_filename.open("w") as def_file, \
-         ast_mod_filename.open("w") as mod_file:
+    with ast_def_filename.open("w") as def_file, ast_mod_filename.open("w") as mod_file:
         def_file.write(auto_gen_msg)
         write_ast_def(mod, typeinfo, def_file)
 
@@ -606,6 +694,7 @@ def main(input_filename, ast_mod_filename, ast_def_filename, dump_module=False):
         write_ast_mod(mod, mod_file)
 
     print(f"{ast_def_filename}, {ast_mod_filename} regenerated.")
+
 
 if __name__ == "__main__":
     parser = ArgumentParser()

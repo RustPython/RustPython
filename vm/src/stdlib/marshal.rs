@@ -179,7 +179,7 @@ mod decl {
                     buf.push(Type::Bytes as u8);
                     let data = bytes.as_bytes();
                     write_size(buf, data.len(), vm)?;
-                    buf.extend(&*data);
+                    buf.extend(data);
                 }
                 bytes @ PyByteArray => {
                     buf.push(Type::Bytes as u8);

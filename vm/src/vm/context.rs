@@ -327,7 +327,7 @@ impl Context {
     #[inline]
     pub fn new_int<T: Into<BigInt> + ToPrimitive>(&self, i: T) -> PyIntRef {
         if let Some(i) = i.to_i32() {
-            if i >= Self::INT_CACHE_POOL_MIN && i <= Self::INT_CACHE_POOL_MAX {
+            if (Self::INT_CACHE_POOL_MIN..=Self::INT_CACHE_POOL_MAX).contains(&i) {
                 let inner_idx = (i - Self::INT_CACHE_POOL_MIN) as usize;
                 return self.int_cache_pool[inner_idx].clone();
             }
@@ -338,7 +338,7 @@ impl Context {
     #[inline]
     pub fn new_bigint(&self, i: &BigInt) -> PyIntRef {
         if let Some(i) = i.to_i32() {
-            if i >= Self::INT_CACHE_POOL_MIN && i <= Self::INT_CACHE_POOL_MAX {
+            if (Self::INT_CACHE_POOL_MIN..=Self::INT_CACHE_POOL_MAX).contains(&i) {
                 let inner_idx = (i - Self::INT_CACHE_POOL_MIN) as usize;
                 return self.int_cache_pool[inner_idx].clone();
             }
