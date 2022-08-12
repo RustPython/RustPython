@@ -559,6 +559,16 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::StoreGlobal(idx) => {
                 let value = self.pop_value();
+                if value.class().is(vm.ctx.types.type_type) {
+                    let qualified_name = value
+                        .get_attr(identifier!(vm, __qualname__), vm)?
+                        .downcast::<PyStr>()
+                        .expect("qualified name to be a string");
+                    let name = qualified_name.as_str().split('.').next_back().unwrap();
+                    value.set_attr(identifier!(vm, __qualname__), vm.new_pyobj(name), vm)?;
+
+                    // TODO: qualname for type_type attrs needs to be set as well
+                }
                 self.globals
                     .set_item(self.code.names[*idx as usize], value, vm)?;
                 Ok(None)
