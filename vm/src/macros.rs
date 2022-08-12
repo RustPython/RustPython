@@ -101,7 +101,7 @@ macro_rules! py_namespace {
 /// let int_value = match_class!(match obj {
 ///     i @ PyInt => i.as_bigint().clone(),
 ///     f @ PyFloat => f.to_f64().to_bigint().unwrap(),
-///     obj => panic!("non-numeric object {}", obj),
+///     obj => panic!("non-numeric object {:?}", obj),
 /// });
 ///
 /// assert!(int_value.is_zero());

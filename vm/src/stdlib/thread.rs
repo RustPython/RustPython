@@ -349,7 +349,7 @@ pub(crate) mod _thread {
                     .ok_or_else(|| {
                         vm.new_attribute_error(format!(
                             "{} has no attribute '{}'",
-                            zelf.as_object(),
+                            zelf.class().name(),
                             attr
                         ))
                     })
@@ -367,7 +367,7 @@ pub(crate) mod _thread {
             if attr.as_str() == "__dict__" {
                 Err(vm.new_attribute_error(format!(
                     "{} attribute '__dict__' is read-only",
-                    zelf.as_object()
+                    zelf.class().name()
                 )))
             } else {
                 let dict = zelf.ldict(vm);
