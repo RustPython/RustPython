@@ -259,6 +259,11 @@ mod builtins {
                     Either::A(ref a) => a.as_str().as_bytes(),
                     Either::B(ref b) => b.as_bytes(),
                 };
+                for x in source {
+                    if *x == 0 {
+                        return Err(vm.new_value_error("source code string cannot contain null bytes".to_owned()));
+                    }
+                }
 
                 Ok(Either::A(vm.ctx.new_str(std::str::from_utf8(source).unwrap())))
             },
