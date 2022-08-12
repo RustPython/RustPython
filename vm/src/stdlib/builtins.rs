@@ -248,7 +248,10 @@ mod builtins {
     #[cfg(feature = "rustpython-compiler")]
     #[pyfunction]
     fn eval(
-        source: Either<Either<PyStrRef, crate::builtins::PyBytesRef>, PyRef<crate::builtins::PyCode>>,
+        source: Either<
+            Either<PyStrRef, crate::builtins::PyBytesRef>,
+            PyRef<crate::builtins::PyCode>,
+        >,
         scope: ScopeArgs,
         vm: &VirtualMachine,
     ) -> PyResult {
@@ -261,12 +264,16 @@ mod builtins {
                 };
                 for x in source {
                     if *x == 0 {
-                        return Err(vm.new_value_error("source code string cannot contain null bytes".to_owned()));
+                        return Err(vm.new_value_error(
+                            "source code string cannot contain null bytes".to_owned(),
+                        ));
                     }
                 }
 
-                Ok(Either::A(vm.ctx.new_str(std::str::from_utf8(source).unwrap())))
-            },
+                Ok(Either::A(
+                    vm.ctx.new_str(std::str::from_utf8(source).unwrap()),
+                ))
+            }
             Either::B(code) => Ok(Either::B(code)),
         }?;
         run_code(vm, code, scope, compile::Mode::Eval, "eval")
