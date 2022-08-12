@@ -248,11 +248,23 @@ mod builtins {
     #[cfg(feature = "rustpython-compiler")]
     #[pyfunction]
     fn eval(
-        source: Either<PyStrRef, PyRef<crate::builtins::PyCode>>,
+        source: Either<Either<PyStrRef, crate::builtins::PyBytesRef>, PyRef<crate::builtins::PyCode>>,
         scope: ScopeArgs,
         vm: &VirtualMachine,
     ) -> PyResult {
-        run_code(vm, source, scope, compile::Mode::Eval, "eval")
+        // source as string
+        let code = match source {
+            Either::A(either) => {
+                let source: &[u8] = match either {
+                    Either::A(ref a) => a.as_str().as_bytes(),
+                    Either::B(ref b) => b.as_bytes(),
+                };
+
+                Ok(Either::A(vm.ctx.new_str(std::str::from_utf8(source).unwrap())))
+            },
+            Either::B(code) => Ok(Either::B(code)),
+        }?;
+        run_code(vm, code, scope, compile::Mode::Eval, "eval")
     }
 
     /// Implements `exec`
