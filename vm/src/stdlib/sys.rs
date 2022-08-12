@@ -218,6 +218,16 @@ mod sys {
     }
 
     #[pyattr]
+    fn orig_argv(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        vm.state
+            .settings
+            .orig_argv
+            .iter()
+            .map(|arg| vm.ctx.new_str(arg.clone()).into())
+            .collect()
+    }
+
+    #[pyattr]
     fn path(vm: &VirtualMachine) -> Vec<PyObjectRef> {
         vm.state
             .settings
