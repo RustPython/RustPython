@@ -4,23 +4,22 @@ pub(crate) use sys::{UnraisableHookArgs, MAXSIZE, MULTIARCH};
 
 #[pymodule]
 mod sys {
-    use crate::common::{
-        ascii,
-        hash::{PyHash, PyUHash},
-    };
     use crate::{
         builtins::{PyDictRef, PyNamespace, PyStr, PyStrRef, PyTupleRef, PyTypeRef},
+        common::{
+            ascii,
+            hash::{PyHash, PyUHash},
+        },
         frame::FrameRef,
         function::{FuncArgs, OptionalArg, PosArgs},
-        stdlib::builtins,
+        stdlib::{self, builtins},
         types::PyStructSequence,
         version,
         vm::{Settings, VirtualMachine},
         AsObject, PyObjectRef, PyRef, PyRefExact, PyResult,
     };
     use num_traits::ToPrimitive;
-    use std::sync::atomic::Ordering;
-    use std::{env, mem, path};
+    use std::{env, mem, path, sync::atomic::Ordering};
 
     // not the same as CPython (e.g. rust's x86_x64-unknown-linux-gnu is just x86_64-linux-gnu)
     // but hopefully that's just an implementation detail? TODO: copy CPython's multiarch exactly,
@@ -562,6 +561,12 @@ mod sys {
         update_use_tracing(vm);
     }
 
+    #[cfg(feature = "threading")]
+    #[pyattr]
+    fn thread_info(vm: &VirtualMachine) -> PyTupleRef {
+        PyThreadInfo::INFO.into_struct_sequence(vm)
+    }
+
     #[pyattr]
     fn version_info(vm: &VirtualMachine) -> PyTupleRef {
         VersionInfo::VERSION.into_struct_sequence(vm)
@@ -643,6 +648,27 @@ mod sys {
         }
     }
 
+    #[cfg(feature = "threading")]
+    #[pyclass(noattr, name = "thread_info")]
+    #[derive(PyStructSequence)]
+    pub(super) struct PyThreadInfo {
+        name: Option<&'static str>,
+        lock: Option<&'static str>,
+        version: Option<&'static str>,
+    }
+
+    #[cfg(feature = "threading")]
+    #[pyclass(with(PyStructSequence))]
+    impl PyThreadInfo {
+        const INFO: Self = PyThreadInfo {
+            name: stdlib::thread::_thread::PYTHREAD_NAME,
+            /// As I know, there's only way to use lock as "Mutex" in Rust
+            /// with satisfying python document spec.
+            lock: Some("mutex+cond"),
+            version: None,
+        };
+    }
+
     #[pyclass(noattr, name = "float_info")]
     #[derive(PyStructSequence)]
     pub(super) struct PyFloatInfo {
@@ -658,6 +684,7 @@ mod sys {
         radix: u32,
         rounds: i32,
     }
+
     #[pyclass(with(PyStructSequence))]
     impl PyFloatInfo {
         const INFO: Self = PyFloatInfo {
@@ -713,6 +740,7 @@ mod sys {
         bits_per_digit: usize,
         sizeof_digit: usize,
     }
+
     #[pyclass(with(PyStructSequence))]
     impl PyIntInfo {
         const INFO: Self = PyIntInfo {
@@ -765,6 +793,7 @@ mod sys {
         product_type: u8,
         platform_version: (u32, u32, u32),
     }
+
     #[cfg(windows)]
     #[pyclass(with(PyStructSequence))]
     impl WindowsVersion {}
