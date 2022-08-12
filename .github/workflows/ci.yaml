@@ -108,7 +108,7 @@ jobs:
       fail-fast: false
     steps:
       - uses: actions/checkout@v2
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.62.1
       - name: Set up the Windows environment
         shell: bash
         run: |
@@ -210,7 +210,7 @@ jobs:
       fail-fast: false
     steps:
       - uses: actions/checkout@v2
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.62.1
       - uses: actions/setup-python@v2
         with:
           python-version: "3.10"
@@ -263,7 +263,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.62.1
         with:
             components: rustfmt, clippy
       - name: run rustfmt
