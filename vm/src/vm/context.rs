@@ -87,6 +87,7 @@ declare_const_name! {
     __ceil__,
     __cformat__,
     __class__,
+    __classcell__,
     __class_getitem__,
     __complex__,
     __contains__,
