@@ -30,8 +30,6 @@ class CallingOrder:
             with util.import_state(meta_path=[first, second]):
                 self.assertIs(self.__import__(mod_name), second.modules[mod_name])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_empty(self):
         # Raise an ImportWarning if sys.meta_path is empty.
         module_name = 'nothing'
@@ -102,8 +100,20 @@ class CallSignature:
                 self.assertEqual(args[0], mod_name)
                 self.assertIs(args[1], path)
 
+class CallSignoreSuppressImportWarning(CallSignature):
 
-class CallSignaturePEP302(CallSignature):
+    def test_no_path(self):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", ImportWarning)
+            super().test_no_path()
+
+    def test_with_path(self):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", ImportWarning)
+            super().test_no_path()
+
+
+class CallSignaturePEP302(CallSignoreSuppressImportWarning):
     mock_modules = util.mock_modules
     finder_name = 'find_module'
 

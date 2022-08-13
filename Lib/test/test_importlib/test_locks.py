@@ -137,22 +137,17 @@ class LifetimeTests:
         self.assertEqual(0, len(self.bootstrap._module_locks),
                          self.bootstrap._module_locks)
 
+
 # TODO: RustPython
 # (Frozen_LifetimeTests,
 #  Source_LifetimeTests
 #  ) = test_util.test_both(LifetimeTests, init=init)
 
 
-@threading_helper.reap_threads
-def test_main():
-    support.run_unittest(Frozen_ModuleLockAsRLockTests,
-                         Source_ModuleLockAsRLockTests,
-                         Frozen_DeadlockAvoidanceTests,
-                         Source_DeadlockAvoidanceTests,
-                         # Frozen_LifetimeTests,
-                         # Source_LifetimeTests
-                         )
+def setUpModule():
+    thread_info = threading_helper.threading_setup()
+    unittest.addModuleCleanup(threading_helper.threading_cleanup, *thread_info)
 
 
 if __name__ == '__main__':
-    test_main()
+    unittets.main()

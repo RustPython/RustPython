@@ -67,7 +67,7 @@ class CaseSensitivityTestPEP302(CaseSensitivityTest):
     def find(self, finder):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", DeprecationWarning)
-        return finder.find_module(self.name)
+            return finder.find_module(self.name)
 
 
 (Frozen_CaseSensitivityTestPEP302,
