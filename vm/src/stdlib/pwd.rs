@@ -53,15 +53,15 @@ mod pwd {
 
     #[pyfunction]
     fn getpwnam(name: PyStrRef, vm: &VirtualMachine) -> PyResult<Passwd> {
-        if name.as_str().contains('\0') {
+        let pw_name = name.as_str();
+        if pw_name.contains('\0') {
             return Err(exceptions::cstring_error(vm));
         }
         let user = User::from_name(name.as_str()).map_err(|err| err.into_pyexception(vm))?;
-        let name_repr = name.as_object().repr(vm)?;
         let user = user.ok_or_else(|| {
             vm.new_key_error(
                 vm.ctx
-                    .new_str(format!("getpwnam(): name not found: {}", name_repr))
+                    .new_str(format!("getpwnam(): name not found: {}", pw_name))
                     .into(),
             )
         })?;
