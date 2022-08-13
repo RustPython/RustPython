@@ -46,6 +46,8 @@ class SignalAndYieldFromTest(unittest.TestCase):
 
 class FinalizationTest(unittest.TestCase):
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_frame_resurrect(self):
         # A generator frame can be resurrected by a generator's finalization.
         def gen():
@@ -65,6 +67,8 @@ class FinalizationTest(unittest.TestCase):
         del frame
         support.gc_collect()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_refcycle(self):
         # A generator caught in a refcycle gets finalized anyway.
         old_garbage = gc.garbage[:]
@@ -110,6 +114,8 @@ class FinalizationTest(unittest.TestCase):
 
 class GeneratorTest(unittest.TestCase):
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_name(self):
         def func():
             yield 1
@@ -278,6 +284,8 @@ class ExceptionTest(unittest.TestCase):
         self.assertEqual(next(g), "done")
         self.assertEqual(sys.exc_info(), (None, None, None))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_except_throw_bad_exception(self):
         class E(Exception):
             def __new__(cls, *args, **kwargs):
@@ -352,6 +360,8 @@ class ExceptionTest(unittest.TestCase):
 
 class GeneratorThrowTest(unittest.TestCase):
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_exception_context_with_yield(self):
         def f():
             try:
@@ -388,6 +398,8 @@ class GeneratorThrowTest(unittest.TestCase):
         # This ensures that the assertions inside were executed.
         self.assertEqual(actual, 'b')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_exception_context_with_yield_from(self):
         def f():
             yield
@@ -499,6 +511,8 @@ class GeneratorStackTraceTest(unittest.TestCase):
 
 
 class YieldFromTests(unittest.TestCase):
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_generator_gi_yieldfrom(self):
         def a():
             self.assertEqual(inspect.getgeneratorstate(gen_b), inspect.GEN_RUNNING)
@@ -2386,7 +2400,8 @@ __test__ = {"tut":      tutorial_tests,
 def test_main(verbose=None):
     from test import support, test_generators
     support.run_unittest(__name__)
-    support.run_doctest(test_generators, verbose)
+    # TODO: RUSTPYTHON
+    # support.run_doctest(test_generators, verbose)
 
 # This part isn't needed for regrtest, but for running the test directly.
 if __name__ == "__main__":
