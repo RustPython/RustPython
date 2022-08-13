@@ -24,8 +24,8 @@ mod builtins {
         format::call_object_format,
         function::Either,
         function::{
-            ArgBytesLike, ArgCallable, ArgIntoBool, ArgIterable, ArgMapping, FuncArgs, KwArgs,
-            OptionalArg, OptionalOption, PosArgs, PyArithmeticValue,
+            ArgBytesLike, ArgCallable, ArgIntoBool, ArgIterable, ArgMapping, ArgStrOrBytesLike,
+            FuncArgs, KwArgs, OptionalArg, OptionalOption, PosArgs, PyArithmeticValue,
         },
         protocol::{PyIter, PyIterReturn},
         py_io,
@@ -248,20 +248,14 @@ mod builtins {
     #[cfg(feature = "rustpython-compiler")]
     #[pyfunction]
     fn eval(
-        source: Either<
-            Either<PyStrRef, crate::builtins::PyBytesRef>,
-            PyRef<crate::builtins::PyCode>,
-        >,
+        source: Either<ArgStrOrBytesLike, PyRef<crate::builtins::PyCode>>,
         scope: ScopeArgs,
         vm: &VirtualMachine,
     ) -> PyResult {
         // source as string
         let code = match source {
             Either::A(either) => {
-                let source: &[u8] = match either {
-                    Either::A(ref a) => a.as_str().as_bytes(),
-                    Either::B(ref b) => b.as_bytes(),
-                };
+                let source: &[u8] = &either.borrow_bytes();
                 for x in source {
                     if *x == 0 {
                         return Err(vm.new_value_error(
