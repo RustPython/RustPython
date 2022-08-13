@@ -12,7 +12,7 @@ mod sys {
         },
         frame::FrameRef,
         function::{FuncArgs, OptionalArg, PosArgs},
-        stdlib::{self, builtins},
+        stdlib::builtins,
         types::PyStructSequence,
         version,
         vm::{Settings, VirtualMachine},
@@ -661,7 +661,7 @@ mod sys {
     #[pyclass(with(PyStructSequence))]
     impl PyThreadInfo {
         const INFO: Self = PyThreadInfo {
-            name: stdlib::thread::_thread::PYTHREAD_NAME,
+            name: crate::stdlib::thread::_thread::PYTHREAD_NAME,
             /// As I know, there's only way to use lock as "Mutex" in Rust
             /// with satisfying python document spec.
             lock: Some("mutex+cond"),
