@@ -379,7 +379,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     _ => Err(JitCompileError::NotSupported),
                 }
             }
-            Instruction::SetupLoop { .. } | Instruction::PopBlock => {
+            Instruction::PopBlock => {
                 // TODO: block support
                 Ok(())
             }

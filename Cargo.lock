@@ -1680,6 +1680,7 @@ dependencies = [
  "log",
  "num-complex",
  "num-traits",
+ "optional",
  "rustpython-ast",
  "rustpython-bytecode",
  "rustpython-parser",

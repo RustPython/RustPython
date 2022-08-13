@@ -11,6 +11,7 @@
             "cargo": {
                 "args": [
                     "build",
+                    "--no-default-features",
                     "--package=rustpython"
                 ],
             },

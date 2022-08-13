@@ -16,6 +16,7 @@ num-complex = { version = "0.4.0", features = ["serde"] }
 num-traits = "0.2.14"
 log = "0.4.16"
 ahash = "0.7.6"
+optional = "0.5.0"
 
 [dev-dependencies]
 rustpython-parser = { path = "../parser" }
