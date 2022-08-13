@@ -761,8 +761,6 @@ class ProcessTestCase(BaseTestCase):
             stdout, stderr = p.communicate()
             self.assertEqual(stdout, b"orange")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     # Windows requires at least the SYSTEMROOT environment variable to start
     # Python
     @unittest.skipIf(sys.platform == 'win32',
