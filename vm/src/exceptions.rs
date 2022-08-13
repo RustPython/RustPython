@@ -731,6 +731,8 @@ impl ExceptionZoo {
 
         extend_exception!(PyImportError, ctx, excs.import_error, {
             "msg" => ctx.new_readonly_getset("msg", excs.import_error, make_arg_getter(0)),
+            "name" => ctx.none(),
+            "path" => ctx.none(),
         });
         extend_exception!(PyModuleNotFoundError, ctx, excs.module_not_found_error);
 
