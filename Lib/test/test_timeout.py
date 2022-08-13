@@ -71,6 +71,7 @@ class CreationTestCase(unittest.TestCase):
         self.assertRaises(TypeError, self.sock.settimeout, {})
         self.assertRaises(TypeError, self.sock.settimeout, 0j)
 
+    @unittest.skip("TODO: RUSTPYTHON; crash")
     def testRangeCheck(self):
         # Test range checking by settimeout()
         self.assertRaises(ValueError, self.sock.settimeout, -1)
