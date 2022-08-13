@@ -366,9 +366,18 @@ fn create_settings(matches: &ArgMatches) -> Settings {
             .chain(module.skip(1).map(ToOwned::to_owned))
             .collect()
     } else if let Some(get_pip_args) = matches.values_of("install_pip") {
-        std::iter::once("get-pip.py".to_owned())
-            .chain(get_pip_args.map(ToOwned::to_owned))
-            .collect()
+        settings.isolated = true;
+        let mut args: Vec<_> = get_pip_args.map(ToOwned::to_owned).collect();
+        if args.is_empty() {
+            args.push("ensurepip".to_owned());
+            args.push("--upgrade".to_owned());
+            args.push("--default-pip".to_owned());
+        }
+        match args.first().map(String::as_str) {
+            Some("ensurepip") | Some("get-pip") => (),
+            _ => panic!("--install-pip takes ensurepip or get-pip as first argument"),
+        }
+        args
     } else if let Some(cmd) = matches.values_of("c") {
         std::iter::once("-c".to_owned())
             .chain(cmd.skip(1).map(ToOwned::to_owned))
@@ -497,7 +506,7 @@ fn setup_main_module(vm: &VirtualMachine) -> PyResult<Scope> {
 }
 
 #[cfg(feature = "ssl")]
-fn install_pip(scope: Scope, vm: &VirtualMachine) -> PyResult {
+fn get_pip(scope: Scope, vm: &VirtualMachine) -> PyResult<()> {
     let get_getpip = rustpython_vm::py_compile!(
         source = r#"\
 __import__("io").TextIOWrapper(
@@ -512,14 +521,29 @@ __import__("io").TextIOWrapper(
         .downcast()
         .expect("TextIOWrapper.read() should return str");
     eprintln!("running get-pip.py...");
-    vm.run_code_string(scope, getpip_code.as_str(), "get-pip.py".to_owned())
+    vm.run_code_string(scope, getpip_code.as_str(), "get-pip.py".to_owned())?;
+    Ok(())
 }
 
-#[cfg(not(feature = "ssl"))]
-fn install_pip(_: Scope, vm: &VirtualMachine) -> PyResult {
+#[cfg(feature = "ssl")]
+fn ensurepip(_: Scope, vm: &VirtualMachine) -> PyResult<()> {
+    vm.run_module("ensurepip")
+}
+
+fn install_pip(_scope: Scope, vm: &VirtualMachine) -> PyResult<()> {
+    #[cfg(feature = "ssl")]
+    {
+        match vm.state.settings.argv[0].as_str() {
+            "ensurepip" => ensurepip(_scope, vm),
+            "get-pip" => get_pip(_scope, vm),
+            _ => unreachable!(),
+        }
+    }
+
+    #[cfg(not(feature = "ssl"))]
     Err(vm.new_exception_msg(
         vm.ctx.exceptions.system_error.to_owned(),
-        "install-pip requires rustpython be build with the 'ssl' feature enabled.".to_owned(),
+        "install-pip requires rustpython be build with '--features=ssl'".to_owned(),
     ))
 }
 
