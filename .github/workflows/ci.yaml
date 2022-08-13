@@ -256,7 +256,7 @@ jobs:
         name: check that --install-pip succeeds
         run: |
           mkdir site-packages
-          target/release/rustpython --install-pip -t site-packages
+          target/release/rustpython --install-pip ensurepip --user
 
   lint:
     name: Check Rust code with rustfmt and clippy
