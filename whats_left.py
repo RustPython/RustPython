@@ -45,6 +45,11 @@ def parse_args():
         help="print functions whose signatures don't match CPython's",
     )
     parser.add_argument(
+        "--doc",
+        action="store_true",
+        help="print elements whose __doc__ don't match CPython's",
+    )
+    parser.add_argument(
         "--json",
         action="store_true",
         help="print output as JSON (instead of line by line)",
@@ -114,17 +119,32 @@ def attr_is_not_inherited(type_, attr):
 
 def extra_info(obj):
     if callable(obj) and not inspect._signature_is_builtin(obj):
+        doc = inspect.getdoc(obj)
         try:
             sig = str(inspect.signature(obj))
             # remove function memory addresses
-            return re.sub(" at 0x[0-9A-Fa-f]+", " at 0xdeadbeef", sig)
+            return {
+                "sig": re.sub(" at 0x[0-9A-Fa-f]+", " at 0xdeadbeef", sig),
+                "doc": doc,
+            }
         except Exception as e:
             exception = repr(e)
             # CPython uses ' RustPython uses "
             if exception.replace('"', "'").startswith("ValueError('no signature found"):
-                return "ValueError('no signature found')"
-            return exception
-    return None
+                return {
+                    "sig": "ValueError('no signature found')",
+                    "doc": doc,
+                }
+
+            return {
+                "sig": exception,
+                "doc": doc,
+            }
+
+    return {
+        "sig": None,
+        "doc": None,
+    }
 
 
 def name_sort_key(name):
@@ -371,6 +391,7 @@ def compare():
         "failed_to_import": {},
         "missing_items": {},
         "mismatched_items": {},
+        "mismatched_doc_items": {},
     }
     for modname, cpymod in cpymods.items():
         rustpymod = rustpymods.get(modname)
@@ -385,16 +406,23 @@ def compare():
                 f"{modname}.{item}" for item in mod_missing_items
             )
             mod_mismatched_items = [
-                (f"{modname}.{item}", rustpymod[item], cpymod[item])
+                (f"{modname}.{item}", rustpymod[item]["sig"], cpymod[item]["sig"])
                 for item in implemented_items
-                if rustpymod[item] != cpymod[item]
-                and not isinstance(cpymod[item], Exception)
+                if rustpymod[item]["sig"] != cpymod[item]["sig"]
+                and not isinstance(cpymod[item]["sig"], Exception)
+            ]
+            mod_mismatched_doc_items = [
+                (f"{modname}.{item}", rustpymod[item]["doc"], cpymod[item]["doc"])
+                for item in implemented_items
+                if rustpymod[item]["doc"] != cpymod[item]["doc"]
             ]
             if mod_missing_items or mod_mismatched_items:
                 if mod_missing_items:
                     result["missing_items"][modname] = mod_missing_items
                 if mod_mismatched_items:
                     result["mismatched_items"][modname] = mod_mismatched_items
+                if mod_mismatched_doc_items:
+                    result["mismatched_doc_items"][modname] = mod_mismatched_doc_items
             else:
                 result["implemented"][modname] = None
 
@@ -457,7 +485,15 @@ if args.signature:
         for (item, rustpy_value, cpython_value) in mismatched:
             if cpython_value == "ValueError('no signature found')":
                 continue # these items will never match
+
             print(f"{item} {rustpy_value} != {cpython_value}")
+
+if args.doc:
+    print("\n# mismatching `__doc__`s (warnings)")
+    for modname, mismatched in result["mismatched_doc_items"].items():
+        for (item, rustpy_doc, cpython_doc) in mismatched:
+            print(f"{item} {repr(rustpy_doc)} != {repr(cpython_doc)}")
+
 
 print()
 print("# summary")
