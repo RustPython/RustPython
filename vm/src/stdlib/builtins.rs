@@ -256,12 +256,10 @@ mod builtins {
         let code = match source {
             Either::A(either) => {
                 let source: &[u8] = &either.borrow_bytes();
-                for x in source {
-                    if *x == 0 {
-                        return Err(vm.new_value_error(
-                            "source code string cannot contain null bytes".to_owned(),
-                        ));
-                    }
+                if source.contains(&0) {
+                    return Err(vm.new_value_error(
+                        "source code string cannot contain null bytes".to_owned(),
+                    ));
                 }
 
                 match std::str::from_utf8(source) {
