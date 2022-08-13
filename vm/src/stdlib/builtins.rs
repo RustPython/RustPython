@@ -264,9 +264,17 @@ mod builtins {
                     }
                 }
 
-                Ok(Either::A(
-                    vm.ctx.new_str(std::str::from_utf8(source).unwrap()),
-                ))
+                match std::str::from_utf8(source) {
+                    Ok(s) => Ok(Either::A(vm.ctx.new_str(s))),
+                    Err(err) => {
+                        let msg = format!(
+                            "(unicode error) 'utf-8' codec can't decode byte 0x{:x?} in position {}: invalid start byte",
+                            source[err.valid_up_to()],
+                            err.valid_up_to()
+                        );
+                        Err(vm.new_exception_msg(vm.ctx.exceptions.syntax_error.to_owned(), msg))
+                    }
+                }
             }
             Either::B(code) => Ok(Either::B(code)),
         }?;
