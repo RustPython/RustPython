@@ -85,6 +85,8 @@ class BaseTest(unittest.TestCase):
     if ctypes is not None:
         generic_types.extend((ctypes.Array, ctypes.LibraryLoader))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_subscriptable(self):
         for t in self.generic_types:
             if t is None:
@@ -312,6 +314,8 @@ class BaseTest(unittest.TestCase):
         for generic_alias_property in ("__origin__", "__args__", "__parameters__"):
             self.assertIn(generic_alias_property, dir_of_gen_alias)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_weakref(self):
         for t in self.generic_types:
             if t is None:
