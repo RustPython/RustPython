@@ -562,6 +562,8 @@ class OtherTest(unittest.TestCase):
             with self.assertRaises(TypeError):
                 pickle.dumps(m, proto)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_use_released_memory(self):
         # gh-92888: Previously it was possible to use a memoryview even after
         # backing buffer is freed in certain cases. This tests that those
