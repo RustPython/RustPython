@@ -21,6 +21,7 @@ from test import support
 from test.support import _4G, bigmemtest
 from test.support.import_helper import import_fresh_module
 from test.support import threading_helper
+from test.support import warnings_helper
 from http.client import HTTPException
 
 # Were we compiled --with-pydebug or with #define Py_DEBUG?
@@ -47,11 +48,14 @@ else:
     builtin_hashlib = None
 
 try:
-    from _hashlib import HASH, HASHXOF, openssl_md_meth_names
+    from _hashlib import HASH, HASHXOF, openssl_md_meth_names, get_fips_mode
 except ImportError:
     HASH = None
     HASHXOF = None
     openssl_md_meth_names = frozenset()
+
+    def get_fips_mode():
+        return 0
 
 try:
     import _blake2
@@ -60,12 +64,9 @@ except ImportError:
 
 requires_blake2 = unittest.skipUnless(_blake2, 'requires _blake2')
 
-try:
-    import _sha3
-except ImportError:
-    _sha3 = None
-
-requires_sha3 = unittest.skipUnless(_sha3, 'requires _sha3')
+# bpo-46913: Don't test the _sha3 extension on a Python UBSAN build
+SKIP_SHA3 = support.check_sanitizer(ub=True)
+requires_sha3 = unittest.skipUnless(not SKIP_SHA3, 'requires _sha3')
 
 
 def hexstr(s):
@@ -79,11 +80,10 @@ def hexstr(s):
 
 URL = "http://www.pythontest.net/hashlib/{}.txt"
 
-
 def read_vectors(hash_name):
     url = URL.format(hash_name)
     try:
-        testdata = support.open_urlresource(url)
+        testdata = support.open_urlresource(url, encoding="utf-8")
     except (OSError, HTTPException):
         raise unittest.SkipTest("Could not retrieve {}".format(url))
     with testdata:
@@ -97,13 +97,13 @@ def read_vectors(hash_name):
 
 
 class HashLibTestCase(unittest.TestCase):
-    supported_hash_names = ('md5', 'MD5', 'sha1', 'SHA1',
-                            'sha224', 'SHA224', 'sha256', 'SHA256',
-                            'sha384', 'SHA384', 'sha512', 'SHA512',
-                            'blake2b', 'blake2s',
-                            'sha3_224', 'sha3_256', 'sha3_384', 'sha3_512',
-                            # TODO: RUSTPYTHON
-                            # 'shake_128', 'shake_256'
+    supported_hash_names = ( 'md5', 'MD5', 'sha1', 'SHA1',
+                             'sha224', 'SHA224', 'sha256', 'SHA256',
+                             'sha384', 'SHA384', 'sha512', 'SHA512',
+                             'blake2b', 'blake2s',
+                             'sha3_224', 'sha3_256', 'sha3_384', 'sha3_512',
+                            #  TODO: RUSTPYTHON
+                            #  'shake_128', 'shake_256'
                             )
 
     shakes = {'shake_128', 'shake_256'}
@@ -131,13 +131,14 @@ class HashLibTestCase(unittest.TestCase):
 
         self.constructors_to_test = {}
         for algorithm in algorithms:
+            if SKIP_SHA3 and algorithm.startswith('sha3_'):
+                continue
             self.constructors_to_test[algorithm] = set()
 
         # For each algorithm, test the direct constructor and the use
         # of hashlib.new given the algorithm name.
         for algorithm, constructors in self.constructors_to_test.items():
             constructors.add(getattr(hashlib, algorithm))
-
             def _test_algorithm_via_hashlib_new(data=None, _alg=algorithm, **kwargs):
                 if data is None:
                     return hashlib.new(_alg, **kwargs)
@@ -184,14 +185,15 @@ class HashLibTestCase(unittest.TestCase):
             add_builtin_constructor('blake2s')
             add_builtin_constructor('blake2b')
 
-        _sha3 = self._conditional_import_module('_sha3')
-        if _sha3:
-            add_builtin_constructor('sha3_224')
-            add_builtin_constructor('sha3_256')
-            add_builtin_constructor('sha3_384')
-            add_builtin_constructor('sha3_512')
-            add_builtin_constructor('shake_128')
-            add_builtin_constructor('shake_256')
+        if not SKIP_SHA3:
+            _sha3 = self._conditional_import_module('_sha3')
+            if _sha3:
+                add_builtin_constructor('sha3_224')
+                add_builtin_constructor('sha3_256')
+                add_builtin_constructor('sha3_384')
+                add_builtin_constructor('sha3_512')
+                add_builtin_constructor('shake_128')
+                add_builtin_constructor('shake_256')
 
         super(HashLibTestCase, self).__init__(*args, **kwargs)
 
@@ -202,10 +204,7 @@ class HashLibTestCase(unittest.TestCase):
 
     @property
     def is_fips_mode(self):
-        if hasattr(self._hashlib, "get_fips_mode"):
-            return self._hashlib.get_fips_mode()
-        else:
-            return None
+        return get_fips_mode()
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
@@ -222,14 +221,18 @@ class HashLibTestCase(unittest.TestCase):
     @unittest.expectedFailure
     def test_algorithms_guaranteed(self):
         self.assertEqual(hashlib.algorithms_guaranteed,
-                         set(_algo for _algo in self.supported_hash_names
-                             if _algo.islower()))
+            set(_algo for _algo in self.supported_hash_names
+                  if _algo.islower()))
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_algorithms_available(self):
         self.assertTrue(set(hashlib.algorithms_guaranteed).
-                        issubset(hashlib.algorithms_available))
+                            issubset(hashlib.algorithms_available))
+        # all available algorithms must be loadable, bpo-47101
+        self.assertNotIn("undefined", hashlib.algorithms_available)
+        for name in hashlib.algorithms_available:
+            digest = hashlib.new(name, usedforsecurity=False)
 
     def test_usedforsecurity_true(self):
         hashlib.new("sha256", usedforsecurity=True)
@@ -337,7 +340,7 @@ class HashLibTestCase(unittest.TestCase):
         aas = b'a' * 128
         bees = b'b' * 127
         cees = b'c' * 126
-        dees = b'd' * 2048  # HASHLIB_GIL_MINSIZE
+        dees = b'd' * 2048 #  HASHLIB_GIL_MINSIZE
 
         for cons in self.hash_constructors:
             m1 = cons(usedforsecurity=False)
@@ -375,11 +378,11 @@ class HashLibTestCase(unittest.TestCase):
             m = hash_object_constructor(data, **kwargs)
             computed = m.hexdigest() if not shake else m.hexdigest(length)
             self.assertEqual(
-                computed, hexdigest,
-                "Hash algorithm %s constructed using %s returned hexdigest"
-                " %r for %d byte input data that should have hashed to %r."
-                % (name, hash_object_constructor,
-                   computed, len(data), hexdigest))
+                    computed, hexdigest,
+                    "Hash algorithm %s constructed using %s returned hexdigest"
+                    " %r for %d byte input data that should have hashed to %r."
+                    % (name, hash_object_constructor,
+                       computed, len(data), hexdigest))
             computed = m.digest() if not shake else m.digest(length)
             digest = bytes.fromhex(hexdigest)
             self.assertEqual(computed, digest)
@@ -405,6 +408,8 @@ class HashLibTestCase(unittest.TestCase):
         self.check_no_unicode('blake2b')
         self.check_no_unicode('blake2s')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @requires_sha3
     def test_no_unicode_sha3(self):
         self.check_no_unicode('sha3_224')
@@ -466,6 +471,8 @@ class HashLibTestCase(unittest.TestCase):
             self.assertEqual(m._rate_bits, rate)
             self.assertEqual(m._suffix, suffix)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @requires_sha3
     def test_extra_sha3(self):
         self.check_sha3('sha3_224', 448, 1152, b'\x06')
@@ -531,87 +538,91 @@ class HashLibTestCase(unittest.TestCase):
         self.check('sha1', b"a" * 1000000,
                    "34aa973cd4c4daa4f61eeb2bdbad27316534016f")
 
+
     # use the examples from Federal Information Processing Standards
     # Publication 180-2, Secure Hash Standard,  2002 August 1
     # http://csrc.nist.gov/publications/fips/fips180-2/fips180-2.pdf
 
     def test_case_sha224_0(self):
         self.check('sha224', b"",
-                   "d14a028c2a3a2bc9476102bb288234c415a2b01f828ea62ac5b3e42f")
+          "d14a028c2a3a2bc9476102bb288234c415a2b01f828ea62ac5b3e42f")
 
     def test_case_sha224_1(self):
         self.check('sha224', b"abc",
-                   "23097d223405d8228642a477bda255b32aadbce4bda0b3f7e36c9da7")
+          "23097d223405d8228642a477bda255b32aadbce4bda0b3f7e36c9da7")
 
     def test_case_sha224_2(self):
         self.check('sha224',
-                   b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq",
-                   "75388b16512776cc5dba5da1fd890150b0c6455cb4f58b1952522525")
+          b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq",
+          "75388b16512776cc5dba5da1fd890150b0c6455cb4f58b1952522525")
 
     def test_case_sha224_3(self):
         self.check('sha224', b"a" * 1000000,
-                   "20794655980c91d8bbb4c1ea97618a4bf03f42581948b2ee4ee7ad67")
+          "20794655980c91d8bbb4c1ea97618a4bf03f42581948b2ee4ee7ad67")
+
 
     def test_case_sha256_0(self):
         self.check('sha256', b"",
-                   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+          "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
 
     def test_case_sha256_1(self):
         self.check('sha256', b"abc",
-                   "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+          "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
 
     def test_case_sha256_2(self):
         self.check('sha256',
-                   b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq",
-                   "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1")
+          b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq",
+          "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1")
 
     def test_case_sha256_3(self):
         self.check('sha256', b"a" * 1000000,
-                   "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0")
+          "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0")
+
 
     def test_case_sha384_0(self):
         self.check('sha384', b"",
-                   "38b060a751ac96384cd9327eb1b1e36a21fdb71114be07434c0cc7bf63f6e1da" +
-                   "274edebfe76f65fbd51ad2f14898b95b")
+          "38b060a751ac96384cd9327eb1b1e36a21fdb71114be07434c0cc7bf63f6e1da"+
+          "274edebfe76f65fbd51ad2f14898b95b")
 
     def test_case_sha384_1(self):
         self.check('sha384', b"abc",
-                   "cb00753f45a35e8bb5a03d699ac65007272c32ab0eded1631a8b605a43ff5bed" +
-                   "8086072ba1e7cc2358baeca134c825a7")
+          "cb00753f45a35e8bb5a03d699ac65007272c32ab0eded1631a8b605a43ff5bed"+
+          "8086072ba1e7cc2358baeca134c825a7")
 
     def test_case_sha384_2(self):
         self.check('sha384',
-                   b"abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmn" +
+                   b"abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmn"+
                    b"hijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu",
-                   "09330c33f71147e83d192fc782cd1b4753111b173b3b05d22fa08086e3b0f712" +
-                   "fcc7c71a557e2db966c3e9fa91746039")
+          "09330c33f71147e83d192fc782cd1b4753111b173b3b05d22fa08086e3b0f712"+
+          "fcc7c71a557e2db966c3e9fa91746039")
 
     def test_case_sha384_3(self):
         self.check('sha384', b"a" * 1000000,
-                   "9d0e1809716474cb086e834e310a4a1ced149e9c00f248527972cec5704c2a5b" +
-                   "07b8b3dc38ecc4ebae97ddd87f3d8985")
+          "9d0e1809716474cb086e834e310a4a1ced149e9c00f248527972cec5704c2a5b"+
+          "07b8b3dc38ecc4ebae97ddd87f3d8985")
+
 
     def test_case_sha512_0(self):
         self.check('sha512', b"",
-                   "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce" +
-                   "47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e")
+          "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce"+
+          "47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e")
 
     def test_case_sha512_1(self):
         self.check('sha512', b"abc",
-                   "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a" +
-                   "2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f")
+          "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a"+
+          "2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f")
 
     def test_case_sha512_2(self):
         self.check('sha512',
-                   b"abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmn" +
+                   b"abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmn"+
                    b"hijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu",
-                   "8e959b75dae313da8cf4f72814fc143f8f7779c6eb9f7fa17299aeadb6889018" +
-                   "501d289e4900f7e4331b99dec4b5433ac7d329eeb6dd26545e96e55b874be909")
+          "8e959b75dae313da8cf4f72814fc143f8f7779c6eb9f7fa17299aeadb6889018"+
+          "501d289e4900f7e4331b99dec4b5433ac7d329eeb6dd26545e96e55b874be909")
 
     def test_case_sha512_3(self):
         self.check('sha512', b"a" * 1000000,
-                   "e718483d0ce769644e2e42c7bc15b4638e1f98b13b2044285632a803afa973eb" +
-                   "de0ff244877ea60a4cb0432ce577c31beb009c5c2c49aa2e4eadb217ad8cc09b")
+          "e718483d0ce769644e2e42c7bc15b4638e1f98b13b2044285632a803afa973eb"+
+          "de0ff244877ea60a4cb0432ce577c31beb009c5c2c49aa2e4eadb217ad8cc09b")
 
     def check_blake2(self, constructor, salt_size, person_size, key_size,
                      digest_size, max_offset):
@@ -664,9 +675,9 @@ class HashLibTestCase(unittest.TestCase):
         self.assertRaises(ValueError, constructor, inner_size=digest_size+1)
 
         constructor(leaf_size=0)
-        constructor(leaf_size=(1 << 32)-1)
+        constructor(leaf_size=(1<<32)-1)
         self.assertRaises(ValueError, constructor, leaf_size=-1)
-        self.assertRaises(OverflowError, constructor, leaf_size=1 << 32)
+        self.assertRaises(OverflowError, constructor, leaf_size=1<<32)
 
         constructor(node_offset=0)
         constructor(node_offset=max_offset)
@@ -694,7 +705,7 @@ class HashLibTestCase(unittest.TestCase):
 
     def blake2_rfc7693(self, constructor, md_len, in_len):
         def selftest_seq(length, seed):
-            mask = (1 << 32)-1
+            mask = (1<<32)-1
             a = (0xDEAD4BAD * seed) & mask
             b = 1
             out = bytearray(length)
@@ -716,7 +727,7 @@ class HashLibTestCase(unittest.TestCase):
 
     @requires_blake2
     def test_blake2b(self):
-        self.check_blake2(hashlib.blake2b, 16, 16, 64, 64, (1 << 64)-1)
+        self.check_blake2(hashlib.blake2b, 16, 16, 64, 64, (1<<64)-1)
         b2b_md_len = [20, 32, 48, 64]
         b2b_in_len = [0, 3, 128, 129, 255, 1024]
         self.assertEqual(
@@ -726,32 +737,32 @@ class HashLibTestCase(unittest.TestCase):
     @requires_blake2
     def test_case_blake2b_0(self):
         self.check('blake2b', b"",
-                   "786a02f742015903c6c6fd852552d272912f4740e15847618a86e217f71f5419" +
-                   "d25e1031afee585313896444934eb04b903a685b1448b755d56f701afe9be2ce")
+          "786a02f742015903c6c6fd852552d272912f4740e15847618a86e217f71f5419"+
+          "d25e1031afee585313896444934eb04b903a685b1448b755d56f701afe9be2ce")
 
     @requires_blake2
     def test_case_blake2b_1(self):
         self.check('blake2b', b"abc",
-                   "ba80a53f981c4d0d6a2797b69f12f6e94c212f14685ac4b74b12bb6fdbffa2d1" +
-                   "7d87c5392aab792dc252d5de4533cc9518d38aa8dbf1925ab92386edd4009923")
+          "ba80a53f981c4d0d6a2797b69f12f6e94c212f14685ac4b74b12bb6fdbffa2d1"+
+          "7d87c5392aab792dc252d5de4533cc9518d38aa8dbf1925ab92386edd4009923")
 
     @requires_blake2
     def test_case_blake2b_all_parameters(self):
         # This checks that all the parameters work in general, and also that
         # parameter byte order doesn't get confused on big endian platforms.
         self.check('blake2b', b"foo",
-                   "920568b0c5873b2f0ab67bedb6cf1b2b",
-                   digest_size=16,
-                   key=b"bar",
-                   salt=b"baz",
-                   person=b"bing",
-                   fanout=2,
-                   depth=3,
-                   leaf_size=4,
-                   node_offset=5,
-                   node_depth=6,
-                   inner_size=7,
-                   last_node=True)
+          "920568b0c5873b2f0ab67bedb6cf1b2b",
+          digest_size=16,
+          key=b"bar",
+          salt=b"baz",
+          person=b"bing",
+          fanout=2,
+          depth=3,
+          leaf_size=4,
+          node_offset=5,
+          node_depth=6,
+          inner_size=7,
+          last_node=True)
 
     @requires_blake2
     def test_blake2b_vectors(self):
@@ -761,7 +772,7 @@ class HashLibTestCase(unittest.TestCase):
 
     @requires_blake2
     def test_blake2s(self):
-        self.check_blake2(hashlib.blake2s, 8, 8, 32, 32, (1 << 48)-1)
+        self.check_blake2(hashlib.blake2s, 8, 8, 32, 32, (1<<48)-1)
         b2s_md_len = [16, 20, 28, 32]
         b2s_in_len = [0, 3, 64, 65, 255, 1024]
         self.assertEqual(
@@ -771,30 +782,30 @@ class HashLibTestCase(unittest.TestCase):
     @requires_blake2
     def test_case_blake2s_0(self):
         self.check('blake2s', b"",
-                   "69217a3079908094e11121d042354a7c1f55b6482ca1a51e1b250dfd1ed0eef9")
+          "69217a3079908094e11121d042354a7c1f55b6482ca1a51e1b250dfd1ed0eef9")
 
     @requires_blake2
     def test_case_blake2s_1(self):
         self.check('blake2s', b"abc",
-                   "508c5e8c327c14e2e1a72ba34eeb452f37458b209ed63a294d999b4c86675982")
+          "508c5e8c327c14e2e1a72ba34eeb452f37458b209ed63a294d999b4c86675982")
 
     @requires_blake2
     def test_case_blake2s_all_parameters(self):
         # This checks that all the parameters work in general, and also that
         # parameter byte order doesn't get confused on big endian platforms.
         self.check('blake2s', b"foo",
-                   "bf2a8f7fe3c555012a6f8046e646bc75",
-                   digest_size=16,
-                   key=b"bar",
-                   salt=b"baz",
-                   person=b"bing",
-                   fanout=2,
-                   depth=3,
-                   leaf_size=4,
-                   node_offset=5,
-                   node_depth=6,
-                   inner_size=7,
-                   last_node=True)
+          "bf2a8f7fe3c555012a6f8046e646bc75",
+          digest_size=16,
+          key=b"bar",
+          salt=b"baz",
+          person=b"bing",
+          fanout=2,
+          depth=3,
+          leaf_size=4,
+          node_offset=5,
+          node_depth=6,
+          inner_size=7,
+          last_node=True)
 
     @requires_blake2
     def test_blake2s_vectors(self):
@@ -805,7 +816,7 @@ class HashLibTestCase(unittest.TestCase):
     @requires_sha3
     def test_case_sha3_224_0(self):
         self.check('sha3_224', b"",
-                   "6b4e03423667dbb73b6e15454f0eb1abd4597f9a1b078e3f5b5a6bc7")
+          "6b4e03423667dbb73b6e15454f0eb1abd4597f9a1b078e3f5b5a6bc7")
 
     @requires_sha3
     def test_case_sha3_224_vector(self):
@@ -815,7 +826,7 @@ class HashLibTestCase(unittest.TestCase):
     @requires_sha3
     def test_case_sha3_256_0(self):
         self.check('sha3_256', b"",
-                   "a7ffc6f8bf1ed76651c14756a061d662f580ff4de43b49fa82d80a4b80f8434a")
+          "a7ffc6f8bf1ed76651c14756a061d662f580ff4de43b49fa82d80a4b80f8434a")
 
     @requires_sha3
     def test_case_sha3_256_vector(self):
@@ -825,8 +836,8 @@ class HashLibTestCase(unittest.TestCase):
     @requires_sha3
     def test_case_sha3_384_0(self):
         self.check('sha3_384', b"",
-                   "0c63a75b845e4f7d01107d852e4c2485c51a50aaaa94fc61995e71bbee983a2a" +
-                   "c3713831264adb47fb6bd1e058d5f004")
+          "0c63a75b845e4f7d01107d852e4c2485c51a50aaaa94fc61995e71bbee983a2a"+
+          "c3713831264adb47fb6bd1e058d5f004")
 
     @requires_sha3
     def test_case_sha3_384_vector(self):
@@ -836,36 +847,38 @@ class HashLibTestCase(unittest.TestCase):
     @requires_sha3
     def test_case_sha3_512_0(self):
         self.check('sha3_512', b"",
-                   "a69f73cca23a9ac5c8b567dc185a756e97c982164fe25859e0d1dcc1475c80a6" +
-                   "15b2123af1f5f94c11e3e9402c3ac558f500199d95b6d3e301758586281dcd26")
+          "a69f73cca23a9ac5c8b567dc185a756e97c982164fe25859e0d1dcc1475c80a6"+
+          "15b2123af1f5f94c11e3e9402c3ac558f500199d95b6d3e301758586281dcd26")
 
     @requires_sha3
     def test_case_sha3_512_vector(self):
         for msg, md in read_vectors('sha3_512'):
             self.check('sha3_512', msg, md)
 
-    @requires_sha3
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_case_shake_128_0(self):
         self.check('shake_128', b"",
-                   "7f9c2ba4e88f827d616045507605853ed73b8093f6efbc88eb1a6eacfa66ef26",
-                   True)
+          "7f9c2ba4e88f827d616045507605853ed73b8093f6efbc88eb1a6eacfa66ef26",
+          True)
         self.check('shake_128', b"", "7f9c", True)
 
-    @requires_sha3
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_case_shake128_vector(self):
         for msg, md in read_vectors('shake_128'):
             self.check('shake_128', msg, md, True)
 
-    @requires_sha3
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_case_shake_256_0(self):
         self.check('shake_256', b"",
-                   "46b9dd2b0ba88d13233b3feb743eeb243fcd52ea62b81b82b50c27646ed5762f",
-                   True)
+          "46b9dd2b0ba88d13233b3feb743eeb243fcd52ea62b81b82b50c27646ed5762f",
+          True)
         self.check('shake_256', b"", "46b9", True)
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
-    @requires_sha3
     def test_case_shake256_vector(self):
         for msg, md in read_vectors('shake_256'):
             self.check('shake_256', msg, md, True)
@@ -940,17 +953,42 @@ class HashLibTestCase(unittest.TestCase):
         if fips_mode is not None:
             self.assertIsInstance(fips_mode, int)
 
+    @support.cpython_only
+    def test_disallow_instantiation(self):
+        for algorithm, constructors in self.constructors_to_test.items():
+            if algorithm.startswith(("sha3_", "shake", "blake")):
+                # _sha3 and _blake types can be instantiated
+                continue
+            # all other types have DISALLOW_INSTANTIATION
+            for constructor in constructors:
+                # In FIPS mode some algorithms are not available raising ValueError
+                try:
+                    h = constructor()
+                except ValueError:
+                    continue
+                with self.subTest(constructor=constructor):
+                    support.check_disallow_instantiation(self, type(h))
+
     @unittest.skipUnless(HASH is not None, 'need _hashlib')
-    def test_internal_types(self):
+    def test_hash_disallow_instantiation(self):
         # internal types like _hashlib.HASH are not constructable
-        with self.assertRaisesRegex(
-            TypeError, "cannot create 'HASH' instance"
-        ):
-            HASH()
-        with self.assertRaisesRegex(
-            TypeError, "cannot create 'HASHXOF' instance"
-        ):
-            HASHXOF()
+        support.check_disallow_instantiation(self, HASH)
+        support.check_disallow_instantiation(self, HASHXOF)
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_readonly_types(self):
+        for algorithm, constructors in self.constructors_to_test.items():
+            # all other types have DISALLOW_INSTANTIATION
+            for constructor in constructors:
+                # In FIPS mode some algorithms are not available raising ValueError
+                try:
+                    hash_type = type(constructor())
+                except ValueError:
+                    continue
+                with self.subTest(hash_type=hash_type):
+                    with self.assertRaisesRegex(TypeError, "immutable type"):
+                        hash_type.value = False
 
 
 class KDFTests(unittest.TestCase):
@@ -967,13 +1005,10 @@ class KDFTests(unittest.TestCase):
     ]
 
     scrypt_test_vectors = [
-        (b'', b'', 16, 1, 1, unhexlify(
-            '77d6576238657b203b19ca42c18a0497f16b4844e3074ae8dfdffa3fede21442fcd0069ded0948f8326a753a0fc81f17e8d3e0fb2e0d3628cf35e20c38d18906')),
-        (b'password', b'NaCl', 1024, 8, 16, unhexlify(
-            'fdbabe1c9d3472007856e7190d01e9fe7c6ad7cbc8237830e77376634b3731622eaf30d92e22a3886ff109279d9830dac727afb94a83ee6d8360cbdfa2cc0640')),
-        (b'pleaseletmein', b'SodiumChloride', 16384, 8, 1, unhexlify(
-            '7023bdcb3afd7348461c06cd81fd38ebfda8fbba904f8e3ea9b543f6545da1f2d5432955613f0fcf62d49705242a9af9e61e85dc0d651e40dfcf017b45575887')),
-    ]
+        (b'', b'', 16, 1, 1, unhexlify('77d6576238657b203b19ca42c18a0497f16b4844e3074ae8dfdffa3fede21442fcd0069ded0948f8326a753a0fc81f17e8d3e0fb2e0d3628cf35e20c38d18906')),
+        (b'password', b'NaCl', 1024, 8, 16, unhexlify('fdbabe1c9d3472007856e7190d01e9fe7c6ad7cbc8237830e77376634b3731622eaf30d92e22a3886ff109279d9830dac727afb94a83ee6d8360cbdfa2cc0640')),
+        (b'pleaseletmein', b'SodiumChloride', 16384, 8, 1, unhexlify('7023bdcb3afd7348461c06cd81fd38ebfda8fbba904f8e3ea9b543f6545da1f2d5432955613f0fcf62d49705242a9af9e61e85dc0d651e40dfcf017b45575887')),
+   ]
 
     pbkdf2_results = {
         "sha1": [
@@ -984,7 +1019,7 @@ class KDFTests(unittest.TestCase):
             #(bytes.fromhex('eefe3d61cd4da4e4e9945b3d6ba2158c2634e984'), None),
             (bytes.fromhex('3d2eec4fe41c849b80c8d83662c0e44a8b291a964c'
                            'f2f07038'), 25),
-            (bytes.fromhex('56fa6aa75548099dcc37d7f03425e0c3'), None), ],
+            (bytes.fromhex('56fa6aa75548099dcc37d7f03425e0c3'), None),],
         "sha256": [
             (bytes.fromhex('120fb6cffcf8b32c43e7225256c4f837'
                            'a86548c92ccc35480805987cb70be17b'), None),
@@ -992,11 +1027,11 @@ class KDFTests(unittest.TestCase):
                            '2a303f8ef3c251dfd6e2d85a95474c43'), None),
             (bytes.fromhex('c5e478d59288c841aa530db6845c4c8d'
                            '962893a001ce4e11a4963873aa98134a'), None),
-            # (bytes.fromhex('cf81c66fe8cfc04d1f31ecb65dab4089'
+            #(bytes.fromhex('cf81c66fe8cfc04d1f31ecb65dab4089'
             #               'f7f179e89b3b0bcb17ad10e3ac6eba46'), None),
             (bytes.fromhex('348c89dbcbd32b2f32d814b8116e84cf2b17'
                            '347ebc1800181c4e2a1fb8dd53e1c635518c7dac47e9'), 40),
-            (bytes.fromhex('89b69d0516f829893c696226650a8687'), None), ],
+            (bytes.fromhex('89b69d0516f829893c696226650a8687'), None),],
         "sha512": [
             (bytes.fromhex('867f70cf1ade02cff3752599a3a53dc4af34c7a669815ae5'
                            'd513554e1c8cf252c02d470a285a0501bad999bfe943c08f'
@@ -1010,7 +1045,7 @@ class KDFTests(unittest.TestCase):
             (bytes.fromhex('8c0511f4c6e597c6ac6315d8f0362e225f3c501495ba23b8'
                            '68c005174dc4ee71115b59f9e60cd9532fa33e0f75aefe30'
                            '225c583a186cd82bd4daea9724a3d3b8'), 64),
-            (bytes.fromhex('9d9e9c4cd21fe4be24d5b8244c759665'), None), ],
+            (bytes.fromhex('9d9e9c4cd21fe4be24d5b8244c759665'), None),],
     }
 
     def _test_pbkdf2_hmac(self, pbkdf2, supported):
@@ -1036,7 +1071,7 @@ class KDFTests(unittest.TestCase):
                     self.assertEqual(out, expected,
                                      (digest_name, password, salt, rounds))
 
-        with self.assertRaisesRegex(ValueError, 'unsupported hash type'):
+        with self.assertRaisesRegex(ValueError, '.*unsupported.*'):
             pbkdf2('unknown', b'pass', b'salt', 1)
 
         if 'sha1' in supported:
@@ -1059,22 +1094,26 @@ class KDFTests(unittest.TestCase):
                 ValueError, pbkdf2, 'sha1', b'pass', b'salt', 1, -1
             )
             out = pbkdf2(hash_name='sha1', password=b'password', salt=b'salt',
-                         iterations=1, dklen=None)
+                iterations=1, dklen=None)
             self.assertEqual(out, self.pbkdf2_results['sha1'][0][0])
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
     @unittest.skipIf(builtin_hashlib is None, "test requires builtin_hashlib")
     def test_pbkdf2_hmac_py(self):
-        self._test_pbkdf2_hmac(builtin_hashlib.pbkdf2_hmac, builtin_hashes)
+        with warnings_helper.check_warnings():
+            self._test_pbkdf2_hmac(
+                builtin_hashlib.pbkdf2_hmac, builtin_hashes
+            )
 
     @unittest.skipUnless(hasattr(openssl_hashlib, 'pbkdf2_hmac'),
-                         '   test requires OpenSSL > 1.0')
+                     '   test requires OpenSSL > 1.0')
     def test_pbkdf2_hmac_c(self):
         self._test_pbkdf2_hmac(openssl_hashlib.pbkdf2_hmac, openssl_md_meth_names)
 
     @unittest.skipUnless(hasattr(hashlib, 'scrypt'),
-                         '   test requires OpenSSL > 1.1')
+                     '   test requires OpenSSL > 1.1')
+    @unittest.skipIf(get_fips_mode(), reason="scrypt is blocked in FIPS mode")
     def test_scrypt(self):
         for password, salt, n, r, p, expected in self.scrypt_test_vectors:
             result = hashlib.scrypt(password, salt=salt, n=n, r=r, p=p)
