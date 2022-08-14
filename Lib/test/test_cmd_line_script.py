@@ -523,8 +523,6 @@ class CmdLineTest(unittest.TestCase):
             self.assertNotIn(b'is a package', err)
             self.assertNotIn(b'Traceback', err)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_hint_when_triying_to_import_a_py_file(self):
         with os_helper.temp_dir() as script_dir, \
                 os_helper.change_cwd(path=script_dir):
