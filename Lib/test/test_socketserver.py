@@ -521,8 +521,6 @@ class MiscTestCase(unittest.TestCase):
         self.assertEqual(server.shutdown_called, 1)
         server.server_close()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_threads_reaped(self):
         """
         In #37193, users reported a memory leak

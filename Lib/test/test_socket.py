@@ -958,6 +958,8 @@ class GeneralModuleTests(unittest.TestCase):
         socket.IPPROTO_L2TP
         socket.IPPROTO_SCTP
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(sys.platform == 'darwin', 'macOS specific test')
     @unittest.skipUnless(socket_helper.IPV6_ENABLED, 'IPv6 required for this test')
     def test3542SocketOptions(self):
@@ -2190,6 +2192,8 @@ class J1939Test(unittest.TestCase):
         super().__init__(*args, **kwargs)
         self.interface = "vcan0"
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(socket, "CAN_J1939"),
                          'socket.CAN_J1939 required for this test.')
     def testJ1939Constants(self):
@@ -2231,6 +2235,8 @@ class J1939Test(unittest.TestCase):
         with socket.socket(socket.PF_CAN, socket.SOCK_DGRAM, socket.CAN_J1939) as s:
             pass
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testBind(self):
         try:
             with socket.socket(socket.PF_CAN, socket.SOCK_DGRAM, socket.CAN_J1939) as s:
@@ -6207,6 +6213,7 @@ class SendfileUsingSendTest(ThreadedTCPSocketTest):
             sent = meth(file)
             self.assertEqual(sent, self.FILESIZE)
 
+    @unittest.skip("TODO: RUSTPYTHON")
     def testWithTimeout(self):
         conn = self.accept_conn()
         data = self.recv_data(conn)
