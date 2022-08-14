@@ -1925,6 +1925,8 @@ class TestCase(unittest.TestCase):
         # Check MRO resolution.
         self.assertEqual(Child.__mro__, (Child, Parent, Generic, object))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_dataclasses_pickleable(self):
         global P, Q, R
         @dataclass
@@ -1954,6 +1956,8 @@ class TestCase(unittest.TestCase):
                     self.assertEqual(new_sample.x, another_new_sample.x)
                     self.assertEqual(sample.y, another_new_sample.y)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_dataclasses_qualnames(self):
         @dataclass(order=True, unsafe_hash=True, frozen=True)
         class A:
@@ -2067,8 +2071,6 @@ class TestDocString(unittest.TestCase):
 
         self.assertDocStrEqual(C.__doc__, "C(x:int=3)")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_docstring_one_field_with_default_none(self):
         @dataclass
         class C:
@@ -2829,6 +2831,8 @@ class TestSlots(unittest.TestCase):
         # We can add a new field to the derived instance.
         d.z = 10
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_generated_slots(self):
         @dataclass(slots=True)
         class C:
@@ -3213,8 +3217,6 @@ class TestStringAnnotations(unittest.TestCase):
                 # x is not an InitVar, so there will be a member x.
                 self.assertEqual(C(10).x, 10)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_classvar_module_level_import(self):
         from test import dataclass_module_1
         from test import dataclass_module_1_str
@@ -3256,8 +3258,6 @@ class TestStringAnnotations(unittest.TestCase):
                     # won't exist on the instance.
                     self.assertNotIn('not_iv4', c.__dict__)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_text_annotations(self):
         from test import dataclass_textanno
 
@@ -3688,6 +3688,8 @@ class TestAbstract(unittest.TestCase):
         self.assertFalse(inspect.isabstract(Date))
         self.assertGreater(Date(2020,12,25), Date(2020,8,31))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_maintain_abc(self):
         class A(abc.ABC):
             @abc.abstractmethod
@@ -3853,6 +3855,8 @@ class TestKeywordArgs(unittest.TestCase):
             b: int = field(kw_only=True)
         self.assertEqual(C(42, b=10).__match_args__, ('a',))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_KW_ONLY(self):
         @dataclass
         class A:
