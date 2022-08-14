@@ -13,8 +13,10 @@ from test import mapping_tests, support
 from test.support import import_helper
 
 
-py_coll = import_helper.import_fresh_module('collections', blocked=['_collections'])
-c_coll = import_helper.import_fresh_module('collections', fresh=['_collections'])
+py_coll = import_helper.import_fresh_module('collections',
+                                            blocked=['_collections'])
+c_coll = import_helper.import_fresh_module('collections',
+                                           fresh=['_collections'])
 
 
 @contextlib.contextmanager
@@ -408,9 +410,9 @@ class OrderedDictTests:
         self.assertEqual(list(od), list('abcde'))
         od.move_to_end('c')
         self.assertEqual(list(od), list('abdec'))
-        od.move_to_end('c', 0)
+        od.move_to_end('c', False)
         self.assertEqual(list(od), list('cabde'))
-        od.move_to_end('c', 0)
+        od.move_to_end('c', False)
         self.assertEqual(list(od), list('cabde'))
         od.move_to_end('e')
         self.assertEqual(list(od), list('cabde'))
@@ -419,7 +421,7 @@ class OrderedDictTests:
         with self.assertRaises(KeyError):
             od.move_to_end('x')
         with self.assertRaises(KeyError):
-            od.move_to_end('x', 0)
+            od.move_to_end('x', False)
 
     def test_move_to_end_issue25406(self):
         OrderedDict = self.OrderedDict
@@ -661,6 +663,49 @@ class OrderedDictTests:
         support.check_free_after_iterating(self, lambda d: iter(d.values()), self.OrderedDict)
         support.check_free_after_iterating(self, lambda d: iter(d.items()), self.OrderedDict)
 
+    def test_merge_operator(self):
+        OrderedDict = self.OrderedDict
+
+        a = OrderedDict({0: 0, 1: 1, 2: 1})
+        b = OrderedDict({1: 1, 2: 2, 3: 3})
+
+        c = a.copy()
+        d = a.copy()
+        c |= b
+        d |= list(b.items())
+        expected = OrderedDict({0: 0, 1: 1, 2: 2, 3: 3})
+        self.assertEqual(a | dict(b), expected)
+        self.assertEqual(a | b, expected)
+        self.assertEqual(c, expected)
+        self.assertEqual(d, expected)
+
+        c = b.copy()
+        c |= a
+        expected = OrderedDict({1: 1, 2: 1, 3: 3, 0: 0})
+        self.assertEqual(dict(b) | a, expected)
+        self.assertEqual(b | a, expected)
+        self.assertEqual(c, expected)
+
+        self.assertIs(type(a | b), OrderedDict)
+        self.assertIs(type(dict(a) | b), OrderedDict)
+        self.assertIs(type(a | dict(b)), OrderedDict)
+
+        expected = a.copy()
+        a |= ()
+        a |= ""
+        self.assertEqual(a, expected)
+
+        with self.assertRaises(TypeError):
+            a | None
+        with self.assertRaises(TypeError):
+            a | ()
+        with self.assertRaises(TypeError):
+            a | "BAD"
+        with self.assertRaises(TypeError):
+            a | ""
+        with self.assertRaises(ValueError):
+            a |= "BAD"
+
     @support.cpython_only
     def test_ordered_dict_items_result_gc(self):
         # bpo-42536: OrderedDict.items's tuple-reuse speed trick breaks the GC's
@@ -712,20 +757,21 @@ class CPythonOrderedDictTests(OrderedDictTests, unittest.TestCase):
         size = support.calcobjsize
         check = self.check_sizeof
 
-        basicsize = size('nQ2P' + '3PnPn2P') + calcsize('2nP2n')
+        basicsize = size('nQ2P' + '3PnPn2P')
+        keysize = calcsize('2nP2n')
 
         entrysize = calcsize('n2P')
         p = calcsize('P')
         nodesize = calcsize('Pn2P')
 
         od = OrderedDict()
-        check(od, basicsize + 8 + 5*entrysize)  # 8byte indices + 8*2//3 * entry table
+        check(od, basicsize)  # 8byte indices + 8*2//3 * entry table
         od.x = 1
-        check(od, basicsize + 8 + 5*entrysize)
+        check(od, basicsize)
         od.update([(i, i) for i in range(3)])
-        check(od, basicsize + 8*p + 8 + 5*entrysize + 3*nodesize)
+        check(od, basicsize + keysize + 8*p + 8 + 5*entrysize + 3*nodesize)
         od.update([(i, i) for i in range(3, 10)])
-        check(od, basicsize + 16*p + 16 + 10*entrysize + 10*nodesize)
+        check(od, basicsize + keysize + 16*p + 16 + 10*entrysize + 10*nodesize)
 
         check(od.keys(), size('P'))
         check(od.items(), size('P'))
@@ -797,12 +843,14 @@ class CPythonOrderedDictTests(OrderedDictTests, unittest.TestCase):
 
 
 class PurePythonOrderedDictSubclassTests(PurePythonOrderedDictTests):
+
     module = py_coll
     class OrderedDict(py_coll.OrderedDict):
         pass
 
 
 class CPythonOrderedDictSubclassTests(CPythonOrderedDictTests):
+
     module = c_coll
     class OrderedDict(c_coll.OrderedDict):
         pass
