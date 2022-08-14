@@ -92,29 +92,29 @@ fn benchmarks(b: &mut Bencher) {
 
     b.iter(move || {
         for (p, s) in &tests {
-            let (mut req, mut state) = p.state(s.clone());
-            state.search(&mut req);
+            let (req, mut state) = p.state(s.clone());
+            state.search(req);
             assert!(state.has_matched);
-            let (mut req, mut state) = p.state(s.clone());
-            state.pymatch(&mut req);
+            let (req, mut state) = p.state(s.clone());
+            state.pymatch(req);
             assert!(state.has_matched);
             let (mut req, mut state) = p.state(s.clone());
             req.match_all = true;
-            state.pymatch(&mut req);
+            state.pymatch(req);
             assert!(state.has_matched);
             let s2 = format!("{}{}{}", " ".repeat(10000), s, " ".repeat(10000));
-            let (mut req, mut state) = p.state_range(s2.as_str(), 0..usize::MAX);
-            state.search(&mut req);
+            let (req, mut state) = p.state_range(s2.as_str(), 0..usize::MAX);
+            state.search(req);
             assert!(state.has_matched);
-            let (mut req, mut state) = p.state_range(s2.as_str(), 10000..usize::MAX);
-            state.pymatch(&mut req);
+            let (req, mut state) = p.state_range(s2.as_str(), 10000..usize::MAX);
+            state.pymatch(req);
             assert!(state.has_matched);
-            let (mut req, mut state) = p.state_range(s2.as_str(), 10000..10000 + s.len());
-            state.pymatch(&mut req);
+            let (req, mut state) = p.state_range(s2.as_str(), 10000..10000 + s.len());
+            state.pymatch(req);
             assert!(state.has_matched);
             let (mut req, mut state) = p.state_range(s2.as_str(), 10000..10000 + s.len());
             req.match_all = true;
-            state.pymatch(&mut req);
+            state.pymatch(req);
             assert!(state.has_matched);
         }
     })

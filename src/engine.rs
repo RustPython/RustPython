@@ -1,5 +1,7 @@
 // good luck to those that follow; here be dragons
 
+use crate::constants::SreInfo;
+
 use super::constants::{SreAtCode, SreCatCode, SreOpcode};
 use super::MAXREPEAT;
 use optional::Optioned;
@@ -10,6 +12,7 @@ const fn is_py_ascii_whitespace(b: u8) -> bool {
     matches!(b, b'\t' | b'\n' | b'\x0C' | b'\r' | b' ' | b'\x0B')
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct Request<'a, S: StrDrive> {
     pub string: S,
     pub start: usize,
@@ -180,7 +183,7 @@ impl<S: StrDrive> State<S> {
         self.has_matched = self.popped_has_matched;
     }
 
-    pub fn pymatch(&mut self, req: &mut Request<S>) {
+    pub fn pymatch(&mut self, mut req: Request<S>) {
         self.start = req.start;
         self.string_position = req.start;
 
@@ -196,10 +199,10 @@ impl<S: StrDrive> State<S> {
         };
         self.context_stack.push(ctx);
 
-        self._match(req);
+        self._match(&mut req);
     }
 
-    pub fn search(&mut self, req: &mut Request<S>) {
+    pub fn search(&mut self, mut req: Request<S>) {
         self.start = req.start;
         self.string_position = req.start;
 
@@ -208,12 +211,11 @@ impl<S: StrDrive> State<S> {
             return;
         }
 
-        // let start = self.start;
-        // let end = self.end;
+        let mut end = req.end;
 
         let mut start_offset = req.string.offset(0, req.start);
 
-        let ctx = MatchContext {
+        let mut ctx = MatchContext {
             string_position: req.start,
             string_offset: start_offset,
             code_position: 0,
@@ -224,35 +226,97 @@ impl<S: StrDrive> State<S> {
             count: -1,
         };
 
-        // if ctx.peek_code(self, 0) == SreOpcode::INFO as u32 {
-        //     search_op_info(self, &mut ctx);
-        //     if let Some(has_matched) = ctx.has_matched {
-        //         self.has_matched = has_matched;
-        //         return;
-        //     }
-        // }
+        if ctx.peek_code(&req, 0) == SreOpcode::INFO as u32 {
+            /* optimization info block */
+            /* <INFO> <1=skip> <2=flags> <3=min> <4=max> <5=prefix info>  */
+            let req = &mut req;
+            let min = ctx.peek_code(req, 3) as usize;
+
+            if ctx.remaining_chars(req) < min {
+                return;
+            }
+
+            if min > 1 {
+                /* adjust end point (but make sure we leave at least one
+                character in there, so literal search will work) */
+                // no overflow can happen as remaining chars >= min
+                end -= min - 1;
+
+                // adjust ctx position
+                if end < ctx.string_position {
+                    ctx.string_position = end;
+                    ctx.string_offset = req.string.offset(0, ctx.string_position);
+                }
+            }
+
+            let flags = SreInfo::from_bits_truncate(ctx.peek_code(req, 2));
+
+            if flags.contains(SreInfo::PREFIX) {
+                /* pattern starts with a known prefix */
+                /* <length> <skip> <prefix data> <overlap data> */
+                let len = ctx.peek_code(req, 5) as usize;
+                let skip = ctx.peek_code(req, 6) as usize;
+                let prefix = &ctx.pattern(req)[7..];
+                let overlap = &prefix[len - 1..];
+
+                if len == 1 {
+                    // pattern starts with a literal character
+                    ctx.skip_code_from(req, 1);
+                    let c = prefix[0];
+                    req.must_advance = false;
+
+                    while !ctx.at_end(req) {
+                        // find the next matched literal
+                        while ctx.peek_char(req) != c {
+                            ctx.skip_char(req, 1);
+                            if ctx.at_end(req) {
+                                return;
+                            }
+                        }
+
+                        req.start = ctx.string_position;
+                        self.reset(req.start);
+                        // self.start = ctx.string_position;
+                        self.string_position += skip;
+
+                        // literal only
+                        if flags.contains(SreInfo::LITERAL) {
+                            self.has_matched = true;
+                            return;
+                        }
+
+                        let mut next_ctx = ctx;
+                        next_ctx.skip_char(req, skip);
+                        next_ctx.skip_code(2 * skip);
+
+                        self.context_stack.push(next_ctx);
+                        self._match(req);
+
+                        if self.has_matched {
+                            return;
+                        }
+
+                        ctx.skip_char(req, 1);
+                    }
+                    return;
+                }
+            }
+        }
 
         self.context_stack.push(ctx);
-        self._match(req);
+        self._match(&mut req);
 
         req.must_advance = false;
-        while !self.has_matched && req.start < req.end {
+        ctx.toplevel = false;
+        while !self.has_matched && req.start < end {
             req.start += 1;
             start_offset = req.string.offset(start_offset, 1);
             self.reset(req.start);
+            ctx.string_position = req.start;
+            ctx.string_offset = start_offset;
 
-            let ctx = MatchContext {
-                string_position: req.start,
-                string_offset: start_offset,
-                code_position: 0,
-                has_matched: None,
-                toplevel: false,
-                handler: None,
-                repeat_ctx_id: usize::MAX,
-                count: -1,
-            };
             self.context_stack.push(ctx);
-            self._match(req);
+            self._match(&mut req);
         }
     }
 }
@@ -371,63 +435,6 @@ fn dispatch<S: StrDrive>(
         _ => unreachable!("unexpected opcode"),
     }
 }
-
-/* optimization info block */
-/* <INFO> <1=skip> <2=flags> <3=min> <4=max> <5=prefix info>  */
-// fn search_op_info<'a, S: StrDrive>(state: &mut State<'a, S>, ctx: &mut MatchContext<'a, S>) {
-//     let min = ctx.peek_code(state, 3) as usize;
-
-//     if ctx.remaining_chars(state) < min {
-//         return ctx.failure();
-//     }
-
-//     if min > 1 {
-//         /* adjust end point (but make sure we leave at least one
-//         character in there, so literal search will work) */
-//         // no overflow can happen as remaining chars >= min
-//         state.end -= min - 1;
-
-//         // adjust ctx position
-//         if state.end < ctx.string_position {
-//             ctx.string_position = state.end;
-//             ctx.string_offset = state.string.offset(0, ctx.string_position);
-//         }
-//     }
-
-//     let flags = SreInfo::from_bits_truncate(ctx.peek_code(state, 2));
-
-//     if flags.contains(SreInfo::PREFIX) {
-//         /* pattern starts with a known prefix */
-//         /* <length> <skip> <prefix data> <overlap data> */
-//         let len = ctx.peek_code(state, 5) as usize;
-//         let skip = ctx.peek_code(state, 6) as usize;
-//         let prefix = &ctx.pattern(state)[7..];
-//         let overlap = &prefix[len - 1..];
-
-//         ctx.skip_code_from(state, 1);
-
-//         if len == 1 {
-//             // pattern starts with a literal character
-//             let c = prefix[0];
-//             let end = state.end;
-
-//             while (!ctx.at_end(state)) {
-//                 // find the next matched literal
-//                 while (ctx.peek_char(state) != c) {
-//                     ctx.skip_char(state, 1);
-//                     if (ctx.at_end(state)) {
-//                         return ctx.failure();
-//                     }
-//                 }
-
-//                 // literal only
-//                 if flags.contains(SreInfo::LITERAL) {
-//                     return ctx.success();
-//                 }
-//             }
-//         }
-//     }
-// }
 
 /* assert subpattern */
 /* <ASSERT> <skip> <back> <pattern> */
