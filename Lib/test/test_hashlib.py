@@ -408,6 +408,8 @@ class HashLibTestCase(unittest.TestCase):
         self.check_no_unicode('blake2b')
         self.check_no_unicode('blake2s')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @requires_sha3
     def test_no_unicode_sha3(self):
         self.check_no_unicode('sha3_224')
@@ -469,6 +471,8 @@ class HashLibTestCase(unittest.TestCase):
             self.assertEqual(m._rate_bits, rate)
             self.assertEqual(m._suffix, suffix)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @requires_sha3
     def test_extra_sha3(self):
         self.check_sha3('sha3_224', 448, 1152, b'\x06')
@@ -851,16 +855,22 @@ class HashLibTestCase(unittest.TestCase):
         for msg, md in read_vectors('sha3_512'):
             self.check('sha3_512', msg, md)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_case_shake_128_0(self):
         self.check('shake_128', b"",
           "7f9c2ba4e88f827d616045507605853ed73b8093f6efbc88eb1a6eacfa66ef26",
           True)
         self.check('shake_128', b"", "7f9c", True)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_case_shake128_vector(self):
         for msg, md in read_vectors('shake_128'):
             self.check('shake_128', msg, md, True)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_case_shake_256_0(self):
         self.check('shake_256', b"",
           "46b9dd2b0ba88d13233b3feb743eeb243fcd52ea62b81b82b50c27646ed5762f",
@@ -965,6 +975,8 @@ class HashLibTestCase(unittest.TestCase):
         support.check_disallow_instantiation(self, HASH)
         support.check_disallow_instantiation(self, HASHXOF)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_readonly_types(self):
         for algorithm, constructors in self.constructors_to_test.items():
             # all other types have DISALLOW_INSTANTIATION
