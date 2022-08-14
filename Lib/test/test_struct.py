@@ -1,12 +1,16 @@
 from collections import abc
 import array
+import gc
 import math
 import operator
 import unittest
 import struct
 import sys
+import weakref
 
 from test import support
+from test.support import import_helper
+from test.support.script_helper import assert_python_ok
 
 ISBIGENDIAN = sys.byteorder == "big"
 
@@ -654,6 +658,62 @@ class StructTest(unittest.TestCase):
         s2 = struct.Struct(s.format.encode())
         self.assertEqual(s2.format, s.format)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_struct_cleans_up_at_runtime_shutdown(self):
+        code = """if 1:
+            import struct
+
+            class C:
+                def __init__(self):
+                    self.pack = struct.pack
+                def __del__(self):
+                    self.pack('I', -42)
+
+            struct.x = C()
+            """
+        rc, stdout, stderr = assert_python_ok("-c", code)
+        self.assertEqual(rc, 0)
+        self.assertEqual(stdout.rstrip(), b"")
+        self.assertIn(b"Exception ignored in:", stderr)
+        self.assertIn(b"C.__del__", stderr)
+
+    def test__struct_reference_cycle_cleaned_up(self):
+        # Regression test for python/cpython#94207.
+
+        # When we create a new struct module, trigger use of its cache,
+        # and then delete it ...
+        _struct_module = import_helper.import_fresh_module("_struct")
+        module_ref = weakref.ref(_struct_module)
+        _struct_module.calcsize("b")
+        del _struct_module
+
+        # Then the module should have been garbage collected.
+        gc.collect()
+        self.assertIsNone(
+            module_ref(), "_struct module was not garbage collected")
+
+    @support.cpython_only
+    def test__struct_types_immutable(self):
+        # See https://github.com/python/cpython/issues/94254
+
+        Struct = struct.Struct
+        unpack_iterator = type(struct.iter_unpack("b", b'x'))
+        for cls in (Struct, unpack_iterator):
+            with self.subTest(cls=cls):
+                with self.assertRaises(TypeError):
+                    cls.x = 1
+
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_issue35714(self):
+        # Embedded null characters should not be allowed in format strings.
+        for s in '\0', '2\0i', b'\0':
+            with self.assertRaisesRegex(struct.error,
+                                        'embedded null character'):
+                struct.calcsize(s)
+
 
 class UnpackIteratorTest(unittest.TestCase):
     """
@@ -680,6 +740,12 @@ class UnpackIteratorTest(unittest.TestCase):
             s.iter_unpack(b"")
         with self.assertRaises(struct.error):
             s.iter_unpack(b"12")
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_uninstantiable(self):
+        iter_unpack_type = type(struct.Struct(">ibcp").iter_unpack(b""))
+        self.assertRaises(TypeError, iter_unpack_type)
 
     def test_iterate(self):
         s = struct.Struct('>IB')

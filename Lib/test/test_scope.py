@@ -2,11 +2,11 @@ import unittest
 import weakref
 
 from test.support import check_syntax_error, cpython_only
+from test.support import gc_collect
 
 
 class ScopeTests(unittest.TestCase):
 
-    
     def testSimpleNesting(self):
 
         def make_adder(x):
@@ -20,7 +20,6 @@ class ScopeTests(unittest.TestCase):
         self.assertEqual(inc(1), 2)
         self.assertEqual(plus10(-2), 8)
 
-    
     def testExtraNesting(self):
 
         def make_adder2(x):
@@ -36,7 +35,6 @@ class ScopeTests(unittest.TestCase):
         self.assertEqual(inc(1), 2)
         self.assertEqual(plus10(-2), 8)
 
-    
     def testSimpleAndRebinding(self):
 
         def make_adder3(x):
@@ -50,8 +48,7 @@ class ScopeTests(unittest.TestCase):
 
         self.assertEqual(inc(1), 2)
         self.assertEqual(plus10(-2), 8)
-    
-    
+
     def testNestingGlobalNoFree(self):
 
         def make_adder4(): # XXX add exta level of indirection
@@ -70,7 +67,6 @@ class ScopeTests(unittest.TestCase):
         global_x = 10
         self.assertEqual(adder(-2), 8)
 
-    
     def testNestingThroughClass(self):
 
         def make_adder5(x):
@@ -85,7 +81,6 @@ class ScopeTests(unittest.TestCase):
         self.assertEqual(inc(1), 2)
         self.assertEqual(plus10(-2), 8)
 
-    
     def testNestingPlusFreeRefToGlobal(self):
 
         def make_adder6(x):
@@ -101,7 +96,6 @@ class ScopeTests(unittest.TestCase):
         self.assertEqual(inc(1), 11) # there's only one global
         self.assertEqual(plus10(-2), 8)
 
-    
     def testNearestEnclosingScope(self):
 
         def f(x):
@@ -115,7 +109,6 @@ class ScopeTests(unittest.TestCase):
         test_func = f(10)
         self.assertEqual(test_func(5), 47)
 
-    
     def testMixedFreevarsAndCellvars(self):
 
         def identity(x):
@@ -173,7 +166,6 @@ class ScopeTests(unittest.TestCase):
         self.assertEqual(t.method_and_var(), "method")
         self.assertEqual(t.actual_global(), "global")
 
-    
     def testCellIsKwonlyArg(self):
         # Issue 1409: Initialisation of a cell value,
         # when it comes from a keyword-only parameter
@@ -185,7 +177,6 @@ class ScopeTests(unittest.TestCase):
         self.assertEqual(foo(a=42), 50)
         self.assertEqual(foo(), 25)
 
-    
     def testRecursion(self):
 
         def f(x):
@@ -200,6 +191,7 @@ class ScopeTests(unittest.TestCase):
                 raise ValueError("x must be >= 0")
 
         self.assertEqual(f(6), 720)
+
 
     def testUnoptimizedNamespaces(self):
 
@@ -235,7 +227,6 @@ class ScopeTests(unittest.TestCase):
                     return getrefcount # global or local?
             """)
 
-    
     def testLambdas(self):
 
         f1 = lambda x: lambda y: x + y
@@ -312,8 +303,6 @@ class ScopeTests(unittest.TestCase):
                 fail('scope of global_x not correctly determined')
             """, {'fail': self.fail})
 
-
-    
     def testComplexDefinitions(self):
 
         def makeReturner(*lst):
@@ -348,6 +337,7 @@ class ScopeTests(unittest.TestCase):
                 return g()
             self.assertEqual(f(), 7)
             self.assertEqual(x, 7)
+
             # II
             x = 7
             def f():
@@ -362,6 +352,7 @@ class ScopeTests(unittest.TestCase):
                 return g()
             self.assertEqual(f(), 2)
             self.assertEqual(x, 7)
+
             # III
             x = 7
             def f():
@@ -377,6 +368,7 @@ class ScopeTests(unittest.TestCase):
                 return g()
             self.assertEqual(f(), 2)
             self.assertEqual(x, 2)
+
             # IV
             x = 7
             def f():
@@ -392,8 +384,10 @@ class ScopeTests(unittest.TestCase):
                 return g()
             self.assertEqual(f(), 2)
             self.assertEqual(x, 2)
+
             # XXX what about global statements in class blocks?
             # do they affect methods?
+
             x = 12
             class Global:
                 global x
@@ -402,6 +396,7 @@ class ScopeTests(unittest.TestCase):
                     x = val
                 def get(self):
                     return x
+
             g = Global()
             self.assertEqual(g.get(), 13)
             g.set(15)
@@ -428,6 +423,7 @@ class ScopeTests(unittest.TestCase):
         for i in range(100):
             f1()
 
+        gc_collect()  # For PyPy or other GCs.
         self.assertEqual(Foo.count, 0)
 
     def testClassAndGlobal(self):
@@ -439,16 +435,19 @@ class ScopeTests(unittest.TestCase):
                     def __call__(self, y):
                         return x + y
                 return Foo()
+
             x = 0
             self.assertEqual(test(6)(2), 8)
             x = -1
             self.assertEqual(test(3)(2), 5)
+
             looked_up_by_load_name = False
             class X:
                 # Implicit globals inside classes are be looked up by LOAD_NAME, not
                 # LOAD_GLOBAL.
                 locals()['looked_up_by_load_name'] = True
                 passed = looked_up_by_load_name
+
             self.assertTrue(X.passed)
             """)
 
@@ -468,7 +467,6 @@ class ScopeTests(unittest.TestCase):
         del d['h']
         self.assertEqual(d, {'x': 2, 'y': 7, 'w': 6})
 
-    
     def testLocalsClass(self):
         # This test verifies that calling locals() does not pollute
         # the local namespace of the class with free variables.  Old
@@ -502,7 +500,6 @@ class ScopeTests(unittest.TestCase):
         self.assertNotIn("x", varnames)
         self.assertIn("y", varnames)
 
-    
     @cpython_only
     def testLocalsClass_WithTrace(self):
         # Issue23728: after the trace function returns, the locals()
@@ -520,7 +517,6 @@ class ScopeTests(unittest.TestCase):
 
         self.assertEqual(x, 12) # Used to raise UnboundLocalError
 
-    
     def testBoundAndFree(self):
         # var is bound and free in class
 
@@ -534,7 +530,6 @@ class ScopeTests(unittest.TestCase):
         inst = f(3)()
         self.assertEqual(inst.a, inst.m())
 
-    
     @cpython_only
     def testInteractionWithTraceFunc(self):
 
@@ -574,7 +569,6 @@ class ScopeTests(unittest.TestCase):
         else:
             self.fail("exec should have failed, because code contained free vars")
 
-    
     def testListCompLocalVars(self):
 
         try:
@@ -603,7 +597,6 @@ class ScopeTests(unittest.TestCase):
 
         f(4)()
 
-    
     def testFreeingCell(self):
         # Test what happens when a finalizer accesses
         # the cell where the object was stored.
@@ -611,7 +604,6 @@ class ScopeTests(unittest.TestCase):
             def __del__(self):
                 nestedcell_get()
 
-    
     def testNonLocalFunction(self):
 
         def f(x):
@@ -631,7 +623,6 @@ class ScopeTests(unittest.TestCase):
         self.assertEqual(dec(), 1)
         self.assertEqual(dec(), 0)
 
-    
     def testNonLocalMethod(self):
         def f(x):
             class c:
@@ -678,7 +669,6 @@ class ScopeTests(unittest.TestCase):
         self.assertEqual(2, global_ns["result2"])
         self.assertEqual(9, global_ns["result9"])
 
-    
     def testNonLocalClass(self):
 
         def f(x):
@@ -693,7 +683,7 @@ class ScopeTests(unittest.TestCase):
         self.assertEqual(c.get(), 1)
         self.assertNotIn("x", c.__class__.__dict__)
 
-    
+
     def testNonLocalGenerator(self):
 
         def f(x):
@@ -707,7 +697,6 @@ class ScopeTests(unittest.TestCase):
         g = f(0)
         self.assertEqual(list(g(5)), [1, 2, 3, 4, 5])
 
-    
     def testNestedNonLocal(self):
 
         def f(x):
@@ -725,7 +714,6 @@ class ScopeTests(unittest.TestCase):
         h = g()
         self.assertEqual(h(), 3)
 
-    
     def testTopIsNotSignificant(self):
         # See #9997.
         def top(a):
@@ -746,7 +734,6 @@ class ScopeTests(unittest.TestCase):
         self.assertFalse(hasattr(X, "x"))
         self.assertEqual(x, 42)
 
-    
     @cpython_only
     def testCellLeak(self):
         # Issue 17927.
@@ -773,6 +760,7 @@ class ScopeTests(unittest.TestCase):
         tester.dig()
         ref = weakref.ref(tester)
         del tester
+        gc_collect()  # For PyPy or other GCs.
         self.assertIsNone(ref())
 
 

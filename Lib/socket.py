@@ -12,6 +12,8 @@ Functions:
 socket() -- create a new socket object
 socketpair() -- create a pair of new socket objects [*]
 fromfd() -- create a socket object from an open file descriptor [*]
+send_fds() -- Send file descriptor to the socket.
+recv_fds() -- Recieve file descriptors from the socket.
 fromshare() -- create a socket object from data received from socket.share() [*]
 gethostname() -- return the current hostname
 gethostbyname() -- map a hostname to its IP number
@@ -104,7 +106,6 @@ def _intenum_converter(value, enum_klass):
     except ValueError:
         return value
 
-_realsocket = socket
 
 # WSA error codes
 if sys.platform.lower().startswith("win"):
@@ -336,6 +337,7 @@ class socket(_socket.socket):
             buffer = io.BufferedWriter(raw, buffering)
         if binary:
             return buffer
+        encoding = io.text_encoding(encoding)
         text = io.TextIOWrapper(buffer, encoding, errors, newline)
         text.mode = mode
         return text
@@ -376,7 +378,7 @@ class socket(_socket.socket):
             try:
                 while True:
                     if timeout and not selector_select(timeout):
-                        raise _socket.timeout('timed out')
+                        raise TimeoutError('timed out')
                     if count:
                         blocksize = count - total_sent
                         if blocksize <= 0:
@@ -543,6 +545,40 @@ def fromfd(fd, family, type, proto=0):
     nfd = dup(fd)
     return socket(family, type, proto, nfd)
 
+if hasattr(_socket.socket, "sendmsg"):
+    import array
+
+    def send_fds(sock, buffers, fds, flags=0, address=None):
+        """ send_fds(sock, buffers, fds[, flags[, address]]) -> integer
+
+        Send the list of file descriptors fds over an AF_UNIX socket.
+        """
+        return sock.sendmsg(buffers, [(_socket.SOL_SOCKET,
+            _socket.SCM_RIGHTS, array.array("i", fds))])
+    __all__.append("send_fds")
+
+if hasattr(_socket.socket, "recvmsg"):
+    import array
+
+    def recv_fds(sock, bufsize, maxfds, flags=0):
+        """ recv_fds(sock, bufsize, maxfds[, flags]) -> (data, list of file
+        descriptors, msg_flags, address)
+
+        Receive up to maxfds file descriptors returning the message
+        data and a list containing the descriptors.
+        """
+        # Array of ints
+        fds = array.array("i")
+        msg, ancdata, flags, addr = sock.recvmsg(bufsize,
+            _socket.CMSG_LEN(maxfds * fds.itemsize))
+        for cmsg_level, cmsg_type, cmsg_data in ancdata:
+            if (cmsg_level == _socket.SOL_SOCKET and cmsg_type == _socket.SCM_RIGHTS):
+                fds.frombytes(cmsg_data[:
+                        len(cmsg_data) - (len(cmsg_data) % fds.itemsize)])
+
+        return msg, list(fds), flags, addr
+    __all__.append("recv_fds")
+
 if hasattr(_socket.socket, "share"):
     def fromshare(info):
         """ fromshare(info) -> socket object
@@ -671,7 +707,7 @@ class SocketIO(io.RawIOBase):
                 self._timeout_occurred = True
                 raise
             except error as e:
-                if e.args[0] in _blocking_errnos:
+                if e.errno in _blocking_errnos:
                     return None
                 raise
 
@@ -687,7 +723,7 @@ class SocketIO(io.RawIOBase):
             return self._sock.send(b)
         except error as e:
             # XXX what about EINTR?
-            if e.args[0] in _blocking_errnos:
+            if e.errno in _blocking_errnos:
                 return None
             raise
 
@@ -746,8 +782,9 @@ def getfqdn(name=''):
     An empty argument is interpreted as meaning the local host.
 
     First the hostname returned by gethostbyaddr() is checked, then
-    possibly existing aliases. In case no FQDN is available, hostname
-    from gethostname() is returned.
+    possibly existing aliases. In case no FQDN is available and `name`
+    was given, it is returned unchanged. If `name` was empty or '0.0.0.0',
+    hostname from gethostname() is returned.
     """
     name = name.strip()
     if not name or name == '0.0.0.0':

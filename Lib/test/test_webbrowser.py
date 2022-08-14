@@ -5,7 +5,8 @@ import sys
 import subprocess
 from unittest import mock
 from test import support
-from test.support import os_helper, import_helper
+from test.support import import_helper
+from test.support import os_helper
 
 
 URL = 'http://www.example.com'
@@ -171,29 +172,21 @@ class OperaCommandTest(CommandTestMixin, unittest.TestCase):
 
     browser_class = webbrowser.Opera
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_open(self):
         self._test('open',
                    options=[],
                    arguments=[URL])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_open_with_autoraise_false(self):
         self._test('open', kw=dict(autoraise=False),
                    options=[],
                    arguments=[URL])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_open_new(self):
         self._test('open_new',
                    options=['--new-window'],
                    arguments=[URL])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_open_new_tab(self):
         self._test('open_new_tab',
                    options=[],
@@ -267,23 +260,17 @@ class BrowserRegistrationTest(unittest.TestCase):
         self.assertEqual(webbrowser._tryorder, expected_tryorder)
         self.assertEqual(webbrowser._browsers, expected_browsers)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_register(self):
         self._check_registration(preferred=False)
 
     def test_register_default(self):
         self._check_registration(preferred=None)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_register_preferred(self):
         self._check_registration(preferred=True)
 
 
 class ImportTest(unittest.TestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_register(self):
         webbrowser = import_helper.import_fresh_module('webbrowser')
         self.assertIsNone(webbrowser._tryorder)
@@ -298,8 +285,6 @@ class ImportTest(unittest.TestCase):
         self.assertIn('example1', webbrowser._browsers)
         self.assertEqual(webbrowser._browsers['example1'], [ExampleBrowser, None])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_get(self):
         webbrowser = import_helper.import_fresh_module('webbrowser')
         self.assertIsNone(webbrowser._tryorder)
