@@ -313,6 +313,8 @@ class PtyTest(unittest.TestCase):
 
         self.assertEqual(data, b"")
 
+    # TODO: RUSTPYTHON; no os.fork
+    @unittest.expectedFailure
     def test_spawn_doesnt_hang(self):
         pty.spawn([sys.executable, '-c', 'print("hi there")'])
 
