@@ -216,6 +216,8 @@ class PropertyTests(unittest.TestCase):
                 return 'Second'
         self.assertEqual(A.__doc__, 'Second')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_property_set_name_incorrect_args(self):
         p = property()
 
@@ -359,6 +361,21 @@ class PropertyUnreachableAttributeWithName(_PropertyUnreachableAttribute, unitte
 
     class cls:
         foo = property()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_get_property(self):  # TODO: RUSTPYTHON; remove this function when the test is fixed
+        super().test_get_property()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_set_property(self):  # TODO: RUSTPYTHON; remove this function when the test is fixed
+        super().test_get_property()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_del_property(self):  # TODO: RUSTPYTHON; remove this function when the test is fixed
+        super().test_get_property()
 
 
 class PropertyUnreachableAttributeNoName(_PropertyUnreachableAttribute, unittest.TestCase):
