@@ -203,7 +203,6 @@ class urlopen_FileTests(unittest.TestCase):
     def test_url(self):
         self.assertEqual(self.returned_obj.url, self.quoted_pathname)
 
-    @unittest.skip("TODO: RUSTPYTHON (AttributeError: 'BufferedReader' object has no attribute 'status')")
     def test_status(self):
         self.assertIsNone(self.returned_obj.status)
 
@@ -616,7 +615,6 @@ Connection: close
                 )
 
 
-@unittest.skip("TODO: RUSTPYTHON, error in setUp(); ValueError: error decoding base64: Invalid byte 32, offset 95.")
 class urlopen_DataTests(unittest.TestCase):
     """Test urlopen() opening a data URL."""
 
@@ -1275,7 +1273,6 @@ class UnquotingTests(unittest.TestCase):
         self.assertEqual(expect, result,
                          "using unquote(): %r != %r" % (expect, result))
 
-    @unittest.skip("TODO: RUSTPYTHON (TypeError: Expected str, got bytes)")
     def test_unquoting_with_bytes_input(self):
         # ASCII characters decoded to a string
         given = b'blueberryjam'
