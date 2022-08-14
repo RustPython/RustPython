@@ -7,7 +7,7 @@ mod pwd {
         convert::{IntoPyException, ToPyObject},
         exceptions,
         types::PyStructSequence,
-        AsObject, PyObjectRef, PyResult, VirtualMachine,
+        PyObjectRef, PyResult, VirtualMachine,
     };
     use nix::unistd::{self, User};
     use std::ptr::NonNull;
