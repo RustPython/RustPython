@@ -115,7 +115,7 @@ class StrftimeTest(unittest.TestCase):
         )
 
         for e in expectations:
-            # musn't raise a value error
+            # mustn't raise a value error
             try:
                 result = time.strftime(e[0], now)
             except ValueError as error:
