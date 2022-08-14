@@ -1,4 +1,4 @@
-#! /usr/bin/python3.6
+#! /usr/bin/env python3
 
 """Conversions to/from quoted-printable transport encoding as per RFC 1521."""
 
@@ -204,11 +204,11 @@ def main():
         print("-t: quote tabs")
         print("-d: decode; default encode")
         sys.exit(2)
-    deco = 0
-    tabs = 0
+    deco = False
+    tabs = False
     for o, a in opts:
-        if o == '-t': tabs = 1
-        if o == '-d': deco = 1
+        if o == '-t': tabs = True
+        if o == '-d': deco = True
     if tabs and deco:
         sys.stdout = sys.stderr
         print("-t and -d are mutually exclusive")
