@@ -1535,8 +1535,6 @@ class _BasePathTest(object):
         self.assertIs(False, P(BASE + '\udfff').exists())
         self.assertIs(False, P(BASE + '\x00').exists())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_open_common(self):
         p = self.cls(BASE)
         with (p / 'fileA').open('r') as f:
@@ -1566,8 +1564,6 @@ class _BasePathTest(object):
         self.assertRaises(TypeError, (p / 'fileA').write_text, b'somebytes')
         self.assertEqual((p / 'fileA').read_text(encoding='latin-1'), 'äbcdefg')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_write_text_with_newlines(self):
         p = self.cls(BASE)
         # Check that `\n` character change nothing
