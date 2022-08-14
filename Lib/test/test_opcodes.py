@@ -1,7 +1,7 @@
 # Python test set -- part 2, opcodes
 
 import unittest
-from test import support #,ann_module
+from test import ann_module, support
 
 class OpcodeTest(unittest.TestCase):
 
@@ -26,17 +26,18 @@ class OpcodeTest(unittest.TestCase):
     def test_setup_annotations_line(self):
         # check that SETUP_ANNOTATIONS does not create spurious line numbers
         try:
-            with open(ann_module.__file__) as f:
+            with open(ann_module.__file__, encoding="utf-8") as f:
                 txt = f.read()
             co = compile(txt, ann_module.__file__, 'exec')
-            self.assertEqual(co.co_firstlineno, 3)
+            self.assertEqual(co.co_firstlineno, 1)
         except OSError:
             pass
 
-    def test_no_annotations_if_not_needed(self):
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_default_annotations_exist(self):
         class C: pass
-        with self.assertRaises(AttributeError):
-            C.__annotations__
+        self.assertEqual(C.__annotations__, {})
 
     def test_use_existing_annotations(self):
         ns = {'__annotations__': {1: 2}}

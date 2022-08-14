@@ -90,7 +90,7 @@ mod fcntl {
     #[pyfunction]
     fn ioctl(
         fd: i32,
-        request: i32,
+        request: u32,
         arg: OptionalArg<Either<Either<ArgMemoryBuffer, ArgStrOrBytesLike>, i32>>,
         mutate_flag: OptionalArg<bool>,
         vm: &VirtualMachine,

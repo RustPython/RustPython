@@ -8,6 +8,7 @@ import sys
 import unittest
 import warnings
 from test.support import os_helper
+from test.support import warnings_helper
 from test.support.script_helper import assert_python_ok
 from test.support.os_helper import FakePath
 
@@ -525,8 +526,7 @@ class CommonTest(GenericTest):
 
     def test_join_errors(self):
         # Check join() raises friendly TypeErrors.
-        from .support.warnings_helper import check_warnings
-        with check_warnings(('', BytesWarning), quiet=True):
+        with warnings_helper.check_warnings(('', BytesWarning), quiet=True):
             errmsg = "Can't mix strings and bytes in path components"
             with self.assertRaisesRegex(TypeError, errmsg):
                 self.pathmodule.join(b'bytes', 'str')
@@ -546,9 +546,8 @@ class CommonTest(GenericTest):
 
     def test_relpath_errors(self):
         # Check relpath() raises friendly TypeErrors.
-        from .support.warnings_helper import check_warnings
-        with check_warnings(('', (BytesWarning, DeprecationWarning)),
-                                    quiet=True):
+        with warnings_helper.check_warnings(
+                ('', (BytesWarning, DeprecationWarning)), quiet=True):
             errmsg = "Can't mix strings and bytes in path components"
             with self.assertRaisesRegex(TypeError, errmsg):
                 self.pathmodule.relpath(b'bytes', 'str')
@@ -568,7 +567,7 @@ class CommonTest(GenericTest):
 class PathLikeTests(unittest.TestCase):
 
     def setUp(self):
-        self.file_name = os_helper.TESTFN.lower()
+        self.file_name = os_helper.TESTFN
         self.file_path = FakePath(os_helper.TESTFN)
         self.addCleanup(os_helper.unlink, self.file_name)
         create_file(self.file_name, b"test_genericpath.PathLikeTests")

@@ -100,9 +100,6 @@ class PyPicklerTests(AbstractPickleTests, unittest.TestCase):
     def test_c_methods(self): # TODO: RUSTPYTHON, remove when this passes
         super().test_c_methods() # TODO: RUSTPYTHON, remove when this passes
 
-    def test_compat_pickle(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_compat_pickle() # TODO: RUSTPYTHON, remove when this passes
-
     # TODO: RUSTPYTHON, AssertionError
     @unittest.expectedFailure
     def test_complex_newobj_ex(self): # TODO: RUSTPYTHON, remove when this passes
@@ -117,9 +114,6 @@ class PyPicklerTests(AbstractPickleTests, unittest.TestCase):
     @unittest.expectedFailure
     def test_nested_names(self): # TODO: RUSTPYTHON, remove when this passes
         super().test_nested_names() # TODO: RUSTPYTHON, remove when this passes
-
-    def test_notimplemented(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_notimplemented() # TODO: RUSTPYTHON, remove when this passes
 
     # TODO: RUSTPYTHON, AttributeError: module 'pickle' has no attribute 'PickleBuffer'
     @unittest.expectedFailure
@@ -145,12 +139,6 @@ class PyPicklerTests(AbstractPickleTests, unittest.TestCase):
     @unittest.expectedFailure
     def test_py_methods(self): # TODO: RUSTPYTHON, remove when this passes
         super().test_py_methods() # TODO: RUSTPYTHON, remove when this passes
-
-    def test_recursive_nested_names(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_recursive_nested_names() # TODO: RUSTPYTHON, remove when this passes
-
-    def test_singleton_types(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_singleton_types() # TODO: RUSTPYTHON, remove when this passes
 
     def dumps(self, arg, proto=None, **kwargs):
         f = io.BytesIO()
@@ -193,9 +181,6 @@ class InMemoryPickleTests(AbstractPickleTests, AbstractUnpickleTests,
     def test_c_methods(self): # TODO: RUSTPYTHON, remove when this passes
         super().test_c_methods() # TODO: RUSTPYTHON, remove when this passes
 
-    def test_compat_pickle(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_compat_pickle() # TODO: RUSTPYTHON, remove when this passes
-
     # TODO: RUSTPYTHON, AssertionError
     @unittest.expectedFailure
     def test_complex_newobj_ex(self): # TODO: RUSTPYTHON, remove when this passes
@@ -221,9 +206,6 @@ class InMemoryPickleTests(AbstractPickleTests, AbstractUnpickleTests,
     def test_nested_names(self): # TODO: RUSTPYTHON, remove when this passes
         super().test_nested_names() # TODO: RUSTPYTHON, remove when this passes
 
-    def test_notimplemented(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_notimplemented() # TODO: RUSTPYTHON, remove when this passes
-
     # TODO: RUSTPYTHON, AttributeError: module 'pickle' has no attribute 'PickleBuffer'
     @unittest.expectedFailure
     def test_oob_buffers(self): # TODO: RUSTPYTHON, remove when this passes
@@ -248,12 +230,6 @@ class InMemoryPickleTests(AbstractPickleTests, AbstractUnpickleTests,
     @unittest.expectedFailure
     def test_py_methods(self): # TODO: RUSTPYTHON, remove when this passes
         super().test_py_methods() # TODO: RUSTPYTHON, remove when this passes
-
-    def test_recursive_nested_names(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_recursive_nested_names() # TODO: RUSTPYTHON, remove when this passes
-
-    def test_singleton_types(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_singleton_types() # TODO: RUSTPYTHON, remove when this passes
 
     def dumps(self, arg, protocol=None, **kwargs):
         return pickle.dumps(arg, protocol, **kwargs)
@@ -327,6 +303,29 @@ class PyIdPersPicklerTests(AbstractIdentityPersistentPicklerTests,
             def persistent_id(obj):
                 return obj
         check(PersPickler)
+
+    @support.cpython_only
+    def test_custom_pickler_dispatch_table_memleak(self):
+        # See https://github.com/python/cpython/issues/89988
+
+        class Pickler(self.pickler):
+            def __init__(self, *args, **kwargs):
+                self.dispatch_table = table
+                super().__init__(*args, **kwargs)
+
+        class DispatchTable:
+            pass
+
+        table = DispatchTable()
+        pickler = Pickler(io.BytesIO())
+        self.assertIs(pickler.dispatch_table, table)
+        table_ref = weakref.ref(table)
+        self.assertIsNotNone(table_ref())
+        del pickler
+        del table
+        support.gc_collect()
+        self.assertIsNone(table_ref())
+
 
     @support.cpython_only
     def test_unpickler_reference_cycle(self):

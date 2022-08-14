@@ -86,24 +86,15 @@ class TestXrange(TestInvariantWithoutMutations, unittest.TestCase):
     def setUp(self):
         self.it = iter(range(n))
 
-    def test_invariant(self):
-        super().test_invariant()
-
 class TestXrangeCustomReversed(TestInvariantWithoutMutations, unittest.TestCase):
 
     def setUp(self):
         self.it = reversed(range(n))
 
-    def test_invariant(self):
-        super().test_invariant()
-
 class TestTuple(TestInvariantWithoutMutations, unittest.TestCase):
 
     def setUp(self):
         self.it = iter(tuple(range(n)))
-
-    def test_invariant(self):
-        super().test_invariant()
 
 ## ------- Types that should not be mutated during iteration -------
 
@@ -114,24 +105,12 @@ class TestDeque(TestTemporarilyImmutable, unittest.TestCase):
         self.it = iter(d)
         self.mutate = d.pop
 
-    def test_immutable_during_iteration(self):
-        super().test_immutable_during_iteration()
-
-    def test_invariant(self):
-        super().test_invariant()
-
 class TestDequeReversed(TestTemporarilyImmutable, unittest.TestCase):
 
     def setUp(self):
         d = deque(range(n))
         self.it = reversed(d)
         self.mutate = d.pop
-
-    def test_immutable_during_iteration(self):
-        super().test_immutable_during_iteration()
-
-    def test_invariant(self):
-        super().test_invariant()
 
 class TestDictKeys(TestTemporarilyImmutable, unittest.TestCase):
 
@@ -140,18 +119,12 @@ class TestDictKeys(TestTemporarilyImmutable, unittest.TestCase):
         self.it = iter(d)
         self.mutate = d.popitem
 
-    def test_immutable_during_iteration(self):
-        super().test_immutable_during_iteration()
-
 class TestDictItems(TestTemporarilyImmutable, unittest.TestCase):
 
     def setUp(self):
         d = dict.fromkeys(range(n))
         self.it = iter(d.items())
         self.mutate = d.popitem
-
-    def test_immutable_during_iteration(self):
-        super().test_immutable_during_iteration()
 
 class TestDictValues(TestTemporarilyImmutable, unittest.TestCase):
 
@@ -160,9 +133,6 @@ class TestDictValues(TestTemporarilyImmutable, unittest.TestCase):
         self.it = iter(d.values())
         self.mutate = d.popitem
 
-    def test_immutable_during_iteration(self):
-        super().test_immutable_during_iteration()
-
 class TestSet(TestTemporarilyImmutable, unittest.TestCase):
 
     def setUp(self):
@@ -170,21 +140,12 @@ class TestSet(TestTemporarilyImmutable, unittest.TestCase):
         self.it = iter(d)
         self.mutate = d.pop
 
-    def test_immutable_during_iteration(self):
-        super().test_immutable_during_iteration()
-
-    def test_invariant(self):
-        super().test_invariant()
-
 ## ------- Types that can mutate during iteration -------
 
 class TestList(TestInvariantWithoutMutations, unittest.TestCase):
 
     def setUp(self):
         self.it = iter(range(n))
-
-    def test_invariant(self):
-        super().test_invariant()
 
     def test_mutation(self):
         d = list(range(n))
@@ -205,9 +166,6 @@ class TestListReversed(TestInvariantWithoutMutations, unittest.TestCase):
 
     def setUp(self):
         self.it = reversed(range(n))
-
-    def test_invariant(self):
-        super().test_invariant()
 
     def test_mutation(self):
         d = list(range(n))
