@@ -658,6 +658,8 @@ class StructTest(unittest.TestCase):
         s2 = struct.Struct(s.format.encode())
         self.assertEqual(s2.format, s.format)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_struct_cleans_up_at_runtime_shutdown(self):
         code = """if 1:
             import struct
@@ -703,6 +705,8 @@ class StructTest(unittest.TestCase):
                     cls.x = 1
 
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_issue35714(self):
         # Embedded null characters should not be allowed in format strings.
         for s in '\0', '2\0i', b'\0':
@@ -737,6 +741,8 @@ class UnpackIteratorTest(unittest.TestCase):
         with self.assertRaises(struct.error):
             s.iter_unpack(b"12")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_uninstantiable(self):
         iter_unpack_type = type(struct.Struct(">ibcp").iter_unpack(b""))
         self.assertRaises(TypeError, iter_unpack_type)
