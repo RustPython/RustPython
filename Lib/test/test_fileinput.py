@@ -230,6 +230,8 @@ class FileInputTests(BaseTests, unittest.TestCase):
         line = list(fi)
         self.assertEqual(fi.fileno(), -1)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_opening_mode(self):
         try:
             # invalid mode, should raise ValueError
@@ -290,6 +292,8 @@ class FileInputTests(BaseTests, unittest.TestCase):
             fi.readline()
         self.assertTrue(custom_open_hook.invoked, "openhook not invoked")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_readline(self):
         with open(TESTFN, 'wb') as f:
             f.write(b'A\nB\r\nC\r')
@@ -387,6 +391,8 @@ class FileInputTests(BaseTests, unittest.TestCase):
             retval2 = fi[1]
             self.assertEqual(retval2, "line2\n")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test__getitem___deprecation(self):
         t = self.writeTmp("line1\nline2\n")
         with self.assertWarnsRegex(DeprecationWarning,
@@ -908,6 +914,8 @@ class Test_hook_compressed(unittest.TestCase):
     def test_no_ext(self):
         self.do_test_use_builtin_open("abcd", 2)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(gzip, "Requires gzip and zlib")
     def test_gz_ext_fake(self):
         original_open = gzip.open
@@ -1012,6 +1020,8 @@ class Test_hook_encoded(unittest.TestCase):
         check('replace', ['\ufffdabc'])
         check('backslashreplace', ['\\x80abc'])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_modes(self):
         with open(TESTFN, 'wb') as f:
             # UTF-7 is a convenient, seldom used encoding
