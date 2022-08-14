@@ -3676,7 +3676,8 @@ mod _io {
         vm: &VirtualMachine,
     ) -> PyResult<PyStrRef> {
         if vm.is_none(&encoding) {
-            return Ok(vm.ctx.new_str("locale"));
+            // TODO: This is `locale` encoding - but we don't have locale encoding yet
+            return Ok(vm.ctx.new_str("utf-8"));
         }
         encoding.try_into_value(vm)
     }
