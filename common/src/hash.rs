@@ -194,3 +194,9 @@ pub fn hash_object_id_raw(p: usize) -> PyHash {
 pub fn hash_object_id(p: usize) -> PyHash {
     fix_sentinel(hash_object_id_raw(p))
 }
+
+pub fn keyed_hash(key: u64, buf: &[u8]) -> u64 {
+    let mut hasher = SipHasher24::new_with_keys(key, 0);
+    buf.hash(&mut hasher);
+    hasher.finish()
+}

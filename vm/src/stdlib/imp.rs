@@ -124,8 +124,8 @@ mod _imp {
     }
 
     #[pyfunction]
-    fn source_hash(_key: u64, _source: PyBytesRef, vm: &VirtualMachine) -> PyResult {
-        // TODO:
-        Ok(vm.ctx.none())
+    fn source_hash(key: u64, source: PyBytesRef) -> Vec<u8> {
+        let hash: u64 = crate::common::hash::keyed_hash(key, source.as_bytes());
+        hash.to_le_bytes().to_vec()
     }
 }
