@@ -100,6 +100,10 @@ class ImportTests(unittest.TestCase):
             self.assertEqual(fp.readline(),
                              '"""Tokenization help for Python programs.\n')
 
+    # TODO: RUSTPYTHON
+    if sys.platform == 'win32':
+        test_issue1267 = unittest.expectedFailure(test_issue1267)
+
     def test_issue3594(self):
         temp_mod_name = 'test_imp_helper'
         sys.path.insert(0, '.')
@@ -368,8 +372,6 @@ class ImportTests(unittest.TestCase):
             res = script_helper.assert_python_ok(*args)
             self.assertEqual(res.out.strip().decode('utf-8'), expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_find_and_load_checked_pyc(self):
         # issue 34056
         with os_helper.temp_cwd():
