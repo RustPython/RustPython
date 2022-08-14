@@ -92,6 +92,8 @@ class TestInteractiveInterpreter(unittest.TestCase):
         output = kill_python(p)
         self.assertEqual(p.returncode, 0)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_close_stdin(self):
         user_input = dedent('''
             import os
