@@ -204,11 +204,14 @@ impl VirtualMachine {
         Ok(())
     }
 
-    /// init only utf-8 encoding
-    #[cfg(not(feature = "encodings"))]
-    fn import_encodings(&mut self) -> PyResult<()> {
+    fn import_utf8_encodings(&mut self) -> PyResult<()> {
         import::import_frozen(self, "codecs")?;
-        let encoding_module = import::import_frozen(self, "encodings_utf_8")?;
+        let encoding_module_name = if cfg!(feature = "freeze-stdlib") {
+            "encodings.utf_8"
+        } else {
+            "encodings_utf_8"
+        };
+        let encoding_module = import::import_frozen(self, encoding_module_name)?;
         let getregentry = encoding_module.get_attr("getregentry", self)?;
         let codec_info = self.invoke(&getregentry, ())?;
         self.state
@@ -227,12 +230,11 @@ impl VirtualMachine {
         stdlib::builtins::make_module(self, self.builtins.clone().into());
         stdlib::sys::init_module(self, self.sys_module.as_ref(), self.builtins.as_ref());
 
-        let mut inner_init = || -> PyResult<()> {
+        let mut essential_init = || -> PyResult {
             #[cfg(not(target_arch = "wasm32"))]
             import::import_builtin(self, "_signal")?;
-            import::init_importlib(self, self.state.settings.allow_external_library)?;
-
-            self.import_encodings()?;
+            let importlib = import::init_importlib_base(self)?;
+            self.import_utf8_encodings()?;
 
             #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
             {
@@ -263,12 +265,24 @@ impl VirtualMachine {
                 self.builtins.set_attr("open", io_open, self)?;
             }
 
-            Ok(())
+            Ok(importlib)
         };
 
-        let res = inner_init();
+        let res = essential_init();
+        let importlib = self.expect_pyresult(res, "essential initialization failed");
 
-        self.expect_pyresult(res, "initialization failed");
+        if self.state.settings.allow_external_library && cfg!(feature = "rustpython-compiler") {
+            if let Err(e) = import::init_importlib_package(self, importlib) {
+                eprintln!("importlib initialization failed. This is critical for many complicated packages.");
+                self.print_exception(e);
+            }
+        }
+
+        #[cfg(feature = "encodings")]
+        if let Err(e) = self.import_encodings() {
+            eprintln!("encodings initialization failed. Only utf-8 encoding will be supported.");
+            self.print_exception(e);
+        }
 
         self.initialized = true;
     }

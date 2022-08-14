@@ -12,17 +12,6 @@ use crate::{
 };
 use rand::Rng;
 
-pub(crate) fn init_importlib(
-    vm: &mut VirtualMachine,
-    allow_external_library: bool,
-) -> PyResult<()> {
-    let importlib = init_importlib_base(vm)?;
-    if allow_external_library && cfg!(feature = "rustpython-compiler") {
-        init_importlib_package(vm, importlib)?;
-    }
-    Ok(())
-}
-
 pub(crate) fn init_importlib_base(vm: &mut VirtualMachine) -> PyResult<PyObjectRef> {
     flame_guard!("init importlib");
 

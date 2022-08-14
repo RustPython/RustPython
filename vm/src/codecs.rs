@@ -210,7 +210,6 @@ impl CodecsRegistry {
         Ok(())
     }
 
-    #[cfg(not(feature = "encodings"))]
     pub(crate) fn register_manual(&self, name: &str, codec: PyCodec) -> PyResult<()> {
         self.inner
             .write()
