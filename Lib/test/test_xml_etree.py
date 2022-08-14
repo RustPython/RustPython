@@ -2466,8 +2466,6 @@ class BasicElementTest(ElementTestCase, unittest.TestCase):
         self.assertIsNot(element_foo.attrib, attrib)
         self.assertNotEqual(element_foo.attrib, attrib)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_copy(self):
         # Only run this test if Element.copy() is defined.
         if "copy" not in dir(ET.Element):
@@ -3918,6 +3916,8 @@ class IOTest(unittest.TestCase):
         with open(TESTFN, 'rb') as f:
             self.assertEqual(f.read(), b'''<site>&#248;</site>''')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_write_to_filename_with_encoding(self):
         self.addCleanup(os_helper.unlink, TESTFN)
         tree = ET.ElementTree(ET.XML('''<site>\xf8</site>'''))
@@ -3931,6 +3931,8 @@ class IOTest(unittest.TestCase):
                              b'''<?xml version='1.0' encoding='ISO-8859-1'?>\n'''
                              b'''<site>\xf8</site>'''))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_write_to_filename_as_unicode(self):
         self.addCleanup(os_helper.unlink, TESTFN)
         with open(TESTFN, 'w') as f:
@@ -3976,6 +3978,8 @@ class IOTest(unittest.TestCase):
         with open(TESTFN, 'rb') as f:
             self.assertEqual(f.read(), b'''<site>&#248;</site>''')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_write_to_binary_file_with_encoding(self):
         self.addCleanup(os_helper.unlink, TESTFN)
         tree = ET.ElementTree(ET.XML('''<site>\xf8</site>'''))
