@@ -16,8 +16,6 @@ class NetrcTestCase(unittest.TestCase):
         self.addCleanup(os.unlink, temp_filename)
         return netrc.netrc(temp_filename)
 
-    # TODO: RUSTPYTHON, LookupError: unknown encoding: locale
-    @unittest.expectedFailure
     def test_default(self):
         nrc = self.make_nrc("""\
             machine host1.domain.com login log1 password pass1 account acct1
@@ -30,8 +28,6 @@ class NetrcTestCase(unittest.TestCase):
         nrc2 = self.make_nrc(nrc.__repr__())
         self.assertEqual(nrc.hosts, nrc2.hosts)
 
-    # TODO: RUSTPYTHON, LookupError: unknown encoding: locale
-    @unittest.expectedFailure
     def test_macros(self):
         nrc = self.make_nrc("""\
             macdef macro1
@@ -49,22 +45,16 @@ class NetrcTestCase(unittest.TestCase):
         nrc = self.make_nrc(nrc)
         self.assertEqual(nrc.hosts['host.domain.com'], ('log', 'acct', passwd))
 
-    # TODO: RUSTPYTHON, LookupError: unknown encoding: locale
-    @unittest.expectedFailure
     def test_password_with_leading_hash(self):
         self._test_passwords("""\
             machine host.domain.com login log password #pass account acct
             """, '#pass')
 
-    # TODO: RUSTPYTHON, LookupError: unknown encoding: locale
-    @unittest.expectedFailure
     def test_password_with_trailing_hash(self):
         self._test_passwords("""\
             machine host.domain.com login log password pass# account acct
             """, 'pass#')
 
-    # TODO: RUSTPYTHON, LookupError: unknown encoding: locale
-    @unittest.expectedFailure
     def test_password_with_internal_hash(self):
         self._test_passwords("""\
             machine host.domain.com login log password pa#ss account acct
@@ -75,8 +65,6 @@ class NetrcTestCase(unittest.TestCase):
         self.assertEqual(nrc.hosts['foo.domain.com'], ('bar', None, passwd))
         self.assertEqual(nrc.hosts['bar.domain.com'], ('foo', None, 'pass'))
 
-    # TODO: RUSTPYTHON, LookupError: unknown encoding: locale
-    @unittest.expectedFailure
     def test_comment_before_machine_line(self):
         self._test_comment("""\
             # comment
@@ -84,8 +72,6 @@ class NetrcTestCase(unittest.TestCase):
             machine bar.domain.com login foo password pass
             """)
 
-    # TODO: RUSTPYTHON, LookupError: unknown encoding: locale
-    @unittest.expectedFailure
     def test_comment_before_machine_line_no_space(self):
         self._test_comment("""\
             #comment
@@ -93,8 +79,6 @@ class NetrcTestCase(unittest.TestCase):
             machine bar.domain.com login foo password pass
             """)
 
-    # TODO: RUSTPYTHON, LookupError: unknown encoding: locale
-    @unittest.expectedFailure
     def test_comment_before_machine_line_hash_only(self):
         self._test_comment("""\
             #
@@ -102,24 +86,18 @@ class NetrcTestCase(unittest.TestCase):
             machine bar.domain.com login foo password pass
             """)
 
-    # TODO: RUSTPYTHON, LookupError: unknown encoding: locale
-    @unittest.expectedFailure
     def test_comment_at_end_of_machine_line(self):
         self._test_comment("""\
             machine foo.domain.com login bar password pass # comment
             machine bar.domain.com login foo password pass
             """)
 
-    # TODO: RUSTPYTHON, LookupError: unknown encoding: locale
-    @unittest.expectedFailure
     def test_comment_at_end_of_machine_line_no_space(self):
         self._test_comment("""\
             machine foo.domain.com login bar password pass #comment
             machine bar.domain.com login foo password pass
             """)
 
-    # TODO: RUSTPYTHON, LookupError: unknown encoding: locale
-    @unittest.expectedFailure
     def test_comment_at_end_of_machine_line_pass_has_hash(self):
         self._test_comment("""\
             machine foo.domain.com login bar password #pass #comment
@@ -181,10 +159,6 @@ class NetrcTestCase(unittest.TestCase):
                 self.assertEqual(login, 'bar')
 
             self.assertTrue(called)
-
-    # TODO: RUSTPYTHON; permission error from remnant directory
-    if sys.platform == 'win32':
-        test_home_not_set = unittest.expectedFailure(test_home_not_set)
 
 if __name__ == "__main__":
     unittest.main()
