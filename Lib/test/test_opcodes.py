@@ -33,6 +33,8 @@ class OpcodeTest(unittest.TestCase):
         except OSError:
             pass
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_default_annotations_exist(self):
         class C: pass
         self.assertEqual(C.__annotations__, {})
