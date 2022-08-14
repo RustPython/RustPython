@@ -10,17 +10,17 @@ from collections.abc import *
 from concurrent.futures import Future
 from concurrent.futures.thread import _WorkItem
 from contextlib import AbstractContextManager, AbstractAsyncContextManager
-# XXX RUSTPYTHON TODO: from contextvars import ContextVar, Token
+from contextvars import ContextVar, Token
 from dataclasses import Field
 from functools import partial, partialmethod, cached_property
-# XXX RUSTPYTHON TODO: from mailbox import Mailbox, _PartialFile
+from mailbox import Mailbox, _PartialFile
 try:
     import ctypes
 except ImportError:
     ctypes = None
 from difflib import SequenceMatcher
 from filecmp import dircmp
-# XXX RUSTPYTHON TODO: from fileinput import FileInput
+from fileinput import FileInput
 from itertools import chain
 from http.cookies import Morsel
 from multiprocessing.managers import ValueProxy
@@ -52,19 +52,19 @@ class BaseTest(unittest.TestCase):
                      defaultdict, deque,
                      SequenceMatcher,
                      dircmp,
-                     # XXX RUSTPYTHON TODO: FileInput,
+                     FileInput,
                      OrderedDict, Counter, UserDict, UserList,
                      Pattern, Match,
-                     partialmethod, cached_property, # XXX RUSTPYTHON TODO: partial
-                     # XXX RUSTPYTHON TODO: AbstractContextManager, AbstractAsyncContextManager,
+                     partial, partialmethod, cached_property,
+                     AbstractContextManager, AbstractAsyncContextManager,
                      Awaitable, Coroutine,
                      AsyncIterable, AsyncIterator,
                      AsyncGenerator, Generator,
                      Iterable, Iterator,
                      Reversible,
                      Container, Collection,
-                     # XXX RUSTPYTHON TODO: Mailbox, _PartialFile,
-                     # XXX RUSTPYTHON TODO: ContextVar, Token,
+                     Mailbox, _PartialFile,
+                     ContextVar, Token,
                      Field,
                      Set, MutableSet,
                      Mapping, MutableMapping, MappingView,
