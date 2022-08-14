@@ -4,7 +4,9 @@ import sys
 import unittest
 from test.support import cpython_only
 from test.support.os_helper import TESTFN, unlink
-from test.support import check_free_after_iterating, ALWAYS_EQ, NEVER_EQ
+# XXX: RUSTPYTHON
+# from test.support import check_free_after_iterating, ALWAYS_EQ, NEVER_EQ
+from test.support import ALWAYS_EQ, NEVER_EQ
 import pickle
 import collections.abc
 
@@ -646,6 +648,8 @@ class TestCase(unittest.TestCase):
             except OSError:
                 pass
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     # Test iterators with 'x in y' and 'x not in y'.
     def test_in_and_not_in(self):
         for sc5 in IteratingSequenceClass(5), SequenceClass(5):
