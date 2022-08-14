@@ -207,6 +207,14 @@ fn parse_arguments<'a>(app: App<'a, '_>) -> ArgMatches<'a> {
                 .help("warning control; arg is action:message:category:module:lineno"),
         )
         .arg(
+            Arg::with_name("check-hash-based-pycs")
+                .long("check-hash-based-pycs")
+                .takes_value(true)
+                .number_of_values(1)
+                .default_value("default")
+                .help("always|default|never\ncontrol how Python invalidates hash-based .pyc files"),
+        )
+        .arg(
             Arg::with_name("bytes-warning")
                 .short("b")
                 .multiple(true)
@@ -320,6 +328,11 @@ fn create_settings(matches: &ArgMatches) -> Settings {
     {
         settings.dont_write_bytecode = true;
     }
+
+    settings.check_hash_based_pycs = matches
+        .value_of("check-hash-based-pycs")
+        .unwrap_or("default")
+        .to_owned();
 
     let mut dev_mode = false;
     let mut warn_default_encoding = false;
