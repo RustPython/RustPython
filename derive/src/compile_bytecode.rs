@@ -191,7 +191,13 @@ impl CompilationSource {
 
                 let code = match code {
                     Ok(code) => code,
-                    Err(_) if stem.starts_with("badsyntax_") => continue,
+                    Err(_)
+                        if stem.starts_with("badsyntax_")
+                            | parent.ends_with(".encoded_modules") =>
+                    {
+                        // TODO: handle with macro arg rather than hard-coded path
+                        continue;
+                    }
                     Err(e) => return Err(e),
                 };
 
