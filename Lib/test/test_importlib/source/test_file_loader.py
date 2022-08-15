@@ -238,8 +238,7 @@ class SimpleTest(abc.LoaderTests):
                 warnings.simplefilter('ignore', DeprecationWarning)
                 loader.load_module('bad name')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skip("TODO: RUSTPYTHON; successful only for Frozen")
     @util.writes_bytecode_files
     def test_checked_hash_based_pyc(self):
         with util.create_modules('_temp') as mapping:
@@ -271,8 +270,6 @@ class SimpleTest(abc.LoaderTests):
                 data[8:16],
             )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @util.writes_bytecode_files
     def test_overridden_checked_hash_based_pyc(self):
         with util.create_modules('_temp') as mapping, \
@@ -298,8 +295,7 @@ class SimpleTest(abc.LoaderTests):
             loader.exec_module(mod)
             self.assertEqual(mod.state, 'old')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skip("TODO: RUSTPYTHON; successful only for Frozen")
     @util.writes_bytecode_files
     def test_unchecked_hash_based_pyc(self):
         with util.create_modules('_temp') as mapping:
@@ -330,8 +326,7 @@ class SimpleTest(abc.LoaderTests):
                 data[8:16],
             )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skip("TODO: RUSTPYTHON; successful only for Frozen")
     @util.writes_bytecode_files
     def test_overiden_unchecked_hash_based_pyc(self):
         with util.create_modules('_temp') as mapping, \
