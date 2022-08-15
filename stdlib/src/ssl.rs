@@ -1150,10 +1150,17 @@ mod _ssl {
                 // TODO: map the error codes to code names, e.g. "CERTIFICATE_VERIFY_FAILED", just requires a big hashmap/dict
                 let errstr = e.reason().unwrap_or("unknown error");
                 let msg = if let Some(lib) = e.library() {
+                    // add `library` attribute
+                    let attr_name = vm.ctx.as_ref().intern_str("library");
+                    cls.set_attr(attr_name, vm.ctx.new_str(lib).into());
                     format!("[{}] {} ({}:{})", lib, errstr, file, line)
                 } else {
                     format!("{} ({}:{})", errstr, file, line)
                 };
+                // add `reason` attribute
+                let attr_name = vm.ctx.as_ref().intern_str("reason");
+                cls.set_attr(attr_name, vm.ctx.new_str(errstr).into());
+
                 let reason = sys::ERR_GET_REASON(e.code());
                 vm.new_exception(
                     cls,
