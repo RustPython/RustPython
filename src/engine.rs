@@ -256,13 +256,17 @@ impl<S: StrDrive> State<S> {
                 /* <length> <skip> <prefix data> <overlap data> */
                 let len = ctx.peek_code(req, 5) as usize;
                 let skip = ctx.peek_code(req, 6) as usize;
-                let prefix = &ctx.pattern(req)[7..];
-                let overlap = &prefix[len - 1..];
+                let prefix = &ctx.pattern(req)[7..7 + len];
+                let overlap = &ctx.pattern(req)[7 + len - 1..7 + len * 2];
 
                 if len == 1 {
                     // pattern starts with a literal character
-                    ctx.skip_code_from(req, 1);
                     let c = prefix[0];
+
+                    // code_position ready for tail match
+                    ctx.skip_code_from(req, 1);
+                    ctx.skip_code(2 * skip);
+
                     req.must_advance = false;
 
                     while !ctx.at_end(req) {
@@ -275,9 +279,8 @@ impl<S: StrDrive> State<S> {
                         }
 
                         req.start = ctx.string_position;
-                        self.reset(req.start);
-                        // self.start = ctx.string_position;
-                        self.string_position += skip;
+                        self.start = ctx.string_position;
+                        self.string_position = ctx.string_position + skip;
 
                         // literal only
                         if flags.contains(SreInfo::LITERAL) {
@@ -287,7 +290,6 @@ impl<S: StrDrive> State<S> {
 
                         let mut next_ctx = ctx;
                         next_ctx.skip_char(req, skip);
-                        next_ctx.skip_code(2 * skip);
 
                         self.context_stack.push(next_ctx);
                         self._match(req);
@@ -297,6 +299,71 @@ impl<S: StrDrive> State<S> {
                         }
 
                         ctx.skip_char(req, 1);
+                        self.marks.clear();
+                    }
+                    return;
+                } else if len > 1 {
+                    // code_position ready for tail match
+                    ctx.skip_code_from(req, 1);
+                    ctx.skip_code(2 * skip);
+
+                    req.must_advance = false;
+
+                    while !ctx.at_end(req) {
+                        let c = prefix[0];
+                        while ctx.peek_char(req) != c {
+                            ctx.skip_char(req, 1);
+                            if ctx.at_end(req) {
+                                return;
+                            }
+                        }
+                        ctx.skip_char(req, 1);
+                        if ctx.at_end(req) {
+                            return;
+                        }
+
+                        let mut i = 1;
+                        loop {
+                            if ctx.peek_char(req) == prefix[i] {
+                                i += 1;
+                                if i != len {
+                                    ctx.skip_char(req, 1);
+                                    if ctx.at_end(req) {
+                                        return;
+                                    }
+                                    continue;
+                                }
+
+                                req.start = ctx.string_position - (len - 1);
+                                self.start = req.start;
+                                self.string_position = self.start + skip;
+
+                                if flags.contains(SreInfo::LITERAL) {
+                                    self.has_matched = true;
+                                    return;
+                                }
+
+                                let mut next_ctx = ctx;
+                                // next_ctx.skip_char(req, 1);
+                                next_ctx.string_position = self.string_position;
+                                next_ctx.string_offset = req.string.offset(0, self.string_position);
+                                self.context_stack.push(next_ctx);
+                                self._match(req);
+                                if self.has_matched {
+                                    return;
+                                }
+
+                                ctx.skip_char(req, 1);
+                                if ctx.at_end(req) {
+                                    return;
+                                }
+                                self.marks.clear();
+                            }
+                            i = overlap[i] as usize;
+                            if i == 0 {
+                                break;
+                            }
+                        }
                     }
                     return;
                 }
