@@ -282,6 +282,32 @@ impl<S: StrDrive> State<S> {
     }
 }
 
+pub struct SearchIter<'a, S: StrDrive> {
+    pub req: Request<'a, S>,
+    pub state: State<S>,
+}
+
+impl<'a, S: StrDrive> Iterator for SearchIter<'a, S> {
+    type Item = ();
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.req.start > self.req.end {
+            return None;
+        }
+
+        self.state.reset(self.req.start);
+        self.state.search(self.req);
+        if !self.state.has_matched {
+            return None;
+        }
+
+        self.req.must_advance = self.state.string_position == self.state.start;
+        self.req.start = self.state.string_position;
+
+        Some(())
+    }
+}
+
 fn dispatch<S: StrDrive>(
     req: &Request<S>,
     state: &mut State<S>,
