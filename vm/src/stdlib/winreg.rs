@@ -304,7 +304,7 @@ mod winreg {
                 let nul_pos = wide_slice
                     .iter()
                     .position(|w| *w == 0)
-                    .unwrap_or_else(|| wide_slice.len());
+                    .unwrap_or(wide_slice.len());
                 let s = String::from_utf16_lossy(&wide_slice[..nul_pos]);
                 Ok(vm.ctx.new_str(s).into())
             }
