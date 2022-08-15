@@ -837,7 +837,7 @@ impl fmt::Debug for PyObjectRef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // SAFETY: the vtable contains functions that accept payload types that always match up
         // with the payload of the object
-        unsafe { ((*self).0.vtable.debug)(self, f) }
+        unsafe { (self.0.vtable.debug)(self, f) }
     }
 }
 

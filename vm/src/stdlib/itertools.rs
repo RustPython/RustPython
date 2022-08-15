@@ -235,7 +235,7 @@ mod decl {
             let mut cur = zelf.cur.write();
             let step = zelf.step.clone();
             let result = cur.clone();
-            *cur = vm._iadd(&*cur, step.as_object())?;
+            *cur = vm._iadd(&cur, step.as_object())?;
             Ok(PyIterReturn::Return(result.to_pyobject(vm)))
         }
     }

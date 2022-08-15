@@ -69,7 +69,7 @@ mod fcntl {
                     arg_len = s.len();
                     buf.get_mut(..arg_len)
                         .ok_or_else(|| vm.new_value_error("fcntl string arg too long".to_owned()))?
-                        .copy_from_slice(&*s)
+                        .copy_from_slice(&s)
                 }
                 let ret = unsafe { libc::fcntl(fd, cmd, buf.as_mut_ptr()) };
                 if ret < 0 {
