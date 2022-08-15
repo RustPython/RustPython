@@ -187,8 +187,6 @@ class PyCompileTestsBase:
         # Specifying optimized bytecode should lead to a path reflecting that.
         self.assertIn('opt-2', py_compile.compile(self.source_path, optimize=2))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_invalidation_mode(self):
         py_compile.compile(
             self.source_path,
@@ -212,40 +210,6 @@ class PyCompileTestsWithSourceEpoch(PyCompileTestsBase,
                                     unittest.TestCase,
                                     metaclass=SourceDateEpochTestMeta,
                                     source_date_epoch=True):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_absolute_path(self):
-        super().test_absolute_path()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_cache_path(self):
-        super().test_cache_path()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_cwd(self):
-        super().test_cwd()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_double_dot_no_clobber(self):
-        super().test_double_dot_no_clobber()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_optimization_path(self):
-        super().test_optimization_path()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_relative_path(self):
-        super().test_relative_path()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_source_date_epoch(self):
-        super().test_source_date_epoch()
     pass
 
 

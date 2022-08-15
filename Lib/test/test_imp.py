@@ -5,7 +5,9 @@ import os.path
 import py_compile
 import sys
 from test import support
-from test.support import script_helper, os_helper, import_helper
+from test.support import import_helper
+from test.support import os_helper
+from test.support import script_helper
 import unittest
 import warnings
 with warnings.catch_warnings():
@@ -57,11 +59,10 @@ class LockTests(unittest.TestCase):
                             "RuntimeError")
 
 class ImportTests(unittest.TestCase):
-    # TODO: RustPython
-    # def setUp(self):
-    #     mod = importlib.import_module('test.encoded_modules')
-    #     self.test_strings = mod.test_strings
-    #     self.test_path = mod.__path__
+    def setUp(self):
+        mod = importlib.import_module('test.encoded_modules')
+        self.test_strings = mod.test_strings
+        self.test_path = mod.__path__
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
@@ -71,8 +72,6 @@ class ImportTests(unittest.TestCase):
                                           'module_' + modname)
             self.assertEqual(teststr, mod.test)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_find_module_encoding(self):
         for mod, encoding, _ in self.test_strings:
             with imp.find_module('module_' + mod, self.test_path)[0] as fd:
@@ -82,8 +81,6 @@ class ImportTests(unittest.TestCase):
         with self.assertRaises(SyntaxError):
             imp.find_module('badsyntax_pep3120', path)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_issue1267(self):
         for mod, encoding, _ in self.test_strings:
             fp, filename, info  = imp.find_module('module_' + mod,
@@ -103,11 +100,15 @@ class ImportTests(unittest.TestCase):
             self.assertEqual(fp.readline(),
                              '"""Tokenization help for Python programs.\n')
 
+    # TODO: RUSTPYTHON
+    if sys.platform == 'win32':
+        test_issue1267 = unittest.expectedFailure(test_issue1267)
+
     def test_issue3594(self):
         temp_mod_name = 'test_imp_helper'
         sys.path.insert(0, '.')
         try:
-            with open(temp_mod_name + '.py', 'w') as file:
+            with open(temp_mod_name + '.py', 'w', encoding="latin-1") as file:
                 file.write("# coding: cp1252\nu = 'test.test_imp'\n")
             file, filename, info = imp.find_module(temp_mod_name)
             file.close()
@@ -162,7 +163,7 @@ class ImportTests(unittest.TestCase):
             # if the curdir is not in sys.path the test fails when run with
             # ./python ./Lib/test/regrtest.py test_imp
             sys.path.insert(0, os.curdir)
-            with open(temp_mod_name + '.py', 'w') as file:
+            with open(temp_mod_name + '.py', 'w', encoding="utf-8") as file:
                 file.write('a = 1\n')
             file, filename, info = imp.find_module(temp_mod_name)
             with file:
@@ -190,7 +191,7 @@ class ImportTests(unittest.TestCase):
 
             if not os.path.exists(test_package_name):
                 os.mkdir(test_package_name)
-            with open(init_file_name, 'w') as file:
+            with open(init_file_name, 'w', encoding="utf-8") as file:
                 file.write('b = 2\n')
             with warnings.catch_warnings():
                 warnings.simplefilter('ignore')
@@ -315,7 +316,7 @@ class ImportTests(unittest.TestCase):
     def test_multiple_calls_to_get_data(self):
         # Issue #18755: make sure multiple calls to get_data() can succeed.
         loader = imp._LoadSourceCompatibility('imp', imp.__file__,
-                                              open(imp.__file__))
+                                              open(imp.__file__, encoding="utf-8"))
         loader.get_data(imp.__file__)  # File should be closed
         loader.get_data(imp.__file__)  # Will need to create a newly opened file
 
@@ -356,8 +357,6 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(_imp.source_hash(42, b'hi'), b'\xc6\xe7Z\r\x03:}\xab')
         self.assertEqual(_imp.source_hash(43, b'hi'), b'\x85\x9765\xf8\x9a\x8b9')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pyc_invalidation_mode_from_cmdline(self):
         cases = [
             ([], "default"),
@@ -373,8 +372,6 @@ class ImportTests(unittest.TestCase):
             res = script_helper.assert_python_ok(*args)
             self.assertEqual(res.out.strip().decode('utf-8'), expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_find_and_load_checked_pyc(self):
         # issue 34056
         with os_helper.temp_cwd():
@@ -396,7 +393,7 @@ class ReloadTests(unittest.TestCase):
     reload()."""
 
     def test_source(self):
-        # XXX (ncoghlan): It would be nice to use test.support.CleanImport
+        # XXX (ncoghlan): It would be nice to use test.import_helper.CleanImport
         # here, but that breaks because the os module registers some
         # handlers in copy_reg on import. Since CleanImport doesn't
         # revert that registration, the module is left in a broken

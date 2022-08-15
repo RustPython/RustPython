@@ -298,8 +298,6 @@ class CmdLineTest(unittest.TestCase):
             self._check_script(zip_name, run_name, zip_name, zip_name, '',
                                zipimport.zipimporter)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_zipfile_compiled_checked_hash(self):
         with os_helper.temp_dir() as script_dir:
             script_name = _make_test_script(script_dir, '__main__')
@@ -310,8 +308,6 @@ class CmdLineTest(unittest.TestCase):
             self._check_script(zip_name, run_name, zip_name, zip_name, '',
                                zipimport.zipimporter)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_zipfile_compiled_unchecked_hash(self):
         with os_helper.temp_dir() as script_dir:
             script_name = _make_test_script(script_dir, '__main__')
