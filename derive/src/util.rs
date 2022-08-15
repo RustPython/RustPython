@@ -562,7 +562,7 @@ where
     match tree {
         UseTree::Name(name) => result.push(f(&name.ident, false)?),
         UseTree::Rename(rename) => result.push(f(&rename.rename, false)?),
-        UseTree::Path(path) => iter_use_tree_idents(&*path.tree, result, f)?,
+        UseTree::Path(path) => iter_use_tree_idents(&path.tree, result, f)?,
         UseTree::Group(syn::UseGroup { items, .. }) => {
             for subtree in items {
                 iter_use_tree_idents(subtree, result, f)?;
