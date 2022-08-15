@@ -21,7 +21,10 @@ pub(crate) mod module {
         },
         PyResult, TryFromObject, VirtualMachine,
     };
-    use std::{env, fs, io};
+    use std::{
+        env, fs, io,
+        os::windows::ffi::{OsStrExt, OsStringExt},
+    };
 
     use crate::builtins::PyDictRef;
     #[cfg(target_env = "msvc")]
@@ -290,6 +293,44 @@ pub(crate) mod module {
         }
         let buffer = widestring::WideCString::from_vec_truncate(buffer);
         path.mode.process_path(buffer.to_os_string(), vm)
+    }
+
+    #[pyfunction]
+    fn _path_splitroot(path: PyPathLike, vm: &VirtualMachine) -> PyResult<(String, String)> {
+        let orig: Vec<_> = path.path.into_os_string().encode_wide().collect();
+        if orig.is_empty() {
+            return Ok(("".to_owned(), "".to_owned()));
+        }
+        let backslashed: Vec<_> = orig
+            .iter()
+            .copied()
+            .map(|c| if c == b'/' as u16 { b'\\' as u16 } else { c })
+            .chain(std::iter::once(0)) // null-terminated
+            .collect();
+
+        fn from_utf16(wstr: &[u16], vm: &VirtualMachine) -> PyResult<String> {
+            String::from_utf16(wstr).map_err(|e| vm.new_unicode_decode_error(e.to_string()))
+        }
+
+        let wbuf = windows::core::PCWSTR::from_raw(backslashed.as_ptr());
+        let (root, path) = match unsafe { windows::Win32::UI::Shell::PathCchSkipRoot(wbuf) } {
+            Ok(end) => {
+                assert!(!end.is_null());
+                let len: usize = unsafe { end.as_ptr().offset_from(wbuf.as_ptr()) }
+                    .try_into()
+                    .expect("len must be non-negative");
+                assert!(
+                    len < backslashed.len(), // backslashed is null-terminated
+                    "path: {:?} {} < {}",
+                    std::path::PathBuf::from(std::ffi::OsString::from_wide(&backslashed)),
+                    len,
+                    backslashed.len()
+                );
+                (from_utf16(&orig[..len], vm)?, from_utf16(&orig[len..], vm)?)
+            }
+            Err(_) => ("".to_owned(), from_utf16(&orig, vm)?),
+        };
+        Ok((root, path))
     }
 
     #[pyfunction]
