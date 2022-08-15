@@ -367,6 +367,31 @@ impl<S: StrDrive> State<S> {
                     }
                     return;
                 }
+            } else if flags.contains(SreInfo::CHARSET) {
+                let set = &ctx.pattern(req)[5..];
+                ctx.skip_code_from(req, 1);
+                req.must_advance = false;
+                loop {
+                    while !ctx.at_end(req) && !charset(set, ctx.peek_char(req)) {
+                        ctx.skip_char(req, 1);
+                    }
+                    if ctx.at_end(req) {
+                        return;
+                    }
+                    req.start = ctx.string_position;
+                    self.start = ctx.string_position;
+                    self.string_position = ctx.string_position;
+
+                    self.context_stack.push(ctx);
+                    self._match(req);
+
+                    if self.has_matched {
+                        return;
+                    }
+
+                    ctx.skip_char(req, 1);
+                    self.marks.clear();
+                }
             }
         }
 
