@@ -252,147 +252,16 @@ impl<S: StrDrive> State<S> {
             let flags = SreInfo::from_bits_truncate(ctx.peek_code(req, 2));
 
             if flags.contains(SreInfo::PREFIX) {
-                /* pattern starts with a known prefix */
-                /* <length> <skip> <prefix data> <overlap data> */
-                let len = ctx.peek_code(req, 5) as usize;
-                let skip = ctx.peek_code(req, 6) as usize;
-                let prefix = &ctx.pattern(req)[7..7 + len];
-                let overlap = &ctx.pattern(req)[7 + len - 1..7 + len * 2];
-
-                if len == 1 {
-                    // pattern starts with a literal character
-                    let c = prefix[0];
-
-                    // code_position ready for tail match
-                    ctx.skip_code_from(req, 1);
-                    ctx.skip_code(2 * skip);
-
-                    req.must_advance = false;
-
-                    while !ctx.at_end(req) {
-                        // find the next matched literal
-                        while ctx.peek_char(req) != c {
-                            ctx.skip_char(req, 1);
-                            if ctx.at_end(req) {
-                                return;
-                            }
-                        }
-
-                        req.start = ctx.string_position;
-                        self.start = ctx.string_position;
-                        self.string_position = ctx.string_position + skip;
-
-                        // literal only
-                        if flags.contains(SreInfo::LITERAL) {
-                            self.has_matched = true;
-                            return;
-                        }
-
-                        let mut next_ctx = ctx;
-                        next_ctx.skip_char(req, skip);
-
-                        self.context_stack.push(next_ctx);
-                        self._match(req);
-
-                        if self.has_matched {
-                            return;
-                        }
-
-                        ctx.skip_char(req, 1);
-                        self.marks.clear();
-                    }
-                    return;
-                } else if len > 1 {
-                    // code_position ready for tail match
-                    ctx.skip_code_from(req, 1);
-                    ctx.skip_code(2 * skip);
-
-                    req.must_advance = false;
-
-                    while !ctx.at_end(req) {
-                        let c = prefix[0];
-                        while ctx.peek_char(req) != c {
-                            ctx.skip_char(req, 1);
-                            if ctx.at_end(req) {
-                                return;
-                            }
-                        }
-                        ctx.skip_char(req, 1);
-                        if ctx.at_end(req) {
-                            return;
-                        }
-
-                        let mut i = 1;
-                        loop {
-                            if ctx.peek_char(req) == prefix[i] {
-                                i += 1;
-                                if i != len {
-                                    ctx.skip_char(req, 1);
-                                    if ctx.at_end(req) {
-                                        return;
-                                    }
-                                    continue;
-                                }
-
-                                req.start = ctx.string_position - (len - 1);
-                                self.start = req.start;
-                                self.string_position = self.start + skip;
-
-                                if flags.contains(SreInfo::LITERAL) {
-                                    self.has_matched = true;
-                                    return;
-                                }
-
-                                let mut next_ctx = ctx;
-                                // next_ctx.skip_char(req, 1);
-                                next_ctx.string_position = self.string_position;
-                                next_ctx.string_offset = req.string.offset(0, self.string_position);
-                                self.context_stack.push(next_ctx);
-                                self._match(req);
-                                if self.has_matched {
-                                    return;
-                                }
-
-                                ctx.skip_char(req, 1);
-                                if ctx.at_end(req) {
-                                    return;
-                                }
-                                self.marks.clear();
-                            }
-                            i = overlap[i] as usize;
-                            if i == 0 {
-                                break;
-                            }
-                        }
-                    }
-                    return;
+                if flags.contains(SreInfo::LITERAL) {
+                    search_info_literal::<true, S>(req, self, ctx);
+                } else {
+                    search_info_literal::<false, S>(req, self, ctx);
                 }
+                return;
             } else if flags.contains(SreInfo::CHARSET) {
-                let set = &ctx.pattern(req)[5..];
-                ctx.skip_code_from(req, 1);
-                req.must_advance = false;
-                loop {
-                    while !ctx.at_end(req) && !charset(set, ctx.peek_char(req)) {
-                        ctx.skip_char(req, 1);
-                    }
-                    if ctx.at_end(req) {
-                        return;
-                    }
-                    req.start = ctx.string_position;
-                    self.start = ctx.string_position;
-                    self.string_position = ctx.string_position;
-
-                    self.context_stack.push(ctx);
-                    self._match(req);
-
-                    if self.has_matched {
-                        return;
-                    }
-
-                    ctx.skip_char(req, 1);
-                    self.marks.clear();
-                }
+                return search_info_charset(req, self, ctx);
             }
+            // fallback to general search
         }
 
         self.context_stack.push(ctx);
@@ -525,6 +394,162 @@ fn dispatch<S: StrDrive>(
             }
         }
         _ => unreachable!("unexpected opcode"),
+    }
+}
+
+fn search_info_literal<const LITERAL: bool, S: StrDrive>(
+    req: &mut Request<S>,
+    state: &mut State<S>,
+    mut ctx: MatchContext<S>,
+) {
+    /* pattern starts with a known prefix */
+    /* <length> <skip> <prefix data> <overlap data> */
+    let len = ctx.peek_code(req, 5) as usize;
+    let skip = ctx.peek_code(req, 6) as usize;
+    let prefix = &ctx.pattern(req)[7..7 + len];
+    let overlap = &ctx.pattern(req)[7 + len - 1..7 + len * 2];
+
+    // code_position ready for tail match
+    ctx.skip_code_from(req, 1);
+    ctx.skip_code(2 * skip);
+
+    req.must_advance = false;
+
+    if len == 1 {
+        // pattern starts with a literal character
+        let c = prefix[0];
+
+        while !ctx.at_end(req) {
+            // find the next matched literal
+            while ctx.peek_char(req) != c {
+                ctx.skip_char(req, 1);
+                if ctx.at_end(req) {
+                    return;
+                }
+            }
+
+            req.start = ctx.string_position;
+            state.start = ctx.string_position;
+            state.string_position = ctx.string_position + skip;
+
+            // literal only
+            if LITERAL {
+                state.has_matched = true;
+                return;
+            }
+
+            let mut next_ctx = ctx;
+            next_ctx.skip_char(req, skip);
+
+            state.context_stack.push(next_ctx);
+            state._match(req);
+
+            if state.has_matched {
+                return;
+            }
+
+            ctx.skip_char(req, 1);
+            state.marks.clear();
+        }
+    } else {
+        while !ctx.at_end(req) {
+            let c = prefix[0];
+            while ctx.peek_char(req) != c {
+                ctx.skip_char(req, 1);
+                if ctx.at_end(req) {
+                    return;
+                }
+            }
+            ctx.skip_char(req, 1);
+            if ctx.at_end(req) {
+                return;
+            }
+
+            let mut i = 1;
+            loop {
+                if ctx.peek_char(req) == prefix[i] {
+                    i += 1;
+                    if i != len {
+                        ctx.skip_char(req, 1);
+                        if ctx.at_end(req) {
+                            return;
+                        }
+                        continue;
+                    }
+
+                    req.start = ctx.string_position - (len - 1);
+                    state.start = req.start;
+                    state.string_position = state.start + skip;
+
+                    // literal only
+                    if LITERAL {
+                        state.has_matched = true;
+                        return;
+                    }
+
+                    let mut next_ctx = ctx;
+                    if skip != 0 {
+                        next_ctx.skip_char(req, 1);
+                    } else {
+                        next_ctx.string_position = state.string_position;
+                        next_ctx.string_offset = req.string.offset(0, state.string_position);
+                    }
+
+                    state.context_stack.push(next_ctx);
+                    state._match(req);
+
+                    if state.has_matched {
+                        return;
+                    }
+
+                    ctx.skip_char(req, 1);
+                    if ctx.at_end(req) {
+                        return;
+                    }
+                    state.marks.clear();
+                }
+
+                i = overlap[i] as usize;
+                if i == 0 {
+                    break;
+                }
+            }
+        }
+    }
+}
+
+fn search_info_charset<S: StrDrive>(
+    req: &mut Request<S>,
+    state: &mut State<S>,
+    mut ctx: MatchContext<S>,
+) {
+    let set = &ctx.pattern(req)[5..];
+
+    ctx.skip_code_from(req, 1);
+
+    req.must_advance = false;
+
+    loop {
+        while !ctx.at_end(req) && !charset(set, ctx.peek_char(req)) {
+            ctx.skip_char(req, 1);
+        }
+        if ctx.at_end(req) {
+            return;
+        }
+
+        req.start = ctx.string_position;
+        state.start = ctx.string_position;
+        state.string_position = ctx.string_position;
+
+        state.context_stack.push(ctx);
+        state._match(req);
+
+        if state.has_matched {
+            return;
+        }
+
+        ctx.skip_char(req, 1);
+        state.marks.clear();
     }
 }
 
