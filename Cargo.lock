@@ -2121,7 +2121,8 @@ dependencies = [
 [[package]]
 name = "sre-engine"
 version = "0.4.1"
-source = "git+https://github.com/RustPython/sre-engine?rev=refs/pull/14/head#3a745cc494eea84a8b6fa2053fbbadccf181370d"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a490c5c46c35dba9a6f5e7ee8e4d67e775eb2d2da0f115750b8d10e1c1ac2d28"
 dependencies = [
  "bitflags",
  "num_enum",

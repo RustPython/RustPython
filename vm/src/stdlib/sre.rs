@@ -22,7 +22,7 @@ mod _sre {
     use num_traits::ToPrimitive;
     use sre_engine::{
         constants::SreFlag,
-        engine::{lower_ascii, lower_unicode, upper_unicode, Request, State, StrDrive},
+        engine::{lower_ascii, lower_unicode, upper_unicode, Request, SearchIter, State, StrDrive},
     };
 
     #[pyattr]
@@ -181,9 +181,9 @@ mod _sre {
                 endpos,
             } = string_args;
             with_sre_str!(zelf, &string.clone(), vm, |x| {
-                let mut req = x.create_request(&zelf, pos, endpos);
+                let req = x.create_request(&zelf, pos, endpos);
                 let mut state = State::default();
-                state.pymatch(&mut req);
+                state.pymatch(req);
                 Ok(state
                     .has_matched
                     .then(|| Match::new(&state, zelf.clone(), string).into_ref(vm)))
@@ -200,7 +200,7 @@ mod _sre {
                 let mut req = x.create_request(&zelf, string_args.pos, string_args.endpos);
                 req.match_all = true;
                 let mut state = State::default();
-                state.pymatch(&mut req);
+                state.pymatch(req);
                 Ok(state
                     .has_matched
                     .then(|| Match::new(&state, zelf.clone(), string_args.string).into_ref(vm)))
@@ -214,9 +214,9 @@ mod _sre {
             vm: &VirtualMachine,
         ) -> PyResult<Option<PyRef<Match>>> {
             with_sre_str!(zelf, &string_args.string.clone(), vm, |x| {
-                let mut req = x.create_request(&zelf, string_args.pos, string_args.endpos);
+                let req = x.create_request(&zelf, string_args.pos, string_args.endpos);
                 let mut state = State::default();
-                state.search(&mut req);
+                state.search(req);
                 Ok(state
                     .has_matched
                     .then(|| Match::new(&state, zelf.clone(), string_args.string).into_ref(vm)))
@@ -229,20 +229,17 @@ mod _sre {
             string_args: StringArgs,
             vm: &VirtualMachine,
         ) -> PyResult<Vec<PyObjectRef>> {
-            with_sre_str!(zelf, &string_args.string, vm, |x| {
-                let mut req = x.create_request(&zelf, string_args.pos, string_args.endpos);
-                let mut state = State::default();
+            with_sre_str!(zelf, &string_args.string, vm, |s| {
+                let req = s.create_request(&zelf, string_args.pos, string_args.endpos);
+                let state = State::default();
                 let mut matchlist: Vec<PyObjectRef> = Vec::new();
-                while req.start <= req.end {
-                    state.search(&mut req);
-                    if !state.has_matched {
-                        break;
-                    }
+                let mut iter = SearchIter { req, state };
 
-                    let m = Match::new(&state, zelf.clone(), string_args.string.clone());
+                while iter.next().is_some() {
+                    let m = Match::new(&iter.state, zelf.clone(), string_args.string.clone());
 
                     let item = if zelf.groups == 0 || zelf.groups == 1 {
-                        m.get_slice(zelf.groups, req.string, vm)
+                        m.get_slice(zelf.groups, s, vm)
                             .unwrap_or_else(|| vm.ctx.none())
                     } else {
                         m.groups(OptionalArg::Present(vm.ctx.new_str(ascii!("")).into()), vm)?
@@ -250,11 +247,8 @@ mod _sre {
                     };
 
                     matchlist.push(item);
-
-                    req.must_advance = state.string_position == req.start;
-                    req.start = state.string_position;
-                    state.reset(req.start);
                 }
+
                 Ok(matchlist)
             })
         }
@@ -310,41 +304,32 @@ mod _sre {
             split_args: SplitArgs,
             vm: &VirtualMachine,
         ) -> PyResult<Vec<PyObjectRef>> {
-            with_sre_str!(zelf, &split_args.string, vm, |x| {
-                let mut req = x.create_request(&zelf, 0, usize::MAX);
-                let mut state = State::default();
+            with_sre_str!(zelf, &split_args.string, vm, |s| {
+                let req = s.create_request(&zelf, 0, usize::MAX);
+                let state = State::default();
                 let mut splitlist: Vec<PyObjectRef> = Vec::new();
-
+                let mut iter = SearchIter { req, state };
                 let mut n = 0;
                 let mut last = 0;
-                while split_args.maxsplit == 0 || n < split_args.maxsplit {
-                    state.search(&mut req);
-                    if !state.has_matched {
-                        break;
-                    }
 
+                while (split_args.maxsplit == 0 || n < split_args.maxsplit) && iter.next().is_some()
+                {
                     /* get segment before this match */
-                    splitlist.push(req.string.slice(last, req.start, vm));
+                    splitlist.push(s.slice(last, iter.state.start, vm));
 
-                    let m = Match::new(&state, zelf.clone(), split_args.string.clone());
+                    let m = Match::new(&iter.state, zelf.clone(), split_args.string.clone());
 
                     // add groups (if any)
                     for i in 1..=zelf.groups {
-                        splitlist.push(
-                            m.get_slice(i, req.string, vm)
-                                .unwrap_or_else(|| vm.ctx.none()),
-                        );
+                        splitlist.push(m.get_slice(i, s, vm).unwrap_or_else(|| vm.ctx.none()));
                     }
 
                     n += 1;
-                    req.must_advance = state.string_position == req.start;
-                    last = state.string_position;
-                    req.start = state.string_position;
-                    state.reset(req.start);
+                    last = iter.state.string_position;
                 }
 
                 // get segment following last match (even if empty)
-                splitlist.push(req.string.slice(last, req.string.count(), vm));
+                splitlist.push(req.string.slice(last, s.count(), vm));
 
                 Ok(splitlist)
             })
@@ -443,40 +428,33 @@ mod _sre {
             };
 
             with_sre_str!(zelf, &string, vm, |s| {
-                let mut req = s.create_request(&zelf, 0, usize::MAX);
-                let mut state = State::default();
+                let req = s.create_request(&zelf, 0, usize::MAX);
+                let state = State::default();
                 let mut sublist: Vec<PyObjectRef> = Vec::new();
+                let mut iter = SearchIter { req, state };
                 let mut n = 0;
                 let mut last_pos = 0;
-                while count == 0 || n < count {
-                    state.search(&mut req);
-                    if !state.has_matched {
-                        break;
-                    }
 
-                    if last_pos < req.start {
+                while (count == 0 || n < count) && iter.next().is_some() {
+                    if last_pos < iter.state.start {
                         /* get segment before this match */
-                        sublist.push(req.string.slice(last_pos, req.start, vm));
+                        sublist.push(s.slice(last_pos, iter.state.start, vm));
                     }
 
                     if is_callable {
-                        let m = Match::new(&state, zelf.clone(), string.clone());
+                        let m = Match::new(&iter.state, zelf.clone(), string.clone());
                         let ret = vm.invoke(&filter, (m.into_ref(vm),))?;
                         sublist.push(ret);
                     } else {
                         sublist.push(filter.clone());
                     }
 
-                    last_pos = state.string_position;
+                    last_pos = iter.state.string_position;
                     n += 1;
-
-                    req.must_advance = state.string_position == req.start;
-                    req.start = state.string_position;
-                    state.reset(req.start);
                 }
 
                 /* get segment following last match */
-                sublist.push(req.string.slice(last_pos, req.end, vm));
+                sublist.push(s.slice(last_pos, iter.req.end, vm));
 
                 let list = PyList::from(sublist).into_pyobject(vm);
 
@@ -811,9 +789,10 @@ mod _sre {
                 let mut req = s.create_request(&self.pattern, self.start.load(), self.end);
                 let mut state = State::default();
                 req.must_advance = self.must_advance.load();
-                state.pymatch(&mut req);
+                state.pymatch(req);
 
-                self.must_advance.store(req.start == state.string_position);
+                self.must_advance
+                    .store(state.string_position == state.start);
                 self.start.store(state.string_position);
 
                 Ok(state.has_matched.then(|| {
@@ -832,9 +811,10 @@ mod _sre {
                 let mut state = State::default();
                 req.must_advance = self.must_advance.load();
 
-                state.search(&mut req);
+                state.search(req);
 
-                self.must_advance.store(state.string_position == req.start);
+                self.must_advance
+                    .store(state.string_position == state.start);
                 self.start.store(state.string_position);
 
                 Ok(state.has_matched.then(|| {
