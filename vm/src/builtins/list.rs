@@ -150,7 +150,7 @@ impl PyList {
 
     #[pymethod(magic)]
     fn iadd(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        let mut seq = extract_cloned(&*other, Ok, vm)?;
+        let mut seq = extract_cloned(&other, Ok, vm)?;
         zelf.borrow_vec_mut().append(&mut seq);
         Ok(zelf)
     }
@@ -213,7 +213,7 @@ impl PyList {
         match SequenceIndex::try_from_borrowed_object(vm, needle, "list")? {
             SequenceIndex::Int(index) => self.borrow_vec_mut().setitem_by_index(vm, index, value),
             SequenceIndex::Slice(slice) => {
-                let sec = extract_cloned(&*value, Ok, vm)?;
+                let sec = extract_cloned(&value, Ok, vm)?;
                 self.borrow_vec_mut().setitem_by_slice(vm, slice, &sec)
             }
         }

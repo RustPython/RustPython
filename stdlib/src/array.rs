@@ -725,7 +725,7 @@ mod array {
             if zelf.is(&obj) {
                 w.imul(2, vm)
             } else if let Some(array) = obj.payload::<PyArray>() {
-                w.iadd(&*array.read(), vm)
+                w.iadd(&array.read(), vm)
             } else {
                 let iter = ArgIterable::try_from_object(vm, obj)?;
                 // zelf.extend_from_iterable(iter, vm)
@@ -1029,7 +1029,7 @@ mod array {
         fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
             if let Some(other) = other.payload::<PyArray>() {
                 self.read()
-                    .add(&*other.read(), vm)
+                    .add(&other.read(), vm)
                     .map(|array| PyArray::from(array).into_ref(vm))
             } else {
                 Err(vm.new_type_error(format!(
@@ -1048,7 +1048,7 @@ mod array {
             if zelf.is(&other) {
                 zelf.try_resizable(vm)?.imul(2, vm)?;
             } else if let Some(other) = other.payload::<PyArray>() {
-                zelf.try_resizable(vm)?.iadd(&*other.read(), vm)?;
+                zelf.try_resizable(vm)?.iadd(&other.read(), vm)?;
             } else {
                 return Err(vm.new_type_error(format!(
                     "can only extend array with array (not \"{}\")",
@@ -1104,7 +1104,7 @@ mod array {
             let array_b = other.read();
 
             // fast path for same ArrayContentType type
-            if let Ok(ord) = array_a.cmp(&*array_b) {
+            if let Ok(ord) = array_a.cmp(&array_b) {
                 return Ok(ord == Some(Ordering::Equal));
             }
 
@@ -1187,7 +1187,7 @@ mod array {
             let array_a = zelf.read();
             let array_b = other.read();
 
-            let res = match array_a.cmp(&*array_b) {
+            let res = match array_a.cmp(&array_b) {
                 // fast path for same ArrayContentType type
                 Ok(partial_ord) => partial_ord.map_or(false, |ord| op.eval_ord(ord)),
                 Err(()) => {

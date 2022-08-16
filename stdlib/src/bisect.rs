@@ -116,7 +116,7 @@ mod _bisect {
             } else {
                 a_mid
             };
-            if x.rich_compare_bool(&*comp, PyComparisonOp::Lt, vm)? {
+            if x.rich_compare_bool(&comp, PyComparisonOp::Lt, vm)? {
                 hi = mid;
             } else {
                 lo = mid + 1;

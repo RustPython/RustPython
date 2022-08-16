@@ -18,7 +18,7 @@ impl PyObject {
         f: impl FnOnce(&[u8]) -> R,
     ) -> PyResult<R> {
         let buffer = PyBuffer::try_from_borrowed_object(vm, self)?;
-        buffer.as_contiguous().map(|x| f(&*x)).ok_or_else(|| {
+        buffer.as_contiguous().map(|x| f(&x)).ok_or_else(|| {
             vm.new_type_error("non-contiguous buffer is not a bytes-like object".to_owned())
         })
     }
@@ -31,7 +31,7 @@ impl PyObject {
         let buffer = PyBuffer::try_from_borrowed_object(vm, self)?;
         buffer
             .as_contiguous_mut()
-            .map(|mut x| f(&mut *x))
+            .map(|mut x| f(&mut x))
             .ok_or_else(|| {
                 vm.new_type_error("buffer is not a read-write bytes-like object".to_owned())
             })
@@ -47,7 +47,7 @@ impl ArgBytesLike {
     where
         F: FnOnce(&[u8]) -> R,
     {
-        f(&*self.borrow_buf())
+        f(&self.borrow_buf())
     }
 
     pub fn len(&self) -> usize {
@@ -89,7 +89,7 @@ impl ArgMemoryBuffer {
     where
         F: FnOnce(&mut [u8]) -> R,
     {
-        f(&mut *self.borrow_buf_mut())
+        f(&mut self.borrow_buf_mut())
     }
 
     pub fn len(&self) -> usize {

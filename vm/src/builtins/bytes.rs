@@ -151,7 +151,7 @@ impl PyBytes {
 
     #[pymethod(magic)]
     fn add(&self, other: ArgBytesLike) -> Vec<u8> {
-        self.inner.add(&*other.borrow_buf())
+        self.inner.add(&other.borrow_buf())
     }
 
     #[pymethod(magic)]

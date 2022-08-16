@@ -146,7 +146,7 @@ impl PyByteArray {
 
     #[pymethod(magic)]
     fn add(&self, other: ArgBytesLike) -> Self {
-        self.inner().add(&*other.borrow_buf()).into()
+        self.inner().add(&other.borrow_buf()).into()
     }
 
     #[pymethod(magic)]
