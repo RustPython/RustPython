@@ -62,6 +62,7 @@ mod termios;
     target_arch = "wasm32"
 )))]
 mod uuid;
+mod locale;
 
 use rustpython_common as common;
 use rustpython_vm as vm;
@@ -107,6 +108,7 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
             "unicodedata" => unicodedata::make_module,
             "zlib" => zlib::make_module,
             "_statistics" => statistics::make_module,
+            "_locale" => locale::make_module,
             // crate::vm::sysmodule::sysconfigdata_name() => sysconfigdata::make_module,
         }
         // parser related modules:
