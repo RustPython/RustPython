@@ -1,7 +1,7 @@
-pub(crate) use locale::make_module;
+pub(crate) use _locale::make_module;
 
 #[pymodule]
-mod locale {
+mod _locale {
     use std::ptr;
 
     use num_traits::ToPrimitive;
@@ -73,5 +73,14 @@ mod locale {
                 })
             }
         }
+    }
+
+    #[pyfunction]
+    fn localeconv(vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        let result = unsafe { libc::localeconv() };
+        if result.is_null() {
+            return Err(new_locale_error("locale query failed".to_owned(), vm));
+        }
+        Ok(vm.ctx.new_str("".to_owned()))
     }
 }

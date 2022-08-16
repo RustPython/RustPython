@@ -42,6 +42,16 @@ def _strxfrm(s):
     """
     return s
 
+CHAR_MAX = 127
+LC_ALL = 6
+LC_COLLATE = 3
+LC_CTYPE = 0
+LC_MESSAGES = 5
+LC_MONETARY = 4
+LC_NUMERIC = 1
+LC_TIME = 2
+Error = ValueError
+
 try:
 
     from _locale import *
@@ -49,16 +59,6 @@ try:
 except ImportError:
 
     # Locale emulation
-
-    CHAR_MAX = 127
-    LC_ALL = 6
-    LC_COLLATE = 3
-    LC_CTYPE = 0
-    LC_MESSAGES = 5
-    LC_MONETARY = 4
-    LC_NUMERIC = 1
-    LC_TIME = 2
-    Error = ValueError
 
     def localeconv():
         """ localeconv() -> dict.
