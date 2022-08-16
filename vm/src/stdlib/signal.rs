@@ -33,23 +33,23 @@ pub(crate) mod _signal {
     }
 
     #[cfg(unix)]
-    use nix::unistd::alarm as sig_alarm;
+    pub use nix::unistd::alarm as sig_alarm;
 
     #[cfg(not(windows))]
-    use libc::SIG_ERR;
+    pub use libc::SIG_ERR;
 
     #[cfg(not(windows))]
     #[pyattr]
-    use libc::{SIG_DFL, SIG_IGN};
+    pub use libc::{SIG_DFL, SIG_IGN};
 
     #[cfg(windows)]
     #[pyattr]
-    const SIG_DFL: libc::sighandler_t = 0;
+    pub const SIG_DFL: libc::sighandler_t = 0;
     #[cfg(windows)]
     #[pyattr]
-    const SIG_IGN: libc::sighandler_t = 1;
+    pub const SIG_IGN: libc::sighandler_t = 1;
     #[cfg(windows)]
-    const SIG_ERR: libc::sighandler_t = !0;
+    pub const SIG_ERR: libc::sighandler_t = !0;
 
     #[cfg(all(unix, not(target_os = "redox")))]
     extern "C" {
@@ -60,7 +60,7 @@ pub(crate) mod _signal {
     use crate::signal::NSIG;
 
     #[pyattr]
-    use libc::{SIGABRT, SIGFPE, SIGILL, SIGINT, SIGSEGV, SIGTERM};
+    pub use libc::{SIGABRT, SIGFPE, SIGILL, SIGINT, SIGSEGV, SIGTERM};
 
     #[cfg(unix)]
     #[pyattr]
@@ -112,7 +112,7 @@ pub(crate) mod _signal {
         handler: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
-        assert_in_range(signalnum, vm)?;
+        signal::assert_in_range(signalnum, vm)?;
         let signal_handlers = vm
             .signal_handlers
             .as_deref()
@@ -148,7 +148,7 @@ pub(crate) mod _signal {
 
     #[pyfunction]
     fn getsignal(signalnum: i32, vm: &VirtualMachine) -> PyResult {
-        assert_in_range(signalnum, vm)?;
+        signal::assert_in_range(signalnum, vm)?;
         let signal_handlers = vm
             .signal_handlers
             .as_deref()
@@ -246,7 +246,7 @@ pub(crate) mod _signal {
     #[cfg(all(unix, not(target_os = "redox")))]
     #[pyfunction(name = "siginterrupt")]
     fn py_siginterrupt(signum: i32, flag: i32, vm: &VirtualMachine) -> PyResult<()> {
-        assert_in_range(signum, vm)?;
+        signal::assert_in_range(signum, vm)?;
         let res = unsafe { siginterrupt(signum, flag) };
         if res < 0 {
             Err(crate::stdlib::os::errno_err(vm))
@@ -255,7 +255,7 @@ pub(crate) mod _signal {
         }
     }
 
-    extern "C" fn run_signal(signum: i32) {
+    pub extern "C" fn run_signal(signum: i32) {
         signal::TRIGGERS[signum as usize].store(true, Ordering::Relaxed);
         signal::set_triggered();
         let wakeup_fd = WAKEUP.load(Ordering::Relaxed);
@@ -269,31 +269,6 @@ pub(crate) mod _signal {
             }
             let _res = unsafe { libc::write(wakeup_fd as _, &sigbyte as *const u8 as *const _, 1) };
             // TODO: handle _res < 1, support warn_on_full_buffer
-        }
-    }
-
-    fn assert_in_range(signum: i32, vm: &VirtualMachine) -> PyResult<()> {
-        if (1..NSIG as i32).contains(&signum) {
-            Ok(())
-        } else {
-            Err(vm.new_value_error("signal number out of range".to_owned()))
-        }
-    }
-
-    /// Similar to `PyErr_SetInterruptEx` in CPython
-    ///
-    /// Missing signal handler for the given signal number is silently ignored.
-    #[allow(dead_code)]
-    pub fn set_interrupt_ex(signum: i32, vm: &VirtualMachine) -> PyResult<()> {
-        assert_in_range(signum, vm)?;
-
-        match signum as usize {
-            SIG_DFL | SIG_IGN => Ok(()),
-            _ => {
-                // interrupt the main thread with given signal number
-                run_signal(signum);
-                Ok(())
-            }
         }
     }
 }
