@@ -283,6 +283,7 @@ pub(crate) mod _signal {
     /// Similar to `PyErr_SetInterruptEx` in CPython
     ///
     /// Missing signal handler for the given signal number is silently ignored.
+    #[allow(dead_code)]
     pub fn set_interrupt_ex(signum: i32, vm: &VirtualMachine) -> PyResult<()> {
         assert_in_range(signum, vm)?;
 
