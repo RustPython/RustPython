@@ -22,7 +22,7 @@ import sys
 try:
     import threading
 except ImportError:
-    import _dummy_thread as threading
+    import dummy_threading as threading
 import time
 import contextlib
 import pathlib
