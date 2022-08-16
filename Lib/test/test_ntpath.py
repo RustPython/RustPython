@@ -280,10 +280,6 @@ class TestNtpath(NtpathTestCase):
         self.assertRaises(FileNotFoundError, ntpath.realpath, ABSTFN, strict=True)
         self.assertRaises(FileNotFoundError, ntpath.realpath, ABSTFN + "2", strict=True)
 
-    # TODO: RUSTPYTHON, TypeError: got an unexpected keyword argument 'strict'
-    if sys.platform == "win32":
-        test_realpath_strict = unittest.expectedFailure(test_realpath_strict)
-
     @os_helper.skip_unless_symlink
     @unittest.skipUnless(HAVE_GETFINALPATHNAME, 'need _getfinalpathname')
     def test_realpath_relative(self):
@@ -354,7 +350,6 @@ class TestNtpath(NtpathTestCase):
             self.assertPathEqual(ntpath.realpath(b"broken5"),
                                  os.fsencode(ABSTFN + r"\missing"))
 
-    @unittest.skip("TODO: RUSTPYTHON, leaves behind TESTFN")
     @os_helper.skip_unless_symlink
     @unittest.skipUnless(HAVE_GETFINALPATHNAME, 'need _getfinalpathname')
     def test_realpath_symlink_loops(self):
@@ -446,10 +441,6 @@ class TestNtpath(NtpathTestCase):
         self.assertRaises(OSError, ntpath.realpath, ntpath.basename(ABSTFN),
                           strict=True)
 
-    # TODO: RUSTPYTHON, FileExistsError: [Errno 183] Cannot create a file when that file already exists. (os error 183): 'None' -> 'None'
-    if sys.platform == "win32":
-        test_realpath_symlink_loops_strict = unittest.expectedFailure(test_realpath_symlink_loops_strict)
-
     @os_helper.skip_unless_symlink
     @unittest.skipUnless(HAVE_GETFINALPATHNAME, 'need _getfinalpathname')
     def test_realpath_symlink_prefix(self):
@@ -517,7 +508,6 @@ class TestNtpath(NtpathTestCase):
         with os_helper.change_cwd(test_dir_short):
             self.assertPathEqual(test_file_long, ntpath.realpath("file.txt"))
 
-    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON, ValueError: illegal environment variable name")
     def test_expandvars(self):
         with os_helper.EnvironmentVarGuard() as env:
             env.clear()
@@ -544,7 +534,10 @@ class TestNtpath(NtpathTestCase):
             tester('ntpath.expandvars("\'%foo%\'%bar")', "\'%foo%\'%bar")
             tester('ntpath.expandvars("bar\'%foo%")', "bar\'%foo%")
 
-    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON, ValueError: illegal environment variable name")
+    # TODO: RUSTPYTHON, ValueError: illegal environment variable name
+    if sys.platform == 'win32':
+        test_expandvars = unittest.expectedFailure(test_expandvars)
+
     @unittest.skipUnless(os_helper.FS_NONASCII, 'need os_helper.FS_NONASCII')
     def test_expandvars_nonascii(self):
         def check(value, expected):
@@ -565,8 +558,10 @@ class TestNtpath(NtpathTestCase):
             check('%spam%bar', '%sbar' % nonascii)
             check('%{}%bar'.format(nonascii), 'ham%sbar' % nonascii)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    # TODO: RUSTPYTHON, ValueError: illegal environment variable name
+    if sys.platform == 'win32':
+        test_expandvars_nonascii = unittest.expectedFailure(test_expandvars_nonascii)
+
     def test_expanduser(self):
         tester('ntpath.expanduser("test")', 'test')
 
@@ -614,7 +609,9 @@ class TestNtpath(NtpathTestCase):
             tester('ntpath.expanduser("~test")', '~test')
             tester('ntpath.expanduser("~")', 'C:\\Users\\eric')
 
-
+    # TODO: RUSTPYTHON
+    if sys.platform == 'win32':
+        test_expanduser = unittest.expectedFailure(test_expanduser)
 
     @unittest.skipUnless(nt, "abspath requires 'nt' module")
     def test_abspath(self):
@@ -809,14 +806,6 @@ class NtCommonTest(test_genericpath.CommonTest, unittest.TestCase):
     pathmodule = ntpath
     attributes = ['relpath']
 
-    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON, ValueError: illegal environment variable name")
-    def test_expandvars(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_expandvars() # TODO: RUSTPYTHON, remove when this passes
-
-    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON, ValueError: illegal environment variable name")
-    def test_expandvars_nonascii(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_expandvars_nonascii() # TODO: RUSTPYTHON, remove when this passes
-
     # TODO: RUSTPYTHON
     if sys.platform == "linux":
         @unittest.expectedFailure
@@ -825,26 +814,34 @@ class NtCommonTest(test_genericpath.CommonTest, unittest.TestCase):
 
     # TODO: RUSTPYTHON
     if sys.platform == "win32":
+        # TODO: RUSTPYTHON, ValueError: illegal environment variable name
         @unittest.expectedFailure
-        def test_samefile(self):
+        def test_expandvars(self):  # TODO: RUSTPYTHON; remove when done
+            super().test_expandvars()
+
+        # TODO: RUSTPYTHON, ValueError: illegal environment variable name
+        @unittest.expectedFailure
+        def test_expandvars_nonascii(self):  # TODO: RUSTPYTHON; remove when done
+            super().test_expandvars_nonascii()
+
+        # TODO: RUSTPYTHON
+        @unittest.expectedFailure
+        def test_samefile(self):  # TODO: RUSTPYTHON; remove when done
             super().test_samefile()
 
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
+        # TODO: RUSTPYTHON
         @unittest.expectedFailure
-        def test_samefile_on_link(self):
+        def test_samefile_on_link(self):  # TODO: RUSTPYTHON; remove when done
             super().test_samefile_on_link()
 
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
+        # TODO: RUSTPYTHON
         @unittest.expectedFailure
-        def test_samestat(self):
+        def test_samestat(self):  # TODO: RUSTPYTHON; remove when done
             super().test_samestat()
 
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
+        # TODO: RUSTPYTHON
         @unittest.expectedFailure
-        def test_samestat_on_link(self):
+        def test_samestat_on_link(self):  # TODO: RUSTPYTHON; remove when done
             super().test_samestat_on_link()
 
 
