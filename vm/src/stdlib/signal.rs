@@ -279,4 +279,20 @@ pub(crate) mod _signal {
             Err(vm.new_value_error("signal number out of range".to_owned()))
         }
     }
+
+    /// Similar to `PyErr_SetInterruptEx` in CPython
+    ///
+    /// Missing signal handler for the given signal number is silently ignored.
+    pub fn set_interrupt_ex(signum: i32, vm: &VirtualMachine) -> PyResult<()> {
+        assert_in_range(signum, vm)?;
+
+        match signum as usize {
+            SIG_DFL | SIG_IGN => Ok(()),
+            _ => {
+                // interrupt the main thread with given signal number
+                run_signal(signum);
+                Ok(())
+            }
+        }
+    }
 }
