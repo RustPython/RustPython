@@ -110,7 +110,7 @@ pub fn get_module_inits() -> StdlibMap {
         {
             "_signal" => signal::make_module,
         }
-        #[cfg(all(feature = "threading", not(target_arch = "wasm32")))]
+        #[cfg(feature = "threading")]
         {
             "_thread" => thread::make_module,
         }
