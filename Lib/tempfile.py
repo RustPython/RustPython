@@ -47,10 +47,7 @@ import sys as _sys
 import types as _types
 import weakref as _weakref
 
-try:
-    import _thread
-except ImportError:
-    import _dummy_thread as _thread
+import _thread
 _allocate_lock = _thread.allocate_lock
 
 _text_openflags = _os.O_RDWR | _os.O_CREAT | _os.O_EXCL

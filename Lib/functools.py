@@ -18,10 +18,7 @@ from abc import get_cache_token
 from collections import namedtuple
 # import types, weakref  # Deferred to single_dispatch()
 from reprlib import recursive_repr
-try:
-    from _thread import RLock
-except ModuleNotFoundError:
-    from _dummy_thread import RLock
+from _thread import RLock
 from types import GenericAlias
 
 

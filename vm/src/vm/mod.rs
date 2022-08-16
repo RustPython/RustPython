@@ -233,6 +233,8 @@ impl VirtualMachine {
         let mut essential_init = || -> PyResult {
             #[cfg(not(target_arch = "wasm32"))]
             import::import_builtin(self, "_signal")?;
+            #[cfg(not(feature = "threading"))]
+            import::import_frozen(self, "_thread")?;
             let importlib = import::init_importlib_base(self)?;
             self.import_utf8_encodings()?;
 
