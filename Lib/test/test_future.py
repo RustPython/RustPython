@@ -38,41 +38,57 @@ class FutureTest(unittest.TestCase):
         with import_helper.CleanImport('test_future3'):
             from test import test_future3
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_badfuture3(self):
         with self.assertRaises(SyntaxError) as cm:
             from test import badsyntax_future3
         self.check_syntax_error(cm.exception, "badsyntax_future3", 3)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_badfuture4(self):
         with self.assertRaises(SyntaxError) as cm:
             from test import badsyntax_future4
         self.check_syntax_error(cm.exception, "badsyntax_future4", 3)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_badfuture5(self):
         with self.assertRaises(SyntaxError) as cm:
             from test import badsyntax_future5
         self.check_syntax_error(cm.exception, "badsyntax_future5", 4)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_badfuture6(self):
         with self.assertRaises(SyntaxError) as cm:
             from test import badsyntax_future6
         self.check_syntax_error(cm.exception, "badsyntax_future6", 3)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_badfuture7(self):
         with self.assertRaises(SyntaxError) as cm:
             from test import badsyntax_future7
         self.check_syntax_error(cm.exception, "badsyntax_future7", 3, 53)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_badfuture8(self):
         with self.assertRaises(SyntaxError) as cm:
             from test import badsyntax_future8
         self.check_syntax_error(cm.exception, "badsyntax_future8", 3)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_badfuture9(self):
         with self.assertRaises(SyntaxError) as cm:
             from test import badsyntax_future9
         self.check_syntax_error(cm.exception, "badsyntax_future9", 3)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_badfuture10(self):
         with self.assertRaises(SyntaxError) as cm:
             from test import badsyntax_future10
@@ -349,6 +365,8 @@ class AnnotationsFutureTestCase(unittest.TestCase):
         self.assertAnnotationEqual("('inf', 1e1000, 'infxxx', 1e1000j)", expected=f"('inf', {inf}, 'infxxx', {infj})")
         self.assertAnnotationEqual("(1e1000, (1e1000j,))", expected=f"({inf}, ({infj},))")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_annotation_with_complex_target(self):
         with self.assertRaises(SyntaxError):
             exec(
@@ -356,6 +374,8 @@ class AnnotationsFutureTestCase(unittest.TestCase):
                 "object.__debug__: int"
             )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_annotations_symbol_table_pass(self):
         namespace = self._exec_future(dedent("""
         from __future__ import annotations
@@ -372,6 +392,8 @@ class AnnotationsFutureTestCase(unittest.TestCase):
         self.assertEqual(foo.__code__.co_cellvars, ())
         self.assertEqual(foo().__code__.co_freevars, ())
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_annotations_forbidden(self):
         with self.assertRaises(SyntaxError):
             self._exec_future("test: (yield)")
