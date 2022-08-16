@@ -30,7 +30,7 @@ mod locale {
     }
 
     #[pyfunction]
-    fn setlocale(category: PyIntRef, locale: Option<PyStr>, vm: &VirtualMachine) -> PyResult<*mut i8> {
+    fn setlocale(category: PyIntRef, locale: Option<PyStrRef>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         match locale {
             /* set locale */
             Some(locale) => {
