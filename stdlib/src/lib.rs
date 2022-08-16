@@ -45,6 +45,7 @@ mod posixsubprocess;
 // libc is missing constants on redox
 #[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
 mod grp;
+mod locale;
 #[cfg(all(unix, not(target_os = "redox")))]
 mod resource;
 #[cfg(target_os = "macos")]
@@ -62,7 +63,6 @@ mod termios;
     target_arch = "wasm32"
 )))]
 mod uuid;
-mod locale;
 
 use rustpython_common as common;
 use rustpython_vm as vm;
