@@ -301,21 +301,11 @@ jobs:
 
   wasm:
     name: Check the WASM package and demo
-    needs: rust_tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
       - uses: dtolnay/rust-toolchain@stable
-      - name: Cache cargo dependencies
-        uses: actions/cache@v2
-        with:
-          path: |
-              ~/.cargo/registry
-              ~/.cargo/git
-              target
-          key: ${{ runner.os }}-wasm_opt3-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-               ${{ runner.os }}-debug_opt3-${{ hashFiles('**/Cargo.lock') }}
+      - uses: Swatinem/rust-cache@v1
       - name: install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
       - name: install geckodriver
@@ -359,20 +349,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           target: wasm32-wasi
+      - uses: Swatinem/rust-cache@v1
       - name: Setup Wasmer
         uses: wasmerio/setup-wasmer@v1
       - name: Install clang
         run: sudo apt-get update && sudo apt-get install clang -y
-      - name: Cache cargo dependencies
-        uses: actions/cache@v2
-        with:
-          path: |
-              ~/.cargo/registry
-              ~/.cargo/git
-              target
-          key: ${{ runner.os }}-wasm_opt3-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-               ${{ runner.os }}-debug_opt3-${{ hashFiles('**/Cargo.lock') }}
       - name: build rustpython
         run: cargo build --release --target wasm32-wasi --features freeze-stdlib,stdlib --verbose
       - name: run snippets
