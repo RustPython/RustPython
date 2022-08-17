@@ -9,13 +9,12 @@ edition = "2021"
 include = ["src/**/*.rs", "Cargo.toml", "build.rs", "Lib/**/*.py"]
 
 [features]
-default = ["compile-parse", "pylib"]
+default = ["compile-parse"]
 importlib = []
 encodings = ["importlib"]
 vm-tracing-logging = []
 flame-it = ["flame", "flamer"]
-pylib = ["rustpython-pylib"]
-freeze-stdlib = ["rustpython-pylib", "rustpython-pylib/compiled-bytecode"]
+freeze-stdlib = ["rustpython-pylib/stdlib"]
 jit = ["rustpython-jit"]
 threading = ["rustpython-common/threading"]
 compile-parse = ["parser", "compiler"]
@@ -37,7 +36,7 @@ rustpython-compiler = { path = "../compiler/porcelain", optional = true, version
 rustpython-compiler-core = { path = "../compiler", optional = true, version = "0.1.2" }
 rustpython-bytecode = { path = "../bytecode", version = "0.1.2" }
 rustpython-jit = { path = "../jit", optional = true, version = "0.1.2" }
-rustpython-pylib = { path = "pylib-crate", optional = true, version = "0.1.0" }
+rustpython-pylib = { path = "pylib-crate", version = "0.1.0" }
 rand = "0.8.5"
 getrandom = { version = "0.2.6", features = ["js"] }
 log = "0.4.16"

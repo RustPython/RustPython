@@ -81,8 +81,7 @@ page_size = "0.4"
 termios = "0.3.3"
 
 [features]
-default = ["compile-parse", "pylib"]
-pylib = ["rustpython-vm/pylib"]
+default = ["compile-parse"]
 compile-parse = ["rustpython-vm/compile-parse", "rustpython-parser"]
 threading = ["rustpython-common/threading", "rustpython-vm/threading"]
 parser = ["rustpython-vm/parser"]
