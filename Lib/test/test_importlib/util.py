@@ -7,11 +7,13 @@ import importlib
 from importlib import machinery, util, invalidate_caches
 from importlib.abc import ResourceReader
 import io
+import marshal
 import os
 import os.path
 from pathlib import Path, PurePath
 from test import support
-from test.support import os_helper, import_helper
+from test.support import import_helper
+from test.support import os_helper
 import unittest
 import sys
 import tempfile
@@ -114,9 +116,19 @@ def case_insensitive_tests(test):
 
 def submodule(parent, name, pkg_dir, content=''):
     path = os.path.join(pkg_dir, name + '.py')
-    with open(path, 'w') as subfile:
+    with open(path, 'w', encoding='utf-8') as subfile:
         subfile.write(content)
     return '{}.{}'.format(parent, name), path
+
+
+def get_code_from_pyc(pyc_path):
+    """Reads a pyc file and returns the unmarshalled code object within.
+
+    No header validation is performed.
+    """
+    with open(pyc_path, 'rb') as pyc_f:
+        pyc_f.seek(16)
+        return marshal.load(pyc_f)
 
 
 @contextlib.contextmanager
@@ -164,7 +176,7 @@ def temp_module(name, content='', *, pkg=False):
                         content = ''
                 if content is not None:
                     # not a namespace package
-                    with open(modpath, 'w') as modfile:
+                    with open(modpath, 'w', encoding='utf-8') as modfile:
                         modfile.write(content)
                 yield location
 
@@ -295,7 +307,7 @@ def writes_bytecode_files(fxn):
     """Decorator to protect sys.dont_write_bytecode from mutation and to skip
     tests that require it to be set to False."""
     if sys.dont_write_bytecode:
-        return lambda *args, **kwargs: None
+        return unittest.skip(fxn)
     @functools.wraps(fxn)
     def wrapper(*args, **kwargs):
         original = sys.dont_write_bytecode
@@ -372,7 +384,7 @@ def create_modules(*names):
                     os.mkdir(file_path)
                     created_paths.append(file_path)
             file_path = os.path.join(file_path, name_parts[-1] + '.py')
-            with open(file_path, 'w') as file:
+            with open(file_path, 'w', encoding='utf-8') as file:
                 file.write(source.format(name))
             created_paths.append(file_path)
             mapping[name] = file_path
@@ -444,7 +456,7 @@ def create_package(file, path, is_package=True, contents=()):
                 yield entry
 
     name = 'testingpackage'
-    # Unforunately importlib.util.module_from_spec() was not introduced until
+    # Unfortunately importlib.util.module_from_spec() was not introduced until
     # Python 3.5.
     module = types.ModuleType(name)
     loader = Reader()
@@ -489,7 +501,7 @@ class CommonResourceTests(abc.ABC):
             self.execute(data01, full_path)
 
     def test_relative_path(self):
-        # A reative path is a ValueError.
+        # A relative path is a ValueError.
         with self.assertRaises(ValueError):
             self.execute(data01, '../data01/utf-8.file')
 

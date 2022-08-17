@@ -127,7 +127,7 @@ class FinderTests(abc.FinderTests):
         # The empty string from sys.path means to search in the cwd.
         finder = self.machinery.FileFinder('', (self.machinery.SourceFileLoader,
             self.machinery.SOURCE_SUFFIXES))
-        with open('mod.py', 'w') as file:
+        with open('mod.py', 'w', encoding='utf-8') as file:
             file.write("# test file for importlib")
         try:
             loader = self._find(finder, 'mod', loader_only=True)
@@ -185,6 +185,10 @@ class FinderTests(abc.FinderTests):
             finder = self.get_finder(file_obj.name)
             found = self._find(finder, 'doesnotexist')
             self.assertEqual(found, self.NOT_FOUND)
+
+    # TODO: RUSTPYTHON
+    if sys.platform == 'win32':
+        test_ignore_file = unittest.expectedFailure(test_ignore_file)
 
 
 class FinderTestsPEP451(FinderTests):
