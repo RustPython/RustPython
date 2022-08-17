@@ -101,6 +101,7 @@ jobs:
     env:
       RUST_BACKTRACE: full
     name: Run rust tests
+    needs: lalrpop
     runs-on:  ${{ matrix.os }}
     strategy:
       matrix:
@@ -108,6 +109,11 @@ jobs:
       fail-fast: false
     steps:
       - uses: actions/checkout@v2
+      - name: Cache generated parser
+        uses: actions/cache@v2
+        with:
+          path: parser/python.rs
+          key: lalrpop-${{ hashFiles('parser/python.lalrpop') }}
       - uses: dtolnay/rust-toolchain@stable
       - name: Set up the Windows environment
         shell: bash
@@ -143,9 +149,15 @@ jobs:
 
   exotic_targets:
     name: Ensure compilation on various targets
+    needs: lalrpop
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
+      - name: Cache generated parser
+        uses: actions/cache@v2
+        with:
+          path: parser/python.rs
+          key: lalrpop-${{ hashFiles('parser/python.lalrpop') }}
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -200,6 +212,7 @@ jobs:
           command: check
 
   snippets_cpython:
+    needs: lalrpop
     env:
       RUST_BACKTRACE: full
     name: Run snippets and cpython tests
@@ -210,6 +223,12 @@ jobs:
       fail-fast: false
     steps:
       - uses: actions/checkout@v2
+      - name: Cache generated parser
+        uses: actions/cache@v2
+        with:
+          path: parser/python.rs
+          key: lalrpop-${{ hashFiles('parser/python.lalrpop') }}
+
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-python@v2
         with:
@@ -258,11 +277,45 @@ jobs:
           mkdir site-packages
           target/release/rustpython --install-pip ensurepip --user
 
+  lalrpop:
+    name: Generate parser with lalrpop
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on:  ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v2
+      - name: Cache generated parser
+        uses: actions/cache@v2
+        with:
+          path: parser/python.rs
+          key: lalrpop-${{ hashFiles('parser/python.lalrpop') }}
+      - name: Check if cached generated parser exists
+        id: generated_parser
+        uses: andstor/file-existence-action@v1
+        with:
+          files: "parser/python.rs"
+      - name: Install lalrpop
+        if: steps.generated_parser.outputs.files_exists == 'false'
+        uses: baptiste0928/cargo-install@v1
+        with:
+          crate: lalrpop
+          version: "0.19.8"
+      - name: Run lalpop
+        if: steps.generated_parser.outputs.files_exists == 'false'
+        run: lalrpop parser/python.lalrpop
+
   lint:
     name: Check Rust code with rustfmt and clippy
+    needs: lalrpop
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
+      - name: Cache generated parser
+        uses: actions/cache@v2
+        with:
+          path: parser/python.rs
+          key: lalrpop-${{ hashFiles('parser/python.lalrpop') }}
       - uses: dtolnay/rust-toolchain@stable
         with:
             components: rustfmt, clippy
@@ -284,11 +337,18 @@ jobs:
       - name: check wasm code with prettier
         # prettier doesn't handle ignore files very well: https://github.com/prettier/prettier/issues/8506
         run: cd wasm && git ls-files -z | xargs -0 prettier --check -u
+
   miri:
     name: Run tests under miri
+    needs: lalrpop
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
+      - name: Cache generated parser
+        uses: actions/cache@v2
+        with:
+          path: parser/python.rs
+          key: lalrpop-${{ hashFiles('parser/python.lalrpop') }}
       - uses: dtolnay/rust-toolchain@master
         with:
             toolchain: nightly
@@ -304,6 +364,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
+      - name: Cache generated parser
+        uses: actions/cache@v2
+        with:
+          path: parser/python.rs
+          key: lalrpop-${{ hashFiles('parser/python.lalrpop') }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v1
       - name: install wasm-pack
@@ -343,9 +408,15 @@ jobs:
 
   wasm-wasi:
     name: Run snippets and cpython tests on wasm-wasi
+    needs: lalrpop
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
+      - name: Cache generated parser
+        uses: actions/cache@v2
+        with:
+          path: parser/python.rs
+          key: lalrpop-${{ hashFiles('parser/python.lalrpop') }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           target: wasm32-wasi
