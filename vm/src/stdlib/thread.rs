@@ -304,6 +304,12 @@ pub(crate) mod _thread {
         vm.state.thread_count.fetch_sub(1);
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    #[pyfunction]
+    fn interrupt_main(signum: OptionalArg<i32>, vm: &VirtualMachine) -> PyResult<()> {
+        crate::signal::set_interrupt_ex(signum.unwrap_or(libc::SIGINT), vm)
+    }
+
     #[pyfunction]
     fn exit(vm: &VirtualMachine) -> PyResult {
         Err(vm.new_exception_empty(vm.ctx.exceptions.system_exit.to_owned()))

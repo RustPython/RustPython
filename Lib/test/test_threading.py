@@ -1382,8 +1382,6 @@ class MiscTestCase(unittest.TestCase):
 
 
 class InterruptMainTests(unittest.TestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_interrupt_main_subthread(self):
         # Calling start_new_thread with a function that executes interrupt_main
         # should raise KeyboardInterrupt upon completion.
@@ -1395,16 +1393,12 @@ class InterruptMainTests(unittest.TestCase):
             t.join()
         t.join()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_interrupt_main_mainthread(self):
         # Make sure that if interrupt_main is called in main thread that
         # KeyboardInterrupt is raised instantly.
         with self.assertRaises(KeyboardInterrupt):
             _thread.interrupt_main()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_interrupt_main_noerror(self):
         handler = signal.getsignal(signal.SIGINT)
         try:
