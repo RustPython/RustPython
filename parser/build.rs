@@ -6,18 +6,27 @@ use std::process::{Command, ExitCode};
 use tiny_keccak::{Hasher, Sha3};
 
 fn main() -> ExitCode {
-    if let Err(exit_code) = check_lalrpop("src/python.lalrpop", "src/python.rs") {
+    const SOURCE: &str = "python.lalrpop";
+    const TARGET: &str = "python.rs";
+
+    println!("cargo:rerun-if-changed={SOURCE}");
+
+    if let Err(exit_code) = try_lalrpop(SOURCE, TARGET) {
         return exit_code;
     }
     gen_phf();
     ExitCode::SUCCESS
 }
 
-fn check_lalrpop(source: &str, generated: &str) -> Result<(), ExitCode> {
-    println!("cargo:rerun-if-changed={source}");
+fn requires_lalrpop(source: &str, target: &str) -> bool {
+    let target = if let Ok(target) = File::open(target) {
+        target
+    } else {
+        return true;
+    };
 
     let sha_prefix = "// sha3: ";
-    let sha3_line = BufReader::with_capacity(128, File::open(generated).unwrap())
+    let sha3_line = BufReader::with_capacity(128, target)
         .lines()
         .find_map(|line| {
             let line = line.unwrap();
@@ -45,8 +54,11 @@ fn check_lalrpop(source: &str, generated: &str) -> Result<(), ExitCode> {
         hasher.finalize(&mut hash);
         hash
     };
+    !sha_equal(expected_sha3_str, &actual_sha3)
+}
 
-    if sha_equal(expected_sha3_str, &actual_sha3) {
+fn try_lalrpop(source: &str, target: &str) -> Result<(), ExitCode> {
+    if !requires_lalrpop(source, target) {
         return Ok(());
     }
     match Command::new("lalrpop").arg(source).status() {

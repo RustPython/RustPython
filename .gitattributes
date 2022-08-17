@@ -1,6 +1,5 @@
 Lib/**      linguist-vendored
 Cargo.lock  linguist-generated -merge
-parser/src/python.rs linguist-generated -diff -merge
 ast/src/ast_gen.rs          linguist-generated -merge
 vm/src/stdlib/ast/gen.rs    linguist-generated -merge
 parser/python.lalrpop       text eol=LF
