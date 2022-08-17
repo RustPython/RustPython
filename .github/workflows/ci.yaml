@@ -295,13 +295,17 @@ jobs:
         uses: andstor/file-existence-action@v1
         with:
           files: "parser/python.rs"
+      - if: runner.os == 'Windows'
+        name: Force python.lalrpop to be lf  # actions@checkout ignore .gitattributes
+        run: |
+          set file parser/python.lalrpop; ((Get-Content $file) -join "`n") + "`n" | Set-Content -NoNewline $file
       - name: Install lalrpop
         if: steps.generated_parser.outputs.files_exists == 'false'
         uses: baptiste0928/cargo-install@v1
         with:
           crate: lalrpop
           version: "0.19.8"
-      - name: Run lalpop
+      - name: Run lalrpop
         if: steps.generated_parser.outputs.files_exists == 'false'
         run: lalrpop parser/python.lalrpop
 
