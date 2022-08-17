@@ -3,13 +3,14 @@
 // See also: file:///usr/share/doc/python/html/reference/compound_stmts.html#function-definitions
 // See also: https://greentreesnakes.readthedocs.io/en/latest/nodes.html#keyword
 
-use crate::ast;
-use crate::fstring::parse_located_fstring;
-use crate::function::{ArgumentList, parse_args, parse_params};
-use crate::error::{LexicalError, LexicalErrorType};
-use crate::lexer;
-use crate::token::StringKind;
-
+use crate::{
+    ast,
+    error::{LexicalError, LexicalErrorType},
+    fstring::parse_located_fstring,
+    function::{ArgumentList, parse_args, parse_params},
+    lexer,
+    token::StringKind
+};
 use num_bigint::BigInt;
 
 grammar;
