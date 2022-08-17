@@ -233,9 +233,8 @@ class TestResult(object):
         while tb and not self._is_relevant_tb_level(tb):
             prev = tb
             tb = tb.tb_next
-        # TODO: RUSTPYTHON; traceback.tb_next is not writable yet #3857
-        # if prev is not None:
-        #     prev.tb_next = None
+        if prev is not None:
+            prev.tb_next = None
 
     def __repr__(self):
         return ("<%s run=%i errors=%i failures=%i>" %
