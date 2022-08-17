@@ -30,7 +30,8 @@ impl VirtualMachine {
     fn _py_panic_failed(&self, exc: PyBaseExceptionRef, msg: &str) -> ! {
         #[cfg(not(all(target_arch = "wasm32", not(target_os = "wasi"))))]
         {
-            let show_backtrace = std::env::var_os("RUST_BACKTRACE").map_or(false, |v| &v != "0");
+            let show_backtrace =
+                std::env::var_os("RUST_BACKTRACE").map_or(cfg!(target_os = "wasi"), |v| &v != "0");
             let after = if show_backtrace {
                 self.print_exception(exc);
                 "exception backtrace above"

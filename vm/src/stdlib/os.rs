@@ -1189,15 +1189,7 @@ pub(super) mod _os {
     }
 
     fn curdir_inner(vm: &VirtualMachine) -> PyResult<PathBuf> {
-        // getcwd (should) return FileNotFoundError if cwd is invalid; on wasi, we never have a
-        // valid cwd ;)
-        let res = if cfg!(target_os = "wasi") {
-            Err(io::ErrorKind::NotFound.into())
-        } else {
-            env::current_dir()
-        };
-
-        res.map_err(|err| err.into_pyexception(vm))
+        env::current_dir().map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
