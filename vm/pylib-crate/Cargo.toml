@@ -9,11 +9,11 @@ edition = "2021"
 include = ["Cargo.toml", "src/**/*.rs", "Lib/", "!Lib/**/test/", "!Lib/**/*.pyc"]
 
 [features]
-compiled-bytecode = ["rustpython-derive", "rustpython-bytecode"]
+stdlib = []
 
 [dependencies]
-rustpython-derive = { version = "0.1.2", path = "../../derive", optional = true }
-rustpython-bytecode = { version = "0.1.2", path = "../../bytecode", optional = true }
+rustpython-derive = { version = "0.1.2", path = "../../derive" }
+rustpython-bytecode = { version = "0.1.2", path = "../../bytecode" }
 
 [build-dependencies]
 glob = "0.3"

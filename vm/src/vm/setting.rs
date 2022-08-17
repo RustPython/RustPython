@@ -89,10 +89,7 @@ impl Default for Settings {
             dev_mode: false,
             warn_default_encoding: false,
             warnopts: vec![],
-            path_list: vec![
-                #[cfg(all(feature = "pylib", not(feature = "freeze-stdlib")))]
-                rustpython_pylib::LIB_PATH.to_owned(),
-            ],
+            path_list: vec![rustpython_pylib::LIB_PATH.to_owned()],
             argv: vec![],
             hash_seed: None,
             stdio_unbuffered: false,
