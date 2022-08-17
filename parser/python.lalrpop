@@ -9,6 +9,7 @@ use crate::{
     fstring::parse_located_fstring,
     function::{ArgumentList, parse_args, parse_params},
     lexer,
+    string::parse_implicit_concatenation,
     token::StringKind
 };
 use num_bigint::BigInt;
@@ -974,12 +975,7 @@ Atom: ast::Expr = {
             }
         });
         let values = values.collect::<Result<Vec<_>, _>>()?;
-
-        Ok(if values.len() > 1 {
-            ast::Expr::new(location, ast::ExprKind::JoinedStr { values })
-        } else {
-            values.into_iter().next().unwrap()
-        })
+        parse_implicit_concatenation(values).map_err(|e| e.into())
     },
     <location:@L> <value:Constant> => ast::Expr {
         location,
