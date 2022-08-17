@@ -109,6 +109,8 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - name: Set up the Windows environment
         shell: bash
         run: |
@@ -119,6 +121,10 @@ jobs:
         run: brew install autoconf automake libtool
         if: runner.os == 'macOS'
       - uses: Swatinem/rust-cache@v1
+
+      - name: run clippy
+        run: cargo clippy ${{ env.CARGO_ARGS }} ${{ env.NON_WASM_PACKAGES }} -- -Dwarnings
+
       - name: run rust tests
         run: cargo test --workspace --exclude rustpython_wasm --verbose ${{ env.CARGO_ARGS }} ${{ env.NON_WASM_PACKAGES }}
       - name: check compilation without threading
@@ -268,8 +274,6 @@ jobs:
             components: rustfmt, clippy
       - name: run rustfmt
         run: cargo fmt --all -- --check
-      - name: run clippy
-        run: cargo clippy ${{ env.CARGO_ARGS }} ${{ env.NON_WASM_PACKAGES }} -- -Dwarnings
       - name: run clippy on wasm
         run: cargo clippy --manifest-path=wasm/lib/Cargo.toml -- -Dwarnings
       - uses: actions/setup-python@v2
