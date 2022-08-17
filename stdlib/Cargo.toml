@@ -47,7 +47,7 @@ num-complex = "0.4.0"
 num-bigint = "0.4.3"
 num-integer = "0.1.44"
 
-crossbeam-utils = "0.8.8"
+crossbeam-utils = "=0.8.9"
 itertools = "0.10.3"
 lexical-parse-float = "0.8.3"
 num-traits = "0.2.14"
