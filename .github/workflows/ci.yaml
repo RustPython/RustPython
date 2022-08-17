@@ -314,8 +314,6 @@ jobs:
               ~/.cargo/git
               target
           key: ${{ runner.os }}-wasm_opt3-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-               ${{ runner.os }}-debug_opt3-${{ hashFiles('**/Cargo.lock') }}
       - name: install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
       - name: install geckodriver
@@ -370,9 +368,7 @@ jobs:
               ~/.cargo/registry
               ~/.cargo/git
               target
-          key: ${{ runner.os }}-wasm_opt3-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-               ${{ runner.os }}-debug_opt3-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-wasi_opt3-${{ hashFiles('**/Cargo.lock') }}
       - name: build rustpython
         run: cargo build --release --target wasm32-wasi --features freeze-stdlib,stdlib --verbose
       - name: run snippets
