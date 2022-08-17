@@ -22,6 +22,7 @@ fn requires_lalrpop(source: &str, target: &str) -> bool {
     let target = if let Ok(target) = File::open(target) {
         target
     } else {
+        println!("cargo:warning=python.rs doesn't exist. regenerate.");
         return true;
     };
 
@@ -54,7 +55,16 @@ fn requires_lalrpop(source: &str, target: &str) -> bool {
         hasher.finalize(&mut hash);
         hash
     };
-    !sha_equal(expected_sha3_str, &actual_sha3)
+    let eq = sha_equal(expected_sha3_str, &actual_sha3);
+    if !eq {
+        println!("cargo:warning=python.rs hash expected: {expected_sha3_str}");
+        let mut actual_sha3_str = String::new();
+        for byte in actual_sha3 {
+            write!(actual_sha3_str, "{byte:02x}").unwrap();
+        }
+        println!("cargo:warning=python.rs hash   actual: {actual_sha3_str}");
+    }
+    !eq
 }
 
 fn try_lalrpop(source: &str, target: &str) -> Result<(), ExitCode> {
