@@ -160,11 +160,7 @@ impl From<LalrpopError<Location, Tok, LexicalError>> for ParseError {
             LalrpopError::UnrecognizedToken { token, expected } => {
                 // Hacky, but it's how CPython does it. See PyParser_AddToken,
                 // in particular "Only one possible expected token" comment.
-                let expected = if expected.len() == 1 {
-                    Some(expected[0].clone())
-                } else {
-                    None
-                };
+                let expected = (expected.len() == 1).then(|| expected[0].clone());
                 ParseError {
                     error: ParseErrorType::UnrecognizedToken(token.1, expected),
                     location: token.0,
