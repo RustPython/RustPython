@@ -1,5 +1,5 @@
 // auto-generated: "lalrpop 0.19.8"
-// sha3: b613fd85f8f9f7ede6bc8e40f3568aa6bdc0e679b00c875a1d89dbe2bb53a8a8
+// sha3: 2f2a21cf0cbbfd58980631b1a881329eea77203732cd243102c55aaaeeea82fa
 use crate::{
     ast,
     error::{LexicalError, LexicalErrorType},
@@ -24622,21 +24622,7 @@ fn __action148<
     (_, s, _): (ast::Location, alloc::vec::Vec<(ast::Location, (String, StringKind))>, ast::Location),
 ) -> Result<ast::Expr,__lalrpop_util::ParseError<ast::Location,lexer::Tok,LexicalError>>
 {
-    {
-        let values = s.into_iter().map(|(loc, (value, kind))| {
-            if let StringKind::F = kind {
-                parse_located_fstring(&value, loc)
-            } else {
-                let kind = (kind == StringKind::U).then(|| "u".to_owned());
-                Ok(ast::Expr::new(
-                    loc,
-                    ast::ExprKind::Constant { value: value.into(), kind },
-                ))
-            }
-        });
-        let values = values.collect::<Result<Vec<_>, _>>()?;
-        parse_implicit_concatenation(values).map_err(|e| e.into())
-    }
+    parse_implicit_concatenation(s).map_err(|e| e.into())
 }
 
 fn __action149<

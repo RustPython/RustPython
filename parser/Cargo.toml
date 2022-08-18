@@ -25,6 +25,7 @@ unic-ucd-ident  = "0.9.0"
 unicode_names2 = "0.5.0"
 phf = "0.10.1"
 ahash = "0.7.6"
+itertools = "0.10.3"
 
 [dev-dependencies]
 insta = "1.14.0"

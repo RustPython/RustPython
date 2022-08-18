@@ -1,129 +1,110 @@
-use crate::ast::{Constant, Expr, ExprKind};
+use crate::ast::{Constant, Expr, ExprKind, Location};
+use crate::error::LexicalErrorType::FStringError;
 use crate::error::{LexicalError, LexicalErrorType};
+use crate::fstring::parse_located_fstring;
+use crate::token::StringKind;
+use itertools::Itertools;
 
-pub fn parse_implicit_concatenation(values: Vec<Expr>) -> Result<Expr, LexicalError> {
-    Ok(if values.len() > 1 {
-        // As in CPython, use the kind of the first Expression.
-        let kind = if let ExprKind::Constant { kind, .. } = &values[0].node {
-            kind.clone()
-        } else {
-            None
-        };
+pub fn parse_implicit_concatenation(
+    values: Vec<(Location, (String, StringKind))>,
+) -> Result<Expr, LexicalError> {
+    Ok({
+        // Preserve the initial location and kind.
+        let initial_location = values[0].0;
+        let initial_kind = (values[0].1 .1 == StringKind::U).then(|| "u".to_owned());
 
-        // Preserve the initial location.
-        let location = values[0].location;
-
-        if values
+        // Determine whether the list of values contains any f-strings. (If not, we can return a
+        // single Constant at the end, rather than a JoinedStr.)
+        let has_fstring = values
             .iter()
-            .all(|value| matches!(value.node, ExprKind::Constant { .. }))
-        {
-            // If every expression is a Constant, return a single Constant by concatenating the
-            // underlying strings.
-            Expr::new(
-                location,
-                ExprKind::Constant {
-                    value: Constant::Str(
-                        values
-                            .into_iter()
-                            .map(|value| {
-                                if let ExprKind::Constant {
-                                    value: Constant::Str(value),
-                                    ..
-                                } = value.node
-                                {
-                                    Ok(value)
-                                } else {
-                                    Err(LexicalError {
-                                        location,
-                                        error: LexicalErrorType::OtherError(
-                                            "Unexpected non-string constant.".to_string(),
-                                        ),
-                                    })
-                                }
-                            })
-                            .collect::<Result<Vec<String>, LexicalError>>()?
-                            .join(""),
-                    ),
-                    kind,
-                },
-            )
-        } else {
-            // Otherwise, we have at least one JoinedStr, so return a single JointedStr with as few
-            // Constants as possible by merging adjacent Constants.
-            let values: Vec<Expr> = values
-                .into_iter()
-                .map(|value| match value.node {
-                    ExprKind::JoinedStr { values } => Ok(values),
-                    ExprKind::Constant { .. } => Ok(vec![value]),
-                    _ => Err(LexicalError {
-                        location,
+            .any(|(_, (_, string_kind))| *string_kind == StringKind::F);
+
+        // Collect all the sub-expressions: any Constants, along with any (flattened) f-strings.
+        let values: Vec<Expr> = values
+            .into_iter()
+            .map(|(location, (string, string_kind))| match string_kind {
+                StringKind::F => {
+                    if let ExprKind::JoinedStr { values } = parse_located_fstring(&string, location)
+                        .map_err(|e| LexicalError {
+                            location,
+                            error: FStringError(e.error),
+                        })?
+                        .node
+                    {
+                        Ok(values)
+                    } else {
+                        panic!("parse_located_fstring returned a non-JoinedStr.")
+                    }
+                }
+                _ => Ok(vec![Expr::new(
+                    location,
+                    ExprKind::Constant {
+                        value: Constant::Str(string),
+                        kind: (string_kind == StringKind::U).then(|| "u".to_owned()),
+                    },
+                )]),
+            })
+            .flat_map(|result| match result {
+                Ok(values) => values.into_iter().map(Ok).collect(),
+                Err(e) => vec![Err(e)],
+            })
+            .collect::<Result<Vec<Expr>, LexicalError>>()?;
+
+        // De-duplicate adjacent constants.
+        let mut deduped: Vec<Expr> = vec![];
+        let mut current: Vec<String> = vec![];
+        for value in values {
+            match value.node {
+                ExprKind::FormattedValue { .. } => {
+                    if !current.is_empty() {
+                        deduped.push(Expr::new(
+                            initial_location,
+                            ExprKind::Constant {
+                                value: Constant::Str(current.join("")),
+                                kind: initial_kind.clone(),
+                            },
+                        ));
+                        current.clear();
+                    }
+                    deduped.push(value)
+                }
+                ExprKind::Constant { value, .. } => {
+                    if let Constant::Str(value) = value {
+                        current.push(value);
+                    } else {
+                        panic!("Unexpected non-string constant.");
+                    }
+                }
+                _ => {
+                    return Err(LexicalError {
+                        location: value.location,
                         error: LexicalErrorType::OtherError(
                             "Unexpected expression kind in string concatenation.".to_string(),
                         ),
-                    }),
-                })
-                .flat_map(|result| match result {
-                    Ok(values) => values.into_iter().map(Ok).collect(),
-                    Err(e) => vec![Err(e)],
-                })
-                .collect::<Result<Vec<Expr>, LexicalError>>()?;
-
-            // De-duplicate adjacent constants.
-            let mut deduped: Vec<Expr> = vec![];
-            let mut current: Vec<String> = vec![];
-            for value in values {
-                match value.node {
-                    ExprKind::FormattedValue { .. } => {
-                        if !current.is_empty() {
-                            deduped.push(Expr::new(
-                                location,
-                                ExprKind::Constant {
-                                    value: Constant::Str(current.join("")),
-                                    kind: kind.clone(),
-                                },
-                            ));
-                            current.clear();
-                        }
-                        deduped.push(value)
-                    }
-                    ExprKind::Constant { value, .. } => {
-                        if let Constant::Str(value) = value {
-                            current.push(value);
-                        } else {
-                            return Err(LexicalError {
-                                location,
-                                error: LexicalErrorType::OtherError(
-                                    "Unexpected non-string constant.".to_string(),
-                                ),
-                            });
-                        }
-                    }
-                    _ => {
-                        return Err(LexicalError {
-                            location,
-                            error: LexicalErrorType::OtherError(
-                                "Unexpected expression kind in string concatenation.".to_string(),
-                            ),
-                        });
-                    }
+                    });
                 }
             }
-
-            if !current.is_empty() {
-                deduped.push(Expr::new(
-                    location,
-                    ExprKind::Constant {
-                        value: Constant::Str(current.join("")),
-                        kind,
-                    },
-                ));
-                current.clear();
-            }
-
-            Expr::new(location, ExprKind::JoinedStr { values: deduped })
         }
-    } else {
-        values.into_iter().next().unwrap()
+
+        if !current.is_empty() {
+            deduped.push(Expr::new(
+                initial_location,
+                ExprKind::Constant {
+                    value: Constant::Str(current.join("")),
+                    kind: initial_kind,
+                },
+            ));
+            current.clear();
+        }
+
+        if has_fstring {
+            Expr::new(initial_location, ExprKind::JoinedStr { values: deduped })
+        } else {
+            deduped
+                .into_iter()
+                .exactly_one()
+                .expect("String must be concatenated to a single element.")
+        }
     })
 }
 

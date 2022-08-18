@@ -20,6 +20,8 @@
 
 #[macro_use]
 extern crate log;
+extern crate core;
+
 pub use rustpython_ast as ast;
 
 pub mod error;
