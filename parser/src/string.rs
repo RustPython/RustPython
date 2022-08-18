@@ -155,14 +155,14 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_u_f_string_concat_2() {
+    fn test_parse_u_f_string_concat_1() {
         let source = String::from("u'Hello ' f'world'");
         let parse_ast = parse_program(&source).unwrap();
         insta::assert_debug_snapshot!(parse_ast);
     }
 
     #[test]
-    fn test_parse_u_f_string_concat_3() {
+    fn test_parse_u_f_string_concat_2() {
         let source = String::from("u'Hello ' f'world' '!'");
         let parse_ast = parse_program(&source).unwrap();
         insta::assert_debug_snapshot!(parse_ast);
