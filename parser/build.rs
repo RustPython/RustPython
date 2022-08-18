@@ -90,20 +90,15 @@ fn try_lalrpop(source: &str, target: &str) -> Result<(), ExitCode> {
 }
 
 fn sha_equal(expected_sha3_str: &str, actual_sha3: &[u8; 32]) -> bool {
-    // stupid stupid stupid hack. lalrpop outputs each byte as "{:x}" instead of "{:02x}"
-    if expected_sha3_str.len() == 64 {
-        let mut expected_sha3 = [0u8; 32];
-        for (i, b) in expected_sha3.iter_mut().enumerate() {
-            *b = u8::from_str_radix(&expected_sha3_str[i * 2..][..2], 16).unwrap();
-        }
-        *actual_sha3 == expected_sha3
-    } else {
-        let mut actual_sha3_str = String::new();
-        for byte in actual_sha3 {
-            write!(actual_sha3_str, "{byte:x}").unwrap();
-        }
-        actual_sha3_str == expected_sha3_str
+    if expected_sha3_str.len() != 64 {
+        panic!("lalrpop version? hash bug is fixed in 0.19.8");
     }
+
+    let mut expected_sha3 = [0u8; 32];
+    for (i, b) in expected_sha3.iter_mut().enumerate() {
+        *b = u8::from_str_radix(&expected_sha3_str[i * 2..][..2], 16).unwrap();
+    }
+    *actual_sha3 == expected_sha3
 }
 
 fn gen_phf() {

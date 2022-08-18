@@ -14,7 +14,7 @@ phf_codegen = "0.10"
 
 [dependencies]
 rustpython-ast = { path = "../ast" }
-lalrpop-util = "0.19.7"
+lalrpop-util = "0.19.8"
 log = "0.4.16"
 num-bigint = "0.4.3"
 num-traits = "0.2.14"
