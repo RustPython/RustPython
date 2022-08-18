@@ -738,72 +738,6 @@ mod _socket {
             .map(|sock| sock as RawSocket)
     }
 
-    #[cfg(unix)]
-    mod nullable_socket {
-        use super::*;
-        use std::os::unix::io::AsRawFd;
-
-        #[derive(Debug)]
-        #[repr(transparent)]
-        pub struct NullableSocket(Option<socket2::Socket>);
-        impl From<socket2::Socket> for NullableSocket {
-            fn from(sock: socket2::Socket) -> Self {
-                NullableSocket(Some(sock))
-            }
-        }
-        impl NullableSocket {
-            pub fn invalid() -> Self {
-                Self(None)
-            }
-            pub fn get(&self) -> Option<&socket2::Socket> {
-                self.0.as_ref()
-            }
-            pub fn fd(&self) -> RawSocket {
-                self.get().map_or(INVALID_SOCKET, |sock| sock.as_raw_fd())
-            }
-            pub fn insert(&mut self, sock: socket2::Socket) -> &mut socket2::Socket {
-                self.0.insert(sock)
-            }
-        }
-    }
-    #[cfg(windows)]
-    mod nullable_socket {
-        use super::*;
-        use std::os::windows::io::{AsRawSocket, FromRawSocket};
-
-        // TODO: may change if windows changes its TcpStream repr
-        #[derive(Debug)]
-        #[repr(transparent)]
-        pub struct NullableSocket(socket2::Socket);
-        impl From<socket2::Socket> for NullableSocket {
-            fn from(sock: socket2::Socket) -> Self {
-                NullableSocket(sock)
-            }
-        }
-        impl NullableSocket {
-            pub fn invalid() -> Self {
-                // TODO: may become UB in the future; maybe see rust-lang/rust#74699
-                Self(unsafe { socket2::Socket::from_raw_socket(INVALID_SOCKET) })
-            }
-            pub fn get(&self) -> Option<&socket2::Socket> {
-                (self.0.as_raw_socket() != INVALID_SOCKET).then(|| &self.0)
-            }
-            pub fn fd(&self) -> RawSocket {
-                self.0.as_raw_socket()
-            }
-            pub fn insert(&mut self, sock: socket2::Socket) -> &mut socket2::Socket {
-                self.0 = sock;
-                &mut self.0
-            }
-        }
-    }
-    use nullable_socket::NullableSocket;
-    impl Default for NullableSocket {
-        fn default() -> Self {
-            Self::invalid()
-        }
-    }
-
     #[pyattr(name = "socket")]
     #[pyattr(name = "SocketType")]
     #[pyclass(name = "socket")]
@@ -813,8 +747,10 @@ mod _socket {
         family: AtomicCell<i32>,
         proto: AtomicCell<i32>,
         pub(crate) timeout: AtomicCell<f64>,
-        sock: PyRwLock<NullableSocket>,
+        sock: PyRwLock<Option<Socket>>,
     }
+
+    const _: () = assert!(std::mem::size_of::<Option<Socket>>() == std::mem::size_of::<Socket>());
 
     impl Default for PySocket {
         fn default() -> Self {
@@ -823,7 +759,7 @@ mod _socket {
                 family: AtomicCell::default(),
                 proto: AtomicCell::default(),
                 timeout: AtomicCell::new(-1.0),
-                sock: PyRwLock::new(NullableSocket::invalid()),
+                sock: PyRwLock::new(None),
             }
         }
     }
@@ -850,7 +786,7 @@ mod _socket {
 
     impl PySocket {
         pub fn sock_opt(&self) -> Option<PyMappedRwLockReadGuard<'_, Socket>> {
-            PyRwLockReadGuard::try_map(self.sock.read(), |sock| sock.get()).ok()
+            PyRwLockReadGuard::try_map(self.sock.read(), |sock| sock.as_ref()).ok()
         }
 
         pub fn sock(&self) -> io::Result<PyMappedRwLockReadGuard<'_, Socket>> {
@@ -1406,13 +1342,16 @@ mod _socket {
         #[pymethod]
         #[inline]
         fn detach(&self) -> RawSocket {
-            let sock = std::mem::replace(&mut *self.sock.write(), NullableSocket::invalid());
-            std::mem::ManuallyDrop::new(sock).fd()
+            let sock = self.sock.write().take();
+            sock.map_or(INVALID_SOCKET, into_sock_fileno)
         }
 
         #[pymethod]
         fn fileno(&self) -> RawSocket {
-            self.sock.read().fd()
+            self.sock
+                .read()
+                .as_ref()
+                .map_or(INVALID_SOCKET, sock_fileno)
         }
 
         #[pymethod]
@@ -1465,15 +1404,16 @@ mod _socket {
             name: i32,
             buflen: OptionalArg<i32>,
             vm: &VirtualMachine,
-        ) -> PyResult {
-            let fd = self.sock.read().fd() as _;
+        ) -> Result<PyObjectRef, IoOrPyException> {
+            let sock = self.sock()?;
+            let fd = sock_fileno(&sock);
             let buflen = buflen.unwrap_or(0);
             if buflen == 0 {
                 let mut flag: libc::c_int = 0;
                 let mut flagsize = std::mem::size_of::<libc::c_int>() as _;
                 let ret = unsafe {
                     c::getsockopt(
-                        fd,
+                        fd as _,
                         level,
                         name,
                         &mut flag as *mut libc::c_int as *mut _,
@@ -1481,22 +1421,30 @@ mod _socket {
                     )
                 };
                 if ret < 0 {
-                    return Err(crate::vm::stdlib::os::errno_err(vm));
+                    return Err(crate::common::os::errno().into());
                 }
                 Ok(vm.ctx.new_int(flag).into())
             } else {
                 if buflen <= 0 || buflen > 1024 {
-                    return Err(vm.new_os_error("getsockopt buflen out of range".to_owned()));
+                    return Err(vm
+                        .new_os_error("getsockopt buflen out of range".to_owned())
+                        .into());
                 }
                 let mut buf = vec![0u8; buflen as usize];
                 let mut buflen = buflen as _;
                 let ret = unsafe {
-                    c::getsockopt(fd, level, name, buf.as_mut_ptr() as *mut _, &mut buflen)
+                    c::getsockopt(
+                        fd as _,
+                        level,
+                        name,
+                        buf.as_mut_ptr() as *mut _,
+                        &mut buflen,
+                    )
                 };
-                buf.truncate(buflen as usize);
                 if ret < 0 {
-                    return Err(crate::vm::stdlib::os::errno_err(vm));
+                    return Err(crate::common::os::errno().into());
                 }
+                buf.truncate(buflen as usize);
                 Ok(vm.ctx.new_bytes(buf).into())
             }
         }
@@ -1509,15 +1457,16 @@ mod _socket {
             value: Option<Either<ArgBytesLike, i32>>,
             optlen: OptionalArg<u32>,
             vm: &VirtualMachine,
-        ) -> PyResult<()> {
-            let fd = self.sock.read().fd() as _;
+        ) -> Result<(), IoOrPyException> {
+            let sock = self.sock()?;
+            let fd = sock_fileno(&sock);
             let ret = match (value, optlen) {
                 (Some(Either::A(b)), OptionalArg::Missing) => b.with_ref(|b| unsafe {
-                    c::setsockopt(fd, level, name, b.as_ptr() as *const _, b.len() as _)
+                    c::setsockopt(fd as _, level, name, b.as_ptr() as *const _, b.len() as _)
                 }),
                 (Some(Either::B(ref val)), OptionalArg::Missing) => unsafe {
                     c::setsockopt(
-                        fd,
+                        fd as _,
                         level,
                         name,
                         val as *const i32 as *const _,
@@ -1525,16 +1474,16 @@ mod _socket {
                     )
                 },
                 (None, OptionalArg::Present(optlen)) => unsafe {
-                    c::setsockopt(fd, level, name, std::ptr::null(), optlen as _)
+                    c::setsockopt(fd as _, level, name, std::ptr::null(), optlen as _)
                 },
                 _ => {
-                    return Err(
-                        vm.new_type_error("expected the value arg xor the optlen arg".to_owned())
-                    );
+                    return Err(vm
+                        .new_type_error("expected the value arg xor the optlen arg".to_owned())
+                        .into());
                 }
             };
             if ret < 0 {
-                Err(crate::vm::stdlib::os::errno_err(vm))
+                Err(crate::common::os::errno().into())
             } else {
                 Ok(())
             }
@@ -1573,7 +1522,7 @@ mod _socket {
             format!(
                 "<socket object, fd={}, family={}, type={}, proto={}>",
                 // cast because INVALID_SOCKET is unsigned, so would show usize::MAX instead of -1
-                self.sock.read().fd() as i64,
+                self.fileno() as i64,
                 self.family.load(),
                 self.kind.load(),
                 self.proto.load(),
