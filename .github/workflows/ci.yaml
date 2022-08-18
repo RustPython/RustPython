@@ -365,6 +365,7 @@ jobs:
 
   wasm:
     name: Check the WASM package and demo
+    needs: lalrpop
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
