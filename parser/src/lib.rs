@@ -28,8 +28,6 @@ mod function;
 pub mod lexer;
 pub mod mode;
 pub mod parser;
-#[allow(clippy::all)]
-#[allow(unused)]
 #[rustfmt::skip]
 mod python;
 pub mod token;

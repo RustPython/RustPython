@@ -1,23 +1,31 @@
 use std::fmt::Write as _;
 use std::fs::File;
-use std::io::{self, BufRead, BufReader, BufWriter, Write};
+use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::PathBuf;
-use std::process::{Command, ExitCode};
 use tiny_keccak::{Hasher, Sha3};
 
-fn main() -> ExitCode {
-    if let Err(exit_code) = check_lalrpop("src/python.lalrpop", "src/python.rs") {
-        return exit_code;
-    }
+fn main() -> anyhow::Result<()> {
+    const SOURCE: &str = "python.lalrpop";
+    const TARGET: &str = "python.rs";
+
+    println!("cargo:rerun-if-changed={SOURCE}");
+
+    try_lalrpop(SOURCE, TARGET)?;
     gen_phf();
-    ExitCode::SUCCESS
+
+    Ok(())
 }
 
-fn check_lalrpop(source: &str, generated: &str) -> Result<(), ExitCode> {
-    println!("cargo:rerun-if-changed={source}");
+fn requires_lalrpop(source: &str, target: &str) -> bool {
+    let target = if let Ok(target) = File::open(target) {
+        target
+    } else {
+        println!("cargo:warning=python.rs doesn't exist. regenerate.");
+        return true;
+    };
 
     let sha_prefix = "// sha3: ";
-    let sha3_line = BufReader::with_capacity(128, File::open(generated).unwrap())
+    let sha3_line = BufReader::with_capacity(128, target)
         .lines()
         .find_map(|line| {
             let line = line.unwrap();
@@ -45,43 +53,66 @@ fn check_lalrpop(source: &str, generated: &str) -> Result<(), ExitCode> {
         hasher.finalize(&mut hash);
         hash
     };
+    let eq = sha_equal(expected_sha3_str, &actual_sha3);
+    if !eq {
+        println!("cargo:warning=python.rs hash expected: {expected_sha3_str}");
+        let mut actual_sha3_str = String::new();
+        for byte in actual_sha3 {
+            write!(actual_sha3_str, "{byte:02x}").unwrap();
+        }
+        println!("cargo:warning=python.rs hash   actual: {actual_sha3_str}");
+    }
+    !eq
+}
 
-    if sha_equal(expected_sha3_str, &actual_sha3) {
+fn try_lalrpop(source: &str, target: &str) -> anyhow::Result<()> {
+    if !requires_lalrpop(source, target) {
         return Ok(());
     }
-    match Command::new("lalrpop").arg(source).status() {
+
+    #[cfg(feature = "lalrpop")]
+    lalrpop_dependency();
+    #[cfg(not(feature = "lalrpop"))]
+    lalrpop_command(source)?;
+
+    Ok(())
+}
+
+#[cfg(not(feature = "lalrpop"))]
+fn lalrpop_command(source: &str) -> anyhow::Result<()> {
+    match std::process::Command::new("lalrpop").arg(source).status() {
         Ok(stat) if stat.success() => Ok(()),
         Ok(stat) => {
             eprintln!("failed to execute lalrpop; exited with {stat}");
             let exit_code = stat.code().map(|v| (v % 256) as u8).unwrap_or(1);
-            Err(ExitCode::from(exit_code))
+            Err(anyhow::anyhow!("lalrpop error status: {}", exit_code))
         }
-        Err(e) if e.kind() == io::ErrorKind::NotFound => {
-            eprintln!(
-                "the lalrpop executable is not installed and parser/{source} has been changed"
-            );
-            eprintln!("please install lalrpop with `cargo install lalrpop`");
-            Err(ExitCode::FAILURE)
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            eprintln!("please install lalrpop with `cargo install lalrpop` or\n`cargo build --manifest-path=parser/Cargo.toml --features=lalrpop`");
+            Err(anyhow::anyhow!(
+                "the lalrpop executable is not installed and parser/{} has been changed",
+                source
+            ))
         }
-        Err(e) => panic!("io error {e:#}"),
+        Err(e) => Err(anyhow::Error::new(e)),
     }
 }
 
+#[cfg(feature = "lalrpop")]
+fn lalrpop_dependency() {
+    lalrpop::process_root().unwrap()
+}
+
 fn sha_equal(expected_sha3_str: &str, actual_sha3: &[u8; 32]) -> bool {
-    // stupid stupid stupid hack. lalrpop outputs each byte as "{:x}" instead of "{:02x}"
-    if expected_sha3_str.len() == 64 {
-        let mut expected_sha3 = [0u8; 32];
-        for (i, b) in expected_sha3.iter_mut().enumerate() {
-            *b = u8::from_str_radix(&expected_sha3_str[i * 2..][..2], 16).unwrap();
-        }
-        *actual_sha3 == expected_sha3
-    } else {
-        let mut actual_sha3_str = String::new();
-        for byte in actual_sha3 {
-            write!(actual_sha3_str, "{byte:x}").unwrap();
-        }
-        actual_sha3_str == expected_sha3_str
+    if expected_sha3_str.len() != 64 {
+        panic!("lalrpop version? hash bug is fixed in 0.19.8");
     }
+
+    let mut expected_sha3 = [0u8; 32];
+    for (i, b) in expected_sha3.iter_mut().enumerate() {
+        *b = u8::from_str_radix(&expected_sha3_str[i * 2..][..2], 16).unwrap();
+    }
+    *actual_sha3 == expected_sha3
 }
 
 fn gen_phf() {
