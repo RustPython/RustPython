@@ -105,11 +105,12 @@ impl<'a> FStringParser<'a> {
                             '}' if in_nested => {
                                 if spec_delims.is_empty() {
                                     in_nested = false;
+                                    formatted_value_piece.push(next);
                                     spec_constructor.push(
                                         self.expr(ExprKind::FormattedValue {
                                             value: Box::new(
                                                 FStringParser::new(
-                                                    &format!("{{{}}}", formatted_value_piece),
+                                                    &formatted_value_piece,
                                                     Location::default(),
                                                     &self.recurse_lvl + 1,
                                                 )
@@ -135,6 +136,7 @@ impl<'a> FStringParser<'a> {
                                     kind: None,
                                 }));
                                 constant_piece.clear();
+                                formatted_value_piece.push(next);
                             }
                             '}' => break,
                             _ => {
