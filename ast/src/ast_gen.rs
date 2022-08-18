@@ -87,7 +87,7 @@ pub enum StmtKind<U = ()> {
         target: Box<Expr<U>>,
         annotation: Box<Expr<U>>,
         value: Option<Box<Expr<U>>>,
-        simple: bool,
+        simple: usize,
     },
     For {
         target: Box<Expr<U>>,
@@ -123,6 +123,10 @@ pub enum StmtKind<U = ()> {
         body: Vec<Stmt<U>>,
         type_comment: Option<String>,
     },
+    Match {
+        subject: Box<Expr<U>>,
+        cases: Vec<MatchCase<U>>,
+    },
     Raise {
         exc: Option<Box<Expr<U>>>,
         cause: Option<Box<Expr<U>>>,
@@ -138,12 +142,12 @@ pub enum StmtKind<U = ()> {
         msg: Option<Box<Expr<U>>>,
     },
     Import {
-        names: Vec<Alias>,
+        names: Vec<Alias<U>>,
     },
     ImportFrom {
         module: Option<Ident>,
-        names: Vec<Alias>,
-        level: usize,
+        names: Vec<Alias<U>>,
+        level: Option<usize>,
     },
     Global {
         names: Vec<Ident>,
@@ -189,7 +193,7 @@ pub enum ExprKind<U = ()> {
         orelse: Box<Expr<U>>,
     },
     Dict {
-        keys: Vec<Option<Box<Expr<U>>>>,
+        keys: Vec<Expr<U>>,
         values: Vec<Expr<U>>,
     },
     Set {
@@ -233,7 +237,7 @@ pub enum ExprKind<U = ()> {
     },
     FormattedValue {
         value: Box<Expr<U>>,
-        conversion: Option<ConversionFlag>,
+        conversion: usize,
         format_spec: Option<Box<Expr<U>>>,
     },
     JoinedStr {
@@ -334,7 +338,7 @@ pub struct Comprehension<U = ()> {
     pub target: Box<Expr<U>>,
     pub iter: Box<Expr<U>>,
     pub ifs: Vec<Expr<U>>,
-    pub is_async: bool,
+    pub is_async: usize,
 }
 
 #[derive(Debug, PartialEq)]
@@ -353,7 +357,7 @@ pub struct Arguments<U = ()> {
     pub args: Vec<Arg<U>>,
     pub vararg: Option<Box<Arg<U>>>,
     pub kwonlyargs: Vec<Arg<U>>,
-    pub kw_defaults: Vec<Option<Box<Expr<U>>>>,
+    pub kw_defaults: Vec<Expr<U>>,
     pub kwarg: Option<Box<Arg<U>>>,
     pub defaults: Vec<Expr<U>>,
 }
@@ -374,16 +378,59 @@ pub struct KeywordData<U = ()> {
 pub type Keyword<U = ()> = Located<KeywordData<U>, U>;
 
 #[derive(Debug, PartialEq)]
-pub struct Alias {
+pub struct AliasData {
     pub name: Ident,
     pub asname: Option<Ident>,
 }
+pub type Alias<U = ()> = Located<AliasData, U>;
 
 #[derive(Debug, PartialEq)]
 pub struct Withitem<U = ()> {
     pub context_expr: Box<Expr<U>>,
     pub optional_vars: Option<Box<Expr<U>>>,
 }
+
+#[derive(Debug, PartialEq)]
+pub struct MatchCase<U = ()> {
+    pub pattern: Box<Pattern<U>>,
+    pub guard: Option<Box<Expr<U>>>,
+    pub body: Vec<Stmt<U>>,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum PatternKind<U = ()> {
+    MatchValue {
+        value: Box<Expr<U>>,
+    },
+    MatchSingleton {
+        value: Constant,
+    },
+    MatchSequence {
+        patterns: Vec<Pattern<U>>,
+    },
+    MatchMapping {
+        keys: Vec<Expr<U>>,
+        patterns: Vec<Pattern<U>>,
+        rest: Option<Ident>,
+    },
+    MatchClass {
+        cls: Box<Expr<U>>,
+        patterns: Vec<Pattern<U>>,
+        kwd_attrs: Vec<Ident>,
+        kwd_patterns: Vec<Pattern<U>>,
+    },
+    MatchStar {
+        name: Option<Ident>,
+    },
+    MatchAs {
+        pattern: Option<Box<Pattern<U>>>,
+        name: Option<Ident>,
+    },
+    MatchOr {
+        patterns: Vec<Pattern<U>>,
+    },
+}
+pub type Pattern<U = ()> = Located<PatternKind<U>, U>;
 
 #[derive(Debug, PartialEq)]
 pub enum TypeIgnore {
@@ -449,7 +496,7 @@ pub mod fold {
         ) -> Result<Keyword<Self::TargetU>, Self::Error> {
             fold_keyword(self, node)
         }
-        fn fold_alias(&mut self, node: Alias) -> Result<Alias, Self::Error> {
+        fn fold_alias(&mut self, node: Alias<U>) -> Result<Alias<Self::TargetU>, Self::Error> {
             fold_alias(self, node)
         }
         fn fold_withitem(
@@ -457,6 +504,18 @@ pub mod fold {
             node: Withitem<U>,
         ) -> Result<Withitem<Self::TargetU>, Self::Error> {
             fold_withitem(self, node)
+        }
+        fn fold_match_case(
+            &mut self,
+            node: MatchCase<U>,
+        ) -> Result<MatchCase<Self::TargetU>, Self::Error> {
+            fold_match_case(self, node)
+        }
+        fn fold_pattern(
+            &mut self,
+            node: Pattern<U>,
+        ) -> Result<Pattern<Self::TargetU>, Self::Error> {
+            fold_pattern(self, node)
         }
         fn fold_type_ignore(&mut self, node: TypeIgnore) -> Result<TypeIgnore, Self::Error> {
             fold_type_ignore(self, node)
@@ -644,6 +703,10 @@ pub mod fold {
                 items: Foldable::fold(items, folder)?,
                 body: Foldable::fold(body, folder)?,
                 type_comment: Foldable::fold(type_comment, folder)?,
+            }),
+            StmtKind::Match { subject, cases } => Ok(StmtKind::Match {
+                subject: Foldable::fold(subject, folder)?,
+                cases: Foldable::fold(cases, folder)?,
             }),
             StmtKind::Raise { exc, cause } => Ok(StmtKind::Raise {
                 exc: Foldable::fold(exc, folder)?,
@@ -1074,8 +1137,8 @@ pub mod fold {
             })
         })
     }
-    impl<T, U> Foldable<T, U> for Alias {
-        type Mapped = Alias;
+    impl<T, U> Foldable<T, U> for Alias<T> {
+        type Mapped = Alias<U>;
         fn fold<F: Fold<T, TargetU = U> + ?Sized>(
             self,
             folder: &mut F,
@@ -1085,12 +1148,14 @@ pub mod fold {
     }
     pub fn fold_alias<U, F: Fold<U> + ?Sized>(
         #[allow(unused)] folder: &mut F,
-        node: Alias,
-    ) -> Result<Alias, F::Error> {
-        let Alias { name, asname } = node;
-        Ok(Alias {
-            name: Foldable::fold(name, folder)?,
-            asname: Foldable::fold(asname, folder)?,
+        node: Alias<U>,
+    ) -> Result<Alias<F::TargetU>, F::Error> {
+        fold_located(folder, node, |folder, node| {
+            let AliasData { name, asname } = node;
+            Ok(AliasData {
+                name: Foldable::fold(name, folder)?,
+                asname: Foldable::fold(asname, folder)?,
+            })
         })
     }
     impl<T, U> Foldable<T, U> for Withitem<T> {
@@ -1113,6 +1178,85 @@ pub mod fold {
         Ok(Withitem {
             context_expr: Foldable::fold(context_expr, folder)?,
             optional_vars: Foldable::fold(optional_vars, folder)?,
+        })
+    }
+    impl<T, U> Foldable<T, U> for MatchCase<T> {
+        type Mapped = MatchCase<U>;
+        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
+            self,
+            folder: &mut F,
+        ) -> Result<Self::Mapped, F::Error> {
+            folder.fold_match_case(self)
+        }
+    }
+    pub fn fold_match_case<U, F: Fold<U> + ?Sized>(
+        #[allow(unused)] folder: &mut F,
+        node: MatchCase<U>,
+    ) -> Result<MatchCase<F::TargetU>, F::Error> {
+        let MatchCase {
+            pattern,
+            guard,
+            body,
+        } = node;
+        Ok(MatchCase {
+            pattern: Foldable::fold(pattern, folder)?,
+            guard: Foldable::fold(guard, folder)?,
+            body: Foldable::fold(body, folder)?,
+        })
+    }
+    impl<T, U> Foldable<T, U> for Pattern<T> {
+        type Mapped = Pattern<U>;
+        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
+            self,
+            folder: &mut F,
+        ) -> Result<Self::Mapped, F::Error> {
+            folder.fold_pattern(self)
+        }
+    }
+    pub fn fold_pattern<U, F: Fold<U> + ?Sized>(
+        #[allow(unused)] folder: &mut F,
+        node: Pattern<U>,
+    ) -> Result<Pattern<F::TargetU>, F::Error> {
+        fold_located(folder, node, |folder, node| match node {
+            PatternKind::MatchValue { value } => Ok(PatternKind::MatchValue {
+                value: Foldable::fold(value, folder)?,
+            }),
+            PatternKind::MatchSingleton { value } => Ok(PatternKind::MatchSingleton {
+                value: Foldable::fold(value, folder)?,
+            }),
+            PatternKind::MatchSequence { patterns } => Ok(PatternKind::MatchSequence {
+                patterns: Foldable::fold(patterns, folder)?,
+            }),
+            PatternKind::MatchMapping {
+                keys,
+                patterns,
+                rest,
+            } => Ok(PatternKind::MatchMapping {
+                keys: Foldable::fold(keys, folder)?,
+                patterns: Foldable::fold(patterns, folder)?,
+                rest: Foldable::fold(rest, folder)?,
+            }),
+            PatternKind::MatchClass {
+                cls,
+                patterns,
+                kwd_attrs,
+                kwd_patterns,
+            } => Ok(PatternKind::MatchClass {
+                cls: Foldable::fold(cls, folder)?,
+                patterns: Foldable::fold(patterns, folder)?,
+                kwd_attrs: Foldable::fold(kwd_attrs, folder)?,
+                kwd_patterns: Foldable::fold(kwd_patterns, folder)?,
+            }),
+            PatternKind::MatchStar { name } => Ok(PatternKind::MatchStar {
+                name: Foldable::fold(name, folder)?,
+            }),
+            PatternKind::MatchAs { pattern, name } => Ok(PatternKind::MatchAs {
+                pattern: Foldable::fold(pattern, folder)?,
+                name: Foldable::fold(name, folder)?,
+            }),
+            PatternKind::MatchOr { patterns } => Ok(PatternKind::MatchOr {
+                patterns: Foldable::fold(patterns, folder)?,
+            }),
         })
     }
     impl<T, U> Foldable<T, U> for TypeIgnore {

@@ -54,7 +54,7 @@ Located {
                             ctx: Load,
                         },
                     },
-                    conversion: None,
+                    conversion: 0,
                     format_spec: None,
                 },
             },

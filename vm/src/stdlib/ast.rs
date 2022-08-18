@@ -239,7 +239,11 @@ impl Node for ast::Constant {
             }
             builtins::singletons::PyNone => ast::Constant::None,
             builtins::slice::PyEllipsis => ast::Constant::Ellipsis,
-            _ => return Err(vm.new_type_error("unsupported type for constant".to_owned())),
+            obj =>
+                return Err(vm.new_type_error(format!(
+                    "invalid type in Constant: type '{}'",
+                    obj.class().name()
+                ))),
         });
         Ok(constant)
     }
@@ -252,8 +256,8 @@ impl Node for ast::ConversionFlag {
 
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
         i32::try_from_object(vm, object)?
-            .to_u8()
-            .and_then(ast::ConversionFlag::try_from_byte)
+            .to_usize()
+            .and_then(|f| f.try_into().ok())
             .ok_or_else(|| vm.new_value_error("invalid conversion flag".to_owned()))
     }
 }

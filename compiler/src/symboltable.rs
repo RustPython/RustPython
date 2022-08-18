@@ -639,7 +639,7 @@ impl SymbolTableBuilder {
         if let ImportFrom { module, names, .. } = &statement.node {
             if module.as_deref() == Some("__future__") {
                 for feature in names {
-                    if feature.name == "annotations" {
+                    if feature.node.name == "annotations" {
                         self.future_annotations = true;
                     }
                 }
@@ -739,13 +739,13 @@ impl SymbolTableBuilder {
             }
             Import { names } | ImportFrom { names, .. } => {
                 for name in names {
-                    if let Some(alias) = &name.asname {
+                    if let Some(alias) = &name.node.asname {
                         // `import mymodule as myalias`
                         self.register_name(alias, SymbolUsage::Imported, location)?;
                     } else {
                         // `import module`
                         self.register_name(
-                            name.name.split('.').next().unwrap(),
+                            name.node.name.split('.').next().unwrap(),
                             SymbolUsage::Imported,
                             location,
                         )?;
@@ -782,7 +782,7 @@ impl SymbolTableBuilder {
             } => {
                 // https://github.com/python/cpython/blob/main/Python/symtable.c#L1233
                 match &target.node {
-                    ast::ExprKind::Name { id, .. } if *simple => {
+                    ast::ExprKind::Name { id, .. } if *simple > 0 => {
                         self.register_name(id, SymbolUsage::AnnotationAssigned, location)?;
                     }
                     _ => {
@@ -822,6 +822,15 @@ impl SymbolTableBuilder {
                 }
                 self.scan_statements(orelse)?;
                 self.scan_statements(finalbody)?;
+            }
+            Match {
+                subject: _,
+                cases: _,
+            } => {
+                return Err(SymbolTableError {
+                    error: "match expression is not implemented yet".to_owned(),
+                    location: Location::default(),
+                });
             }
             Raise { exc, cause } => {
                 if let Some(expression) = exc {
@@ -875,12 +884,13 @@ impl SymbolTableBuilder {
                 self.scan_expression(value, ExpressionContext::Load)?;
             }
             Dict { keys, values } => {
-                for (key, value) in keys.iter().zip(values) {
-                    if let Some(key) = key {
-                        self.scan_expression(key, context)?;
-                    } else {
-                        // dict unpacking marker
-                    }
+                let (packed, unpacked) = values.split_at(keys.len());
+                for (key, value) in keys.iter().zip(packed) {
+                    self.scan_expression(key, context)?;
+                    self.scan_expression(value, context)?;
+                }
+                for value in unpacked {
+                    // dict unpacking marker
                     self.scan_expression(value, context)?;
                 }
             }
@@ -1094,7 +1104,7 @@ impl SymbolTableBuilder {
     ) -> SymbolTableResult {
         // Evaluate eventual default parameters:
         self.scan_expressions(&args.defaults, ExpressionContext::Load)?;
-        for expression in args.kw_defaults.iter().flatten() {
+        for expression in args.kw_defaults.iter() {
             self.scan_expression(expression, ExpressionContext::Load)?;
         }
 

@@ -1,7 +1,6 @@
 ---
 source: parser/src/parser.rs
 expression: parse_ast
-
 ---
 Located {
     location: Location {
@@ -69,7 +68,7 @@ Located {
                     },
                 },
                 ifs: [],
-                is_async: false,
+                is_async: 0,
             },
             Comprehension {
                 target: Located {
@@ -172,7 +171,7 @@ Located {
                         },
                     },
                 ],
-                is_async: false,
+                is_async: 0,
             },
         ],
     },

@@ -552,6 +552,7 @@ impl Compiler {
             Import { names } => {
                 // import a, b, c as d
                 for name in names {
+                    let name = &name.node;
                     self.emit_constant(ConstantData::Integer {
                         value: num_traits::Zero::zero(),
                     });
@@ -574,7 +575,7 @@ impl Compiler {
                 module,
                 names,
             } => {
-                let import_star = names.iter().any(|n| n.name == "*");
+                let import_star = names.iter().any(|n| n.node.name == "*");
 
                 let from_list = if import_star {
                     if self.ctx.in_func() {
@@ -588,7 +589,7 @@ impl Compiler {
                     names
                         .iter()
                         .map(|n| ConstantData::Str {
-                            value: n.name.to_owned(),
+                            value: n.node.name.to_owned(),
                         })
                         .collect()
                 };
@@ -597,7 +598,7 @@ impl Compiler {
 
                 // from .... import (*fromlist)
                 self.emit_constant(ConstantData::Integer {
-                    value: (*level).into(),
+                    value: (*level).unwrap_or(0).into(),
                 });
                 self.emit_constant(ConstantData::Tuple {
                     elements: from_list,
@@ -615,6 +616,7 @@ impl Compiler {
                     // from mod import a, b as c
 
                     for name in names {
+                        let name = &name.node;
                         let idx = self.name(&name.name);
                         // import symbol from module:
                         self.emit(Instruction::ImportFrom { idx });
@@ -678,6 +680,7 @@ impl Compiler {
                 orelse,
                 ..
             } => self.compile_for(target, iter, body, orelse, true)?,
+            Match { subject, cases } => self.compile_match(subject, cases)?,
             Raise { exc, cause } => {
                 let kind = match exc {
                     Some(value) => {
@@ -879,19 +882,19 @@ impl Compiler {
             });
         }
 
-        let mut num_kw_only_defaults = 0;
-        for (kw, default) in args.kwonlyargs.iter().zip(&args.kw_defaults) {
-            if let Some(default) = default {
+        if !args.kw_defaults.is_empty() {
+            let required_kw_count = args.kwonlyargs.len().saturating_sub(args.kw_defaults.len());
+            for (kw, default) in args.kwonlyargs[required_kw_count..]
+                .iter()
+                .zip(&args.kw_defaults)
+            {
                 self.emit_constant(ConstantData::Str {
                     value: kw.node.arg.clone(),
                 });
                 self.compile_expression(default)?;
-                num_kw_only_defaults += 1;
             }
-        }
-        if num_kw_only_defaults > 0 {
             self.emit(Instruction::BuildMap {
-                size: num_kw_only_defaults,
+                size: args.kw_defaults.len() as u32,
                 unpack: false,
                 for_call: false,
             });
@@ -901,7 +904,7 @@ impl Compiler {
         if have_defaults {
             funcflags |= bytecode::MakeFunctionFlags::DEFAULTS;
         }
-        if num_kw_only_defaults > 0 {
+        if !args.kw_defaults.is_empty() {
             funcflags |= bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS;
         }
 
@@ -1519,6 +1522,16 @@ impl Compiler {
         Ok(())
     }
 
+    fn compile_match(
+        &mut self,
+        subject: &ast::Expr,
+        cases: &[ast::MatchCase],
+    ) -> CompileResult<()> {
+        eprintln!("match subject: {subject:?}");
+        eprintln!("match cases: {cases:?}");
+        Err(self.error(CompileErrorType::NotImplementedYet))
+    }
+
     fn compile_chained_comparison(
         &mut self,
         left: &ast::Expr,
@@ -1928,51 +1941,26 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_dict(
-        &mut self,
-        keys: &[Option<Box<ast::Expr>>],
-        values: &[ast::Expr],
-    ) -> CompileResult<()> {
+    fn compile_dict(&mut self, keys: &[ast::Expr], values: &[ast::Expr]) -> CompileResult<()> {
         let mut size = 0;
-        let mut has_unpacking = false;
-        for (is_unpacking, subpairs) in &keys.iter().zip(values).group_by(|e| e.0.is_none()) {
-            if is_unpacking {
-                for (_, value) in subpairs {
-                    self.compile_expression(value)?;
-                    size += 1;
-                }
-                has_unpacking = true;
-            } else {
-                let mut subsize = 0;
-                for (key, value) in subpairs {
-                    if let Some(key) = key {
-                        self.compile_expression(key)?;
-                        self.compile_expression(value)?;
-                        subsize += 1;
-                    }
-                }
-                self.emit(Instruction::BuildMap {
-                    size: subsize,
-                    unpack: false,
-                    for_call: false,
-                });
-                size += 1;
-            }
+
+        let (packed_values, unpacked_values) = values.split_at(keys.len());
+        for (key, value) in keys.iter().zip(packed_values) {
+            self.compile_expression(key)?;
+            self.compile_expression(value)?;
+            size += 1;
         }
-        if size == 0 {
-            self.emit(Instruction::BuildMap {
-                size,
-                unpack: false,
-                for_call: false,
-            });
+        self.emit(Instruction::BuildMap {
+            size,
+            unpack: false,
+            for_call: false,
+        });
+
+        for value in unpacked_values {
+            self.compile_expression(value)?;
+            self.emit(Instruction::DictUpdate);
         }
-        if size > 1 || has_unpacking {
-            self.emit(Instruction::BuildMap {
-                size,
-                unpack: true,
-                for_call: false,
-            });
-        }
+
         Ok(())
     }
 
@@ -2120,7 +2108,7 @@ impl Compiler {
                 };
                 self.compile_expression(value)?;
                 self.emit(Instruction::FormatValue {
-                    conversion: compile_conversion_flag(*conversion),
+                    conversion: (*conversion).try_into().expect("invalid conversion flag"),
                 });
             }
             Name { id, .. } => self.load_name(id)?,
@@ -2475,7 +2463,7 @@ impl Compiler {
 
         let mut loop_labels = vec![];
         for generator in generators {
-            if generator.is_async {
+            if generator.is_async > 0 {
                 unimplemented!("async for comprehensions");
             }
 
@@ -2564,7 +2552,7 @@ impl Compiler {
             return Err(self.error(CompileErrorType::InvalidFuturePlacement));
         }
         for feature in features {
-            match &*feature.name {
+            match &*feature.node.name {
                 // Python 3 features; we've already implemented them by default
                 "nested_scopes" | "generators" | "division" | "absolute_import"
                 | "with_statement" | "print_function" | "unicode_literals" => {}
@@ -2686,17 +2674,6 @@ fn try_get_constant_string(values: &[ast::Expr]) -> Option<String> {
 
 fn compile_location(location: &ast::Location) -> bytecode::Location {
     bytecode::Location::new(location.row(), location.column())
-}
-
-fn compile_conversion_flag(
-    conversion_flag: Option<ast::ConversionFlag>,
-) -> bytecode::ConversionFlag {
-    match conversion_flag {
-        None => bytecode::ConversionFlag::None,
-        Some(ast::ConversionFlag::Ascii) => bytecode::ConversionFlag::Ascii,
-        Some(ast::ConversionFlag::Repr) => bytecode::ConversionFlag::Repr,
-        Some(ast::ConversionFlag::Str) => bytecode::ConversionFlag::Str,
-    }
 }
 
 fn compile_constant(value: &ast::Constant) -> ConstantData {

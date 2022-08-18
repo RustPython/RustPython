@@ -1723,6 +1723,7 @@ name = "rustpython-ast"
 version = "0.1.0"
 dependencies = [
  "num-bigint",
+ "rustpython-bytecode",
  "rustpython-common",
 ]
 

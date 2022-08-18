@@ -56,7 +56,7 @@ Located {
                     },
                 },
                 ifs: [],
-                is_async: false,
+                is_async: 0,
             },
         ],
     },

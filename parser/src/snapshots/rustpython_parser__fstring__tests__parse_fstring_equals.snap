@@ -1,7 +1,6 @@
 ---
 source: parser/src/fstring.rs
 expression: parse_ast
-
 ---
 Located {
     location: Location {
@@ -58,7 +57,7 @@ Located {
                             ],
                         },
                     },
-                    conversion: None,
+                    conversion: 0,
                     format_spec: None,
                 },
             },

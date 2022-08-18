@@ -38,52 +38,61 @@ class FutureTest(unittest.TestCase):
         with import_helper.CleanImport('test_future3'):
             from test import test_future3
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_badfuture3(self):
         with self.assertRaises(SyntaxError) as cm:
             from test import badsyntax_future3
         self.check_syntax_error(cm.exception, "badsyntax_future3", 3)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_badfuture4(self):
         with self.assertRaises(SyntaxError) as cm:
             from test import badsyntax_future4
         self.check_syntax_error(cm.exception, "badsyntax_future4", 3)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_badfuture5(self):
         with self.assertRaises(SyntaxError) as cm:
             from test import badsyntax_future5
         self.check_syntax_error(cm.exception, "badsyntax_future5", 4)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_badfuture6(self):
         with self.assertRaises(SyntaxError) as cm:
             from test import badsyntax_future6
         self.check_syntax_error(cm.exception, "badsyntax_future6", 3)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_badfuture7(self):
         with self.assertRaises(SyntaxError) as cm:
             from test import badsyntax_future7
         self.check_syntax_error(cm.exception, "badsyntax_future7", 3, 53)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_badfuture8(self):
         with self.assertRaises(SyntaxError) as cm:
             from test import badsyntax_future8
         self.check_syntax_error(cm.exception, "badsyntax_future8", 3)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_badfuture9(self):
         with self.assertRaises(SyntaxError) as cm:
             from test import badsyntax_future9
         self.check_syntax_error(cm.exception, "badsyntax_future9", 3)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_badfuture10(self):
         with self.assertRaises(SyntaxError) as cm:
             from test import badsyntax_future10
         self.check_syntax_error(cm.exception, "badsyntax_future10", 3)
-
-    k, v = None, None # 'dictionary changed size during iteration'
-    for k, v in locals().items():
-        if k.startswith("test_badfuture"):
-            # XXX RUSTPYTHON TODO: fix SyntaxError
-            locals()[k] = unittest.expectedFailure(v)
-    del k, v
 
     def test_ensure_flags_dont_clash(self):
         # bpo-39562: test that future flags and compiler flags doesn't clash
@@ -141,8 +150,12 @@ class AnnotationsFutureTestCase(unittest.TestCase):
             ...
         async def g2(arg: {ann}) -> None:
             ...
+        class H:
+            var: {ann}
+            object.attr: {ann}
         var: {ann}
         var2: {ann} = None
+        object.attr: {ann}
         """
     )
 
@@ -173,6 +186,14 @@ class AnnotationsFutureTestCase(unittest.TestCase):
             actual = actual.replace("(", "").replace(")", "")
 
         self.assertEqual(actual, expected)
+
+    def _exec_future(self, code):
+        scope = {}
+        exec(
+            "from __future__ import annotations\n"
+            + code, {}, scope
+        )
+        return scope
 
     def test_annotations(self):
         eq = self.assertAnnotationEqual
@@ -313,10 +334,6 @@ class AnnotationsFutureTestCase(unittest.TestCase):
         eq("f'{x}'")
         eq("f'{x!r}'")
         eq("f'{x!a}'")
-        eq('(yield from outside_of_generator)')
-        eq('(yield)')
-        eq('(yield a + b)')
-        eq('await some.complicated[0].call(with_args=True or 1 is not 1)')
         eq('[x for x in (a if b else c)]')
         eq('[x for x in a if (b if c else d)]')
         eq('f(x for x in a)')
@@ -324,13 +341,11 @@ class AnnotationsFutureTestCase(unittest.TestCase):
         eq('f((x for x in a), 2)')
         eq('(((a)))', 'a')
         eq('(((a, b)))', '(a, b)')
-        eq("(x := 10)")
-        eq("f'{(x := 10):=10}'")
         eq("1 + 2 + 3")
 
     def test_fstring_debug_annotations(self):
         # f-strings with '=' don't round trip very well, so set the expected
-        # result explicitely.
+        # result explicitly.
         self.assertAnnotationEqual("f'{x=!r}'", expected="f'x={x!r}'")
         self.assertAnnotationEqual("f'{x=:}'", expected="f'x={x:}'")
         self.assertAnnotationEqual("f'{x=:.2f}'", expected="f'x={x:.2f}'")
@@ -349,6 +364,66 @@ class AnnotationsFutureTestCase(unittest.TestCase):
         self.assertAnnotationEqual("'inf'")
         self.assertAnnotationEqual("('inf', 1e1000, 'infxxx', 1e1000j)", expected=f"('inf', {inf}, 'infxxx', {infj})")
         self.assertAnnotationEqual("(1e1000, (1e1000j,))", expected=f"({inf}, ({infj},))")
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_annotation_with_complex_target(self):
+        with self.assertRaises(SyntaxError):
+            exec(
+                "from __future__ import annotations\n"
+                "object.__debug__: int"
+            )
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_annotations_symbol_table_pass(self):
+        namespace = self._exec_future(dedent("""
+        from __future__ import annotations
+
+        def foo():
+            outer = 1
+            def bar():
+                inner: outer = 1
+            return bar
+        """))
+
+        foo = namespace.pop("foo")
+        self.assertIsNone(foo().__closure__)
+        self.assertEqual(foo.__code__.co_cellvars, ())
+        self.assertEqual(foo().__code__.co_freevars, ())
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_annotations_forbidden(self):
+        with self.assertRaises(SyntaxError):
+            self._exec_future("test: (yield)")
+
+        with self.assertRaises(SyntaxError):
+            self._exec_future("test.test: (yield a + b)")
+
+        with self.assertRaises(SyntaxError):
+            self._exec_future("test[something]: (yield from x)")
+
+        with self.assertRaises(SyntaxError):
+            self._exec_future("def func(test: (yield from outside_of_generator)): pass")
+
+        with self.assertRaises(SyntaxError):
+            self._exec_future("def test() -> (await y): pass")
+
+        with self.assertRaises(SyntaxError):
+            self._exec_future("async def test() -> something((a := b)): pass")
+
+        with self.assertRaises(SyntaxError):
+            self._exec_future("test: await some.complicated[0].call(with_args=True or 1 is not 1)")
+
+        with self.assertRaises(SyntaxError):
+            self._exec_future("test: f'{(x := 10):=10}'")
+
+        with self.assertRaises(SyntaxError):
+            self._exec_future(dedent("""\
+            def foo():
+                def bar(arg: (yield)): pass
+            """))
 
 
 if __name__ == "__main__":
