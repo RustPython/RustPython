@@ -10,11 +10,18 @@ mod _winapi {
         stdlib::os::errno_err,
         PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     };
+    use std::ffi::{OsStr, OsString};
+    use std::os::windows::prelude::*;
     use std::ptr::{null, null_mut};
     use winapi::shared::winerror;
     use winapi::um::{
         fileapi, handleapi, namedpipeapi, processenv, processthreadsapi, synchapi, winbase,
         winnt::HANDLE,
+    };
+    use windows::{
+        core::PCWSTR,
+        Win32::Foundation::{HINSTANCE, MAX_PATH},
+        Win32::System::LibraryLoader::{GetModuleFileNameW, LoadLibraryW},
     };
 
     #[pyattr]
@@ -401,5 +408,57 @@ mod _winapi {
             processthreadsapi::TerminateProcess(h as _, exit_code)
         })
         .map(drop)
+    }
+
+    pub trait ToWideString {
+        fn to_wide(&self) -> Vec<u16>;
+        fn to_wides_with_nul(&self) -> Vec<u16>;
+    }
+    impl<T> ToWide for T
+    where
+        T: AsRef<OsStr>,
+    {
+        fn to_wide(&self) -> Vec<u16> {
+            self.as_ref().encode_wide().collect()
+        }
+        fn to_wide_null(&self) -> Vec<u16> {
+            self.as_ref().encode_wide().chain(Some(0)).collect()
+        }
+    }
+    pub trait FromWide
+    where
+        Self: Sized,
+    {
+        fn from_wides_until_nul(wide: &[u16]) -> Self;
+    }
+    impl FromWide for OsString {
+        fn from_wide_null(wide: &[u16]) -> OsString {
+            let len = wide.iter().take_while(|&&c| c != 0).count();
+            OsString::from_wide(&wide[..len])
+        }
+    }
+
+    #[pyfunction]
+    fn LoadLibrary(path: PyStrRef, vm: &VirtualMachine) -> PyResult<isize> {
+        let path = path.as_str().to_wide_null();
+        let handle = unsafe { LoadLibraryW(PCWSTR::from_raw(path.as_ptr())).unwrap() };
+        if handle.is_invalid() {
+            return Err(vm.new_runtime_error("LoadLibrary failed".to_owned()));
+        }
+        Ok(handle.0)
+    }
+
+    #[pyfunction]
+    fn GetModuleFileName(handle: isize, vm: &VirtualMachine) -> PyResult<String> {
+        let mut path: Vec<u16> = vec![0; MAX_PATH as usize];
+        let handle = HINSTANCE(handle);
+
+        let length = unsafe { GetModuleFileNameW(handle, &mut path) };
+        if length == 0 {
+            return Err(vm.new_runtime_error("GetModuleFileName failed".to_owned()));
+        }
+
+        let (path, _) = path.split_at(length as usize);
+        Ok(String::from_utf16(&path).unwrap())
     }
 }
