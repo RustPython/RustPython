@@ -8,7 +8,7 @@ use crate::{
     error::{LexicalError, LexicalErrorType},
     function::{ArgumentList, parse_args, parse_params},
     lexer,
-    string::parse_implicit_concatenation,
+    string::parse_strings,
     token::StringKind
 };
 use num_bigint::BigInt;
@@ -961,7 +961,7 @@ SliceOp: Option<ast::Expr> = {
 }
 
 Atom: ast::Expr = {
-    <location:@L> <s:(@L string)+> =>? parse_implicit_concatenation(s).map_err(|e| e.into()),
+    <location:@L> <s:(@L string)+> =>? parse_strings(s).map_err(|e| e.into()),
     <location:@L> <value:Constant> => ast::Expr {
         location,
         custom: (),

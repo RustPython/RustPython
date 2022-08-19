@@ -5,7 +5,7 @@ use crate::fstring::parse_located_fstring;
 use crate::token::StringKind;
 use itertools::Itertools;
 
-pub fn parse_implicit_concatenation(
+pub fn parse_strings(
     values: Vec<(Location, (String, StringKind))>,
 ) -> Result<Expr, LexicalError> {
     // Preserve the initial location and kind.
