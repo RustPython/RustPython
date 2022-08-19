@@ -219,10 +219,7 @@ mod sys {
 
     #[pyattr]
     fn orig_argv(vm: &VirtualMachine) -> Vec<PyObjectRef> {
-        vm.state
-            .settings
-            .orig_argv
-            .iter()
+        env::args()
             .map(|arg| vm.ctx.new_str(arg.clone()).into())
             .collect()
     }

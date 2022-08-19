@@ -389,7 +389,6 @@ fn create_settings(matches: &ArgMatches) -> Settings {
     });
 
     settings.argv = argv;
-    settings.orig_argv = env::args().collect();
 
     settings
 }

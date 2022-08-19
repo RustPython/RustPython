@@ -55,9 +55,6 @@ pub struct Settings {
     /// sys.argv
     pub argv: Vec<String>,
 
-    /// sys.orig_argv
-    pub orig_argv: Vec<String>,
-
     /// PYTHONHASHSEED=x
     pub hash_seed: Option<u32>,
 
@@ -94,7 +91,6 @@ impl Default for Settings {
                 rustpython_pylib::LIB_PATH.to_owned(),
             ],
             argv: vec![],
-            orig_argv: vec![],
             hash_seed: None,
             stdio_unbuffered: false,
             allow_external_library: cfg!(feature = "importlib"),
