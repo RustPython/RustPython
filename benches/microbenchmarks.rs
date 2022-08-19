@@ -3,7 +3,7 @@ use criterion::{
     Criterion, Throughput,
 };
 use rustpython_compiler::Mode;
-use rustpython_vm::{common::ascii, AsObject, Interpreter, PyResult, Settings};
+use rustpython_vm::{AsObject, Interpreter, PyResult, Settings};
 use std::{
     ffi, fs, io,
     path::{Path, PathBuf},
@@ -138,7 +138,7 @@ fn bench_rustpy_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchmar
                 scope
                     .locals
                     .as_object()
-                    .set_item(vm.new_pyobj(ascii!("ITERATIONS")), vm.new_pyobj(idx), vm)
+                    .set_item("ITERATIONS", vm.new_pyobj(idx), vm)
                     .expect("Error adding ITERATIONS local variable");
             }
             let setup_result = vm.run_code_obj(setup_code.clone(), scope.clone());
