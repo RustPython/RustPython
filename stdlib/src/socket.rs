@@ -2084,7 +2084,7 @@ mod _socket {
     fn if_nameindex(vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         #[cfg(not(windows))]
         {
-            let list = if_nameindex()
+            let list = nix::net::if_::if_nameindex()
                 .map_err(|err| err.into_pyexception(vm))?
                 .to_slice()
                 .iter()
@@ -2095,55 +2095,7 @@ mod _socket {
                 })
                 .collect();
 
-            return Ok(list);
-
-            // all the stuff below should be in nix soon, hopefully
-
-            use ffi::CStr;
-            use std::ptr::NonNull;
-
-            #[repr(transparent)]
-            struct Interface(libc::if_nameindex);
-
-            impl Interface {
-                fn index(&self) -> libc::c_uint {
-                    self.0.if_index
-                }
-                fn name(&self) -> &CStr {
-                    unsafe { CStr::from_ptr(self.0.if_name) }
-                }
-            }
-
-            struct Interfaces {
-                ptr: NonNull<libc::if_nameindex>,
-            }
-
-            impl Interfaces {
-                fn to_slice(&self) -> &[Interface] {
-                    let ifs = self.ptr.as_ptr() as *const Interface;
-                    let mut len = 0;
-                    unsafe {
-                        while (*ifs.add(len)).0.if_index != 0 {
-                            len += 1
-                        }
-                        std::slice::from_raw_parts(ifs, len)
-                    }
-                }
-            }
-
-            impl Drop for Interfaces {
-                fn drop(&mut self) {
-                    unsafe { libc::if_freenameindex(self.ptr.as_ptr()) };
-                }
-            }
-
-            fn if_nameindex() -> nix::Result<Interfaces> {
-                unsafe {
-                    let ifs = libc::if_nameindex();
-                    let ptr = NonNull::new(ifs).ok_or_else(nix::Error::last)?;
-                    Ok(Interfaces { ptr })
-                }
-            }
+            Ok(list)
         }
         #[cfg(windows)]
         {

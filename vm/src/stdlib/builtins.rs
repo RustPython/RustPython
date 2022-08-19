@@ -402,9 +402,6 @@ mod builtins {
                     Err(vm.new_exception_empty(vm.ctx.exceptions.keyboard_interrupt.to_owned()))
                 }
                 ReadlineResult::Io(e) => Err(vm.new_os_error(e.to_string())),
-                ReadlineResult::EncodingError => {
-                    Err(vm.new_unicode_decode_error("Error decoding readline input".to_owned()))
-                }
                 ReadlineResult::Other(e) => Err(vm.new_runtime_error(e.to_string())),
             }
         } else {

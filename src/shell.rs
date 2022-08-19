@@ -112,10 +112,6 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
             ReadlineResult::Eof => {
                 break;
             }
-            ReadlineResult::EncodingError => {
-                eprintln!("Invalid UTF-8 entered");
-                Ok(())
-            }
             ReadlineResult::Other(err) => {
                 eprintln!("Readline error: {:?}", err);
                 break;
