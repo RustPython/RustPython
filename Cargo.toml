@@ -49,7 +49,7 @@ flame = { version = "0.2.2", optional = true }
 flamescope = { version = "0.1.2", optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-rustyline = "9.1.2"
+rustyline = "10.0.0"
 
 [dev-dependencies]
 cpython = "0.7.0"
