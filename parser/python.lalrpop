@@ -6,7 +6,6 @@
 use crate::{
     ast,
     error::{LexicalError, LexicalErrorType},
-    fstring::parse_located_fstring,
     function::{ArgumentList, parse_args, parse_params},
     lexer,
     string::parse_implicit_concatenation,
