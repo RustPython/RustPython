@@ -214,7 +214,6 @@ class UnicodeNamesTest(unittest.TestCase):
         self.assertRaises(TypeError, unicodedata.lookup)
         self.assertRaises(KeyError, unicodedata.lookup, 'unknown')
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_strict_error_handling(self):
         # bogus character name
         self.assertRaises(
