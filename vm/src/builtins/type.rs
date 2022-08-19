@@ -3,15 +3,6 @@ use super::{
     PyStr, PyStrInterned, PyStrRef, PyTuple, PyTupleRef, PyWeak,
 };
 use crate::{
-    builtins::tuple::IntoPyTuple,
-    common::{
-        ascii,
-        borrow::BorrowedValue,
-        lock::{PyRwLock, PyRwLockReadGuard},
-    },
-    protocol::PyIterReturn,
-};
-use crate::{
     builtins::PyBaseExceptionRef,
     builtins::{function::PyCellRef, tuple::PyTupleTyped},
     class::{PyClassImpl, StaticType},
@@ -21,6 +12,18 @@ use crate::{
     protocol::PyNumberMethods,
     types::{Callable, GetAttr, PyTypeFlags, PyTypeSlots, SetAttr},
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+};
+use crate::{
+    builtins::{
+        descriptor::{DescrObject, MemberDef, MemberDescrObject, MemberKind},
+        tuple::IntoPyTuple,
+    },
+    common::{
+        ascii,
+        borrow::BorrowedValue,
+        lock::{PyRwLock, PyRwLockReadGuard},
+    },
+    protocol::PyIterReturn,
 };
 use indexmap::{map::Entry, IndexMap};
 use itertools::Itertools;
@@ -654,7 +657,7 @@ impl PyType {
 
         let flags = PyTypeFlags::heap_type_flags() | PyTypeFlags::HAS_DICT;
         let heaptype_ext = HeapTypeExt {
-            slots: heaptype_slots,
+            slots: heaptype_slots.to_owned(),
             ..HeapTypeExt::default()
         };
         let slots = PyTypeSlots::from_flags(flags);
@@ -669,6 +672,29 @@ impl PyType {
             metatype,
         )
         .map_err(|e| vm.new_type_error(e))?;
+
+        if let Some(ref slots) = heaptype_slots {
+            for member in slots.as_slice() {
+                let member_def = MemberDef {
+                    name: member.to_string(),
+                    kind: MemberKind::ObjectEx,
+                    doc: None,
+                };
+                let member_descriptor: PyRef<MemberDescrObject> = vm.new_pyref(MemberDescrObject {
+                    common: DescrObject {
+                        typ: typ.to_owned(),
+                        name: member.to_string(),
+                        qualname: PyRwLock::new(None),
+                    },
+                    member: member_def,
+                });
+
+                let attr_name = vm.ctx.intern_str(member.to_string());
+                if !typ.has_attr(attr_name) {
+                    typ.set_attr(attr_name, member_descriptor.into());
+                }
+            }
+        }
 
         if let Some(cell) = typ.attributes.write().get(identifier!(vm, __classcell__)) {
             let cell = PyCellRef::try_from_object(vm, cell.clone()).map_err(|_| {
