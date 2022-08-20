@@ -9,7 +9,7 @@ edition = "2021"
 include = ["Cargo.toml", "src/**/*.rs", "Lib/", "!Lib/**/test/", "!Lib/**/*.pyc"]
 
 [features]
-stdlib = []
+freeze-stdlib = []
 
 [dependencies]
 rustpython-derive = { version = "0.1.2", path = "../../derive" }
