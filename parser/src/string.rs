@@ -13,18 +13,27 @@ pub fn parse_strings(values: Vec<(Location, (String, StringKind))>) -> Result<Ex
 
     // Determine whether the list of values contains any f-strings. (If not, we can return a
     // single Constant at the end, rather than a JoinedStr.)
-    let has_fstring = values
-        .iter()
-        .any(|(_, (_, string_kind))| *string_kind == StringKind::F);
+    let mut has_fstring = false;
 
     // De-duplicate adjacent constants.
     let mut deduped: Vec<Expr> = vec![];
     let mut current: Vec<String> = vec![];
+
+    let take_current = |current: &mut Vec<String>| -> Expr {
+        Expr::new(
+            initial_location,
+            ExprKind::Constant {
+                value: Constant::Str(current.drain(..).join("")),
+                kind: initial_kind.clone(),
+            },
+        )
+    };
+
     for (location, (string, string_kind)) in values {
         match string_kind {
-            StringKind::Normal => current.push(string),
-            StringKind::U => current.push(string),
+            StringKind::Normal | StringKind::U => current.push(string),
             StringKind::F => {
+                has_fstring = true;
                 let values = if let ExprKind::JoinedStr { values } =
                     parse_located_fstring(&string, location)
                         .map_err(|e| LexicalError {
@@ -35,20 +44,13 @@ pub fn parse_strings(values: Vec<(Location, (String, StringKind))>) -> Result<Ex
                 {
                     values
                 } else {
-                    panic!("parse_located_fstring returned a non-JoinedStr.")
+                    unreachable!("parse_located_fstring returned a non-JoinedStr.")
                 };
                 for value in values {
                     match value.node {
                         ExprKind::FormattedValue { .. } => {
                             if !current.is_empty() {
-                                deduped.push(Expr::new(
-                                    initial_location,
-                                    ExprKind::Constant {
-                                        value: Constant::Str(current.join("")),
-                                        kind: initial_kind.clone(),
-                                    },
-                                ));
-                                current.clear();
+                                deduped.push(take_current(&mut current));
                             }
                             deduped.push(value)
                         }
@@ -56,33 +58,17 @@ pub fn parse_strings(values: Vec<(Location, (String, StringKind))>) -> Result<Ex
                             if let Constant::Str(value) = value {
                                 current.push(value);
                             } else {
-                                panic!("Unexpected non-string constant.");
+                                unreachable!("Unexpected non-string constant.");
                             }
                         }
-                        _ => {
-                            return Err(LexicalError {
-                                location: value.location,
-                                error: LexicalErrorType::OtherError(
-                                    "Unexpected expression kind in string concatenation."
-                                        .to_string(),
-                                ),
-                            });
-                        }
+                        _ => unreachable!("Unexpected non-string expression."),
                     }
                 }
             }
         }
     }
-
     if !current.is_empty() {
-        deduped.push(Expr::new(
-            initial_location,
-            ExprKind::Constant {
-                value: Constant::Str(current.join("")),
-                kind: initial_kind,
-            },
-        ));
-        current.clear();
+        deduped.push(take_current(&mut current));
     }
 
     Ok(if has_fstring {
