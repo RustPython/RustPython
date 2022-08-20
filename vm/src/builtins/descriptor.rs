@@ -1,6 +1,6 @@
 use rustpython_common::lock::PyRwLock;
 
-use crate::types::GetDescriptor;
+use crate::types::{Constructor, GetDescriptor, Unconstructible};
 use crate::{Context, Py, PyObjectRef, PyRef, PyResult, VirtualMachine};
 
 use super::{PyStr, PyType, PyTypeRef};
@@ -62,7 +62,7 @@ fn calculate_qualname(descr: &DescrObject, vm: &VirtualMachine) -> PyResult<Opti
     }
 }
 
-#[pyclass(with(GetDescriptor), flags(BASETYPE))]
+#[pyclass(with(GetDescriptor, Constructor), flags(BASETYPE))]
 impl MemberDescrObject {
     #[pymethod(magic)]
     fn repr(zelf: PyRef<Self>) -> String {
@@ -87,6 +87,8 @@ impl MemberDescrObject {
         Ok(self.common.qualname.read().to_owned())
     }
 }
+
+impl Unconstructible for MemberDescrObject {}
 
 impl GetDescriptor for MemberDescrObject {
     fn descr_get(
