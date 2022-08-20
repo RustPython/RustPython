@@ -678,6 +678,7 @@ impl PyType {
                 let member_def = MemberDef {
                     name: member.to_string(),
                     kind: MemberKind::ObjectEx,
+                    getter: |x, _vmm| Ok(x),
                     doc: None,
                 };
                 let member_descriptor: PyRef<MemberDescrObject> = vm.new_pyref(MemberDescrObject {

@@ -1,6 +1,7 @@
 use rustpython_common::lock::PyRwLock;
 
-use crate::{Context, Py, PyRef, PyResult, VirtualMachine};
+use crate::types::GetDescriptor;
+use crate::{Context, Py, PyObjectRef, PyRef, PyResult, VirtualMachine};
 
 use super::{PyStr, PyType, PyTypeRef};
 use crate::class::PyClassImpl;
@@ -18,11 +19,21 @@ pub enum MemberKind {
     ObjectEx = 16,
 }
 
-#[derive(Debug)]
 pub struct MemberDef {
     pub name: String,
     pub kind: MemberKind,
+    pub getter: fn(PyObjectRef, &VirtualMachine) -> PyResult,
     pub doc: Option<String>,
+}
+
+impl std::fmt::Debug for MemberDef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MemberDef")
+            .field("name", &self.name)
+            .field("kind", &self.kind)
+            .field("doc", &self.doc)
+            .finish()
+    }
 }
 
 #[pyclass(name = "member_descriptor", module = false)]
@@ -51,7 +62,7 @@ fn calculate_qualname(descr: &DescrObject, vm: &VirtualMachine) -> PyResult<Opti
     }
 }
 
-#[pyclass(flags(BASETYPE))]
+#[pyclass(with(GetDescriptor), flags(BASETYPE))]
 impl MemberDescrObject {
     #[pymethod(magic)]
     fn repr(zelf: PyRef<Self>) -> String {
@@ -74,6 +85,23 @@ impl MemberDescrObject {
         }
 
         Ok(self.common.qualname.read().to_owned())
+    }
+}
+
+impl GetDescriptor for MemberDescrObject {
+    fn descr_get(
+        zelf: PyObjectRef,
+        obj: Option<PyObjectRef>,
+        _cls: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        Ok(match obj {
+            Some(x) => {
+                let zelf = Self::_zelf(zelf, vm)?;
+                (zelf.member.getter)(x, vm)?
+            }
+            None => zelf,
+        })
     }
 }
 
