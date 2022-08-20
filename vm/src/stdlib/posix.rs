@@ -60,6 +60,26 @@ pub mod module {
     #[pyattr]
     use libc::{SEEK_DATA, SEEK_HOLE};
 
+    // Constants currently missing from libc for macos
+    #[cfg(target_os = "macos")]
+    #[pyattr]
+    const SEEK_DATA: i32 = 4;
+    #[cfg(target_os = "macos")]
+    #[pyattr]
+    const SEEK_HOLE: i32 = 3;
+    #[cfg(target_os = "macos")]
+    #[pyattr]
+    const O_EVTONLY: i32 = 0x8000;
+    #[cfg(target_os = "macos")]
+    #[pyattr]
+    const O_FSYNC: i32 = 0x80;
+    #[cfg(target_os = "macos")]
+    #[pyattr]
+    const O_SYMLINK: i32 = 0x200000;
+    #[cfg(target_os = "macos")]
+    #[pyattr]
+    const O_NOFOLLOW_ANY: i32 = 0x20000000;
+
     #[cfg(not(any(target_os = "redox", target_os = "freebsd")))]
     #[pyattr]
     use libc::O_DSYNC;
