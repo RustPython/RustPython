@@ -484,8 +484,6 @@ class SysModuleTest(unittest.TestCase):
         leave_g.set()
         t.join()
 
-    # TODO: RUSTPYTHON, AttributeError: module 'sys' has no attribute 'orig_argv'
-    @unittest.expectedFailure
     def test_attributes(self):
         self.assertIsInstance(sys.api_version, int)
         self.assertIsInstance(sys.argv, list)
@@ -1006,8 +1004,6 @@ class SysModuleTest(unittest.TestCase):
         out = out.decode('ascii', 'replace').rstrip()
         self.assertEqual(out, 'mbcs replace')
 
-    # TODO: RUSTPYTHON, subprocess.CalledProcessError: Command ... returned non-zero exit status 1.
-    @unittest.expectedFailure
     def test_orig_argv(self):
         code = textwrap.dedent('''
             import sys
