@@ -1012,7 +1012,7 @@ Atom: ast::Expr = {
         }
     },
     "(" <e:YieldExpr> ")" => e,
-    <location:@L> "(" <elt:Test> <generators:CompFor> ")" => {
+    <location:@L> "(" <elt:NamedExpressionTest> <generators:CompFor> ")" => {
         ast::Expr {
             location,
             custom: (),
