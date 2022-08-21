@@ -17,6 +17,9 @@ assert r == [1, 2, 42, 3]
 r = list(x for x in [1, 2, 3])
 assert r == [1, 2, 3]
 
+r = list(y := x + 1 for x in [1, 2, 3])
+assert r == [2, 3, 4]
+
 def g2(x):
     x = yield x
     yield x + 5
