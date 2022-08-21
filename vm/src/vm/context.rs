@@ -14,7 +14,7 @@ use crate::{
     class::{PyClassImpl, StaticType},
     common::rc::PyRc,
     exceptions,
-    function::{IntoPyGetterFunc, IntoPyNativeFunc, IntoPySetterFunc},
+    function::{Either, IntoPyGetterFunc, IntoPyNativeFunc, IntoPySetterFunc},
     intern::{Internable, MaybeInterned, StringPool},
     object::{Py, PyObjectPayload, PyObjectRef, PyPayload, PyRef},
     types::{PyTypeFlags, PyTypeSlots, TypeZoo},
@@ -462,7 +462,7 @@ impl Context {
         let member_def = MemberDef {
             name: name.to_owned(),
             kind: MemberKind::ObjectEx,
-            getter,
+            getter_or_offset: Either::A(getter),
             doc: None,
         };
         let member_descriptor = MemberDescrObject {

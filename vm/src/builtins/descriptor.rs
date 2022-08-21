@@ -1,11 +1,10 @@
 use rustpython_common::lock::PyRwLock;
 
-use crate::types::{Constructor, GetDescriptor, Unconstructible};
-use crate::{Context, Py, PyObjectRef, PyRef, PyResult, VirtualMachine};
-
 use super::{PyStr, PyType, PyTypeRef};
 use crate::class::PyClassImpl;
-use crate::object::PyPayload;
+use crate::function::Either;
+use crate::types::{Constructor, GetDescriptor, Unconstructible};
+use crate::{AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine};
 
 #[derive(Debug)]
 pub struct DescrObject {
@@ -22,7 +21,7 @@ pub enum MemberKind {
 pub struct MemberDef {
     pub name: String,
     pub kind: MemberKind,
-    pub getter: fn(PyObjectRef, &VirtualMachine) -> PyResult,
+    pub getter_or_offset: Either<fn(PyObjectRef, &VirtualMachine) -> PyResult, usize>,
     pub doc: Option<String>,
 }
 
@@ -88,6 +87,25 @@ impl MemberDescrObject {
     }
 }
 
+// PyMember_GetOne
+fn get_slot_from_object(
+    obj: PyObjectRef,
+    offset: usize,
+    member: &MemberDef,
+    vm: &VirtualMachine,
+) -> PyResult {
+    match member.kind {
+        MemberKind::ObjectEx => match obj.get_slot(offset) {
+            Some(obj) => Ok(obj),
+            None => Err(vm.new_attribute_error(format!(
+                "'{}' object has no attribute '{}'",
+                obj.class().name(),
+                member.name
+            ))),
+        },
+    }
+}
+
 impl Unconstructible for MemberDescrObject {}
 
 impl GetDescriptor for MemberDescrObject {
@@ -97,13 +115,16 @@ impl GetDescriptor for MemberDescrObject {
         _cls: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        Ok(match obj {
+        match obj {
             Some(x) => {
                 let zelf = Self::_zelf(zelf, vm)?;
-                (zelf.member.getter)(x, vm)?
+                match zelf.member.getter_or_offset {
+                    Either::A(getter) => (getter)(x, vm),
+                    Either::B(offset) => get_slot_from_object(x, offset, &zelf.member, vm),
+                }
             }
-            None => zelf,
-        })
+            None => Ok(zelf),
+        }
     }
 }
 

@@ -7,7 +7,7 @@ use crate::{
     builtins::{function::PyCellRef, tuple::PyTupleTyped},
     class::{PyClassImpl, StaticType},
     convert::ToPyObject,
-    function::{FuncArgs, KwArgs, OptionalArg, PySetterValue},
+    function::{Either, FuncArgs, KwArgs, OptionalArg, PySetterValue},
     identifier,
     protocol::PyNumberMethods,
     types::{Callable, GetAttr, PyTypeFlags, PyTypeSlots, SetAttr},
@@ -655,12 +655,19 @@ impl PyType {
                 None
             };
 
+        let base_member_count = base.slots.member_count;
+        let member_count: usize =
+            base.slots.member_count + heaptype_slots.as_ref().map(|x| x.len()).unwrap_or(0);
+
         let flags = PyTypeFlags::heap_type_flags() | PyTypeFlags::HAS_DICT;
         let heaptype_ext = HeapTypeExt {
             slots: heaptype_slots.to_owned(),
             ..HeapTypeExt::default()
         };
-        let slots = PyTypeSlots::from_flags(flags);
+        let slots = PyTypeSlots {
+            member_count,
+            ..PyTypeSlots::from_flags(flags)
+        };
 
         let typ = Self::new_verbose_ref(
             name.as_str(),
@@ -674,11 +681,12 @@ impl PyType {
         .map_err(|e| vm.new_type_error(e))?;
 
         if let Some(ref slots) = heaptype_slots {
+            let mut offset = base_member_count;
             for member in slots.as_slice() {
                 let member_def = MemberDef {
                     name: member.to_string(),
                     kind: MemberKind::ObjectEx,
-                    getter: |x, _vmm| Ok(x),
+                    getter_or_offset: Either::B(offset),
                     doc: None,
                 };
                 let member_descriptor: PyRef<MemberDescrObject> = vm.new_pyref(MemberDescrObject {
@@ -694,6 +702,8 @@ impl PyType {
                 if !typ.has_attr(attr_name) {
                     typ.set_attr(attr_name, member_descriptor.into());
                 }
+
+                offset += 1;
             }
         }
 
