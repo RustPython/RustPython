@@ -4,6 +4,7 @@ import os
 import re
 import test.support
 from test.support import os_helper
+from test.support import warnings_helper
 import time
 import unittest
 import urllib.request
@@ -335,8 +336,6 @@ class FileCookieJarTests(unittest.TestCase):
         c = LWPCookieJar(filename)
         self.assertEqual(c.filename, filename)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_constructor_with_path_like(self):
         filename = pathlib.Path(os_helper.TESTFN)
         c = LWPCookieJar(filename)
@@ -346,8 +345,6 @@ class FileCookieJarTests(unittest.TestCase):
         c = LWPCookieJar(None)
         self.assertIsNone(c.filename)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_constructor_with_other_types(self):
         class A:
             pass
@@ -446,8 +443,6 @@ class CookieTests(unittest.TestCase):
 ##   just the 7 special TLD's listed in their spec. And folks rely on
 ##   that...
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_domain_return_ok(self):
         # test optimization: .domain_return_ok() should filter out most
         # domains in the CookieJar before we try to access them (because that
@@ -603,14 +598,12 @@ class CookieTests(unittest.TestCase):
         self.assertIn('expires', cookies)
         self.assertIn('version', cookies)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_expires(self):
         # if expires is in future, keep cookie...
         c = CookieJar()
         future = time2netscape(time.time()+3600)
 
-        with test.warnings_helper.check_no_warnings(self):
+        with warnings_helper.check_no_warnings(self):
             headers = [f"Set-Cookie: FOO=BAR; path=/; expires={future}"]
             req = urllib.request.Request("http://www.coyote.com/")
             res = FakeResponse(headers, "http://www.coyote.com/")
@@ -753,8 +746,6 @@ class CookieTests(unittest.TestCase):
         req = urllib.request.Request("http://www.example.com")
         self.assertEqual(request_path(req), "/")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_path_prefix_match(self):
         pol = DefaultCookiePolicy()
         strict_ns_path_pol = DefaultCookiePolicy(strict_ns_set_path=True)
@@ -1006,8 +997,6 @@ class CookieTests(unittest.TestCase):
         c.add_cookie_header(req)
         self.assertFalse(req.has_header("Cookie"))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_domain_block(self):
         pol = DefaultCookiePolicy(
             rfc2965=True, blocked_domains=[".acme.com"])
@@ -1098,8 +1087,6 @@ class CookieTests(unittest.TestCase):
                     c._cookies["www.acme.com"]["/"]["foo2"].secure,
                     "secure cookie registered non-secure")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_secure_block(self):
         pol = DefaultCookiePolicy()
         c = CookieJar(policy=pol)
@@ -1128,8 +1115,6 @@ class CookieTests(unittest.TestCase):
         c.add_cookie_header(req)
         self.assertFalse(req.has_header("Cookie"))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_custom_secure_protocols(self):
         pol = DefaultCookiePolicy(secure_protocols=["foos"])
         c = CookieJar(policy=pol)
@@ -1790,6 +1775,10 @@ class LWPCookieTests(unittest.TestCase):
         interact_netscape(c, "http://www.foo.com/",
                           "fooc=bar; Domain=www.foo.com; %s" % expires)
 
+        for cookie in c:
+            if cookie.name == "foo1":
+                cookie.set_nonstandard_attr("HTTPOnly", "")
+
         def save_and_restore(cj, ignore_discard):
             try:
                 cj.save(ignore_discard=ignore_discard)
@@ -1804,6 +1793,7 @@ class LWPCookieTests(unittest.TestCase):
         new_c = save_and_restore(c, True)
         self.assertEqual(len(new_c), 6)  # none discarded
         self.assertIn("name='foo1', value='bar'", repr(new_c))
+        self.assertIn("rest={'HTTPOnly': ''}", repr(new_c))
 
         new_c = save_and_restore(c, False)
         self.assertEqual(len(new_c), 4)  # 2 of them discarded on save
@@ -1932,14 +1922,5 @@ class LWPCookieTests(unittest.TestCase):
         self.assertNotEqual(counter["session_before"], 0)
 
 
-def test_main(verbose=None):
-    test.support.run_unittest(
-        DateTimeTests,
-        HeaderTests,
-        CookieTests,
-        FileCookieJarTests,
-        LWPCookieTests,
-        )
-
 if __name__ == "__main__":
-    test_main(verbose=True)
+    unittest.main()

@@ -22,6 +22,8 @@ pub mod rc;
 pub mod refcount;
 pub mod static_cell;
 pub mod str;
+#[cfg(windows)]
+pub mod windows;
 
 pub mod vendored {
     pub use ascii;
