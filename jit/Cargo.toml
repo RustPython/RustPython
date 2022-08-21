@@ -15,7 +15,7 @@ cranelift-module = "0.76.0"
 cranelift-jit = "0.76.0"
 num-traits = "0.2"
 libffi = "2.0.0"
-rustpython-bytecode = { path = "../bytecode", version = "0.1.2" }
+rustpython-bytecode = { path = "../compiler/bytecode", version = "0.1.2" }
 thiserror = "1.0"
 
 [dev-dependencies]

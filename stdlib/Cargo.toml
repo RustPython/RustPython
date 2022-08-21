@@ -6,7 +6,6 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rustpython-parser = { path = "../parser", optional = true }
 rustpython-derive = { path = "../derive" }
 rustpython-vm = { path = "../vm" }
 rustpython-common = { path = "../common" }
@@ -81,14 +80,7 @@ page_size = "0.4"
 termios = "0.3.3"
 
 [features]
-default = ["compile-parse"]
-compile-parse = ["rustpython-vm/compile-parse", "rustpython-parser"]
 threading = ["rustpython-common/threading", "rustpython-vm/threading"]
-parser = ["rustpython-vm/parser"]
-ast = ["rustpython-vm/ast"]
-compiler = ["rustpython-vm/compiler"]
-# compiler = ["rustpython-compiler", "rustpython-compiler-core", "ast"]
-# parser = ["rustpython-parser", "ast"]
 
 zlib = ["libz-sys", "flate2/zlib"]
 bz2 = ["bzip2"]

@@ -16,11 +16,11 @@ freeze-stdlib = ["rustpython-vm/freeze-stdlib"]
 no-start-func = []
 
 [dependencies]
-rustpython-parser = { path = "../../parser" }
+rustpython-parser = { path = "../../compiler/parser" }
 rustpython-common = { path = "../../common" }
 # make sure no threading! otherwise wasm build will fail
-rustpython-vm = { path = "../../vm", default-features = false, features = ["compile-parse", "encodings"] }
-rustpython-stdlib = { path = "../../stdlib", default-features = false, features = ["compile-parse"], optional = true }
+rustpython-vm = { path = "../../vm", default-features = false, features = ["compiler", "encodings"] }
+rustpython-stdlib = { path = "../../stdlib", default-features = false, optional = true }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 serde-wasm-bindgen = "0.3.1"

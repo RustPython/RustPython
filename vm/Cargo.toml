@@ -9,7 +9,7 @@ edition = "2021"
 include = ["src/**/*.rs", "Cargo.toml", "build.rs", "Lib/**/*.py"]
 
 [features]
-default = ["compile-parse"]
+default = ["compiler"]
 importlib = []
 encodings = ["importlib"]
 vm-tracing-logging = []
@@ -17,26 +17,27 @@ flame-it = ["flame", "flamer"]
 freeze-stdlib = ["rustpython-pylib/freeze-stdlib"]
 jit = ["rustpython-jit"]
 threading = ["rustpython-common/threading"]
-compile-parse = ["parser", "compiler"]
+compiler = ["parser", "codegen"]
 ast = ["rustpython-ast"]
-compiler = ["rustpython-compiler", "rustpython-compiler-core", "ast"]
+codegen = ["rustpython-compiler", "rustpython-codegen", "ast"]
 parser = ["rustpython-parser", "ast"]
 
 [dependencies]
+rustpython-compiler = { path = "../compiler", optional = true, version = "0.1.2" }
+rustpython-ast = { path = "../compiler/ast", optional = true, version = "0.1" }
+rustpython-parser = { path = "../compiler/parser", optional = true, version = "0.1.2" }
+rustpython-codegen = { path = "../compiler/codegen", optional = true, version = "0.1.2" }
+rustpython-bytecode = { path = "../compiler/bytecode", version = "0.1.2" }
+rustpython-common = { path = "../common" }
+rustpython-derive = { path = "../derive", version = "0.1.2" }
+rustpython-jit = { path = "../jit", optional = true, version = "0.1.2" }
+rustpython-pylib = { path = "pylib-crate", version = "0.1.0" }
+
 num-complex = { version = "0.4.0", features = ["serde"] }
 num-bigint = { version = "0.4.3", features = ["serde"] }
 num-traits = "0.2.14"
 num-integer = "0.1.44"
 num-rational = "0.4.0"
-rustpython-common = { path = "../common" }
-rustpython-derive = { path = "../derive", version = "0.1.2" }
-rustpython-ast = { path = "../ast", optional = true, version = "0.1" }
-rustpython-parser = { path = "../parser", optional = true, version = "0.1.2" }
-rustpython-compiler = { path = "../compiler/porcelain", optional = true, version = "0.1.2" }
-rustpython-compiler-core = { path = "../compiler", optional = true, version = "0.1.2" }
-rustpython-bytecode = { path = "../bytecode", version = "0.1.2" }
-rustpython-jit = { path = "../jit", optional = true, version = "0.1.2" }
-rustpython-pylib = { path = "pylib-crate", version = "0.1.0" }
 rand = "0.8.5"
 getrandom = { version = "0.2.6", features = ["js"] }
 log = "0.4.16"

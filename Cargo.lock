@@ -1755,6 +1755,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustpython-codegen"
+version = "0.1.2"
+dependencies = [
+ "ahash",
+ "indexmap",
+ "insta",
+ "itertools",
+ "log",
+ "num-complex",
+ "num-traits",
+ "rustpython-ast",
+ "rustpython-bytecode",
+ "rustpython-parser",
+]
+
+[[package]]
 name = "rustpython-common"
 version = "0.0.0"
 dependencies = [
@@ -1782,25 +1798,9 @@ name = "rustpython-compiler"
 version = "0.1.2"
 dependencies = [
  "rustpython-bytecode",
- "rustpython-compiler-core",
+ "rustpython-codegen",
  "rustpython-parser",
  "thiserror",
-]
-
-[[package]]
-name = "rustpython-compiler-core"
-version = "0.1.2"
-dependencies = [
- "ahash",
- "indexmap",
- "insta",
- "itertools",
- "log",
- "num-complex",
- "num-traits",
- "rustpython-ast",
- "rustpython-bytecode",
- "rustpython-parser",
 ]
 
 [[package]]
@@ -1922,7 +1922,6 @@ dependencies = [
  "rand_core",
  "rustpython-common",
  "rustpython-derive",
- "rustpython-parser",
  "rustpython-vm",
  "schannel",
  "sha-1",
@@ -1992,9 +1991,9 @@ dependencies = [
  "rustc_version",
  "rustpython-ast",
  "rustpython-bytecode",
+ "rustpython-codegen",
  "rustpython-common",
  "rustpython-compiler",
- "rustpython-compiler-core",
  "rustpython-derive",
  "rustpython-jit",
  "rustpython-parser",
