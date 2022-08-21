@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CARGO_ARGS: --features ssl,jit
+  CARGO_ARGS: --no-default-features --features stdlib,zlib,importlib,encodings,ssl,jit
   NON_WASM_PACKAGES: >-
     -p rustpython-bytecode
     -p rustpython-common
@@ -126,9 +126,9 @@ jobs:
         if: runner.os == 'macOS'
       - uses: Swatinem/rust-cache@v1
       - name: run rust tests
-        run: cargo test --workspace --exclude rustpython_wasm --verbose ${{ env.CARGO_ARGS }} ${{ env.NON_WASM_PACKAGES }}
+        run: cargo test --workspace --exclude rustpython_wasm --verbose --features threading ${{ env.CARGO_ARGS }} ${{ env.NON_WASM_PACKAGES }}
       - name: check compilation without threading
-        run: cargo check ${{ env.CARGO_ARGS }} --no-default-features
+        run: cargo check ${{ env.CARGO_ARGS }}
 
       - name: prepare AppleSilicon build
         uses: dtolnay/rust-toolchain@stable
@@ -244,7 +244,7 @@ jobs:
         if: runner.os == 'macOS'
       - uses: Swatinem/rust-cache@v1
       - name: build rustpython
-        run: cargo build --release --verbose ${{ env.CARGO_ARGS }}
+        run: cargo build --release --verbose --features=threading ${{ env.CARGO_ARGS }}
       - uses: actions/setup-python@v2
         with:
           python-version: "3.10"

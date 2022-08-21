@@ -18,7 +18,7 @@ pub fn frozen_builtins() -> impl Iterator<Item = (String, FrozenModule)> {
     )
 }
 
-#[cfg(not(feature = "stdlib"))]
+#[cfg(not(feature = "freeze-stdlib"))]
 pub fn frozen_core() -> impl Iterator<Item = (String, FrozenModule)> {
     rustpython_derive::py_freeze!(
         dir = "../Lib/core_modules",
@@ -26,7 +26,7 @@ pub fn frozen_core() -> impl Iterator<Item = (String, FrozenModule)> {
     )
 }
 
-#[cfg(feature = "stdlib")]
+#[cfg(feature = "freeze-stdlib")]
 pub fn frozen_stdlib() -> impl Iterator<Item = (String, FrozenModule)> {
     rustpython_derive::py_freeze!(dir = "../../Lib", crate_name = "rustpython_bytecode")
 }
