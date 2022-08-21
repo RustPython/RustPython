@@ -1,11 +1,11 @@
-use super::{PyBoundMethod, PyStr, PyType, PyTypeRef};
+use super::{PyStr, PyType, PyTypeRef};
 use crate::{
     builtins::builtinfunc::PyBuiltinMethod,
     class::PyClassImpl,
     common::lock::PyMutex,
     function::{FuncArgs, IntoPyNativeFunc},
     types::{Callable, Constructor, GetDescriptor, Initializer},
-    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "staticmethod")]
@@ -24,16 +24,12 @@ impl GetDescriptor for PyStaticMethod {
     fn descr_get(
         zelf: PyObjectRef,
         obj: Option<PyObjectRef>,
-        cls: Option<PyObjectRef>,
+        _cls: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
         let (zelf, _obj) = Self::_unwrap(zelf, obj, vm)?;
-        let cls = cls.unwrap_or_else(|| _obj.class().clone().into());
-        let call_descr_get: PyResult<PyObjectRef> = zelf.callable.lock().get_attr("__get__", vm);
-        match call_descr_get {
-            Err(_) => Ok(PyBoundMethod::new_ref(cls, zelf.callable.lock().clone(), &vm.ctx).into()),
-            Ok(call_descr_get) => vm.invoke(&call_descr_get, (cls.clone(), cls)),
-        }
+        let x = Ok(zelf.callable.lock().clone());
+        x
     }
 }
 
@@ -107,7 +103,10 @@ impl Initializer for PyStaticMethod {
     }
 }
 
-#[pyclass(with(Callable, Constructor, Initializer), flags(BASETYPE, HAS_DICT))]
+#[pyclass(
+    with(Callable, GetDescriptor, Constructor, Initializer),
+    flags(BASETYPE, HAS_DICT)
+)]
 impl PyStaticMethod {
     #[pyproperty(magic)]
     fn func(&self) -> PyObjectRef {
