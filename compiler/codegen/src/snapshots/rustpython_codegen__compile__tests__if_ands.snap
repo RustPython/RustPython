@@ -1,0 +1,14 @@
+---
+source: compiler/codegen/src/compile.rs
+expression: "compile_exec(\"\\\nif True and False and False:\n    pass\n\")"
+---
+  1           0 LoadConst            (True)
+              1 JumpIfFalse          (6)
+              2 LoadConst            (False)
+              3 JumpIfFalse          (6)
+              4 LoadConst            (False)
+              5 JumpIfFalse          (6)
+
+  2     >>    6 LoadConst            (None)
+              7 ReturnValue
+

@@ -112,8 +112,8 @@ jobs:
       - name: Cache generated parser
         uses: actions/cache@v2
         with:
-          path: parser/python.rs
-          key: lalrpop-${{ hashFiles('parser/python.lalrpop') }}
+          path: compiler/parser/python.rs
+          key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
       - uses: dtolnay/rust-toolchain@stable
       - name: Set up the Windows environment
         shell: bash
@@ -156,8 +156,8 @@ jobs:
       - name: Cache generated parser
         uses: actions/cache@v2
         with:
-          path: parser/python.rs
-          key: lalrpop-${{ hashFiles('parser/python.lalrpop') }}
+          path: compiler/parser/python.rs
+          key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -226,8 +226,8 @@ jobs:
       - name: Cache generated parser
         uses: actions/cache@v2
         with:
-          path: parser/python.rs
-          key: lalrpop-${{ hashFiles('parser/python.lalrpop') }}
+          path: compiler/parser/python.rs
+          key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
 
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-python@v2
@@ -288,17 +288,17 @@ jobs:
       - name: Cache generated parser
         uses: actions/cache@v2
         with:
-          path: parser/python.rs
-          key: lalrpop-${{ hashFiles('parser/python.lalrpop') }}
+          path: compiler/parser/python.rs
+          key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
       - name: Check if cached generated parser exists
         id: generated_parser
         uses: andstor/file-existence-action@v1
         with:
-          files: "parser/python.rs"
+          files: "compiler/parser/python.rs"
       - if: runner.os == 'Windows'
         name: Force python.lalrpop to be lf  # actions@checkout ignore .gitattributes
         run: |
-          set file parser/python.lalrpop; ((Get-Content $file) -join "`n") + "`n" | Set-Content -NoNewline $file
+          set file compiler/parser/python.lalrpop; ((Get-Content $file) -join "`n") + "`n" | Set-Content -NoNewline $file
       - name: Install lalrpop
         if: steps.generated_parser.outputs.files_exists == 'false'
         uses: baptiste0928/cargo-install@v1
@@ -307,7 +307,7 @@ jobs:
           version: "0.19.8"
       - name: Run lalrpop
         if: steps.generated_parser.outputs.files_exists == 'false'
-        run: lalrpop parser/python.lalrpop
+        run: lalrpop compiler/parser/python.lalrpop
 
   lint:
     name: Check Rust code with rustfmt and clippy
@@ -318,8 +318,8 @@ jobs:
       - name: Cache generated parser
         uses: actions/cache@v2
         with:
-          path: parser/python.rs
-          key: lalrpop-${{ hashFiles('parser/python.lalrpop') }}
+          path: compiler/parser/python.rs
+          key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
       - uses: dtolnay/rust-toolchain@stable
         with:
             components: rustfmt, clippy
@@ -351,8 +351,8 @@ jobs:
       - name: Cache generated parser
         uses: actions/cache@v2
         with:
-          path: parser/python.rs
-          key: lalrpop-${{ hashFiles('parser/python.lalrpop') }}
+          path: compiler/parser/python.rs
+          key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
       - uses: dtolnay/rust-toolchain@master
         with:
             toolchain: nightly
@@ -372,8 +372,8 @@ jobs:
       - name: Cache generated parser
         uses: actions/cache@v2
         with:
-          path: parser/python.rs
-          key: lalrpop-${{ hashFiles('parser/python.lalrpop') }}
+          path: compiler/parser/python.rs
+          key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v1
       - name: install wasm-pack
@@ -420,8 +420,8 @@ jobs:
       - name: Cache generated parser
         uses: actions/cache@v2
         with:
-          path: parser/python.rs
-          key: lalrpop-${{ hashFiles('parser/python.lalrpop') }}
+          path: compiler/parser/python.rs
+          key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           target: wasm32-wasi

@@ -13,7 +13,7 @@ freeze-stdlib = []
 
 [dependencies]
 rustpython-derive = { version = "0.1.2", path = "../../derive" }
-rustpython-bytecode = { version = "0.1.2", path = "../../bytecode" }
+rustpython-bytecode = { version = "0.1.2", path = "../../compiler/bytecode" }
 
 [build-dependencies]
 glob = "0.3"

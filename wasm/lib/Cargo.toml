@@ -16,7 +16,7 @@ freeze-stdlib = ["rustpython-vm/freeze-stdlib"]
 no-start-func = []
 
 [dependencies]
-rustpython-parser = { path = "../../parser" }
+rustpython-parser = { path = "../../compiler/parser" }
 rustpython-common = { path = "../../common" }
 # make sure no threading! otherwise wasm build will fail
 rustpython-vm = { path = "../../vm", default-features = false, features = ["compile-parse", "encodings"] }

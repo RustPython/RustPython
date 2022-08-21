@@ -14,8 +14,8 @@ include = ["LICENSE", "Cargo.toml", "src/**/*.rs"]
 [workspace]
 resolver = "2"
 members = [
-    ".", "ast", "bytecode", "common", "compiler", "compiler/porcelain",
-    "derive", "jit", "parser", "vm", "vm/pylib-crate", "stdlib", "wasm/lib",
+    "compiler", "compiler/ast", "compiler/bytecode", "compiler/codegen", "compiler/parser",
+    ".", "common", "derive", "jit", "vm", "vm/pylib-crate", "stdlib", "wasm/lib",
 ]
 
 [features]
@@ -36,8 +36,8 @@ ssl-vendor = ["rustpython-stdlib/ssl-vendor"]
 log = "0.4.16"
 env_logger = { version = "0.9.0", default-features = false, features = ["atty", "termcolor"] }
 clap = "2.34"
-rustpython-compiler = { path = "compiler/porcelain", version = "0.1.1" }
-rustpython-parser = { path = "parser", version = "0.1.1" }
+rustpython-compiler = { path = "compiler", version = "0.1.1" }
+rustpython-parser = { path = "compiler/parser", version = "0.1.1" }
 rustpython-vm = { path = "vm", version = "0.1.1", default-features = false, features = ["compile-parse"] }
 rustpython-stdlib = {path = "stdlib", optional = true, default-features = false, features = ["compile-parse"]}
 dirs = { package = "dirs-next", version = "2.0.0" }

@@ -1,0 +1,22 @@
+[package]
+name = "rustpython-codegen"
+version = "0.1.2"
+description = "Compiler for python code into bytecode for the rustpython VM."
+authors = ["RustPython Team"]
+repository = "https://github.com/RustPython/RustPython"
+license = "MIT"
+edition = "2021"
+
+[dependencies]
+indexmap = "1.8.1"
+itertools = "0.10.3"
+rustpython-bytecode = { path = "../bytecode", version = "0.1.1" }
+rustpython-ast = { path = "../ast", features = ["unparse"] }
+num-complex = { version = "0.4.0", features = ["serde"] }
+num-traits = "0.2.14"
+log = "0.4.16"
+ahash = "0.7.6"
+
+[dev-dependencies]
+rustpython-parser = { path = "../parser" }
+insta = "1.14.0"

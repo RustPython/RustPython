@@ -77,7 +77,7 @@ fn try_lalrpop(source: &str, target: &str) -> anyhow::Result<()> {
     }
 
     #[cfg(not(feature = "lalrpop"))]
-    panic!("try: cargo build --manifest-path=parser/Cargo.toml --features=lalrpop");
+    panic!("try: cargo build --manifest-path=compiler/parser/Cargo.toml --features=lalrpop");
 }
 
 fn sha_equal(expected_sha3_str: &str, actual_sha3: &[u8; 32]) -> bool {
