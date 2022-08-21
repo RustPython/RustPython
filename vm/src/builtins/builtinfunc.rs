@@ -55,12 +55,9 @@ impl PyNativeFuncDef {
         ctx: &Context,
         class: &'static Py<PyType>,
     ) -> PyRef<PyStaticMethod> {
+        // TODO: classmethod_descriptor
         let callable = self.build_method(ctx, class).into();
-        PyRef::new_ref(
-            PyStaticMethod { callable },
-            ctx.types.staticmethod_type.to_owned(),
-            None,
-        )
+        PyStaticMethod::new_ref(callable, ctx)
     }
 }
 
