@@ -87,7 +87,10 @@ pub use self::vm::{Context, Interpreter, Settings, VirtualMachine};
 pub use rustpython_bytecode as bytecode;
 pub use rustpython_common as common;
 #[cfg(feature = "rustpython-compiler")]
-pub use rustpython_compiler as compile;
+pub mod compile {
+    pub use rustpython_codegen::{CompileOpts, Mode};
+    pub use rustpython_compiler::*;
+}
 
 #[doc(hidden)]
 pub mod __exports {

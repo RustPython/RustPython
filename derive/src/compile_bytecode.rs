@@ -18,7 +18,8 @@ use once_cell::sync::Lazy;
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use rustpython_bytecode::{CodeObject, FrozenModule};
-use rustpython_compiler as compile;
+use rustpython_codegen as codegen;
+use rustpython_compiler::compile;
 use std::{
     collections::HashMap,
     env, fs,
@@ -54,23 +55,21 @@ impl CompilationSource {
     fn compile_string<D: std::fmt::Display, F: FnOnce() -> D>(
         &self,
         source: &str,
-        mode: compile::Mode,
+        mode: codegen::Mode,
         module_name: String,
         origin: F,
     ) -> Result<CodeObject, Diagnostic> {
-        compile::compile(source, mode, module_name, compile::CompileOpts::default()).map_err(
-            |err| {
-                Diagnostic::spans_error(
-                    self.span,
-                    format!("Python compile error from {}: {}", origin(), err),
-                )
-            },
-        )
+        compile(source, mode, module_name, codegen::CompileOpts::default()).map_err(|err| {
+            Diagnostic::spans_error(
+                self.span,
+                format!("Python compile error from {}: {}", origin(), err),
+            )
+        })
     }
 
     fn compile(
         &self,
-        mode: compile::Mode,
+        mode: codegen::Mode,
         module_name: String,
     ) -> Result<HashMap<String, FrozenModule>, Diagnostic> {
         match &self.kind {
@@ -88,7 +87,7 @@ impl CompilationSource {
 
     fn compile_single(
         &self,
-        mode: compile::Mode,
+        mode: codegen::Mode,
         module_name: String,
     ) -> Result<CodeObject, Diagnostic> {
         match &self.kind {
@@ -117,7 +116,7 @@ impl CompilationSource {
         &self,
         path: &Path,
         parent: String,
-        mode: compile::Mode,
+        mode: codegen::Mode,
     ) -> Result<HashMap<String, FrozenModule>, Diagnostic> {
         let mut code_map = HashMap::new();
         let paths = fs::read_dir(path)
@@ -310,7 +309,7 @@ impl PyCompileInput {
 
         Ok(PyCompileArgs {
             source,
-            mode: mode.unwrap_or(compile::Mode::Exec),
+            mode: mode.unwrap_or(codegen::Mode::Exec),
             module_name: module_name.unwrap_or_else(|| "frozen".to_owned()),
             crate_name: crate_name.unwrap_or_else(|| syn::parse_quote!(::rustpython_vm::bytecode)),
         })
@@ -351,7 +350,7 @@ impl Parse for PyCompileInput {
 
 struct PyCompileArgs {
     source: CompilationSource,
-    mode: compile::Mode,
+    mode: codegen::Mode,
     module_name: String,
     crate_name: syn::Path,
 }

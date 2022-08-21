@@ -68,7 +68,7 @@ impl VirtualMachine {
 
     pub fn run_code_string(&self, scope: Scope, source: &str, source_path: String) -> PyResult {
         let code_obj = self
-            .compile(source, crate::compile::Mode::Exec, source_path.clone())
+            .compile(source, compile::Mode::Exec, source_path.clone())
             .map_err(|err| self.new_syntax_error(&err))?;
         // trace!("Code object: {:?}", code_obj.borrow());
         scope.globals.set_item(
@@ -81,11 +81,7 @@ impl VirtualMachine {
 
     pub fn run_block_expr(&self, scope: Scope, source: &str) -> PyResult {
         let code_obj = self
-            .compile(
-                source,
-                crate::compile::Mode::BlockExpr,
-                "<embedded>".to_owned(),
-            )
+            .compile(source, compile::Mode::BlockExpr, "<embedded>".to_owned())
             .map_err(|err| self.new_syntax_error(&err))?;
         // trace!("Code object: {:?}", code_obj.borrow());
         self.run_code_obj(code_obj, scope)

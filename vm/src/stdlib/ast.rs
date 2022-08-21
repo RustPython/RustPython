@@ -14,8 +14,8 @@ use crate::{
 use num_complex::Complex64;
 use num_traits::{ToPrimitive, Zero};
 use rustpython_ast as ast;
-#[cfg(feature = "rustpython-compiler")]
-use rustpython_compiler as compile;
+#[cfg(feature = "rustpython-codegen")]
+use rustpython_codegen as codegen;
 #[cfg(feature = "rustpython-parser")]
 use rustpython_parser::parser;
 
@@ -269,16 +269,16 @@ pub(crate) fn parse(vm: &VirtualMachine, source: &str, mode: parser::Mode) -> Py
     Ok(top.ast_to_object(vm))
 }
 
-#[cfg(feature = "rustpython-compiler")]
+#[cfg(feature = "rustpython-codegen")]
 pub(crate) fn compile(
     vm: &VirtualMachine,
     object: PyObjectRef,
     filename: &str,
-    mode: compile::Mode,
+    mode: codegen::Mode,
 ) -> PyResult {
     let opts = vm.compile_opts();
     let ast = Node::ast_from_object(vm, object)?;
-    let code = rustpython_codegen::compile::compile_top(&ast, filename.to_owned(), mode, opts)
+    let code = codegen::compile::compile_top(&ast, filename.to_owned(), mode, opts)
         // TODO: use vm.new_syntax_error()
         .map_err(|err| vm.new_value_error(err.to_string()))?;
     Ok(vm.ctx.new_code(code).into())

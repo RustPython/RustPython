@@ -14,18 +14,6 @@ use crate::{
 use rustpython_ast::{self as ast, Location};
 use std::{borrow::Cow, fmt};
 
-pub fn make_symbol_table(program: &[ast::Stmt]) -> SymbolTableResult<SymbolTable> {
-    let mut builder = SymbolTableBuilder::new();
-    builder.scan_statements(program)?;
-    builder.finish()
-}
-
-pub fn make_symbol_table_expr(expr: &ast::Expr) -> SymbolTableResult<SymbolTable> {
-    let mut builder = SymbolTableBuilder::new();
-    builder.scan_expression(expr, ExpressionContext::Load)?;
-    builder.finish()
-}
-
 /// Captures all symbols in the current scope, and has a list of subscopes in this scope.
 #[derive(Clone)]
 pub struct SymbolTable {
@@ -59,6 +47,18 @@ impl SymbolTable {
             symbols: IndexMap::default(),
             sub_tables: vec![],
         }
+    }
+
+    pub fn scan_program(program: &[ast::Stmt]) -> SymbolTableResult<Self> {
+        let mut builder = SymbolTableBuilder::new();
+        builder.scan_statements(program)?;
+        builder.finish()
+    }
+
+    pub fn scan_expr(expr: &ast::Expr) -> SymbolTableResult<Self> {
+        let mut builder = SymbolTableBuilder::new();
+        builder.scan_expression(expr, ExpressionContext::Load)?;
+        builder.finish()
     }
 }
 

@@ -4,9 +4,10 @@ pub(crate) use symtable::make_module;
 mod symtable {
     use crate::{
         builtins::PyStrRef,
-        compile::{self, Symbol, SymbolScope, SymbolTable, SymbolTableType},
+        compile::{self},
         PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     };
+    use rustpython_codegen::symboltable::{Symbol, SymbolScope, SymbolTable, SymbolTableType};
     use std::fmt;
 
     /// symtable. Return top level SymbolTable.

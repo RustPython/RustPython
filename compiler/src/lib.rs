@@ -6,9 +6,6 @@ use rustpython_parser::{
 };
 use std::fmt;
 
-pub use compile::{CompileOpts, Mode};
-pub use symboltable::{Symbol, SymbolScope, SymbolTable, SymbolTableType};
-
 #[derive(Debug, thiserror::Error)]
 pub enum CompileErrorType {
     #[error(transparent)]
@@ -76,7 +73,7 @@ pub fn compile(
     source: &str,
     mode: compile::Mode,
     source_path: String,
-    opts: CompileOpts,
+    opts: compile::CompileOpts,
 ) -> Result<CodeObject, CompileError> {
     let parser_mode = match mode {
         compile::Mode::Exec => parser::Mode::Module,
@@ -105,11 +102,11 @@ pub fn compile_symtable(
     let res = match mode {
         compile::Mode::Exec | compile::Mode::Single | compile::Mode::BlockExpr => {
             let ast = parser::parse_program(source).map_err(parse_err)?;
-            symboltable::make_symbol_table(&ast)
+            symboltable::SymbolTable::scan_program(&ast)
         }
         compile::Mode::Eval => {
             let expr = parser::parse_expression(source).map_err(parse_err)?;
-            symboltable::make_symbol_table_expr(&expr)
+            symboltable::SymbolTable::scan_expr(&expr)
         }
     };
     res.map_err(|e| CompileError::from_symtable(e, source, source_path.to_owned()))

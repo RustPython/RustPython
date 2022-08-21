@@ -1814,6 +1814,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "rustpython-bytecode",
+ "rustpython-codegen",
  "rustpython-compiler",
  "rustpython-doc",
  "syn",

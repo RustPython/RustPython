@@ -8,7 +8,7 @@
 use crate::{
     error::{CompileError, CompileErrorType},
     ir,
-    symboltable::{self, make_symbol_table, make_symbol_table_expr, SymbolScope, SymbolTable},
+    symboltable::{self, SymbolScope, SymbolTable},
     IndexSet,
 };
 use itertools::Itertools;
@@ -149,7 +149,7 @@ pub fn compile_program(
         ast,
         source_path,
         opts,
-        make_symbol_table,
+        SymbolTable::scan_program,
         Compiler::compile_program,
     )
 }
@@ -164,7 +164,7 @@ pub fn compile_program_single(
         ast,
         source_path,
         opts,
-        make_symbol_table,
+        SymbolTable::scan_program,
         Compiler::compile_program_single,
     )
 }
@@ -178,7 +178,7 @@ pub fn compile_block_expression(
         ast,
         source_path,
         opts,
-        make_symbol_table,
+        SymbolTable::scan_program,
         Compiler::compile_block_expr,
     )
 }
@@ -192,7 +192,7 @@ pub fn compile_expression(
         ast,
         source_path,
         opts,
-        make_symbol_table_expr,
+        SymbolTable::scan_expr,
         Compiler::compile_eval,
     )
 }
@@ -2697,7 +2697,7 @@ fn compile_constant(value: &ast::Constant) -> ConstantData {
 #[cfg(test)]
 mod tests {
     use super::{CompileOpts, Compiler};
-    use crate::symboltable::make_symbol_table;
+    use crate::symboltable::SymbolTable;
     use rustpython_bytecode::CodeObject;
     use rustpython_parser::parser;
 
@@ -2708,7 +2708,7 @@ mod tests {
             "<module>".to_owned(),
         );
         let ast = parser::parse_program(source).unwrap();
-        let symbol_scope = make_symbol_table(&ast).unwrap();
+        let symbol_scope = SymbolTable::scan_program(&ast).unwrap();
         compiler.compile_program(&ast, symbol_scope).unwrap();
         compiler.pop_code_object()
     }
