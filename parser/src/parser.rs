@@ -178,4 +178,25 @@ class Foo(A, B):
         let parse_ast = parse_expression(&source).unwrap();
         insta::assert_debug_snapshot!(parse_ast);
     }
+
+    #[test]
+    fn test_parse_generator_comprehension() {
+        let source = String::from("(x for y in z)");
+        let parse_ast = parse_expression(&source).unwrap();
+        insta::assert_debug_snapshot!(parse_ast);
+    }
+
+    #[test]
+    fn test_parse_named_expression_generator_comprehension() {
+        let source = String::from("(x := y + 1 for y in z)");
+        let parse_ast = parse_expression(&source).unwrap();
+        insta::assert_debug_snapshot!(parse_ast);
+    }
+
+    #[test]
+    fn test_parse_if_else_generator_comprehension() {
+        let source = String::from("(x if y else y for y in z)");
+        let parse_ast = parse_expression(&source).unwrap();
+        insta::assert_debug_snapshot!(parse_ast);
+    }
 }
