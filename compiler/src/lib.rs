@@ -30,13 +30,10 @@ impl fmt::Display for CompileError {
         let loc = self.location;
         if let Some(ref stmt) = self.statement {
             // visualize the error when location and statement are provided
-            write!(
-                f,
-                "{}",
-                loc.visualize(stmt, &format_args!("{} at {}", self.error, loc))
-            )
+            loc.fmt_with(f, &self.error)?;
+            write!(f, "\n{stmt}{arrow:>pad$}", pad = loc.column(), arrow = "^")
         } else {
-            write!(f, "{} at {}", self.error, loc)
+            loc.fmt_with(f, &self.error)
         }
     }
 }

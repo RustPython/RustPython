@@ -11,7 +11,8 @@ use crate::{
     error::{CodegenError, CodegenErrorType},
     IndexMap,
 };
-use rustpython_ast::{self as ast, Location};
+use rustpython_ast as ast;
+use rustpython_compiler_core::Location;
 use std::{borrow::Cow, fmt};
 
 /// Captures all symbols in the current scope, and has a list of subscopes in this scope.

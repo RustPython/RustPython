@@ -15,7 +15,7 @@ use itertools::Itertools;
 use num_complex::Complex64;
 use num_traits::ToPrimitive;
 use rustpython_ast as ast;
-use rustpython_compiler_core::{self as bytecode, CodeObject, ConstantData, Instruction};
+use rustpython_compiler_core::{self as bytecode, CodeObject, ConstantData, Instruction, Location};
 use std::borrow::Cow;
 
 pub use rustpython_compiler_core::Mode;
@@ -64,7 +64,7 @@ struct Compiler {
     code_stack: Vec<ir::CodeInfo>,
     symbol_table_stack: Vec<SymbolTable>,
     source_path: String,
-    current_source_location: ast::Location,
+    current_source_location: Location,
     qualified_path: Vec<String>,
     done_with_future_stmts: bool,
     future_annotations: bool,
@@ -220,7 +220,7 @@ impl Compiler {
             code_stack: vec![module_code],
             symbol_table_stack: Vec::new(),
             source_path,
-            current_source_location: ast::Location::default(),
+            current_source_location: Location::default(),
             qualified_path: Vec::new(),
             done_with_future_stmts: false,
             future_annotations: false,
@@ -237,7 +237,7 @@ impl Compiler {
     fn error(&self, error: CodegenErrorType) -> CodegenError {
         self.error_loc(error, self.current_source_location)
     }
-    fn error_loc(&self, error: CodegenErrorType, location: ast::Location) -> CodegenError {
+    fn error_loc(&self, error: CodegenErrorType, location: Location) -> CodegenError {
         CodegenError {
             error,
             location,
@@ -2617,7 +2617,7 @@ impl Compiler {
         code.current_block = block;
     }
 
-    fn set_source_location(&mut self, location: ast::Location) {
+    fn set_source_location(&mut self, location: Location) {
         self.current_source_location = location;
     }
 
@@ -2672,7 +2672,7 @@ fn try_get_constant_string(values: &[ast::Expr]) -> Option<String> {
     }
 }
 
-fn compile_location(location: &ast::Location) -> bytecode::Location {
+fn compile_location(location: &Location) -> bytecode::Location {
     bytecode::Location::new(location.row(), location.column())
 }
 

@@ -1,5 +1,4 @@
-use rustpython_ast::Location;
-
+use rustpython_compiler_core::Location;
 use std::{error::Error, fmt};
 
 #[derive(Debug)]
@@ -91,7 +90,7 @@ impl Error for CodegenErrorType {}
 
 impl fmt::Display for CodegenError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} at {}", self.error, self.location)
+        self.location.fmt_with(f, &self.error)
     }
 }
 
