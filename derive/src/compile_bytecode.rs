@@ -17,9 +17,9 @@ use crate::{extract_spans, Diagnostic};
 use once_cell::sync::Lazy;
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
-use rustpython_bytecode::{CodeObject, FrozenModule};
 use rustpython_codegen as codegen;
 use rustpython_compiler::compile;
+use rustpython_compiler_core::{CodeObject, FrozenModule};
 use std::{
     collections::HashMap,
     env, fs,
@@ -380,7 +380,8 @@ pub fn impl_py_freeze(input: TokenStream) -> Result<TokenStream, Diagnostic> {
     let crate_name = args.crate_name;
     let code_map = args.source.compile(args.mode, args.module_name)?;
 
-    let data = rustpython_bytecode::frozen_lib::encode_lib(code_map.iter().map(|(k, v)| (&**k, v)));
+    let data =
+        rustpython_compiler_core::frozen_lib::encode_lib(code_map.iter().map(|(k, v)| (&**k, v)));
     let bytes = LitByteStr::new(&data, Span::call_site());
 
     let output = quote! {

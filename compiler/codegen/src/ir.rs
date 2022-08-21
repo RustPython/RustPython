@@ -1,5 +1,5 @@
 use crate::IndexSet;
-use rustpython_bytecode::{CodeFlags, CodeObject, ConstantData, Instruction, Label, Location};
+use rustpython_compiler_core::{CodeFlags, CodeObject, ConstantData, Instruction, Label, Location};
 
 pub type BlockIdx = Label;
 

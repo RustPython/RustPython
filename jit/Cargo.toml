@@ -10,7 +10,7 @@ edition = "2021"
 autotests = false
 
 [dependencies]
-rustpython-bytecode = { path = "../compiler/bytecode", version = "0.1.2" }
+rustpython-compiler-core = { path = "../compiler/core", version = "0.1.2" }
 
 cranelift = "0.76.0"
 cranelift-jit = "0.76.0"

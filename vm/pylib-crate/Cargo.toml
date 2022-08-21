@@ -12,7 +12,7 @@ include = ["Cargo.toml", "src/**/*.rs", "Lib/", "!Lib/**/test/", "!Lib/**/*.pyc"
 freeze-stdlib = []
 
 [dependencies]
-rustpython-bytecode = { version = "0.1.2", path = "../../compiler/bytecode" }
+rustpython-compiler-core = { version = "0.1.2", path = "../../compiler/core" }
 rustpython-derive = { version = "0.1.2", path = "../../derive" }
 
 [build-dependencies]

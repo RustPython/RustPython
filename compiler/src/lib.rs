@@ -1,13 +1,13 @@
-use rustpython_bytecode::CodeObject;
 use rustpython_codegen::{compile, symboltable};
+use rustpython_compiler_core::CodeObject;
 use rustpython_parser::{
     ast::{fold::Fold, ConstantOptimizer, Location},
     parser,
 };
 use std::fmt;
 
-pub use rustpython_bytecode::Mode;
 pub use rustpython_codegen::compile::CompileOpts;
+pub use rustpython_compiler_core::Mode;
 
 #[derive(Debug, thiserror::Error)]
 pub enum CodegenErrorType {

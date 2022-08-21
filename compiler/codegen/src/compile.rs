@@ -15,10 +15,10 @@ use itertools::Itertools;
 use num_complex::Complex64;
 use num_traits::ToPrimitive;
 use rustpython_ast as ast;
-use rustpython_bytecode::{self as bytecode, CodeObject, ConstantData, Instruction};
+use rustpython_compiler_core::{self as bytecode, CodeObject, ConstantData, Instruction};
 use std::borrow::Cow;
 
-pub use rustpython_bytecode::Mode;
+pub use rustpython_compiler_core::Mode;
 
 type CompileResult<T> = Result<T, CodegenError>;
 
@@ -2698,7 +2698,7 @@ fn compile_constant(value: &ast::Constant) -> ConstantData {
 mod tests {
     use super::{CompileOpts, Compiler};
     use crate::symboltable::SymbolTable;
-    use rustpython_bytecode::CodeObject;
+    use rustpython_compiler_core::CodeObject;
     use rustpython_parser::parser;
 
     fn compile_exec(source: &str) -> CodeObject {

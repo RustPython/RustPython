@@ -9,7 +9,7 @@ edition = "2021"
 
 [dependencies]
 rustpython-ast = { path = "../ast", features = ["unparse"] }
-rustpython-bytecode = { path = "../bytecode", version = "0.1.1" }
+rustpython-compiler-core = { path = "../core", version = "0.1.1" }
 
 ahash = "0.7.6"
 indexmap = "1.8.1"

@@ -1735,23 +1735,8 @@ name = "rustpython-ast"
 version = "0.1.0"
 dependencies = [
  "num-bigint",
- "rustpython-bytecode",
  "rustpython-common",
-]
-
-[[package]]
-name = "rustpython-bytecode"
-version = "0.1.2"
-dependencies = [
- "bincode",
- "bitflags",
- "bstr",
- "itertools",
- "lz4_flex",
- "num-bigint",
- "num-complex",
- "serde",
- "static_assertions",
+ "rustpython-compiler-core",
 ]
 
 [[package]]
@@ -1766,7 +1751,7 @@ dependencies = [
  "num-complex",
  "num-traits",
  "rustpython-ast",
- "rustpython-bytecode",
+ "rustpython-compiler-core",
  "rustpython-parser",
 ]
 
@@ -1797,10 +1782,25 @@ dependencies = [
 name = "rustpython-compiler"
 version = "0.1.2"
 dependencies = [
- "rustpython-bytecode",
  "rustpython-codegen",
+ "rustpython-compiler-core",
  "rustpython-parser",
  "thiserror",
+]
+
+[[package]]
+name = "rustpython-compiler-core"
+version = "0.1.2"
+dependencies = [
+ "bincode",
+ "bitflags",
+ "bstr",
+ "itertools",
+ "lz4_flex",
+ "num-bigint",
+ "num-complex",
+ "serde",
+ "static_assertions",
 ]
 
 [[package]]
@@ -1813,9 +1813,9 @@ dependencies = [
  "once_cell",
  "proc-macro2",
  "quote",
- "rustpython-bytecode",
  "rustpython-codegen",
  "rustpython-compiler",
+ "rustpython-compiler-core",
  "rustpython-doc",
  "syn",
  "syn-ext",
@@ -1840,7 +1840,7 @@ dependencies = [
  "cranelift-module",
  "libffi",
  "num-traits",
- "rustpython-bytecode",
+ "rustpython-compiler-core",
  "rustpython-derive",
  "thiserror",
 ]
@@ -1872,7 +1872,7 @@ name = "rustpython-pylib"
 version = "0.1.0"
 dependencies = [
  "glob",
- "rustpython-bytecode",
+ "rustpython-compiler-core",
  "rustpython-derive",
 ]
 
@@ -1991,10 +1991,10 @@ dependencies = [
  "result-like",
  "rustc_version",
  "rustpython-ast",
- "rustpython-bytecode",
  "rustpython-codegen",
  "rustpython-common",
  "rustpython-compiler",
+ "rustpython-compiler-core",
  "rustpython-derive",
  "rustpython-jit",
  "rustpython-parser",
