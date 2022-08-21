@@ -38,7 +38,7 @@ assert f"""{1:{{1}.pop()}{f'n'}}""" == '1'
 
 
 # base test of self documenting strings
-#assert f'{foo=}' == 'foo=bar' # TODO ' missing
+assert f'{foo=}' == "foo='bar'" # TODO ' missing
 
 num=42
 

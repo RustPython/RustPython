@@ -162,7 +162,7 @@ impl fmt::Display for Label {
 #[repr(u8)]
 pub enum ConversionFlag {
     /// No conversion
-    None = 0,
+    None = 0, // CPython uses -1 but not pleasure for us
     /// Converts by calling `str(<value>)`.
     Str = b's',
     /// Converts by calling `ascii(<value>)`.

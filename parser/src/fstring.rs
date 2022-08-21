@@ -31,7 +31,7 @@ impl<'a> FStringParser<'a> {
         let mut spec = None;
         let mut delims = Vec::new();
         let mut conversion = ConversionFlag::None;
-        let mut pred_expression_text = String::new();
+        let mut self_documenting = false;
         let mut trailing_seq = String::new();
 
         while let Some(ch) = self.chars.next() {
@@ -87,7 +87,7 @@ impl<'a> FStringParser<'a> {
                 // match a python 3.8 self documenting expression
                 // format '{' PYTHON_EXPRESSION '=' FORMAT_SPECIFIER? '}'
                 '=' if self.chars.peek() != Some(&'=') && delims.is_empty() => {
-                    pred_expression_text = expression.to_string(); // safe expression before = to print it
+                    self_documenting = true;
                 }
 
                 ':' if delims.is_empty() => {
@@ -182,7 +182,7 @@ impl<'a> FStringParser<'a> {
                     if expression.is_empty() {
                         return Err(EmptyExpression);
                     }
-                    let ret = if pred_expression_text.is_empty() {
+                    let ret = if !self_documenting {
                         vec![self.expr(ExprKind::FormattedValue {
                             value: Box::new(
                                 parse_fstring_expr(&expression)
@@ -194,7 +194,7 @@ impl<'a> FStringParser<'a> {
                     } else {
                         vec![
                             self.expr(ExprKind::Constant {
-                                value: Constant::Str(pred_expression_text + "="),
+                                value: Constant::Str(expression.clone() + "="),
                                 kind: None,
                             }),
                             self.expr(ExprKind::Constant {
@@ -206,7 +206,12 @@ impl<'a> FStringParser<'a> {
                                     parse_fstring_expr(&expression)
                                         .map_err(|e| InvalidExpression(Box::new(e.error)))?,
                                 ),
-                                conversion: conversion as _,
+                                conversion: (if conversion == ConversionFlag::None && spec.is_none()
+                                {
+                                    ConversionFlag::Repr
+                                } else {
+                                    conversion
+                                }) as _,
                                 format_spec: spec,
                             }),
                         ]
@@ -222,10 +227,13 @@ impl<'a> FStringParser<'a> {
                         }
                     }
                 }
-                ' ' if !pred_expression_text.is_empty() => {
+                ' ' if self_documenting => {
                     trailing_seq.push(ch);
                 }
                 _ => {
+                    if self_documenting {
+                        return Err(ExpectedRbrace);
+                    }
                     expression.push(ch);
                 }
             }
