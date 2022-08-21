@@ -71,36 +71,12 @@ fn try_lalrpop(source: &str, target: &str) -> anyhow::Result<()> {
     }
 
     #[cfg(feature = "lalrpop")]
-    lalrpop_dependency();
+    lalrpop::process_root().expect("running lalrpop failed");
+
     #[cfg(not(feature = "lalrpop"))]
-    lalrpop_command(source)?;
+    eprintln!("try: cargo build --manifest-path=parser/Cargo.toml --features=lalrpop");
 
     Ok(())
-}
-
-#[cfg(not(feature = "lalrpop"))]
-fn lalrpop_command(source: &str) -> anyhow::Result<()> {
-    match std::process::Command::new("lalrpop").arg(source).status() {
-        Ok(stat) if stat.success() => Ok(()),
-        Ok(stat) => {
-            eprintln!("failed to execute lalrpop; exited with {stat}");
-            let exit_code = stat.code().map(|v| (v % 256) as u8).unwrap_or(1);
-            Err(anyhow::anyhow!("lalrpop error status: {}", exit_code))
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            eprintln!("please install lalrpop with `cargo install lalrpop` or\n`cargo build --manifest-path=parser/Cargo.toml --features=lalrpop`");
-            Err(anyhow::anyhow!(
-                "the lalrpop executable is not installed and parser/{} has been changed",
-                source
-            ))
-        }
-        Err(e) => Err(anyhow::Error::new(e)),
-    }
-}
-
-#[cfg(feature = "lalrpop")]
-fn lalrpop_dependency() {
-    lalrpop::process_root().unwrap()
 }
 
 fn sha_equal(expected_sha3_str: &str, actual_sha3: &[u8; 32]) -> bool {
