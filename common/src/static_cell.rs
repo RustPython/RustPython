@@ -56,7 +56,9 @@ mod non_threading {
             $($(#[$attr])*
             $vis static $name: $crate::static_cell::StaticCell<$t> = {
                 ::std::thread_local! {
-                     $vis static $name: $crate::lock::OnceCell<&'static $t> = $crate::lock::OnceCell::new();
+                     $vis static $name: $crate::lock::OnceCell<&'static $t> = const {
+                         $crate::lock::OnceCell::new()
+                     };
                 }
                 $crate::static_cell::StaticCell::_from_local_key(&$name)
             };)+

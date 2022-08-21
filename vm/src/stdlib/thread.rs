@@ -355,7 +355,9 @@ pub(crate) mod _thread {
         Err(vm.new_exception_empty(vm.ctx.exceptions.system_exit.to_owned()))
     }
 
-    thread_local!(static SENTINELS: RefCell<Vec<PyRef<Lock>>> = RefCell::default());
+    thread_local! {
+        static SENTINELS: RefCell<Vec<PyRef<Lock>>> = const { RefCell::new(Vec::new()) };
+    }
 
     #[pyfunction]
     fn _set_sentinel(vm: &VirtualMachine) -> PyRef<Lock> {
