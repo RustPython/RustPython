@@ -18,7 +18,7 @@ use rustpython_ast as ast;
 use rustpython_bytecode::{self as bytecode, CodeObject, ConstantData, Instruction};
 use std::borrow::Cow;
 
-pub use crate::mode::Mode;
+pub use rustpython_bytecode::Mode;
 
 type CompileResult<T> = Result<T, CompileError>;
 

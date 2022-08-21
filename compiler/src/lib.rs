@@ -6,6 +6,9 @@ use rustpython_parser::{
 };
 use std::fmt;
 
+pub use rustpython_bytecode::Mode;
+pub use rustpython_codegen::compile::CompileOpts;
+
 #[derive(Debug, thiserror::Error)]
 pub enum CompileErrorType {
     #[error(transparent)]
