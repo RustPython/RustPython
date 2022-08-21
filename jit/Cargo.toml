@@ -10,17 +10,19 @@ edition = "2021"
 autotests = false
 
 [dependencies]
+rustpython-bytecode = { path = "../compiler/bytecode", version = "0.1.2" }
+
 cranelift = "0.76.0"
 cranelift-module = "0.76.0"
 cranelift-jit = "0.76.0"
 num-traits = "0.2"
 libffi = "2.0.0"
-rustpython-bytecode = { path = "../compiler/bytecode", version = "0.1.2" }
 thiserror = "1.0"
 
 [dev-dependencies]
-approx = "0.5.1"
 rustpython-derive = { path = "../derive", version = "0.1.2" }
+
+approx = "0.5.1"
 
 [[test]]
 name = "integration"
