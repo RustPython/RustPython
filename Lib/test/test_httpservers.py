@@ -615,6 +615,8 @@ class CGIHTTPServerTestCase(BaseTestCase):
         pass
 
     linesep = os.linesep.encode('ascii')
+    # TODO: RUSTPYTHON
+    linesep = b'\n'
 
     def setUp(self):
         BaseTestCase.setUp(self)
@@ -640,7 +642,8 @@ class CGIHTTPServerTestCase(BaseTestCase):
         # The shebang line should be pure ASCII: use symlink if possible.
         # See issue #7668.
         self._pythonexe_symlink = None
-        if os_helper.can_symlink():
+        # TODO: RUSTPYTHON; dl_nt not supported yet
+        if os_helper.can_symlink() and sys.platform != 'win32':
             self.pythonexe = os.path.join(self.parent_dir, 'python')
             self._pythonexe_symlink = support.PythonSymlink(self.pythonexe).__enter__()
         else:
