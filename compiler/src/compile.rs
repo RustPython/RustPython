@@ -5,13 +5,11 @@
 //!   <https://github.com/python/cpython/blob/main/Python/compile.c>
 //!   <https://github.com/micropython/micropython/blob/master/py/compile.c>
 
-use crate::ir::{self, CodeInfo};
-pub use crate::mode::Mode;
-use crate::symboltable::{make_symbol_table, make_symbol_table_expr, SymbolScope, SymbolTable};
-use crate::IndexSet;
 use crate::{
     error::{CompileError, CompileErrorType},
-    symboltable,
+    ir,
+    symboltable::{self, make_symbol_table, make_symbol_table_expr, SymbolScope, SymbolTable},
+    IndexSet,
 };
 use itertools::Itertools;
 use num_complex::Complex64;
@@ -19,6 +17,8 @@ use num_traits::ToPrimitive;
 use rustpython_ast as ast;
 use rustpython_bytecode::{self as bytecode, CodeObject, ConstantData, Instruction};
 use std::borrow::Cow;
+
+pub use crate::mode::Mode;
 
 type CompileResult<T> = Result<T, CompileError>;
 
@@ -61,7 +61,7 @@ fn is_forbidden_name(name: &str) -> bool {
 
 /// Main structure holding the state of compilation.
 struct Compiler {
-    code_stack: Vec<CodeInfo>,
+    code_stack: Vec<ir::CodeInfo>,
     symbol_table_stack: Vec<SymbolTable>,
     source_path: String,
     current_source_location: ast::Location,
@@ -199,7 +199,7 @@ pub fn compile_expression(
 
 impl Compiler {
     fn new(opts: CompileOpts, source_path: String, code_name: String) -> Self {
-        let module_code = CodeInfo {
+        let module_code = ir::CodeInfo {
             flags: bytecode::CodeFlags::NEW_LOCALS,
             posonlyarg_count: 0,
             arg_count: 0,
@@ -278,7 +278,7 @@ impl Compiler {
 
         self.symbol_table_stack.push(table);
 
-        let info = CodeInfo {
+        let info = ir::CodeInfo {
             flags,
             posonlyarg_count,
             arg_count,
@@ -318,7 +318,7 @@ impl Compiler {
     fn _name_inner(
         &mut self,
         name: &str,
-        cache: impl FnOnce(&mut CodeInfo) -> &mut IndexSet<String>,
+        cache: impl FnOnce(&mut ir::CodeInfo) -> &mut IndexSet<String>,
     ) -> bytecode::NameIdx {
         let name = self.mangle(name);
         let cache = cache(self.current_codeinfo());
@@ -2583,7 +2583,7 @@ impl Compiler {
         self.emit(Instruction::LoadConst { idx })
     }
 
-    fn current_codeinfo(&mut self) -> &mut CodeInfo {
+    fn current_codeinfo(&mut self) -> &mut ir::CodeInfo {
         self.code_stack.last_mut().expect("no code on stack")
     }
 
