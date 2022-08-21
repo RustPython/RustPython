@@ -92,6 +92,20 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_string() {
+        let source = String::from("'Hello world'");
+        let parse_ast = parse_program(&source).unwrap();
+        insta::assert_debug_snapshot!(parse_ast);
+    }
+
+    #[test]
+    fn test_parse_f_string() {
+        let source = String::from("f'Hello world'");
+        let parse_ast = parse_program(&source).unwrap();
+        insta::assert_debug_snapshot!(parse_ast);
+    }
+
+    #[test]
     fn test_parse_print_hello() {
         let source = String::from("print('Hello world')");
         let parse_ast = parse_program(&source).unwrap();

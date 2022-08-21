@@ -6,9 +6,9 @@
 use crate::{
     ast,
     error::{LexicalError, LexicalErrorType},
-    fstring::parse_located_fstring,
     function::{ArgumentList, parse_args, parse_params},
     lexer,
+    string::parse_strings,
     token::StringKind
 };
 use num_bigint::BigInt;
@@ -961,26 +961,7 @@ SliceOp: Option<ast::Expr> = {
 }
 
 Atom: ast::Expr = {
-    <location:@L> <s:(@L string)+> =>? {
-        let values = s.into_iter().map(|(loc, (value, kind))| {
-            if let StringKind::F = kind {
-                parse_located_fstring(&value, loc)
-            } else {
-                let kind = (kind == StringKind::U).then(|| "u".to_owned());
-                Ok(ast::Expr::new(
-                    loc,
-                    ast::ExprKind::Constant { value: value.into(), kind },
-                ))
-            }
-        });
-        let values = values.collect::<Result<Vec<_>, _>>()?;
-
-        Ok(if values.len() > 1 {
-            ast::Expr::new(location, ast::ExprKind::JoinedStr { values })
-        } else {
-            values.into_iter().next().unwrap()
-        })
-    },
+    <location:@L> <s:(@L string)+> =>? parse_strings(s).map_err(|e| e.into()),
     <location:@L> <value:Constant> => ast::Expr {
         location,
         custom: (),
