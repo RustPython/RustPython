@@ -2707,7 +2707,7 @@ mod tests {
             "source_path".to_owned(),
             "<module>".to_owned(),
         );
-        let ast = parser::parse_program(source).unwrap();
+        let ast = parser::parse_program(source, "<test>").unwrap();
         let symbol_scope = SymbolTable::scan_program(&ast).unwrap();
         compiler.compile_program(&ast, symbol_scope).unwrap();
         compiler.pop_code_object()

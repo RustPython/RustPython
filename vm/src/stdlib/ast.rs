@@ -265,7 +265,8 @@ impl Node for ast::ConversionFlag {
 #[cfg(feature = "rustpython-parser")]
 pub(crate) fn parse(vm: &VirtualMachine, source: &str, mode: parser::Mode) -> PyResult {
     // TODO: use vm.new_syntax_error()
-    let top = parser::parse(source, mode).map_err(|err| vm.new_value_error(format!("{}", err)))?;
+    let top = parser::parse(source, mode, "<unknown>")
+        .map_err(|err| vm.new_value_error(format!("{}", err)))?;
     Ok(top.ast_to_object(vm))
 }
 

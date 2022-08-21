@@ -43,22 +43,18 @@ impl fmt::Display for CompileError {
 
 impl CompileError {
     fn from_codegen(error: rustpython_codegen::error::CodegenError, source: &str) -> Self {
-        CompileError {
+        Self {
             error: error.error.into(),
             location: error.location,
             source_path: error.source_path,
             statement: get_statement(source, error.location),
         }
     }
-    fn from_parse(
-        error: rustpython_parser::error::ParseError,
-        source: &str,
-        source_path: String,
-    ) -> Self {
-        CompileError {
+    fn from_parse(error: rustpython_parser::error::ParseError, source: &str) -> Self {
+        Self {
             error: error.error.into(),
             location: error.location,
-            source_path,
+            source_path: error.source_path,
             statement: get_statement(source, error.location),
         }
     }
@@ -83,9 +79,9 @@ pub fn compile(
         compile::Mode::Eval => parser::Mode::Expression,
         compile::Mode::Single | compile::Mode::BlockExpr => parser::Mode::Interactive,
     };
-    let mut ast = match parser::parse(source, parser_mode) {
+    let mut ast = match parser::parse(source, parser_mode, &source_path) {
         Ok(x) => x,
-        Err(e) => return Err(CompileError::from_parse(e, source, source_path)),
+        Err(e) => return Err(CompileError::from_parse(e, source)),
     };
     if opts.optimize > 0 {
         ast = ConstantOptimizer::new()
@@ -101,14 +97,14 @@ pub fn compile_symtable(
     mode: compile::Mode,
     source_path: &str,
 ) -> Result<symboltable::SymbolTable, CompileError> {
-    let parse_err = |e| CompileError::from_parse(e, source, source_path.to_owned());
+    let parse_err = |e| CompileError::from_parse(e, source);
     let res = match mode {
         compile::Mode::Exec | compile::Mode::Single | compile::Mode::BlockExpr => {
-            let ast = parser::parse_program(source).map_err(parse_err)?;
+            let ast = parser::parse_program(source, source_path).map_err(parse_err)?;
             symboltable::SymbolTable::scan_program(&ast)
         }
         compile::Mode::Eval => {
-            let expr = parser::parse_expression(source).map_err(parse_err)?;
+            let expr = parser::parse_expression(source, source_path).map_err(parse_err)?;
             symboltable::SymbolTable::scan_expr(&expr)
         }
     };

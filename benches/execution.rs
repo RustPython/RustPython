@@ -51,7 +51,7 @@ pub fn benchmark_file_execution(
 pub fn benchmark_file_parsing(group: &mut BenchmarkGroup<WallTime>, name: &str, contents: &str) {
     group.throughput(Throughput::Bytes(contents.len() as u64));
     group.bench_function(BenchmarkId::new("rustpython", name), |b| {
-        b.iter(|| parse_program(contents).unwrap())
+        b.iter(|| parse_program(contents, name).unwrap())
     });
     group.bench_function(BenchmarkId::new("cpython", name), |b| {
         let gil = cpython::Python::acquire_gil();
