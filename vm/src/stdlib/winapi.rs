@@ -5,13 +5,12 @@ pub(crate) use _winapi::make_module;
 mod _winapi {
     use crate::{
         builtins::PyStrRef,
+        common::windows::ToWideString,
         convert::ToPyException,
         function::{ArgMapping, ArgSequence, OptionalArg},
         stdlib::os::errno_err,
         PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     };
-    use std::ffi::{OsStr, OsString};
-    use std::os::windows::prelude::*;
     use std::ptr::{null, null_mut};
     use winapi::shared::winerror;
     use winapi::um::{
@@ -410,37 +409,10 @@ mod _winapi {
         .map(drop)
     }
 
-    pub trait ToWideString {
-        fn to_wide(&self) -> Vec<u16>;
-        fn to_wides_with_nul(&self) -> Vec<u16>;
-    }
-    impl<T> ToWide for T
-    where
-        T: AsRef<OsStr>,
-    {
-        fn to_wide(&self) -> Vec<u16> {
-            self.as_ref().encode_wide().collect()
-        }
-        fn to_wide_null(&self) -> Vec<u16> {
-            self.as_ref().encode_wide().chain(Some(0)).collect()
-        }
-    }
-    pub trait FromWide
-    where
-        Self: Sized,
-    {
-        fn from_wides_until_nul(wide: &[u16]) -> Self;
-    }
-    impl FromWide for OsString {
-        fn from_wide_null(wide: &[u16]) -> OsString {
-            let len = wide.iter().take_while(|&&c| c != 0).count();
-            OsString::from_wide(&wide[..len])
-        }
-    }
-
-    #[pyfunction]
+    // TODO: ctypes.LibraryLoader.LoadLibrary
+    #[allow(dead_code)]
     fn LoadLibrary(path: PyStrRef, vm: &VirtualMachine) -> PyResult<isize> {
-        let path = path.as_str().to_wide_null();
+        let path = path.as_str().to_wides_with_nul();
         let handle = unsafe { LoadLibraryW(PCWSTR::from_raw(path.as_ptr())).unwrap() };
         if handle.is_invalid() {
             return Err(vm.new_runtime_error("LoadLibrary failed".to_owned()));
