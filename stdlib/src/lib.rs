@@ -109,11 +109,6 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
             "_statistics" => statistics::make_module,
             // crate::vm::sysmodule::sysconfigdata_name() => sysconfigdata::make_module,
         }
-        // parser related modules:
-        #[cfg(feature = "rustpython-ast")]
-        {
-            "_ast" => ast::make_module,
-        }
         #[cfg(any(unix, target_os = "wasi"))]
         {
             "fcntl" => fcntl::make_module,

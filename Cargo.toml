@@ -39,7 +39,7 @@ clap = "2.34"
 rustpython-compiler = { path = "compiler", version = "0.1.1" }
 rustpython-parser = { path = "compiler/parser", version = "0.1.1" }
 rustpython-vm = { path = "vm", version = "0.1.1", default-features = false, features = ["compile-parse"] }
-rustpython-stdlib = {path = "stdlib", optional = true, default-features = false, features = ["compile-parse"]}
+rustpython-stdlib = {path = "stdlib", optional = true, default-features = false}
 dirs = { package = "dirs-next", version = "2.0.0" }
 num-traits = "0.2.14"
 cfg-if = "1.0.0"
