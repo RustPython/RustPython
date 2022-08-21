@@ -1,5 +1,5 @@
 #[cfg(feature = "rustpython-compiler")]
-use crate::compile::{CompileError, CompileErrorType};
+use crate::compile::{CodegenErrorType, CompileError};
 use crate::{
     builtins::{
         pystr::IntoPyStrRef,
@@ -212,10 +212,10 @@ impl VirtualMachine {
     #[cfg(feature = "rustpython-compiler")]
     pub fn new_syntax_error(&self, error: &CompileError) -> PyBaseExceptionRef {
         let syntax_error_type = match &error.error {
-            CompileErrorType::Parse(p) if p.is_indentation_error() => {
+            CodegenErrorType::Parse(p) if p.is_indentation_error() => {
                 self.ctx.exceptions.indentation_error
             }
-            CompileErrorType::Parse(p) if p.is_tab_error() => self.ctx.exceptions.tab_error,
+            CodegenErrorType::Parse(p) if p.is_tab_error() => self.ctx.exceptions.tab_error,
             _ => self.ctx.exceptions.syntax_error,
         }
         .to_owned();

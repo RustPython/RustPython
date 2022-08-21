@@ -8,7 +8,7 @@ Inspirational file: https://github.com/python/cpython/blob/main/Python/symtable.
 */
 
 use crate::{
-    error::{CompileError, CompileErrorType},
+    error::{CodegenError, CodegenErrorType},
     IndexMap,
 };
 use rustpython_ast::{self as ast, Location};
@@ -168,9 +168,9 @@ pub struct SymbolTableError {
 }
 
 impl SymbolTableError {
-    pub fn into_compile_error(self, source_path: String) -> CompileError {
-        CompileError {
-            error: CompileErrorType::SyntaxError(self.error),
+    pub fn into_codegen_error(self, source_path: String) -> CodegenError {
+        CodegenError {
+            error: CodegenErrorType::SyntaxError(self.error),
             location: self.location,
             source_path,
         }

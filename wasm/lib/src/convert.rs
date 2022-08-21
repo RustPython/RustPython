@@ -4,7 +4,7 @@ use js_sys::{Array, ArrayBuffer, Object, Promise, Reflect, SyntaxError, Uint8Arr
 use rustpython_parser::error::ParseErrorType;
 use rustpython_vm::{
     builtins::PyBaseExceptionRef,
-    compile::{CompileError, CompileErrorType},
+    compile::{CodegenErrorType, CompileError},
     exceptions,
     function::{ArgBytesLike, FuncArgs},
     py_serde, AsObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject, VirtualMachine,
@@ -253,7 +253,7 @@ pub fn syntax_err(err: CompileError) -> SyntaxError {
         &"col".into(),
         &(err.location.column() as u32).into(),
     );
-    let can_continue = matches!(&err.error, CompileErrorType::Parse(ParseErrorType::Eof));
+    let can_continue = matches!(&err.error, CodegenErrorType::Parse(ParseErrorType::Eof));
     let _ = Reflect::set(&js_err, &"canContinue".into(), &can_continue.into());
     js_err
 }

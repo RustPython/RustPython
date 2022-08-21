@@ -10,19 +10,19 @@ pub use rustpython_bytecode::Mode;
 pub use rustpython_codegen::compile::CompileOpts;
 
 #[derive(Debug, thiserror::Error)]
-pub enum CompileErrorType {
+pub enum CodegenErrorType {
     #[error(transparent)]
-    Compile(#[from] rustpython_codegen::error::CompileErrorType),
+    Compile(#[from] rustpython_codegen::error::CodegenErrorType),
     #[error(transparent)]
     Parse(#[from] rustpython_parser::error::ParseErrorType),
 }
 
 #[derive(Debug, thiserror::Error)]
 pub struct CompileError {
-    pub error: CompileErrorType,
-    pub statement: Option<String>,
+    pub error: CodegenErrorType,
     pub source_path: String,
     pub location: Location,
+    pub statement: Option<String>,
 }
 
 impl fmt::Display for CompileError {
@@ -42,7 +42,7 @@ impl fmt::Display for CompileError {
 }
 
 impl CompileError {
-    fn from_compile(error: rustpython_codegen::error::CompileError, source: &str) -> Self {
+    fn from_codegen(error: rustpython_codegen::error::CodegenError, source: &str) -> Self {
         CompileError {
             error: error.error.into(),
             location: error.location,
@@ -67,7 +67,7 @@ impl CompileError {
         source: &str,
         source_path: String,
     ) -> Self {
-        Self::from_compile(error.into_compile_error(source_path), source)
+        Self::from_codegen(error.into_codegen_error(source_path), source)
     }
 }
 
@@ -93,7 +93,7 @@ pub fn compile(
             .unwrap_or_else(|e| match e {});
     }
     compile::compile_top(&ast, source_path, mode, opts)
-        .map_err(|e| CompileError::from_compile(e, source))
+        .map_err(|e| CompileError::from_codegen(e, source))
 }
 
 pub fn compile_symtable(
