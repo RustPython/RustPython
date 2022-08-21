@@ -71,12 +71,13 @@ fn try_lalrpop(source: &str, target: &str) -> anyhow::Result<()> {
     }
 
     #[cfg(feature = "lalrpop")]
-    lalrpop::process_root().expect("running lalrpop failed");
+    {
+        lalrpop::process_root().expect("running lalrpop failed");
+        Ok(())
+    }
 
     #[cfg(not(feature = "lalrpop"))]
-    eprintln!("try: cargo build --manifest-path=parser/Cargo.toml --features=lalrpop");
-
-    Ok(())
+    panic!("try: cargo build --manifest-path=parser/Cargo.toml --features=lalrpop");
 }
 
 fn sha_equal(expected_sha3_str: &str, actual_sha3: &[u8; 32]) -> bool {
