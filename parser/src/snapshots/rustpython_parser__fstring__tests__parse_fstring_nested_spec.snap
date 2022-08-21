@@ -76,7 +76,7 @@ Located {
                                                                 value: Located {
                                                                     location: Location {
                                                                         row: 1,
-                                                                        column: 2,
+                                                                        column: 3,
                                                                     },
                                                                     custom: (),
                                                                     node: Name {

@@ -91,25 +91,25 @@ impl<'a> FStringParser<'a> {
                 }
 
                 ':' if delims.is_empty() => {
-                    let mut in_nested = false;
+                    let mut nested = 0;
                     let mut spec_constructor = Vec::new();
                     let mut constant_piece = String::new();
                     let mut formatted_value_piece = String::new();
-                    let mut spec_delims = Vec::new();
                     while let Some(&next) = self.chars.peek() {
                         match next {
-                            '{' if in_nested => {
-                                spec_delims.push(next);
+                            '{' if nested > 0 => {
+                                nested += 1;
                                 formatted_value_piece.push(next);
                             }
-                            '}' if in_nested => {
-                                if spec_delims.is_empty() {
-                                    in_nested = false;
+                            '}' if nested > 0 => {
+                                nested -= 1;
+                                if nested == 0 {
+                                    formatted_value_piece.push(next);
                                     spec_constructor.push(
                                         self.expr(ExprKind::FormattedValue {
                                             value: Box::new(
                                                 FStringParser::new(
-                                                    &format!("{{{}}}", formatted_value_piece),
+                                                    &formatted_value_piece,
                                                     Location::default(),
                                                     &self.recurse_lvl + 1,
                                                 )
@@ -121,20 +121,21 @@ impl<'a> FStringParser<'a> {
                                     );
                                     formatted_value_piece.clear();
                                 } else {
-                                    spec_delims.pop();
                                     formatted_value_piece.push(next);
                                 }
                             }
-                            _ if in_nested => {
+                            _ if nested > 0 => {
                                 formatted_value_piece.push(next);
                             }
                             '{' => {
-                                in_nested = true;
+                                nested += 1;
                                 spec_constructor.push(self.expr(ExprKind::Constant {
                                     value: constant_piece.to_owned().into(),
                                     kind: None,
                                 }));
                                 constant_piece.clear();
+                                formatted_value_piece.push(next);
+                                formatted_value_piece.push(' ');
                             }
                             '}' => break,
                             _ => {
@@ -148,7 +149,7 @@ impl<'a> FStringParser<'a> {
                         kind: None,
                     }));
                     constant_piece.clear();
-                    if in_nested {
+                    if nested > 0 {
                         return Err(UnclosedLbrace);
                     }
                     spec = Some(Box::new(self.expr(ExprKind::JoinedStr {
