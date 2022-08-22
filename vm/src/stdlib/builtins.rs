@@ -366,29 +366,11 @@ mod builtins {
     }
 
     #[pyfunction(name = "breakpoint")]
-    fn builtin_breakpoint(
-        args: OptionalArg<PyObjectRef>,
-        keywords: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
+    fn builtin_breakpoint(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         let hook =
             sys::get_object("breakpointhook".to_owned(), vm).expect("lost sys.breakpointhook");
 
-        match (args, keywords) {
-            (OptionalArg::Present(args), OptionalArg::Present(keywords)) => {
-                vm.invoke(hook.as_ref(), (args, keywords))
-            }
-            (OptionalArg::Missing, OptionalArg::Present(keywords)) => {
-                vm.invoke(hook.as_ref(), (Option::<PyObjectRef>::None, keywords))
-            }
-            (OptionalArg::Present(args), OptionalArg::Missing) => {
-                vm.invoke(hook.as_ref(), (args, Option::<PyObjectRef>::None))
-            }
-            (OptionalArg::Missing, OptionalArg::Missing) => vm.invoke(
-                hook.as_ref(),
-                (Option::<PyObjectRef>::None, Option::<PyObjectRef>::None),
-            ),
-        }
+        vm.invoke(hook.as_ref(), args)
     }
 
     #[pyfunction]

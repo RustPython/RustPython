@@ -319,11 +319,7 @@ mod sys {
 
     #[pyfunction(name = "__breakpointhook__")]
     #[pyfunction]
-    pub fn breakpointhook(
-        args: Option<PyObjectRef>,
-        keywords: Option<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyObjectRef> {
+    pub fn breakpointhook(args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let envar =
             std::env::var("PYTHONBREAKPOINT").unwrap_or_else(|_| "pdb.set_trace".to_owned());
 
@@ -346,13 +342,13 @@ mod sys {
         };
 
         let (modulepath, attrname) = match envar.split('.').last() {
-            Some(last_dot) => {
-                if last_dot.eq(&envar) {
+            Some(last) => {
+                if last.eq(&envar) {
                     ("builtins".to_owned(), envar.to_owned())
                 } else {
                     (
-                        envar[..(envar.len() - last_dot.len() - 1)].to_owned(),
-                        last_dot.to_owned(),
+                        envar[..(envar.len() - last.len() - 1)].to_owned(),
+                        last.to_owned(),
                     )
                 }
             }
@@ -363,17 +359,7 @@ mod sys {
 
         if let Ok(module) = vm.import(modulepath, None, 0) {
             if let Ok(Some(hook)) = vm.get_attribute_opt(module, attrname) {
-                let mut args_vec: Vec<PyObjectRef> = Vec::new();
-
-                if let Some(args) = args {
-                    args_vec.push(args);
-                }
-
-                if let Some(keywords) = keywords {
-                    args_vec.push(keywords);
-                }
-
-                vm.invoke(hook.as_ref(), args_vec)
+                vm.invoke(hook.as_ref(), args)
             } else {
                 print_unimportable_module_warn()
             }
