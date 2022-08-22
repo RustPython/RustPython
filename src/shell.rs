@@ -1,10 +1,10 @@
 mod helper;
 
 use rustpython_parser::error::{LexicalErrorType, ParseErrorType};
-use rustpython_vm::readline::{Readline, ReadlineResult};
 use rustpython_vm::{
     builtins::PyBaseExceptionRef,
     compile::{self, CompileError, CompileErrorBody, CompileErrorType},
+    readline::{Readline, ReadlineResult},
     scope::Scope,
     AsObject, PyResult, VirtualMachine,
 };

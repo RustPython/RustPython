@@ -1,14 +1,13 @@
 use rustpython_codegen::{compile, symboltable};
-use rustpython_compiler_core::{BaseError, CodeObject};
+use rustpython_compiler_core::CodeObject;
 use rustpython_parser::{
     ast::{fold::Fold, ConstantOptimizer, Location},
     error::ParseErrorType,
     parser,
 };
-use std::fmt;
 
 pub use rustpython_codegen::compile::CompileOpts;
-pub use rustpython_compiler_core::Mode;
+pub use rustpython_compiler_core::{BaseError as CompileErrorBody, Mode};
 
 #[derive(Debug, thiserror::Error)]
 pub enum CompileErrorType {
@@ -18,56 +17,25 @@ pub enum CompileErrorType {
     Parse(#[from] rustpython_parser::error::ParseErrorType),
 }
 
-pub type CompileErrorBody = BaseError<CompileErrorType>;
+pub type CompileError = rustpython_compiler_core::CompileError<CompileErrorType>;
 
-#[derive(Debug, thiserror::Error)]
-pub struct CompileError {
-    pub body: CompileErrorBody,
-    pub statement: Option<String>,
-}
-
-impl std::ops::Deref for CompileError {
-    type Target = CompileErrorBody;
-    fn deref(&self) -> &Self::Target {
-        &self.body
+fn error_from_codegen(
+    error: rustpython_codegen::error::CodegenError,
+    source: &str,
+) -> CompileError {
+    let statement = get_statement(source, error.location);
+    CompileError {
+        body: error.into(),
+        statement,
     }
 }
 
-impl fmt::Display for CompileError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let loc = self.location;
-        if let Some(ref stmt) = self.statement {
-            // visualize the error when location and statement are provided
-            loc.fmt_with(f, &self.error)?;
-            write!(f, "\n{stmt}{arrow:>pad$}", pad = loc.column(), arrow = "^")
-        } else {
-            loc.fmt_with(f, &self.error)
-        }
-    }
-}
-
-impl CompileError {
-    fn from_codegen(error: rustpython_codegen::error::CodegenError, source: &str) -> Self {
-        let statement = get_statement(source, error.location);
-        Self {
-            body: error.into(),
-            statement,
-        }
-    }
-    fn from_parse(error: rustpython_parser::error::ParseError, source: &str) -> Self {
-        let error: rustpython_compiler_core::BaseError<ParseErrorType> = error.into();
-        let statement = get_statement(source, error.location);
-        Self {
-            body: error.into(),
-            statement,
-        }
-    }
-    fn from_symtable(
-        error: symboltable::SymbolTableError,
-        source: &str,
-        source_path: String,
-    ) -> Self {
-        Self::from_codegen(error.into_codegen_error(source_path), source)
+fn error_from_parse(error: rustpython_parser::error::ParseError, source: &str) -> CompileError {
+    let error: CompileErrorBody<ParseErrorType> = error.into();
+    let statement = get_statement(source, error.location);
+    CompileError {
+        body: error.into(),
+        statement,
     }
 }
 
@@ -85,15 +53,14 @@ pub fn compile(
     };
     let mut ast = match parser::parse(source, parser_mode, &source_path) {
         Ok(x) => x,
-        Err(e) => return Err(CompileError::from_parse(e, source)),
+        Err(e) => return Err(error_from_parse(e, source)),
     };
     if opts.optimize > 0 {
         ast = ConstantOptimizer::new()
             .fold_mod(ast)
             .unwrap_or_else(|e| match e {});
     }
-    compile::compile_top(&ast, source_path, mode, opts)
-        .map_err(|e| CompileError::from_codegen(e, source))
+    compile::compile_top(&ast, source_path, mode, opts).map_err(|e| error_from_codegen(e, source))
 }
 
 pub fn compile_symtable(
@@ -101,7 +68,7 @@ pub fn compile_symtable(
     mode: compile::Mode,
     source_path: &str,
 ) -> Result<symboltable::SymbolTable, CompileError> {
-    let parse_err = |e| CompileError::from_parse(e, source);
+    let parse_err = |e| error_from_parse(e, source);
     let res = match mode {
         compile::Mode::Exec | compile::Mode::Single | compile::Mode::BlockExpr => {
             let ast = parser::parse_program(source, source_path).map_err(parse_err)?;
@@ -112,7 +79,7 @@ pub fn compile_symtable(
             symboltable::SymbolTable::scan_expr(&expr)
         }
     };
-    res.map_err(|e| CompileError::from_symtable(e, source, source_path.to_owned()))
+    res.map_err(|e| error_from_codegen(e.into_codegen_error(source_path.to_owned()), source))
 }
 
 fn get_statement(source: &str, loc: Location) -> Option<String> {

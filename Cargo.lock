@@ -1801,6 +1801,7 @@ dependencies = [
  "num-complex",
  "serde",
  "static_assertions",
+ "thiserror",
 ]
 
 [[package]]
