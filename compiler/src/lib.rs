@@ -2,6 +2,7 @@ use rustpython_codegen::{compile, symboltable};
 use rustpython_compiler_core::CodeObject;
 use rustpython_parser::{
     ast::{fold::Fold, ConstantOptimizer, Location},
+    error::ParseErrorType,
     parser,
 };
 use std::fmt;
@@ -48,6 +49,7 @@ impl CompileError {
         }
     }
     fn from_parse(error: rustpython_parser::error::ParseError, source: &str) -> Self {
+        let error: rustpython_compiler_core::Error<ParseErrorType> = error.into();
         Self {
             error: error.error.into(),
             location: error.location,
