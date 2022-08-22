@@ -11,7 +11,7 @@ pub use rustpython_codegen::compile::CompileOpts;
 pub use rustpython_compiler_core::Mode;
 
 #[derive(Debug, thiserror::Error)]
-pub enum CodegenErrorType {
+pub enum CompileErrorType {
     #[error(transparent)]
     Compile(#[from] rustpython_codegen::error::CodegenErrorType),
     #[error(transparent)]
@@ -20,7 +20,7 @@ pub enum CodegenErrorType {
 
 #[derive(Debug, thiserror::Error)]
 pub struct CompileError {
-    pub error: CodegenErrorType,
+    pub error: CompileErrorType,
     pub source_path: String,
     pub location: Location,
     pub statement: Option<String>,

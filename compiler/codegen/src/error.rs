@@ -1,12 +1,6 @@
-use rustpython_compiler_core::Location;
 use std::{error::Error, fmt};
 
-#[derive(Debug)]
-pub struct CodegenError {
-    pub error: CodegenErrorType,
-    pub location: Location,
-    pub source_path: String,
-}
+pub type CodegenError = rustpython_compiler_core::Error<CodegenErrorType>;
 
 #[derive(Debug)]
 #[non_exhaustive]
@@ -87,15 +81,3 @@ impl fmt::Display for CodegenErrorType {
 }
 
 impl Error for CodegenErrorType {}
-
-impl fmt::Display for CodegenError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.location.fmt_with(f, &self.error)
-    }
-}
-
-impl Error for CodegenError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        None
-    }
-}

@@ -4,7 +4,7 @@ use rustpython_parser::error::{LexicalErrorType, ParseErrorType};
 use rustpython_vm::readline::{Readline, ReadlineResult};
 use rustpython_vm::{
     builtins::PyBaseExceptionRef,
-    compile::{self, CodegenErrorType, CompileError},
+    compile::{self, CompileError, CompileErrorType},
     scope::Scope,
     AsObject, PyResult, VirtualMachine,
 };
@@ -22,11 +22,11 @@ fn shell_exec(vm: &VirtualMachine, source: &str, scope: Scope) -> ShellExecResul
             Err(err) => ShellExecResult::PyErr(err),
         },
         Err(CompileError {
-            error: CodegenErrorType::Parse(ParseErrorType::Lexical(LexicalErrorType::Eof)),
+            error: CompileErrorType::Parse(ParseErrorType::Lexical(LexicalErrorType::Eof)),
             ..
         })
         | Err(CompileError {
-            error: CodegenErrorType::Parse(ParseErrorType::Eof),
+            error: CompileErrorType::Parse(ParseErrorType::Eof),
             ..
         }) => ShellExecResult::Continue,
         Err(err) => ShellExecResult::PyErr(vm.new_syntax_error(&err)),
