@@ -1,6 +1,6 @@
 use std::{error::Error, fmt};
 
-pub type CodegenError = rustpython_compiler_core::Error<CodegenErrorType>;
+pub type CodegenError = rustpython_compiler_core::BaseError<CodegenErrorType>;
 
 #[derive(Debug)]
 #[non_exhaustive]

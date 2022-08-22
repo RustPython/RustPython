@@ -1,5 +1,5 @@
 use rustpython_codegen::{compile, symboltable};
-use rustpython_compiler_core::CodeObject;
+use rustpython_compiler_core::{BaseError, CodeObject};
 use rustpython_parser::{
     ast::{fold::Fold, ConstantOptimizer, Location},
     error::ParseErrorType,
@@ -18,12 +18,19 @@ pub enum CompileErrorType {
     Parse(#[from] rustpython_parser::error::ParseErrorType),
 }
 
+pub type CompileErrorBody = BaseError<CompileErrorType>;
+
 #[derive(Debug, thiserror::Error)]
 pub struct CompileError {
-    pub error: CompileErrorType,
-    pub source_path: String,
-    pub location: Location,
+    pub body: CompileErrorBody,
     pub statement: Option<String>,
+}
+
+impl std::ops::Deref for CompileError {
+    type Target = CompileErrorBody;
+    fn deref(&self) -> &Self::Target {
+        &self.body
+    }
 }
 
 impl fmt::Display for CompileError {
@@ -41,20 +48,18 @@ impl fmt::Display for CompileError {
 
 impl CompileError {
     fn from_codegen(error: rustpython_codegen::error::CodegenError, source: &str) -> Self {
+        let statement = get_statement(source, error.location);
         Self {
-            error: error.error.into(),
-            location: error.location,
-            source_path: error.source_path,
-            statement: get_statement(source, error.location),
+            body: error.into(),
+            statement,
         }
     }
     fn from_parse(error: rustpython_parser::error::ParseError, source: &str) -> Self {
-        let error: rustpython_compiler_core::Error<ParseErrorType> = error.into();
+        let error: rustpython_compiler_core::BaseError<ParseErrorType> = error.into();
+        let statement = get_statement(source, error.location);
         Self {
-            error: error.error.into(),
-            location: error.location,
-            source_path: error.source_path,
-            statement: get_statement(source, error.location),
+            body: error.into(),
+            statement,
         }
     }
     fn from_symtable(
