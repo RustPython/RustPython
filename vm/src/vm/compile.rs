@@ -1,6 +1,6 @@
 use crate::{
     builtins::{PyCode, PyDictRef},
-    compile::{self, CompileError, CompileOpts},
+    compiler::{self, CompileError, CompileOpts},
     convert::TryFromObject,
     scope::Scope,
     AsObject, PyObjectRef, PyRef, PyResult, VirtualMachine,
@@ -18,7 +18,7 @@ impl VirtualMachine {
     pub fn compile(
         &self,
         source: &str,
-        mode: compile::Mode,
+        mode: compiler::Mode,
         source_path: String,
     ) -> Result<PyRef<PyCode>, CompileError> {
         self.compile_with_opts(source, mode, source_path, self.compile_opts())
@@ -27,11 +27,11 @@ impl VirtualMachine {
     pub fn compile_with_opts(
         &self,
         source: &str,
-        mode: compile::Mode,
+        mode: compiler::Mode,
         source_path: String,
         opts: CompileOpts,
     ) -> Result<PyRef<PyCode>, CompileError> {
-        compile::compile(source, mode, source_path, opts).map(|code| self.ctx.new_code(code))
+        compiler::compile(source, mode, source_path, opts).map(|code| self.ctx.new_code(code))
     }
 
     pub fn run_script(&self, scope: Scope, path: &str) -> PyResult<()> {
@@ -68,7 +68,7 @@ impl VirtualMachine {
 
     pub fn run_code_string(&self, scope: Scope, source: &str, source_path: String) -> PyResult {
         let code_obj = self
-            .compile(source, compile::Mode::Exec, source_path.clone())
+            .compile(source, compiler::Mode::Exec, source_path.clone())
             .map_err(|err| self.new_syntax_error(&err))?;
         // trace!("Code object: {:?}", code_obj.borrow());
         scope.globals.set_item(
@@ -81,7 +81,7 @@ impl VirtualMachine {
 
     pub fn run_block_expr(&self, scope: Scope, source: &str) -> PyResult {
         let code_obj = self
-            .compile(source, compile::Mode::BlockExpr, "<embedded>".to_owned())
+            .compile(source, compiler::Mode::BlockExpr, "<embedded>".to_owned())
             .map_err(|err| self.new_syntax_error(&err))?;
         // trace!("Code object: {:?}", code_obj.borrow());
         self.run_code_obj(code_obj, scope)

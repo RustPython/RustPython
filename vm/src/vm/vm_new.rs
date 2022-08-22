@@ -1,5 +1,5 @@
 #[cfg(feature = "rustpython-compiler")]
-use crate::compile::{CompileError, CompileErrorType};
+use crate::compiler::{CompileError, CompileErrorType};
 use crate::{
     builtins::{
         pystr::IntoPyStrRef,

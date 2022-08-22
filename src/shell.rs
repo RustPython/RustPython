@@ -3,7 +3,7 @@ mod helper;
 use rustpython_parser::error::{LexicalErrorType, ParseErrorType};
 use rustpython_vm::{
     builtins::PyBaseExceptionRef,
-    compile::{self, CompileError, CompileErrorBody, CompileErrorType},
+    compiler::{self, CompileError, CompileErrorBody, CompileErrorType},
     readline::{Readline, ReadlineResult},
     scope::Scope,
     AsObject, PyResult, VirtualMachine,
@@ -16,7 +16,7 @@ enum ShellExecResult {
 }
 
 fn shell_exec(vm: &VirtualMachine, source: &str, scope: Scope) -> ShellExecResult {
-    match vm.compile(source, compile::Mode::Single, "<stdin>".to_owned()) {
+    match vm.compile(source, compiler::Mode::Single, "<stdin>".to_owned()) {
         Ok(code) => match vm.run_code_obj(code, scope) {
             Ok(_val) => ShellExecResult::Ok,
             Err(err) => ShellExecResult::PyErr(err),

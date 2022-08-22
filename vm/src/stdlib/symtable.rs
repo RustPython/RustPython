@@ -3,7 +3,7 @@ pub(crate) use symtable::make_module;
 #[pymodule]
 mod symtable {
     use crate::{
-        builtins::PyStrRef, compile, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+        builtins::PyStrRef, compiler, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     };
     use rustpython_codegen::symboltable::{Symbol, SymbolScope, SymbolTable, SymbolTableType};
     use std::fmt;
@@ -19,10 +19,10 @@ mod symtable {
     ) -> PyResult<PySymbolTableRef> {
         let mode = mode
             .as_str()
-            .parse::<compile::Mode>()
+            .parse::<compiler::Mode>()
             .map_err(|err| vm.new_value_error(err.to_string()))?;
 
-        let symtable = compile::compile_symtable(source.as_str(), mode, filename.as_str())
+        let symtable = compiler::compile_symtable(source.as_str(), mode, filename.as_str())
             .map_err(|err| vm.new_syntax_error(&err))?;
 
         let py_symbol_table = to_py_symbol_table(symtable);

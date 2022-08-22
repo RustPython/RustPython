@@ -9,7 +9,6 @@ use crate::{class::PyClassImpl, PyObjectRef, VirtualMachine};
 #[pymodule]
 mod builtins {
     #[cfg(feature = "rustpython-compiler")]
-    use crate::compile;
     use crate::{
         builtins::{
             asyncgenerator::PyAsyncGen,
@@ -21,6 +20,7 @@ mod builtins {
             PyByteArray, PyBytes, PyDictRef, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType,
         },
         common::{hash::PyHash, str::to_ascii},
+        compiler,
         format::call_object_format,
         function::Either,
         function::{
@@ -144,7 +144,7 @@ mod builtins {
                 #[cfg(feature = "rustpython-codegen")]
                 {
                     let mode = mode_str
-                        .parse::<compile::Mode>()
+                        .parse::<compiler::Mode>()
                         .map_err(|err| vm.new_value_error(err.to_string()))?;
                     return ast::compile(vm, args.source, args.filename.as_str(), mode);
                 }
@@ -161,7 +161,7 @@ mod builtins {
                 use rustpython_parser::parser;
 
                 let source = Either::<PyStrRef, PyBytesRef>::try_from_object(vm, args.source)?;
-                // TODO: compile::compile should probably get bytes
+                // TODO: compiler::compile should probably get bytes
                 let source = match &source {
                     Either::A(string) => string.as_str(),
                     Either::B(bytes) => std::str::from_utf8(bytes)
@@ -178,7 +178,7 @@ mod builtins {
                     #[cfg(feature = "rustpython-compiler")]
                     {
                         let mode = mode_str
-                            .parse::<compile::Mode>()
+                            .parse::<compiler::Mode>()
                             .map_err(|err| vm.new_value_error(err.to_string()))?;
                         let code = vm
                             .compile(source, mode, args.filename.as_str().to_owned())
@@ -279,7 +279,7 @@ mod builtins {
             }
             Either::B(code) => Ok(Either::B(code)),
         }?;
-        run_code(vm, code, scope, crate::compile::Mode::Eval, "eval")
+        run_code(vm, code, scope, crate::compiler::Mode::Eval, "eval")
     }
 
     /// Implements `exec`
@@ -290,14 +290,14 @@ mod builtins {
         scope: ScopeArgs,
         vm: &VirtualMachine,
     ) -> PyResult {
-        run_code(vm, source, scope, crate::compile::Mode::Exec, "exec")
+        run_code(vm, source, scope, crate::compiler::Mode::Exec, "exec")
     }
 
     fn run_code(
         vm: &VirtualMachine,
         source: Either<PyStrRef, PyRef<crate::builtins::PyCode>>,
         scope: ScopeArgs,
-        #[allow(unused_variables)] mode: crate::compile::Mode,
+        #[allow(unused_variables)] mode: crate::compiler::Mode,
         func: &str,
     ) -> PyResult {
         let scope = scope.make_scope(vm)?;

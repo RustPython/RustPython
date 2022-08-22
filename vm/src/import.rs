@@ -111,7 +111,7 @@ pub fn import_file(
     let code = vm
         .compile_with_opts(
             &content,
-            crate::compile::Mode::Exec,
+            crate::compiler::Mode::Exec,
             file_path,
             vm.compile_opts(),
         )

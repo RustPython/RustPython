@@ -5,7 +5,7 @@ mod decl {
     use crate::vm::{
         builtins::{PyCode, PyDictRef, PyStrRef},
         bytecode::CodeFlags,
-        compile, PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,
+        compiler, PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,
     };
 
     #[pyfunction]
@@ -15,7 +15,7 @@ mod decl {
             PyRef::try_from_object(vm, co)?
         } else if let Ok(co_str) = PyStrRef::try_from_object(vm, obj.clone()) {
             // String:
-            vm.compile(co_str.as_str(), compile::Mode::Exec, "<dis>".to_owned())
+            vm.compile(co_str.as_str(), compiler::Mode::Exec, "<dis>".to_owned())
                 .map_err(|err| vm.new_syntax_error(&err))?
         } else {
             PyRef::try_from_object(vm, obj)?
