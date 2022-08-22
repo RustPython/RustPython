@@ -1,17 +1,10 @@
-use rustpython_ast::Location;
+use std::fmt;
 
-use std::{error::Error, fmt};
+pub type CodegenError = rustpython_compiler_core::BaseError<CodegenErrorType>;
 
-#[derive(Debug)]
-pub struct CompileError {
-    pub error: CompileErrorType,
-    pub location: Location,
-    pub source_path: String,
-}
-
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
-pub enum CompileErrorType {
+pub enum CodegenErrorType {
     /// Invalid assignment, cannot store value in target.
     Assign(&'static str),
     /// Invalid delete
@@ -40,62 +33,49 @@ pub enum CompileErrorType {
     NotImplementedYet, // RustPython marker for unimplemented features
 }
 
-impl fmt::Display for CompileErrorType {
+impl fmt::Display for CodegenErrorType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use CodegenErrorType::*;
         match self {
-            CompileErrorType::Assign(target) => write!(f, "cannot assign to {}", target),
-            CompileErrorType::Delete(target) => write!(f, "cannot delete {}", target),
-            CompileErrorType::SyntaxError(err) => write!(f, "{}", err.as_str()),
-            CompileErrorType::MultipleStarArgs => {
+            Assign(target) => write!(f, "cannot assign to {}", target),
+            Delete(target) => write!(f, "cannot delete {}", target),
+            SyntaxError(err) => write!(f, "{}", err.as_str()),
+            MultipleStarArgs => {
                 write!(f, "two starred expressions in assignment")
             }
-            CompileErrorType::InvalidStarExpr => write!(f, "cannot use starred expression here"),
-            CompileErrorType::InvalidBreak => write!(f, "'break' outside loop"),
-            CompileErrorType::InvalidContinue => write!(f, "'continue' outside loop"),
-            CompileErrorType::InvalidReturn => write!(f, "'return' outside function"),
-            CompileErrorType::InvalidYield => write!(f, "'yield' outside function"),
-            CompileErrorType::InvalidYieldFrom => write!(f, "'yield from' outside function"),
-            CompileErrorType::InvalidAwait => write!(f, "'await' outside async function"),
-            CompileErrorType::AsyncYieldFrom => write!(f, "'yield from' inside async function"),
-            CompileErrorType::AsyncReturnValue => {
+            InvalidStarExpr => write!(f, "cannot use starred expression here"),
+            InvalidBreak => write!(f, "'break' outside loop"),
+            InvalidContinue => write!(f, "'continue' outside loop"),
+            InvalidReturn => write!(f, "'return' outside function"),
+            InvalidYield => write!(f, "'yield' outside function"),
+            InvalidYieldFrom => write!(f, "'yield from' outside function"),
+            InvalidAwait => write!(f, "'await' outside async function"),
+            AsyncYieldFrom => write!(f, "'yield from' inside async function"),
+            AsyncReturnValue => {
                 write!(f, "'return' with value inside async generator")
             }
-            CompileErrorType::InvalidFuturePlacement => write!(
+            InvalidFuturePlacement => write!(
                 f,
                 "from __future__ imports must occur at the beginning of the file"
             ),
-            CompileErrorType::InvalidFutureFeature(feat) => {
+            InvalidFutureFeature(feat) => {
                 write!(f, "future feature {} is not defined", feat)
             }
-            CompileErrorType::FunctionImportStar => {
+            FunctionImportStar => {
                 write!(f, "import * only allowed at module level")
             }
-            CompileErrorType::TooManyStarUnpack => {
+            TooManyStarUnpack => {
                 write!(f, "too many expressions in star-unpacking assignment")
             }
-            CompileErrorType::EmptyWithItems => {
+            EmptyWithItems => {
                 write!(f, "empty items on With")
             }
-            CompileErrorType::EmptyWithBody => {
+            EmptyWithBody => {
                 write!(f, "empty body on With")
             }
-            CompileErrorType::NotImplementedYet => {
+            NotImplementedYet => {
                 write!(f, "RustPython does not implement this feature yet")
             }
         }
-    }
-}
-
-impl Error for CompileErrorType {}
-
-impl fmt::Display for CompileError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} at {}", self.error, self.location)
-    }
-}
-
-impl Error for CompileError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        None
     }
 }

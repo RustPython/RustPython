@@ -8,8 +8,6 @@ use crate::{class::PyClassImpl, PyObjectRef, VirtualMachine};
 /// Noteworthy: None is the `nil' object; Ellipsis represents `...' in slices.
 #[pymodule]
 mod builtins {
-    #[cfg(feature = "rustpython-compiler")]
-    use crate::compile;
     use crate::{
         builtins::{
             asyncgenerator::PyAsyncGen,
@@ -21,11 +19,11 @@ mod builtins {
             PyByteArray, PyBytes, PyDictRef, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType,
         },
         common::{hash::PyHash, str::to_ascii},
+        convert::ToPyException,
         format::call_object_format,
-        function::Either,
         function::{
             ArgBytesLike, ArgCallable, ArgIntoBool, ArgIterable, ArgMapping, ArgStrOrBytesLike,
-            FuncArgs, KwArgs, OptionalArg, OptionalOption, PosArgs, PyArithmeticValue,
+            Either, FuncArgs, KwArgs, OptionalArg, OptionalOption, PosArgs, PyArithmeticValue,
         },
         protocol::{PyIter, PyIterReturn},
         py_io,
@@ -35,6 +33,10 @@ mod builtins {
         AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     };
     use num_traits::{Signed, ToPrimitive};
+
+    #[cfg(not(feature = "rustpython-compiler"))]
+    const CODEGEN_NOT_SUPPORTED: &str =
+        "can't compile() to bytecode when the `codegen` feature of rustpython is disabled";
 
     #[pyfunction]
     fn abs(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -113,13 +115,9 @@ mod builtins {
         _feature_version: OptionalArg<i32>,
     }
 
-    #[cfg(feature = "rustpython-compiler")]
+    #[cfg(any(feature = "rustpython-parser", feature = "rustpython-codegen"))]
     #[pyfunction]
     fn compile(args: CompileArgs, vm: &VirtualMachine) -> PyResult {
-        #[cfg(not(feature = "rustpython-ast"))]
-        {
-            Err(vm.new_value_error("can't use compile() when the `compiler` and `parser` features of rustpython are disabled".to_owned()))
-        }
         #[cfg(feature = "rustpython-ast")]
         {
             use crate::{class::PyClassImpl, stdlib::ast};
@@ -134,14 +132,14 @@ mod builtins {
                 .source
                 .fast_isinstance(&ast::AstNode::make_class(&vm.ctx))
             {
-                #[cfg(not(feature = "rustpython-compiler"))]
+                #[cfg(not(feature = "rustpython-codegen"))]
                 {
-                    return Err(vm.new_value_error("can't compile ast nodes when the `compiler` feature of rustpython is disabled"));
+                    return Err(vm.new_type_error(CODEGEN_NOT_SUPPORTED.to_owned()));
                 }
-                #[cfg(feature = "rustpython-compiler")]
+                #[cfg(feature = "rustpython-codegen")]
                 {
                     let mode = mode_str
-                        .parse::<compile::Mode>()
+                        .parse::<crate::compiler::Mode>()
                         .map_err(|err| vm.new_value_error(err.to_string()))?;
                     return ast::compile(vm, args.source, args.filename.as_str(), mode);
                 }
@@ -149,9 +147,9 @@ mod builtins {
 
             #[cfg(not(feature = "rustpython-parser"))]
             {
-                Err(vm.new_value_error(
-                    "can't compile() a string when the `parser` feature of rustpython is disabled",
-                ))
+                const PARSER_NOT_SUPPORTED: &str =
+        "can't compile() source code when the `parser` feature of rustpython is disabled";
+                Err(vm.new_type_error(PARSER_NOT_SUPPORTED.to_owned()))
             }
             #[cfg(feature = "rustpython-parser")]
             {
@@ -160,7 +158,7 @@ mod builtins {
                 use rustpython_parser::parser;
 
                 let source = Either::<PyStrRef, PyBytesRef>::try_from_object(vm, args.source)?;
-                // TODO: compile::compile should probably get bytes
+                // TODO: compiler::compile should probably get bytes
                 let source = match &source {
                     Either::A(string) => string.as_str(),
                     Either::B(bytes) => std::str::from_utf8(bytes)
@@ -172,23 +170,23 @@ mod builtins {
                 if (flags & ast::PY_COMPILE_FLAG_AST_ONLY).is_zero() {
                     #[cfg(not(feature = "rustpython-compiler"))]
                     {
-                        Err(vm.new_value_error("can't compile() a string to bytecode when the `compiler` feature of rustpython is disabled".to_owned()))
+                        Err(vm.new_value_error(CODEGEN_NOT_SUPPORTED.to_owned()))
                     }
                     #[cfg(feature = "rustpython-compiler")]
                     {
                         let mode = mode_str
-                            .parse::<compile::Mode>()
+                            .parse::<crate::compiler::Mode>()
                             .map_err(|err| vm.new_value_error(err.to_string()))?;
                         let code = vm
                             .compile(source, mode, args.filename.as_str().to_owned())
-                            .map_err(|err| vm.new_syntax_error(&err))?;
+                            .map_err(|err| err.to_pyexception(vm))?;
                         Ok(code.into())
                     }
                 } else {
                     let mode = mode_str
                         .parse::<parser::Mode>()
                         .map_err(|err| vm.new_value_error(err.to_string()))?;
-                    ast::parse(vm, source, mode)
+                    ast::parse(vm, source, mode).map_err(|e| e.to_pyexception(vm))
                 }
             }
         }
@@ -209,7 +207,6 @@ mod builtins {
         vm._divmod(&a, &b)
     }
 
-    #[cfg(feature = "rustpython-compiler")]
     #[derive(FromArgs)]
     struct ScopeArgs {
         #[pyarg(any, default)]
@@ -218,7 +215,6 @@ mod builtins {
         locals: Option<ArgMapping>,
     }
 
-    #[cfg(feature = "rustpython-compiler")]
     impl ScopeArgs {
         fn make_scope(self, vm: &VirtualMachine) -> PyResult<crate::scope::Scope> {
             let (globals, locals) = match self.globals {
@@ -251,7 +247,6 @@ mod builtins {
 
     /// Implements `eval`.
     /// See also: https://docs.python.org/3/library/functions.html#eval
-    #[cfg(feature = "rustpython-compiler")]
     #[pyfunction]
     fn eval(
         source: Either<ArgStrOrBytesLike, PyRef<crate::builtins::PyCode>>,
@@ -281,36 +276,37 @@ mod builtins {
             }
             Either::B(code) => Ok(Either::B(code)),
         }?;
-        run_code(vm, code, scope, compile::Mode::Eval, "eval")
+        run_code(vm, code, scope, crate::compiler::Mode::Eval, "eval")
     }
 
     /// Implements `exec`
     /// https://docs.python.org/3/library/functions.html#exec
-    #[cfg(feature = "rustpython-compiler")]
     #[pyfunction]
     fn exec(
         source: Either<PyStrRef, PyRef<crate::builtins::PyCode>>,
         scope: ScopeArgs,
         vm: &VirtualMachine,
     ) -> PyResult {
-        run_code(vm, source, scope, compile::Mode::Exec, "exec")
+        run_code(vm, source, scope, crate::compiler::Mode::Exec, "exec")
     }
 
-    #[cfg(feature = "rustpython-compiler")]
     fn run_code(
         vm: &VirtualMachine,
         source: Either<PyStrRef, PyRef<crate::builtins::PyCode>>,
         scope: ScopeArgs,
-        mode: compile::Mode,
+        #[allow(unused_variables)] mode: crate::compiler::Mode,
         func: &str,
     ) -> PyResult {
         let scope = scope.make_scope(vm)?;
 
         // Determine code object:
         let code_obj = match source {
+            #[cfg(feature = "rustpython-compiler")]
             Either::A(string) => vm
                 .compile(string.as_str(), mode, "<string>".to_owned())
                 .map_err(|err| vm.new_syntax_error(&err))?,
+            #[cfg(not(feature = "rustpython-compiler"))]
+            Either::A(_) => return Err(vm.new_type_error(CODEGEN_NOT_SUPPORTED.to_owned())),
             Either::B(code_obj) => code_obj,
         };
 

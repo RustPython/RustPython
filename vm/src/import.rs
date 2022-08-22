@@ -1,8 +1,6 @@
 /*
  * Import mechanics
  */
-#[cfg(feature = "rustpython-compiler")]
-use crate::compile;
 use crate::{
     builtins::{list, traceback::PyTraceback, PyBaseExceptionRef, PyCode},
     scope::Scope,
@@ -111,7 +109,12 @@ pub fn import_file(
     content: String,
 ) -> PyResult {
     let code = vm
-        .compile_with_opts(&content, compile::Mode::Exec, file_path, vm.compile_opts())
+        .compile_with_opts(
+            &content,
+            crate::compiler::Mode::Exec,
+            file_path,
+            vm.compile_opts(),
+        )
         .map_err(|err| vm.new_syntax_error(&err))?;
     import_codeobj(vm, module_name, code, true)
 }

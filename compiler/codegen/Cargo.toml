@@ -8,15 +8,18 @@ license = "MIT"
 edition = "2021"
 
 [dependencies]
+rustpython-ast = { path = "../ast", features = ["unparse"] }
+rustpython-compiler-core = { path = "../core", version = "0.1.1" }
+
+ahash = "0.7.6"
 indexmap = "1.8.1"
 itertools = "0.10.3"
-rustpython-bytecode = { path = "../bytecode", version = "0.1.1" }
-rustpython-ast = { path = "../ast", features = ["unparse"] }
+log = "0.4.16"
 num-complex = { version = "0.4.0", features = ["serde"] }
 num-traits = "0.2.14"
-log = "0.4.16"
-ahash = "0.7.6"
+thiserror = "1.0"
 
 [dev-dependencies]
 rustpython-parser = { path = "../parser" }
+
 insta = "1.14.0"

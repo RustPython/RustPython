@@ -11,15 +11,17 @@ edition = "2021"
 proc-macro = true
 
 [dependencies]
-syn = { version = "1.0.91", features = ["full", "extra-traits"] }
-syn-ext = { version = "0.4.0", features = ["full"] }
-quote = "1.0.18"
-proc-macro2 = "1.0.37"
-rustpython-bytecode = { path = "../compiler/bytecode", version = "0.1.1" }
+rustpython-codegen = { path = "../compiler/codegen", version = "0.1.1" }
 rustpython-compiler = { path = "../compiler", version = "0.1.1" }
-maplit = "1.0.2"
-once_cell = "1.10.0"
-textwrap = { version = "0.15.0", default-features = false }
+rustpython-compiler-core = { path = "../compiler/core", version = "0.1.1" }
+rustpython-doc = { git = "https://github.com/RustPython/__doc__", branch = "main" }
+
 indexmap = "1.8.1"
 itertools = "0.10.3"
-rustpython-doc = { git = "https://github.com/RustPython/__doc__", branch = "main" }
+maplit = "1.0.2"
+once_cell = "1.10.0"
+proc-macro2 = "1.0.37"
+quote = "1.0.18"
+syn = { version = "1.0.91", features = ["full", "extra-traits"] }
+syn-ext = { version = "0.4.0", features = ["full"] }
+textwrap = { version = "0.15.0", default-features = false }

@@ -1,6 +1,6 @@
 use cranelift::prelude::*;
 use num_traits::cast::ToPrimitive;
-use rustpython_bytecode::{
+use rustpython_compiler_core::{
     self as bytecode, BinaryOperator, BorrowedConstant, CodeObject, ComparisonOperator,
     Instruction, Label, UnaryOperator,
 };

@@ -8,23 +8,12 @@ Inspirational file: https://github.com/python/cpython/blob/main/Python/symtable.
 */
 
 use crate::{
-    error::{CompileError, CompileErrorType},
+    error::{CodegenError, CodegenErrorType},
     IndexMap,
 };
-use rustpython_ast::{self as ast, Location};
+use rustpython_ast as ast;
+use rustpython_compiler_core::Location;
 use std::{borrow::Cow, fmt};
-
-pub fn make_symbol_table(program: &[ast::Stmt]) -> SymbolTableResult<SymbolTable> {
-    let mut builder = SymbolTableBuilder::new();
-    builder.scan_statements(program)?;
-    builder.finish()
-}
-
-pub fn make_symbol_table_expr(expr: &ast::Expr) -> SymbolTableResult<SymbolTable> {
-    let mut builder = SymbolTableBuilder::new();
-    builder.scan_expression(expr, ExpressionContext::Load)?;
-    builder.finish()
-}
 
 /// Captures all symbols in the current scope, and has a list of subscopes in this scope.
 #[derive(Clone)]
@@ -59,6 +48,18 @@ impl SymbolTable {
             symbols: IndexMap::default(),
             sub_tables: vec![],
         }
+    }
+
+    pub fn scan_program(program: &[ast::Stmt]) -> SymbolTableResult<Self> {
+        let mut builder = SymbolTableBuilder::new();
+        builder.scan_statements(program)?;
+        builder.finish()
+    }
+
+    pub fn scan_expr(expr: &ast::Expr) -> SymbolTableResult<Self> {
+        let mut builder = SymbolTableBuilder::new();
+        builder.scan_expression(expr, ExpressionContext::Load)?;
+        builder.finish()
     }
 }
 
@@ -168,9 +169,9 @@ pub struct SymbolTableError {
 }
 
 impl SymbolTableError {
-    pub fn into_compile_error(self, source_path: String) -> CompileError {
-        CompileError {
-            error: CompileErrorType::SyntaxError(self.error),
+    pub fn into_codegen_error(self, source_path: String) -> CodegenError {
+        CodegenError {
+            error: CodegenErrorType::SyntaxError(self.error),
             location: self.location,
             source_path,
         }

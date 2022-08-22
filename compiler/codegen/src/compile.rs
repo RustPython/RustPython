@@ -6,21 +6,21 @@
 //!   <https://github.com/micropython/micropython/blob/master/py/compile.c>
 
 use crate::{
-    error::{CompileError, CompileErrorType},
+    error::{CodegenError, CodegenErrorType},
     ir,
-    symboltable::{self, make_symbol_table, make_symbol_table_expr, SymbolScope, SymbolTable},
+    symboltable::{self, SymbolScope, SymbolTable},
     IndexSet,
 };
 use itertools::Itertools;
 use num_complex::Complex64;
 use num_traits::ToPrimitive;
 use rustpython_ast as ast;
-use rustpython_bytecode::{self as bytecode, CodeObject, ConstantData, Instruction};
+use rustpython_compiler_core::{self as bytecode, CodeObject, ConstantData, Instruction, Location};
 use std::borrow::Cow;
 
-pub use crate::mode::Mode;
+pub use rustpython_compiler_core::Mode;
 
-type CompileResult<T> = Result<T, CompileError>;
+type CompileResult<T> = Result<T, CodegenError>;
 
 #[derive(PartialEq, Eq, Clone, Copy)]
 enum NameUsage {
@@ -64,7 +64,7 @@ struct Compiler {
     code_stack: Vec<ir::CodeInfo>,
     symbol_table_stack: Vec<SymbolTable>,
     source_path: String,
-    current_source_location: ast::Location,
+    current_source_location: Location,
     qualified_path: Vec<String>,
     done_with_future_stmts: bool,
     future_annotations: bool,
@@ -129,7 +129,7 @@ fn compile_impl<Ast: ?Sized>(
 ) -> CompileResult<CodeObject> {
     let symbol_table = match make_symbol_table(ast) {
         Ok(x) => x,
-        Err(e) => return Err(e.into_compile_error(source_path)),
+        Err(e) => return Err(e.into_codegen_error(source_path)),
     };
 
     let mut compiler = Compiler::new(opts, source_path, "<module>".to_owned());
@@ -149,7 +149,7 @@ pub fn compile_program(
         ast,
         source_path,
         opts,
-        make_symbol_table,
+        SymbolTable::scan_program,
         Compiler::compile_program,
     )
 }
@@ -164,7 +164,7 @@ pub fn compile_program_single(
         ast,
         source_path,
         opts,
-        make_symbol_table,
+        SymbolTable::scan_program,
         Compiler::compile_program_single,
     )
 }
@@ -178,7 +178,7 @@ pub fn compile_block_expression(
         ast,
         source_path,
         opts,
-        make_symbol_table,
+        SymbolTable::scan_program,
         Compiler::compile_block_expr,
     )
 }
@@ -192,7 +192,7 @@ pub fn compile_expression(
         ast,
         source_path,
         opts,
-        make_symbol_table_expr,
+        SymbolTable::scan_expr,
         Compiler::compile_eval,
     )
 }
@@ -220,7 +220,7 @@ impl Compiler {
             code_stack: vec![module_code],
             symbol_table_stack: Vec::new(),
             source_path,
-            current_source_location: ast::Location::default(),
+            current_source_location: Location::default(),
             qualified_path: Vec::new(),
             done_with_future_stmts: false,
             future_annotations: false,
@@ -234,11 +234,11 @@ impl Compiler {
         }
     }
 
-    fn error(&self, error: CompileErrorType) -> CompileError {
+    fn error(&self, error: CodegenErrorType) -> CodegenError {
         self.error_loc(error, self.current_source_location)
     }
-    fn error_loc(&self, error: CompileErrorType, location: ast::Location) -> CompileError {
-        CompileError {
+    fn error_loc(&self, error: CodegenErrorType, location: Location) -> CodegenError {
+        CodegenError {
             error,
             location,
             source_path: self.source_path.clone(),
@@ -455,7 +455,7 @@ impl Compiler {
             NameUsage::Delete if is_forbidden_name(name) => "cannot delete",
             _ => return Ok(()),
         };
-        Err(self.error(CompileErrorType::SyntaxError(format!("{} {}", msg, name))))
+        Err(self.error(CodegenErrorType::SyntaxError(format!("{} {}", msg, name))))
     }
 
     fn compile_name(&mut self, name: &str, usage: NameUsage) -> CompileResult<()> {
@@ -580,7 +580,7 @@ impl Compiler {
                 let from_list = if import_star {
                     if self.ctx.in_func() {
                         return Err(self
-                            .error_loc(CompileErrorType::FunctionImportStar, statement.location));
+                            .error_loc(CodegenErrorType::FunctionImportStar, statement.location));
                     }
                     vec![ConstantData::Str {
                         value: "*".to_owned(),
@@ -769,7 +769,7 @@ impl Compiler {
                     self.emit(Instruction::Break { target: end });
                 }
                 None => {
-                    return Err(self.error_loc(CompileErrorType::InvalidBreak, statement.location));
+                    return Err(self.error_loc(CodegenErrorType::InvalidBreak, statement.location));
                 }
             },
             Continue => match self.ctx.loop_data {
@@ -778,13 +778,13 @@ impl Compiler {
                 }
                 None => {
                     return Err(
-                        self.error_loc(CompileErrorType::InvalidContinue, statement.location)
+                        self.error_loc(CodegenErrorType::InvalidContinue, statement.location)
                     );
                 }
             },
             Return { value } => {
                 if !self.ctx.in_func() {
-                    return Err(self.error_loc(CompileErrorType::InvalidReturn, statement.location));
+                    return Err(self.error_loc(CodegenErrorType::InvalidReturn, statement.location));
                 }
                 match value {
                     Some(v) => {
@@ -795,7 +795,7 @@ impl Compiler {
                                 .contains(bytecode::CodeFlags::IS_GENERATOR)
                         {
                             return Err(self.error_loc(
-                                CompileErrorType::AsyncReturnValue,
+                                CodegenErrorType::AsyncReturnValue,
                                 statement.location,
                             ));
                         }
@@ -857,9 +857,9 @@ impl Compiler {
                 }
             }
             ast::ExprKind::BinOp { .. } | ast::ExprKind::UnaryOp { .. } => {
-                return Err(self.error(CompileErrorType::Delete("expression")))
+                return Err(self.error(CodegenErrorType::Delete("expression")))
             }
-            _ => return Err(self.error(CompileErrorType::Delete(expression.node.name()))),
+            _ => return Err(self.error(CodegenErrorType::Delete(expression.node.name()))),
         }
         Ok(())
     }
@@ -922,7 +922,7 @@ impl Compiler {
             .chain(&args.kwonlyargs);
         for name in args_iter {
             if Compiler::is_forbidden_arg_name(&name.node.arg) {
-                return Err(self.error(CompileErrorType::SyntaxError(format!(
+                return Err(self.error(CodegenErrorType::SyntaxError(format!(
                     "cannot assign to {}",
                     &name.node.arg
                 ))));
@@ -1401,7 +1401,7 @@ impl Compiler {
         let (item, items) = if let Some(parts) = items.split_first() {
             parts
         } else {
-            return Err(self.error(CompileErrorType::EmptyWithItems));
+            return Err(self.error(CodegenErrorType::EmptyWithItems));
         };
 
         let final_block = {
@@ -1433,7 +1433,7 @@ impl Compiler {
 
         if items.is_empty() {
             if body.is_empty() {
-                return Err(self.error(CompileErrorType::EmptyWithBody));
+                return Err(self.error(CodegenErrorType::EmptyWithBody));
             }
             self.compile_statements(body)?;
         } else {
@@ -1529,7 +1529,7 @@ impl Compiler {
     ) -> CompileResult<()> {
         eprintln!("match subject: {subject:?}");
         eprintln!("match cases: {cases:?}");
-        Err(self.error(CompileErrorType::NotImplementedYet))
+        Err(self.error(CodegenErrorType::NotImplementedYet))
     }
 
     fn compile_chained_comparison(
@@ -1699,7 +1699,7 @@ impl Compiler {
                 for (i, element) in elts.iter().enumerate() {
                     if let ast::ExprKind::Starred { .. } = &element.node {
                         if seen_star {
-                            return Err(self.error(CompileErrorType::MultipleStarArgs));
+                            return Err(self.error(CodegenErrorType::MultipleStarArgs));
                         } else {
                             seen_star = true;
                             let before = i;
@@ -1707,7 +1707,7 @@ impl Compiler {
                             let (before, after) = (|| Some((before.to_u8()?, after.to_u8()?)))()
                                 .ok_or_else(|| {
                                     self.error_loc(
-                                        CompileErrorType::TooManyStarUnpack,
+                                        CodegenErrorType::TooManyStarUnpack,
                                         target.location,
                                     )
                                 })?;
@@ -1732,10 +1732,10 @@ impl Compiler {
             }
             _ => {
                 return Err(self.error(match target.node {
-                    ast::ExprKind::Starred { .. } => CompileErrorType::SyntaxError(
+                    ast::ExprKind::Starred { .. } => CodegenErrorType::SyntaxError(
                         "starred assignment target must be in a list or tuple".to_owned(),
                     ),
-                    _ => CompileErrorType::Assign(target.node.name()),
+                    _ => CodegenErrorType::Assign(target.node.name()),
                 }));
             }
         }
@@ -1776,7 +1776,7 @@ impl Compiler {
                 AugAssignKind::Attr { idx }
             }
             _ => {
-                return Err(self.error(CompileErrorType::Assign(target.node.name())));
+                return Err(self.error(CodegenErrorType::Assign(target.node.name())));
             }
         };
 
@@ -2049,7 +2049,7 @@ impl Compiler {
             }
             Yield { value } => {
                 if !self.ctx.in_func() {
-                    return Err(self.error(CompileErrorType::InvalidYield));
+                    return Err(self.error(CodegenErrorType::InvalidYield));
                 }
                 self.mark_generator();
                 match value {
@@ -2060,7 +2060,7 @@ impl Compiler {
             }
             Await { value } => {
                 if self.ctx.func != FunctionContext::AsyncFunction {
-                    return Err(self.error(CompileErrorType::InvalidAwait));
+                    return Err(self.error(CodegenErrorType::InvalidAwait));
                 }
                 self.compile_expression(value)?;
                 self.emit(Instruction::GetAwaitable);
@@ -2070,10 +2070,10 @@ impl Compiler {
             YieldFrom { value } => {
                 match self.ctx.func {
                     FunctionContext::NoFunction => {
-                        return Err(self.error(CompileErrorType::InvalidYieldFrom));
+                        return Err(self.error(CodegenErrorType::InvalidYieldFrom));
                     }
                     FunctionContext::AsyncFunction => {
-                        return Err(self.error(CompileErrorType::AsyncYieldFrom));
+                        return Err(self.error(CodegenErrorType::AsyncYieldFrom));
                     }
                     FunctionContext::Function => {}
                 }
@@ -2208,7 +2208,7 @@ impl Compiler {
                 })?;
             }
             Starred { .. } => {
-                return Err(self.error(CompileErrorType::InvalidStarExpr));
+                return Err(self.error(CodegenErrorType::InvalidStarExpr));
             }
             IfExp { test, body, orelse } => {
                 let else_block = self.new_block();
@@ -2417,8 +2417,8 @@ impl Compiler {
 
     fn compile_comprehension_element(&mut self, element: &ast::Expr) -> CompileResult<()> {
         self.compile_expression(element).map_err(|e| {
-            if let CompileErrorType::InvalidStarExpr = e.error {
-                self.error(CompileErrorType::SyntaxError(
+            if let CodegenErrorType::InvalidStarExpr = e.error {
+                self.error(CodegenErrorType::SyntaxError(
                     "iterable unpacking cannot be used in comprehension".to_owned(),
                 ))
             } else {
@@ -2547,9 +2547,9 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_future_features(&mut self, features: &[ast::Alias]) -> Result<(), CompileError> {
+    fn compile_future_features(&mut self, features: &[ast::Alias]) -> Result<(), CodegenError> {
         if self.done_with_future_stmts {
-            return Err(self.error(CompileErrorType::InvalidFuturePlacement));
+            return Err(self.error(CodegenErrorType::InvalidFuturePlacement));
         }
         for feature in features {
             match &*feature.node.name {
@@ -2559,7 +2559,7 @@ impl Compiler {
                 // "generator_stop" => {}
                 "annotations" => self.future_annotations = true,
                 other => {
-                    return Err(self.error(CompileErrorType::InvalidFutureFeature(other.to_owned())))
+                    return Err(self.error(CodegenErrorType::InvalidFutureFeature(other.to_owned())))
                 }
             }
         }
@@ -2617,7 +2617,7 @@ impl Compiler {
         code.current_block = block;
     }
 
-    fn set_source_location(&mut self, location: ast::Location) {
+    fn set_source_location(&mut self, location: Location) {
         self.current_source_location = location;
     }
 
@@ -2672,7 +2672,7 @@ fn try_get_constant_string(values: &[ast::Expr]) -> Option<String> {
     }
 }
 
-fn compile_location(location: &ast::Location) -> bytecode::Location {
+fn compile_location(location: &Location) -> bytecode::Location {
     bytecode::Location::new(location.row(), location.column())
 }
 
@@ -2697,8 +2697,8 @@ fn compile_constant(value: &ast::Constant) -> ConstantData {
 #[cfg(test)]
 mod tests {
     use super::{CompileOpts, Compiler};
-    use crate::symboltable::make_symbol_table;
-    use rustpython_bytecode::CodeObject;
+    use crate::symboltable::SymbolTable;
+    use rustpython_compiler_core::CodeObject;
     use rustpython_parser::parser;
 
     fn compile_exec(source: &str) -> CodeObject {
@@ -2707,8 +2707,8 @@ mod tests {
             "source_path".to_owned(),
             "<module>".to_owned(),
         );
-        let ast = parser::parse_program(source).unwrap();
-        let symbol_scope = make_symbol_table(&ast).unwrap();
+        let ast = parser::parse_program(source, "<test>").unwrap();
+        let symbol_scope = SymbolTable::scan_program(&ast).unwrap();
         compiler.compile_program(&ast, symbol_scope).unwrap();
         compiler.pop_code_object()
     }

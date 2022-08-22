@@ -15,9 +15,10 @@ concurrency:
 env:
   CARGO_ARGS: --no-default-features --features stdlib,zlib,importlib,encodings,ssl,jit
   NON_WASM_PACKAGES: >-
-    -p rustpython-bytecode
     -p rustpython-common
+    -p rustpython-compiler-core
     -p rustpython-compiler
+    -p rustpython-codegen
     -p rustpython-parser
     -p rustpython-vm
     -p rustpython-stdlib

@@ -1,11 +1,8 @@
 //! Define internal parse error types
 //! The goal is to provide a matching and a safe error API, maksing errors from LALR
+
+use crate::{ast::Location, token::Tok};
 use lalrpop_util::ParseError as LalrpopError;
-
-use crate::ast::Location;
-use crate::token::Tok;
-
-use std::error::Error;
 use std::fmt;
 
 /// Represents an error during lexical scanning.
@@ -120,13 +117,9 @@ impl From<FStringError> for LalrpopError<Location, Tok, LexicalError> {
 }
 
 /// Represents an error during parsing
-#[derive(Debug, PartialEq)]
-pub struct ParseError {
-    pub error: ParseErrorType,
-    pub location: Location,
-}
+pub type ParseError = rustpython_compiler_core::BaseError<ParseErrorType>;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, thiserror::Error)]
 pub enum ParseErrorType {
     /// Parser encountered an unexpected end of input
     Eof,
@@ -141,42 +134,43 @@ pub enum ParseErrorType {
 }
 
 /// Convert `lalrpop_util::ParseError` to our internal type
-impl From<LalrpopError<Location, Tok, LexicalError>> for ParseError {
-    fn from(err: LalrpopError<Location, Tok, LexicalError>) -> Self {
-        match err {
-            // TODO: Are there cases where this isn't an EOF?
-            LalrpopError::InvalidToken { location } => ParseError {
-                error: ParseErrorType::Eof,
-                location,
-            },
-            LalrpopError::ExtraToken { token } => ParseError {
-                error: ParseErrorType::ExtraToken(token.1),
+pub(crate) fn parse_error_from_lalrpop(
+    err: LalrpopError<Location, Tok, LexicalError>,
+    source_path: &str,
+) -> ParseError {
+    let source_path = source_path.to_owned();
+    match err {
+        // TODO: Are there cases where this isn't an EOF?
+        LalrpopError::InvalidToken { location } => ParseError {
+            error: ParseErrorType::Eof,
+            location,
+            source_path,
+        },
+        LalrpopError::ExtraToken { token } => ParseError {
+            error: ParseErrorType::ExtraToken(token.1),
+            location: token.0,
+            source_path,
+        },
+        LalrpopError::User { error } => ParseError {
+            error: ParseErrorType::Lexical(error.error),
+            location: error.location,
+            source_path,
+        },
+        LalrpopError::UnrecognizedToken { token, expected } => {
+            // Hacky, but it's how CPython does it. See PyParser_AddToken,
+            // in particular "Only one possible expected token" comment.
+            let expected = (expected.len() == 1).then(|| expected[0].clone());
+            ParseError {
+                error: ParseErrorType::UnrecognizedToken(token.1, expected),
                 location: token.0,
-            },
-            LalrpopError::User { error } => ParseError {
-                error: ParseErrorType::Lexical(error.error),
-                location: error.location,
-            },
-            LalrpopError::UnrecognizedToken { token, expected } => {
-                // Hacky, but it's how CPython does it. See PyParser_AddToken,
-                // in particular "Only one possible expected token" comment.
-                let expected = (expected.len() == 1).then(|| expected[0].clone());
-                ParseError {
-                    error: ParseErrorType::UnrecognizedToken(token.1, expected),
-                    location: token.0,
-                }
+                source_path,
             }
-            LalrpopError::UnrecognizedEOF { location, .. } => ParseError {
-                error: ParseErrorType::Eof,
-                location,
-            },
         }
-    }
-}
-
-impl fmt::Display for ParseError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} at {}", self.error, self.location)
+        LalrpopError::UnrecognizedEOF { location, .. } => ParseError {
+            error: ParseErrorType::Eof,
+            location,
+            source_path,
+        },
     }
 }
 
@@ -200,8 +194,6 @@ impl fmt::Display for ParseErrorType {
     }
 }
 
-impl Error for ParseErrorType {}
-
 impl ParseErrorType {
     pub fn is_indentation_error(&self) -> bool {
         match self {
@@ -218,18 +210,5 @@ impl ParseErrorType {
             ParseErrorType::Lexical(LexicalErrorType::TabError)
                 | ParseErrorType::Lexical(LexicalErrorType::TabsAfterSpaces)
         )
-    }
-}
-
-impl std::ops::Deref for ParseError {
-    type Target = ParseErrorType;
-    fn deref(&self) -> &Self::Target {
-        &self.error
-    }
-}
-
-impl Error for ParseError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        None
     }
 }

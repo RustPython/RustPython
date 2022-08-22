@@ -11,7 +11,7 @@ use std::sync::atomic::Ordering;
 /// Runs a simple embedded hello world program.
 /// ```
 /// use rustpython_vm::Interpreter;
-/// use rustpython_vm::compile::Mode;
+/// use rustpython_vm::compiler::Mode;
 /// Interpreter::without_stdlib(Default::default()).enter(|vm| {
 ///     let scope = vm.new_scope_with_builtins();
 ///     let code_obj = vm.compile(r#"print("Hello World!")"#,

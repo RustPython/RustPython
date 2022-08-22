@@ -17,9 +17,9 @@ flame-it = ["flame", "flamer"]
 freeze-stdlib = ["rustpython-pylib/freeze-stdlib"]
 jit = ["rustpython-jit"]
 threading = ["rustpython-common/threading"]
-compiler = ["parser", "codegen"]
+compiler = ["parser", "codegen", "rustpython-compiler"]
 ast = ["rustpython-ast"]
-codegen = ["rustpython-compiler", "rustpython-codegen", "ast"]
+codegen = ["rustpython-codegen", "ast"]
 parser = ["rustpython-parser", "ast"]
 
 [dependencies]
@@ -27,7 +27,7 @@ rustpython-compiler = { path = "../compiler", optional = true, version = "0.1.2"
 rustpython-ast = { path = "../compiler/ast", optional = true, version = "0.1" }
 rustpython-parser = { path = "../compiler/parser", optional = true, version = "0.1.2" }
 rustpython-codegen = { path = "../compiler/codegen", optional = true, version = "0.1.2" }
-rustpython-bytecode = { path = "../compiler/bytecode", version = "0.1.2" }
+rustpython-compiler-core = { path = "../compiler/core", version = "0.1.2" }
 rustpython-common = { path = "../common" }
 rustpython-derive = { path = "../derive", version = "0.1.2" }
 rustpython-jit = { path = "../jit", optional = true, version = "0.1.2" }

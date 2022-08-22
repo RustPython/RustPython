@@ -1,10 +1,10 @@
 mod helper;
 
 use rustpython_parser::error::{LexicalErrorType, ParseErrorType};
-use rustpython_vm::readline::{Readline, ReadlineResult};
 use rustpython_vm::{
     builtins::PyBaseExceptionRef,
-    compile::{self, CompileError, CompileErrorType},
+    compiler::{self, CompileError, CompileErrorBody, CompileErrorType},
+    readline::{Readline, ReadlineResult},
     scope::Scope,
     AsObject, PyResult, VirtualMachine,
 };
@@ -16,17 +16,25 @@ enum ShellExecResult {
 }
 
 fn shell_exec(vm: &VirtualMachine, source: &str, scope: Scope) -> ShellExecResult {
-    match vm.compile(source, compile::Mode::Single, "<stdin>".to_owned()) {
+    match vm.compile(source, compiler::Mode::Single, "<stdin>".to_owned()) {
         Ok(code) => match vm.run_code_obj(code, scope) {
             Ok(_val) => ShellExecResult::Ok,
             Err(err) => ShellExecResult::PyErr(err),
         },
         Err(CompileError {
-            error: CompileErrorType::Parse(ParseErrorType::Lexical(LexicalErrorType::Eof)),
+            body:
+                CompileErrorBody {
+                    error: CompileErrorType::Parse(ParseErrorType::Lexical(LexicalErrorType::Eof)),
+                    ..
+                },
             ..
         })
         | Err(CompileError {
-            error: CompileErrorType::Parse(ParseErrorType::Eof),
+            body:
+                CompileErrorBody {
+                    error: CompileErrorType::Parse(ParseErrorType::Eof),
+                    ..
+                },
             ..
         }) => ShellExecResult::Continue,
         Err(err) => ShellExecResult::PyErr(vm.new_syntax_error(&err)),
