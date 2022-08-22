@@ -31,12 +31,7 @@ pub fn compile(
     source_path: String,
     opts: compile::CompileOpts,
 ) -> Result<CodeObject, CompileError> {
-    let parser_mode = match mode {
-        compile::Mode::Exec => parser::Mode::Module,
-        compile::Mode::Eval => parser::Mode::Expression,
-        compile::Mode::Single | compile::Mode::BlockExpr => parser::Mode::Interactive,
-    };
-    let mut ast = match parser::parse(source, parser_mode, &source_path) {
+    let mut ast = match parser::parse(source, mode.into(), &source_path) {
         Ok(x) => x,
         Err(e) => return Err(error_from_parse(e, source)),
     };
