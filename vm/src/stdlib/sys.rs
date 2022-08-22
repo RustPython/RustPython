@@ -13,6 +13,7 @@ mod sys {
         frame::FrameRef,
         function::{FuncArgs, OptionalArg, PosArgs},
         stdlib::builtins,
+        stdlib::warnings::warn,
         types::PyStructSequence,
         version,
         vm::{Settings, VirtualMachine},
@@ -314,6 +315,71 @@ mod sys {
         let exc = vm.normalize_exception(exc_type, exc_val, exc_tb)?;
         let stderr = super::get_stderr(vm)?;
         vm.write_exception(&mut crate::py_io::PyWriter(stderr, vm), &exc)
+    }
+
+    #[pyfunction(name = "__breakpointhook__")]
+    #[pyfunction]
+    pub fn breakpointhook(
+        args: Option<PyObjectRef>,
+        keywords: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef> {
+        let envar =
+            std::env::var("PYTHONBREAKPOINT").unwrap_or_else(|_| "pdb.set_trace".to_owned());
+
+        if envar.eq("0") {
+            return Ok(vm.ctx.none());
+        };
+
+        let print_unimportable_module_warn = || {
+            warn(
+                vm.ctx.exceptions.runtime_warning,
+                format!(
+                    "Ignoring unimportable $PYTHONBREAKPOINT: \"{}\"",
+                    envar.to_owned(),
+                ),
+                0,
+                vm,
+            )
+            .unwrap();
+            Ok(vm.ctx.none())
+        };
+
+        let (modulepath, attrname) = match envar.split('.').last() {
+            Some(last_dot) => {
+                if last_dot.eq(&envar) {
+                    ("builtins".to_owned(), envar.to_owned())
+                } else {
+                    (
+                        envar[..(envar.len() - last_dot.len() - 1)].to_owned(),
+                        last_dot.to_owned(),
+                    )
+                }
+            }
+            None => {
+                return print_unimportable_module_warn();
+            }
+        };
+
+        if let Ok(module) = vm.import(modulepath, None, 0) {
+            if let Ok(Some(hook)) = vm.get_attribute_opt(module, attrname) {
+                let mut args_vec: Vec<PyObjectRef> = Vec::new();
+
+                if let Some(args) = args {
+                    args_vec.push(args);
+                }
+
+                if let Some(keywords) = keywords {
+                    args_vec.push(keywords);
+                }
+
+                vm.invoke(hook.as_ref(), args_vec)
+            } else {
+                print_unimportable_module_warn()
+            }
+        } else {
+            print_unimportable_module_warn()
+        }
     }
 
     #[pyfunction]
@@ -876,6 +942,11 @@ pub fn get_stderr(vm: &VirtualMachine) -> PyResult {
         .clone()
         .get_attr("stderr", vm)
         .map_err(|_| vm.new_runtime_error("lost sys.stderr".to_owned()))
+}
+
+pub fn get_object(name: String, vm: &VirtualMachine) -> PyResult {
+    let dict = vm.sys_module.dict();
+    dict.get_item(&name, vm)
 }
 
 pub(crate) fn sysconfigdata_name() -> String {
