@@ -1864,6 +1864,7 @@ dependencies = [
  "phf_codegen",
  "rustpython-ast",
  "rustpython-compiler-core",
+ "thiserror",
  "tiny-keccak",
  "unic-emoji-char",
  "unic-ucd-ident",
