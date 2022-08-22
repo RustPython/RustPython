@@ -13,4 +13,4 @@ pub mod error;
 pub mod ir;
 pub mod symboltable;
 
-pub use compile::{CompileOpts, Mode};
+pub use compile::CompileOpts;

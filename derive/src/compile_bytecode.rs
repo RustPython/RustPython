@@ -19,7 +19,7 @@ use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use rustpython_codegen as codegen;
 use rustpython_compiler::compile;
-use rustpython_compiler_core::{CodeObject, FrozenModule};
+use rustpython_compiler_core::{CodeObject, FrozenModule, Mode};
 use std::{
     collections::HashMap,
     env, fs,
@@ -55,7 +55,7 @@ impl CompilationSource {
     fn compile_string<D: std::fmt::Display, F: FnOnce() -> D>(
         &self,
         source: &str,
-        mode: codegen::Mode,
+        mode: Mode,
         module_name: String,
         origin: F,
     ) -> Result<CodeObject, Diagnostic> {
@@ -69,7 +69,7 @@ impl CompilationSource {
 
     fn compile(
         &self,
-        mode: codegen::Mode,
+        mode: Mode,
         module_name: String,
     ) -> Result<HashMap<String, FrozenModule>, Diagnostic> {
         match &self.kind {
@@ -85,11 +85,7 @@ impl CompilationSource {
         }
     }
 
-    fn compile_single(
-        &self,
-        mode: codegen::Mode,
-        module_name: String,
-    ) -> Result<CodeObject, Diagnostic> {
+    fn compile_single(&self, mode: Mode, module_name: String) -> Result<CodeObject, Diagnostic> {
         match &self.kind {
             CompilationSourceKind::File(rel_path) => {
                 let path = CARGO_MANIFEST_DIR.join(rel_path);
@@ -116,7 +112,7 @@ impl CompilationSource {
         &self,
         path: &Path,
         parent: String,
-        mode: codegen::Mode,
+        mode: Mode,
     ) -> Result<HashMap<String, FrozenModule>, Diagnostic> {
         let mut code_map = HashMap::new();
         let paths = fs::read_dir(path)
@@ -309,7 +305,7 @@ impl PyCompileInput {
 
         Ok(PyCompileArgs {
             source,
-            mode: mode.unwrap_or(codegen::Mode::Exec),
+            mode: mode.unwrap_or(Mode::Exec),
             module_name: module_name.unwrap_or_else(|| "frozen".to_owned()),
             crate_name: crate_name.unwrap_or_else(|| syn::parse_quote!(::rustpython_vm::bytecode)),
         })
@@ -350,7 +346,7 @@ impl Parse for PyCompileInput {
 
 struct PyCompileArgs {
     source: CompilationSource,
-    mode: codegen::Mode,
+    mode: Mode,
     module_name: String,
     crate_name: syn::Path,
 }
