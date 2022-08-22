@@ -1753,6 +1753,7 @@ dependencies = [
  "rustpython-ast",
  "rustpython-compiler-core",
  "rustpython-parser",
+ "thiserror",
 ]
 
 [[package]]

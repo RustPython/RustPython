@@ -1,7 +1,7 @@
 use rustpython_codegen::{compile, symboltable};
 use rustpython_compiler_core::CodeObject;
 use rustpython_parser::{
-    ast::{fold::Fold, ConstantOptimizer, Location},
+    ast::{fold::Fold, ConstantOptimizer},
     error::ParseErrorType,
     parser,
 };
@@ -12,31 +12,16 @@ pub use rustpython_compiler_core::{BaseError as CompileErrorBody, Mode};
 #[derive(Debug, thiserror::Error)]
 pub enum CompileErrorType {
     #[error(transparent)]
-    Compile(#[from] rustpython_codegen::error::CodegenErrorType),
+    Codegen(#[from] rustpython_codegen::error::CodegenErrorType),
     #[error(transparent)]
     Parse(#[from] rustpython_parser::error::ParseErrorType),
 }
 
 pub type CompileError = rustpython_compiler_core::CompileError<CompileErrorType>;
 
-fn error_from_codegen(
-    error: rustpython_codegen::error::CodegenError,
-    source: &str,
-) -> CompileError {
-    let statement = get_statement(source, error.location);
-    CompileError {
-        body: error.into(),
-        statement,
-    }
-}
-
 fn error_from_parse(error: rustpython_parser::error::ParseError, source: &str) -> CompileError {
     let error: CompileErrorBody<ParseErrorType> = error.into();
-    let statement = get_statement(source, error.location);
-    CompileError {
-        body: error.into(),
-        statement,
-    }
+    CompileError::from(error, source)
 }
 
 /// Compile a given sourcecode into a bytecode object.
@@ -60,7 +45,7 @@ pub fn compile(
             .fold_mod(ast)
             .unwrap_or_else(|e| match e {});
     }
-    compile::compile_top(&ast, source_path, mode, opts).map_err(|e| error_from_codegen(e, source))
+    compile::compile_top(&ast, source_path, mode, opts).map_err(|e| CompileError::from(e, source))
 }
 
 pub fn compile_symtable(
@@ -79,13 +64,5 @@ pub fn compile_symtable(
             symboltable::SymbolTable::scan_expr(&expr)
         }
     };
-    res.map_err(|e| error_from_codegen(e.into_codegen_error(source_path.to_owned()), source))
-}
-
-fn get_statement(source: &str, loc: Location) -> Option<String> {
-    if loc.column() == 0 || loc.row() == 0 {
-        return None;
-    }
-    let line = source.split('\n').nth(loc.row() - 1)?.to_owned();
-    Some(line + "\n")
+    res.map_err(|e| CompileError::from(e.into_codegen_error(source_path.to_owned()), source))
 }

@@ -8,6 +8,8 @@ mod gen;
 use crate::{
     builtins::{self, PyStrRef, PyType},
     class::{PyClassImpl, StaticType},
+    compiler::CompileError,
+    convert::ToPyException,
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject,
     VirtualMachine,
 };
@@ -263,10 +265,13 @@ impl Node for ast::ConversionFlag {
 }
 
 #[cfg(feature = "rustpython-parser")]
-pub(crate) fn parse(vm: &VirtualMachine, source: &str, mode: parser::Mode) -> PyResult {
-    // TODO: use vm.new_syntax_error()
-    let top = parser::parse(source, mode, "<unknown>")
-        .map_err(|err| vm.new_value_error(format!("{}", err)))?;
+pub(crate) fn parse(
+    vm: &VirtualMachine,
+    source: &str,
+    mode: parser::Mode,
+) -> Result<PyObjectRef, CompileError> {
+    let top =
+        parser::parse(source, mode, "<unknown>").map_err(|err| CompileError::from(err, source))?;
     Ok(top.ast_to_object(vm))
 }
 
@@ -280,8 +285,7 @@ pub(crate) fn compile(
     let opts = vm.compile_opts();
     let ast = Node::ast_from_object(vm, object)?;
     let code = codegen::compile::compile_top(&ast, filename.to_owned(), mode, opts)
-        // TODO: use vm.new_syntax_error()
-        .map_err(|err| vm.new_value_error(err.to_string()))?;
+        .map_err(|err| CompileError::from(err, "<unknown>").to_pyexception(vm))?; // FIXME source
     Ok(vm.ctx.new_code(code).into())
 }
 

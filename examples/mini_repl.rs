@@ -62,9 +62,9 @@ def fib(n):
             .expect("Failed to read line of input");
 
         // this line also automatically prints the output
-        // (note that this is only the case when compile::Mode::Single is passed to vm.compile)
+        // (note that this is only the case when compiler::Mode::Single is passed to vm.compile)
         match vm
-            .compile(&input, vm::compile::Mode::Single, "<embedded>".to_owned())
+            .compile(&input, vm::compiler::Mode::Single, "<embedded>".to_owned())
             .map_err(|err| vm.new_syntax_error(&err))
             .and_then(|code_obj| vm.run_code_obj(code_obj, scope.clone()))
         {

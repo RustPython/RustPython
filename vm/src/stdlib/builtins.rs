@@ -8,7 +8,6 @@ use crate::{class::PyClassImpl, PyObjectRef, VirtualMachine};
 /// Noteworthy: None is the `nil' object; Ellipsis represents `...' in slices.
 #[pymodule]
 mod builtins {
-    #[cfg(feature = "rustpython-compiler")]
     use crate::{
         builtins::{
             asyncgenerator::PyAsyncGen,
@@ -20,12 +19,11 @@ mod builtins {
             PyByteArray, PyBytes, PyDictRef, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType,
         },
         common::{hash::PyHash, str::to_ascii},
-        compiler,
+        convert::ToPyException,
         format::call_object_format,
-        function::Either,
         function::{
             ArgBytesLike, ArgCallable, ArgIntoBool, ArgIterable, ArgMapping, ArgStrOrBytesLike,
-            FuncArgs, KwArgs, OptionalArg, OptionalOption, PosArgs, PyArithmeticValue,
+            Either, FuncArgs, KwArgs, OptionalArg, OptionalOption, PosArgs, PyArithmeticValue,
         },
         protocol::{PyIter, PyIterReturn},
         py_io,
@@ -39,9 +37,6 @@ mod builtins {
     #[cfg(not(feature = "rustpython-compiler"))]
     const CODEGEN_NOT_SUPPORTED: &str =
         "can't compile() to bytecode when the `codegen` feature of rustpython is disabled";
-    #[cfg(not(feature = "rustpython-parser"))]
-    const PARSER_NOT_SUPPORTED: &str =
-        "can't compile() source code when the `parser` feature of rustpython is disabled";
 
     #[pyfunction]
     fn abs(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -144,7 +139,7 @@ mod builtins {
                 #[cfg(feature = "rustpython-codegen")]
                 {
                     let mode = mode_str
-                        .parse::<compiler::Mode>()
+                        .parse::<crate::compiler::Mode>()
                         .map_err(|err| vm.new_value_error(err.to_string()))?;
                     return ast::compile(vm, args.source, args.filename.as_str(), mode);
                 }
@@ -152,6 +147,8 @@ mod builtins {
 
             #[cfg(not(feature = "rustpython-parser"))]
             {
+                const PARSER_NOT_SUPPORTED: &str =
+        "can't compile() source code when the `parser` feature of rustpython is disabled";
                 Err(vm.new_type_error(PARSER_NOT_SUPPORTED.to_owned()))
             }
             #[cfg(feature = "rustpython-parser")]
@@ -178,18 +175,18 @@ mod builtins {
                     #[cfg(feature = "rustpython-compiler")]
                     {
                         let mode = mode_str
-                            .parse::<compiler::Mode>()
+                            .parse::<crate::compiler::Mode>()
                             .map_err(|err| vm.new_value_error(err.to_string()))?;
                         let code = vm
                             .compile(source, mode, args.filename.as_str().to_owned())
-                            .map_err(|err| vm.new_syntax_error(&err))?;
+                            .map_err(|err| err.to_pyexception(vm))?;
                         Ok(code.into())
                     }
                 } else {
                     let mode = mode_str
                         .parse::<parser::Mode>()
                         .map_err(|err| vm.new_value_error(err.to_string()))?;
-                    ast::parse(vm, source, mode)
+                    ast::parse(vm, source, mode).map_err(|e| e.to_pyexception(vm))
                 }
             }
         }

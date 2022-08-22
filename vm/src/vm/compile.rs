@@ -7,14 +7,6 @@ use crate::{
 };
 
 impl VirtualMachine {
-    /// Returns a basic CompileOpts instance with options accurate to the vm. Used
-    /// as the CompileOpts for `vm.compile()`.
-    pub fn compile_opts(&self) -> CompileOpts {
-        CompileOpts {
-            optimize: self.state.settings.optimize,
-        }
-    }
-
     pub fn compile(
         &self,
         source: &str,

@@ -760,8 +760,6 @@ class ASTHelpers_Test(unittest.TestCase):
         b = compile('foo(1 + 1)', '<unknown>', 'exec', ast.PyCF_ONLY_AST)
         self.assertEqual(ast.dump(a), ast.dump(b))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_parse_in_error(self):
         try:
             1/0
@@ -1101,8 +1099,6 @@ Module(
         malformed = ast.Dict(keys=[ast.Constant(1)], values=[ast.Constant(2), ast.Constant(3)])
         self.assertRaises(ValueError, ast.literal_eval, malformed)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_literal_eval_trailing_ws(self):
         self.assertEqual(ast.literal_eval("    -1"), -1)
         self.assertEqual(ast.literal_eval("\t\t-1"), -1)
@@ -1121,8 +1117,6 @@ Module(
         with self.assertRaisesRegex(ValueError, msg):
             ast.literal_eval(node)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_literal_eval_syntax_errors(self):
         with self.assertRaisesRegex(SyntaxError, "unexpected indent"):
             ast.literal_eval(r'''
@@ -1767,6 +1761,8 @@ class ASTValidatorTests(unittest.TestCase):
         ast.MatchMapping([], [], rest="_"),
     ]
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_match_validation_pattern(self):
         name_x = ast.Name('x', ast.Load())
         for pattern in self._MATCH_PATTERNS:

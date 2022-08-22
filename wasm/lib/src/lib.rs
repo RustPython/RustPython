@@ -45,7 +45,7 @@ pub fn _setup_console_error() {
 pub mod eval {
     use crate::vm_class::VMStore;
     use js_sys::{Object, Reflect, TypeError};
-    use rustpython_vm::compile::Mode;
+    use rustpython_vm::compiler::Mode;
     use wasm_bindgen::prelude::*;
 
     const PY_EVAL_VM_ID: &str = "__py_eval_vm";

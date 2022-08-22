@@ -384,6 +384,15 @@ impl VirtualMachine {
         })
     }
 
+    /// Returns a basic CompileOpts instance with options accurate to the vm. Used
+    /// as the CompileOpts for `vm.compile()`.
+    #[cfg(feature = "rustpython-codegen")]
+    pub fn compile_opts(&self) -> crate::compiler::CompileOpts {
+        crate::compiler::CompileOpts {
+            optimize: self.state.settings.optimize,
+        }
+    }
+
     // To be called right before raising the recursion depth.
     fn check_recursive_call(&self, _where: &str) -> PyResult<()> {
         if self.recursion_depth.get() >= self.recursion_limit.get() {
@@ -794,7 +803,7 @@ fn test_nested_frozen() {
         let code_obj = vm
             .compile(
                 "from dir_module.dir_module_inner import value2",
-                vm::compile::Mode::Exec,
+                vm::compiler::Mode::Exec,
                 "<embedded>".to_owned(),
             )
             .map_err(|err| vm.new_syntax_error(&err))

@@ -1,8 +1,8 @@
-use std::{error::Error, fmt};
+use std::fmt;
 
 pub type CodegenError = rustpython_compiler_core::BaseError<CodegenErrorType>;
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum CodegenErrorType {
     /// Invalid assignment, cannot store value in target.
@@ -79,5 +79,3 @@ impl fmt::Display for CodegenErrorType {
         }
     }
 }
-
-impl Error for CodegenErrorType {}
