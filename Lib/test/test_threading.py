@@ -880,6 +880,8 @@ class ThreadTests(BaseTestCase):
                 # Daemon threads must never add it to _shutdown_locks.
                 self.assertNotIn(tstate_lock, threading._shutdown_locks)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_locals_at_exit(self):
         # bpo-19466: thread locals must not be deleted before destructors
         # are called
@@ -1599,6 +1601,11 @@ class CRLockTests(lock_tests.RLockTests):
 class EventTests(lock_tests.EventTests):
     eventtype = staticmethod(threading.Event)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_reset_internal_locks():  # TODO: RUSTPYTHON; remove this when done
+        super().test_reset_internal_locks()
+
 class ConditionAsRLockTests(lock_tests.RLockTests):
     # Condition uses an RLock by default and exports its API.
     locktype = staticmethod(threading.Condition)
@@ -1657,6 +1664,7 @@ class InterruptMainTests(unittest.TestCase):
             # Restore original handler
             signal.signal(signum, handler)
 
+    @unittest.skip("TODO: RUSTPYTHON; flaky")
     def test_interrupt_main_subthread(self):
         # Calling start_new_thread with a function that executes interrupt_main
         # should raise KeyboardInterrupt upon completion.
@@ -1715,6 +1723,8 @@ class InterruptMainTests(unittest.TestCase):
 
 class AtexitTests(unittest.TestCase):
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_atexit_output(self):
         rc, out, err = assert_python_ok("-c", """if True:
             import threading
@@ -1728,6 +1738,8 @@ class AtexitTests(unittest.TestCase):
         self.assertFalse(err)
         self.assertEqual(out.strip(), b'parrot')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_atexit_called_once(self):
         rc, out, err = assert_python_ok("-c", """if True:
             import threading
@@ -1743,6 +1755,8 @@ class AtexitTests(unittest.TestCase):
 
         self.assertFalse(err)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_atexit_after_shutdown(self):
         # The only way to do this is by registering an atexit within
         # an atexit, which is intended to raise an exception.

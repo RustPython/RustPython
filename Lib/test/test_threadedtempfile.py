@@ -21,6 +21,8 @@ import io
 import threading
 from traceback import print_exc
 
+import sys  # XXX: RUSTPYTHON
+
 
 NUM_THREADS = 20
 FILES_PER_THREAD = 50

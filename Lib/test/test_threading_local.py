@@ -110,8 +110,6 @@ class BaseLocalTest:
 
         self.assertTrue(passed)
 
-    # TODO: RUSTPYTHON, __new__ vs __init__ cooperation
-    @unittest.expectedFailure
     def test_arguments(self):
         # Issue 1522237
         class MyLocal(self._local):
@@ -201,6 +199,12 @@ class BaseLocalTest:
 
 class ThreadLocalTest(unittest.TestCase, BaseLocalTest):
     _local = _thread._local
+
+    # TODO: RUSTPYTHON, __new__ vs __init__ cooperation
+    @unittest.expectedFailure
+    def test_arguments():
+        super().test_arguments()
+
 
 class PyThreadingLocalTest(unittest.TestCase, BaseLocalTest):
     _local = _threading_local.local
