@@ -326,7 +326,7 @@ mod sys {
     pub fn breakpointhook(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         let envar = std::env::var("PYTHONBREAKPOINT")
             .and_then(|envar| {
-                if envar.len() == 0 {
+                if envar.is_empty() {
                     Err(VarError::NotPresent)
                 } else {
                     Ok(envar)
