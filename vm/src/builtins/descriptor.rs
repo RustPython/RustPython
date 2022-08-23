@@ -78,11 +78,15 @@ impl MemberDescrObject {
 
     #[pyproperty(magic)]
     fn qualname(&self, vm: &VirtualMachine) -> PyResult<Option<String>> {
-        if self.common.qualname.read().is_none() {
-            *self.common.qualname.write() = calculate_qualname(&self.common, vm)?;
-        }
-
-        Ok(self.common.qualname.read().to_owned())
+        let qualname = self.common.qualname.read();
+        Ok(if qualname.is_none() {
+            drop(qualname);
+            let calculated = calculate_qualname(&self.common, vm)?;
+            *self.common.qualname.write() = calculated.to_owned();
+            calculated
+        } else {
+            qualname.to_owned()
+        })
     }
 }
 
