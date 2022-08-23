@@ -365,8 +365,8 @@ mod builtins {
         obj.hash(vm)
     }
 
-    #[pyfunction(name = "breakpoint")]
-    fn builtin_breakpoint(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    #[pyfunction]
+    fn breakpoint(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         let hook =
             sys::get_object("breakpointhook".to_owned(), vm).expect("lost sys.breakpointhook");
 

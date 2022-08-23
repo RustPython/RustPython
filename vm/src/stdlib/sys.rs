@@ -20,7 +20,11 @@ mod sys {
         AsObject, PyObjectRef, PyRef, PyRefExact, PyResult,
     };
     use num_traits::ToPrimitive;
-    use std::{env, mem, path, sync::atomic::Ordering};
+    use std::{
+        env::{self, VarError},
+        mem, path,
+        sync::atomic::Ordering,
+    };
 
     // not the same as CPython (e.g. rust's x86_x64-unknown-linux-gnu is just x86_64-linux-gnu)
     // but hopefully that's just an implementation detail? TODO: copy CPython's multiarch exactly,
@@ -319,9 +323,16 @@ mod sys {
 
     #[pyfunction(name = "__breakpointhook__")]
     #[pyfunction]
-    pub fn breakpointhook(args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        let envar =
-            std::env::var("PYTHONBREAKPOINT").unwrap_or_else(|_| "pdb.set_trace".to_owned());
+    pub fn breakpointhook(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let envar = std::env::var("PYTHONBREAKPOINT")
+            .and_then(|envar| {
+                if envar.len() == 0 {
+                    Err(VarError::NotPresent)
+                } else {
+                    Ok(envar)
+                }
+            })
+            .unwrap_or_else(|_| "pdb.set_trace".to_owned());
 
         if envar.eq("0") {
             return Ok(vm.ctx.none());
@@ -341,30 +352,32 @@ mod sys {
             Ok(vm.ctx.none())
         };
 
-        let (modulepath, attrname) = match envar.split('.').last() {
-            Some(last) => {
-                if last.eq(&envar) {
-                    ("builtins".to_owned(), envar.to_owned())
-                } else {
-                    (
-                        envar[..(envar.len() - last.len() - 1)].to_owned(),
-                        last.to_owned(),
-                    )
-                }
-            }
+        let last = match envar.split('.').last() {
+            Some(last) => last,
             None => {
                 return print_unimportable_module_warn();
             }
         };
 
-        if let Ok(module) = vm.import(modulepath, None, 0) {
-            if let Ok(Some(hook)) = vm.get_attribute_opt(module, attrname) {
-                vm.invoke(hook.as_ref(), args)
-            } else {
-                print_unimportable_module_warn()
-            }
+        let (modulepath, attrname) = if last.eq(&envar) {
+            ("builtins".to_owned(), envar.to_owned())
         } else {
-            print_unimportable_module_warn()
+            (
+                envar[..(envar.len() - last.len() - 1)].to_owned(),
+                last.to_owned(),
+            )
+        };
+
+        let module = match vm.import(modulepath, None, 0) {
+            Ok(module) => module,
+            Err(_) => {
+                return print_unimportable_module_warn();
+            }
+        };
+
+        match vm.get_attribute_opt(module, attrname) {
+            Ok(Some(hook)) => vm.invoke(hook.as_ref(), args),
+            _ => print_unimportable_module_warn(),
         }
     }
 
