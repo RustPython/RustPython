@@ -48,15 +48,13 @@ impl PyPayload for MemberDescrObject {
 }
 
 fn calculate_qualname(descr: &DescrObject, vm: &VirtualMachine) -> PyResult<Option<String>> {
-    let type_qualname = vm.get_attribute_opt(descr.typ.to_owned().into(), "__qualname__")?;
-    match type_qualname {
-        None => Ok(None),
-        Some(obj) => {
-            let str = obj.downcast::<PyStr>().map_err(|_| vm.new_type_error(
-                "<descriptor>.__objclass__.__qualname__ is not a unicode object".to_owned(),
-            ))?;
-            Ok(Some(format!("{}.{}", str, descr.name)))
-        }
+    if let Some(qualname) = vm.get_attribute_opt(descr.typ.to_owned().into(), "__qualname__")? {
+        let str = qualname.downcast::<PyStr>().map_err(|_| vm.new_type_error(
+            "<descriptor>.__objclass__.__qualname__ is not a unicode object".to_owned(),
+        ))?;
+        Ok(Some(format!("{}.{}", str, descr.name)))
+    } else {
+        return Ok(None);
     }
 }
 
