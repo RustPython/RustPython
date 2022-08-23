@@ -259,14 +259,11 @@ impl Comparable for PyUnion {
     ) -> PyResult<PyComparisonValue> {
         op.eq_only(|| {
             let other = class_or_notimplemented!(Self, other);
-            let a = PyFrozenSet::from_iter(vm, zelf.args.into_iter().cloned())?;
-            let b = PyFrozenSet::from_iter(vm, other.args.into_iter().cloned())?;
+            let a = PyFrozenSet::from_iter(vm, zelf.args.iter().cloned())?;
+            let b = PyFrozenSet::from_iter(vm, other.args.iter().cloned())?;
             Ok(PyComparisonValue::Implemented(
-                a.into_pyobject(vm).as_object().rich_compare_bool(
-                    b.into_pyobject(vm).as_object(),
-                    PyComparisonOp::Eq,
-                    vm,
-                )?,
+                a.as_object()
+                    .rich_compare_bool(b.as_object(), PyComparisonOp::Eq, vm)?,
             ))
         })
     }
@@ -275,8 +272,8 @@ impl Comparable for PyUnion {
 impl Hashable for PyUnion {
     #[inline]
     fn hash(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<hash::PyHash> {
-        let set = PyFrozenSet::from_iter(vm, zelf.args.into_iter().cloned())?;
-        PyFrozenSet::hash(&set.into_ref(vm), vm)
+        let set = PyFrozenSet::from_iter(vm, zelf.args.iter().cloned())?;
+        PyFrozenSet::hash(&set, vm)
     }
 }
 

@@ -8,6 +8,7 @@ use super::{
 use crate::common::{ascii, hash::PyHash, lock::PyMutex, rc::PyRc};
 use crate::{
     class::PyClassImpl,
+    convert::ToPyObject,
     dictdatatype::{self, DictSize},
     function::{ArgIterable, FuncArgs, OptionalArg, PosArgs, PyArithmeticValue, PyComparisonValue},
     protocol::{PyIterReturn, PySequenceMethods},
@@ -75,23 +76,67 @@ impl PySet {
 ///
 /// Build an immutable unordered collection of unique elements.
 #[pyclass(module = false, name = "frozenset")]
-#[derive(Default)]
 pub struct PyFrozenSet {
     inner: PySetInner,
 }
 
-impl PyFrozenSet {
-    // Also used by ssl.rs windows.
-    pub fn from_iter(
-        vm: &VirtualMachine,
-        it: impl IntoIterator<Item = PyObjectRef>,
-    ) -> PyResult<Self> {
-        let inner = PySetInner::default();
-        for elem in it {
-            inner.add(elem, vm)?;
+pub struct PyFrozenSetBuilder<'vm> {
+    vm: &'vm VirtualMachine,
+    inner: PySetInner,
+}
+
+impl PyFrozenSetBuilder<'_> {
+    #[inline]
+    pub fn add(&self, obj: PyObjectRef) -> PyResult<()> {
+        self.inner.add(obj.to_pyobject(self.vm), self.vm)
+    }
+    #[inline]
+    pub fn extend(&self, it: impl IntoIterator<Item = PyObjectRef>) -> PyResult<()> {
+        it.into_iter().try_for_each(|obj| self.add(obj))
+    }
+    #[inline]
+    pub fn build(self) -> PyRef<PyFrozenSet> {
+        if self.inner.len() == 0 {
+            self.vm.ctx.empty_frozenset.clone()
+        } else {
+            PyFrozenSet { inner: self.inner }.into_ref(self.vm)
         }
-        // FIXME: empty set check
-        Ok(Self { inner })
+    }
+    #[inline]
+    pub fn build_with_type(self, cls: PyTypeRef) -> PyResult<PyRef<PyFrozenSet>> {
+        if cls.is(self.vm.ctx.types.frozenset_type) {
+            Ok(self.build())
+        } else {
+            PyFrozenSet { inner: self.inner }.into_ref_with_type(self.vm, cls)
+        }
+    }
+}
+
+impl PyFrozenSet {
+    pub(crate) fn _empty() -> Self {
+        Self {
+            inner: Default::default(),
+        }
+    }
+    #[inline]
+    pub fn empty(vm: &VirtualMachine) -> PyRef<Self> {
+        vm.ctx.empty_frozenset.clone()
+    }
+    #[inline]
+    pub fn builder(vm: &VirtualMachine) -> PyFrozenSetBuilder<'_> {
+        PyFrozenSetBuilder {
+            vm,
+            inner: PySetInner::default(),
+        }
+    }
+    #[inline]
+    pub fn from_iter<A: ToPyObject, I: IntoIterator<Item = A>>(
+        vm: &VirtualMachine,
+        it: I,
+    ) -> PyResult<PyRef<Self>> {
+        let set = Self::builder(vm);
+        set.extend(it.into_iter().map(|v| v.to_pyobject(vm)))?;
+        Ok(set.build())
     }
 
     pub fn elements(&self) -> Vec<PyObjectRef> {
@@ -796,27 +841,25 @@ impl Constructor for PyFrozenSet {
     type Args = OptionalArg<PyObjectRef>;
 
     fn py_new(cls: PyTypeRef, iterable: Self::Args, vm: &VirtualMachine) -> PyResult {
-        let elements = if let OptionalArg::Present(iterable) = iterable {
-            let iterable = if cls.is(vm.ctx.types.frozenset_type) {
+        let iterable = if let OptionalArg::Present(iterable) = iterable {
+            if cls.is(vm.ctx.types.frozenset_type) {
                 match iterable.downcast_exact::<Self>(vm) {
                     Ok(fs) => return Ok(fs.into()),
                     Err(iterable) => iterable,
                 }
             } else {
                 iterable
-            };
-            iterable.try_to_value(vm)?
+            }
         } else {
-            vec![]
+            return Ok(vm.ctx.empty_frozenset.clone().into());
         };
 
-        // Return empty fs if iterable passed is empty and only for exact fs types.
-        if elements.is_empty() && cls.is(vm.ctx.types.frozenset_type) {
-            Ok(vm.ctx.empty_frozenset.clone().into())
-        } else {
-            Self::from_iter(vm, elements)
-                .and_then(|o| o.into_ref_with_type(vm, cls).map(Into::into))
-        }
+        let iter = iterable
+            .try_into_value::<crate::protocol::PyIter>(vm)?
+            .into_iter(vm)?;
+        let set = Self::builder(vm);
+        { iter }.try_for_each(|elem| set.add(elem?))?;
+        Ok(set.build_with_type(cls)?.into())
     }
 }
 

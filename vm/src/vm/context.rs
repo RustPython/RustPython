@@ -258,11 +258,8 @@ impl Context {
             PyTuple::new_unchecked(Vec::new().into_boxed_slice()),
             types.tuple_type,
         );
-        let empty_frozenset = PyRef::new_ref(
-            PyFrozenSet::default(),
-            types.frozenset_type.to_owned(),
-            None,
-        );
+        let empty_frozenset =
+            PyRef::new_ref(PyFrozenSet::_empty(), types.frozenset_type.to_owned(), None);
 
         let string_pool = StringPool::default();
         let names = unsafe { ConstName::new(&string_pool, &types.str_type.to_owned()) };

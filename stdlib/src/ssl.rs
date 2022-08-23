@@ -1458,13 +1458,7 @@ mod windows {
             };
             let usage: PyObjectRef = match c.valid_uses()? {
                 ValidUses::All => vm.ctx.new_bool(true).into(),
-                ValidUses::Oids(oids) => PyFrozenSet::from_iter(
-                    vm,
-                    oids.into_iter().map(|oid| vm.ctx.new_str(oid).into()),
-                )
-                .unwrap()
-                .into_ref(vm)
-                .into(),
+                ValidUses::Oids(oids) => PyFrozenSet::from_iter(vm, oids)?.into(),
             };
             Ok(vm.new_tuple((cert, enc_type, usage)).into())
         });
