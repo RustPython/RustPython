@@ -42,12 +42,12 @@ impl FrameRef {
     }
 
     #[pyproperty]
-    fn f_code(self) -> PyRef<PyCode> {
+    pub fn f_code(self) -> PyRef<PyCode> {
         self.code.clone()
     }
 
     #[pyproperty]
-    fn f_back(self, vm: &VirtualMachine) -> Option<Self> {
+    pub fn f_back(self, vm: &VirtualMachine) -> Option<Self> {
         // TODO: actually store f_back inside Frame struct
 
         // get the frame in the frame stack that appears before this one.
