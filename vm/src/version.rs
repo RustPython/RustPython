@@ -1,8 +1,7 @@
 /* Several function to retrieve version information.
  */
 
-use chrono::prelude::DateTime;
-use chrono::Local;
+use chrono::{prelude::DateTime, Local};
 use std::time::{Duration, UNIX_EPOCH};
 
 // = 3.10.0alpha
@@ -18,7 +17,7 @@ pub const VERSION_HEX: usize =
 
 pub fn get_version() -> String {
     format!(
-        "{:.80} ({:.80}) \n[{:.80}]",
+        "{:.80} ({:.80}) \n[{:.80}]", // \n is PyPy convention
         get_version_number(),
         get_build_info(),
         get_compiler()
