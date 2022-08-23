@@ -11,9 +11,15 @@ env:
 jobs:
   codecov:
     name: Collect code coverage data
+    needs: lalrpop
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
+      - name: Cache generated parser
+        uses: actions/cache@v2
+        with:
+          path: compiler/parser/python.rs
+          key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: llvm-tools-preview
@@ -49,9 +55,15 @@ jobs:
 
   testdata:
     name: Collect regression test data
+    needs: lalrpop
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
+      - name: Cache generated parser
+        uses: actions/cache@v2
+        with:
+          path: compiler/parser/python.rs
+          key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
       - uses: dtolnay/rust-toolchain@stable
       - name: build rustpython
         run: cargo build --release --verbose
@@ -77,9 +89,15 @@ jobs:
 
   whatsleft:
     name: Collect what is left data
+    needs: lalrpop
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
+      - name: Cache generated parser
+        uses: actions/cache@v2
+        with:
+          path: compiler/parser/python.rs
+          key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
       - uses: dtolnay/rust-toolchain@stable
       - name: build rustpython
         run: cargo build --release --verbose
@@ -108,9 +126,15 @@ jobs:
 
   benchmark:
     name: Collect benchmark data
+    needs: lalrpop
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
+      - name: Cache generated parser
+        uses: actions/cache@v2
+        with:
+          path: compiler/parser/python.rs
+          key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-python@v2
         with:
@@ -149,3 +173,35 @@ jobs:
           git add ./assets/criterion
           git -c user.name="Github Actions" -c user.email="actions@github.com" commit -m "Update benchmark results"
           git push
+
+  lalrpop:
+    name: Generate parser with lalrpop
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on:  ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v2
+      - name: Cache generated parser
+        uses: actions/cache@v2
+        with:
+          path: compiler/parser/python.rs
+          key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
+      - name: Check if cached generated parser exists
+        id: generated_parser
+        uses: andstor/file-existence-action@v1
+        with:
+          files: "compiler/parser/python.rs"
+      - if: runner.os == 'Windows'
+        name: Force python.lalrpop to be lf  # actions@checkout ignore .gitattributes
+        run: |
+          set file compiler/parser/python.lalrpop; ((Get-Content $file) -join "`n") + "`n" | Set-Content -NoNewline $file
+      - name: Install lalrpop
+        if: steps.generated_parser.outputs.files_exists == 'false'
+        uses: baptiste0928/cargo-install@v1
+        with:
+          crate: lalrpop
+          version: "0.19.8"
+      - name: Run lalrpop
+        if: steps.generated_parser.outputs.files_exists == 'false'
+        run: lalrpop compiler/parser/python.lalrpop
