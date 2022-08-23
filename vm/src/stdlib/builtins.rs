@@ -80,8 +80,6 @@ mod builtins {
         }
     }
 
-    // builtin_breakpoint
-
     #[pyfunction]
     fn callable(obj: PyObjectRef, vm: &VirtualMachine) -> bool {
         vm.is_callable(&obj)
@@ -363,7 +361,16 @@ mod builtins {
         obj.hash(vm)
     }
 
-    // builtin_help
+    #[pyfunction]
+    fn breakpoint(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        match vm
+            .sys_module
+            .get_attr(vm.ctx.intern_str("breakpointhook"), vm)
+        {
+            Ok(hook) => vm.invoke(hook.as_ref(), args),
+            Err(_) => Err(vm.new_runtime_error("lost sys.breakpointhook".to_owned())),
+        }
+    }
 
     #[pyfunction]
     fn hex(number: PyIntRef) -> String {

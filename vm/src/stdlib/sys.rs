@@ -13,13 +13,18 @@ mod sys {
         frame::FrameRef,
         function::{FuncArgs, OptionalArg, PosArgs},
         stdlib::builtins,
+        stdlib::warnings::warn,
         types::PyStructSequence,
         version,
         vm::{Settings, VirtualMachine},
         AsObject, PyObjectRef, PyRef, PyRefExact, PyResult,
     };
     use num_traits::ToPrimitive;
-    use std::{env, mem, path, sync::atomic::Ordering};
+    use std::{
+        env::{self, VarError},
+        mem, path,
+        sync::atomic::Ordering,
+    };
 
     // not the same as CPython (e.g. rust's x86_x64-unknown-linux-gnu is just x86_64-linux-gnu)
     // but hopefully that's just an implementation detail? TODO: copy CPython's multiarch exactly,
@@ -314,6 +319,66 @@ mod sys {
         let exc = vm.normalize_exception(exc_type, exc_val, exc_tb)?;
         let stderr = super::get_stderr(vm)?;
         vm.write_exception(&mut crate::py_io::PyWriter(stderr, vm), &exc)
+    }
+
+    #[pyfunction(name = "__breakpointhook__")]
+    #[pyfunction]
+    pub fn breakpointhook(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let envar = std::env::var("PYTHONBREAKPOINT")
+            .and_then(|envar| {
+                if envar.is_empty() {
+                    Err(VarError::NotPresent)
+                } else {
+                    Ok(envar)
+                }
+            })
+            .unwrap_or_else(|_| "pdb.set_trace".to_owned());
+
+        if envar.eq("0") {
+            return Ok(vm.ctx.none());
+        };
+
+        let print_unimportable_module_warn = || {
+            warn(
+                vm.ctx.exceptions.runtime_warning,
+                format!(
+                    "Ignoring unimportable $PYTHONBREAKPOINT: \"{}\"",
+                    envar.to_owned(),
+                ),
+                0,
+                vm,
+            )
+            .unwrap();
+            Ok(vm.ctx.none())
+        };
+
+        let last = match envar.split('.').last() {
+            Some(last) => last,
+            None => {
+                return print_unimportable_module_warn();
+            }
+        };
+
+        let (modulepath, attrname) = if last.eq(&envar) {
+            ("builtins".to_owned(), envar.to_owned())
+        } else {
+            (
+                envar[..(envar.len() - last.len() - 1)].to_owned(),
+                last.to_owned(),
+            )
+        };
+
+        let module = match vm.import(modulepath, None, 0) {
+            Ok(module) => module,
+            Err(_) => {
+                return print_unimportable_module_warn();
+            }
+        };
+
+        match vm.get_attribute_opt(module, attrname) {
+            Ok(Some(hook)) => vm.invoke(hook.as_ref(), args),
+            _ => print_unimportable_module_warn(),
+        }
     }
 
     #[pyfunction]
