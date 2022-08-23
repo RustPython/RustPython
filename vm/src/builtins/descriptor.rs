@@ -1,5 +1,4 @@
 use rustpython_common::lock::PyRwLock;
-
 use super::{PyStr, PyType, PyTypeRef};
 use crate::class::PyClassImpl;
 use crate::function::Either;
@@ -52,12 +51,12 @@ fn calculate_qualname(descr: &DescrObject, vm: &VirtualMachine) -> PyResult<Opti
     let type_qualname = vm.get_attribute_opt(descr.typ.to_owned().into(), "__qualname__")?;
     match type_qualname {
         None => Ok(None),
-        Some(obj) => match obj.downcast::<PyStr>() {
-            Ok(str) => Ok(Some(format!("{}.{}", str, descr.name))),
-            Err(_) => Err(vm.new_type_error(
+        Some(obj) => {
+            let str = obj.downcast::<PyStr>().map_err(|_| vm.new_type_error(
                 "<descriptor>.__objclass__.__qualname__ is not a unicode object".to_owned(),
-            )),
-        },
+            ))?;
+            Ok(Some(format!("{}.{}", str, descr.name)))
+        }
     }
 }
 
