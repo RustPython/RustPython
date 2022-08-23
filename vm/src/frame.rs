@@ -1531,6 +1531,8 @@ impl ExecutingFrame<'_> {
             None
         };
 
+        let qualname;
+
         // pop argc arguments
         // argument: name, args, globals
         // let scope = self.scope.clone();
@@ -1540,6 +1542,7 @@ impl ExecutingFrame<'_> {
             closure,
             defaults,
             kw_only_defaults,
+            qualname,
         )
         .into_pyobject(vm);
 

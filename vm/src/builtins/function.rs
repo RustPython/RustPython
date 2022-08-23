@@ -11,7 +11,7 @@ use crate::{
     bytecode,
     class::PyClassImpl,
     frame::Frame,
-    function::{FuncArgs, OptionalArg, PyComparisonValue},
+    function::{FuncArgs, OptionalArg, PyComparisonValue, PySetterValue},
     scope::Scope,
     types::{Callable, Comparable, Constructor, GetAttr, GetDescriptor, PyComparisonOp},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
@@ -30,6 +30,7 @@ pub struct PyFunction {
     closure: Option<PyTupleTyped<PyCellRef>>,
     defaults_and_kwdefaults: PyMutex<(Option<PyTupleRef>, Option<PyDictRef>)>,
     name: PyMutex<PyStrRef>,
+    qualname: PyObjectRef,
     #[cfg(feature = "jit")]
     jitted_code: OnceCell<CompiledCode>,
 }
@@ -41,6 +42,7 @@ impl PyFunction {
         closure: Option<PyTupleTyped<PyCellRef>>,
         defaults: Option<PyTupleRef>,
         kw_only_defaults: Option<PyDictRef>,
+        qualname: PyObjectRef,
     ) -> Self {
         let name = PyMutex::new(code.obj_name.to_owned());
         PyFunction {
@@ -49,6 +51,7 @@ impl PyFunction {
             closure,
             defaults_and_kwdefaults: PyMutex::new((defaults, kw_only_defaults)),
             name,
+            qualname,
             #[cfg(feature = "jit")]
             jitted_code: OnceCell::new(),
         }
@@ -396,6 +399,33 @@ impl PyFunction {
                     .map_err(|err| jitfunc::new_jit_error(err.to_string(), vm))
             })
             .map(drop)
+    }
+
+    #[pyproperty(magic)] 
+    fn qualname(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        zelf.as_object().to_owned().get_attr("__qualname__", vm)
+    }
+
+    #[pyproperty(magic, setter)]
+    fn set_qualname(zelf: PyRef<Self>, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        //print!("hello");
+        match value {
+            PySetterValue::Assign(value) => {
+                if value.payload_if_subclass::<PyStr>(vm).is_none() { // value가 string인지 확인하고 아니면
+                    return Err(vm.new_type_error(format!(
+                        "__qualname__ must be set to a string object"
+                    ))); //타입에러 
+                } else { // string이 맞으면 
+                    zelf.as_object().set_attr("__qualname__", value, vm);
+                    Ok(()) // qualname 할당 
+                }
+            }
+            PySetterValue::Delete => { // 삭제하지 못하도록
+                return Err(vm.new_type_error(format!(
+                    "__qualname__ must be set to a string object"
+                ))); // 타입에러
+            }
+        }
     }
 }
 
