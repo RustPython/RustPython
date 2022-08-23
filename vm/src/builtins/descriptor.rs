@@ -60,7 +60,7 @@ fn calculate_qualname(descr: &DescrObject, vm: &VirtualMachine) -> PyResult<Opti
         })?;
         Ok(Some(format!("{}.{}", str, descr.name)))
     } else {
-        return Ok(None);
+        Ok(None)
     }
 }
 
