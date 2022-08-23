@@ -456,7 +456,7 @@ impl Context {
     pub fn new_member(
         &self,
         name: &str,
-        getter: fn(PyObjectRef, &VirtualMachine) -> PyResult,
+        getter: fn(&VirtualMachine, PyObjectRef) -> PyResult,
         class: &'static Py<PyType>,
     ) -> PyRef<MemberDescrObject> {
         let member_def = MemberDef {

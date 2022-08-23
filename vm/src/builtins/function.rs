@@ -359,13 +359,13 @@ impl PyFunction {
     // {"__module__",    T_OBJECT,     OFF(func_module), 0},
     // {"__builtins__",  T_OBJECT,     OFF(func_builtins), READONLY},
     #[pymember(magic)]
-    fn globals(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn globals(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
         let zelf = Self::_zelf(zelf, vm)?;
         Ok(zelf.globals.clone().into())
     }
 
     #[pymember(magic)]
-    fn closure(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn closure(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
         let zelf = Self::_zelf(zelf, vm)?;
         Ok(vm.unwrap_or_none(zelf.closure.clone().map(|x| x.to_pyobject(vm))))
     }

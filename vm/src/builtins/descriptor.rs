@@ -17,7 +17,7 @@ pub enum MemberKind {
 }
 
 pub enum MemberGetter {
-    Getter(fn(PyObjectRef, &VirtualMachine) -> PyResult),
+    Getter(fn(&VirtualMachine, PyObjectRef) -> PyResult),
     Offset(usize),
 }
 
@@ -124,7 +124,7 @@ impl GetDescriptor for MemberDescrObject {
             Some(x) => {
                 let zelf = Self::_zelf(zelf, vm)?;
                 match zelf.member.getter {
-                    MemberGetter::Getter(getter) => (getter)(x, vm),
+                    MemberGetter::Getter(getter) => (getter)(vm, x),
                     MemberGetter::Offset(offset) => get_slot_from_object(x, offset, &zelf.member, vm),
                 }
             }
