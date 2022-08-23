@@ -943,11 +943,6 @@ pub fn get_stderr(vm: &VirtualMachine) -> PyResult {
         .map_err(|_| vm.new_runtime_error("lost sys.stderr".to_owned()))
 }
 
-pub fn get_object(name: String, vm: &VirtualMachine) -> PyResult {
-    let dict = vm.sys_module.dict();
-    dict.get_item(&name, vm)
-}
-
 pub(crate) fn sysconfigdata_name() -> String {
     format!(
         "_sysconfigdata_{}_{}_{}",

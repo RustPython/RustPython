@@ -367,10 +367,13 @@ mod builtins {
 
     #[pyfunction]
     fn breakpoint(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let hook =
-            sys::get_object("breakpointhook".to_owned(), vm).expect("lost sys.breakpointhook");
-
-        vm.invoke(hook.as_ref(), args)
+        match vm
+            .sys_module
+            .get_attr(vm.ctx.intern_str("breakpointhook"), vm)
+        {
+            Ok(hook) => vm.invoke(hook.as_ref(), args),
+            Err(_) => Err(vm.new_runtime_error("lost sys.breakpointhook".to_owned())),
+        }
     }
 
     #[pyfunction]
