@@ -8,7 +8,7 @@ mod decl {
             PyList, PySet, PyStr, PyTuple,
         },
         bytecode,
-        convert::ToPyObject,
+        convert::{IntoPyException, ToPyObject, ToPyResult},
         function::{ArgBytesLike, OptionalArg},
         object::AsObject,
         protocol::PyBuffer,
@@ -16,7 +16,9 @@ mod decl {
     };
     use num_bigint::{BigInt, Sign};
     use num_traits::Zero;
+    use std::str;
 
+    #[derive(num_enum::TryFromPrimitive)]
     #[repr(u8)]
     enum Type {
         // Null = b'0',
@@ -48,51 +50,8 @@ mod decl {
     }
     // const FLAG_REF: u8 = b'\x80';
 
-    impl TryFrom<u8> for Type {
-        type Error = u8;
-        fn try_from(value: u8) -> Result<Self, u8> {
-            use Type::*;
-            Ok(match value {
-                // b'0' => Null,
-                b'N' => None,
-                b'F' => False,
-                b'T' => True,
-                // b'S' => StopIter,
-                b'.' => Ellipsis,
-                b'i' => Int,
-                b'g' => Float,
-                // b'y' => Complex,
-                // b'l' => Long,
-                b's' => Bytes,
-                // b't' => Interned,
-                // b'r' => Ref,
-                b'(' => Tuple,
-                b'[' => List,
-                b'{' => Dict,
-                b'c' => Code,
-                b'u' => Unicode,
-                // b'?' => Unknown,
-                b'<' => Set,
-                b'>' => FrozenSet,
-                b'a' => Ascii,
-                // b'A' => AsciiInterned,
-                // b')' => SmallTuple,
-                // b'z' => ShortAscii,
-                // b'Z' => ShortAsciiInterned,
-                c => return Err(c),
-            })
-        }
-    }
-
     #[pyattr(name = "version")]
     const VERSION: u32 = 4;
-
-    fn too_short_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
-        vm.new_exception_msg(
-            vm.ctx.exceptions.eof_error.to_owned(),
-            "marshal data too short".to_owned(),
-        )
-    }
 
     /// Dumps a sequence of objects into binary vector.
     fn dump_seq(
@@ -237,158 +196,172 @@ mod decl {
         Ok(())
     }
 
-    /// Read the next 4 bytes of a slice, read as u32, pass as usize.
-    /// Returns the rest of buffer with the value.
-    fn read_size<'a>(buf: &'a [u8], vm: &VirtualMachine) -> PyResult<(usize, &'a [u8])> {
-        if buf.len() < 4 {
-            return Err(too_short_error(vm));
+    enum MarshalReadError {
+        TooShort,
+        Utf8,
+        Ascii,
+        UnknownType,
+        Bytecode(bytecode::CodeDeserializeError),
+        BufferDiscontiguous,
+    }
+    type MarshalReadResult<T> = Result<T, MarshalReadError>;
+    macro_rules! impl_from {
+        ($t:ty => $variant:ident$(($($x:tt)*))?) => { // hack, observe the $(())? via the $()*
+            impl From<$t> for MarshalReadError {
+                fn from(_err: $t) -> Self { Self::$variant$((_err $($x)*))? }
+            }
+        };
+    }
+    impl_from!(str::Utf8Error => Utf8);
+    impl_from!(ascii::AsAsciiStrError => Ascii);
+    impl_from!(num_enum::TryFromPrimitiveError<Type> => UnknownType);
+    impl_from!(bytecode::CodeDeserializeError => Bytecode());
+
+    impl IntoPyException for MarshalReadError {
+        fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+            match self {
+                Self::TooShort => vm.new_exception_msg(
+                    vm.ctx.exceptions.eof_error.to_owned(),
+                    "marshal data too short".to_owned(),
+                ),
+                Self::Utf8 => vm.new_value_error("invalid utf8 data".to_owned()),
+                Self::Ascii => vm.new_value_error("invalid ascii data".to_owned()),
+                Self::UnknownType => {
+                    vm.new_value_error("bad marshal data (unknown type code)".to_owned())
+                }
+                Self::Bytecode(bytecode::CodeDeserializeError::Eof) => vm.new_exception_msg(
+                    vm.ctx.exceptions.eof_error.to_owned(),
+                    "End of file while deserializing bytecode".to_owned(),
+                ),
+                Self::Bytecode(_) => {
+                    vm.new_value_error("Couldn't deserialize python bytecode".to_owned())
+                }
+                Self::BufferDiscontiguous => vm.new_buffer_error(
+                    "Buffer provided to marshal.loads() is not contiguous".to_owned(),
+                ),
+            }
         }
-        let (u32_bytes, rest) = buf.split_at(4);
-        let length = u32::from_le_bytes(u32_bytes.try_into().unwrap());
-        Ok((length as usize, rest))
     }
 
-    /// Reads a list (or tuple) from a buffer.
-    fn load_seq<'b>(buf: &'b [u8], vm: &VirtualMachine) -> PyResult<(Vec<PyObjectRef>, &'b [u8])> {
-        let (len, mut buf) = read_size(buf, vm)?;
-        let mut elements: Vec<PyObjectRef> = Vec::new();
-        for _ in 0..len {
-            let (element, rest) = load_obj(buf, vm)?;
-            buf = rest;
-            elements.push(element);
+    struct ReadBuf<'a>(&'a [u8]);
+
+    impl<'a> ReadBuf<'a> {
+        fn read_n(&mut self, n: usize) -> MarshalReadResult<&'a [u8]> {
+            if self.0.len() < n {
+                return Err(MarshalReadError::TooShort);
+            }
+            let (buf, rest) = self.0.split_at(n);
+            self.0 = rest;
+            Ok(buf)
         }
-        Ok((elements, buf))
+        fn read_n_const<const N: usize>(&mut self) -> MarshalReadResult<&'a [u8; N]> {
+            self.read_n(N).map(|buf| buf.try_into().unwrap())
+        }
+
+        /// Read the next 4 bytes of a slice, read as u32, pass as usize.
+        fn read_size(&mut self) -> MarshalReadResult<usize> {
+            Ok(u32::from_le_bytes(*self.read_n_const::<4>()?) as usize)
+        }
+
+        fn read_n_prefixed(&mut self) -> MarshalReadResult<&'a [u8]> {
+            let len = self.read_size()?;
+            self.read_n(len)
+        }
+    }
+
+    fn load_vec(buf: &mut ReadBuf<'_>, vm: &VirtualMachine) -> MarshalReadResult<Vec<PyObjectRef>> {
+        let size = buf.read_size()?;
+        let mut vec = Vec::with_capacity(size);
+        for _ in 0..size {
+            vec.push(load_obj(buf, vm)?);
+        }
+        Ok(vec)
     }
 
     #[pyfunction]
-    fn loads(pybuffer: PyBuffer, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        let buf = pybuffer.as_contiguous().ok_or_else(|| {
-            vm.new_buffer_error("Buffer provided to marshal.loads() is not contiguous".to_owned())
-        })?;
-        let (obj, _) = load_obj(&buf, vm)?;
-        Ok(obj)
+    fn loads(pybuffer: PyBuffer, vm: &VirtualMachine) -> MarshalReadResult<PyObjectRef> {
+        let buf = pybuffer
+            .as_contiguous()
+            .ok_or(MarshalReadError::BufferDiscontiguous)?;
+        load_obj(&mut ReadBuf(&buf), vm)
     }
 
-    fn load_obj<'b>(buf: &'b [u8], vm: &VirtualMachine) -> PyResult<(PyObjectRef, &'b [u8])> {
-        let (type_indicator, buf) = buf.split_first().ok_or_else(|| too_short_error(vm))?;
-        let typ = Type::try_from(*type_indicator)
-            .map_err(|_| vm.new_value_error("bad marshal data (unknown type code)".to_owned()))?;
-        let (obj, buf) = match typ {
-            Type::True => (true.to_pyobject(vm), buf),
-            Type::False => (false.to_pyobject(vm), buf),
-            Type::None => (vm.ctx.none(), buf),
-            Type::Ellipsis => (vm.ctx.ellipsis(), buf),
+    fn load_obj(buf: &mut ReadBuf<'_>, vm: &VirtualMachine) -> MarshalReadResult<PyObjectRef> {
+        let [type_indicator] = *buf.read_n_const::<1>()?;
+        let typ = Type::try_from(type_indicator).map_err(|_| MarshalReadError::UnknownType)?;
+        let obj = match typ {
+            Type::True => true.to_pyobject(vm),
+            Type::False => false.to_pyobject(vm),
+            Type::None => vm.ctx.none(),
+            Type::Ellipsis => vm.ctx.ellipsis(),
             Type::Int => {
-                if buf.len() < 4 {
-                    return Err(too_short_error(vm));
-                }
-                let (len_bytes, buf) = buf.split_at(4);
-                let len = i32::from_le_bytes(len_bytes.try_into().unwrap());
-                let (sign, len) = if len < 0 {
-                    (Sign::Minus, (-len) as usize)
-                } else {
-                    (Sign::Plus, len as usize)
-                };
-                if buf.len() < len {
-                    return Err(too_short_error(vm));
-                }
-                let (bytes, buf) = buf.split_at(len);
-                let int = BigInt::from_bytes_le(sign, bytes);
-                (int.to_pyobject(vm), buf)
+                let len = i32::from_le_bytes(*buf.read_n_const::<4>()?);
+                let sign = if len < 0 { Sign::Minus } else { Sign::Plus };
+                let len = len.unsigned_abs() as usize;
+                BigInt::from_bytes_le(sign, buf.read_n(len)?).to_pyobject(vm)
             }
-            Type::Float => {
-                if buf.len() < 8 {
-                    return Err(too_short_error(vm));
-                }
-                let (bytes, buf) = buf.split_at(8);
-                let number = f64::from_le_bytes(bytes.try_into().unwrap());
-                (vm.ctx.new_float(number).into(), buf)
-            }
+            Type::Float => f64::from_le_bytes(*buf.read_n_const::<8>()?).to_pyobject(vm),
             Type::Ascii => {
-                let (len, buf) = read_size(buf, vm)?;
-                if buf.len() < len {
-                    return Err(too_short_error(vm));
-                }
-                let (bytes, buf) = buf.split_at(len);
-                let s = String::from_utf8(bytes.to_vec())
-                    .map_err(|_| vm.new_value_error("invalid utf8 data".to_owned()))?;
-                (s.to_pyobject(vm), buf)
+                let bytes = buf.read_n_prefixed()?;
+                ascii::AsciiStr::from_ascii(bytes)?.to_pyobject(vm)
             }
             Type::Unicode => {
-                let (len, buf) = read_size(buf, vm)?;
-                if buf.len() < len {
-                    return Err(too_short_error(vm));
-                }
-                let (bytes, buf) = buf.split_at(len);
-                let s = String::from_utf8(bytes.to_vec())
-                    .map_err(|_| vm.new_value_error("invalid utf8 data".to_owned()))?;
-                (s.to_pyobject(vm), buf)
+                let bytes = buf.read_n_prefixed()?;
+                str::from_utf8(bytes)?.to_pyobject(vm)
             }
-            Type::List => {
-                let (elements, buf) = load_seq(buf, vm)?;
-                (vm.ctx.new_list(elements).into(), buf)
-            }
+            Type::List => load_vec(buf, vm)?.to_pyobject(vm),
             Type::Set => {
-                let (elements, buf) = load_seq(buf, vm)?;
+                let size = buf.read_size()?;
                 let set = PySet::new_ref(&vm.ctx);
-                for element in elements {
-                    set.add(element, vm)?;
+                for _ in 0..size {
+                    // safe to unwrap because builtin types' eq/hash don't error
+                    set.add(load_obj(buf, vm)?, vm).unwrap();
                 }
-                (set.to_pyobject(vm), buf)
+                set.into()
             }
             Type::FrozenSet => {
-                let (elements, buf) = load_seq(buf, vm)?;
-                let set = PyFrozenSet::from_iter(vm, elements.into_iter())?;
-                (set.to_pyobject(vm), buf)
+                let size = buf.read_size()?;
+                let set = PyFrozenSet::builder(vm);
+                for _ in 0..size {
+                    // safe to unwrap because builtin types' eq/hash don't error
+                    set.add(load_obj(buf, vm)?).unwrap();
+                }
+                set.build().into()
             }
             Type::Tuple => {
-                let (elements, buf) = load_seq(buf, vm)?;
-                (vm.ctx.new_tuple(elements).into(), buf)
+                let elements = load_vec(buf, vm)?;
+                vm.ctx.new_tuple(elements).into()
             }
             Type::Dict => {
-                let (len, mut buf) = read_size(buf, vm)?;
+                let len = buf.read_size()?;
                 let dict = vm.ctx.new_dict();
                 for _ in 0..len {
-                    let (key, rest) = load_obj(buf, vm)?;
-                    let (value, rest) = load_obj(rest, vm)?;
-                    buf = rest;
-                    dict.set_item(key.as_object(), value, vm)?;
+                    let key = load_obj(buf, vm)?;
+                    let value = load_obj(buf, vm)?;
+                    // safe to unwrap because builtin types' eq/hash don't error
+                    dict.set_item(key.as_object(), value, vm).unwrap();
                 }
-                (dict.into(), buf)
+                dict.into()
             }
             Type::Bytes => {
                 // Following CPython, after marshaling, byte arrays are converted into bytes.
-                let (len, buf) = read_size(buf, vm)?;
-                if buf.len() < len {
-                    return Err(too_short_error(vm));
-                }
-                let (bytes, buf) = buf.split_at(len);
-                (vm.ctx.new_bytes(bytes.to_vec()).into(), buf)
+                let bytes = buf.read_n_prefixed()?;
+                vm.ctx.new_bytes(bytes.to_vec()).into()
             }
             Type::Code => {
                 // If prefix is not identifiable, assume CodeObject, error out if it doesn't match.
-                let (len, buf) = read_size(buf, vm)?;
-                if buf.len() < len {
-                    return Err(too_short_error(vm));
-                }
-                let (bytes, buf) = buf.split_at(len);
-                let code = bytecode::CodeObject::from_bytes(bytes).map_err(|e| match e {
-                    bytecode::CodeDeserializeError::Eof => vm.new_exception_msg(
-                        vm.ctx.exceptions.eof_error.to_owned(),
-                        "End of file while deserializing bytecode".to_owned(),
-                    ),
-                    _ => vm.new_value_error("Couldn't deserialize python bytecode".to_owned()),
-                })?;
-                (vm.ctx.new_code(code).into(), buf)
+                let bytes = buf.read_n_prefixed()?;
+                let code = bytecode::CodeObject::from_bytes(bytes)?;
+                vm.ctx.new_code(code).into()
             }
         };
-        Ok((obj, buf))
+        Ok(obj)
     }
 
     #[pyfunction]
     fn load(f: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let read_res = vm.call_method(&f, "read", ())?;
         let bytes = ArgBytesLike::try_from_object(vm, read_res)?;
-        loads(PyBuffer::from(bytes), vm)
+        loads(PyBuffer::from(bytes), vm).to_pyresult(vm)
     }
 }
