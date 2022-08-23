@@ -342,6 +342,10 @@ jobs:
       - name: check wasm code with prettier
         # prettier doesn't handle ignore files very well: https://github.com/prettier/prettier/issues/8506
         run: cd wasm && git ls-files -z | xargs -0 prettier --check -u
+      - name: Check update_asdl.sh consistency
+        run: bash scripts/update_asdl.sh && git diff --exit-code
+      - name: Check whats_left is not broken
+        run: python -I whats_left.py
 
   miri:
     name: Run tests under miri
