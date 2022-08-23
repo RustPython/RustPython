@@ -3,7 +3,7 @@ use crate::{
         builtinfunc::{PyBuiltinFunction, PyBuiltinMethod, PyNativeFuncDef},
         bytes,
         code::{self, PyCode},
-        descriptor::{DescrObject, MemberDef, MemberDescrObject, MemberKind, MemberGetter},
+        descriptor::{DescrObject, MemberDef, MemberDescrObject, MemberGetter, MemberKind},
         getset::PyGetSet,
         object, pystr,
         type_::PyAttributes,

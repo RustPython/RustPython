@@ -1,8 +1,8 @@
-use rustpython_common::lock::PyRwLock;
 use super::{PyStr, PyType, PyTypeRef};
 use crate::class::PyClassImpl;
 use crate::types::{Constructor, GetDescriptor, Unconstructible};
 use crate::{AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine};
+use rustpython_common::lock::PyRwLock;
 
 #[derive(Debug)]
 pub struct DescrObject {
@@ -53,9 +53,11 @@ impl PyPayload for MemberDescrObject {
 
 fn calculate_qualname(descr: &DescrObject, vm: &VirtualMachine) -> PyResult<Option<String>> {
     if let Some(qualname) = vm.get_attribute_opt(descr.typ.to_owned().into(), "__qualname__")? {
-        let str = qualname.downcast::<PyStr>().map_err(|_| vm.new_type_error(
-            "<descriptor>.__objclass__.__qualname__ is not a unicode object".to_owned(),
-        ))?;
+        let str = qualname.downcast::<PyStr>().map_err(|_| {
+            vm.new_type_error(
+                "<descriptor>.__objclass__.__qualname__ is not a unicode object".to_owned(),
+            )
+        })?;
         Ok(Some(format!("{}.{}", str, descr.name)))
     } else {
         return Ok(None);
@@ -125,7 +127,9 @@ impl GetDescriptor for MemberDescrObject {
                 let zelf = Self::_zelf(zelf, vm)?;
                 match zelf.member.getter {
                     MemberGetter::Getter(getter) => (getter)(vm, x),
-                    MemberGetter::Offset(offset) => get_slot_from_object(x, offset, &zelf.member, vm),
+                    MemberGetter::Offset(offset) => {
+                        get_slot_from_object(x, offset, &zelf.member, vm)
+                    }
                 }
             }
             None => Ok(zelf),

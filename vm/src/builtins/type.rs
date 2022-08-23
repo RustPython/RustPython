@@ -4,7 +4,7 @@ use super::{
 };
 use crate::{
     builtins::PyBaseExceptionRef,
-    builtins::{function::PyCellRef, tuple::PyTupleTyped, descriptor::MemberGetter},
+    builtins::{descriptor::MemberGetter, function::PyCellRef, tuple::PyTupleTyped},
     class::{PyClassImpl, StaticType},
     convert::ToPyObject,
     function::{FuncArgs, KwArgs, OptionalArg, PySetterValue},
