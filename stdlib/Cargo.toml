@@ -15,7 +15,7 @@ ssl-vendor = ["ssl", "openssl/vendored", "openssl-probe"]
 [dependencies]
 # rustpython crates
 rustpython-derive = { path = "../derive" }
-rustpython-vm = { path = "../vm" }
+rustpython-vm = { path = "../vm", default-features = false }
 rustpython-common = { path = "../common" }
 
 # random

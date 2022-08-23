@@ -20,6 +20,6 @@ num-traits = "0.2.14"
 thiserror = "1.0"
 
 [dev-dependencies]
-rustpython-parser = { path = "../parser" }
+rustpython-parser = { path = "../parser", default-features = false }
 
 insta = "1.14.0"

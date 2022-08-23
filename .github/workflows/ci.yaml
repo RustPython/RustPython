@@ -127,7 +127,7 @@ jobs:
         if: runner.os == 'macOS'
       - uses: Swatinem/rust-cache@v1
       - name: run rust tests
-        run: cargo test --workspace --exclude rustpython_wasm --verbose --features threading ${{ env.CARGO_ARGS }} ${{ env.NON_WASM_PACKAGES }}
+        run: cargo test --workspace --exclude rustpython_wasm --verbose --features threading,rustpython-parser ${{ env.CARGO_ARGS }} ${{ env.NON_WASM_PACKAGES }}
       - name: check compilation without threading
         run: cargo check ${{ env.CARGO_ARGS }}
 

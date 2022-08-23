@@ -1,6 +1,5 @@
 mod helper;
 
-use rustpython_parser::error::{LexicalErrorType, ParseErrorType};
 use rustpython_vm::{
     builtins::PyBaseExceptionRef,
     compiler::{self, CompileError, CompileErrorBody, CompileErrorType},
@@ -24,19 +23,11 @@ fn shell_exec(vm: &VirtualMachine, source: &str, scope: Scope) -> ShellExecResul
         Err(CompileError {
             body:
                 CompileErrorBody {
-                    error: CompileErrorType::Parse(ParseErrorType::Lexical(LexicalErrorType::Eof)),
+                    error: CompileErrorType::Parse(parse_error),
                     ..
                 },
             ..
-        })
-        | Err(CompileError {
-            body:
-                CompileErrorBody {
-                    error: CompileErrorType::Parse(ParseErrorType::Eof),
-                    ..
-                },
-            ..
-        }) => ShellExecResult::Continue,
+        }) if parse_error.is_eof_error() => ShellExecResult::Continue,
         Err(err) => ShellExecResult::PyErr(vm.new_syntax_error(&err)),
     }
 }

@@ -195,6 +195,12 @@ impl fmt::Display for ParseErrorType {
 }
 
 impl ParseErrorType {
+    pub fn is_eof_error(&self) -> bool {
+        matches!(
+            self,
+            ParseErrorType::Lexical(LexicalErrorType::Eof) | ParseErrorType::Eof
+        )
+    }
     pub fn is_indentation_error(&self) -> bool {
         match self {
             ParseErrorType::Lexical(LexicalErrorType::IndentationError) => true,

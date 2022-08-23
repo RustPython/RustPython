@@ -12,7 +12,7 @@ proc-macro = true
 
 [dependencies]
 rustpython-codegen = { path = "../compiler/codegen", version = "0.1.1" }
-rustpython-compiler = { path = "../compiler", version = "0.1.1" }
+rustpython-compiler = { path = "../compiler", version = "0.1.1", default-features = false }
 rustpython-compiler-core = { path = "../compiler/core", version = "0.1.1" }
 rustpython-doc = { git = "https://github.com/RustPython/__doc__", branch = "main" }
 

@@ -9,7 +9,7 @@ edition = "2021"
 include = ["src/**/*.rs", "Cargo.toml", "build.rs", "Lib/**/*.py"]
 
 [features]
-default = ["compiler"]
+default = ["compiler", "rustpython-parser?/lalrpop"]
 importlib = []
 encodings = ["importlib"]
 vm-tracing-logging = []
@@ -23,9 +23,9 @@ codegen = ["rustpython-codegen", "ast"]
 parser = ["rustpython-parser", "ast"]
 
 [dependencies]
-rustpython-compiler = { path = "../compiler", optional = true, version = "0.1.2" }
+rustpython-compiler = { path = "../compiler", optional = true, version = "0.1.2", default-features = false }
 rustpython-ast = { path = "../compiler/ast", optional = true, version = "0.1" }
-rustpython-parser = { path = "../compiler/parser", optional = true, version = "0.1.2" }
+rustpython-parser = { path = "../compiler/parser", optional = true, version = "0.1.2", default-features = false }
 rustpython-codegen = { path = "../compiler/codegen", optional = true, version = "0.1.2" }
 rustpython-compiler-core = { path = "../compiler/core", version = "0.1.2" }
 rustpython-common = { path = "../common" }
