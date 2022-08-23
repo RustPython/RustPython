@@ -1,7 +1,9 @@
 use crate::{
     builtins::{PyDict, PyStrRef, PyType, PyTypeRef},
+    frame::FrameRef,
     AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
 };
+use core::slice::Iter;
 
 pub fn py_warn(
     category: &Py<PyType>,
@@ -60,10 +62,40 @@ fn warn_explicit(
     Ok(())
 }
 
+fn is_internal_frame(frame: Option<&FrameRef>, vm: &VirtualMachine) -> bool {
+    if let Some(frame) = frame {
+        let code = &frame.code;
+        let filename = code.source_path;
+
+        let contains = filename.as_str().contains("importlib");
+        if contains {
+            let contains = filename.as_str().contains("_bootstrap");
+            contains
+        } else {
+            false
+        }
+    } else {
+        false
+    }
+}
+
+fn next_external_frame(
+    frame: Option<&FrameRef>,
+    frames: Iter<FrameRef>,
+    vm: &VirtualMachine,
+) -> Option<&FrameRef> {
+    loop {
+        frame = frames.next();
+        if frame.is_some() && is_internal_frame(frame, vm) {
+            break frame;
+        }
+    }
+}
+
 // filename, module, and registry are new refs, globals is borrowed
 // Returns 0 on error (no new refs), 1 on success
 fn setup_context(
-    _stack_level: isize,
+    stack_level: isize,
     vm: &VirtualMachine,
 ) -> PyResult<
     // filename, lineno, module, registry
@@ -73,31 +105,33 @@ fn setup_context(
     let __name__ = "__name__";
 
     // Setup globals, filename and lineno.
-    let frame = vm.current_frame();
-
-    //     PyThreadState *tstate = _PyThreadState_GET();
-    //     PyFrameObject *f = PyThreadState_GetFrame(tstate);
-    //     // Stack level comparisons to Python code is off by one as there is no
-    //     // warnings-related stack level to avoid.
-    //     if (stack_level <= 0 || is_internal_frame(f)) {
-    //         while (--stack_level > 0 && f != NULL) {
-    //             PyFrameObject *back = PyFrame_GetBack(f);
-    //             Py_DECREF(f);
-    //             f = back;
-    //         }
-    //     }
-    //     else {
-    //         while (--stack_level > 0 && f != NULL) {
-    //             f = next_external_frame(f);
-    //         }
-    //     }
+    let frames = vm.frames.borrow().iter();
+    let mut frame = frames.next();
+    // Stack level comparisons to Python code is off by one as there is no
+    // warnings-related stack level to avoid.
+    if stack_level <= 0 || is_internal_frame(frame, vm) {
+        loop {
+            if stack_level -= 1 > 0 && frame.is_some() {
+                frame = frames.next();
+            } else {
+                break;
+            }
+        }
+    } else {
+        loop {
+            if stack_level -= 1 > 0 && frame.is_some() {
+                frame = next_external_frame(frame, frames, vm);
+            } else {
+                break;
+            }
+        }
+    };
 
     let (globals, filename, lineno) = if let Some(f) = frame {
         // TODO:
         let lineno = 1;
-        // *lineno = PyFrame_GetLineNumber(f);
-        // *filename = code->co_filename;
-        (f.globals.clone(), f.code.source_path, lineno)
+        let filename = f.code.source_path;
+        (f.globals.clone(), filename, lineno)
     } else {
         (vm.current_globals().clone(), vm.ctx.intern_str("sys"), 1)
     };
