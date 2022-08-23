@@ -1,7 +1,6 @@
 use rustpython_common::lock::PyRwLock;
 use super::{PyStr, PyType, PyTypeRef};
 use crate::class::PyClassImpl;
-use crate::function::Either;
 use crate::types::{Constructor, GetDescriptor, Unconstructible};
 use crate::{AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine};
 
@@ -17,10 +16,15 @@ pub enum MemberKind {
     ObjectEx = 16,
 }
 
+pub enum MemberGetter {
+    Getter(fn(PyObjectRef, &VirtualMachine) -> PyResult),
+    Offset(usize),
+}
+
 pub struct MemberDef {
     pub name: String,
     pub kind: MemberKind,
-    pub getter_or_offset: Either<fn(PyObjectRef, &VirtualMachine) -> PyResult, usize>,
+    pub getter: MemberGetter,
     pub doc: Option<String>,
 }
 
@@ -119,9 +123,9 @@ impl GetDescriptor for MemberDescrObject {
         match obj {
             Some(x) => {
                 let zelf = Self::_zelf(zelf, vm)?;
-                match zelf.member.getter_or_offset {
-                    Either::A(getter) => (getter)(x, vm),
-                    Either::B(offset) => get_slot_from_object(x, offset, &zelf.member, vm),
+                match zelf.member.getter {
+                    MemberGetter::Getter(getter) => (getter)(x, vm),
+                    MemberGetter::Offset(offset) => get_slot_from_object(x, offset, &zelf.member, vm),
                 }
             }
             None => Ok(zelf),

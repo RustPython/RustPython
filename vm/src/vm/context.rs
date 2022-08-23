@@ -3,7 +3,7 @@ use crate::{
         builtinfunc::{PyBuiltinFunction, PyBuiltinMethod, PyNativeFuncDef},
         bytes,
         code::{self, PyCode},
-        descriptor::{DescrObject, MemberDef, MemberDescrObject, MemberKind},
+        descriptor::{DescrObject, MemberDef, MemberDescrObject, MemberKind, MemberGetter},
         getset::PyGetSet,
         object, pystr,
         type_::PyAttributes,
@@ -14,7 +14,7 @@ use crate::{
     class::{PyClassImpl, StaticType},
     common::rc::PyRc,
     exceptions,
-    function::{Either, IntoPyGetterFunc, IntoPyNativeFunc, IntoPySetterFunc},
+    function::{IntoPyGetterFunc, IntoPyNativeFunc, IntoPySetterFunc},
     intern::{Internable, MaybeInterned, StringPool},
     object::{Py, PyObjectPayload, PyObjectRef, PyPayload, PyRef},
     types::{PyTypeFlags, PyTypeSlots, TypeZoo},
@@ -462,7 +462,7 @@ impl Context {
         let member_def = MemberDef {
             name: name.to_owned(),
             kind: MemberKind::ObjectEx,
-            getter_or_offset: Either::A(getter),
+            getter: MemberGetter::Getter(getter),
             doc: None,
         };
         let member_descriptor = MemberDescrObject {
