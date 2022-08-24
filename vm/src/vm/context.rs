@@ -194,6 +194,7 @@ declare_const_name! {
     __set_name__,
     __setattr__,
     __setitem__,
+    __slots__,
     __str__,
     __sub__,
     __subclasscheck__,

@@ -1,7 +1,9 @@
 use super::{PyStr, PyType, PyTypeRef};
-use crate::class::PyClassImpl;
-use crate::types::{Constructor, GetDescriptor, Unconstructible};
-use crate::{AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine};
+use crate::{
+    class::PyClassImpl,
+    types::{Constructor, GetDescriptor, Unconstructible},
+    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+};
 use rustpython_common::lock::PyRwLock;
 
 #[derive(Debug)]
@@ -26,6 +28,15 @@ pub struct MemberDef {
     pub kind: MemberKind,
     pub getter: MemberGetter,
     pub doc: Option<String>,
+}
+
+impl MemberDef {
+    fn get(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        match self.getter {
+            MemberGetter::Getter(getter) => (getter)(vm, obj),
+            MemberGetter::Offset(offset) => get_slot_from_object(obj, offset, self, vm),
+        }
+    }
 }
 
 impl std::fmt::Debug for MemberDef {
@@ -101,16 +112,16 @@ fn get_slot_from_object(
     member: &MemberDef,
     vm: &VirtualMachine,
 ) -> PyResult {
-    match member.kind {
-        MemberKind::ObjectEx => match obj.get_slot(offset) {
-            Some(obj) => Ok(obj),
-            None => Err(vm.new_attribute_error(format!(
+    let slot = match member.kind {
+        MemberKind::ObjectEx => obj.get_slot(offset).ok_or_else(|| {
+            vm.new_attribute_error(format!(
                 "'{}' object has no attribute '{}'",
                 obj.class().name(),
                 member.name
-            ))),
-        },
-    }
+            ))
+        })?,
+    };
+    Ok(slot)
 }
 
 impl Unconstructible for MemberDescrObject {}
@@ -125,12 +136,7 @@ impl GetDescriptor for MemberDescrObject {
         match obj {
             Some(x) => {
                 let zelf = Self::_zelf(zelf, vm)?;
-                match zelf.member.getter {
-                    MemberGetter::Getter(getter) => (getter)(vm, x),
-                    MemberGetter::Offset(offset) => {
-                        get_slot_from_object(x, offset, &zelf.member, vm)
-                    }
-                }
+                zelf.member.get(x, vm)
             }
             None => Ok(zelf),
         }

@@ -636,19 +636,21 @@ impl PyType {
         // updated when __slots__ are supported (toggling the flag off if
         // a class has __slots__ defined).
         let heaptype_slots: Option<PyTupleTyped<PyStrRef>> =
-            if let Some(x) = attributes.get(vm.ctx.intern_str("__slots__")) {
+            if let Some(x) = attributes.get(identifier!(vm, __slots__)) {
                 Some(if x.to_owned().class().is(vm.ctx.types.str_type) {
                     PyTupleTyped::<PyStrRef>::try_from_object(
                         vm,
                         vec![x.to_owned()].into_pytuple(vm).into(),
                     )?
                 } else {
-                    let mut elements = Vec::new();
                     let iter = x.to_owned().get_iter(vm)?;
-                    while let PyIterReturn::Return(element) = iter.next(vm)? {
-                        elements.push(element);
-                    }
-
+                    let elements = {
+                        let mut elements = Vec::new();
+                        while let PyIterReturn::Return(element) = iter.next(vm)? {
+                            elements.push(element);
+                        }
+                        elements
+                    };
                     PyTupleTyped::<PyStrRef>::try_from_object(vm, elements.into_pytuple(vm).into())?
                 })
             } else {
