@@ -5,7 +5,10 @@ use super::{
     tuple::PyTupleTyped, PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyStr, PyStrRef,
     PyTupleRef, PyType, PyTypeRef,
 };
+#[cfg(feature = "jit")]
+use crate::common::lock::OnceCell;
 use crate::common::lock::PyMutex;
+use crate::convert::ToPyObject;
 use crate::function::ArgMapping;
 use crate::{
     bytecode,
@@ -16,8 +19,6 @@ use crate::{
     types::{Callable, Comparable, Constructor, GetAttr, GetDescriptor, PyComparisonOp},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
-#[cfg(feature = "jit")]
-use crate::{common::lock::OnceCell, convert::ToPyObject};
 use itertools::Itertools;
 #[cfg(feature = "jit")]
 use rustpython_jit::CompiledCode;
@@ -352,14 +353,21 @@ impl PyFunction {
         self.defaults_and_kwdefaults.lock().1 = kwdefaults
     }
 
-    #[pyproperty(magic)]
-    fn globals(&self) -> PyDictRef {
-        self.globals.clone()
+    // {"__closure__",   T_OBJECT,     OFF(func_closure), READONLY},
+    // {"__doc__",       T_OBJECT,     OFF(func_doc), 0},
+    // {"__globals__",   T_OBJECT,     OFF(func_globals), READONLY},
+    // {"__module__",    T_OBJECT,     OFF(func_module), 0},
+    // {"__builtins__",  T_OBJECT,     OFF(func_builtins), READONLY},
+    #[pymember(magic)]
+    fn globals(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
+        let zelf = Self::_zelf(zelf, vm)?;
+        Ok(zelf.globals.clone().into())
     }
 
-    #[pyproperty(magic)]
-    fn closure(&self) -> Option<PyTupleTyped<PyCellRef>> {
-        self.closure.clone()
+    #[pymember(magic)]
+    fn closure(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
+        let zelf = Self::_zelf(zelf, vm)?;
+        Ok(vm.unwrap_or_none(zelf.closure.clone().map(|x| x.to_pyobject(vm))))
     }
 
     #[pyproperty(magic)]

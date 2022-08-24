@@ -89,6 +89,7 @@ pub use zip::PyZip;
 #[path = "union.rs"]
 pub(crate) mod union_;
 pub use union_::PyUnion;
+pub(crate) mod descriptor;
 
 pub use float::try_to_bigint as try_f64_to_bigint;
 pub use int::try_to_float as try_bigint_to_f64;

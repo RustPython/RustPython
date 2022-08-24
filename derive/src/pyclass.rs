@@ -24,6 +24,7 @@ enum AttrName {
     Slot,
     Attr,
     ExtendClass,
+    Member,
 }
 
 impl std::fmt::Display for AttrName {
@@ -36,6 +37,7 @@ impl std::fmt::Display for AttrName {
             Self::Slot => "pyslot",
             Self::Attr => "pyattr",
             Self::ExtendClass => "extend_class",
+            Self::Member => "pymember",
         };
         s.fmt(f)
     }
@@ -52,6 +54,7 @@ impl FromStr for AttrName {
             "pyslot" => Self::Slot,
             "pyattr" => Self::Attr,
             "extend_class" => Self::ExtendClass,
+            "pymember" => Self::Member,
             s => {
                 return Err(s.to_owned());
             }
@@ -423,6 +426,11 @@ struct ExtendClassItem {
     inner: ContentItemInner<AttrName>,
 }
 
+/// #[pymember]
+struct MemberItem {
+    inner: ContentItemInner<AttrName>,
+}
+
 impl ContentItem for MethodItem {
     type AttrName = AttrName;
     fn inner(&self) -> &ContentItemInner<AttrName> {
@@ -448,6 +456,12 @@ impl ContentItem for AttributeItem {
     }
 }
 impl ContentItem for ExtendClassItem {
+    type AttrName = AttrName;
+    fn inner(&self) -> &ContentItemInner<AttrName> {
+        &self.inner
+    }
+}
+impl ContentItem for MemberItem {
     type AttrName = AttrName;
     fn inner(&self) -> &ContentItemInner<AttrName> {
         &self.inner
@@ -657,6 +671,42 @@ where
             Self::#ident(ctx, class);
         });
 
+        Ok(())
+    }
+}
+
+impl<Item> ImplItem<Item> for MemberItem
+where
+    Item: ItemLike + ToTokens + GetIdent,
+{
+    fn gen_impl_item(&self, args: ImplItemArgs<'_, Item>) -> Result<()> {
+        let func = args
+            .item
+            .function_or_method()
+            .map_err(|_| self.new_syn_error(args.item.span(), "can only be on a method"))?;
+        let ident = &func.sig().ident;
+
+        let item_attr = args.attrs.remove(self.index());
+        let item_meta = MemberItemMeta::from_attr(ident.clone(), &item_attr)?;
+
+        let py_name = item_meta.member_name()?;
+        let tokens = {
+            quote_spanned! { ident.span() =>
+                class.set_str_attr(
+                    #py_name,
+                    ctx.new_member(#py_name, Self::#ident, class),
+                    ctx,
+                );
+            }
+        };
+
+        args.context.impl_extend_items.add_item(
+            ident.clone(),
+            vec![py_name],
+            args.cfgs.to_vec(),
+            tokens,
+            5,
+        )?;
         Ok(())
     }
 }
@@ -930,6 +980,28 @@ impl SlotItemMeta {
     }
 }
 
+struct MemberItemMeta(ItemMetaInner);
+
+impl ItemMeta for MemberItemMeta {
+    const ALLOWED_NAMES: &'static [&'static str] = &["magic"];
+
+    fn from_inner(inner: ItemMetaInner) -> Self {
+        Self(inner)
+    }
+    fn inner(&self) -> &ItemMetaInner {
+        &self.0
+    }
+}
+
+impl MemberItemMeta {
+    fn member_name(&self) -> Result<String> {
+        let inner = self.inner();
+        let magic = inner._bool("magic")?;
+        let name = inner.item_name();
+        Ok(if magic { format!("__{}__", name) } else { name })
+    }
+}
+
 struct ExtractedImplAttrs {
     with_impl: TokenStream,
     with_slots: TokenStream,
@@ -1047,6 +1119,9 @@ where
             inner: ContentItemInner { index, attr_name },
         }),
         ExtendClass => Box::new(ExtendClassItem {
+            inner: ContentItemInner { index, attr_name },
+        }),
+        Member => Box::new(MemberItem {
             inner: ContentItemInner { index, attr_name },
         }),
     })

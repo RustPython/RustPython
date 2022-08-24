@@ -115,6 +115,7 @@ struct PyInner<T> {
     weak_list: WeakRefList,
 
     payload: T,
+    slots: Vec<Option<PyObjectRef>>,
 }
 
 impl<T: fmt::Debug> fmt::Debug for PyInner<T> {
@@ -426,6 +427,7 @@ impl InstanceDict {
 
 impl<T: PyObjectPayload> PyInner<T> {
     fn new(payload: T, typ: PyTypeRef, dict: Option<PyDictRef>) -> Box<Self> {
+        let member_count = typ.slots.member_count;
         Box::new(PyInner {
             ref_count: RefCount::new(),
             typeid: TypeId::of::<T>(),
@@ -434,6 +436,7 @@ impl<T: PyObjectPayload> PyInner<T> {
             dict: dict.map(InstanceDict::new),
             weak_list: WeakRefList::new(),
             payload,
+            slots: vec![None; member_count],
         })
     }
 }
@@ -794,6 +797,10 @@ impl PyObject {
     pub(crate) fn is_interned(&self) -> bool {
         self.0.ref_count.is_leaked()
     }
+
+    pub(crate) fn get_slot(&self, offset: usize) -> Option<PyObjectRef> {
+        self.0.slots[offset].clone()
+    }
 }
 
 impl Borrow<PyObject> for PyObjectRef {
@@ -1124,6 +1131,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
                 dict: None,
                 weak_list: WeakRefList::new(),
                 payload: type_payload,
+                slots: Vec::new(),
             },
             Uninit { typ }
         )));
@@ -1135,6 +1143,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
                 dict: None,
                 weak_list: WeakRefList::new(),
                 payload: object_payload,
+                slots: Vec::new(),
             },
             Uninit { typ },
         )));

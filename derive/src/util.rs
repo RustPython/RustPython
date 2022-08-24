@@ -23,6 +23,7 @@ pub(crate) const ALL_ALLOWED_NAMES: &[&str] = &[
     "pyattr",
     "pyslot",
     "extend_class",
+    "pymember",
 ];
 
 #[derive(Clone)]
