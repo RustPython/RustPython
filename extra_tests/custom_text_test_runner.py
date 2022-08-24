@@ -247,10 +247,11 @@ class CustomTextTestResult(result.TestResult):
             name_override = None
         self.case = name_override if name_override else self.case
         if self.show_test_info:
-            self.stream.writeln(self.separator2)
-            self.stream.writeln("CASE: %s" %self.case)
-            self.stream.writeln("Description: %s" %test.shortDescription())
-            self.stream.writeln(self.separator2)
+            # self.stream.writeln(self.separator2)
+            self.stream.write("CASE: %s" %self.case)
+            if desc := test.shortDescription(): self.stream.write(" (Description: %s)" % desc)
+            self.stream.write("... ")
+            # self.stream.writeln(self.separator2)
             self.stream.flush()
         self.current_case_number = self.case_number
         if self.suite not in self.suite_map:
@@ -332,7 +333,7 @@ class CustomTextTestResult(result.TestResult):
     def addSuccess(self, test):
         super(CustomTextTestResult, self).addSuccess(test)
         if self.show_test_info:
-            self.stream.writeln(self.separator_pre_result)
+            # self.stream.writeln(self.separator_pre_result)
             self.stream.writeln("PASS")
         self.stream.flush()
         self.results['suites'][self.suite_map[self.suite]]['cases'][self.current_case_number]['result'] = 'passed'
@@ -343,7 +344,7 @@ class CustomTextTestResult(result.TestResult):
         error_string = self.print_error_string(err)
         super(CustomTextTestResult, self).addError(test, err)
         if self.show_test_info:
-            self.stream.writeln(self.separator_pre_result)
+            # self.stream.writeln(self.separator_pre_result)
             self.stream.writeln("ERROR")
         self.stream.flush()
         self.results['suites'][self.suite_map[self.suite]]['cases'][self.current_case_number]['result'] = 'error'
@@ -355,7 +356,7 @@ class CustomTextTestResult(result.TestResult):
         error_string = self.print_error_string(err)
         super(CustomTextTestResult, self).addFailure(test, err)
         if self.show_test_info:
-            self.stream.writeln(self.separator_pre_result)
+            # self.stream.writeln(self.separator_pre_result)
             self.stream.writeln("FAIL")
         self.stream.flush()
         self.results['suites'][self.suite_map[self.suite]]['cases'][self.current_case_number]['result'] = 'failed'
@@ -366,7 +367,7 @@ class CustomTextTestResult(result.TestResult):
     def addSkip(self, test, reason):
         super(CustomTextTestResult, self).addSkip(test, reason)
         if self.show_test_info:
-            self.stream.writeln(self.separator_pre_result)
+            # self.stream.writeln(self.separator_pre_result)
             self.stream.writeln("SKIPPED {0!r}".format(reason))
         self.stream.flush()
         self.results['suites'][self.suite_map[self.suite]]['cases'][self.current_case_number]['result'] = 'skipped'
@@ -376,7 +377,7 @@ class CustomTextTestResult(result.TestResult):
     def addExpectedFailure(self, test, err):
         super(CustomTextTestResult, self).addExpectedFailure(test, err)
         if self.show_test_info:
-            self.stream.writeln(self.separator_pre_result)
+            # self.stream.writeln(self.separator_pre_result)
             self.stream.writeln("EXPECTED FAILURE")
         self.stream.flush()
         self.results['suites'][self.suite_map[self.suite]]['cases'][self.current_case_number]['result'] = 'expected_failure'
@@ -386,7 +387,7 @@ class CustomTextTestResult(result.TestResult):
     def addUnexpectedSuccess(self, test):
         super(CustomTextTestResult, self).addUnexpectedSuccess(test)
         if self.show_test_info:
-            self.stream.writeln(self.separator_pre_result)
+            # self.stream.writeln(self.separator_pre_result)
             self.stream.writeln("UNEXPECTED SUCCESS")
         self.stream.flush()
         self.num_failed += 1
