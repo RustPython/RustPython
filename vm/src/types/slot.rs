@@ -81,6 +81,9 @@ pub struct PyTypeSlots {
     // tp_subclasses
     // tp_weaklist
     pub del: AtomicCell<Option<DelFunc>>,
+
+    // The count of tp_members.
+    pub member_count: usize,
 }
 
 impl PyTypeSlots {

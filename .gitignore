@@ -20,4 +20,4 @@ flamescope.json
 extra_tests/snippets/resources
 extra_tests/not_impl.py
 
-parser/python.rs
+compiler/parser/python.rs

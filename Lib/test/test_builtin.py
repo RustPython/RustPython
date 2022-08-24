@@ -1900,7 +1900,6 @@ class BuiltinTest(unittest.TestCase):
             self.assertFalse(not NotImplemented)
 
 
-@unittest.skip("TODO: RUSTPYTHON, AttributeError: module 'sys' has no attribute '__breakpointhook__'")
 class TestBreakpoint(unittest.TestCase):
     def setUp(self):
         # These tests require a clean slate environment.  For example, if the
@@ -2005,6 +2004,10 @@ class TestBreakpoint(unittest.TestCase):
             breakpoint()
             mock.assert_not_called()
 
+    def test_runtime_error_when_hook_is_lost(self):
+        del sys.breakpointhook
+        with self.assertRaises(RuntimeError):
+            breakpoint()
 
 @unittest.skipUnless(pty, "the pty and signal modules must be available")
 class PtyTests(unittest.TestCase):

@@ -46,6 +46,7 @@ mod bytesinner;
 pub mod cformat;
 pub mod class;
 mod codecs;
+pub mod compiler;
 pub mod convert;
 mod coroutine;
 mod dictdatatype;
@@ -84,10 +85,8 @@ pub use self::object::{
 };
 pub use self::vm::{Context, Interpreter, Settings, VirtualMachine};
 
-pub use rustpython_bytecode as bytecode;
 pub use rustpython_common as common;
-#[cfg(feature = "rustpython-compiler")]
-pub use rustpython_compiler as compile;
+pub use rustpython_compiler_core as bytecode;
 
 #[doc(hidden)]
 pub mod __exports {

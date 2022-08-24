@@ -19,8 +19,9 @@ from test.support import threading_helper
 import unittest
 import io
 import threading
-import sys
 from traceback import print_exc
+
+import sys  # XXX: RUSTPYTHON
 
 
 NUM_THREADS = 20

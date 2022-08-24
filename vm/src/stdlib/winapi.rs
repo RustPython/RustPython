@@ -5,6 +5,7 @@ pub(crate) use _winapi::make_module;
 mod _winapi {
     use crate::{
         builtins::PyStrRef,
+        common::windows::ToWideString,
         convert::ToPyException,
         function::{ArgMapping, ArgSequence, OptionalArg},
         stdlib::os::errno_err,
@@ -15,6 +16,11 @@ mod _winapi {
     use winapi::um::{
         fileapi, handleapi, namedpipeapi, processenv, processthreadsapi, synchapi, winbase,
         winnt::HANDLE,
+    };
+    use windows::{
+        core::PCWSTR,
+        Win32::Foundation::{HINSTANCE, MAX_PATH},
+        Win32::System::LibraryLoader::{GetModuleFileNameW, LoadLibraryW},
     };
 
     #[pyattr]
@@ -401,5 +407,30 @@ mod _winapi {
             processthreadsapi::TerminateProcess(h as _, exit_code)
         })
         .map(drop)
+    }
+
+    // TODO: ctypes.LibraryLoader.LoadLibrary
+    #[allow(dead_code)]
+    fn LoadLibrary(path: PyStrRef, vm: &VirtualMachine) -> PyResult<isize> {
+        let path = path.as_str().to_wides_with_nul();
+        let handle = unsafe { LoadLibraryW(PCWSTR::from_raw(path.as_ptr())).unwrap() };
+        if handle.is_invalid() {
+            return Err(vm.new_runtime_error("LoadLibrary failed".to_owned()));
+        }
+        Ok(handle.0)
+    }
+
+    #[pyfunction]
+    fn GetModuleFileName(handle: isize, vm: &VirtualMachine) -> PyResult<String> {
+        let mut path: Vec<u16> = vec![0; MAX_PATH as usize];
+        let handle = HINSTANCE(handle);
+
+        let length = unsafe { GetModuleFileNameW(handle, &mut path) };
+        if length == 0 {
+            return Err(vm.new_runtime_error("GetModuleFileName failed".to_owned()));
+        }
+
+        let (path, _) = path.split_at(length as usize);
+        Ok(String::from_utf16(&path).unwrap())
     }
 }

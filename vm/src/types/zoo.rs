@@ -1,9 +1,10 @@
 use crate::{
     builtins::{
         asyncgenerator, bool_, builtinfunc, bytearray, bytes, classmethod, code, complex,
-        coroutine, dict, enumerate, filter, float, frame, function, generator, genericalias,
-        getset, int, iter, list, map, mappingproxy, memory, module, namespace, object, property,
-        pystr, range, set, singletons, slice, staticmethod, super_, traceback, tuple,
+        coroutine, descriptor, dict, enumerate, filter, float, frame, function, generator,
+        genericalias, getset, int, iter, list, map, mappingproxy, memory, module, namespace,
+        object, property, pystr, range, set, singletons, slice, staticmethod, super_, traceback,
+        tuple,
         type_::{self, PyType},
         union_, weakproxy, weakref, zip,
     },
@@ -88,6 +89,7 @@ pub struct TypeZoo {
     pub not_implemented_type: &'static Py<PyType>,
     pub generic_alias_type: &'static Py<PyType>,
     pub union_type: &'static Py<PyType>,
+    pub member_descriptor_type: &'static Py<PyType>,
 }
 
 impl TypeZoo {
@@ -172,6 +174,7 @@ impl TypeZoo {
             not_implemented_type: singletons::PyNotImplemented::init_bare_type(),
             generic_alias_type: genericalias::PyGenericAlias::init_bare_type(),
             union_type: union_::PyUnion::init_bare_type(),
+            member_descriptor_type: descriptor::MemberDescrObject::init_bare_type(),
         }
     }
 
@@ -220,5 +223,6 @@ impl TypeZoo {
         traceback::init(context);
         genericalias::init(context);
         union_::init(context);
+        descriptor::init(context);
     }
 }

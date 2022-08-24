@@ -31,10 +31,14 @@ assert f'{"!:"}' == '!:'
 assert fr'x={4*10}\n' == 'x=40\\n'
 assert f'{16:0>+#10x}' == '00000+0x10'
 assert f"{{{(lambda x: f'hello, {x}')('world}')}" == '{hello, world}'
+assert f"""{f'''{f"{f'{foo}'}"}'''}""" == 'bar'
+assert f"""{1:{1}{f'n'}}""" == '1'
+assert f'{ {1}.pop()}' == '1'
+assert f"""{1:{{1}.pop()}{f'n'}}""" == '1'
 
 
 # base test of self documenting strings
-#assert f'{foo=}' == 'foo=bar' # TODO ' missing
+assert f'{foo=}' == "foo='bar'" # TODO ' missing
 
 num=42
 

@@ -93,8 +93,6 @@ class TestRlcompleter(unittest.TestCase):
         self.assertEqual(completer.complete('f.b', 0), 'f.bar')
         self.assertEqual(f.calls, 1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_uncreated_attr(self):
         # Attributes like properties and slots should be completed even when
         # they haven't been created on an instance

@@ -7,7 +7,7 @@ fn main() -> vm::PyResult<()> {
         let code_obj = vm
             .compile(
                 r#"print("Hello World!")"#,
-                vm::compile::Mode::Exec,
+                vm::compiler::Mode::Exec,
                 "<embedded>".to_owned(),
             )
             .map_err(|err| vm.new_syntax_error(&err))?;

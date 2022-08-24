@@ -4,7 +4,7 @@ use js_sys::{Array, ArrayBuffer, Object, Promise, Reflect, SyntaxError, Uint8Arr
 use rustpython_parser::error::ParseErrorType;
 use rustpython_vm::{
     builtins::PyBaseExceptionRef,
-    compile::{CompileError, CompileErrorType},
+    compiler::{CompileError, CompileErrorType},
     exceptions,
     function::{ArgBytesLike, FuncArgs},
     py_serde, AsObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject, VirtualMachine,

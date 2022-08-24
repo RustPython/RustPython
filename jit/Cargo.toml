@@ -2,7 +2,7 @@
 name = "rustpython-jit"
 version = "0.1.2"
 description = "Experimental JIT(just in time) compiler for python code."
-authors = [ "RustPython Team" ]
+authors = ["RustPython Team"]
 repository = "https://github.com/RustPython/RustPython"
 license = "MIT"
 edition = "2021"
@@ -10,17 +10,19 @@ edition = "2021"
 autotests = false
 
 [dependencies]
+rustpython-compiler-core = { path = "../compiler/core", version = "0.1.2" }
+
 cranelift = "0.76.0"
-cranelift-module = "0.76.0"
 cranelift-jit = "0.76.0"
-num-traits = "0.2"
+cranelift-module = "0.76.0"
 libffi = "2.0.0"
-rustpython-bytecode = { path = "../bytecode", version = "0.1.2" }
+num-traits = "0.2"
 thiserror = "1.0"
 
 [dev-dependencies]
-approx = "0.5.1"
 rustpython-derive = { path = "../derive", version = "0.1.2" }
+
+approx = "0.5.1"
 
 [[test]]
 name = "integration"

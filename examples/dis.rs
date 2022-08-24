@@ -13,8 +13,7 @@ extern crate env_logger;
 extern crate log;
 
 use clap::{App, Arg};
-
-use rustpython_compiler as compile;
+use rustpython_compiler as compiler;
 use std::error::Error;
 use std::fs;
 use std::path::Path;
@@ -62,7 +61,7 @@ fn main() {
     let optimize = matches.occurrences_of("optimize") as u8;
     let scripts = matches.values_of_os("scripts").unwrap();
 
-    let opts = compile::CompileOpts {
+    let opts = compiler::CompileOpts {
         optimize,
         ..Default::default()
     };
@@ -81,12 +80,12 @@ fn main() {
 
 fn display_script(
     path: &Path,
-    mode: compile::Mode,
-    opts: compile::CompileOpts,
+    mode: compiler::Mode,
+    opts: compiler::CompileOpts,
     expand_codeobjects: bool,
 ) -> Result<(), Box<dyn Error>> {
     let source = fs::read_to_string(path)?;
-    let code = compile::compile(&source, mode, path.to_string_lossy().into_owned(), opts)?;
+    let code = compiler::compile(&source, mode, path.to_string_lossy().into_owned(), opts)?;
     println!("{}:", path.display());
     if expand_codeobjects {
         println!("{}", code.display_expand_codeobjects());

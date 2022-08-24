@@ -2,14 +2,9 @@ use super::{
     mappingproxy::PyMappingProxy, object, union_, PyClassMethod, PyDictRef, PyList, PyStaticMethod,
     PyStr, PyStrInterned, PyStrRef, PyTuple, PyTupleRef, PyWeak,
 };
-use crate::common::{
-    ascii,
-    borrow::BorrowedValue,
-    lock::{PyRwLock, PyRwLockReadGuard},
-};
 use crate::{
-    builtins::function::PyCellRef,
     builtins::PyBaseExceptionRef,
+    builtins::{descriptor::MemberGetter, function::PyCellRef, tuple::PyTupleTyped},
     class::{PyClassImpl, StaticType},
     convert::ToPyObject,
     function::{FuncArgs, KwArgs, OptionalArg, PySetterValue},
@@ -17,6 +12,18 @@ use crate::{
     protocol::PyNumberMethods,
     types::{Callable, GetAttr, PyTypeFlags, PyTypeSlots, SetAttr},
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+};
+use crate::{
+    builtins::{
+        descriptor::{DescrObject, MemberDef, MemberDescrObject, MemberKind},
+        tuple::IntoPyTuple,
+    },
+    common::{
+        ascii,
+        borrow::BorrowedValue,
+        lock::{PyRwLock, PyRwLockReadGuard},
+    },
+    protocol::PyIterReturn,
 };
 use indexmap::{map::Entry, IndexMap};
 use itertools::Itertools;
@@ -39,6 +46,7 @@ pub struct PyType {
 #[derive(Default)]
 pub struct HeapTypeExt {
     pub number_methods: PyNumberMethods,
+    pub slots: Option<PyTupleTyped<PyStrRef>>,
 }
 
 pub struct PointerSlot<T>(NonNull<T>);
@@ -129,7 +137,15 @@ impl PyType {
         slots: PyTypeSlots,
         metaclass: PyRef<Self>,
     ) -> Result<PyRef<Self>, String> {
-        Self::new_verbose_ref(name, bases[0].clone(), bases, attrs, slots, metaclass)
+        Self::new_verbose_ref(
+            name,
+            bases[0].clone(),
+            bases,
+            attrs,
+            slots,
+            HeapTypeExt::default(),
+            metaclass,
+        )
     }
     fn new_verbose_ref(
         name: &str,
@@ -137,6 +153,7 @@ impl PyType {
         bases: Vec<PyRef<Self>>,
         attrs: PyAttributes,
         mut slots: PyTypeSlots,
+        heaptype_ext: HeapTypeExt,
         metaclass: PyRef<Self>,
     ) -> Result<PyRef<Self>, String> {
         // Check for duplicates in bases.
@@ -167,7 +184,7 @@ impl PyType {
                 subclasses: PyRwLock::default(),
                 attributes: PyRwLock::new(attrs),
                 slots,
-                heaptype_ext: Some(Pin::new(Box::new(HeapTypeExt::default()))),
+                heaptype_ext: Some(Pin::new(Box::new(heaptype_ext))),
             },
             metaclass,
             None,
@@ -618,11 +635,79 @@ impl PyType {
         // TODO: Flags is currently initialized with HAS_DICT. Should be
         // updated when __slots__ are supported (toggling the flag off if
         // a class has __slots__ defined).
-        let flags = PyTypeFlags::heap_type_flags() | PyTypeFlags::HAS_DICT;
-        let slots = PyTypeSlots::from_flags(flags);
+        let heaptype_slots: Option<PyTupleTyped<PyStrRef>> =
+            if let Some(x) = attributes.get(identifier!(vm, __slots__)) {
+                Some(if x.to_owned().class().is(vm.ctx.types.str_type) {
+                    PyTupleTyped::<PyStrRef>::try_from_object(
+                        vm,
+                        vec![x.to_owned()].into_pytuple(vm).into(),
+                    )?
+                } else {
+                    let iter = x.to_owned().get_iter(vm)?;
+                    let elements = {
+                        let mut elements = Vec::new();
+                        while let PyIterReturn::Return(element) = iter.next(vm)? {
+                            elements.push(element);
+                        }
+                        elements
+                    };
+                    PyTupleTyped::<PyStrRef>::try_from_object(vm, elements.into_pytuple(vm).into())?
+                })
+            } else {
+                None
+            };
 
-        let typ = Self::new_verbose_ref(name.as_str(), base, bases, attributes, slots, metatype)
-            .map_err(|e| vm.new_type_error(e))?;
+        let base_member_count = base.slots.member_count;
+        let member_count: usize =
+            base.slots.member_count + heaptype_slots.as_ref().map(|x| x.len()).unwrap_or(0);
+
+        let flags = PyTypeFlags::heap_type_flags() | PyTypeFlags::HAS_DICT;
+        let heaptype_ext = HeapTypeExt {
+            slots: heaptype_slots.to_owned(),
+            ..HeapTypeExt::default()
+        };
+        let slots = PyTypeSlots {
+            member_count,
+            ..PyTypeSlots::from_flags(flags)
+        };
+
+        let typ = Self::new_verbose_ref(
+            name.as_str(),
+            base,
+            bases,
+            attributes,
+            slots,
+            heaptype_ext,
+            metatype,
+        )
+        .map_err(|e| vm.new_type_error(e))?;
+
+        if let Some(ref slots) = heaptype_slots {
+            let mut offset = base_member_count;
+            for member in slots.as_slice() {
+                let member_def = MemberDef {
+                    name: member.to_string(),
+                    kind: MemberKind::ObjectEx,
+                    getter: MemberGetter::Offset(offset),
+                    doc: None,
+                };
+                let member_descriptor: PyRef<MemberDescrObject> = vm.new_pyref(MemberDescrObject {
+                    common: DescrObject {
+                        typ: typ.to_owned(),
+                        name: member.to_string(),
+                        qualname: PyRwLock::new(None),
+                    },
+                    member: member_def,
+                });
+
+                let attr_name = vm.ctx.intern_str(member.to_string());
+                if !typ.has_attr(attr_name) {
+                    typ.set_attr(attr_name, member_descriptor.into());
+                }
+
+                offset += 1;
+            }
+        }
 
         if let Some(cell) = typ.attributes.write().get(identifier!(vm, __classcell__)) {
             let cell = PyCellRef::try_from_object(vm, cell.clone()).map_err(|_| {

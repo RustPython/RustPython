@@ -1,4 +1,4 @@
-use rustpython_bytecode::{CodeObject, ConstantData, Instruction};
+use rustpython_compiler_core::{CodeObject, ConstantData, Instruction};
 use rustpython_jit::{CompiledCode, JitType};
 use std::collections::HashMap;
 
@@ -157,7 +157,7 @@ macro_rules! jit_function {
     ($func_name:ident => $($t:tt)*) => {
         {
             let code = rustpython_derive::py_compile!(
-                crate_name = "rustpython_bytecode",
+                crate_name = "rustpython_compiler_core",
                 source = $($t)*
             );
             let mut machine = $crate::common::StackMachine::new();

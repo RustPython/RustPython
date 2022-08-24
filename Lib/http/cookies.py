@@ -131,18 +131,13 @@ Finis.
 #
 import re
 import string
+import types
 
 __all__ = ["CookieError", "BaseCookie", "SimpleCookie"]
 
 _nulljoin = ''.join
 _semispacejoin = '; '.join
 _spacejoin = ' '.join
-
-def _warn_deprecated_setter(setter):
-    import warnings
-    msg = ('The .%s setter is deprecated. The attribute will be read-only in '
-           'future releases. Please use the set() method instead.' % setter)
-    warnings.warn(msg, DeprecationWarning, stacklevel=3)
 
 #
 # Define an exception visible to External modules
@@ -262,8 +257,7 @@ class Morsel(dict):
     In a cookie, each such pair may have several attributes, so this class is
     used to keep the attributes associated with the appropriate key,value pair.
     This class also includes a coded_value attribute, which is used to hold
-    the network representation of the value.  This is most useful when Python
-    objects are pickled for network transit.
+    the network representation of the value.
     """
     # RFC 2109 lists these attributes as reserved:
     #   path       comment         domain
@@ -287,6 +281,7 @@ class Morsel(dict):
         "secure"   : "Secure",
         "httponly" : "HttpOnly",
         "version"  : "Version",
+        "samesite" : "SameSite",
     }
 
     _flags = {'secure', 'httponly'}
@@ -303,28 +298,13 @@ class Morsel(dict):
     def key(self):
         return self._key
 
-    @key.setter
-    def key(self, key):
-        _warn_deprecated_setter('key')
-        self._key = key
-
     @property
     def value(self):
         return self._value
 
-    @value.setter
-    def value(self, value):
-        _warn_deprecated_setter('value')
-        self._value = value
-
     @property
     def coded_value(self):
         return self._coded_value
-
-    @coded_value.setter
-    def coded_value(self, coded_value):
-        _warn_deprecated_setter('coded_value')
-        self._coded_value = coded_value
 
     def __setitem__(self, K, V):
         K = K.lower()
@@ -366,14 +346,7 @@ class Morsel(dict):
     def isReservedKey(self, K):
         return K.lower() in self._reserved
 
-    def set(self, key, val, coded_val, LegalChars=_LegalChars):
-        if LegalChars != _LegalChars:
-            import warnings
-            warnings.warn(
-                'LegalChars parameter is deprecated, ignored and will '
-                'be removed in future versions.', DeprecationWarning,
-                stacklevel=2)
-
+    def set(self, key, val, coded_val):
         if key.lower() in self._reserved:
             raise CookieError('Attempt to set a reserved key %r' % (key,))
         if not _is_legal_key(key):
@@ -436,6 +409,8 @@ class Morsel(dict):
                 append("%s=%s" % (self._reserved[key], _getdate(value)))
             elif key == "max-age" and isinstance(value, int):
                 append("%s=%d" % (self._reserved[key], value))
+            elif key == "comment" and isinstance(value, str):
+                append("%s=%s" % (self._reserved[key], _quote(value)))
             elif key in self._flags:
                 if value:
                     append(str(self._reserved[key]))
@@ -444,6 +419,8 @@ class Morsel(dict):
 
         # Return the result
         return _semispacejoin(result)
+
+    __class_getitem__ = classmethod(types.GenericAlias)
 
 
 #

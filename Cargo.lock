@@ -1735,23 +1735,25 @@ name = "rustpython-ast"
 version = "0.1.0"
 dependencies = [
  "num-bigint",
- "rustpython-bytecode",
  "rustpython-common",
+ "rustpython-compiler-core",
 ]
 
 [[package]]
-name = "rustpython-bytecode"
+name = "rustpython-codegen"
 version = "0.1.2"
 dependencies = [
- "bincode",
- "bitflags",
- "bstr",
+ "ahash",
+ "indexmap",
+ "insta",
  "itertools",
- "lz4_flex",
- "num-bigint",
+ "log",
  "num-complex",
- "serde",
- "static_assertions",
+ "num-traits",
+ "rustpython-ast",
+ "rustpython-compiler-core",
+ "rustpython-parser",
+ "thiserror",
 ]
 
 [[package]]
@@ -1781,7 +1783,7 @@ dependencies = [
 name = "rustpython-compiler"
 version = "0.1.2"
 dependencies = [
- "rustpython-bytecode",
+ "rustpython-codegen",
  "rustpython-compiler-core",
  "rustpython-parser",
  "thiserror",
@@ -1791,16 +1793,16 @@ dependencies = [
 name = "rustpython-compiler-core"
 version = "0.1.2"
 dependencies = [
- "ahash",
- "indexmap",
- "insta",
+ "bincode",
+ "bitflags",
+ "bstr",
  "itertools",
- "log",
+ "lz4_flex",
+ "num-bigint",
  "num-complex",
- "num-traits",
- "rustpython-ast",
- "rustpython-bytecode",
- "rustpython-parser",
+ "serde",
+ "static_assertions",
+ "thiserror",
 ]
 
 [[package]]
@@ -1813,8 +1815,9 @@ dependencies = [
  "once_cell",
  "proc-macro2",
  "quote",
- "rustpython-bytecode",
+ "rustpython-codegen",
  "rustpython-compiler",
+ "rustpython-compiler-core",
  "rustpython-doc",
  "syn",
  "syn-ext",
@@ -1839,7 +1842,7 @@ dependencies = [
  "cranelift-module",
  "libffi",
  "num-traits",
- "rustpython-bytecode",
+ "rustpython-compiler-core",
  "rustpython-derive",
  "thiserror",
 ]
@@ -1851,6 +1854,7 @@ dependencies = [
  "ahash",
  "anyhow",
  "insta",
+ "itertools",
  "lalrpop",
  "lalrpop-util",
  "log",
@@ -1859,6 +1863,8 @@ dependencies = [
  "phf",
  "phf_codegen",
  "rustpython-ast",
+ "rustpython-compiler-core",
+ "thiserror",
  "tiny-keccak",
  "unic-emoji-char",
  "unic-ucd-ident",
@@ -1870,7 +1876,7 @@ name = "rustpython-pylib"
 version = "0.1.0"
 dependencies = [
  "glob",
- "rustpython-bytecode",
+ "rustpython-compiler-core",
  "rustpython-derive",
 ]
 
@@ -1921,7 +1927,6 @@ dependencies = [
  "rand_core",
  "rustpython-common",
  "rustpython-derive",
- "rustpython-parser",
  "rustpython-vm",
  "schannel",
  "sha-1",
@@ -1990,7 +1995,7 @@ dependencies = [
  "result-like",
  "rustc_version",
  "rustpython-ast",
- "rustpython-bytecode",
+ "rustpython-codegen",
  "rustpython-common",
  "rustpython-compiler",
  "rustpython-compiler-core",

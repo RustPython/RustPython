@@ -4,7 +4,7 @@ use cranelift::prelude::*;
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module, ModuleError};
 use instructions::FunctionCompiler;
-use rustpython_bytecode as bytecode;
+use rustpython_compiler_core as bytecode;
 use std::{fmt, mem::ManuallyDrop};
 
 #[derive(Debug, thiserror::Error)]

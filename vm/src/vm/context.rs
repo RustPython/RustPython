@@ -3,6 +3,7 @@ use crate::{
         builtinfunc::{PyBuiltinFunction, PyBuiltinMethod, PyNativeFuncDef},
         bytes,
         code::{self, PyCode},
+        descriptor::{DescrObject, MemberDef, MemberDescrObject, MemberGetter, MemberKind},
         getset::PyGetSet,
         object, pystr,
         type_::PyAttributes,
@@ -17,10 +18,12 @@ use crate::{
     intern::{Internable, MaybeInterned, StringPool},
     object::{Py, PyObjectPayload, PyObjectRef, PyPayload, PyRef},
     types::{PyTypeFlags, PyTypeSlots, TypeZoo},
+    PyResult, VirtualMachine,
 };
 use num_bigint::BigInt;
 use num_complex::Complex64;
 use num_traits::ToPrimitive;
+use rustpython_common::lock::PyRwLock;
 
 #[derive(Debug)]
 pub struct Context {
@@ -191,6 +194,7 @@ declare_const_name! {
     __set_name__,
     __setattr__,
     __setitem__,
+    __slots__,
     __str__,
     __sub__,
     __subclasscheck__,
@@ -447,6 +451,35 @@ impl Context {
         F: IntoPyNativeFunc<FKind>,
     {
         PyNativeFuncDef::new(f.into_func(), PyStr::new_ref(name, self))
+    }
+
+    #[inline]
+    pub fn new_member(
+        &self,
+        name: &str,
+        getter: fn(&VirtualMachine, PyObjectRef) -> PyResult,
+        class: &'static Py<PyType>,
+    ) -> PyRef<MemberDescrObject> {
+        let member_def = MemberDef {
+            name: name.to_owned(),
+            kind: MemberKind::ObjectEx,
+            getter: MemberGetter::Getter(getter),
+            doc: None,
+        };
+        let member_descriptor = MemberDescrObject {
+            common: DescrObject {
+                typ: class.to_owned(),
+                name: name.to_owned(),
+                qualname: PyRwLock::new(None),
+            },
+            member: member_def,
+        };
+
+        PyRef::new_ref(
+            member_descriptor,
+            self.types.member_descriptor_type.to_owned(),
+            None,
+        )
     }
 
     // #[deprecated]

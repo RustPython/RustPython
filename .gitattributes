@@ -1,7 +1,8 @@
 Lib/**      linguist-vendored
 Cargo.lock  linguist-generated -merge
+*.snap      linguist-generated -merge
 ast/src/ast_gen.rs          linguist-generated -merge
 vm/src/stdlib/ast/gen.rs    linguist-generated -merge
-parser/python.lalrpop       text eol=LF
+compiler/parser/python.lalrpop       text eol=LF
 Lib/*.py    text working-tree-encoding=UTF-8 eol=LF
 **/*.rs     text working-tree-encoding=UTF-8 eol=LF
