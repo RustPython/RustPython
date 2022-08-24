@@ -111,6 +111,8 @@ jobs:
         os: [macos-latest, ubuntu-latest, windows-latest]
       fail-fast: false
     steps:
+      # for windows, always checkout files with their original lf line endings
+      - run: git config --global core.autocrlf false; git config --global core.eol lf
       - uses: actions/checkout@v2
       - name: Cache generated parser
         uses: actions/cache@v2
@@ -227,6 +229,7 @@ jobs:
         os: [macos-latest, ubuntu-latest, windows-latest]
       fail-fast: false
     steps:
+      - run: git config --global core.autocrlf false; git config --global core.eol lf
       - uses: actions/checkout@v2
       - name: Cache generated parser
         uses: actions/cache@v2
