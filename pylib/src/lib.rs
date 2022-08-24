@@ -13,7 +13,7 @@ use rustpython_compiler_core::FrozenModule;
 
 pub fn frozen_builtins() -> impl Iterator<Item = (String, FrozenModule)> {
     rustpython_derive::py_freeze!(
-        dir = "../Lib/python_builtins",
+        dir = "../vm/Lib/python_builtins",
         crate_name = "rustpython_compiler_core"
     )
 }
@@ -21,12 +21,12 @@ pub fn frozen_builtins() -> impl Iterator<Item = (String, FrozenModule)> {
 #[cfg(not(feature = "freeze-stdlib"))]
 pub fn frozen_core() -> impl Iterator<Item = (String, FrozenModule)> {
     rustpython_derive::py_freeze!(
-        dir = "../Lib/core_modules",
+        dir = "../vm/Lib/core_modules",
         crate_name = "rustpython_compiler_core"
     )
 }
 
 #[cfg(feature = "freeze-stdlib")]
 pub fn frozen_stdlib() -> impl Iterator<Item = (String, FrozenModule)> {
-    rustpython_derive::py_freeze!(dir = "../../Lib", crate_name = "rustpython_compiler_core")
+    rustpython_derive::py_freeze!(dir = "../Lib", crate_name = "rustpython_compiler_core")
 }
