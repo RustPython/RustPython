@@ -176,7 +176,7 @@ impl VirtualMachine {
             panic!("Interpreters in same process must share the hash seed");
         }
 
-        let frozen = frozen::get_module_inits().collect();
+        let frozen = frozen::core_frozen_inits().collect();
         PyRc::get_mut(&mut vm.state).unwrap().frozen = frozen;
 
         vm.builtins
