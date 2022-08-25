@@ -115,7 +115,7 @@ jobs:
       - run: git config --global core.autocrlf false; git config --global core.eol lf
       - uses: actions/checkout@v2
       - name: Cache generated parser
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           path: compiler/parser/python.rs
           key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
@@ -160,7 +160,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: Cache generated parser
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           path: compiler/parser/python.rs
           key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
@@ -232,7 +232,7 @@ jobs:
       - run: git config --global core.autocrlf false; git config --global core.eol lf
       - uses: actions/checkout@v2
       - name: Cache generated parser
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           path: compiler/parser/python.rs
           key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
@@ -292,7 +292,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: Cache generated parser
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           path: compiler/parser/python.rs
           key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
@@ -318,7 +318,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: Cache generated parser
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           path: compiler/parser/python.rs
           key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
@@ -356,7 +356,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: Cache generated parser
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           path: compiler/parser/python.rs
           key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
@@ -378,7 +378,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: Cache generated parser
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           path: compiler/parser/python.rs
           key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
@@ -427,7 +427,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: Cache generated parser
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           path: compiler/parser/python.rs
           key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
