@@ -38,9 +38,12 @@ jobs:
         continue-on-error: true
       - name: run cpython tests
         run: |
-          # run test_importlib separately, otherwise it hangs (?)
-          LLVM_PROFILE_FILE="$PWD/regrtest-%p.profraw" target/release/rustpython -m test -v test_importlib
-          LLVM_PROFILE_FILE="$PWD/regrtest-%p.profraw" target/release/rustpython -m test -v -x test_importlib
+          alltests=($(target/release/rustpython -c 'from test.libregrtest.runtest import findtests; print(*findtests())'))
+          i=0
+          # chunk into chunks of 10 tests each. idk at this point
+          while subtests=("${alltests[@]:$i:10}"); [[ ${#subtests[@]} -eq 0 ]]; do
+            LLVM_PROFILE_FILE="$PWD/regrtest-%p.profraw" target/release/rustpython -m test -v "${subtests[@]}"
+          done
         continue-on-error: true
       - name: prepare code coverage data
         run: |
