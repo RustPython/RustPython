@@ -104,7 +104,6 @@ jobs:
     env:
       RUST_BACKTRACE: full
     name: Run rust tests
-    needs: lalrpop
     runs-on:  ${{ matrix.os }}
     strategy:
       matrix:
@@ -114,11 +113,9 @@ jobs:
       # for windows, always checkout files with their original lf line endings
       - run: git config --global core.autocrlf false; git config --global core.eol lf
       - uses: actions/checkout@v2
-      - name: Cache generated parser
-        uses: actions/cache@v3
-        with:
-          path: compiler/parser/python.rs
-          key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
+      - uses: actions/cache@v3
+        with: { path: "~/.cargo/bin/lalrpop\n~/.cargo/.crates.toml", key: "lalrpop-${{ runner.os }}" }
+      - run: cargo install lalrpop@0.19.8
       - uses: dtolnay/rust-toolchain@stable
       - name: Set up the Windows environment
         shell: bash
@@ -155,15 +152,12 @@ jobs:
   exotic_targets:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
     name: Ensure compilation on various targets
-    needs: lalrpop
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - name: Cache generated parser
-        uses: actions/cache@v3
-        with:
-          path: compiler/parser/python.rs
-          key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
+      - uses: actions/cache@v3
+        with: { path: "~/.cargo/bin/lalrpop\n~/.cargo/.crates.toml", key: "lalrpop-${{ runner.os }}" }
+      - run: cargo install lalrpop@0.19.8
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -219,7 +213,6 @@ jobs:
 
   snippets_cpython:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
-    needs: lalrpop
     env:
       RUST_BACKTRACE: full
     name: Run snippets and cpython tests
@@ -231,11 +224,9 @@ jobs:
     steps:
       - run: git config --global core.autocrlf false; git config --global core.eol lf
       - uses: actions/checkout@v2
-      - name: Cache generated parser
-        uses: actions/cache@v3
-        with:
-          path: compiler/parser/python.rs
-          key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
+      - uses: actions/cache@v3
+        with: { path: "~/.cargo/bin/lalrpop\n~/.cargo/.crates.toml", key: "lalrpop-${{ runner.os }}" }
+      - run: cargo install lalrpop@0.19.8
 
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-python@v2
@@ -284,44 +275,14 @@ jobs:
         run: |
           mkdir site-packages
           target/release/rustpython --install-pip ensurepip --user
-
-  lalrpop:
-    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
-    name: Generate parser with lalrpop
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - name: Cache generated parser
-        uses: actions/cache@v3
-        with:
-          path: compiler/parser/python.rs
-          key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
-      - name: Check if cached generated parser exists
-        id: generated_parser
-        uses: andstor/file-existence-action@v1
-        with:
-          files: "compiler/parser/python.rs"
-      - name: Install lalrpop
-        if: steps.generated_parser.outputs.files_exists == 'false'
-        uses: actions-rs/install@v0.1
-        with:
-          crate: lalrpop
-          version: "0.19.8"
-      - name: Run lalrpop
-        if: steps.generated_parser.outputs.files_exists == 'false'
-        run: lalrpop compiler/parser/python.lalrpop
-
   lint:
     name: Check Rust code with rustfmt and clippy
-    needs: lalrpop
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - name: Cache generated parser
-        uses: actions/cache@v3
-        with:
-          path: compiler/parser/python.rs
-          key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
+      - uses: actions/cache@v3
+        with: { path: "~/.cargo/bin/lalrpop\n~/.cargo/.crates.toml", key: "lalrpop-${{ runner.os }}" }
+      - run: cargo install lalrpop@0.19.8
       - uses: dtolnay/rust-toolchain@stable
         with:
             components: rustfmt, clippy
@@ -351,15 +312,12 @@ jobs:
   miri:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
     name: Run tests under miri
-    needs: lalrpop
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - name: Cache generated parser
-        uses: actions/cache@v3
-        with:
-          path: compiler/parser/python.rs
-          key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
+      - uses: actions/cache@v3
+        with: { path: "~/.cargo/bin/lalrpop\n~/.cargo/.crates.toml", key: "lalrpop-${{ runner.os }}" }
+      - run: cargo install lalrpop@0.19.8
       - uses: dtolnay/rust-toolchain@master
         with:
             toolchain: nightly
@@ -373,15 +331,12 @@ jobs:
   wasm:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
     name: Check the WASM package and demo
-    needs: lalrpop
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - name: Cache generated parser
-        uses: actions/cache@v3
-        with:
-          path: compiler/parser/python.rs
-          key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
+      - uses: actions/cache@v3
+        with: { path: "~/.cargo/bin/lalrpop\n~/.cargo/.crates.toml", key: "lalrpop-${{ runner.os }}" }
+      - run: cargo install lalrpop@0.19.8
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v1
       - name: install wasm-pack
@@ -422,15 +377,12 @@ jobs:
   wasm-wasi:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
     name: Run snippets and cpython tests on wasm-wasi
-    needs: lalrpop
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - name: Cache generated parser
-        uses: actions/cache@v3
-        with:
-          path: compiler/parser/python.rs
-          key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
+      - uses: actions/cache@v3
+        with: { path: "~/.cargo/bin/lalrpop\n~/.cargo/.crates.toml", key: "lalrpop-${{ runner.os }}" }
+      - run: cargo install lalrpop@0.19.8
       - uses: dtolnay/rust-toolchain@stable
         with:
           target: wasm32-wasi
