@@ -51,7 +51,7 @@ SimpleStatement: ast::Suite = {
         let mut statements = vec![s1];
         statements.extend(s2.into_iter().map(|e| e.1));
         statements
-    }
+    },
 };
 
 SmallStatement: ast::Stmt = {
@@ -138,7 +138,7 @@ ExpressionStatement: ast::Stmt = {
 };
 
 AssignSuffix: ast::Expr = {
-    "=" <e:TestListOrYieldExpr> => e
+    "=" <e:TestListOrYieldExpr> => e,
 };
 
 TestListOrYieldExpr: ast::Expr = {
