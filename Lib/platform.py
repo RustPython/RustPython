@@ -1065,13 +1065,7 @@ def _sys_version(sys_version=None):
                 repr(sys_version))
         version, buildno, builddate, buildtime, compiler = \
               match.groups()
-
-        # XXX: RUSTPYTHON support
-        if "rustc" in sys_version:
-            name = "RustPython"
-        else:
-            name = 'CPython'
-
+        name = 'CPython'
         if builddate is None:
             builddate = ''
         elif buildtime:
@@ -1306,6 +1300,10 @@ def freedesktop_os_release():
             )
 
     return _os_release_cache.copy()
+
+
+# RustPython specific
+from _platform import *
 
 
 ### Command line interface
