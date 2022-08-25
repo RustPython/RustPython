@@ -43,7 +43,7 @@ jobs:
           # chunk into chunks of 10 tests each. idk at this point
           while subtests=("${alltests[@]:$i:10}"); [[ ${#subtests[@]} -ne 0 ]]; do
             LLVM_PROFILE_FILE="$PWD/regrtest-%p.profraw" target/release/rustpython -m test -v "${subtests[@]}" || true
-            ((i+=1))
+            ((i+=10))
           done
         continue-on-error: true
       - name: prepare code coverage data
@@ -91,8 +91,9 @@ jobs:
           cd website
           cp ../extra_tests/cpython_tests_results.json ./_data/regrtests_results.json
           git add ./_data/regrtests_results.json
-          git -c user.name="Github Actions" -c user.email="actions@github.com" commit -m "Update regression test results" --author="$GITHUB_ACTOR" && \
+          if git -c user.name="Github Actions" -c user.email="actions@github.com" commit -m "Update regression test results" --author="$GITHUB_ACTOR"; then
             git push
+          fi
 
   whatsleft:
     name: Collect what is left data
@@ -128,8 +129,9 @@ jobs:
           [ -f ./_data/whats_left.temp ] && cp ./_data/whats_left.temp ./_data/whats_left_lastrun.temp
           cp ../whats_left.temp ./_data/whats_left.temp
           git add -A
-          git -c user.name="Github Actions" -c user.email="actions@github.com" commit -m "Update what is left results" --author="$GITHUB_ACTOR" && \
+          if git -c user.name="Github Actions" -c user.email="actions@github.com" commit -m "Update what is left results" --author="$GITHUB_ACTOR"; then
             git push
+          fi
 
   benchmark:
     name: Collect benchmark data
@@ -178,8 +180,9 @@ jobs:
           rm -rf ./assets/criterion
           cp -r ../target/criterion ./assets/criterion
           git add ./assets/criterion
-          git -c user.name="Github Actions" -c user.email="actions@github.com" commit -m "Update benchmark results" && \
+          if git -c user.name="Github Actions" -c user.email="actions@github.com" commit -m "Update benchmark results"; then
             git push
+          fi
 
   lalrpop:
     name: Generate parser with lalrpop
