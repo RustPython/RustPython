@@ -41,7 +41,7 @@ jobs:
           alltests=($(target/release/rustpython -c 'from test.libregrtest.runtest import findtests; print(*findtests())'))
           i=0
           # chunk into chunks of 10 tests each. idk at this point
-          while subtests=("${alltests[@]:$i:10}"); [[ ${#subtests[@]} -eq 0 ]]; do
+          while subtests=("${alltests[@]:$i:10}"); [[ ${#subtests[@]} -ne 0 ]]; do
             LLVM_PROFILE_FILE="$PWD/regrtest-%p.profraw" target/release/rustpython -m test -v "${subtests[@]}"
           done
         continue-on-error: true
@@ -90,8 +90,8 @@ jobs:
           cd website
           cp ../extra_tests/cpython_tests_results.json ./_data/regrtests_results.json
           git add ./_data/regrtests_results.json
-          git -c user.name="Github Actions" -c user.email="actions@github.com" commit -m "Update regression test results" --author="$GITHUB_ACTOR"
-          git push
+          git -c user.name="Github Actions" -c user.email="actions@github.com" commit -m "Update regression test results" --author="$GITHUB_ACTOR" && \
+            git push
 
   whatsleft:
     name: Collect what is left data
