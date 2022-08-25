@@ -100,10 +100,6 @@ class ImportTests(unittest.TestCase):
             self.assertEqual(fp.readline(),
                              '"""Tokenization help for Python programs.\n')
 
-    # TODO: RUSTPYTHON
-    if sys.platform == 'win32':
-        test_issue1267 = unittest.expectedFailure(test_issue1267)
-
     def test_issue3594(self):
         temp_mod_name = 'test_imp_helper'
         sys.path.insert(0, '.')
