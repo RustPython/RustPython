@@ -78,16 +78,30 @@ fn try_lalrpop(source: &str, target: &str) -> anyhow::Result<()> {
     };
 
     #[cfg(feature = "lalrpop")]
-    lalrpop::process_root().unwrap_or_else(|e| {
-        println!("cargo:warning={_message}");
-        panic!("running lalrpop failed. {e:?}");
-    });
+    {
+        lalrpop::process_root().unwrap_or_else(|e| {
+            println!("cargo:warning={_message}");
+            panic!("running lalrpop failed. {e:?}");
+        });
+        Ok(())
+    }
 
     #[cfg(not(feature = "lalrpop"))]
     {
-        println!("cargo:warning=try: cargo build --manifest-path=compiler/parser/Cargo.toml --features=lalrpop");
+        match std::process::Command::new("lalrpop").arg(source).status() {
+            Ok(status) => {
+                if status.success() {
+                    Ok(())
+                } else {
+                    Err(anyhow::anyhow!("running lalrpop failed: {status}"))
+                }
+            }
+            Err(_) => panic!(
+                "lalrpop not installed. try: cargo build \
+                     --manifest-path=compiler/parser/Cargo.toml --features=lalrpop"
+            ),
+        }
     }
-    Ok(())
 }
 
 fn sha_equal(expected_sha3_str: &str, actual_sha3: &[u8; 32]) -> bool {
