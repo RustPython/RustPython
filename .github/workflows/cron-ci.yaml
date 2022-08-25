@@ -43,6 +43,7 @@ jobs:
           # chunk into chunks of 10 tests each. idk at this point
           while subtests=("${alltests[@]:$i:10}"); [[ ${#subtests[@]} -ne 0 ]]; do
             LLVM_PROFILE_FILE="$PWD/regrtest-%p.profraw" target/release/rustpython -m test -v "${subtests[@]}" || true
+            ((i+=1))
           done
         continue-on-error: true
       - name: prepare code coverage data
