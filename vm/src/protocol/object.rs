@@ -539,8 +539,8 @@ impl PyObject {
     // int PyObject_TypeCheck(PyObject *o, PyTypeObject *type)
 
     pub fn length_opt(&self, vm: &VirtualMachine) -> Option<PyResult<usize>> {
-        PySequence::new(self, vm)
-            .and_then(|seq| seq.length_opt(vm))
+        self.to_sequence(vm)
+            .length_opt(vm)
             .or_else(|| PyMapping::new(self, vm).and_then(|mapping| mapping.length_opt(vm)))
     }
 
@@ -597,11 +597,10 @@ impl PyObject {
                 return f(&mapping, &needle, Some(value), vm);
             }
         }
-        if let Some(seq) = PySequence::new(self, vm) {
-            if let Some(f) = seq.methods.ass_item {
-                let i = needle.key_as_isize(vm)?;
-                return f(&seq, i, Some(value), vm);
-            }
+        let seq = self.to_sequence(vm);
+        if let Some(f) = seq.methods.ass_item.load() {
+            let i = needle.key_as_isize(vm)?;
+            return f(seq, i, Some(value), vm);
         }
 
         Err(vm.new_type_error(format!(
@@ -621,11 +620,10 @@ impl PyObject {
                 return f(&mapping, &needle, None, vm);
             }
         }
-        if let Some(seq) = PySequence::new(self, vm) {
-            if let Some(f) = seq.methods.ass_item {
-                let i = needle.key_as_isize(vm)?;
-                return f(&seq, i, None, vm);
-            }
+        let seq = self.to_sequence(vm);
+        if let Some(f) = seq.methods.ass_item.load() {
+            let i = needle.key_as_isize(vm)?;
+            return f(seq, i, None, vm);
         }
 
         Err(vm.new_type_error(format!("'{}' does not support item deletion", self.class())))

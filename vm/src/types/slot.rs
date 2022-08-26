@@ -1,4 +1,5 @@
 use crate::common::{hash::PyHash, lock::PyRwLock};
+use crate::convert::ToPyObject;
 use crate::{
     builtins::{type_::PointerSlot, PyFloat, PyInt, PyStrInterned, PyStrRef, PyType, PyTypeRef},
     bytecode::ComparisonOperator,
@@ -37,7 +38,7 @@ pub struct PyTypeSlots {
 
     // Method suites for standard classes
     pub as_number: AtomicCell<Option<PointerSlot<PyNumberMethods>>>,
-    pub as_sequence: AtomicCell<Option<AsSequenceFunc>>,
+    pub as_sequence: AtomicCell<Option<PointerSlot<PySequenceMethods>>>,
     pub as_mapping: AtomicCell<Option<AsMappingFunc>>,
 
     // More standard operations (here for binary compatibility)
@@ -169,15 +170,14 @@ pub(crate) type DescrSetFunc =
 pub(crate) type NewFunc = fn(PyTypeRef, FuncArgs, &VirtualMachine) -> PyResult;
 pub(crate) type InitFunc = fn(PyObjectRef, FuncArgs, &VirtualMachine) -> PyResult<()>;
 pub(crate) type DelFunc = fn(&PyObject, &VirtualMachine) -> PyResult<()>;
-pub(crate) type AsSequenceFunc = fn(&PyObject, &VirtualMachine) -> &'static PySequenceMethods;
 
 // slot_sq_length
-pub(crate) fn slot_length(obj: &PyObject, vm: &VirtualMachine) -> PyResult<usize> {
+pub(crate) fn len_wrapper(obj: &PyObject, vm: &VirtualMachine) -> PyResult<usize> {
     let ret = vm.call_special_method(obj.to_owned(), identifier!(vm, __len__), ())?;
     let len = ret.payload::<PyInt>().ok_or_else(|| {
         vm.new_type_error(format!(
             "'{}' object cannot be interpreted as an integer",
-            ret.class().name()
+            ret.class()
         ))
     })?;
     let len = len.as_bigint();
@@ -198,19 +198,6 @@ fn slot_as_mapping(zelf: &PyObject, vm: &VirtualMachine) -> &'static PyMappingMe
             | zelf.class().has_attr(identifier!(vm, __delitem__)),
     );
     PyMappingMethods::generic(has_length, has_subscript, has_ass_subscript)
-}
-
-fn slot_as_sequence(zelf: &PyObject, vm: &VirtualMachine) -> &'static PySequenceMethods {
-    if !zelf.class().has_attr(identifier!(vm, __getitem__)) {
-        return &PySequenceMethods::NOT_IMPLEMENTED;
-    }
-
-    let (has_length, has_ass_item) = (
-        zelf.class().has_attr(identifier!(vm, __len__)),
-        zelf.class().has_attr(identifier!(vm, __setitem__))
-            | zelf.class().has_attr(identifier!(vm, __delitem__)),
-    );
-    PySequenceMethods::generic(has_length, has_ass_item)
 }
 
 fn int_wrapper(num: &PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyInt>> {
@@ -235,6 +222,27 @@ fn float_wrapper(num: &PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyFloat>
             obj.class()
         ))
     })
+}
+
+fn getitem_wrapper<K: ToPyObject>(obj: &PyObject, needle: K, vm: &VirtualMachine) -> PyResult {
+    vm.call_special_method(obj.to_owned(), identifier!(vm, __getitem__), (needle,))
+}
+
+fn setitem_wrapper<K: ToPyObject>(
+    obj: &PyObject,
+    needle: K,
+    value: Option<PyObjectRef>,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    match value {
+        Some(value) => vm.call_special_method(
+            obj.to_owned(),
+            identifier!(vm, __setitem__),
+            (needle, value),
+        ),
+        None => vm.call_special_method(obj.to_owned(), identifier!(vm, __delitem__), (needle,)),
+    }
+    .map(drop)
 }
 
 fn hash_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyHash> {
@@ -371,10 +379,36 @@ impl PyType {
                     .store(unsafe { PointerSlot::from_heaptype(self, |ext| &ext.$pointed) });
             }};
         }
+
+        macro_rules! toggle_ext_func {
+            ($n1:ident, $n2:ident, $func:expr) => {{
+                self.heaptype_ext.as_ref().unwrap().$n1.$n2.store(if add {
+                    Some($func)
+                } else {
+                    None
+                });
+            }};
+        }
+
         match name.as_str() {
-            "__len__" | "__getitem__" | "__setitem__" | "__delitem__" => {
+            "__len__" => {
                 update_slot!(as_mapping, slot_as_mapping);
-                update_slot!(as_sequence, slot_as_sequence);
+                toggle_ext_func!(sequence_methods, length, |seq, vm| len_wrapper(seq.obj, vm));
+                update_pointer_slot!(as_sequence, sequence_methods);
+            }
+            "__getitem__" => {
+                update_slot!(as_mapping, slot_as_mapping);
+                toggle_ext_func!(sequence_methods, item, |seq, i, vm| getitem_wrapper(
+                    seq.obj, i, vm
+                ));
+                update_pointer_slot!(as_sequence, sequence_methods);
+            }
+            "__setitem__" | "__delitem__" => {
+                update_slot!(as_mapping, slot_as_mapping);
+                toggle_ext_func!(sequence_methods, ass_item, |seq, i, value, vm| {
+                    setitem_wrapper(seq.obj, i, value, vm)
+                });
+                update_pointer_slot!(as_sequence, sequence_methods);
             }
             "__hash__" => {
                 toggle_slot!(hash, hash_wrapper);
@@ -928,15 +962,10 @@ pub trait AsMapping: PyPayload {
 
 #[pyclass]
 pub trait AsSequence: PyPayload {
-    const AS_SEQUENCE: PySequenceMethods;
-
-    #[inline]
     #[pyslot]
-    fn as_sequence(_zelf: &PyObject, _vm: &VirtualMachine) -> &'static PySequenceMethods {
-        &Self::AS_SEQUENCE
-    }
+    fn as_sequence() -> &'static PySequenceMethods;
 
-    fn sequence_downcast<'a>(seq: &'a PySequence) -> &'a Py<Self> {
+    fn sequence_downcast<'a>(seq: PySequence<'a>) -> &'a Py<Self> {
         unsafe { seq.obj.downcast_unchecked_ref() }
     }
 }

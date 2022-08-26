@@ -2,32 +2,26 @@ use super::{
     mappingproxy::PyMappingProxy, object, union_, PyClassMethod, PyDictRef, PyList, PyStaticMethod,
     PyStr, PyStrInterned, PyStrRef, PyTuple, PyTupleRef, PyWeak,
 };
+use crate::common::{
+    ascii,
+    borrow::BorrowedValue,
+    lock::{PyRwLock, PyRwLockReadGuard},
+};
 use crate::{
     builtins::PyBaseExceptionRef,
     builtins::{
         descriptor::{MemberGetter, MemberSetter},
         function::PyCellRef,
         tuple::PyTupleTyped,
+        PyBaseExceptionRef,
     },
     class::{PyClassImpl, StaticType},
     convert::ToPyObject,
     function::{FuncArgs, KwArgs, OptionalArg, PySetterValue},
     identifier,
-    protocol::PyNumberMethods,
+    protocol::{PyNumberMethods, PySequenceMethods},
     types::{Callable, GetAttr, PyTypeFlags, PyTypeSlots, SetAttr},
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
-};
-use crate::{
-    builtins::{
-        descriptor::{DescrObject, MemberDef, MemberDescrObject, MemberKind},
-        tuple::IntoPyTuple,
-    },
-    common::{
-        ascii,
-        borrow::BorrowedValue,
-        lock::{PyRwLock, PyRwLockReadGuard},
-    },
-    protocol::PyIterReturn,
 };
 use indexmap::{map::Entry, IndexMap};
 use itertools::Itertools;
@@ -50,7 +44,6 @@ pub struct PyType {
 #[derive(Default)]
 pub struct HeapTypeExt {
     pub number_methods: PyNumberMethods,
-    pub slots: Option<PyTupleTyped<PyStrRef>>,
 }
 
 pub struct PointerSlot<T>(NonNull<T>);

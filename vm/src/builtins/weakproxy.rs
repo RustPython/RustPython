@@ -1,8 +1,9 @@
 use super::{PyStrRef, PyType, PyTypeRef, PyWeak};
 use crate::{
+    atomic_func,
     class::PyClassImpl,
     function::{OptionalArg, PyComparisonValue, PySetterValue},
-    protocol::{PyMappingMethods, PySequence, PySequenceMethods},
+    protocol::{PyMappingMethods, PySequenceMethods},
     types::{AsMapping, AsSequence, Comparable, Constructor, GetAttr, PyComparisonOp, SetAttr},
     Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
@@ -90,8 +91,7 @@ impl PyWeakProxy {
 
     #[pymethod(magic)]
     fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        let obj = self.try_upgrade(vm)?;
-        PySequence::contains(&obj, &needle, vm)
+        self.try_upgrade(vm)?.to_sequence(vm).contains(&needle, vm)
     }
 
     fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -157,13 +157,16 @@ impl Comparable for PyWeakProxy {
 }
 
 impl AsSequence for PyWeakProxy {
-    const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
-        length: Some(|seq, vm| Self::sequence_downcast(seq).len(vm)),
-        contains: Some(|seq, needle, vm| {
-            Self::sequence_downcast(seq).contains(needle.to_owned(), vm)
-        }),
-        ..PySequenceMethods::NOT_IMPLEMENTED
-    };
+    fn as_sequence() -> &'static PySequenceMethods {
+        static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
+            length: atomic_func!(|seq, vm| PyWeakProxy::sequence_downcast(seq).len(vm)),
+            contains: atomic_func!(|seq, needle, vm| {
+                PyWeakProxy::sequence_downcast(seq).contains(needle.to_owned(), vm)
+            }),
+            ..PySequenceMethods::NOT_IMPLEMENTED
+        };
+        &AS_SEQUENCE
+    }
 }
 
 impl AsMapping for PyWeakProxy {

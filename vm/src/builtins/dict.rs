@@ -3,6 +3,7 @@ use super::{
     PyMappingProxy, PySet, PyStrRef, PyTupleRef, PyType, PyTypeRef,
 };
 use crate::{
+    atomic_func,
     builtins::{
         iter::{builtins_iter, builtins_reversed},
         type_::PyAttributes,
@@ -469,10 +470,15 @@ impl AsMapping for PyDict {
 }
 
 impl AsSequence for PyDict {
-    const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
-        contains: Some(|seq, target, vm| Self::sequence_downcast(seq).entries.contains(vm, target)),
-        ..PySequenceMethods::NOT_IMPLEMENTED
-    };
+    fn as_sequence() -> &'static PySequenceMethods {
+        static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
+            contains: atomic_func!(|seq, target, vm| PyDict::sequence_downcast(seq)
+                .entries
+                .contains(vm, target)),
+            ..PySequenceMethods::NOT_IMPLEMENTED
+        };
+        &AS_SEQUENCE
+    }
 }
 
 impl Comparable for PyDict {
@@ -1051,16 +1057,19 @@ impl Comparable for PyDictKeys {
 }
 
 impl AsSequence for PyDictKeys {
-    const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
-        length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
-        contains: Some(|seq, target, vm| {
-            Self::sequence_downcast(seq)
-                .dict
-                .entries
-                .contains(vm, target)
-        }),
-        ..PySequenceMethods::NOT_IMPLEMENTED
-    };
+    fn as_sequence() -> &'static PySequenceMethods {
+        static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
+            length: atomic_func!(|seq, _vm| Ok(PyDictKeys::sequence_downcast(seq).len())),
+            contains: atomic_func!(|seq, target, vm| {
+                PyDictKeys::sequence_downcast(seq)
+                    .dict
+                    .entries
+                    .contains(vm, target)
+            }),
+            ..PySequenceMethods::NOT_IMPLEMENTED
+        };
+        &AS_SEQUENCE
+    }
 }
 
 impl ViewSetOps for PyDictItems {}
@@ -1104,16 +1113,19 @@ impl Comparable for PyDictItems {
 }
 
 impl AsSequence for PyDictItems {
-    const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
-        length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
-        contains: Some(|seq, target, vm| {
-            Self::sequence_downcast(seq)
-                .dict
-                .entries
-                .contains(vm, target)
-        }),
-        ..PySequenceMethods::NOT_IMPLEMENTED
-    };
+    fn as_sequence() -> &'static PySequenceMethods {
+        static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
+            length: atomic_func!(|seq, _vm| Ok(PyDictItems::sequence_downcast(seq).len())),
+            contains: atomic_func!(|seq, target, vm| {
+                PyDictItems::sequence_downcast(seq)
+                    .dict
+                    .entries
+                    .contains(vm, target)
+            }),
+            ..PySequenceMethods::NOT_IMPLEMENTED
+        };
+        &AS_SEQUENCE
+    }
 }
 
 #[pyclass(with(DictView, Constructor, Iterable, AsSequence))]
@@ -1126,10 +1138,13 @@ impl PyDictValues {
 impl Unconstructible for PyDictValues {}
 
 impl AsSequence for PyDictValues {
-    const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
-        length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
-        ..PySequenceMethods::NOT_IMPLEMENTED
-    };
+    fn as_sequence() -> &'static PySequenceMethods {
+        static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
+            length: atomic_func!(|seq, _vm| Ok(PyDictValues::sequence_downcast(seq).len())),
+            ..PySequenceMethods::NOT_IMPLEMENTED
+        };
+        &AS_SEQUENCE
+    }
 }
 
 pub(crate) fn init(context: &Context) {
