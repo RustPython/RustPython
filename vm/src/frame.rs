@@ -272,7 +272,7 @@ impl FrameRef {
         filename.as_str().contains("importlib") && filename.as_str().contains("_bootstrap")
     }
 
-    pub fn next_external_frame(&self, vm: &VirtualMachine) -> Option<FrameRef> {
+    pub fn next_external_frame(&self, vm: &VirtualMachine) -> FrameRef {
         let mut frame = self.clone();
 
         while let Some(f) = frame.clone().f_back(vm) {
@@ -282,7 +282,7 @@ impl FrameRef {
             frame = f;
         }
 
-        Some(frame)
+        frame
     }
 }
 

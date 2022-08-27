@@ -71,8 +71,8 @@ pub fn setup_context(
     // filename, lineno, module, registry
     (PyStrRef, usize, PyObjectRef, PyObjectRef),
 > {
-    let warningregistry = "__warningregistry__";
-    let name = "__name__";
+    let __warningregistry__ = "__warningregistry__";
+    let __name__ = "__name__";
 
     // for return
     let mut globals = vm.current_globals().clone();
@@ -82,7 +82,7 @@ pub fn setup_context(
     let current_frame = vm.current_frame();
     let mut f: FrameRef;
     if current_frame.is_some() {
-        // SAFETY: it's safeeeeeeeeeeeeee
+        // SAFETY: it's safe
         f = current_frame.as_ref().unwrap().deref().clone();
         // Stack level comparisons to Python code is off by one as there is no
         // warnings-related stack level to avoid.
@@ -95,12 +95,15 @@ pub fn setup_context(
                 f = tmp;
             }
         } else {
-            while let Some(tmp) = f.next_external_frame(vm) {
-                stack_level -= 1;
-                if stack_level > 0 {
-                    break;
+            let current_frame = f.clone().f_back(vm);
+            if let Some(tmp) = current_frame {
+                loop {
+                    stack_level -= 1;
+                    if stack_level > 0 {
+                        break;
+                    }
+                    f = tmp.next_external_frame(vm);
                 }
-                f = tmp;
             }
         }
 
@@ -109,17 +112,17 @@ pub fn setup_context(
         lineno = f.f_lineno();
     }
 
-    let registry = if let Ok(registry) = globals.get_item(warningregistry, vm) {
+    let registry = if let Ok(registry) = globals.get_item(__warningregistry__, vm) {
         registry
     } else {
         let registry = PyDict::new_ref(&vm.ctx);
-        globals.set_item(warningregistry, registry.clone().into(), vm)?;
+        globals.set_item(__warningregistry__, registry.clone().into(), vm)?;
         registry.into()
     };
 
     // Setup module.
     let module = globals
-        .get_item(name, vm)
+        .get_item(__name__, vm)
         .unwrap_or_else(|_| vm.new_pyobj("<string>"));
     Ok((filename.to_owned(), lineno, module, registry))
 }
