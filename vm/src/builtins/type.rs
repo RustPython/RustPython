@@ -10,16 +10,16 @@ use crate::common::{
 use crate::{
     builtins::PyBaseExceptionRef,
     builtins::{
-        descriptor::{MemberGetter, MemberSetter},
+        descriptor::{DescrObject, MemberDef, MemberDescrObject, MemberGetter, MemberSetter, MemberKind},
         function::PyCellRef,
-        tuple::PyTupleTyped,
+        tuple::{IntoPyTuple, PyTupleTyped},
         PyBaseExceptionRef,
     },
     class::{PyClassImpl, StaticType},
     convert::ToPyObject,
     function::{FuncArgs, KwArgs, OptionalArg, PySetterValue},
     identifier,
-    protocol::{PyNumberMethods, PySequenceMethods},
+    protocol::{PyIterReturn, PyNumberMethods, PySequenceMethods},
     types::{Callable, GetAttr, PyTypeFlags, PyTypeSlots, SetAttr},
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
@@ -43,7 +43,9 @@ pub struct PyType {
 
 #[derive(Default)]
 pub struct HeapTypeExt {
+    pub slots: Option<PyTupleTyped<PyStrRef>>,
     pub number_methods: PyNumberMethods,
+    pub sequence_methods: PySequenceMethods,
 }
 
 pub struct PointerSlot<T>(NonNull<T>);
