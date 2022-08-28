@@ -72,34 +72,29 @@ fn setup_context(
     let __warningregistry__ = "__warningregistry__";
     let __name__ = "__name__";
 
-    let current_frame = vm.current_frame();
-    let mut f = current_frame.as_deref().cloned();
+    let mut f = vm.current_frame().as_deref().cloned();
 
     // Stack level comparisons to Python code is off by one as there is no
     // warnings-related stack level to avoid.
-
-    if let Some(frame) = current_frame {
-        if stack_level <= 0 || frame.is_internal_frame() {
-            while let Some(tmp) = frame.clone().f_back(vm) {
-                stack_level -= 1;
-                if stack_level > 0 {
-                    break;
-                }
-                f = Some(tmp);
-            }
-        } else {
+    if stack_level <= 0
+        || f.clone()
+            .map(|frame| frame.is_internal_frame())
+            .unwrap_or_default()
+    {
+        loop {
             stack_level -= 1;
-            if stack_level <= 0 {
-                f = frame.next_external_frame(vm);
-
-                while let Some(frame) = f.clone() {
-                    stack_level -= 1;
-                    if stack_level > 0 {
-                        break;
-                    }
-                    f = frame.next_external_frame(vm);
-                }
+            if stack_level <= 0 || f.is_none() {
+                break;
             }
+            f = f.unwrap().f_back(vm);
+        }
+    } else {
+        loop {
+            stack_level -= 1;
+            if stack_level <= 0 || f.is_none() {
+                break;
+            }
+            f = f.unwrap().next_external_frame(vm);
         }
     }
 
