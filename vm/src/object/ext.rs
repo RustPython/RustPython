@@ -1,5 +1,3 @@
-use crossbeam_utils::atomic::AtomicCell;
-
 use super::{
     core::{Py, PyObject, PyObjectRef, PyRef},
     payload::{PyObjectPayload, PyPayload},
@@ -10,6 +8,7 @@ use crate::{
     convert::{IntoPyException, ToPyObject, ToPyResult, TryFromObject},
     VirtualMachine,
 };
+use crossbeam_utils::atomic::AtomicCell;
 use std::{borrow::Borrow, fmt, ops::Deref, ptr::NonNull};
 
 /* Python objects and references.
@@ -246,6 +245,13 @@ impl<T: PyObjectPayload> PyAtomicRef<T> {
         let py = PyRef::leak(pyref);
         let old = self.0.swap(NonNull::from(py));
         PyRef::from_raw(old.as_ptr())
+    }
+
+    pub fn swap_to_temporary_refs(&self, pyref: PyRef<T>, vm: &VirtualMachine) {
+        let old = unsafe { self.swap(pyref) };
+        if let Some(frame) = vm.current_frame() {
+            frame.temporary_refs.lock().push(old.into());
+        }
     }
 }
 

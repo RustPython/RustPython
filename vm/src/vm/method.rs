@@ -61,12 +61,10 @@ impl PyMethod {
 
         if let Some((attr, descr_get)) = cls_attr {
             match descr_get {
-                None if is_method => {
-                    Ok(Self::Function {
-                        target: obj,
-                        func: attr,
-                    })
-                }
+                None if is_method => Ok(Self::Function {
+                    target: obj,
+                    func: attr,
+                }),
                 Some(descr_get) => {
                     let cls = cls.to_owned().into();
                     descr_get(attr, Some(obj), Some(cls), vm).map(Self::Attribute)

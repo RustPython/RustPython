@@ -270,7 +270,6 @@ impl PyBaseObject {
             match value.downcast::<PyType>() {
                 Ok(cls) => {
                     // FIXME(#1979) cls instances might have a payload
-                    // *instance.class_lock().write() = cls;
                     instance.set_class(cls, vm);
                     Ok(())
                 }

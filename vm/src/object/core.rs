@@ -656,10 +656,7 @@ impl PyObject {
     }
 
     pub fn set_class(&self, typ: PyTypeRef, vm: &VirtualMachine) {
-        let old = unsafe { self.0.typ.swap(typ) };
-        if let Some(frame) = vm.current_frame() {
-            frame.temperary_refs.lock().push(old.into());
-        }
+        self.0.typ.swap_to_temporary_refs(typ, vm);
     }
 
     #[inline(always)]
