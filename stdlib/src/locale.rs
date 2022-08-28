@@ -36,9 +36,10 @@ mod _locale {
             /* set locale */
             Some(locale) => {
                 let result = unsafe {
+
                     libc::setlocale(
                         category.as_bigint().to_i32().unwrap(),
-                        locale.to_cstring(vm).unwrap().as_ptr(),
+                        locale.to_cstring(vm)?.as_ptr(),
                     )
                 };
                 if result.is_null() {
@@ -73,14 +74,5 @@ mod _locale {
                 })
             }
         }
-    }
-
-    #[pyfunction]
-    fn localeconv(vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        let result = unsafe { libc::localeconv() };
-        if result.is_null() {
-            return Err(new_locale_error("locale query failed".to_owned(), vm));
-        }
-        Ok(vm.ctx.new_str("".to_owned()))
     }
 }

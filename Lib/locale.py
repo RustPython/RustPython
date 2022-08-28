@@ -59,31 +59,6 @@ try:
 except ImportError:
 
     # Locale emulation
-
-    def localeconv():
-        """ localeconv() -> dict.
-            Returns numeric and monetary locale-specific parameters.
-        """
-        # 'C' locale default values
-        return {'grouping': [127],
-                'currency_symbol': '',
-                'n_sign_posn': 127,
-                'p_cs_precedes': 127,
-                'n_cs_precedes': 127,
-                'mon_grouping': [],
-                'n_sep_by_space': 127,
-                'decimal_point': '.',
-                'negative_sign': '',
-                'positive_sign': '',
-                'p_sep_by_space': 127,
-                'int_curr_symbol': '',
-                'p_sign_posn': 127,
-                'thousands_sep': '',
-                'mon_thousands_sep': '',
-                'frac_digits': 127,
-                'mon_decimal_point': '',
-                'int_frac_digits': 127}
-
     def setlocale(category, value=None):
         """ setlocale(integer,string=None) -> string.
             Activates/queries locale processing.
@@ -91,6 +66,30 @@ except ImportError:
         if value not in (None, '', 'C'):
             raise Error('_locale emulation only supports "C" locale')
         return 'C'
+
+def localeconv():
+    """ localeconv() -> dict.
+        Returns numeric and monetary locale-specific parameters.
+    """
+    # 'C' locale default values
+    return {'grouping': [127],
+            'currency_symbol': '',
+            'n_sign_posn': 127,
+            'p_cs_precedes': 127,
+            'n_cs_precedes': 127,
+            'mon_grouping': [],
+            'n_sep_by_space': 127,
+            'decimal_point': '.',
+            'negative_sign': '',
+            'positive_sign': '',
+            'p_sep_by_space': 127,
+            'int_curr_symbol': '',
+            'p_sign_posn': 127,
+            'thousands_sep': '',
+            'mon_thousands_sep': '',
+            'frac_digits': 127,
+            'mon_decimal_point': '',
+            'int_frac_digits': 127}
 
 # These may or may not exist in _locale, so be sure to set them.
 if 'strxfrm' not in globals():
