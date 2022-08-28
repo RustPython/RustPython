@@ -3,9 +3,10 @@ use crate::{
     builtins::{PyInt, PyIntRef, PyStr, PyStrInterned, PyStrRef},
     function::PyArithmeticValue,
     object::{AsObject, PyObject, PyObjectRef, PyResult},
-    protocol::PyIterReturn,
+    protocol::{PyIterReturn, PyNumberMethodsOffset, PySequence},
     types::PyComparisonOp,
 };
+use num_traits::ToPrimitive;
 
 /// Collection of operators
 impl VirtualMachine {
@@ -103,6 +104,7 @@ impl VirtualMachine {
         }
     }
 
+    // TODO: Should be deleted after transplanting complete number protocol
     /// Calls a method on `obj` passing `arg`, if the method exists.
     ///
     /// Otherwise, or if the result is the special `NotImplemented` built-in constant,
@@ -128,6 +130,7 @@ impl VirtualMachine {
         unsupported(self, obj, arg)
     }
 
+    // TODO: Should be deleted after transplanting complete number protocol
     /// Calls a method, falling back to its reflection with the operands
     /// reversed, and then to the value provided by `unsupported`.
     ///
@@ -174,160 +177,348 @@ impl VirtualMachine {
         })
     }
 
-    pub fn _sub(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_reflection(
-            a,
-            b,
-            identifier!(self, __sub__),
-            identifier!(self, __rsub__),
-            |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "-")),
-        )
+    fn binary_op1<F>(
+        &self,
+        a: &PyObject,
+        b: &PyObject,
+        op_slot: PyNumberMethodsOffset,
+        unsupported: F,
+    ) -> PyResult
+    where
+        F: Fn(&VirtualMachine, &PyObject, &PyObject) -> PyResult,
+    {
+        let num_a = a.to_number();
+        let num_b = b.to_number();
+
+        let slot_a = num_a.methods(&op_slot, self)?.load();
+        let slot_b = num_b.methods(&op_slot, self)?.load();
+
+        if let Some(slot_a) = slot_a {
+            if let Some(slot_b) = slot_b {
+                // Check if `a` is subclass of `b`
+                if b.fast_isinstance(a.class()) {
+                    let ret = slot_b(num_a, b, self)?;
+                    if ret.rich_compare_bool(
+                        self.ctx.not_implemented.as_object(),
+                        PyComparisonOp::Ne,
+                        self,
+                    )? {
+                        return Ok(ret);
+                    }
+                }
+            }
+
+            let ret = slot_a(num_a, b, self)?;
+            if ret.rich_compare_bool(
+                self.ctx.not_implemented.as_object(),
+                PyComparisonOp::Ne,
+                self,
+            )? {
+                return Ok(ret);
+            }
+        }
+
+        // No slot_a or Not implemented
+        if let Some(slot_b) = slot_b {
+            let ret = slot_b(num_a, b, self)?;
+            if ret.rich_compare_bool(
+                self.ctx.not_implemented.as_object(),
+                PyComparisonOp::Ne,
+                self,
+            )? {
+                return Ok(ret);
+            }
+        }
+
+        // Both slot_a & slot_b don't exist or are not implemented.
+        unsupported(self, a, b)
     }
 
-    pub fn _isub(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_unsupported(a, b, identifier!(self, __isub__), |vm, a, b| {
-            vm.call_or_reflection(
-                a,
-                b,
-                identifier!(self, __sub__),
-                identifier!(self, __rsub__),
-                |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "-=")),
-            )
-        })
+    /// `binary_op()` can work only with [`PyNumberMethods::BinaryFunc`].
+    pub fn binary_op<F>(
+        &self,
+        a: &PyObject,
+        b: &PyObject,
+        op_slot: PyNumberMethodsOffset,
+        op: &str,
+        unsupported: F,
+    ) -> PyResult
+    where
+        F: Fn(&VirtualMachine, &PyObject, &PyObject) -> PyResult,
+    {
+        let result = self.binary_op1(a, b, op_slot, unsupported)?;
+
+        if result.rich_compare_bool(
+            self.ctx.not_implemented.as_object(),
+            PyComparisonOp::Eq,
+            self,
+        )? {
+            Err(self.new_unsupported_binop_error(a, b, op))
+        } else {
+            Ok(result)
+        }
+    }
+
+    /// ### Binary in-place operators
+    ///
+    /// The in-place operators are defined to fall back to the 'normal',
+    /// non in-place operations, if the in-place methods are not in place.
+    ///
+    /// - If the left hand object has the appropriate struct members, and
+    ///     they are filled, call the appropriate function and return the
+    ///     result.  No coercion is done on the arguments; the left-hand object
+    ///     is the one the operation is performed on, and it's up to the
+    ///     function to deal with the right-hand object.
+    ///
+    /// - Otherwise, in-place modification is not supported. Handle it exactly as
+    ///     a non in-place operation of the same kind.
+    fn binary_iop1<F>(
+        &self,
+        a: &PyObject,
+        b: &PyObject,
+        iop_slot: PyNumberMethodsOffset,
+        op_slot: PyNumberMethodsOffset,
+        unsupported: F,
+    ) -> PyResult
+    where
+        F: Fn(&VirtualMachine, &PyObject, &PyObject) -> PyResult,
+    {
+        let num_a = a.to_number();
+        let slot_a = num_a.methods(&iop_slot, self)?.load();
+
+        if let Some(slot_a) = slot_a {
+            let ret = slot_a(num_a, b, self)?;
+            if ret.rich_compare_bool(
+                self.ctx.not_implemented.as_object(),
+                PyComparisonOp::Ne,
+                self,
+            )? {
+                return Ok(ret);
+            }
+        }
+
+        self.binary_op1(a, b, op_slot, unsupported)
+    }
+
+    /// `binary_iop()` can work only with [`PyNumberMethods::BinaryFunc`].
+    fn binary_iop<F>(
+        &self,
+        a: &PyObject,
+        b: &PyObject,
+        iop_slot: PyNumberMethodsOffset,
+        op_slot: PyNumberMethodsOffset,
+        op: &str,
+        unsupported: F,
+    ) -> PyResult
+    where
+        F: Fn(&VirtualMachine, &PyObject, &PyObject) -> PyResult,
+    {
+        let result = self.binary_iop1(a, b, iop_slot, op_slot, unsupported)?;
+
+        if result.rich_compare_bool(
+            self.ctx.not_implemented.as_object(),
+            PyComparisonOp::Eq,
+            self,
+        )? {
+            Err(self.new_unsupported_binop_error(a, b, op))
+        } else {
+            Ok(result)
+        }
     }
 
     pub fn _add(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_reflection(
-            a,
-            b,
-            identifier!(self, __add__),
-            identifier!(self, __radd__),
-            |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "+")),
-        )
+        self.binary_op(a, b, PyNumberMethodsOffset::Add, "+", |vm, a, b| {
+            let seq_a = PySequence::try_protocol(a, vm);
+
+            if let Ok(seq_a) = seq_a {
+                let ret = seq_a.concat(b, vm)?;
+                if ret.rich_compare_bool(
+                    vm.ctx.not_implemented.as_object(),
+                    PyComparisonOp::Ne,
+                    vm,
+                )? {
+                    return Ok(ret);
+                }
+            }
+
+            Ok(vm.ctx.not_implemented())
+        })
     }
 
     pub fn _iadd(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_unsupported(a, b, identifier!(self, __iadd__), |vm, a, b| {
-            vm.call_or_reflection(
-                a,
-                b,
-                identifier!(self, __add__),
-                identifier!(self, __radd__),
-                |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "+=")),
-            )
-        })
-    }
-
-    pub fn _mul(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_reflection(
+        self.binary_iop(
             a,
             b,
-            identifier!(self, __mul__),
-            identifier!(self, __rmul__),
-            |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "*")),
+            PyNumberMethodsOffset::InplaceAdd,
+            PyNumberMethodsOffset::Add,
+            "+=",
+            |vm, a, b| {
+                let seq_a = PySequence::try_protocol(a, vm);
+
+                if let Ok(seq_a) = seq_a {
+                    return seq_a.inplace_concat(b, vm);
+                }
+
+                Ok(vm.ctx.not_implemented())
+            },
         )
     }
 
-    pub fn _imul(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_unsupported(a, b, identifier!(self, __imul__), |vm, a, b| {
-            vm.call_or_reflection(
-                a,
-                b,
-                identifier!(self, __mul__),
-                identifier!(self, __rmul__),
-                |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "*=")),
-            )
+    pub fn _sub(&self, a: &PyObject, b: &PyObject) -> PyResult {
+        self.binary_op(a, b, PyNumberMethodsOffset::Subtract, "-", |vm, _, _| {
+            Ok(vm.ctx.not_implemented())
         })
     }
 
-    pub fn _matmul(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_reflection(
+    pub fn _isub(&self, a: &PyObject, b: &PyObject) -> PyResult {
+        self.binary_iop(
             a,
             b,
-            identifier!(self, __matmul__),
-            identifier!(self, __rmatmul__),
-            |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "@")),
+            PyNumberMethodsOffset::InplaceSubtract,
+            PyNumberMethodsOffset::Subtract,
+            "-=",
+            |vm, _, _| Ok(vm.ctx.not_implemented()),
+        )
+    }
+
+    pub fn _mul(&self, a: &PyObject, b: &PyObject) -> PyResult {
+        self.binary_op(a, b, PyNumberMethodsOffset::Multiply, "*", |vm, a, b| {
+            // TODO: check if PySequence::with_methods can replace try_protocol
+            let seq_a = PySequence::try_protocol(a, vm);
+            let seq_b = PySequence::try_protocol(b, vm);
+
+            // TODO: I think converting to isize process should be handled in repeat function.
+            // TODO: This can be helpful to unify the sequence protocol's closure.
+
+            if let Ok(seq_a) = seq_a {
+                let n = b.try_int(vm)?.as_bigint().to_isize().ok_or_else(|| {
+                    vm.new_overflow_error("repeated bytes are too long".to_owned())
+                })?;
+
+                return seq_a.repeat(n, vm);
+            } else if let Ok(seq_b) = seq_b {
+                let n = a.try_int(vm)?.as_bigint().to_isize().ok_or_else(|| {
+                    vm.new_overflow_error("repeated bytes are too long".to_owned())
+                })?;
+
+                return seq_b.repeat(n, vm);
+            }
+
+            Ok(vm.ctx.not_implemented())
+        })
+    }
+
+    pub fn _imul(&self, a: &PyObject, b: &PyObject) -> PyResult {
+        self.binary_iop(
+            a,
+            b,
+            PyNumberMethodsOffset::InplaceMultiply,
+            PyNumberMethodsOffset::Multiply,
+            "*=",
+            |vm, a, b| {
+                // TODO: check if PySequence::with_methods can replace try_protocol
+                let seq_a = PySequence::try_protocol(a, vm);
+                let seq_b = PySequence::try_protocol(b, vm);
+
+                if let Ok(seq_a) = seq_a {
+                    let n = b.try_int(vm)?.as_bigint().to_isize().ok_or_else(|| {
+                        vm.new_overflow_error("repeated bytes are too long".to_owned())
+                    })?;
+
+                    return seq_a.inplace_repeat(n, vm);
+                } else if let Ok(seq_b) = seq_b {
+                    let n = a.try_int(vm)?.as_bigint().to_isize().ok_or_else(|| {
+                        vm.new_overflow_error("repeated bytes are too long".to_owned())
+                    })?;
+
+                    /* Note that the right hand operand should not be
+                     * mutated in this case so sq_inplace_repeat is not
+                     * used. */
+                    return seq_b.repeat(n, vm);
+                }
+
+                Ok(vm.ctx.not_implemented())
+            },
+        )
+    }
+
+    pub fn _matmul(&self, a: &PyObject, b: &PyObject) -> PyResult {
+        self.binary_op(
+            a,
+            b,
+            PyNumberMethodsOffset::MatrixMultiply,
+            "@",
+            |vm, _, _| Ok(vm.ctx.not_implemented()),
         )
     }
 
     pub fn _imatmul(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_unsupported(a, b, identifier!(self, __imatmul__), |vm, a, b| {
-            vm.call_or_reflection(
-                a,
-                b,
-                identifier!(self, __matmul__),
-                identifier!(self, __rmatmul__),
-                |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "@=")),
-            )
-        })
-    }
-
-    pub fn _truediv(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_reflection(
+        self.binary_iop(
             a,
             b,
-            identifier!(self, __truediv__),
-            identifier!(self, __rtruediv__),
-            |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "/")),
+            PyNumberMethodsOffset::InplaceMatrixMultiply,
+            PyNumberMethodsOffset::MatrixMultiply,
+            "@=",
+            |vm, _, _| Ok(vm.ctx.not_implemented()),
         )
     }
 
-    pub fn _itruediv(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_unsupported(a, b, identifier!(self, __itruediv__), |vm, a, b| {
-            vm.call_or_reflection(
-                a,
-                b,
-                identifier!(self, __truediv__),
-                identifier!(self, __rtruediv__),
-                |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "/=")),
-            )
+    pub fn _truediv(&self, a: &PyObject, b: &PyObject) -> PyResult {
+        self.binary_op(a, b, PyNumberMethodsOffset::TrueDivide, "/", |vm, _, _| {
+            Ok(vm.ctx.not_implemented())
         })
     }
 
-    pub fn _floordiv(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_reflection(
+    pub fn _itruediv(&self, a: &PyObject, b: &PyObject) -> PyResult {
+        self.binary_iop(
             a,
             b,
-            identifier!(self, __floordiv__),
-            identifier!(self, __rfloordiv__),
-            |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "//")),
+            PyNumberMethodsOffset::InplaceTrueDivide,
+            PyNumberMethodsOffset::TrueDivide,
+            "/=",
+            |vm, _, _| Ok(vm.ctx.not_implemented()),
+        )
+    }
+
+    pub fn _floordiv(&self, a: &PyObject, b: &PyObject) -> PyResult {
+        self.binary_op(
+            a,
+            b,
+            PyNumberMethodsOffset::FloorDivide,
+            "//",
+            |vm, _, _| Ok(vm.ctx.not_implemented()),
         )
     }
 
     pub fn _ifloordiv(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_unsupported(a, b, identifier!(self, __ifloordiv__), |vm, a, b| {
-            vm.call_or_reflection(
-                a,
-                b,
-                identifier!(self, __floordiv__),
-                identifier!(self, __rfloordiv__),
-                |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "//=")),
-            )
-        })
-    }
-
-    pub fn _pow(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_reflection(
+        self.binary_iop(
             a,
             b,
-            identifier!(self, __pow__),
-            identifier!(self, __rpow__),
-            |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "**")),
+            PyNumberMethodsOffset::InplaceFloorDivide,
+            PyNumberMethodsOffset::FloorDivide,
+            "//=",
+            |vm, _, _| Ok(vm.ctx.not_implemented()),
         )
     }
 
-    pub fn _ipow(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_unsupported(a, b, identifier!(self, __ipow__), |vm, a, b| {
-            vm.call_or_reflection(
-                a,
-                b,
-                identifier!(self, __pow__),
-                identifier!(self, __rpow__),
-                |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "**=")),
-            )
+    pub fn _pow(&self, a: &PyObject, b: &PyObject) -> PyResult {
+        self.binary_op(a, b, PyNumberMethodsOffset::Power, "**", |vm, _, _| {
+            Ok(vm.ctx.not_implemented())
         })
     }
 
+    pub fn _ipow(&self, a: &PyObject, b: &PyObject) -> PyResult {
+        self.binary_iop(
+            a,
+            b,
+            PyNumberMethodsOffset::InplacePower,
+            PyNumberMethodsOffset::Power,
+            "**=",
+            |vm, _, _| Ok(vm.ctx.not_implemented()),
+        )
+    }
+
+    // TODO: `str` modular opertation(mod, imod) is not supported now. Should implement it.
     pub fn _mod(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_reflection(
             a,
@@ -336,6 +527,10 @@ impl VirtualMachine {
             identifier!(self, __rmod__),
             |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "%")),
         )
+
+        // self.binary_op(a, b, PyNumberMethodsOffset::Remainder, "%", |vm, _, _| {
+        //     Ok(vm.ctx.not_implemented())
+        // })
     }
 
     pub fn _imod(&self, a: &PyObject, b: &PyObject) -> PyResult {
@@ -348,84 +543,76 @@ impl VirtualMachine {
                 |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "%=")),
             )
         })
+
+        // self.binary_iop(
+        //     a,
+        //     b,
+        //     PyNumberMethodsOffset::InplaceRemainder,
+        //     PyNumberMethodsOffset::Remainder,
+        //     "%=",
+        //     |vm, _, _| Ok(vm.ctx.not_implemented()),
+        // )
     }
 
     pub fn _divmod(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_reflection(
-            a,
-            b,
-            identifier!(self, __divmod__),
-            identifier!(self, __rdivmod__),
-            |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "divmod")),
-        )
+        self.binary_op(a, b, PyNumberMethodsOffset::Divmod, "divmod", |vm, _, _| {
+            Ok(vm.ctx.not_implemented())
+        })
     }
 
     pub fn _lshift(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_reflection(
-            a,
-            b,
-            identifier!(self, __lshift__),
-            identifier!(self, __rlshift__),
-            |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "<<")),
-        )
+        self.binary_op(a, b, PyNumberMethodsOffset::Lshift, "<<", |vm, _, _| {
+            Ok(vm.ctx.not_implemented())
+        })
     }
 
     pub fn _ilshift(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_unsupported(a, b, identifier!(self, __ilshift__), |vm, a, b| {
-            vm.call_or_reflection(
-                a,
-                b,
-                identifier!(self, __lshift__),
-                identifier!(self, __rlshift__),
-                |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "<<=")),
-            )
-        })
+        self.binary_iop(
+            a,
+            b,
+            PyNumberMethodsOffset::InplaceLshift,
+            PyNumberMethodsOffset::Lshift,
+            "<<=",
+            |vm, _, _| Ok(vm.ctx.not_implemented()),
+        )
     }
 
     pub fn _rshift(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_reflection(
-            a,
-            b,
-            identifier!(self, __rshift__),
-            identifier!(self, __rrshift__),
-            |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, ">>")),
-        )
+        self.binary_op(a, b, PyNumberMethodsOffset::Rshift, ">>", |vm, _, _| {
+            Ok(vm.ctx.not_implemented())
+        })
     }
 
     pub fn _irshift(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_unsupported(a, b, identifier!(self, __irshift__), |vm, a, b| {
-            vm.call_or_reflection(
-                a,
-                b,
-                identifier!(self, __rshift__),
-                identifier!(self, __rrshift__),
-                |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, ">>=")),
-            )
-        })
-    }
-
-    pub fn _xor(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_reflection(
+        self.binary_iop(
             a,
             b,
-            identifier!(self, __xor__),
-            identifier!(self, __rxor__),
-            |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "^")),
+            PyNumberMethodsOffset::InplaceRshift,
+            PyNumberMethodsOffset::Rshift,
+            ">>=",
+            |vm, _, _| Ok(vm.ctx.not_implemented()),
         )
     }
 
-    pub fn _ixor(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_unsupported(a, b, identifier!(self, __ixor__), |vm, a, b| {
-            vm.call_or_reflection(
-                a,
-                b,
-                identifier!(self, __xor__),
-                identifier!(self, __rxor__),
-                |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "^=")),
-            )
+    pub fn _xor(&self, a: &PyObject, b: &PyObject) -> PyResult {
+        self.binary_op(a, b, PyNumberMethodsOffset::Xor, "^", |vm, _, _| {
+            Ok(vm.ctx.not_implemented())
         })
     }
 
+    pub fn _ixor(&self, a: &PyObject, b: &PyObject) -> PyResult {
+        self.binary_iop(
+            a,
+            b,
+            PyNumberMethodsOffset::InplaceXor,
+            PyNumberMethodsOffset::Xor,
+            "^=",
+            |vm, _, _| Ok(vm.ctx.not_implemented()),
+        )
+    }
+
+    // TODO: `or` method doesn't work because of structure of `type_::or_()`.
+    // TODO: It should be changed by adjusting with AsNumber.
     pub fn _or(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_reflection(
             a,
@@ -434,6 +621,10 @@ impl VirtualMachine {
             identifier!(self, __ror__),
             |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "|")),
         )
+
+        // self.binary_op(a, b, PyNumberMethodsOffset::Or, "|", |vm, _, _| {
+        //     Ok(vm.ctx.not_implemented())
+        // })
     }
 
     pub fn _ior(&self, a: &PyObject, b: &PyObject) -> PyResult {
@@ -446,8 +637,19 @@ impl VirtualMachine {
                 |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "|=")),
             )
         })
+
+        // self.binary_iop(
+        //     a,
+        //     b,
+        //     PyNumberMethodsOffset::InplaceOr,
+        //     PyNumberMethodsOffset::Or,
+        //     "|=",
+        //     |vm, _, _| Ok(vm.ctx.not_implemented()),
+        // )
     }
 
+    // TODO: `and` method doesn't work because of structure of `set`.
+    // TODO: It should be changed by adjusting with AsNumber.
     pub fn _and(&self, a: &PyObject, b: &PyObject) -> PyResult {
         self.call_or_reflection(
             a,
@@ -456,6 +658,10 @@ impl VirtualMachine {
             identifier!(self, __rand__),
             |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "&")),
         )
+
+        // self.binary_op(a, b, PyNumberMethodsOffset::And, "&", |vm, _, _| {
+        //     Ok(vm.ctx.not_implemented())
+        // })
     }
 
     pub fn _iand(&self, a: &PyObject, b: &PyObject) -> PyResult {
@@ -468,6 +674,15 @@ impl VirtualMachine {
                 |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "&=")),
             )
         })
+
+        // self.binary_iop(
+        //     a,
+        //     b,
+        //     PyNumberMethodsOffset::InplaceAnd,
+        //     PyNumberMethodsOffset::And,
+        //     "&=",
+        //     |vm, _, _| Ok(vm.ctx.not_implemented()),
+        // )
     }
 
     pub fn _abs(&self, a: &PyObject) -> PyResult<PyObjectRef> {

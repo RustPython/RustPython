@@ -8,6 +8,7 @@ use crate::{
     VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
+use std::ptr;
 
 type UnaryFunc<R = PyObjectRef> = AtomicCell<Option<fn(PyNumber, &VirtualMachine) -> PyResult<R>>>;
 type BinaryFunc<R = PyObjectRef> =
@@ -109,6 +110,7 @@ impl PyObject {
 }
 
 #[derive(Default)]
+// #[repr(C)]
 pub struct PyNumberMethods {
     /* Number implementations must check *both*
     arguments for proper type and implement the necessary conversions
@@ -199,6 +201,98 @@ impl PyNumberMethods {
     };
 }
 
+pub enum PyNumberMethodsOffset {
+    Add,
+    Subtract,
+    Multiply,
+    Remainder,
+    Divmod,
+    Power,
+    Negative,
+    Positive,
+    Absolute,
+    Boolean,
+    Invert,
+    Lshift,
+    Rshift,
+    And,
+    Xor,
+    Or,
+    Int,
+    Float,
+    InplaceAdd,
+    InplaceSubtract,
+    InplaceMultiply,
+    InplaceRemainder,
+    InplaceDivmod,
+    InplacePower,
+    InplaceLshift,
+    InplaceRshift,
+    InplaceAnd,
+    InplaceXor,
+    InplaceOr,
+    FloorDivide,
+    TrueDivide,
+    InplaceFloorDivide,
+    InplaceTrueDivide,
+    Index,
+    MatrixMultiply,
+    InplaceMatrixMultiply,
+}
+
+impl PyNumberMethodsOffset {
+    pub fn method(&self, methods: &PyNumberMethods, vm: &VirtualMachine) -> PyResult<&BinaryFunc> {
+        use PyNumberMethodsOffset::*;
+        unsafe {
+            match self {
+                // BinaryFunc
+                Add => ptr::addr_of!(methods.add),
+                Subtract => ptr::addr_of!(methods.subtract),
+                Multiply => ptr::addr_of!(methods.multiply),
+                Remainder => ptr::addr_of!(methods.remainder),
+                Divmod => ptr::addr_of!(methods.divmod),
+                Power => ptr::addr_of!(methods.power),
+                Lshift => ptr::addr_of!(methods.lshift),
+                Rshift => ptr::addr_of!(methods.rshift),
+                And => ptr::addr_of!(methods.and),
+                Xor => ptr::addr_of!(methods.xor),
+                Or => ptr::addr_of!(methods.or),
+                InplaceAdd => ptr::addr_of!(methods.inplace_add),
+                InplaceSubtract => ptr::addr_of!(methods.inplace_subtract),
+                InplaceMultiply => ptr::addr_of!(methods.inplace_multiply),
+                InplaceRemainder => ptr::addr_of!(methods.inplace_remainder),
+                InplaceDivmod => ptr::addr_of!(methods.inplace_divmod),
+                InplacePower => ptr::addr_of!(methods.inplace_power),
+                InplaceLshift => ptr::addr_of!(methods.inplace_lshift),
+                InplaceRshift => ptr::addr_of!(methods.inplace_rshift),
+                InplaceAnd => ptr::addr_of!(methods.inplace_and),
+                InplaceXor => ptr::addr_of!(methods.inplace_xor),
+                InplaceOr => ptr::addr_of!(methods.inplace_or),
+                FloorDivide => ptr::addr_of!(methods.floor_divide),
+                TrueDivide => ptr::addr_of!(methods.true_divide),
+                InplaceFloorDivide => ptr::addr_of!(methods.inplace_floor_divide),
+                InplaceTrueDivide => ptr::addr_of!(methods.inplace_true_divide),
+                MatrixMultiply => ptr::addr_of!(methods.matrix_multiply),
+                InplaceMatrixMultiply => ptr::addr_of!(methods.inplace_matrix_multiply),
+                // UnaryFunc
+                Negative => ptr::null(),
+                Positive => ptr::null(),
+                Absolute => ptr::null(),
+                Boolean => ptr::null(),
+                Invert => ptr::null(),
+                Int => ptr::null(),
+                Float => ptr::null(),
+                Index => ptr::null(),
+            }
+            .as_ref()
+            .ok_or_else(|| {
+                vm.new_value_error("No unaryop supported for PyNumberMethodsOffset".to_owned())
+            })
+        }
+    }
+}
+
+#[derive(Copy, Clone)]
 pub struct PyNumber<'a> {
     pub obj: &'a PyObject,
     methods: &'a PyNumberMethods,
@@ -220,8 +314,12 @@ impl PyNumber<'_> {
         obj.class().mro_find_map(|x| x.slots.as_number.load())
     }
 
-    pub fn methods(&self) -> &PyNumberMethods {
-        self.methods
+    pub fn methods<'a>(
+        &'a self,
+        op_slot: &'a PyNumberMethodsOffset,
+        vm: &VirtualMachine,
+    ) -> PyResult<&BinaryFunc> {
+        op_slot.method(self.methods, vm)
     }
 
     // PyNumber_Check
@@ -238,12 +336,12 @@ impl PyNumber<'_> {
 
     // PyIndex_Check
     pub fn is_index(&self) -> bool {
-        self.methods().index.load().is_some()
+        self.methods.index.load().is_some()
     }
 
     #[inline]
     pub fn int(self, vm: &VirtualMachine) -> Option<PyResult<PyIntRef>> {
-        self.methods().int.load().map(|f| {
+        self.methods.int.load().map(|f| {
             let ret = f(self, vm)?;
             let value = if !ret.class().is(PyInt::class(vm)) {
                 warnings::warn(
@@ -267,7 +365,7 @@ impl PyNumber<'_> {
 
     #[inline]
     pub fn index(self, vm: &VirtualMachine) -> Option<PyResult<PyIntRef>> {
-        self.methods().index.load().map(|f| {
+        self.methods.index.load().map(|f| {
             let ret = f(self, vm)?;
             let value = if !ret.class().is(PyInt::class(vm)) {
                 warnings::warn(
@@ -291,7 +389,7 @@ impl PyNumber<'_> {
 
     #[inline]
     pub fn float(self, vm: &VirtualMachine) -> Option<PyResult<PyRef<PyFloat>>> {
-        self.methods().float.load().map(|f| {
+        self.methods.float.load().map(|f| {
             let ret = f(self, vm)?;
             let value = if !ret.class().is(PyFloat::class(vm)) {
                 warnings::warn(
