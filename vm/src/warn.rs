@@ -1,9 +1,7 @@
 use crate::{
     builtins::{PyDict, PyStrRef, PyType, PyTypeRef},
-    frame::FrameRef,
     AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
 };
-use std::ops::Deref;
 
 pub fn py_warn(
     category: &Py<PyType>,
@@ -64,7 +62,7 @@ fn warn_explicit(
 
 /// filename, module, and registry are new refs, globals is borrowed
 /// Returns `Ok` on success, or `Err` on error (no new refs)
-pub fn setup_context(
+fn setup_context(
     mut stack_level: isize,
     vm: &VirtualMachine,
 ) -> PyResult<
@@ -74,43 +72,42 @@ pub fn setup_context(
     let __warningregistry__ = "__warningregistry__";
     let __name__ = "__name__";
 
-    // for return
-    let mut globals = vm.current_globals().clone();
-    let mut filename = vm.ctx.intern_str("sys");
-    let mut lineno = 1;
-
     let current_frame = vm.current_frame();
-    let mut f: FrameRef;
-    if current_frame.is_some() {
-        // SAFETY: it's safe
-        f = current_frame.as_ref().unwrap().deref().clone();
-        // Stack level comparisons to Python code is off by one as there is no
-        // warnings-related stack level to avoid.
-        if stack_level <= 0 || f.is_internal_frame() {
-            while let Some(tmp) = f.clone().f_back(vm) {
+    let mut f = current_frame.as_deref().cloned();
+
+    // Stack level comparisons to Python code is off by one as there is no
+    // warnings-related stack level to avoid.
+
+    if let Some(frame) = current_frame {
+        if stack_level <= 0 || frame.is_internal_frame() {
+            while let Some(tmp) = frame.clone().f_back(vm) {
                 stack_level -= 1;
                 if stack_level > 0 {
                     break;
                 }
-                f = tmp;
+                f = Some(tmp);
             }
         } else {
-            let current_frame = f.clone().f_back(vm);
-            if let Some(tmp) = current_frame {
-                loop {
+            stack_level -= 1;
+            if stack_level <= 0 {
+                f = frame.next_external_frame(vm);
+
+                while let Some(frame) = f.clone() {
                     stack_level -= 1;
                     if stack_level > 0 {
                         break;
                     }
-                    f = tmp.next_external_frame(vm);
+                    f = frame.next_external_frame(vm);
                 }
             }
         }
-
-        globals = f.globals.clone();
-        filename = f.code.source_path;
-        lineno = f.f_lineno();
     }
+
+    let (globals, filename, lineno) = if let Some(f) = f {
+        (f.globals.clone(), f.code.source_path, f.f_lineno())
+    } else {
+        (vm.current_globals().clone(), vm.ctx.intern_str("sys"), 1)
+    };
 
     let registry = if let Ok(registry) = globals.get_item(__warningregistry__, vm) {
         registry
