@@ -2,11 +2,12 @@ pub(crate) use _locale::make_module;
 
 #[pymodule]
 mod _locale {
-    use std::ptr;
+    use std::{ptr, slice};
 
     use num_traits::ToPrimitive;
     use rustpython_vm::{
         builtins::{PyBaseExceptionRef, PyStrRef, PyTypeRef},
+        function::OptionalArg,
         utils::ToCString,
         VirtualMachine,
     };
@@ -25,15 +26,20 @@ mod _locale {
             Some(vec![vm.ctx.exceptions.value_error.to_owned()]),
         )
     }
+    #[derive(FromArgs)]
+    struct LocaleArgs {
+        #[pyarg(positional)]
+        category: PyIntRef,
+        #[pyarg(positional, default = "None")]
+        locale: Option<PyStrRef>,
+    }
 
     #[pyfunction]
-    fn setlocale(
-        category: PyIntRef,
-        locale: Option<PyStrRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<Vec<u8>> {
+    fn setlocale(args: LocaleArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        let category = args.category;
+        let locale = args.locale;
         match locale {
-            /* set locale */
+        /* set locale */
             Some(locale) => {
                 let result = unsafe {
 
@@ -50,11 +56,10 @@ mod _locale {
                     ));
                 }
                 Ok(unsafe {
-                    Vec::from_raw_parts(
+                    slice::from_raw_parts(
                         result as *mut u8,
                         libc::strlen(result),
-                        libc::strlen(result),
-                    )
+                    ).to_vec()
                 })
             }
             None => {
@@ -66,11 +71,10 @@ mod _locale {
                 }
                 //let result_object = PyUnicode_DecodeLocale(result, NULL);
                 Ok(unsafe {
-                    Vec::from_raw_parts(
+                    slice::from_raw_parts(
                         result as *mut u8,
                         libc::strlen(result),
-                        libc::strlen(result),
-                    )
+                    ).to_vec()
                 })
             }
         }
