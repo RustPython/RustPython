@@ -57,8 +57,6 @@ pub struct PyMemoryView {
     // instead it relay on the buffer it viewing to maintain the count
 }
 
-pub type PyMemoryViewRef = PyRef<PyMemoryView>;
-
 impl Constructor for PyMemoryView {
     type Args = PyMemoryViewNewArgs;
 
@@ -1111,7 +1109,7 @@ impl Iterable for PyMemoryView {
 #[pyclass(module = false, name = "memory_iterator")]
 #[derive(Debug)]
 pub struct PyMemoryViewIterator {
-    internal: PyMutex<PositionIterInternal<PyMemoryViewRef>>,
+    internal: PyMutex<PositionIterInternal<PyRef<PyMemoryView>>>,
 }
 
 impl PyPayload for PyMemoryViewIterator {
