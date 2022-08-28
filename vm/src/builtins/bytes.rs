@@ -517,8 +517,8 @@ impl PyBytes {
     }
 
     #[pymethod(magic)]
-    fn rmod(&self, _values: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.not_implemented()
+    fn rmod(&self, _values: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.not_implemented())
     }
 
     /// Return a string decoded from the given bytes.
