@@ -2,14 +2,16 @@ use super::{
     core::{Py, PyObject, PyObjectRef, PyRef},
     payload::{PyObjectPayload, PyPayload},
 };
-use crate::common::lock::PyRwLockReadGuard;
+use crate::common::{
+    atomic::{Ordering, PyAtomic, Radium},
+    lock::PyRwLockReadGuard,
+};
 use crate::{
     builtins::{PyBaseExceptionRef, PyStrInterned, PyType},
     convert::{IntoPyException, ToPyObject, ToPyResult, TryFromObject},
     VirtualMachine,
 };
-use crossbeam_utils::atomic::AtomicCell;
-use std::{borrow::Borrow, fmt, ops::Deref, ptr::NonNull};
+use std::{borrow::Borrow, fmt, ops::Deref};
 
 /* Python objects and references.
 
@@ -212,7 +214,7 @@ impl<T: PyPayload> ToPyObject for PyRefExact<T> {
     }
 }
 
-pub struct PyAtomicRef<T: PyObjectPayload>(AtomicCell<NonNull<Py<T>>>);
+pub struct PyAtomicRef<T: PyObjectPayload>(PyAtomic<*mut Py<T>>);
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "threading")] {
@@ -224,7 +226,7 @@ cfg_if::cfg_if! {
 impl<T: PyObjectPayload> From<PyRef<T>> for PyAtomicRef<T> {
     fn from(pyref: PyRef<T>) -> Self {
         let py = PyRef::leak(pyref);
-        Self(AtomicCell::new(NonNull::from(py)))
+        Self(Radium::new(py as *const _ as *mut _))
     }
 }
 
@@ -232,7 +234,7 @@ impl<T: PyObjectPayload> Deref for PyAtomicRef<T> {
     type Target = Py<T>;
 
     fn deref(&self) -> &Self::Target {
-        unsafe { self.0.load().as_ref() }
+        unsafe { &*self.0.load(Ordering::Relaxed) }
     }
 }
 
@@ -243,8 +245,8 @@ impl<T: PyObjectPayload> PyAtomicRef<T> {
     #[must_use]
     pub unsafe fn swap(&self, pyref: PyRef<T>) -> PyRef<T> {
         let py = PyRef::leak(pyref);
-        let old = self.0.swap(NonNull::from(py));
-        PyRef::from_raw(old.as_ptr())
+        let old = self.0.swap(py as *const _ as *mut _, Ordering::AcqRel);
+        PyRef::from_raw(old)
     }
 
     pub fn swap_to_temporary_refs(&self, pyref: PyRef<T>, vm: &VirtualMachine) {
