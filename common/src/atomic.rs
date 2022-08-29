@@ -1,6 +1,7 @@
 use core::ptr::{self, NonNull};
 pub use core::sync::atomic::*;
 pub use radium::Radium;
+use std::marker::PhantomData;
 
 mod sealed {
     pub trait Sealed {}
@@ -50,6 +51,39 @@ impl_atomic_scalar!(
 impl<T> sealed::Sealed for *mut T {}
 impl<T> PyAtomicScalar for *mut T {
     type Radium = atomic_ty!(*mut T, AtomicPtr<T>);
+}
+
+pub trait FnPtr: Copy + sealed::Sealed {}
+
+impl<Ret> sealed::Sealed for fn() -> Ret {}
+impl<Ret> FnPtr for fn() -> Ret {}
+impl<Ret, A> sealed::Sealed for fn(A) -> Ret {}
+impl<Ret, A> FnPtr for fn(A) -> Ret {}
+impl<Ret, A, B> sealed::Sealed for fn(A, B) -> Ret {}
+impl<Ret, A, B> FnPtr for fn(A, B) -> Ret {}
+impl<Ret, A, B, C> sealed::Sealed for fn(A, B, C) -> Ret {}
+impl<Ret, A, B, C> FnPtr for fn(A, B, C) -> Ret {}
+
+pub struct PyAtomicOptionFn<T: FnPtr> {
+    inner: PyAtomic<*mut u8>,
+    _marker: PhantomData<T>,
+}
+
+impl<T: FnPtr> PyAtomicOptionFn<T> {
+    pub fn load(&self, order: Ordering) -> Option<T> {
+        unsafe {
+            self.inner
+                .load(order)
+                .as_ref()
+                .map(|x| *((&x) as *const _ as *const T))
+        }
+    }
+
+    pub fn store(&self, ptr: T, order: Ordering) {
+        unsafe {
+            self.inner.store(*((&ptr) as *const T as *const _), order);
+        }
+    }
 }
 
 pub struct OncePtr<T> {
