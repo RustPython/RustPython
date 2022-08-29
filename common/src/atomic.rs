@@ -113,19 +113,24 @@ impl<Ret, A, B> FnPtr for fn(A, B) -> Ret {}
 impl<Ret, A, B, C> sealed::Sealed for fn(A, B, C) -> Ret {}
 impl<Ret, A, B, C> FnPtr for fn(A, B, C) -> Ret {}
 
-pub struct PyAtomicOptionFn<T: FnPtr> {
+impl<Ret> sealed::Sealed for Option<fn() -> Ret> {}
+impl<Ret> FnPtr for Option<fn() -> Ret> {}
+impl<Ret, A> sealed::Sealed for Option<fn(A) -> Ret> {}
+impl<Ret, A> FnPtr for Option<fn(A) -> Ret> {}
+impl<Ret, A, B> sealed::Sealed for Option<fn(A, B) -> Ret> {}
+impl<Ret, A, B> FnPtr for Option<fn(A, B) -> Ret> {}
+impl<Ret, A, B, C> sealed::Sealed for Option<fn(A, B, C) -> Ret> {}
+impl<Ret, A, B, C> FnPtr for Option<fn(A, B, C) -> Ret> {}
+
+pub struct PyAtomicFn<T: FnPtr> {
     inner: PyAtomic<*mut u8>,
     _marker: PhantomData<T>,
 }
 
-impl<T: FnPtr> PyAtomicOptionFn<T> {
-    pub fn load(&self, order: Ordering) -> Option<T> {
-        unsafe {
-            self.inner
-                .load(order)
-                .as_ref()
-                .map(|x| *((&x) as *const _ as *const T))
-        }
+impl<T: FnPtr> PyAtomicFn<T> {
+    pub fn load(&self, order: Ordering) -> T {
+        let f = self.inner.load(order);
+        unsafe { *((&f) as *const _ as *const T) }
     }
 
     pub fn store(&self, ptr: T, order: Ordering) {
