@@ -1132,16 +1132,13 @@ impl Unconstructible for PyMemoryViewIterator {}
 impl IterNextIterable for PyMemoryViewIterator {}
 impl IterNext for PyMemoryViewIterator {
     fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        zelf.internal.lock().next(|memoryview, pos| {
-            let mv = memoryview;
+        zelf.internal.lock().next(|mv, pos| {
             let len = mv.len(vm)?;
-            if pos >= len {
-                Ok(PyIterReturn::StopIteration(None))
+            Ok(if pos >= len {
+                PyIterReturn::StopIteration(None)
             } else {
-                Ok(PyIterReturn::Return(
-                    mv.getitem_by_idx(pos.try_into().unwrap(), vm)?,
-                ))
-            }
+                PyIterReturn::Return(mv.getitem_by_idx(pos.try_into().unwrap(), vm)?)
+            })
         })
     }
 }
