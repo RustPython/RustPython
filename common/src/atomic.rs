@@ -1,7 +1,7 @@
 use core::ptr::{self, NonNull};
 pub use core::sync::atomic::*;
 pub use radium::Radium;
-use std::marker::PhantomData;
+use std::{marker::PhantomData, mem::transmute};
 
 mod sealed {
     pub trait Sealed {}
@@ -109,15 +109,30 @@ pub struct PyAtomicFn<T: FnPtr> {
     _marker: PhantomData<T>,
 }
 
+impl<T: FnPtr> Clone for PyAtomicFn<T> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: Radium::new(self.inner.load(Ordering::Relaxed)),
+            _marker: self._marker.clone(),
+        }
+    }
+}
+
 impl<T: FnPtr> PyAtomicFn<T> {
+    pub fn new(ptr: T) -> Self {
+        Self {
+            inner: Radium::new(unsafe { transmute(&ptr) }),
+            _marker: PhantomData::default(),
+        }
+    }
+
     pub fn load(&self, order: Ordering) -> T {
-        let f = self.inner.load(order);
-        unsafe { *((&f) as *const _ as *const T) }
+        unsafe { *transmute::<_, &T>(self.inner.load(order)) }
     }
 
     pub fn store(&self, ptr: T, order: Ordering) {
         unsafe {
-            self.inner.store(*((&ptr) as *const T as *const _), order);
+            self.inner.store(transmute(&ptr), order);
         }
     }
 }
