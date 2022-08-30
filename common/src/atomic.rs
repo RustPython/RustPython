@@ -104,24 +104,6 @@ pub use atomic_struct_transmute;
 
 pub trait FnPtr: Copy + sealed::Sealed {}
 
-impl<Ret> sealed::Sealed for fn() -> Ret {}
-impl<Ret> FnPtr for fn() -> Ret {}
-impl<Ret, A> sealed::Sealed for fn(A) -> Ret {}
-impl<Ret, A> FnPtr for fn(A) -> Ret {}
-impl<Ret, A, B> sealed::Sealed for fn(A, B) -> Ret {}
-impl<Ret, A, B> FnPtr for fn(A, B) -> Ret {}
-impl<Ret, A, B, C> sealed::Sealed for fn(A, B, C) -> Ret {}
-impl<Ret, A, B, C> FnPtr for fn(A, B, C) -> Ret {}
-
-impl<Ret> sealed::Sealed for Option<fn() -> Ret> {}
-impl<Ret> FnPtr for Option<fn() -> Ret> {}
-impl<Ret, A> sealed::Sealed for Option<fn(A) -> Ret> {}
-impl<Ret, A> FnPtr for Option<fn(A) -> Ret> {}
-impl<Ret, A, B> sealed::Sealed for Option<fn(A, B) -> Ret> {}
-impl<Ret, A, B> FnPtr for Option<fn(A, B) -> Ret> {}
-impl<Ret, A, B, C> sealed::Sealed for Option<fn(A, B, C) -> Ret> {}
-impl<Ret, A, B, C> FnPtr for Option<fn(A, B, C) -> Ret> {}
-
 pub struct PyAtomicFn<T: FnPtr> {
     inner: PyAtomic<*mut u8>,
     _marker: PhantomData<T>,
@@ -139,6 +121,29 @@ impl<T: FnPtr> PyAtomicFn<T> {
         }
     }
 }
+
+macro_rules! impl_fn_ptr {
+    ($($arg:ident),*) => {
+        impl<Ret, $($arg),*> sealed::Sealed for fn($($arg),*) -> Ret {}
+        impl<Ret, $($arg),*> FnPtr for fn($($arg),*) -> Ret {}
+        impl<Ret, $($arg),*> sealed::Sealed for Option<fn($($arg),*) -> Ret> {}
+        impl<Ret, $($arg),*> FnPtr for Option<fn($($arg),*) -> Ret> {}
+    };
+}
+
+impl_fn_ptr!();
+impl_fn_ptr!(A);
+impl_fn_ptr!(A, B);
+impl_fn_ptr!(A, B, C);
+impl_fn_ptr!(A, B, C, D);
+impl_fn_ptr!(A, B, C, D, E);
+impl_fn_ptr!(A, B, C, D, E, F);
+impl_fn_ptr!(A, B, C, D, E, F, G);
+impl_fn_ptr!(A, B, C, D, E, F, G, H);
+impl_fn_ptr!(A, B, C, D, E, F, G, H, I);
+impl_fn_ptr!(A, B, C, D, E, F, G, H, I, J);
+impl_fn_ptr!(A, B, C, D, E, F, G, H, I, J, K);
+impl_fn_ptr!(A, B, C, D, E, F, G, H, I, J, K, L);
 
 pub struct OncePtr<T> {
     inner: PyAtomic<*mut T>,
