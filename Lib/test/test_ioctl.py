@@ -66,6 +66,8 @@ class IoctlTests(unittest.TestCase):
         # Test with a larger buffer, just for the record.
         self._check_ioctl_mutate_len(2048)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_ioctl_signed_unsigned_code_param(self):
         if not pty:
             raise unittest.SkipTest('pty module required')
