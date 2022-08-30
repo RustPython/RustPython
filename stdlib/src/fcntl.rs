@@ -52,7 +52,6 @@ mod fcntl {
     #[cfg(any(target_os = "dragonfly", target_os = "netbsd", target_vendor = "apple"))]
     #[pyattr]
     use libc::F_GETPATH;
-    use rustpython_vm::PyObjectRef;
 
     #[pyfunction]
     fn fcntl(
@@ -90,21 +89,12 @@ mod fcntl {
 
     #[pyfunction]
     fn ioctl(
-        obj: PyObjectRef,
+        io::Fildes(fd): io::Fildes,
         request: u32,
         arg: OptionalArg<Either<Either<ArgMemoryBuffer, ArgStrOrBytesLike>, i32>>,
         mutate_flag: OptionalArg<bool>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let fd = obj.try_to_value(vm).or_else(|_| {
-            let meth = vm.get_method_or_type_error(
-                obj.clone(),
-                vm.ctx.interned_str("fileno").unwrap(),
-                || "ioctl first arg must be an int or object with a fileno() method".to_owned(),
-            )?;
-            vm.invoke(&meth, ())?.try_into_value(vm)
-        })?;
-
         let arg = arg.unwrap_or_else(|| Either::B(0));
         match arg {
             Either::A(buf_kind) => {
@@ -153,7 +143,7 @@ mod fcntl {
     // XXX: at the time of writing, wasi and redox don't have the necessary constants/function
     #[cfg(not(any(target_os = "wasi", target_os = "redox")))]
     #[pyfunction]
-    fn flock(fd: i32, operation: i32, vm: &VirtualMachine) -> PyResult {
+    fn flock(io::Fildes(fd): io::Fildes, operation: i32, vm: &VirtualMachine) -> PyResult {
         let ret = unsafe { libc::flock(fd, operation) };
         // TODO: add support for platforms that don't have a builtin `flock` syscall
         if ret < 0 {
@@ -166,7 +156,7 @@ mod fcntl {
     #[cfg(not(any(target_os = "wasi", target_os = "redox")))]
     #[pyfunction]
     fn lockf(
-        fd: i32,
+        io::Fildes(fd): io::Fildes,
         cmd: i32,
         len: OptionalArg<PyIntRef>,
         start: OptionalArg<PyIntRef>,
