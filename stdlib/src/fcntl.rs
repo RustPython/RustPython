@@ -52,6 +52,7 @@ mod fcntl {
     #[cfg(any(target_os = "dragonfly", target_os = "netbsd", target_vendor = "apple"))]
     #[pyattr]
     use libc::F_GETPATH;
+    use rustpython_vm::PyObjectRef;
 
     #[pyfunction]
     fn fcntl(
@@ -89,12 +90,21 @@ mod fcntl {
 
     #[pyfunction]
     fn ioctl(
-        fd: i32,
+        obj: PyObjectRef,
         request: u32,
         arg: OptionalArg<Either<Either<ArgMemoryBuffer, ArgStrOrBytesLike>, i32>>,
         mutate_flag: OptionalArg<bool>,
         vm: &VirtualMachine,
     ) -> PyResult {
+        let fd = obj.try_to_value(vm).or_else(|_| {
+            let meth = vm.get_method_or_type_error(
+                obj.clone(),
+                vm.ctx.interned_str("fileno").unwrap(),
+                || "ioctl first arg must be an int or object with a fileno() method".to_owned(),
+            )?;
+            vm.invoke(&meth, ())?.try_into_value(vm)
+        })?;
+
         let arg = arg.unwrap_or_else(|| Either::B(0));
         match arg {
             Either::A(buf_kind) => {
