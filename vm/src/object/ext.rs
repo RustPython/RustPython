@@ -245,7 +245,7 @@ impl<T: PyObjectPayload> PyAtomicRef<T> {
     #[must_use]
     pub unsafe fn swap(&self, pyref: PyRef<T>) -> PyRef<T> {
         let py = PyRef::leak(pyref);
-        let old = self.0.swap(py as *const _ as *mut _, Ordering::AcqRel);
+        let old = Radium::swap(&self.0, py as *const _ as *mut _, Ordering::AcqRel);
         PyRef::from_raw(old)
     }
 
