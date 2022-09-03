@@ -60,10 +60,10 @@ fn warn_explicit(
     Ok(())
 }
 
-// filename, module, and registry are new refs, globals is borrowed
-// Returns 0 on error (no new refs), 1 on success
+/// filename, module, and registry are new refs, globals is borrowed
+/// Returns `Ok` on success, or `Err` on error (no new refs)
 fn setup_context(
-    _stack_level: isize,
+    mut stack_level: isize,
     vm: &VirtualMachine,
 ) -> PyResult<
     // filename, lineno, module, registry
@@ -72,32 +72,38 @@ fn setup_context(
     let __warningregistry__ = "__warningregistry__";
     let __name__ = "__name__";
 
-    // Setup globals, filename and lineno.
-    let frame = vm.current_frame();
+    let mut f = vm.current_frame().as_deref().cloned();
 
-    //     PyThreadState *tstate = _PyThreadState_GET();
-    //     PyFrameObject *f = PyThreadState_GetFrame(tstate);
-    //     // Stack level comparisons to Python code is off by one as there is no
-    //     // warnings-related stack level to avoid.
-    //     if (stack_level <= 0 || is_internal_frame(f)) {
-    //         while (--stack_level > 0 && f != NULL) {
-    //             PyFrameObject *back = PyFrame_GetBack(f);
-    //             Py_DECREF(f);
-    //             f = back;
-    //         }
-    //     }
-    //     else {
-    //         while (--stack_level > 0 && f != NULL) {
-    //             f = next_external_frame(f);
-    //         }
-    //     }
+    // Stack level comparisons to Python code is off by one as there is no
+    // warnings-related stack level to avoid.
+    if stack_level <= 0 || f.as_ref().map_or(false, |frame| frame.is_internal_frame()) {
+        loop {
+            stack_level -= 1;
+            if stack_level <= 0 {
+                break;
+            }
+            if let Some(tmp) = f {
+                f = tmp.f_back(vm);
+            } else {
+                break;
+            }
+        }
+    } else {
+        loop {
+            stack_level -= 1;
+            if stack_level <= 0 {
+                break;
+            }
+            if let Some(tmp) = f {
+                f = tmp.next_external_frame(vm);
+            } else {
+                break;
+            }
+        }
+    }
 
-    let (globals, filename, lineno) = if let Some(f) = frame {
-        // TODO:
-        let lineno = 1;
-        // *lineno = PyFrame_GetLineNumber(f);
-        // *filename = code->co_filename;
-        (f.globals.clone(), f.code.source_path, lineno)
+    let (globals, filename, lineno) = if let Some(f) = f {
+        (f.globals.clone(), f.code.source_path, f.f_lineno())
     } else {
         (vm.current_globals().clone(), vm.ctx.intern_str("sys"), 1)
     };
