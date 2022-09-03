@@ -43,6 +43,8 @@ extern crate env_logger;
 #[macro_use]
 extern crate log;
 
+use rustpython_pylib;
+
 mod shell;
 
 use clap::{App, AppSettings, Arg, ArgMatches};
@@ -257,25 +259,24 @@ fn add_stdlib(vm: &mut VirtualMachine) {
     {
         use rustpython_vm::common::rc::PyRc;
         let state = PyRc::get_mut(&mut vm.state).unwrap();
+        let settings = &mut state.settings;
 
         #[allow(clippy::needless_collect)] // false positive
-        let path_list: Vec<_> = state.settings.path_list.drain(..).collect();
+        let path_list: Vec<_> = settings.path_list.drain(..).collect();
 
         // BUILDTIME_RUSTPYTHONPATH should be set when distributing
         if let Some(paths) = option_env!("BUILDTIME_RUSTPYTHONPATH") {
-            state
-                .settings
+            settings
                 .path_list
                 .extend(split_paths(paths).map(|path| path.into_os_string().into_string().unwrap()))
         } else {
             #[cfg(feature = "rustpython-pylib")]
-            state
-                .settings
+            settings
                 .path_list
                 .push(rustpython_pylib::LIB_PATH.to_owned())
         }
 
-        state.settings.path_list.extend(path_list.into_iter());
+        settings.path_list.extend(path_list.into_iter());
     }
 }
 

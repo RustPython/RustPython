@@ -11,9 +11,8 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [features]
-default = ["stdlib"]
-stdlib = ["freeze-stdlib", "rustpython-pylib", "rustpython-stdlib"]
-freeze-stdlib = ["rustpython-vm/freeze-stdlib", "rustpython-pylib?/freeze-stdlib"]
+default = ["freeze-stdlib"]
+freeze-stdlib = ["rustpython-vm/freeze-stdlib", "rustpython-pylib/freeze-stdlib", "rustpython-stdlib"]
 no-start-func = []
 
 [dependencies]
