@@ -76,25 +76,29 @@ fn setup_context(
 
     // Stack level comparisons to Python code is off by one as there is no
     // warnings-related stack level to avoid.
-    if stack_level <= 0
-        || f.clone()
-            .map(|frame| frame.is_internal_frame())
-            .unwrap_or_default()
-    {
+    if stack_level <= 0 || f.as_ref().map_or(false, |frame| frame.is_internal_frame()) {
         loop {
             stack_level -= 1;
-            if stack_level <= 0 || f.is_none() {
+            if stack_level <= 0 {
                 break;
             }
-            f = f.unwrap().f_back(vm);
+            if let Some(tmp) = f {
+                f = tmp.f_back(vm);
+            } else {
+                break;
+            }
         }
     } else {
         loop {
             stack_level -= 1;
-            if stack_level <= 0 || f.is_none() {
+            if stack_level <= 0 {
                 break;
             }
-            f = f.unwrap().next_external_frame(vm);
+            if let Some(tmp) = f {
+                f = tmp.next_external_frame(vm);
+            } else {
+                break;
+            }
         }
     }
 

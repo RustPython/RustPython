@@ -273,19 +273,17 @@ impl FrameRef {
     }
 
     pub fn next_external_frame(&self, vm: &VirtualMachine) -> Option<FrameRef> {
-        let mut frame = self.clone().f_back(vm);
-
-        loop {
-            if let Some(back) = frame.clone() {
-                if back.is_internal_frame() {
-                    break Some(back);
-                } else {
-                    frame = back.f_back(vm);
-                }
+        self.clone().f_back(vm).map(|mut back| loop {
+            back = if let Some(back) = back.to_owned().f_back(vm) {
+                back
             } else {
-                break frame;
+                break back;
+            };
+
+            if !back.is_internal_frame() {
+                break back;
             }
-        }
+        })
     }
 }
 
