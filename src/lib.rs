@@ -261,9 +261,6 @@ fn add_stdlib(vm: &mut VirtualMachine) {
         #[allow(clippy::needless_collect)] // false positive
         let path_list: Vec<_> = state.settings.path_list.drain(..).collect();
 
-        // add the current directory to sys.path
-        state.settings.path_list.push("".to_owned());
-
         // BUILDTIME_RUSTPYTHONPATH should be set when distributing
         if let Some(paths) = option_env!("BUILDTIME_RUSTPYTHONPATH") {
             state
