@@ -248,6 +248,35 @@ fn add_stdlib(vm: &mut VirtualMachine) {
     let _ = vm;
     #[cfg(feature = "stdlib")]
     vm.add_native_modules(rustpython_stdlib::get_module_inits());
+
+    // if we're on freeze-stdlib, the core stdlib modules will be included anyway
+    #[cfg(feature = "freeze-stdlib")]
+    vm.add_frozen(rustpython_pylib::frozen_stdlib());
+
+    #[cfg(not(feature = "freeze-stdlib"))]
+    {
+        use rustpython_vm::common::rc::PyRc;
+        let state = PyRc::get_mut(&mut vm.state).unwrap();
+
+        #[allow(clippy::needless_collect)] // false positive
+        let path_list: Vec<_> = state.settings.path_list.drain(..).collect();
+
+        // BUILDTIME_RUSTPYTHONPATH should be set when distributing
+        if let Some(paths) = option_env!("BUILDTIME_RUSTPYTHONPATH") {
+            state
+                .settings
+                .path_list
+                .extend(split_paths(paths).map(|path| path.into_os_string().into_string().unwrap()))
+        } else {
+            #[cfg(feature = "rustpython-pylib")]
+            state
+                .settings
+                .path_list
+                .push(rustpython_pylib::LIB_PATH.to_owned())
+        }
+
+        state.settings.path_list.extend(path_list.into_iter());
+    }
 }
 
 /// Create settings by examining command line arguments and environment
@@ -263,21 +292,6 @@ fn create_settings(matches: &ArgMatches) -> Settings {
     settings.no_site = matches.is_present("no-site");
 
     let ignore_environment = settings.ignore_environment || settings.isolated;
-
-    // when rustpython-vm/pylib is enabled, Settings::default().path_list has pylib::LIB_PATH
-    let maybe_pylib = settings.path_list.pop();
-
-    // add the current directory to sys.path
-    settings.path_list.push("".to_owned());
-
-    // BUILDTIME_RUSTPYTHONPATH should be set when distributing
-    if let Some(paths) = option_env!("BUILDTIME_RUSTPYTHONPATH") {
-        settings
-            .path_list
-            .extend(split_paths(paths).map(|path| path.into_os_string().into_string().unwrap()))
-    } else {
-        settings.path_list.extend(maybe_pylib);
-    }
 
     if !ignore_environment {
         settings.path_list.extend(get_paths("RUSTPYTHONPATH"));
