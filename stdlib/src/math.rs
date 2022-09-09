@@ -542,6 +542,11 @@ mod math {
     }
 
     #[pyfunction]
+    fn cbrt(x: ArgIntoFloat) -> f64 {
+        x.cbrt()
+    }
+
+    #[pyfunction]
     fn fsum(seq: ArgIterable<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult<f64> {
         let mut partials = vec![];
         let mut special_sum = 0.0;
