@@ -139,7 +139,7 @@ mod _operator {
 
     /// Return a @ b
     #[pyfunction]
-    fn mat_mul(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn matmul(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm._matmul(&a, &b)
     }
 
