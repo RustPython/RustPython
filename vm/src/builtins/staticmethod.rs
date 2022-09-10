@@ -179,7 +179,8 @@ impl Callable for PyStaticMethod {
     type Args = FuncArgs;
     #[inline]
     fn call(zelf: &crate::Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        vm.invoke(&zelf.callable.lock().clone(), args)
+        let callable = zelf.callable.lock().clone();
+        vm.invoke(&callable, args)
     }
 }
 
