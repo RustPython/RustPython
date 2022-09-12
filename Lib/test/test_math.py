@@ -377,8 +377,6 @@ class MathTests(unittest.TestCase):
         self.assertTrue(math.isnan(math.atan2(NAN, INF)))
         self.assertTrue(math.isnan(math.atan2(NAN, NAN)))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testCbrt(self):
         self.assertRaises(TypeError, math.cbrt)
         self.ftest('cbrt(0)', math.cbrt(0), 0)
