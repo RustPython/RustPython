@@ -121,6 +121,11 @@ mod math {
     }
 
     #[pyfunction]
+    fn exp2(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
+        call_math_func!(exp2, x, vm)
+    }
+
+    #[pyfunction]
     fn expm1(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
         call_math_func!(exp_m1, x, vm)
     }
