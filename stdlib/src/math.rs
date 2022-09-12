@@ -184,7 +184,7 @@ mod math {
             return Err(vm.new_value_error("math domain error".to_owned()));
         }
 
-        if x == 0.0 && y < 0.0 {
+        if x == 0.0 && y < 0.0 && y != f64::NEG_INFINITY {
             return Err(vm.new_value_error("math domain error".to_owned()));
         }
 
