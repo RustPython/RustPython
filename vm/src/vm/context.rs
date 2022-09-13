@@ -3,7 +3,10 @@ use crate::{
         builtinfunc::{PyBuiltinFunction, PyBuiltinMethod, PyNativeFuncDef},
         bytes,
         code::{self, PyCode},
-        descriptor::{DescrObject, MemberDef, MemberDescrObject, MemberGetter, MemberKind},
+        descriptor::{
+            DescrObject, MemberDef, MemberDescrObject, MemberGetter, MemberKind, MemberSetter,
+            MemberSetterFunc,
+        },
         getset::PyGetSet,
         object, pystr,
         type_::PyAttributes,
@@ -458,12 +461,14 @@ impl Context {
         &self,
         name: &str,
         getter: fn(&VirtualMachine, PyObjectRef) -> PyResult,
+        setter: MemberSetterFunc,
         class: &'static Py<PyType>,
     ) -> PyRef<MemberDescrObject> {
         let member_def = MemberDef {
             name: name.to_owned(),
             kind: MemberKind::ObjectEx,
             getter: MemberGetter::Getter(getter),
+            setter: MemberSetter::Setter(setter),
             doc: None,
         };
         let member_descriptor = MemberDescrObject {

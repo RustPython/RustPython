@@ -4,7 +4,11 @@ use super::{
 };
 use crate::{
     builtins::PyBaseExceptionRef,
-    builtins::{descriptor::MemberGetter, function::PyCellRef, tuple::PyTupleTyped},
+    builtins::{
+        descriptor::{MemberGetter, MemberSetter},
+        function::PyCellRef,
+        tuple::PyTupleTyped,
+    },
     class::{PyClassImpl, StaticType},
     convert::ToPyObject,
     function::{FuncArgs, KwArgs, OptionalArg, PySetterValue},
@@ -689,6 +693,7 @@ impl PyType {
                     name: member.to_string(),
                     kind: MemberKind::ObjectEx,
                     getter: MemberGetter::Offset(offset),
+                    setter: MemberSetter::Offset(offset),
                     doc: None,
                 };
                 let member_descriptor: PyRef<MemberDescrObject> = vm.new_pyref(MemberDescrObject {
