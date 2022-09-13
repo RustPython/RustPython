@@ -648,8 +648,6 @@ class TestCase(unittest.TestCase):
             except OSError:
                 pass
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     # Test iterators with 'x in y' and 'x not in y'.
     def test_in_and_not_in(self):
         for sc5 in IteratingSequenceClass(5), SequenceClass(5):
