@@ -1,8 +1,6 @@
-use itertools::Itertools;
-
 use crate::{
     builtins::{PyDict, PyDictRef, PyListRef, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef},
-    convert::TryFromObject,
+    convert::{IntoObject, TryFromObject},
     AsObject, Context, Py, PyObjectRef, PyResult, VirtualMachine,
 };
 
@@ -104,42 +102,43 @@ fn get_filter(
 fn already_warned(
     registry: PyObjectRef,
     key: PyObjectRef,
-    should_set: usize,
+    should_set: bool,
     vm: &VirtualMachine,
-) -> bool {
-    let version_obj = registry.get_item("version", vm).ok();
-    let filters_version = vm
-        .ctx
-        .new_int(vm.state.warnings.filters_version)
-        .as_object()
-        .to_owned();
+) -> PyResult<bool> {
+    let version_obj = registry.get_item(identifier!(&vm.ctx, version), vm).ok();
+    let filters_version = vm.ctx.new_int(vm.state.warnings.filters_version).into();
 
-    if version_obj.is_none()
-        || version_obj.as_ref().unwrap().try_int(vm).is_err()
-        || !version_obj.unwrap().is(&filters_version)
-    {
-        let registry = registry.dict();
-        registry.as_ref().map(|registry| {
-            registry.into_iter().collect_vec().clear();
-            registry
-        });
-
-        if let Some(registry) = registry {
-            if registry.set_item("version", filters_version, vm).is_err() {
-                return false;
+    match version_obj {
+        Some(version_obj)
+            if version_obj.try_int(vm).is_ok() || version_obj.is(&filters_version) =>
+        {
+            let already_warned = registry.get_item(key.as_ref(), vm)?;
+            if already_warned.is_true(vm)? {
+                return Ok(true);
             }
         }
-    } else {
-        let already_warned = registry.get_item(key.as_ref(), vm);
-        return already_warned.is_ok();
+        _ => {
+            let registry = registry.dict();
+            registry.as_ref().map(|registry| {
+                registry.clear();
+                registry
+            });
+
+            if let Some(registry) = registry {
+                if registry.set_item("version", filters_version, vm).is_err() {
+                    return Ok(false);
+                }
+            }
+        }
     }
 
     /* This warning wasn't found in the registry, set it. */
-    if should_set != 0 {
-        registry.set_item(key.as_ref(), vm.new_pyobj(""), vm).ok();
-    }
-
-    false
+    Ok(if should_set {
+        let item = vm.ctx.true_value.clone().into();
+        registry.set_item(key.as_ref(), item, vm).map(|_| true)?
+    } else {
+        false
+    })
 }
 
 fn normalize_module(filename: PyStrRef, vm: &VirtualMachine) -> Option<PyObjectRef> {
@@ -148,7 +147,7 @@ fn normalize_module(filename: PyStrRef, vm: &VirtualMachine) -> Option<PyObjectR
     if len == 0 {
         Some(vm.new_pyobj("<unknown>"))
     } else if len >= 3 && filename.as_str().contains(".py") {
-        Some(vm.new_pyobj(filename.as_str().replace(".py", "")))
+        Some(vm.new_pyobj(&filename.as_str()[..len - 3]))
     } else {
         Some(filename.as_object().to_owned())
     }
@@ -166,26 +165,16 @@ fn warn_explicit(
     _source: Option<PyObjectRef>,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
-    if registry.clone().is_true(vm)?
-        && !registry.class().is(vm.ctx.types.dict_type)
-        && !registry.class().is(vm.ctx.types.none_type)
-    {
-        return Err(vm.new_type_error("'registry' must be a dict or None".to_string()));
-    }
+    let registry: PyObjectRef = registry
+        .try_into_value(vm)
+        .map_err(|_| vm.new_type_error("'registry' must be a dict or None".to_owned()))?;
 
     // Normalize module.
-    let module = module.and(normalize_module(filename, vm));
-    let module = if let Some(module) = module {
-        module
-    } else {
-        return Ok(());
+    let module = match module.or_else(|| normalize_module(filename, vm)) {
+        Some(module) => module,
+        None => return Ok(()),
     };
 
-    // Normalize message.
-    let text = message.as_str();
-    if text.is_empty() {
-        return Ok(());
-    }
     let category = if let Some(category) = category {
         if !category.fast_issubclass(vm.ctx.exceptions.warning) {
             return Err(vm.new_type_error(format!(
@@ -198,18 +187,26 @@ fn warn_explicit(
         vm.ctx.exceptions.user_warning.to_owned()
     };
 
+    // Normalize message.
+    let (category, text) = if message.fast_isinstance(vm.ctx.exceptions.warning) {
+        (message.class().into_owned(), message.as_object().str(vm)?)
+    } else {
+        (category, message)
+    };
+
     // Create key.
     let key = PyTuple::new_ref(
         vec![
             vm.ctx.new_int(3).into(),
-            vm.ctx.new_str(text).into(),
+            vm.ctx.new_str(text.as_str()).into(),
             category.as_object().to_owned(),
             vm.ctx.new_int(lineno).into(),
         ],
         &vm.ctx,
     );
 
-    if already_warned(registry, key.as_object().to_owned(), 0, vm) {
+    if !vm.is_none(registry.as_object()) && already_warned(registry, key.into_object(), false, vm)?
+    {
         return Ok(());
     }
     // Else this warning hasn't been generated before.
@@ -217,7 +214,7 @@ fn warn_explicit(
     let item = vm.ctx.new_tuple(vec![]).into();
     let _action = get_filter(
         category.as_object().to_owned(),
-        vm.ctx.new_str(text).into(),
+        vm.ctx.new_str(text.as_str()).into(),
         lineno,
         module,
         item,
