@@ -514,10 +514,20 @@ impl PyObject {
     }
 
     pub fn hash(&self, vm: &VirtualMachine) -> PyResult<PyHash> {
+        // hash always exist
+        let hash = self.get_class_attr(identifier!(vm, __hash__)).unwrap();
+        if hash.is(&vm.ctx.none()) {
+            return Err(vm.new_exception_msg(
+                vm.ctx.exceptions.type_error.to_owned(),
+                format!("unhashable type: '{}'", self.class().name()),
+            ));
+        }
+
         let hash = self
             .class()
             .mro_find_map(|cls| cls.slots.hash.load())
-            .unwrap(); // hash always exist
+            .unwrap();
+
         hash(self, vm)
     }
 
