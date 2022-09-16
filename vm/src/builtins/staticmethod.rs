@@ -2,15 +2,16 @@ use super::{PyStr, PyType, PyTypeRef};
 use crate::{
     builtins::builtinfunc::PyBuiltinMethod,
     class::PyClassImpl,
+    common::lock::PyMutex,
     function::{FuncArgs, IntoPyNativeFunc},
     types::{Callable, Constructor, GetDescriptor, Initializer},
     Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "staticmethod")]
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct PyStaticMethod {
-    pub callable: PyObjectRef,
+    pub callable: PyMutex<PyObjectRef>,
 }
 
 impl PyPayload for PyStaticMethod {
@@ -22,18 +23,21 @@ impl PyPayload for PyStaticMethod {
 impl GetDescriptor for PyStaticMethod {
     fn descr_get(
         zelf: PyObjectRef,
-        _obj: Option<PyObjectRef>,
+        obj: Option<PyObjectRef>,
         _cls: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let zelf = Self::_zelf(zelf, vm)?;
-        Ok(zelf.callable.clone())
+        let (zelf, _obj) = Self::_unwrap(zelf, obj, vm)?;
+        let x = Ok(zelf.callable.lock().clone());
+        x
     }
 }
 
 impl From<PyObjectRef> for PyStaticMethod {
     fn from(callable: PyObjectRef) -> Self {
-        Self { callable }
+        Self {
+            callable: PyMutex::new(callable),
+        }
     }
 }
 
@@ -43,7 +47,10 @@ impl Constructor for PyStaticMethod {
     fn py_new(cls: PyTypeRef, callable: Self::Args, vm: &VirtualMachine) -> PyResult {
         let doc = callable.get_attr("__doc__", vm);
 
-        let result = PyStaticMethod { callable }.into_ref_with_type(vm, cls)?;
+        let result = PyStaticMethod {
+            callable: PyMutex::new(callable),
+        }
+        .into_ref_with_type(vm, cls)?;
         let obj = PyObjectRef::from(result);
 
         if let Ok(doc) = doc {
@@ -51,6 +58,18 @@ impl Constructor for PyStaticMethod {
         }
 
         Ok(obj)
+    }
+}
+
+impl PyStaticMethod {
+    pub fn new_ref(callable: PyObjectRef, ctx: &Context) -> PyRef<Self> {
+        PyRef::new_ref(
+            Self {
+                callable: PyMutex::new(callable),
+            },
+            ctx.types.staticmethod_type.to_owned(),
+            None,
+        )
     }
 }
 
@@ -66,7 +85,9 @@ impl PyStaticMethod {
     {
         let callable = PyBuiltinMethod::new_ref(name, class, f, ctx).into();
         PyRef::new_ref(
-            Self { callable },
+            Self {
+                callable: PyMutex::new(callable),
+            },
             ctx.types.staticmethod_type.to_owned(),
             None,
         )
@@ -76,7 +97,8 @@ impl PyStaticMethod {
 impl Initializer for PyStaticMethod {
     type Args = PyObjectRef;
 
-    fn init(_zelf: PyRef<Self>, _func: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+    fn init(zelf: PyRef<Self>, callable: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+        *zelf.callable.lock() = callable;
         Ok(())
     }
 }
@@ -88,37 +110,37 @@ impl Initializer for PyStaticMethod {
 impl PyStaticMethod {
     #[pyproperty(magic)]
     fn func(&self) -> PyObjectRef {
-        self.callable.clone()
+        self.callable.lock().clone()
     }
 
     #[pyproperty(magic)]
     fn wrapped(&self) -> PyObjectRef {
-        self.callable.clone()
+        self.callable.lock().clone()
     }
 
     #[pyproperty(magic)]
     fn module(&self, vm: &VirtualMachine) -> PyResult {
-        self.callable.get_attr("__module__", vm)
+        self.callable.lock().get_attr("__module__", vm)
     }
 
     #[pyproperty(magic)]
     fn qualname(&self, vm: &VirtualMachine) -> PyResult {
-        self.callable.get_attr("__qualname__", vm)
+        self.callable.lock().get_attr("__qualname__", vm)
     }
 
     #[pyproperty(magic)]
     fn name(&self, vm: &VirtualMachine) -> PyResult {
-        self.callable.get_attr("__name__", vm)
+        self.callable.lock().get_attr("__name__", vm)
     }
 
     #[pyproperty(magic)]
     fn annotations(&self, vm: &VirtualMachine) -> PyResult {
-        self.callable.get_attr("__annotations__", vm)
+        self.callable.lock().get_attr("__annotations__", vm)
     }
 
     #[pymethod(magic)]
     fn repr(&self, vm: &VirtualMachine) -> Option<String> {
-        let callable = self.callable.repr(vm).unwrap();
+        let callable = self.callable.lock().repr(vm).unwrap();
         let class = Self::class(vm);
 
         match (
@@ -138,7 +160,7 @@ impl PyStaticMethod {
 
     #[pyproperty(magic)]
     fn isabstractmethod(&self, vm: &VirtualMachine) -> PyObjectRef {
-        match vm.get_attribute_opt(self.callable.clone(), "__isabstractmethod__") {
+        match vm.get_attribute_opt(self.callable.lock().clone(), "__isabstractmethod__") {
             Ok(Some(is_abstract)) => is_abstract,
             _ => vm.ctx.new_bool(false).into(),
         }
@@ -146,7 +168,9 @@ impl PyStaticMethod {
 
     #[pyproperty(magic, setter)]
     fn set_isabstractmethod(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.callable.set_attr("__isabstractmethod__", value, vm)?;
+        self.callable
+            .lock()
+            .set_attr("__isabstractmethod__", value, vm)?;
         Ok(())
     }
 }
@@ -155,7 +179,8 @@ impl Callable for PyStaticMethod {
     type Args = FuncArgs;
     #[inline]
     fn call(zelf: &crate::Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        vm.invoke(&zelf.callable, args)
+        let callable = zelf.callable.lock().clone();
+        vm.invoke(&callable, args)
     }
 }
 
