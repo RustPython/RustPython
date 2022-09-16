@@ -216,8 +216,6 @@ class PropertyTests(unittest.TestCase):
                 return 'Second'
         self.assertEqual(A.__doc__, 'Second')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_property_set_name_incorrect_args(self):
         p = property()
 

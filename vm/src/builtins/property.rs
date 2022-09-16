@@ -3,6 +3,7 @@
 */
 use super::{PyType, PyTypeRef};
 use crate::common::lock::PyRwLock;
+use crate::function::PosArgs;
 use crate::{
     class::PyClassImpl,
     function::{FuncArgs, PySetterValue},
@@ -120,6 +121,23 @@ impl PyProperty {
     }
     fn doc_setter(&self, value: Option<PyObjectRef>) {
         *self.doc.write() = value;
+    }
+
+    #[pymethod(magic)]
+    fn set_name(&self, args: PosArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let arg_len = args.into_vec().len();
+
+        if arg_len != 2 {
+            Err(vm.new_exception_msg(
+                vm.ctx.exceptions.type_error.to_owned(),
+                format!(
+                    "__set_name__() takes 2 positional arguments but {} were given",
+                    arg_len
+                ),
+            ))
+        } else {
+            Ok(())
+        }
     }
 
     // Python builder functions
