@@ -114,9 +114,9 @@ struct PyInner<T> {
     typ: PyRwLock<PyTypeRef>, // __class__ member
     dict: Option<InstanceDict>,
     weak_list: WeakRefList,
+    slots: Box<[PyRwLock<Option<PyObjectRef>>]>,
 
     payload: T,
-    slots: Box<[PyRwLock<Option<PyObjectRef>>]>,
 }
 
 impl<T: fmt::Debug> fmt::Debug for PyInner<T> {
