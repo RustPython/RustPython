@@ -1,13 +1,16 @@
+use std::convert::TryInto;
+
 use crate::{
     builtins::{PyDict, PyDictRef, PyListRef, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef},
     convert::{IntoObject, TryFromObject},
+    types::PyComparisonOp,
     AsObject, Context, Py, PyObjectRef, PyResult, VirtualMachine,
 };
 
 pub struct WarningsState {
     filters: PyListRef,
     _once_registry: PyDictRef,
-    _default_action: PyStrRef,
+    default_action: PyStrRef,
     filters_version: usize,
 }
 
@@ -26,10 +29,23 @@ impl WarningsState {
         WarningsState {
             filters: Self::create_filter(ctx),
             _once_registry: PyDict::new_ref(ctx),
-            _default_action: ctx.new_str("default"),
+            default_action: ctx.new_str("default"),
             filters_version: 0,
         }
     }
+}
+
+fn check_matched(obj: &PyObjectRef, arg: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+    if obj.class().is(vm.ctx.types.none_type) {
+        return Ok(true);
+    }
+
+    if obj.rich_compare_bool(arg, PyComparisonOp::Eq, vm)? {
+        return Ok(false);
+    }
+
+    let result = vm.invoke(obj, (arg.to_owned(),))?;
+    result.is_true(vm)
 }
 
 pub fn py_warn(
@@ -60,14 +76,28 @@ pub fn warn(
     )
 }
 
+fn get_default_action(vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+    vm.state
+        .warnings
+        .default_action
+        .clone()
+        .try_into()
+        .map_err(|_| {
+            vm.new_value_error(format!(
+                "_warnings.defaultaction must be a string, not '{}'",
+                vm.state.warnings.default_action
+            ))
+        })
+}
+
 fn get_filter(
-    _category: PyObjectRef,
-    _text: PyObjectRef,
-    _lineno: usize,
-    _module: PyObjectRef,
+    category: PyObjectRef,
+    text: PyObjectRef,
+    lineno: usize,
+    module: PyObjectRef,
     mut _item: PyObjectRef,
     vm: &VirtualMachine,
-) -> PyResult<()> {
+) -> PyResult<PyObjectRef> {
     let filters = vm.state.warnings.filters.as_object().to_owned();
 
     let filters: PyListRef = filters
@@ -89,14 +119,50 @@ fn get_filter(
         }?;
 
         /* Python code: action, msg, cat, mod, ln = item */
-        let _action = tmp_item.get(0);
-        let _msg = tmp_item.get(1);
-        let _cat = tmp_item.get(2);
-        let _item_mod = tmp_item.get(3);
-        let _ln_obj = tmp_item.get(4);
+        let action = tmp_item.get(0);
+        let msg = tmp_item.get(1);
+        let cat = tmp_item.get(2);
+        let item_mod = tmp_item.get(3);
+        let ln_obj = tmp_item.get(4);
+
+        let action = if let Some(action) = action {
+            action.str(vm).map(|action| action.into_object())
+        } else {
+            Err(vm.new_type_error("action must be a string".to_string()))
+        };
+
+        let good_msg = if let Some(msg) = msg {
+            check_matched(msg, &text, vm)?
+        } else {
+            false
+        };
+
+        let good_mod = if let Some(item_mod) = item_mod {
+            check_matched(item_mod, &module, vm)?
+        } else {
+            false
+        };
+
+        let is_subclass = if let Some(cat) = cat {
+            category.fast_isinstance(&cat.class())
+        } else {
+            false
+        };
+
+        // I would like some help on how to deal with it
+        let ln = if let Some(ln_obj) = ln_obj {
+            ln_obj.length(vm)?
+        } else {
+            0
+        };
+
+        if good_msg && good_mod && is_subclass && (ln == 0 || lineno == ln) {
+            _item = tmp_item.into_object();
+            return action;
+        }
     }
 
-    Ok(())
+    get_default_action(vm)
 }
 
 fn already_warned(
@@ -192,6 +258,7 @@ fn warn_explicit(
         (message.class().into_owned(), message.as_object().str(vm)?)
     } else {
         (category, message)
+        // (category, message.to_owned())
     };
 
     // Create key.
@@ -220,6 +287,14 @@ fn warn_explicit(
         item,
         vm,
     );
+
+    // if action.str(vm)?.as_str().eq("error") {
+    //     return Err(vm.new_type_error(message.to_string()));
+    // }
+
+    // if action.str(vm)?.as_str().eq("ignore") {
+    //     return Ok(());
+    // }
 
     let stderr = crate::stdlib::sys::PyStderr(vm);
     writeln!(stderr, "{}: {}", category.name(), text,);
