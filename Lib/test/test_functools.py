@@ -272,8 +272,6 @@ class TestPartial:
         self.assertIsNot(f_copy.keywords, f.keywords)
         self.assertIsNot(f_copy.keywords['bar'], f.keywords['bar'])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_setstate(self):
         f = self.partial(signature)
         f.__setstate__((capture, (1,), dict(a=10), dict(attr=[])))
@@ -309,8 +307,6 @@ class TestPartial:
         self.assertRaises(TypeError, f.__setstate__, (capture, [], {}, None))
         self.assertRaises(TypeError, f.__setstate__, (capture, (), [], None))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_setstate_subclasses(self):
         f = self.partial(signature)
         f.__setstate__((capture, MyTuple((1,)), MyDict(a=10), None))
