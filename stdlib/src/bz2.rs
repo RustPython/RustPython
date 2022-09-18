@@ -126,13 +126,13 @@ mod _bz2 {
             Ok(vm.ctx.new_bytes(buf.to_vec()))
         }
 
-        #[pyproperty]
+        #[pygetset]
         fn eof(&self) -> bool {
             let state = self.state.lock();
             state.eof
         }
 
-        #[pyproperty]
+        #[pygetset]
         fn unused_data(&self, vm: &VirtualMachine) -> PyBytesRef {
             // Data found after the end of the compressed stream.
             // If this attribute is accessed before the end of the stream
@@ -152,7 +152,7 @@ mod _bz2 {
             // }
         }
 
-        #[pyproperty]
+        #[pygetset]
         fn needs_input(&self) -> bool {
             // False if the decompress() method can provide more
             // decompressed data before requiring new uncompressed input.

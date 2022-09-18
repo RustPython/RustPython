@@ -132,7 +132,7 @@ mod unicodedata {
             Ok(normalized_text)
         }
 
-        #[pyproperty]
+        #[pygetset]
         fn unidata_version(&self) -> String {
             self.unic_version.to_string()
         }

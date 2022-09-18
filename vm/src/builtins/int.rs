@@ -700,22 +700,22 @@ impl PyInt {
         vm.ctx.new_bigint(&zelf.value)
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn real(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRef<Self> {
         Self::clone_if_subclass(zelf, vm)
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn imag(&self) -> usize {
         0
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn numerator(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRef<Self> {
         Self::clone_if_subclass(zelf, vm)
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn denominator(&self) -> usize {
         1
     }

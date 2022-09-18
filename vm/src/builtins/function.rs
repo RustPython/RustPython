@@ -330,25 +330,25 @@ impl PyPayload for PyFunction {
 
 #[pyclass(with(GetDescriptor, Callable), flags(HAS_DICT, METHOD_DESCR))]
 impl PyFunction {
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     fn code(&self) -> PyRef<PyCode> {
         self.code.clone()
     }
 
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     fn defaults(&self) -> Option<PyTupleRef> {
         self.defaults_and_kwdefaults.lock().0.clone()
     }
-    #[pyproperty(magic, setter)]
+    #[pygetset(magic, setter)]
     fn set_defaults(&self, defaults: Option<PyTupleRef>) {
         self.defaults_and_kwdefaults.lock().0 = defaults
     }
 
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     fn kwdefaults(&self) -> Option<PyDictRef> {
         self.defaults_and_kwdefaults.lock().1.clone()
     }
-    #[pyproperty(magic, setter)]
+    #[pygetset(magic, setter)]
     fn set_kwdefaults(&self, kwdefaults: Option<PyDictRef>) {
         self.defaults_and_kwdefaults.lock().1 = kwdefaults
     }
@@ -370,12 +370,12 @@ impl PyFunction {
         Ok(vm.unwrap_or_none(zelf.closure.clone().map(|x| x.to_pyobject(vm))))
     }
 
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     fn name(&self) -> PyStrRef {
         self.name.lock().clone()
     }
 
-    #[pyproperty(magic, setter)]
+    #[pygetset(magic, setter)]
     fn set_name(&self, name: PyStrRef) {
         *self.name.lock() = name;
     }
@@ -532,27 +532,27 @@ impl PyBoundMethod {
         ))
     }
 
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     fn doc(&self, vm: &VirtualMachine) -> PyResult {
         self.function.get_attr("__doc__", vm)
     }
 
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     fn func(&self) -> PyObjectRef {
         self.function.clone()
     }
 
-    #[pyproperty(name = "__self__")]
+    #[pygetset(name = "__self__")]
     fn get_self(&self) -> PyObjectRef {
         self.object.clone()
     }
 
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     fn module(&self, vm: &VirtualMachine) -> Option<PyObjectRef> {
         self.function.get_attr("__module__", vm).ok()
     }
 
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     fn qualname(&self, vm: &VirtualMachine) -> PyResult {
         if self
             .function
@@ -619,12 +619,12 @@ impl PyCell {
         *self.contents.lock() = x;
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn cell_contents(&self, vm: &VirtualMachine) -> PyResult {
         self.get()
             .ok_or_else(|| vm.new_value_error("Cell is empty".to_owned()))
     }
-    #[pyproperty(setter)]
+    #[pygetset(setter)]
     fn set_cell_contents(&self, x: PyObjectRef) {
         self.set(Some(x))
     }

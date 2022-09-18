@@ -290,15 +290,15 @@ mod zlib {
     }
     #[pyclass]
     impl PyDecompress {
-        #[pyproperty]
+        #[pygetset]
         fn eof(&self) -> bool {
             self.eof.load()
         }
-        #[pyproperty]
+        #[pygetset]
         fn unused_data(&self) -> PyBytesRef {
             self.unused_data.lock().clone()
         }
-        #[pyproperty]
+        #[pygetset]
         fn unconsumed_tail(&self) -> PyBytesRef {
             self.unconsumed_tail.lock().clone()
         }

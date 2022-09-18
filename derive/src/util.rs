@@ -15,7 +15,7 @@ pub(crate) const ALL_ALLOWED_NAMES: &[&str] = &[
     "pymethod",
     "pyclassmethod",
     "pystaticmethod",
-    "pyproperty",
+    "pygetset",
     "pyfunction",
     "pyclass",
     "pyexception",

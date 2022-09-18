@@ -132,17 +132,17 @@ impl PyProperty {
 
     // Access functions
 
-    #[pyproperty]
+    #[pygetset]
     fn fget(&self) -> Option<PyObjectRef> {
         self.getter.read().clone()
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn fset(&self) -> Option<PyObjectRef> {
         self.setter.read().clone()
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn fdel(&self) -> Option<PyObjectRef> {
         self.deleter.read().clone()
     }
@@ -201,7 +201,7 @@ impl PyProperty {
         .into_ref_with_type(vm, zelf.class().clone())
     }
 
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     fn isabstractmethod(&self, vm: &VirtualMachine) -> PyObjectRef {
         let getter_abstract = match self.getter.read().to_owned() {
             Some(getter) => getter
@@ -219,7 +219,7 @@ impl PyProperty {
             .unwrap_or_else(|_| vm.ctx.new_bool(false).into())
     }
 
-    #[pyproperty(magic, setter)]
+    #[pygetset(magic, setter)]
     fn set_isabstractmethod(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if let Some(getter) = self.getter.read().to_owned() {
             getter.set_attr("__isabstractmethod__", value, vm)?;

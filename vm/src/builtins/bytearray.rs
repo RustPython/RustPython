@@ -107,7 +107,7 @@ pub(crate) fn init(context: &Context) {
 )]
 impl PyByteArray {
     #[cfg(debug_assertions)]
-    #[pyproperty]
+    #[pygetset]
     fn exports(&self) -> usize {
         self.exports.load(Ordering::Relaxed)
     }

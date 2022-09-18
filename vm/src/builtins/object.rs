@@ -259,12 +259,12 @@ impl PyBaseObject {
         Ok(())
     }
 
-    #[pyproperty(name = "__class__")]
+    #[pygetset(name = "__class__")]
     fn get_class(obj: PyObjectRef) -> PyTypeRef {
         obj.class().clone()
     }
 
-    #[pyproperty(name = "__class__", setter)]
+    #[pygetset(name = "__class__", setter)]
     fn set_class(instance: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if instance.payload_is::<PyBaseObject>() {
             match value.downcast::<PyType>() {

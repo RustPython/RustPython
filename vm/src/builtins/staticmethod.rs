@@ -108,32 +108,32 @@ impl Initializer for PyStaticMethod {
     flags(BASETYPE, HAS_DICT)
 )]
 impl PyStaticMethod {
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     fn func(&self) -> PyObjectRef {
         self.callable.lock().clone()
     }
 
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     fn wrapped(&self) -> PyObjectRef {
         self.callable.lock().clone()
     }
 
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     fn module(&self, vm: &VirtualMachine) -> PyResult {
         self.callable.lock().get_attr("__module__", vm)
     }
 
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     fn qualname(&self, vm: &VirtualMachine) -> PyResult {
         self.callable.lock().get_attr("__qualname__", vm)
     }
 
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     fn name(&self, vm: &VirtualMachine) -> PyResult {
         self.callable.lock().get_attr("__name__", vm)
     }
 
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     fn annotations(&self, vm: &VirtualMachine) -> PyResult {
         self.callable.lock().get_attr("__annotations__", vm)
     }
@@ -158,7 +158,7 @@ impl PyStaticMethod {
         }
     }
 
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     fn isabstractmethod(&self, vm: &VirtualMachine) -> PyObjectRef {
         match vm.get_attribute_opt(self.callable.lock().clone(), "__isabstractmethod__") {
             Ok(Some(is_abstract)) => is_abstract,
@@ -166,7 +166,7 @@ impl PyStaticMethod {
         }
     }
 
-    #[pyproperty(magic, setter)]
+    #[pygetset(magic, setter)]
     fn set_isabstractmethod(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.callable
             .lock()

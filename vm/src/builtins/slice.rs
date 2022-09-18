@@ -27,7 +27,7 @@ impl PyPayload for PySlice {
 
 #[pyclass(with(Hashable, Comparable))]
 impl PySlice {
-    #[pyproperty]
+    #[pygetset]
     fn start(&self, vm: &VirtualMachine) -> PyObjectRef {
         self.start.clone().to_pyobject(vm)
     }
@@ -39,12 +39,12 @@ impl PySlice {
         }
     }
 
-    #[pyproperty]
+    #[pygetset]
     pub(crate) fn stop(&self, _vm: &VirtualMachine) -> PyObjectRef {
         self.stop.clone()
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn step(&self, vm: &VirtualMachine) -> PyObjectRef {
         self.step.clone().to_pyobject(vm)
     }

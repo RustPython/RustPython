@@ -541,7 +541,7 @@ mod mmap {
             ))
         }
 
-        #[pyproperty]
+        #[pygetset]
         fn closed(&self) -> bool {
             self.closed.load()
         }

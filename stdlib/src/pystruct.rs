@@ -258,12 +258,12 @@ pub(crate) mod _struct {
 
     #[pyclass(with(Constructor))]
     impl PyStruct {
-        #[pyproperty]
+        #[pygetset]
         fn format(&self) -> PyStrRef {
             self.format.clone()
         }
 
-        #[pyproperty]
+        #[pygetset]
         #[inline]
         fn size(&self) -> usize {
             self.spec.size
