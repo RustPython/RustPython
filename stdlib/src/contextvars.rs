@@ -22,6 +22,8 @@ thread_local! {
 
 #[pymodule]
 mod _contextvars {
+    use rustpython_vm::builtins::PyGenericAlias;
+
     use crate::vm::{
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, atomic_func,
         builtins::{PyStrRef, PyTypeRef},
@@ -471,8 +473,8 @@ mod _contextvars {
         }
 
         #[pyclassmethod(magic)]
-        fn class_getitem(_cls: PyTypeRef, _key: PyStrRef, _vm: &VirtualMachine) -> PyResult<()> {
-            unimplemented!("ContextVar.__class_getitem__() is currently under construction")
+        fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+            PyGenericAlias::new(cls, args, vm)
         }
     }
 
@@ -560,6 +562,11 @@ mod _contextvars {
                 Some(value) => value.clone(),
                 None => ContextTokenMissing::static_type().to_owned().into(),
             }
+        }
+
+        #[pyclassmethod(magic)]
+        fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+            PyGenericAlias::new(cls, args, vm)
         }
     }
 
