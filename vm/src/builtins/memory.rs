@@ -155,32 +155,32 @@ impl PyMemoryView {
         }
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn obj(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         self.try_not_released(vm).map(|_| self.buffer.obj.clone())
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn nbytes(&self, vm: &VirtualMachine) -> PyResult<usize> {
         self.try_not_released(vm).map(|_| self.desc.len)
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn readonly(&self, vm: &VirtualMachine) -> PyResult<bool> {
         self.try_not_released(vm).map(|_| self.desc.readonly)
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn itemsize(&self, vm: &VirtualMachine) -> PyResult<usize> {
         self.try_not_released(vm).map(|_| self.desc.itemsize)
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn ndim(&self, vm: &VirtualMachine) -> PyResult<usize> {
         self.try_not_released(vm).map(|_| self.desc.ndim())
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn shape(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         self.try_not_released(vm)?;
         Ok(vm.ctx.new_tuple(
@@ -192,7 +192,7 @@ impl PyMemoryView {
         ))
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn strides(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         self.try_not_released(vm)?;
         Ok(vm.ctx.new_tuple(
@@ -204,7 +204,7 @@ impl PyMemoryView {
         ))
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn suboffsets(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         self.try_not_released(vm)?;
         Ok(vm.ctx.new_tuple(
@@ -216,23 +216,23 @@ impl PyMemoryView {
         ))
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn format(&self, vm: &VirtualMachine) -> PyResult<PyStr> {
         self.try_not_released(vm)
             .map(|_| PyStr::from(self.desc.format.clone()))
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn contiguous(&self, vm: &VirtualMachine) -> PyResult<bool> {
         self.try_not_released(vm).map(|_| self.desc.is_contiguous())
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn c_contiguous(&self, vm: &VirtualMachine) -> PyResult<bool> {
         self.try_not_released(vm).map(|_| self.desc.is_contiguous())
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn f_contiguous(&self, vm: &VirtualMachine) -> PyResult<bool> {
         // TODO: fortain order
         self.try_not_released(vm)

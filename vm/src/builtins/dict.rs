@@ -1032,7 +1032,7 @@ impl PyDictKeys {
         zelf.dict().contains(key, vm)
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn mapping(zelf: PyRef<Self>) -> PyMappingProxy {
         PyMappingProxy::from(zelf.dict().clone())
     }
@@ -1085,7 +1085,7 @@ impl PyDictItems {
         let found = PyDict::getitem(zelf.dict().clone(), key, vm)?;
         vm.identical_or_equal(&found, &value)
     }
-    #[pyproperty]
+    #[pygetset]
     fn mapping(zelf: PyRef<Self>) -> PyMappingProxy {
         PyMappingProxy::from(zelf.dict().clone())
     }
@@ -1118,7 +1118,7 @@ impl AsSequence for PyDictItems {
 
 #[pyclass(with(DictView, Constructor, Iterable, AsSequence))]
 impl PyDictValues {
-    #[pyproperty]
+    #[pygetset]
     fn mapping(zelf: PyRef<Self>) -> PyMappingProxy {
         PyMappingProxy::from(zelf.dict().clone())
     }

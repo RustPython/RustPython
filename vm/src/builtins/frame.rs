@@ -31,22 +31,22 @@ impl FrameRef {
         // TODO
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn f_globals(self) -> PyDictRef {
         self.globals.clone()
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn f_locals(self, vm: &VirtualMachine) -> PyResult {
         self.locals(vm).map(Into::into)
     }
 
-    #[pyproperty]
+    #[pygetset]
     pub fn f_code(self) -> PyRef<PyCode> {
         self.code.clone()
     }
 
-    #[pyproperty]
+    #[pygetset]
     pub fn f_back(self, vm: &VirtualMachine) -> Option<Self> {
         // TODO: actually store f_back inside Frame struct
 
@@ -61,23 +61,23 @@ impl FrameRef {
             .cloned()
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn f_lasti(self) -> u32 {
         self.lasti()
     }
 
-    #[pyproperty]
+    #[pygetset]
     pub fn f_lineno(self) -> usize {
         self.current_location().row()
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn f_trace(self) -> PyObjectRef {
         let boxed = self.trace.lock();
         boxed.clone()
     }
 
-    #[pyproperty(setter)]
+    #[pygetset(setter)]
     fn set_f_trace(self, value: PySetterValue, vm: &VirtualMachine) {
         let mut storage = self.trace.lock();
         *storage = value.unwrap_or_none(vm);

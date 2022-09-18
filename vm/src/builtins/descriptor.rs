@@ -110,12 +110,12 @@ impl MemberDescrObject {
         )
     }
 
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     fn doc(zelf: PyRef<Self>) -> Option<String> {
         zelf.member.doc.to_owned()
     }
 
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     fn qualname(&self, vm: &VirtualMachine) -> PyResult<Option<String>> {
         let qualname = self.common.qualname.read();
         Ok(if qualname.is_none() {

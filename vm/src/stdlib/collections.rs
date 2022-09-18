@@ -264,7 +264,7 @@ mod _collections {
             }
         }
 
-        #[pyproperty]
+        #[pygetset]
         fn maxlen(&self) -> Option<usize> {
             self.maxlen
         }

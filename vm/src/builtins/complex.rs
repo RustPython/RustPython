@@ -217,12 +217,12 @@ impl PyComplex {
         }
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn real(&self) -> f64 {
         self.value.re
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn imag(&self) -> f64 {
         self.value.im
     }

@@ -80,12 +80,12 @@ mod hashlib {
             Ok(PyHasher::new("md5", HashWrapper::md5()).into_pyobject(vm))
         }
 
-        #[pyproperty]
+        #[pygetset]
         fn name(&self) -> String {
             self.name.clone()
         }
 
-        #[pyproperty]
+        #[pygetset]
         fn digest_size(&self) -> usize {
             self.read().digest_size()
         }

@@ -341,18 +341,18 @@ mod _js {
             })
         }
 
-        #[pyproperty]
+        #[pygetset]
         fn value(&self) -> Option<PyJsValueRef> {
             self.closure
                 .borrow()
                 .as_ref()
                 .map(|(_, jsval)| jsval.clone())
         }
-        #[pyproperty]
+        #[pygetset]
         fn destroyed(&self) -> bool {
             self.destroyed.get()
         }
-        #[pyproperty]
+        #[pygetset]
         fn detached(&self) -> bool {
             self.detached.get()
         }

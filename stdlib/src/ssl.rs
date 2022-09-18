@@ -512,11 +512,11 @@ mod _ssl {
             func(builder_as_ctx(&c))
         }
 
-        #[pyproperty]
+        #[pygetset]
         fn post_handshake_auth(&self) -> bool {
             *self.post_handshake_auth.lock()
         }
-        #[pyproperty(setter)]
+        #[pygetset(setter)]
         fn set_post_handshake_auth(
             &self,
             value: Option<PyObjectRef>,
@@ -539,20 +539,20 @@ mod _ssl {
             })
         }
 
-        #[pyproperty]
+        #[pygetset]
         fn options(&self) -> libc::c_ulong {
             self.ctx.read().options().bits()
         }
-        #[pyproperty(setter)]
+        #[pygetset(setter)]
         fn set_options(&self, opts: libc::c_ulong) {
             self.builder()
                 .set_options(SslOptions::from_bits_truncate(opts));
         }
-        #[pyproperty]
+        #[pygetset]
         fn protocol(&self) -> i32 {
             self.protocol as i32
         }
-        #[pyproperty]
+        #[pygetset]
         fn verify_mode(&self) -> i32 {
             let mode = self.exec_ctx(|ctx| ctx.verify_mode());
             if mode == SslVerifyMode::NONE {
@@ -565,7 +565,7 @@ mod _ssl {
                 unreachable!()
             }
         }
-        #[pyproperty(setter)]
+        #[pygetset(setter)]
         fn set_verify_mode(&self, cert: i32, vm: &VirtualMachine) -> PyResult<()> {
             let mut ctx = self.builder();
             let cert_req = CertRequirements::try_from(cert)
@@ -586,11 +586,11 @@ mod _ssl {
             ctx.set_verify(mode);
             Ok(())
         }
-        #[pyproperty]
+        #[pygetset]
         fn check_hostname(&self) -> bool {
             self.check_hostname.load()
         }
-        #[pyproperty(setter)]
+        #[pygetset(setter)]
         fn set_check_hostname(&self, ch: bool) {
             let mut ctx = self.builder();
             if ch && builder_as_ctx(&ctx).verify_mode() == SslVerifyMode::NONE {
@@ -923,26 +923,26 @@ mod _ssl {
 
     #[pyclass]
     impl PySslSocket {
-        #[pyproperty]
+        #[pygetset]
         fn owner(&self) -> Option<PyObjectRef> {
             self.owner.read().as_ref().and_then(|weak| weak.upgrade())
         }
-        #[pyproperty(setter)]
+        #[pygetset(setter)]
         fn set_owner(&self, owner: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             let mut lock = self.owner.write();
             lock.take();
             *lock = Some(owner.downgrade(None, vm)?);
             Ok(())
         }
-        #[pyproperty]
+        #[pygetset]
         fn server_side(&self) -> bool {
             self.socket_type == SslServerOrClient::Server
         }
-        #[pyproperty]
+        #[pygetset]
         fn context(&self) -> PyRef<PySslContext> {
             self.ctx.clone()
         }
-        #[pyproperty]
+        #[pygetset]
         fn server_hostname(&self) -> Option<PyStrRef> {
             self.server_hostname.clone()
         }

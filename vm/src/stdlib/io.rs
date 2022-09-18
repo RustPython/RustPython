@@ -444,7 +444,7 @@ mod _io {
             false
         }
 
-        #[pyproperty]
+        #[pygetset]
         fn closed(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             instance.get_attr("__closed", vm)
         }
@@ -706,7 +706,7 @@ mod _io {
 
     #[pyclass(flags(BASETYPE))]
     impl _TextIOBase {
-        #[pyproperty]
+        #[pygetset]
         fn encoding(_zelf: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
             vm.ctx.none()
         }
@@ -1496,25 +1496,25 @@ mod _io {
         fn seekable(&self, vm: &VirtualMachine) -> PyResult {
             vm.call_method(self.lock(vm)?.check_init(vm)?, "seekable", ())
         }
-        #[pyproperty]
+        #[pygetset]
         fn raw(&self, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
             Ok(self.lock(vm)?.raw.clone())
         }
-        #[pyproperty]
+        #[pygetset]
         fn closed(&self, vm: &VirtualMachine) -> PyResult {
             self.lock(vm)?
                 .check_init(vm)?
                 .to_owned()
                 .get_attr("closed", vm)
         }
-        #[pyproperty]
+        #[pygetset]
         fn name(&self, vm: &VirtualMachine) -> PyResult {
             self.lock(vm)?
                 .check_init(vm)?
                 .to_owned()
                 .get_attr("name", vm)
         }
-        #[pyproperty]
+        #[pygetset]
         fn mode(&self, vm: &VirtualMachine) -> PyResult {
             self.lock(vm)?
                 .check_init(vm)?
@@ -1837,7 +1837,7 @@ mod _io {
             true
         }
 
-        #[pyproperty]
+        #[pygetset]
         fn closed(&self, vm: &VirtualMachine) -> PyResult {
             self.write.closed(vm)
         }
@@ -2312,12 +2312,12 @@ mod _io {
             vm.call_method(&textio.buffer, "writable", ())
         }
 
-        #[pyproperty(name = "_CHUNK_SIZE")]
+        #[pygetset(name = "_CHUNK_SIZE")]
         fn chunksize(&self, vm: &VirtualMachine) -> PyResult<usize> {
             Ok(self.lock(vm)?.chunk_size)
         }
 
-        #[pyproperty(setter, name = "_CHUNK_SIZE")]
+        #[pygetset(setter, name = "_CHUNK_SIZE")]
         fn set_chunksize(
             &self,
             chunk_size: PySetterValue<usize>,
@@ -2571,16 +2571,16 @@ mod _io {
             Ok(cookie.build().to_pyobject(vm))
         }
 
-        #[pyproperty]
+        #[pygetset]
         fn name(&self, vm: &VirtualMachine) -> PyResult {
             let buffer = self.lock(vm)?.buffer.clone();
             buffer.get_attr("name", vm)
         }
-        #[pyproperty]
+        #[pygetset]
         fn encoding(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
             Ok(self.lock(vm)?.encoding.clone())
         }
-        #[pyproperty]
+        #[pygetset]
         fn errors(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
             Ok(self.lock(vm)?.errors.clone())
         }
@@ -2897,12 +2897,12 @@ mod _io {
             let close_res = vm.call_method(&buffer, "close", ()).map(drop);
             exeption_chain(flush_res, close_res)
         }
-        #[pyproperty]
+        #[pygetset]
         fn closed(&self, vm: &VirtualMachine) -> PyResult {
             let buffer = self.lock(vm)?.buffer.clone();
             buffer.get_attr("closed", vm)
         }
-        #[pyproperty]
+        #[pygetset]
         fn buffer(&self, vm: &VirtualMachine) -> PyResult {
             Ok(self.lock(vm)?.buffer.clone())
         }
@@ -3129,7 +3129,7 @@ mod _io {
             true
         }
 
-        #[pyproperty]
+        #[pygetset]
         fn closed(&self) -> bool {
             self.closed.load()
         }
@@ -3342,7 +3342,7 @@ mod _io {
             Ok(buffer.truncate(pos))
         }
 
-        #[pyproperty]
+        #[pygetset]
         fn closed(self) -> bool {
             self.closed.load()
         }
@@ -3919,12 +3919,12 @@ mod fileio {
 
     #[pyclass(with(DefaultConstructor, Initializer), flags(BASETYPE, HAS_DICT))]
     impl FileIO {
-        #[pyproperty]
+        #[pygetset]
         fn closed(&self) -> bool {
             self.fd.load() < 0
         }
 
-        #[pyproperty]
+        #[pygetset]
         fn closefd(&self) -> bool {
             self.closefd.load()
         }
@@ -3951,7 +3951,7 @@ mod fileio {
         fn writable(&self) -> bool {
             self.mode.load().contains(Mode::WRITABLE)
         }
-        #[pyproperty]
+        #[pygetset]
         fn mode(&self) -> &'static str {
             let mode = self.mode.load();
             if mode.contains(Mode::CREATED) {

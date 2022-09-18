@@ -703,12 +703,12 @@ pub(super) mod _os {
 
     #[pyclass]
     impl DirEntry {
-        #[pyproperty]
+        #[pygetset]
         fn name(&self, vm: &VirtualMachine) -> PyResult {
             self.mode.process_path(self.entry.file_name(), vm)
         }
 
-        #[pyproperty]
+        #[pygetset]
         fn path(&self, vm: &VirtualMachine) -> PyResult {
             self.mode.process_path(self.entry.path(), vm)
         }

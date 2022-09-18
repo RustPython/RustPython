@@ -130,12 +130,12 @@ impl PyGetSet {
         Self::descr_set(zelf, obj, PySetterValue::Delete, vm)
     }
 
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     fn name(&self) -> String {
         self.name.clone()
     }
 
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     fn qualname(&self) -> String {
         format!("{}.{}", self.class.slot_name(), self.name.clone())
     }

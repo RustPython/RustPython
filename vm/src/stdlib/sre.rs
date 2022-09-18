@@ -380,19 +380,19 @@ mod _sre {
             }
         }
 
-        #[pyproperty]
+        #[pygetset]
         fn flags(&self) -> u16 {
             self.flags.bits()
         }
-        #[pyproperty]
+        #[pygetset]
         fn groupindex(&self) -> PyDictRef {
             self.groupindex.clone()
         }
-        #[pyproperty]
+        #[pygetset]
         fn groups(&self) -> usize {
             self.groups
         }
-        #[pyproperty]
+        #[pygetset]
         fn pattern(&self) -> PyObjectRef {
             self.pattern.clone()
         }
@@ -553,15 +553,15 @@ mod _sre {
             }
         }
 
-        #[pyproperty]
+        #[pygetset]
         fn pos(&self) -> usize {
             self.pos
         }
-        #[pyproperty]
+        #[pygetset]
         fn endpos(&self) -> usize {
             self.endpos
         }
-        #[pyproperty]
+        #[pygetset]
         fn lastindex(&self) -> Option<isize> {
             if self.lastindex >= 0 {
                 Some(self.lastindex)
@@ -569,21 +569,21 @@ mod _sre {
                 None
             }
         }
-        #[pyproperty]
+        #[pygetset]
         fn lastgroup(&self) -> Option<PyStrRef> {
             self.lastindex
                 .to_usize()
                 .and_then(|i| self.pattern.indexgroup.get(i).cloned().flatten())
         }
-        #[pyproperty]
+        #[pygetset]
         fn re(&self) -> PyRef<Pattern> {
             self.pattern.clone()
         }
-        #[pyproperty]
+        #[pygetset]
         fn string(&self) -> PyObjectRef {
             self.string.clone()
         }
-        #[pyproperty]
+        #[pygetset]
         fn regs(&self, vm: &VirtualMachine) -> PyTupleRef {
             PyTuple::new_ref(
                 self.regs.iter().map(|&x| x.to_pyobject(vm)).collect(),
@@ -778,7 +778,7 @@ mod _sre {
 
     #[pyclass]
     impl SreScanner {
-        #[pyproperty]
+        #[pygetset]
         fn pattern(&self) -> PyRef<Pattern> {
             self.pattern.clone()
         }

@@ -209,17 +209,17 @@ impl PyRange {
         .into_ref_with_type(vm, cls)
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn start(&self) -> PyIntRef {
         self.start.clone()
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn stop(&self) -> PyIntRef {
         self.stop.clone()
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn step(&self) -> PyIntRef {
         self.step.clone()
     }

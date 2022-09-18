@@ -109,17 +109,17 @@ impl PySuper {
         Ok(Self { typ, obj })
     }
 
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     fn thisclass(&self) -> PyTypeRef {
         self.typ.clone()
     }
 
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     fn self_class(&self) -> Option<PyTypeRef> {
         Some(self.obj.as_ref()?.1.clone())
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn __self__(&self) -> Option<PyObjectRef> {
         Some(self.obj.as_ref()?.0.clone())
     }
