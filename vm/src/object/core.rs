@@ -25,6 +25,7 @@ use crate::{
     builtins::{PyDictRef, PyTypeRef},
     vm::VirtualMachine,
 };
+use itertools::Itertools;
 use std::{
     any::TypeId,
     borrow::Borrow,
@@ -113,9 +114,9 @@ struct PyInner<T> {
     typ: PyRwLock<PyTypeRef>, // __class__ member
     dict: Option<InstanceDict>,
     weak_list: WeakRefList,
+    slots: Box<[PyRwLock<Option<PyObjectRef>>]>,
 
     payload: T,
-    slots: Vec<Option<PyObjectRef>>,
 }
 
 impl<T: fmt::Debug> fmt::Debug for PyInner<T> {
@@ -436,7 +437,10 @@ impl<T: PyObjectPayload> PyInner<T> {
             dict: dict.map(InstanceDict::new),
             weak_list: WeakRefList::new(),
             payload,
-            slots: vec![None; member_count],
+            slots: std::iter::repeat_with(|| PyRwLock::new(None))
+                .take(member_count)
+                .collect_vec()
+                .into_boxed_slice(),
         })
     }
 }
@@ -799,7 +803,11 @@ impl PyObject {
     }
 
     pub(crate) fn get_slot(&self, offset: usize) -> Option<PyObjectRef> {
-        self.0.slots[offset].clone()
+        self.0.slots[offset].read().clone()
+    }
+
+    pub(crate) fn set_slot(&self, offset: usize, value: Option<PyObjectRef>) {
+        *self.0.slots[offset].write() = value;
     }
 }
 
@@ -1131,7 +1139,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
                 dict: None,
                 weak_list: WeakRefList::new(),
                 payload: type_payload,
-                slots: Vec::new(),
+                slots: Box::new([]),
             },
             Uninit { typ }
         )));
@@ -1143,7 +1151,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
                 dict: None,
                 weak_list: WeakRefList::new(),
                 payload: object_payload,
-                slots: Vec::new(),
+                slots: Box::new([]),
             },
             Uninit { typ },
         )));

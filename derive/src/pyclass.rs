@@ -694,7 +694,7 @@ where
             quote_spanned! { ident.span() =>
                 class.set_str_attr(
                     #py_name,
-                    ctx.new_member(#py_name, Self::#ident, class),
+                    ctx.new_member(#py_name, Self::#ident, None, class),
                     ctx,
                 );
             }
