@@ -16,13 +16,15 @@ pub struct WarningsState {
 
 impl WarningsState {
     fn create_filter(ctx: &Context) -> PyListRef {
-        ctx.new_list(vec![
-            ctx.new_str("__main__").into(),
-            ctx.types.none_type.as_object().to_owned(),
-            ctx.exceptions.warning.as_object().to_owned(),
-            ctx.new_str("ACTION").into(),
-            ctx.new_int(0).into(),
-        ])
+        ctx.new_list(vec![ctx
+            .new_tuple(vec![
+                ctx.new_str("__main__").into(),
+                ctx.types.none_type.as_object().to_owned(),
+                ctx.exceptions.warning.as_object().to_owned(),
+                ctx.new_str("ACTION").into(),
+                ctx.new_int(0).into(),
+            ])
+            .into()])
     }
 
     pub fn init_state(ctx: &Context) -> WarningsState {
@@ -44,8 +46,8 @@ fn check_matched(obj: &PyObjectRef, arg: &PyObjectRef, vm: &VirtualMachine) -> P
         return Ok(false);
     }
 
-    let result = vm.invoke(obj, (arg.to_owned(),))?;
-    result.is_true(vm)
+    let result = vm.invoke(obj, (arg.to_owned(),));
+    Ok(result.is_ok())
 }
 
 pub fn py_warn(
@@ -95,9 +97,9 @@ fn get_filter(
     text: PyObjectRef,
     lineno: usize,
     module: PyObjectRef,
-    mut _item: PyObjectRef,
+    mut _item: PyTupleRef,
     vm: &VirtualMachine,
-) -> PyResult<PyObjectRef> {
+) -> PyResult {
     let filters = vm.state.warnings.filters.as_object().to_owned();
 
     let filters: PyListRef = filters
@@ -109,55 +111,53 @@ fn get_filter(
         let tmp_item = filters.borrow_vec().get(i).cloned();
         let tmp_item = if let Some(tmp_item) = tmp_item {
             let tmp_item = PyTupleRef::try_from_object(vm, tmp_item)?;
-            if tmp_item.len() != 5 {
-                Err(vm.new_value_error(format!("_warnings.filters item {} isn't a 5-tuple", i)))
-            } else {
+            if tmp_item.len() == 5 {
                 Ok(tmp_item)
+            } else {
+                Err(vm.new_value_error(format!("_warnings.filters item {} isn't a 5-tuple", i)))
             }
         } else {
             Err(vm.new_value_error(format!("_warnings.filters item {} isn't a 5-tuple", i)))
         }?;
 
         /* Python code: action, msg, cat, mod, ln = item */
-        let action = tmp_item.get(0);
-        let msg = tmp_item.get(1);
-        let cat = tmp_item.get(2);
-        let item_mod = tmp_item.get(3);
-        let ln_obj = tmp_item.get(4);
-
-        let action = if let Some(action) = action {
+        let action = if let Some(action) = tmp_item.get(0) {
             action.str(vm).map(|action| action.into_object())
         } else {
             Err(vm.new_type_error("action must be a string".to_string()))
         };
 
-        let good_msg = if let Some(msg) = msg {
+        let good_msg = if let Some(msg) = tmp_item.get(1) {
             check_matched(msg, &text, vm)?
         } else {
             false
         };
 
-        let good_mod = if let Some(item_mod) = item_mod {
-            check_matched(item_mod, &module, vm)?
-        } else {
-            false
-        };
-
-        let is_subclass = if let Some(cat) = cat {
+        let is_subclass = if let Some(cat) = tmp_item.get(2) {
             category.fast_isinstance(&cat.class())
         } else {
             false
         };
 
-        // I would like some help on how to deal with it
-        let ln = if let Some(ln_obj) = ln_obj {
-            ln_obj.length(vm)?
+        let good_mod = if let Some(item_mod) = tmp_item.get(3) {
+            check_matched(item_mod, &module, vm)?
         } else {
-            0
+            false
         };
 
+        let ln = tmp_item.get(4).map_or_else(
+            || 0,
+            |ln_obj| {
+                if let Ok(ln) = ln_obj.try_int(vm) {
+                    ln.as_u32_mask() as usize
+                } else {
+                    0
+                }
+            },
+        );
+
         if good_msg && good_mod && is_subclass && (ln == 0 || lineno == ln) {
-            _item = tmp_item.into_object();
+            _item = tmp_item;
             return action;
         }
     }
@@ -212,7 +212,7 @@ fn normalize_module(filename: PyStrRef, vm: &VirtualMachine) -> Option<PyObjectR
 
     if len == 0 {
         Some(vm.new_pyobj("<unknown>"))
-    } else if len >= 3 && filename.as_str().contains(".py") {
+    } else if len >= 3 && filename.as_str().ends_with(".py") {
         Some(vm.new_pyobj(&filename.as_str()[..len - 3]))
     } else {
         Some(filename.as_object().to_owned())
@@ -241,6 +241,9 @@ fn warn_explicit(
         None => return Ok(()),
     };
 
+    // Normalize message.
+    let text = message.as_str();
+
     let category = if let Some(category) = category {
         if !category.fast_issubclass(vm.ctx.exceptions.warning) {
             return Err(vm.new_type_error(format!(
@@ -253,19 +256,17 @@ fn warn_explicit(
         vm.ctx.exceptions.user_warning.to_owned()
     };
 
-    // Normalize message.
-    let (category, text) = if message.fast_isinstance(vm.ctx.exceptions.warning) {
-        (message.class().into_owned(), message.as_object().str(vm)?)
+    let category = if message.fast_isinstance(vm.ctx.exceptions.warning) {
+        message.class().into_owned()
     } else {
-        (category, message)
-        // (category, message.to_owned())
+        category
     };
 
     // Create key.
     let key = PyTuple::new_ref(
         vec![
             vm.ctx.new_int(3).into(),
-            vm.ctx.new_str(text.as_str()).into(),
+            vm.ctx.new_str(text).into(),
             category.as_object().to_owned(),
             vm.ctx.new_int(lineno).into(),
         ],
@@ -276,25 +277,24 @@ fn warn_explicit(
     {
         return Ok(());
     }
-    // Else this warning hasn't been generated before.
 
-    let item = vm.ctx.new_tuple(vec![]).into();
-    let _action = get_filter(
+    let item = vm.ctx.new_tuple(vec![]);
+    let action = get_filter(
         category.as_object().to_owned(),
-        vm.ctx.new_str(text.as_str()).into(),
+        vm.ctx.new_str(text).into(),
         lineno,
         module,
         item,
         vm,
-    );
+    )?;
 
-    // if action.str(vm)?.as_str().eq("error") {
-    //     return Err(vm.new_type_error(message.to_string()));
-    // }
+    if action.str(vm)?.as_str().eq("error") {
+        return Err(vm.new_type_error(message.to_string()));
+    }
 
-    // if action.str(vm)?.as_str().eq("ignore") {
-    //     return Ok(());
-    // }
+    if action.str(vm)?.as_str().eq("ignore") {
+        return Ok(());
+    }
 
     let stderr = crate::stdlib::sys::PyStderr(vm);
     writeln!(stderr, "{}: {}", category.name(), text,);
