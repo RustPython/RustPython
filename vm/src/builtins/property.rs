@@ -1,8 +1,9 @@
 /*! Python `property` descriptor class.
 
 */
-use super::{PyStrRef, PyType, PyTypeRef};
+use super::{PyType, PyTypeRef};
 use crate::common::lock::PyRwLock;
+use crate::function::PosArgs;
 use crate::{
     class::PyClassImpl,
     function::{FuncArgs, PySetterValue},
@@ -53,14 +54,6 @@ impl GetDescriptor for PyProperty {
             Err(vm.new_attribute_error("unreadable attribute".to_string()))
         }
     }
-}
-
-#[derive(FromArgs)]
-struct SetNameArgs {
-    #[pyarg(positional)]
-    owner: PyObjectRef,
-    #[pyarg(positional)]
-    str: PyStrRef,
 }
 
 #[pyclass(with(Constructor, Initializer, GetDescriptor), flags(BASETYPE))]
@@ -131,8 +124,20 @@ impl PyProperty {
     }
 
     #[pymethod(magic)]
-    fn set_name(&self, _args: SetNameArgs, _vm: &VirtualMachine) -> PyResult<()> {
-        Ok(())
+    fn set_name(&self, args: PosArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let arg_len = args.into_vec().len();
+
+        if arg_len != 2 {
+            Err(vm.new_exception_msg(
+                vm.ctx.exceptions.type_error.to_owned(),
+                format!(
+                    "__set_name__() takes 2 positional arguments but {} were given",
+                    arg_len
+                ),
+            ))
+        } else {
+            Ok(())
+        }
     }
 
     // Python builder functions
