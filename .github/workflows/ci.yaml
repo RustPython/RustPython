@@ -2,6 +2,7 @@ on:
   push:
     branches: [main, release]
   pull_request:
+    types: [labeled, unlabeled, opened, synchronize, reopened]
 
 name: CI
 
@@ -99,6 +100,7 @@ env:
 
 jobs:
   rust_tests:
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
     env:
       RUST_BACKTRACE: full
     name: Run rust tests
@@ -149,6 +151,7 @@ jobs:
         if: runner.os == 'macOS'
 
   exotic_targets:
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
     name: Ensure compilation on various targets
     needs: lalrpop
     runs-on: ubuntu-latest
@@ -213,6 +216,7 @@ jobs:
           command: check
 
   snippets_cpython:
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
     needs: lalrpop
     env:
       RUST_BACKTRACE: full
@@ -279,6 +283,7 @@ jobs:
           target/release/rustpython --install-pip ensurepip --user
 
   lalrpop:
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
     name: Generate parser with lalrpop
     strategy:
       matrix:
@@ -348,6 +353,7 @@ jobs:
         run: python -I whats_left.py
 
   miri:
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
     name: Run tests under miri
     needs: lalrpop
     runs-on: ubuntu-latest
@@ -369,6 +375,7 @@ jobs:
         run: MIRIFLAGS='-Zmiri-ignore-leaks' cargo +nightly miri test -p rustpython-vm -- miri_test
 
   wasm:
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
     name: Check the WASM package and demo
     needs: lalrpop
     runs-on: ubuntu-latest
@@ -417,6 +424,7 @@ jobs:
           PUBLISH_BRANCH: master
 
   wasm-wasi:
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
     name: Run snippets and cpython tests on wasm-wasi
     needs: lalrpop
     runs-on: ubuntu-latest
