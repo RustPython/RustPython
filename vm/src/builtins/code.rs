@@ -216,6 +216,18 @@ impl PyRef<PyCode> {
     }
 
     #[pygetset]
+    fn co_names(self, vm: &VirtualMachine) -> PyTupleRef {
+        let names = self
+            .code
+            .names
+            .deref()
+            .iter()
+            .map(|name| name.to_pyobject(vm))
+            .collect();
+        vm.ctx.new_tuple(names)
+    }
+
+    #[pygetset]
     fn co_flags(self) -> u16 {
         self.code.flags.bits()
     }
