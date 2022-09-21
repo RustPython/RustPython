@@ -1107,6 +1107,10 @@ impl Compiler {
 
         let (doc_str, body) = split_doc(body);
 
+        self.current_codeinfo()
+            .constants
+            .insert_full(ConstantData::None);
+
         self.compile_statements(body)?;
 
         // Emit None at end:
