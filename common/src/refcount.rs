@@ -44,7 +44,7 @@ impl RefCount {
     #[inline]
     pub fn safe_inc(&self) -> bool {
         self.strong
-            .fetch_update(AcqRel, Acquire, |prev| (prev != 0).then(|| prev + 1))
+            .fetch_update(AcqRel, Acquire, |prev| (prev != 0).then_some(prev + 1))
             .is_ok()
     }
 
