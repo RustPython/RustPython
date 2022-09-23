@@ -78,7 +78,7 @@ struct PyObjVTable {
     debug: unsafe fn(&PyObject, &mut fmt::Formatter) -> fmt::Result,
 }
 unsafe fn drop_dealloc_obj<T: PyObjectPayload>(x: *mut PyObject) {
-    Box::from_raw(x as *mut PyInner<T>);
+    drop(Box::from_raw(x as *mut PyInner<T>));
 }
 unsafe fn debug_obj<T: PyObjectPayload>(x: &PyObject, f: &mut fmt::Formatter) -> fmt::Result {
     let x = &*(x as *const PyObject as *const PyInner<T>);
@@ -269,7 +269,7 @@ impl WeakRefList {
     }
 
     unsafe fn dealloc(ptr: NonNull<PyMutex<WeakListInner>>) {
-        Box::from_raw(ptr.as_ptr());
+        drop(Box::from_raw(ptr.as_ptr()));
     }
 
     fn get_weak_references(&self) -> Vec<PyRef<PyWeak>> {
