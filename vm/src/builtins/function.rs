@@ -14,7 +14,7 @@ use crate::{
     bytecode,
     class::PyClassImpl,
     frame::Frame,
-    function::{FuncArgs, OptionalArg, PyComparisonValue},
+    function::{FuncArgs, OptionalArg, PyComparisonValue, PySetterValue},
     scope::Scope,
     types::{Callable, Comparable, Constructor, GetAttr, GetDescriptor, PyComparisonOp},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
@@ -31,6 +31,7 @@ pub struct PyFunction {
     closure: Option<PyTupleTyped<PyCellRef>>,
     defaults_and_kwdefaults: PyMutex<(Option<PyTupleRef>, Option<PyDictRef>)>,
     name: PyMutex<PyStrRef>,
+    qualname: PyMutex<PyStrRef>,
     #[cfg(feature = "jit")]
     jitted_code: OnceCell<CompiledCode>,
 }
@@ -42,6 +43,7 @@ impl PyFunction {
         closure: Option<PyTupleTyped<PyCellRef>>,
         defaults: Option<PyTupleRef>,
         kw_only_defaults: Option<PyDictRef>,
+        qualname: PyMutex<PyStrRef>,
     ) -> Self {
         let name = PyMutex::new(code.obj_name.to_owned());
         PyFunction {
@@ -50,6 +52,7 @@ impl PyFunction {
             closure,
             defaults_and_kwdefaults: PyMutex::new((defaults, kw_only_defaults)),
             name,
+            qualname,
             #[cfg(feature = "jit")]
             jitted_code: OnceCell::new(),
         }
@@ -378,6 +381,32 @@ impl PyFunction {
     #[pygetset(magic, setter)]
     fn set_name(&self, name: PyStrRef) {
         *self.name.lock() = name;
+    }
+
+    #[pygetset(magic)]
+    fn qualname(&self) -> PyStrRef {
+        self.qualname.lock().clone()
+    }
+
+    #[pygetset(magic, setter)]
+    fn set_qualname(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        match value {
+            PySetterValue::Assign(value) => {
+                if let Ok(qualname) = value.downcast::<PyStr>() {
+                    *self.qualname.lock() = qualname;
+                } else {
+                    return Err(vm.new_type_error(
+                        "__qualname__ must be set to a string object".to_string(),
+                    ));
+                }
+            }
+            PySetterValue::Delete => {
+                return Err(
+                    vm.new_type_error("__qualname__ must be set to a string object".to_string())
+                );
+            }
+        }
+        Ok(())
     }
 
     #[pymethod(magic)]
