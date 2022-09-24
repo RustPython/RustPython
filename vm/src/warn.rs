@@ -1,5 +1,3 @@
-use std::convert::TryInto;
-
 use crate::{
     builtins::{PyDict, PyDictRef, PyListRef, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef},
     convert::{IntoObject, TryFromObject},
@@ -108,17 +106,19 @@ fn get_filter(
 
     /* WarningsState.filters could change while we are iterating over it. */
     for i in 0..filters.borrow_vec().len() {
-        let tmp_item = filters.borrow_vec().get(i).cloned();
-        let tmp_item = if let Some(tmp_item) = tmp_item {
+        let tmp_item = if let Some(tmp_item) = filters.borrow_vec().get(i).cloned() {
             let tmp_item = PyTupleRef::try_from_object(vm, tmp_item)?;
             if tmp_item.len() == 5 {
-                Ok(tmp_item)
+                Some(tmp_item)
             } else {
-                Err(vm.new_value_error(format!("_warnings.filters item {} isn't a 5-tuple", i)))
+                None
             }
         } else {
-            Err(vm.new_value_error(format!("_warnings.filters item {} isn't a 5-tuple", i)))
-        }?;
+            None
+        };
+        let tmp_item = tmp_item.ok_or_else(|| {
+            vm.new_value_error(format!("_warnings.filters item {} isn't a 5-tuple", i))
+        })?;
 
         /* Python code: action, msg, cat, mod, ln = item */
         let action = if let Some(action) = tmp_item.get(0) {
@@ -145,16 +145,9 @@ fn get_filter(
             false
         };
 
-        let ln = tmp_item.get(4).map_or_else(
-            || 0,
-            |ln_obj| {
-                if let Ok(ln) = ln_obj.try_int(vm) {
-                    ln.as_u32_mask() as usize
-                } else {
-                    0
-                }
-            },
-        );
+        let ln = tmp_item.get(4).map_or(0, |ln_obj| {
+            ln_obj.try_int(vm).map_or(0, |ln| ln.as_u32_mask() as _)
+        });
 
         if good_msg && good_mod && is_subclass && (ln == 0 || lineno == ln) {
             _item = tmp_item;
@@ -185,13 +178,10 @@ fn already_warned(
         }
         _ => {
             let registry = registry.dict();
-            registry.as_ref().map(|registry| {
+            if let Some(registry) = registry.as_ref() {
                 registry.clear();
-                registry
-            });
-
-            if let Some(registry) = registry {
-                if registry.set_item("version", filters_version, vm).is_err() {
+                let r = registry.set_item("version", filters_version, vm);
+                if r.is_err() {
                     return Ok(false);
                 }
             }
@@ -199,24 +189,24 @@ fn already_warned(
     }
 
     /* This warning wasn't found in the registry, set it. */
-    Ok(if should_set {
-        let item = vm.ctx.true_value.clone().into();
-        registry.set_item(key.as_ref(), item, vm).map(|_| true)?
-    } else {
-        false
-    })
+    if !should_set {
+        return Ok(false);
+    }
+
+    let item = vm.ctx.true_value.clone().into();
+    let _ = registry.set_item(key.as_ref(), item, vm); // ignore set error
+    Ok(true)
 }
 
 fn normalize_module(filename: PyStrRef, vm: &VirtualMachine) -> Option<PyObjectRef> {
-    let len = filename.char_len();
-
-    if len == 0 {
-        Some(vm.new_pyobj("<unknown>"))
-    } else if len >= 3 && filename.as_str().ends_with(".py") {
-        Some(vm.new_pyobj(&filename.as_str()[..len - 3]))
-    } else {
-        Some(filename.as_object().to_owned())
-    }
+    let obj = match filename.char_len() {
+        0 => vm.new_pyobj("<unknown>"),
+        len if len >= 3 && filename.as_str().ends_with(".py") => {
+            vm.new_pyobj(&filename.as_str()[..len - 3])
+        }
+        _ => filename.as_object().to_owned(),
+    };
+    Some(obj)
 }
 
 #[allow(clippy::too_many_arguments)]
