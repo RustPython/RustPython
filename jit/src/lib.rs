@@ -35,7 +35,8 @@ struct Jit {
 
 impl Jit {
     fn new() -> Self {
-        let builder = JITBuilder::new(cranelift_module::default_libcall_names());
+        let builder = JITBuilder::new(cranelift_module::default_libcall_names())
+            .expect("Failed to build JITBuilder");
         let module = JITModule::new(builder);
         Self {
             builder_context: FunctionBuilderContext::new(),
@@ -80,12 +81,7 @@ impl Jit {
             &self.ctx.func.signature,
         )?;
 
-        self.module.define_function(
-            id,
-            &mut self.ctx,
-            &mut codegen::binemit::NullTrapSink {},
-            &mut codegen::binemit::NullStackMapSink {},
-        )?;
+        self.module.define_function(id, &mut self.ctx)?;
 
         self.module.clear_context(&mut self.ctx);
 
