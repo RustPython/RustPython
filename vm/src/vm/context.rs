@@ -213,6 +213,7 @@ declare_const_name! {
     keys,
     items,
     values,
+    version,
     update,
     copy,
     flush,

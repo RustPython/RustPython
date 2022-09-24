@@ -288,7 +288,7 @@ impl PyDict {
     }
 
     #[pymethod]
-    fn clear(&self) {
+    pub fn clear(&self) {
         self.entries.clear()
     }
 
