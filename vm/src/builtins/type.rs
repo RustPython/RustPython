@@ -8,9 +8,10 @@ use crate::common::{
     lock::{PyRwLock, PyRwLockReadGuard},
 };
 use crate::{
-    builtins::PyBaseExceptionRef,
     builtins::{
-        descriptor::{DescrObject, MemberDef, MemberDescrObject, MemberGetter, MemberSetter, MemberKind},
+        descriptor::{
+            DescrObject, MemberDef, MemberDescrObject, MemberGetter, MemberKind, MemberSetter,
+        },
         function::PyCellRef,
         tuple::{IntoPyTuple, PyTupleTyped},
         PyBaseExceptionRef,
