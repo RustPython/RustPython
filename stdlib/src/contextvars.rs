@@ -101,7 +101,7 @@ mod _contextvars {
 
     #[pyclass(with(Initializer))]
     impl ContextVar {
-        #[pyproperty]
+        #[pygetset]
         fn name(&self) -> String {
             self.name.clone()
         }
@@ -174,12 +174,12 @@ mod _contextvars {
 
     #[pyclass(with(Initializer))]
     impl ContextToken {
-        #[pyproperty]
+        #[pygetset]
         fn var(&self, _vm: &VirtualMachine) -> PyObjectRef {
             unimplemented!("Token.var() is currently under construction")
         }
 
-        #[pyproperty]
+        #[pygetset]
         fn old_value(&self, _vm: &VirtualMachine) -> PyObjectRef {
             unimplemented!("Token.old_value() is currently under construction")
         }

@@ -503,7 +503,7 @@ impl VirtualMachine {
         let iter = haystack.get_iter(self)?;
         loop {
             if let PyIterReturn::Return(element) = iter.next(self)? {
-                if self.bool_eq(&needle, &element)? {
+                if self.bool_eq(&element, &needle)? {
                     return Ok(self.ctx.new_bool(true));
                 } else {
                     continue;

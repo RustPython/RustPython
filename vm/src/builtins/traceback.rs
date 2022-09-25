@@ -31,27 +31,27 @@ impl PyTraceback {
         }
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn tb_frame(&self) -> FrameRef {
         self.frame.clone()
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn tb_lasti(&self) -> u32 {
         self.lasti
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn tb_lineno(&self) -> usize {
         self.lineno
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn tb_next(&self) -> Option<PyRef<Self>> {
         self.next.lock().as_ref().cloned()
     }
 
-    #[pyproperty(setter)]
+    #[pygetset(setter)]
     fn set_tb_next(&self, value: Option<PyRef<Self>>) {
         *self.next.lock() = value;
     }

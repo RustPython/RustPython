@@ -1504,15 +1504,15 @@ mod _socket {
             Ok(self.sock()?.shutdown(how)?)
         }
 
-        #[pyproperty(name = "type")]
+        #[pygetset(name = "type")]
         fn kind(&self) -> i32 {
             self.kind.load()
         }
-        #[pyproperty]
+        #[pygetset]
         fn family(&self) -> i32 {
             self.family.load()
         }
-        #[pyproperty]
+        #[pygetset]
         fn proto(&self) -> i32 {
             self.proto.load()
         }

@@ -123,17 +123,17 @@ impl PyGenericAlias {
         ))
     }
 
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     fn parameters(&self) -> PyObjectRef {
         self.parameters.clone().into()
     }
 
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     fn args(&self) -> PyObjectRef {
         self.args.clone().into()
     }
 
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     fn origin(&self) -> PyObjectRef {
         self.origin.clone().into()
     }

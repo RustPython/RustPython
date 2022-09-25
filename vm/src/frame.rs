@@ -264,6 +264,27 @@ impl FrameRef {
             self.lasti.get()
         }
     }
+
+    pub fn is_internal_frame(&self) -> bool {
+        let code = self.clone().f_code();
+        let filename = code.co_filename();
+
+        filename.as_str().contains("importlib") && filename.as_str().contains("_bootstrap")
+    }
+
+    pub fn next_external_frame(&self, vm: &VirtualMachine) -> Option<FrameRef> {
+        self.clone().f_back(vm).map(|mut back| loop {
+            back = if let Some(back) = back.to_owned().f_back(vm) {
+                back
+            } else {
+                break back;
+            };
+
+            if !back.is_internal_frame() {
+                break back;
+            }
+        })
+    }
 }
 
 /// An executing frame; essentially just a struct to combine the immutable data outside the mutex

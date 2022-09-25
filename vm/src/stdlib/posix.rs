@@ -556,7 +556,7 @@ pub mod module {
 
     #[pyclass(with(Constructor))]
     impl SchedParam {
-        #[pyproperty]
+        #[pygetset]
         fn sched_priority(&self, vm: &VirtualMachine) -> PyObjectRef {
             self.sched_priority.clone().to_pyobject(vm)
         }

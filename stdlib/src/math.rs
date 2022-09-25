@@ -121,6 +121,11 @@ mod math {
     }
 
     #[pyfunction]
+    fn exp2(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
+        call_math_func!(exp2, x, vm)
+    }
+
+    #[pyfunction]
     fn expm1(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
         call_math_func!(exp_m1, x, vm)
     }
@@ -179,7 +184,7 @@ mod math {
             return Err(vm.new_value_error("math domain error".to_owned()));
         }
 
-        if x == 0.0 && y < 0.0 {
+        if x == 0.0 && y < 0.0 && y != f64::NEG_INFINITY {
             return Err(vm.new_value_error("math domain error".to_owned()));
         }
 
@@ -534,6 +539,11 @@ mod math {
     fn lcm(args: PosArgs<PyIntRef>) -> BigInt {
         use num_integer::Integer;
         math_perf_arb_len_int_op(args, |x, y| x.lcm(y.as_bigint()), BigInt::one())
+    }
+
+    #[pyfunction]
+    fn cbrt(x: ArgIntoFloat) -> f64 {
+        x.cbrt()
     }
 
     #[pyfunction]

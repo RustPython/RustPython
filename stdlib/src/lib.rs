@@ -18,7 +18,6 @@ mod json;
 mod math;
 #[cfg(unix)]
 mod mmap;
-mod platform;
 mod pyexpat;
 mod pystruct;
 mod random;
@@ -100,7 +99,6 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
             "_json" => json::make_module,
             "math" => math::make_module,
             "pyexpat" => pyexpat::make_module,
-            "_platform" => platform::make_module,
             "_random" => random::make_module,
             "_statistics" => statistics::make_module,
             "_struct" => pystruct::make_module,

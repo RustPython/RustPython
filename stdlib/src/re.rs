@@ -343,7 +343,7 @@ mod re {
             self.sub(repl, text, vm)
         }
 
-        #[pyproperty]
+        #[pygetset]
         fn pattern(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
             Ok(vm.ctx.new_str(self.pattern.clone()))
         }

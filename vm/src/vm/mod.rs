@@ -31,7 +31,9 @@ use crate::{
     import,
     protocol::PyIterIter,
     scope::Scope,
-    signal, stdlib, AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
+    signal, stdlib,
+    warn::WarningsState,
+    AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use std::sync::atomic::AtomicBool;
@@ -88,6 +90,7 @@ pub struct PyGlobalState {
     pub atexit_funcs: PyMutex<Vec<(PyObjectRef, FuncArgs)>>,
     pub codec_registry: CodecsRegistry,
     pub finalizing: AtomicBool,
+    pub warnings: WarningsState,
 }
 
 pub fn process_hash_secret_seed() -> u32 {
@@ -136,6 +139,8 @@ impl VirtualMachine {
 
         let codec_registry = CodecsRegistry::new(&ctx);
 
+        let warnings = WarningsState::init_state(&ctx);
+
         let mut vm = VirtualMachine {
             builtins,
             sys_module,
@@ -161,6 +166,7 @@ impl VirtualMachine {
                 atexit_funcs: PyMutex::default(),
                 codec_registry,
                 finalizing: AtomicBool::new(false),
+                warnings,
             }),
             initialized: false,
             recursion_depth: Cell::new(0),
@@ -176,7 +182,7 @@ impl VirtualMachine {
             panic!("Interpreters in same process must share the hash seed");
         }
 
-        let frozen = frozen::get_module_inits().collect();
+        let frozen = frozen::core_frozen_inits().collect();
         PyRc::get_mut(&mut vm.state).unwrap().frozen = frozen;
 
         vm.builtins
@@ -226,6 +232,9 @@ impl VirtualMachine {
         if self.initialized {
             panic!("Double Initialize Error");
         }
+
+        // add the current directory to sys.path
+        self.state_mut().settings.path_list.insert(0, "".to_owned());
 
         stdlib::builtins::make_module(self, self.builtins.clone().into());
         stdlib::sys::init_module(self, self.sys_module.as_ref(), self.builtins.as_ref());

@@ -442,12 +442,12 @@ impl PyFloat {
         zelf
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn real(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn imag(&self) -> f64 {
         0.0f64
     }

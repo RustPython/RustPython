@@ -56,11 +56,7 @@ impl PyNativeFuncDef {
         class: &'static Py<PyType>,
     ) -> PyRef<PyStaticMethod> {
         let callable = self.build_method(ctx, class).into();
-        PyRef::new_ref(
-            PyStaticMethod { callable },
-            ctx.types.staticmethod_type.to_owned(),
-            None,
-        )
+        PyStaticMethod::new_ref(callable, ctx)
     }
 }
 
@@ -120,23 +116,23 @@ impl Callable for PyBuiltinFunction {
 
 #[pyclass(with(Callable, Constructor), flags(HAS_DICT))]
 impl PyBuiltinFunction {
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     fn module(&self, vm: &VirtualMachine) -> PyObjectRef {
         vm.unwrap_or_none(self.module.clone())
     }
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     fn name(&self) -> PyStrRef {
         self.value.name.clone()
     }
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     fn qualname(&self) -> PyStrRef {
         self.name()
     }
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     fn doc(&self) -> Option<PyStrRef> {
         self.value.doc.clone()
     }
-    #[pyproperty(name = "__self__")]
+    #[pygetset(name = "__self__")]
     fn get_self(&self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.none()
     }
@@ -153,7 +149,7 @@ impl PyBuiltinFunction {
     fn repr(&self) -> String {
         format!("<built-in function {}>", self.value.name)
     }
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     fn text_signature(&self) -> Option<String> {
         self.value.doc.as_ref().and_then(|doc| {
             type_::get_text_signature_from_internal_doc(self.value.name.as_str(), doc.as_str())
@@ -231,19 +227,19 @@ impl PyBuiltinMethod {
 
 #[pyclass(with(GetDescriptor, Callable, Constructor), flags(METHOD_DESCR))]
 impl PyBuiltinMethod {
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     fn name(&self) -> PyStrRef {
         self.value.name.clone()
     }
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     fn qualname(&self) -> String {
         format!("{}.{}", self.class.name(), &self.value.name)
     }
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     fn doc(&self) -> Option<PyStrRef> {
         self.value.doc.clone()
     }
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     fn text_signature(&self) -> Option<String> {
         self.value.doc.as_ref().and_then(|doc| {
             type_::get_text_signature_from_internal_doc(self.value.name.as_str(), doc.as_str())

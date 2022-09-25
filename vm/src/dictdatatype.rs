@@ -215,6 +215,14 @@ impl<T> DictInner<T> {
             None
         }
     }
+
+    #[inline]
+    fn get_entry_checked(&self, idx: EntryIndex, index_index: IndexIndex) -> Option<&DictEntry<T>> {
+        match self.entries.get(idx) {
+            Some(Some(entry)) if entry.index == index_index => Some(entry),
+            _ => None,
+        }
+    }
 }
 
 type PopInnerResult<T> = ControlFlow<Option<DictEntry<T>>>;
@@ -284,13 +292,8 @@ impl<T: Clone> Dict<T> {
             let (entry, index_index) = self.lookup(vm, key, hash, None)?;
             if let Some(index) = entry.index() {
                 let inner = self.read();
-                if let Some(entry) = inner.entries.get(index) {
-                    let entry = extract_dict_entry(entry);
-                    if entry.index == index_index {
-                        break Some(entry.value.clone());
-                    } else {
-                        // stuff shifted around, let's try again
-                    }
+                if let Some(entry) = inner.get_entry_checked(index, index_index) {
+                    break Some(entry.value.clone());
                 } else {
                     // The dict was changed since we did lookup. Let's try again.
                     continue;
@@ -395,13 +398,8 @@ impl<T: Clone> Dict<T> {
             let (index_entry, index_index) = lookup;
             if let Some(index) = index_entry.index() {
                 let inner = self.read();
-                if let Some(entry) = inner.entries.get(index) {
-                    let entry = extract_dict_entry(entry);
-                    if entry.index == index_index {
-                        break entry.value.clone();
-                    } else {
-                        // stuff shifted around, let's try again
-                    }
+                if let Some(entry) = inner.get_entry_checked(index, index_index) {
+                    break entry.value.clone();
                 } else {
                     // The dict was changed since we did lookup, let's try again.
                     continue;
@@ -439,13 +437,8 @@ impl<T: Clone> Dict<T> {
             let (index_entry, index_index) = lookup;
             if let Some(index) = index_entry.index() {
                 let inner = self.read();
-                if let Some(entry) = inner.entries.get(index) {
-                    let entry = extract_dict_entry(entry);
-                    if entry.index == index_index {
-                        break (entry.key.clone(), entry.value.clone());
-                    } else {
-                        // stuff shifted around, let's try again
-                    }
+                if let Some(entry) = inner.get_entry_checked(index, index_index) {
+                    break (entry.key.clone(), entry.value.clone());
                 } else {
                     // The dict was changed since we did lookup, let's try again.
                     continue;
@@ -884,12 +877,6 @@ fn str_exact<'a>(obj: &'a PyObject, vm: &VirtualMachine) -> Option<&'a PyStr> {
     } else {
         None
     }
-}
-
-fn extract_dict_entry<T>(option_entry: &Option<DictEntry<T>>) -> &DictEntry<T> {
-    option_entry
-        .as_ref()
-        .expect("The dict was changed since we did lookup.")
 }
 
 #[cfg(test)]

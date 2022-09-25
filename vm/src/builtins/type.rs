@@ -4,7 +4,11 @@ use super::{
 };
 use crate::{
     builtins::PyBaseExceptionRef,
-    builtins::{descriptor::MemberGetter, function::PyCellRef, tuple::PyTupleTyped},
+    builtins::{
+        descriptor::{MemberGetter, MemberSetter},
+        function::PyCellRef,
+        tuple::PyTupleTyped,
+    },
     class::{PyClassImpl, StaticType},
     convert::ToPyObject,
     function::{FuncArgs, KwArgs, OptionalArg, PySetterValue},
@@ -317,14 +321,14 @@ impl PyType {
         call_slot_new(zelf, subtype, args, vm)
     }
 
-    #[pyproperty(name = "__mro__")]
+    #[pygetset(name = "__mro__")]
     fn get_mro(zelf: PyRef<Self>) -> PyTuple {
         let elements: Vec<PyObjectRef> =
             zelf.iter_mro().map(|x| x.as_object().to_owned()).collect();
         PyTuple::new_unchecked(elements.into_boxed_slice())
     }
 
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     fn bases(&self, vm: &VirtualMachine) -> PyTupleRef {
         vm.ctx.new_tuple(
             self.bases
@@ -334,12 +338,12 @@ impl PyType {
         )
     }
 
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     fn base(&self) -> Option<PyTypeRef> {
         self.base.clone()
     }
 
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     fn flags(&self) -> u64 {
         self.slots.flags.bits()
     }
@@ -369,7 +373,7 @@ impl PyType {
         vm.ctx.not_implemented()
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn __name__(&self) -> String {
         self.name().to_string()
     }
@@ -407,7 +411,7 @@ impl PyType {
         }
     }
 
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     pub fn qualname(&self, vm: &VirtualMachine) -> PyObjectRef {
         self.attributes
             .read()
@@ -424,7 +428,7 @@ impl PyType {
             .unwrap_or_else(|| vm.ctx.new_str(self.name().deref()).into())
     }
 
-    #[pyproperty(magic, setter)]
+    #[pygetset(magic, setter)]
     fn set_qualname(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
         // TODO: we should replace heaptype flag check to immutable flag check
         if !self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
@@ -452,7 +456,7 @@ impl PyType {
         Ok(())
     }
 
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     pub fn module(&self, vm: &VirtualMachine) -> PyObjectRef {
         self.attributes
             .read()
@@ -469,7 +473,7 @@ impl PyType {
             .unwrap_or_else(|| vm.ctx.new_str(ascii!("builtins")).into())
     }
 
-    #[pyproperty(magic, setter)]
+    #[pygetset(magic, setter)]
     fn set_module(&self, value: PyObjectRef, vm: &VirtualMachine) {
         self.attributes
             .write()
@@ -689,6 +693,7 @@ impl PyType {
                     name: member.to_string(),
                     kind: MemberKind::ObjectEx,
                     getter: MemberGetter::Offset(offset),
+                    setter: MemberSetter::Offset(offset),
                     doc: None,
                 };
                 let member_descriptor: PyRef<MemberDescrObject> = vm.new_pyref(MemberDescrObject {
@@ -753,19 +758,19 @@ impl PyType {
         Ok(typ.into())
     }
 
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     fn dict(zelf: PyRef<Self>) -> PyMappingProxy {
         PyMappingProxy::from(zelf)
     }
 
-    #[pyproperty(magic, setter)]
+    #[pygetset(magic, setter)]
     fn set_dict(&self, _value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         Err(vm.new_not_implemented_error(
             "Setting __dict__ attribute on a type isn't yet implemented".to_owned(),
         ))
     }
 
-    #[pyproperty(magic, setter)]
+    #[pygetset(magic, setter)]
     fn set_name(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if !self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
             return Err(vm.new_type_error(format!(
@@ -788,7 +793,7 @@ impl PyType {
         Ok(())
     }
 
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     fn text_signature(&self) -> Option<String> {
         self.slots
             .doc

@@ -382,8 +382,11 @@ impl PyObject {
                     continue;
                 }
                 _ => {
-                    for i in 0..n {
-                        if let Ok(true) = tuple.fast_getitem(i).abstract_issubclass(cls, vm) {
+                    if let Some(i) = (0..n).next() {
+                        let check = vm.with_recursion("in abstract_issubclass", || {
+                            tuple.fast_getitem(i).abstract_issubclass(cls, vm)
+                        })?;
+                        if check {
                             return Ok(true);
                         }
                     }

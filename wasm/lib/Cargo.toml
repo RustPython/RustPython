@@ -11,13 +11,14 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [features]
-default = ["freeze-stdlib", "rustpython-stdlib"]
-freeze-stdlib = ["rustpython-vm/freeze-stdlib"]
+default = ["freeze-stdlib"]
+freeze-stdlib = ["rustpython-vm/freeze-stdlib", "rustpython-pylib/freeze-stdlib", "rustpython-stdlib"]
 no-start-func = []
 
 [dependencies]
 rustpython-common = { path = "../../common" }
 rustpython-parser = { path = "../../compiler/parser" }
+rustpython-pylib = { path = "../../pylib", default-features = false, optional = true }
 rustpython-stdlib = { path = "../../stdlib", default-features = false, optional = true }
 # make sure no threading! otherwise wasm build will fail
 rustpython-vm = { path = "../../vm", default-features = false, features = ["compiler", "encodings"] }

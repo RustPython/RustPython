@@ -1,6 +1,6 @@
 use super::{
-    PyBytes, PyBytesRef, PyInt, PyListRef, PySlice, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType,
-    PyTypeRef,
+    PositionIterInternal, PyBytes, PyBytesRef, PyInt, PyListRef, PySlice, PyStr, PyStrRef, PyTuple,
+    PyTupleRef, PyType, PyTypeRef,
 };
 use crate::{
     buffer::FormatSpec,
@@ -15,15 +15,20 @@ use crate::{
     function::Either,
     function::{FuncArgs, OptionalArg, PyComparisonValue},
     protocol::{
-        BufferDescriptor, BufferMethods, PyBuffer, PyMappingMethods, PySequenceMethods, VecBuffer,
+        BufferDescriptor, BufferMethods, PyBuffer, PyIterReturn, PyMappingMethods,
+        PySequenceMethods, VecBuffer,
     },
     sliceable::SequenceIndexOp,
-    types::{AsBuffer, AsMapping, AsSequence, Comparable, Constructor, Hashable, PyComparisonOp},
+    types::{
+        AsBuffer, AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext,
+        IterNextIterable, Iterable, PyComparisonOp, Unconstructible,
+    },
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, TryFromObject, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
+use rustpython_common::lock::PyMutex;
 use std::{cmp::Ordering, fmt::Debug, mem::ManuallyDrop, ops::Range};
 
 #[derive(FromArgs)]
@@ -61,7 +66,15 @@ impl Constructor for PyMemoryView {
     }
 }
 
-#[pyclass(with(Hashable, Comparable, AsBuffer, AsMapping, AsSequence, Constructor))]
+#[pyclass(with(
+    Hashable,
+    Comparable,
+    AsBuffer,
+    AsMapping,
+    AsSequence,
+    Constructor,
+    Iterable
+))]
 impl PyMemoryView {
     fn parse_format(format: &str, vm: &VirtualMachine) -> PyResult<FormatSpec> {
         FormatSpec::parse(format.as_bytes(), vm)
@@ -142,32 +155,32 @@ impl PyMemoryView {
         }
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn obj(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         self.try_not_released(vm).map(|_| self.buffer.obj.clone())
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn nbytes(&self, vm: &VirtualMachine) -> PyResult<usize> {
         self.try_not_released(vm).map(|_| self.desc.len)
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn readonly(&self, vm: &VirtualMachine) -> PyResult<bool> {
         self.try_not_released(vm).map(|_| self.desc.readonly)
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn itemsize(&self, vm: &VirtualMachine) -> PyResult<usize> {
         self.try_not_released(vm).map(|_| self.desc.itemsize)
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn ndim(&self, vm: &VirtualMachine) -> PyResult<usize> {
         self.try_not_released(vm).map(|_| self.desc.ndim())
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn shape(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         self.try_not_released(vm)?;
         Ok(vm.ctx.new_tuple(
@@ -179,7 +192,7 @@ impl PyMemoryView {
         ))
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn strides(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         self.try_not_released(vm)?;
         Ok(vm.ctx.new_tuple(
@@ -191,7 +204,7 @@ impl PyMemoryView {
         ))
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn suboffsets(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         self.try_not_released(vm)?;
         Ok(vm.ctx.new_tuple(
@@ -203,23 +216,23 @@ impl PyMemoryView {
         ))
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn format(&self, vm: &VirtualMachine) -> PyResult<PyStr> {
         self.try_not_released(vm)
             .map(|_| PyStr::from(self.desc.format.clone()))
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn contiguous(&self, vm: &VirtualMachine) -> PyResult<bool> {
         self.try_not_released(vm).map(|_| self.desc.is_contiguous())
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn c_contiguous(&self, vm: &VirtualMachine) -> PyResult<bool> {
         self.try_not_released(vm).map(|_| self.desc.is_contiguous())
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn f_contiguous(&self, vm: &VirtualMachine) -> PyResult<bool> {
         // TODO: fortain order
         self.try_not_released(vm)
@@ -1038,7 +1051,8 @@ impl PyPayload for PyMemoryView {
 }
 
 pub(crate) fn init(ctx: &Context) {
-    PyMemoryView::extend_class(ctx, ctx.types.memoryview_type)
+    PyMemoryView::extend_class(ctx, ctx.types.memoryview_type);
+    PyMemoryViewIterator::extend_class(ctx, ctx.types.memoryviewiterator_type);
 }
 
 fn format_unpack(
@@ -1081,4 +1095,50 @@ fn is_equiv_format(a: &BufferDescriptor, b: &BufferDescriptor) -> bool {
 
 fn is_equiv_structure(a: &BufferDescriptor, b: &BufferDescriptor) -> bool {
     is_equiv_format(a, b) && is_equiv_shape(a, b)
+}
+
+impl Iterable for PyMemoryView {
+    fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        Ok(PyMemoryViewIterator {
+            internal: PyMutex::new(PositionIterInternal::new(zelf, 0)),
+        }
+        .into_pyobject(vm))
+    }
+}
+
+#[pyclass(module = false, name = "memory_iterator")]
+#[derive(Debug)]
+pub struct PyMemoryViewIterator {
+    internal: PyMutex<PositionIterInternal<PyRef<PyMemoryView>>>,
+}
+
+impl PyPayload for PyMemoryViewIterator {
+    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
+        vm.ctx.types.memoryviewiterator_type
+    }
+}
+
+#[pyclass(with(Constructor, IterNext))]
+impl PyMemoryViewIterator {
+    #[pymethod(magic)]
+    fn reduce(&self, vm: &VirtualMachine) -> PyTupleRef {
+        self.internal
+            .lock()
+            .builtins_iter_reduce(|x| x.clone().into(), vm)
+    }
+}
+impl Unconstructible for PyMemoryViewIterator {}
+
+impl IterNextIterable for PyMemoryViewIterator {}
+impl IterNext for PyMemoryViewIterator {
+    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        zelf.internal.lock().next(|mv, pos| {
+            let len = mv.len(vm)?;
+            Ok(if pos >= len {
+                PyIterReturn::StopIteration(None)
+            } else {
+                PyIterReturn::Return(mv.getitem_by_idx(pos.try_into().unwrap(), vm)?)
+            })
+        })
+    }
 }

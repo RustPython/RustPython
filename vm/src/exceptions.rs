@@ -443,56 +443,56 @@ impl PyBaseException {
         self.args.read().get(idx).cloned()
     }
 
-    #[pyproperty]
+    #[pygetset]
     pub fn args(&self) -> PyTupleRef {
         self.args.read().clone()
     }
 
-    #[pyproperty(setter)]
+    #[pygetset(setter)]
     fn set_args(&self, args: ArgIterable, vm: &VirtualMachine) -> PyResult<()> {
         let args = args.iter(vm)?.collect::<PyResult<Vec<_>>>()?;
         *self.args.write() = PyTuple::new_ref(args, &vm.ctx);
         Ok(())
     }
 
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     pub fn traceback(&self) -> Option<PyTracebackRef> {
         self.traceback.read().clone()
     }
 
-    #[pyproperty(magic, setter)]
+    #[pygetset(magic, setter)]
     pub fn set_traceback(&self, traceback: Option<PyTracebackRef>) {
         *self.traceback.write() = traceback;
     }
 
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     pub fn cause(&self) -> Option<PyRef<Self>> {
         self.cause.read().clone()
     }
 
-    #[pyproperty(magic, setter)]
+    #[pygetset(magic, setter)]
     pub fn set_cause(&self, cause: Option<PyRef<Self>>) {
         let mut c = self.cause.write();
         self.set_suppress_context(true);
         *c = cause;
     }
 
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     pub fn context(&self) -> Option<PyRef<Self>> {
         self.context.read().clone()
     }
 
-    #[pyproperty(magic, setter)]
+    #[pygetset(magic, setter)]
     pub fn set_context(&self, context: Option<PyRef<Self>>) {
         *self.context.write() = context;
     }
 
-    #[pyproperty(name = "__suppress_context__")]
+    #[pygetset(name = "__suppress_context__")]
     pub(super) fn get_suppress_context(&self) -> bool {
         self.suppress_context.load()
     }
 
-    #[pyproperty(name = "__suppress_context__", setter)]
+    #[pygetset(name = "__suppress_context__", setter)]
     fn set_suppress_context(&self, suppress_context: bool) {
         self.suppress_context.store(suppress_context);
     }

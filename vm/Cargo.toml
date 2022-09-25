@@ -14,7 +14,7 @@ importlib = []
 encodings = ["importlib"]
 vm-tracing-logging = []
 flame-it = ["flame", "flamer"]
-freeze-stdlib = ["rustpython-pylib/freeze-stdlib"]
+freeze-stdlib = []
 jit = ["rustpython-jit"]
 threading = ["rustpython-common/threading"]
 compiler = ["parser", "codegen", "rustpython-compiler"]
@@ -31,7 +31,6 @@ rustpython-compiler-core = { path = "../compiler/core", version = "0.1.2" }
 rustpython-common = { path = "../common" }
 rustpython-derive = { path = "../derive", version = "0.1.2" }
 rustpython-jit = { path = "../jit", optional = true, version = "0.1.2" }
-rustpython-pylib = { path = "pylib-crate", version = "0.1.0" }
 
 num-complex = { version = "0.4.0", features = ["serde"] }
 num-bigint = { version = "0.4.3", features = ["serde"] }

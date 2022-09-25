@@ -33,7 +33,7 @@ impl std::fmt::Display for AttrName {
             Self::Method => "pymethod",
             Self::ClassMethod => "pyclassmethod",
             Self::StaticMethod => "pystaticmethod",
-            Self::GetSet => "pyproperty",
+            Self::GetSet => "pygetset",
             Self::Slot => "pyslot",
             Self::Attr => "pyattr",
             Self::ExtendClass => "extend_class",
@@ -50,7 +50,7 @@ impl FromStr for AttrName {
             "pymethod" => Self::Method,
             "pyclassmethod" => Self::ClassMethod,
             "pystaticmethod" => Self::StaticMethod,
-            "pyproperty" => Self::GetSet,
+            "pygetset" => Self::GetSet,
             "pyslot" => Self::Slot,
             "pyattr" => Self::Attr,
             "extend_class" => Self::ExtendClass,
@@ -406,7 +406,7 @@ struct MethodItem {
     inner: ContentItemInner<AttrName>,
 }
 
-/// #[pyproperty]
+/// #[pygetset]
 struct GetSetItem {
     inner: ContentItemInner<AttrName>,
 }
@@ -694,7 +694,7 @@ where
             quote_spanned! { ident.span() =>
                 class.set_str_attr(
                     #py_name,
-                    ctx.new_member(#py_name, Self::#ident, class),
+                    ctx.new_member(#py_name, Self::#ident, None, class),
                     ctx,
                 );
             }

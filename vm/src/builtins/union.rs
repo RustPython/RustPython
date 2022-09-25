@@ -79,12 +79,12 @@ impl PyUnion {
             .join(" | "))
     }
 
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     fn parameters(&self) -> PyObjectRef {
         self.parameters.clone().into()
     }
 
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     fn args(&self) -> PyObjectRef {
         self.args.clone().into()
     }

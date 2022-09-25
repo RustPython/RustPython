@@ -1,6 +1,7 @@
 use super::{PyStr, PyType, PyTypeRef};
 use crate::{
     class::PyClassImpl,
+    function::PySetterValue,
     types::{Constructor, GetDescriptor, Unconstructible},
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
@@ -18,8 +19,15 @@ pub enum MemberKind {
     ObjectEx = 16,
 }
 
+pub type MemberSetterFunc = Option<fn(&VirtualMachine, PyObjectRef, PySetterValue) -> PyResult<()>>;
+
 pub enum MemberGetter {
     Getter(fn(&VirtualMachine, PyObjectRef) -> PyResult),
+    Offset(usize),
+}
+
+pub enum MemberSetter {
+    Setter(MemberSetterFunc),
     Offset(usize),
 }
 
@@ -27,6 +35,7 @@ pub struct MemberDef {
     pub name: String,
     pub kind: MemberKind,
     pub getter: MemberGetter,
+    pub setter: MemberSetter,
     pub doc: Option<String>,
 }
 
@@ -35,6 +44,21 @@ impl MemberDef {
         match self.getter {
             MemberGetter::Getter(getter) => (getter)(vm, obj),
             MemberGetter::Offset(offset) => get_slot_from_object(obj, offset, self, vm),
+        }
+    }
+
+    fn set(
+        &self,
+        obj: PyObjectRef,
+        value: PySetterValue<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        match self.setter {
+            MemberSetter::Setter(setter) => match setter {
+                Some(setter) => (setter)(vm, obj, value),
+                None => Err(vm.new_attribute_error("readonly attribute".to_string())),
+            },
+            MemberSetter::Offset(offset) => set_slot_at_object(obj, offset, self, value, vm),
         }
     }
 }
@@ -86,12 +110,12 @@ impl MemberDescrObject {
         )
     }
 
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     fn doc(zelf: PyRef<Self>) -> Option<String> {
         zelf.member.doc.to_owned()
     }
 
-    #[pyproperty(magic)]
+    #[pygetset(magic)]
     fn qualname(&self, vm: &VirtualMachine) -> PyResult<Option<String>> {
         let qualname = self.common.qualname.read();
         Ok(if qualname.is_none() {
@@ -102,6 +126,17 @@ impl MemberDescrObject {
         } else {
             qualname.to_owned()
         })
+    }
+
+    #[pyslot]
+    fn descr_set(
+        zelf: PyObjectRef,
+        obj: PyObjectRef,
+        value: PySetterValue<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let zelf = Self::_zelf(zelf, vm)?;
+        zelf.member.set(obj, value, vm)
     }
 }
 
@@ -122,6 +157,24 @@ fn get_slot_from_object(
         })?,
     };
     Ok(slot)
+}
+
+// PyMember_SetOne
+fn set_slot_at_object(
+    obj: PyObjectRef,
+    offset: usize,
+    member: &MemberDef,
+    value: PySetterValue,
+    _vm: &VirtualMachine,
+) -> PyResult<()> {
+    match member.kind {
+        MemberKind::ObjectEx => match value {
+            PySetterValue::Assign(v) => obj.set_slot(offset, Some(v)),
+            PySetterValue::Delete => obj.set_slot(offset, None),
+        },
+    }
+
+    Ok(())
 }
 
 impl Unconstructible for MemberDescrObject {}

@@ -179,48 +179,48 @@ impl PyRef<PyCode> {
         )
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn co_posonlyargcount(self) -> usize {
         self.code.posonlyarg_count
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn co_argcount(self) -> usize {
         self.code.arg_count
     }
 
-    #[pyproperty]
-    fn co_filename(self) -> PyStrRef {
+    #[pygetset]
+    pub fn co_filename(self) -> PyStrRef {
         self.code.source_path.to_owned()
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn co_firstlineno(self) -> usize {
         self.code.first_line_number
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn co_kwonlyargcount(self) -> usize {
         self.code.kwonlyarg_count
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn co_consts(self, vm: &VirtualMachine) -> PyTupleRef {
         let consts = self.code.constants.iter().map(|x| x.0.clone()).collect();
         vm.ctx.new_tuple(consts)
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn co_name(self) -> PyStrRef {
         self.code.obj_name.to_owned()
     }
 
-    #[pyproperty]
+    #[pygetset]
     fn co_flags(self) -> u16 {
         self.code.flags.bits()
     }
 
-    #[pyproperty]
+    #[pygetset]
     pub fn co_varnames(self, vm: &VirtualMachine) -> PyTupleRef {
         let varnames = self.code.varnames.iter().map(|s| s.to_object()).collect();
         vm.ctx.new_tuple(varnames)
