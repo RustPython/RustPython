@@ -965,7 +965,7 @@ pub trait AsSequence: PyPayload {
     #[pyslot]
     fn as_sequence() -> &'static PySequenceMethods;
 
-    fn sequence_downcast<'a>(seq: PySequence<'a>) -> &'a Py<Self> {
+    fn sequence_downcast(seq: PySequence) -> &Py<Self> {
         unsafe { seq.obj.downcast_unchecked_ref() }
     }
 }

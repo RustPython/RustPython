@@ -175,6 +175,20 @@ impl PyType {
 
         *slots.name.get_mut() = Some(String::from(name));
 
+        #[allow(clippy::mutable_key_type)]
+        let mut attr_name_set = HashSet::new();
+
+        for cls in mro.iter() {
+            for &name in cls.attributes.read().keys() {
+                if name.as_str() != "__new__" {
+                    attr_name_set.insert(name);
+                }
+            }
+        }
+        for &name in attrs.keys() {
+            attr_name_set.insert(name);
+        }
+
         let new_type = PyRef::new_ref(
             PyType {
                 base: Some(base),
@@ -189,7 +203,7 @@ impl PyType {
             None,
         );
 
-        for attr_name in new_type.attributes.read().keys() {
+        for attr_name in attr_name_set {
             if attr_name.as_str().starts_with("__") && attr_name.as_str().ends_with("__") {
                 new_type.update_slot(attr_name, true);
             }
