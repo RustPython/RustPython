@@ -56,29 +56,9 @@ pub mod module {
     #[pyattr]
     use libc::{PRIO_PGRP, PRIO_PROCESS, PRIO_USER};
 
-    #[cfg(any(target_os = "dragonfly", target_os = "freebsd", target_os = "linux"))]
+    #[cfg(any(target_os = "dragonfly", target_os = "freebsd", target_os = "linux", target_os = "macos"))]
     #[pyattr]
     use libc::{SEEK_DATA, SEEK_HOLE};
-
-    // Constants currently missing from libc for macos
-    #[cfg(target_os = "macos")]
-    #[pyattr]
-    const SEEK_DATA: i32 = 4;
-    #[cfg(target_os = "macos")]
-    #[pyattr]
-    const SEEK_HOLE: i32 = 3;
-    #[cfg(target_os = "macos")]
-    #[pyattr]
-    const O_EVTONLY: i32 = 0x8000;
-    #[cfg(target_os = "macos")]
-    #[pyattr]
-    const O_FSYNC: i32 = 0x80;
-    #[cfg(target_os = "macos")]
-    #[pyattr]
-    const O_SYMLINK: i32 = 0x200000;
-    #[cfg(target_os = "macos")]
-    #[pyattr]
-    const O_NOFOLLOW_ANY: i32 = 0x20000000;
 
     #[cfg(not(any(target_os = "redox", target_os = "freebsd")))]
     #[pyattr]
@@ -88,6 +68,9 @@ pub mod module {
     #[cfg(not(target_os = "redox"))]
     #[pyattr]
     use libc::{O_NDELAY, O_NOCTTY};
+    #[cfg(target_os = "macos")]
+    #[pyattr]
+    use libc::{O_EVTONLY, O_FSYNC, O_SYMLINK, O_NOFOLLOW_ANY};
 
     #[pyattr]
     use libc::{RTLD_GLOBAL, RTLD_LAZY, RTLD_LOCAL, RTLD_NOW};
