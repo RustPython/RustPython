@@ -1561,6 +1561,7 @@ impl ExecutingFrame<'_> {
             closure,
             defaults,
             kw_only_defaults,
+            PyMutex::new(qualified_name.clone()),
         )
         .into_pyobject(vm);
 
