@@ -65,7 +65,7 @@ hex = "0.4.3"
 puruspe = "0.1.5"
 nix = "0.24"
 xml-rs = "0.8.4"
-libc = "0.2.126"
+libc = "0.2.133"
 cfg-if = "1.0.0"
 ahash = "0.7.6"
 libz-sys = { version = "1.1.5", optional = true }
