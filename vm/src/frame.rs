@@ -187,7 +187,7 @@ impl FrameRef {
         let j = std::cmp::min(map.len(), code.varnames.len());
         if !code.varnames.is_empty() {
             let fastlocals = self.fastlocals.lock();
-            for (&k, v) in itertools::zip(&map[..j], &**fastlocals) {
+            for (&k, v) in std::iter::zip(&map[..j], &**fastlocals) {
                 match locals.mapping().ass_subscript(k, v.clone(), vm) {
                     Ok(()) => {}
                     Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {}
@@ -197,7 +197,7 @@ impl FrameRef {
         }
         if !code.cellvars.is_empty() || !code.freevars.is_empty() {
             let map_to_dict = |keys: &[&PyStrInterned], values: &[PyCellRef]| {
-                for (&k, v) in itertools::zip(keys, values) {
+                for (&k, v) in std::iter::zip(keys, values) {
                     if let Some(value) = v.get() {
                         locals.mapping().ass_subscript(k, Some(value), vm)?;
                     } else {
