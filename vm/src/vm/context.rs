@@ -152,6 +152,7 @@ declare_const_name! {
     __lshift__,
     __lt__,
     __main__,
+    __match_args__,
     __matmul__,
     __missing__,
     __mod__,
