@@ -1349,8 +1349,6 @@ class TestBasicOps(unittest.TestCase):
         self.assertEqual(list(islice(range(100), IntLike(10), IntLike(50), IntLike(5))),
                          list(range(10,50,5)))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_takewhile(self):
         data = [1, 3, 5, 20, 2, 4, 6, 8]
         self.assertEqual(list(takewhile(underten, data)), [1, 3, 5])
