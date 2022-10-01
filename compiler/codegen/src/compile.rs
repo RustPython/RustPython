@@ -2126,6 +2126,11 @@ impl Compiler {
 
                 let name = "<lambda>".to_owned();
                 let mut funcflags = self.enter_function(&name, args)?;
+
+                self.current_codeinfo()
+                    .constants
+                    .insert_full(ConstantData::None);
+
                 self.compile_expression(body)?;
                 self.emit(Instruction::ReturnValue);
                 let code = self.pop_code_object();
