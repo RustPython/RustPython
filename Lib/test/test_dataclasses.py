@@ -2536,8 +2536,6 @@ class TestHash(unittest.TestCase):
         self.assertEqual(hash(C(4)), hash((4,)))
         self.assertEqual(hash(C(42)), hash((42,)))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_hash_no_args(self):
         # Test dataclasses with no hash= argument.  This exists to
         #  make sure that if the @dataclass parameter name is changed
