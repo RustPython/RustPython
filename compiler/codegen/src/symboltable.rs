@@ -609,7 +609,7 @@ impl SymbolTableBuilder {
         } else {
             SymbolUsage::Parameter
         };
-        self.register_name(&parameter.node.arg, usage, parameter.location)
+        self.register_name(&parameter.node.arg, usage, parameter.start)
     }
 
     fn scan_parameters_annotations(&mut self, parameters: &[ast::Arg]) -> SymbolTableResult {
@@ -636,7 +636,7 @@ impl SymbolTableBuilder {
 
     fn scan_statement(&mut self, statement: &ast::Stmt) -> SymbolTableResult {
         use ast::StmtKind::*;
-        let location = statement.location;
+        let location = statement.start;
         if let ImportFrom { module, names, .. } = &statement.node {
             if module.as_deref() == Some("__future__") {
                 for feature in names {
@@ -862,7 +862,7 @@ impl SymbolTableBuilder {
         context: ExpressionContext,
     ) -> SymbolTableResult {
         use ast::ExprKind::*;
-        let location = expression.location;
+        let location = expression.start;
         match &expression.node {
             BinOp { left, right, .. } => {
                 self.scan_expression(left, context)?;
@@ -1002,7 +1002,7 @@ impl SymbolTableBuilder {
                 }
             }
             Lambda { args, body } => {
-                self.enter_function("lambda", args, expression.location.row())?;
+                self.enter_function("lambda", args, expression.start.row())?;
                 match context {
                     ExpressionContext::IterDefinitionExp => {
                         self.scan_expression(body, ExpressionContext::IterDefinitionExp)?;

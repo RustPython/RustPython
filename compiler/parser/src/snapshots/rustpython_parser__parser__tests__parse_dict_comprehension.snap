@@ -1,18 +1,26 @@
 ---
-source: parser/src/parser.rs
+source: compiler/parser/src/parser.rs
 expression: parse_ast
 ---
 Located {
-    location: Location {
+    start: Location {
         row: 1,
         column: 1,
+    },
+    end: Location {
+        row: 1,
+        column: 20,
     },
     custom: (),
     node: DictComp {
         key: Located {
-            location: Location {
+            start: Location {
                 row: 1,
                 column: 2,
+            },
+            end: Location {
+                row: 1,
+                column: 4,
             },
             custom: (),
             node: Name {
@@ -21,9 +29,13 @@ Located {
             },
         },
         value: Located {
-            location: Location {
+            start: Location {
                 row: 1,
                 column: 6,
+            },
+            end: Location {
+                row: 1,
+                column: 8,
             },
             custom: (),
             node: Name {
@@ -34,9 +46,13 @@ Located {
         generators: [
             Comprehension {
                 target: Located {
-                    location: Location {
+                    start: Location {
                         row: 1,
                         column: 13,
+                    },
+                    end: Location {
+                        row: 1,
+                        column: 14,
                     },
                     custom: (),
                     node: Name {
@@ -45,9 +61,13 @@ Located {
                     },
                 },
                 iter: Located {
-                    location: Location {
+                    start: Location {
                         row: 1,
                         column: 18,
+                    },
+                    end: Location {
+                        row: 1,
+                        column: 19,
                     },
                     custom: (),
                     node: Name {

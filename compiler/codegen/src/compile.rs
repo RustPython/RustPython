@@ -535,7 +535,7 @@ impl Compiler {
 
     fn compile_statement(&mut self, statement: &ast::Stmt) -> CompileResult<()> {
         trace!("Compiling {:?}", statement);
-        self.set_source_location(statement.location);
+        self.set_source_location(statement.start);
         use ast::StmtKind::*;
 
         match &statement.node {
@@ -579,8 +579,9 @@ impl Compiler {
 
                 let from_list = if import_star {
                     if self.ctx.in_func() {
-                        return Err(self
-                            .error_loc(CodegenErrorType::FunctionImportStar, statement.location));
+                        return Err(
+                            self.error_loc(CodegenErrorType::FunctionImportStar, statement.start)
+                        );
                     }
                     vec![ConstantData::Str {
                         value: "*".to_owned(),
@@ -769,7 +770,7 @@ impl Compiler {
                     self.emit(Instruction::Break { target: end });
                 }
                 None => {
-                    return Err(self.error_loc(CodegenErrorType::InvalidBreak, statement.location));
+                    return Err(self.error_loc(CodegenErrorType::InvalidBreak, statement.start));
                 }
             },
             Continue => match self.ctx.loop_data {
@@ -777,14 +778,12 @@ impl Compiler {
                     self.emit(Instruction::Continue { target: start });
                 }
                 None => {
-                    return Err(
-                        self.error_loc(CodegenErrorType::InvalidContinue, statement.location)
-                    );
+                    return Err(self.error_loc(CodegenErrorType::InvalidContinue, statement.start));
                 }
             },
             Return { value } => {
                 if !self.ctx.in_func() {
-                    return Err(self.error_loc(CodegenErrorType::InvalidReturn, statement.location));
+                    return Err(self.error_loc(CodegenErrorType::InvalidReturn, statement.start));
                 }
                 match value {
                     Some(v) => {
@@ -794,10 +793,9 @@ impl Compiler {
                                 .flags
                                 .contains(bytecode::CodeFlags::IS_GENERATOR)
                         {
-                            return Err(self.error_loc(
-                                CodegenErrorType::AsyncReturnValue,
-                                statement.location,
-                            ));
+                            return Err(
+                                self.error_loc(CodegenErrorType::AsyncReturnValue, statement.start)
+                            );
                         }
                         self.compile_expression(v)?;
                     }
@@ -1425,7 +1423,7 @@ impl Compiler {
 
             match &item.optional_vars {
                 Some(var) => {
-                    self.set_source_location(var.location);
+                    self.set_source_location(var.start);
                     self.compile_store(var)?;
                 }
                 None => {
@@ -1712,7 +1710,7 @@ impl Compiler {
                                 .ok_or_else(|| {
                                     self.error_loc(
                                         CodegenErrorType::TooManyStarUnpack,
-                                        target.location,
+                                        target.start,
                                     )
                                 })?;
                             self.emit(Instruction::UnpackEx { before, after });
@@ -1970,7 +1968,7 @@ impl Compiler {
 
     fn compile_expression(&mut self, expression: &ast::Expr) -> CompileResult<()> {
         trace!("Compiling {:?}", expression);
-        self.set_source_location(expression.location);
+        self.set_source_location(expression.start);
 
         use ast::ExprKind::*;
         match &expression.node {

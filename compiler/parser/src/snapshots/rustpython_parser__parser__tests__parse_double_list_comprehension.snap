@@ -1,18 +1,26 @@
 ---
-source: parser/src/parser.rs
+source: compiler/parser/src/parser.rs
 expression: parse_ast
 ---
 Located {
-    location: Location {
+    start: Location {
         row: 1,
         column: 1,
+    },
+    end: Location {
+        row: 1,
+        column: 49,
     },
     custom: (),
     node: ListComp {
         elt: Located {
-            location: Location {
+            start: Location {
                 row: 1,
                 column: 2,
+            },
+            end: Location {
+                row: 1,
+                column: 3,
             },
             custom: (),
             node: Name {
@@ -23,17 +31,25 @@ Located {
         generators: [
             Comprehension {
                 target: Located {
-                    location: Location {
+                    start: Location {
                         row: 1,
                         column: 8,
+                    },
+                    end: Location {
+                        row: 1,
+                        column: 13,
                     },
                     custom: (),
                     node: Tuple {
                         elts: [
                             Located {
-                                location: Location {
+                                start: Location {
                                     row: 1,
                                     column: 8,
+                                },
+                                end: Location {
+                                    row: 1,
+                                    column: 9,
                                 },
                                 custom: (),
                                 node: Name {
@@ -42,9 +58,13 @@ Located {
                                 },
                             },
                             Located {
-                                location: Location {
+                                start: Location {
                                     row: 1,
                                     column: 11,
+                                },
+                                end: Location {
+                                    row: 1,
+                                    column: 13,
                                 },
                                 custom: (),
                                 node: Name {
@@ -57,9 +77,13 @@ Located {
                     },
                 },
                 iter: Located {
-                    location: Location {
+                    start: Location {
                         row: 1,
                         column: 17,
+                    },
+                    end: Location {
+                        row: 1,
+                        column: 18,
                     },
                     custom: (),
                     node: Name {
@@ -72,9 +96,13 @@ Located {
             },
             Comprehension {
                 target: Located {
-                    location: Location {
+                    start: Location {
                         row: 1,
                         column: 23,
+                    },
+                    end: Location {
+                        row: 1,
+                        column: 24,
                     },
                     custom: (),
                     node: Name {
@@ -83,9 +111,13 @@ Located {
                     },
                 },
                 iter: Located {
-                    location: Location {
+                    start: Location {
                         row: 1,
                         column: 28,
+                    },
+                    end: Location {
+                        row: 1,
+                        column: 29,
                     },
                     custom: (),
                     node: Name {
@@ -95,16 +127,24 @@ Located {
                 },
                 ifs: [
                     Located {
-                        location: Location {
+                        start: Location {
                             row: 1,
                             column: 35,
+                        },
+                        end: Location {
+                            row: 1,
+                            column: 38,
                         },
                         custom: (),
                         node: Compare {
                             left: Located {
-                                location: Location {
+                                start: Location {
                                     row: 1,
                                     column: 33,
+                                },
+                                end: Location {
+                                    row: 1,
+                                    column: 34,
                                 },
                                 custom: (),
                                 node: Name {
@@ -117,9 +157,13 @@ Located {
                             ],
                             comparators: [
                                 Located {
-                                    location: Location {
+                                    start: Location {
                                         row: 1,
                                         column: 37,
+                                    },
+                                    end: Location {
+                                        row: 1,
+                                        column: 38,
                                     },
                                     custom: (),
                                     node: Constant {
@@ -133,16 +177,24 @@ Located {
                         },
                     },
                     Located {
-                        location: Location {
+                        start: Location {
                             row: 1,
                             column: 44,
+                        },
+                        end: Location {
+                            row: 1,
+                            column: 48,
                         },
                         custom: (),
                         node: Compare {
                             left: Located {
-                                location: Location {
+                                start: Location {
                                     row: 1,
                                     column: 42,
+                                },
+                                end: Location {
+                                    row: 1,
+                                    column: 43,
                                 },
                                 custom: (),
                                 node: Name {
@@ -155,9 +207,13 @@ Located {
                             ],
                             comparators: [
                                 Located {
-                                    location: Location {
+                                    start: Location {
                                         row: 1,
                                         column: 46,
+                                    },
+                                    end: Location {
+                                        row: 1,
+                                        column: 48,
                                     },
                                     custom: (),
                                     node: Constant {

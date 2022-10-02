@@ -304,7 +304,7 @@ class FoldImplVisitor(TypeInfoEmitVisitor):
             depth,
         )
         self.emit(
-            "Ok(Located { custom: folder.map_user(node.custom)?, location: node.location, node: f(folder, node.node)? })",
+            "Ok(Located { custom: folder.map_user(node.custom)?, start: node.start, end: node.end, node: f(folder, node.node)? })",
             depth + 1,
         )
         self.emit("}", depth)
@@ -617,9 +617,6 @@ class TraitImplVisitor(EmitVisitor):
         column = self.decode_field(asdl.Field("int", "col_offset"), typename)
         self.emit(f"let _location = ast::Location::new({row}, {column});", depth)
 
-    def wrap_located_node(self, depth):
-        self.emit(f"let node = ast::Located::new(_location, node);", depth)
-
     def decode_field(self, field, typename):
         name = json.dumps(field.name)
         if field.opt and not field.seq:
@@ -657,14 +654,15 @@ def write_ast_def(mod, typeinfo, f):
         textwrap.dedent(
             """
         pub struct Located<T, U = ()> {
-            pub location: Location,
+            pub start: Location,
+            pub end: Location,
             pub custom: U,
             pub node: T,
         }
     
         impl<T> Located<T> {
-            pub fn new(location: Location, node: T) -> Self {
-                Self { location, custom: (), node }
+            pub fn new(start: Location, end: Location, node: T) -> Self {
+                Self { start, end, custom: (), node }
             }
         }
         \n

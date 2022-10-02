@@ -142,17 +142,21 @@ impl<T: Node> Node for Option<T> {
 impl<T: NamedNode> Node for ast::Located<T> {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
         let obj = self.node.ast_to_object(vm);
-        node_add_location(&obj, self.location, vm);
+        node_add_location(&obj, self.start, vm);
         obj
     }
 
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
-        let location = ast::Location::new(
+        let start = ast::Location::new(
             Node::ast_from_object(vm, get_node_field(vm, &object, "lineno", T::NAME)?)?,
             Node::ast_from_object(vm, get_node_field(vm, &object, "col_offset", T::NAME)?)?,
         );
+        let end = ast::Location::new(
+            Node::ast_from_object(vm, get_node_field(vm, &object, "end_lineno", T::NAME)?)?,
+            Node::ast_from_object(vm, get_node_field(vm, &object, "end_col_offset", T::NAME)?)?,
+        );
         let node = T::ast_from_object(vm, object)?;
-        Ok(ast::Located::new(location, node))
+        Ok(ast::Located::new(start, end, node))
     }
 }
 

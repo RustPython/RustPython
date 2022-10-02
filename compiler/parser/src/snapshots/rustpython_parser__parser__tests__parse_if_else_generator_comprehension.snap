@@ -1,25 +1,37 @@
 ---
-source: parser/src/parser.rs
+source: compiler/parser/src/parser.rs
 expression: parse_ast
 ---
 Located {
-    location: Location {
+    start: Location {
         row: 1,
         column: 1,
+    },
+    end: Location {
+        row: 1,
+        column: 27,
     },
     custom: (),
     node: GeneratorExp {
         elt: Located {
-            location: Location {
+            start: Location {
                 row: 1,
                 column: 4,
+            },
+            end: Location {
+                row: 1,
+                column: 15,
             },
             custom: (),
             node: IfExp {
                 test: Located {
-                    location: Location {
+                    start: Location {
                         row: 1,
                         column: 7,
+                    },
+                    end: Location {
+                        row: 1,
+                        column: 8,
                     },
                     custom: (),
                     node: Name {
@@ -28,9 +40,13 @@ Located {
                     },
                 },
                 body: Located {
-                    location: Location {
+                    start: Location {
                         row: 1,
                         column: 2,
+                    },
+                    end: Location {
+                        row: 1,
+                        column: 3,
                     },
                     custom: (),
                     node: Name {
@@ -39,9 +55,13 @@ Located {
                     },
                 },
                 orelse: Located {
-                    location: Location {
+                    start: Location {
                         row: 1,
                         column: 14,
+                    },
+                    end: Location {
+                        row: 1,
+                        column: 15,
                     },
                     custom: (),
                     node: Name {
@@ -54,9 +74,13 @@ Located {
         generators: [
             Comprehension {
                 target: Located {
-                    location: Location {
+                    start: Location {
                         row: 1,
                         column: 20,
+                    },
+                    end: Location {
+                        row: 1,
+                        column: 21,
                     },
                     custom: (),
                     node: Name {
@@ -65,9 +89,13 @@ Located {
                     },
                 },
                 iter: Located {
-                    location: Location {
+                    start: Location {
                         row: 1,
                         column: 25,
+                    },
+                    end: Location {
+                        row: 1,
+                        column: 26,
                     },
                     custom: (),
                     node: Name {

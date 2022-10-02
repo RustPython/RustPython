@@ -4,7 +4,11 @@ expression: parse_ast
 ---
 [
     Located {
-        location: Location {
+        start: Location {
+            row: 0,
+            column: 0,
+        },
+        end: Location {
             row: 0,
             column: 0,
         },
@@ -17,7 +21,11 @@ expression: parse_ast
         },
     },
     Located {
-        location: Location {
+        start: Location {
+            row: 0,
+            column: 0,
+        },
+        end: Location {
             row: 0,
             column: 0,
         },
@@ -30,7 +38,11 @@ expression: parse_ast
         },
     },
     Located {
-        location: Location {
+        start: Location {
+            row: 0,
+            column: 0,
+        },
+        end: Location {
             row: 0,
             column: 0,
         },
@@ -43,16 +55,24 @@ expression: parse_ast
         },
     },
     Located {
-        location: Location {
+        start: Location {
+            row: 0,
+            column: 0,
+        },
+        end: Location {
             row: 0,
             column: 0,
         },
         custom: (),
         node: FormattedValue {
             value: Located {
-                location: Location {
+                start: Location {
                     row: 1,
                     column: 2,
+                },
+                end: Location {
+                    row: 1,
+                    column: 6,
                 },
                 custom: (),
                 node: Name {
@@ -65,7 +85,11 @@ expression: parse_ast
         },
     },
     Located {
-        location: Location {
+        start: Location {
+            row: 0,
+            column: 0,
+        },
+        end: Location {
             row: 0,
             column: 0,
         },
@@ -78,7 +102,11 @@ expression: parse_ast
         },
     },
     Located {
-        location: Location {
+        start: Location {
+            row: 0,
+            column: 0,
+        },
+        end: Location {
             row: 0,
             column: 0,
         },
@@ -91,7 +119,11 @@ expression: parse_ast
         },
     },
     Located {
-        location: Location {
+        start: Location {
+            row: 0,
+            column: 0,
+        },
+        end: Location {
             row: 0,
             column: 0,
         },
@@ -104,16 +136,24 @@ expression: parse_ast
         },
     },
     Located {
-        location: Location {
+        start: Location {
+            row: 0,
+            column: 0,
+        },
+        end: Location {
             row: 0,
             column: 0,
         },
         custom: (),
         node: FormattedValue {
             value: Located {
-                location: Location {
+                start: Location {
                     row: 1,
                     column: 2,
+                },
+                end: Location {
+                    row: 1,
+                    column: 8,
                 },
                 custom: (),
                 node: Name {

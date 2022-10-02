@@ -26,7 +26,7 @@ pub fn parse_params(
             // have defaults
             return Err(LexicalError {
                 error: LexicalErrorType::DefaultArgumentError,
-                location: name.location,
+                location: name.start,
             });
         }
         Ok(())
@@ -45,7 +45,10 @@ pub fn parse_params(
     Ok((posonly, names, defaults))
 }
 
-type FunctionArgument = (Option<(ast::Location, Option<String>)>, ast::Expr);
+type FunctionArgument = (
+    Option<(ast::Location, ast::Location, Option<String>)>,
+    ast::Expr,
+);
 
 pub fn parse_args(func_args: Vec<FunctionArgument>) -> Result<ArgumentList, LexicalError> {
     let mut args = vec![];
@@ -54,12 +57,12 @@ pub fn parse_args(func_args: Vec<FunctionArgument>) -> Result<ArgumentList, Lexi
     let mut keyword_names = HashSet::with_capacity_and_hasher(func_args.len(), RandomState::new());
     for (name, value) in func_args {
         match name {
-            Some((location, name)) => {
+            Some((start, end, name)) => {
                 if let Some(keyword_name) = &name {
                     if keyword_names.contains(keyword_name) {
                         return Err(LexicalError {
                             error: LexicalErrorType::DuplicateKeywordArgumentError,
-                            location,
+                            location: start,
                         });
                     }
 
@@ -67,7 +70,8 @@ pub fn parse_args(func_args: Vec<FunctionArgument>) -> Result<ArgumentList, Lexi
                 }
 
                 keywords.push(ast::Keyword::new(
-                    location,
+                    start,
+                    end,
                     ast::KeywordData {
                         arg: name,
                         value: Box::new(value),
@@ -79,7 +83,7 @@ pub fn parse_args(func_args: Vec<FunctionArgument>) -> Result<ArgumentList, Lexi
                 if !keywords.is_empty() && !is_starred(&value) {
                     return Err(LexicalError {
                         error: LexicalErrorType::PositionalArgumentError,
-                        location: value.location,
+                        location: value.start,
                     });
                 }
 
