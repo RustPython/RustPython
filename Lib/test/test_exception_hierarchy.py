@@ -5,6 +5,7 @@ import socket
 import unittest
 import errno
 from errno import EEXIST
+import sys
 
 
 class SubOSError(OSError):
@@ -130,8 +131,8 @@ class AttributesTest(unittest.TestCase):
         else:
             self.assertNotIn('winerror', dir(OSError))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skipIf(sys.platform == 'win32', 'winerror not filled yet')
     def test_posix_error(self):
         e = OSError(EEXIST, "File already exists", "foo.txt")
         self.assertEqual(e.errno, EEXIST)

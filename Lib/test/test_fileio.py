@@ -391,8 +391,6 @@ class PyAutoFileTests(AutoFileTests, unittest.TestCase):
     FileIO = _pyio.FileIO
     modulename = '_pyio'
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testOpendir(self):
         super().testOpendir()
 

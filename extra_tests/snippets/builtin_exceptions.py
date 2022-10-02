@@ -264,6 +264,40 @@ assert OSError.strerror
 assert OSError(1, 2).errno
 assert OSError(1, 2).strerror
 
+
+# OSError Unexpected number of arguments
+w = OSError()
+assert w.errno == None
+assert not sys.platform.startswith("win") or w.winerror == None
+assert w.strerror == None
+assert w.filename == None
+assert w.filename2 == None
+assert str(w) == ""
+
+w = OSError(0)
+assert w.errno == None
+assert not sys.platform.startswith("win") or w.winerror == None
+assert w.strerror == None
+assert w.filename == None
+assert w.filename2 == None
+assert str(w) == "0"
+
+w = OSError('foo')
+assert w.errno == None
+assert not sys.platform.startswith("win") or w.winerror == None
+assert w.strerror == None
+assert w.filename == None
+assert w.filename2 == None
+assert str(w) == "foo"
+
+w = OSError('a', 'b', 'c', 'd', 'e', 'f')
+assert w.errno == None
+assert not sys.platform.startswith("win") or w.winerror == None
+assert w.strerror == None
+assert w.filename == None
+assert w.filename2 == None
+assert str(w) == "('a', 'b', 'c', 'd', 'e', 'f')"
+
 # Custom `__new__` and `__init__`:
 assert ImportError.__init__.__qualname__ == 'ImportError.__init__'
 assert ImportError(name='a').name == 'a'
