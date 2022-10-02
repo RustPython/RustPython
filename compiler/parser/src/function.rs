@@ -26,7 +26,7 @@ pub fn parse_params(
             // have defaults
             return Err(LexicalError {
                 error: LexicalErrorType::DefaultArgumentError,
-                location: name.start,
+                location: name.location,
             });
         }
         Ok(())
@@ -83,7 +83,7 @@ pub fn parse_args(func_args: Vec<FunctionArgument>) -> Result<ArgumentList, Lexi
                 if !keywords.is_empty() && !is_starred(&value) {
                     return Err(LexicalError {
                         error: LexicalErrorType::PositionalArgumentError,
-                        location: value.start,
+                        location: value.location,
                     });
                 }
 

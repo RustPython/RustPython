@@ -304,7 +304,7 @@ class FoldImplVisitor(TypeInfoEmitVisitor):
             depth,
         )
         self.emit(
-            "Ok(Located { custom: folder.map_user(node.custom)?, start: node.start, end: node.end, node: f(folder, node.node)? })",
+            "Ok(Located { custom: folder.map_user(node.custom)?, location: node.location, end_location: node.end_location, node: f(folder, node.node)? })",
             depth + 1,
         )
         self.emit("}", depth)
@@ -654,15 +654,15 @@ def write_ast_def(mod, typeinfo, f):
         textwrap.dedent(
             """
         pub struct Located<T, U = ()> {
-            pub start: Location,
-            pub end: Location,
+            pub location: Location,
+            pub end_location: Location,
             pub custom: U,
             pub node: T,
         }
     
         impl<T> Located<T> {
-            pub fn new(start: Location, end: Location, node: T) -> Self {
-                Self { start, end, custom: (), node }
+            pub fn new(location: Location, end_location: Location, node: T) -> Self {
+                Self { location, end_location, custom: (), node }
             }
         }
         \n

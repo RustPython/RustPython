@@ -4,22 +4,22 @@ expression: parse_ast
 ---
 [
     Located {
-        start: Location {
+        location: Location {
             row: 0,
             column: 0,
         },
-        end: Location {
+        end_location: Location {
             row: 0,
             column: 0,
         },
         custom: (),
         node: FormattedValue {
             value: Located {
-                start: Location {
+                location: Location {
                     row: 1,
                     column: 2,
                 },
-                end: Location {
+                end_location: Location {
                     row: 1,
                     column: 3,
                 },
@@ -34,22 +34,22 @@ expression: parse_ast
         },
     },
     Located {
-        start: Location {
+        location: Location {
             row: 0,
             column: 0,
         },
-        end: Location {
+        end_location: Location {
             row: 0,
             column: 0,
         },
         custom: (),
         node: FormattedValue {
             value: Located {
-                start: Location {
+                location: Location {
                     row: 1,
                     column: 3,
                 },
-                end: Location {
+                end_location: Location {
                     row: 1,
                     column: 4,
                 },
@@ -64,11 +64,11 @@ expression: parse_ast
         },
     },
     Located {
-        start: Location {
+        location: Location {
             row: 0,
             column: 0,
         },
-        end: Location {
+        end_location: Location {
             row: 0,
             column: 0,
         },

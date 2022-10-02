@@ -3,22 +3,22 @@ source: compiler/parser/src/parser.rs
 expression: parse_ast
 ---
 Located {
-    start: Location {
+    location: Location {
         row: 1,
         column: 1,
     },
-    end: Location {
+    end_location: Location {
         row: 1,
         column: 49,
     },
     custom: (),
     node: ListComp {
         elt: Located {
-            start: Location {
+            location: Location {
                 row: 1,
                 column: 2,
             },
-            end: Location {
+            end_location: Location {
                 row: 1,
                 column: 3,
             },
@@ -31,11 +31,11 @@ Located {
         generators: [
             Comprehension {
                 target: Located {
-                    start: Location {
+                    location: Location {
                         row: 1,
                         column: 8,
                     },
-                    end: Location {
+                    end_location: Location {
                         row: 1,
                         column: 13,
                     },
@@ -43,11 +43,11 @@ Located {
                     node: Tuple {
                         elts: [
                             Located {
-                                start: Location {
+                                location: Location {
                                     row: 1,
                                     column: 8,
                                 },
-                                end: Location {
+                                end_location: Location {
                                     row: 1,
                                     column: 9,
                                 },
@@ -58,11 +58,11 @@ Located {
                                 },
                             },
                             Located {
-                                start: Location {
+                                location: Location {
                                     row: 1,
                                     column: 11,
                                 },
-                                end: Location {
+                                end_location: Location {
                                     row: 1,
                                     column: 13,
                                 },
@@ -77,11 +77,11 @@ Located {
                     },
                 },
                 iter: Located {
-                    start: Location {
+                    location: Location {
                         row: 1,
                         column: 17,
                     },
-                    end: Location {
+                    end_location: Location {
                         row: 1,
                         column: 18,
                     },
@@ -96,11 +96,11 @@ Located {
             },
             Comprehension {
                 target: Located {
-                    start: Location {
+                    location: Location {
                         row: 1,
                         column: 23,
                     },
-                    end: Location {
+                    end_location: Location {
                         row: 1,
                         column: 24,
                     },
@@ -111,11 +111,11 @@ Located {
                     },
                 },
                 iter: Located {
-                    start: Location {
+                    location: Location {
                         row: 1,
                         column: 28,
                     },
-                    end: Location {
+                    end_location: Location {
                         row: 1,
                         column: 29,
                     },
@@ -127,22 +127,22 @@ Located {
                 },
                 ifs: [
                     Located {
-                        start: Location {
+                        location: Location {
                             row: 1,
                             column: 35,
                         },
-                        end: Location {
+                        end_location: Location {
                             row: 1,
                             column: 38,
                         },
                         custom: (),
                         node: Compare {
                             left: Located {
-                                start: Location {
+                                location: Location {
                                     row: 1,
                                     column: 33,
                                 },
-                                end: Location {
+                                end_location: Location {
                                     row: 1,
                                     column: 34,
                                 },
@@ -157,11 +157,11 @@ Located {
                             ],
                             comparators: [
                                 Located {
-                                    start: Location {
+                                    location: Location {
                                         row: 1,
                                         column: 37,
                                     },
-                                    end: Location {
+                                    end_location: Location {
                                         row: 1,
                                         column: 38,
                                     },
@@ -177,22 +177,22 @@ Located {
                         },
                     },
                     Located {
-                        start: Location {
+                        location: Location {
                             row: 1,
                             column: 44,
                         },
-                        end: Location {
+                        end_location: Location {
                             row: 1,
                             column: 48,
                         },
                         custom: (),
                         node: Compare {
                             left: Located {
-                                start: Location {
+                                location: Location {
                                     row: 1,
                                     column: 42,
                                 },
-                                end: Location {
+                                end_location: Location {
                                     row: 1,
                                     column: 43,
                                 },
@@ -207,11 +207,11 @@ Located {
                             ],
                             comparators: [
                                 Located {
-                                    start: Location {
+                                    location: Location {
                                         row: 1,
                                         column: 46,
                                     },
-                                    end: Location {
+                                    end_location: Location {
                                         row: 1,
                                         column: 48,
                                     },

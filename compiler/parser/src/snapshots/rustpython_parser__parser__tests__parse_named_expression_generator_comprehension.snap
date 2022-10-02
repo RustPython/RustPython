@@ -3,33 +3,33 @@ source: compiler/parser/src/parser.rs
 expression: parse_ast
 ---
 Located {
-    start: Location {
+    location: Location {
         row: 1,
         column: 1,
     },
-    end: Location {
+    end_location: Location {
         row: 1,
         column: 24,
     },
     custom: (),
     node: GeneratorExp {
         elt: Located {
-            start: Location {
+            location: Location {
                 row: 1,
                 column: 2,
             },
-            end: Location {
+            end_location: Location {
                 row: 1,
                 column: 12,
             },
             custom: (),
             node: NamedExpr {
                 target: Located {
-                    start: Location {
+                    location: Location {
                         row: 1,
                         column: 2,
                     },
-                    end: Location {
+                    end_location: Location {
                         row: 1,
                         column: 12,
                     },
@@ -40,22 +40,22 @@ Located {
                     },
                 },
                 value: Located {
-                    start: Location {
+                    location: Location {
                         row: 1,
                         column: 9,
                     },
-                    end: Location {
+                    end_location: Location {
                         row: 1,
                         column: 12,
                     },
                     custom: (),
                     node: BinOp {
                         left: Located {
-                            start: Location {
+                            location: Location {
                                 row: 1,
                                 column: 7,
                             },
-                            end: Location {
+                            end_location: Location {
                                 row: 1,
                                 column: 8,
                             },
@@ -67,11 +67,11 @@ Located {
                         },
                         op: Add,
                         right: Located {
-                            start: Location {
+                            location: Location {
                                 row: 1,
                                 column: 11,
                             },
-                            end: Location {
+                            end_location: Location {
                                 row: 1,
                                 column: 12,
                             },
@@ -90,11 +90,11 @@ Located {
         generators: [
             Comprehension {
                 target: Located {
-                    start: Location {
+                    location: Location {
                         row: 1,
                         column: 17,
                     },
-                    end: Location {
+                    end_location: Location {
                         row: 1,
                         column: 18,
                     },
@@ -105,11 +105,11 @@ Located {
                     },
                 },
                 iter: Located {
-                    start: Location {
+                    location: Location {
                         row: 1,
                         column: 22,
                     },
-                    end: Location {
+                    end_location: Location {
                         row: 1,
                         column: 23,
                     },

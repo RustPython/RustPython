@@ -4,11 +4,11 @@ expression: "parse_program(source, \"<test>\").unwrap()"
 ---
 [
     Located {
-        start: Location {
+        location: Location {
             row: 1,
             column: 1,
         },
-        end: Location {
+        end_location: Location {
             row: 1,
             column: 12,
         },
@@ -16,11 +16,11 @@ expression: "parse_program(source, \"<test>\").unwrap()"
         node: Assign {
             targets: [
                 Located {
-                    start: Location {
+                    location: Location {
                         row: 1,
                         column: 1,
                     },
-                    end: Location {
+                    end_location: Location {
                         row: 1,
                         column: 5,
                     },
@@ -28,11 +28,11 @@ expression: "parse_program(source, \"<test>\").unwrap()"
                     node: Tuple {
                         elts: [
                             Located {
-                                start: Location {
+                                location: Location {
                                     row: 1,
                                     column: 1,
                                 },
-                                end: Location {
+                                end_location: Location {
                                     row: 1,
                                     column: 2,
                                 },
@@ -43,11 +43,11 @@ expression: "parse_program(source, \"<test>\").unwrap()"
                                 },
                             },
                             Located {
-                                start: Location {
+                                location: Location {
                                     row: 1,
                                     column: 4,
                                 },
-                                end: Location {
+                                end_location: Location {
                                     row: 1,
                                     column: 5,
                                 },
@@ -63,11 +63,11 @@ expression: "parse_program(source, \"<test>\").unwrap()"
                 },
             ],
             value: Located {
-                start: Location {
+                location: Location {
                     row: 1,
                     column: 8,
                 },
-                end: Location {
+                end_location: Location {
                     row: 1,
                     column: 12,
                 },
@@ -75,11 +75,11 @@ expression: "parse_program(source, \"<test>\").unwrap()"
                 node: Tuple {
                     elts: [
                         Located {
-                            start: Location {
+                            location: Location {
                                 row: 1,
                                 column: 8,
                             },
-                            end: Location {
+                            end_location: Location {
                                 row: 1,
                                 column: 9,
                             },
@@ -92,11 +92,11 @@ expression: "parse_program(source, \"<test>\").unwrap()"
                             },
                         },
                         Located {
-                            start: Location {
+                            location: Location {
                                 row: 1,
                                 column: 11,
                             },
-                            end: Location {
+                            end_location: Location {
                                 row: 1,
                                 column: 12,
                             },

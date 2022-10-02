@@ -7,7 +7,7 @@ use crate::{
 use std::{iter, mem, str};
 
 struct FStringParser {
-        str_start: Location,
+    str_start: Location,
     str_end: Location,
 }
 
@@ -306,11 +306,18 @@ fn parse_fstring_expr(source: &str) -> Result<Expr, ParseError> {
 
 /// Parse an fstring from a string, located at a certain position in the sourcecode.
 /// In case of errors, we will get the location and the error returned.
-pub fn parse_located_fstring(source: &str, start: Location, end: Location) -> Result<Vec<Expr>, FStringError> {
+pub fn parse_located_fstring(
+    source: &str,
+    start: Location,
+    end: Location,
+) -> Result<Vec<Expr>, FStringError> {
     FStringParser::new(start, end)
         .parse(source.chars().peekable(), 0)
         .map(|(e, _)| e)
-        .map_err(|error| FStringError { error, location: start })
+        .map_err(|error| FStringError {
+            error,
+            location: start,
+        })
 }
 
 #[cfg(test)]

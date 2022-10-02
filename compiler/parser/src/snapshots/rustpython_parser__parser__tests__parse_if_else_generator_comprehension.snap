@@ -3,33 +3,33 @@ source: compiler/parser/src/parser.rs
 expression: parse_ast
 ---
 Located {
-    start: Location {
+    location: Location {
         row: 1,
         column: 1,
     },
-    end: Location {
+    end_location: Location {
         row: 1,
         column: 27,
     },
     custom: (),
     node: GeneratorExp {
         elt: Located {
-            start: Location {
+            location: Location {
                 row: 1,
                 column: 4,
             },
-            end: Location {
+            end_location: Location {
                 row: 1,
                 column: 15,
             },
             custom: (),
             node: IfExp {
                 test: Located {
-                    start: Location {
+                    location: Location {
                         row: 1,
                         column: 7,
                     },
-                    end: Location {
+                    end_location: Location {
                         row: 1,
                         column: 8,
                     },
@@ -40,11 +40,11 @@ Located {
                     },
                 },
                 body: Located {
-                    start: Location {
+                    location: Location {
                         row: 1,
                         column: 2,
                     },
-                    end: Location {
+                    end_location: Location {
                         row: 1,
                         column: 3,
                     },
@@ -55,11 +55,11 @@ Located {
                     },
                 },
                 orelse: Located {
-                    start: Location {
+                    location: Location {
                         row: 1,
                         column: 14,
                     },
-                    end: Location {
+                    end_location: Location {
                         row: 1,
                         column: 15,
                     },
@@ -74,11 +74,11 @@ Located {
         generators: [
             Comprehension {
                 target: Located {
-                    start: Location {
+                    location: Location {
                         row: 1,
                         column: 20,
                     },
-                    end: Location {
+                    end_location: Location {
                         row: 1,
                         column: 21,
                     },
@@ -89,11 +89,11 @@ Located {
                     },
                 },
                 iter: Located {
-                    start: Location {
+                    location: Location {
                         row: 1,
                         column: 25,
                     },
-                    end: Location {
+                    end_location: Location {
                         row: 1,
                         column: 26,
                     },

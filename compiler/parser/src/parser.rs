@@ -34,13 +34,13 @@ pub fn parse_program(source: &str, source_path: &str) -> Result<ast::Suite, Pars
 /// assert_eq!(
 ///     expr,
 ///     ast::Expr {
-///         start: ast::Location::new(1, 3),
-///         end: ast::Location::new(1, 6),
+///         location: ast::Location::new(1, 3),
+///         end_location: ast::Location::new(1, 6),
 ///         custom: (),
 ///         node: ast::ExprKind::BinOp {
 ///             left: Box::new(ast::Expr {
-///                 start: ast::Location::new(1, 1),
-///                 end: ast::Location::new(1, 2),
+///                 location: ast::Location::new(1, 1),
+///                 end_location: ast::Location::new(1, 2),
 ///                 custom: (),
 ///                 node: ast::ExprKind::Constant {
 ///                     value: ast::Constant::Int(1.into()),
@@ -49,8 +49,8 @@ pub fn parse_program(source: &str, source_path: &str) -> Result<ast::Suite, Pars
 ///             }),
 ///             op: ast::Operator::Add,
 ///             right: Box::new(ast::Expr {
-///                 start: ast::Location::new(1, 5),
-///                 end: ast::Location::new(1, 6),
+///                 location: ast::Location::new(1, 5),
+///                 end_location: ast::Location::new(1, 6),
 ///                 custom: (),
 ///                 node: ast::ExprKind::Constant {
 ///                     value: ast::Constant::Int(2.into()),

@@ -142,7 +142,7 @@ impl<T: Node> Node for Option<T> {
 impl<T: NamedNode> Node for ast::Located<T> {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
         let obj = self.node.ast_to_object(vm);
-        node_add_location(&obj, self.start, vm);
+        node_add_location(&obj, self.location, vm);
         obj
     }
 

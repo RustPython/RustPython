@@ -4,22 +4,22 @@ expression: parse_ast
 ---
 [
     Located {
-        start: Location {
+        location: Location {
             row: 1,
             column: 1,
         },
-        end: Location {
+        end_location: Location {
             row: 3,
             column: 9,
         },
         custom: (),
         node: If {
             test: Located {
-                start: Location {
+                location: Location {
                     row: 1,
                     column: 4,
                 },
-                end: Location {
+                end_location: Location {
                     row: 1,
                     column: 5,
                 },
@@ -33,22 +33,22 @@ expression: parse_ast
             },
             body: [
                 Located {
-                    start: Location {
+                    location: Location {
                         row: 1,
                         column: 7,
                     },
-                    end: Location {
+                    end_location: Location {
                         row: 1,
                         column: 9,
                     },
                     custom: (),
                     node: Expr {
                         value: Located {
-                            start: Location {
+                            location: Location {
                                 row: 1,
                                 column: 7,
                             },
-                            end: Location {
+                            end_location: Location {
                                 row: 1,
                                 column: 9,
                             },
@@ -65,22 +65,22 @@ expression: parse_ast
             ],
             orelse: [
                 Located {
-                    start: Location {
+                    location: Location {
                         row: 2,
                         column: 1,
                     },
-                    end: Location {
+                    end_location: Location {
                         row: 3,
                         column: 1,
                     },
                     custom: (),
                     node: If {
                         test: Located {
-                            start: Location {
+                            location: Location {
                                 row: 2,
                                 column: 6,
                             },
-                            end: Location {
+                            end_location: Location {
                                 row: 2,
                                 column: 7,
                             },
@@ -94,22 +94,22 @@ expression: parse_ast
                         },
                         body: [
                             Located {
-                                start: Location {
+                                location: Location {
                                     row: 2,
                                     column: 9,
                                 },
-                                end: Location {
+                                end_location: Location {
                                     row: 2,
                                     column: 11,
                                 },
                                 custom: (),
                                 node: Expr {
                                     value: Located {
-                                        start: Location {
+                                        location: Location {
                                             row: 2,
                                             column: 9,
                                         },
-                                        end: Location {
+                                        end_location: Location {
                                             row: 2,
                                             column: 11,
                                         },
@@ -126,22 +126,22 @@ expression: parse_ast
                         ],
                         orelse: [
                             Located {
-                                start: Location {
+                                location: Location {
                                     row: 3,
                                     column: 7,
                                 },
-                                end: Location {
+                                end_location: Location {
                                     row: 3,
                                     column: 9,
                                 },
                                 custom: (),
                                 node: Expr {
                                     value: Located {
-                                        start: Location {
+                                        location: Location {
                                             row: 3,
                                             column: 7,
                                         },
-                                        end: Location {
+                                        end_location: Location {
                                             row: 3,
                                             column: 9,
                                         },

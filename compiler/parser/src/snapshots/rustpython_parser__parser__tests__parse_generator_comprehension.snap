@@ -3,22 +3,22 @@ source: compiler/parser/src/parser.rs
 expression: parse_ast
 ---
 Located {
-    start: Location {
+    location: Location {
         row: 1,
         column: 1,
     },
-    end: Location {
+    end_location: Location {
         row: 1,
         column: 15,
     },
     custom: (),
     node: GeneratorExp {
         elt: Located {
-            start: Location {
+            location: Location {
                 row: 1,
                 column: 2,
             },
-            end: Location {
+            end_location: Location {
                 row: 1,
                 column: 3,
             },
@@ -31,11 +31,11 @@ Located {
         generators: [
             Comprehension {
                 target: Located {
-                    start: Location {
+                    location: Location {
                         row: 1,
                         column: 8,
                     },
-                    end: Location {
+                    end_location: Location {
                         row: 1,
                         column: 9,
                     },
@@ -46,11 +46,11 @@ Located {
                     },
                 },
                 iter: Located {
-                    start: Location {
+                    location: Location {
                         row: 1,
                         column: 13,
                     },
-                    end: Location {
+                    end_location: Location {
                         row: 1,
                         column: 14,
                     },
