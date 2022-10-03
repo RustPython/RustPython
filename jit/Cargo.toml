@@ -12,9 +12,9 @@ autotests = false
 [dependencies]
 rustpython-compiler-core = { path = "../compiler/core", version = "0.1.2" }
 
-cranelift = "0.76.0"
-cranelift-jit = "0.76.0"
-cranelift-module = "0.76.0"
+cranelift = "0.88.0"
+cranelift-jit = "0.88.0"
+cranelift-module = "0.88.0"
 libffi = "2.0.0"
 num-traits = "0.2"
 thiserror = "1.0"
