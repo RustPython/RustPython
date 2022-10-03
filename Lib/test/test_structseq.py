@@ -124,8 +124,6 @@ class StructSeqTest(unittest.TestCase):
                     self.assertEqual(list(t[start:stop:step]),
                                      L[start:stop:step])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_match_args(self):
         expected_args = ('tm_year', 'tm_mon', 'tm_mday', 'tm_hour', 'tm_min',
                          'tm_sec', 'tm_wday', 'tm_yday', 'tm_isdst')

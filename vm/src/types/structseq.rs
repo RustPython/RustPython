@@ -86,5 +86,16 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
                 .into(),
             );
         }
+
+        class.set_attr(
+            identifier!(ctx, __match_args__),
+            ctx.new_tuple(
+                Self::FIELD_NAMES
+                    .iter()
+                    .map(|&name| ctx.new_str(name).into())
+                    .collect::<Vec<_>>(),
+            )
+            .into(),
+        );
     }
 }
