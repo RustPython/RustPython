@@ -8,7 +8,7 @@ use crate::{
     PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 
-#[derive(result_like::OptionLike, is_macro::Is)]
+#[derive(result_like::OptionLike, is_macro::Is, Debug)]
 pub enum PySetterValue<T = PyObjectRef> {
     Assign(T),
     Delete,

@@ -88,7 +88,7 @@ impl PyObject {
     #[cfg_attr(feature = "flame-it", flame("PyObjectRef"))]
     #[inline]
     fn _get_attr(&self, attr_name: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        vm_trace!("object.__getattribute__: {:?} {:?}", obj, attr_name);
+        vm_trace!("object.__getattribute__: {:?} {:?}", self, attr_name);
         let getattro = self
             .class()
             .mro_find_map(|cls| cls.slots.getattro.load())
@@ -144,7 +144,7 @@ impl PyObject {
         value: PySetterValue,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        vm_trace!("object.__setattr__({:?}, {}, {:?})", obj, attr_name, value);
+        vm_trace!("object.__setattr__({:?}, {}, {:?})", self, attr_name, value);
         if let Some(attr) = vm
             .ctx
             .interned_str(&*attr_name)
