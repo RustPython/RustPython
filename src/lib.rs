@@ -57,7 +57,13 @@ pub use settings::{opts_with_clap, RunMode};
 /// The main cli of the `rustpython` interpreter. This function will return with `std::process::ExitCode`
 /// based on the return code of the python code ran through the cli.
 pub fn run(init: impl FnOnce(&mut VirtualMachine) + 'static) -> ExitCode {
-    env_logger::init();
+    if cfg!(feature = "vm-tracing-logging") {
+        env_logger::init_from_env(
+            env_logger::Env::default().filter_or(env_logger::DEFAULT_FILTER_ENV, "trace"),
+        );
+    } else {
+        env_logger::init();
+    }
 
     let (settings, run_mode) = opts_with_clap();
 
