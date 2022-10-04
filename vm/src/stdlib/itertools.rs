@@ -2,21 +2,23 @@ pub(crate) use decl::make_module;
 
 #[pymodule(name = "itertools")]
 mod decl {
-    use crate::common::{
-        lock::{PyMutex, PyRwLock, PyRwLockWriteGuard},
-        rc::PyRc,
-    };
     use crate::{
         builtins::{int, PyGenericAlias, PyInt, PyIntRef, PyList, PyTuple, PyTupleRef, PyTypeRef},
+        common::{
+            lock::{PyMutex, PyRwLock, PyRwLockWriteGuard},
+            rc::PyRc,
+        },
         convert::ToPyObject,
-        function::{ArgCallable, FuncArgs, OptionalArg, OptionalOption, PosArgs},
+        function::{ArgCallable, ArgIntoBool, FuncArgs, OptionalArg, OptionalOption, PosArgs},
         identifier,
         protocol::{PyIter, PyIterReturn, PyNumber},
         stdlib::sys,
         types::{Constructor, IterNext, IterNextIterable},
-        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, PyWeakRef, VirtualMachine,
+        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, PyWeakRef, TryFromObject,
+        VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
+    use num_bigint::BigInt;
     use num_traits::{Signed, ToPrimitive};
     use std::fmt;
 
@@ -540,7 +542,23 @@ mod decl {
     }
 
     #[pyclass(with(IterNext, Constructor), flags(BASETYPE))]
-    impl PyItertoolsDropwhile {}
+    impl PyItertoolsDropwhile {
+        #[pymethod(magic)]
+        fn reduce(zelf: PyRef<Self>) -> (PyTypeRef, (PyObjectRef, PyIter), BigInt) {
+            (
+                zelf.class().clone(),
+                (zelf.predicate.clone().into(), zelf.iterable.clone()),
+                (if zelf.start_flag.load() { 1 } else { 0 }).into(),
+            )
+        }
+        #[pymethod(magic)]
+        fn setstate(zelf: PyRef<Self>, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            if let Ok(obj) = ArgIntoBool::try_from_object(vm, state) {
+                zelf.start_flag.store(*obj);
+            }
+            Ok(())
+        }
+    }
     impl IterNextIterable for PyItertoolsDropwhile {}
     impl IterNext for PyItertoolsDropwhile {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
