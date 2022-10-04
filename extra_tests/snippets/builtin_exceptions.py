@@ -1,5 +1,6 @@
 import builtins
 import platform
+import pickle
 import sys
 
 def exceptions_eq(e1, e2):
@@ -273,6 +274,14 @@ assert w.strerror == None
 assert w.filename == None
 assert w.filename2 == None
 assert str(w) == ""
+x = pickle.loads(pickle.dumps(w, 4))
+assert type(w) == type(x)
+assert x.errno == None
+assert not sys.platform.startswith("win") or x.winerror == None
+assert x.strerror == None
+assert x.filename == None
+assert x.filename2 == None
+assert str(x) == ""
 
 w = OSError(0)
 assert w.errno == None
@@ -281,6 +290,14 @@ assert w.strerror == None
 assert w.filename == None
 assert w.filename2 == None
 assert str(w) == "0"
+x = pickle.loads(pickle.dumps(w, 4))
+assert type(w) == type(x)
+assert x.errno == None
+assert not sys.platform.startswith("win") or x.winerror == None
+assert x.strerror == None
+assert x.filename == None
+assert x.filename2 == None
+assert str(x) == "0"
 
 w = OSError('foo')
 assert w.errno == None
@@ -289,6 +306,14 @@ assert w.strerror == None
 assert w.filename == None
 assert w.filename2 == None
 assert str(w) == "foo"
+x = pickle.loads(pickle.dumps(w, 4))
+assert type(w) == type(x)
+assert x.errno == None
+assert not sys.platform.startswith("win") or x.winerror == None
+assert x.strerror == None
+assert x.filename == None
+assert x.filename2 == None
+assert str(x) == "foo"
 
 w = OSError('a', 'b', 'c', 'd', 'e', 'f')
 assert w.errno == None
@@ -297,6 +322,14 @@ assert w.strerror == None
 assert w.filename == None
 assert w.filename2 == None
 assert str(w) == "('a', 'b', 'c', 'd', 'e', 'f')"
+x = pickle.loads(pickle.dumps(w, 4))
+assert type(w) == type(x)
+assert x.errno == None
+assert not sys.platform.startswith("win") or x.winerror == None
+assert x.strerror == None
+assert x.filename == None
+assert x.filename2 == None
+assert str(x) == "('a', 'b', 'c', 'd', 'e', 'f')"
 
 # Custom `__new__` and `__init__`:
 assert ImportError.__init__.__qualname__ == 'ImportError.__init__'

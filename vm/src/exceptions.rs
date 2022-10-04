@@ -1,4 +1,5 @@
 use self::types::{PyBaseException, PyBaseExceptionRef};
+use crate::builtins::tuple::IntoPyTuple;
 use crate::common::lock::PyRwLock;
 use crate::{
     builtins::{
@@ -773,6 +774,7 @@ impl ExceptionZoo {
             // second exception filename
             "filename2" => ctx.none(),
             "__str__" => ctx.new_method("__str__", excs.os_error, os_error_str),
+            "__reduce__" => ctx.new_method("__reduce__", excs.os_error, os_error_reduce),
         });
         // TODO: this isn't really accurate
         #[cfg(windows)]
@@ -905,6 +907,42 @@ fn os_error_str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult<PyStrR
     } else {
         Ok(exc.str(vm))
     }
+}
+
+fn os_error_reduce(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyTupleRef {
+    let args = exc.args();
+    let obj = exc.as_object().to_owned();
+    let mut result: Vec<PyObjectRef> = vec![obj.class().clone().into()];
+
+    if args.len() >= 2 && args.len() <= 5 {
+        // SAFETY: len() == 2 is checked so get_arg 1 or 2 won't panic
+        let errno = exc.get_arg(0).unwrap();
+        let msg = exc.get_arg(1).unwrap();
+
+        if let Ok(filename) = obj.get_attr("filename", vm) {
+            if !vm.is_none(&filename) {
+                let mut args_reduced: Vec<PyObjectRef> = vec![errno, msg, filename];
+
+                if let Ok(filename2) = obj.get_attr("filename2", vm) {
+                    if !vm.is_none(&filename2) {
+                        args_reduced.push(filename2);
+                    }
+                }
+                result.push(args_reduced.into_pytuple(vm).into());
+            } else {
+                result.push(vm.new_tuple((errno, msg)).into());
+            }
+        } else {
+            result.push(vm.new_tuple((errno, msg)).into());
+        }
+    } else {
+        result.push(args.into());
+    }
+
+    if let Some(dict) = obj.dict().filter(|x| !x.is_empty()) {
+        result.push(dict.into());
+    }
+    result.into_pytuple(vm)
 }
 
 fn system_exit_code(exc: PyBaseExceptionRef) -> Option<PyObjectRef> {
