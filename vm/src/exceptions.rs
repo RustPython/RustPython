@@ -752,13 +752,22 @@ impl ExceptionZoo {
         let errno_getter =
             ctx.new_readonly_getset("errno", excs.os_error, |exc: PyBaseExceptionRef| {
                 let args = exc.args();
-                args.get(0).filter(|_| args.len() > 1).cloned()
+                args.get(0)
+                    .filter(|_| args.len() > 1 && args.len() <= 5)
+                    .cloned()
+            });
+        let strerror_getter =
+            ctx.new_readonly_getset("strerror", excs.os_error, |exc: PyBaseExceptionRef| {
+                let args = exc.args();
+                args.get(1)
+                    .filter(|_| args.len() >= 2 && args.len() <= 5)
+                    .cloned()
             });
         extend_exception!(PyOSError, ctx, excs.os_error, {
             // POSIX exception code
             "errno" => errno_getter.clone(),
             // exception strerror
-            "strerror" => ctx.new_readonly_getset("strerror", excs.os_error, make_arg_getter(1)),
+            "strerror" => strerror_getter.clone(),
             // exception filename
             "filename" => ctx.none(),
             // second exception filename
@@ -1260,7 +1269,7 @@ pub(super) mod types {
         os_error,
         "Base class for I/O related errors.",
         os_error_new,
-        base_exception_init,
+        os_error_init,
     }
     #[cfg(not(target_arch = "wasm32"))]
     fn os_error_optional_new(
@@ -1268,7 +1277,7 @@ pub(super) mod types {
         vm: &VirtualMachine,
     ) -> Option<PyBaseExceptionRef> {
         let len = args.len();
-        if len >= 2 {
+        if (2..=5).contains(&len) {
             let errno = &args[0];
             errno
                 .payload_if_subclass::<PyInt>(vm)
@@ -1297,9 +1306,18 @@ pub(super) mod types {
     fn os_error_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         PyBaseException::slot_new(cls, args, vm)
     }
+    fn os_error_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let len = args.args.len();
+        let mut new_args = args;
+        if (3..=5).contains(&len) {
+            zelf.set_attr("filename", new_args.args[2].clone(), vm)?;
+            if len == 5 {
+                zelf.set_attr("filename2", new_args.args[4].clone(), vm)?;
+            }
 
-    fn base_exception_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-        PyBaseException::init(zelf, args, vm)
+            new_args.args.truncate(2);
+        }
+        PyBaseException::init(zelf, new_args, vm)
     }
 
     define_exception! {
