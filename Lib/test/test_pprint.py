@@ -532,8 +532,6 @@ AdvancedNamespace(the=0,
         formatted = pprint.pformat(dc, width=20)
         self.assertEqual(formatted, "custom repr that doesn't fit within pprint width")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_dataclass_no_repr(self):
         dc = dataclass3()
         formatted = pprint.pformat(dc, width=10)
