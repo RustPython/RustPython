@@ -213,10 +213,16 @@ fn inner_truediv(i1: &BigInt, i2: &BigInt, vm: &VirtualMachine) -> PyResult {
         return Err(vm.new_zero_division_error("division by zero".to_owned()));
     }
 
-    Ok(vm
-        .ctx
-        .new_float(Ratio::from(i1.clone()).div(i2).to_f64().unwrap())
-        .into())
+    let float = Ratio::from(i1.clone()).div(i2).to_f64().unwrap();
+
+    if float.is_infinite() {
+        Err(vm.new_exception_msg(
+            vm.ctx.exceptions.overflow_error.to_owned(),
+            "integer division result too large for a float".to_owned(),
+        ))
+    } else {
+        Ok(vm.ctx.new_float(float).into())
+    }
 }
 
 impl Constructor for PyInt {
