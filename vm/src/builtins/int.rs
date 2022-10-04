@@ -18,8 +18,9 @@ use crate::{
 use bstr::ByteSlice;
 use num_bigint::{BigInt, BigUint, Sign};
 use num_integer::Integer;
+use num_rational::Ratio;
 use num_traits::{One, Pow, PrimInt, Signed, ToPrimitive, Zero};
-use std::ops::Neg;
+use std::ops::{Div, Neg};
 use std::{fmt, ops::Not};
 
 /// int(x=0) -> integer
@@ -212,31 +213,16 @@ fn inner_truediv(i1: &BigInt, i2: &BigInt, vm: &VirtualMachine) -> PyResult {
         return Err(vm.new_zero_division_error("division by zero".to_owned()));
     }
 
-    let value = if let (Some(f1), Some(f2)) = (i2f(i1), i2f(i2)) {
-        f1 / f2
+    let float = Ratio::from(i1.clone()).div(i2).to_f64().unwrap();
+
+    if float.is_infinite() {
+        Err(vm.new_exception_msg(
+            vm.ctx.exceptions.overflow_error.to_owned(),
+            "integer division result too large for a float".to_owned(),
+        ))
     } else {
-        let (quotient, mut rem) = i1.div_rem(i2);
-        let mut divisor = i2.clone();
-
-        if let Some(quotient) = i2f(&quotient) {
-            let rem_part = loop {
-                if rem.is_zero() {
-                    break 0.0;
-                } else if let (Some(rem), Some(divisor)) = (i2f(&rem), i2f(&divisor)) {
-                    break rem / divisor;
-                } else {
-                    // try with smaller numbers
-                    rem /= 2;
-                    divisor /= 2;
-                }
-            };
-
-            quotient + rem_part
-        } else {
-            return Err(vm.new_overflow_error("int too large to convert to float".to_owned()));
-        }
-    };
-    Ok(vm.ctx.new_float(value).into())
+        Ok(vm.ctx.new_float(float).into())
+    }
 }
 
 impl Constructor for PyInt {
