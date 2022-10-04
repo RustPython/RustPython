@@ -71,6 +71,7 @@ use std::{
 // concrete type to work with before we ever access the `payload` field**
 
 /// A type to just represent "we've erased the type of this object, cast it before you use it"
+#[derive(Debug)]
 struct Erased;
 
 struct PyObjVTable {
@@ -469,6 +470,7 @@ cfg_if::cfg_if! {
     }
 }
 
+#[derive(Debug)]
 #[repr(transparent)]
 pub struct PyObject(PyInner<Erased>);
 
