@@ -109,6 +109,10 @@ def_op('CLEANUP_THROW', 55)
 def_op('STORE_SUBSCR', 60)
 def_op('DELETE_SUBSCR', 61)
 
+# TODO: RUSTPYTHON
+# Delete below def_op after updating coroutines.py
+def_op('YIELD_FROM', 72)
+
 def_op('GET_ITER', 68)
 def_op('GET_YIELD_FROM_ITER', 69)
 def_op('PRINT_EXPR', 70)
