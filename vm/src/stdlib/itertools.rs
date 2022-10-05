@@ -471,11 +471,19 @@ mod decl {
     #[pyclass(with(IterNext, Constructor), flags(BASETYPE))]
     impl PyItertoolsTakewhile {
         #[pymethod(magic)]
-        fn reduce(zelf: PyRef<Self>) -> (PyTypeRef, (PyObjectRef, PyIter)) {
+        fn reduce(zelf: PyRef<Self>) -> (PyTypeRef, (PyObjectRef, PyIter), BigInt) {
             (
                 zelf.class().clone(),
                 (zelf.predicate.clone(), zelf.iterable.clone()),
+                (if zelf.stop_flag.load() { 1 } else { 0 }).into(),
             )
+        }
+        #[pymethod(magic)]
+        fn setstate(zelf: PyRef<Self>, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            if let Ok(obj) = ArgIntoBool::try_from_object(vm, state) {
+                zelf.stop_flag.store(*obj);
+            }
+            Ok(())
         }
     }
     impl IterNextIterable for PyItertoolsTakewhile {}
