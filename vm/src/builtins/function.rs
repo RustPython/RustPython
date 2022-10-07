@@ -23,6 +23,18 @@ use itertools::Itertools;
 #[cfg(feature = "jit")]
 use rustpython_jit::CompiledCode;
 
+///Create a function object.
+///
+///  code
+///    a code object
+///  globals
+///    the globals dictionary
+///  name
+///    a string that overrides the name from the code object
+///  argdefs
+///    a tuple that specifies the default argument values
+///  closure
+///    a tuple that supplies the bindings for free variables
 #[pyclass(module = false, name = "function")]
 #[derive(Debug)]
 pub struct PyFunction {
