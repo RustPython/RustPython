@@ -237,6 +237,11 @@ impl PyRef<PyCode> {
         let varnames = self.code.varnames.iter().map(|s| s.to_object()).collect();
         vm.ctx.new_tuple(varnames)
     }
+
+    #[pymethod]
+    pub fn replace(self, _vm: &VirtualMachine) -> String {
+        self.repr()
+    }
 }
 
 impl fmt::Display for PyCode {
