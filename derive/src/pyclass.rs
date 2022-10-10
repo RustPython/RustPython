@@ -5,13 +5,13 @@ use crate::util::{
 };
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, quote_spanned, ToTokens};
-use std::collections::HashMap;
 use std::str::FromStr;
+use std::{borrow::Borrow, collections::HashMap};
 use syn::{
     parse::{Parse, ParseStream, Result as ParsingResult},
     parse_quote,
     spanned::Spanned,
-    Attribute, AttributeArgs, Ident, Item, LitStr, Meta, NestedMeta, Result, Token,
+    Attribute, AttributeArgs, Ident, Item, LitStr, Meta, NestedMeta, Result, Token, Type,
 };
 use syn_ext::ext::*;
 
@@ -690,11 +690,18 @@ where
         let item_meta = MemberItemMeta::from_attr(ident.clone(), &item_attr)?;
 
         let py_name = item_meta.member_name()?;
+        let member_kind = match item_meta.member_kind()? {
+            Some(s) => match s.as_str() {
+                "bool" => quote!(::rustpython_vm::builtins::descriptor::MemberKind::Bool),
+                _ => unreachable!(),
+            },
+            _ => quote!(::rustpython_vm::builtins::descriptor::MemberKind::ObjectEx),
+        };
         let tokens = {
             quote_spanned! { ident.span() =>
                 class.set_str_attr(
                     #py_name,
-                    ctx.new_member(#py_name, Self::#ident, None, class),
+                    ctx.new_member(#py_name, #member_kind, Self::#ident, None, class),
                     ctx,
                 );
             }
@@ -983,7 +990,7 @@ impl SlotItemMeta {
 struct MemberItemMeta(ItemMetaInner);
 
 impl ItemMeta for MemberItemMeta {
-    const ALLOWED_NAMES: &'static [&'static str] = &["magic"];
+    const ALLOWED_NAMES: &'static [&'static str] = &["magic", "type"];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)
@@ -999,6 +1006,11 @@ impl MemberItemMeta {
         let magic = inner._bool("magic")?;
         let name = inner.item_name();
         Ok(if magic { format!("__{}__", name) } else { name })
+    }
+
+    fn member_kind(&self) -> Result<Option<String>> {
+        let inner = self.inner();
+        inner._optional_str("type")
     }
 }
 
