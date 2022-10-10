@@ -619,7 +619,7 @@ mod _js {
     fn js_error(vm: &VirtualMachine) -> PyTypeRef {
         let ctx = &vm.ctx;
         let js_error = PyRef::leak(
-            PyType::new_simple_ref("JSError", &vm.ctx.exceptions.exception_type.to_owned())
+            PyType::new_simple_ref("JSError", &vm.ctx.exceptions.exception_type.to_owned(), ctx)
                 .unwrap(),
         );
         extend_class!(ctx, js_error, {
