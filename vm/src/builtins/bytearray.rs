@@ -5,6 +5,7 @@ use super::{
 };
 use crate::{
     anystr::{self, AnyStr},
+    atomic_func,
     byte::{bytes_from_object, value_from_object},
     bytesinner::{
         bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
@@ -784,47 +785,51 @@ impl AsMapping for PyByteArray {
 }
 
 impl AsSequence for PyByteArray {
-    const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
-        length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
-        concat: Some(|seq, other, vm| {
-            Self::sequence_downcast(seq)
-                .inner()
-                .concat(other, vm)
-                .map(|x| PyByteArray::from(x).into_pyobject(vm))
-        }),
-        repeat: Some(|seq, n, vm| {
-            Self::sequence_downcast(seq)
-                .mul(n as isize, vm)
-                .map(|x| x.into_pyobject(vm))
-        }),
-        item: Some(|seq, i, vm| {
-            Self::sequence_downcast(seq)
-                .borrow_buf()
-                .getitem_by_index(vm, i)
-                .map(|x| vm.ctx.new_bytes(vec![x]).into())
-        }),
-        ass_item: Some(|seq, i, value, vm| {
-            let zelf = Self::sequence_downcast(seq);
-            if let Some(value) = value {
-                zelf._setitem_by_index(i, value, vm)
-            } else {
-                zelf.borrow_buf_mut().del_item_by_index(vm, i)
-            }
-        }),
-        contains: Some(|seq, other, vm| {
-            let other = <Either<PyBytesInner, PyIntRef>>::try_from_object(vm, other.to_owned())?;
-            Self::sequence_downcast(seq).contains(other, vm)
-        }),
-        inplace_concat: Some(|seq, other, vm| {
-            let other = ArgBytesLike::try_from_object(vm, other.to_owned())?;
-            let zelf = Self::sequence_downcast(seq).to_owned();
-            Self::iadd(zelf, other, vm).map(|x| x.into())
-        }),
-        inplace_repeat: Some(|seq, n, vm| {
-            let zelf = Self::sequence_downcast(seq).to_owned();
-            Self::imul(zelf, n as isize, vm).map(|x| x.into())
-        }),
-    };
+    fn as_sequence() -> &'static PySequenceMethods {
+        static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
+            length: atomic_func!(|seq, _vm| Ok(PyByteArray::sequence_downcast(seq).len())),
+            concat: atomic_func!(|seq, other, vm| {
+                PyByteArray::sequence_downcast(seq)
+                    .inner()
+                    .concat(other, vm)
+                    .map(|x| PyByteArray::from(x).into_pyobject(vm))
+            }),
+            repeat: atomic_func!(|seq, n, vm| {
+                PyByteArray::sequence_downcast(seq)
+                    .mul(n as isize, vm)
+                    .map(|x| x.into_pyobject(vm))
+            }),
+            item: atomic_func!(|seq, i, vm| {
+                PyByteArray::sequence_downcast(seq)
+                    .borrow_buf()
+                    .getitem_by_index(vm, i)
+                    .map(|x| vm.ctx.new_bytes(vec![x]).into())
+            }),
+            ass_item: atomic_func!(|seq, i, value, vm| {
+                let zelf = PyByteArray::sequence_downcast(seq);
+                if let Some(value) = value {
+                    zelf._setitem_by_index(i, value, vm)
+                } else {
+                    zelf.borrow_buf_mut().del_item_by_index(vm, i)
+                }
+            }),
+            contains: atomic_func!(|seq, other, vm| {
+                let other =
+                    <Either<PyBytesInner, PyIntRef>>::try_from_object(vm, other.to_owned())?;
+                PyByteArray::sequence_downcast(seq).contains(other, vm)
+            }),
+            inplace_concat: atomic_func!(|seq, other, vm| {
+                let other = ArgBytesLike::try_from_object(vm, other.to_owned())?;
+                let zelf = PyByteArray::sequence_downcast(seq).to_owned();
+                PyByteArray::iadd(zelf, other, vm).map(|x| x.into())
+            }),
+            inplace_repeat: atomic_func!(|seq, n, vm| {
+                let zelf = PyByteArray::sequence_downcast(seq).to_owned();
+                PyByteArray::imul(zelf, n as isize, vm).map(|x| x.into())
+            }),
+        };
+        &AS_SEQUENCE
+    }
 }
 
 impl Unhashable for PyByteArray {}

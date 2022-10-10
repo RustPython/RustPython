@@ -45,7 +45,7 @@ impl PyMappingMethods {
         ];
 
         fn length(mapping: &PyMapping, vm: &VirtualMachine) -> PyResult<usize> {
-            crate::types::slot_length(mapping.obj, vm)
+            crate::types::len_wrapper(mapping.obj, vm)
         }
         fn subscript(mapping: &PyMapping, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
             vm.call_special_method(

@@ -2,32 +2,27 @@ use super::{
     mappingproxy::PyMappingProxy, object, union_, PyClassMethod, PyDictRef, PyList, PyStaticMethod,
     PyStr, PyStrInterned, PyStrRef, PyTuple, PyTupleRef, PyWeak,
 };
+use crate::common::{
+    ascii,
+    borrow::BorrowedValue,
+    lock::{PyRwLock, PyRwLockReadGuard},
+};
 use crate::{
-    builtins::PyBaseExceptionRef,
     builtins::{
-        descriptor::{MemberGetter, MemberSetter},
+        descriptor::{
+            DescrObject, MemberDef, MemberDescrObject, MemberGetter, MemberKind, MemberSetter,
+        },
         function::PyCellRef,
-        tuple::PyTupleTyped,
+        tuple::{IntoPyTuple, PyTupleTyped},
+        PyBaseExceptionRef,
     },
     class::{PyClassImpl, StaticType},
     convert::ToPyObject,
     function::{FuncArgs, KwArgs, OptionalArg, PySetterValue},
     identifier,
-    protocol::PyNumberMethods,
+    protocol::{PyIterReturn, PyNumberMethods, PySequenceMethods},
     types::{Callable, GetAttr, PyTypeFlags, PyTypeSlots, SetAttr},
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
-};
-use crate::{
-    builtins::{
-        descriptor::{DescrObject, MemberDef, MemberDescrObject, MemberKind},
-        tuple::IntoPyTuple,
-    },
-    common::{
-        ascii,
-        borrow::BorrowedValue,
-        lock::{PyRwLock, PyRwLockReadGuard},
-    },
-    protocol::PyIterReturn,
 };
 use indexmap::{map::Entry, IndexMap};
 use itertools::Itertools;
@@ -49,8 +44,9 @@ pub struct PyType {
 
 #[derive(Default)]
 pub struct HeapTypeExt {
-    pub number_methods: PyNumberMethods,
     pub slots: Option<PyTupleTyped<PyStrRef>>,
+    pub number_methods: PyNumberMethods,
+    pub sequence_methods: PySequenceMethods,
 }
 
 pub struct PointerSlot<T>(NonNull<T>);
@@ -180,6 +176,20 @@ impl PyType {
 
         *slots.name.get_mut() = Some(String::from(name));
 
+        #[allow(clippy::mutable_key_type)]
+        let mut attr_name_set = HashSet::new();
+
+        for cls in mro.iter() {
+            for &name in cls.attributes.read().keys() {
+                if name.as_str() != "__new__" {
+                    attr_name_set.insert(name);
+                }
+            }
+        }
+        for &name in attrs.keys() {
+            attr_name_set.insert(name);
+        }
+
         let new_type = PyRef::new_ref(
             PyType {
                 base: Some(base),
@@ -194,7 +204,7 @@ impl PyType {
             None,
         );
 
-        for attr_name in new_type.attributes.read().keys() {
+        for attr_name in attr_name_set {
             if attr_name.as_str().starts_with("__") && attr_name.as_str().ends_with("__") {
                 new_type.update_slot(attr_name, true);
             }

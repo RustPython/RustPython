@@ -1,4 +1,5 @@
 use super::{PyInt, PyIntRef, PySlice, PyTupleRef, PyType, PyTypeRef};
+use crate::atomic_func;
 use crate::common::hash::PyHash;
 use crate::{
     builtins::builtins_iter,
@@ -407,19 +408,22 @@ impl AsMapping for PyRange {
 }
 
 impl AsSequence for PyRange {
-    const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
-        length: Some(|seq, vm| Self::sequence_downcast(seq).protocol_length(vm)),
-        item: Some(|seq, i, vm| {
-            Self::sequence_downcast(seq)
-                .get(&i.into())
-                .map(|x| PyInt::from(x).into_ref(vm).into())
-                .ok_or_else(|| vm.new_index_error("index out of range".to_owned()))
-        }),
-        contains: Some(|seq, needle, vm| {
-            Ok(Self::sequence_downcast(seq).contains(needle.to_owned(), vm))
-        }),
-        ..PySequenceMethods::NOT_IMPLEMENTED
-    };
+    fn as_sequence() -> &'static PySequenceMethods {
+        static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
+            length: atomic_func!(|seq, vm| PyRange::sequence_downcast(seq).protocol_length(vm)),
+            item: atomic_func!(|seq, i, vm| {
+                PyRange::sequence_downcast(seq)
+                    .get(&i.into())
+                    .map(|x| PyInt::from(x).into_ref(vm).into())
+                    .ok_or_else(|| vm.new_index_error("index out of range".to_owned()))
+            }),
+            contains: atomic_func!(|seq, needle, vm| {
+                Ok(PyRange::sequence_downcast(seq).contains(needle.to_owned(), vm))
+            }),
+            ..PySequenceMethods::NOT_IMPLEMENTED
+        };
+        &AS_SEQUENCE
+    }
 }
 
 impl Hashable for PyRange {

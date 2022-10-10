@@ -8,6 +8,7 @@ mod mmap {
         lock::{MapImmutable, PyMutex, PyMutexGuard},
     };
     use crate::vm::{
+        atomic_func,
         builtins::{PyBytes, PyBytesRef, PyInt, PyIntRef, PyTypeRef},
         byte::{bytes_from_object, value_from_object},
         function::{ArgBytesLike, FuncArgs, OptionalArg},
@@ -440,22 +441,26 @@ mod mmap {
     }
 
     impl AsSequence for PyMmap {
-        const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
-            length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
-            item: Some(|seq, i, vm| {
-                let zelf = Self::sequence_downcast(seq);
-                zelf.getitem_by_index(i, vm)
-            }),
-            ass_item: Some(|seq, i, value, vm| {
-                let zelf = Self::sequence_downcast(seq);
-                if let Some(value) = value {
-                    Self::setitem_by_index(zelf.to_owned(), i, value, vm)
-                } else {
-                    Err(vm.new_type_error("mmap object doesn't support item deletion".to_owned()))
-                }
-            }),
-            ..PySequenceMethods::NOT_IMPLEMENTED
-        };
+        fn as_sequence() -> &'static PySequenceMethods {
+            static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
+                length: atomic_func!(|seq, _vm| Ok(PyMmap::sequence_downcast(seq).len())),
+                item: atomic_func!(|seq, i, vm| {
+                    let zelf = PyMmap::sequence_downcast(seq);
+                    zelf.getitem_by_index(i, vm)
+                }),
+                ass_item: atomic_func!(|seq, i, value, vm| {
+                    let zelf = PyMmap::sequence_downcast(seq);
+                    if let Some(value) = value {
+                        PyMmap::setitem_by_index(zelf.to_owned(), i, value, vm)
+                    } else {
+                        Err(vm
+                            .new_type_error("mmap object doesn't support item deletion".to_owned()))
+                    }
+                }),
+                ..PySequenceMethods::NOT_IMPLEMENTED
+            };
+            &AS_SEQUENCE
+        }
     }
 
     #[pyclass(with(Constructor, AsMapping, AsSequence, AsBuffer), flags(BASETYPE))]
