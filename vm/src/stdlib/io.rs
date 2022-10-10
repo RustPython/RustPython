@@ -3669,6 +3669,7 @@ mod _io {
             Default::default(),
             Default::default(),
             ctx.types.type_type.to_owned(),
+            ctx,
         )
         .unwrap()
     }
