@@ -3,6 +3,7 @@ use super::{
     PyTupleRef, PyType, PyTypeRef,
 };
 use crate::{
+    atomic_func,
     buffer::FormatSpec,
     bytesinner::bytes_to_hex,
     class::PyClassImpl,
@@ -991,19 +992,22 @@ impl AsMapping for PyMemoryView {
 }
 
 impl AsSequence for PyMemoryView {
-    const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
-        length: Some(|seq, vm| {
-            let zelf = Self::sequence_downcast(seq);
-            zelf.try_not_released(vm)?;
-            zelf.len(vm)
-        }),
-        item: Some(|seq, i, vm| {
-            let zelf = Self::sequence_downcast(seq);
-            zelf.try_not_released(vm)?;
-            zelf.getitem_by_idx(i, vm)
-        }),
-        ..PySequenceMethods::NOT_IMPLEMENTED
-    };
+    fn as_sequence() -> &'static PySequenceMethods {
+        static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
+            length: atomic_func!(|seq, vm| {
+                let zelf = PyMemoryView::sequence_downcast(seq);
+                zelf.try_not_released(vm)?;
+                zelf.len(vm)
+            }),
+            item: atomic_func!(|seq, i, vm| {
+                let zelf = PyMemoryView::sequence_downcast(seq);
+                zelf.try_not_released(vm)?;
+                zelf.getitem_by_idx(i, vm)
+            }),
+            ..PySequenceMethods::NOT_IMPLEMENTED
+        };
+        &AS_SEQUENCE
+    }
 }
 
 impl Comparable for PyMemoryView {

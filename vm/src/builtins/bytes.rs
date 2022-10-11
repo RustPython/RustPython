@@ -579,33 +579,37 @@ impl AsMapping for PyBytes {
 }
 
 impl AsSequence for PyBytes {
-    const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
-        length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
-        concat: Some(|seq, other, vm| {
-            Self::sequence_downcast(seq)
-                .inner
-                .concat(other, vm)
-                .map(|x| vm.ctx.new_bytes(x).into())
-        }),
-        repeat: Some(|seq, n, vm| {
-            Ok(vm
-                .ctx
-                .new_bytes(Self::sequence_downcast(seq).repeat(n))
-                .into())
-        }),
-        item: Some(|seq, i, vm| {
-            Self::sequence_downcast(seq)
-                .inner
-                .elements
-                .getitem_by_index(vm, i)
-                .map(|x| vm.ctx.new_bytes(vec![x]).into())
-        }),
-        contains: Some(|seq, other, vm| {
-            let other = <Either<PyBytesInner, PyIntRef>>::try_from_object(vm, other.to_owned())?;
-            Self::sequence_downcast(seq).contains(other, vm)
-        }),
-        ..PySequenceMethods::NOT_IMPLEMENTED
-    };
+    fn as_sequence() -> &'static PySequenceMethods {
+        static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
+            length: atomic_func!(|seq, _vm| Ok(PyBytes::sequence_downcast(seq).len())),
+            concat: atomic_func!(|seq, other, vm| {
+                PyBytes::sequence_downcast(seq)
+                    .inner
+                    .concat(other, vm)
+                    .map(|x| vm.ctx.new_bytes(x).into())
+            }),
+            repeat: atomic_func!(|seq, n, vm| {
+                Ok(vm
+                    .ctx
+                    .new_bytes(PyBytes::sequence_downcast(seq).repeat(n))
+                    .into())
+            }),
+            item: atomic_func!(|seq, i, vm| {
+                PyBytes::sequence_downcast(seq)
+                    .inner
+                    .elements
+                    .getitem_by_index(vm, i)
+                    .map(|x| vm.ctx.new_bytes(vec![x]).into())
+            }),
+            contains: atomic_func!(|seq, other, vm| {
+                let other =
+                    <Either<PyBytesInner, PyIntRef>>::try_from_object(vm, other.to_owned())?;
+                PyBytes::sequence_downcast(seq).contains(other, vm)
+            }),
+            ..PySequenceMethods::NOT_IMPLEMENTED
+        };
+        &AS_SEQUENCE
+    }
 }
 
 impl AsNumber for PyBytes {

@@ -1,4 +1,5 @@
 use crate::common::{hash::PyHash, lock::PyRwLock};
+use crate::convert::ToPyObject;
 use crate::{
     builtins::{type_::PointerSlot, PyFloat, PyInt, PyStrInterned, PyStrRef, PyType, PyTypeRef},
     bytecode::ComparisonOperator,
@@ -37,7 +38,7 @@ pub struct PyTypeSlots {
 
     // Method suites for standard classes
     pub as_number: AtomicCell<Option<PointerSlot<PyNumberMethods>>>,
-    pub as_sequence: AtomicCell<Option<AsSequenceFunc>>,
+    pub as_sequence: AtomicCell<Option<PointerSlot<PySequenceMethods>>>,
     pub as_mapping: AtomicCell<Option<AsMappingFunc>>,
 
     // More standard operations (here for binary compatibility)
@@ -169,15 +170,14 @@ pub(crate) type DescrSetFunc =
 pub(crate) type NewFunc = fn(PyTypeRef, FuncArgs, &VirtualMachine) -> PyResult;
 pub(crate) type InitFunc = fn(PyObjectRef, FuncArgs, &VirtualMachine) -> PyResult<()>;
 pub(crate) type DelFunc = fn(&PyObject, &VirtualMachine) -> PyResult<()>;
-pub(crate) type AsSequenceFunc = fn(&PyObject, &VirtualMachine) -> &'static PySequenceMethods;
 
 // slot_sq_length
-pub(crate) fn slot_length(obj: &PyObject, vm: &VirtualMachine) -> PyResult<usize> {
+pub(crate) fn len_wrapper(obj: &PyObject, vm: &VirtualMachine) -> PyResult<usize> {
     let ret = vm.call_special_method(obj.to_owned(), identifier!(vm, __len__), ())?;
     let len = ret.payload::<PyInt>().ok_or_else(|| {
         vm.new_type_error(format!(
             "'{}' object cannot be interpreted as an integer",
-            ret.class().name()
+            ret.class()
         ))
     })?;
     let len = len.as_bigint();
@@ -198,19 +198,6 @@ fn slot_as_mapping(zelf: &PyObject, vm: &VirtualMachine) -> &'static PyMappingMe
             | zelf.class().has_attr(identifier!(vm, __delitem__)),
     );
     PyMappingMethods::generic(has_length, has_subscript, has_ass_subscript)
-}
-
-fn slot_as_sequence(zelf: &PyObject, vm: &VirtualMachine) -> &'static PySequenceMethods {
-    if !zelf.class().has_attr(identifier!(vm, __getitem__)) {
-        return &PySequenceMethods::NOT_IMPLEMENTED;
-    }
-
-    let (has_length, has_ass_item) = (
-        zelf.class().has_attr(identifier!(vm, __len__)),
-        zelf.class().has_attr(identifier!(vm, __setitem__))
-            | zelf.class().has_attr(identifier!(vm, __delitem__)),
-    );
-    PySequenceMethods::generic(has_length, has_ass_item)
 }
 
 fn int_wrapper(num: &PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyInt>> {
@@ -235,6 +222,27 @@ fn float_wrapper(num: &PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyFloat>
             obj.class()
         ))
     })
+}
+
+fn getitem_wrapper<K: ToPyObject>(obj: &PyObject, needle: K, vm: &VirtualMachine) -> PyResult {
+    vm.call_special_method(obj.to_owned(), identifier!(vm, __getitem__), (needle,))
+}
+
+fn setitem_wrapper<K: ToPyObject>(
+    obj: &PyObject,
+    needle: K,
+    value: Option<PyObjectRef>,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    match value {
+        Some(value) => vm.call_special_method(
+            obj.to_owned(),
+            identifier!(vm, __setitem__),
+            (needle, value),
+        ),
+        None => vm.call_special_method(obj.to_owned(), identifier!(vm, __delitem__), (needle,)),
+    }
+    .map(drop)
 }
 
 fn hash_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyHash> {
@@ -348,13 +356,13 @@ fn del_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
 }
 
 impl PyType {
-    pub(crate) fn update_slot(&self, name: &'static PyStrInterned, add: bool) {
+    pub(crate) fn update_slot<const ADD: bool>(&self, name: &'static PyStrInterned, ctx: &Context) {
         debug_assert!(name.as_str().starts_with("__"));
         debug_assert!(name.as_str().ends_with("__"));
 
         macro_rules! toggle_slot {
             ($name:ident, $func:expr) => {{
-                self.slots.$name.store(if add { Some($func) } else { None });
+                self.slots.$name.store(if ADD { Some($func) } else { None });
             }};
         }
 
@@ -371,72 +379,91 @@ impl PyType {
                     .store(unsafe { PointerSlot::from_heaptype(self, |ext| &ext.$pointed) });
             }};
         }
-        match name.as_str() {
-            "__len__" | "__getitem__" | "__setitem__" | "__delitem__" => {
+
+        macro_rules! toggle_ext_func {
+            ($n1:ident, $n2:ident, $func:expr) => {{
+                self.heaptype_ext.as_ref().unwrap().$n1.$n2.store(if ADD {
+                    Some($func)
+                } else {
+                    None
+                });
+            }};
+        }
+
+        match name {
+            _ if name == identifier!(ctx, __len__) => {
                 update_slot!(as_mapping, slot_as_mapping);
-                update_slot!(as_sequence, slot_as_sequence);
+                toggle_ext_func!(sequence_methods, length, |seq, vm| len_wrapper(seq.obj, vm));
+                update_pointer_slot!(as_sequence, sequence_methods);
             }
-            "__hash__" => {
+            _ if name == identifier!(ctx, __getitem__) => {
+                update_slot!(as_mapping, slot_as_mapping);
+                toggle_ext_func!(sequence_methods, item, |seq, i, vm| getitem_wrapper(
+                    seq.obj, i, vm
+                ));
+                update_pointer_slot!(as_sequence, sequence_methods);
+            }
+            _ if name == identifier!(ctx, __setitem__) || name == identifier!(ctx, __delitem__) => {
+                update_slot!(as_mapping, slot_as_mapping);
+                toggle_ext_func!(sequence_methods, ass_item, |seq, i, value, vm| {
+                    setitem_wrapper(seq.obj, i, value, vm)
+                });
+                update_pointer_slot!(as_sequence, sequence_methods);
+            }
+            _ if name == identifier!(ctx, __hash__) => {
                 toggle_slot!(hash, hash_wrapper);
             }
-            "__call__" => {
+            _ if name == identifier!(ctx, __call__) => {
                 toggle_slot!(call, call_wrapper);
             }
-            "__getattr__" | "__getattribute__" => {
+            _ if name == identifier!(ctx, __getattr__)
+                || name == identifier!(ctx, __getattribute__) =>
+            {
                 update_slot!(getattro, getattro_wrapper);
             }
-            "__setattr__" | "__delattr__" => {
+            _ if name == identifier!(ctx, __setattr__) || name == identifier!(ctx, __delattr__) => {
                 update_slot!(setattro, setattro_wrapper);
             }
-            "__eq__" | "__ne__" | "__le__" | "__lt__" | "__ge__" | "__gt__" => {
+            _ if name == identifier!(ctx, __eq__)
+                || name == identifier!(ctx, __ne__)
+                || name == identifier!(ctx, __le__)
+                || name == identifier!(ctx, __lt__)
+                || name == identifier!(ctx, __ge__)
+                || name == identifier!(ctx, __gt__) =>
+            {
                 update_slot!(richcompare, richcompare_wrapper);
             }
-            "__iter__" => {
+            _ if name == identifier!(ctx, __iter__) => {
                 toggle_slot!(iter, iter_wrapper);
             }
-            "__next__" => {
+            _ if name == identifier!(ctx, __next__) => {
                 toggle_slot!(iternext, iternext_wrapper);
             }
-            "__get__" => {
+            _ if name == identifier!(ctx, __get__) => {
                 toggle_slot!(descr_get, descr_get_wrapper);
             }
-            "__set__" | "__delete__" => {
+            _ if name == identifier!(ctx, __set__) || name == identifier!(ctx, __delete__) => {
                 update_slot!(descr_set, descr_set_wrapper);
             }
-            "__init__" => {
+            _ if name == identifier!(ctx, __init__) => {
                 toggle_slot!(init, init_wrapper);
             }
-            "__new__" => {
+            _ if name == identifier!(ctx, __new__) => {
                 toggle_slot!(new, new_wrapper);
             }
-            "__del__" => {
+            _ if name == identifier!(ctx, __del__) => {
                 toggle_slot!(del, del_wrapper);
             }
-            "__int__" => {
-                self.heaptype_ext
-                    .as_ref()
-                    .unwrap()
-                    .number_methods
-                    .int
-                    .store(Some(int_wrapper));
+            _ if name == identifier!(ctx, __int__) => {
+                toggle_ext_func!(number_methods, int, int_wrapper);
                 update_pointer_slot!(as_number, number_methods);
             }
-            "__index__" => {
-                self.heaptype_ext
-                    .as_ref()
-                    .unwrap()
-                    .number_methods
-                    .index
-                    .store(Some(index_wrapper));
+            _ if name == identifier!(ctx, __index__) => {
+                toggle_ext_func!(number_methods, index, index_wrapper);
                 update_pointer_slot!(as_number, number_methods);
             }
-            "__float__" => {
-                self.heaptype_ext
-                    .as_ref()
-                    .unwrap()
-                    .number_methods
-                    .float
-                    .store(Some(float_wrapper));
+            _ if name == identifier!(ctx, __float__) => {
+                toggle_ext_func!(number_methods, float, float_wrapper);
                 update_pointer_slot!(as_number, number_methods);
             }
             _ => {}
@@ -928,15 +955,10 @@ pub trait AsMapping: PyPayload {
 
 #[pyclass]
 pub trait AsSequence: PyPayload {
-    const AS_SEQUENCE: PySequenceMethods;
-
-    #[inline]
     #[pyslot]
-    fn as_sequence(_zelf: &PyObject, _vm: &VirtualMachine) -> &'static PySequenceMethods {
-        &Self::AS_SEQUENCE
-    }
+    fn as_sequence() -> &'static PySequenceMethods;
 
-    fn sequence_downcast<'a>(seq: &'a PySequence) -> &'a Py<Self> {
+    fn sequence_downcast(seq: PySequence) -> &Py<Self> {
         unsafe { seq.obj.downcast_unchecked_ref() }
     }
 }
