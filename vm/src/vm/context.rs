@@ -422,6 +422,7 @@ impl Context {
             attrs,
             slots,
             self.types.type_type.to_owned(),
+            self,
         )
         .unwrap()
     }
@@ -446,6 +447,7 @@ impl Context {
             attrs,
             PyBaseException::make_slots(),
             self.types.type_type.to_owned(),
+            self,
         )
         .unwrap()
     }

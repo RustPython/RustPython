@@ -228,7 +228,7 @@ mod _ssl {
     /// SSL/TLS connection terminated abruptly.
     #[pyattr(name = "SSLEOFError", once)]
     fn ssl_eof_error(vm: &VirtualMachine) -> PyTypeRef {
-        PyType::new_simple_ref("ssl.SSLEOFError", &ssl_error(vm)).unwrap()
+        PyType::new_simple_ref("ssl.SSLEOFError", &ssl_error(vm), &vm.ctx).unwrap()
     }
 
     type OpensslVersionInfo = (u8, u8, u8, u8, u8);

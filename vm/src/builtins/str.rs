@@ -5,6 +5,7 @@ use super::{
 };
 use crate::{
     anystr::{self, adjust_indices, AnyStr, AnyStrContainer, AnyStrWrapper},
+    atomic_func,
     class::PyClassImpl,
     convert::{ToPyException, ToPyObject},
     format::{FormatSpec, FormatString, FromTemplate},
@@ -1318,24 +1319,29 @@ impl AsMapping for PyStr {
 }
 
 impl AsSequence for PyStr {
-    const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
-        length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
-        concat: Some(|seq, other, vm| {
-            let zelf = Self::sequence_downcast(seq);
-            Self::add(zelf.to_owned(), other.to_owned(), vm)
-        }),
-        repeat: Some(|seq, n, vm| {
-            let zelf = Self::sequence_downcast(seq);
-            Self::mul(zelf.to_owned(), n as isize, vm).map(|x| x.into())
-        }),
-        item: Some(|seq, i, vm| {
-            let zelf = Self::sequence_downcast(seq);
-            zelf.getitem_by_index(vm, i)
-                .map(|x| zelf.new_substr(x.to_string()).into_ref(vm).into())
-        }),
-        contains: Some(|seq, needle, vm| Self::sequence_downcast(seq)._contains(needle, vm)),
-        ..PySequenceMethods::NOT_IMPLEMENTED
-    };
+    fn as_sequence() -> &'static PySequenceMethods {
+        static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
+            length: atomic_func!(|seq, _vm| Ok(PyStr::sequence_downcast(seq).len())),
+            concat: atomic_func!(|seq, other, vm| {
+                let zelf = PyStr::sequence_downcast(seq);
+                PyStr::add(zelf.to_owned(), other.to_owned(), vm)
+            }),
+            repeat: atomic_func!(|seq, n, vm| {
+                let zelf = PyStr::sequence_downcast(seq);
+                PyStr::mul(zelf.to_owned(), n as isize, vm).map(|x| x.into())
+            }),
+            item: atomic_func!(|seq, i, vm| {
+                let zelf = PyStr::sequence_downcast(seq);
+                zelf.getitem_by_index(vm, i)
+                    .map(|x| zelf.new_substr(x.to_string()).into_ref(vm).into())
+            }),
+            contains: atomic_func!(
+                |seq, needle, vm| PyStr::sequence_downcast(seq)._contains(needle, vm)
+            ),
+            ..PySequenceMethods::NOT_IMPLEMENTED
+        };
+        &AS_SEQUENCE
+    }
 }
 
 #[derive(FromArgs)]

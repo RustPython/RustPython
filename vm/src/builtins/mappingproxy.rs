@@ -4,7 +4,7 @@ use crate::{
     class::PyClassImpl,
     convert::ToPyObject,
     function::{ArgMapping, OptionalArg, PyComparisonValue},
-    protocol::{PyMapping, PyMappingMethods, PyNumberMethods, PySequence, PySequenceMethods},
+    protocol::{PyMapping, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     types::{AsMapping, AsNumber, AsSequence, Comparable, Constructor, Iterable, PyComparisonOp},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
@@ -103,7 +103,7 @@ impl PyMappingProxy {
             MappingProxyInner::Class(class) => Ok(key
                 .as_interned_str(vm)
                 .map_or(false, |key| class.attributes.read().contains_key(key))),
-            MappingProxyInner::Mapping(mapping) => PySequence::contains(mapping, key, vm),
+            MappingProxyInner::Mapping(mapping) => mapping.to_sequence(vm).contains(key, vm),
         }
     }
 
@@ -211,10 +211,15 @@ impl AsMapping for PyMappingProxy {
 }
 
 impl AsSequence for PyMappingProxy {
-    const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
-        contains: Some(|seq, target, vm| Self::sequence_downcast(seq)._contains(target, vm)),
-        ..PySequenceMethods::NOT_IMPLEMENTED
-    };
+    fn as_sequence() -> &'static PySequenceMethods {
+        static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
+            contains: atomic_func!(
+                |seq, target, vm| PyMappingProxy::sequence_downcast(seq)._contains(target, vm)
+            ),
+            ..PySequenceMethods::NOT_IMPLEMENTED
+        };
+        &AS_SEQUENCE
+    }
 }
 
 impl AsNumber for PyMappingProxy {

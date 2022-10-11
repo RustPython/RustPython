@@ -1,4 +1,5 @@
 use super::{PositionIterInternal, PyGenericAlias, PyType, PyTypeRef};
+use crate::atomic_func;
 use crate::common::{hash::PyHash, lock::PyMutex};
 use crate::{
     class::PyClassImpl,
@@ -340,32 +341,35 @@ impl AsMapping for PyTuple {
 }
 
 impl AsSequence for PyTuple {
-    const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
-        length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
-        concat: Some(|seq, other, vm| {
-            let zelf = Self::sequence_downcast(seq);
-            match Self::add(zelf.to_owned(), other.to_owned(), vm) {
-                PyArithmeticValue::Implemented(tuple) => Ok(tuple.into()),
-                PyArithmeticValue::NotImplemented => Err(vm.new_type_error(format!(
-                    "can only concatenate tuple (not '{}') to tuple",
-                    other.class().name()
-                ))),
-            }
-        }),
-        repeat: Some(|seq, n, vm| {
-            let zelf = Self::sequence_downcast(seq);
-            Self::mul(zelf.to_owned(), n as isize, vm).map(|x| x.into())
-        }),
-        item: Some(|seq, i, vm| {
-            let zelf = Self::sequence_downcast(seq);
-            zelf.elements.getitem_by_index(vm, i)
-        }),
-        contains: Some(|seq, needle, vm| {
-            let zelf = Self::sequence_downcast(seq);
-            zelf._contains(needle, vm)
-        }),
-        ..PySequenceMethods::NOT_IMPLEMENTED
-    };
+    fn as_sequence() -> &'static PySequenceMethods {
+        static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
+            length: atomic_func!(|seq, _vm| Ok(PyTuple::sequence_downcast(seq).len())),
+            concat: atomic_func!(|seq, other, vm| {
+                let zelf = PyTuple::sequence_downcast(seq);
+                match PyTuple::add(zelf.to_owned(), other.to_owned(), vm) {
+                    PyArithmeticValue::Implemented(tuple) => Ok(tuple.into()),
+                    PyArithmeticValue::NotImplemented => Err(vm.new_type_error(format!(
+                        "can only concatenate tuple (not '{}') to tuple",
+                        other.class().name()
+                    ))),
+                }
+            }),
+            repeat: atomic_func!(|seq, n, vm| {
+                let zelf = PyTuple::sequence_downcast(seq);
+                PyTuple::mul(zelf.to_owned(), n as isize, vm).map(|x| x.into())
+            }),
+            item: atomic_func!(|seq, i, vm| {
+                let zelf = PyTuple::sequence_downcast(seq);
+                zelf.elements.getitem_by_index(vm, i)
+            }),
+            contains: atomic_func!(|seq, needle, vm| {
+                let zelf = PyTuple::sequence_downcast(seq);
+                zelf._contains(needle, vm)
+            }),
+            ..PySequenceMethods::NOT_IMPLEMENTED
+        };
+        &AS_SEQUENCE
+    }
 }
 
 impl Hashable for PyTuple {
