@@ -5,7 +5,7 @@
 use super::{PyStrRef, PyTupleRef, PyType, PyTypeRef};
 use crate::{
     builtins::PyStrInterned,
-    bytecode::{self, BorrowedConstant, Constant, ConstantBag, CodeFlags},
+    bytecode::{self, BorrowedConstant, CodeFlags, Constant, ConstantBag},
     class::{PyClassImpl, StaticType},
     convert::ToPyObject,
     function::{FuncArgs, OptionalArg},
@@ -264,63 +264,60 @@ impl PyRef<PyCode> {
 
     #[pymethod]
     pub fn replace(self, args: ReplaceArgs, vm: &VirtualMachine) -> PyResult<PyCode> {
-
         let posonlyarg_count = match args.co_posonlyargcount {
             OptionalArg::Present(posonlyarg_count) => posonlyarg_count,
-            OptionalArg::Missing => self.code.posonlyarg_count
+            OptionalArg::Missing => self.code.posonlyarg_count,
         };
 
         let arg_count = match args.co_argcount {
             OptionalArg::Present(arg_count) => arg_count,
-            OptionalArg::Missing => self.code.arg_count
+            OptionalArg::Missing => self.code.arg_count,
         };
 
         let source_path = match args.co_filename {
             OptionalArg::Present(source_path) => source_path,
-            OptionalArg::Missing => self.code.source_path.to_owned()
+            OptionalArg::Missing => self.code.source_path.to_owned(),
         };
 
-        let first_line_number = match args.co_firstlineno   {
+        let first_line_number = match args.co_firstlineno {
             OptionalArg::Present(first_line_number) => first_line_number,
-            OptionalArg::Missing => self.code.first_line_number
+            OptionalArg::Missing => self.code.first_line_number,
         };
 
         let kwonlyarg_count = match args.co_kwonlyargcount {
             OptionalArg::Present(kwonlyarg_count) => kwonlyarg_count,
-            OptionalArg::Missing => self.code.kwonlyarg_count
+            OptionalArg::Missing => self.code.kwonlyarg_count,
         };
 
         let constants = match args.co_consts {
             OptionalArg::Present(constants) => constants,
-            OptionalArg::Missing => self.code.constants.iter().map(|x| x.0.clone()).collect()
+            OptionalArg::Missing => self.code.constants.iter().map(|x| x.0.clone()).collect(),
         };
 
         let obj_name = match args.co_name {
             OptionalArg::Present(obj_name) => obj_name,
-            OptionalArg::Missing => self.code.obj_name.to_owned()
+            OptionalArg::Missing => self.code.obj_name.to_owned(),
         };
 
         let names = match args.co_names {
             OptionalArg::Present(names) => names,
-            OptionalArg::Missing => {
-                self
-                    .code
-                    .names
-                    .deref()
-                    .iter()
-                    .map(|name| name.to_pyobject(vm))
-                    .collect()
-            }
+            OptionalArg::Missing => self
+                .code
+                .names
+                .deref()
+                .iter()
+                .map(|name| name.to_pyobject(vm))
+                .collect(),
         };
 
         let flags = match args.co_flags {
             OptionalArg::Present(flags) => flags,
-            OptionalArg::Missing => self.code.flags.bits()
+            OptionalArg::Missing => self.code.flags.bits(),
         };
 
         let varnames = match args.co_varnames {
             OptionalArg::Present(varnames) => varnames,
-            OptionalArg::Missing => self.code.varnames.iter().map(|s| s.to_object()).collect()
+            OptionalArg::Missing => self.code.varnames.iter().map(|s| s.to_object()).collect(),
         };
 
         Ok(PyCode {
@@ -332,17 +329,23 @@ impl PyRef<PyCode> {
                 source_path: source_path.as_object().as_interned_str(vm).unwrap(),
                 first_line_number,
                 obj_name: obj_name.as_object().as_interned_str(vm).unwrap(),
-    
+
                 max_stackdepth: self.code.max_stackdepth,
                 instructions: self.code.instructions.clone(),
                 locations: self.code.locations.clone(),
                 constants: constants.into_iter().map(|o| Literal(o)).collect(),
-                names: names.into_iter().map(|o| o.as_interned_str(vm).unwrap()).collect(),
-                varnames: varnames.into_iter().map(|o| o.as_interned_str(vm).unwrap()).collect(),
+                names: names
+                    .into_iter()
+                    .map(|o| o.as_interned_str(vm).unwrap())
+                    .collect(),
+                varnames: varnames
+                    .into_iter()
+                    .map(|o| o.as_interned_str(vm).unwrap())
+                    .collect(),
                 cellvars: self.code.cellvars.clone(),
                 freevars: self.code.freevars.clone(),
                 cell2arg: self.code.cell2arg.clone(),
-            }
+            },
         })
     }
 }
