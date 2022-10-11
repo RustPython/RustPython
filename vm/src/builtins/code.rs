@@ -333,7 +333,7 @@ impl PyRef<PyCode> {
                 max_stackdepth: self.code.max_stackdepth,
                 instructions: self.code.instructions.clone(),
                 locations: self.code.locations.clone(),
-                constants: constants.into_iter().map(|o| Literal(o)).collect(),
+                constants: constants.into_iter().map(Literal).collect(),
                 names: names
                     .into_iter()
                     .map(|o| o.as_interned_str(vm).unwrap())
