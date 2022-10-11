@@ -43,9 +43,9 @@ pub trait StaticType {
     where
         Self: PyClassImpl,
     {
-        PyType::new_ref(
+        PyType::new_bare_ref(
             Self::NAME,
-            vec![Self::static_baseclass().to_owned()],
+            Self::static_baseclass().to_owned(),
             Default::default(),
             Self::make_slots(),
             Self::static_metaclass().to_owned(),

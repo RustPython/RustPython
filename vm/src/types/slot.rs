@@ -356,13 +356,13 @@ fn del_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
 }
 
 impl PyType {
-    pub(crate) fn update_slot(&self, name: &'static PyStrInterned, add: bool) {
+    pub(crate) fn update_slot<const ADD: bool>(&self, name: &'static PyStrInterned, ctx: &Context) {
         debug_assert!(name.as_str().starts_with("__"));
         debug_assert!(name.as_str().ends_with("__"));
 
         macro_rules! toggle_slot {
             ($name:ident, $func:expr) => {{
-                self.slots.$name.store(if add { Some($func) } else { None });
+                self.slots.$name.store(if ADD { Some($func) } else { None });
             }};
         }
 
@@ -382,7 +382,7 @@ impl PyType {
 
         macro_rules! toggle_ext_func {
             ($n1:ident, $n2:ident, $func:expr) => {{
-                self.heaptype_ext.as_ref().unwrap().$n1.$n2.store(if add {
+                self.heaptype_ext.as_ref().unwrap().$n1.$n2.store(if ADD {
                     Some($func)
                 } else {
                     None
@@ -390,87 +390,80 @@ impl PyType {
             }};
         }
 
-        match name.as_str() {
-            "__len__" => {
+        match name {
+            _ if name == identifier!(ctx, __len__) => {
                 update_slot!(as_mapping, slot_as_mapping);
                 toggle_ext_func!(sequence_methods, length, |seq, vm| len_wrapper(seq.obj, vm));
                 update_pointer_slot!(as_sequence, sequence_methods);
             }
-            "__getitem__" => {
+            _ if name == identifier!(ctx, __getitem__) => {
                 update_slot!(as_mapping, slot_as_mapping);
                 toggle_ext_func!(sequence_methods, item, |seq, i, vm| getitem_wrapper(
                     seq.obj, i, vm
                 ));
                 update_pointer_slot!(as_sequence, sequence_methods);
             }
-            "__setitem__" | "__delitem__" => {
+            _ if name == identifier!(ctx, __setitem__) || name == identifier!(ctx, __delitem__) => {
                 update_slot!(as_mapping, slot_as_mapping);
                 toggle_ext_func!(sequence_methods, ass_item, |seq, i, value, vm| {
                     setitem_wrapper(seq.obj, i, value, vm)
                 });
                 update_pointer_slot!(as_sequence, sequence_methods);
             }
-            "__hash__" => {
+            _ if name == identifier!(ctx, __hash__) => {
                 toggle_slot!(hash, hash_wrapper);
             }
-            "__call__" => {
+            _ if name == identifier!(ctx, __call__) => {
                 toggle_slot!(call, call_wrapper);
             }
-            "__getattr__" | "__getattribute__" => {
+            _ if name == identifier!(ctx, __getattr__)
+                || name == identifier!(ctx, __getattribute__) =>
+            {
                 update_slot!(getattro, getattro_wrapper);
             }
-            "__setattr__" | "__delattr__" => {
+            _ if name == identifier!(ctx, __setattr__) || name == identifier!(ctx, __delattr__) => {
                 update_slot!(setattro, setattro_wrapper);
             }
-            "__eq__" | "__ne__" | "__le__" | "__lt__" | "__ge__" | "__gt__" => {
+            _ if name == identifier!(ctx, __eq__)
+                || name == identifier!(ctx, __ne__)
+                || name == identifier!(ctx, __le__)
+                || name == identifier!(ctx, __lt__)
+                || name == identifier!(ctx, __ge__)
+                || name == identifier!(ctx, __gt__) =>
+            {
                 update_slot!(richcompare, richcompare_wrapper);
             }
-            "__iter__" => {
+            _ if name == identifier!(ctx, __iter__) => {
                 toggle_slot!(iter, iter_wrapper);
             }
-            "__next__" => {
+            _ if name == identifier!(ctx, __next__) => {
                 toggle_slot!(iternext, iternext_wrapper);
             }
-            "__get__" => {
+            _ if name == identifier!(ctx, __get__) => {
                 toggle_slot!(descr_get, descr_get_wrapper);
             }
-            "__set__" | "__delete__" => {
+            _ if name == identifier!(ctx, __set__) || name == identifier!(ctx, __delete__) => {
                 update_slot!(descr_set, descr_set_wrapper);
             }
-            "__init__" => {
+            _ if name == identifier!(ctx, __init__) => {
                 toggle_slot!(init, init_wrapper);
             }
-            "__new__" => {
+            _ if name == identifier!(ctx, __new__) => {
                 toggle_slot!(new, new_wrapper);
             }
-            "__del__" => {
+            _ if name == identifier!(ctx, __del__) => {
                 toggle_slot!(del, del_wrapper);
             }
-            "__int__" => {
-                self.heaptype_ext
-                    .as_ref()
-                    .unwrap()
-                    .number_methods
-                    .int
-                    .store(Some(int_wrapper));
+            _ if name == identifier!(ctx, __int__) => {
+                toggle_ext_func!(number_methods, int, int_wrapper);
                 update_pointer_slot!(as_number, number_methods);
             }
-            "__index__" => {
-                self.heaptype_ext
-                    .as_ref()
-                    .unwrap()
-                    .number_methods
-                    .index
-                    .store(Some(index_wrapper));
+            _ if name == identifier!(ctx, __index__) => {
+                toggle_ext_func!(number_methods, index, index_wrapper);
                 update_pointer_slot!(as_number, number_methods);
             }
-            "__float__" => {
-                self.heaptype_ext
-                    .as_ref()
-                    .unwrap()
-                    .number_methods
-                    .float
-                    .store(Some(float_wrapper));
+            _ if name == identifier!(ctx, __float__) => {
+                toggle_ext_func!(number_methods, float, float_wrapper);
                 update_pointer_slot!(as_number, number_methods);
             }
             _ => {}
