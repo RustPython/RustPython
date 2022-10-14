@@ -10,7 +10,7 @@ repository.workspace = true
 license.workspace = true
 
 [features]
-default = ["compiler"]
+default = ["compiler", "wasmbind"]
 importlib = []
 encodings = ["importlib"]
 vm-tracing-logging = []
@@ -23,8 +23,7 @@ ast = ["rustpython-ast"]
 codegen = ["rustpython-codegen", "ast"]
 parser = ["rustpython-parser", "ast"]
 serde = ["dep:serde"]
-wasmbind = ["chrono/wasmbind", "getrandom/js"]
-
+wasmbind = ["chrono/wasmbind", "getrandom/js", "wasm-bindgen"]
 
 [dependencies]
 rustpython-compiler = { workspace = true, optional = true }
@@ -142,8 +141,8 @@ features = [
   "Win32_UI_WindowsAndMessaging",
 ]
 
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen = "0.2.92"
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+wasm-bindgen = { version = "0.2.92", optional = true }
 
 [build-dependencies]
 glob = { workspace = true }

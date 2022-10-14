@@ -218,13 +218,6 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          target: wasm32-unknown-unknown
-
-      - name: Check compilation for wasm32
-        run: cargo check --target wasm32-unknown-unknown --no-default-features
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
           target: x86_64-unknown-freebsd
 
       - name: Check compilation for freeBSD
@@ -380,6 +373,14 @@ jobs:
         env:
           NODE_OPTIONS: "--openssl-legacy-provider"
         working-directory: ./wasm/demo
+      - uses: mwilliamson/setup-wabt-action@v1
+        with: { wabt-version: "1.0.30" }
+      - name: check wasm32-unknown without js
+        run: |
+          cargo build --release -p wasm-unknown-test --target wasm32-unknown-unknown --verbose
+          if wasm-objdump -xj Import target/wasm32-unknown-unknown/release/wasm_unknown_test.wasm; then
+            echo "ERROR: wasm32-unknown module expects imports from the host environment" >2
+          fi
       - name: build notebook demo
         if: github.ref == 'refs/heads/release'
         run: |

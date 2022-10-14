@@ -99,8 +99,7 @@ mod decl {
 
     #[cfg(not(all(
         target_arch = "wasm32",
-        feature = "wasmbind",
-        not(any(target_os = "emscripten", target_os = "wasi"))
+        not(any(target_os = "emscripten", target_os = "wasi")),
     )))]
     fn _time(vm: &VirtualMachine) -> PyResult<f64> {
         Ok(duration_since_system_now(vm)?.as_secs_f64())
@@ -121,6 +120,15 @@ mod decl {
         }
         // Date.now returns unix time in milliseconds, we want it in seconds
         Ok(Date::now() / 1000.0)
+    }
+
+    #[cfg(all(
+        target_arch = "wasm32",
+        not(feature = "wasmbind"),
+        not(any(target_os = "emscripten", target_os = "wasi"))
+    ))]
+    fn _time(vm: &VirtualMachine) -> PyResult<f64> {
+        Err(vm.new_not_implemented_error("time.time".to_owned()))
     }
 
     #[pyfunction]
