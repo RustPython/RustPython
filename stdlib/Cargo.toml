@@ -12,12 +12,12 @@ license.workspace = true
 
 [features]
 default = ["compiler"]
-compiler = ["rustpython-vm/compiler"]
 threading = ["rustpython-common/threading", "rustpython-vm/threading"]
 zlib = ["libz-sys", "flate2/zlib"]
 bz2 = ["bzip2"]
 ssl = ["openssl", "openssl-sys", "foreign-types-shared"]
 ssl-vendor = ["ssl", "openssl/vendored", "openssl-probe"]
+compiler = ["rustpython-vm/compiler"]
 
 [dependencies]
 # rustpython crates
