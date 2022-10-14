@@ -15,8 +15,18 @@ mod decl {
             PyRef::try_from_object(vm, co)?
         } else if let Ok(co_str) = PyStrRef::try_from_object(vm, obj.clone()) {
             // String:
-            vm.compile(co_str.as_str(), compiler::Mode::Exec, "<dis>".to_owned())
-                .map_err(|err| vm.new_syntax_error(&err))?
+            #[cfg(feature = "compiler")]
+            {
+                vm.compile(co_str.as_str(), compiler::Mode::Exec, "<dis>".to_owned())
+                    .map_err(|err| vm.new_syntax_error(&err))?
+            }
+            #[cfg(not(feature = "compiler"))]
+            {
+                let _ = co_str;
+                return Err(
+                    vm.new_not_implemented_error("compiler feature is turned off".to_owned())
+                );
+            }
         } else {
             PyRef::try_from_object(vm, obj)?
         };
