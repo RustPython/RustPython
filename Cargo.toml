@@ -96,7 +96,8 @@ x86_64-pc-windows-msvc = { triplet = "x64-windows-static-md", dev-dependencies =
 resolver = "2"
 members = [
     "compiler", "compiler/core", "compiler/codegen",
-    ".", "common", "derive", "jit", "vm", "vm/sre_engine", "pylib", "stdlib", "wasm/lib", "derive-impl",
+    ".", "common", "derive", "jit", "vm", "vm/sre_engine", "pylib", "stdlib", "derive-impl",
+    "wasm/lib", "wasm/wasm-unknown-test",
 ]
 
 [workspace.package]

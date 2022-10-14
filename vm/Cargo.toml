@@ -10,7 +10,7 @@ repository.workspace = true
 license.workspace = true
 
 [features]
-default = ["compiler"]
+default = ["compiler", "js"]
 importlib = []
 encodings = ["importlib"]
 vm-tracing-logging = []
@@ -23,6 +23,8 @@ ast = ["rustpython-ast"]
 codegen = ["rustpython-codegen", "ast"]
 parser = ["rustpython-parser", "ast"]
 serde = ["dep:serde"]
+
+js = ["getrandom/js", "chrono/wasmbind", "wasm-bindgen"]
 
 [dependencies]
 rustpython-compiler = { workspace = true, optional = true }
@@ -71,7 +73,7 @@ thread_local = { workspace = true }
 memchr = { workspace = true }
 
 caseless = "0.2.1"
-getrandom = { version = "0.2.12", features = ["js"] }
+getrandom = { version = "0.2.12" }
 flamer = { version = "0.4", optional = true }
 half = "1.8.2"
 memoffset = "0.9.1"
@@ -140,8 +142,8 @@ features = [
   "Win32_UI_WindowsAndMessaging",
 ]
 
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen = "0.2.92"
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+wasm-bindgen = { version = "0.2.92", optional = true }
 
 [build-dependencies]
 glob = { workspace = true }
