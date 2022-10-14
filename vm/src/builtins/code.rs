@@ -16,25 +16,25 @@ use std::{borrow::Borrow, fmt, ops::Deref};
 
 #[derive(FromArgs)]
 pub struct ReplaceArgs {
-    #[pyarg(any, optional)]
+    #[pyarg(named, optional)]
     co_posonlyargcount: OptionalArg<usize>,
-    #[pyarg(any, optional)]
+    #[pyarg(named, optional)]
     co_argcount: OptionalArg<usize>,
-    #[pyarg(any, optional)]
+    #[pyarg(named, optional)]
     co_kwonlyargcount: OptionalArg<usize>,
-    #[pyarg(any, optional)]
+    #[pyarg(named, optional)]
     co_filename: OptionalArg<PyStrRef>,
-    #[pyarg(any, optional)]
+    #[pyarg(named, optional)]
     co_firstlineno: OptionalArg<usize>,
-    #[pyarg(any, optional)]
+    #[pyarg(named, optional)]
     co_consts: OptionalArg<Vec<PyObjectRef>>,
-    #[pyarg(any, optional)]
+    #[pyarg(named, optional)]
     co_name: OptionalArg<PyStrRef>,
-    #[pyarg(any, optional)]
+    #[pyarg(named, optional)]
     co_names: OptionalArg<Vec<PyObjectRef>>,
-    #[pyarg(any, optional)]
+    #[pyarg(named, optional)]
     co_flags: OptionalArg<u16>,
-    #[pyarg(any, optional)]
+    #[pyarg(named, optional)]
     co_varnames: OptionalArg<Vec<PyObjectRef>>,
 }
 
