@@ -1118,7 +1118,7 @@ mod _socket {
                 }
             } else {
                 if family == -1 {
-                    family = c::AF_INET as i32
+                    family = c::AF_INET as _
                 }
                 if socket_kind == -1 {
                     socket_kind = c::SOCK_STREAM

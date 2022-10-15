@@ -285,13 +285,7 @@ impl PyTuple {
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
         let (start, stop) = range.saturate(self.len(), vm)?;
-        for (index, element) in self
-            .elements
-            .iter()
-            .enumerate()
-            .take(stop as usize)
-            .skip(start as usize)
-        {
+        for (index, element) in self.elements.iter().enumerate().take(stop).skip(start) {
             if vm.identical_or_equal(element, &needle)? {
                 return Ok(index);
             }

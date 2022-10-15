@@ -379,7 +379,7 @@ pub trait AnyStr<'s>: 's {
     where
         FW: Fn(&Self) -> W,
     {
-        let keep = if options.keepends { 1 } else { 0 };
+        let keep = options.keepends as usize;
         let mut elements = Vec::new();
         let mut last_i = 0;
         let mut enumerated = self.as_bytes().iter().enumerate().peekable();

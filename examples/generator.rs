@@ -10,7 +10,7 @@ fn py_main(interp: &Interpreter) -> vm::PyResult<()> {
     let generator = interp.enter(|vm| {
         let scope = vm.new_scope_with_builtins();
         let generator = vm.run_block_expr(
-            scope.clone(),
+            scope,
             r#"
 def gen():
     for i in range(10):

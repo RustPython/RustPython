@@ -1236,7 +1236,7 @@ mod tests {
             PyAttributes::default(),
             Default::default(),
             type_type.clone(),
-            &context,
+            context,
         )
         .unwrap();
         let b = PyType::new_ref(
@@ -1245,7 +1245,7 @@ mod tests {
             PyAttributes::default(),
             Default::default(),
             type_type,
-            &context,
+            context,
         )
         .unwrap();
 

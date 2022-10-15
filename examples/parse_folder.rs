@@ -34,7 +34,7 @@ fn main() {
     if folder.exists() && folder.is_dir() {
         println!("Parsing folder of python code: {:?}", folder);
         let t1 = Instant::now();
-        let parsed_files = parse_folder(&folder).unwrap();
+        let parsed_files = parse_folder(folder).unwrap();
         let t2 = Instant::now();
         let results = ScanResult {
             t1,
@@ -83,7 +83,7 @@ fn parse_python_file(filename: &Path) -> ParsedFile {
             result: Err(e.to_string()),
         },
         Ok(source) => {
-            let num_lines = source.to_string().lines().count();
+            let num_lines = source.lines().count();
             let result = parser::parse_program(&source, &filename.to_string_lossy())
                 .map_err(|e| e.to_string());
             ParsedFile {
