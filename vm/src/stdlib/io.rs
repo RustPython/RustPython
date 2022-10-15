@@ -1395,7 +1395,7 @@ mod _io {
             let (raw, BufferSize { buffer_size }): (PyObjectRef, _) =
                 args.bind(vm).map_err(|e| {
                     let msg = format!("{}() {}", Self::CLASS_NAME, *e.str(vm));
-                    vm.new_exception_msg(e.class().clone(), msg)
+                    vm.new_exception_msg(e.class().to_owned(), msg)
                 })?;
             self.init(raw, BufferSize { buffer_size }, vm)
         }

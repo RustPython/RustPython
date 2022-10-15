@@ -60,7 +60,7 @@ impl PyEnumerate {
     #[pymethod(magic)]
     fn reduce(zelf: PyRef<Self>) -> (PyTypeRef, (PyIter, BigInt)) {
         (
-            zelf.class().clone(),
+            zelf.class().to_owned(),
             (zelf.iterator.clone(), zelf.counter.read().clone()),
         )
     }

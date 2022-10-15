@@ -194,7 +194,7 @@ impl GetDescriptor for PyBuiltinMethod {
             Ok(obj) => obj,
             Err(result) => return result,
         };
-        let r = if vm.is_none(&obj) && !Self::_cls_is(&cls, &obj.class()) {
+        let r = if vm.is_none(&obj) && !Self::_cls_is(&cls, obj.class()) {
             zelf.into()
         } else {
             PyBoundMethod::new_ref(obj, zelf.into(), &vm.ctx).into()

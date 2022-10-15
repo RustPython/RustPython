@@ -114,6 +114,7 @@ pub struct Frame {
 
     // member
     pub trace_lines: PyMutex<bool>,
+    pub temporary_refs: PyMutex<Vec<PyObjectRef>>,
 }
 
 impl PyPayload for Frame {
@@ -162,6 +163,7 @@ impl Frame {
             state: PyMutex::new(state),
             trace: PyMutex::new(vm.ctx.none()),
             trace_lines: PyMutex::new(true),
+            temporary_refs: PyMutex::new(vec![]),
         }
     }
 }

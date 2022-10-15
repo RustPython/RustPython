@@ -94,7 +94,7 @@ mod _collections {
                 maxlen: zelf.maxlen,
                 state: AtomicCell::new(zelf.state.load()),
             }
-            .into_ref_with_type(vm, zelf.class().clone())
+            .into_ref_with_type(vm, zelf.class().to_owned())
         }
 
         #[pymethod]
@@ -415,7 +415,7 @@ mod _collections {
 
         #[pymethod(magic)]
         fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-            let cls = zelf.class().clone();
+            let cls = zelf.class().to_owned();
             let value = match zelf.maxlen {
                 Some(v) => vm.new_pyobj((vm.ctx.empty_tuple.clone(), v)),
                 None => vm.ctx.empty_tuple.clone().into(),
@@ -641,7 +641,7 @@ mod _collections {
                 Exhausted => PyDeque::default().into_ref(vm),
             };
             (
-                zelf.class().clone(),
+                zelf.class().to_owned(),
                 (deque, vm.ctx.new_int(internal.position).into()),
             )
         }
@@ -707,7 +707,7 @@ mod _collections {
                 Exhausted => PyDeque::default().into_ref(vm),
             };
             Ok((
-                zelf.class().clone(),
+                zelf.class().to_owned(),
                 (deque, vm.ctx.new_int(internal.position).into()),
             ))
         }

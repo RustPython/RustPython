@@ -173,7 +173,7 @@ impl PyType {
 
         let mros = bases
             .iter()
-            .map(|x| x.iter_mro().cloned().collect())
+            .map(|x| x.iter_mro().map(|x| x.to_owned()).collect())
             .collect();
         let mro = linearise_mro(mros)?;
 
@@ -247,7 +247,7 @@ impl PyType {
         *slots.name.get_mut() = Some(String::from(name));
 
         let bases = vec![base.clone()];
-        let mro = base.iter_mro().cloned().collect();
+        let mro = base.iter_mro().map(|x| x.to_owned()).collect();
 
         let new_type = PyRef::new_ref(
             PyType {
@@ -353,7 +353,7 @@ impl PyType {
     }
 }
 
-impl PyTypeRef {
+impl Py<PyType> {
     /// Determines if `subclass` is actually a subclass of `cls`, this doesn't call __subclasscheck__,
     /// so only use this if `cls` is known to have not overridden the base __subclasscheck__ magic
     /// method.
@@ -361,12 +361,12 @@ impl PyTypeRef {
         self.as_object().is(cls.borrow()) || self.mro.iter().any(|c| c.is(cls.borrow()))
     }
 
-    pub fn iter_mro(&self) -> impl Iterator<Item = &PyTypeRef> + DoubleEndedIterator {
-        std::iter::once(self).chain(self.mro.iter())
+    pub fn iter_mro(&self) -> impl Iterator<Item = &Py<PyType>> + DoubleEndedIterator {
+        std::iter::once(self).chain(self.mro.iter().map(|x| x.deref()))
     }
 
-    pub fn iter_base_chain(&self) -> impl Iterator<Item = &PyTypeRef> {
-        std::iter::successors(Some(self), |cls| cls.base.as_ref())
+    pub fn iter_base_chain(&self) -> impl Iterator<Item = &Py<PyType>> {
+        std::iter::successors(Some(self), |cls| cls.base.as_deref())
     }
 }
 
@@ -569,7 +569,7 @@ impl PyType {
 
     #[pymethod]
     fn mro(zelf: PyRef<Self>) -> Vec<PyObjectRef> {
-        zelf.iter_mro().map(|cls| cls.clone().into()).collect()
+        zelf.iter_mro().map(|cls| cls.to_owned().into()).collect()
     }
 
     #[pymethod(magic)]
@@ -588,7 +588,7 @@ impl PyType {
 
         let is_type_type = metatype.is(vm.ctx.types.type_type);
         if is_type_type && args.args.len() == 1 && args.kwargs.is_empty() {
-            return Ok(args.args[0].class().clone().into());
+            return Ok(args.args[0].class().to_owned().into());
         }
 
         if args.args.len() != 3 {
@@ -921,7 +921,7 @@ impl GetAttr for PyType {
             if has_descr_set {
                 let descr_get = attr_class.mro_find_map(|cls| cls.slots.descr_get.load());
                 if let Some(descr_get) = descr_get {
-                    let mcl = mcl.into_owned().into();
+                    let mcl = mcl.to_owned().into();
                     return descr_get(attr.clone(), Some(zelf.to_owned().into()), Some(mcl), vm);
                 }
             }
@@ -932,7 +932,6 @@ impl GetAttr for PyType {
         if let Some(ref attr) = zelf_attr {
             let descr_get = attr.class().mro_find_map(|cls| cls.slots.descr_get.load());
             if let Some(descr_get) = descr_get {
-                drop(mcl);
                 return descr_get(attr.clone(), None, Some(zelf.to_owned().into()), vm);
             }
         }
@@ -940,7 +939,6 @@ impl GetAttr for PyType {
         if let Some(cls_attr) = zelf_attr {
             Ok(cls_attr)
         } else if let Some(attr) = mcl_attr {
-            drop(mcl);
             vm.call_if_get_descriptor(attr, zelf.to_owned().into())
         } else {
             return Err(attribute_error(zelf, name_str.as_str(), vm));
@@ -1007,7 +1005,7 @@ impl Callable for PyType {
     }
 }
 
-fn find_base_dict_descr(cls: &PyTypeRef, vm: &VirtualMachine) -> Option<PyObjectRef> {
+fn find_base_dict_descr(cls: &Py<PyType>, vm: &VirtualMachine) -> Option<PyObjectRef> {
     cls.iter_base_chain().skip(1).find_map(|cls| {
         // TODO: should actually be some translation of:
         // cls.slot_dictoffset != 0 && !cls.flags.contains(HEAPTYPE)
@@ -1021,12 +1019,11 @@ fn find_base_dict_descr(cls: &PyTypeRef, vm: &VirtualMachine) -> Option<PyObject
 
 fn subtype_get_dict(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     // TODO: obj.class().as_pyref() need to be supported
-    let cls = obj.class().clone();
-    let ret = match find_base_dict_descr(&cls, vm) {
-        Some(descr) => vm.call_get_descriptor(descr, obj).unwrap_or_else(|_| {
+    let ret = match find_base_dict_descr(obj.class(), vm) {
+        Some(descr) => vm.call_get_descriptor(descr, obj).unwrap_or_else(|obj| {
             Err(vm.new_type_error(format!(
                 "this __dict__ descriptor does not support '{}' objects",
-                cls.name()
+                obj.class()
             )))
         })?,
         None => object::object_get_dict(obj, vm)?.into(),
@@ -1035,8 +1032,8 @@ fn subtype_get_dict(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 }
 
 fn subtype_set_dict(obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-    let cls = obj.class().clone();
-    match find_base_dict_descr(&cls, vm) {
+    let cls = obj.class();
+    match find_base_dict_descr(cls, vm) {
         Some(descr) => {
             let descr_set = descr
                 .class()
@@ -1152,10 +1149,10 @@ fn calculate_meta_class(
     let mut winner = metatype;
     for base in bases {
         let base_type = base.class();
-        if winner.fast_issubclass(&base_type) {
+        if winner.fast_issubclass(base_type) {
             continue;
         } else if base_type.fast_issubclass(&winner) {
-            winner = base_type.into_owned();
+            winner = base_type.to_owned();
             continue;
         }
 

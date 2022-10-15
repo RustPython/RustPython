@@ -44,7 +44,7 @@ impl Constructor for PyZip {
 impl PyZip {
     #[pymethod(magic)]
     fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
-        let cls = zelf.class().clone();
+        let cls = zelf.class().to_owned();
         let iterators = zelf
             .iterators
             .iter()

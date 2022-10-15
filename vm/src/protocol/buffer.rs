@@ -9,8 +9,7 @@ use crate::{
     object::PyObjectPayload,
     sliceable::SequenceIndexOp,
     types::{Constructor, Unconstructible},
-    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject,
-    VirtualMachine,
+    Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject, VirtualMachine,
 };
 use itertools::Itertools;
 use std::{borrow::Cow, fmt::Debug, ops::Range};

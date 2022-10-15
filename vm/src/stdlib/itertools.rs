@@ -147,7 +147,7 @@ mod decl {
         #[pymethod(magic)]
         fn reduce(zelf: PyRef<Self>) -> (PyTypeRef, (PyIter, PyIter)) {
             (
-                zelf.class().clone(),
+                zelf.class().to_owned(),
                 (zelf.data.clone(), zelf.selectors.clone()),
             )
         }
@@ -218,7 +218,7 @@ mod decl {
         //      return Py_BuildValue("0(00)", Py_TYPE(lz), lz->long_cnt, lz->long_step);
         #[pymethod(magic)]
         fn reduce(zelf: PyRef<Self>) -> (PyTypeRef, (PyObjectRef,)) {
-            (zelf.class().clone(), (zelf.cur.read().clone(),))
+            (zelf.class().to_owned(), (zelf.cur.read().clone(),))
         }
 
         #[pymethod(magic)]
@@ -343,7 +343,7 @@ mod decl {
 
         #[pymethod(magic)]
         fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
-            let cls = zelf.class().clone();
+            let cls = zelf.class().to_owned();
             Ok(match zelf.times {
                 Some(ref times) => vm.new_tuple((cls, (zelf.object.clone(), *times.read()))),
                 None => vm.new_tuple((cls, (zelf.object.clone(),))),
@@ -410,7 +410,7 @@ mod decl {
         #[pymethod(magic)]
         fn reduce(zelf: PyRef<Self>) -> (PyTypeRef, (PyObjectRef, PyIter)) {
             (
-                zelf.class().clone(),
+                zelf.class().to_owned(),
                 (zelf.function.clone(), zelf.iterable.clone()),
             )
         }
@@ -473,7 +473,7 @@ mod decl {
         #[pymethod(magic)]
         fn reduce(zelf: PyRef<Self>) -> (PyTypeRef, (PyObjectRef, PyIter), BigInt) {
             (
-                zelf.class().clone(),
+                zelf.class().to_owned(),
                 (zelf.predicate.clone(), zelf.iterable.clone()),
                 (if zelf.stop_flag.load() { 1 } else { 0 }).into(),
             )
@@ -554,7 +554,7 @@ mod decl {
         #[pymethod(magic)]
         fn reduce(zelf: PyRef<Self>) -> (PyTypeRef, (PyObjectRef, PyIter), BigInt) {
             (
-                zelf.class().clone(),
+                zelf.class().to_owned(),
                 (zelf.predicate.clone().into(), zelf.iterable.clone()),
                 (if zelf.start_flag.load() { 1 } else { 0 }).into(),
             )
@@ -949,7 +949,7 @@ mod decl {
         #[pymethod(magic)]
         fn reduce(zelf: PyRef<Self>) -> (PyTypeRef, (PyObjectRef, PyIter)) {
             (
-                zelf.class().clone(),
+                zelf.class().to_owned(),
                 (zelf.predicate.clone(), zelf.iterable.clone()),
             )
         }

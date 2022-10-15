@@ -2,7 +2,10 @@ use super::{
     core::{Py, PyObject, PyObjectRef, PyRef},
     payload::{PyObjectPayload, PyPayload},
 };
-use crate::common::lock::PyRwLockReadGuard;
+use crate::common::{
+    atomic::{Ordering, PyAtomic, Radium},
+    lock::PyRwLockReadGuard,
+};
 use crate::{
     builtins::{PyBaseExceptionRef, PyStrInterned, PyType},
     convert::{IntoPyException, ToPyObject, ToPyResult, TryFromObject},
@@ -134,7 +137,6 @@ impl<T: PyPayload> TryFromObject for PyRefExact<T> {
         let target_cls = T::class(vm);
         let cls = obj.class();
         if cls.is(target_cls) {
-            drop(cls);
             let obj = obj
                 .downcast()
                 .map_err(|obj| vm.new_downcast_runtime_error(target_cls, &obj))?;
@@ -212,6 +214,49 @@ impl<T: PyPayload> ToPyObject for PyRefExact<T> {
     }
 }
 
+pub struct PyAtomicRef<T: PyObjectPayload>(PyAtomic<*mut Py<T>>);
+
+cfg_if::cfg_if! {
+    if #[cfg(feature = "threading")] {
+        unsafe impl<T: Send + PyObjectPayload> Send for PyAtomicRef<T> {}
+        unsafe impl<T: Sync + PyObjectPayload> Sync for PyAtomicRef<T> {}
+    }
+}
+
+impl<T: PyObjectPayload> From<PyRef<T>> for PyAtomicRef<T> {
+    fn from(pyref: PyRef<T>) -> Self {
+        let py = PyRef::leak(pyref);
+        Self(Radium::new(py as *const _ as *mut _))
+    }
+}
+
+impl<T: PyObjectPayload> Deref for PyAtomicRef<T> {
+    type Target = Py<T>;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { &*self.0.load(Ordering::Relaxed) }
+    }
+}
+
+impl<T: PyObjectPayload> PyAtomicRef<T> {
+    /// # Safety
+    /// The caller is responsible to keep the returned PyRef alive
+    /// until no more reference can be used via PyAtomicRef::deref()
+    #[must_use]
+    pub unsafe fn swap(&self, pyref: PyRef<T>) -> PyRef<T> {
+        let py = PyRef::leak(pyref);
+        let old = Radium::swap(&self.0, py as *const _ as *mut _, Ordering::AcqRel);
+        PyRef::from_raw(old)
+    }
+
+    pub fn swap_to_temporary_refs(&self, pyref: PyRef<T>, vm: &VirtualMachine) {
+        let old = unsafe { self.swap(pyref) };
+        if let Some(frame) = vm.current_frame() {
+            frame.temporary_refs.lock().push(old.into());
+        }
+    }
+}
+
 pub trait AsObject
 where
     Self: Borrow<PyObject>,
@@ -235,8 +280,8 @@ where
     }
 
     #[inline(always)]
-    fn class(&self) -> PyLease<'_, PyType> {
-        self.as_object().lease_class()
+    fn class(&self) -> &Py<PyType> {
+        self.as_object().class()
     }
 
     fn get_class_attr(&self, attr_name: &'static PyStrInterned) -> Option<PyObjectRef> {
@@ -257,13 +302,6 @@ impl PyObject {
     #[inline(always)]
     fn unique_id(&self) -> usize {
         self as *const PyObject as usize
-    }
-
-    #[inline]
-    fn lease_class(&self) -> PyLease<'_, PyType> {
-        PyLease {
-            inner: self.class_lock().read(),
-        }
     }
 }
 

@@ -1,7 +1,7 @@
 // export through sliceable module, not slice.
 use crate::{
     builtins::{int::PyInt, slice::PySlice},
-    AsObject, PyObject, PyResult, VirtualMachine,
+    PyObject, PyResult, VirtualMachine,
 };
 use num_bigint::BigInt;
 use num_traits::{Signed, ToPrimitive};
