@@ -16,6 +16,7 @@ pub struct DescrObject {
 
 #[derive(Debug)]
 pub enum MemberKind {
+    Bool = 14,
     ObjectEx = 16,
 }
 
@@ -148,6 +149,9 @@ fn get_slot_from_object(
     vm: &VirtualMachine,
 ) -> PyResult {
     let slot = match member.kind {
+        MemberKind::Bool => obj
+            .get_slot(offset)
+            .unwrap_or_else(|| vm.ctx.new_bool(false).into()),
         MemberKind::ObjectEx => obj.get_slot(offset).ok_or_else(|| {
             vm.new_attribute_error(format!(
                 "'{}' object has no attribute '{}'",
@@ -165,9 +169,23 @@ fn set_slot_at_object(
     offset: usize,
     member: &MemberDef,
     value: PySetterValue,
-    _vm: &VirtualMachine,
+    vm: &VirtualMachine,
 ) -> PyResult<()> {
     match member.kind {
+        MemberKind::Bool => {
+            match value {
+                PySetterValue::Assign(v) => {
+                    if !v.class().is(vm.ctx.types.bool_type) {
+                        return Err(
+                            vm.new_type_error("attribute value type must be bool".to_owned())
+                        );
+                    }
+
+                    obj.set_slot(offset, Some(v))
+                }
+                PySetterValue::Delete => obj.set_slot(offset, None),
+            };
+        }
         MemberKind::ObjectEx => match value {
             PySetterValue::Assign(v) => obj.set_slot(offset, Some(v)),
             PySetterValue::Delete => obj.set_slot(offset, None),

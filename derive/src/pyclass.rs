@@ -66,6 +66,7 @@ impl FromStr for AttrName {
 struct ImplContext {
     impl_extend_items: ItemNursery,
     getset_items: GetSetNursery,
+    member_items: MemberNursery,
     extend_slots_items: ItemNursery,
     class_extensions: Vec<TokenStream>,
     errors: Vec<syn::Error>,
@@ -94,6 +95,7 @@ fn extract_items_into_context<'a, Item>(
         context.errors.ok_or_push(r);
     }
     context.errors.ok_or_push(context.getset_items.validate());
+    context.errors.ok_or_push(context.member_items.validate());
 }
 
 pub(crate) fn impl_pyimpl(attr: AttributeArgs, item: Item) -> Result<TokenStream> {
@@ -110,6 +112,7 @@ pub(crate) fn impl_pyimpl(attr: AttributeArgs, item: Item) -> Result<TokenStream
             } = extract_impl_attrs(attr, &Ident::new(&quote!(ty).to_string(), ty.span()))?;
 
             let getset_impl = &context.getset_items;
+            let member_impl = &context.member_items;
             let extend_impl = context.impl_extend_items.validate()?;
             let slots_impl = context.extend_slots_items.validate()?;
             let class_extensions = &context.class_extensions;
@@ -123,6 +126,7 @@ pub(crate) fn impl_pyimpl(attr: AttributeArgs, item: Item) -> Result<TokenStream
                         class: &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType>,
                     ) {
                         #getset_impl
+                        #member_impl
                         #extend_impl
                         #with_impl
                         #(#class_extensions)*
@@ -146,6 +150,7 @@ pub(crate) fn impl_pyimpl(attr: AttributeArgs, item: Item) -> Result<TokenStream
             } = extract_impl_attrs(attr, &trai.ident)?;
 
             let getset_impl = &context.getset_items;
+            let member_impl = &context.member_items;
             let extend_impl = &context.impl_extend_items.validate()?;
             let slots_impl = &context.extend_slots_items.validate()?;
             let class_extensions = &context.class_extensions;
@@ -156,6 +161,7 @@ pub(crate) fn impl_pyimpl(attr: AttributeArgs, item: Item) -> Result<TokenStream
                         class: &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType>,
                     ) {
                         #getset_impl
+                        #member_impl
                         #extend_impl
                         #with_impl
                         #(#class_extensions)*
@@ -689,23 +695,20 @@ where
         let item_attr = args.attrs.remove(self.index());
         let item_meta = MemberItemMeta::from_attr(ident.clone(), &item_attr)?;
 
-        let py_name = item_meta.member_name()?;
-        let tokens = {
-            quote_spanned! { ident.span() =>
-                class.set_str_attr(
-                    #py_name,
-                    ctx.new_member(#py_name, Self::#ident, None, class),
-                    ctx,
-                );
-            }
+        let (py_name, member_item_kind) = item_meta.member_name()?;
+        let member_kind = match item_meta.member_kind()? {
+            Some(s) => match s.as_str() {
+                "bool" => MemberKind::Bool,
+                _ => unreachable!(),
+            },
+            _ => MemberKind::ObjectEx,
         };
 
-        args.context.impl_extend_items.add_item(
+        args.context.member_items.add_item(
+            py_name,
+            member_item_kind,
+            member_kind,
             ident.clone(),
-            vec![py_name],
-            args.cfgs.to_vec(),
-            tokens,
-            5,
         )?;
         Ok(())
     }
@@ -798,6 +801,95 @@ impl ToTokens for GetSetNursery {
                                 #setter #deleter,
                                 ctx.types.getset_type.to_owned(), None),
                         ctx
+                    );
+                }
+            });
+        tokens.extend(properties);
+    }
+}
+
+#[derive(Default)]
+#[allow(clippy::type_complexity)]
+struct MemberNursery {
+    map: HashMap<(String, MemberKind), (Option<Ident>, Option<Ident>)>,
+    validated: bool,
+}
+
+enum MemberItemKind {
+    Get,
+    Set,
+}
+
+#[derive(Eq, PartialEq, Hash)]
+enum MemberKind {
+    Bool,
+    ObjectEx,
+}
+
+impl MemberNursery {
+    fn add_item(
+        &mut self,
+        name: String,
+        kind: MemberItemKind,
+        member_kind: MemberKind,
+        item_ident: Ident,
+    ) -> Result<()> {
+        assert!(!self.validated, "new item is not allowed after validation");
+        let entry = self.map.entry((name.clone(), member_kind)).or_default();
+        let func = match kind {
+            MemberItemKind::Get => &mut entry.0,
+            MemberItemKind::Set => &mut entry.1,
+        };
+        if func.is_some() {
+            return Err(syn::Error::new_spanned(
+                item_ident,
+                format!("Multiple member accessors with name '{}'", name),
+            ));
+        }
+        *func = Some(item_ident);
+        Ok(())
+    }
+
+    fn validate(&mut self) -> Result<()> {
+        let mut errors = Vec::new();
+        for ((name, _), (getter, setter)) in &self.map {
+            if getter.is_none() {
+                errors.push(syn::Error::new_spanned(
+                    setter.as_ref().unwrap(),
+                    format!("Member '{}' is missing a getter", name),
+                ));
+            };
+        }
+        errors.into_result()?;
+        self.validated = true;
+        Ok(())
+    }
+}
+
+impl ToTokens for MemberNursery {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        assert!(self.validated, "Call `validate()` before token generation");
+        let properties = self
+            .map
+            .iter()
+            .map(|((name, member_kind), (getter, setter))| {
+                let setter = match setter {
+                    Some(setter) => quote_spanned! { setter.span() => Some(Self::#setter)},
+                    None => quote! { None },
+                };
+                let member_kind = match member_kind {
+                    MemberKind::Bool => {
+                        quote!(::rustpython_vm::builtins::descriptor::MemberKind::Bool)
+                    }
+                    MemberKind::ObjectEx => {
+                        quote!(::rustpython_vm::builtins::descriptor::MemberKind::ObjectEx)
+                    }
+                };
+                quote_spanned! { getter.span() =>
+                    class.set_str_attr(
+                        #name,
+                        ctx.new_member(#name, #member_kind, Self::#getter, #setter, class),
+                        ctx,
                     );
                 }
             });
@@ -983,7 +1075,7 @@ impl SlotItemMeta {
 struct MemberItemMeta(ItemMetaInner);
 
 impl ItemMeta for MemberItemMeta {
-    const ALLOWED_NAMES: &'static [&'static str] = &["magic"];
+    const ALLOWED_NAMES: &'static [&'static str] = &["magic", "type", "setter"];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)
@@ -994,11 +1086,52 @@ impl ItemMeta for MemberItemMeta {
 }
 
 impl MemberItemMeta {
-    fn member_name(&self) -> Result<String> {
+    fn member_name(&self) -> Result<(String, MemberItemKind)> {
         let inner = self.inner();
+        let sig_name = inner.item_name();
+        let extract_prefix_name = |prefix, item_typ| {
+            if let Some(name) = sig_name.strip_prefix(prefix) {
+                if name.is_empty() {
+                    Err(syn::Error::new_spanned(
+                        &inner.meta_ident,
+                        format!(
+                            "A #[{}({typ})] fn with a {prefix}* name must \
+                             have something after \"{prefix}\"",
+                            inner.meta_name(),
+                            typ = item_typ,
+                            prefix = prefix
+                        ),
+                    ))
+                } else {
+                    Ok(name.to_owned())
+                }
+            } else {
+                Err(syn::Error::new_spanned(
+                    &inner.meta_ident,
+                    format!(
+                        "A #[{}(setter)] fn must either have a `name` \
+                         parameter or a fn name along the lines of \"set_*\"",
+                        inner.meta_name()
+                    ),
+                ))
+            }
+        };
         let magic = inner._bool("magic")?;
-        let name = inner.item_name();
-        Ok(if magic { format!("__{}__", name) } else { name })
+        let kind = if inner._bool("setter")? {
+            MemberItemKind::Set
+        } else {
+            MemberItemKind::Get
+        };
+        let name = match kind {
+            MemberItemKind::Get => sig_name,
+            MemberItemKind::Set => extract_prefix_name("set_", "setter")?,
+        };
+        Ok((if magic { format!("__{}__", name) } else { name }, kind))
+    }
+
+    fn member_kind(&self) -> Result<Option<String>> {
+        let inner = self.inner();
+        inner._optional_str("type")
     }
 }
 
