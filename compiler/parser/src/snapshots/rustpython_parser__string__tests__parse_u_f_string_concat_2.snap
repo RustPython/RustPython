@@ -8,12 +8,20 @@ expression: parse_ast
             row: 1,
             column: 1,
         },
+        end_location: Location {
+            row: 1,
+            column: 23,
+        },
         custom: (),
         node: Expr {
             value: Located {
                 location: Location {
                     row: 1,
                     column: 1,
+                },
+                end_location: Location {
+                    row: 1,
+                    column: 10,
                 },
                 custom: (),
                 node: JoinedStr {
@@ -22,6 +30,10 @@ expression: parse_ast
                             location: Location {
                                 row: 1,
                                 column: 1,
+                            },
+                            end_location: Location {
+                                row: 1,
+                                column: 10,
                             },
                             custom: (),
                             node: Constant {

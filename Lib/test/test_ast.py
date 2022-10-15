@@ -1131,7 +1131,8 @@ Module(
         body = [ast.ImportFrom(module='time',
                                names=[ast.alias(name='sleep')],
                                level=None,
-                               lineno=None, col_offset=None)]
+                               lineno=None, col_offset=None,
+                               end_lineno=None, end_col_offset=None)]
         mod = ast.Module(body, [])
         with self.assertRaises(ValueError) as cm:
             compile(mod, 'test', 'exec')
@@ -1140,9 +1141,11 @@ Module(
     def test_level_as_none(self):
         body = [ast.ImportFrom(module='time',
                                names=[ast.alias(name='sleep',
-                                                lineno=0, col_offset=0)],
+                                                lineno=0, col_offset=0,
+                                                end_lineno=0, end_col_offset=0)],
                                level=None,
-                               lineno=0, col_offset=0)]
+                               lineno=0, col_offset=0,
+                               end_lineno=0, end_col_offset=0)]
         mod = ast.Module(body, [])
         code = compile(mod, 'test', 'exec')
         ns = {}
@@ -1151,7 +1154,9 @@ Module(
 
     @unittest.skip("TODO: RUSTPYTHON; crash")
     def test_recursion_direct(self):
-        e = ast.UnaryOp(op=ast.Not(), lineno=0, col_offset=0)
+        e = ast.UnaryOp(op=ast.Not(),
+                        lineno=0, col_offset=0,
+                        end_lineno=0, end_col_offset=0)
         e.operand = e
         with self.assertRaises(RecursionError):
             with support.infinite_recursion():
@@ -1159,8 +1164,12 @@ Module(
 
     @unittest.skip("TODO: RUSTPYTHON; crash")
     def test_recursion_indirect(self):
-        e = ast.UnaryOp(op=ast.Not(), lineno=0, col_offset=0)
-        f = ast.UnaryOp(op=ast.Not(), lineno=0, col_offset=0)
+        e = ast.UnaryOp(op=ast.Not(),
+                        lineno=0, col_offset=0,
+                        end_lineno=0, end_col_offset=0)
+        f = ast.UnaryOp(op=ast.Not(),
+                        lineno=0, col_offset=0,
+                        end_lineno=0, end_col_offset=0)
         e.operand = f
         f.operand = e
         with self.assertRaises(RecursionError):
@@ -2307,8 +2316,6 @@ class EndPositionTests(unittest.TestCase):
         cdef = ast.parse(s).body[0]
         self.assertEqual(ast.get_source_segment(s, cdef.body[0], padded=True), s_method)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_source_segment_missing_info(self):
         s = 'v = 1\r\nw = 1\nx = 1\n\ry = 1\r\n'
         v, w, x, y = ast.parse(s).body

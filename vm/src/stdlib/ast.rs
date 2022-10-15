@@ -142,7 +142,7 @@ impl<T: Node> Node for Option<T> {
 impl<T: NamedNode> Node for ast::Located<T> {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
         let obj = self.node.ast_to_object(vm);
-        node_add_location(&obj, self.location, vm);
+        node_add_location(&obj, self.location, self.end_location, vm);
         obj
     }
 
@@ -160,12 +160,25 @@ impl<T: NamedNode> Node for ast::Located<T> {
     }
 }
 
-fn node_add_location(node: &PyObject, location: ast::Location, vm: &VirtualMachine) {
+fn node_add_location(
+    node: &PyObject,
+    location: ast::Location,
+    end_location: ast::Location,
+    vm: &VirtualMachine,
+) {
     let dict = node.dict().unwrap();
     dict.set_item("lineno", vm.ctx.new_int(location.row()).into(), vm)
         .unwrap();
     dict.set_item("col_offset", vm.ctx.new_int(location.column()).into(), vm)
         .unwrap();
+    dict.set_item("end_lineno", vm.ctx.new_int(end_location.row()).into(), vm)
+        .unwrap();
+    dict.set_item(
+        "end_col_offset",
+        vm.ctx.new_int(end_location.column()).into(),
+        vm,
+    )
+    .unwrap();
 }
 
 impl Node for String {
