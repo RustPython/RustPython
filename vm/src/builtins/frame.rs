@@ -2,7 +2,7 @@
 
 */
 
-use super::{PyCode, PyDictRef};
+use super::{PyCode, PyDictRef, PyIntRef};
 use crate::{
     class::PyClassImpl,
     frame::{Frame, FrameRef},
@@ -10,6 +10,7 @@ use crate::{
     types::{Constructor, Unconstructible},
     AsObject, Context, PyObjectRef, PyRef, PyResult, VirtualMachine,
 };
+use num_traits::Zero;
 
 pub fn init(context: &Context) {
     FrameRef::extend_class(context, context.types.frame_type);
@@ -81,5 +82,38 @@ impl FrameRef {
     fn set_f_trace(self, value: PySetterValue, vm: &VirtualMachine) {
         let mut storage = self.trace.lock();
         *storage = value.unwrap_or_none(vm);
+    }
+
+    #[pymember(type = "bool")]
+    fn f_trace_lines(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
+        let zelf: FrameRef = zelf.downcast().unwrap_or_else(|_| unreachable!());
+
+        let boxed = zelf.trace_lines.lock();
+        Ok(vm.ctx.new_bool(*boxed).into())
+    }
+
+    #[pymember(type = "bool", setter)]
+    fn set_f_trace_lines(
+        vm: &VirtualMachine,
+        zelf: PyObjectRef,
+        value: PySetterValue,
+    ) -> PyResult<()> {
+        match value {
+            PySetterValue::Assign(value) => {
+                let zelf: FrameRef = zelf.downcast().unwrap_or_else(|_| unreachable!());
+
+                let value: PyIntRef = value.downcast().map_err(|_| {
+                    vm.new_type_error("attribute value type must be bool".to_owned())
+                })?;
+
+                let mut trace_lines = zelf.trace_lines.lock();
+                *trace_lines = !value.as_bigint().is_zero();
+
+                Ok(())
+            }
+            PySetterValue::Delete => {
+                Err(vm.new_type_error("can't delete numeric/char attribute".to_owned()))
+            }
+        }
     }
 }
