@@ -28,9 +28,6 @@ use indexmap::{map::Entry, IndexMap};
 use itertools::Itertools;
 use std::{borrow::Borrow, collections::HashSet, fmt, ops::Deref, pin::Pin, ptr::NonNull};
 
-/// type(object_or_name, bases, dict)
-/// type(object) -> the object's type
-/// type(name, bases, dict) -> a new type
 #[pyclass(module = false, name = "type")]
 pub struct PyType {
     pub base: Option<PyTypeRef>,
