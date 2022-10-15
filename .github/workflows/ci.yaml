@@ -218,13 +218,6 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          target: wasm32-unknown-unknown
-
-      - name: Check compilation for wasm32
-        run: cargo check --target wasm32-unknown-unknown --no-default-features
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
           target: x86_64-unknown-freebsd
 
       - name: Check compilation for freeBSD
