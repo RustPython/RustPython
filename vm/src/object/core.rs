@@ -872,6 +872,14 @@ impl<T: PyObjectPayload> Py<T> {
             _marker: PhantomData,
         })
     }
+
+    pub(crate) fn get_slot(&self, offset: usize) -> Option<PyObjectRef> {
+        self.0.slots[offset].read().clone()
+    }
+
+    pub(crate) fn set_slot(&self, offset: usize, value: Option<PyObjectRef>) {
+        *self.0.slots[offset].write() = value;
+    }
 }
 
 impl<T: PyObjectPayload> ToOwned for Py<T> {
