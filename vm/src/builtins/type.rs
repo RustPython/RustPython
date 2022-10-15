@@ -247,7 +247,7 @@ impl PyType {
         *slots.name.get_mut() = Some(String::from(name));
 
         let bases = vec![base.clone()];
-        let mro = base.iter_mro().cloned().collect();
+        let mro = base.iter_mro().map(|x| x.to_owned()).collect();
 
         let new_type = PyRef::new_ref(
             PyType {

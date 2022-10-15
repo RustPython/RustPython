@@ -912,7 +912,7 @@ fn os_error_str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult<PyStrR
 fn os_error_reduce(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyTupleRef {
     let args = exc.args();
     let obj = exc.as_object().to_owned();
-    let mut result: Vec<PyObjectRef> = vec![obj.class().clone().into()];
+    let mut result: Vec<PyObjectRef> = vec![obj.class().to_owned().into()];
 
     if args.len() >= 2 && args.len() <= 5 {
         // SAFETY: len() == 2 is checked so get_arg 1 or 2 won't panic

@@ -473,7 +473,7 @@ mod decl {
         #[pymethod(magic)]
         fn reduce(zelf: PyRef<Self>) -> (PyTypeRef, (PyObjectRef, PyIter), BigInt) {
             (
-                zelf.class().clone(),
+                zelf.class().to_owned(),
                 (zelf.predicate.clone(), zelf.iterable.clone()),
                 (if zelf.stop_flag.load() { 1 } else { 0 }).into(),
             )
@@ -554,7 +554,7 @@ mod decl {
         #[pymethod(magic)]
         fn reduce(zelf: PyRef<Self>) -> (PyTypeRef, (PyObjectRef, PyIter), BigInt) {
             (
-                zelf.class().clone(),
+                zelf.class().to_owned(),
                 (zelf.predicate.clone().into(), zelf.iterable.clone()),
                 (if zelf.start_flag.load() { 1 } else { 0 }).into(),
             )
