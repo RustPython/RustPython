@@ -492,7 +492,6 @@ class ClassTests(unittest.TestCase):
         self.assertRaises(TypeError, hash, C2())
 
 
-    @unittest.skip("TODO: RUSTPYTHON, segmentation fault")
     def testSFBug532646(self):
         # Test for SF bug 532646
 
