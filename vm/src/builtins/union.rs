@@ -1,5 +1,6 @@
 use super::{genericalias, type_};
 use crate::{
+    atomic_func,
     builtins::{PyFrozenSet, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType},
     class::PyClassImpl,
     common::hash,
@@ -241,13 +242,15 @@ impl PyUnion {
 }
 
 impl AsMapping for PyUnion {
-    const AS_MAPPING: PyMappingMethods = PyMappingMethods {
-        length: None,
-        subscript: Some(|mapping, needle, vm| {
-            Self::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
-        }),
-        ass_subscript: None,
-    };
+    fn as_mapping() -> &'static PyMappingMethods {
+        static AS_MAPPING: PyMappingMethods = PyMappingMethods {
+            subscript: atomic_func!(|mapping, needle, vm| {
+                PyUnion::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
+            }),
+            ..PyMappingMethods::NOT_IMPLEMENTED
+        };
+        &AS_MAPPING
+    }
 }
 
 impl Comparable for PyUnion {

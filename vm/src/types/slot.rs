@@ -39,7 +39,7 @@ pub struct PyTypeSlots {
     // Method suites for standard classes
     pub as_number: AtomicCell<Option<PointerSlot<PyNumberMethods>>>,
     pub as_sequence: AtomicCell<Option<PointerSlot<PySequenceMethods>>>,
-    pub as_mapping: AtomicCell<Option<AsMappingFunc>>,
+    pub as_mapping: AtomicCell<Option<PointerSlot<PyMappingMethods>>>,
 
     // More standard operations (here for binary compatibility)
     pub hash: AtomicCell<Option<HashFunc>>,
@@ -188,16 +188,6 @@ pub(crate) fn len_wrapper(obj: &PyObject, vm: &VirtualMachine) -> PyResult<usize
         vm.new_overflow_error("cannot fit 'int' into an index-sized integer".to_owned())
     })?;
     Ok(len as usize)
-}
-
-fn slot_as_mapping(zelf: &PyObject, vm: &VirtualMachine) -> &'static PyMappingMethods {
-    let (has_length, has_subscript, has_ass_subscript) = (
-        zelf.class().has_attr(identifier!(vm, __len__)),
-        zelf.class().has_attr(identifier!(vm, __getitem__)),
-        zelf.class().has_attr(identifier!(vm, __setitem__))
-            | zelf.class().has_attr(identifier!(vm, __delitem__)),
-    );
-    PyMappingMethods::generic(has_length, has_subscript, has_ass_subscript)
 }
 
 fn int_wrapper(num: &PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyInt>> {
@@ -392,23 +382,36 @@ impl PyType {
 
         match name {
             _ if name == identifier!(ctx, __len__) => {
-                update_slot!(as_mapping, slot_as_mapping);
+                // update_slot!(as_mapping, slot_as_mapping);
                 toggle_ext_func!(sequence_methods, length, |seq, vm| len_wrapper(seq.obj, vm));
                 update_pointer_slot!(as_sequence, sequence_methods);
+                toggle_ext_func!(mapping_methods, length, |mapping, vm| len_wrapper(
+                    mapping.obj,
+                    vm
+                ));
+                update_pointer_slot!(as_mapping, mapping_methods);
             }
             _ if name == identifier!(ctx, __getitem__) => {
-                update_slot!(as_mapping, slot_as_mapping);
+                // update_slot!(as_mapping, slot_as_mapping);
                 toggle_ext_func!(sequence_methods, item, |seq, i, vm| getitem_wrapper(
                     seq.obj, i, vm
                 ));
                 update_pointer_slot!(as_sequence, sequence_methods);
+                toggle_ext_func!(mapping_methods, subscript, |mapping, key, vm| {
+                    getitem_wrapper(mapping.obj, key, vm)
+                });
+                update_pointer_slot!(as_mapping, mapping_methods);
             }
             _ if name == identifier!(ctx, __setitem__) || name == identifier!(ctx, __delitem__) => {
-                update_slot!(as_mapping, slot_as_mapping);
+                // update_slot!(as_mapping, slot_as_mapping);
                 toggle_ext_func!(sequence_methods, ass_item, |seq, i, value, vm| {
                     setitem_wrapper(seq.obj, i, value, vm)
                 });
                 update_pointer_slot!(as_sequence, sequence_methods);
+                toggle_ext_func!(mapping_methods, ass_subscript, |mapping, key, value, vm| {
+                    setitem_wrapper(mapping.obj, key, value, vm)
+                });
+                update_pointer_slot!(as_mapping, mapping_methods);
             }
             _ if name == identifier!(ctx, __hash__) => {
                 toggle_slot!(hash, hash_wrapper);
@@ -939,15 +942,9 @@ pub trait AsBuffer: PyPayload {
 
 #[pyclass]
 pub trait AsMapping: PyPayload {
-    const AS_MAPPING: PyMappingMethods;
-
-    #[inline]
     #[pyslot]
-    fn as_mapping(_zelf: &PyObject, _vm: &VirtualMachine) -> &'static PyMappingMethods {
-        &Self::AS_MAPPING
-    }
+    fn as_mapping() -> &'static PyMappingMethods;
 
-    #[inline]
     fn mapping_downcast<'a>(mapping: &'a PyMapping) -> &'a Py<Self> {
         unsafe { mapping.obj.downcast_unchecked_ref() }
     }
