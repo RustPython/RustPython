@@ -5,7 +5,7 @@ mod decl {
     use crate::vm::{
         builtins::{PyCode, PyDictRef, PyStrRef},
         bytecode::CodeFlags,
-        compiler, PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,
+        PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,
     };
 
     #[pyfunction]
@@ -17,6 +17,7 @@ mod decl {
             // String:
             #[cfg(feature = "compiler")]
             {
+                use crate::vm::compiler;
                 vm.compile(co_str.as_str(), compiler::Mode::Exec, "<dis>".to_owned())
                     .map_err(|err| vm.new_syntax_error(&err))?
             }

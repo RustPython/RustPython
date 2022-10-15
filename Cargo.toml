@@ -75,7 +75,7 @@ ssl-vendor = ["rustpython-stdlib/ssl-vendor"]
 rustpython-compiler = { path = "compiler", version = "0.2.0" }
 rustpython-parser = { path = "compiler/parser", version = "0.2.0" }
 rustpython-pylib = { path = "pylib", optional = true, default-features = false }
-rustpython-stdlib = { path = "stdlib", optional = true, default-features = false }
+rustpython-stdlib = { path = "stdlib", optional = true, default-features = false, features = ["compiler"] }
 rustpython-vm = { path = "vm", version = "0.2.0", default-features = false, features = ["compiler"] }
 
 atty = { workspace = true }
