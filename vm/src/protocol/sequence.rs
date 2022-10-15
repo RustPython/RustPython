@@ -246,7 +246,7 @@ impl PySequence<'_> {
                 stop: stop.to_pyobject(vm),
                 step: None,
             };
-            f(&mapping, &slice.into_pyobject(vm), value, vm)
+            f(mapping, &slice.into_pyobject(vm), value, vm)
         } else {
             Err(vm.new_type_error(format!(
                 "'{}' object doesn't support slice {}",

@@ -148,7 +148,6 @@ impl Default for PyTypeFlags {
 }
 
 pub(crate) type GenericMethod = fn(&PyObject, FuncArgs, &VirtualMachine) -> PyResult;
-pub(crate) type AsMappingFunc = fn(&PyObject, &VirtualMachine) -> &'static PyMappingMethods;
 pub(crate) type HashFunc = fn(&PyObject, &VirtualMachine) -> PyResult<PyHash>;
 // CallFunc = GenericMethod
 pub(crate) type GetattroFunc = fn(&PyObject, PyStrRef, &VirtualMachine) -> PyResult;
@@ -945,7 +944,7 @@ pub trait AsMapping: PyPayload {
     #[pyslot]
     fn as_mapping() -> &'static PyMappingMethods;
 
-    fn mapping_downcast<'a>(mapping: &'a PyMapping) -> &'a Py<Self> {
+    fn mapping_downcast(mapping: PyMapping) -> &Py<Self> {
         unsafe { mapping.obj.downcast_unchecked_ref() }
     }
 }

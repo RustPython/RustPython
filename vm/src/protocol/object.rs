@@ -594,7 +594,7 @@ impl PyObject {
         let mapping = self.to_mapping();
         if let Some(f) = mapping.methods.ass_subscript.load() {
             let needle = needle.to_pyobject(vm);
-            return f(&mapping, &needle, Some(value), vm);
+            return f(mapping, &needle, Some(value), vm);
         }
 
         let seq = self.to_sequence(vm);
@@ -617,7 +617,7 @@ impl PyObject {
         let mapping = self.to_mapping();
         if let Some(f) = mapping.methods.ass_subscript.load() {
             let needle = needle.to_pyobject(vm);
-            return f(&mapping, &needle, None, vm);
+            return f(mapping, &needle, None, vm);
         }
         let seq = self.to_sequence(vm);
         if let Some(f) = seq.methods.ass_item.load() {

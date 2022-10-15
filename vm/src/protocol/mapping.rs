@@ -21,10 +21,10 @@ impl PyObject {
 #[allow(clippy::type_complexity)]
 #[derive(Default)]
 pub struct PyMappingMethods {
-    pub length: AtomicCell<Option<fn(&PyMapping, &VirtualMachine) -> PyResult<usize>>>,
-    pub subscript: AtomicCell<Option<fn(&PyMapping, &PyObject, &VirtualMachine) -> PyResult>>,
+    pub length: AtomicCell<Option<fn(PyMapping, &VirtualMachine) -> PyResult<usize>>>,
+    pub subscript: AtomicCell<Option<fn(PyMapping, &PyObject, &VirtualMachine) -> PyResult>>,
     pub ass_subscript: AtomicCell<
-        Option<fn(&PyMapping, &PyObject, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>>,
+        Option<fn(PyMapping, &PyObject, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>>,
     >,
 }
 
@@ -39,6 +39,7 @@ impl PyMappingMethods {
         self.subscript.load().is_some()
     }
 
+    #[allow(clippy::declare_interior_mutable_const)]
     pub const NOT_IMPLEMENTED: PyMappingMethods = PyMappingMethods {
         length: AtomicCell::new(None),
         subscript: AtomicCell::new(None),
@@ -55,10 +56,10 @@ impl<'a> From<&'a PyObject> for PyMapping<'a> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct PyMapping<'a> {
     pub obj: &'a PyObject,
-    pub methods: &'a PyMappingMethods,
+    pub methods: &'static PyMappingMethods,
 }
 
 impl AsRef<PyObject> for PyMapping<'_> {
@@ -94,11 +95,11 @@ impl PyMapping<'_> {
         obj.class().mro_find_map(|cls| cls.slots.as_mapping.load())
     }
 
-    pub fn length_opt(&self, vm: &VirtualMachine) -> Option<PyResult<usize>> {
+    pub fn length_opt(self, vm: &VirtualMachine) -> Option<PyResult<usize>> {
         self.methods.length.load().map(|f| f(self, vm))
     }
 
-    pub fn length(&self, vm: &VirtualMachine) -> PyResult<usize> {
+    pub fn length(self, vm: &VirtualMachine) -> PyResult<usize> {
         self.length_opt(vm).ok_or_else(|| {
             vm.new_type_error(format!(
                 "object of type '{}' has no len() or not a mapping",
@@ -107,12 +108,12 @@ impl PyMapping<'_> {
         })?
     }
 
-    pub fn subscript(&self, needle: &impl AsObject, vm: &VirtualMachine) -> PyResult {
+    pub fn subscript(self, needle: &impl AsObject, vm: &VirtualMachine) -> PyResult {
         self._subscript(needle.as_object(), vm)
     }
 
     pub fn ass_subscript(
-        &self,
+        self,
         needle: &impl AsObject,
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,
@@ -120,7 +121,7 @@ impl PyMapping<'_> {
         self._ass_subscript(needle.as_object(), value, vm)
     }
 
-    fn _subscript(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
+    fn _subscript(self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
         let f =
             self.methods.subscript.load().ok_or_else(|| {
                 vm.new_type_error(format!("{} is not a mapping", self.obj.class()))
@@ -129,7 +130,7 @@ impl PyMapping<'_> {
     }
 
     fn _ass_subscript(
-        &self,
+        self,
         needle: &PyObject,
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,
@@ -143,7 +144,7 @@ impl PyMapping<'_> {
         f(self, needle, value, vm)
     }
 
-    pub fn keys(&self, vm: &VirtualMachine) -> PyResult {
+    pub fn keys(self, vm: &VirtualMachine) -> PyResult {
         if let Some(dict) = self.obj.downcast_ref_if_exact::<PyDict>(vm) {
             PyDictKeys::new(dict.to_owned()).to_pyresult(vm)
         } else {
@@ -151,7 +152,7 @@ impl PyMapping<'_> {
         }
     }
 
-    pub fn values(&self, vm: &VirtualMachine) -> PyResult {
+    pub fn values(self, vm: &VirtualMachine) -> PyResult {
         if let Some(dict) = self.obj.downcast_ref_if_exact::<PyDict>(vm) {
             PyDictValues::new(dict.to_owned()).to_pyresult(vm)
         } else {
@@ -159,7 +160,7 @@ impl PyMapping<'_> {
         }
     }
 
-    pub fn items(&self, vm: &VirtualMachine) -> PyResult {
+    pub fn items(self, vm: &VirtualMachine) -> PyResult {
         if let Some(dict) = self.obj.downcast_ref_if_exact::<PyDict>(vm) {
             PyDictItems::new(dict.to_owned()).to_pyresult(vm)
         } else {
@@ -168,7 +169,7 @@ impl PyMapping<'_> {
     }
 
     fn method_output_as_list(
-        &self,
+        self,
         method_name: &'static PyStrInterned,
         vm: &VirtualMachine,
     ) -> PyResult {
