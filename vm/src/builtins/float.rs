@@ -22,7 +22,6 @@ use num_complex::Complex64;
 use num_rational::Ratio;
 use num_traits::{Signed, ToPrimitive, Zero};
 
-/// Convert a string or number to a floating point number, if possible.
 #[pyclass(module = false, name = "float")]
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct PyFloat {

@@ -8,8 +8,6 @@ mod symtable {
     use rustpython_codegen::symboltable::{Symbol, SymbolScope, SymbolTable, SymbolTableType};
     use std::fmt;
 
-    /// symtable. Return top level SymbolTable.
-    /// See docs: https://docs.python.org/3/library/symtable.html?highlight=symtable#symtable.symtable
     #[pyfunction]
     fn symtable(
         source: PyStrRef,

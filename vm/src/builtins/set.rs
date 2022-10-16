@@ -25,10 +25,6 @@ use std::{fmt, ops::Deref};
 
 pub type SetContentType = dictdatatype::Dict<()>;
 
-/// set() -> new empty set object
-/// set(iterable) -> new set object
-///
-/// Build an unordered collection of unique elements.
 #[pyclass(module = false, name = "set")]
 #[derive(Default)]
 pub struct PySet {
@@ -71,10 +67,6 @@ impl PySet {
     }
 }
 
-/// frozenset() -> empty frozenset object
-/// frozenset(iterable) -> frozenset object
-///
-/// Build an immutable unordered collection of unique elements.
 #[pyclass(module = false, name = "frozenset")]
 #[derive(Default)]
 pub struct PyFrozenSet {

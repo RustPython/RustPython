@@ -71,11 +71,6 @@ impl PyObjectRef {
     }
 }
 
-/// bool(x) -> bool
-///
-/// Returns True when the argument x is true, False otherwise.
-/// The builtins True and False are the only two instances of the class bool.
-/// The class bool is a subclass of the class int, and cannot be subclassed.
 #[pyclass(name = "bool", module = false, base = "PyInt")]
 pub struct PyBool;
 

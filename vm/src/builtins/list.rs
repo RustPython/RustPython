@@ -22,10 +22,6 @@ use crate::{
 };
 use std::{fmt, ops::DerefMut};
 
-/// Built-in mutable sequence.
-///
-/// If no argument is given, the constructor creates a new empty list.
-/// The argument must be an iterable if specified.
 #[pyclass(module = false, name = "list")]
 #[derive(Default)]
 pub struct PyList {
