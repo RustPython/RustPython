@@ -483,11 +483,10 @@ impl PyFloat {
 
     #[pyclassmethod]
     fn fromhex(cls: PyTypeRef, string: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        let result = float_ops::from_hex(string.as_str().trim());
-        match result {
-            Some(value) => PyType::call(&cls, vec![vm.ctx.new_float(value).into()].into(), vm),
-            None => Err(vm.new_value_error("invalid hexadecimal floating-point string".to_owned())),
-        }
+        let result = float_ops::from_hex(string.as_str().trim()).ok_or_else(|| {
+            vm.new_value_error("invalid hexadecimal floating-point string".to_owned())
+        })?;
+        PyType::call(&cls, vec![vm.ctx.new_float(result).into()].into(), vm)
     }
 
     #[pymethod]
