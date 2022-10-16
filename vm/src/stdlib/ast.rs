@@ -147,16 +147,29 @@ impl<T: NamedNode> Node for ast::Located<T> {
     }
 
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
-        let start = ast::Location::new(
+        let location = ast::Location::new(
             Node::ast_from_object(vm, get_node_field(vm, &object, "lineno", T::NAME)?)?,
             Node::ast_from_object(vm, get_node_field(vm, &object, "col_offset", T::NAME)?)?,
         );
-        let end = ast::Location::new(
-            Node::ast_from_object(vm, get_node_field(vm, &object, "end_lineno", T::NAME)?)?,
-            Node::ast_from_object(vm, get_node_field(vm, &object, "end_col_offset", T::NAME)?)?,
-        );
+        let end_location = if let (Some(end_lineno), Some(end_col_offset)) = (
+            get_node_field_opt(vm, &object, "end_lineno")?
+                .map(|obj| Node::ast_from_object(vm, obj))
+                .transpose()?,
+            get_node_field_opt(vm, &object, "end_col_offset")?
+                .map(|obj| Node::ast_from_object(vm, obj))
+                .transpose()?,
+        ) {
+            Some(ast::Location::new(end_lineno, end_col_offset))
+        } else {
+            None
+        };
         let node = T::ast_from_object(vm, object)?;
-        Ok(ast::Located::new(start, end, node))
+        Ok(ast::Located {
+            location,
+            end_location,
+            custom: (),
+            node,
+        })
     }
 }
 

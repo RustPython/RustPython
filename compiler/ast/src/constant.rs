@@ -138,8 +138,8 @@ mod tests {
         use crate::fold::Fold;
         use crate::*;
 
-        let start = Location::new(0, 0);
-        let end = Location::new(0, 0);
+        let start = Default::default();
+        let end = None;
         let custom = ();
         let ast = Located {
             location: start,
