@@ -944,6 +944,7 @@ pub trait AsMapping: PyPayload {
     #[pyslot]
     fn as_mapping() -> &'static PyMappingMethods;
 
+    #[inline]
     fn mapping_downcast(mapping: PyMapping) -> &Py<Self> {
         unsafe { mapping.obj.downcast_unchecked_ref() }
     }
@@ -954,6 +955,7 @@ pub trait AsSequence: PyPayload {
     #[pyslot]
     fn as_sequence() -> &'static PySequenceMethods;
 
+    #[inline]
     fn sequence_downcast(seq: PySequence) -> &Py<Self> {
         unsafe { seq.obj.downcast_unchecked_ref() }
     }
@@ -964,6 +966,7 @@ pub trait AsNumber: PyPayload {
     #[pyslot]
     fn as_number() -> &'static PyNumberMethods;
 
+    #[inline]
     fn number_downcast<'a>(number: &'a PyNumber) -> &'a Py<Self> {
         unsafe { number.obj.downcast_unchecked_ref() }
     }
