@@ -1615,8 +1615,6 @@ class GrammarTests(unittest.TestCase):
         self.assertEqual(x, [('Boeing', 'Airliner'), ('Boeing', 'Engine'), ('Ford', 'Engine'),
                              ('Macdonalds', 'Cheeseburger')])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_genexps(self):
         # generator expression tests
         g = ([x for x in range(10)] for x in range(1))

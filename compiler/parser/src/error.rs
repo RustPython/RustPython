@@ -22,6 +22,10 @@ pub enum LexicalErrorType {
     TabsAfterSpaces,
     DefaultArgumentError,
     PositionalArgumentError,
+    IterableArgumentUnpackingError,
+    StarredExpressionError,
+    DoubleStarredExpressionError,
+    GeneratorExpressionError,
     DuplicateKeywordArgumentError,
     UnrecognizedToken { tok: char },
     FStringError(FStringErrorType),
@@ -54,6 +58,21 @@ impl fmt::Display for LexicalErrorType {
             }
             LexicalErrorType::PositionalArgumentError => {
                 write!(f, "positional argument follows keyword argument")
+            }
+            LexicalErrorType::IterableArgumentUnpackingError => {
+                write!(
+                    f,
+                    "iterable argument unpacking follows keyword argument unpacking"
+                )
+            }
+            LexicalErrorType::StarredExpressionError => {
+                write!(f, "cannot use starred expression here")
+            }
+            LexicalErrorType::DoubleStarredExpressionError => {
+                write!(f, "cannot use double starred expression here")
+            }
+            LexicalErrorType::GeneratorExpressionError => {
+                write!(f, "Generator expression must be parenthesized")
             }
             LexicalErrorType::UnrecognizedToken { tok } => {
                 write!(f, "Got unexpected token {}", tok)
