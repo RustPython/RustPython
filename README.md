@@ -39,8 +39,8 @@ Or use the interactive shell:
     >>>>> 2+2
     4
     
-NOTE: For windows users, please set `RUSTPYTHONPATH` environment variable as `Lib` path in project directory.
-(e.g. When RustPython directory is `C:\RustPython`, set `RUSTPYTHONPATH` as `C:\RustPython\Lib`)
+> Note: For windows users, please set `RUSTPYTHONPATH` environment variable as `Lib` path in project directory.
+(e.g. When RustPython directory is `C:\RustPython`, set `RUSTPYTHONPATH` as `C:\RustPython\Lib`). If the compile error E0658("use of unstable library feature") happend, please set your Rust version into beta/nightly(e.g. `rustup override set beta`).
 
 You can also install and run RustPython with the following:
 
