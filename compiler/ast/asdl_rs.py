@@ -655,14 +655,14 @@ def write_ast_def(mod, typeinfo, f):
             """
         pub struct Located<T, U = ()> {
             pub location: Location,
-            pub end_location: Location,
+            pub end_location: Option<Location>,
             pub custom: U,
             pub node: T,
         }
     
         impl<T> Located<T> {
             pub fn new(location: Location, end_location: Location, node: T) -> Self {
-                Self { location, end_location, custom: (), node }
+                Self { location, end_location: Some(end_location), custom: (), node }
             }
         }
         \n

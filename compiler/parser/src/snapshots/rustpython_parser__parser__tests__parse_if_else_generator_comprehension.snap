@@ -7,10 +7,12 @@ Located {
         row: 1,
         column: 1,
     },
-    end_location: Location {
-        row: 1,
-        column: 27,
-    },
+    end_location: Some(
+        Location {
+            row: 1,
+            column: 27,
+        },
+    ),
     custom: (),
     node: GeneratorExp {
         elt: Located {
@@ -18,10 +20,12 @@ Located {
                 row: 1,
                 column: 4,
             },
-            end_location: Location {
-                row: 1,
-                column: 15,
-            },
+            end_location: Some(
+                Location {
+                    row: 1,
+                    column: 15,
+                },
+            ),
             custom: (),
             node: IfExp {
                 test: Located {
@@ -29,10 +33,12 @@ Located {
                         row: 1,
                         column: 7,
                     },
-                    end_location: Location {
-                        row: 1,
-                        column: 8,
-                    },
+                    end_location: Some(
+                        Location {
+                            row: 1,
+                            column: 8,
+                        },
+                    ),
                     custom: (),
                     node: Name {
                         id: "y",
@@ -44,10 +50,12 @@ Located {
                         row: 1,
                         column: 2,
                     },
-                    end_location: Location {
-                        row: 1,
-                        column: 3,
-                    },
+                    end_location: Some(
+                        Location {
+                            row: 1,
+                            column: 3,
+                        },
+                    ),
                     custom: (),
                     node: Name {
                         id: "x",
@@ -59,10 +67,12 @@ Located {
                         row: 1,
                         column: 14,
                     },
-                    end_location: Location {
-                        row: 1,
-                        column: 15,
-                    },
+                    end_location: Some(
+                        Location {
+                            row: 1,
+                            column: 15,
+                        },
+                    ),
                     custom: (),
                     node: Name {
                         id: "y",
@@ -78,10 +88,12 @@ Located {
                         row: 1,
                         column: 20,
                     },
-                    end_location: Location {
-                        row: 1,
-                        column: 21,
-                    },
+                    end_location: Some(
+                        Location {
+                            row: 1,
+                            column: 21,
+                        },
+                    ),
                     custom: (),
                     node: Name {
                         id: "y",
@@ -93,10 +105,12 @@ Located {
                         row: 1,
                         column: 25,
                     },
-                    end_location: Location {
-                        row: 1,
-                        column: 26,
-                    },
+                    end_location: Some(
+                        Location {
+                            row: 1,
+                            column: 26,
+                        },
+                    ),
                     custom: (),
                     node: Name {
                         id: "z",

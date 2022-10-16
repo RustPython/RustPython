@@ -8,10 +8,12 @@ expression: "parse_program(source, \"<test>\").unwrap()"
             row: 1,
             column: 1,
         },
-        end_location: Location {
-            row: 1,
-            column: 12,
-        },
+        end_location: Some(
+            Location {
+                row: 1,
+                column: 12,
+            },
+        ),
         custom: (),
         node: Assign {
             targets: [
@@ -20,10 +22,12 @@ expression: "parse_program(source, \"<test>\").unwrap()"
                         row: 1,
                         column: 1,
                     },
-                    end_location: Location {
-                        row: 1,
-                        column: 5,
-                    },
+                    end_location: Some(
+                        Location {
+                            row: 1,
+                            column: 5,
+                        },
+                    ),
                     custom: (),
                     node: Tuple {
                         elts: [
@@ -32,10 +36,12 @@ expression: "parse_program(source, \"<test>\").unwrap()"
                                     row: 1,
                                     column: 1,
                                 },
-                                end_location: Location {
-                                    row: 1,
-                                    column: 2,
-                                },
+                                end_location: Some(
+                                    Location {
+                                        row: 1,
+                                        column: 2,
+                                    },
+                                ),
                                 custom: (),
                                 node: Name {
                                     id: "a",
@@ -47,10 +53,12 @@ expression: "parse_program(source, \"<test>\").unwrap()"
                                     row: 1,
                                     column: 4,
                                 },
-                                end_location: Location {
-                                    row: 1,
-                                    column: 5,
-                                },
+                                end_location: Some(
+                                    Location {
+                                        row: 1,
+                                        column: 5,
+                                    },
+                                ),
                                 custom: (),
                                 node: Name {
                                     id: "b",
@@ -67,10 +75,12 @@ expression: "parse_program(source, \"<test>\").unwrap()"
                     row: 1,
                     column: 8,
                 },
-                end_location: Location {
-                    row: 1,
-                    column: 12,
-                },
+                end_location: Some(
+                    Location {
+                        row: 1,
+                        column: 12,
+                    },
+                ),
                 custom: (),
                 node: Tuple {
                     elts: [
@@ -79,10 +89,12 @@ expression: "parse_program(source, \"<test>\").unwrap()"
                                 row: 1,
                                 column: 8,
                             },
-                            end_location: Location {
-                                row: 1,
-                                column: 9,
-                            },
+                            end_location: Some(
+                                Location {
+                                    row: 1,
+                                    column: 9,
+                                },
+                            ),
                             custom: (),
                             node: Constant {
                                 value: Int(
@@ -96,10 +108,12 @@ expression: "parse_program(source, \"<test>\").unwrap()"
                                 row: 1,
                                 column: 11,
                             },
-                            end_location: Location {
-                                row: 1,
-                                column: 12,
-                            },
+                            end_location: Some(
+                                Location {
+                                    row: 1,
+                                    column: 12,
+                                },
+                            ),
                             custom: (),
                             node: Constant {
                                 value: Int(

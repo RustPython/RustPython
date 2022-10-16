@@ -163,7 +163,7 @@ impl<T: NamedNode> Node for ast::Located<T> {
 fn node_add_location(
     node: &PyObject,
     location: ast::Location,
-    end_location: ast::Location,
+    end_location: Option<ast::Location>,
     vm: &VirtualMachine,
 ) {
     let dict = node.dict().unwrap();
@@ -171,14 +171,16 @@ fn node_add_location(
         .unwrap();
     dict.set_item("col_offset", vm.ctx.new_int(location.column()).into(), vm)
         .unwrap();
-    dict.set_item("end_lineno", vm.ctx.new_int(end_location.row()).into(), vm)
+    if let Some(end_location) = end_location {
+        dict.set_item("end_lineno", vm.ctx.new_int(end_location.row()).into(), vm)
+            .unwrap();
+        dict.set_item(
+            "end_col_offset",
+            vm.ctx.new_int(end_location.column()).into(),
+            vm,
+        )
         .unwrap();
-    dict.set_item(
-        "end_col_offset",
-        vm.ctx.new_int(end_location.column()).into(),
-        vm,
-    )
-    .unwrap();
+    };
 }
 
 impl Node for String {

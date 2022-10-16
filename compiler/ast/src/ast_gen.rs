@@ -10,7 +10,7 @@ type Ident = String;
 #[derive(Debug, PartialEq)]
 pub struct Located<T, U = ()> {
     pub location: Location,
-    pub end_location: Location,
+    pub end_location: Option<Location>,
     pub custom: U,
     pub node: T,
 }
@@ -19,7 +19,7 @@ impl<T> Located<T> {
     pub fn new(location: Location, end_location: Location, node: T) -> Self {
         Self {
             location,
-            end_location,
+            end_location: Some(end_location),
             custom: (),
             node,
         }

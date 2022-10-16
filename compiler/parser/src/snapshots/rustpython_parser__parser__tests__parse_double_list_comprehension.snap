@@ -7,10 +7,12 @@ Located {
         row: 1,
         column: 1,
     },
-    end_location: Location {
-        row: 1,
-        column: 49,
-    },
+    end_location: Some(
+        Location {
+            row: 1,
+            column: 49,
+        },
+    ),
     custom: (),
     node: ListComp {
         elt: Located {
@@ -18,10 +20,12 @@ Located {
                 row: 1,
                 column: 2,
             },
-            end_location: Location {
-                row: 1,
-                column: 3,
-            },
+            end_location: Some(
+                Location {
+                    row: 1,
+                    column: 3,
+                },
+            ),
             custom: (),
             node: Name {
                 id: "x",
@@ -35,10 +39,12 @@ Located {
                         row: 1,
                         column: 8,
                     },
-                    end_location: Location {
-                        row: 1,
-                        column: 13,
-                    },
+                    end_location: Some(
+                        Location {
+                            row: 1,
+                            column: 13,
+                        },
+                    ),
                     custom: (),
                     node: Tuple {
                         elts: [
@@ -47,10 +53,12 @@ Located {
                                     row: 1,
                                     column: 8,
                                 },
-                                end_location: Location {
-                                    row: 1,
-                                    column: 9,
-                                },
+                                end_location: Some(
+                                    Location {
+                                        row: 1,
+                                        column: 9,
+                                    },
+                                ),
                                 custom: (),
                                 node: Name {
                                     id: "y",
@@ -62,10 +70,12 @@ Located {
                                     row: 1,
                                     column: 11,
                                 },
-                                end_location: Location {
-                                    row: 1,
-                                    column: 13,
-                                },
+                                end_location: Some(
+                                    Location {
+                                        row: 1,
+                                        column: 13,
+                                    },
+                                ),
                                 custom: (),
                                 node: Name {
                                     id: "y2",
@@ -81,10 +91,12 @@ Located {
                         row: 1,
                         column: 17,
                     },
-                    end_location: Location {
-                        row: 1,
-                        column: 18,
-                    },
+                    end_location: Some(
+                        Location {
+                            row: 1,
+                            column: 18,
+                        },
+                    ),
                     custom: (),
                     node: Name {
                         id: "z",
@@ -100,10 +112,12 @@ Located {
                         row: 1,
                         column: 23,
                     },
-                    end_location: Location {
-                        row: 1,
-                        column: 24,
-                    },
+                    end_location: Some(
+                        Location {
+                            row: 1,
+                            column: 24,
+                        },
+                    ),
                     custom: (),
                     node: Name {
                         id: "a",
@@ -115,10 +129,12 @@ Located {
                         row: 1,
                         column: 28,
                     },
-                    end_location: Location {
-                        row: 1,
-                        column: 29,
-                    },
+                    end_location: Some(
+                        Location {
+                            row: 1,
+                            column: 29,
+                        },
+                    ),
                     custom: (),
                     node: Name {
                         id: "b",
@@ -131,10 +147,12 @@ Located {
                             row: 1,
                             column: 35,
                         },
-                        end_location: Location {
-                            row: 1,
-                            column: 38,
-                        },
+                        end_location: Some(
+                            Location {
+                                row: 1,
+                                column: 38,
+                            },
+                        ),
                         custom: (),
                         node: Compare {
                             left: Located {
@@ -142,10 +160,12 @@ Located {
                                     row: 1,
                                     column: 33,
                                 },
-                                end_location: Location {
-                                    row: 1,
-                                    column: 34,
-                                },
+                                end_location: Some(
+                                    Location {
+                                        row: 1,
+                                        column: 34,
+                                    },
+                                ),
                                 custom: (),
                                 node: Name {
                                     id: "a",
@@ -161,10 +181,12 @@ Located {
                                         row: 1,
                                         column: 37,
                                     },
-                                    end_location: Location {
-                                        row: 1,
-                                        column: 38,
-                                    },
+                                    end_location: Some(
+                                        Location {
+                                            row: 1,
+                                            column: 38,
+                                        },
+                                    ),
                                     custom: (),
                                     node: Constant {
                                         value: Int(
@@ -181,10 +203,12 @@ Located {
                             row: 1,
                             column: 44,
                         },
-                        end_location: Location {
-                            row: 1,
-                            column: 48,
-                        },
+                        end_location: Some(
+                            Location {
+                                row: 1,
+                                column: 48,
+                            },
+                        ),
                         custom: (),
                         node: Compare {
                             left: Located {
@@ -192,10 +216,12 @@ Located {
                                     row: 1,
                                     column: 42,
                                 },
-                                end_location: Location {
-                                    row: 1,
-                                    column: 43,
-                                },
+                                end_location: Some(
+                                    Location {
+                                        row: 1,
+                                        column: 43,
+                                    },
+                                ),
                                 custom: (),
                                 node: Name {
                                     id: "a",
@@ -211,10 +237,12 @@ Located {
                                         row: 1,
                                         column: 46,
                                     },
-                                    end_location: Location {
-                                        row: 1,
-                                        column: 48,
-                                    },
+                                    end_location: Some(
+                                        Location {
+                                            row: 1,
+                                            column: 48,
+                                        },
+                                    ),
                                     custom: (),
                                     node: Constant {
                                         value: Int(

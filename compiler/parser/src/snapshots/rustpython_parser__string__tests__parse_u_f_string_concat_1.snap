@@ -8,10 +8,12 @@ expression: parse_ast
             row: 1,
             column: 1,
         },
-        end_location: Location {
-            row: 1,
-            column: 19,
-        },
+        end_location: Some(
+            Location {
+                row: 1,
+                column: 19,
+            },
+        ),
         custom: (),
         node: Expr {
             value: Located {
@@ -19,10 +21,12 @@ expression: parse_ast
                     row: 1,
                     column: 1,
                 },
-                end_location: Location {
-                    row: 1,
-                    column: 10,
-                },
+                end_location: Some(
+                    Location {
+                        row: 1,
+                        column: 10,
+                    },
+                ),
                 custom: (),
                 node: JoinedStr {
                     values: [
@@ -31,10 +35,12 @@ expression: parse_ast
                                 row: 1,
                                 column: 1,
                             },
-                            end_location: Location {
-                                row: 1,
-                                column: 10,
-                            },
+                            end_location: Some(
+                                Location {
+                                    row: 1,
+                                    column: 10,
+                                },
+                            ),
                             custom: (),
                             node: Constant {
                                 value: Str(
