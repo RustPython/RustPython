@@ -62,7 +62,6 @@ mod zlib {
         )
     }
 
-    /// Compute an Adler-32 checksum of data.
     #[pyfunction]
     fn adler32(data: ArgBytesLike, begin_state: OptionalArg<PyIntRef>) -> u32 {
         data.with_ref(|data| {
@@ -74,7 +73,6 @@ mod zlib {
         })
     }
 
-    /// Compute a CRC-32 checksum of data.
     #[pyfunction]
     fn crc32(data: ArgBytesLike, begin_state: OptionalArg<PyIntRef>) -> u32 {
         crate::binascii::crc32(data, begin_state)

@@ -20,10 +20,6 @@ use crate::{
 };
 use std::{fmt, marker::PhantomData};
 
-/// tuple() -> empty tuple
-/// tuple(iterable) -> tuple initialized from iterable's items
-///
-/// If the argument is a tuple, the return value is the same object.
 #[pyclass(module = false, name = "tuple")]
 pub struct PyTuple {
     elements: Box<[PyObjectRef]>,

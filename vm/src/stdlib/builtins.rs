@@ -3,9 +3,6 @@
 //! Implements the list of [builtin Python functions](https://docs.python.org/3/library/builtins.html).
 use crate::{class::PyClassImpl, PyObjectRef, VirtualMachine};
 
-/// Built-in functions, exceptions, and other objects.
-///
-/// Noteworthy: None is the `nil' object; Ellipsis represents `...' in slices.
 #[pymodule]
 mod builtins {
     use crate::{
@@ -243,8 +240,6 @@ mod builtins {
         }
     }
 
-    /// Implements `eval`.
-    /// See also: https://docs.python.org/3/library/functions.html#eval
     #[pyfunction]
     fn eval(
         source: Either<ArgStrOrBytesLike, PyRef<crate::builtins::PyCode>>,
@@ -277,8 +272,6 @@ mod builtins {
         run_code(vm, code, scope, crate::compiler::Mode::Eval, "eval")
     }
 
-    /// Implements `exec`
-    /// https://docs.python.org/3/library/functions.html#exec
     #[pyfunction]
     fn exec(
         source: Either<PyStrRef, PyRef<crate::builtins::PyCode>>,

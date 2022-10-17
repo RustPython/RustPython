@@ -1591,14 +1591,6 @@ pub mod module {
         ]
     }
 
-    /// Return a string containing the name of the user logged in on the
-    /// controlling terminal of the process.
-    ///
-    /// Exceptions:
-    ///
-    /// - `OSError`: Raised if login name could not be determined (`getlogin()`
-    ///   returned a null pointer).
-    /// - `UnicodeDecodeError`: Raised if login name contained invalid UTF-8 bytes.
     #[pyfunction]
     fn getlogin(vm: &VirtualMachine) -> PyResult<String> {
         // Get a pointer to the login name string. The string is statically
