@@ -5,6 +5,7 @@
 //! parse a whole program, a single statement, or a single
 //! expression.
 
+use crate::lexer::LexResult;
 pub use crate::mode::Mode;
 use crate::{ast, error::ParseError, lexer, python};
 use std::iter;
@@ -72,6 +73,20 @@ pub fn parse_expression(source: &str, path: &str) -> Result<ast::Expr, ParseErro
 // Parse a given source code
 pub fn parse(source: &str, mode: Mode, source_path: &str) -> Result<ast::Mod, ParseError> {
     let lxr = lexer::make_tokenizer(source);
+    let marker_token = (Default::default(), mode.to_marker(), Default::default());
+    let tokenizer = iter::once(Ok(marker_token)).chain(lxr);
+
+    python::TopParser::new()
+        .parse(tokenizer)
+        .map_err(|e| crate::error::parse_error_from_lalrpop(e, source_path))
+}
+
+// Parse a given token iterator.
+pub fn parse_tokens(
+    lxr: impl IntoIterator<Item = LexResult>,
+    mode: Mode,
+    source_path: &str,
+) -> Result<ast::Mod, ParseError> {
     let marker_token = (Default::default(), mode.to_marker(), Default::default());
     let tokenizer = iter::once(Ok(marker_token)).chain(lxr);
 
