@@ -13,7 +13,7 @@ use crate::{
         PyComparisonValue,
     },
     protocol::{PyNumber, PyNumberMethods},
-    types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp},
+    types::{AsNumber, Callable, Comparable, Constructor, Hashable, PyComparisonOp},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, TryFromObject, VirtualMachine,
 };
@@ -480,11 +480,12 @@ impl PyFloat {
         Ok((numer, denom))
     }
 
-    #[pymethod]
-    fn fromhex(repr: PyStrRef, vm: &VirtualMachine) -> PyResult<f64> {
-        float_ops::from_hex(repr.as_str().trim()).ok_or_else(|| {
+    #[pyclassmethod]
+    fn fromhex(cls: PyTypeRef, string: PyStrRef, vm: &VirtualMachine) -> PyResult {
+        let result = float_ops::from_hex(string.as_str().trim()).ok_or_else(|| {
             vm.new_value_error("invalid hexadecimal floating-point string".to_owned())
-        })
+        })?;
+        PyType::call(&cls, vec![vm.ctx.new_float(result).into()].into(), vm)
     }
 
     #[pymethod]

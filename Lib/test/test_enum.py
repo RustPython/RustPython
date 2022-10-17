@@ -720,8 +720,6 @@ class TestEnum(unittest.TestCase):
         with self.assertRaises(ValueError):
             IntStooges.from_bytes(b'\x00\x05', 'big')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_floatenum_fromhex(self):
         h = float.hex(FloatStooges.MOE.value)
         self.assertIs(FloatStooges.fromhex(h), FloatStooges.MOE)
