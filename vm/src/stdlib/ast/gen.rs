@@ -17,7 +17,7 @@ impl NodeModule {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("body")).into(),
                 ctx.new_str(ascii!("type_ignores")).into(),
             ])
@@ -34,7 +34,7 @@ impl NodeInteractive {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![ctx.new_str(ascii!("body")).into()])
+            ctx.new_tuple(vec![ctx.new_str(ascii!("body")).into()])
                 .into(),
         );
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
@@ -48,7 +48,7 @@ impl NodeExpression {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![ctx.new_str(ascii!("body")).into()])
+            ctx.new_tuple(vec![ctx.new_str(ascii!("body")).into()])
                 .into(),
         );
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
@@ -62,7 +62,7 @@ impl NodeFunctionType {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("argtypes")).into(),
                 ctx.new_str(ascii!("returns")).into(),
             ])
@@ -83,7 +83,7 @@ impl NodeFunctionDef {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("name")).into(),
                 ctx.new_str(ascii!("args")).into(),
                 ctx.new_str(ascii!("body")).into(),
@@ -113,7 +113,7 @@ impl NodeAsyncFunctionDef {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("name")).into(),
                 ctx.new_str(ascii!("args")).into(),
                 ctx.new_str(ascii!("body")).into(),
@@ -143,7 +143,7 @@ impl NodeClassDef {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("name")).into(),
                 ctx.new_str(ascii!("bases")).into(),
                 ctx.new_str(ascii!("keywords")).into(),
@@ -172,7 +172,7 @@ impl NodeReturn {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![ctx.new_str(ascii!("value")).into()])
+            ctx.new_tuple(vec![ctx.new_str(ascii!("value")).into()])
                 .into(),
         );
         class.set_attr(
@@ -195,7 +195,7 @@ impl NodeDelete {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![ctx.new_str(ascii!("targets")).into()])
+            ctx.new_tuple(vec![ctx.new_str(ascii!("targets")).into()])
                 .into(),
         );
         class.set_attr(
@@ -218,7 +218,7 @@ impl NodeAssign {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("targets")).into(),
                 ctx.new_str(ascii!("value")).into(),
                 ctx.new_str(ascii!("type_comment")).into(),
@@ -245,7 +245,7 @@ impl NodeAugAssign {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("target")).into(),
                 ctx.new_str(ascii!("op")).into(),
                 ctx.new_str(ascii!("value")).into(),
@@ -272,7 +272,7 @@ impl NodeAnnAssign {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("target")).into(),
                 ctx.new_str(ascii!("annotation")).into(),
                 ctx.new_str(ascii!("value")).into(),
@@ -300,7 +300,7 @@ impl NodeFor {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("target")).into(),
                 ctx.new_str(ascii!("iter")).into(),
                 ctx.new_str(ascii!("body")).into(),
@@ -329,7 +329,7 @@ impl NodeAsyncFor {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("target")).into(),
                 ctx.new_str(ascii!("iter")).into(),
                 ctx.new_str(ascii!("body")).into(),
@@ -358,7 +358,7 @@ impl NodeWhile {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("test")).into(),
                 ctx.new_str(ascii!("body")).into(),
                 ctx.new_str(ascii!("orelse")).into(),
@@ -385,7 +385,7 @@ impl NodeIf {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("test")).into(),
                 ctx.new_str(ascii!("body")).into(),
                 ctx.new_str(ascii!("orelse")).into(),
@@ -412,7 +412,7 @@ impl NodeWith {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("items")).into(),
                 ctx.new_str(ascii!("body")).into(),
                 ctx.new_str(ascii!("type_comment")).into(),
@@ -439,7 +439,7 @@ impl NodeAsyncWith {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("items")).into(),
                 ctx.new_str(ascii!("body")).into(),
                 ctx.new_str(ascii!("type_comment")).into(),
@@ -466,7 +466,7 @@ impl NodeMatch {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("subject")).into(),
                 ctx.new_str(ascii!("cases")).into(),
             ])
@@ -492,7 +492,7 @@ impl NodeRaise {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("exc")).into(),
                 ctx.new_str(ascii!("cause")).into(),
             ])
@@ -518,7 +518,7 @@ impl NodeTry {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("body")).into(),
                 ctx.new_str(ascii!("handlers")).into(),
                 ctx.new_str(ascii!("orelse")).into(),
@@ -546,7 +546,7 @@ impl NodeAssert {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("test")).into(),
                 ctx.new_str(ascii!("msg")).into(),
             ])
@@ -572,7 +572,7 @@ impl NodeImport {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![ctx.new_str(ascii!("names")).into()])
+            ctx.new_tuple(vec![ctx.new_str(ascii!("names")).into()])
                 .into(),
         );
         class.set_attr(
@@ -595,7 +595,7 @@ impl NodeImportFrom {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("module")).into(),
                 ctx.new_str(ascii!("names")).into(),
                 ctx.new_str(ascii!("level")).into(),
@@ -622,7 +622,7 @@ impl NodeGlobal {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![ctx.new_str(ascii!("names")).into()])
+            ctx.new_tuple(vec![ctx.new_str(ascii!("names")).into()])
                 .into(),
         );
         class.set_attr(
@@ -645,7 +645,7 @@ impl NodeNonlocal {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![ctx.new_str(ascii!("names")).into()])
+            ctx.new_tuple(vec![ctx.new_str(ascii!("names")).into()])
                 .into(),
         );
         class.set_attr(
@@ -668,7 +668,7 @@ impl NodeExpr {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![ctx.new_str(ascii!("value")).into()])
+            ctx.new_tuple(vec![ctx.new_str(ascii!("value")).into()])
                 .into(),
         );
         class.set_attr(
@@ -689,7 +689,7 @@ struct NodePass;
 impl NodePass {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(
             identifier!(ctx, _attributes),
             ctx.new_list(vec![
@@ -708,7 +708,7 @@ struct NodeBreak;
 impl NodeBreak {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(
             identifier!(ctx, _attributes),
             ctx.new_list(vec![
@@ -727,7 +727,7 @@ struct NodeContinue;
 impl NodeContinue {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(
             identifier!(ctx, _attributes),
             ctx.new_list(vec![
@@ -752,7 +752,7 @@ impl NodeBoolOp {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("op")).into(),
                 ctx.new_str(ascii!("values")).into(),
             ])
@@ -778,7 +778,7 @@ impl NodeNamedExpr {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("target")).into(),
                 ctx.new_str(ascii!("value")).into(),
             ])
@@ -804,7 +804,7 @@ impl NodeBinOp {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("left")).into(),
                 ctx.new_str(ascii!("op")).into(),
                 ctx.new_str(ascii!("right")).into(),
@@ -831,7 +831,7 @@ impl NodeUnaryOp {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("op")).into(),
                 ctx.new_str(ascii!("operand")).into(),
             ])
@@ -857,7 +857,7 @@ impl NodeLambda {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("args")).into(),
                 ctx.new_str(ascii!("body")).into(),
             ])
@@ -883,7 +883,7 @@ impl NodeIfExp {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("test")).into(),
                 ctx.new_str(ascii!("body")).into(),
                 ctx.new_str(ascii!("orelse")).into(),
@@ -910,7 +910,7 @@ impl NodeDict {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("keys")).into(),
                 ctx.new_str(ascii!("values")).into(),
             ])
@@ -936,7 +936,7 @@ impl NodeSet {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![ctx.new_str(ascii!("elts")).into()])
+            ctx.new_tuple(vec![ctx.new_str(ascii!("elts")).into()])
                 .into(),
         );
         class.set_attr(
@@ -959,7 +959,7 @@ impl NodeListComp {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("elt")).into(),
                 ctx.new_str(ascii!("generators")).into(),
             ])
@@ -985,7 +985,7 @@ impl NodeSetComp {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("elt")).into(),
                 ctx.new_str(ascii!("generators")).into(),
             ])
@@ -1011,7 +1011,7 @@ impl NodeDictComp {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("key")).into(),
                 ctx.new_str(ascii!("value")).into(),
                 ctx.new_str(ascii!("generators")).into(),
@@ -1038,7 +1038,7 @@ impl NodeGeneratorExp {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("elt")).into(),
                 ctx.new_str(ascii!("generators")).into(),
             ])
@@ -1064,7 +1064,7 @@ impl NodeAwait {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![ctx.new_str(ascii!("value")).into()])
+            ctx.new_tuple(vec![ctx.new_str(ascii!("value")).into()])
                 .into(),
         );
         class.set_attr(
@@ -1087,7 +1087,7 @@ impl NodeYield {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![ctx.new_str(ascii!("value")).into()])
+            ctx.new_tuple(vec![ctx.new_str(ascii!("value")).into()])
                 .into(),
         );
         class.set_attr(
@@ -1110,7 +1110,7 @@ impl NodeYieldFrom {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![ctx.new_str(ascii!("value")).into()])
+            ctx.new_tuple(vec![ctx.new_str(ascii!("value")).into()])
                 .into(),
         );
         class.set_attr(
@@ -1133,7 +1133,7 @@ impl NodeCompare {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("left")).into(),
                 ctx.new_str(ascii!("ops")).into(),
                 ctx.new_str(ascii!("comparators")).into(),
@@ -1160,7 +1160,7 @@ impl NodeCall {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("func")).into(),
                 ctx.new_str(ascii!("args")).into(),
                 ctx.new_str(ascii!("keywords")).into(),
@@ -1187,7 +1187,7 @@ impl NodeFormattedValue {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("value")).into(),
                 ctx.new_str(ascii!("conversion")).into(),
                 ctx.new_str(ascii!("format_spec")).into(),
@@ -1214,7 +1214,7 @@ impl NodeJoinedStr {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![ctx.new_str(ascii!("values")).into()])
+            ctx.new_tuple(vec![ctx.new_str(ascii!("values")).into()])
                 .into(),
         );
         class.set_attr(
@@ -1237,7 +1237,7 @@ impl NodeConstant {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("value")).into(),
                 ctx.new_str(ascii!("kind")).into(),
             ])
@@ -1263,7 +1263,7 @@ impl NodeAttribute {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("value")).into(),
                 ctx.new_str(ascii!("attr")).into(),
                 ctx.new_str(ascii!("ctx")).into(),
@@ -1290,7 +1290,7 @@ impl NodeSubscript {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("value")).into(),
                 ctx.new_str(ascii!("slice")).into(),
                 ctx.new_str(ascii!("ctx")).into(),
@@ -1317,7 +1317,7 @@ impl NodeStarred {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("value")).into(),
                 ctx.new_str(ascii!("ctx")).into(),
             ])
@@ -1343,7 +1343,7 @@ impl NodeName {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("id")).into(),
                 ctx.new_str(ascii!("ctx")).into(),
             ])
@@ -1369,7 +1369,7 @@ impl NodeList {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("elts")).into(),
                 ctx.new_str(ascii!("ctx")).into(),
             ])
@@ -1395,7 +1395,7 @@ impl NodeTuple {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("elts")).into(),
                 ctx.new_str(ascii!("ctx")).into(),
             ])
@@ -1421,7 +1421,7 @@ impl NodeSlice {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("lower")).into(),
                 ctx.new_str(ascii!("upper")).into(),
                 ctx.new_str(ascii!("step")).into(),
@@ -1450,7 +1450,7 @@ struct NodeLoad;
 impl NodeLoad {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
@@ -1460,7 +1460,7 @@ struct NodeStore;
 impl NodeStore {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
@@ -1470,7 +1470,7 @@ struct NodeDel;
 impl NodeDel {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
@@ -1484,7 +1484,7 @@ struct NodeAnd;
 impl NodeAnd {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
@@ -1494,7 +1494,7 @@ struct NodeOr;
 impl NodeOr {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
@@ -1508,7 +1508,7 @@ struct NodeAdd;
 impl NodeAdd {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
@@ -1518,7 +1518,7 @@ struct NodeSub;
 impl NodeSub {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
@@ -1528,7 +1528,7 @@ struct NodeMult;
 impl NodeMult {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
@@ -1538,7 +1538,7 @@ struct NodeMatMult;
 impl NodeMatMult {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
@@ -1548,7 +1548,7 @@ struct NodeDiv;
 impl NodeDiv {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
@@ -1558,7 +1558,7 @@ struct NodeMod;
 impl NodeMod {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
@@ -1568,7 +1568,7 @@ struct NodePow;
 impl NodePow {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
@@ -1578,7 +1578,7 @@ struct NodeLShift;
 impl NodeLShift {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
@@ -1588,7 +1588,7 @@ struct NodeRShift;
 impl NodeRShift {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
@@ -1598,7 +1598,7 @@ struct NodeBitOr;
 impl NodeBitOr {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
@@ -1608,7 +1608,7 @@ struct NodeBitXor;
 impl NodeBitXor {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
@@ -1618,7 +1618,7 @@ struct NodeBitAnd;
 impl NodeBitAnd {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
@@ -1628,7 +1628,7 @@ struct NodeFloorDiv;
 impl NodeFloorDiv {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
@@ -1642,7 +1642,7 @@ struct NodeInvert;
 impl NodeInvert {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
@@ -1652,7 +1652,7 @@ struct NodeNot;
 impl NodeNot {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
@@ -1662,7 +1662,7 @@ struct NodeUAdd;
 impl NodeUAdd {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
@@ -1672,7 +1672,7 @@ struct NodeUSub;
 impl NodeUSub {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
@@ -1686,7 +1686,7 @@ struct NodeEq;
 impl NodeEq {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
@@ -1696,7 +1696,7 @@ struct NodeNotEq;
 impl NodeNotEq {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
@@ -1706,7 +1706,7 @@ struct NodeLt;
 impl NodeLt {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
@@ -1716,7 +1716,7 @@ struct NodeLtE;
 impl NodeLtE {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
@@ -1726,7 +1726,7 @@ struct NodeGt;
 impl NodeGt {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
@@ -1736,7 +1736,7 @@ struct NodeGtE;
 impl NodeGtE {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
@@ -1746,7 +1746,7 @@ struct NodeIs;
 impl NodeIs {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
@@ -1756,7 +1756,7 @@ struct NodeIsNot;
 impl NodeIsNot {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
@@ -1766,7 +1766,7 @@ struct NodeIn;
 impl NodeIn {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
@@ -1776,7 +1776,7 @@ struct NodeNotIn;
 impl NodeNotIn {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(identifier!(ctx, _fields), ctx.new_list(vec![]).into());
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
@@ -1788,7 +1788,7 @@ impl NodeComprehension {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("target")).into(),
                 ctx.new_str(ascii!("iter")).into(),
                 ctx.new_str(ascii!("ifs")).into(),
@@ -1815,7 +1815,7 @@ impl NodeExceptHandler {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("type")).into(),
                 ctx.new_str(ascii!("name")).into(),
                 ctx.new_str(ascii!("body")).into(),
@@ -1842,7 +1842,7 @@ impl NodeArguments {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("posonlyargs")).into(),
                 ctx.new_str(ascii!("args")).into(),
                 ctx.new_str(ascii!("vararg")).into(),
@@ -1864,7 +1864,7 @@ impl NodeArg {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("arg")).into(),
                 ctx.new_str(ascii!("annotation")).into(),
                 ctx.new_str(ascii!("type_comment")).into(),
@@ -1891,7 +1891,7 @@ impl NodeKeyword {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("arg")).into(),
                 ctx.new_str(ascii!("value")).into(),
             ])
@@ -1917,7 +1917,7 @@ impl NodeAlias {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("name")).into(),
                 ctx.new_str(ascii!("asname")).into(),
             ])
@@ -1943,7 +1943,7 @@ impl NodeWithitem {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("context_expr")).into(),
                 ctx.new_str(ascii!("optional_vars")).into(),
             ])
@@ -1960,7 +1960,7 @@ impl NodeMatchCase {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("pattern")).into(),
                 ctx.new_str(ascii!("guard")).into(),
                 ctx.new_str(ascii!("body")).into(),
@@ -1982,7 +1982,7 @@ impl NodeMatchValue {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![ctx.new_str(ascii!("value")).into()])
+            ctx.new_tuple(vec![ctx.new_str(ascii!("value")).into()])
                 .into(),
         );
         class.set_attr(
@@ -2005,7 +2005,7 @@ impl NodeMatchSingleton {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![ctx.new_str(ascii!("value")).into()])
+            ctx.new_tuple(vec![ctx.new_str(ascii!("value")).into()])
                 .into(),
         );
         class.set_attr(
@@ -2028,7 +2028,7 @@ impl NodeMatchSequence {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![ctx.new_str(ascii!("patterns")).into()])
+            ctx.new_tuple(vec![ctx.new_str(ascii!("patterns")).into()])
                 .into(),
         );
         class.set_attr(
@@ -2051,7 +2051,7 @@ impl NodeMatchMapping {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("keys")).into(),
                 ctx.new_str(ascii!("patterns")).into(),
                 ctx.new_str(ascii!("rest")).into(),
@@ -2078,7 +2078,7 @@ impl NodeMatchClass {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("cls")).into(),
                 ctx.new_str(ascii!("patterns")).into(),
                 ctx.new_str(ascii!("kwd_attrs")).into(),
@@ -2106,7 +2106,7 @@ impl NodeMatchStar {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![ctx.new_str(ascii!("name")).into()])
+            ctx.new_tuple(vec![ctx.new_str(ascii!("name")).into()])
                 .into(),
         );
         class.set_attr(
@@ -2129,7 +2129,7 @@ impl NodeMatchAs {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("pattern")).into(),
                 ctx.new_str(ascii!("name")).into(),
             ])
@@ -2155,7 +2155,7 @@ impl NodeMatchOr {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![ctx.new_str(ascii!("patterns")).into()])
+            ctx.new_tuple(vec![ctx.new_str(ascii!("patterns")).into()])
                 .into(),
         );
         class.set_attr(
@@ -2182,7 +2182,7 @@ impl NodeTypeIgnore {
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
-            ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str(ascii!("lineno")).into(),
                 ctx.new_str(ascii!("tag")).into(),
             ])

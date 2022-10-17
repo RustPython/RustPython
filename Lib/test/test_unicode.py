@@ -1390,8 +1390,6 @@ class UnicodeTest(string_tests.CommonTest,
         with self.assertRaises(ValueError):
             result = format_string.format(2.34)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_format_auto_numbering(self):
         class C:
             def __init__(self, x=100):
