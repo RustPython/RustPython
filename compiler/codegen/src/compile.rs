@@ -2118,14 +2118,15 @@ impl Compiler {
             Name { id, .. } => self.load_name(id)?,
             Lambda { args, body } => {
                 let prev_ctx = self.ctx;
+
+                let name = "<lambda>".to_owned();
+                let mut funcflags = self.enter_function(&name, args)?;
+
                 self.ctx = CompileContext {
                     loop_data: Option::None,
                     in_class: prev_ctx.in_class,
                     func: FunctionContext::Function,
                 };
-
-                let name = "<lambda>".to_owned();
-                let mut funcflags = self.enter_function(&name, args)?;
 
                 self.current_codeinfo()
                     .constants
