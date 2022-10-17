@@ -19,9 +19,8 @@ fn main() -> ExitCode {
         vm.add_native_modules(rustpython_stdlib::get_module_inits());
     });
     let result = py_main(&interp);
-    let result = result.and_then(|result| {
+    let result = result.map(|result| {
         println!("name: {}", result);
-        Ok(())
     });
     ExitCode::from(interp.run(|_vm| result))
 }

@@ -820,7 +820,7 @@ fn test_nested_frozen() {
 
         if let Err(e) = vm.run_code_obj(code_obj, scope) {
             vm.print_exception(e);
-            assert!(false);
+            panic!();
         }
     })
 }

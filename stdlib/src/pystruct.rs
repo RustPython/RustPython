@@ -84,7 +84,7 @@ pub(crate) mod _struct {
                     bytes at offset {offset} (actual buffer size is {buffer_len})",
                     op = op,
                     op_action = op_action,
-                    required = needed + offset as usize,
+                    required = needed + offset,
                     needed = needed,
                     offset = offset,
                     buffer_len = buffer_len

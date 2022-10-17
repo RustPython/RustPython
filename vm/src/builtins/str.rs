@@ -1164,7 +1164,7 @@ impl PyStr {
                                     "character mapping must be in range(0x110000)".to_owned(),
                                 )
                             })?;
-                        translated.push(ch as char);
+                        translated.push(ch);
                     } else if !vm.is_none(&value) {
                         return Err(vm.new_type_error(
                             "character mapping must return integer, None or str".to_owned(),

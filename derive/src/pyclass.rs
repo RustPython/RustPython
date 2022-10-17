@@ -782,12 +782,12 @@ impl ToTokens for GetSetNursery {
             .iter()
             .map(|((name, cfgs), (getter, setter, deleter))| {
                 let setter = match setter {
-                    Some(setter) => quote_spanned! { setter.span() => .with_set(&Self::#setter)},
+                    Some(setter) => quote_spanned! { setter.span() => .with_set(Self::#setter)},
                     None => quote! {},
                 };
                 let deleter = match deleter {
                     Some(deleter) => {
-                        quote_spanned! { deleter.span() => .with_delete(&Self::#deleter)}
+                        quote_spanned! { deleter.span() => .with_delete(Self::#deleter)}
                     }
                     None => quote! {},
                 };
@@ -797,7 +797,7 @@ impl ToTokens for GetSetNursery {
                         #name,
                         ::rustpython_vm::PyRef::new_ref(
                             ::rustpython_vm::builtins::PyGetSet::new(#name.into(), class)
-                                .with_get(&Self::#getter)
+                                .with_get(Self::#getter)
                                 #setter #deleter,
                                 ctx.types.getset_type.to_owned(), None),
                         ctx
@@ -1372,12 +1372,12 @@ fn parse_vec_ident(
     Ok(attr
         .get(index)
         .ok_or_else(|| {
-            syn::Error::new_spanned(&item, format!("We require {} argument to be set", &message))
+            syn::Error::new_spanned(item, format!("We require {} argument to be set", &message))
         })?
         .get_ident()
         .ok_or_else(|| {
             syn::Error::new_spanned(
-                &item,
+                item,
                 format!("We require {} argument to be ident or string", &message),
             )
         })?
